@@ -90,16 +90,25 @@ function callFactory(factory: (require: (spec: string) => unknown) => ChunkExpor
 
 function injectScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[data-dsh-chunk="${src}"]`)
+    const existing = document.querySelector(`script[data-dsh-chunk="${src}"]`) as HTMLScriptElement | null
     if (existing !== null) {
-      // 已存在但可能还没执行完：等它执行
-      resolve()
+      if (existing.dataset.dshChunkDone === '1') {
+        // 已执行完 → 立即返回
+        resolve()
+        return
+      }
+      // 已注入但尚未执行完（并发 loadChunk 竞态）→ 等它 onload/onerror
+      existing.addEventListener('load', () => resolve(), { once: true })
+      existing.addEventListener('error', () => reject(new Error(`[dsh-mermaid-comm] 加载 chunk 失败: ${src}`)), { once: true })
       return
     }
     const script = document.createElement('script')
     script.src = src
     script.dataset.dshChunk = src
-    script.onload = () => resolve()
+    script.onload = () => {
+      script.dataset.dshChunkDone = '1'
+      resolve()
+    }
     script.onerror = () => reject(new Error(`[dsh-mermaid-comm] 加载 chunk 失败: ${src}`))
     document.head.appendChild(script)
   })
