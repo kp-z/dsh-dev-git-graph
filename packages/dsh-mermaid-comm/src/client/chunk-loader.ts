@@ -26,9 +26,15 @@ const CHUNK_EXTERNALS = [
   '@deepseek-ai/dsh-client-runtime/client',
 ]
 
+/** chunk 逻辑名 → 实际 chunk 文件名（对应主机端路由的白名单）。 */
+const CHUNK_FILES: Record<string, string> = {
+  'mermaid-comm': 'mermaid',
+}
+
 /** chunk 的静态资源 URL（由主机端路由服务）。 */
 export function chunkUrl(name: string): string {
-  return `/plugins/dsh-mermaid-comm/chunks/${name}.js`
+  const file = CHUNK_FILES[name] ?? name
+  return `/plugins/dsh-mermaid-comm/chunks/${file}.js`
 }
 
 /** 读取全局 chunk 注册表。 */
