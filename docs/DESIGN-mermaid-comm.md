@@ -134,14 +134,26 @@ Mermaid 作为消息文本自动获得 DSH 的全部持久化保障：
 
 ### C. 语法校验工具（mermaid_validate）
 
-- `ctx.tools.register(defineTool({ name: 'mermaid_validate', ... }))`
-- 输入：`{ type: 'flowchart'|'sequenceDiagram'|..., code: string }`
-- 输出：`{ ok: boolean, errors: string[] }` 或文本。
-- 实现：用 mermaid 的 parser（`@mermaid-js/parser`，better-sidebar 已装）在**主机端**
-  校验语法——避免浏览器端每次都要加载完整 mermaid。
-  - 需要确认：`@mermaid-js/parser` 是否可在 node 端独立校验全部图类型（
-    flowchart/sequence 等基础类型可以；部分类型 parser 覆盖有限）。
-  - 备选：npm 上 `mermaid` 包可在 node 端 `mermaid.parse()`（会拉较重依赖）。
+**技术调研结论**（已实测验证）：
+- `@mermaid-js/parser`（mermaid 11 的 langium parser，纯 ESM、node 可用）只覆盖**新类型**：
+  `info/packet/pie/treeView/architecture/gitGraph/eventmodeling/radar/railroad/treemap/wardley/cynefin`。
+- **flowchart/sequenceDiagram/classDiagram/stateDiagram-v2/erDiagram/gantt 等旧类型**
+  仍在 mermaid 核心的 jison parser 里，node 端 `mermaid.parse()` 需要真实 DOM
+  （DOMPurify 的 `addHook`/`sanitize` 依赖 document），否则报错。
+- 完整 node 端校验需 jsdom/happy-dom（重依赖）。
+
+**MVP 决策：分层校验，零重依赖**
+
+| 层 | 覆盖 | 方式 |
+|---|---|---|
+| **严格校验** | 新类型（parser 支持） | `@mermaid-js/parser` 的 `parse()`，node 端可靠 |
+| **启发式预检** | 旧类型（flowchart/sequence/class/state/er/gantt） | 围栏完整性 + 行结构 + 常见错误模式（纯逻辑） |
+| **降级提示** | 全部 | 明确告诉模型「旧类型为预检，不 100% 保证」，建议渲染后自查 |
+
+- `mermaid_validate` 输入：`{ type, code }`；输出：`{ ok, errors[] }`。
+- 工具描述写明：模型应在输出 mermaid 前调用，减少渲染失败。
+- **后续增强**：把 jsdom + 完整 mermaid 作为可选依赖，实现旧类型严格校验
+  （`validateMode: 'strict' | 'heuristic'` 配置）。
 - 工具描述要写明：模型应在输出 mermaid 前调用，减少渲染失败。
 
 ## 4. 插件结构（对齐 dsh-plugins 工作区规范）
@@ -213,7 +225,8 @@ export const MermaidCommConfig = z.object({
 
 ## 8. 未决问题（实现前需确认）
 
-- [ ] `@mermaid-js/parser` 在 node 端可校验的图类型范围（实现时实测）。
+- [x] ~~`@mermaid-js/parser` 在 node 端可校验的图类型范围~~ → **已实测**：只覆盖新类型；
+      旧类型需 DOM。MVP 采用分层校验（见 §C）。
 - [ ] 对话流渲染的稳定接入点：B1 的 DOM 扫描，还是等官方开放渲染 seam。
 - [ ] `systemPrompt.section` 全局注入对既有 agent（如已有 persona）的叠加效果。
 - [ ] 渲染层如何从**流式消息的冻结/未冻结块**中稳定提取围栏（需对齐 MarkdownText 的

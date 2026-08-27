@@ -1,7 +1,7 @@
 # DSH 插件开发工作区
 
 DeepSeek Harness（dsh）插件开发的标准工作区模板。包含目录规范、开发规范、构建/安装脚本，
-以及一个**最小可运行的工具类插件示例**（`defineTool` 注册一个模型可见工具）。
+以及插件示例与完整插件（`defineTool` 注册模型可见工具）。
 
 目标 profile：**web**（`$DSH_HOME/profiles/web`）。
 
@@ -16,7 +16,8 @@ dsh-plugins/
 ├── docs/
 │   ├── DIRECTORY.md        # 目录规范
 │   ├── DEVELOPMENT.md      # 开发规范
-│   └── REFERENCE.md        # dsh 插件 API 参考速查
+│   ├── REFERENCE.md        # dsh 插件 API 参考速查
+│   └── DESIGN-mermaid-comm.md  # dsh-mermaid-comm 设计文档（含存储/持久化）
 ├── scripts/
 │   ├── install-to-profile.sh   # 构建 + 安装到指定 profile
 │   ├── remove-from-profile.sh  # 从 profile 卸载
@@ -25,7 +26,8 @@ dsh-plugins/
 ├── templates/
 │   └── tool-plugin/        # 工具类插件模板（new-plugin.sh 使用）
 └── packages/
-    └── example-tool/       # 最小工具插件示例
+    ├── example-tool/       # 最小工具插件示例
+    └── dsh-mermaid-comm/   # 让 AI 优先用 Mermaid 图交流的插件（MVP：prompt 引导 + 校验工具）
 ```
 
 ## 快速开始
