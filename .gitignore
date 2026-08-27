@@ -1,0 +1,19 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# build outputs
+lib/
+dist/
+*.tsbuildinfo
+
+# logs
+*.log
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# dsh profile runtime state
+$DSH_HOME/

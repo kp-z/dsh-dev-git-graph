@@ -1,0 +1,5 @@
+# 每个 bundle 的 patch：把本插件插进 profile 的层栈。
+# 只做 insert 本插件的 entry，不做任何对其他插件的覆盖。
+- insert:
+    - id: example-tool
+      name: dsh-example-tool

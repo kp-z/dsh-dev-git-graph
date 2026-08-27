@@ -1,0 +1,11 @@
+# DSH 插件开发工作区 —— pnpm workspace 配置
+#
+# 注意：这里用的是「独立 workspace」而不是 dsh profile 的 pnpm-workspace.yaml。
+# 各插件包在开发期用 pnpm workspace 做依赖解析/联调，发布或安装时通过
+# `dsh plugin --profile web add <pkg>` 装进 $DSH_HOME/profiles/web。
+#
+# 若某个包需要被 dsh 直接以 file: 依赖引用，也可以把 profile 目录并进来
+# （不推荐，会拖入 web app 的大量依赖）。推荐保持独立。
+
+packages:
+  - 'packages/*'

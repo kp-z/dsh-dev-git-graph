@@ -1,0 +1,73 @@
+# DSH 插件开发工作区
+
+DeepSeek Harness（dsh）插件开发的标准工作区模板。包含目录规范、开发规范、构建/安装脚本，
+以及一个**最小可运行的工具类插件示例**（`defineTool` 注册一个模型可见工具）。
+
+目标 profile：**web**（`$DSH_HOME/profiles/web`）。
+
+## 目录结构
+
+```
+dsh-plugins/
+├── package.json            # workspace 根（脚本聚合：build/typecheck/install）
+├── pnpm-workspace.yaml     # pnpm workspace 配置（packages/*）
+├── tsconfig.base.json      # 各包共享的 TS 编译基线
+├── .gitignore
+├── docs/
+│   ├── DIRECTORY.md        # 目录规范
+│   ├── DEVELOPMENT.md      # 开发规范
+│   └── REFERENCE.md        # dsh 插件 API 参考速查
+├── scripts/
+│   ├── install-to-profile.sh   # 构建 + 安装到指定 profile
+│   ├── remove-from-profile.sh  # 从 profile 卸载
+│   ├── reinstall-in-profile.sh # 重装（开发联调用）
+│   └── new-plugin.sh           # 脚手架：从 templates/ 生成新插件包
+├── templates/
+│   └── tool-plugin/        # 工具类插件模板（new-plugin.sh 使用）
+└── packages/
+    └── example-tool/       # 最小工具插件示例
+```
+
+## 快速开始
+
+```bash
+# 1. 安装 workspace 依赖（首次）
+pnpm install
+
+# 2. 构建所有插件
+pnpm build
+
+# 3. 安装到 web profile（构建产物会被拷贝到 $DSH_HOME/profiles/web）
+pnpm install:web
+
+# 4. 验证：重启 dsh web，在会话里调用示例工具
+```
+
+## 常用命令
+
+| 命令 | 说明 |
+|---|---|
+| `pnpm build` | 构建所有插件包 |
+| `pnpm typecheck` | 类型检查所有插件包 |
+| `pnpm install:web` | 构建并安装全部插件到 web profile |
+| `pnpm remove:web` | 从 web profile 卸载全部插件 |
+| `pnpm reinstall:web` | 重装（开发联调） |
+| `bash scripts/new-plugin.sh my-plugin` | 从模板生成新插件包 |
+| `pnpm --filter <pkg> run dev` | 单个插件的 watch 构建 |
+
+## 目标 profile 选择
+
+默认面向 `web`。开发/联调时建议用一个独立 profile（如 `devtest`）隔离，避免污染真实 web profile：
+
+```bash
+dsh plugin --profile devtest add <pkg>   # 创建独立 profile 并安装
+dsh --profile devtest                    # 启动该 profile
+```
+
+见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 的「profile 策略」章节。
+
+## 规范文档
+
+- [目录规范](docs/DIRECTORY.md)
+- [开发规范](docs/DEVELOPMENT.md)
+- [API 参考速查](docs/REFERENCE.md)

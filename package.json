@@ -1,0 +1,22 @@
+{
+  "name": "dsh-plugins-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DeepSeek Harness (dsh) 插件开发工作区：目录规范 + 工具链 + 最小工具插件示例",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "dev:plugin": "pnpm --filter dsh-example-tool run dev",
+    "install:web": "bash scripts/install-to-profile.sh web",
+    "remove:web": "bash scripts/remove-from-profile.sh web",
+    "reinstall:web": "bash scripts/reinstall-in-profile.sh web"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "tsdown": "^0.22.2"
+  }
+}
