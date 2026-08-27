@@ -2,12 +2,13 @@ import type { Context } from '@deepseek-ai/cordis'
 import { MermaidCommConfig, type MermaidCommConfig as MermaidCommConfigType } from './config.ts'
 import { registerMermaidPrompt } from './prompt.ts'
 import { registerValidateTool } from './tool-validate.ts'
+import { registerChunkRoute } from './host/routes.ts'
 
 /** Loader entry id（kebab-case，全局唯一）。 */
 export const name = 'mermaid-comm'
 
-/** 依赖的 service：工具注册表 + 系统提示组装。 */
-export const inject = ['tools', 'systemPrompt']
+/** 依赖的 service：工具注册表 + 系统提示组装 + web 路由。 */
+export const inject = ['tools', 'systemPrompt', 'webServer']
 
 /**
  * 插件入口。
@@ -27,6 +28,9 @@ export function apply(ctx: Context, config: Partial<MermaidCommConfigType> = {})
 
   // C. 语法校验工具
   registerValidateTool(ctx)
+
+  // B. 客户端渲染：服务 mermaid 懒加载 chunk
+  registerChunkRoute(ctx)
 }
 
 // 导出配置 schema 供设置页/其他插件使用

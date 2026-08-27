@@ -129,8 +129,35 @@ Mermaid 作为消息文本自动获得 DSH 的全部持久化保障：
 - 缺点：要复刻官方 assistant 节点的全部行为（streaming、思考、图标、中断），
   维护成本高，官方升级易碎。
 
-**首版建议 B1**，把 mermaid 渲染逻辑封装成独立客户端组件（懒加载 mermaid chunk，
-避免拖慢启动），B2 作为后续增强。
+### B 支柱实现（已完成，首版 B1）
+
+选 **B1（DOM 后处理）+ 懒加载 chunk**，架构对齐 dsh-better-sidebar 已验证的方案：
+
+```
+对话流里出现 ```mermaid 围栏
+  → primitives 渲染为 div.md-code-block > pre.plain > code.language-mermaid
+    （shiki 无 mermaid grammar，走 plain 分支）
+  → 客户端插件 MutationObserver 扫描 code.language-mermaid
+  → 懒加载 chunk：注入 <script src="/plugins/dsh-mermaid-comm/chunks/mermaid.js">
+  → chunk（内含完整 mermaid 6.8MB）注册 globalThis.__dshChunks__['mermaid-comm']
+  → mermaid.render 出 SVG → sanitizeSvg（剥离 foreignObject/script/事件/href）
+  → 替换 pre 的 children（保留 banner 与 host 节点，React reconciliation 不丢 host）
+```
+
+实现要点：
+- **客户端 bundle** `lib/client.js`：`window.__ModuleLoader__.load({ id: 'dsh-mermaid-comm' })`
+  注册，dsh web 自动加载（包需声明 `exports["./client"]`）。
+- **懒加载 chunk** `lib/client-mermaid.js`：tsdown 独立构建
+  （`inlineDynamicImports` 合成单文件，mermaid 全依赖内联、零 external require）。
+- **主机端路由**：`webServer.register` 服务 chunk（白名单 + ETag + GET/HEAD）。
+- **安全**：`securityLevel:'strict'` + `htmlLabels:false` + 渲染后 SVG 再净化。
+- **streaming**：MutationObserver 监听 characterData/childList，debounce 300ms 扫描；
+  内容变化时清除标记重新渲染（data-mermaid-comm-processed）；`rendering` WeakSet 防并发。
+- 已实测：headless Chrome 渲染 flowchart 成功（SVG 15194 字符、无 foreignObject）；
+  host 路由单元测试通过（200/304/404/405）；client bundle 模拟加载通过（零 external）。
+
+**B2（整体替换 assistant-step）仍为后续增强**：当前 B1 已让对话流里的图可视化，
+B2 的额外价值是「展开/导出/主题切换」等交互，按需再做。
 
 ### C. 语法校验工具（mermaid_validate）
 
@@ -216,20 +243,23 @@ export const MermaidCommConfig = z.object({
 | mermaid 客户端依赖体积 | 懒加载 mermaid chunk（better-sidebar 已验证此模式：仅检测到 mermaid 围栏才拉取） |
 | better-sidebar 卸载导致 mermaid 缺失 | peerDependency 声明 + README 注明依赖；或后续改为插件自带 mermaid |
 
-## 7. 落地顺序（建议）
+## 7. 落地顺序
 
-1. **MVP**：A（prompt 注入，可配置关闭）+ C（mermaid_validate 工具）——不碰渲染，
-   最快验证「模型是否真的会多用图」。安装进 devtest profile 实测。
-2. **B1 渲染**：客户端对话流 mermaid 渲染（懒加载），验证 DOM 扫描稳定性。
-3. **打磨**：设置页暴露配置、图例说明 prompt 优化、agent 级覆盖、导出/复制交互。
+1. ✅ **MVP**：A（prompt 注入）+ C（mermaid_validate 工具）——已实现并实测
+   （headless 真实模型调用：模型确认工具可见、prompt 生效、校验返回精确错误）。
+2. ✅ **B1 渲染**：客户端对话流 mermaid 渲染（懒加载 chunk）——已实现，
+   headless Chrome 实测渲染出净化 SVG；待 web GUI 重启后验证真实对话流效果。
+3. ⬜ **打磨**：设置页暴露配置、图例说明 prompt 优化、agent 级覆盖、导出/复制交互（B2）。
 
-## 8. 未决问题（实现前需确认）
+## 8. 未决问题
 
 - [x] ~~`@mermaid-js/parser` 在 node 端可校验的图类型范围~~ → **已实测**：只覆盖新类型；
       旧类型需 DOM。MVP 采用分层校验（见 §C）。
-- [ ] 对话流渲染的稳定接入点：B1 的 DOM 扫描，还是等官方开放渲染 seam。
+- [x] ~~对话流渲染的稳定接入点~~ → **已实现 B1**（DOM 后处理 + 懒加载 chunk），
+      实测渲染成功。B2（整体替换 assistant-step，加展开/导出交互）留作后续。
 - [ ] `systemPrompt.section` 全局注入对既有 agent（如已有 persona）的叠加效果。
-- [ ] 渲染层如何从**流式消息的冻结/未冻结块**中稳定提取围栏（需对齐 MarkdownText 的
-      streaming 语义与 frozen block 边界）。
+- [x] ~~渲染层如何从**流式消息的冻结/未冻结块**中稳定提取围栏~~ → B1 用 MutationObserver
+      监听 characterData/childList + 300ms debounce，内容变化时清除标记重渲染；
+      流式期间块内容持续变化时自动更新到最终图。
 - [ ] 历史会话回放时渲染的节流/批量：多条旧消息带 mermaid 时，是否全部渲染还是
       折叠为「点击展开」。

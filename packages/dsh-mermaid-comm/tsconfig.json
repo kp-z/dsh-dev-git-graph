@@ -4,7 +4,9 @@
     "outDir": "lib",
     "rootDir": "src",
     "allowImportingTsExtensions": true,
-    "rewriteRelativeImportExtensions": true
+    "rewriteRelativeImportExtensions": true,
+    "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/client/**/*.ts"]
 }
