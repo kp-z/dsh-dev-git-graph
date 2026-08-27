@@ -17,3 +17,6 @@ dist/
 
 # dsh profile runtime state
 $DSH_HOME/
+# 自动生成/运行时产物（不入库）
+PROJECT_MEMORY.md
+graphflow-out/
