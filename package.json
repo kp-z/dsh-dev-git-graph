@@ -1,0 +1,77 @@
+{
+  "name": "dsh-dev-git-graph",
+  "version": "0.1.0",
+  "description": "DSH 插件：会话 Git Graph 面板——移植 vscode-git-graph 1.30.0，host 直跑 git 命令 + 同源静态服务，自动绑定会话工作区显示提交图。",
+  "license": "MIT",
+  "author": "kp-z",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "git",
+    "git-graph",
+    "commit-graph",
+    "vscode-git-graph",
+    "visualization"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kp-z/dsh-dev-git-graph.git"
+  },
+  "homepage": "https://github.com/kp-z/dsh-dev-git-graph#readme",
+  "type": "module",
+  "main": "./lib/src/index.js",
+  "types": "./lib/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/src/index.d.ts",
+      "default": "./lib/src/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "media",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE",
+    "vendor/git-graph/LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm run build:web && pnpm run build:host && cp src/client.js lib/client.js",
+    "build:host": "tsc -p tsconfig.json",
+    "build:web": "tsc -p web.tsconfig.json && node scripts/pack-web.mjs",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web.tsconfig.json --noEmit",
+    "dev": "tsc -p tsconfig.json --watch"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "sessions",
+        "slots"
+      ]
+    }
+  },
+  "dependencies": {
+    "iconv-lite": "^0.6.3"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  }
+}
