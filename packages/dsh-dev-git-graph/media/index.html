@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Git Graph</title>
+<link rel="stylesheet" href="gitgraph.css">
+<style>:root{
+  color-scheme: light;
+  --vscode-font-family: var(--dsw-alias-font-family, -apple-system, system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif);
+  --vscode-editor-background: var(--dsw-alias-bg-base, #ffffff);
+  --vscode-editor-foreground: var(--dsw-alias-label-primary, #1f2328);
+  --vscode-menu-background: var(--dsw-alias-bg-layer-1, #f8fafc);
+  --vscode-menu-foreground: var(--dsw-alias-label-primary, #1f2328);
+  --vscode-menu-border: var(--dsw-alias-border-l2, #d1d9e0);
+  --vscode-menu-selectionBackground: var(--dsw-alias-interactive-bg-active, #dbeafe);
+  --vscode-menu-selectionForeground: var(--dsw-alias-label-primary, #0f172a);
+  --vscode-menu-separatorBackground: var(--dsw-alias-border-l1, #e5e7eb);
+  --vscode-selection-background: var(--dsw-alias-interactive-bg-active, #dbeafe);
+  --vscode-scrollbar-shadow: var(--dsw-alias-bg-layer-1, #cbd5e1);
+  --vscode-widget-shadow: var(--dsw-alias-shadow, rgba(0,0,0,0.16));
+  --vscode-input-background: var(--dsw-alias-fill-l2, #f1f5f9);
+  --vscode-input-foreground: var(--dsw-alias-label-primary, #1f2328);
+  --vscode-input-placeholderForeground: var(--dsw-alias-label-tertiary, #64748b);
+  --vscode-input-border: var(--dsw-alias-border-l2, #d1d9e0);
+  --vscode-focusBorder: var(--dsw-alias-brand-primary, #0969da);
+  --vscode-textLink-foreground: var(--dsw-alias-brand-primary, #0969da);
+  --vscode-textLink-activeForeground: var(--dsw-alias-brand-primary, #0550ae);
+  --vscode-editor-findMatchHighlightBackground: var(--dsw-alias-bg-highlight, rgba(234,179,8,0.35));
+  --vscode-editor-findMatchHighlightBorder: var(--dsw-alias-border-highlight, #d97706);
+  --vscode-editorWidget-background: var(--dsw-alias-bg-layer-1, #f8fafc);
+  --vscode-editorWidget-border: var(--dsw-alias-border-l2, #d1d9e0);
+  --vscode-button-background: var(--dsw-alias-button-primary-fill, #1f883d);
+  --vscode-button-foreground: var(--dsw-alias-button-contrast-fill, #ffffff);
+  --vscode-button-hoverBackground: var(--dsw-alias-button-primary-hover, #1a7f37);
+  --vscode-button-secondaryBackground: var(--dsw-alias-button-elevated-fill, #f1f5f9);
+  --vscode-button-secondaryForeground: var(--dsw-alias-label-primary, #1f2328);
+  --vscode-button-secondaryHoverBackground: var(--dsw-alias-button-floating-hover, #e2e8f0);
+  --vscode-descriptionForeground: var(--dsw-alias-label-secondary, #57606a);
+  --vscode-errorForeground: var(--dsw-alias-state-error-primary, #cf222e);
+  --vscode-editorSuggestWidget-foreground: var(--dsw-alias-label-primary, #1f2328);
+  --vscode-inputOption-activeBackground: var(--dsw-alias-interactive-bg-active, #dbeafe);
+  --vscode-inputOption-activeBorder: var(--dsw-alias-brand-primary, #0969da);
+  --vscode-inputValidation-errorBackground: var(--dsw-alias-state-error-secondary, #ffebe9);
+  --vscode-inputValidation-errorBorder: var(--dsw-alias-state-error-primary, #cf222e);
+  --vscode-gitDecoration-modifiedResourceForeground: var(--dsw-alias-state-warn-primary, #9a6700);
+  --vscode-gitDecoration-addedResourceForeground: var(--dsw-alias-state-success-primary, #1a7f37);
+  --vscode-gitDecoration-deletedResourceForeground: var(--dsw-alias-state-error-primary, #cf222e);
+  --vscode-gitDecoration-untrackedResourceForeground: var(--dsw-alias-state-success-primary, #1a7f37);
+}
+:root[data-ds-dark-theme]{
+  color-scheme: dark;
+  --vscode-font-family: var(--dsw-alias-font-family, -apple-system, system-ui, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif);
+  --vscode-editor-background: var(--dsw-alias-bg-base, #0d1117);
+  --vscode-editor-foreground: var(--dsw-alias-label-primary, #e6edf3);
+  --vscode-menu-background: var(--dsw-alias-bg-layer-1, #1c2128);
+  --vscode-menu-foreground: var(--dsw-alias-label-primary, #e6edf3);
+  --vscode-menu-border: var(--dsw-alias-border-l2, #2d333b);
+  --vscode-menu-selectionBackground: var(--dsw-alias-interactive-bg-active, #1f3a5f);
+  --vscode-menu-selectionForeground: var(--dsw-alias-label-primary, #e6edf3);
+  --vscode-menu-separatorBackground: var(--dsw-alias-border-l1, #21262d);
+  --vscode-selection-background: var(--dsw-alias-interactive-bg-active, #1f3a5f);
+  --vscode-scrollbar-shadow: var(--dsw-alias-bg-layer-1, #0d1117);
+  --vscode-widget-shadow: var(--dsw-alias-shadow, rgba(1,4,9,0.85));
+  --vscode-input-background: var(--dsw-alias-fill-l2, #21262d);
+  --vscode-input-foreground: var(--dsw-alias-label-primary, #e6edf3);
+  --vscode-input-placeholderForeground: var(--dsw-alias-label-tertiary, #768390);
+  --vscode-input-border: var(--dsw-alias-border-l2, #2d333b);
+  --vscode-focusBorder: var(--dsw-alias-brand-primary, #2f81f7);
+  --vscode-textLink-foreground: var(--dsw-alias-brand-primary, #58a6ff);
+  --vscode-textLink-activeForeground: var(--dsw-alias-brand-primary, #79c0ff);
+  --vscode-editor-findMatchHighlightBackground: var(--dsw-alias-bg-highlight, rgba(234,179,8,0.25));
+  --vscode-editor-findMatchHighlightBorder: var(--dsw-alias-border-highlight, #d97706);
+  --vscode-editorWidget-background: var(--dsw-alias-bg-layer-1, #1c2128);
+  --vscode-editorWidget-border: var(--dsw-alias-border-l2, #2d333b);
+  --vscode-button-background: var(--dsw-alias-button-primary-fill, #238636);
+  --vscode-button-foreground: var(--dsw-alias-button-contrast-fill, #ffffff);
+  --vscode-button-hoverBackground: var(--dsw-alias-button-primary-hover, #2ea043);
+  --vscode-button-secondaryBackground: var(--dsw-alias-button-elevated-fill, #21262d);
+  --vscode-button-secondaryForeground: var(--dsw-alias-label-primary, #e6edf3);
+  --vscode-button-secondaryHoverBackground: var(--dsw-alias-button-floating-hover, #2d333b);
+  --vscode-descriptionForeground: var(--dsw-alias-label-secondary, #768390);
+  --vscode-errorForeground: var(--dsw-alias-state-error-primary, #f85149);
+  --vscode-editorSuggestWidget-foreground: var(--dsw-alias-label-primary, #e6edf3);
+  --vscode-inputOption-activeBackground: var(--dsw-alias-interactive-bg-active, #1f3a5f);
+  --vscode-inputOption-activeBorder: var(--dsw-alias-brand-primary, #2f81f7);
+  --vscode-inputValidation-errorBackground: var(--dsw-alias-state-error-secondary, #490202);
+  --vscode-inputValidation-errorBorder: var(--dsw-alias-state-error-primary, #f85149);
+  --vscode-gitDecoration-modifiedResourceForeground: var(--dsw-alias-state-warn-primary, #d29922);
+  --vscode-gitDecoration-addedResourceForeground: var(--dsw-alias-state-success-primary, #3fb950);
+  --vscode-gitDecoration-deletedResourceForeground: var(--dsw-alias-state-error-primary, #f85149);
+  --vscode-gitDecoration-untrackedResourceForeground: var(--dsw-alias-state-success-primary, #3fb950);
+}
+body{--git-graph-color0:#0e63b8;--git-graph-color1:#b8137c;--git-graph-color2:#3f8605;--git-graph-color3:#8a4a00;--git-graph-color4:#7a2bd6;--git-graph-color5:#b3261e;--git-graph-color6:#0a7d74;--git-graph-color7:#9c27b0;--git-graph-color8:#5c7a00;--git-graph-color9:#bf5000;--git-graph-color10:#6628a8;--git-graph-color11:#8a5a00}
+:root[data-ds-dark-theme] body{--git-graph-color0:#58a6ff;--git-graph-color1:#e477c2;--git-graph-color2:#7ad436;--git-graph-color3:#e0a63c;--git-graph-color4:#b994f6;--git-graph-color5:#ff7b72;--git-graph-color6:#39d3d3;--git-graph-color7:#e39ae0;--git-graph-color8:#b9d14a;--git-graph-color9:#ff9537;--git-graph-color10:#a67ff6;--git-graph-color11:#e6c547}
+[data-color="0"]{--git-graph-color:var(--git-graph-color0);} [data-color="1"]{--git-graph-color:var(--git-graph-color1);} [data-color="2"]{--git-graph-color:var(--git-graph-color2);} [data-color="3"]{--git-graph-color:var(--git-graph-color3);} [data-color="4"]{--git-graph-color:var(--git-graph-color4);} [data-color="5"]{--git-graph-color:var(--git-graph-color5);} [data-color="6"]{--git-graph-color:var(--git-graph-color6);} [data-color="7"]{--git-graph-color:var(--git-graph-color7);} [data-color="8"]{--git-graph-color:var(--git-graph-color8);} [data-color="9"]{--git-graph-color:var(--git-graph-color9);} [data-color="10"]{--git-graph-color:var(--git-graph-color10);} [data-color="11"]{--git-graph-color:var(--git-graph-color11);}
+body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground)}</style>
+</head>
+<body>
+<div id="view" tabindex="-1">
+  <div id="controls">
+    <span id="repoControl"><span class="unselectable">Repo: </span><div id="repoDropdown" class="dropdown"></div></span>
+    <span id="branchControl"><span class="unselectable">Branches: </span><div id="branchDropdown" class="dropdown"></div></span>
+    <label id="showRemoteBranchesControl"><input type="checkbox" id="showRemoteBranchesCheckbox" tabindex="-1"><span class="customCheckbox"></span>Show Remote Branches</label>
+    <div id="findBtn" title="Find"></div>
+    <div id="terminalBtn" title="Open a Terminal for this Repository"></div>
+    <div id="settingsBtn" title="Repository Settings"></div>
+    <div id="fetchBtn"></div>
+    <div id="refreshBtn"></div>
+  </div>
+  <div id="content">
+    <div id="commitGraph"></div>
+    <div id="commitTable"></div>
+  </div>
+  <div id="footer"></div>
+</div>
+<div id="scrollShadow"></div>
+<script src="gitgraph.js"></script>
+</body>
+</html>

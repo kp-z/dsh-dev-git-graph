@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "lib": [
+      "ES2017",
+      "DOM"
+    ],
+    "module": "none",
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": true,
+    "strict": true,
+    "target": "ES2017",
+    "outDir": "media",
+    "removeComments": true,
+    "skipLibCheck": true,
+    "isolatedModules": false,
+    "useUnknownInCatchVariables": false,
+    "rootDir": "vendor/git-graph/web"
+  },
+  "include": [
+    "vendor/git-graph/web/**/*.ts"
+  ]
+}

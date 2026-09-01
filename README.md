@@ -27,7 +27,8 @@ dsh-plugins/
 │   └── tool-plugin/        # 工具类插件模板（new-plugin.sh 使用）
 └── packages/
     ├── example-tool/       # 最小工具插件示例
-    └── dsh-mermaid-comm/   # 让 AI 优先用 Mermaid 图交流的插件（MVP：prompt 引导 + 校验工具）
+    ├── dsh-mermaid-comm/   # 让 AI 优先用 Mermaid 图交流的插件（MVP：prompt 引导 + 校验工具）
+    └── dsh-dev-git-graph/      # 会话 Git Graph 面板（移植 vscode-git-graph，自动绑定会话工作区）
 ```
 
 ## 快速开始
