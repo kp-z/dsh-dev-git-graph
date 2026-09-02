@@ -183,8 +183,11 @@ window.__ModuleLoader__.load({
       // 生态对齐 dsh-flowglass/ego-browser：装了 dsh-better-sidebar 就在其右侧栏
       // 「+」菜单出现 Git Graph 原生 tab；未装回退下方自建 overlay 面板（并存不互斥）。
       // scope.repoRoot/cwd 直接给 GitTreeView 当 repoHint，缺失走会话 cwd 探测。
+      // 注意：betterSidebar 不能进 exports.inject（硬依赖会让未装用户整个插件加载失败），
+      // 只能在这里可选探测。
       var betterSidebar = ctx.betterSidebar || (ctx.get ? ctx.get("betterSidebar") : undefined);
-      if (betterSidebar && betterSidebar.registerTab) {
+      var hasBs = !!(betterSidebar && betterSidebar.registerTab);
+      if (hasBs) {
         try {
           var disposeBsTab = betterSidebar.registerTab({
             id: "dev-git-graph",
@@ -382,30 +385,33 @@ window.__ModuleLoader__.load({
         });
       } catch (e) { /* shell.overlay 不可用时静默降级：面板功能不注册 */ }
 
-      // 会话头右上角开关按钮（header.utilities：Session log/知识节点那排）
-      slots.inject("conversation.session.header.utilities", function () {
-        return slots.register(
-          { name: "conversation.session.header.utilities", id: "git-graph-sidepanel-toggle", order: 50 },
-          function () {
-            var _p = React.useState(0); var force = _p[1];
-            React.useEffect(function () {
-              var fn = function () { force(function (n) { return n + 1; }); };
-              panelState.listeners.add(fn);
-              return function () { panelState.listeners.delete(fn); };
-            }, []);
-            return React.createElement("button", {
-              className: "dgg-icon-btn",
-              title: panelState.open ? "关闭 Git Graph 侧栏" : "在右侧打开 Git Graph 侧栏",
-              style: { width: "auto", padding: "0 8px", height: "24px", fontSize: "12px" },
-              onClick: function () { setPanel({ open: !panelState.open }); }
-            }, (panelState.open ? "✕ " : "⌥ ") + "Git Graph");
-          }
-        );
-      });
+      // 会话头右上角开关按钮（header.utilities：Session log/知识节点那排）。
+      // 装了 better-sidebar 时原生 tab 已是主入口，按钮不再注册——避免顶部残留重复入口。
+      if (!hasBs) {
+        slots.inject("conversation.session.header.utilities", function () {
+          return slots.register(
+            { name: "conversation.session.header.utilities", id: "git-graph-sidepanel-toggle", order: 50 },
+            function () {
+              var _p = React.useState(0); var force = _p[1];
+              React.useEffect(function () {
+                var fn = function () { force(function (n) { return n + 1; }); };
+                panelState.listeners.add(fn);
+                return function () { panelState.listeners.delete(fn); };
+              }, []);
+              return React.createElement("button", {
+                className: "dgg-icon-btn",
+                title: panelState.open ? "关闭 Git Graph 侧栏" : "在右侧打开 Git Graph 侧栏",
+                style: { width: "auto", padding: "0 8px", height: "24px", fontSize: "12px" },
+                onClick: function () { setPanel({ open: !panelState.open }); }
+              }, (panelState.open ? "✕ " : "⌥ ") + "Git Graph");
+            }
+          );
+        });
+      }
     }
 
     exports.apply = apply;
-    exports.inject = ["sessions", "slots", "betterSidebar"];
+    exports.inject = ["sessions", "slots"];
     return module.exports;
   }
 });
