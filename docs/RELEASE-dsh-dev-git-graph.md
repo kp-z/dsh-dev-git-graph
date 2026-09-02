@@ -95,3 +95,33 @@ dsh --profile web --dump-config | grep git-graph   # 组合树有 entry
 
 > 注意：本插件含 **vendor/git-graph**（vscode-git-graph © mhutchie, MIT）源码级移植，
 > LICENSE 与 README 均已做归属声明，发布合规。
+
+## 附：发布到 Better Sidebar 生态（v0.1.1 起）
+
+better-sidebar（`omdsh-dev/DSH-better-sidebar`）生态入口两层，均需 repo 公开：
+
+### A. 能力层（v0.1.1 已内置 ✅）
+
+`src/client.js` 可选探测 `ctx.betterSidebar` 并 `registerTab({ id: "dev-git-graph", order: 25, single: true, ... })`
+（复用 GitTreeView iframe，`scope.repoRoot/cwd` 作 repoHint）；未装时回退 overlay 面板，两者并存。
+`package.json` 已声明 optional peerDependency `dsh-better-sidebar: >=0.12.0`。
+
+### B. 目录层（上架，两步）
+
+1. **GitHub topic**：仓库 `kp-z/dsh-dev-git-graph` → Settings → Topics 加 `dsh-better-sidebar`，
+   自动出现在 https://github.com/topics/dsh-better-sidebar 。
+2. **内置推荐目录 PR**（fork `omdsh-dev/DSH-better-sidebar`）：
+   - `src/client/plugins-tabs.ts`（按字母序）追加：
+     ```ts
+     {
+       id: 'dsh-dev-git-graph',
+       name: 'dsh-dev-git-graph 提交图',
+       url: 'https://github.com/kp-z/dsh-dev-git-graph',
+       description: () => t('pluginDevGitGraphDesc'),
+       install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-dev-git-graph',
+     },
+     ```
+   - `src/client/locales.ts` + 19 个 `locales-*.ts` 补 `pluginDevGitGraphDesc`（zh/en 文案见下，其他语言按仓库惯例补译文或英文）：
+     - zh：`vscode-git-graph 忠实移植的提交图 Tab：自动绑定会话工作区，checkout/merge/rebase/push/tag/stash 全套 git 操作，明暗主题跟随；装了 better-sidebar 注册原生 Tab，未装回退右侧 overlay 面板`
+     - en：`A faithful vscode-git-graph port as a sidebar tab: auto-bound to the session workspace, full git operations (checkout/merge/rebase/push/tag/stash), light/dark theming; registers a native tab with better-sidebar and falls back to an overlay panel without it`
+   - 提交前跑 `tests/plugin-list.spec.ts` 校验数据完整性。

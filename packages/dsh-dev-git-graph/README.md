@@ -21,6 +21,15 @@ dsh plugin --profile web add dsh-dev-git-graph
 # restart `dsh web`, then open any conversation — a "Git 树" tab shows the workspace's commit graph
 ```
 
+### Better Sidebar integration (optional)
+
+When [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) is installed, this plugin additionally registers a native **Git Graph** tab in its right sidebar (+ menu, single-instance, auto-bound to the session workspace via `scope.repoRoot`/`scope.cwd`). Without better-sidebar, everything falls back to the built-in overlay side panel + header toggle — the two can coexist.
+
+```sh
+# full one-line install (better-sidebar first, then this plugin)
+cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-dev-git-graph
+```
+
 ## How it works
 
 ```mermaid

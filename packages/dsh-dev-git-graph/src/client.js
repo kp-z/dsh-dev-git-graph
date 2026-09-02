@@ -69,6 +69,7 @@ window.__ModuleLoader__.load({
 
     function GitTreeView(props) {
       var sessionId = props.sessionId;
+      var repoHint = props.repoHint || null;
       var ctxRef = props.ctxRef;
       var frameRef = React.useRef(null);
       var statePair = React.useState({ phase: "loading", url: null, err: null, cwd: null });
@@ -77,7 +78,8 @@ window.__ModuleLoader__.load({
       React.useEffect(function () {
         var alive = true;
         Promise.resolve().then(function () {
-          var cwd = sessionCwd(ctxRef.current, sessionId);
+          // repoHint（better-sidebar scope.repoRoot/cwd）优先；缺失走会话 cwd 探测。
+          var cwd = repoHint || sessionCwd(ctxRef.current, sessionId);
           if (!cwd) { if (alive) setState({ phase: "err", err: "该会话没有工作区目录", url: null, cwd: null }); return; }
           if (!alive) return;
           setState({
@@ -88,7 +90,7 @@ window.__ModuleLoader__.load({
           });
         });
         return function () { alive = false; };
-      }, [sessionId]);
+      }, [sessionId, repoHint]);
 
       // iframe 就绪 + 宿主题切换时，把真实 token 值与暗色标记推进 iframe。
       React.useEffect(function () {
@@ -176,6 +178,76 @@ window.__ModuleLoader__.load({
       if (!slots || !slots.inject) return;
 
       // 注：不再注册「Git 树」conversation.view tab（用户改走右侧栏叠加列方案）。
+
+      // ================= Better Sidebar 原生 tab（可选，装了才注册） =================
+      // 生态对齐 dsh-flowglass/ego-browser：装了 dsh-better-sidebar 就在其右侧栏
+      // 「+」菜单出现 Git Graph 原生 tab；未装回退下方自建 overlay 面板（并存不互斥）。
+      // scope.repoRoot/cwd 直接给 GitTreeView 当 repoHint，缺失走会话 cwd 探测。
+      var betterSidebar = ctx.betterSidebar || (ctx.get ? ctx.get("betterSidebar") : undefined);
+      if (betterSidebar && betterSidebar.registerTab) {
+        try {
+          var disposeBsTab = betterSidebar.registerTab({
+            id: "dev-git-graph",
+            title: function () { return "Git Graph"; },
+            icon: function (size) {
+              return React.createElement("svg", { width: size || 16, height: size || 16, viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true" },
+                React.createElement("path", { d: "M11.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm-2.25.75a2.25 2.25 0 113 2.122V6A2.5 2.5 0 0110 8.5H6A1 1 0 005 9.5v1.878a2.251 2.251 0 11-1.5 0V4.622a2.251 2.251 0 111.5 0v1.58A2.49 2.49 0 006 7h4a1 1 0 001-1v-.578A2.25 2.25 0 019.5 3.25zM4.25 12a.75.75 0 100 1.5.75.75 0 000-1.5zM3.5 3.25a.75.75 0 111.5 0 .75.75 0 01-1.5 0z" })
+              );
+            },
+            order: 25,   // 内置 git tab order 20，紧随其后
+            single: true,
+            component: function (bsProps) {
+              var scope = bsProps.scope || {};
+              var onOpenDiff = bsProps.onOpenDiff;
+              // 桥接 iframe 内「View Diff / View Diff with Working File」：
+              // host 路由已把请求转为 SidebarDiffRef 同构载荷，这里经
+              // TabComponentProps.onOpenDiff 打开 better-sidebar 原生 DiffTab，
+              // 并给 iframe 回 ack（无 onOpenDiff 时回 unavailable 让前端报错）。
+              var bridgeRef = React.useRef(null);
+              React.useEffect(function () {
+                if (bridgeRef.current) return undefined;
+                bridgeRef.current = true;
+                var onMsg = function (e) {
+                  var data = e.data;
+                  if (!data || data.type !== "dsh-dev-gg-open-diff") return;
+                  var source = e.source;
+                  var reply = function (type) {
+                    try { source && source.postMessage({ type: type }, window.location.origin); } catch (err) { /* ignore */ }
+                  };
+                  var diff = data.diff;
+                  if (!onOpenDiff || !diff || (diff.kind !== "worktree" && diff.kind !== "commit")) {
+                    reply("dsh-dev-gg-bs-diff-unavailable");
+                    return;
+                  }
+                  try {
+                    var filePath = diff.kind === "worktree" ? diff.path : (diff.subject || diff.hashFull || "diff");
+                    var tabId = diff.kind === "worktree"
+                      ? "diff:w:" + encodeURIComponent(diff.repoRoot || "") + ":" + (diff.staged ? "s" : "u") + ":" + diff.path
+                      : "diff:c:" + encodeURIComponent(diff.repoRoot || "") + ":" + (diff.hashFull || diff.hash);
+                    onOpenDiff({
+                      id: tabId,
+                      type: "diff",
+                      title: typeof filePath === "string" ? filePath.split("/").pop() : "Diff",
+                      diff: diff
+                    });
+                    reply("dsh-dev-gg-bs-diff-ack");
+                  } catch (err) {
+                    reply("dsh-dev-gg-bs-diff-unavailable");
+                  }
+                };
+                window.addEventListener("message", onMsg);
+                return function () { window.removeEventListener("message", onMsg); };
+              }, [onOpenDiff]);
+              return React.createElement(GitTreeView, {
+                sessionId: scope.sessionId,
+                repoHint: scope.repoRoot || scope.cwd || null,
+                ctxRef: ctxRef
+              });
+            }
+          });
+          if (ctx.effect) ctx.effect(function () { return disposeBsTab; });
+        } catch (e) { /* 老版本 better-sidebar 不兼容时静默回退 overlay */ }
+      }
 
       // 入驻 dsh-tab-split 的窗格 slot：让「Git 树」可被拆进分屏窗格。
       // slots.inject 在 tabsplit.pane 尚未声明时排队等待，声明出现后同步补注册。
@@ -333,7 +405,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply;
-    exports.inject = ["sessions", "slots"];
+    exports.inject = ["sessions", "slots", "betterSidebar"];
     return module.exports;
   }
 });

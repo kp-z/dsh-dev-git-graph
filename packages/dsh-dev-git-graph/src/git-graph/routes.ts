@@ -370,12 +370,36 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 		case 'openExternalUrl':
 		case 'openFile':
 		case 'openTerminal':
-		case 'viewDiff':
-		case 'viewDiffWithWorkingFile':
 		case 'viewFileAtRevision':
 		case 'viewScm':
 			respond({ command: msg.command, error: '该操作依赖 VS Code，DSH 版本暂不支持' });
 			break;
+
+		/* --- Diff：转化为 dsh-better-sidebar 同构 SidebarDiffRef 载荷返回前端，
+		       前端判 diffHost === 'better-sidebar' 后 postMessage 给父页 client.js，
+		       由父页经 TabComponentProps.onOpenDiff 打开原生 DiffTab（未装 better-sidebar
+		       时父页不注册该 tab，前端收到 bs-diff-unavailable 再回退报错提示）。 --- */
+		case 'viewDiff': {
+			// RequestViewDiff: { fromHash, toHash, oldFilePath, newFilePath, type: GitFileStatus(A/M/D/R/U) }
+			const fromHash = str('fromHash'), toHash = str('toHash');
+			const filePath = str('newFilePath') || str('oldFilePath');
+			const type = str('type');
+			const isWorkingTree = toHash === '' || toHash === 'UNCOMMITTED' || toHash === 'WORKING_TREE';
+			const diff = isWorkingTree
+				? { kind: 'worktree', path: filePath, staged: false, untracked: type === 'U', repoRoot: repo }
+				: { kind: 'commit', hash: toHash.slice(0, 8), hashFull: toHash, subject: `Diff ${fromHash.slice(0, 8)}..${toHash.slice(0, 8)} ${filePath}`, repoRoot: repo };
+			respond({ command: 'viewDiff', error: null, diffHost: 'better-sidebar', diff });
+			break;
+		}
+		case 'viewDiffWithWorkingFile': {
+			// RequestViewDiffWithWorkingFile: { hash, filePath } —— 提交态 vs 工作区文件
+			const filePath = str('filePath');
+			respond({
+				command: 'viewDiffWithWorkingFile', error: null, diffHost: 'better-sidebar',
+				diff: { kind: 'worktree', path: filePath, staged: false, repoRoot: repo },
+			});
+			break;
+		}
 
 		/* --- 状态 / 剪贴板（DSH 版由前端直接处理） --- */
 		case 'copyToClipboard':
