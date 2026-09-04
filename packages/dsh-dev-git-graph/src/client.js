@@ -6,9 +6,9 @@ window.__ModuleLoader__.load({
     var React = require("react");
 
     // ============ dsh-dev-git-graph client：Git Graph 提交图 ============
-    // 渲染入口：① 会话头右上角「Git Graph」按钮 → 右侧面板（shell.overlay，固定 dock 或
-    //   悬浮，面板头可切换）；② 入驻 dsh-tab-split 的 tabsplit.pane 窗格（如启用）。
-    // 内容：移植版 git-graph iframe；inject(sessionId) 从 sessions 拿该会话 cwd。
+    // 渲染入口：dsh-better-sidebar 右侧栏原生 tab（唯一入口，前置依赖 dsh-better-sidebar）；
+    //   另入驻 dsh-tab-split 的 tabsplit.pane 窗格（如启用）。
+    // 内容：移植版 git-graph iframe；repo 取 better-sidebar scope.repoRoot/cwd，缺失从 sessions 拿会话 cwd。
     // 数据源：宿主路由 /dsh-dev-git-graph/gg/（入口）+ /dsh-dev-git-graph/gg/api（消息）。
     // 主题：从父页读真实 --dsw-alias-* 解析值 + body[data-ds-dark-theme]，postMessage 同步进 iframe。
 
@@ -138,24 +138,7 @@ window.__ModuleLoader__.load({
         ".dsh-dev-git-graph-root{box-sizing:border-box;width:100%;height:100%;min-height:0;flex-direction:column;display:flex;overflow:hidden;background:var(--dsw-alias-bg-base)}",
         ".dsh-dev-git-graph-frame{flex:1;border:none;width:100%;min-height:0}",
         ".dsh-dev-git-graph-hint{padding:24px;font-size:13px;color:var(--dsw-alias-label-secondary)}",
-        ".dsh-dev-git-graph-hint.err{color:var(--dsw-alias-state-error-primary)}",
-        // ---- Git 树右侧面板（固定 dock：打开时给 AppFrame 加 padding-right 推开三列，
-        //      Git 树占据最右缘腾出的空间；details 列左移并存，非悬浮覆盖） ----
-        "body{--dgg-panel-w:420px}",
-        "body[data-dgg-panel-open] .pI_x6G_frame{padding-right:var(--dgg-panel-w)}",
-        ".dgg-sidepanel{position:fixed;top:0;right:0;bottom:0;z-index:30;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base);border-left:1px solid var(--dsw-alias-border-l2);pointer-events:auto}",
-        ".dgg-sidepanel-float{box-shadow:-8px 0 24px var(--dsw-alias-shadow, rgba(0,0,0,.18))}",
-        ".dgg-sidepanel-head{flex:none;display:flex;align-items:center;gap:8px;height:40px;padding:0 12px;border-bottom:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}",
-        ".dgg-sidepanel-title{flex:1;min-width:0;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-        ".dgg-sidepanel-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}",
-        ".dgg-sidepanel-body .dsh-dev-git-graph-root{border:none;box-shadow:none}",
-        ".dgg-icon-btn{flex:none;min-width:24px;height:24px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:14px;line-height:1;display:grid;place-items:center;padding:0 4px}",
-        ".dgg-icon-btn:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
-        ".dgg-pin-btn svg{opacity:.45;transition:opacity .12s}",
-        ".dgg-pin-btn[data-docked] svg{opacity:1;color:var(--dsw-alias-brand-primary)}",
-        ".dgg-sidepanel-resize{position:absolute;top:0;left:-4px;bottom:0;width:8px;cursor:col-resize;z-index:2}",
-        ".dgg-sidepanel-resize:hover,.dgg-sidepanel-resize[data-drag=true]{background:var(--dsw-alias-brand-primary);opacity:.4}",
-        ".dgg-sidepanel-empty{flex:1;display:grid;place-items:center;color:var(--dsw-alias-label-tertiary);font-size:13px;padding:24px;text-align:center}"
+        ".dsh-dev-git-graph-hint.err{color:var(--dsw-alias-state-error-primary)}"
       ].join("\n");
       document.head.appendChild(st);
     }
@@ -179,13 +162,17 @@ window.__ModuleLoader__.load({
 
       // 注：不再注册「Git 树」conversation.view tab（用户改走右侧栏叠加列方案）。
 
-      // ================= Better Sidebar 原生 tab（可选，装了才注册） =================
-      // 生态对齐 dsh-flowglass/ego-browser：装了 dsh-better-sidebar 就在其右侧栏
-      // 「+」菜单出现 Git Graph 原生 tab；未装回退下方自建 overlay 面板（并存不互斥）。
+      // ================= Better Sidebar 原生 tab（唯一入口） =================
+      // 本插件只入驻 dsh-better-sidebar 右侧栏（「+」菜单出现 Git Graph tab）；
       // scope.repoRoot/cwd 直接给 GitTreeView 当 repoHint，缺失走会话 cwd 探测。
-      // 注意：betterSidebar 不能进 exports.inject（硬依赖会让未装用户整个插件加载失败），
-      // 只能在这里可选探测。
-      var betterSidebar = ctx.betterSidebar || (ctx.get ? ctx.get("betterSidebar") : undefined);
+      // 未装 better-sidebar 时静默无 UI（插件定位即 better-sidebar 生态页，无回退面板/按钮）。
+      // cordis 4.x 的 ctx.get 对未声明服务名硬抛（without inject），故 try/catch 兜底。
+      var betterSidebar;
+      try {
+        betterSidebar = ctx.betterSidebar || (ctx.get ? ctx.get("betterSidebar") : undefined);
+      } catch {
+        betterSidebar = undefined;
+      }
       var hasBs = !!(betterSidebar && betterSidebar.registerTab);
       if (hasBs) {
         try {
@@ -249,7 +236,7 @@ window.__ModuleLoader__.load({
             }
           });
           if (ctx.effect) ctx.effect(function () { return disposeBsTab; });
-        } catch (e) { /* 老版本 better-sidebar 不兼容时静默回退 overlay */ }
+        } catch (e) { /* better-sidebar 注册失败时静默（插件无其他 UI 入口） */ }
       }
 
       // 入驻 dsh-tab-split 的窗格 slot：让「Git 树」可被拆进分屏窗格。
@@ -265,153 +252,10 @@ window.__ModuleLoader__.load({
           function (props) { return React.createElement(GitTreeView, Object.assign({}, props, { ctxRef: ctxRef })); }
         );
       });
-
-      // ================= Git 树右侧面板（固定 dock） =================
-      // 官方对话/工具详情 100% 原生不动；面板 fixed 定位最右缘，打开时给 AppFrame 加
-      // padding-right 把三列整体推窄——Git 树占据腾出的空间，details 列左移并存（固定非悬浮）。
-      // shell.overlay 是 inset:0 + pointer-events:none 的覆盖层，面板自身 opt-in pointer-events。
-      var sessionsSvc = ctx.sessions || (ctx.get ? ctx.get("sessions") : undefined);
-
-      // 面板显隐（模块级，跨会话保持；默认关）。mode: "dock" 固定（推开三列）/ "float" 悬浮（覆盖）。
-      var panelState = { open: false, width: 420, mode: "dock", listeners: new Set() };
-      try {
-        var w = window.localStorage.getItem("dsh.git-graph.sidepanel");
-        if (w) { var pw = parseInt(w, 10); if (pw >= 280 && pw <= 720) panelState.width = pw; }
-        var m = window.localStorage.getItem("dsh.git-graph.sidepanel.mode");
-        if (m === "dock" || m === "float") panelState.mode = m;
-      } catch (e) {}
-      function syncLayout() {
-        // 面板宽 -> CSS 变量；dock 且开 -> body 标记（驱动 AppFrame padding-right 推开三列）
-        document.body.style.setProperty("--dgg-panel-w", panelState.width + "px");
-        if (panelState.open && panelState.mode === "dock") document.body.setAttribute("data-dgg-panel-open", "");
-        else document.body.removeAttribute("data-dgg-panel-open");
-      }
-      function setPanel(patch) {
-        if (patch.width !== undefined) {
-          panelState.width = Math.min(720, Math.max(280, patch.width));
-          try { window.localStorage.setItem("dsh.git-graph.sidepanel", String(panelState.width)); } catch (e) {}
-        }
-        if (patch.open !== undefined) panelState.open = patch.open;
-        if (patch.mode !== undefined) {
-          panelState.mode = patch.mode;
-          try { window.localStorage.setItem("dsh.git-graph.sidepanel.mode", patch.mode); } catch (e) {}
-        }
-        syncLayout();
-        panelState.listeners.forEach(function (fn) { fn(); });
-      }
-      syncLayout();
-      ctx.effect(function () {
-        return function () {
-          document.body.removeAttribute("data-dgg-panel-open");
-          document.body.style.removeProperty("--dgg-panel-w");
-        };
-      });
-
-      function useCurrentSessionId() {
-        return React.useSyncExternalStore(
-          function (fn) { return sessionsSvc.list.subscribe(fn); },
-          function () { var s = sessionsSvc.list.getSnapshot(); return s ? s.current : undefined; }
-        );
-      }
-
-      function SidePanel() {
-        var _p = React.useState(0);
-        var force = _p[1];
-        React.useEffect(function () {
-          var fn = function () { force(function (n) { return n + 1; }); };
-          panelState.listeners.add(fn);
-          return function () { panelState.listeners.delete(fn); };
-        }, []);
-        var sessionId = useCurrentSessionId();
-
-        // keep-alive：关闭不卸载，display:none 保留 iframe DOM（重开秒出，不重载前端/重跑 git）。
-        // 仅「从未打开过」才不渲染，避免首次进会话白加载 iframe。
-        var everOpenedRef = React.useRef(false);
-        if (panelState.open) everOpenedRef.current = true;
-
-        var onResizeStart = React.useCallback(function (ev) {
-          ev.preventDefault();
-          var el = ev.currentTarget;
-          el.setAttribute("data-drag", "true");
-          var startX = ev.clientX, startW = panelState.width;
-          function move(e) { setPanel({ width: startW + (startX - e.clientX) }); }
-          function up() {
-            el.removeAttribute("data-drag");
-            window.removeEventListener("pointermove", move);
-            window.removeEventListener("pointerup", up);
-          }
-          window.addEventListener("pointermove", move);
-          window.addEventListener("pointerup", up);
-        }, []);
-
-        if (!everOpenedRef.current) return null;
-        var isDock = panelState.mode === "dock";
-        return React.createElement("aside", {
-            className: "dgg-sidepanel" + (isDock ? "" : " dgg-sidepanel-float"),
-            style: { width: panelState.width, display: panelState.open ? "flex" : "none" },
-            "data-mode": panelState.mode
-          },
-          React.createElement("div", { className: "dgg-sidepanel-resize", onPointerDown: onResizeStart }),
-          React.createElement("div", { className: "dgg-sidepanel-head" },
-            React.createElement("span", { className: "dgg-sidepanel-title" }, "Git Graph"),
-            React.createElement("button", {
-              className: "dgg-icon-btn dgg-pin-btn",
-              "data-docked": isDock ? "" : undefined,
-              title: isDock ? "已固定 — 点击切换为悬浮" : "悬浮中 — 点击固定",
-              onClick: function () { setPanel({ mode: isDock ? "float" : "dock" }); }
-            }, React.createElement("svg", { width: 14, height: 14, viewBox: "0 0 16 16", fill: "currentColor", "aria-hidden": "true" },
-              React.createElement("path", { d: "M10 2 6 6l-2 1 4 4 1-2 4-4-3-3zM5 9l-3 5 5-3" })
-            )),
-            React.createElement("button", {
-              className: "dgg-icon-btn", title: "关闭 Git Graph 侧栏",
-              onClick: function () { setPanel({ open: false }); }
-            }, "×")
-          ),
-          React.createElement("div", { className: "dgg-sidepanel-body" },
-            sessionId
-              ? React.createElement(GitTreeView, { sessionId: sessionId, ctxRef: ctxRef })
-              : React.createElement("div", { className: "dgg-sidepanel-empty" }, "进入一个会话后显示该工作区的提交图")
-          )
-        );
-      }
-
-      // 面板本体（shell.overlay 覆盖层）
-      try {
-        slots.inject("shell.overlay", function () {
-          return slots.register(
-            { name: "shell.overlay", id: "git-graph-sidepanel", order: 60 },
-            function () { return React.createElement(SidePanel); }
-          );
-        });
-      } catch (e) { /* shell.overlay 不可用时静默降级：面板功能不注册 */ }
-
-      // 会话头右上角开关按钮（header.utilities：Session log/知识节点那排）。
-      // 装了 better-sidebar 时原生 tab 已是主入口，按钮不再注册——避免顶部残留重复入口。
-      if (!hasBs) {
-        slots.inject("conversation.session.header.utilities", function () {
-          return slots.register(
-            { name: "conversation.session.header.utilities", id: "git-graph-sidepanel-toggle", order: 50 },
-            function () {
-              var _p = React.useState(0); var force = _p[1];
-              React.useEffect(function () {
-                var fn = function () { force(function (n) { return n + 1; }); };
-                panelState.listeners.add(fn);
-                return function () { panelState.listeners.delete(fn); };
-              }, []);
-              return React.createElement("button", {
-                className: "dgg-icon-btn",
-                title: panelState.open ? "关闭 Git Graph 侧栏" : "在右侧打开 Git Graph 侧栏",
-                style: { width: "auto", padding: "0 8px", height: "24px", fontSize: "12px" },
-                onClick: function () { setPanel({ open: !panelState.open }); }
-              }, (panelState.open ? "✕ " : "⌥ ") + "Git Graph");
-            }
-          );
-        });
-      }
     }
 
     exports.apply = apply;
-    exports.inject = ["sessions", "slots"];
+    exports.inject = ["sessions", "slots", "betterSidebar"];
     return module.exports;
   }
 });

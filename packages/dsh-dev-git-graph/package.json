@@ -1,7 +1,7 @@
 {
   "name": "dsh-dev-git-graph",
-  "version": "0.1.2",
-  "description": "DSH 插件：会话 Git Graph 面板——移植 vscode-git-graph 1.30.0，host 直跑 git 命令 + 同源静态服务，自动绑定会话工作区显示提交图；装了 dsh-better-sidebar 自动注册原生侧边栏 tab，未装回退右侧 overlay 面板。",
+  "version": "0.1.3",
+  "description": "DSH 插件：dsh-better-sidebar 原生 Git Graph 提交图 tab——移植 vscode-git-graph 1.30.0，host 直跑 git 命令 + 同源静态服务，经 scope.repoRoot/scope.cwd 自动绑定会话工作区，点文件 diff 直接打开内置 DiffTab；前置依赖 dsh-better-sidebar。",
   "license": "MIT",
   "author": "kp-z",
   "keywords": [

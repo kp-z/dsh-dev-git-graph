@@ -47,9 +47,9 @@ dsh plugin --profile web add file:/Users/kp/DEV/dsh-plugins/packages/dsh-dev-git
 # 重启 dsh web 生效；会话页出现「Git 树」tab
 ```
 
-### Better Sidebar 集成（可选）
+### Better Sidebar 集成（前置依赖）
 
-装了 [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) 时，本插件会在其右侧栏「+」菜单自动注册原生 **Git Graph** tab（单例去重、经 `scope.repoRoot`/`scope.cwd` 自动绑定会话工作区）；未装时回退自建右侧 overlay 面板 + 会话头按钮，两者可并存。
+本插件的唯一 UI 入口是 [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) 右侧栏的原生 **Git Graph** tab（「+」菜单，单例去重、经 `scope.repoRoot`/`scope.cwd` 自动绑定会话工作区；点文件 diff 直接打开内置 DiffTab）。需先装 better-sidebar——未装时本插件不注册任何 UI。
 
 ```bash
 # 一行完整安装（先 better-sidebar，再本插件）
