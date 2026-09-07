@@ -9,7 +9,8 @@
  */
 
 const STORAGE_KEY = 'dsh-dev-agent-mode.mode';
-const DEFAULT_MODE = 'official';
+/** 默认 Agent 模式：头像显示是插件的核心价值，未设置时默认显示。 */
+const DEFAULT_MODE = 'agent';
 
 /** 可用的模式值。 */
 export const MODES = Object.freeze({ OFFICIAL: 'official', AGENT: 'agent' });
@@ -55,9 +56,9 @@ export function createModeStore(storage = null) {
 
   const listeners = new Set();
 
-  /** 读取当前模式：持久化值优先，损坏回退内存态。 */
+  /** 读取当前模式：合法持久化值优先，非法/损坏值一律回默认（agent）。 */
   function get() {
-    if (persisted !== null) return normalizeMode(persisted);
+    if (persisted === MODES.AGENT || persisted === MODES.OFFICIAL) return persisted;
     return memory;
   }
 

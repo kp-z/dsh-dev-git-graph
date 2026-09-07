@@ -35,9 +35,9 @@ test('normalizeMode: 合法值保留，非法回退 official', () => {
   assert.equal(normalizeMode(123), MODES.OFFICIAL);
 });
 
-test('createModeStore: 默认 official', () => {
+test('createModeStore: 默认 agent（头像显示是核心价值）', () => {
   const store = createModeStore(mockStorage());
-  assert.equal(store.get(), MODES.OFFICIAL);
+  assert.equal(store.get(), MODES.AGENT);
 });
 
 test('createModeStore: set→get 往返 + 持久化', () => {
@@ -80,23 +80,23 @@ test('createModeStore: subscribe 参数校验', () => {
 test('createModeStore: localStorage 损坏时回退内存态，仍可切换', () => {
   const broken = mockStorage({}, { broken: true });
   const store = createModeStore(broken);
-  assert.equal(store.get(), MODES.OFFICIAL); // 读失败回退
-  const ok = store.set(MODES.AGENT);
+  assert.equal(store.get(), MODES.AGENT); // 读失败回退默认(agent)
+  const ok = store.set(MODES.OFFICIAL);
   assert.equal(ok, false); // 写失败返回 false
-  assert.equal(store.get(), MODES.AGENT); // 内存态生效
-  assert.equal(store.set(MODES.OFFICIAL), false);
-  assert.equal(store.get(), MODES.OFFICIAL);
-});
-
-test('createModeStore: 无 storage 时纯内存态', () => {
-  const store = createModeStore(null);
-  assert.equal(store.get(), MODES.OFFICIAL);
+  assert.equal(store.get(), MODES.OFFICIAL); // 内存态生效
   assert.equal(store.set(MODES.AGENT), false);
   assert.equal(store.get(), MODES.AGENT);
 });
 
-test('createModeStore: 持久化值损坏时回退默认', () => {
+test('createModeStore: 无 storage 时纯内存态', () => {
+  const store = createModeStore(null);
+  assert.equal(store.get(), MODES.AGENT);
+  assert.equal(store.set(MODES.OFFICIAL), false);
+  assert.equal(store.get(), MODES.OFFICIAL);
+});
+
+test('createModeStore: 持久化值损坏时回退默认(agent)', () => {
   const storage = mockStorage({ 'dsh-dev-agent-mode.mode': '###corrupt###' });
   const store = createModeStore(storage);
-  assert.equal(store.get(), MODES.OFFICIAL);
+  assert.equal(store.get(), MODES.AGENT);
 });

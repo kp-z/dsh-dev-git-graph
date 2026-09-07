@@ -5,33 +5,24 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     var React = require("react");
 
-    // ============ dsh-dev-agent-mode client：左侧对话栏 Agent 模式 ============
-    // 目标：把左侧栏从「官方 workspace 浏览器」切换为「拟人化 Agent 视角」——
-    //   每个 workspace = 一个 Agent（确定性头像 + 名称 + 路径 + 会话数），
-    //   workspace 只是该 Agent 的一个标签（cwd）。
-    //
-    // 机制（源码实锤，dsh-web-frontend bundle 的 SlotCore.register）：
-    //   - sidebar.workspaces 是 single 孔位：同一 priority 只允许一个注册者，
-    //     重复注册直接 throw（错误信息明示：register at a different priority to
-    //     shadow it, lowest renders）。
-    //   - 官方 client-ui-workspace 以 priority=0 注册。本插件用 priority=-1 注册
-    //     即可遮蔽（shadow）官方：single 排序 (a,b)=>(a.priority??0)-(b.priority??0)
-    //     升序，priority 最小排 [0]，渲染取 entriesOfSlot()[0]。
-    //   - 动态注册/注销：agent 模式 register（-1，遮蔽官方）；official 模式
-    //     dispose 自己（entries 移除自己），官方 priority=0 自动恢复 [0] ——
-    //     切回官方 = 官方原版，无需自建精简等价物。
-    //   - 模式开关：sidebar.footer.action list 孔位（id 键控），DOM 注入兜底。
-    // 数据：apply 里 ctx.get("sessions")/ctx.get("uiWorkspace")（open/startSession），
-    //   useWorkspaces/useSessions 由 slot 系统 standard props 注入。
-    // 构建：无打包器，src/client.js 拷贝为 lib/client.js（仿 dsh-dev-git-graph）。
+    // ============ dsh-dev-agent-mode client：左侧栏 Agent 模式（MVP 第一步） ============
+    // 目标：左侧栏与官方完全一致 + 每个 workspace 可换头像。
+    // 路线：DOM 增强（不遮蔽孔位、不重写官方组件）——
+    //   官方 WorkspaceBrowser 原样渲染（功能 100% 一致），本插件用 MutationObserver
+    //   在官方 workspace 行上注入头像元素，点头像弹选择器（色块/emoji），
+    //   选择持久化到 localStorage，React 重渲染后自动重新注入（自愈）。
+    // 数据：ctx.workspaces.list（title→workspaceId 匹配）；头像偏好 avatar-store。
+    // 开关：sidebar.footer.action list 孔位（优先），DOM 注入兜底。
 
-    var STORAGE_KEY = "dsh-dev-agent-mode.mode";
-    var MODE_OFFICIAL = "official";
+    var AVATARS_KEY = "dsh-dev-agent-mode.avatars";
+    var MODE_KEY = "dsh-dev-agent-mode.mode";
     var MODE_AGENT = "agent";
+    var MODE_OFFICIAL = "official";
     var ENTRY_ATTR = "data-dsh-agent-mode-entry";
-    var SHADOW_PRIORITY = -1; // 遮蔽官方（官方 priority=0，最低 priority 渲染）
+    var AVATAR_ATTR = "data-dsh-agent-avatar";
+    var PICKER_ATTR = "data-dsh-agent-picker";
 
-    // ---------- 纯函数：Agent 身份派生（与 src/agent-identity.js 同构） ----------
+    // ---------- 确定性身份派生（与 src/agent-identity.js 同构） ----------
     function fnv1a(input) {
       var h = 0x811c9dc5;
       for (var i = 0; i < input.length; i++) {
@@ -53,180 +44,331 @@ window.__ModuleLoader__.load({
       if (i2) return i2[0].toUpperCase();
       return "?";
     }
-    function gradientFor(id) {
-      var hue = hueFor(id);
+    function gradientFor(hue) {
       return "linear-gradient(135deg, hsl(" + hue + " 62% 46%), hsl(" + ((hue + 40) % 360) + " 70% 60%))";
     }
-    function agentIdentity(id, title) {
-      return { hue: hueFor(id), initial: initialFor(title, id), gradient: gradientFor(id) };
-    }
 
-    // ---------- 模式存储（localStorage + 内存兜底） ----------
-    function normalizeMode(v) {
-      return v === MODE_AGENT ? MODE_AGENT : MODE_OFFICIAL;
+    // ---------- 头像偏好（与 src/avatar-store.js 同构） ----------
+    function normalizeAvatarSpec(value) {
+      if (value === null || value === undefined || typeof value !== "object") return null;
+      if (value.type === "color") {
+        var hue = Number(value.hue);
+        if (Number.isFinite(hue) && hue >= 0 && hue < 360) return { type: "color", hue: Math.round(hue) };
+        return null;
+      }
+      if (value.type === "emoji") {
+        var char = String(value.char || "");
+        if (char.length > 0 && char.length <= 4) return { type: "emoji", char: char };
+        return null;
+      }
+      return null;
     }
-    function readMode() {
+    function parseAvatarMap(raw) {
+      var out = {};
+      if (typeof raw !== "string" || raw.length === 0) return out;
+      var parsed;
+      try { parsed = JSON.parse(raw); } catch (e) { return out; }
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return out;
+      var count = 0;
+      for (var id in parsed) {
+        var norm = normalizeAvatarSpec(parsed[id]);
+        if (norm !== null && typeof id === "string" && id.length > 0 && id.length <= 128) {
+          out[id] = norm;
+          count += 1;
+          if (count >= 200) break;
+        }
+      }
+      return out;
+    }
+    function readAvatarMap() {
       try {
-        var v = window.localStorage.getItem(STORAGE_KEY);
-        return normalizeMode(v);
+        return parseAvatarMap(window.localStorage.getItem(AVATARS_KEY));
       } catch (e) {
-        return MODE_OFFICIAL;
+        return {};
       }
     }
-    function writeMode(m) {
+    function writeAvatar(workspaceId, spec) {
+      var map = readAvatarMap();
+      if (spec === null) delete map[workspaceId];
+      else map[workspaceId] = spec;
       try {
-        window.localStorage.setItem(STORAGE_KEY, m);
+        var keys = Object.keys(map);
+        if (keys.length === 0) window.localStorage.removeItem(AVATARS_KEY);
+        else window.localStorage.setItem(AVATARS_KEY, JSON.stringify(map));
         return true;
       } catch (e) {
         return false;
       }
     }
 
-    // ---------- 相对时间（官方同款：{n}d / {n}mo / {n}y） ----------
-    function relativeTime(ts, now) {
-      var diff = Math.max(0, (now || Date.now()) - ts);
-      var min = 60 * 1000, hour = 60 * min, day = 24 * hour;
-      if (diff < min) return "now";
-      if (diff < hour) return Math.floor(diff / min) + "m";
-      if (diff < day) return Math.floor(diff / hour) + "h";
-      if (diff < 30 * day) return Math.floor(diff / day) + "d";
-      if (diff < 365 * day) return Math.floor(diff / (30 * day)) + "mo";
-      return Math.floor(diff / (365 * day)) + "y";
+    // ---------- 模式 ----------
+    function normalizeMode(v) { return v === MODE_AGENT ? MODE_AGENT : MODE_OFFICIAL; }
+    function readMode() {
+      try {
+        var v = window.localStorage.getItem(MODE_KEY);
+        // 未设置（null）默认 Agent 模式——头像显示是插件的核心价值
+        if (v === null) return MODE_AGENT;
+        return normalizeMode(v);
+      } catch (e) {
+        return MODE_AGENT;
+      }
+    }
+    function writeMode(m) {
+      try { window.localStorage.setItem(MODE_KEY, m); return true; }
+      catch (e) { return false; }
     }
 
-    // ---------- 数据提取（standard props，含降级） ----------
-    function extractData(props) {
-      var useWorkspaces = props.useWorkspaces;
-      var useSessions = props.useSessions;
-      var ws, ses;
-      try {
-        ws = useWorkspaces ? useWorkspaces(function (s) { return s; }) : null;
-        ses = useSessions ? useSessions(function (s) { return s; }) : null;
-      } catch (e) {
-        ws = null;
-        ses = null;
+    // ---------- 头像元素 ----------
+    // spec: null=默认派生 | {type:'color',hue} | {type:'emoji',char}
+    function renderAvatarEl(workspaceId, title, spec) {
+      var el = document.createElement("span");
+      el.className = "dsh-agent-avatar";
+      el.setAttribute(AVATAR_ATTR, workspaceId);
+      el.title = "点击更换头像";
+      if (spec === null) {
+        var hue = hueFor(workspaceId);
+        el.style.background = gradientFor(hue);
+        el.textContent = initialFor(title, workspaceId);
+        el.dataset.kind = "default";
+        el.dataset.hue = String(hue);
+      } else if (spec.type === "color") {
+        el.style.background = gradientFor(spec.hue);
+        el.textContent = initialFor(title, workspaceId);
+        el.dataset.kind = "color";
+        el.dataset.hue = String(spec.hue);
+      } else {
+        el.style.background = "transparent";
+        el.textContent = spec.char;
+        el.dataset.kind = "emoji";
       }
-      return {
-        items: (ws && ws.items) || [],
-        byId: (ses && ses.byId) || {},
-        current: ses ? ses.current : undefined
+      return el;
+    }
+
+    // ---------- 头像选择器（portal，点外部/ESC 关闭） ----------
+    var PRESET_HUES = [210, 262, 325, 14, 152, 90, 190, 45];
+    var PRESET_EMOJIS = ["🤖", "👩‍💻", "🧑‍💻", "🦊", "🐱", "🐶", "👻", "🌟", "🚀", "🛠️", "📦", "🔮"];
+
+    function openPicker(anchorEl, workspaceId, title, onChange) {
+      closePicker(); // 先关旧的
+      var overlay = document.createElement("div");
+      overlay.className = "dsh-agent-picker-overlay";
+      overlay.setAttribute(PICKER_ATTR, "");
+      var box = document.createElement("div");
+      box.className = "dsh-agent-picker";
+      box.addEventListener("click", function (e) { e.stopPropagation(); });
+
+      var header = document.createElement("div");
+      header.className = "dsh-agent-picker-header";
+      header.textContent = title || "(workspace)";
+
+      var colorRow = document.createElement("div");
+      colorRow.className = "dsh-agent-picker-row";
+      colorRow.textContent = "颜色";
+      var colorGrid = document.createElement("div");
+      colorGrid.className = "dsh-agent-picker-grid";
+      PRESET_HUES.forEach(function (hue) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "dsh-agent-picker-swatch";
+        b.style.background = gradientFor(hue);
+        b.title = "hsl " + hue;
+        b.addEventListener("click", function () {
+          onChange({ type: "color", hue: hue });
+          closePicker();
+        });
+        colorGrid.appendChild(b);
+      });
+      colorRow.appendChild(colorGrid);
+
+      var emojiRow = document.createElement("div");
+      emojiRow.className = "dsh-agent-picker-row";
+      emojiRow.textContent = "Emoji";
+      var emojiGrid = document.createElement("div");
+      emojiGrid.className = "dsh-agent-picker-grid";
+      PRESET_EMOJIS.forEach(function (ch) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "dsh-agent-picker-emoji";
+        b.textContent = ch;
+        b.addEventListener("click", function () {
+          onChange({ type: "emoji", char: ch });
+          closePicker();
+        });
+        emojiGrid.appendChild(b);
+      });
+      emojiRow.appendChild(emojiGrid);
+
+      var resetBtn = document.createElement("button");
+      resetBtn.type = "button";
+      resetBtn.className = "dsh-agent-picker-reset";
+      resetBtn.textContent = "重置默认";
+      resetBtn.addEventListener("click", function () {
+        onChange(null); // null = 默认派生
+        closePicker();
+      });
+
+      box.appendChild(header);
+      box.appendChild(colorRow);
+      box.appendChild(emojiRow);
+      box.appendChild(resetBtn);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+
+      // 定位：锚到头像附近
+      var rect = anchorEl.getBoundingClientRect();
+      var vw = window.innerWidth, vh = window.innerHeight;
+      var bw = 220, bh = 260;
+      var left = Math.min(Math.max(8, rect.right + 4), vw - bw - 8);
+      var top = Math.min(Math.max(8, rect.top), vh - bh - 8);
+      box.style.left = left + "px";
+      box.style.top = top + "px";
+
+      function onDocClick(e) {
+        if (e.target !== overlay && !overlay.contains(e.target)) closePicker();
+      }
+      function onKey(e) {
+        if (e.key === "Escape") closePicker();
+      }
+      setTimeout(function () {
+        document.addEventListener("click", onDocClick, true);
+        document.addEventListener("keydown", onKey, true);
+      }, 0);
+      window.__pickerCleanup = function () {
+        document.removeEventListener("click", onDocClick, true);
+        document.removeEventListener("keydown", onKey, true);
+        overlay.remove();
+        window.__pickerCleanup = null;
+      };
+    }
+    function closePicker() {
+      if (window.__pickerCleanup) window.__pickerCleanup();
+    }
+
+    // ---------- DOM 注入核心 ----------
+    function setupAvatarInjection(ctx, subscribeMode) {
+      if (typeof document === "undefined" || typeof MutationObserver === "undefined") return function () {};
+
+      var workspacesService = null;
+      try { workspacesService = ctx.get("workspaces"); } catch (e) { workspacesService = null; }
+
+      // title -> workspaceId 映射（workspaces.list 快照）
+      function workspaceIndex() {
+        var byTitle = {};
+        try {
+          var snap = workspacesService && workspacesService.list && workspacesService.list.getSnapshot();
+          var items = (snap && snap.items) || [];
+          for (var i = 0; i < items.length; i++) {
+            var ws = items[i];
+            if (ws && typeof ws.title === "string" && ws.title !== "" && !byTitle[ws.title]) {
+              byTitle[ws.title] = ws.workspaceId;
+            }
+          }
+        } catch (e) { /* 服务不可用：空索引 */ }
+        return byTitle;
+      }
+
+      function injectIntoRow(row) {
+        if (row.getAttribute("data-dsh-agent-avatar-injected") === "1") return; // 幂等
+        // 找标题 + folder 图标（workspace 行特征）
+        var folder = row.querySelector('[class*="folder"]');
+        if (!folder) return; // 不是 workspace 行（session 行无 folder）
+        var titleEl = row.querySelector('[class*="title"]');
+        var title = titleEl ? titleEl.textContent.trim() : "";
+        if (!title) return;
+
+        var byTitle = workspaceIndex();
+        var workspaceId = byTitle[title];
+        if (!workspaceId) return; // 匹配不到（重命名竞态/未加载），下轮再试
+
+        // 头像元素插到 folder 图标前（视觉上替换文件夹图标）
+        var avatar = renderAvatarEl(workspaceId, title, readAvatarMap()[workspaceId] || null);
+        function onAvatarClick(e) {
+          e.stopPropagation(); // 不触发行展开
+          e.preventDefault();
+          // 选择器回调：写偏好 -> 在当前 DOM 中把头像换成新元素（不依赖闭包旧引用）
+          openPicker(avatar, title, workspaceId, function (spec) {
+            writeAvatar(workspaceId, spec);
+            var cur = row.querySelector("[" + AVATAR_ATTR + '="' + workspaceId + '"]');
+            var fresh = renderAvatarEl(workspaceId, title, readAvatarMap()[workspaceId] || null);
+            fresh.addEventListener("click", onAvatarClick);
+            if (cur && cur.parentNode) cur.replaceWith(fresh);
+            else folder.parentNode.insertBefore(fresh, folder);
+          });
+        }
+        avatar.addEventListener("click", onAvatarClick);
+        folder.parentNode.insertBefore(avatar, folder);
+        row.setAttribute("data-dsh-agent-avatar-injected", "1");
+      }
+
+      var isAgentMode = function () { return normalizeMode(readMode()) === MODE_AGENT; };
+
+      // 主注入：遍历侧栏所有 workspace 行
+      function injectAll() {
+        if (!isAgentMode()) return;
+        // 先清掉旧头像与行标记（自愈场景：React 重渲染后行可能是新 DOM，旧的还在树里）
+        var olds = document.querySelectorAll("[" + AVATAR_ATTR + "]");
+        for (var oi = 0; oi < olds.length; oi++) {
+          var o = olds[oi];
+          if (o.parentNode) o.parentNode.removeChild(o);
+        }
+        var marked = document.querySelectorAll("[data-dsh-agent-avatar-injected]");
+        for (var mi = 0; mi < marked.length; mi++) {
+          marked[mi].removeAttribute("data-dsh-agent-avatar-injected");
+        }
+        var rows = document.querySelectorAll('[data-pane="sidebar"] [role="treeitem"], [class*="sidebarCol"] [role="treeitem"]');
+        for (var i = 0; i < rows.length; i++) {
+          try { injectIntoRow(rows[i]); } catch (e) { /* 单行失败不影响其他 */ }
+        }
+      }
+      // 反注入：清掉我们加的头像（切官方模式）
+      function removeAll() {
+        var avatars = document.querySelectorAll("[" + AVATAR_ATTR + "]");
+        for (var i = 0; i < avatars.length; i++) {
+          var a = avatars[i];
+          if (a.parentNode) a.parentNode.removeChild(a);
+        }
+        var rows = document.querySelectorAll("[data-dsh-agent-avatar-injected]");
+        for (var j = 0; j < rows.length; j++) rows[j].removeAttribute("data-dsh-agent-avatar-injected");
+        closePicker();
+      }
+
+      // MutationObserver 自愈：行重渲染/新增时重新注入
+      var observer = new MutationObserver(function () {
+        // 防抖：React 连续重渲染时合并
+        if (window.__avatarFlush) clearTimeout(window.__avatarFlush);
+        window.__avatarFlush = setTimeout(function () {
+          if (isAgentMode()) injectAll();
+          else removeAll();
+        }, 60);
+      });
+      var root = document.body;
+      observer.observe(root, { childList: true, subtree: true });
+
+      // 初始注入 + 模式联动
+      setTimeout(injectAll, 300);
+      var modeUnsub = subscribeMode(function () {
+        if (isAgentMode()) injectAll();
+        else removeAll();
+      });
+
+      return function () {
+        if (window.__avatarFlush) clearTimeout(window.__avatarFlush);
+        observer.disconnect();
+        if (modeUnsub) modeUnsub();
+        removeAll();
       };
     }
 
-    // 官方语义过滤：subagent 不算、archived 不算、blank 只留当前
-    function visibleMembers(workspace, byId, current, archivedSet) {
-      return (workspace.sessionIds || [])
-        .map(function (sid) { return byId[sid]; })
-        .filter(function (s) {
-          if (!s) return false;
-          if (s.origin === "subagent") return false;
-          if (archivedSet.has(s.id)) return false;
-          if (s.blank && s.id !== current) return false;
-          return true;
-        });
-    }
-
-    // ---------- 组件：Agent 模式浏览器 ----------
-    function AgentModeBrowser(props) {
-      var data = extractData(props);
-      var byId = data.byId, current = data.current;
-      var archivedSet = new Set(props.archivedSessionIds || []);
-      var expandedPair = React.useState({});
-      var expanded = expandedPair[0];
-      var setExpanded = expandedPair[1];
-
-      function toggle(id) {
-        setExpanded(function (prev) {
-          var next = {};
-          for (var k in prev) if (Object.prototype.hasOwnProperty.call(prev, k) && k !== id) next[k] = prev[k];
-          if (!prev[id]) next[id] = true;
-          return next;
-        });
-      }
-
-      var rows = data.items.map(function (ws) {
-        var identity = agentIdentity(ws.workspaceId, ws.title);
-        var members = visibleMembers(ws, byId, current, archivedSet);
-        var isOpen = !!expanded[ws.workspaceId];
-        var isActive = ws.sessionIds && ws.sessionIds.indexOf(current) !== -1;
-
-        return React.createElement("div", {
-          key: ws.workspaceId,
-          className: "dsh-agent-row" + (isActive ? " active" : ""),
-          "data-dsh-agent-id": ws.workspaceId
-        },
-          React.createElement("button", {
-            type: "button",
-            className: "dsh-agent-card",
-            onClick: function () { toggle(ws.workspaceId); },
-            title: ws.path || "",
-            "aria-expanded": isOpen
-          },
-            React.createElement("span", {
-              className: "dsh-agent-avatar",
-              style: { background: identity.gradient }
-            }, identity.initial),
-            React.createElement("span", { className: "dsh-agent-info" },
-              React.createElement("span", { className: "dsh-agent-name" },
-                ws.title || "(untitled)",
-                isActive ? React.createElement("span", { className: "dsh-agent-dot" }) : null),
-              React.createElement("span", { className: "dsh-agent-meta" },
-                ws.path || "",
-                members.length > 0 ? " · " + members.length + " 会话" : "")
-            ),
-            React.createElement("span", { className: "dsh-agent-chevron" }, isOpen ? "▾" : "▸")
-          ),
-          isOpen ? React.createElement("div", { className: "dsh-agent-sessions" },
-            members.map(function (s) {
-              return React.createElement("button", {
-                key: s.id,
-                type: "button",
-                className: "dsh-agent-session" + (s.id === current ? " current" : ""),
-                onClick: function () {
-                  try { props.open(s.id); } catch (e) { /* 会话打开失败：不崩卡片 */ }
-                }
-              },
-                React.createElement("span", { className: "dsh-agent-session-title" },
-                  s.blank ? "(new session)" : (s.displayTitle || s.title || "(untitled)")),
-                React.createElement("span", { className: "dsh-agent-session-time" },
-                  s.updatedAt ? relativeTime(s.updatedAt) : "")
-              );
-            }),
-            React.createElement("button", {
-              type: "button",
-              className: "dsh-agent-new",
-              onClick: function () {
-                try { props.startSession(ws.workspaceId); } catch (e) { /* ignore */ }
-              }
-            }, "+ 新会话")
-          ) : null
-        );
-      });
-
-      var empty = data.items.length === 0
-        ? React.createElement("div", { className: "dsh-agent-empty" }, "还没有 workspace —— 先创建一个会话")
-        : null;
-
-      return React.createElement("div", { className: "dsh-agent-browser" },
-        React.createElement("div", { className: "dsh-agent-header" },
-          React.createElement("span", { className: "dsh-agent-header-title" }, "Agents"),
-          React.createElement("span", { className: "dsh-agent-header-count" }, data.items.length)
-        ),
-        rows,
-        empty
-      );
-    }
-
-    // ---------- 模式开关（sidebar.footer.action 孔位） ----------
+    // ---------- 模式开关（sidebar.footer.action） ----------
     function ModeToggle(props) {
       var mode = props.mode();
       return React.createElement("button", {
         type: "button",
         className: "dsh-agent-toggle",
         onClick: props.onSwitch,
-        title: mode === MODE_AGENT ? "切回官方 workspace 模式" : "切换为 Agent 模式"
+        title: mode === MODE_AGENT ? "切回官方模式（隐藏头像）" : "切换为 Agent 模式（显示头像）"
       },
-        React.createElement("span", { className: "dsh-agent-toggle-icon" }, mode === MODE_AGENT ? "👥" : "🤖"),
+        React.createElement("span", { className: "dsh-agent-toggle-icon" }, mode === MODE_AGENT ? "🤖" : "👁️"),
         React.createElement("span", { className: "dsh-agent-toggle-label" },
           mode === MODE_AGENT ? "官方模式" : "Agent 模式")
       );
@@ -250,85 +392,17 @@ window.__ModuleLoader__.load({
         return function () { listeners.delete(l); };
       }
 
-      // 注入 CSS（放在 apply 内：factory 顶层没有 ctx，放外面会在加载时崩）
+      // 注入 CSS
       var styleEl = document.createElement("style");
       styleEl.textContent = css;
       document.head.appendChild(styleEl);
       ctx.effect(function () { return function () { styleEl.remove(); }; });
 
-      // 拿 sessions / uiWorkspace 服务（open/startSession）
-      var sessions = null, uiWorkspace = null;
-      try {
-        sessions = ctx.get("sessions");
-        uiWorkspace = ctx.get("uiWorkspace");
-      } catch (e) {
-        sessions = null;
-        uiWorkspace = null;
-      }
-      function startSession(workspaceId) {
-        if (uiWorkspace && typeof uiWorkspace.startSession === "function") {
-          return uiWorkspace.startSession(workspaceId);
-        }
-        if (sessions && typeof sessions.create === "function") {
-          return sessions.create({ workspaceId: workspaceId });
-        }
-        throw new Error("sessions/uiWorkspace 服务不可用，无法新建会话");
-      }
-      function openSession(sessionId) {
-        if (!sessions || typeof sessions.open !== "function") {
-          throw new Error("sessions 服务不可用，无法打开会话");
-        }
-        return sessions.open(sessionId);
-      }
+      // 头像 DOM 注入（核心）
+      var disposeInjection = setupAvatarInjection(ctx, subscribeMode);
+      ctx.effect(function () { return disposeInjection; });
 
-      // 1) sidebar.workspaces：动态遮蔽官方（priority=-1）
-      //    agent 模式 -> register 遮蔽官方；official 模式 -> dispose 自己，官方恢复。
-      //    shadow 冲突（-1 被他人占）时 fail-open：不注册，官方浏览器保持，仅 console.warn。
-      var workspacesEntry = null; // 当前 register 的 dispose（null = 未注册）
-      var syncWorkspaces = function () {
-        var want = currentMode === MODE_AGENT;
-        if (want && !workspacesEntry) {
-          try {
-            workspacesEntry = ctx.slots.register({
-              name: "sidebar.workspaces",
-              priority: SHADOW_PRIORITY,
-              locale: "agent-mode",
-              inject: function () {
-                return {
-                  mode: function () { return currentMode; },
-                  subscribeMode: subscribeMode,
-                  onSwitchMode: function () { setMode(currentMode === MODE_AGENT ? MODE_OFFICIAL : MODE_AGENT); },
-                  startSession: startSession,
-                  open: openSession
-                };
-              }
-            }, AgentModeBrowser);
-          } catch (e) {
-            // 遮蔽失败（-1 被他人占用 / 孔位未声明）：fail-open，官方保持
-            console.warn("[dsh-dev-agent-mode] 无法遮蔽 sidebar.workspaces：", e && e.message ? e.message : e);
-            workspacesEntry = null;
-          }
-        } else if (!want && workspacesEntry) {
-          try {
-            workspacesEntry();
-          } catch (e) { /* dispose 异常忽略 */ }
-          workspacesEntry = null;
-        }
-      };
-      // 孔位声明就绪后执行一次，并跟随模式切换动态注册/注销
-      ctx.slots.inject("sidebar.workspaces", function () {
-        syncWorkspaces();
-        var unsub = subscribeMode(syncWorkspaces);
-        return function () {
-          unsub();
-          if (workspacesEntry) {
-            try { workspacesEntry(); } catch (e) { /* ignore */ }
-            workspacesEntry = null;
-          }
-        };
-      });
-
-      // 2) sidebar.footer.action：模式开关（list 孔位，id 冲突时 fallback DOM 注入）
+      // sidebar.footer.action：模式开关（list 孔位，id 冲突 fallback DOM 注入）
       var footerRegistered = false;
       ctx.slots.inject("sidebar.footer.action", function () {
         try {
@@ -346,18 +420,16 @@ window.__ModuleLoader__.load({
           footerRegistered = true;
           return dispose;
         } catch (e) {
-          // id 已被他人占用（同一 id 冲突）：console.warn + 走 DOM 兜底
           console.warn("[dsh-dev-agent-mode] footer 开关注册失败，改用 DOM 注入：", e && e.message ? e.message : e);
           return function () {};
         }
       });
 
-      // 3) DOM 兜底：footer 孔位注册失败时的开关入口（仿 task-board 注入）
       if (!footerRegistered) {
         try {
           var disposeDom = mountDomToggle();
           ctx.effect(function () { return disposeDom; });
-        } catch (e) { /* DOM 注入失败：忽略，开关缺失但不影响主功能 */ }
+        } catch (e) { /* 忽略 */ }
       }
     }
 
@@ -374,7 +446,7 @@ window.__ModuleLoader__.load({
       btn.textContent = "🤖 Agent 模式";
       btn.title = "切换左侧栏为 Agent 模式";
       btn.addEventListener("click", function () {
-        var m = readMode();
+        var m = normalizeMode(readMode());
         writeMode(m === MODE_AGENT ? MODE_OFFICIAL : MODE_AGENT);
         notify();
       });
@@ -385,9 +457,7 @@ window.__ModuleLoader__.load({
         var logoRow = col.querySelector('[class*="logoRow"]');
         var root = logoRow ? logoRow.parentElement : col.firstElementChild;
         if (!root || btn.parentElement === root) return root !== null;
-        var newBtn = root.querySelector('button[class*="newSession"]');
-        var anchor = newBtn ? newBtn.nextElementSibling : root.firstElementChild;
-        root.insertBefore(btn, anchor);
+        root.appendChild(btn);
         return true;
       }
       var observer = new MutationObserver(function () { tryPlace(); });
@@ -399,29 +469,26 @@ window.__ModuleLoader__.load({
       };
     }
 
-    // ---------- CSS（内联，随 client 加载） ----------
+    // ---------- CSS ----------
     var css = [
-      ".dsh-agent-browser{padding:8px;display:flex;flex-direction:column;gap:4px;overflow-y:auto}",
-      ".dsh-agent-header{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:20px}",
-      ".dsh-agent-header-title{font-weight:600;letter-spacing:.02em}",
-      ".dsh-agent-header-count{color:var(--dsw-alias-label-tertiary)}",
-      ".dsh-agent-row{display:flex;flex-direction:column;border-radius:8px}",
-      ".dsh-agent-card{display:flex;align-items:center;gap:8px;padding:6px 8px;border:none;background:transparent;color:var(--dsw-alias-label-primary);cursor:pointer;border-radius:8px;text-align:left;width:100%}",
-      ".dsh-agent-card:hover,.dsh-agent-row.active .dsh-agent-card{background:var(--dsw-alias-interactive-bg-hover)}",
-      ".dsh-agent-avatar{width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:600;flex:none;text-shadow:0 1px 2px rgba(0,0,0,.25)}",
-      ".dsh-agent-info{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}",
-      ".dsh-agent-name{font-size:14px;line-height:20px;display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-      ".dsh-agent-dot{width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-success-primary);flex:none}",
-      ".dsh-agent-meta{font-size:12px;line-height:16px;color:var(--dsw-alias-label-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-      ".dsh-agent-chevron{color:var(--dsw-alias-label-caption);font-size:11px;flex:none}",
-      ".dsh-agent-sessions{display:flex;flex-direction:column;gap:1px;margin:2px 0 4px 38px}",
-      ".dsh-agent-session{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px;border:none;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:6px;font-size:13px;line-height:18px;width:100%;text-align:left}",
-      ".dsh-agent-session:hover,.dsh-agent-session.current{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
-      ".dsh-agent-session-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-      ".dsh-agent-session-time{color:var(--dsw-alias-label-tertiary);font-size:11px;flex:none}",
-      ".dsh-agent-new{display:block;margin:2px 8px 6px 38px;padding:3px 8px;border:none;background:transparent;color:var(--dsw-alias-brand-primary);cursor:pointer;font-size:12px;text-align:left;border-radius:6px}",
-      ".dsh-agent-new:hover{background:var(--dsw-alias-interactive-bg-hover)}",
-      ".dsh-agent-empty{padding:16px 8px;color:var(--dsw-alias-label-tertiary);font-size:13px;text-align:center}",
+      // 头像：16px 圆块，替换文件夹图标位置
+      ".dsh-agent-avatar{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700;flex:none;cursor:pointer;line-height:1;text-shadow:0 1px 2px rgba(0,0,0,.3);margin-right:-2px}",
+      ".dsh-agent-avatar:hover{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}",
+      // 官方文件夹图标在 hover 时隐藏，头像常驻
+      ".dsh-agent-avatar + [class*='folder']{display:none !important}",
+      // 选择器
+      ".dsh-agent-picker-overlay{position:fixed;inset:0;z-index:9999;background:transparent}",
+      ".dsh-agent-picker{position:fixed;width:220px;background:var(--dsw-alias-bg-layer-2,#fff);border:1px solid var(--dsw-alias-border-l2,#e2e8f0);border-radius:10px;box-shadow:var(--dsw-alias-shadow,0 4px 16px rgba(0,0,0,.15));padding:10px;z-index:10000;font-family:inherit}",
+      ".dsh-agent-picker-header{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#0f172a);margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+      ".dsh-agent-picker-row{font-size:11px;color:var(--dsw-alias-label-tertiary,#64748b);margin:6px 0 4px}",
+      ".dsh-agent-picker-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}",
+      ".dsh-agent-picker-swatch{width:20px;height:20px;border-radius:50%;border:1px solid rgba(0,0,0,.1);cursor:pointer;padding:0}",
+      ".dsh-agent-picker-swatch:hover{transform:scale(1.15)}",
+      ".dsh-agent-picker-emoji{width:26px;height:24px;font-size:15px;border:none;background:transparent;cursor:pointer;border-radius:6px;padding:0}",
+      ".dsh-agent-picker-emoji:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f5f9)}",
+      ".dsh-agent-picker-reset{display:block;width:100%;margin-top:10px;padding:5px 0;border:1px solid var(--dsw-alias-border-l2,#e2e8f0);background:transparent;color:var(--dsw-alias-label-secondary,#334155);cursor:pointer;border-radius:6px;font-size:12px}",
+      ".dsh-agent-picker-reset:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f5f9)}",
+      // 开关
       ".dsh-agent-toggle{display:flex;align-items:center;gap:6px;padding:6px 10px;border:none;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:8px;font-size:13px;line-height:20px;width:100%;text-align:left}",
       ".dsh-agent-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
       ".dsh-agent-toggle-icon{font-size:14px}",

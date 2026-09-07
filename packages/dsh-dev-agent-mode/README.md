@@ -1,15 +1,16 @@
 # dsh-dev-agent-mode
 
-把 DeepSeek Harness 左侧对话分类栏切换为 **Agent 模式** 的 DSH 插件（纯前端，MVP）。
+把 DeepSeek Harness 左侧对话分类栏切换为 **Agent 模式** 的 DSH 插件（纯前端，MVP 第一步）。
 
 ## 这是什么
 
-左侧栏官方是「Workspace 浏览器」——按 host workspace（目录）分组列出会话。本插件把它**拟人化**：
+左侧栏与官方**完全一致**（不替换任何官方组件），额外为每个 workspace 行添加**可点击更换的头像**：
 
-- 每个 workspace = 一个 **Agent**：确定性头像（workspaceId → 色相 + 首字母）、名称、路径、会话数徽标；
-- workspace 只是该 Agent 的一个「标签」（cwd 属性）；
-- 点击 Agent 卡片展开其会话列表，点击会话打开，可新建会话；
-- 左下角一键在 **官方模式 ↔ Agent 模式** 间切换，切回即恢复官方浏览器，无残留。
+- 每个 workspace 默认一个**确定性头像**（workspaceId → 色相 + 首字母的圆形色块）；
+- **点击头像**弹出选择器：8 个预设色块 / 12 个 emoji / 重置默认；
+- 选择持久化到 `localStorage`，刷新后保持；
+- 官方全部功能（展开/折叠/新建/重命名/删除/拖拽/搜索）**原样保留**；
+- 左下角开关可切换 **Agent 模式（显示头像）↔ 官方模式（隐藏头像）**。
 
 ## 安装
 
@@ -22,10 +23,12 @@ dsh plugin --profile web add file:/path/to/dsh-plugins/packages/dsh-dev-agent-mo
 
 | 项 | 说明 |
 |---|---|
-| 孔位 | `sidebar.workspaces`（官方 single 孔位）：**同 priority 独占**，用 `priority: -1` 遮蔽官方（官方=0，最低 priority 渲染） |
-| 切换 | 动态注册/注销：agent 模式注册（-1 遮蔽官方），official 模式 dispose 自己让官方原版恢复 |
-| 数据 | 完全复用官方 `useWorkspaces` / `useSessions` hooks（slot standard props），零数据层 |
-| 开关 | `sidebar.footer.action` list 孔位注入（id 键控）；占用冲突时 DOM 注入兜底（仿 task-board） |
+| 路线 | **DOM 增强**，不遮蔽孔位、不重写官方组件——官方 WorkspaceBrowser 原样渲染，功能 100% 一致 |
+| 注入 | MutationObserver 监听侧栏，识别「含文件夹图标的 treeitem」= workspace 行，在文件夹图标前插入头像元素 |
+| 定位 | `ctx.workspaces.list.getSnapshot()` 建 title→workspaceId 索引（行 DOM 无 id 属性） |
+| 持久化 | `localStorage['dsh-dev-agent-mode.avatars']` = `{ [workspaceId]: {type:'color',hue} \| {type:'emoji',char} }` |
+| 自愈 | React 重渲染替换行 DOM 后，MutationObserver 自动重新注入（清旧+注入） |
+| 开关 | `sidebar.footer.action` list 孔位（id 键控）；占用冲突时 DOM 注入兜底（仿 task-board） |
 | 构建 | 无打包器：`src/client.js` 拷贝为 `lib/client.js`（IIFE，仿 dsh-dev-git-graph） |
 
 详见 [`docs/DESIGN-dsh-dev-agent-mode.md`](../../docs/DESIGN-dsh-dev-agent-mode.md)。
@@ -40,12 +43,11 @@ pnpm --filter dsh-dev-agent-mode build       # 构建 lib/
 
 ## 配置
 
-当前无配置项（MVP）。模式偏好存 `localStorage` 键 `dsh-dev-agent-mode.mode`（`official` | `agent`），
-存储不可用时回退内存态。
+- 模式：`localStorage['dsh-dev-agent-mode.mode']` = `agent`（默认） | `official`
+- 头像偏好：`localStorage['dsh-dev-agent-mode.avatars']`（JSON 对象，key=workspaceId）
 
-## 已知边界（MVP）
+## 已知边界（MVP 第一步）
 
-- 头像/名称/个性为确定性派生，暂不可编辑（后续版本支持落库）；
-- official 模式为官方浏览器的「行为等价精简实现」（分组 + 会话树 + 新建会话），
-  与官方完整 UI 在细节（拖拽、搜索、归档菜单）上有差异；
-- 每个 Agent 独立的 system prompt / 工具权限不在本插件范围（agent 层能力）。
+- 头像仅支持预设色块/emoji，暂不支持上传自定义图片；
+- 头像只显示在左侧栏 workspace 行（会话行、搜索结果未联动）；
+- Agent 名称/个性/工具权限不在本插件范围（后续版本）。
