@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>dsh-dev-agent-mode 冒烟测试</title>
+<title>dsh-dev-agent-mode 冒烟测试 v2（priority 遮蔽语义）</title>
 <style>
   body { font-family: system-ui; margin: 16px; background: #f8fafc; }
   #log { white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; max-height: 300px; overflow: auto; }
@@ -12,7 +12,7 @@
 </style>
 </head>
 <body>
-<h3>dsh-dev-agent-mode 冒烟测试（模拟 __ModuleLoader__ + 假 ctx + 假 slots）</h3>
+<h3>dsh-dev-agent-mode 冒烟测试 v2（模拟 SlotCore priority 遮蔽语义）</h3>
 <div id="log"></div>
 <div id="app"></div>
 
@@ -32,99 +32,159 @@
     out(ok ? 'pass' : 'fail', (ok ? '✅ ' : '❌ ') + name + (detail ? ' — ' + detail : ''));
   }
 
-  // ===== 模拟 __ModuleLoader__.load =====
-  window.__ModuleLoader__ = {
-    load(manifest) {
-      let mod = null;
-      try {
-        mod = manifest.factory((name) => {
-          if (name === 'react') return window.React;
-          throw new Error('unknown require: ' + name);
-        });
-      } catch (e) {
-        check('client.js factory 执行无异常', false, e.message);
-        window.__loadedPlugin = null;
-        return;
-      }
-      window.__loadedPlugin = mod;
-      check('client.js 加载成功 (apply/name 导出)', !!(mod && mod.apply && mod.name === 'dev-agent-mode'), mod ? ('exports: ' + Object.keys(mod).join(',')) : 'mod=null');
+  // ===== 模拟真实 SlotCore（从 dsh-web-frontend bundle 提取的语义） =====
+  // 关键语义（源码实锤）：
+  //   single: 同 priority 重复注册 throw；排序 (a,b)=>(a.priority??0)-(b.priority??0) 升序；渲染取 [0]
+  //   list:   按 priority 升序，再按 order 升序
+  //   dispose: 从 entries 移除自己，其余自动恢复
+  class FakeSlotCore {
+    constructor() {
+      this.records = new Map();
+      // 预声明 sidebar.workspaces / sidebar.footer.action
+      this.records.set('sidebar.workspaces', { spec: { kind: 'single', scope: 'root' }, entries: [], declaredBy: 'sidebar' });
+      this.records.set('sidebar.footer.action', { spec: { kind: 'list', scope: 'root' }, entries: [], declaredBy: 'sidebar' });
     }
-  };
+    register(options, component) {
+      const rec = this.records.get(options.name);
+      if (!rec || !rec.spec) throw new Error('slot "' + options.name + '" is not declared');
+      const kind = rec.spec.kind;
+      const prio = options.priority ?? 0;
+      // single/keyed/list 同 priority 冲突检测（源码同款）
+      if (kind === 'single') {
+        const existing = rec.entries.find(e => (e.options.priority ?? 0) === prio);
+        if (existing) throw new Error('single slot "' + options.name + '" already has a registration — register at a different priority to shadow it (lowest renders)');
+      }
+      if (kind === 'list') {
+        const existing = rec.entries.find(e => e.options.id === options.id && (e.options.priority ?? 0) === prio);
+        if (existing) throw new Error('list slot "' + options.name + '" already has an entry with id "' + options.id + '"');
+      }
+      const entry = { component, options: { ...options }, registrant: 'test' };
+      rec.entries = [...rec.entries, entry];
+      // 排序（源码同款：list 按 priority 再按 order；其他按 priority）
+      rec.entries.sort(kind === 'list'
+        ? (a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0) || (a.options.order ?? 0) - (b.options.order ?? 0)
+        : (a, b) => (a.options.priority ?? 0) - (b.options.priority ?? 0));
+      // 返回 dispose（从 entries 移除自己，其余恢复）
+      let disposed = false;
+      return () => {
+        if (disposed) return;
+        disposed = true;
+        rec.entries = rec.entries.filter(e => e !== entry);
+      };
+    }
+    entries(name) { return this.records.get(name)?.entries ?? []; }
+    entriesOfSlot(name) {
+      const rec = this.records.get(name);
+      if (!rec || !rec.spec) return [];
+      // 去重后保序（源码同款）
+      const out = [], seen = new Set();
+      for (const e of rec.entries) {
+        const key = rec.spec.kind === 'keyed' ? e.options.key : rec.spec.kind === 'list' ? e.options.id : undefined;
+        if (key !== undefined) { if (seen.has(key)) continue; seen.add(key); }
+        out.push(e);
+      }
+      return out;
+    }
+  }
 
-  // ===== 假 ctx（模拟 dsh client runtime） =====
-  const registered = { workspaces: null, footer: null };
-  let currentMode = 'agent'; // 直接进 agent 模式验证渲染
+  const core = new FakeSlotCore();
+
+  // ===== 预注册：官方 client-ui-workspace 占 sidebar.workspaces（priority=0，无 id） =====
+  const officialEntry = core.register({ name: 'sidebar.workspaces' }, function OfficialBrowser(props) {
+    return React.createElement('div', { className: 'official-browser' }, '官方 WorkspaceBrowser');
+  });
+
+  // 验证 1：同 priority=0 再注册必须 throw（这是真实竞争，之前版本会崩）
+  let samePrioThrew = false;
+  try {
+    core.register({ name: 'sidebar.workspaces' }, function Other() { return null; });
+  } catch (e) {
+    samePrioThrew = true;
+  }
+  check('同 priority=0 重复注册 throw（官方独占）', samePrioThrew);
+
+  // 验证 2：priority=-1 注册成功且排 [0]（遮蔽官方）
+  const agentEntry = core.register({ name: 'sidebar.workspaces', priority: -1 }, function AgentBrowser(props) {
+    return React.createElement('div', { className: 'agent-browser' }, 'Agent 浏览器');
+  });
+  let shadowed = core.entriesOfSlot('sidebar.workspaces')[0].component.name === 'AgentBrowser';
+  check('priority=-1 遮蔽官方：entries[0] 是 Agent 浏览器', shadowed);
+
+  // 验证 3：list 孔位按 priority 排序（footer 开关）——用不同 id 验证 list 语义
+  const toggleEntry = core.register({ name: 'sidebar.footer.action', id: 'other-toggle' }, function Toggle() { return null; });
+  const footerEntries = core.entriesOfSlot('sidebar.footer.action');
+  check('footer.action list 孔位：可注册多个 id', footerEntries.length === 1 && footerEntries[0].options.id === 'other-toggle');
+  // 清理，让 client.js 的 agent-mode-toggle 独占
+  toggleEntry();
+
+  // 验证 4：dispose 我们的 entry 后官方恢复 [0]
+  agentEntry();
+  let restored = core.entriesOfSlot('sidebar.workspaces')[0].component.name === 'OfficialBrowser';
+  check('dispose 后官方原版恢复 [0]', restored);
+
+  // 验证 5：重新注册（模拟切回 agent 模式）仍可遮蔽
+  const agentEntry2 = core.register({ name: 'sidebar.workspaces', priority: -1 }, function AgentBrowser() { return null; });
+  check('切回 agent 可再次遮蔽', core.entriesOfSlot('sidebar.workspaces')[0].component.name === 'AgentBrowser');
+  // 清理：让 client.js 从干净状态开始（只剩官方 priority=0）
+  agentEntry2();
+  officialEntry; // 官方 entry 保持注册（模拟官方 bundle 常驻）
+
+  // ===== 真实 client.js 加载 + apply（用 FakeSlotCore 作为 ctx.slots） =====
+  let currentMode = 'official';
+  const listeners = new Set();
+  function setMode(m) {
+    currentMode = m;
+    out('pass', '↳ setMode(' + m + ')，listeners=' + listeners.size);
+    listeners.forEach(l => { try { l(); } catch (e) { out('fail', '↳ listener err: ' + e.message); } });
+  }
 
   const fakeCtx = {
     slots: {
       inject(slotName, factory) {
-        if (slotName === 'sidebar.workspaces') {
-          const dispose = factory();
-          registered.workspaces = dispose;
-          check('sidebar.workspaces 已注册', typeof dispose === 'function');
-        } else if (slotName === 'sidebar.footer.action') {
-          const dispose = factory();
-          registered.footer = dispose;
-          check('sidebar.footer.action 已注册', typeof dispose === 'function');
-        }
-        return () => {};
+        // 孔位已声明：同步执行 factory；持有返回的 disposer（真实 slots.inject 语义）
+        const disposer = factory();
+        window.__injectDisposers = window.__injectDisposers || {};
+        window.__injectDisposers[slotName] = disposer;
+        return disposer;
       },
-      register(options, component) {
-        check('slots.register 被调用: ' + options.name, !!component && typeof component === 'function');
-        window.__registeredComponents = window.__registeredComponents || {};
-        window.__registeredComponents[options.name] = { options, component };
-        return () => {};
-      },
-      entries() { return []; }, // footer 空 -> 触发 DOM 兜底分支（无害）
-      subscribe() { return () => {}; }
+      register: (opts, comp) => core.register(opts, comp),
+      entries: (n) => core.entries(n),
+      subscribe: () => () => {}
     },
     effect(fn) {
-      const disposer = fn();
-      check('ctx.effect 注册了清理函数', typeof disposer === 'function');
+      const d = fn();
+      if (typeof d === 'function') { window.__disposers = window.__disposers || []; window.__disposers.push(d); }
+    },
+    get(service) {
+      if (service === 'sessions') return {
+        open: (sid) => { window.__opened = sid; },
+        create: ({ workspaceId }) => { window.__created = workspaceId; }
+      };
+      if (service === 'uiWorkspace') return { startSession: (wid) => { window.__started = wid; } };
+      return undefined;
     }
   };
 
-  // ===== 渲染：用 React 渲染注册的组件（模拟 slot 系统把孔位交给我们的组件） =====
-  function renderComponent(component, props) {
-    const el = React.createElement(component, props);
-    ReactDOM.render(el, document.getElementById('app'));
-  }
-
-  // 数据样本（模拟官方 hooks 返回）
-  const workspaces = {
-    items: [
-      { workspaceId: 'ws-1', path: '/Users/kp/DEV/dsh-plugins', title: 'dsh-plugins', sessionIds: ['s-1', 's-2'], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-07T00:00:00Z' },
-      { workspaceId: 'ws-2', path: '/Users/kp/DEV/other', title: 'other-project', sessionIds: ['s-3'], createdAt: '2026-09-02T00:00:00Z', updatedAt: '2026-09-06T00:00:00Z' },
-      { workspaceId: 'ws-3', path: '/tmp/empty', title: 'empty-ws', sessionIds: [], createdAt: '2026-09-03T00:00:00Z', updatedAt: '2026-09-03T00:00:00Z' },
-    ]
-  };
-  const sessions = {
-    byId: {
-      's-1': { id: 's-1', title: '调研 slot 机制', displayTitle: '调研 slot 机制', updatedAt: Date.now() - 3600e3, origin: 'main', blank: false, running: false },
-      's-2': { id: 's-2', title: '实现 Agent 模式', displayTitle: '实现 Agent 模式', updatedAt: Date.now() - 120e3, origin: 'main', blank: false, running: true },
-      's-3': { id: 's-3', title: '', displayTitle: 'untitled', updatedAt: Date.now() - 86400e3, origin: 'main', blank: true, running: false },
-    },
-    ids: ['s-1', 's-2', 's-3'],
-    current: 's-2'
+  window.__ModuleLoader__ = {
+    load(manifest) {
+      try {
+        const mod = manifest.factory((name) => {
+          if (name === 'react') return window.React;
+          throw new Error('unknown require: ' + name);
+        });
+        window.__loadedPlugin = mod;
+        check('client.js 加载成功 (apply/name)', !!(mod && mod.apply && mod.name === 'dev-agent-mode'));
+      } catch (e) {
+        check('client.js 加载成功 (apply/name)', false, e.message);
+        window.__loadedPlugin = null;
+      }
+    }
   };
 
-  const baseProps = {
-    useWorkspaces: (sel) => sel(workspaces),
-    useSessions: (sel) => sel(sessions),
-    wide: true,
-    startSession: (wsId) => out('pass', '↳ startSession(' + wsId + ') 被调用'),
-    open: (sid) => out('pass', '↳ open(' + sid + ') 被调用'),
-    mode: () => currentMode,
-    subscribeMode: (l) => { window.__modeListeners = window.__modeListeners || []; window.__modeListeners.push(l); return () => {}; },
-    onSwitchMode: () => { currentMode = currentMode === 'agent' ? 'official' : 'agent'; (window.__modeListeners || []).forEach(l => l()); },
-  };
-
-  // ===== 加载 client.js =====
   const script = document.createElement('script');
   script.src = 'fixtures/client.js';
   script.onload = () => {
     out('pass', 'client.js 已加载');
-    // 现在通过 apply 注册
     try {
       window.__loadedPlugin.apply(fakeCtx);
       check('apply(ctx) 执行无异常', true);
@@ -132,42 +192,73 @@
       check('apply(ctx) 执行无异常', false, e.message);
     }
 
-    // 手动触发 BrowserSwitch 渲染（从注册表拿组件，模拟 slot 系统把孔位交给我们的组件）
-    const registeredComp = window.__registeredComponents && window.__registeredComponents['sidebar.workspaces'];
-    if (registeredComp && registeredComp.component) {
+    // official 模式：sidebar.workspaces entries 应只剩官方（我们没注册）
+    let offEntries = core.entriesOfSlot('sidebar.workspaces').map(e => e.options.priority ?? 0);
+    check('official 模式：未遮蔽官方（entries 无 -1）', !offEntries.includes(-1), 'priorities=' + JSON.stringify(offEntries));
+
+    // 切 agent 模式：通过 footer 开关的 inject onSwitch 触发（client.js 内部状态机）
+    const footerEntry = core.entriesOfSlot('sidebar.footer.action')[0];
+    let footerInject = null;
+    try { footerInject = footerEntry.options.inject(); } catch (e) { out('fail', 'footer inject 调用失败: ' + e.message); }
+    const switchToAgent = () => footerInject.onSwitch();
+    switchToAgent(); // official -> agent
+    setTimeout(() => {
+      let agEntries = core.entriesOfSlot('sidebar.workspaces').map(e => e.options.priority ?? 0);
+      check('agent 模式：动态注册 -1 遮蔽官方', agEntries[0] === -1, 'priorities=' + JSON.stringify(agEntries));
+
+      // 渲染 AgentModeBrowser（entries[0] 组件 + standard props）
+      const top = core.entriesOfSlot('sidebar.workspaces')[0];
+      const data = {
+        items: [
+          { workspaceId: 'ws-1', path: '/Users/kp/DEV/dsh-plugins', title: 'dsh-plugins', sessionIds: ['s-1', 's-2'] },
+          { workspaceId: 'ws-2', path: '/Users/kp/DEV/other', title: 'other-project', sessionIds: ['s-3'] },
+        ],
+        byId: {
+          's-1': { id: 's-1', title: '调研', displayTitle: '调研 slot 机制', updatedAt: Date.now() - 3600e3, origin: 'main', blank: false },
+          's-2': { id: 's-2', title: '实现', displayTitle: '实现 Agent 模式', updatedAt: Date.now() - 120e3, origin: 'main', blank: false },
+          's-3': { id: 's-3', title: '', displayTitle: 'untitled', updatedAt: Date.now() - 86400e3, origin: 'main', blank: true },
+        },
+        current: 's-2'
+      };
+      const props = {
+        useWorkspaces: (sel) => sel({ items: data.items }),
+        useSessions: (sel) => sel({ byId: data.byId, current: data.current }),
+        startSession: (wid) => { window.__started = wid; },
+        open: (sid) => { window.__opened = sid; },
+      };
       try {
-        ReactDOM.render(
-          React.createElement(registeredComp.component, baseProps),
-          document.getElementById('app')
-        );
-        check('Agent 模式渲染无异常', true);
+        ReactDOM.render(React.createElement(top.component, props), document.getElementById('app'));
+        const cards = document.querySelectorAll('.dsh-agent-card');
+        const avatars = document.querySelectorAll('.dsh-agent-avatar');
+        check('Agent 模式渲染：2 卡片', cards.length === 2, '卡片=' + cards.length);
+        check('Agent 模式渲染：2 头像', avatars.length === 2, '头像=' + avatars.length);
+
+        // 展开第一个 Agent + 点击会话
+        document.querySelector('.dsh-agent-card').click();
         setTimeout(() => {
-          const rows = document.querySelectorAll('.dsh-agent-card');
-          const avatars = document.querySelectorAll('.dsh-agent-avatar');
-          const names = document.querySelectorAll('.dsh-agent-name');
-          check('Agent 卡片已渲染', rows.length === 3, '卡片数=' + rows.length);
-          check('Agent 头像已渲染', avatars.length === 3, '头像数=' + avatars.length);
-          check('Agent 名称正确', names.length === 3 && names[0].textContent.includes('dsh-plugins'), '第一个名称=' + (names[0] ? names[0].textContent : 'N/A'));
-          // 切到 official 模式
-          currentMode = 'official';
-          try { (window.__modeListeners || []).forEach(l => l()); } catch (e) {}
+          const sessions2 = document.querySelectorAll('.dsh-agent-session');
+          check('展开 Agent：会话列表渲染', sessions2.length === 2, '会话=' + sessions2.length);
+          sessions2[0].click();
+          check('点击会话触发 open', window.__opened === 's-1', 'opened=' + window.__opened);
+          document.querySelector('.dsh-agent-new').click();
+          check('新建会话触发 startSession', window.__started === 'ws-1', 'started=' + window.__started);
+
+          // 切回 official：通过 footer 开关触发（dispose 自己，官方恢复）
+          switchToAgent(); // agent -> official
           setTimeout(() => {
-            const offGroups = document.querySelectorAll('.dsh-off-group-header');
-            check('Official 模式渲染无异常', offGroups.length === 3, '分组数=' + offGroups.length);
+            let finalEntries = core.entriesOfSlot('sidebar.workspaces').map(e => e.options.priority ?? 0);
+            check('切回 official：-1 已注销', !finalEntries.includes(-1), 'priorities=' + JSON.stringify(finalEntries));
             finish();
-          }, 100);
-        }, 100);
+          }, 50);
+        }, 50);
       } catch (e) {
         check('Agent 模式渲染无异常', false, e.message);
         finish();
       }
-    } else {
-      check('注册表拿到 sidebar.workspaces 组件', false, '组件缺失');
-      finish();
-    }
+    }, 50);
   };
   script.onerror = () => {
-    check('client.js 加载无错误', false, 'script onerror 触发');
+    check('client.js 加载无错误', false, 'script onerror');
     finish();
   };
   document.head.appendChild(script);

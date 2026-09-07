@@ -22,9 +22,10 @@ dsh plugin --profile web add file:/path/to/dsh-plugins/packages/dsh-dev-agent-mo
 
 | 项 | 说明 |
 |---|---|
-| 孔位 | 注册 `sidebar.workspaces`（官方 single 孔位，`entriesOfSlot()[0]` 胜出 = 注册即替换） |
+| 孔位 | `sidebar.workspaces`（官方 single 孔位）：**同 priority 独占**，用 `priority: -1` 遮蔽官方（官方=0，最低 priority 渲染） |
+| 切换 | 动态注册/注销：agent 模式注册（-1 遮蔽官方），official 模式 dispose 自己让官方原版恢复 |
 | 数据 | 完全复用官方 `useWorkspaces` / `useSessions` hooks（slot standard props），零数据层 |
-| 切换 | `sidebar.footer.action` list 孔位注入开关（优先）；不可用时 DOM 注入兜底（仿 task-board） |
+| 开关 | `sidebar.footer.action` list 孔位注入（id 键控）；占用冲突时 DOM 注入兜底（仿 task-board） |
 | 构建 | 无打包器：`src/client.js` 拷贝为 `lib/client.js`（IIFE，仿 dsh-dev-git-graph） |
 
 详见 [`docs/DESIGN-dsh-dev-agent-mode.md`](../../docs/DESIGN-dsh-dev-agent-mode.md)。

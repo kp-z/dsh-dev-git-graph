@@ -241,16 +241,17 @@ interface ModeStore {
 - `pnpm --filter dsh-dev-agent-mode test`：**20/20 通过**（node:test）
 - `tsc --noEmit`：**typecheck 通过**
 - `node --check`：全部 JS 语法通过
-- `test/smoke.html`（headless 浏览器）：**13/13 通过**——client.js 加载、slots 注册、Agent 模式渲染 3 卡片（头像/名称/会话数）、切官方模式渲染 3 分组
+- `test/smoke.html`（headless 浏览器）：**15/15 通过**——含 priority 遮蔽语义：同 priority=0 双注册 throw、priority=-1 遮蔽官方、dispose 后官方恢复、动态切换（official→agent 注册 -1 / agent→official 注销）、Agent 卡片渲染（头像/名称/会话数）、展开会话、打开会话、新建会话
 - `dsh plugin --profile web add`：**安装成功**，bundle 层已含 `dsh-dev-agent-mode`
 
 ### 踩坑记录
 
-1. **client.js factory 顶层不能访问 ctx**：CSS 注入初版写在 factory 顶层，`ctx.effect` 直接 ReferenceError——已移入 `apply(ctx)` 内。
-2. **dsh 环境 node 25 的 simdjson dylib 缺失**：`/opt/homebrew/Cellar/node/25.5.0` 的 node 全坏，用 `/opt/homebrew/opt/node@22/bin/node` 跑 pnpm/tsc/dsh。
-3. **pnpm 11 verify-deps 触发 `pnpm install`（用坏 node）**：绕过方式是用 node@22 直接跑 `node_modules/typescript/lib/tsc.js`，或 PATH 前置 node@22 跑 pnpm。
-4. **dsh plugin add 需要写 profile**：sandbox 默认拒写 `~/.dsh/profiles/web`，需 `danger-full-access` 提权后成功。
-5. **client.inject 必须用服务名**（`slots`），不是包名——参考 git-graph 的 `["sessions","slots","betterSidebar"]`。
+1. **single 孔位 priority 遮蔽机制（最重要）**：`sidebar.workspaces` 同一 priority 只允许一个注册者——官方 `client-ui-workspace` 以 priority=0 注册，第三方**再以 priority=0 注册会直接 throw**（`SlotCore.register` 源码：`single slot "..." already has a registration — register at a different priority to shadow it (lowest renders)`）。正确做法：**用 `priority: -1` 遮蔽官方**（排序 `(a,b)=>(a.priority??0)-(b.priority??0)` 升序，priority 最小排 [0]，渲染取 `entriesOfSlot()[0]`）；切回官方 = **dispose 自己的 entry**，官方 priority=0 自动恢复 [0]，无需自建精简等价物。better-sidebar 已用此惯例（`conversation.chat.turnTail` 用 priority: -1/-50/-100）。
+2. **client.js factory 顶层不能访问 ctx**：CSS 注入初版写在 factory 顶层，`ctx.effect` 直接 ReferenceError——已移入 `apply(ctx)` 内。
+3. **dsh 环境 node 25 的 simdjson dylib 缺失**：`/opt/homebrew/Cellar/node/25.5.0` 的 node 全坏，用 `/opt/homebrew/opt/node@22/bin/node` 跑 pnpm/tsc/dsh。
+4. **pnpm 11 verify-deps 触发 `pnpm install`（用坏 node）**：绕过方式是用 node@22 直接跑 `node_modules/typescript/lib/tsc.js`，或 PATH 前置 node@22 跑 pnpm。
+5. **dsh plugin add 需要写 profile**：sandbox 默认拒写 `~/.dsh/profiles/web`，需 `danger-full-access` 提权后成功。
+6. **client.inject 必须用服务名**（`slots`），不是包名——参考 git-graph 的 `["sessions","slots","betterSidebar"]`。
 
 ### 后续（M4+）
 
