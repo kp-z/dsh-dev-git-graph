@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>dsh-dev-agent-mode 冒烟测试</title>
+<style>
+  body { font-family: system-ui; margin: 16px; background: #f8fafc; }
+  #log { white-space: pre-wrap; font-family: monospace; font-size: 12px; background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; max-height: 300px; overflow: auto; }
+  #app { margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; background: #fff; }
+  .pass { color: #22c55e; }
+  .fail { color: #ef4444; }
+</style>
+</head>
+<body>
+<h3>dsh-dev-agent-mode 冒烟测试（模拟 __ModuleLoader__ + 假 ctx + 假 slots）</h3>
+<div id="log"></div>
+<div id="app"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script>
+  const log = document.getElementById('log');
+  function out(cls, msg) {
+    const div = document.createElement('div');
+    div.className = cls;
+    div.textContent = msg;
+    log.appendChild(div);
+  }
+  const results = [];
+  function check(name, ok, detail) {
+    results.push({ name, ok });
+    out(ok ? 'pass' : 'fail', (ok ? '✅ ' : '❌ ') + name + (detail ? ' — ' + detail : ''));
+  }
+
+  // ===== 模拟 __ModuleLoader__.load =====
+  window.__ModuleLoader__ = {
+    load(manifest) {
+      let mod = null;
+      try {
+        mod = manifest.factory((name) => {
+          if (name === 'react') return window.React;
+          throw new Error('unknown require: ' + name);
+        });
+      } catch (e) {
+        check('client.js factory 执行无异常', false, e.message);
+        window.__loadedPlugin = null;
+        return;
+      }
+      window.__loadedPlugin = mod;
+      check('client.js 加载成功 (apply/name 导出)', !!(mod && mod.apply && mod.name === 'dev-agent-mode'), mod ? ('exports: ' + Object.keys(mod).join(',')) : 'mod=null');
+    }
+  };
+
+  // ===== 假 ctx（模拟 dsh client runtime） =====
+  const registered = { workspaces: null, footer: null };
+  let currentMode = 'agent'; // 直接进 agent 模式验证渲染
+
+  const fakeCtx = {
+    slots: {
+      inject(slotName, factory) {
+        if (slotName === 'sidebar.workspaces') {
+          const dispose = factory();
+          registered.workspaces = dispose;
+          check('sidebar.workspaces 已注册', typeof dispose === 'function');
+        } else if (slotName === 'sidebar.footer.action') {
+          const dispose = factory();
+          registered.footer = dispose;
+          check('sidebar.footer.action 已注册', typeof dispose === 'function');
+        }
+        return () => {};
+      },
+      register(options, component) {
+        check('slots.register 被调用: ' + options.name, !!component && typeof component === 'function');
+        window.__registeredComponents = window.__registeredComponents || {};
+        window.__registeredComponents[options.name] = { options, component };
+        return () => {};
+      },
+      entries() { return []; }, // footer 空 -> 触发 DOM 兜底分支（无害）
+      subscribe() { return () => {}; }
+    },
+    effect(fn) {
+      const disposer = fn();
+      check('ctx.effect 注册了清理函数', typeof disposer === 'function');
+    }
+  };
+
+  // ===== 渲染：用 React 渲染注册的组件（模拟 slot 系统把孔位交给我们的组件） =====
+  function renderComponent(component, props) {
+    const el = React.createElement(component, props);
+    ReactDOM.render(el, document.getElementById('app'));
+  }
+
+  // 数据样本（模拟官方 hooks 返回）
+  const workspaces = {
+    items: [
+      { workspaceId: 'ws-1', path: '/Users/kp/DEV/dsh-plugins', title: 'dsh-plugins', sessionIds: ['s-1', 's-2'], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-07T00:00:00Z' },
+      { workspaceId: 'ws-2', path: '/Users/kp/DEV/other', title: 'other-project', sessionIds: ['s-3'], createdAt: '2026-09-02T00:00:00Z', updatedAt: '2026-09-06T00:00:00Z' },
+      { workspaceId: 'ws-3', path: '/tmp/empty', title: 'empty-ws', sessionIds: [], createdAt: '2026-09-03T00:00:00Z', updatedAt: '2026-09-03T00:00:00Z' },
+    ]
+  };
+  const sessions = {
+    byId: {
+      's-1': { id: 's-1', title: '调研 slot 机制', displayTitle: '调研 slot 机制', updatedAt: Date.now() - 3600e3, origin: 'main', blank: false, running: false },
+      's-2': { id: 's-2', title: '实现 Agent 模式', displayTitle: '实现 Agent 模式', updatedAt: Date.now() - 120e3, origin: 'main', blank: false, running: true },
+      's-3': { id: 's-3', title: '', displayTitle: 'untitled', updatedAt: Date.now() - 86400e3, origin: 'main', blank: true, running: false },
+    },
+    ids: ['s-1', 's-2', 's-3'],
+    current: 's-2'
+  };
+
+  const baseProps = {
+    useWorkspaces: (sel) => sel(workspaces),
+    useSessions: (sel) => sel(sessions),
+    wide: true,
+    startSession: (wsId) => out('pass', '↳ startSession(' + wsId + ') 被调用'),
+    open: (sid) => out('pass', '↳ open(' + sid + ') 被调用'),
+    mode: () => currentMode,
+    subscribeMode: (l) => { window.__modeListeners = window.__modeListeners || []; window.__modeListeners.push(l); return () => {}; },
+    onSwitchMode: () => { currentMode = currentMode === 'agent' ? 'official' : 'agent'; (window.__modeListeners || []).forEach(l => l()); },
+  };
+
+  // ===== 加载 client.js =====
+  const script = document.createElement('script');
+  script.src = 'fixtures/client.js';
+  script.onload = () => {
+    out('pass', 'client.js 已加载');
+    // 现在通过 apply 注册
+    try {
+      window.__loadedPlugin.apply(fakeCtx);
+      check('apply(ctx) 执行无异常', true);
+    } catch (e) {
+      check('apply(ctx) 执行无异常', false, e.message);
+    }
+
+    // 手动触发 BrowserSwitch 渲染（从注册表拿组件，模拟 slot 系统把孔位交给我们的组件）
+    const registeredComp = window.__registeredComponents && window.__registeredComponents['sidebar.workspaces'];
+    if (registeredComp && registeredComp.component) {
+      try {
+        ReactDOM.render(
+          React.createElement(registeredComp.component, baseProps),
+          document.getElementById('app')
+        );
+        check('Agent 模式渲染无异常', true);
+        setTimeout(() => {
+          const rows = document.querySelectorAll('.dsh-agent-card');
+          const avatars = document.querySelectorAll('.dsh-agent-avatar');
+          const names = document.querySelectorAll('.dsh-agent-name');
+          check('Agent 卡片已渲染', rows.length === 3, '卡片数=' + rows.length);
+          check('Agent 头像已渲染', avatars.length === 3, '头像数=' + avatars.length);
+          check('Agent 名称正确', names.length === 3 && names[0].textContent.includes('dsh-plugins'), '第一个名称=' + (names[0] ? names[0].textContent : 'N/A'));
+          // 切到 official 模式
+          currentMode = 'official';
+          try { (window.__modeListeners || []).forEach(l => l()); } catch (e) {}
+          setTimeout(() => {
+            const offGroups = document.querySelectorAll('.dsh-off-group-header');
+            check('Official 模式渲染无异常', offGroups.length === 3, '分组数=' + offGroups.length);
+            finish();
+          }, 100);
+        }, 100);
+      } catch (e) {
+        check('Agent 模式渲染无异常', false, e.message);
+        finish();
+      }
+    } else {
+      check('注册表拿到 sidebar.workspaces 组件', false, '组件缺失');
+      finish();
+    }
+  };
+  script.onerror = () => {
+    check('client.js 加载无错误', false, 'script onerror 触发');
+    finish();
+  };
+  document.head.appendChild(script);
+
+  function finish() {
+    const failed = results.filter(r => !r.ok).length;
+    out(failed === 0 ? 'pass' : 'fail', `\n==== 结果: ${results.length - failed}/${results.length} 通过 ====`);
+  }
+</script>
+</body>
+</html>

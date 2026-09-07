@@ -1,0 +1,5 @@
+# dsh-dev-agent-mode：把本插件插进 profile 的层栈（纯客户端，host 无路由）。
+- insert:
+    - id: dev-agent-mode
+      name: dsh-dev-agent-mode
+      config: {}

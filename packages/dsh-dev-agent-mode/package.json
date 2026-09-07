@@ -1,0 +1,63 @@
+{
+  "name": "dsh-dev-agent-mode",
+  "version": "0.1.0",
+  "description": "DSH 插件：左侧对话栏 Agent 模式——把 workspace 浏览器拟人化为 Agent（确定性头像+名称+路径），一键切换官方/Agent 模式，纯前端、零 host 逻辑。",
+  "license": "MIT",
+  "author": "kp-z",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "agent",
+    "sidebar",
+    "workspace",
+    "avatar",
+    "dsh-dev"
+  ],
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "pnpm run build:host && cp src/client.js lib/client.js",
+    "build:host": "tsc -p tsconfig.json",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.2"
+  }
+}
