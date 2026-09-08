@@ -12,13 +12,12 @@ window.__ModuleLoader__.load({
     //   在官方 workspace 行上注入头像元素，点头像弹选择器（色块/emoji），
     //   选择持久化到 localStorage，React 重渲染后自动重新注入（自愈）。
     // 数据：ctx.workspaces.list（title→workspaceId 匹配）；头像偏好 avatar-store。
-    // 开关：sidebar.footer.action list 孔位（优先），DOM 注入兜底。
+    // 开关：官方头部「分组方式」按钮旁注入（headerActions 内）。
 
     var AVATARS_KEY = "dsh-dev-agent-mode.avatars";
     var MODE_KEY = "dsh-dev-agent-mode.mode";
     var MODE_AGENT = "agent";
     var MODE_OFFICIAL = "official";
-    var ENTRY_ATTR = "data-dsh-agent-mode-entry";
     var AVATAR_ATTR = "data-dsh-agent-avatar";
     var PICKER_ATTR = "data-dsh-agent-picker";
 
@@ -359,33 +358,77 @@ window.__ModuleLoader__.load({
       };
     }
 
-    // ---------- 模式开关（sidebar.footer.action） ----------
-    function ModeToggle(props) {
-      var mode = props.mode();
-      return React.createElement("button", {
-        type: "button",
-        className: "dsh-agent-toggle",
-        onClick: props.onSwitch,
-        title: mode === MODE_AGENT ? "切回官方模式（隐藏头像）" : "切换为 Agent 模式（显示头像）"
-      },
-        React.createElement("span", { className: "dsh-agent-toggle-icon" }, mode === MODE_AGENT ? "🤖" : "👁️"),
-        React.createElement("span", { className: "dsh-agent-toggle-label" },
-          mode === MODE_AGENT ? "官方模式" : "Agent 模式")
-      );
+    // ---------- 模式开关：注入到官方头部「分组方式」按钮旁 ----------
+    // 官方 sectionHeader 行：sectionLabel + searchSlot + headerActions；
+    // headerActions 里第一个按钮是 ViewOptionsMenu（aria-label="视图选项"/"View options"）。
+    // 我们把模式切换按钮插在它前面（视觉上同排），不占用 footer。
+    function setupHeaderToggle(subscribeMode, notify) {
+      if (typeof document === "undefined" || typeof MutationObserver === "undefined") return function () {};
+      var TOGGLE_ATTR = "data-dsh-agent-mode-toggle";
+      var btn = null;
+
+      function makeBtn() {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.setAttribute(TOGGLE_ATTR, "");
+        b.className = "dsh-agent-header-toggle";
+        b.title = "切换 Agent 模式";
+        b.addEventListener("click", function () {
+          var m = normalizeMode(readMode());
+          writeMode(m === MODE_AGENT ? MODE_OFFICIAL : MODE_AGENT);
+          notify();
+        });
+        return b;
+      }
+      function syncLabel() {
+        if (!btn) return;
+        var agent = normalizeMode(readMode()) === MODE_AGENT;
+        btn.textContent = agent ? "🤖" : "👁️";
+        btn.setAttribute("aria-label", agent ? "Agent 模式（点击切回官方）" : "官方模式（点击切换 Agent）");
+        btn.title = agent ? "切回官方模式（隐藏头像）" : "切换为 Agent 模式（显示头像）";
+      }
+      function tryPlace() {
+        if (!btn) btn = makeBtn();
+        // 已在 DOM 就绪
+        if (btn.parentElement && document.contains(btn)) {
+          syncLabel();
+          return true;
+        }
+        // 找官方头部 actions 行：优先 aria-label 视图选项按钮的父容器
+        var viewBtn = document.querySelector('button[aria-label="视图选项"], button[aria-label="View options"]');
+        var anchor = viewBtn ? viewBtn.parentElement : null;
+        if (!anchor) {
+          // 兜底：找 sectionHeader 的 headerActions 容器
+          var headers = document.querySelectorAll('[class*="sectionHeader"] [class*="headerActions"]');
+          if (headers.length > 0) anchor = headers[headers.length - 1];
+        }
+        if (!anchor || btn.parentElement === anchor) return anchor !== null;
+        anchor.insertBefore(btn, anchor.firstChild);
+        syncLabel();
+        return true;
+      }
+      var observer = new MutationObserver(function () {
+        if (window.__headerToggleFlush) clearTimeout(window.__headerToggleFlush);
+        window.__headerToggleFlush = setTimeout(tryPlace, 80);
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      tryPlace();
+      var unsub = subscribeMode(function () { syncLabel(); });
+      return function () {
+        if (window.__headerToggleFlush) clearTimeout(window.__headerToggleFlush);
+        observer.disconnect();
+        if (unsub) unsub();
+        if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+        btn = null;
+      };
     }
 
     // ---------- 注册 ----------
     function apply(ctx) {
       var listeners = new Set();
-      var currentMode = readMode();
 
       function notify() {
         listeners.forEach(function (l) { try { l(); } catch (e) { /* ignore */ } });
-      }
-      function setMode(m) {
-        currentMode = normalizeMode(m);
-        writeMode(currentMode);
-        notify();
       }
       function subscribeMode(l) {
         listeners.add(l);
@@ -402,71 +445,9 @@ window.__ModuleLoader__.load({
       var disposeInjection = setupAvatarInjection(ctx, subscribeMode);
       ctx.effect(function () { return disposeInjection; });
 
-      // sidebar.footer.action：模式开关（list 孔位，id 冲突 fallback DOM 注入）
-      var footerRegistered = false;
-      ctx.slots.inject("sidebar.footer.action", function () {
-        try {
-          var dispose = ctx.slots.register({
-            name: "sidebar.footer.action",
-            id: "agent-mode-toggle",
-            locale: "agent-mode",
-            inject: function () {
-              return {
-                mode: function () { return currentMode; },
-                onSwitch: function () { setMode(currentMode === MODE_AGENT ? MODE_OFFICIAL : MODE_AGENT); }
-              };
-            }
-          }, ModeToggle);
-          footerRegistered = true;
-          return dispose;
-        } catch (e) {
-          console.warn("[dsh-dev-agent-mode] footer 开关注册失败，改用 DOM 注入：", e && e.message ? e.message : e);
-          return function () {};
-        }
-      });
-
-      if (!footerRegistered) {
-        try {
-          var disposeDom = mountDomToggle();
-          ctx.effect(function () { return disposeDom; });
-        } catch (e) { /* 忽略 */ }
-      }
-    }
-
-    // ---------- DOM 兜底开关（footer 孔位不可用时） ----------
-    function mountDomToggle() {
-      if (typeof document === "undefined") return function () {};
-      var existing = document.querySelector("[" + ENTRY_ATTR + "]");
-      if (existing) return function () {};
-
-      var btn = document.createElement("button");
-      btn.type = "button";
-      btn.setAttribute(ENTRY_ATTR, "");
-      btn.className = "dsh-agent-toggle";
-      btn.textContent = "🤖 Agent 模式";
-      btn.title = "切换左侧栏为 Agent 模式";
-      btn.addEventListener("click", function () {
-        var m = normalizeMode(readMode());
-        writeMode(m === MODE_AGENT ? MODE_OFFICIAL : MODE_AGENT);
-        notify();
-      });
-
-      function tryPlace() {
-        var col = document.querySelector('[data-pane="sidebar"], [class*="sidebarCol"]');
-        if (!col) return false;
-        var logoRow = col.querySelector('[class*="logoRow"]');
-        var root = logoRow ? logoRow.parentElement : col.firstElementChild;
-        if (!root || btn.parentElement === root) return root !== null;
-        root.appendChild(btn);
-        return true;
-      }
-      var observer = new MutationObserver(function () { tryPlace(); });
-      observer.observe(document.body, { childList: true, subtree: true });
-      tryPlace();
-      return function () {
-        observer.disconnect();
-        btn.remove();
-      };
+      // 头部「分组方式」旁的模式切换按钮（官方 headerActions 内注入）
+      var disposeHeaderToggle = setupHeaderToggle(subscribeMode, notify);
+      ctx.effect(function () { return disposeHeaderToggle; });
     }
 
     // ---------- CSS ----------
@@ -488,14 +469,16 @@ window.__ModuleLoader__.load({
       ".dsh-agent-picker-emoji:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f5f9)}",
       ".dsh-agent-picker-reset{display:block;width:100%;margin-top:10px;padding:5px 0;border:1px solid var(--dsw-alias-border-l2,#e2e8f0);background:transparent;color:var(--dsw-alias-label-secondary,#334155);cursor:pointer;border-radius:6px;font-size:12px}",
       ".dsh-agent-picker-reset:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f5f9)}",
-      // 开关
-      ".dsh-agent-toggle{display:flex;align-items:center;gap:6px;padding:6px 10px;border:none;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;border-radius:8px;font-size:13px;line-height:20px;width:100%;text-align:left}",
-      ".dsh-agent-toggle:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}",
-      ".dsh-agent-toggle-icon{font-size:14px}",
-      "@media (max-width:640px){.dsh-agent-toggle-label{display:none}}"
+      // 头部模式切换按钮（官方 headerActions 同款 28px 图标按钮）
+      ".dsh-agent-header-toggle{corner-shape:round;cursor:pointer;width:28px;height:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:50%;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex;font-size:14px}",
+      ".dsh-agent-header-toggle:hover{background:var(--dsw-alias-interactive-bg-hover)}"
     ].join("\n");
 
-    module.exports = { name: "dev-agent-mode", apply: apply };
+    module.exports = {
+      name: "dev-agent-mode",
+      inject: ["slots"],
+      apply: apply
+    };
     return module.exports;
   }
 });

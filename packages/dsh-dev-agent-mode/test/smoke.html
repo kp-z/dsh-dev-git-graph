@@ -20,6 +20,14 @@
 <div id="log"></div>
 
 <div id="sidebar" data-pane="sidebar">
+  <div class="sectionHeader">
+    <span class="sectionLabel">Workspaces</span>
+    <div class="searchSlot"></div>
+    <div class="headerActions">
+      <button type="button" aria-label="视图选项" title="视图选项">⚙</button>
+      <button type="button" aria-label="添加工作区">＋</button>
+    </div>
+  </div>
   <div role="treeitem" class="projectRow ws-row">
     <span class="slot folder">📁</span>
     <span class="projectText"><span class="title">dsh-plugins</span></span>
@@ -133,7 +141,35 @@
       check('ws-1 头像为默认色块', ws1Avatar && ws1Avatar.dataset.kind === 'default' && ws1Avatar.textContent === 'D', 'kind=' + (ws1Avatar && ws1Avatar.dataset.kind) + ' text=' + (ws1Avatar && ws1Avatar.textContent));
       check('ws-1 头像有确定性渐变背景', ws1Avatar && ws1Avatar.style.background.includes('linear-gradient'));
 
-      // 3. 点击头像弹选择器
+      // 2.5 头部「分组方式」旁的模式切换按钮
+      const toggle = document.querySelector('[data-dsh-agent-mode-toggle]');
+      check('头部注入模式切换按钮', !!toggle, toggle ? ('位置=' + (toggle.parentElement.className || 'N/A')) : '');
+      if (toggle) {
+        const headerActions = toggle.parentElement;
+        check('按钮在 headerActions 内（分组方式按钮旁）', !!headerActions && headerActions.className.includes('headerActions'), 'parent=' + (headerActions && headerActions.className));
+        const viewBtn = headerActions.querySelector('button[aria-label="视图选项"]');
+        check('与视图选项按钮同容器', !!viewBtn);
+        check('默认 Agent 模式显示 🤖', toggle.textContent === '🤖', 'text=' + toggle.textContent);
+
+        // 点击切官方模式 -> 头像移除
+        toggle.click();
+        setTimeout(() => {
+          const avatarsOff = document.querySelectorAll('[data-dsh-agent-avatar]');
+          check('点击切换后头像移除', avatarsOff.length === 0, '头像=' + avatarsOff.length);
+          check('切官方模式按钮变 👁️', toggle.textContent === '👁️', 'text=' + toggle.textContent);
+
+          // 再点击切回 Agent -> 头像恢复
+          toggle.click();
+          setTimeout(() => {
+            const avatarsBack = document.querySelectorAll('[data-dsh-agent-avatar]');
+            check('切回 Agent 头像恢复', avatarsBack.length === 2, '头像=' + avatarsBack.length);
+            continueFlow();
+          }, 120);
+        }, 120);
+        return; // 异步继续走 continueFlow
+      }
+      function continueFlow() {
+        // 3. 点击头像弹选择器
       ws1Avatar.click();
       setTimeout(() => {
         const picker = document.querySelector('[data-dsh-agent-picker]');
@@ -181,17 +217,8 @@
                     const avatarsAfter = document.querySelectorAll('[data-dsh-agent-avatar="ws-1"]');
                     check('重渲染后自愈重新注入', avatarsAfter.length === 1, '头像=' + avatarsAfter.length);
 
-                    // 8. 模式开关：切官方模式 -> 头像移除
-                    localStorage.setItem('dsh-dev-agent-mode.mode', 'official');
-                    // 触发一次 DOM 变更让 observer 跑 removeAll
-                    const tmp = document.createElement('div');
-                    document.body.appendChild(tmp);
-                    tmp.remove();
-                    setTimeout(() => {
-                      const avatarsOff = document.querySelectorAll('[data-dsh-agent-avatar]');
-                      check('切官方模式后头像移除', avatarsOff.length === 0, '头像=' + avatarsOff.length);
-                      finish();
-                    }, 200);
+                    // 7.5 收尾
+                    finish();
                   }, 120);
                 }, 80);
               }, 60);
@@ -199,6 +226,7 @@
           }, 60);
         }, 60);
       }, 60);
+      }
     }, 500);
   };
   script.onerror = () => {

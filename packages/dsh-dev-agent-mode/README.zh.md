@@ -10,7 +10,7 @@
 - **点击头像**弹出选择器：8 个预设色块 / 12 个 emoji / 重置默认；
 - 选择持久化到 `localStorage`，刷新后保持；
 - 官方全部功能（展开/折叠/新建/重命名/删除/拖拽/搜索）**原样保留**；
-- 左下角开关可切换 **Agent 模式（显示头像）↔ 官方模式（隐藏头像）**。
+- 左侧栏头部「分组方式」按钮旁的模式切换按钮（🤖 Agent 模式 ↔ 👁️ 官方模式）。
 
 ## 安装
 
@@ -28,7 +28,7 @@ dsh plugin --profile web add file:/path/to/dsh-plugins/packages/dsh-dev-agent-mo
 | 定位 | `ctx.workspaces.list.getSnapshot()` 建 title→workspaceId 索引（行 DOM 无 id 属性） |
 | 持久化 | `localStorage['dsh-dev-agent-mode.avatars']` = `{ [workspaceId]: {type:'color',hue} \| {type:'emoji',char} }` |
 | 自愈 | React 重渲染替换行 DOM 后，MutationObserver 自动重新注入（清旧+注入） |
-| 开关 | `sidebar.footer.action` list 孔位（id 键控）；占用冲突时 DOM 注入兜底（仿 task-board） |
+| 开关 | DOM 注入到官方头部 `headerActions`（分组方式按钮旁），不占用 footer 孔位 |
 | 构建 | 无打包器：`src/client.js` 拷贝为 `lib/client.js`（IIFE，仿 dsh-dev-git-graph） |
 
 详见 [`docs/DESIGN-dsh-dev-agent-mode.md`](../../docs/DESIGN-dsh-dev-agent-mode.md)。
