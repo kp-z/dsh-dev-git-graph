@@ -63,6 +63,41 @@ test('parseAvatarMap: 合法表解析 + 非法项剔除', () => {
   assert.deepEqual(map.get('ws-2'), { type: 'emoji', char: '🦊' });
 });
 
+test('normalizeAvatarSpec: image 类型', () => {
+  const tiny = 'data:image/png;base64,iVBORw0KGgo=';
+  assert.deepEqual(normalizeAvatarSpec({ type: 'image', dataUrl: tiny }), { type: 'image', dataUrl: tiny });
+  // 非 data:image/ 前缀拒绝
+  assert.equal(normalizeAvatarSpec({ type: 'image', dataUrl: 'data:text/plain;base64,xxx' }), null);
+  assert.equal(normalizeAvatarSpec({ type: 'image', dataUrl: 'https://example.com/a.png' }), null);
+  // 空 dataUrl 拒绝
+  assert.equal(normalizeAvatarSpec({ type: 'image', dataUrl: '' }), null);
+  // 超上限拒绝（> 200KB）
+  const big = 'data:image/png;base64,' + 'A'.repeat(200_001);
+  assert.equal(normalizeAvatarSpec({ type: 'image', dataUrl: big }), null);
+  // 恰好等于上限允许（前缀 22 字符 + 199978 = 200000）
+  const exact = 'data:image/png;base64,' + 'A'.repeat(199_978);
+  assert.deepEqual(normalizeAvatarSpec({ type: 'image', dataUrl: exact }), { type: 'image', dataUrl: exact });
+});
+
+test('parseAvatarMap: 解析 image 项', () => {
+  const map = parseAvatarMap(JSON.stringify({
+    'ws-img': { type: 'image', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' },
+    'ws-bad': { type: 'image', dataUrl: 'data:text/plain;base64,xxx' }, // 非法剔除
+  }));
+  assert.equal(map.size, 1);
+  assert.deepEqual(map.get('ws-img'), { type: 'image', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' });
+});
+
+test('createAvatarStore: image 头像读写往返 + 持久化', () => {
+  const storage = mockStorage();
+  const store = createAvatarStore(storage);
+  const spec = { type: 'image', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' };
+  assert.equal(store.set('ws-img', spec), true);
+  assert.deepEqual(store.get('ws-img'), spec);
+  const store2 = createAvatarStore(storage);
+  assert.deepEqual(store2.get('ws-img'), spec);
+});
+
 test('createAvatarStore: 默认无偏好 (get 返回 null)', () => {
   const store = createAvatarStore(mockStorage());
   assert.equal(store.get('ws-1'), null);

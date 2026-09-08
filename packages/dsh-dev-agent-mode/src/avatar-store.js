@@ -2,7 +2,7 @@
  * dsh-dev-agent-mode —— avatar-store：workspace 头像偏好（可单测，纯逻辑）。
  *
  * 职责：
- * - 每个 workspace（按 workspaceId）的头像偏好：默认（确定性色块）/ 自定义色相 / emoji；
+ * - 每个 workspace（按 workspaceId）的头像偏好：默认（确定性色块）/ 自定义色相 / emoji / 上传图片；
  * - 持久化到 localStorage（键 dsh-dev-agent-mode.avatars），不可用时内存态兜底；
  * - 订阅通知（头像变更联动 UI）；
  * - 纯逻辑：存储介质通过参数注入（便于单测）。
@@ -10,11 +10,13 @@
 
 const STORAGE_KEY = 'dsh-dev-agent-mode.avatars';
 const MAX_AVATARS = 200; // 防御：防 localStorage 被写爆
+/** 图片头像 dataURL 上限（200KB），防 localStorage 爆。 */
+export const MAX_IMAGE_DATA_URL = 200_000;
 
 /**
  * 归一化任意输入为合法 avatarSpec；非法输入回退 null（= 用默认派生）。
  * @param value 未知输入（localStorage 可能被篡改/损坏）
- * @returns {type:'color',hue} | {type:'emoji',char} | null
+ * @returns {type:'color',hue} | {type:'emoji',char} | {type:'image',dataUrl} | null
  */
 export function normalizeAvatarSpec(value) {
   if (value === null || value === undefined) return null;
@@ -30,6 +32,14 @@ export function normalizeAvatarSpec(value) {
     const char = String(value.char ?? '');
     if (char.length > 0 && char.length <= 4) {
       return { type: 'emoji', char };
+    }
+    return null;
+  }
+  if (value.type === 'image') {
+    const dataUrl = String(value.dataUrl ?? '');
+    // 必须是 data:image/ 前缀且不超上限
+    if (dataUrl.startsWith('data:image/') && dataUrl.length > 0 && dataUrl.length <= MAX_IMAGE_DATA_URL) {
+      return { type: 'image', dataUrl };
     }
     return null;
   }
