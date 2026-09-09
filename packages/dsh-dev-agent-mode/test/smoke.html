@@ -9,6 +9,9 @@
   .pass { color: #22c55e; }
   .fail { color: #ef4444; }
   #sidebar { margin-top: 12px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; background: #fff; width: 260px; font-family: system-ui; }
+  /* 复刻官方 sectionHeader/headerActions 布局约束（官方 headerActions: max-width:60px + overflow:hidden） */
+  #sidebar .sectionHeader { display: flex; justify-content: flex-end; align-items: center; gap: 4px; margin-bottom: 4px; }
+  #sidebar .headerActions { display: flex; align-items: center; gap: 4px; max-width: 60px; overflow: hidden; flex: none; }
   #sidebar [role="treeitem"] { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
   #sidebar [role="treeitem"]:hover { background: #f1f5f9; }
   #sidebar [class*="folder"] { width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
@@ -164,10 +167,14 @@
       const toggle = document.querySelector('[data-dsh-agent-mode-toggle]');
       check('头部注入模式切换按钮', !!toggle, toggle ? ('位置=' + (toggle.parentElement.className || 'N/A')) : '');
       if (toggle) {
-        const headerActions = toggle.parentElement;
-        check('按钮在 headerActions 内（分组方式按钮旁）', !!headerActions && headerActions.className.includes('headerActions'), 'parent=' + (headerActions && headerActions.className));
-        const viewBtn = headerActions.querySelector('button[aria-label="视图选项"]');
-        check('与视图选项按钮同容器', !!viewBtn);
+        const sectionHeader = toggle.parentElement;
+        check('按钮在 sectionHeader 内', !!sectionHeader && sectionHeader.className.includes('sectionHeader'), 'parent=' + (sectionHeader && sectionHeader.className));
+        // 关键：不能进 headerActions（官方 max-width:60px+overflow:hidden 会裁掉按钮）
+        const headerActions = sectionHeader.querySelector('[class*="headerActions"]');
+        check('按钮不在 headerActions 内（避免被裁剪）', toggle.parentElement !== headerActions, 'parent=' + (toggle.parentElement && toggle.parentElement.className));
+        check('sectionHeader 含官方 headerActions', !!headerActions);
+        const viewBtn = headerActions && headerActions.querySelector('button[aria-label="视图选项"], button[aria-label="View options"]');
+        check('官方视图选项按钮存在', !!viewBtn);
         // 按钮 = 纯图标(SVG)，无文字、不用 emoji
         const toggleSvg = toggle.querySelector('svg');
         check('按钮含 SVG 图标', !!toggleSvg, 'svg=' + !!toggleSvg);

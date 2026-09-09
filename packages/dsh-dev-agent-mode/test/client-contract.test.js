@@ -23,6 +23,6 @@ test("client module declares the slots injection it consumes", () => {
   });
 
   assert.equal(plugin.name, "dev-agent-mode");
-  assert.deepEqual(Array.from(plugin.inject), ["slots"]);
+  assert.deepEqual(Array.from(plugin.inject), ["slots", "workspaces"]);
   assert.equal(typeof plugin.apply, "function");
 });

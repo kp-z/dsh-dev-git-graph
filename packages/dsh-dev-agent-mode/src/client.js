@@ -581,19 +581,22 @@ window.__ModuleLoader__.load({
       var workspacesService = null;
       try { workspacesService = ctx.get("workspaces"); } catch (e) { workspacesService = null; }
 
-      // title -> workspaceId 映射（workspaces.list 快照）
+      // title -> workspaceId 映射（workspaces.list 快照；拿不到服务时退化为 title 本身）
+      // 说明：官方 dsh-api-workspace-controller 提供 workspaces 服务，但本插件是纯 DOM 增强、
+      // 不应强制依赖服务加载顺序；拿不到服务就用 title 作为头像 key（真实环境 title 唯一）。
       function workspaceIndex() {
         var byTitle = {};
+        var snap = null;
         try {
-          var snap = workspacesService && workspacesService.list && workspacesService.list.getSnapshot();
-          var items = (snap && snap.items) || [];
-          for (var i = 0; i < items.length; i++) {
-            var ws = items[i];
-            if (ws && typeof ws.title === "string" && ws.title !== "" && !byTitle[ws.title]) {
-              byTitle[ws.title] = ws.workspaceId;
-            }
+          snap = workspacesService && workspacesService.list && workspacesService.list.getSnapshot();
+        } catch (e) { /* 服务不可用 */ }
+        var items = (snap && snap.items) || [];
+        for (var i = 0; i < items.length; i++) {
+          var ws = items[i];
+          if (ws && typeof ws.title === "string" && ws.title !== "" && !byTitle[ws.title]) {
+            byTitle[ws.title] = ws.workspaceId || ws.title;
           }
-        } catch (e) { /* 服务不可用：空索引 */ }
+        }
         return byTitle;
       }
 
@@ -608,7 +611,8 @@ window.__ModuleLoader__.load({
 
         var byTitle = workspaceIndex();
         var workspaceId = byTitle[title];
-        if (!workspaceId) return; // 匹配不到（重命名竞态/未加载），下轮再试
+        if (!workspaceId) workspaceId = title; // 兜底：即使 title 也不在索引里，直接用 title
+        if (!workspaceId) return;
 
         // 头像元素插到 folder 图标前（视觉上替换文件夹图标）
         var avatar = renderAvatarEl(workspaceId, title, readAvatarMap()[workspaceId] || null);
@@ -793,16 +797,17 @@ window.__ModuleLoader__.load({
           syncIcon();
           return true;
         }
-        // 找官方头部 actions 行：优先 aria-label 视图选项按钮的父容器
-        var viewBtn = document.querySelector('button[aria-label="视图选项"], button[aria-label="View options"]');
-        var anchor = viewBtn ? viewBtn.parentElement : null;
-        if (!anchor) {
-          // 兜底：找 sectionHeader 的 headerActions 容器
-          var headers = document.querySelectorAll('[class*="sectionHeader"] [class*="headerActions"]');
-          if (headers.length > 0) anchor = headers[headers.length - 1];
-        }
+        // 官方 sectionHeader（flex，justify-content:flex-end）：
+        // children = [sectionLabel?, searchSlot?, headerActions]
+        // 注意：按钮不能插进 headerActions 内部——官方 headerActions 有
+        // max-width:60px + overflow:hidden，多插一个按钮会被裁掉（真实环境点击无反应）。
+        // 正确做法：插到 sectionHeader 末尾（headerActions 之后），
+        // flex 布局会把它排在最右，不被裁剪。
+        var headers = document.querySelectorAll('[class*="sectionHeader"]');
+        var anchor = null;
+        if (headers.length > 0) anchor = headers[headers.length - 1];
         if (!anchor || btn.parentElement === anchor) return anchor !== null;
-        anchor.insertBefore(btn, anchor.firstChild);
+        anchor.appendChild(btn);
         syncIcon();
         return true;
       }
@@ -892,14 +897,14 @@ window.__ModuleLoader__.load({
       ".dsh-agent-picker-reset{display:block;width:100%;margin-top:10px;padding:5px 0;border:1px solid var(--dsw-alias-border-l2,#e2e8f0);background:transparent;color:var(--dsw-alias-label-secondary,#334155);cursor:pointer;border-radius:6px;font-size:12px}",
       ".dsh-agent-picker-reset:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f5f9)}",
       // 头部模式切换按钮（纯图标，官方 headerActions 同款 28px）
-      ".dsh-agent-header-toggle{corner-shape:round;cursor:pointer;height:28px;width:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:14px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex}",
+      ".dsh-agent-header-toggle{corner-shape:round;cursor:pointer;height:28px;width:28px;color:var(--dsw-alias-label-secondary);background:0 0;border:none;border-radius:14px;flex:none;justify-content:center;align-items:center;padding:0;display:inline-flex;margin-left:4px}",
       ".dsh-agent-header-toggle:hover{background:var(--dsw-alias-interactive-bg-hover)}",
       ".dsh-agent-header-toggle svg{flex:none}",
     ].join("\n");
 
     module.exports = {
       name: "dev-agent-mode",
-      inject: ["slots"],
+      inject: ["slots", "workspaces"],
       apply: apply
     };
     return module.exports;

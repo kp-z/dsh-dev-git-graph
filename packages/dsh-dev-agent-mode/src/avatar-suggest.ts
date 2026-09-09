@@ -275,7 +275,7 @@ async function handle(services: AvatarSuggestServices, req: http.IncomingMessage
 export function mountAvatarSuggest(ctx: Context): Array<() => void> {
 	let webServer: WebServerLike | null = null;
 	try {
-		webServer = ctx.get('webServer') as unknown as WebServerLike;
+		webServer = (ctx.get('webServer') ?? null) as unknown as WebServerLike;
 	} catch {
 		webServer = null;
 	}
