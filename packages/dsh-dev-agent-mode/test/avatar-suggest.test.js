@@ -138,14 +138,70 @@ test('sanitizeSvg: 自闭合与嵌套标签闭合正确', () => {
 });
 
 // ---------- 路由 ----------
-test('路由: 注册 exact POST 路由', async () => {
+test('路由: 注册 exact 路由（avatar-models + avatar-suggest）', async () => {
   const webServer = mockWebServer();
-  const disposers = registerAvatarSuggestRoutes({ webServer, streamText: async () => OK_SVG, currentSelection: () => ({ provider: 'p', model: 'm' }) });
-  assert.equal(webServer.routes.length, 1);
-  assert.equal(webServer.routes[0].path, '/dsh-dev-agent-mode/api/avatar-suggest');
-  assert.equal(webServer.routes[0].kind, 'exact');
+  const disposers = registerAvatarSuggestRoutes({ webServer, streamText: async () => OK_SVG, currentSelection: () => ({ provider: 'p', model: 'm' }), listModels: null });
+  assert.equal(webServer.routes.length, 2);
+  const paths = webServer.routes.map((r) => r.path).sort();
+  assert.deepEqual(paths, ['/dsh-dev-agent-mode/api/avatar-models', '/dsh-dev-agent-mode/api/avatar-suggest']);
+  assert.ok(webServer.routes.every((r) => r.kind === 'exact'));
   disposers.forEach((d) => d());
   assert.equal(webServer.routes.length, 0);
+});
+test('路由: GET /avatar-models 返回模型候选 + 当前默认选中', async () => {
+  const webServer = mockWebServer();
+  registerAvatarSuggestRoutes({
+    webServer,
+    streamText: async () => OK_SVG,
+    currentSelection: () => ({ provider: 'deepseek', model: 'deepseek-chat' }),
+    listModels: async () => [
+      { provider: 'deepseek', providerName: 'DeepSeek', models: [{ id: 'deepseek-chat', name: 'deepseek-chat' }, { id: 'deepseek-reasoner', name: 'deepseek-reasoner' }] },
+      { provider: 'pi-ai', providerName: 'PI AI', models: [{ id: 'pi-model', name: 'PI Model' }] },
+    ],
+  });
+  const res = await webServer.call('/dsh-dev-agent-mode/api/avatar-models', null, 'GET');
+  assert.equal(res.status, 200);
+  const body = res.json();
+  assert.equal(body.providers.length, 2);
+  assert.equal(body.providers[0].provider, 'deepseek');
+  assert.equal(body.providers[0].models.length, 2);
+  assert.deepEqual(body.selection, { provider: 'deepseek', model: 'deepseek-chat' });
+});
+test('路由: GET /avatar-models 无 llm 时返回空列表', async () => {
+  const webServer = mockWebServer();
+  registerAvatarSuggestRoutes({ webServer, streamText: async () => OK_SVG, currentSelection: () => ({ provider: 'p', model: 'm' }), listModels: null });
+  const res = await webServer.call('/dsh-dev-agent-mode/api/avatar-models', null, 'GET');
+  assert.equal(res.status, 200);
+  const body = res.json();
+  assert.deepEqual(body.providers, []);
+});
+test('路由: 显式指定 provider/model 覆盖默认模型', async () => {
+  const webServer = mockWebServer();
+  let captured = null;
+  registerAvatarSuggestRoutes({
+    webServer,
+    streamText: async (opts) => { captured = opts; return OK_SVG; },
+    currentSelection: () => ({ provider: 'p1', model: 'm1' }),
+    listModels: null,
+  });
+  const res = await webServer.call('/dsh-dev-agent-mode/api/avatar-suggest', { prompt: '蓝色机器人', provider: 'p2', model: 'm2' });
+  assert.equal(res.status, 200);
+  assert.equal(captured.provider, 'p2');
+  assert.equal(captured.model, 'm2');
+});
+test('路由: 显式模型只给 provider 不给 model 时用默认', async () => {
+  const webServer = mockWebServer();
+  let captured = null;
+  registerAvatarSuggestRoutes({
+    webServer,
+    streamText: async (opts) => { captured = opts; return OK_SVG; },
+    currentSelection: () => ({ provider: 'p1', model: 'm1' }),
+    listModels: null,
+  });
+  const res = await webServer.call('/dsh-dev-agent-mode/api/avatar-suggest', { prompt: '猫', provider: 'p2' });
+  assert.equal(res.status, 200);
+  assert.equal(captured.provider, 'p1'); // 回退默认
+  assert.equal(captured.model, 'm1');
 });
 test('路由: GET 方法 405', async () => {
   const webServer = mockWebServer();

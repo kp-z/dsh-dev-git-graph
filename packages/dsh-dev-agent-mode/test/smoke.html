@@ -272,11 +272,17 @@
       }
 
       function continueColorFlow() {
-        // 重开 picker 走原来的色块/emoji 流程
+        // 重开 picker 走色块流程
         const avatar = document.querySelector('[data-dsh-agent-avatar="ws-1"]');
         avatar.click();
         setTimeout(() => {
           const picker3 = document.querySelector('[data-dsh-agent-picker]');
+
+        // 3.5 面板结构：无 emoji 区块（用户 2026-09-09 拍板移除）、AI 模型下拉、AI 描述 textarea
+        check('面板不含 Emoji 区块（已移除）', !picker3.querySelector('.dsh-agent-picker-emoji, [class*="picker-emoji"]'), 'emoji区块=' + !!picker3.querySelector('[class*="emoji"]'));
+        check('面板含 AI 模型下拉', !!picker3.querySelector('.dsh-agent-picker-model-select'), 'modelSelect=' + !!picker3.querySelector('.dsh-agent-picker-model-select'));
+        const aiTextarea = picker3.querySelector('.dsh-agent-picker-ai-input');
+        check('AI 描述为多行 textarea', !!aiTextarea && aiTextarea.tagName === 'TEXTAREA', 'tag=' + (aiTextarea && aiTextarea.tagName));
 
         // 4. 选择色块 -> 头像更新 + localStorage 持久化
         const swatch = picker3.querySelector('.dsh-agent-picker-swatch');
@@ -287,17 +293,17 @@
           const stored = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.avatars') || '{}');
           check('头像偏好已持久化到 localStorage', stored['ws-1'] && stored['ws-1'].type === 'color', JSON.stringify(stored));
 
-          // 5. 再点头像选 emoji
+          // 5.1 再选一个不同色块（验证二次选择仍工作）
           updated.click();
           setTimeout(() => {
             const picker5 = document.querySelector('[data-dsh-agent-picker]');
-            const emojiBtn = picker5.querySelector('.dsh-agent-picker-emoji');
-            emojiBtn.click();
+            const swatches5 = picker5.querySelectorAll('.dsh-agent-picker-swatch');
+            swatches5[1].click();
             setTimeout(() => {
               const updated2 = document.querySelector('[data-dsh-agent-avatar="ws-1"]');
-              check('选 emoji 后头像为 emoji', updated2 && updated2.dataset.kind === 'emoji' && updated2.textContent.length > 0, 'text=' + (updated2 && updated2.textContent));
+              check('二次选色块后头像更新', updated2 && updated2.dataset.kind === 'color', 'kind=' + (updated2 && updated2.dataset.kind));
               const stored2 = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.avatars') || '{}');
-              check('emoji 偏好持久化', stored2['ws-1'] && stored2['ws-1'].type === 'emoji', JSON.stringify(stored2));
+              check('二次选择偏好已持久化', stored2['ws-1'] && stored2['ws-1'].type === 'color', JSON.stringify(stored2));
 
               // 5.5 图片头像：直接写 store -> 渲染为 image（background-image）
               const imgDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
@@ -316,15 +322,15 @@
                 check('图片头像用 background-image', imgAvatar && imgAvatar.style.backgroundImage.includes('data:image/png'), 'bg=' + (imgAvatar && imgAvatar.style.backgroundImage.slice(0, 40)));
                 out('pass', '诊断: image bg=' + (imgAvatar && imgAvatar.style.backgroundImage.slice(0, 30)));
 
-                // 6. 重置默认（先切回 emoji 再重置）
-                localStorage.setItem('dsh-dev-agent-mode.avatars', JSON.stringify({ 'ws-1': { type: 'emoji', char: '🦊' } }));
+                // 6. 重置默认（先写色块再重置）
+                localStorage.setItem('dsh-dev-agent-mode.avatars', JSON.stringify({ 'ws-1': { type: 'color', hue: 90 } }));
                 const tmp2 = document.createElement('div');
                 document.body.appendChild(tmp2);
                 tmp2.remove();
                 setTimeout(() => {
-                  // 等 observer 自愈完成（emoji 头像重建后再点击）
-                  const emojiAvatar = document.querySelector('[data-dsh-agent-avatar="ws-1"]');
-                  emojiAvatar.click();
+                  // 等 observer 自愈完成（色块头像重建后再点击）
+                  const colorAvatar = document.querySelector('[data-dsh-agent-avatar="ws-1"]');
+                  colorAvatar.click();
                   setTimeout(() => {
                     const picker6 = document.querySelector('[data-dsh-agent-picker]');
                     picker6.querySelector('.dsh-agent-picker-reset').click();

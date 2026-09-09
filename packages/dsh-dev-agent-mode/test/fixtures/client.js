@@ -170,9 +170,8 @@ window.__ModuleLoader__.load({
       return "emoji:" + String(spec.char);
     }
 
-    // ---------- 头像配置窗口（portal，点外部/ESC 关闭；支持预选头像/AI 生成/上传图片/色块/emoji/重置） ----------
+    // ---------- 头像配置窗口（portal，点外部/ESC 关闭；支持预选头像/AI 生成/上传图片/色块/重置） ----------
     var PRESET_HUES = [210, 262, 325, 14, 152, 90, 190, 45];
-    var PRESET_EMOJIS = ["🤖", "👩‍💻", "🧑‍💻", "🦊", "🐱", "🐶", "👻", "🌟", "🚀", "🛠️", "📦", "🔮"];
     var MAX_IMAGE_DATA_URL = 200000; // 200KB，与 avatar-store 一致
     var BITMAP_COMPRESS_THRESHOLD = 150000; // 位图 dataURL 超 150KB 即 Canvas 压缩
     var AI_API = "/dsh-dev-agent-mode/api/avatar-suggest";
@@ -367,20 +366,89 @@ window.__ModuleLoader__.load({
       var aiRow = document.createElement("div");
       aiRow.className = "dsh-agent-picker-row";
       aiRow.textContent = "AI 生成";
-      var aiInputRow = document.createElement("div");
-      aiInputRow.className = "dsh-agent-picker-ai-inputrow";
-      var aiInput = document.createElement("input");
-      aiInput.type = "text";
+      // 模型下拉（候选来自 GET /avatar-models；加载失败/无列表时降级为「默认模型」单选项）
+      var aiModelRow = document.createElement("div");
+      aiModelRow.className = "dsh-agent-picker-modelrow";
+      var aiModelLabel = document.createElement("label");
+      aiModelLabel.className = "dsh-agent-picker-model-label";
+      aiModelLabel.textContent = "模型";
+      var aiModelSelect = document.createElement("select");
+      aiModelSelect.className = "dsh-agent-picker-model-select";
+      // 初始单选项：默认模型（未加载到列表前的占位）
+      var placeholderOpt = document.createElement("option");
+      placeholderOpt.value = "";
+      placeholderOpt.textContent = "默认模型";
+      aiModelSelect.appendChild(placeholderOpt);
+      // 当前选中的 provider/model（生成时随 body 提交；空=用默认）
+      var aiSelection = { provider: "", model: "" };
+      aiModelRow.appendChild(aiModelLabel);
+      aiModelRow.appendChild(aiModelSelect);
+      aiRow.appendChild(aiModelRow);
+      // 描述输入：多行 textarea（复杂描述更友好）
+      var aiInput = document.createElement("textarea");
       aiInput.className = "dsh-agent-picker-ai-input";
-      aiInput.placeholder = "描述头像，如：赛博朋克猫";
-      aiInput.maxLength = 200;
+      aiInput.placeholder = "描述你想要的头像，可以写复杂一点，如：一只戴宇航头盔的橘猫，扁平插画风，深蓝背景";
+      aiInput.maxLength = 400;
+      aiInput.rows = 3;
       var aiBtn = document.createElement("button");
       aiBtn.type = "button";
       aiBtn.className = "dsh-agent-picker-ai-btn";
       aiBtn.textContent = "生成";
-      aiInputRow.appendChild(aiInput);
-      aiInputRow.appendChild(aiBtn);
-      aiRow.appendChild(aiInputRow);
+      var aiInputWrap = document.createElement("div");
+      aiInputWrap.className = "dsh-agent-picker-ai-inputrow";
+      aiInputWrap.appendChild(aiInput);
+      aiInputWrap.appendChild(aiBtn);
+      aiRow.appendChild(aiInputWrap);
+      // 加载模型候选（失败静默降级为「默认模型」）
+      fetch("/dsh-dev-agent-mode/api/avatar-models").then(function (r) {
+        return r.json();
+      }).then(function (body) {
+        var providers = body && Array.isArray(body.providers) ? body.providers : [];
+        var sel = body && body.selection ? body.selection : null;
+        if (providers.length === 0) return; // 无候选：保持「默认模型」单选项
+        // 清空占位，按 provider 分组填充
+        aiModelSelect.textContent = "";
+        // 选项值编码 provider||model，避免歧义
+        function addOption(label, value) {
+          var o = document.createElement("option");
+          o.value = value;
+          o.textContent = label;
+          aiModelSelect.appendChild(o);
+          return o;
+        }
+        var matched = false;
+        providers.forEach(function (p) {
+          var group = document.createElement("optgroup");
+          group.label = p.providerName || p.provider;
+          p.models.forEach(function (m) {
+            var o = document.createElement("option");
+            o.value = p.provider + "||" + m.id;
+            o.textContent = m.name || m.id;
+            group.appendChild(o);
+            // 预选：当前默认模型在列表里则选中它
+            if (sel && sel.provider === p.provider && sel.model === m.id) {
+              o.selected = true;
+              aiSelection = { provider: p.provider, model: m.id };
+              matched = true;
+            }
+          });
+          if (group.childElementCount > 0) aiModelSelect.appendChild(group);
+        });
+        // 无匹配默认模型：仍留一个「默认模型」选项兜底
+        if (!matched && sel && sel.provider && sel.model) {
+          var def = addOption("默认模型（" + sel.provider + "/" + sel.model + "）", sel.provider + "||" + sel.model);
+          def.selected = true;
+          aiSelection = { provider: sel.provider, model: sel.model };
+        } else if (!matched) {
+          addOption("默认模型", "");
+        }
+      }).catch(function () { /* 网络失败：保持「默认模型」单选项 */ });
+      aiModelSelect.addEventListener("change", function () {
+        var v = aiModelSelect.value;
+        if (!v) { aiSelection = { provider: "", model: "" }; return; }
+        var parts = v.split("||");
+        aiSelection = { provider: parts[0], model: parts[1] };
+      });
       // AI 预览（生成后显示：采用/重试）
       var aiPreview = document.createElement("div");
       aiPreview.className = "dsh-agent-picker-ai-preview";
@@ -402,10 +470,16 @@ window.__ModuleLoader__.load({
         aiPreview.style.display = "none";
         aiBusy(true);
         aiAbort = new AbortController();
+        var payload = { prompt: prompt };
+        // 用户显式选了模型则带上；未选（默认）由 host 用默认模型
+        if (aiSelection.provider && aiSelection.model) {
+          payload.provider = aiSelection.provider;
+          payload.model = aiSelection.model;
+        }
         fetch(AI_API, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ prompt: prompt }),
+          body: JSON.stringify(payload),
           signal: aiAbort.signal
         })
           .then(function (r) {
@@ -454,7 +528,11 @@ window.__ModuleLoader__.load({
       }
       aiBtn.addEventListener("click", runGenerate);
       aiInput.addEventListener("keydown", function (e) {
-        if (e.key === "Enter") runGenerate();
+        // 多行 textarea：Ctrl/Cmd+Enter 触发生成，普通 Enter 换行
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          runGenerate();
+        }
       });
 
       // 上传图片区块（走统一入口：位图超限自动压缩）
@@ -511,25 +589,6 @@ window.__ModuleLoader__.load({
       });
       colorRow.appendChild(colorGrid);
 
-      // emoji 区块
-      var emojiRow = document.createElement("div");
-      emojiRow.className = "dsh-agent-picker-row";
-      emojiRow.textContent = "Emoji";
-      var emojiGrid = document.createElement("div");
-      emojiGrid.className = "dsh-agent-picker-grid";
-      PRESET_EMOJIS.forEach(function (ch) {
-        var b = document.createElement("button");
-        b.type = "button";
-        b.className = "dsh-agent-picker-emoji";
-        b.textContent = ch;
-        b.addEventListener("click", function () {
-          onChange({ type: "emoji", char: ch });
-          closePicker();
-        });
-        emojiGrid.appendChild(b);
-      });
-      emojiRow.appendChild(emojiGrid);
-
       // 重置按钮
       var resetBtn = document.createElement("button");
       resetBtn.type = "button";
@@ -546,7 +605,6 @@ window.__ModuleLoader__.load({
       box.appendChild(aiRow);
       box.appendChild(uploadRow);
       box.appendChild(colorRow);
-      box.appendChild(emojiRow);
       box.appendChild(errorEl);
       box.appendChild(resetBtn);
       overlay.appendChild(box);
@@ -931,8 +989,11 @@ window.__ModuleLoader__.load({
       ".dsh-agent-picker-preset-status{font-size:10px;color:var(--dsw-alias-label-quaternary,#94a3b8);margin-top:4px}",
       ".dsh-agent-picker-preset-offline{border:none;padding:0}",
       // AI 生成
-      ".dsh-agent-picker-ai-inputrow{display:flex;gap:6px;align-items:center}",
-      ".dsh-agent-picker-ai-input{flex:1;min-width:0;height:26px;padding:0 8px;border:1px solid var(--dsw-alias-border-l2,#e2e8f0);border-radius:6px;font-size:12px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f172a);outline:none}",
+      ".dsh-agent-picker-modelrow{display:flex;gap:6px;align-items:center;margin-bottom:6px}",
+      ".dsh-agent-picker-model-label{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary,#334155)}",
+      ".dsh-agent-picker-model-select{flex:1;min-width:0;height:24px;padding:0 4px;border:1px solid var(--dsw-alias-border-l2,#e2e8f0);border-radius:6px;font-size:11px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f172a);outline:none}",
+      ".dsh-agent-picker-ai-inputrow{display:flex;gap:6px;align-items:flex-start}",
+      ".dsh-agent-picker-ai-input{flex:1;min-width:0;resize:vertical;padding:5px 8px;border:1px solid var(--dsw-alias-border-l2,#e2e8f0);border-radius:6px;font-size:12px;line-height:1.5;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#0f172a);outline:none;font-family:inherit}",
       ".dsh-agent-picker-ai-input:focus{border-color:var(--dsw-alias-state-business-primary,#2563eb)}",
       ".dsh-agent-picker-ai-btn{flex:none;height:26px;padding:0 10px;border:none;border-radius:6px;background:var(--dsw-alias-state-business-primary,#2563eb);color:#fff;font-size:12px;cursor:pointer}",
       ".dsh-agent-picker-ai-btn:disabled{opacity:.6;cursor:default}",
@@ -941,8 +1002,6 @@ window.__ModuleLoader__.load({
       ".dsh-agent-picker-ai-accept{flex:none;height:26px;padding:0 12px;border:none;border-radius:6px;background:var(--dsw-alias-state-business-primary,#2563eb);color:#fff;font-size:12px;cursor:pointer}",
       ".dsh-agent-picker-swatch{width:20px;height:20px;border-radius:50%;border:1px solid rgba(0,0,0,.1);cursor:pointer;padding:0}",
       ".dsh-agent-picker-swatch:hover{transform:scale(1.15)}",
-      ".dsh-agent-picker-emoji{width:26px;height:24px;font-size:15px;border:none;background:transparent;cursor:pointer;border-radius:6px;padding:0}",
-      ".dsh-agent-picker-emoji:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f5f9)}",
       ".dsh-agent-picker-reset{display:block;width:100%;margin-top:10px;padding:5px 0;border:1px solid var(--dsw-alias-border-l2,#e2e8f0);background:transparent;color:var(--dsw-alias-label-secondary,#334155);cursor:pointer;border-radius:6px;font-size:12px}",
       ".dsh-agent-picker-reset:hover{background:var(--dsw-alias-interactive-bg-hover,#f1f5f9)}",
       // 头部模式切换按钮（纯图标，官方 headerActions 同款 28px）

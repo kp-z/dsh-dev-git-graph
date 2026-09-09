@@ -45,6 +45,8 @@ export interface AvatarSuggestServices {
 	}) => Promise<string>) | null;
 	/** 无默认模型配置时为 null。 */
 	currentSelection: (() => { provider: string; model: string } | null) | null;
+	/** 可枚举的模型列表（provider -> models）；无 llm 服务时为 null。 */
+	listModels: (() => Promise<Array<{ provider: string; providerName: string; models: Array<{ id: string; name: string }> }>>) | null;
 }
 
 function sendJson(res: http.ServerResponse, code: number, body: unknown): void {
@@ -194,7 +196,25 @@ function buildSystemPrompt(): string {
 }
 
 export function registerAvatarSuggestRoutes(services: AvatarSuggestServices): Array<() => void> {
-	const disposer = services.webServer.register({
+	const disposers: Array<() => void> = [];
+
+	// GET /avatar-models —— 模型下拉候选（provider -> models），供前端 AI 生成区选择
+	disposers.push(services.webServer.register({
+		kind: 'exact',
+		path: '/dsh-dev-agent-mode/api/avatar-models',
+		handler: (req, res) => {
+			if (req.method !== 'GET') {
+				res.writeHead(405, { allow: 'GET' });
+				res.end();
+				return;
+			}
+			void handleModels(services, res).catch(() => {
+				if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
+			});
+		},
+	}));
+
+	disposers.push(services.webServer.register({
 		kind: 'exact',
 		path: ROUTE_PATH,
 		handler: (req, res) => {
@@ -207,8 +227,27 @@ export function registerAvatarSuggestRoutes(services: AvatarSuggestServices): Ar
 				if (!res.headersSent) sendJson(res, 500, { error: 'internal' });
 			});
 		},
-	});
-	return [disposer];
+	}));
+	return disposers;
+}
+
+/** 模型下拉候选。失败/无 llm 时返回空列表（前端降级为「默认模型」单选项）。 */
+async function handleModels(services: AvatarSuggestServices, res: http.ServerResponse): Promise<void> {
+	let selection: { provider: string; model: string } | null = null;
+	try {
+		selection = services.currentSelection ? services.currentSelection() : null;
+	} catch {
+		selection = null;
+	}
+	let providers: Array<{ provider: string; providerName: string; models: Array<{ id: string; name: string }> }> = [];
+	if (services.listModels) {
+		try {
+			providers = await services.listModels();
+		} catch {
+			providers = [];
+		}
+	}
+	sendJson(res, 200, { providers, selection });
 }
 
 async function handle(services: AvatarSuggestServices, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -229,10 +268,21 @@ async function handle(services: AvatarSuggestServices, req: http.IncomingMessage
 		sendJson(res, 503, { error: 'no-model' });
 		return;
 	}
-	const selection = services.currentSelection();
+	// 模型选择：请求显式指定优先，否则用默认模型
+	let selection: { provider: string; model: string } | null = null;
+	try {
+		selection = services.currentSelection();
+	} catch {
+		selection = null;
+	}
 	if (selection === null || !selection.provider || !selection.model) {
 		sendJson(res, 503, { error: 'no-model' });
 		return;
+	}
+	const wantProvider = typeof body.provider === 'string' ? body.provider.trim() : '';
+	const wantModel = typeof body.model === 'string' ? body.model.trim() : '';
+	if (wantProvider && wantModel) {
+		selection = { provider: wantProvider, model: wantModel };
 	}
 
 	const ac = new AbortController();
@@ -328,5 +378,32 @@ export function mountAvatarSuggest(ctx: Context): Array<() => void> {
 		currentSelection = null;
 	}
 
-	return registerAvatarSuggestRoutes({ webServer, streamText, currentSelection });
+	// 模型列表（dsh-llm.listProviders + listModels）
+	let listModels: AvatarSuggestServices['listModels'] = null;
+	try {
+		const llm2 = ctx.get('llm') as unknown as {
+			listProviders(): Array<{ id: string; name: string }>;
+			listModels(provider: string): Promise<Array<{ id: string; name: string }>>;
+		};
+		listModels = async () => {
+			const providers = llm2.listProviders();
+			const out: Array<{ provider: string; providerName: string; models: Array<{ id: string; name: string }> }> = [];
+			for (const p of providers) {
+				let models: Array<{ id: string; name: string }> = [];
+				try {
+					models = await llm2.listModels(p.id);
+				} catch {
+					models = [];
+				}
+				if (models.length > 0) {
+					out.push({ provider: p.id, providerName: p.name, models });
+				}
+			}
+			return out;
+		};
+	} catch {
+		listModels = null;
+	}
+
+	return registerAvatarSuggestRoutes({ webServer, streamText, currentSelection, listModels });
 }
