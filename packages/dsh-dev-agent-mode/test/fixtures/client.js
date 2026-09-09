@@ -157,7 +157,17 @@ window.__ModuleLoader__.load({
         el.textContent = spec.char;
         el.dataset.kind = "emoji";
       }
+      // spec 指纹：observer 重注入时对比「行内头像渲染的 spec」与「localStorage 当前 spec」，
+      // 不一致则重建该行头像（偏好变更走 localStorage 直写时也能自愈）。
+      el.dataset.spec = specFingerprint(spec);
       return el;
+    }
+
+    function specFingerprint(spec) {
+      if (spec === null || spec === undefined) return "default";
+      if (spec.type === "image") return "image:" + spec.dataUrl.slice(0, 40);
+      if (spec.type === "color") return "color:" + String(spec.hue);
+      return "emoji:" + String(spec.char);
     }
 
     // ---------- 头像配置窗口（portal，点外部/ESC 关闭；支持预选头像/AI 生成/上传图片/色块/emoji/重置） ----------
@@ -603,7 +613,8 @@ window.__ModuleLoader__.load({
       }
 
       function injectIntoRow(row) {
-        if (row.getAttribute("data-dsh-agent-avatar-injected") === "1") return; // 幂等
+        // 注意：不能因「已注入标记」提前 return——localStorage 直写偏好后 spec 变了也要重建。
+        // 幂等由下面 spec 指纹比对保证：spec 未变才跳过。
         // 找标题 + folder 图标（workspace 行特征）
         var folder = row.querySelector('[class*="folder"]');
         if (!folder) return; // 不是 workspace 行（session 行无 folder）
@@ -615,6 +626,35 @@ window.__ModuleLoader__.load({
         var workspaceId = byTitle[title];
         if (!workspaceId) workspaceId = title; // 兜底：即使 title 也不在索引里，直接用 title
         if (!workspaceId) return;
+
+        // 行内已有该 key 的头像：比对 spec 指纹决定跳过或重建
+        var existing = row.querySelector("[" + AVATAR_ATTR + '="' + workspaceId + '"]');
+        if (existing) {
+          var currentSpec = readAvatarMap()[workspaceId] || null;
+          var expectedFingerprint = specFingerprint(currentSpec);
+          if (existing.dataset.spec === expectedFingerprint) {
+            row.setAttribute("data-dsh-agent-avatar-injected", "1");
+            return; // spec 未变：幂等跳过
+          }
+          // spec 变了（localStorage 直写/偏好更新）：重建该行头像
+          var fresh = renderAvatarEl(workspaceId, title, currentSpec);
+          function onFreshClick(e) {
+            e.stopPropagation();
+            e.preventDefault();
+            openAvatarConfig(fresh, workspaceId, title, function (spec) {
+              writeAvatar(workspaceId, spec);
+              var cur = row.querySelector("[" + AVATAR_ATTR + '="' + workspaceId + '"]');
+              var f2 = renderAvatarEl(workspaceId, title, readAvatarMap()[workspaceId] || null);
+              f2.addEventListener("click", onFreshClick);
+              if (cur && cur.parentNode) cur.replaceWith(f2);
+              else folder.parentNode.insertBefore(f2, folder);
+            });
+          }
+          fresh.addEventListener("click", onFreshClick);
+          existing.replaceWith(fresh);
+          row.setAttribute("data-dsh-agent-avatar-injected", "1");
+          return;
+        }
 
         // 头像元素插到 folder 图标前（视觉上替换文件夹图标）
         var avatar = renderAvatarEl(workspaceId, title, readAvatarMap()[workspaceId] || null);
@@ -638,22 +678,26 @@ window.__ModuleLoader__.load({
 
       var isAgentMode = function () { return normalizeMode(readMode()) === MODE_AGENT; };
 
-      // 主注入：遍历侧栏所有 workspace 行
+      // 主注入：遍历侧栏所有 workspace 行（增量式，不清空重建）
       function injectAll() {
         if (!isAgentMode()) return;
-        // 先清掉旧头像与行标记（自愈场景：React 重渲染后行可能是新 DOM，旧的还在树里）
-        var olds = document.querySelectorAll("[" + AVATAR_ATTR + "]");
-        for (var oi = 0; oi < olds.length; oi++) {
-          var o = olds[oi];
-          if (o.parentNode) o.parentNode.removeChild(o);
-        }
-        var marked = document.querySelectorAll("[data-dsh-agent-avatar-injected]");
-        for (var mi = 0; mi < marked.length; mi++) {
-          marked[mi].removeAttribute("data-dsh-agent-avatar-injected");
-        }
-        var rows = document.querySelectorAll('[data-pane="sidebar"] [role="treeitem"], [class*="sidebarCol"] [role="treeitem"]');
-        for (var i = 0; i < rows.length; i++) {
-          try { injectIntoRow(rows[i]); } catch (e) { /* 单行失败不影响其他 */ }
+        // 自触发循环切断：本次注入引发的 DOM 变化不触发 observer 新一轮调度
+        window.__avatarInjecting = true;
+        try {
+          // 清理「标记还在但头像已丢」的残留行（React 重渲染后行是新 DOM，标记被复制但头像不在）
+          // 注意：只清理头像真的不在的行，已注入且头像仍在的行跳过（避免自触发重建循环）
+          var marked = document.querySelectorAll("[data-dsh-agent-avatar-injected]");
+          for (var mi = 0; mi < marked.length; mi++) {
+            var mrow = marked[mi];
+            var hasAvatar = mrow.querySelector("[" + AVATAR_ATTR + "]");
+            if (!hasAvatar) mrow.removeAttribute("data-dsh-agent-avatar-injected");
+          }
+          var rows = document.querySelectorAll('[data-pane="sidebar"] [role="treeitem"], [class*="sidebarCol"] [role="treeitem"]');
+          for (var i = 0; i < rows.length; i++) {
+            try { injectIntoRow(rows[i]); } catch (e) { /* 单行失败不影响其他 */ }
+          }
+        } finally {
+          window.__avatarInjecting = false;
         }
       }
       // 反注入：清掉我们加的头像（切官方模式）
@@ -669,7 +713,10 @@ window.__ModuleLoader__.load({
       }
 
       // MutationObserver 自愈：行重渲染/新增时重新注入
+      // 注入操作本身会改 DOM（触发 observer）——用 injecting 标志切断自触发循环：
+      // injectAll 期间由我们造成的 DOM 变化不再调度新一轮注入。
       var observer = new MutationObserver(function () {
+        if (window.__avatarInjecting) return; // 我们自己注入引发的变化，忽略
         // 防抖：React 连续重渲染时合并
         if (window.__avatarFlush) clearTimeout(window.__avatarFlush);
         window.__avatarFlush = setTimeout(function () {
