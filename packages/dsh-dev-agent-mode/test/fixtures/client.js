@@ -552,7 +552,9 @@ window.__ModuleLoader__.load({
       box.style.top = top + "px";
 
       function onDocClick(e) {
-        if (e.target !== overlay && !overlay.contains(e.target)) closePicker();
+        // 点击 overlay 空白处（target 就是 overlay）或 overlay 外任意处都关闭；
+        // 只有点击弹窗内部（box）不关闭。
+        if (e.target !== box && !box.contains(e.target)) closePicker();
       }
       function onKey(e) {
         if (e.key === "Escape") closePicker();
