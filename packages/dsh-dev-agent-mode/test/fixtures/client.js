@@ -15,11 +15,58 @@ window.__ModuleLoader__.load({
     // 开关：官方头部「分组方式」按钮旁注入（headerActions 内）。
 
     var AVATARS_KEY = "dsh-dev-agent-mode.avatars";
+    var AGENTS_API = "/dsh-dev-agent-mode/api/agents";
     var MODE_KEY = "dsh-dev-agent-mode.mode";
     var MODE_AGENT = "agent";
     var MODE_OFFICIAL = "official";
     var AVATAR_ATTR = "data-dsh-agent-avatar";
     var PICKER_ATTR = "data-dsh-agent-picker";
+
+    // ---------- 动漫角色风命名（与 host agents-store 同算法，保证同一 workspace 恒定） ----------
+    var NAME_ADJECTIVES = ["赤焰", "银翼", "翠岚", "霜华", "琥珀", "琉璃", "紫电", "星辉", "墨羽", "沧澜", "曜日", "玄冰", "绯云", "青鸾", "金乌", "皓月"];
+    var NAME_ROLES = ["剑客", "精灵", "术士", "骑士", "猎手", "贤者", "游侠", "法师", "使者", "行者", "守卫", "学者", "歌者", "画师", "工匠", "武士"];
+    function defaultAgentName(workspaceId) {
+      var h = fnv1a(String(workspaceId || ""));
+      var adj = NAME_ADJECTIVES[h % NAME_ADJECTIVES.length] || "星辉";
+      var role = NAME_ROLES[Math.floor(h / NAME_ADJECTIVES.length) % NAME_ROLES.length] || "游侠";
+      return adj + role;
+    }
+    // agents 档案缓存：workspaceId -> { name, avatarSpec }（host API 加载；失败时纯本地确定性名）
+    var agentsCache = {};
+    var agentsLoaded = false;
+    function loadAgents() {
+      if (agentsLoaded) return Promise.resolve(agentsCache);
+      agentsLoaded = true;
+      return fetch(AGENTS_API).then(function (r) {
+        if (!r.ok) return {};
+        return r.json();
+      }).then(function (body) {
+        var t = body && body.tables && body.tables.agents;
+        if (t && typeof t === "object") {
+          agentsCache = t;
+        }
+        return agentsCache;
+      }).catch(function () {
+        agentsLoaded = false; // 失败允许重试
+        return agentsCache;
+      });
+    }
+    function agentNameFor(workspaceId) {
+      var p = agentsCache[workspaceId];
+      return p && p.name ? p.name : defaultAgentName(workspaceId);
+    }
+    // host 不可用时的本地降级：把 agent 名/头像偏好存 localStorage（结构同 agents.json profile）
+    var LOCAL_AGENTS_KEY = "dsh-dev-agent-mode.agents";
+    function readLocalAgents() {
+      try {
+        var raw = window.localStorage.getItem(LOCAL_AGENTS_KEY);
+        var t = raw ? JSON.parse(raw) : {};
+        return t && typeof t === "object" ? t : {};
+      } catch (e) { return {}; }
+    }
+    function writeLocalAgents(map) {
+      try { window.localStorage.setItem(LOCAL_AGENTS_KEY, JSON.stringify(map)); } catch (e) { /* ignore */ }
+    }
 
     // ---------- 确定性身份派生（与 src/agent-identity.js 同构） ----------
     function fnv1a(input) {
@@ -86,25 +133,109 @@ window.__ModuleLoader__.load({
       }
       return out;
     }
+    // ---------- avatar spec 读写：v2 起统一走 agents 档案（host agents.json / 本地降级） ----------
+    // 旧 localStorage 'dsh-dev-agent-mode.avatars' 键仅用于一次性迁移（见 migrateLegacyAvatars）。
     function readAvatarMap() {
-      try {
-        return parseAvatarMap(window.localStorage.getItem(AVATARS_KEY));
-      } catch (e) {
-        return {};
+      var out = {};
+      // 1. agents 档案（host 缓存）；本地降级键后写覆盖（本地是「最新写入」真相源）
+      for (var id in agentsCache) {
+        var p = agentsCache[id];
+        if (p && p.avatarSpec) {
+          var norm = normalizeAvatarSpec(p.avatarSpec);
+          if (norm !== null) out[id] = norm;
+        }
       }
+      var local = readLocalAgents();
+      for (var id2 in local) {
+        var p2 = local[id2];
+        if (p2 && p2.avatarSpec) {
+          var norm2 = normalizeAvatarSpec(p2.avatarSpec);
+          if (norm2 !== null) out[id2] = norm2;
+        }
+      }
+      // 2. 旧键 fallback（迁移前兼容）
+      var legacy = parseAvatarMap(safeGetItem(AVATARS_KEY));
+      for (var id3 in legacy) {
+        if (!out[id3]) out[id3] = legacy[id3];
+      }
+      return out;
+    }
+    function safeGetItem(key) {
+      try { return window.localStorage.getItem(key); } catch (e) { return null; }
+    }
+    function safeSetItem(key, val) {
+      try { window.localStorage.setItem(key, val); return true; } catch (e) { return false; }
     }
     function writeAvatar(workspaceId, spec) {
-      var map = readAvatarMap();
-      if (spec === null) delete map[workspaceId];
-      else map[workspaceId] = spec;
-      try {
-        var keys = Object.keys(map);
-        if (keys.length === 0) window.localStorage.removeItem(AVATARS_KEY);
-        else window.localStorage.setItem(AVATARS_KEY, JSON.stringify(map));
-        return true;
-      } catch (e) {
-        return false;
-      }
+      // 新写入走 agents 档案；同步更新缓存与本地降级
+      var existing = agentsCache[workspaceId] || {};
+      var nextSpec = spec === null ? null : spec;
+      agentsCache[workspaceId] = {
+        workspaceId: workspaceId,
+        name: existing.name || defaultAgentName(workspaceId),
+        avatarSpec: nextSpec,
+        persona: existing.persona || null,
+        memoryRef: existing.memoryRef || null,
+        createdAt: existing.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      var payload = { avatarSpec: nextSpec };
+      // 同步本地降级键（host 成败都写，保证 readAvatarMap 读到最新；host 可用时它仅作冗余）
+      var local = readLocalAgents();
+      var now = new Date().toISOString();
+      local[workspaceId] = {
+        workspaceId: workspaceId,
+        name: (local[workspaceId] && local[workspaceId].name) || agentsCache[workspaceId].name || defaultAgentName(workspaceId),
+        avatarSpec: nextSpec,
+        persona: null, memoryRef: null,
+        createdAt: (local[workspaceId] && local[workspaceId].createdAt) || now,
+        updatedAt: now
+      };
+      writeLocalAgents(local);
+      fetch(AGENTS_API + "/" + encodeURIComponent(workspaceId), {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      }).catch(function () { /* host 不可用：本地降级已写 */ });
+      return true;
+    }
+    // 一次性迁移：把旧 localStorage avatars 迁入 agents 档案（PUT host；失败降级本地），成功后清旧键。
+    var legacyMigrated = false;
+    function migrateLegacyAvatars() {
+      if (legacyMigrated) return;
+      legacyMigrated = true;
+      var legacy = parseAvatarMap(safeGetItem(AVATARS_KEY));
+      var ids = Object.keys(legacy);
+      if (ids.length === 0) return;
+      var pending = ids.length;
+      ids.forEach(function (id) {
+        var spec = legacy[id];
+        agentsCache[id] = agentsCache[id] || {};
+        agentsCache[id].avatarSpec = spec;
+        var payload = { avatarSpec: spec };
+        fetch(AGENTS_API + "/" + encodeURIComponent(id), {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        }).catch(function () {
+          var local = readLocalAgents();
+          var now = new Date().toISOString();
+          local[id] = {
+            workspaceId: id,
+            name: (local[id] && local[id].name) || defaultAgentName(id),
+            avatarSpec: spec,
+            persona: null, memoryRef: null,
+            createdAt: (local[id] && local[id].createdAt) || now,
+            updatedAt: now
+          };
+          writeLocalAgents(local);
+        }).finally(function () {
+          pending -= 1;
+          if (pending <= 0) {
+            try { window.localStorage.removeItem(AVATARS_KEY); } catch (e) { /* ignore */ }
+          }
+        });
+      });
     }
 
     // ---------- 模式 ----------
@@ -271,13 +402,54 @@ window.__ModuleLoader__.load({
       box.className = "dsh-agent-picker";
       box.addEventListener("click", function (e) { e.stopPropagation(); });
 
-      // 头部：标题 + 当前头像预览（放大）
+      // 头部：Agent 名（可编辑）+ workspace 名（次级）+ 当前头像预览（放大）
       var header = document.createElement("div");
       header.className = "dsh-agent-picker-header";
-      var headerText = document.createElement("span");
-      headerText.className = "dsh-agent-picker-header-text";
-      headerText.textContent = title || "(workspace)";
-      header.appendChild(headerText);
+      var headerTexts = document.createElement("div");
+      headerTexts.className = "dsh-agent-picker-header-texts";
+      // Agent 名输入框（改完自动保存）
+      var agentNameInput = document.createElement("input");
+      agentNameInput.type = "text";
+      agentNameInput.className = "dsh-agent-picker-agentname";
+      agentNameInput.maxLength = 60;
+      agentNameInput.value = agentNameFor(workspaceId);
+      agentNameInput.title = "Agent 名（回车保存）";
+      var agentSub = document.createElement("span");
+      agentSub.className = "dsh-agent-picker-agent-sub";
+      agentSub.textContent = title || "(workspace)";
+      headerTexts.appendChild(agentNameInput);
+      headerTexts.appendChild(agentSub);
+      header.appendChild(headerTexts);
+
+      // Agent 名保存：写 host agents.json（失败降级 localStorage）；成功后刷新行文本
+      function saveAgentName(name) {
+        var n = (name || "").trim();
+        if (!n || n.length > 60) { showError("Agent 名 1-60 字符"); return; }
+        agentsCache[workspaceId] = agentsCache[workspaceId] || {};
+        agentsCache[workspaceId].name = n;
+        var payload = { name: n };
+        fetch(AGENTS_API + "/" + encodeURIComponent(workspaceId), {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(payload)
+        }).then(function (r) {
+          if (r.ok) return r.json();
+          throw new Error("host-unavailable");
+        }).catch(function () {
+          // host 不可用：降级写 localStorage（结构同 agents.json profile）
+          var local = readLocalAgents();
+          local[workspaceId] = { workspaceId: workspaceId, name: n, avatarSpec: null, persona: null, memoryRef: null, createdAt: local[workspaceId] ? local[workspaceId].createdAt : new Date().toISOString(), updatedAt: new Date().toISOString() };
+          writeLocalAgents(local);
+        });
+        // 刷新所有该 workspace 行的文本块
+        document.querySelectorAll(".dsh-agent-text[data-agent-key='" + workspaceId + "'] .dsh-agent-text-name").forEach(function (el) {
+          el.textContent = n;
+        });
+      }
+      agentNameInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { saveAgentName(agentNameInput.value); agentNameInput.blur(); }
+      });
+      agentNameInput.addEventListener("blur", function () { saveAgentName(agentNameInput.value); });
 
       var previewWrap = document.createElement("div");
       previewWrap.className = "dsh-agent-picker-preview-wrap";
@@ -692,6 +864,7 @@ window.__ModuleLoader__.load({
           var expectedFingerprint = specFingerprint(currentSpec);
           if (existing.dataset.spec === expectedFingerprint) {
             row.setAttribute("data-dsh-agent-avatar-injected", "1");
+            ensureAgentText(row, workspaceId, title); // 刷新文本块（agent 名可能已改）
             return; // spec 未变：幂等跳过
           }
           // spec 变了（localStorage 直写/偏好更新）：重建该行头像
@@ -731,7 +904,31 @@ window.__ModuleLoader__.load({
         }
         avatar.addEventListener("click", onAvatarClick);
         folder.parentNode.insertBefore(avatar, folder);
+        // 两栏文本块：Agent 名（上行）+ workspace 名（下行），替换官方 title 显示
+        ensureAgentText(row, workspaceId, title);
         row.setAttribute("data-dsh-agent-avatar-injected", "1");
+      }
+
+      // 注入/刷新两栏文本块（Agent 名 + workspace 名）。幂等：已存在且同名则跳过。
+      function ensureAgentText(row, workspaceId, title) {
+        var wrap = row.querySelector(".dsh-agent-text");
+        if (wrap && wrap.getAttribute("data-agent-key") === workspaceId) return;
+        if (wrap) wrap.remove();
+        var textWrap = document.createElement("span");
+        textWrap.className = "dsh-agent-text";
+        textWrap.setAttribute("data-agent-key", workspaceId);
+        var nameEl = document.createElement("span");
+        nameEl.className = "dsh-agent-text-name";
+        nameEl.textContent = agentNameFor(workspaceId);
+        var subEl = document.createElement("span");
+        subEl.className = "dsh-agent-text-sub";
+        subEl.textContent = title;
+        textWrap.appendChild(nameEl);
+        textWrap.appendChild(subEl);
+        // 插到 projectText 前（folder 图标已在头像后隐藏）
+        var projectText = row.querySelector('[class*="projectText"]');
+        if (projectText && projectText.parentNode) projectText.parentNode.insertBefore(textWrap, projectText);
+        else folder.parentNode.appendChild(textWrap);
       }
 
       var isAgentMode = function () { return normalizeMode(readMode()) === MODE_AGENT; };
@@ -748,7 +945,11 @@ window.__ModuleLoader__.load({
           for (var mi = 0; mi < marked.length; mi++) {
             var mrow = marked[mi];
             var hasAvatar = mrow.querySelector("[" + AVATAR_ATTR + "]");
-            if (!hasAvatar) mrow.removeAttribute("data-dsh-agent-avatar-injected");
+            if (!hasAvatar) {
+              mrow.removeAttribute("data-dsh-agent-avatar-injected");
+              var staleText = mrow.querySelector(".dsh-agent-text");
+              if (staleText && staleText.parentNode) staleText.parentNode.removeChild(staleText);
+            }
           }
           var rows = document.querySelectorAll('[data-pane="sidebar"] [role="treeitem"], [class*="sidebarCol"] [role="treeitem"]');
           for (var i = 0; i < rows.length; i++) {
@@ -764,6 +965,11 @@ window.__ModuleLoader__.load({
         for (var i = 0; i < avatars.length; i++) {
           var a = avatars[i];
           if (a.parentNode) a.parentNode.removeChild(a);
+        }
+        var texts = document.querySelectorAll(".dsh-agent-text");
+        for (var ti = 0; ti < texts.length; ti++) {
+          var t = texts[ti];
+          if (t.parentNode) t.parentNode.removeChild(t);
         }
         var rows = document.querySelectorAll("[data-dsh-agent-avatar-injected]");
         for (var j = 0; j < rows.length; j++) rows[j].removeAttribute("data-dsh-agent-avatar-injected");
@@ -956,6 +1162,27 @@ window.__ModuleLoader__.load({
       var disposeInjection = setupAvatarInjection(ctx, subscribeMode);
       ctx.effect(function () { return disposeInjection; });
 
+      // 加载 agents 档案（host），成功后触发一次性旧头像迁移，并刷新行
+      loadAgents().then(function () {
+        migrateLegacyAvatars();
+        // agents 就绪后重新注入（agent 名可能来自 host）
+        setTimeout(function () {
+          try {
+            document.querySelectorAll("[data-pane='sidebar'] [role='treeitem']").forEach(function (row) {
+              var mark = row.getAttribute("data-dsh-agent-avatar-injected");
+              if (mark === "1" && row.querySelector(".dsh-agent-text")) {
+                // 仅刷新文本块内容（名可能来自 host）
+                var key = row.querySelector(".dsh-agent-text").getAttribute("data-agent-key");
+                if (key) {
+                  var nameEl = row.querySelector(".dsh-agent-text[data-agent-key='" + key + "'] .dsh-agent-text-name");
+                  if (nameEl) nameEl.textContent = agentNameFor(key);
+                }
+              }
+            });
+          } catch (e) { /* ignore */ }
+        }, 60);
+      });
+
       // 头部「分组方式」旁的模式切换按钮（官方 headerActions 内注入）
       var disposeHeaderToggle = setupHeaderToggle(subscribeMode, notify);
       ctx.effect(function () { return disposeHeaderToggle; });
@@ -963,17 +1190,26 @@ window.__ModuleLoader__.load({
 
     // ---------- CSS ----------
     var css = [
-      // 头像：16px 圆块，替换文件夹图标位置
-      ".dsh-agent-avatar{width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:700;flex:none;cursor:pointer;line-height:1;text-shadow:0 1px 2px rgba(0,0,0,.3);margin-right:-2px}",
+      // 头像：28px 圆块（v2 放大），替换文件夹图标位置
+      ".dsh-agent-avatar{width:28px;height:28px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:14px;font-weight:700;flex:none;cursor:pointer;line-height:1;text-shadow:0 1px 2px rgba(0,0,0,.3);margin-right:-2px;user-select:none}",
       ".dsh-agent-avatar:hover{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:1px}",
       ".dsh-agent-avatar{background-size:cover;background-position:center}",
       // 官方文件夹图标在 hover 时隐藏，头像常驻
       ".dsh-agent-avatar + [class*='folder']{display:none !important}",
+      // 两栏文本块：上行 Agent 名（13px/600 主色），下行 workspace 名（11px 次级）
+      ".dsh-agent-text{display:flex;flex-direction:column;justify-content:center;min-width:0;flex:1;line-height:1.3;pointer-events:none}",
+      ".dsh-agent-text-name{font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#0f172a);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}",
+      ".dsh-agent-text-sub{font-size:11px;color:var(--dsw-alias-label-secondary,#64748b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.35}",
+      // 官方 title 在两栏模式下隐藏（行高由两栏撑起 ~40px）
+      "[data-dsh-agent-avatar-injected] [class*='projectText']{display:none}",
       // 头像配置窗口
       ".dsh-agent-picker-overlay{position:fixed;inset:0;z-index:9999;background:transparent}",
       ".dsh-agent-picker{position:fixed;width:240px;background:var(--dsw-alias-bg-layer-2,#fff);border:1px solid var(--dsw-alias-border-l2,#e2e8f0);border-radius:10px;box-shadow:var(--dsw-alias-shadow,0 4px 16px rgba(0,0,0,.15));padding:10px;z-index:10000;font-family:inherit;max-height:calc(100vh - 24px);overflow-y:auto}",
-      ".dsh-agent-picker-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#0f172a);margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
-      ".dsh-agent-picker-header-text{min-width:0;overflow:hidden;text-overflow:ellipsis}",
+      ".dsh-agent-picker-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#0f172a);margin-bottom:8px}",
+      ".dsh-agent-picker-header-texts{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}",
+      ".dsh-agent-picker-agentname{width:100%;box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2,#e2e8f0);border-radius:6px;padding:3px 6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-primary,#0f172a);background:var(--dsw-alias-bg-layer-1,#fff);outline:none}",
+      ".dsh-agent-picker-agentname:focus{border-color:var(--dsw-alias-state-business-primary,#2563eb)}",
+      ".dsh-agent-picker-agent-sub{font-size:11px;font-weight:400;color:var(--dsw-alias-label-tertiary,#64748b);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
       ".dsh-agent-picker-preview-wrap{display:flex;align-items:center;justify-content:center;margin-bottom:8px}",
       ".dsh-agent-picker-preview{width:48px;height:48px;border-radius:50%;font-size:20px;font-weight:700;color:#fff;display:inline-flex;align-items:center;justify-content:center;background-size:cover;background-position:center;cursor:default}",
       ".dsh-agent-picker-row{font-size:11px;color:var(--dsw-alias-label-tertiary,#64748b);margin:6px 0 4px}",

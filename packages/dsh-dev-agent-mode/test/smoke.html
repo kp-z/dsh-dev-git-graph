@@ -60,12 +60,20 @@
     results.push({ name, ok });
     out(ok ? 'pass' : 'fail', (ok ? '✅ ' : '❌ ') + name + (detail ? ' — ' + detail : ''));
   }
+  // v2：avatar 偏好存 agents（host 失败降级 localStorage 'dsh-dev-agent-mode.agents'）
+  function readAgentSpec(id) {
+    try {
+      const agents = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.agents') || '{}');
+      return agents[id] && agents[id].avatarSpec ? agents[id].avatarSpec : null;
+    } catch (e) { return null; }
+  }
 
   // 清理 localStorage（避免旧模式残留）
   localStorage.removeItem('dsh-dev-agent-mode.mode');
   localStorage.removeItem('dsh-dev-agent-mode.avatars');
+  localStorage.removeItem('dsh-dev-agent-mode.agents');
 
-  // ===== fetch mock：DiceBear + 本地 AI 路由 =====
+  // ===== fetch mock：DiceBear + 本地 AI 路由 + agents API =====
   // 注意：浏览器渲染 data:image/svg+xml 必须有 xmlns——mock 用真实世界的合法 SVG
   const MOCK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#2653eb"/></svg>';
   const realFetch = window.fetch.bind(window);
@@ -73,6 +81,32 @@
     const u = String(url);
     if (u.includes('api.dicebear.com')) {
       return Promise.resolve(new Response(MOCK_SVG, { status: 200, headers: { 'content-type': 'image/svg+xml' } }));
+    }
+    // agents API：mock host 为空表（读走本地降级 localStorage agents）
+    if (u.includes('/dsh-dev-agent-mode/api/agents')) {
+      const method = (opts && opts.method) || 'GET';
+      if (method === 'GET') {
+        return Promise.resolve(new Response(JSON.stringify({ unit: { name: 'agents', version: 1 }, tables: { agents: {} } }), { status: 200 }));
+      }
+      // PUT：本地 mock 存到 localStorage agents（模拟 host 持久化）
+      if (method === 'PUT') {
+        const id = decodeURIComponent(u.split('/').pop() || '');
+        const body = JSON.parse((opts && opts.body) || '{}');
+        const agents = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.agents') || '{}');
+        const now = new Date().toISOString();
+        const existing = agents[id] || {};
+        agents[id] = {
+          workspaceId: id,
+          name: body.name !== undefined ? body.name : (existing.name || '默认名'),
+          avatarSpec: body.avatarSpec !== undefined ? body.avatarSpec : (existing.avatarSpec || null),
+          persona: existing.persona || null,
+          memoryRef: existing.memoryRef || null,
+          createdAt: existing.createdAt || now,
+          updatedAt: now
+        };
+        localStorage.setItem('dsh-dev-agent-mode.agents', JSON.stringify(agents));
+        return Promise.resolve(new Response(JSON.stringify(agents[id]), { status: 200 }));
+      }
     }
     if (u === '/dsh-dev-agent-mode/api/avatar-suggest' || u.endsWith('/dsh-dev-agent-mode/api/avatar-suggest')) {
       const body = opts && opts.body ? JSON.parse(opts.body) : {};
@@ -163,6 +197,16 @@
       check('ws-1 头像为默认色块', ws1Avatar && ws1Avatar.dataset.kind === 'default' && ws1Avatar.textContent === 'D', 'kind=' + (ws1Avatar && ws1Avatar.dataset.kind) + ' text=' + (ws1Avatar && ws1Avatar.textContent));
       check('ws-1 头像有确定性渐变背景', ws1Avatar && ws1Avatar.style.background.includes('linear-gradient'));
 
+      // 2.6 v2：大头像（28px）+ 两栏文本（Agent 名 / workspace 名）
+      const avatarRect = ws1Avatar && ws1Avatar.getBoundingClientRect();
+      check('v2 头像放大到 28px', !!avatarRect && avatarRect.width >= 27 && avatarRect.width <= 29, 'w=' + (avatarRect && Math.round(avatarRect.width)));
+      const textWrap = document.querySelector('.ws-row .dsh-agent-text');
+      const nameEl = textWrap && textWrap.querySelector('.dsh-agent-text-name');
+      const subEl = textWrap && textWrap.querySelector('.dsh-agent-text-sub');
+      check('v2 注入两栏文本块', !!textWrap && !!nameEl && !!subEl, 'text=' + (textWrap ? 'yes' : 'no'));
+      check('v2 上栏为 Agent 名（动漫风）', !!nameEl && nameEl.textContent.length >= 2, 'name=' + (nameEl && nameEl.textContent));
+      check('v2 下栏为 workspace 名', !!subEl && subEl.textContent === 'dsh-plugins', 'sub=' + (subEl && subEl.textContent));
+
       // 2.5 头部「分组方式」旁的模式切换按钮
       const toggle = document.querySelector('[data-dsh-agent-mode-toggle]');
       check('头部注入模式切换按钮', !!toggle, toggle ? ('位置=' + (toggle.parentElement.className || 'N/A')) : '');
@@ -230,11 +274,11 @@
           const presetImg = presets[0] && presets[0].querySelector('img');
           check('预选头像 img 为 data:image/svg', !!presetImg && presetImg.src.startsWith('data:image/svg'), 'src=' + (presetImg && presetImg.src.slice(0, 30)));
 
-          // 3.3 点第一个预选头像 -> 写 localStorage + 关闭
+          // 3.3 点第一个预选头像 -> 写 agents（host mock PUT -> localStorage agents）+ 关闭
           if (presets[0]) presets[0].click();
           setTimeout(() => {
-            const storedP = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.avatars') || '{}');
-            check('选预选头像后持久化 image 类型', storedP['ws-1'] && storedP['ws-1'].type === 'image' && storedP['ws-1'].dataUrl.startsWith('data:image/svg'), JSON.stringify(storedP).slice(0, 80));
+            const specP = readAgentSpec('ws-1');
+            check('选预选头像后持久化 image 类型', specP && specP.type === 'image' && specP.dataUrl.startsWith('data:image/svg'), JSON.stringify(specP).slice(0, 80));
             const avatarAfterPreset = document.querySelector('[data-dsh-agent-avatar="ws-1"]');
             check('选预选头像后头像 kind=image', !!avatarAfterPreset && avatarAfterPreset.dataset.kind === 'image');
             // 重开 picker 做 AI 生成测试
@@ -263,8 +307,8 @@
           check('AI 预览含采用按钮', !!acceptBtn);
           if (acceptBtn) acceptBtn.click();
           setTimeout(() => {
-            const storedAi = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.avatars') || '{}');
-            check('AI 采用后持久化 image 类型', storedAi['ws-1'] && storedAi['ws-1'].type === 'image', JSON.stringify(storedAi).slice(0, 80));
+            const specAi = readAgentSpec('ws-1');
+            check('AI 采用后持久化 image 类型', specAi && specAi.type === 'image', JSON.stringify(specAi).slice(0, 80));
             // 继续原本流程：选中色块
             continueColorFlow();
           }, 100);
@@ -283,6 +327,9 @@
         check('面板含 AI 模型下拉', !!picker3.querySelector('.dsh-agent-picker-model-select'), 'modelSelect=' + !!picker3.querySelector('.dsh-agent-picker-model-select'));
         const aiTextarea = picker3.querySelector('.dsh-agent-picker-ai-input');
         check('AI 描述为多行 textarea', !!aiTextarea && aiTextarea.tagName === 'TEXTAREA', 'tag=' + (aiTextarea && aiTextarea.tagName));
+        // v2：面板含 Agent 名输入框
+        const agentNameInput = picker3.querySelector('.dsh-agent-picker-agentname');
+        check('面板含 Agent 名输入框', !!agentNameInput, 'agentname=' + !!agentNameInput);
 
         // 4. 选择色块 -> 头像更新 + localStorage 持久化
         const swatch = picker3.querySelector('.dsh-agent-picker-swatch');
@@ -290,8 +337,8 @@
         setTimeout(() => {
           const updated = document.querySelector('[data-dsh-agent-avatar="ws-1"]');
           check('选择色块后头像更新', updated && updated.dataset.kind === 'color', 'kind=' + (updated && updated.dataset.kind));
-          const stored = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.avatars') || '{}');
-          check('头像偏好已持久化到 localStorage', stored['ws-1'] && stored['ws-1'].type === 'color', JSON.stringify(stored));
+          const spec = readAgentSpec('ws-1');
+          check('头像偏好已持久化到 agents', spec && spec.type === 'color', JSON.stringify(spec));
 
           // 5.1 再选一个不同色块（验证二次选择仍工作）
           updated.click();
@@ -302,13 +349,13 @@
             setTimeout(() => {
               const updated2 = document.querySelector('[data-dsh-agent-avatar="ws-1"]');
               check('二次选色块后头像更新', updated2 && updated2.dataset.kind === 'color', 'kind=' + (updated2 && updated2.dataset.kind));
-              const stored2 = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.avatars') || '{}');
-              check('二次选择偏好已持久化', stored2['ws-1'] && stored2['ws-1'].type === 'color', JSON.stringify(stored2));
+              const spec2 = readAgentSpec('ws-1');
+              check('二次选择偏好已持久化', spec2 && spec2.type === 'color', JSON.stringify(spec2));
 
-              // 5.5 图片头像：直接写 store -> 渲染为 image（background-image）
+              // 5.5 图片头像：直接写 agents store -> 渲染为 image（background-image）
               const imgDataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
-              localStorage.setItem('dsh-dev-agent-mode.avatars', JSON.stringify({ 'ws-1': { type: 'image', dataUrl: imgDataUrl } }));
-              out('pass', '诊断: 写入后 localStorage=' + localStorage.getItem('dsh-dev-agent-mode.avatars').slice(0, 60));
+              localStorage.setItem('dsh-dev-agent-mode.agents', JSON.stringify({ 'ws-1': { workspaceId: 'ws-1', name: '测试名', avatarSpec: { type: 'image', dataUrl: imgDataUrl }, persona: null, memoryRef: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }));
+              out('pass', '诊断: 写入后 agents=' + localStorage.getItem('dsh-dev-agent-mode.agents').slice(0, 60));
               out('pass', '诊断: mode=' + localStorage.getItem('dsh-dev-agent-mode.mode'));
               const tmp = document.createElement('div');
               document.body.appendChild(tmp);
@@ -323,7 +370,7 @@
                 out('pass', '诊断: image bg=' + (imgAvatar && imgAvatar.style.backgroundImage.slice(0, 30)));
 
                 // 6. 重置默认（先写色块再重置）
-                localStorage.setItem('dsh-dev-agent-mode.avatars', JSON.stringify({ 'ws-1': { type: 'color', hue: 90 } }));
+                localStorage.setItem('dsh-dev-agent-mode.agents', JSON.stringify({ 'ws-1': { workspaceId: 'ws-1', name: '测试名', avatarSpec: { type: 'color', hue: 90 }, persona: null, memoryRef: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } }));
                 const tmp2 = document.createElement('div');
                 document.body.appendChild(tmp2);
                 tmp2.remove();
@@ -337,8 +384,8 @@
                     setTimeout(() => {
                       const updated3 = document.querySelector('[data-dsh-agent-avatar="ws-1"]');
                       check('重置后回默认色块', updated3 && updated3.dataset.kind === 'default', 'kind=' + (updated3 && updated3.dataset.kind));
-                      const stored3 = JSON.parse(localStorage.getItem('dsh-dev-agent-mode.avatars') || '{}');
-                      check('重置后 localStorage 清掉该 ws', !stored3['ws-1']);
+                      const spec3 = readAgentSpec('ws-1');
+                      check('重置后 agents 清掉该 ws 的头像', spec3 === null, JSON.stringify(spec3));
 
                       // 7. 自愈：模拟 React 重渲染（替换行 DOM）
                       const row = document.querySelector('.ws-row');
