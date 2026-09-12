@@ -5,8 +5,12 @@
     "rootDir": "src",
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/client/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": []
 }
