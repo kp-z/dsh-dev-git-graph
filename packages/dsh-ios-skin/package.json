@@ -25,7 +25,7 @@
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
       "platform": "web",
-      "inject": ["slots"]
+      "inject": []
     }
   },
   "peerDependencies": { "@deepseek-ai/cordis": "^4.0.1" },

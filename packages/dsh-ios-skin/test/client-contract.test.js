@@ -4,12 +4,12 @@ import fs from 'node:fs';
 
 const client = fs.readFileSync(new URL('../src/client.js', import.meta.url), 'utf8');
 
-test('uses official sidebar slot and glass theme tokens', () => {
-  assert.match(client, /sidebar\.footer\.action/);
+test('uses scoped glass theme tokens without adding a sidebar control', () => {
   assert.match(client, /--dsw-alias-bg-base/);
   assert.match(client, /backdrop-filter:blur/);
   assert.match(client, /prefers-reduced-motion/);
-  assert.match(client, /data-ds-dark-theme/);
+  assert.doesNotMatch(client, /sidebar\.footer\.action/);
+  assert.doesNotMatch(client, /data-ds-dark-theme/);
 });
 
 test('does not take over official DOM structure', () => {
