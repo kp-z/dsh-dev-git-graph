@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "outDir": "lib", "rootDir": "src", "allowJs": false, "baseUrl": ".", "paths": { "@deepseek-ai/cordis": ["../../node_modules/.pnpm/@deepseek-ai+cordis@4.0.1_@deepseek-ai+cordis-plugin-include@1.0.6_@deepseek-ai+cordis-plugin-loader@1.0.2/node_modules/@deepseek-ai/cordis"] } },
+  "include": ["src/index.ts"]
+}

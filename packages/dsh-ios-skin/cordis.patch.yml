@@ -1,0 +1,5 @@
+# iOS 皮肤插件插入 profile 层栈
+- insert:
+    - id: ios-skin
+      name: dsh-ios-skin
+      config: {}
