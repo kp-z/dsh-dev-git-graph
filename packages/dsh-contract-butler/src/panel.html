@@ -1016,6 +1016,35 @@
     badge.textContent = String(n);
   }
 
+  /* ---------- 当前项目 ----------
+     宿主右侧栏知道自己在服务哪个会话，客户端把那个会话的工作目录带进 URL（`?cwd=`）。
+     面板一打开就落在你正在干的项目上，而不是列表里的第一个。 */
+  function cwdHint() {
+    try {
+      var v = new URLSearchParams(location.search).get('cwd');
+      return v ? String(v) : '';
+    } catch (e) { return ''; }
+  }
+
+  /* 只做尾斜杠归一，不做 realpath——这是提示，不是身份。 */
+  function normPath(p) {
+    return String(p || '').replace(/\/+$/, '');
+  }
+
+  function projectForCwd() {
+    var cwd = normPath(cwdHint());
+    if (!cwd) return null;
+    return S.projects.filter(function (p) { return normPath(p.root) === cwd; })[0] || null;
+  }
+
+  /* 优先级：URL 指明的当前项目 → 上次选中的 → 列表第一个。 */
+  function wantedProjectId() {
+    var here = projectForCwd();
+    if (here) return here.id;
+    if (S.p && S.projects.some(function (p) { return p.id === S.p.id; })) return S.p.id;
+    return S.projects[0].id;
+  }
+
   /* ---------- 数据加载 ---------- */
   function loadProjects() {
     return api('/projects').then(function (data) {
@@ -1030,7 +1059,12 @@
       S.projects.forEach(function (p) {
         sel.appendChild(el('option', { value: p.id, text: p.title + '（' + p.contractCount + ' 条契约）' }));
       });
-      var wanted = S.p && S.projects.some(function (p) { return p.id === S.p.id; }) ? S.p.id : S.projects[0].id;
+      // 当前项目还没纳管时要说出来，否则你会以为面板认错了项目。
+      var cwd = cwdHint();
+      if (cwd && !projectForCwd() && !S.note) {
+        S.note = '当前项目 ' + cwd + ' 还没有纳管，下面显示的是已纳管项目。';
+      }
+      var wanted = wantedProjectId();
       return loadProject(wanted);
     });
   }
