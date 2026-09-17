@@ -459,6 +459,22 @@
   .empty { padding: 44px 0; color: var(--ink3); }
   .note { font-size: 12px; color: var(--ink2); margin-bottom: 12px; }
 
+  /* 纳管向导里的 DSH 项目清单 */
+  .wslist { max-height: 46vh; overflow: auto; border: 1px solid var(--line2); border-radius: 10px; }
+  .wslist .empty { padding: 16px; }
+  .wsrow { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left;
+    padding: 9px 12px; background: transparent; border: 0; border-bottom: 1px solid var(--line2);
+    color: var(--ink); font: inherit; cursor: pointer; }
+  .wsrow:last-child { border-bottom: 0; }
+  .wsrow:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+  .wsrow .wstitle { flex: none; font-weight: 600; }
+  .wsrow .wspath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: var(--ink3); font-family: var(--mono); font-size: 11.5px; }
+  .wsrow .wstag { flex: none; font-size: 11.5px; color: var(--ink3);
+    border: 1px solid var(--line2); border-radius: 999px; padding: 1px 8px; }
+  .wsrow.on { cursor: default; }
+  .wsrow.on .wstag { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
+
 
   /* ============ 项目关系图 ============ */
   .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
@@ -1104,22 +1120,52 @@
   }
   function closeOverlay() { $('#ov').classList.remove('open'); }
 
-  function openInit() {
+  function openInit(preselect) {
     S.init = null;
     var body = el('div', {});
     body.appendChild(el('div', { class: 'note',
-      text: '给一个项目的绝对路径，先看一遍它会抽出什么，再由你决定纳管哪些。这一步只读，不会写任何东西。' }));
-    var input = el('input', { class: 'search', id: 'initPath', placeholder: '/Users/you/code/project',
-      style: 'margin:10px 0' });
-    body.appendChild(input);
-    var row = el('div', { class: 'bh' });
-    var go = el('button', { class: 'ghost', type: 'button', text: '预览' });
-    go.addEventListener('click', function () { doPreview(input.value.trim()); });
-    row.appendChild(go);
-    body.appendChild(row);
+      text: '选一个 DSH 里的项目，先看一遍它会抽出什么，再由你决定纳管哪些。这一步只读，不会写任何东西。' }));
+    var list = el('div', { class: 'wslist', id: 'wsList', style: 'margin:10px 0' });
+    list.appendChild(el('div', { class: 'empty', text: '正在读 DSH 的项目列表…' }));
+    body.appendChild(list);
     body.appendChild(el('div', { id: 'initOut' }));
     openOverlay('纳管项目', body);
-    input.focus();
+    loadWorkspaces(preselect);
+  }
+
+  /* 项目清单来自宿主，路径由 DSH 自己维护——不让人记、不让人抄。
+     `preselect` 是当前 workspace 的路径：认得出就直接把它的预览跑起来，人只需确认纳管哪些。 */
+  function loadWorkspaces(preselect) {
+    var list = $('#wsList');
+    if (!list) return;
+    api('/workspaces').then(function (data) {
+      var items = data.workspaces || [];
+      clear(list);
+      if (!items.length) {
+        list.appendChild(el('div', { class: 'empty',
+          text: data.source === 'unavailable'
+            ? '读不到 DSH 的项目列表（宿主的 workspaceRegistry 没挂上）。'
+            : 'DSH 里还没有项目。' }));
+        return;
+      }
+      var want = normPath(preselect);
+      items.forEach(function (w) {
+        var row = el('button', { class: 'wsrow' + (w.managed ? ' on' : ''), type: 'button' });
+        row.appendChild(el('span', { class: 'wstitle', text: w.title }));
+        row.appendChild(el('span', { class: 'wspath', text: w.path }));
+        row.appendChild(el('span', { class: 'wstag', text: w.managed ? '已纳管' : '纳管' }));
+        row.addEventListener('click', function () {
+          // 已纳管的再走一遍预览没有意义，直接回到那个项目上。
+          if (w.managed) { closeOverlay(); return loadProject(w.projectId); }
+          doPreview(w.path);
+        });
+        list.appendChild(row);
+        if (want && normPath(w.path) === want && !w.managed) doPreview(w.path);
+      });
+    }).catch(function (e) {
+      clear(list);
+      list.appendChild(el('div', { class: 'empty', text: '读项目列表失败：' + e.message }));
+    });
   }
 
   function doPreview(root) {
@@ -1404,10 +1450,32 @@
     });
 
     api('/status').then(function (st) { S.status = st; return loadProjects(); })
-      .then(function () { renderAll(); connect(); })
+      .then(function () { renderAll(); connect(); firstRun(); })
       .catch(function (e) {
-        $('#hsub').textContent = '连不上宿主接口：' + e.message;
+        // 面板全部数据都来自宿主路由：宿主没加载本插件、或存储打不开，都会走到这里。
+        // 一定要说出来——否则右侧栏只剩一片空白，分不清是坏了还是本来就空。
+        var msg = '连不上宿主接口：' + (e && e.message ? e.message : String(e));
+        var hsub = $('#hsub');
+        if (hsub) hsub.textContent = msg;
+        var tree = $('#tree');
+        if (tree) {
+          clear(tree);
+          tree.appendChild(el('div', { class: 'empty', text: msg }));
+          tree.appendChild(el('div', { class: 'empty', style: 'margin-top:6px;opacity:.8',
+            text: '面板的数据全部来自宿主路由 /dsh-contract-butler/*。宿主没加载本插件、或存储打不开时就会这样。' }));
+        }
       });
+  }
+
+  /* ---------- 第一次打开 ----------
+     没有可定位的当前项目时，直接把"初始化"摆出来：认得出当前 workspace 就自动预览那个项目
+     （只读，不写任何东西），认不出就列 DSH 的项目让你挑。已经纳管过的当前项目不再打扰——
+     那是"以后打开"，直接显示即可。 */
+  function firstRun() {
+    var cwd = normPath(cwdHint());
+    if (cwd && projectForCwd()) return;
+    if (!cwd && S.projects.length) return;
+    openInit(cwd);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

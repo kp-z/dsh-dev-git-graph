@@ -404,9 +404,71 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
   })
 
   // ── HTTP：路由表 + SSE ────────────────────────────────────────────────────────
+  /* DSH 自己的项目清单（宿主 `workspaceRegistry`）。纳管时从它里面选，而不是让人手输绝对
+     路径。它是可选依赖：拿不到就如实说"读不到项目列表"，其余能力照常。 */
+  type WorkspaceItem = { id: string; path: string; title: string }
+  let workspaceList: (() => unknown[]) | undefined
+  ctx.inject(['workspaceRegistry'], (host) => {
+    const registry = (host as unknown as {
+      workspaceRegistry: { list?: () => unknown[] }
+    }).workspaceRegistry
+    // 先取成局部常量：可选属性不会在闭包里保持窄化。
+    const listFn = registry === undefined ? undefined : registry.list
+    if (typeof listFn === 'function') {
+      workspaceList = () => listFn()
+    }
+  })
+
+  /* 工作区记录的形状由宿主的包决定，这里只认三个字段，认不出就跳过——宁可不列，不猜。 */
+  const readWorkspace = (raw: unknown): WorkspaceItem | null => {
+    if (raw === null || typeof raw !== 'object') return null
+    const item = raw as { id?: unknown; path?: unknown; title?: unknown }
+    if (typeof item.path !== 'string' || item.path === '') return null
+    return {
+      id: typeof item.id === 'string' && item.id !== '' ? item.id : item.path,
+      path: item.path,
+      title: typeof item.title === 'string' && item.title !== '' ? item.title : item.path,
+    }
+  }
+
   ctx.inject(['webServer'], (host) => {
     const webServer = (host as unknown as { webServer: WebServerLike }).webServer
     const disposers = registerRoutes(webServer, [
+      {
+        /**
+         * DSH 里有哪些项目，以及它们是否已被纳管。
+         *
+         * 纳管对话框靠它把"手输绝对路径"换成"从项目里挑"——路径由宿主给，不由人记。
+         */
+        method: 'GET',
+        path: '/workspaces',
+        handler: () => {
+          const current = requireStore()
+          const byRoot = new Map<string, string>()
+          for (const [, project] of current.projects().entries()) byRoot.set(project.root, project.id)
+          // 取到局部常量：`workspaceList` 是随时可能被解绑的闭包变量。
+          const list = workspaceList
+          if (list === undefined) return { source: 'unavailable', workspaces: [] }
+          const items: WorkspaceItem[] = []
+          for (const raw of list()) {
+            const item = readWorkspace(raw)
+            if (item !== null) items.push(item)
+          }
+          return {
+            source: 'workspaceRegistry',
+            workspaces: items.map((item) => {
+              const projectId = byRoot.get(item.path)
+              return {
+                id: item.id,
+                path: item.path,
+                title: item.title,
+                managed: projectId !== undefined,
+                projectId: projectId ?? null,
+              }
+            }),
+          }
+        },
+      },
       {
         method: 'GET',
         path: '/projects',
