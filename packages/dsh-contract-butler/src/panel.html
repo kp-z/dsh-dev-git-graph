@@ -815,7 +815,10 @@
     var tree = $('#tree');
     clear(tree);
     if (!S.p) {
-      tree.appendChild(el('div', { class: 'empty', text: '还没有项目。' }));
+      // 空状态要给出下一步，否则右侧栏看起来就像坏了。
+      tree.appendChild(el('div', { class: 'empty', text: '还没有纳管任何项目。' }));
+      tree.appendChild(el('div', { class: 'empty', style: 'margin-top:6px;opacity:.8',
+        text: '点右上角「纳管项目」，先看一遍它能抽出什么，再由你决定纳管哪些。这一步只读。' }));
       return;
     }
     var items = visibleItems();
