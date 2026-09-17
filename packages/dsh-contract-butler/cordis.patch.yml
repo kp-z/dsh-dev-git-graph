@@ -1,0 +1,10 @@
+# dsh-contract-butler：把协议管家插进 profile 的层栈。
+#
+# 依赖已由 base / web-app bundle 备好，本插件只消费、不重复挂载：
+#   - @deepseek-ai/dsh-storage        契约数据落盘（dsh-base 已挂，root=dshHomePath('storages')）
+#   - @deepseek-ai/dsh-storage-domain 领域数据形式（dsh-base 已挂，backend=json）
+#   - @deepseek-ai/dsh-workspace      项目列表（dsh-web-app 已挂，纳管时从中选目录）
+#   - @deepseek-ai/dsh-host-webserver HTTP 路由与 SSE（web 组合已挂）
+- insert:
+    - id: contract-butler
+      name: dsh-contract-butler

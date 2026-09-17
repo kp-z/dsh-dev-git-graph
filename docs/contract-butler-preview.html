@@ -1,0 +1,2646 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>协议管家 · 契约工作台</title>
+<style>
+  /* ============ 液态玻璃 · 卡片式 ============
+     沿用 docs/ios-glass-preview.html 的玻璃语言：
+     三层玻璃(regular/thin/clear) + backdrop-filter + 高光内描边 + 分离度降级 */
+
+  :root {
+    color-scheme: light;
+    --bg: #e9ecf4;
+
+    /* 玻璃三层 */
+    --glass-regular: rgba(255,255,255,.70);
+    --glass-thin:    rgba(255,255,255,.50);
+    --glass-clear:   rgba(255,255,255,.26);
+    --glass-edge:      rgba(255,255,255,.62);
+    --glass-edge-soft: rgba(255,255,255,.34);
+    --glass-spec:      rgba(255,255,255,.72);
+
+    /* 填充 */
+    --fill: rgba(118,118,128,.11);
+    --fill-secondary: rgba(118,118,128,.07);
+    --fill-selected: rgba(0,122,255,.12);
+
+    /* 兼容旧变量名（JS 内联样式在用） */
+    --panel: var(--glass-regular);
+    --hover: var(--fill-secondary);
+    --sel:   var(--fill-selected);
+    --line:  rgba(60,60,67,.13);
+    --line2: rgba(60,60,67,.22);
+
+    --ink:  #14141a;
+    --ink2: rgba(50,50,60,.72);
+    --ink3: rgba(50,50,60,.46);
+
+    --ok: #16a34a; --warn: #c07600; --bad: #dc2b22; --accent: #007aff;
+
+    /* 状态光晕：契约的状态从玻璃里透出来 */
+    --glow-ok:      rgba(52,199,89,.34);
+    --glow-changed: rgba(255,149,0,.34);
+    --glow-bad:     rgba(255,59,48,.32);
+
+    --shadow:      0 28px 80px rgba(30,35,60,.20), 0 8px 24px rgba(30,35,60,.10);
+    --shadow-soft: 0 10px 30px rgba(30,35,60,.10), 0 2px 8px rgba(30,35,60,.06);
+
+    --r-sm: 12px; --r-md: 16px; --r-lg: 22px; --r-xl: 30px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", system-ui, sans-serif;
+  }
+
+  body.dark {
+    color-scheme: dark;
+    --bg: #06060a;
+    --glass-regular: rgba(40,40,48,.70);
+    --glass-thin:    rgba(40,40,48,.50);
+    --glass-clear:   rgba(40,40,48,.24);
+    --glass-edge:      rgba(255,255,255,.13);
+    --glass-edge-soft: rgba(255,255,255,.08);
+    --glass-spec:      rgba(255,255,255,.15);
+    --fill: rgba(120,120,130,.22);
+    --fill-secondary: rgba(120,120,130,.13);
+    --fill-selected: rgba(10,132,255,.24);
+    --line:  rgba(235,235,245,.13);
+    --line2: rgba(235,235,245,.22);
+    --ink:  #f5f5f7;
+    --ink2: rgba(235,235,245,.72);
+    --ink3: rgba(235,235,245,.46);
+    --ok: #34c759; --warn: #ff9f0a; --bad: #ff453a; --accent: #0a84ff;
+    --glow-ok:      rgba(52,199,89,.26);
+    --glow-changed: rgba(255,159,10,.26);
+    --glow-bad:     rgba(255,69,58,.26);
+    --shadow:      0 32px 90px rgba(0,0,0,.62), 0 10px 28px rgba(0,0,0,.42);
+    --shadow-soft: 0 14px 34px rgba(0,0,0,.36), 0 3px 10px rgba(0,0,0,.26);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+    font-family: var(--ui); font-size: 13px; line-height: 1.55;
+    letter-spacing: -.011em; -webkit-font-smoothing: antialiased;
+  }
+  button, input, label { font: inherit; color: inherit; }
+  button { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 8px; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ============ 背景：会动的色斑（玻璃要真的"液"） ============ */
+  .liquid { position: fixed; inset: -18%; z-index: 0; pointer-events: none; }
+  .liquid span {
+    position: absolute; border-radius: 50%; filter: blur(80px); opacity: .52;
+    animation: drift 36s ease-in-out infinite alternate;
+  }
+  .liquid span:nth-child(1) { width: 46vw; height: 46vw; left: -6%; top: -10%;
+    background: radial-gradient(circle, rgba(0,122,255,.50), transparent 68%); }
+  .liquid span:nth-child(2) { width: 40vw; height: 40vw; right: -6%; top: 0%;
+    background: radial-gradient(circle, rgba(175,82,222,.42), transparent 68%);
+    animation-duration: 46s; animation-direction: alternate-reverse; }
+  .liquid span:nth-child(3) { width: 44vw; height: 44vw; left: 20%; bottom: -16%;
+    background: radial-gradient(circle, rgba(52,199,89,.36), transparent 68%);
+    animation-duration: 40s; }
+  .liquid span:nth-child(4) { width: 32vw; height: 32vw; right: 14%; bottom: -8%;
+    background: radial-gradient(circle, rgba(255,149,0,.30), transparent 68%);
+    animation-duration: 50s; animation-direction: alternate-reverse; }
+  body.dark .liquid span { opacity: .48; }
+  @keyframes drift {
+    0%   { transform: translate3d(0,0,0) scale(1); }
+    50%  { transform: translate3d(4vw,3vh,0) scale(1.14); }
+    100% { transform: translate3d(-3vw,4vh,0) scale(.94); }
+  }
+
+  /* ============ 三张卡片：header / 侧边栏 / 内容 ============ */
+  .stage {
+    position: relative; z-index: 1; height: 100vh; padding: 16px;
+    display: grid; gap: 14px;
+    grid-template-columns: 306px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "head head" "side main";
+  }
+  /* 玻璃卡片 + 状态光晕从右上透出来 */
+  .card {
+    position: relative; min-width: 0;
+    border-radius: var(--r-lg); border: 1px solid var(--glass-edge);
+    background:
+      radial-gradient(760px 380px at 90% -16%, var(--glow, transparent), transparent 72%),
+      var(--glass-regular);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(24px) saturate(1.75); -webkit-backdrop-filter: blur(24px) saturate(1.75);
+  }
+  .g-ok      { --glow: var(--glow-ok); }
+  .g-changed { --glow: var(--glow-changed); }
+  .g-bad     { --glow: var(--glow-bad); }
+
+  /* ============ 顶栏 ============ */
+  .topbar {
+    grid-area: head; padding: 11px 22px; z-index: 6;   /* 抬起来，否则下拉会被下面两张卡盖住 */
+    display: flex; align-items: center; gap: 18px;
+  }
+  .tb-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+  /* 版本条：这次对比的是哪两版，两端都能点开换 */
+  .tb-range { display: flex; align-items: center; gap: 7px; margin-left: auto; flex-wrap: wrap; }
+  .revproj { font-size: 12px; font-weight: 600; color: var(--ink2); margin-right: 3px; }
+  .revbtn {
+    position: relative; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 6px 10px; font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    color: var(--ink); border: 1px solid var(--glass-edge-soft); border-radius: 999px;
+    background: var(--glass-thin); box-shadow: inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .revbtn:hover { border-color: var(--line2); }
+  .revbtn .revtag { font-family: var(--ui); font-size: 10px; font-weight: 600;
+    padding: 1px 6px; border-radius: 999px; color: var(--ink2); background: var(--fill); }
+  .revbtn .revtag.wt { color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .revbtn .revcaret { font-size: 9px; color: var(--ink3); }
+  .revarrow { font-size: 12px; color: var(--ink3); }
+  .revsum { font-size: 11.5px; color: var(--ink3); margin-left: 3px; }
+  .revpop { left: 0; right: auto; min-width: 330px; max-height: 46vh; overflow: auto; }
+  .revopt .flabel { flex: none; font-family: var(--mono); font-size: 11.5px; }
+  .revopt .fsub { flex: 1; min-width: 0; text-align: left; font-size: 11.5px; color: var(--ink2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .revopt .fhint { flex: none; font-size: 10.5px; }
+  .htitle { font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
+  .hsub { font-size: 12px; color: var(--ink3); }
+  .mark {
+    width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center;
+    color: #fff; font-size: 12px; font-weight: 700;
+    background: linear-gradient(145deg, #37a3ff, #0066e0);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.48), 0 5px 14px rgba(0,122,255,.30);
+  }
+  .title { font-weight: 700; font-size: 13.5px; }
+  .subtitle { font-size: 11.5px; color: var(--ink3); }
+  .spacer { flex: 1; }
+
+  .ghost {
+    padding: 6px 12px; cursor: pointer; font-size: 12px; color: var(--ink2);
+    border: 1px solid var(--glass-edge-soft); border-radius: 999px;
+    background: var(--glass-thin);
+    box-shadow: inset 0 1px 0 var(--glass-spec);
+    transition: background .18s ease, color .18s ease;
+  }
+  .ghost:hover { background: var(--fill); color: var(--ink); }
+
+  .seg { display: flex; gap: 3px; padding: 3px; border-radius: 999px;
+    border: 1px solid var(--glass-edge-soft); background: var(--glass-thin);
+    box-shadow: inset 0 1px 0 var(--glass-spec); }
+  .seg button {
+    padding: 4px 11px; border: 0; border-radius: 999px; cursor: pointer; font-size: 12px;
+    color: var(--ink2); background: transparent; transition: background .18s ease, color .18s ease;
+  }
+  .seg button.on { color: var(--accent); background: var(--fill-selected); }
+
+  /* ============ 两栏 ============ */
+  .sidebar {
+    grid-area: side; display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden;
+  }
+  .side-top { flex: none; padding: 12px; display: grid; gap: 9px; border-bottom: 1px solid var(--glass-edge-soft); }
+  .side-foot { flex: none; display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; border-top: 1px solid var(--glass-edge-soft); }
+  .side-foot .seg { margin-right: auto; }
+  .search {
+    width: 100%; padding: 8px 12px; font-size: 12.5px; outline: none;
+    border: 1px solid var(--glass-edge-soft); border-radius: 999px;
+    background: var(--glass-regular); color: var(--ink);
+    box-shadow: inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .search::placeholder { color: var(--ink3); }
+  .search:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+  /* 搜索 + 筛选按钮一行；下拉从这一行下面展开 */
+  .filtwrap { position: relative; display: flex; align-items: center; gap: 8px; }
+  .filtwrap .search { flex: 1; min-width: 0; }
+  .filtbtn {
+    flex: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 8px 11px; font-family: var(--ui); font-size: 12.5px; font-weight: 500;
+    color: var(--ink2); border: 1px solid var(--glass-edge-soft); border-radius: 999px;
+    background: var(--glass-thin); box-shadow: inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .filtbtn:hover { color: var(--ink); }
+  .filtbtn.on { color: var(--accent); background: var(--fill-selected);
+    border-color: color-mix(in srgb, var(--accent) 42%, transparent); }
+  .filtbtn .fico { width: 11px; height: 11px; flex: none; display: block; }
+  .fbadge { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px;
+    font-size: 10px; font-weight: 700; line-height: 15px; text-align: center;
+    color: #fff; background: var(--accent); }
+  .filtpop {
+    position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 40;
+    padding: 6px; display: grid; gap: 1px; border-radius: var(--r-md);
+    border: 1px solid var(--glass-edge); background: var(--glass-regular);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(24px) saturate(1.7); -webkit-backdrop-filter: blur(24px) saturate(1.7);
+  }
+  .filtpop[hidden] { display: none; }
+  .fopt { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+    padding: 7px 9px; border: 0; border-radius: 10px; cursor: pointer;
+    font-family: var(--ui); font-size: 12px; color: var(--ink2); background: none; }
+  .fopt:hover { background: var(--fill-secondary); }
+  .fopt:focus { outline: none; }
+  .fopt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .fopt.on { color: var(--ink); }
+  .fopt .box { width: 15px; height: 15px; flex: none; position: relative;
+    border-radius: 4.5px; border: 1.5px solid var(--line2); }
+  .fopt.on .box { border-color: var(--accent); background: var(--accent); }
+  .fopt.on .box::after { content: ''; position: absolute; left: 4.5px; top: 1.5px;
+    width: 4.5px; height: 8px; border-right: 1.8px solid #fff; border-bottom: 1.8px solid #fff;
+    transform: rotate(40deg); }
+  .fopt .flabel { flex: none; }
+  .fopt .fhint { flex: 1; text-align: right; font-size: 10.5px; color: var(--ink3); }
+  .filtclear { margin-top: 3px; padding: 7px 9px; border: 0; border-radius: 10px; cursor: pointer;
+    text-align: left; font-family: var(--ui); font-size: 11.5px; color: var(--ink3); background: none; }
+  .filtclear:hover { background: var(--fill-secondary); color: var(--ink); }
+  .filtclear:disabled, .filtclear.hint { cursor: default; }
+  .filtclear.hint:hover { background: none; color: var(--ink3); }
+
+  /* ============ 树 ============ */
+  .tree { flex: 1; overflow: auto; padding: 8px 8px 18px; }
+  .trow {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    padding: 7px 10px; margin-bottom: 1px; cursor: pointer;
+    border: 1px solid transparent; border-radius: var(--r-sm); background: transparent;
+    transition: background .16s ease, border-color .16s ease;
+  }
+  .trow:hover { background: var(--fill-secondary); }
+  .trow.on {
+    background: var(--fill-selected);
+    border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+    box-shadow: inset 0 1px 0 var(--glass-spec);
+  }
+  .caret { width: 10px; flex: none; font-size: 9px; color: var(--ink3); }
+  .tname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cnt { flex: none; font-size: 10.5px; color: var(--ink3); font-family: var(--mono); }
+  .cnt.zero { opacity: .4; }
+  .selfb {
+    flex: none; font-size: 10px; padding: 1px 7px; border-radius: 999px; color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .t-proj { font-weight: 700; font-size: 12.5px; margin-top: 4px; }
+  .t-proj .tpath { font-weight: 400; font-size: 10px; color: var(--ink3); font-family: var(--mono); }
+  .t-proj { display: flex; align-items: center; gap: 6px; }
+  .t-proj .caretbtn { width: 16px; flex: none; padding: 2px 0; border: 0; border-radius: 5px;
+    background: transparent; color: var(--ink3); font-size: 9px; cursor: pointer; }
+  .t-proj .caretbtn:hover { background: var(--fill-secondary); color: var(--ink); }
+  .t-proj .namebtn { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px;
+    padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer;
+    color: inherit; font: inherit; font-weight: inherit; }
+  .t-kind { padding-left: 16px; color: var(--ink2); font-size: 12px; }
+  .t-con { padding-left: 30px; }
+  .t-con .tname { font-family: var(--mono); font-size: 11.5px; }
+  .t-gap { padding-left: 30px; }
+  .t-gap .tname { font-size: 12px; color: var(--ink2); }
+  .t-dir { padding-left: 14px; color: var(--ink2); font-size: 12px; }
+  .t-dir .tdirname { font-family: var(--mono); font-size: 11px; }
+  .t-dir .tfilen { font-family: var(--mono); font-size: 10.5px; color: var(--accent);
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-file { padding-left: 26px; color: var(--ink2); font-size: 11.5px; }
+  .t-file .tname { font-family: var(--mono); font-size: 11px; }
+  .t-con.inline { padding-left: 28px; }
+  .t-gapband .tdirname { color: var(--bad); }
+  .t-extband .tdirname { color: var(--ink3); }
+  .t-gaphead { padding-left: 16px; cursor: default; color: var(--ink3); font-size: 12px; }
+  .caret.hit { cursor: pointer; border-radius: 4px; }
+  .caret.hit:hover { background: var(--fill-secondary); color: var(--ink); }
+  .tree .trow.foc {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+  .gband.foc {
+    border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+    background: radial-gradient(620px 300px at 90% -16%,
+      color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%), var(--glass-thin);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent),
+      var(--shadow-soft), inset 0 1px 0 var(--glass-spec);
+  }
+  .gband.dim { opacity: .38; }
+  .gband { transition: opacity .18s ease, border-color .18s ease; }
+
+  /* ---- 目录树：连接线（├ └ │ 用 CSS 画，跨过 padding 才连续）---- */
+  .tree .trow { padding: 6px 8px; gap: 3px; margin-bottom: 0; }
+  .tree .t-dir, .tree .t-file, .tree .t-con, .tree .t-gap,
+  .tree .t-gapband, .tree .t-extband { padding-left: 8px; }
+  /* 负 margin 要抵消 padding(6px) + 行 1px 透明边框，行高 31px 时才正好接上，
+     否则每行之间会断 2px */
+  .t-guides { flex: none; display: flex; align-self: stretch; margin: -7px 0; }
+  .t-guides i { width: 13px; display: block; position: relative; }
+  .t-guides i::before, .t-guides i::after {
+    content: ''; position: absolute; background: var(--line2);
+  }
+  .t-guides i::before { left: 6px; width: 1px; top: 0; bottom: 0; }
+  .t-guides i::after { left: 6px; right: 0; top: 50%; height: 1px; display: none; }
+  .t-guides i.elbow::before { bottom: auto; height: 50%; }
+  .t-guides i.tee::after, .t-guides i.elbow::after { display: block; }
+  .tree .t-con { font-size: 12px; }
+  .tree .t-con .tname { font-size: 11.5px; }
+  .t-sub { flex: none; font-size: 10px; color: var(--ink3); }
+  .t-gaphead:hover { background: transparent; }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .d-ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .d-changed { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 20%, transparent); }
+  .d-brk { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 26%, transparent), 0 0 0 4.5px color-mix(in srgb, var(--warn) 13%, transparent); }
+  .d-bad { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 20%, transparent); }
+
+  /* ============ 中间：一张卡片装下全部内容 ============ */
+  .main {
+    grid-area: main; display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden;
+  }
+  .content {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    padding: 22px 30px 0;
+  }
+  .scrollarea { flex: 1; min-height: 0; overflow: auto; padding-bottom: 30px;
+    scrollbar-gutter: stable; }
+
+  /* 内容卡顶部：也只有两行 —— 标题 / 说明 */
+  .chead { flex: none; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+  .cline1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ctitle { font-family: var(--mono); font-size: 20px; font-weight: 700; letter-spacing: -.022em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .back { flex: none; padding: 2px 8px; border: 0; border-radius: 7px; cursor: pointer;
+    background: transparent; color: var(--accent); font-family: var(--mono); font-size: 11.5px; }
+  .back:hover { background: var(--fill-secondary); }
+  .cline2 { display: flex; align-items: baseline; gap: 14px; margin-top: 5px; }
+  .cdesc { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink2); }
+  .cmeta2 { flex: none; font-size: 11px; color: var(--ink3); font-family: var(--mono); }
+
+  /* 区段：靠分隔线分节，整张卡才是玻璃 */
+  .block { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line); }
+  .scrollarea > .block:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+  /* 两个标记互相独立，都没有就什么都不画：
+     变过 = 相对基线版本有改动；不符 = 观测到与契约不合 */
+  .facts { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; flex: none; white-space: nowrap;
+    font-family: var(--ui); font-size: 11px; font-weight: 500; line-height: 1.6;
+    padding: 1px 8px; border-radius: 999px; }
+  .chip-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent); }
+  .chip-warn.brk { font-weight: 700; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--warn) 80%, transparent); }
+  .chip-bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
+  .chip-gap { color: var(--bad); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
+  .chip-dim { color: var(--ink3); box-shadow: inset 0 0 0 1px var(--line2); }
+
+  .bh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  .bh h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .06em; }
+  .bh .sub { font-size: 11px; color: var(--ink3); font-family: var(--mono); }
+
+  /* 结论：每张卡片底部那句人话，做成玻璃内嵌条 */
+  .verdict {
+    margin-top: 18px; padding: 2px 0 2px 14px; font-size: 13px; color: var(--ink);
+    border-left: 2px solid var(--line2);
+  }
+  .verdict.bad  { border-left-color: var(--bad); }
+  .verdict.warn { border-left-color: var(--warn); }
+
+  /* 表 */
+  table.f { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.f th { text-align: left; font-weight: 600; font-size: 10.5px; letter-spacing: .06em;
+    color: var(--ink3); padding: 0 12px 7px 0; border-bottom: 1px solid var(--line); }
+  table.f td { padding: 7px 12px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.f tr:last-child td { border-bottom: none; }
+  .mono { font-family: var(--mono); }
+  .dir { font-size: 10.5px; letter-spacing: .06em; color: var(--ink3); margin: 14px 0 7px; }
+  .req { color: var(--bad); font-weight: 600; }
+  .opt { color: var(--ink3); font-size: 11px; }
+  .ttype { color: var(--accent); }
+
+  /* 改动行 */
+  .row { display: grid; grid-template-columns: 116px minmax(0,1fr) auto; gap: 12px;
+    align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: none; }
+  .when { display: flex; align-items: baseline; gap: 7px; white-space: nowrap;
+    font-family: var(--mono); font-size: 11px; color: var(--ink3); }
+  .when .sha { font-family: var(--mono); font-size: 10.5px; color: var(--ink2); }
+  .when .at { font-size: 10.5px; color: var(--ink3); }
+  .row.old .when, .row.old .what { opacity: .55; }
+  .oldnote { margin: 10px 0 2px; font-size: 11px; color: var(--ink3); }
+  /* 对比条：左边是什么，右边是什么 */
+  .cmp { display: inline-flex; align-items: baseline; gap: 7px; font-size: 11.5px; }
+  .cmp .k { font-size: 10.5px; color: var(--ink3); }
+  .cmp .arrow { color: var(--ink3); }
+  .cmp code { font-family: var(--mono); font-size: 11px; color: var(--ink2); }
+  .what { font-size: 12.5px; }
+  .what code { font-family: var(--mono); font-size: 11.5px; }
+  .tag { font-size: 10.5px; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+    border: 1px solid var(--glass-edge-soft); color: var(--ink3); background: var(--glass-thin); }
+  .tag.bad  { color: var(--bad);  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+    background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+    background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  .tag.ok   { color: var(--ok);   border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+    background: color-mix(in srgb, var(--ok) 12%, transparent); }
+
+  /* 调用 */
+  .call { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .call:last-child { border-bottom: none; }
+  .call-h { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .call-who { font-family: var(--mono); font-size: 12px; }
+  .finding { margin: 8px 0 0 14px; padding: 8px 0 8px 12px; font-size: 12px; color: var(--ink2);
+    border-left: 3px solid var(--bad); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    background: color-mix(in srgb, var(--bad) 8%, transparent); }
+  .finding.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+  .finding b { color: var(--ink); font-weight: 600; }
+  .finding code { font-family: var(--mono); font-size: 11.5px; }
+
+  .empty { padding: 44px 0; color: var(--ink3); }
+  .note { font-size: 12px; color: var(--ink2); margin-bottom: 12px; }
+
+
+  /* ============ 项目关系图 ============ */
+  .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+    margin-bottom: 14px; font-size: 11.5px; color: var(--ink2); }
+  .legend .li { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .ls { width: 20px; height: 0; border-top: 2px solid currentColor; flex: none; }
+  .legend .ls.dash { border-top-style: dashed; }
+  .legend .lsep { width: 1px; height: 14px; background: var(--line2); }
+  .legend .lgl { font-size: 11px; color: var(--ink3); }
+
+  /* 图直接落在内容卡上，不再套一层 */
+  .graphwrap { width: fit-content; max-width: 100%; overflow: auto; margin: 0 auto; }
+  .graph { position: relative; }
+
+  /* 聚焦时：不在焦点里的卡片直接糊掉（不加任何遮罩层） */
+  .gnode.blurcard { filter: blur(2.6px); opacity: .3; }
+
+  /* 归属框：目录 / 外部 / 缺契约 */
+  .gband { position: absolute; border-radius: var(--r-lg);
+    border: 1px solid var(--glass-edge-soft); background: var(--fill-secondary); }
+  .gband.ext { border-style: dashed; }
+  .gband.gaps { border-color: color-mix(in srgb, var(--bad) 34%, transparent);
+    background: color-mix(in srgb, var(--bad) 6%, var(--fill-secondary)); }
+  .gbandhead { position: absolute; left: 16px; top: 9px; right: 16px;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .gbandhead > * { flex: none; }
+  .gbandname { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--ink); }
+  .gbandfile { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+  .gbandnote { font-size: 10.5px; color: var(--ink3); }
+  .gbandcount { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--ink3); }
+  .gfilehead { position: absolute; left: 16px; right: 16px; font-family: var(--mono);
+    font-size: 10.5px; color: var(--ink3); overflow-wrap: anywhere; }
+  .gnode.planned { border-style: dashed; }
+  .graph svg.edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+  .gnode {
+    position: absolute; display: flex; align-items: center; gap: 8px; text-align: left;
+    padding: 7px 10px; cursor: pointer; overflow: hidden;
+    border-radius: var(--r-md); border: 1px solid var(--glass-edge-soft);
+    background: var(--glass-thin); box-shadow: inset 0 1px 0 var(--glass-spec);
+    transition: transform .16s ease, background .16s ease, border-color .16s ease;
+  }
+  .gnode:hover { transform: translateY(-1px); background: var(--fill);
+    border-color: var(--glass-edge); }
+  .gnode.on { border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+    background: var(--fill-selected); }
+  .gnode .gtext { flex: 1; min-width: 0; }
+  .gnode .gname { font-family: var(--mono); font-size: 11px; line-height: 1.32;
+    overflow-wrap: anywhere; }
+  .gnode .gkind { display: block; margin-top: 2px; font-size: 9.5px; color: var(--ink3); }
+  .gnode.gapnode { border-style: dashed; border-color: color-mix(in srgb, var(--bad) 44%, transparent);
+    background: color-mix(in srgb, var(--bad) 9%, transparent); }
+
+  /* ============ 讨论锚点 ============ */
+  .ov { position: fixed; inset: 0; z-index: 60; display: none; place-items: center; padding: 24px;
+    background: rgba(20,22,32,.34); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .ov.open { display: grid; }
+  .sheet { width: min(720px,100%); max-height: 84vh; overflow: auto;
+    border-radius: var(--r-lg); border: 1px solid var(--glass-edge);
+    background: var(--glass-regular); box-shadow: var(--shadow);
+    backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8); }
+  .sheet-h { display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--glass-edge-soft); }
+  .sheet-t { font-weight: 700; font-size: 14px; }
+  .sheet-b { padding: 4px 20px 20px; }
+  .an { padding: 14px 0; border-bottom: 1px solid var(--line); display: grid; gap: 5px; }
+  .an:last-child { border-bottom: none; }
+  .an-q { font-weight: 600; font-size: 13px; }
+  .an-a { font-size: 12.5px; color: var(--ink2); }
+  .an-a code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+  .an-o { font-size: 12px; color: var(--ink3); }
+  .an-o b { color: var(--ink2); font-weight: 500; }
+
+  /* ============ 降级与自适应 ============ */
+  @media (prefers-reduced-transparency: reduce) {
+    .card, .search, .ghost, .seg, .sheet, .ov {
+      background: var(--glass-regular); backdrop-filter: none; -webkit-backdrop-filter: none; }
+    .liquid { display: none; }
+    .chead, .block { background: transparent; }
+  }
+  @media (prefers-contrast: more) {
+    :root { --line: rgba(60,60,67,.3); --ink2: rgba(50,50,60,.88); }
+    body.dark { --line: rgba(235,235,245,.3); --ink2: rgba(235,235,245,.9); }
+    .chead, .block { box-shadow: var(--shadow-soft), inset 0 0 0 1px var(--line2); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+    .liquid span { animation: none; }
+  }
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    .stage {
+      height: auto; min-height: 100vh; padding: 10px; gap: 10px;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas: "head" "side" "main";
+    }
+    .tree { max-height: 38vh; }
+    .main { min-height: 62vh; }
+    .content { padding: 18px 16px 56px; }
+    .subtitle { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="liquid" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+
+<div class="stage">
+  <header class="topbar card" id="topbar">
+    <div class="tb-left">
+      <div class="htitle">协议管家</div>
+      <div class="hsub">上面选两版，下面看这两版之间谁变过、谁对不上</div>
+    </div>
+    <div class="tb-range" id="tbRange"></div>
+  </header>
+
+  <aside class="sidebar card">
+    <div class="side-top">
+      <div class="filtwrap" id="filtWrap">
+        <input class="search" id="q" placeholder="找契约…">
+        <button class="filtbtn" id="filtBtn" type="button" aria-haspopup="true" aria-expanded="false">
+          <svg class="fico" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M1 1.4h10L7.3 6.1V10L4.7 11.3V6.1L1 1.4z" fill="currentColor"/></svg>
+          <span>筛选</span>
+          <span class="fbadge" id="filtBadge" hidden>0</span>
+        </button>
+        <div class="filtpop" id="filtPop" hidden role="group" aria-label="筛选"></div>
+      </div>
+    </div>
+    <div class="tree" id="tree"></div>
+    <div class="side-foot">
+      <div class="seg" id="themeSeg">
+        <button data-theme="light">浅色</button>
+        <button data-theme="dark">深色</button>
+      </div>
+      <button class="ghost" id="notesBtn">讨论锚点</button>
+    </div>
+  </aside>
+
+  <main class="main card" id="mainCard">
+    <div class="content" id="detail"></div>
+  </main>
+</div>
+
+<div class="ov" id="ov">
+  <div class="sheet">
+    <div class="sheet-h">
+      <span class="sheet-t">讨论锚点 · 这一版改了什么</span>
+      <button class="ghost" id="ovClose">关闭</button>
+    </div>
+    <div class="sheet-b" id="ovBody"></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   协议管家 · 静态预览
+   侧边栏是一棵树：项目 -> 这是什么边界 -> 契约
+   项目切换就在树的根上。数据全部取自 /Users/kp/DEV 下真实存在的目录。
+   ============================================================ */
+
+/* 「这是什么边界」——用一句完整的话命名，念出来就知道里面装的是什么 */
+var KIND = {
+  file:  '磁盘上的文件',
+  api:   '服务对外的接口',
+  event: '推给前端的事件',
+  proto: '服务之间的 proto',
+  tool:  '模型能调用的工具'
+};
+var KIND_ORDER = ['tool', 'file', 'api', 'event', 'proto'];
+
+var P_DSH = 'p-dsh', P_PROTO = 'p-msim', P_PLAT = 'p-platform';
+
+var PROJECTS = [
+  { id: P_DSH,   name: 'dsh-plugins',       path: '/Users/kp/DEV/dsh-plugins',
+    note: '这个仓库自己的东西',
+    sum: '同一个「任务」，在落盘、接口、事件三层各有一份表示。三层单独看都没错——合起来对不上。' },
+  { id: P_PROTO, name: 'msim_shared_proto', path: '/Users/kp/DEV/msim_shared_proto',
+    note: '后端 Go 和前端共同依赖的实体定义',
+    sum: 'proto 是唯一真源，实体之间靠字段类型互相咬合。但「谁还没跟上这一版」没有任何地方记录。' },
+  { id: P_PLAT,  name: 'DSH 平台',          path: '不属于任何项目',
+    note: '平台注册给模型用的工具，不是某个仓库里的代码', platform: 1,
+    sum: '13 个工具彼此基本独立，只有「后台任务」这一条链把它们连了起来——而这条链本身没有契约。' }
+];
+
+/* 每个项目的版本锚点。head 是最新，baseline 是上次纳管时记下的那一个。
+   「变过」= 相对 baseline 之后有过改动，不是「历史上改过」。
+   平台不是一个仓库，锚点用宿主版本号，含义一样：一个不可变的版本标识。 */
+var REPO = {
+  'p-dsh': {
+    head: '9c1f2ab', baseline: '2b6c8a3',
+    dirty: [{ file: 'dsh-taskboard/src/host/events.ts', ids: ['TaskChange'] }],
+    log: [
+      { id: '9c1f2ab', at: '12 分钟前', subject: '页面：状态改成推导，加版本对比' },
+      { id: 'e5d90f1', at: '3 天前',   subject: '契约管家：契约对象加 calls 观测' },
+      { id: '4b8e1d0', at: '4 天前',   subject: 'taskboard：status 收紧成枚举；存盘文件加 snapshots' },
+      { id: '7ab31c4', at: '1 周前',   subject: '插件清单与接口：补 file / boundary' },
+      { id: '2b6c8a3', at: '2 周前',   subject: '上一次纳管时记下的样子' }]
+  },
+  'p-msim': {
+    head: 'c07f5aa', baseline: '1d4e8b9',
+    dirty: [],
+    log: [
+      { id: 'c07f5aa', at: '3 小时前', subject: 'geometry.proto：坐标系注释与命名整理' },
+      { id: 'f83a217', at: '1 周前',   subject: 'agent.proto 加 agent_task / progress；geometry.proto 加 WGS84' },
+      { id: '1d4e8b9', at: '2 周前',   subject: 'agent.proto：heading 改 double' },
+      { id: 'a4910de', at: '3 周前',   subject: '枚举：新增 2 个实体类型' }]
+  },
+  'p-platform': {
+    head: 'v0.14.2', baseline: 'v0.13.0',
+    dirty: [],
+    log: [
+      { id: 'v0.14.2', at: '今天',   subject: '宿主：补齐 edit / write 的参数与错误形状' },
+      { id: 'v0.14.1', at: '2 天前', subject: '宿主：bash 加 sandbox_permissions' },
+      { id: 'v0.14.0', at: '5 天前', subject: '宿主：todo_write 改成全量写入' },
+      { id: 'v0.13.0', at: '3 周前', subject: '上一次纳管时的样子' }]
+  }
+};
+
+var C = [
+/* ================= DSH 平台 · 模型能调用的工具 ================= */
+{ id: 'bash', p: P_PLAT, kind: 'tool', name: 'bash', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '跑 shell 命令，能后台跑，带副作用。',
+  in: [
+    { n: 'command', t: 'string', r: 1, d: '要执行的命令' },
+    { n: 'description', t: 'string', r: 1, d: '5-10 字说明，主动语态' },
+    { n: 'workdir', t: 'string', d: '工作目录' },
+    { n: 'timeoutMs', t: 'number', d: '超时毫秒' },
+    { n: 'run_in_background', t: 'boolean', d: '后台执行，立刻返回 job id' },
+    { n: 'sandbox_permissions', t: 'enum(2)', d: '只用于被拒命令的一次性重试' },
+    { n: 'justification', t: 'string', d: '配 sandbox_permissions 的一句话理由' }],
+  out: [{ n: 'stdout', t: 'string' }, { n: 'exitCode', t: 'integer' }, { n: 'jobId', t: 'string' }],
+  wv: '输入 7 项、输出 3 项。7 项里只有 2 项必填，其余都能省。',
+  changes: [
+    { sha: 'v0.14.1', at: '2 天前', w: '加了 <code>sandbox_permissions</code> 和 <code>justification</code>', k: '不破坏', tone: 'ok' },
+    { sha: 'v0.13.0', at: '3 周前', w: '<code>run_in_background</code> 从必填改成可选', k: '不破坏', tone: 'ok' }],
+  cv: '改过 2 次，两次都是加东西或放宽，老的写法照样能用。',
+  calls: [
+    { at: '13:38', who: 'pnpm build', ok: 1, d: 'exitCode = 0，正常' },
+    { at: '13:41', who: 'git status --porcelain', ok: 1, d: '' },
+    { at: '13:52', who: 'wc -c < docs/x.html', ok: 1, d: '' }],
+  cav: '最近 3 次调用全部符合契约。' },
+
+{ id: 'read', p: P_PLAT, kind: 'tool', name: 'read', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '读文本文件，返回一个带行号的窗口。',
+  in: [{ n: 'file_path', t: 'string', r: 1 }, { n: 'offset', t: 'number', d: '起始行，从 1 数' },
+       { n: 'limit', t: 'number', d: '最多几行' }],
+  out: [{ n: 'content', t: 'string' }],
+  wv: '输入 3 项、输出 1 项。简单的读取，没有隐藏参数。',
+  changes: [], cv: '从被记录以来没有改过。',
+  calls: [{ at: '13:46', who: 'README.md', ok: 1, d: '返回 80 行' },
+          { at: '13:47', who: 'src/client.js', ok: 1, d: '' }],
+  cav: '最近 2 次调用全部符合契约。' },
+
+{ id: 'edit', p: P_PLAT, kind: 'tool', name: 'edit', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '把文件里的某段文字替换掉。',
+  in: [{ n: 'file_path', t: 'string', r: 1 }, { n: 'old_string', t: 'string', r: 1 },
+       { n: 'new_string', t: 'string', r: 1, d: '替换成什么，删除就传空串' },
+       { n: 'replace_all', t: 'boolean', d: '替换全部匹配' },
+       { n: 'sandbox_permissions', t: 'enum(2)' }, { n: 'justification', t: 'string' }],
+  out: [{ n: 'diff', t: 'string' }],
+  wv: '输入 6 项、输出 1 项。必填 3 项——<code>old_string</code> 和 <code>new_string</code> 都得给。',
+  changes: [{ sha: 'v0.13.0', at: '3 周前', w: '<code>replace_all</code> 从必填改成可选', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，是放宽。但下面这次失败说明，光看契约改动不够。',
+  calls: [
+    { at: '13:41', who: '编辑 packages/…/index.ts', ok: 0, d: 'ToolArgsError',
+      f: [{ w: '<b>new_string</b> 没给', e: 'string（必填）', a: '没有这个参数', tone: 'bad' }] },
+    { at: '13:44', who: '编辑 docs/…html', ok: 0, d: '被拒绝',
+      f: [{ w: '文件在读取之后被改过，工具<b>拒绝写入</b>', e: '无要求', a: '要求重新读一次', tone: 'bad' }] }],
+  cav: '最近 2 次调用全部失败。一次是参数缺失，一次是文件被并发改过——后者契约里根本没写。' },
+
+{ id: 'write', p: P_PLAT, kind: 'tool', name: 'write', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '新建文件，或整个覆盖一个文件。',
+  in: [{ n: 'file_path', t: 'string', r: 1 }, { n: 'content', t: 'string', r: 1 }],
+  out: [{ n: 'bytes', t: 'integer' }],
+  wv: '输入 2 项，都必填，没有别的。',
+  changes: [{ sha: 'v0.14.2', at: '11:40', w: '删掉了 <code>encoding</code> 字段', k: '破坏', tone: 'bad' }],
+  cv: '改过 1 次，删了一个字段。还在传 <code>encoding</code> 的写法会直接失败。',
+  calls: [{ at: '13:42', who: '写 notes/contract.md', ok: 0, d: '文件已存在但没先读',
+    f: [{ w: '目标文件存在，工具<b>要求先读再写</b>', e: '契约没写这一条', a: '第一次就被拒', tone: 'bad' }] }],
+  cav: '最近 1 次调用失败，原因是契约里没写、但工具实际执行的规则。' },
+
+{ id: 'glob', p: P_PLAT, kind: 'tool', name: 'glob', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '按通配符找文件路径。',
+  in: [{ n: 'pattern', t: 'string', r: 1 }, { n: 'path', t: 'string', d: '从哪个目录开始找' }],
+  out: [{ n: 'files', t: 'array<string>' }],
+  wv: '输入 2 项、输出 1 项。返回的是路径数组。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:43', who: '**/*.ts', ok: 1, d: '找到 41 个' }],
+  cav: '最近 1 次调用符合契约。' },
+
+{ id: 'grep', p: P_PLAT, kind: 'tool', name: 'grep', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '按正则搜文件内容。',
+  in: [{ n: 'pattern', t: 'string', r: 1 }, { n: 'path', t: 'string' },
+       { n: 'include', t: 'string', d: '一个 glob，限定搜哪些文件' }],
+  out: [{ n: 'matches', t: 'array<object>' }],
+  wv: '输入 3 项、输出 1 项。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:47', who: 'create\\(', ok: 1, d: '命中 6 处' }],
+  cav: '最近 1 次调用符合契约。' },
+
+{ id: 'web_search', p: P_PLAT, kind: 'tool', name: 'web_search', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '联网搜索，返回一段摘要加来源链接。',
+  in: [{ n: 'queries', t: 'array<string>', r: 1, d: '1-4 条查询，不能为空' }],
+  out: [{ n: 'answer', t: 'string' }, { n: 'sources', t: 'array<object>' }],
+  wv: '输入 1 项、输出 2 项。契约说 queries 必填、1-4 条、不可为 null。',
+  changes: [{ sha: 'v0.14.2', at: '12:05', w: '<code>queries</code> 从 string 改成 array&lt;string&gt;', k: '破坏', tone: 'bad' }],
+  cv: '改过 1 次，把类型从单个字符串换成了数组。老写法会失败。',
+  calls: [
+    { at: '13:45', who: '搜 "DSH 插件"', ok: 0, d: '返回 401',
+      f: [{ w: '工具<b>返回 401</b>，但契约里没有「失败时长什么样」这一条', e: '契约只写了成功的样子', a: '一个错误体，形状没有任何约定', tone: 'bad' }] },
+    { at: '13:45', who: '搜 "schema registry"', ok: 0, d: '同上',
+      f: [{ w: '同样 401', e: '—', a: '—', tone: 'bad' }] }],
+  cav: '最近 2 次调用全部失败。而且失败信息本身没人定义过——契约只描述了成功的那一半。' },
+
+{ id: 'subagent', p: P_PLAT, kind: 'tool', name: 'subagent', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '把一件独立的事交给一个子代理去做。',
+  in: [{ n: 'description', t: 'string', r: 1, d: '3-5 个词的任务名' },
+       { n: 'prompt', t: 'string', r: 1, d: '自包含的完整任务书' },
+       { n: 'run_in_background', t: 'boolean' }],
+  out: [{ n: 'result', t: 'string' }],
+  wv: '输入 3 项、输出 1 项。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:30', who: '调研客户端 API', ok: 1, d: '返回报告' }],
+  cav: '最近 1 次调用符合契约。' },
+
+{ id: 'todo_write', p: P_PLAT, kind: 'tool', name: 'todo_write', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '记录当前这一轮工作的任务清单。',
+  in: [{ n: 'todos', t: 'array<object>', r: 1, d: '每一项是 { content, status }' }],
+  out: [{ n: 'revision', t: 'integer' }],
+  wv: '输入 1 项、输出 1 项。每次都要传完整的清单，不是增量。',
+  changes: [{ sha: 'v0.14.0', at: '5 天前', w: '每次调用都要传完整数组，不再支持只传变化项', k: '破坏', tone: 'bad' }],
+  cv: '改过 1 次，改成必须传全量。只传改动项的写法会静默丢掉其余任务。',
+  calls: [{ at: '13:46', who: '传 40 项', ok: 0, d: '返回成功，但只看了前 32 项',
+    f: [{ w: '实际写入的只有<b>前 32 项</b>', e: '契约没写有上限', a: '第 33 项之后被丢掉，且没有报错', tone: 'warn' }] }],
+  cav: '最近 1 次调用表面成功，实际悄悄丢了 8 项——契约里没提这个上限。' },
+
+{ id: 'ask_user_question', p: P_PLAT, kind: 'tool', name: 'ask_user_question', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '向人问一个选择题，拿到答案再往下走。',
+  in: [{ n: 'questions', t: 'array<object>', r: 1, d: '每项是 { id, question, options }' }],
+  out: [{ n: 'answers', t: 'array<object>' }],
+  wv: '输入 1 项、输出 1 项。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:20', who: '问「先做哪一层」', ok: 1, d: '拿到答案' }],
+  cav: '最近 1 次调用符合契约。' },
+
+{ id: 'exit_plan_mode', p: P_PLAT, kind: 'tool', name: 'exit_plan_mode', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '把完整计划交给用户审，批准后就退出计划模式。',
+  in: [{ n: 'plan', t: 'string', r: 1, d: '完整 markdown，以 # 标题开头' }],
+  out: [{ n: 'approved', t: 'boolean' }],
+  wv: '输入 1 项、输出 1 项。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:10', who: '提交层级版计划', ok: 1, d: '已批准' }],
+  cav: '最近 1 次调用符合契约。' },
+
+{ id: 'mermaid_validate', p: P_PLAT, kind: 'tool', name: 'mermaid_validate', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '画图之前先校验 Mermaid 语法，避免图渲染不出来。',
+  in: [{ n: 'code', t: 'string', r: 1, d: 'Mermaid 源码，不含围栏' },
+       { n: 'type', t: 'enum(8)', r: 1, d: 'flowchart / sequenceDiagram / classDiagram / erDiagram / …' }],
+  out: [{ n: 'ok', t: 'boolean' }, { n: 'errors', t: 'array<string>' }],
+  wv: '输入 2 项、输出 2 项。契约声称支持 8 种图。',
+  changes: [{ sha: 'v0.14.2', at: '12:48', w: '<code>type</code> 的取值从 8 个扩到 9 个', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，只是多支持一种图。',
+  calls: [{ at: '13:43', who: '校验 flowchart', ok: 0, d: '返回成功，但说语法错',
+    f: [{ w: '契约说支持 <b>flowchart</b>，实际一律判为语法错误', e: '8 种图都可用', a: 'flowchart / classDiagram / stateDiagram-v2 全崩', tone: 'bad' },
+        { w: '报错信息是 <b>Zs.addHook is not a function</b>', e: '契约没规定错误信息的形状', a: '一句内部异常', tone: 'warn' }] }],
+  cav: '最近 1 次调用实际失败。契约宣称的能力和真实行为对不上——这正是「对不上」最该被抓出来的样子。' },
+
+{ id: 'job_output', p: P_PLAT, kind: 'tool', name: 'job_output', file: null, home: 'DSH 宿主', boundary: '模型可调用的工具',
+lead: '读后台任务的输出，可以选阻塞等待。',
+  in: [{ n: 'job_id', t: 'string', r: 1 }, { n: 'wait', t: 'boolean' }, { n: 'timeout_ms', t: 'number' }],
+  out: [{ n: 'output', t: 'string' }, { n: 'status', t: 'enum(4)', d: 'running / done / failed / killed' }],
+  wv: '输入 3 项、输出 2 项。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:39', who: 'job_01H9x', ok: 1, d: '已结束' }],
+  cav: '最近 1 次调用符合契约。' },
+
+/* ================= dsh-plugins · 这个仓库自己的东西 ================= */
+{ id: 'TaskRecord', p: P_DSH, kind: 'file', name: 'TaskRecord',
+  file: 'dsh-taskboard/data/dsh-taskboard.json', boundary: '插件落盘的数据',
+lead: '落盘的任务记录。这是「任务」这件事最完整的样子。',
+  in: [
+    { n: 'id', t: 'string', r: 1 }, { n: 'title', t: 'string', r: 1 },
+    { n: 'status', t: 'string', r: 1, d: '自由字符串，没有限定取值' },
+    { n: 'createdAt', t: 'string', r: 1 }, { n: 'updatedAt', t: 'string', r: 1 },
+    { n: 'checklist', t: 'array<object>' }, { n: 'trashedAt', t: 'string' }],
+  out: [],
+  wv: '7 项字段。这里 <code>status</code> 是个自由字符串，想写什么写什么。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:44', who: '写入 1 条', ok: 1, d: '1 行' }],
+  cav: '最近 1 次写入符合契约。',
+  twins: ['Task', 'TaskChange'],
+  twinNote: '同一个「任务」，在接口层和事件层各有一份表示。三层的写法并不完全一样——下面「现在对不对」里有具体差异。' },
+
+{ id: 'Task', p: P_DSH, kind: 'api', name: 'Task',
+  file: 'dsh-taskboard/src/host/routes.ts', boundary: '插件对外的接口',
+lead: '接口返回出去的任务。比落盘的少了一些字段。',
+  in: [
+    { n: 'id', t: 'string', r: 1 }, { n: 'title', t: 'string', r: 1 },
+    { n: 'status', t: 'enum(3)', r: 1, d: 'todo / doing / done' },
+    { n: 'createdAt', t: 'string', r: 1 }, { n: 'tags', t: 'array<string>' }],
+  out: [],
+  wv: '5 项字段。这里 <code>status</code> 收紧了，只有 3 个取值。',
+  changes: [{ sha: '4b8e1d0', at: '4 天前', w: '<code>status</code> 从自由字符串收紧成 3 个取值的枚举', k: '破坏', tone: 'bad' }],
+  cv: '改过 1 次，把 status 收紧了。这是好事，但它和落盘那份对不上了。',
+  calls: [
+    { at: '13:44', who: 'GET /tasks', ok: 1, d: '返回 12 条' },
+    { at: '13:45', who: 'GET /tasks/7f3a', ok: 1, d: '返回成功' }],
+  twin: { left: '接口层', right: '落盘层' },
+  diffs: [
+    { w: '<b>status</b>：这里只允许 3 个取值，落盘那份是自由字符串', e: 'todo / doing / done', a: 'in_progress 能存进去，但接口认不出来', tone: 'bad' },
+    { w: '<b>updatedAt</b>：落盘有，接口没有', e: '—', a: '接口层看不到「最后改过」', tone: 'warn' },
+    { w: '<b>tags</b>：接口有，落盘没有', e: '—', a: '接口层凭空多了个字段', tone: 'warn' }],
+  cav: '同一个「任务」，三层写法不一致：status 一个宽松一个收紧，updatedAt 和 tags 各只有一边有。这是最危险的一种情况——每层单独看都没错。' },
+
+{ id: 'TaskChange', p: P_DSH, kind: 'event', name: 'TaskChange', wt: 1,
+  file: 'dsh-taskboard/src/host/routes.ts', boundary: '插件对外的接口',
+lead: '任务变动时推给前端的事件负载。',
+  in: [{ n: 'id', t: 'string', r: 1 }, { n: 'revision', t: 'integer', r: 1 },
+       { n: 'kind', t: 'string', r: 1 }, { n: 'tasks', t: 'array<object>' }],
+  out: [],
+  wv: '4 项字段，和其它两层都不一样——它带一个 <code>revision</code> 用来防乱序。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:44', who: 'SSE change 事件', ok: 1, d: 'revision = 17' }],
+  cav: '最近 1 次推送符合契约。',
+  twins: ['TaskRecord', 'Task'],
+  twinNote: '这是同一个「任务」在事件层的表示。它多带一个 revision 是有意的（前端靠它判断顺序）。' },
+
+{ id: 'manifest', p: P_DSH, kind: 'file', name: 'dsh 字段',
+  file: 'package.json', boundary: '插件自己的清单',
+lead: '插件在 package.json 里声明自己：入口、补丁文件、客户端入口。',
+  in: [
+    { n: 'id', t: 'string', r: 1, d: '插件 id，全局唯一' },
+    { n: 'entry', t: 'string', r: 1, d: '宿主侧入口' },
+    { n: 'client', t: 'string', d: '客户端入口，没有就不加载 UI' },
+    { n: 'bundle.patch', t: 'string', d: '指向 cordis.patch.yml' }],
+  out: [],
+  wv: '输入 4 项。这几个字段决定了插件怎么被加载。',
+  changes: [
+    { sha: '7ab31c4', at: '1 周前', w: '新增 <code>client</code>，客户端入口变成可选声明', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，加了可选字段。老插件不用改。',
+  calls: [{ at: '13:00', who: '加载 dsh-taskboard', ok: 1, d: '成功' },
+          { at: '13:02', who: '加载 dsh-tab-split', ok: 1, d: '成功' }],
+  cav: '最近 2 次加载都符合契约。' },
+
+{ id: 'plugin-config', p: P_DSH, kind: 'file', name: '插件配置',
+  file: null, home: 'DSH_HOME', boundary: '每个插件在 profile 里的配置',
+lead: '每个插件从 profile 读到的配置。形状由插件自己说了算。',
+  in: [
+    { n: 'name', t: 'string', r: 1 }, { n: 'version', t: 'string', r: 1 },
+    { n: 'enabled', t: 'boolean', r: 1 }, { n: 'config', t: 'object' }],
+  out: [],
+  wv: '输入 4 项。外层固定，<code>config</code> 里面由插件自定义。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '13:00', who: '读 dsh-taskboard 配置', ok: 1, d: '正常' }],
+  cav: '最近 1 次读取符合契约。' },
+
+/* ================= msim_shared_proto ================= */
+{ id: 'Agent', p: P_PROTO, kind: 'proto', name: 'nsv.entity › Agent', file: 'sns/entity/agent.proto', boundary: 'nsv.entity 的实体定义',
+lead: '共享 proto 里的「智能体」实体。Go 后端和前端都依赖它。',
+  in: [
+    { n: 'id', t: 'string', r: 1 }, { n: 'type', t: 'EntityType', r: 1, d: '枚举' },
+    { n: 'position', t: 'geometry', d: '位置' }, { n: 'heading', t: 'double' },
+    { n: 'length', t: 'double' }, { n: 'width', t: 'double' },
+    { n: 'agent_task', t: 'AgentTask', d: '它当前在做什么' }],
+  out: [],
+  wv: '7 项字段。<code>agent_task</code> 用的是同一份 proto 里的另一个 message。',
+  changes: [
+    { sha: '1d4e8b9', at: '2 周前', w: '<code>heading</code> 从 float 改成 double', k: '不破坏', tone: 'ok' },
+    { sha: 'f83a217', at: '1 周前', w: '新增 <code>agent_task</code>', k: '不破坏', tone: 'ok' }],
+  cv: '改过 2 次，都是加东西或提高精度。后端不用改，但前端得跟上。',
+  calls: [
+    { at: '今天', who: 'Go 侧生成代码', ok: 1, d: '编译通过' },
+    { at: '今天', who: '前端读 agent_task', ok: 0, d: '拿到 undefined' }],
+  twin: { left: 'proto', right: '前端生成的类型' },
+  diffs: [
+    { w: 'proto 里已有 <b>agent_task</b>，前端生成的类型还没跟上', e: 'AgentTask', a: 'undefined', tone: 'bad' },
+    { w: '<b>EntityType</b> 枚举：proto 里 12 个值，前端只处理了 8 个', e: '12 个取值', a: '4 个走 fallback 分支', tone: 'warn' }],
+  cav: 'proto 是唯一的定义源，但「谁还没跟上」没人知道。这正是没有契约对照时会静默出问题的地方。' },
+
+{ id: 'AgentTask', p: P_PROTO, kind: 'proto', name: 'nsv.entity › AgentTask', file: 'sns/entity/agent.proto', boundary: 'nsv.entity 的实体定义',
+lead: '智能体当前在执行的任务。挂在 Agent 上。',
+  in: [{ n: 'id', t: 'string', r: 1 }, { n: 'state', t: 'string', r: 1 },
+       { n: 'progress', t: 'double' }, { n: 'started_at', t: 'int64' }],
+  out: [],
+  wv: '4 项字段。',
+  changes: [{ sha: 'f83a217', at: '1 周前', w: '新增 <code>progress</code>', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，加了进度字段。',
+  calls: [{ at: '今天', who: 'Go 侧读取', ok: 1, d: '正常' }],
+  cav: '最近 1 次调用符合契约。' },
+
+{ id: 'Trajectory', p: P_PROTO, kind: 'proto', name: 'nsv.entity › Trajectory', file: 'sns/entity/trajectory.proto', boundary: 'nsv.entity 的实体定义',
+lead: '一条轨迹：由若干点连成的一段路径。',
+  in: [{ n: 'id', t: 'string', r: 1 }, { n: 'points', t: 'repeated Point', r: 1 },
+       { n: 'color', t: 'uint32' }, { n: 'width', t: 'double' }],
+  out: [],
+  wv: '4 项字段。<code>points</code> 是重复字段，长度不定。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '今天', who: 'Go 侧读取', ok: 1, d: '正常' }],
+  cav: '最近 1 次调用符合契约。' },
+
+{ id: 'EntityType', p: P_PROTO, kind: 'proto', name: 'nsv.entity › EntityType', file: 'sns/entity/*.proto', boundary: 'nsv.entity 的枚举定义',
+lead: '场景里所有实体类型的枚举：车、人、锥桶、信号灯……',
+  in: [{ n: 'ENUM', t: 'enum(12)', r: 1, d: '12 个取值' }], out: [],
+  wv: '一个枚举，12 个取值。',
+  changes: [{ sha: 'a4910de', at: '3 周前', w: '新增 2 个类型', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，加了 2 个取值。加值是安全的，但消费方要跟上。',
+  calls: [{ at: '今天', who: '前端 switch', ok: 0, d: '走进 fallback' }],
+  twin: { left: 'proto 枚举', right: '前端 switch' },
+  diffs: [
+    { w: '枚举 12 个值，前端只 switch 了 8 个', e: '12 个都要处理', a: '4 个落到默认分支', tone: 'warn' }],
+  cav: '枚举加值是「不破坏」的，但没人提醒消费方补齐分支——静默落到默认逻辑。' },
+
+{ id: 'CoordinateSystem', p: P_PROTO, kind: 'proto', name: 'nsv.common › CoordinateSystem', file: 'sns/entity/geometry.proto', boundary: 'nsv.common 的坐标定义',
+lead: '坐标系枚举。同一个坐标在不同坐标系里含义完全不同。',
+  in: [{ n: 'ENUM', t: 'enum(5)', r: 1, d: '5 个取值' }], out: [],
+  wv: '一个枚举，5 个取值。',
+  changes: [{ sha: 'f83a217', at: '1 周前', w: '新增 <code>WGS84</code>', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，加了 WGS84。',
+  calls: [{ at: '今天', who: '前端渲染坐标', ok: 0, d: '位置偏了' }],
+  twin: { left: 'proto', right: '前端渲染' },
+  diffs: [
+    { w: 'proto 里新增了 <b>WGS84</b>，前端把它当成原来那套坐标系处理', e: '5 个取值分别处理', a: '3 个被正确识别，WGS84 和另一个走了同一分支', tone: 'bad' }],
+  cav: '往枚举里加值在契约层面是「不破坏」，但在坐标这种语义上，认错一个值就是位置全错。' },
+
+{ id: 'AnalyzerResult', p: P_PROTO, kind: 'proto', name: 'analyzer_result › AnalyzerResult', file: 'sns/data.proto', boundary: 'analyzer_result 的返回结构',
+lead: '分析器的输出结果，挂在帧数据上。',
+  in: [{ n: 'analyzer', t: 'Analyzer', r: 1 }, { n: 'items', t: 'repeated CellValue' },
+       { n: 'timestamp', t: 'int64' }], out: [],
+  wv: '3 项字段。',
+  changes: [], cv: '没有改过。',
+  calls: [{ at: '今天', who: 'Go 侧读取', ok: 1, d: '正常' }],
+  cav: '最近 1 次调用符合契约。' },
+/* ===== 协议管家自己：这个页面的契约 ===== */
+{ id: 'GET /dsh-contract-butler/contracts', p: P_DSH, kind: 'api',
+  name: 'GET /dsh-contract-butler/contracts', file: 'packages/dsh-contract-butler/src/host/routes.ts', planned: 1, boundary: '契约管家对外的接口',
+self: 1,
+  lead: '这个页面拿「左边那棵树」的接口。页面上每一条契约，都是它返回的。',
+  in: [
+    { n: 'scope', t: 'string', d: '限定范围：某个项目、或某个域' },
+    { n: 'state', t: 'enum(3)', d: '只要没事 / 变过了 / 对不上的' },
+    { n: 'q', t: 'string', d: '按名字搜' }],
+  out: [
+    { n: 'contracts', t: 'array<Contract>', d: '每一项的形状见下面那条「Contract」' },
+    { n: 'total', t: 'integer' }],
+  wv: '输入 3 项、输出 2 项。三个输入都是可选的，不传就返回全部。',
+  changes: [
+    { sha: '7ab31c4', at: '1 周前', w: '加了 <code>state</code> 过滤，之前只能拿全量再在前端筛', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，加了可选过滤参数。不加照样能用。',
+  calls: [
+    { at: '今天', who: '页面加载时调用', ok: 0, d: '实际读的是 mock',
+      f: [{ w: '这个页面现在读的是文件里的 <b>mock 常量</b>，不是这条接口', e: 'GET /dsh-contract-butler/contracts', a: '一个写死在 JS 里的数组', tone: 'warn' }] }],
+  cav: '接口本身还没实现——你现在看到的这棵树是 mock 数据。这条契约先立在这里，实现的时候对着它写。' },
+
+{ id: 'GET /dsh-contract-butler/changes', p: P_DSH, kind: 'api',
+  name: 'GET /dsh-contract-butler/changes', file: 'packages/dsh-contract-butler/src/host/routes.ts', planned: 1, boundary: '契约管家对外的接口',
+self: 1,
+  lead: '拿「变了什么」的接口。三块里的第二块靠它。',
+  in: [
+    { n: 'scope', t: 'string' },
+    { n: 'since', t: 'string', d: '只要这个时间之后的' }],
+  out: [{ n: 'changes', t: 'array<Change>', d: '每条含 contractId / 所在版本 / 改动项 / 破坏性判定' }],
+  wv: '输入 2 项、输出 1 项。',
+  changes: [], cv: '还没有改过。',
+  calls: [{ at: '今天', who: '页面加载时调用', ok: 1, d: 'mock 响应' }],
+  cav: '形状已经定下来了，等宿主实现。' },
+
+{ id: 'SSE /dsh-contract-butler/events', p: P_DSH, kind: 'event',
+  name: 'SSE /dsh-contract-butler/events', file: 'packages/dsh-contract-butler/src/host/routes.ts', planned: 1, boundary: '契约管家推给页面的',
+self: 1,
+  lead: '宿主发现契约变了或者调用对不上时，主动推给页面，不用刷新。',
+  in: [
+    { n: 'type', t: 'string', r: 1, d: '发生了什么：契约变了 / 调用对不上 / 新增了契约' },
+    { n: 'contractId', t: 'string', r: 1, d: '哪一条' },
+    { n: 'at', t: 'string', r: 1 },
+    { n: 'payload', t: 'object', d: '具体内容' }],
+  out: [],
+  wv: '推 4 项字段。页面靠它做实时更新。',
+  changes: [], cv: '还没有改过。',
+  calls: [{ at: '今天', who: '推「mermaid_validate 对不上」', ok: 1, d: '页面已收到' }],
+  cav: '这条是让页面「活」起来的契约。没有它，页面只能手动刷新。' },
+
+{ id: 'dsh-contract-butler.json', p: P_DSH, kind: 'file',
+  name: 'dsh-contract-butler.json', file: null, home: 'DSH_HOME', boundary: '契约管家落盘的数据',
+self: 1,
+  lead: '协议管家自己存盘的地方：契约快照、历史、观测到的调用。',
+  in: [
+    { n: 'contracts', t: 'array<Contract>', d: '上一次扫出来的契约快照' },
+    { n: 'snapshots', t: 'array<object>', d: '历史快照，用来算「变了什么」' },
+    { n: 'calls', t: 'array<object>', d: '运行时观测到的调用，有上限' },
+    { n: 'settings', t: 'object', d: '配置：保留多少条、脱敏哪些字段' }],
+  out: [],
+  wv: '4 项字段。文件存在插件数据目录里的 <code>dsh-contract-butler.json</code>。',
+  changes: [
+    { sha: '4b8e1d0', at: '4 天前', w: '加了 <code>snapshots</code>，之前只有当前值没有历史', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，加了历史快照。没有它就算不出「变了什么」。',
+  calls: [{ at: '今天', who: '每次扫描后写入', ok: 1, d: '正常' }],
+  cav: '最近 1 次写入符合契约。' },
+
+{ id: 'Contract', p: P_DSH, kind: 'api',
+  name: 'Contract（契约对象）', file: 'packages/dsh-contract-butler/src/host/schema.ts', planned: 1, boundary: '接口返回的每一项',
+self: 1,
+  lead: '契约对象本身。左边树上每一个节点，都是它的一个实例。',
+  in: [
+    { n: 'id', t: 'string', r: 1, d: '全局唯一' },
+    { n: 'project', t: 'string', r: 1, d: '属于哪个项目' },
+    { n: 'kind', t: 'enum(5)', r: 1, d: '文件 / 接口 / 事件 / proto / 工具' },
+    { n: 'name', t: 'string', r: 1 },
+    { n: 'file', t: 'string', d: '仓库里的路径，没有就是 null' },
+    { n: 'boundary', t: 'string', r: 1, d: '一句人话：这是什么边界' },
+    { n: 'lead', t: 'string', d: '一句话说明它是什么' },
+    { n: 'baseSha', t: 'string', r: 1, d: '这次对比的左端是哪一版' },
+    { n: 'wt', t: 'boolean', d: '工作区改过、还没提交' },
+    { n: 'input', t: 'array<Field>', d: '输入字段' },
+    { n: 'output', t: 'array<Field>', d: '输出字段' },
+    { n: 'changes', t: 'array<Change>', d: '变过什么，每条带所在版本' },
+    { n: 'diffs', t: 'array<Diff>', d: '几份表示之间的差异' },
+    { n: 'calls', t: 'array<Call>', d: '真实跑出来的观测' }],
+  out: [],
+  wv: '14 项字段。左边那一棵树上的每个节点、这个页面渲染的每一条，都是它的实例。',
+  changes: [
+    { sha: 'e5d90f1', at: '3 天前', w: '加了 <code>calls</code>，之前只有静态结构、没有运行时观测', k: '不破坏', tone: 'ok' }],
+  cv: '改过 1 次，加了运行时观测。这是「现在对不对」那块能存在的前提。',
+  calls: [{ at: '今天', who: '页面渲染每一条契约', ok: 1, d: '29 个实例全部符合' }],
+  cav: '这个页面渲染的每一条契约，都是这条契约的实例，且全部符合它自己的定义。' }
+
+];
+
+var GAPS = [
+  { id: 'g1', p: P_DSH, name: 'cordis.patch.yml 的形状',
+    io: '插件声明的补丁文件 → profile 配置合并',
+    why: '<code>dsh.bundle.patch</code> 指向的补丁文件形状是固定的（insert / id / name），但这个形状没有任何地方被写下来。',
+    ev: '仓库里这个文件真实存在，格式全靠看别人的例子模仿。写错了不会在安装时报错，而是加载时静默失败。',
+    fix: '给它定一份 schema，让写错的插件在安装的那一刻就报错。' },
+  { id: 'g2', p: P_DSH, name: '宿主 ↔ 客户端的调用协议',
+    io: '宿主进程 ↔ 注入到页面的客户端脚本',
+    why: '两边靠一套自己约定的消息互相调用，但这套消息的形状没有任何契约。',
+    ev: '改客户端 API 的时候，只有跑起来才知道宿主那边有没有跟上。',
+    fix: '把宿主暴露给客户端的方法和参数写成契约，改错了在构建时就能发现。' },
+  { id: 'g3', p: P_PROTO, name: 'proto → 前端 TypeScript 类型',
+    io: 'proto → Go 生成代码 → 前端 TypeScript',
+    why: 'proto 是唯一真源，但「前端有没有跟上这一版 proto」这件事，没有任何契约记录。',
+    ev: 'agent.proto 新增了 <code>agent_task</code>，Go 侧编译通过，前端拿到 undefined，全程没有任何提示。',
+    fix: '记录每层消费的是哪一版 proto，落后的那层会自己显出来。' },
+  { id: 'g4', p: P_PLAT, name: 'mermaid_validate 的输出 → 渲染器',
+    io: '工具返回的 Mermaid 源码 → 前端渲染器',
+    why: '这条链路上有真实的输入输出（工具吐出一段 Mermaid 源码，渲染器把它画出来），但没有任何契约规定这段源码长什么样、支持哪些图型。',
+    ev: '已经实际撞到过：契约说支持 8 种图，渲染器对其中 3 种一律解析失败，报错还是内部异常。失败信息本身也没有任何形状约定。',
+    fix: '给渲染器的输入定一份约定（哪怕只是把支持的图型列成枚举），否则失败只能靠人一次次踩。' },
+  { id: 'g5', p: P_PLAT, name: 'web_search 失败时的响应体',
+    io: '工具报错 → 模型看到的错误信息',
+    why: '契约完整描述了成功时的样子，对失败只字未提。',
+    ev: '已经实际撞到过：返回 401，错误体的形状没有任何约定，模型只能靠猜。',
+    fix: '把失败也纳入契约：错误码有哪些、错误体长什么样。' },
+  { id: 'g6', p: P_DSH, name: '抽取器 → 契约对象',
+    io: '每种格式的抽取器 → 统一的契约对象',
+    why: 'proto / OpenAPI / JSON Schema / DB / 工具，五种抽取器都要吐出同一个形状的契约对象，但那个形状除了这份代码本身，没有别的地方写下来。',
+    ev: '新增一种抽取器的时候，只能照着现有抽取器的代码抄；漏了字段，要等页面渲染出错才发现。',
+    fix: '把「抽取器必须产出什么」也写成一条契约，新抽取器接进来的时候先对着它校验。' }
+];
+
+
+/* ============================================================
+   契约之间的关系。
+   真实产品里这些边来自：字段类型引用 / 同一实体的多层检测 /
+   import 图 / 缺口两侧。这里手写成 demo 数据。
+   箭头语义：A -> B 表示「A 要依赖 B」或「A 派生出 B」，
+   左边是更基础的东西，右边是更上层的东西。
+   ============================================================ */
+var LINKS = [
+  /* ---- dsh-plugins ---- */
+  { p: P_DSH, from: 'TaskRecord', to: 'Task', rel: '投影',
+    note: '落盘的任务，被接口层重新表示了一遍' },
+  { p: P_DSH, from: 'Task', to: 'TaskChange', rel: '投影',
+    note: '同一份任务推给前端时，再表示一遍' },
+  { p: P_DSH, from: 'manifest', to: 'plugin-config', rel: '产出',
+    note: '插件清单声明了自己，配置是它在 profile 里的那一份' },
+  { p: P_DSH, from: 'GET /dsh-contract-butler/contracts', to: 'Contract', rel: '引用',
+    note: '接口返回的每一项就是契约对象' },
+  { p: P_DSH, from: 'GET /dsh-contract-butler/changes', to: 'Contract', rel: '引用',
+    note: '变更记录里带着契约对象' },
+  { p: P_DSH, from: 'SSE /dsh-contract-butler/events', to: 'Contract', rel: '引用',
+    note: '推送的事件里带着契约对象' },
+  { p: P_DSH, from: 'dsh-contract-butler.json', to: 'Contract', rel: '引用',
+    note: '存盘存的就是契约对象' },
+  { p: P_DSH, from: 'GET /dsh-contract-butler/contracts', to: 'g6', rel: '缺口',
+    note: '契约对象从哪来（抽取器的产出形状）没有约定' },
+  { p: P_DSH, from: 'manifest', to: 'g1', rel: '缺口',
+    note: '清单里指向了补丁文件，但补丁文件的形状没人写下来' },
+
+  /* ---- msim_shared_proto ---- */
+  { p: P_PROTO, from: 'Agent', to: 'AgentTask', rel: '引用',
+    note: 'agent_task 字段直接用了这个 message' },
+  { p: P_PROTO, from: 'Agent', to: 'EntityType', rel: '引用',
+    note: 'type 字段是这个枚举' },
+  { p: P_PROTO, from: 'Agent', to: 'CoordinateSystem', rel: '引用',
+    note: 'position 的坐标系' },
+  { p: P_PROTO, from: 'AnalyzerResult', to: 'CoordinateSystem', rel: '引用',
+    note: 'items 里的坐标' },
+  { p: P_PROTO, from: 'Agent', to: 'g3', rel: '缺口',
+    note: 'proto 改了、前端有没有跟上，没有任何地方记录' },
+
+  /* ---- DSH 平台 ---- */
+  { p: P_PLAT, from: 'bash', to: 'job_output', rel: '协作',
+    note: '后台跑返回 jobId，job_output 拿这个 id 读结果' },
+  { p: P_PLAT, from: 'subagent', to: 'job_output', rel: '协作',
+    note: '同样能后台跑，同样返回 jobId' },
+  { p: P_PLAT, from: 'mermaid_validate', to: 'g4', rel: '缺口',
+    note: '它吐出的 Mermaid 源码，渲染器那侧没有任何约定' },
+  { p: P_PLAT, from: 'web_search', to: 'g5', rel: '缺口',
+    note: '失败长什么样，没有任何约定' }
+];
+
+var S = { focus: null, proj: P_DSH, sel: null, gap: null, q: '', filt: {}, filtOpen: false,
+          range: {}, revOpen: null,
+          openP: {}, openK: {}, openD: {}, openF: {}, reveal: true };
+
+/* 筛选选项 —— 对应两个正交的事实，外加拿不到契约的缺口 */
+var FILTERS = [
+  { k: 'changed', label: '变过',       hint: '相对基线版本有改动' },
+  { k: 'brk',     label: '破坏性变更', hint: '改动里有破坏性的' },
+  { k: 'wt',      label: '未提交',     hint: '工作区改了，还没提交' },
+  { k: 'bad',     label: '不符',       hint: '观测到与契约不合' },
+  { k: 'gap',     label: '还没有契约', hint: '该有契约的地方还没有' }
+];
+function filtKeys() { return FILTERS.filter(function (f) { return !!S.filt[f.k]; })
+  .map(function (f) { return f.k; }); }
+function filtActive() { return filtKeys().length > 0; }
+function hitFilt(c) {
+  if (S.filt.changed && changedOf(c)) return true;
+  if (S.filt.brk && breakingOf(c)) return true;
+  if (S.filt.wt && c.wt) return true;
+  if (S.filt.bad && findingsOf(c)) return true;
+  return false;
+}
+
+/* 选中项所在的路径要自动展开 —— 否则从别处跳过来的契约，在树上根本看不见 */
+function select(id) { var c = byId(id); S.sel = id; S.gap = null; if (c) S.proj = c.p; S.reveal = true; renderAll(); }
+function selectGap(id) { var g = byGap(id); S.gap = id; S.sel = null; if (g) S.proj = g.p; S.reveal = true; renderAll(); }
+function selectProj(id) { S.proj = id; S.sel = null; S.gap = null; S.focus = null; S.reveal = true; renderAll(); }
+function selIn(p) {
+  if (S.gap) { var g = byGap(S.gap); return !!(g && g.p === p.id); }
+  var c = S.sel ? byId(S.sel) : null;
+  return !!(c && c.p === p.id);
+}
+
+function el(tag, attrs) {
+  var n = document.createElement(tag);
+  if (attrs) for (var k in attrs) {
+    var v = attrs[k];
+    if (v === null || v === undefined || v === false) continue;
+    if (k === 'class') n.className = v;
+    else if (k === 'text') n.textContent = v;
+    else if (k === 'html') n.innerHTML = v;
+    else if (k.indexOf('on') === 0) n.addEventListener(k.slice(2).toLowerCase(), v);
+    else n.setAttribute(k, v);
+  }
+  for (var i = 2; i < arguments.length; i++) {
+    var kid = arguments[i];
+    var arr = Array.isArray(kid) ? kid : [kid];
+    for (var j = 0; j < arr.length; j++) {
+      var one = arr[j];
+      if (one === null || one === undefined || one === false) continue;
+      n.append(one instanceof Node ? one : document.createTextNode(String(one)));
+    }
+  }
+  return n;
+}
+function $(s) { return document.querySelector(s); }
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+function byId(id) { for (var i=0;i<C.length;i++) if (C[i].id===id) return C[i]; return null; }
+function byGap(id) { for (var i=0;i<GAPS.length;i++) if (GAPS[i].id===id) return GAPS[i]; return null; }
+/* ---------- 两个正交的事实，全部由数据推导 ----------
+   「变过」不是「历史上改过」，而是「相对基线版本之后改过」。
+   基线之前的改动，上次纳管时就已经知道了，不算这一轮的变更。       */
+function repoOf(pid) { return REPO[pid] || null; }
+function baselineId(pid) { var r = repoOf(pid); return r ? r.baseline : ''; }
+function commitOf(pid, id) {
+  var r = repoOf(pid); if (!r) return null;
+  for (var i = 0; i < r.log.length; i++) if (r.log[i].id === id) return r.log[i];
+  return null;
+}
+/* log 新的在前，所以下标越小越新 */
+function logIdx(pid, id) { var r = repoOf(pid); if (!r) return 99;
+  for (var i = 0; i < r.log.length; i++) if (r.log[i].id === id) return i; return 99; }
+/* 这次对比的是哪两版。两端都能是某个 commit，右端还能是「工作区」。
+   基线不再是硬约束，只是左端的默认值 —— 「变过」= 这个区间里改过。 */
+function revRank(pid, rev) {
+  if (rev === 'wt') return -1;              /* 工作区最新 */
+  return logIdx(pid, rev);
+}
+function rangeOf(pid) {
+  var r = repoOf(pid); if (!r) return { from: '', to: '' };
+  var cur = S.range[pid];
+  if (!cur) {
+    cur = { from: r.baseline, to: (r.dirty && r.dirty.length) ? 'wt' : r.head };
+    S.range[pid] = cur;
+  }
+  /* 左端必须更老；选反了就换过来，不让界面出现倒着的区间 */
+  if (revRank(pid, cur.from) < revRank(pid, cur.to)) {
+    var t = cur.from; cur.from = cur.to; cur.to = t;
+  }
+  return cur;
+}
+function revLabel(pid, rev) { return rev === 'wt' ? '工作区' : rev; }
+function rangeText(pid) {
+  var rg = rangeOf(pid);
+  return revLabel(pid, rg.from) + ' → ' + revLabel(pid, rg.to);
+}
+function inRange(c, sha) {
+  var rg = rangeOf(c.p), x = revRank(c.p, sha);
+  return x >= revRank(c.p, rg.to) && x < revRank(c.p, rg.from);
+}
+function wtInRange(c) { return !!c.wt && rangeOf(c.p).to === 'wt'; }
+function freshChanges(c) {
+  return (c.changes || []).filter(function (x) { return inRange(c, x.sha); });
+}
+function oldChanges(c) {
+  var fr = revRank(c.p, rangeOf(c.p).from);
+  return (c.changes || []).filter(function (x) { return revRank(c.p, x.sha) >= fr; });
+}
+function afterChanges(c) {
+  var tr = revRank(c.p, rangeOf(c.p).to);
+  return (c.changes || []).filter(function (x) { return revRank(c.p, x.sha) < tr; });
+}
+function changedOf(c) { return freshChanges(c).length > 0 || wtInRange(c); }
+function breakingOf(c) { return freshChanges(c).some(function (x) { return x.k === '破坏'; }); }
+/* 不符 = 观测到与契约不合的地方：调用不符的算一处，同一处的细节不重复计数 */
+function findingsOf(c) {
+  var bad = (c.calls || []).filter(function (x) { return !x.ok; }).length;
+  if (bad) return bad;
+  return (c.diffs || []).filter(function (x) { return x.tone === 'bad'; }).length;
+}
+/* 图上卡片只要一个点：有发现最优先，其次变更，什么都没有就不画 */
+function nodeMark(c) {
+  if (findingsOf(c)) return 'd-bad';
+  if (changedOf(c)) return breakingOf(c) ? 'd-brk' : 'd-changed';
+  return '';
+}
+function nodeTip(c) {
+  var t = [], fc = freshChanges(c).length;
+  if (fc) t.push('相对基线 ' + baselineId(c.p) + ' 变过 ' + fc + ' 次');
+  if (c.wt) t.push('工作区改了，还没提交');
+  var f = findingsOf(c);
+  if (f) t.push('观测到 ' + f + ' 处与契约不合');
+  return t.join('；');
+}
+/* 列表里用的标记：各自独立，都没有就不画 */
+function factsChips(c) {
+  var out = [], fc = freshChanges(c).length;
+  if (fc) out.push(el('span', { class: 'chip chip-warn' + (breakingOf(c) ? ' brk' : ''),
+    title: '相对基线 ' + baselineId(c.p) + ' 改过 ' + fc + ' 次',
+    text: (breakingOf(c) ? '破坏性变更 ' : '变过 ') + fc + ' 次' }));
+  if (c.wt) out.push(el('span', { class: 'chip chip-warn',
+    title: '工作区改过，还没提交', text: '未提交' }));
+  var f = findingsOf(c);
+  if (f) out.push(el('span', { class: 'chip chip-bad',
+    title: '观测到与契约不合 ' + f + ' 处', text: '不符 ' + f }));
+  return out;
+}
+/* 项目整体：有发现就红，否则有变更就黄，否则什么都不加 */
+function projFacts(pid) {
+  var cs = contractsOf(pid);
+  for (var i = 0; i < cs.length; i++) if (findingsOf(cs[i])) return 'bad';
+  for (var j = 0; j < cs.length; j++) if (changedOf(cs[j])) return 'changed';
+  return 'none';
+}
+
+/* ---------- 过滤 ---------- */
+function match(c) {
+  if (filtActive() && !hitFilt(c)) return false;
+  if (!S.q) return true;
+  var q = S.q.toLowerCase();
+  return (c.name + ' ' + (c.file || c.home || '') + ' ' + c.boundary
+    + ' ' + c.lead).toLowerCase().indexOf(q) >= 0;
+}
+function matchGap(g) {
+  /* 缺口要单独选「还没有契约」才显示，不跟着契约的选项走 */
+  if (filtActive() && !S.filt.gap) return false;
+  if (!S.q) return true;
+  return (g.name + ' ' + g.io).toLowerCase().indexOf(S.q.toLowerCase()) >= 0;
+}
+var filtering = function () { return !!(S.q || filtActive()); };
+function pOpen(p) {
+  if (filtering() || (S.reveal && selIn(p))) return true;
+  if (S.openP[p.id] !== undefined) return S.openP[p.id];
+  /* 默认只展开「当前选中的项目」—— 侧边栏始终跟着图走，两者不会脱节 */
+  return p.id === S.proj;
+}
+function kOpen(pid, k) {
+  if (filtering()) return true;
+  var sc = S.sel ? byId(S.sel) : null;
+  if (S.reveal && sc && sc.p === pid && sc.kind === k) return true;
+  var key = pid + '|' + k;
+  return S.openK[key] !== undefined ? S.openK[key] : true;
+}
+
+/* ---------- 侧边栏这棵树 ---------- */
+/* 树里点的那个节点（目录/文件/缺口/外部），对应图上是哪些归属带 */
+function focusBands(L, key) {
+  var m = {};
+  if (!key) return m;
+  if (key === 'D:__gap') { m.gap = 1; return m; }
+  if (key === 'D:__ext' || key.indexOf('D:__home:') === 0) { m.ext = 1; return m; }
+  var dir = null;
+  if (key.indexOf('D:') === 0) dir = key.slice(2);
+  else if (key.indexOf('F:') === 0) dir = dirOf(key.slice(2));
+  if (dir === null) return m;
+  L.bands.forEach(function (b) {
+    /* 点父目录要把它下面所有子目录的带一起点亮 */
+    if (b.key === 'd:' + dir || b.key.indexOf('d:' + dir + '/') === 0) m[b.key] = 1;
+  });
+  return m;
+}
+
+/* 侧边栏数据 = 真正的目录树：项目 → 目录 → 文件 → 契约（单链目录合并，和 VS Code 一样） */
+function dirTreeOf(pid) {
+  /* 过滤就落在这一层：目录、文件、计数、缺口、外部框全都跟着它走，
+     被滤空的目录和文件自然消失 */
+  var cs = contractsOf(pid).filter(match);
+  var gs = ((typeof gapsOf === 'function') ? gapsOf(pid)
+         : GAPS.filter(function (g) { return g.p === pid; })).filter(matchGap);
+  var root = { dirs: {}, files: {} };
+
+  cs.forEach(function (c) {
+    if (!c.file) return;
+    var parts = c.file.split('/'), fn = parts.pop(), node = root;
+    parts.forEach(function (d) {
+      if (!node.dirs[d]) node.dirs[d] = { name: d, path: (node.path ? node.path + '/' : '') + d, dirs: {}, files: {} };
+      node = node.dirs[d];
+    });
+    if (!node.files[fn]) node.files[fn] = { name: fn, path: c.file, items: [] };
+    node.files[fn].items.push(c);
+  });
+
+  /* 单链目录合并成一行：packages/dsh-contract-butler/src/host */
+  (function compact(node) {
+    Object.keys(node.dirs).forEach(function (k) {
+      var d = node.dirs[k];
+      compact(d);
+      var guard = 0;
+      while (Object.keys(d.dirs).length === 1 && Object.keys(d.files).length === 0 && guard++ < 30) {
+        var only = d.dirs[Object.keys(d.dirs)[0]];
+        d.name = d.name + '/' + only.name;
+        d.path = only.path;
+        d.dirs = only.dirs;
+        d.files = only.files;
+      }
+    });
+  })(root);
+
+  function countIn(node) {
+    var n = 0;
+    Object.keys(node.files).forEach(function (k) { n += node.files[k].items.length; });
+    Object.keys(node.dirs).forEach(function (k) { n += countIn(node.dirs[k]); });
+    return n;
+  }
+
+  /* 当前选中项要能自动露出来 */
+  var force = {}, focus = S.gap || S.sel;
+  if (focus) {
+    var fc = null;
+    C.forEach(function (c) { if (c.id === focus) fc = c; });
+    if (fc) {
+      if (fc.file) {
+        var ps = fc.file.split('/'); ps.pop();
+        var acc = '';
+        ps.forEach(function (d) {
+          acc = acc ? acc + '/' + d : d;
+          force['D:' + acc] = 1;
+        });
+        force['F:' + fc.file] = 1;
+      } else if (fc.home) {
+        force['D:__ext'] = 1;
+        force['D:__home:' + fc.home] = 1;
+      }
+    } else if (gs.length) {
+      force['D:__gap'] = 1;
+    }
+  }
+
+  var rows = [];
+  function emit(kind, key, guides, name, extra) {
+    var r = { kind: kind, key: key, guides: guides, name: name };
+    if (extra) for (var k in extra) r[k] = extra[k];
+    rows.push(r);
+    return r;
+  }
+  function openOf(key) { return force[key] ? true : S.openD[key] !== false; }
+
+  function walk(node, gp, tail) {
+    var kids = [];
+    Object.keys(node.dirs).forEach(function (k) { kids.push({ t: 'd', k: k, n: node.dirs[k] }); });
+    Object.keys(node.files).forEach(function (k) { kids.push({ t: 'f', k: k, n: node.files[k] }); });
+    kids.sort(function (x, y) { return x.k < y.k ? -1 : (x.k > y.k ? 1 : 0); });
+    kids.forEach(function (kid, i) {
+      /* tail=true 表示这一层后面还跟着特殊节点（缺口 / 外部），
+         那最后一项就不能画成「最后一个」的肘形，否则竖线会断 */
+      var last = (i === kids.length - 1) && !tail;
+      var g = gp.map(function (v) { return v ? 'v' : 'blank'; });
+      g.push(last ? 'elbow' : 'tee');
+      var below = gp.concat([!last]);
+      if (kid.t === 'd') {
+        var dk = 'D:' + kid.n.path, dop = openOf(dk);
+        emit('dir', dk, g, kid.n.name, { count: countIn(kid.n), open: dop, fold: true });
+        if (dop) walk(kid.n, below, false);
+      } else {
+        var fk = 'F:' + kid.n.path, fop = openOf(fk);
+        emit('file', fk, g, kid.n.name, { count: kid.n.items.length, open: fop, fold: true });
+        if (!fop) return;
+        kid.n.items.forEach(function (c, j) {
+          var g2 = below.map(function (v) { return v ? 'v' : 'blank'; });
+          g2.push(j === kid.n.items.length - 1 ? 'elbow' : 'tee');
+          emit('con', 'C:' + c.id, g2, c.name, { item: c, sub: KIND[c.kind] });
+        });
+      }
+    });
+  }
+  /* 文件系统之外还有两个顶层节点要跟在后面，先告诉 walk */
+  var hasSpecial = gs.length > 0 || cs.some(function (c) { return !c.file && c.home; });
+  walk(root, [], hasSpecial);
+
+  /* 两个特殊顶层：缺口 / 外部（它们不是目录，但在这个结构里有确切位置） */
+  var byHome = {}, homes = [];
+  cs.forEach(function (c) {
+    if (c.file || !c.home) return;
+    if (!byHome[c.home]) { byHome[c.home] = []; homes.push(c.home); }
+    byHome[c.home].push(c);
+  });
+  homes.sort(function (x, y) { return x < y ? -1 : 1; });
+  var specials = [];
+  if (gs.length) specials.push('gap');
+  if (homes.length) specials.push('ext');
+
+  specials.forEach(function (sp, si) {
+    var last = (si === specials.length - 1);
+    var g = [last ? 'elbow' : 'tee'];
+    var below = [!last];
+    if (sp === 'gap') {
+      var gk = 'D:__gap', gop = openOf(gk);
+      emit('band', gk, g, '还没有契约的地方', { count: gs.length, open: gop, fold: true, cls: 't-gapband', sub: '该有契约，现在没有' });
+      if (!gop) return;
+      gs.forEach(function (x, j) {
+        var g2 = below.map(function (v) { return v ? 'v' : 'blank'; });
+        g2.push(j === gs.length - 1 ? 'elbow' : 'tee');
+        emit('gap', 'G:' + x.id, g2, x.name, { item: x, sub: '还没有契约' });
+      });
+    } else {
+      var ek = 'D:__ext', eop = openOf(ek), total = 0;
+      homes.forEach(function (h) { total += byHome[h].length; });
+      emit('band', ek, g, '外部 / 不在本仓库', { count: total, open: eop, fold: true, cls: 't-extband', sub: '代码不在本仓库' });
+      if (!eop) return;
+      if (homes.length === 1) {
+        var arr = byHome[homes[0]];
+        arr.forEach(function (c, ci) {
+          var g2 = below.map(function (v) { return v ? 'v' : 'blank'; });
+          g2.push(ci === arr.length - 1 ? 'elbow' : 'tee');
+          emit('con', 'C:' + c.id, g2, c.name, { item: c, sub: KIND[c.kind] });
+        });
+      } else {
+        homes.forEach(function (h, hi) {
+          var hlast = (hi === homes.length - 1);
+          var hg = below.map(function (v) { return v ? 'v' : 'blank'; });
+          hg.push(hlast ? 'elbow' : 'tee');
+          var hk = 'D:__home:' + h, hop = openOf(hk);
+          emit('home', hk, hg, h, { count: byHome[h].length, open: hop, fold: true });
+          if (!hop) return;
+          var arr2 = byHome[h], below2 = below.concat([!hlast]);
+          arr2.forEach(function (c, ci) {
+            var g2 = below2.map(function (v) { return v ? 'v' : 'blank'; });
+            g2.push(ci === arr2.length - 1 ? 'elbow' : 'tee');
+            emit('con', 'C:' + c.id, g2, c.name, { item: c, sub: KIND[c.kind] });
+          });
+        });
+      }
+    }
+  });
+  return rows;
+}
+
+function treeRow(r) {
+  var cls = 'trow';
+  if (r.kind === 'dir' || r.kind === 'home') cls += ' t-dir';
+  if (r.kind === 'file') cls += ' t-file';
+  if (r.kind === 'con') cls += ' t-con';
+  if (r.kind === 'gap') cls += ' t-gap';
+  if (r.kind === 'band') cls += ' t-dir ' + r.cls;
+  var row = el('button', { class: cls });
+
+  /* 连接线：每一层一个格子，用 CSS 画 ├ └ │ */
+  var guides = el('span', { class: 't-guides' });
+  r.guides.forEach(function (k) { guides.appendChild(el('i', { class: k === 'blank' ? '' : k })); });
+  row.appendChild(guides);
+
+  /* 箭头只负责折叠/展开，点行本身是「聚焦到图上对应的模块」 */
+  var caret = el('span', { class: 'caret' + (r.fold ? ' hit' : ''),
+    text: r.fold ? (r.open ? '\u25be' : '\u25b8') : '' });
+  if (r.fold) {
+    caret.addEventListener('click', function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      S.reveal = false;
+      if (r.key.charAt(0) === 'F') S.openF[r.key] = !(S.openF[r.key] !== false);
+      else S.openD[r.key] = !(S.openD[r.key] !== false);
+      renderTree();
+    });
+  }
+  row.appendChild(caret);
+
+  if (r.kind === 'band') {
+    row.appendChild(el('span', { class: 'tdirname', text: r.name }));
+    row.appendChild(el('span', { class: 't-sub', text: r.sub || '' }));
+    row.appendChild(el('span', { class: 'cnt', text: String(r.count) }));
+  } else if (r.kind === 'dir' || r.kind === 'home') {
+    row.appendChild(el('span', { class: 'tdirname', text: r.name }));
+    row.appendChild(el('span', { class: 'cnt', text: String(r.count) }));
+  } else if (r.kind === 'file') {
+    row.appendChild(el('span', { class: 'tname', text: r.name }));
+    row.appendChild(el('span', { class: 'cnt', text: String(r.count) }));
+  } else if (r.kind === 'con') {
+    row.appendChild(el('span', { class: 'tname', text: r.name }));
+    if (r.item && r.item.self) row.appendChild(el('span', { class: 'selfb', text: '本页' }));
+    if (r.item) factsChips(r.item).forEach(function (x) { row.appendChild(x); });
+  } else {
+    row.appendChild(el('span', { class: 'tname', text: r.name }));
+    row.appendChild(el('span', { class: 'chip chip-gap', text: '没有契约' }));
+  }
+
+  /* 目录 / 文件 / 两个特殊模块：点一下聚焦到图上对应的归属带，再点一次取消 */
+  if (r.kind !== 'con' && r.kind !== 'gap') {
+    if (S.focus === r.key) row.classList.add('foc');
+    row.addEventListener('click', function (e) {
+      e.stopPropagation();
+      S.reveal = false;
+      S.sel = null;
+      S.gap = null;
+      S.focus = (S.focus === r.key) ? null : r.key;
+      renderAll();
+    });
+    return row;
+  }
+
+  var id = r.item ? r.item.id : null;
+  if (id && S.sel === id) row.classList.add('on');
+  if (id && S.gap === id) row.classList.add('on');
+  if (id) row.addEventListener('click', function (e) {
+    e.stopPropagation();
+    S.reveal = true;
+    S.focus = null;
+    S.sel = (r.kind === 'gap') ? null : id;
+    S.gap = (r.kind === 'gap') ? id : null;
+    renderAll();
+  });
+  else row.disabled = true;
+  return row;
+}
+
+function renderTree() {
+  var box = $('#tree');
+  box.innerHTML = '';
+
+  /* 项目 = 树的根，三个项目就是三棵树。点项目名即切换：
+     当前这个展开、其它自动收起（手风琴），箭头只负责单独收起/展开 */
+  PROJECTS.forEach(function (p) {
+    var open = pOpen(p);
+    var pr = el('div', { class: 'trow t-proj' + (p.id === S.proj ? ' on' : '') });
+    pr.appendChild(el('span', { class: 't-guides' }));
+
+    var pc = el('button', { class: 'caretbtn', text: open ? '\u25be' : '\u25b8' });
+    pc.addEventListener('click', function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      S.openP[p.id] = !pOpen(p);
+      S.reveal = false;
+      renderTree();
+    });
+    pr.appendChild(pc);
+
+    var nb = el('button', { class: 'namebtn' });
+    nb.appendChild(el('span', { text: p.name }));
+    nb.appendChild(el('span', { class: 'tpath', text: p.path }));
+    nb.addEventListener('click', function (e) {
+      e.stopPropagation();
+      e.preventDefault();
+      /* 清掉显式状态 -> 回到默认：当前项目展开、其它收起 */
+      delete S.openP[p.id];
+      selectProj(p.id);
+    });
+    pr.appendChild(nb);
+    /* 计数跟着筛选走：筛选时显示这个项目实际会渲染出几行，
+       否则项目行会报一个下面根本看不到的数字 */
+    var fOn = filtActive();
+    var nHit = contractsOf(p.id).filter(match).length;   /* 只数契约，缺口由它自己那条带子报数 */
+    pr.appendChild(el('span', { class: 'cnt' + (fOn && nHit === 0 ? ' zero' : ''),
+      text: String(fOn ? nHit : contractsOf(p.id).length),
+      title: fOn ? nHit + ' 条命中当前筛选' : contractsOf(p.id).length + ' 条契约' }));
+    box.appendChild(pr);
+
+    if (!open) return;
+    dirTreeOf(p.id).forEach(function (r) { box.appendChild(treeRow(r)); });
+  });
+
+  /* 滚到选中项：契约/缺口优先，其次才是项目行 */
+  var on = box.querySelector('.t-con.on, .t-gap.on') || box.querySelector('.t-proj.on');
+  if (on && S.reveal) { try { on.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+}
+
+/* ---------- 右侧 ---------- */
+function fieldTable(rows, dir) {
+  var t = el('tbody');
+  rows.forEach(function (f) {
+    t.append(el('tr', {},
+      el('td', { class: 'mono', text: f.n }),
+      el('td', { class: 'mono ttype', text: f.t }),
+      el('td', {}, f.r ? el('span', { class: 'req', text: '必填' }) : el('span', { class: 'opt', text: '可选' })),
+      el('td', { style: 'color:var(--ink2)', text: f.d || '' })));
+  });
+  return el('div', {},
+    el('div', { class: 'dir', text: dir }),
+    el('table', { class: 'f' },
+      el('thead', {}, el('tr', {}, el('th', { text: '字段' }), el('th', { text: '类型' }),
+        el('th', { text: '是否必填' }), el('th', { text: '说明' }))), t));
+}
+
+function blockWhat(c) {
+  var b = el('div', { class: 'block' });
+  b.append(el('div', { class: 'bh' }, el('h2', { text: '它是什么' }),
+    el('span', { class: 'sub', text: srcLabel(c) })));
+  if (c.twinNote) b.append(el('div', { class: 'note', text: c.twinNote }));
+  if (c.in && c.in.length) b.append(fieldTable(c.in, '输入'));
+  if (c.out && c.out.length) b.append(fieldTable(c.out, '输出'));
+  if (!c.in.length && !c.out.length) b.append(el('div', { class: 'empty', text: '没有记录到字段。' }));
+  b.append(el('div', { class: 'verdict' }, c.wv));
+  return b;
+}
+
+function blockChanges(c) {
+  var b = el('div', { class: 'block' });
+  var r = repoOf(c.p), fresh = freshChanges(c), old = oldChanges(c),
+      after = afterChanges(c), rg = rangeOf(c.p), bh;
+  /* 表头把「这条契约是拿哪两版比的」写在卡片里，和顶部那条是同一件事 */
+  bh = el('div', { class: 'bh' }, el('h2', { text: '变了什么' }));
+  if (r) bh.append(el('span', { class: 'cmp' },
+    el('code', { text: revLabel(c.p, rg.from) }),
+    el('span', { class: 'arrow', text: '→' }),
+    el('code', { text: revLabel(c.p, rg.to) }),
+    (rg.to === 'wt') ? el('span', { class: 'k', text: '未提交' }) : null));
+  b.append(bh);
+
+  function chRow(ch, dim) {
+    var cm = commitOf(c.p, ch.sha);
+    return el('div', { class: 'row' + (dim ? ' old' : '') },
+      el('span', { class: 'when', title: cm ? cm.subject + '（' + cm.at + '）' : '' },
+        el('span', { class: 'sha', text: ch.sha }),
+        el('span', { class: 'at', text: ch.at })),
+      el('span', { class: 'what', html: ch.w }),
+      el('span', { class: 'tag ' + (ch.tone || ''), text: ch.k }));
+  }
+  if (fresh.length) fresh.forEach(function (ch) { b.append(chRow(ch, false)); });
+  if (wtInRange(c)) b.append(el('div', { class: 'row' },
+    el('span', { class: 'when' }, el('span', { class: 'at', text: '工作区' })),
+    el('span', { class: 'what', html: '改了 <code>' + (r && r.dirty.length
+      ? r.dirty[0].file.split('/').pop() : '相关文件') + '</code>，还没提交' }),
+    el('span', { class: 'tag warn', text: '未提交' })));
+  if (!fresh.length && !wtInRange(c)) b.append(el('div', { class: 'note', style: 'color:var(--ink3)',
+    text: '在 ' + rangeText(c.p) + ' 之间，这条契约没有改过。' }));
+  if (old.length) {
+    b.append(el('div', { class: 'oldnote',
+      text: '左端 ' + revLabel(c.p, rg.from) + ' 之前还改过 ' + old.length
+        + ' 次（左端那版里就已经是这样，不在这次对比里）：' }));
+    old.forEach(function (ch) { b.append(chRow(ch, true)); });
+  }
+  if (after.length) {
+    b.append(el('div', { class: 'oldnote',
+      text: '右端 ' + revLabel(c.p, rg.to) + ' 之后还改过 ' + after.length + ' 次（还没发生）：' }));
+    after.forEach(function (ch) { b.append(chRow(ch, true)); });
+  }
+  b.append(el('div', { class: 'verdict' + (breakingOf(c) ? ' bad' : '') }, c.cv));
+  return b;
+}
+
+function blockCalls(c, withVerdict) {
+  var b = el('div', { class: 'block' });
+  var badN = c.calls.filter(function (x) { return !x.ok; }).length;
+  b.append(el('div', { class: 'bh' }, el('h2', { text: '现在对不对' }),
+    el('span', { class: 'sub', text: '契约声明 ↔ 最近 ' + c.calls.length + ' 次调用' })));
+  if (!c.calls.length) {
+    b.append(el('div', { class: 'note', style: 'color:var(--ink3)', text: '还没有观测到调用。' }));
+  } else {
+    c.calls.forEach(function (cl) {
+      var wrap = el('div', { class: 'call' });
+      wrap.append(el('div', { class: 'call-h' },
+        el('span', { class: 'dot ' + (cl.ok ? 'd-ok' : 'd-bad') }),
+        el('span', { class: 'when', text: cl.at }),
+        el('span', { class: 'call-who', text: cl.who }),
+        el('span', { class: 'tag ' + (cl.ok ? 'ok' : 'bad'), text: cl.ok ? '符合' : '不符' }),
+        cl.d ? el('span', { style: 'font-size:11.5px;color:var(--ink3)', text: cl.d }) : null));
+      (cl.f || []).forEach(function (f) {
+        wrap.append(el('div', { class: 'finding ' + (f.tone === 'warn' ? 'warn' : '') },
+          el('div', { html: f.w }),
+          el('div', { style: 'margin-top:3px' },
+            el('span', { style: 'color:var(--ink3)', text: '契约要求 ' }),
+            el('code', { text: f.e }),
+            el('span', { style: 'color:var(--ink3)', text: ' · 实际 ' }),
+            el('code', { text: f.a }))));
+      });
+      b.append(wrap);
+    });
+  }
+  if (withVerdict !== false) b.append(el('div', { class: 'verdict' + (badN ? ' bad' : '') }, c.cav));
+  return b;
+}
+
+
+/* ============================================================
+   项目关系图。确定性分层布局（不跑力导向）——
+   坐标可以数值验证，不会出现节点重叠或随机乱飞。
+   ============================================================ */
+var RELCOLOR = { '引用': '#0a84ff', '投影': '#af52de', '产出': '#5ac8fa', '协作': '#34c759', '缺口': '#ff453a' };
+var REL_ORDER = ['引用', '投影', '产出', '协作', '缺口'];
+var NW = 232, NH = 58, ROWGAP = 14, PAD = 24;
+var COLGAP = 38, GUT = 38, BANDGAP = 26, BANDHEAD = 28, BANDPAD = 20, FILEHEAD = 20, FILEGAP = 12;
+var ZOOM_MAX = 3.2, FOCPAD = 26;   /* 聚焦放大上限 / 聚焦包围盒外扩 */
+var ZOOM_MS = 340, ZANIM = 0;       /* 聚焦动画时长 / 动画代次 */
+var MAXCOL = 4;
+
+function projOf(id) { for (var i = 0; i < PROJECTS.length; i++) if (PROJECTS[i].id === id) return PROJECTS[i]; return null; }
+/* 几份表示对不对得上：同一件事在落盘 / 接口 / 事件 / proto 里各有写法，
+   拿它们互相校对。每份单独看都没错，合起来对不上——这一块专管这个。 */
+function blockDiffs(c) {
+  if (!c.diffs || !c.diffs.length) return null;
+  var b = el('div', { class: 'block' });
+  var hard = c.diffs.some(function (x) { return x.tone === 'bad'; });
+  b.append(el('div', { class: 'bh' }, el('h2', { text: '几份表示对不对得上' }),
+    el('span', { class: 'sub', text: c.twin ? c.twin.left + '  ↔  ' + c.twin.right : '' })));
+  c.diffs.forEach(function (d) {
+    b.append(el('div', { class: 'finding ' + (d.tone === 'warn' ? 'warn' : '') },
+      el('div', { html: d.w }),
+      el('div', { style: 'margin-top:3px' },
+        el('span', { style: 'color:var(--ink3)', text: '应该 ' }), el('code', { text: d.e }),
+        el('span', { style: 'color:var(--ink3)', text: ' · 实际 ' }), el('code', { text: d.a }))));
+  });
+  if (c.cav) b.append(el('div', { class: 'verdict' + (hard ? ' bad' : '') }, c.cav));
+  return b;
+}
+
+function contractsOf(pid) { return C.filter(function (c) { return c.p === pid; }); }
+function gapsOf(pid) { return GAPS.filter(function (g) { return g.p === pid; }); }
+/* 出处：file 是仓库内的路径（可为计划中），home 是仓库外的落脚点 */
+function srcOf(c) { return c.file || c.home || ''; }
+function srcLabel(c) {
+  if (c.file) return c.file + (c.planned ? ' · 计划中' : '');
+  return (c.home || '出处未知') + ' · 不在本仓库';
+}
+function dirOf(f) {
+  var i = f.lastIndexOf('/');
+  return i < 0 ? '' : f.slice(0, i);
+}
+function baseOf(f) {
+  var i = f.lastIndexOf('/');
+  return i < 0 ? f : f.slice(i + 1);
+}
+function isExternal(c) { return !c.file; }
+
+/* ── 唯一的分组真源 ────────────────────────────────────────────────
+   侧边栏树和关系图都从这里取结构：目录 → 文件 → 契约。
+   两者共用一份数据，从结构上不可能走偏。 */
+function groupOf(pid) {
+  var cs = contractsOf(pid), gs = gapsOf(pid), out = [];
+  var dirs = [];
+  cs.forEach(function (c) {
+    if (!c.file) return;
+    var d = dirOf(c.file);
+    if (dirs.indexOf(d) < 0) dirs.push(d);
+  });
+  dirs.sort();
+  dirs.forEach(function (d) {
+    var files = [], fmap = {};
+    cs.filter(function (c) { return c.file && dirOf(c.file) === d; })
+      .forEach(function (c) {
+        var f = baseOf(c.file);
+        if (!fmap[f]) { fmap[f] = { key: c.file, label: f, items: [] }; files.push(fmap[f]); }
+        fmap[f].items.push(c);
+      });
+    out.push({ key: 'd:' + d, label: d, note: '仓库里的目录', files: files });
+  });
+  if (gs.length) out.push({ key: 'gap', label: '还没有契约的地方', note: '该有契约，现在没有',
+    files: [{ key: 'gap', label: '缺口', items: gs, isGap: true }] });
+  var ext = cs.filter(function (c) { return !c.file; });
+  if (ext.length) {
+    var homes = [], hmap = {};
+    ext.forEach(function (c) {
+      var h = c.home || '外部';
+      if (!hmap[h]) { hmap[h] = { key: 'h:' + h, label: h, items: [] }; homes.push(hmap[h]); }
+      hmap[h].items.push(c);
+    });
+    out.push({ key: 'ext', label: '外部 / 不在本仓库',
+      note: '代码不在本仓库，只看得到形状', files: homes });
+  }
+  return out;
+}
+
+/* 按边的方向给节点分层：rank 0 = 源头。有环时回边不参与分层，不会爆栈。 */
+function rankOf(pid, nodes) {
+  var byId = {}, ins = {};
+  nodes.forEach(function (n) { byId[n.id] = n; ins[n.id] = []; });
+  LINKS.forEach(function (l) {
+    if (l.p !== pid) return;
+    if (byId[l.from] && byId[l.to] && l.from !== l.to) ins[l.to].push(l.from);
+  });
+  var memo = {};
+  function depth(id, stack) {
+    if (memo[id] !== undefined) return memo[id];
+    if (stack[id]) return 0;
+    stack[id] = 1;
+    var r = 0;
+    ins[id].forEach(function (f) { var v = depth(f, stack) + 1; if (v > r) r = v; });
+    delete stack[id];
+    memo[id] = r;
+    return r;
+  }
+  nodes.forEach(function (n) { n.rank = depth(n.id, {}); });
+}
+
+/* ── 量文字：用同一套 class 在屏幕外造一张真卡片，直接量它需要多高 ──
+   （canvas 的 measureText 拿不到 CSS 里的 --mono，会退回默认字体、算窄，不能用） */
+var _root = null;
+function probeRoot() {
+  /* 必须挂到真元素同一个祖先里：字体上下文不同会让换行行数算错（和 button/div 同类坑） */
+  if (!_root) {
+    _root = document.getElementById('mainCard')
+         || document.querySelector('.card') || document.body || document.documentElement;
+  }
+  return _root;
+}
+/* 归属框标题：不靠「猜宽度把框撑开」，改成让它在框内按段换行 ——
+   盒子由 left/right 定宽，换行由浏览器保证，任何一段都不可能捅出框外 */
+var _hhead = null;
+function headerBoxH(b, w) {
+  if (!_hhead) {
+    _hhead = document.createElement('div');
+    _hhead.className = 'gbandhead';
+    _hhead.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;height:auto';
+    probeRoot().appendChild(_hhead);
+  }
+  _hhead.style.width = Math.max(80, w - 32) + 'px';
+  var spec = [['gbandname', b.label || (b.groups[0] && b.groups[0].label) || '']];
+  if (b.inline && b.label) spec.push(['gbandfile', '/ ' + b.groups[0].label]);
+  spec.push(['gbandnote', b.note || '']);
+  spec.push(['gbandcount', b.nodes.length + ' 条']);
+  _hhead.innerHTML = spec.map(function (sp) { return '<span class="' + sp[0] + '"></span>'; }).join('');
+  spec.forEach(function (sp, i) { _hhead.children[i].textContent = sp[1]; });
+  return Math.ceil(_hhead.getBoundingClientRect().height);
+}
+var _fhead = null;
+function fileHeadH(label, w) {
+  if (!_fhead) {
+    _fhead = document.createElement('div');
+    _fhead.className = 'gfilehead';
+    _fhead.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;height:auto';
+    probeRoot().appendChild(_fhead);
+  }
+  _fhead.style.width = Math.max(80, w - 32) + 'px';
+  _fhead.textContent = String(label == null ? '' : label);
+  return Math.ceil(_fhead.getBoundingClientRect().height);
+}
+var _card = null;
+function nodeH(n) {
+  if (!_card) {
+    /* 必须和真卡片同款标签：nodeEl 用的是 <button>，button 的 UA 样式会改变内容盒，用 div 量会偏 */
+    _card = document.createElement('button');
+    _card.type = 'button';
+    _card.className = 'gnode';
+    _card.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;height:auto';
+    _card.style.width = NW + 'px';
+    _card.innerHTML = '<span class="gtext"><span class="gname"></span><span class="gkind"></span></span>';
+    probeRoot().appendChild(_card);
+  }
+  _card.querySelector('.gname').textContent = n.name;
+  _card.querySelector('.gkind').textContent = n.kind + (n.planned ? ' · 计划中' : '');
+  /* 有没有那个点，会改变文字的可用宽度 —— 必须和真卡片完全一致地重建 */
+  var oldDot = _card.querySelector('.dot');
+  if (oldDot) _card.removeChild(oldDot);
+  if (n.mark) _card.insertBefore(el('span', { class: 'dot ' + n.mark }), _card.firstChild);
+  /* 高度自然撑开，量出来的就是这张卡片真正需要的高度 */
+  /* +1 吸收亚像素舍入，宁可多半像素也不能切字 */
+  return Math.max(NH, Math.ceil(_card.getBoundingClientRect().height) + 1);
+}
+
+function layoutGraph(pid, avail) {
+  var cs = contractsOf(pid);
+  var availW = Math.max(560, avail);
+  /* 可用宽度上限：只用来决定每个带最多能摆几列 */
+  var maxBWavail = availW - PAD * 2 - GUT;
+  if (maxBWavail < 320) maxBWavail = Math.max(220, availW - PAD * 2);
+
+  var nodes = [], byCid = {};
+  cs.forEach(function (c) {
+    var n = { id: c.id, name: c.name, kind: KIND[c.kind],
+              mark: nodeMark(c), tip: nodeTip(c),
+              isGap: false, planned: c.planned, rank: 0 };
+    nodes.push(n); byCid[n.id] = n;
+  });
+
+  var bands = groupOf(pid).map(function (g, bi) {
+    var b = { key: g.key, label: g.label, note: g.note, groups: [], nodes: [], bi: bi };
+    g.files.forEach(function (f, fi) {
+      var fg = { label: f.label, nodes: [], fi: fi };
+      f.items.forEach(function (it) {
+        var n;
+        if (f.isGap) {
+          n = { id: it.id, name: it.name, kind: '还没有契约', mark: 'd-bad',
+                tip: '还没有契约', isGap: true, planned: false, rank: 0 };
+          nodes.push(n); byCid[n.id] = n;
+        } else { n = byCid[it.id]; }
+        if (!n) return;
+        n.band = bi; n.gi = fi;
+        fg.nodes.push(n); b.nodes.push(n);
+      });
+      b.groups.push(fg);
+    });
+    return b;
+  });
+
+  rankOf(pid, nodes);
+  var maxRank = 0;
+  nodes.forEach(function (n) { if (n.rank > maxRank) maxRank = n.rank; });
+  var byWidth = Math.floor((maxBWavail - BANDPAD * 2 - NW) / (NW + COLGAP)) + 1;
+  if (byWidth > MAXCOL) byWidth = MAXCOL;
+  if (byWidth < 1) byWidth = 1;
+  /* 每个归属带按自己的内容定宽：几个节点就摆几列，不再一律拉满整行。
+     列距固定成 NW+COLGAP，所以卡片是紧凑挨着的，不会像以前那样被均匀拉开 */
+  bands.forEach(function (b) {
+    /* inline 必须在量标题之前就定好：标题里要不要多一段 "/ 文件名" 取决于它，
+       晚一步算就会少算一段、把两行标题当一行 */
+    b.inline = (b.key !== 'gap' && b.groups.length === 1);
+    var nc = Math.min(b.nodes.length, byWidth);
+    if (nc < 1) nc = 1;
+    b.nCol = nc;
+    b.w = BANDPAD * 2 + nc * NW + (nc - 1) * COLGAP;
+    b.pitch = nc > 1 ? (NW + COLGAP) : 0;
+    b.nodes.forEach(function (n) { n.rk = Math.min(n.rank, nc - 1); });
+    /* 标题在框内换行后实际占多高，就给标题留多高（含 top:9px），绝不让它压到卡片 */
+    b.headH = Math.max(BANDHEAD, 9 + headerBoxH(b, b.w) + 8);
+    if (!b.inline && b.key !== 'gap') {
+      b.groups.forEach(function (g) { g.headH = Math.max(FILEHEAD, fileHeadH(g.label, b.w) + 4); });
+    }
+  });
+  nodes.forEach(function (n) { n.h = nodeH(n); });
+  var maxBW = 0;
+  bands.forEach(function (b) { if (b.w > maxBW) maxBW = b.w; });
+  if (!bands.length) maxBW = maxBWavail;
+  var W = PAD * 2 + maxBW + GUT;
+  /* 走线区放在「最宽那个带」的右边：所有带都比它窄，所以这条竖线不会穿过任何带 */
+  var GUTX = PAD + maxBW + GUT / 2;
+  function colX(bi, c) { return PAD + BANDPAD + c * bands[bi].pitch; }
+  function chanR(bi, c) {
+    var b = bands[bi];
+    if (c >= b.nCol - 1) return PAD + b.w - BANDPAD / 2;
+    return colX(bi, c) + NW + COLGAP / 2;
+  }
+
+  var y = PAD;
+  bands.forEach(function (b) {
+    b.x = PAD; b.y = y;
+    var iy = y + b.headH;
+    b.groups.forEach(function (g, gi) {
+      if (gi > 0) iy += FILEGAP;
+      if (!b.inline) { g.y = iy; iy += (g.headH || FILEHEAD); }
+      var byRk = {}, rks = [];
+      g.nodes.forEach(function (n) {
+        if (!byRk[n.rk]) { byRk[n.rk] = []; rks.push(n.rk); }
+        byRk[n.rk].push(n);
+      });
+      rks.sort(function (p, q) { return p - q; });
+      /* 按 rank 排序后「先纵向填满一列、再换下一列」：
+         rank 顺序在阅读方向（上到下、左到右）上保持，列数不超过 nCol，
+         行数 = ceil(n / nCol) —— 同 rank 的多个节点会自然摊到多列，不会叠成一长条 */
+      var arr = g.nodes.slice().sort(function (p2, q2) { return p2.rk - q2.rk; });
+      var rows = Math.max(1, Math.ceil(arr.length / b.nCol));
+      var rowMax = [];
+      arr.forEach(function (n, i) {
+        n.col = Math.floor(i / rows);
+        n.row = i % rows;
+        n.x = colX(b.bi, n.col);
+        if (!rowMax[n.row] || n.h > rowMax[n.row]) rowMax[n.row] = n.h;
+      });
+      var rowTop = [], ry = iy;
+      for (var ri = 0; ri < rows; ri++) { rowTop[ri] = ry; ry += (rowMax[ri] || NH) + ROWGAP; }
+      arr.forEach(function (n) {
+        n.y = rowTop[n.row];
+        n.rowBot = rowTop[n.row] + (rowMax[n.row] || NH);   /* 本行真正的底 */
+      });
+      g.rows = rows;
+      iy = ry - ROWGAP;
+    });
+    b.cbot = iy;
+    b.h = (iy - y) + BANDPAD;
+    y += b.h + BANDGAP;
+  });
+  var H = y - BANDGAP + PAD;
+
+  function belowY(n) {
+    var b = bands[n.band];
+    return Math.min((n.rowBot || (n.y + n.h)) + ROWGAP / 2, b.cbot + BANDPAD / 2);
+  }
+
+  var nmap = {};
+  nodes.forEach(function (n) { nmap[n.id] = n; if (!nmap[n.name]) nmap[n.name] = n; });
+  var links = LINKS.filter(function (l) { return l.p === pid && nmap[l.from] && nmap[l.to]; })
+    .map(function (l) { return { from: nmap[l.from].id, to: nmap[l.to].id,
+                                 rel: l.rel, note: l.note }; });
+
+  /* ── 通道分配：同一条通道里的多条边占不同的道，杜绝共线重叠 ── */
+  var bandUse = {}, gutUse = [];
+  links.forEach(function (l) {
+    var A = nmap[l.from], B = nmap[l.to];
+    [A.band, B.band].forEach(function (bi) {
+      if (!bandUse[bi]) bandUse[bi] = [];
+      if (bandUse[bi].indexOf(l) < 0) bandUse[bi].push(l);
+    });
+    if (A.band !== B.band) gutUse.push(l);
+  });
+  function chYof(bi, l) {
+    var arr = bandUse[bi] || [], n = arr.length, b = bands[bi];
+    var i = arr.indexOf(l);
+    var span = Math.min(BANDPAD - 6, Math.max(0, (n - 1) * 5));
+    return b.cbot + BANDPAD / 2 + (n > 1 ? (-span / 2 + i * (span / (n - 1))) : 0);
+  }
+  function gutXof(l) {
+    var n = gutUse.length, i = gutUse.indexOf(l);
+    var span = Math.min(GUT - 10, Math.max(0, (n - 1) * 6));
+    return GUTX + (n > 1 ? (-span / 2 + i * (span / (n - 1))) : 0);
+  }
+
+  /* ── 正交路由：所有走线只经过「节点下方空条 / 列通道 / 带底通道 / 右侧走线区」
+        这四类无节点区域，且永远不高于端点所在行 —— 所以既不压节点也不压标题行 ── */
+  var routes = {};
+  links.forEach(function (l, li) {
+    var A = nmap[l.from], B = nmap[l.to];
+    var acx = A.x + NW / 2, bcx = B.x + NW / 2;
+    /* 卡片高度不一：横向快路的 y 取两个卡片竖直方向的重叠中点，才同时贴得住两边 */
+    var acy = (Math.max(A.y, B.y) + Math.min(A.y + A.h, B.y + B.h)) / 2;
+
+    /* 快路 1：同一行相邻列 —— 一条横线 */
+    if (A.band === B.band && A.gi === B.gi && A.row === B.row && Math.abs(A.col - B.col) === 1) {
+      routes[li] = (A.col < B.col) ? [[A.x + NW, acy], [B.x, acy]]
+                                   : [[A.x, acy], [B.x + NW, acy]];
+      return;
+    }
+    /* 快路 2：同一列相邻行 —— 一条竖线 */
+    if (A.band === B.band && A.gi === B.gi && A.col === B.col && Math.abs(A.row - B.row) === 1) {
+      routes[li] = (A.y < B.y) ? [[acx, A.y + A.h], [bcx, B.y]]
+                               : [[acx, A.y], [bcx, B.y + B.h]];
+      return;
+    }
+
+    var rA = chanR(A.band, A.col), rB = chanR(B.band, B.col);
+    var byA = belowY(A), byB = belowY(B);
+    var cA = chYof(A.band, l), cB = chYof(B.band, l);
+    var pts = [[acx, A.y + A.h], [acx, byA], [rA, byA], [rA, cA]];
+    if (A.band === B.band) {
+      pts.push([rB, cA]);
+    } else {
+      var gx = gutXof(l);
+      pts.push([gx, cA], [gx, cB]);
+    }
+    pts.push([rB, cB], [rB, byB], [bcx, byB], [bcx, B.y + B.h]);
+    routes[li] = pts;
+  });
+
+  var pos = {};
+  nodes.forEach(function (n) { pos[n.id] = { x: n.x, y: n.y, h: n.h }; });
+
+  return { nodes: nodes, bands: bands, links: links, routes: routes,
+           pos: pos, W: W, H: H, GUTX: GUTX, bandW: maxBW };
+}
+
+
+/* 正交折线：拐角加小圆角，去掉连续重复点 */
+function polyPath(pts) {
+  var p = [];
+  pts.forEach(function (q) {
+    var last = p[p.length - 1];
+    if (!last || Math.abs(last[0] - q[0]) > 0.5 || Math.abs(last[1] - q[1]) > 0.5) p.push(q);
+  });
+  if (p.length < 2) return '';
+  var d = 'M' + p[0][0] + ',' + p[0][1];
+  for (var i = 1; i < p.length - 1; i++) {
+    var a = p[i - 1], c = p[i], e = p[i + 1];
+    var v1x = c[0] - a[0], v1y = c[1] - a[1];
+    var v2x = e[0] - c[0], v2y = e[1] - c[1];
+    var l1 = Math.sqrt(v1x * v1x + v1y * v1y), l2 = Math.sqrt(v2x * v2x + v2y * v2y);
+    var rr = Math.min(7, l1 / 2, l2 / 2);
+    if (rr < 1) { d += ' L' + c[0] + ',' + c[1]; continue; }
+    d += ' L' + (c[0] - v1x / l1 * rr) + ',' + (c[1] - v1y / l1 * rr)
+       + ' Q' + c[0] + ',' + c[1] + ' ' + (c[0] + v2x / l2 * rr) + ',' + (c[1] + v2y / l2 * rr);
+  }
+  var z = p[p.length - 1];
+  d += ' L' + z[0] + ',' + z[1];
+  return d;
+}
+
+function edgesSVG(L) {
+  var NS = 'http://www.w3.org/2000/svg';
+  var svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'edges');
+  svg.setAttribute('width', L.W); svg.setAttribute('height', L.H);
+  var defs = document.createElementNS(NS, 'defs');
+  REL_ORDER.forEach(function (rel, i) {
+    var mk = document.createElementNS(NS, 'marker');
+    mk.setAttribute('id', 'ah' + i);
+    mk.setAttribute('viewBox', '0 0 8 8');
+    mk.setAttribute('refX', '7'); mk.setAttribute('refY', '4');
+    mk.setAttribute('markerWidth', '5.5'); mk.setAttribute('markerHeight', '5.5');
+    mk.setAttribute('orient', 'auto');
+    var pth = document.createElementNS(NS, 'path');
+    pth.setAttribute('d', 'M0,0 L8,4 L0,8 z');
+    pth.setAttribute('fill', RELCOLOR[rel]);
+    mk.appendChild(pth); defs.appendChild(mk);
+  });
+  svg.appendChild(defs);
+
+  L.links.forEach(function (l, li) {
+    var pts = L.routes[li];
+    if (!pts) return;
+    var path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', polyPath(pts));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', RELCOLOR[l.rel] || '#8e8e93');
+    path.setAttribute('stroke-width', '1.6');
+    path.setAttribute('stroke-linejoin', 'round');
+    path.setAttribute('opacity', '.9');
+    if (l.rel === '缺口') path.setAttribute('stroke-dasharray', '5 4');
+    path.setAttribute('marker-end', 'url(#ah' + REL_ORDER.indexOf(l.rel) + ')');
+    var t = document.createElementNS(NS, 'title');
+    t.textContent = l.from + '  →  ' + l.to + '（' + l.rel + '）' + (l.note ? '：' + l.note : '');
+    path.appendChild(t);
+    svg.appendChild(path);
+  });
+  return svg;
+}
+
+
+function nodeEl(n, p) {
+  var on = n.isGap ? S.gap === n.id : S.sel === n.id;
+  return el('button', {
+    class: 'gnode' + (n.isGap ? ' gapnode' : '') + (n.planned ? ' planned' : '') + (on ? ' on' : ''),
+    style: 'left:' + p.x + 'px;top:' + p.y + 'px;width:' + NW + 'px;height:' + (p.h || NH) + 'px',
+    title: n.name + '（' + n.kind + '）' + (n.tip ? ' · ' + n.tip : ''),
+    onclick: function () { if (n.isGap) selectGap(n.id); else select(n.id); }
+  },
+    n.mark ? el('span', { class: 'dot ' + n.mark }) : null,
+    el('span', { class: 'gtext' },
+      el('span', { class: 'gname', text: n.name }),
+      el('span', { class: 'gkind', text: n.kind + (n.planned ? ' · 计划中' : '') })));
+}
+
+function legendEl(pid) {
+  var b = el('div', { class: 'legend' });
+  b.append(el('span', { class: 'li' },
+    el('span', { class: 'chip chip-warn', text: '变过' }),
+    el('span', { class: 'lgl', text: '上面那对版本之间改过' })));
+  b.append(el('span', { class: 'li' },
+    el('span', { class: 'chip chip-bad', text: '不符' }),
+    el('span', { class: 'lgl', text: '观测到与契约不合' })));
+  if (pid) b.append(el('span', { class: 'li' },
+    el('span', { class: 'chip chip-dim', text: rangeText(pid) }),
+    el('span', { class: 'lgl', text: '现在对比的是这两版' })));
+  b.append(el('span', { class: 'lsep' }));
+  REL_ORDER.forEach(function (rel) {
+    b.append(el('span', { class: 'li', style: 'color:' + RELCOLOR[rel] },
+      el('span', { class: 'ls' + (rel === '缺口' ? ' dash' : '') }), rel));
+  });
+  return b;
+}
+
+/* 内容卡顶部：只有两行 —— 第一行标题（带返回），第二行说明 */
+function backBtn(p) {
+  return el('button', { class: 'back', text: '← ' + p.name,
+    onclick: function () { selectProj(p.id); } });
+}
+function headEl(o) {
+  var l1 = el('div', { class: 'cline1' },
+    o.back || null,
+    el('span', { class: 'ctitle', text: o.title }),
+    o.self ? el('span', { class: 'selfb', text: '本页' }) : null,
+    o.facts && o.facts.length ? el('span', { class: 'facts' }, o.facts) : null);
+  var l2 = el('div', { class: 'cline2' },
+    el('span', { class: 'cdesc', text: o.desc || '' }),
+    o.meta ? el('span', { class: 'cmeta2', text: o.meta }) : null);
+  return el('div', { class: 'chead' }, l1, l2);
+}
+
+function renderGraph(box, p) {
+  var pid = p.id;
+  var cs = contractsOf(pid), gs = gapsOf(pid);
+  var badN = 0, chgN = 0;
+  /* 两个事实各自独立：一条契约可以既变过又不符，不能写成 else if */
+  cs.forEach(function (c) { if (findingsOf(c)) badN++; if (changedOf(c)) chgN++; });
+  setCardGlow(projFacts(pid));
+
+  /* 滚动区先进 DOM，量到真实可用宽度再布局 —— 这样永远不会横向溢出 */
+  var sa = el('div', { class: 'scrollarea' });
+  box.append(sa);
+  var avail = sa.clientWidth;
+  if (avail < 320) avail = 1016;
+  var L = layoutGraph(pid, avail);
+
+  box.insertBefore(headEl({
+    title: p.name,
+    facts: [
+      badN ? el('span', { class: 'chip chip-bad', text: badN + ' 条观测到不符' }) : null,
+      chgN ? el('span', { class: 'chip chip-warn', text: chgN + ' 条变过' }) : null,
+      (!badN && !chgN) ? el('span', { class: 'chip chip-dim', text: '这两版之间都没事' }) : null
+    ].filter(function (x) { return !!x; }),
+    desc: p.sum,
+    meta: cs.length + ' 条契约 · ' + L.bands.length + ' 个归属 · ' + L.links.length + ' 条关系'
+  }), sa);
+
+  sa.append(legendEl(pid));
+  var wrap = el('div', { class: 'graphwrap' });
+  var g = el('div', { class: 'graph', style: 'width:' + L.W + 'px;height:' + L.H + 'px' });
+
+  var foc = focusBands(L, S.focus);
+  var anyFoc = Object.keys(foc).length > 0;
+
+  /* 三层顺序：归属框在最下，连线居中，契约节点在最上 */
+  L.bands.forEach(function (b) {
+    var cls = 'gband';
+    if (b.key === 'ext') cls += ' ext';
+    if (b.key === 'gap') cls += ' gaps';
+    if (anyFoc) cls += foc[b.key] ? ' foc' : ' dim';
+    var bx = el('div', { class: cls,
+      style: 'left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w + 'px;height:' + b.h + 'px' });
+    var head = el('div', { class: 'gbandhead' },
+      el('span', { class: 'gbandname', text: b.label || b.groups[0].label }));
+    if (b.inline && b.label) head.append(el('span', { class: 'gbandfile', text: '/ ' + b.groups[0].label }));
+    head.append(el('span', { class: 'gbandnote', text: b.note }));
+    head.append(el('span', { class: 'gbandcount', text: b.nodes.length + ' 条' }));
+    bx.append(head);
+    if (!b.inline && b.key !== 'gap') {
+      b.groups.forEach(function (gr) {
+        bx.append(el('div', { class: 'gfilehead',
+          style: 'top:' + (gr.y - b.y) + 'px', text: gr.label }));
+      });
+    }
+    g.append(bx);
+  });
+  g.append(edgesSVG(L));
+  L.nodes.forEach(function (n) {
+    var ne = nodeEl(n, L.pos[n.id]);
+    /* 不在焦点归属框里的卡片：糊掉 */
+    if (anyFoc && !foc[L.bands[n.band].key]) ne.classList.add('blurcard');
+    g.append(ne);
+  });
+
+  wrap.append(g);
+  sa.append(wrap);
+
+  /* 聚焦 = 把整个归属框框进来，居中放大过去；不在焦点里的卡片直接糊掉 */
+  var focEl = g.querySelector('.gband.foc');
+  if (focEl) {
+    var fbs = L.bands.filter(function (b) { return foc[b.key]; });
+    /* 框的是归属框「整块」（含全宽）—— 只框卡片的话，框本身是全宽的，
+       放大后整块 card 会被切掉，只剩左边一条标题，得横向滑才看得全 */
+    var x0 = Math.min.apply(null, fbs.map(function (b) { return b.x; })) - FOCPAD;
+    var x1 = Math.max.apply(null, fbs.map(function (b) { return b.x + b.w; })) + FOCPAD;
+    var y0 = Math.min.apply(null, fbs.map(function (b) { return b.y; })) - FOCPAD;
+    var y1 = Math.max.apply(null, fbs.map(function (b) { return b.y + b.h; })) + FOCPAD;
+    /* 宽高都要装得下 —— 整块 card 一定完整可见，不用横向滑 */
+    var k = Math.min(sa.clientWidth / Math.max(1, x1 - x0),
+                     sa.clientHeight / Math.max(1, y1 - y0), ZOOM_MAX);
+    if (!isFinite(k) || k < 1) k = 1;          /* 只放大，不缩小 */
+    /* 先按最终缩放量出「居中」需要滚多少（zoom 是同步改布局的），再退回起点做动画 */
+    g.style.zoom = k;
+    var gr = g.getBoundingClientRect();
+    var wr = wrap.getBoundingClientRect(), sr = sa.getBoundingClientRect();
+    var bw = (x1 - x0) * k, bh = (y1 - y0) * k;
+    var xRaw = wrap.scrollLeft + ((gr.left + x0 * k - wr.left) - (sa.clientWidth - bw) / 2);
+    var yRaw = sa.scrollTop + ((gr.top + y0 * k - sr.top) - (sa.clientHeight - bh) / 2);
+    /* 模块贴着图的上/左边缘时，居中需要「负滚动」——滚不动就会贴边。
+       用 padding 把那段空间补出来，这样一定能真的居中 */
+    wrap.style.paddingLeft = (xRaw < 0 ? -xRaw : 0) + 'px';
+    wrap.style.paddingTop = (yRaw < 0 ? -yRaw : 0) + 'px';
+    /* 整张图是按视口宽度排的，放大一点点右边就会溢出、冒出横向滚动条。
+       聚焦时把这段溢出裁掉：overflow:hidden 的元素照样能用 scrollLeft 定位，
+       只是不再有滚动条、也不会被误拖走 */
+    wrap.style.overflow = 'hidden';
+    var xTo = Math.max(0, xRaw), yTo = Math.max(0, yRaw);
+    /* 模块贴着图的下边缘时，居中要往下滚，但图下面没内容可滚。
+       在图的下面垫一个和视口一样高的空块，把纵向滚动空间撑出来 */
+    wrap.appendChild(el('div', { style: 'width:1px;height:' + sa.clientHeight + 'px' }));
+    var xFrom = wrap.scrollLeft, yFrom = sa.scrollTop;
+
+    var token = ++ZANIM, t0 = null, landed = false;
+    /* 终态先算好：不管动画跑不跑得起来，结果都必须正确 */
+    var land = function () {
+      if (landed) return;
+      landed = true;
+      g.style.zoom = k;
+      wrap.scrollLeft = xTo;
+      sa.scrollTop = yTo;
+    };
+    g.style.zoom = 1;
+    /* 用 setTimeout 而不是 rAF 驱动：rAF 在后台标签/无头环境下可能完全不触发，
+       那样缩放就会永远停在起点。再加一个兜底定时器保证终态一定落地 */
+    var step = function () {
+      if (token !== ZANIM) return;                  /* 又聚焦了别处，放弃这一轮 */
+      if (landed) return;
+      if (t0 === null) t0 = Date.now();
+      var p = Math.min(1, (Date.now() - t0) / ZOOM_MS);
+      var e = 1 - Math.pow(1 - p, 3);
+      g.style.zoom = 1 + (k - 1) * e;
+      wrap.scrollLeft = xFrom + (xTo - xFrom) * e;
+      sa.scrollTop = yFrom + (yTo - yFrom) * e;
+      if (p < 1) setTimeout(step, 16); else land();
+    };
+    setTimeout(step, 16);
+    setTimeout(land, ZOOM_MS + 140);
+  } else {
+    ZANIM++;                                        /* 取消聚焦：停掉还在跑的动画 */
+    g.style.zoom = 1;
+    wrap.style.paddingLeft = '0px';
+    wrap.style.paddingTop = '0px';
+    wrap.style.overflow = '';
+  }
+}
+
+function setCardGlow(s) {
+  var m = document.getElementById('mainCard');
+  if (m) m.className = 'main card' + (s && s !== 'none' ? ' g-' + s : '');
+}
+function renderDetail() {
+  var box = $('#detail'); clear(box);
+
+  var g = S.gap ? byGap(S.gap) : null;
+  if (g) {
+    setCardGlow('bad');
+    box.append(headEl({
+      back: backBtn(projOf(g.p)), title: g.name,
+      facts: [el('span', { class: 'chip chip-gap', text: '没有契约' })],
+      desc: g.io
+    }));
+    var sa = el('div', { class: 'scrollarea' });
+    sa.append(el('div', { class: 'block' },
+      el('div', { class: 'bh' }, el('h2', { text: '为什么算缺口' })),
+      el('div', { style: 'color:var(--ink2);font-size:12.5px', text: g.why }),
+      el('div', { class: 'verdict bad', text: g.ev })));
+    sa.append(el('div', { class: 'block' },
+      el('div', { class: 'bh' }, el('h2', { text: '可以怎么办' })),
+      el('div', { class: 'verdict', text: g.fix })));
+    box.append(sa);
+    return;
+  }
+
+  var c = S.sel ? byId(S.sel) : null;
+  if (!c) {
+    var pp = S.proj ? projOf(S.proj) : null;
+    if (pp) renderGraph(box, pp);
+    return;
+  }
+  setCardGlow(findingsOf(c) ? 'bad' : (changedOf(c) ? 'changed' : 'none'));
+  box.append(headEl({
+    back: backBtn(projOf(c.p)), title: c.name, self: c.self,
+    facts: factsChips(c),
+    desc: c.lead,
+    meta: KIND[c.kind] + ' · ' + srcLabel(c)
+  }));
+
+  var sa2 = el('div', { class: 'scrollarea' });
+  sa2.append(blockWhat(c));
+  sa2.append(blockChanges(c));
+  /* 有「几份表示对不对得上」这一块时，结论归它，别在调用那块重复说一遍 */
+  var d = blockDiffs(c);
+  sa2.append(blockCalls(c, !d));
+  if (d) sa2.append(d);
+  box.append(sa2);
+}
+
+/* ---------- 顶部：版本条 ---------- */
+function revList(pid) {
+  var r = repoOf(pid); if (!r) return [];
+  var out = [{ id: 'wt', at: '未提交', subject: '工作区，改了还没提交' }];
+  if (!r.dirty || !r.dirty.length) out[0].subject = '工作区（干净）';
+  r.log.forEach(function (x) { out.push(x); });
+  return out;
+}
+/* 顶部只说右端是什么 —— 「N 条变过 / N 条不符」是图卡头部在报，别重复；
+   而且红点在图上优先于黄点，两边都用数字会被拿来对账却对不上 */
+function revSummary(pid, rg) {
+  var r = repoOf(pid); if (!r) return '';
+  if (rg.to === 'wt') return r.dirty.length
+    ? '工作区 ' + r.dirty.length + ' 个文件未提交' : '工作区干净';
+  var cm = commitOf(pid, rg.to);
+  return cm ? cm.at + ' · ' + cm.subject : '';
+}
+function renderRangeBar() {
+  var box = $('#tbRange'); if (!box) return;
+  var pid = S.proj, r = repoOf(pid);
+  clear(box);
+  if (!r) return;
+  var rg = rangeOf(pid);
+  box.appendChild(el('span', { class: 'revproj', text: projOf(pid).name }));
+
+  function sel(which, rev) {
+    var b = el('button', { class: 'revbtn', type: 'button' });
+    b.appendChild(el('span', { class: 'revid', text: revLabel(pid, rev) }));
+    var tag = (which === 'from')
+      ? (rev === r.baseline ? '基线' : (rev === r.head ? '最新' : ''))
+      : (rev === 'wt' ? '未提交' : (rev === r.head ? '最新' : ''));
+    if (tag) b.appendChild(el('span', { class: 'revtag' + (rev === 'wt' ? ' wt' : ''), text: tag }));
+    b.appendChild(el('span', { class: 'revcaret', text: '\u25be' }));
+    b.addEventListener('click', function (e) {
+      e.stopPropagation();
+      S.revOpen = (S.revOpen === which) ? null : which;
+      renderRangeBar();
+    });
+    if (S.revOpen === which) {
+      var pop = el('div', { class: 'filtpop revpop' });
+      revList(pid).forEach(function (x) {
+        var o = el('button', { class: 'fopt revopt' + (x.id === rev ? ' on' : ''), type: 'button' },
+          el('span', { class: 'box' }),
+          el('span', { class: 'flabel', text: x.id === 'wt' ? '工作区' : x.id }),
+          el('span', { class: 'fsub', text: x.subject }),
+          el('span', { class: 'fhint', text: x.at }));
+        o.addEventListener('click', function (e) {
+          e.stopPropagation();
+          S.range[pid] = (which === 'from') ? { from: x.id, to: rg.to } : { from: rg.from, to: x.id };
+          S.revOpen = null;
+          renderAll();
+        });
+        pop.appendChild(o);
+      });
+      b.appendChild(pop);
+    }
+    return b;
+  }
+  box.appendChild(sel('from', rg.from));
+  box.appendChild(el('span', { class: 'revarrow', text: '\u2192' }));
+  box.appendChild(sel('to', rg.to));
+  box.appendChild(el('span', { class: 'revsum', text: revSummary(pid, rg) }));
+}
+
+function renderAll() {
+  /* 先定下默认选中，再渲染树 —— 否则首次渲染树不知道选中了谁 */
+  if (!S.sel && !S.gap && !S.proj) S.proj = P_DSH;
+  renderTree(); renderDetail(); renderRangeBar();
+}
+
+/* ---------- 讨论锚点 ---------- */
+var NOTES = [
+  { q: '① 项目切换回到了侧边栏，做成树的根',
+    a: '三个根：<code>dsh-plugins</code>、<code>msim_shared_proto</code>、<code>DSH 平台</code>。点项目名展开/收起，就是切换。',
+    o: '<b>为什么不是顶部下拉</b>：树里能同时看见"我有几个项目、各自有多少东西"。' },
+  { q: '② 第二层按「这是什么边界」分，用大白话',
+    a: '磁盘上的文件 / 服务对外的接口 / 推给前端的事件 / 服务之间的 proto / 模型能调用的工具。每组名字都是一句完整的话。',
+    o: '<b>换掉了</b>原来的 存储层 / 接口层 / 事件层 —— 那是黑话。' },
+  { q: '③ 平台工具从项目里挪走了',
+    a: '<code>bash</code>、<code>read</code>、<code>edit</code> 这些是 DSH 平台注册的，不在 <code>dsh-plugins</code> 这个仓库里。',
+    o: '<b>原来我把它们塞进了项目下面，导致那一列看起来不像任何东西。</b>现在单独一棵根。' },
+  { q: '⑫ 顶部是版本条：这次对比的是哪两版（本轮）',
+    a: '两端都能点开换。左端默认是纳管基线，右端默认是最新 —— 工作区有改动时就是「工作区」，所以你既能比 commit 和 commit，也能比未提交和工作区。换任意一端，下面两张卡（归属树 + 图/详情）整体重算。',
+    o: '<b>「变过」的定义跟着变了</b>：不再是「相对基线改过」，而是「在这个区间里改过」。区间外的改动不参与计算：左端之前的属于「左端那版已有的状态」，右端之后的是「还没发生」，各自单独列出来但不计入标记。未提交只在右端选到「工作区」时才算 —— 拿两个历史 commit 对比时，工作区的改动本来就不该出现。' },
+  { q: '⑪ 状态改成两个正交的事实（上一轮）',
+    a: '原来的「没事 / 变过了 / 对不上」三条互斥状态删掉了。现在只有两个各自独立的标记：<code>变过</code>（相对基线版本有改动）和<code>不符</code>（观测到与契约不合）。都没有就什么都不画——不再满屏绿点。缺口（还没有契约）也不再借用契约状态的颜色，自成一种标记。',
+    o: '<b>为什么删</b>：把「关于历史的事实」和「关于正确性的判定」做成三选一，就必须发明「谁优先」的规则，还会出现「手写的状态和下面的证据打架」。而且「没事」占掉最大一档颜色，却没告诉人任何事。<b>「变过」不等于「历史上改过」</b>，而是「相对基线版本之后改过」——基线之前的改动，上次纳管时就已经知道了。这一条让「契约没变、数据却跑不对」自动浮现：<code>edit</code> 和 <code>EntityType</code> 现在都是「没变过、但不符」。' },
+  { q: '④ 每个区块仍用一句人话收尾',
+    a: '「它是什么 / 变了什么 / 现在对不对 / 几份表示对不对得上」四块各自以一句<code>结论</code>结束。',
+    o: '<b>这是这个页面真正的价值</b>：数据谁都会铺开，人要的是「所以呢」。' },
+  { q: '⑩ 图改成「目录当骨架」（本轮）',
+    a: '一个目录一条横带，带里按文件分组。归属用框套住，通信用跨框的线。带 1 是仓库里的目录，然后是「还没有契约的地方」，最后是「外部 / 不在本仓库」。',
+    o: '契约的出处拆成两个字段：<b>file</b>（仓库里的路径，没有就是 null）和 <b>boundary</b>（一句人话）。29 条里只有 10 条有真实文件，13 条平台工具和 2 条运行时文件没有出处，收进「外部」框。' },
+  { q: '⑨ 三张卡片，各自只有「标题 + 说明」两行（本轮）',
+    a: 'header 一张卡、侧边栏一张卡、中间内容一张卡。<b>两处顶部都只留两行</b>：第一行标题，第二行说明。图和表格直接铺在内容卡上，不再套第二层卡。',
+    o: '<b>内容区从 840px 放开到 1086px</b>；节点加宽到 232px，长名字不再截断。主题切换和「讨论锚点」从 header 移到了侧边栏底部。' },
+  { q: '⑧ 选中项目 → 右边是一张关系图（新增）',
+    a: '打开页面默认就落在这里：方块是契约、线是它们之间的关系。关系有四类——<code>引用</code>、<code>投影</code>、<code>产出</code>、<code>协作</code>，外加虚线表示的<code>缺口</code>。点方块进详情。',
+    o: '<b>为什么这解决了"零背景看不懂"</b>：先看见整体形状，再点进去看细节。而且契约真正的价值就在关系上——单独一条只是个 schema，"改了这个谁会受影响"才是人要的。' },
+  { q: '⑦ 视觉层换成卡片式液态玻璃',
+    a: '沿用 <code>ios-glass-preview</code> 的三层玻璃 token 与 <code>backdrop-filter</code> 配方；背景是会缓慢漂移的色斑，玻璃才有东西可折射。',
+    o: '<b>签名元素</b>：每条契约的状态以彩色光晕从玻璃右上角透出来——绿/黄/红。不用读字就能感觉到状态。这是「光穿过材质」，不是贴纸。' },
+  { q: '⑥ 这个页面自己的契约也在里面',
+    a: '标记「本页」的五条：两个接口、一个 SSE 事件、一个存盘文件，以及<code>契约对象本身</code>。',
+    o: '<b>一个管契约的工具，自己的契约却没管，那是说不过去的。</b>而且这五条正好是最容易被漏掉的一类边界——宿主和页面之间的接口，平时没人给它写规格。' },
+  { q: '⑤ 还没有契约的地方，在树的最后',
+    a: '每个项目底下直接列出"没有契约的地方"，红色标记。目前 5 处。',
+    o: '<b>留着的原因</b>：只展示已有的契约，等于奖励已经做对的人、放过没做的地方。' }
+];
+function renderNotes() {
+  var b = $('#ovBody'); clear(b);
+  NOTES.forEach(function (n) {
+    b.append(el('div', { class: 'an' },
+      el('div', { class: 'an-q', text: n.q }),
+      el('div', { class: 'an-a', html: n.a }),
+      el('div', { class: 'an-o', html: n.o })));
+  });
+}
+
+$('#q').addEventListener('input', function (e) { S.q = e.target.value; renderTree(); });
+
+/* ---------- 筛选：按钮 + 下拉多选 ---------- */
+function renderFiltBtn() {
+  var btn = $('#filtBtn'), bd = $('#filtBadge');
+  var n = filtKeys().length;
+  btn.classList.toggle('on', n > 0);
+  bd.textContent = String(n);
+  bd.hidden = n === 0;
+  btn.setAttribute('aria-expanded', S.filtOpen ? 'true' : 'false');
+  btn.title = n ? '筛选中：' + FILTERS.filter(function (f) { return S.filt[f.k]; })
+    .map(function (f) { return f.label; }).join(' / ') : '筛选';
+}
+function renderFiltPop() {
+  var pop = $('#filtPop');
+  pop.innerHTML = '';
+  FILTERS.forEach(function (f) {
+    var o = el('button', { class: 'fopt' + (S.filt[f.k] ? ' on' : ''), type: 'button',
+      'aria-pressed': S.filt[f.k] ? 'true' : 'false' },
+      el('span', { class: 'box' }),
+      el('span', { class: 'flabel', text: f.label }),
+      el('span', { class: 'fhint', text: f.hint }));
+    o.dataset.k = f.k;
+    o.addEventListener('click', function (e) {
+      e.stopPropagation();                    /* 点选项不关下拉，方便连着选 */
+      var byKey = e.detail === 0;             /* 键盘回车/空格触发时 detail 为 0 */
+      if (S.filt[f.k]) delete S.filt[f.k]; else S.filt[f.k] = 1;
+      renderFiltPop(); renderFiltBtn(); renderTree();
+      if (byKey && S.filtOpen) {              /* 重建后焦点不能丢，否则键盘用户掉出下拉 */
+        var again = pop.querySelector('.fopt[data-k="' + f.k + '"]');
+        if (again) again.focus();
+      }
+    });
+    pop.appendChild(o);
+  });
+  var anyOn = filtActive();
+  var cl = el('button', { class: 'filtclear' + (anyOn ? '' : ' hint'), type: 'button',
+    text: anyOn ? '清除筛选' : '不选就是全部显示' });
+  if (anyOn) cl.addEventListener('click', function (e) {
+    e.stopPropagation();
+    S.filt = {}; renderFiltPop(); renderFiltBtn(); renderTree();
+  }); else cl.disabled = true;   /* 这时它只是一句说明，不该是个点了没反应的按钮 */
+  pop.appendChild(cl);
+}
+function closeFilt() {
+  S.filtOpen = false; $('#filtPop').hidden = true; renderFiltBtn();
+}
+$('#filtBtn').addEventListener('click', function (e) {
+  e.stopPropagation();
+  S.filtOpen = !S.filtOpen;
+  $('#filtPop').hidden = !S.filtOpen;
+  renderFiltBtn();
+});
+document.addEventListener('click', function (e) {
+  if (S.filtOpen && !$('#filtWrap').contains(e.target)) closeFilt();
+  if (S.revOpen && !$('#tbRange').contains(e.target)) { S.revOpen = null; renderRangeBar(); }
+});
+$('#notesBtn').addEventListener('click', function () { $('#ov').classList.add('open'); });
+$('#ovClose').addEventListener('click', function () { $('#ov').classList.remove('open'); });
+$('#ov').addEventListener('click', function (e) { if (e.target === $('#ov')) $('#ov').classList.remove('open'); });
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  $('#ov').classList.remove('open');
+  closeFilt();
+  if (S.revOpen) { S.revOpen = null; renderRangeBar(); }
+});
+
+/* ---------- 主题 ---------- */
+var mq = window.matchMedia('(prefers-color-scheme: dark)');
+function setTheme(t) {
+  document.body.classList.toggle('dark', t === 'dark');
+  var bs = document.querySelectorAll('#themeSeg button');
+  for (var i = 0; i < bs.length; i++) bs[i].classList.toggle('on', bs[i].dataset.theme === t);
+}
+setTheme(mq.matches ? 'dark' : 'light');
+var themeBtns = document.querySelectorAll('#themeSeg button');
+for (var bi = 0; bi < themeBtns.length; bi++) {
+  (function (b) { b.addEventListener('click', function () { setTheme(b.dataset.theme); }); })(themeBtns[bi]);
+}
+
+renderFiltPop();
+renderFiltBtn();
+renderAll();
+renderNotes();
+</script>
+</body>
+</html>

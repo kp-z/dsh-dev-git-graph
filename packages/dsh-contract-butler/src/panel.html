@@ -1,0 +1,1381 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>协议管家</title>
+<style>
+  /* ============ 液态玻璃 · 卡片式 ============
+     沿用 docs/ios-glass-preview.html 的玻璃语言：
+     三层玻璃(regular/thin/clear) + backdrop-filter + 高光内描边 + 分离度降级 */
+
+  :root {
+    color-scheme: light;
+    --bg: #e9ecf4;
+
+    /* 玻璃三层 */
+    --glass-regular: rgba(255,255,255,.70);
+    --glass-thin:    rgba(255,255,255,.50);
+    --glass-clear:   rgba(255,255,255,.26);
+    --glass-edge:      rgba(255,255,255,.62);
+    --glass-edge-soft: rgba(255,255,255,.34);
+    --glass-spec:      rgba(255,255,255,.72);
+
+    /* 填充 */
+    --fill: rgba(118,118,128,.11);
+    --fill-secondary: rgba(118,118,128,.07);
+    --fill-selected: rgba(0,122,255,.12);
+
+    /* 兼容旧变量名（JS 内联样式在用） */
+    --panel: var(--glass-regular);
+    --hover: var(--fill-secondary);
+    --sel:   var(--fill-selected);
+    --line:  rgba(60,60,67,.13);
+    --line2: rgba(60,60,67,.22);
+
+    --ink:  #14141a;
+    --ink2: rgba(50,50,60,.72);
+    --ink3: rgba(50,50,60,.46);
+
+    --ok: #16a34a; --warn: #c07600; --bad: #dc2b22; --accent: #007aff;
+
+    /* 状态光晕：契约的状态从玻璃里透出来 */
+    --glow-ok:      rgba(52,199,89,.34);
+    --glow-changed: rgba(255,149,0,.34);
+    --glow-bad:     rgba(255,59,48,.32);
+
+    --shadow:      0 28px 80px rgba(30,35,60,.20), 0 8px 24px rgba(30,35,60,.10);
+    --shadow-soft: 0 10px 30px rgba(30,35,60,.10), 0 2px 8px rgba(30,35,60,.06);
+
+    --r-sm: 12px; --r-md: 16px; --r-lg: 22px; --r-xl: 30px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --ui: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Helvetica Neue", system-ui, sans-serif;
+  }
+
+  body.dark {
+    color-scheme: dark;
+    --bg: #06060a;
+    --glass-regular: rgba(40,40,48,.70);
+    --glass-thin:    rgba(40,40,48,.50);
+    --glass-clear:   rgba(40,40,48,.24);
+    --glass-edge:      rgba(255,255,255,.13);
+    --glass-edge-soft: rgba(255,255,255,.08);
+    --glass-spec:      rgba(255,255,255,.15);
+    --fill: rgba(120,120,130,.22);
+    --fill-secondary: rgba(120,120,130,.13);
+    --fill-selected: rgba(10,132,255,.24);
+    --line:  rgba(235,235,245,.13);
+    --line2: rgba(235,235,245,.22);
+    --ink:  #f5f5f7;
+    --ink2: rgba(235,235,245,.72);
+    --ink3: rgba(235,235,245,.46);
+    --ok: #34c759; --warn: #ff9f0a; --bad: #ff453a; --accent: #0a84ff;
+    --glow-ok:      rgba(52,199,89,.26);
+    --glow-changed: rgba(255,159,10,.26);
+    --glow-bad:     rgba(255,69,58,.26);
+    --shadow:      0 32px 90px rgba(0,0,0,.62), 0 10px 28px rgba(0,0,0,.42);
+    --shadow-soft: 0 14px 34px rgba(0,0,0,.36), 0 3px 10px rgba(0,0,0,.26);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; overflow: hidden; background: var(--bg); color: var(--ink);
+    font-family: var(--ui); font-size: 13px; line-height: 1.55;
+    letter-spacing: -.011em; -webkit-font-smoothing: antialiased;
+  }
+  button, input, label { font: inherit; color: inherit; }
+  button { -webkit-tap-highlight-color: transparent; }
+  :focus-visible { outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); border-radius: 8px; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ============ 背景：会动的色斑（玻璃要真的"液"） ============ */
+  .liquid { position: fixed; inset: -18%; z-index: 0; pointer-events: none; }
+  .liquid span {
+    position: absolute; border-radius: 50%; filter: blur(80px); opacity: .52;
+    animation: drift 36s ease-in-out infinite alternate;
+  }
+  .liquid span:nth-child(1) { width: 46vw; height: 46vw; left: -6%; top: -10%;
+    background: radial-gradient(circle, rgba(0,122,255,.50), transparent 68%); }
+  .liquid span:nth-child(2) { width: 40vw; height: 40vw; right: -6%; top: 0%;
+    background: radial-gradient(circle, rgba(175,82,222,.42), transparent 68%);
+    animation-duration: 46s; animation-direction: alternate-reverse; }
+  .liquid span:nth-child(3) { width: 44vw; height: 44vw; left: 20%; bottom: -16%;
+    background: radial-gradient(circle, rgba(52,199,89,.36), transparent 68%);
+    animation-duration: 40s; }
+  .liquid span:nth-child(4) { width: 32vw; height: 32vw; right: 14%; bottom: -8%;
+    background: radial-gradient(circle, rgba(255,149,0,.30), transparent 68%);
+    animation-duration: 50s; animation-direction: alternate-reverse; }
+  body.dark .liquid span { opacity: .48; }
+  @keyframes drift {
+    0%   { transform: translate3d(0,0,0) scale(1); }
+    50%  { transform: translate3d(4vw,3vh,0) scale(1.14); }
+    100% { transform: translate3d(-3vw,4vh,0) scale(.94); }
+  }
+
+  /* ============ 三张卡片：header / 侧边栏 / 内容 ============ */
+  .stage {
+    position: relative; z-index: 1; height: 100vh; padding: 16px;
+    display: grid; gap: 14px;
+    grid-template-columns: 306px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "head head" "side main";
+  }
+  /* 玻璃卡片 + 状态光晕从右上透出来 */
+  .card {
+    position: relative; min-width: 0;
+    border-radius: var(--r-lg); border: 1px solid var(--glass-edge);
+    background:
+      radial-gradient(760px 380px at 90% -16%, var(--glow, transparent), transparent 72%),
+      var(--glass-regular);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(24px) saturate(1.75); -webkit-backdrop-filter: blur(24px) saturate(1.75);
+  }
+  .g-ok      { --glow: var(--glow-ok); }
+  .g-changed { --glow: var(--glow-changed); }
+  .g-bad     { --glow: var(--glow-bad); }
+
+  /* ============ 顶栏 ============ */
+  .topbar {
+    grid-area: head; padding: 11px 22px; z-index: 6;   /* 抬起来，否则下拉会被下面两张卡盖住 */
+    display: flex; align-items: center; gap: 18px;
+  }
+  .tb-left { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+  /* 版本条：这次对比的是哪两版，两端都能点开换 */
+  .tb-range { display: flex; align-items: center; gap: 7px; margin-left: auto; flex-wrap: wrap; }
+  .revproj { font-size: 12px; font-weight: 600; color: var(--ink2); margin-right: 3px; }
+  .revbtn {
+    position: relative; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 6px 10px; font-family: var(--mono); font-size: 11.5px; font-weight: 600;
+    color: var(--ink); border: 1px solid var(--glass-edge-soft); border-radius: 999px;
+    background: var(--glass-thin); box-shadow: inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .revbtn:hover { border-color: var(--line2); }
+  .revbtn .revtag { font-family: var(--ui); font-size: 10px; font-weight: 600;
+    padding: 1px 6px; border-radius: 999px; color: var(--ink2); background: var(--fill); }
+  .revbtn .revtag.wt { color: var(--warn);
+    background: color-mix(in srgb, var(--warn) 16%, transparent); }
+  .revbtn .revcaret { font-size: 9px; color: var(--ink3); }
+  .revarrow { font-size: 12px; color: var(--ink3); }
+  .revsum { font-size: 11.5px; color: var(--ink3); margin-left: 3px; }
+  .revpop { left: 0; right: auto; min-width: 330px; max-height: 46vh; overflow: auto; }
+  .revopt .flabel { flex: none; font-family: var(--mono); font-size: 11.5px; }
+  .revopt .fsub { flex: 1; min-width: 0; text-align: left; font-size: 11.5px; color: var(--ink2);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .revopt .fhint { flex: none; font-size: 10.5px; }
+  .htitle { font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
+  .hsub { font-size: 12px; color: var(--ink3); }
+  .mark {
+    width: 26px; height: 26px; border-radius: 9px; display: grid; place-items: center;
+    color: #fff; font-size: 12px; font-weight: 700;
+    background: linear-gradient(145deg, #37a3ff, #0066e0);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.48), 0 5px 14px rgba(0,122,255,.30);
+  }
+  .title { font-weight: 700; font-size: 13.5px; }
+  .subtitle { font-size: 11.5px; color: var(--ink3); }
+  .spacer { flex: 1; }
+
+  .ghost {
+    padding: 6px 12px; cursor: pointer; font-size: 12px; color: var(--ink2);
+    border: 1px solid var(--glass-edge-soft); border-radius: 999px;
+    background: var(--glass-thin);
+    box-shadow: inset 0 1px 0 var(--glass-spec);
+    transition: background .18s ease, color .18s ease;
+  }
+  .ghost:hover { background: var(--fill); color: var(--ink); }
+
+  .seg { display: flex; gap: 3px; padding: 3px; border-radius: 999px;
+    border: 1px solid var(--glass-edge-soft); background: var(--glass-thin);
+    box-shadow: inset 0 1px 0 var(--glass-spec); }
+  .seg button {
+    padding: 4px 11px; border: 0; border-radius: 999px; cursor: pointer; font-size: 12px;
+    color: var(--ink2); background: transparent; transition: background .18s ease, color .18s ease;
+  }
+  .seg button.on { color: var(--accent); background: var(--fill-selected); }
+
+  /* ============ 两栏 ============ */
+  .sidebar {
+    grid-area: side; display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden;
+  }
+  .side-top { flex: none; padding: 12px; display: grid; gap: 9px; border-bottom: 1px solid var(--glass-edge-soft); }
+  .side-foot { flex: none; display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px; border-top: 1px solid var(--glass-edge-soft); }
+  .side-foot .seg { margin-right: auto; }
+  .search {
+    width: 100%; padding: 8px 12px; font-size: 12.5px; outline: none;
+    border: 1px solid var(--glass-edge-soft); border-radius: 999px;
+    background: var(--glass-regular); color: var(--ink);
+    box-shadow: inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .search::placeholder { color: var(--ink3); }
+  .search:focus { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+  /* 搜索 + 筛选按钮一行；下拉从这一行下面展开 */
+  .filtwrap { position: relative; display: flex; align-items: center; gap: 8px; }
+  .filtwrap .search { flex: 1; min-width: 0; }
+  .filtbtn {
+    flex: none; display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    padding: 8px 11px; font-family: var(--ui); font-size: 12.5px; font-weight: 500;
+    color: var(--ink2); border: 1px solid var(--glass-edge-soft); border-radius: 999px;
+    background: var(--glass-thin); box-shadow: inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  }
+  .filtbtn:hover { color: var(--ink); }
+  .filtbtn.on { color: var(--accent); background: var(--fill-selected);
+    border-color: color-mix(in srgb, var(--accent) 42%, transparent); }
+  .filtbtn .fico { width: 11px; height: 11px; flex: none; display: block; }
+  .fbadge { min-width: 15px; height: 15px; padding: 0 4px; border-radius: 999px;
+    font-size: 10px; font-weight: 700; line-height: 15px; text-align: center;
+    color: #fff; background: var(--accent); }
+  .filtpop {
+    position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 40;
+    padding: 6px; display: grid; gap: 1px; border-radius: var(--r-md);
+    border: 1px solid var(--glass-edge); background: var(--glass-regular);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 var(--glass-spec);
+    backdrop-filter: blur(24px) saturate(1.7); -webkit-backdrop-filter: blur(24px) saturate(1.7);
+  }
+  .filtpop[hidden] { display: none; }
+  .fopt { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+    padding: 7px 9px; border: 0; border-radius: 10px; cursor: pointer;
+    font-family: var(--ui); font-size: 12px; color: var(--ink2); background: none; }
+  .fopt:hover { background: var(--fill-secondary); }
+  .fopt:focus { outline: none; }
+  .fopt:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .fopt.on { color: var(--ink); }
+  .fopt .box { width: 15px; height: 15px; flex: none; position: relative;
+    border-radius: 4.5px; border: 1.5px solid var(--line2); }
+  .fopt.on .box { border-color: var(--accent); background: var(--accent); }
+  .fopt.on .box::after { content: ''; position: absolute; left: 4.5px; top: 1.5px;
+    width: 4.5px; height: 8px; border-right: 1.8px solid #fff; border-bottom: 1.8px solid #fff;
+    transform: rotate(40deg); }
+  .fopt .flabel { flex: none; }
+  .fopt .fhint { flex: 1; text-align: right; font-size: 10.5px; color: var(--ink3); }
+  .filtclear { margin-top: 3px; padding: 7px 9px; border: 0; border-radius: 10px; cursor: pointer;
+    text-align: left; font-family: var(--ui); font-size: 11.5px; color: var(--ink3); background: none; }
+  .filtclear:hover { background: var(--fill-secondary); color: var(--ink); }
+  .filtclear:disabled, .filtclear.hint { cursor: default; }
+  .filtclear.hint:hover { background: none; color: var(--ink3); }
+
+  /* ============ 树 ============ */
+  .tree { flex: 1; overflow: auto; padding: 8px 8px 18px; }
+  .trow {
+    display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    padding: 7px 10px; margin-bottom: 1px; cursor: pointer;
+    border: 1px solid transparent; border-radius: var(--r-sm); background: transparent;
+    transition: background .16s ease, border-color .16s ease;
+  }
+  .trow:hover { background: var(--fill-secondary); }
+  .trow.on {
+    background: var(--fill-selected);
+    border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+    box-shadow: inset 0 1px 0 var(--glass-spec);
+  }
+  .caret { width: 10px; flex: none; font-size: 9px; color: var(--ink3); }
+  .tname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cnt { flex: none; font-size: 10.5px; color: var(--ink3); font-family: var(--mono); }
+  .cnt.zero { opacity: .4; }
+  .selfb {
+    flex: none; font-size: 10px; padding: 1px 7px; border-radius: 999px; color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .t-proj { font-weight: 700; font-size: 12.5px; margin-top: 4px; }
+  .t-proj .tpath { font-weight: 400; font-size: 10px; color: var(--ink3); font-family: var(--mono); }
+  .t-proj { display: flex; align-items: center; gap: 6px; }
+  .t-proj .caretbtn { width: 16px; flex: none; padding: 2px 0; border: 0; border-radius: 5px;
+    background: transparent; color: var(--ink3); font-size: 9px; cursor: pointer; }
+  .t-proj .caretbtn:hover { background: var(--fill-secondary); color: var(--ink); }
+  .t-proj .namebtn { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 6px;
+    padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer;
+    color: inherit; font: inherit; font-weight: inherit; }
+  .t-kind { padding-left: 16px; color: var(--ink2); font-size: 12px; }
+  .t-con { padding-left: 30px; }
+  .t-con .tname { font-family: var(--mono); font-size: 11.5px; }
+  .t-gap { padding-left: 30px; }
+  .t-gap .tname { font-size: 12px; color: var(--ink2); }
+  .t-dir { padding-left: 14px; color: var(--ink2); font-size: 12px; }
+  .t-dir .tdirname { font-family: var(--mono); font-size: 11px; }
+  .t-dir .tfilen { font-family: var(--mono); font-size: 10.5px; color: var(--accent);
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .t-file { padding-left: 26px; color: var(--ink2); font-size: 11.5px; }
+  .t-file .tname { font-family: var(--mono); font-size: 11px; }
+  .t-con.inline { padding-left: 28px; }
+  .t-gapband .tdirname { color: var(--bad); }
+  .t-extband .tdirname { color: var(--ink3); }
+  .t-gaphead { padding-left: 16px; cursor: default; color: var(--ink3); font-size: 12px; }
+  .caret.hit { cursor: pointer; border-radius: 4px; }
+  .caret.hit:hover { background: var(--fill-secondary); color: var(--ink); }
+  .tree .trow.foc {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  }
+  .gband.foc {
+    border-color: color-mix(in srgb, var(--accent) 58%, transparent);
+    background: radial-gradient(620px 300px at 90% -16%,
+      color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%), var(--glass-thin);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent),
+      var(--shadow-soft), inset 0 1px 0 var(--glass-spec);
+  }
+  .gband.dim { opacity: .38; }
+  .gband { transition: opacity .18s ease, border-color .18s ease; }
+
+  /* ---- 目录树：连接线（├ └ │ 用 CSS 画，跨过 padding 才连续）---- */
+  .tree .trow { padding: 6px 8px; gap: 3px; margin-bottom: 0; }
+  .tree .t-dir, .tree .t-file, .tree .t-con, .tree .t-gap,
+  .tree .t-gapband, .tree .t-extband { padding-left: 8px; }
+  /* 负 margin 要抵消 padding(6px) + 行 1px 透明边框，行高 31px 时才正好接上，
+     否则每行之间会断 2px */
+  .t-guides { flex: none; display: flex; align-self: stretch; margin: -7px 0; }
+  .t-guides i { width: 13px; display: block; position: relative; }
+  .t-guides i::before, .t-guides i::after {
+    content: ''; position: absolute; background: var(--line2);
+  }
+  .t-guides i::before { left: 6px; width: 1px; top: 0; bottom: 0; }
+  .t-guides i::after { left: 6px; right: 0; top: 50%; height: 1px; display: none; }
+  .t-guides i.elbow::before { bottom: auto; height: 50%; }
+  .t-guides i.tee::after, .t-guides i.elbow::after { display: block; }
+  .tree .t-con { font-size: 12px; }
+  .tree .t-con .tname { font-size: 11.5px; }
+  .t-sub { flex: none; font-size: 10px; color: var(--ink3); }
+  .t-gaphead:hover { background: transparent; }
+
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .d-ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .d-changed { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 20%, transparent); }
+  .d-brk { background: var(--warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 26%, transparent), 0 0 0 4.5px color-mix(in srgb, var(--warn) 13%, transparent); }
+  .d-bad { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 20%, transparent); }
+
+  /* ============ 中间：一张卡片装下全部内容 ============ */
+  .main {
+    grid-area: main; display: flex; flex-direction: column;
+    min-height: 0; overflow: hidden;
+  }
+  .content {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    padding: 22px 30px 0;
+  }
+  .scrollarea { flex: 1; min-height: 0; overflow: auto; padding-bottom: 30px;
+    scrollbar-gutter: stable; }
+
+  /* 内容卡顶部：也只有两行 —— 标题 / 说明 */
+  .chead { flex: none; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
+  .cline1 { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .ctitle { font-family: var(--mono); font-size: 20px; font-weight: 700; letter-spacing: -.022em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .back { flex: none; padding: 2px 8px; border: 0; border-radius: 7px; cursor: pointer;
+    background: transparent; color: var(--accent); font-family: var(--mono); font-size: 11.5px; }
+  .back:hover { background: var(--fill-secondary); }
+  .cline2 { display: flex; align-items: baseline; gap: 14px; margin-top: 5px; }
+  .cdesc { flex: 1; min-width: 0; font-size: 12.5px; color: var(--ink2); }
+  .cmeta2 { flex: none; font-size: 11px; color: var(--ink3); font-family: var(--mono); }
+
+  /* 区段：靠分隔线分节，整张卡才是玻璃 */
+  .block { margin-top: 22px; padding-top: 22px; border-top: 1px solid var(--line); }
+  .scrollarea > .block:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+
+  /* 两个标记互相独立，都没有就什么都不画：
+     变过 = 相对基线版本有改动；不符 = 观测到与契约不合 */
+  .facts { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+  .chip { display: inline-flex; align-items: center; flex: none; white-space: nowrap;
+    font-family: var(--ui); font-size: 11px; font-weight: 500; line-height: 1.6;
+    padding: 1px 8px; border-radius: 999px; }
+  .chip-warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent); }
+  .chip-warn.brk { font-weight: 700; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--warn) 80%, transparent); }
+  .chip-bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
+  .chip-gap { color: var(--bad); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
+  .chip-dim { color: var(--ink3); box-shadow: inset 0 0 0 1px var(--line2); }
+
+  .bh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  .bh h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .06em; }
+  .bh .sub { font-size: 11px; color: var(--ink3); font-family: var(--mono); }
+
+  /* 结论：每张卡片底部那句人话，做成玻璃内嵌条 */
+  .verdict {
+    margin-top: 18px; padding: 2px 0 2px 14px; font-size: 13px; color: var(--ink);
+    border-left: 2px solid var(--line2);
+  }
+  .verdict.bad  { border-left-color: var(--bad); }
+  .verdict.warn { border-left-color: var(--warn); }
+
+  /* 表 */
+  table.f { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.f th { text-align: left; font-weight: 600; font-size: 10.5px; letter-spacing: .06em;
+    color: var(--ink3); padding: 0 12px 7px 0; border-bottom: 1px solid var(--line); }
+  table.f td { padding: 7px 12px 7px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.f tr:last-child td { border-bottom: none; }
+  .mono { font-family: var(--mono); }
+  .dir { font-size: 10.5px; letter-spacing: .06em; color: var(--ink3); margin: 14px 0 7px; }
+  .req { color: var(--bad); font-weight: 600; }
+  .opt { color: var(--ink3); font-size: 11px; }
+  .ttype { color: var(--accent); }
+
+  /* 改动行 */
+  .row { display: grid; grid-template-columns: 116px minmax(0,1fr) auto; gap: 12px;
+    align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: none; }
+  .when { display: flex; align-items: baseline; gap: 7px; white-space: nowrap;
+    font-family: var(--mono); font-size: 11px; color: var(--ink3); }
+  .when .sha { font-family: var(--mono); font-size: 10.5px; color: var(--ink2); }
+  .when .at { font-size: 10.5px; color: var(--ink3); }
+  .row.old .when, .row.old .what { opacity: .55; }
+  .oldnote { margin: 10px 0 2px; font-size: 11px; color: var(--ink3); }
+  /* 对比条：左边是什么，右边是什么 */
+  .cmp { display: inline-flex; align-items: baseline; gap: 7px; font-size: 11.5px; }
+  .cmp .k { font-size: 10.5px; color: var(--ink3); }
+  .cmp .arrow { color: var(--ink3); }
+  .cmp code { font-family: var(--mono); font-size: 11px; color: var(--ink2); }
+  .what { font-size: 12.5px; }
+  .what code { font-family: var(--mono); font-size: 11.5px; }
+  .tag { font-size: 10.5px; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+    border: 1px solid var(--glass-edge-soft); color: var(--ink3); background: var(--glass-thin); }
+  .tag.bad  { color: var(--bad);  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
+    background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+    background: color-mix(in srgb, var(--warn) 12%, transparent); }
+  .tag.ok   { color: var(--ok);   border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+    background: color-mix(in srgb, var(--ok) 12%, transparent); }
+
+  /* 调用 */
+  .call { padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .call:last-child { border-bottom: none; }
+  .call-h { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .call-who { font-family: var(--mono); font-size: 12px; }
+  .finding { margin: 8px 0 0 14px; padding: 8px 0 8px 12px; font-size: 12px; color: var(--ink2);
+    border-left: 3px solid var(--bad); border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    background: color-mix(in srgb, var(--bad) 8%, transparent); }
+  .finding.warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
+  .finding b { color: var(--ink); font-weight: 600; }
+  .finding code { font-family: var(--mono); font-size: 11.5px; }
+
+  .empty { padding: 44px 0; color: var(--ink3); }
+  .note { font-size: 12px; color: var(--ink2); margin-bottom: 12px; }
+
+
+  /* ============ 项目关系图 ============ */
+  .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px;
+    margin-bottom: 14px; font-size: 11.5px; color: var(--ink2); }
+  .legend .li { display: inline-flex; align-items: center; gap: 6px; }
+  .legend .ls { width: 20px; height: 0; border-top: 2px solid currentColor; flex: none; }
+  .legend .ls.dash { border-top-style: dashed; }
+  .legend .lsep { width: 1px; height: 14px; background: var(--line2); }
+  .legend .lgl { font-size: 11px; color: var(--ink3); }
+
+  /* 图直接落在内容卡上，不再套一层 */
+  .graphwrap { width: fit-content; max-width: 100%; overflow: auto; margin: 0 auto; }
+  .graph { position: relative; }
+
+  /* 聚焦时：不在焦点里的卡片直接糊掉（不加任何遮罩层） */
+  .gnode.blurcard { filter: blur(2.6px); opacity: .3; }
+
+  /* 归属框：目录 / 外部 / 缺契约 */
+  .gband { position: absolute; border-radius: var(--r-lg);
+    border: 1px solid var(--glass-edge-soft); background: var(--fill-secondary); }
+  .gband.ext { border-style: dashed; }
+  .gband.gaps { border-color: color-mix(in srgb, var(--bad) 34%, transparent);
+    background: color-mix(in srgb, var(--bad) 6%, var(--fill-secondary)); }
+  .gbandhead { position: absolute; left: 16px; top: 9px; right: 16px;
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .gbandhead > * { flex: none; }
+  .gbandname { font-family: var(--mono); font-size: 11.5px; font-weight: 600; color: var(--ink); }
+  .gbandfile { font-family: var(--mono); font-size: 11px; color: var(--accent); }
+  .gbandnote { font-size: 10.5px; color: var(--ink3); }
+  .gbandcount { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--ink3); }
+  .gfilehead { position: absolute; left: 16px; right: 16px; font-family: var(--mono);
+    font-size: 10.5px; color: var(--ink3); overflow-wrap: anywhere; }
+  .gnode.planned { border-style: dashed; }
+  .graph svg.edges { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+  .gnode {
+    position: absolute; display: flex; align-items: center; gap: 8px; text-align: left;
+    padding: 7px 10px; cursor: pointer; overflow: hidden;
+    border-radius: var(--r-md); border: 1px solid var(--glass-edge-soft);
+    background: var(--glass-thin); box-shadow: inset 0 1px 0 var(--glass-spec);
+    transition: transform .16s ease, background .16s ease, border-color .16s ease;
+  }
+  .gnode:hover { transform: translateY(-1px); background: var(--fill);
+    border-color: var(--glass-edge); }
+  .gnode.on { border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+    background: var(--fill-selected); }
+  .gnode .gtext { flex: 1; min-width: 0; }
+  .gnode .gname { font-family: var(--mono); font-size: 11px; line-height: 1.32;
+    overflow-wrap: anywhere; }
+  .gnode .gkind { display: block; margin-top: 2px; font-size: 9.5px; color: var(--ink3); }
+  .gnode.gapnode { border-style: dashed; border-color: color-mix(in srgb, var(--bad) 44%, transparent);
+    background: color-mix(in srgb, var(--bad) 9%, transparent); }
+
+  /* ============ 讨论锚点 ============ */
+  .ov { position: fixed; inset: 0; z-index: 60; display: none; place-items: center; padding: 24px;
+    background: rgba(20,22,32,.34); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .ov.open { display: grid; }
+  .sheet { width: min(720px,100%); max-height: 84vh; overflow: auto;
+    border-radius: var(--r-lg); border: 1px solid var(--glass-edge);
+    background: var(--glass-regular); box-shadow: var(--shadow);
+    backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8); }
+  .sheet-h { display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px; border-bottom: 1px solid var(--glass-edge-soft); }
+  .sheet-t { font-weight: 700; font-size: 14px; }
+  .sheet-b { padding: 4px 20px 20px; }
+  .an { padding: 14px 0; border-bottom: 1px solid var(--line); display: grid; gap: 5px; }
+  .an:last-child { border-bottom: none; }
+  .an-q { font-weight: 600; font-size: 13px; }
+  .an-a { font-size: 12.5px; color: var(--ink2); }
+  .an-a code { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+  .an-o { font-size: 12px; color: var(--ink3); }
+  .an-o b { color: var(--ink2); font-weight: 500; }
+
+  /* ============ 降级与自适应 ============ */
+  @media (prefers-reduced-transparency: reduce) {
+    .card, .search, .ghost, .seg, .sheet, .ov {
+      background: var(--glass-regular); backdrop-filter: none; -webkit-backdrop-filter: none; }
+    .liquid { display: none; }
+    .chead, .block { background: transparent; }
+  }
+  @media (prefers-contrast: more) {
+    :root { --line: rgba(60,60,67,.3); --ink2: rgba(50,50,60,.88); }
+    body.dark { --line: rgba(235,235,245,.3); --ink2: rgba(235,235,245,.9); }
+    .chead, .block { box-shadow: var(--shadow-soft), inset 0 0 0 1px var(--line2); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+    .liquid span { animation: none; }
+  }
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    .stage {
+      height: auto; min-height: 100vh; padding: 10px; gap: 10px;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas: "head" "side" "main";
+    }
+    .tree { max-height: 38vh; }
+    .main { min-height: 62vh; }
+    .content { padding: 18px 16px 56px; }
+    .subtitle { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="liquid" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+
+<div class="stage">
+  <header class="topbar card" id="topbar">
+    <div class="tb-left">
+      <div class="htitle">协议管家</div>
+      <div class="hsub" id="hsub">正在连接…</div>
+    </div>
+    <div class="tb-range" id="tbRange"></div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="ghost" id="btnInit" type="button">纳管项目</button>
+      <button class="ghost" id="btnRescan" type="button">重新扫描</button>
+    </div>
+  </header>
+
+  <aside class="sidebar card">
+    <div class="side-top">
+      <select class="search" id="projSel" aria-label="选择项目"></select>
+      <div class="filtwrap" id="filtWrap">
+        <input class="search" id="q" placeholder="找契约…" autocomplete="off">
+        <button class="filtbtn" id="filtBtn" type="button" aria-haspopup="true" aria-expanded="false">
+          <svg class="fico" viewBox="0 0 12 12" aria-hidden="true">
+            <path d="M1 1.4h10L7.3 6.1V10L4.7 11.3V6.1L1 1.4z" fill="currentColor"/></svg>
+          <span>筛选</span>
+          <span class="fbadge" id="filtBadge" hidden>0</span>
+        </button>
+        <div class="filtpop" id="filtPop" hidden role="group" aria-label="筛选"></div>
+      </div>
+    </div>
+    <div class="tree" id="tree"></div>
+    <div class="side-foot">
+      <div class="seg" id="themeSeg">
+        <button data-theme="light" type="button">浅色</button>
+        <button data-theme="dark" type="button">深色</button>
+      </div>
+      <span class="chip chip-dim" id="liveChip" title="与宿主事件流的连接状态">离线</span>
+    </div>
+  </aside>
+
+  <main class="main card" id="mainCard">
+    <div class="content" id="detail"></div>
+  </main>
+</div>
+
+<div class="ov" id="ov">
+  <div class="sheet">
+    <div class="sheet-h">
+      <span class="sheet-t" id="ovTitle">纳管项目</span>
+      <button class="ghost" id="ovClose" type="button">关闭</button>
+    </div>
+    <div class="sheet-b" id="ovBody"></div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   协议管家 · 面板
+
+   这一层只做两件事：把接口给的记录翻译成"人一眼能判断"的东西，以及把人的决定发回去。
+   所有判定（谁变了、谁不符）都在宿主侧算好，面板不重新推一遍——两边各算一次必然会分叉。
+   ============================================================ */
+(function () {
+  'use strict';
+
+  var API = '/dsh-contract-butler';
+  var S = {
+    projects: [], p: null, items: [], sel: null, status: null,
+    q: '', filt: { changed: false, finding: false },
+    init: null, busy: false, note: ''
+  };
+
+  /* ---------- 基础工具 ---------- */
+  function $(s) { return document.querySelector(s); }
+  function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); }
+  function el(tag, attrs) {
+    var n = document.createElement(tag);
+    if (attrs) for (var k in attrs) {
+      if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) continue;
+      if (k === 'text') n.textContent = String(v);
+      else if (k === 'html') n.innerHTML = String(v);
+      else if (k === 'style') n.setAttribute('style', String(v));
+      else n.setAttribute(k, v === true ? '' : String(v));
+    }
+    for (var i = 2; i < arguments.length; i++) {
+      var kid = arguments[i];
+      if (kid === null || kid === undefined || kid === false) continue;
+      if (Array.isArray(kid)) { kid.forEach(function (x) { if (x) n.appendChild(x); }); }
+      else if (typeof kid === 'string' || typeof kid === 'number') n.appendChild(document.createTextNode(String(kid)));
+      else n.appendChild(kid);
+    }
+    return n;
+  }
+
+  var JSONH = { 'Content-Type': 'application/json' };
+  function api(path, options) {
+    options = options || {};
+    if (options.body !== undefined) { options.body = JSON.stringify(options.body); options.headers = JSONH; }
+    return fetch(API + path, options).then(function (r) {
+      return r.text().then(function (text) {
+        var data = null;
+        try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+        if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+        return data;
+      });
+    });
+  }
+
+  function timeAgo(ms) {
+    if (!ms) return '';
+    var d = Date.now() - ms;
+    if (d < 60000) return '刚刚';
+    if (d < 3600000) return Math.floor(d / 60000) + ' 分钟前';
+    if (d < 86400000) return Math.floor(d / 3600000) + ' 小时前';
+    return Math.floor(d / 86400000) + ' 天前';
+  }
+  function shortSha(sha) {
+    if (!sha) return '—';
+    return sha === 'wt' ? '工作区' : sha.slice(0, 7);
+  }
+  function typeText(node, depth) {
+    if (!node) return '—';
+    depth = depth || 0;
+    if (depth > 4) return '…';
+    var t = node.kind;
+    if (node.kind === 'array') return typeText(node.of, depth + 1) + '[]';
+    if (node.kind === 'object') {
+      var keys = node.fields ? Object.keys(node.fields) : [];
+      if (keys.length === 0) return '{}';
+      return '{ ' + keys.slice(0, 4).map(function (k) { return k + ': ' + typeText(node.fields[k], depth + 1); }).join(', ')
+        + (keys.length > 4 ? ', …' : '') + ' }';
+    }
+    if (node.enumValues && node.enumValues.length) return node.kind + '（' + node.enumValues.slice(0, 6).join(' | ') + '）';
+    return t;
+  }
+
+  /* 形状 → 表行。只展开一层：再深就该点进形状里看，平铺成一张长表反而没人读。 */
+  function shapeRows(shape) {
+    var rows = [];
+    if (!shape) return rows;
+    var fields = shape.kind === 'object' && shape.fields ? shape.fields : null;
+    if (!fields) {
+      rows.push({ n: '（整体）', t: typeText(shape), r: true, d: '' });
+      return rows;
+    }
+    Object.keys(fields).sort().forEach(function (k) {
+      var f = fields[k];
+      var note = [];
+      if (f.nullable) note.push('可为 null');
+      if (f.kind === 'unknown') note.push('类型未能确定');
+      rows.push({
+        n: k,
+        t: typeText(f),
+        r: !f.optional,
+        d: note.join(' · ')
+      });
+    });
+    return rows;
+  }
+
+  function fieldTable(rows, dir) {
+    var t = el('tbody');
+    rows.forEach(function (f) {
+      t.appendChild(el('tr', {},
+        el('td', { class: 'mono', text: f.n }),
+        el('td', { class: 'mono ttype', text: f.t }),
+        el('td', {}, f.r ? el('span', { class: 'req', text: '必填' }) : el('span', { class: 'opt', text: '可选' })),
+        el('td', { style: 'color:var(--ink2)', text: f.d || '' })));
+    });
+    return el('div', {},
+      el('div', { class: 'dir', text: dir }),
+      el('table', { class: 'f' },
+        el('thead', {}, el('tr', {},
+          el('th', { text: '字段' }), el('th', { text: '类型' }),
+          el('th', { text: '是否必填' }), el('th', { text: '说明' }))), t));
+  }
+
+  /* ---------- 事实判定：面板只读宿主算好的结论 ---------- */
+  /* 变没变、符不符都由宿主判定并随记录下发（changes[].fresh / findings[].ok）。
+     面板只在没拿到标记时退化到"看工作区"，绝不自己重新推一遍区间——两边各算一次必然分叉。 */
+  function changedIn(item) {
+    return item.changes.filter(function (ch) {
+      if (typeof ch.fresh === 'boolean') return ch.fresh;
+      return ch.sha === 'wt';
+    });
+  }
+  function breakingIn(item) {
+    return changedIn(item).some(function (ch) { return ch.kind === 'breaking'; });
+  }
+  function findingsOf(item) {
+    return item.findings.filter(function (f) { return !f.ok; });
+  }
+  function chipsOf(item, extra) {
+    var out = [];
+    var chg = changedIn(item), bad = findingsOf(item);
+    if (extra !== 'nochanged' && chg.length) {
+      out.push(el('span', { class: 'chip chip-warn' + (breakingIn(item) ? ' brk' : ''), text: '变过' }));
+    }
+    if (bad.length) out.push(el('span', { class: 'chip chip-bad', text: '不符' }));
+    return out;
+  }
+
+  /* ---------- 顶栏 ---------- */
+  function renderTop() {
+    var p = S.p;
+    $('#projSel').value = p ? p.id : '';
+    var range = $('#tbRange');
+    clear(range);
+    var hsub = $('#hsub');
+    if (!p) {
+      hsub.textContent = S.status
+        ? '还没有纳管任何项目。点右上角「纳管项目」，选一个目录开始。'
+        : '正在连接宿主…';
+      return;
+    }
+    hsub.textContent = p.root;
+    range.appendChild(el('span', { class: 'revproj', text: p.title }));
+    if (p.vcs === 'none') {
+      range.appendChild(el('span', { class: 'chip chip-dim', text: '无 git：按内容比对' }));
+    } else {
+      range.appendChild(el('span', { class: 'revbtn', title: '基线：纳管时定下的那一版',
+        text: shortSha(p.baselineSha) }));
+      range.appendChild(el('span', { class: 'arrow', text: '→' }));
+      var chgN = 0, badN = 0;
+      S.items.forEach(function (it) {
+        if (changedIn(it).length) chgN++;
+        if (findingsOf(it).length) badN++;
+      });
+      range.appendChild(el('span', { class: 'revbtn', text: '工作区' }));
+      range.appendChild(el('span', { class: 'chip chip-dim',
+        text: '扫描于 ' + timeAgo(p.scannedAt) }));
+    }
+  }
+
+  /* ---------- 左树：按目录归属 ---------- */
+  function visibleItems() {
+    var q = S.q.trim().toLowerCase();
+    return S.items.filter(function (it) {
+      var c = it.contract;
+      if (S.filt.changed && !changedIn(it).length) return false;
+      if (S.filt.finding && !findingsOf(it).length) return false;
+      if (!q) return true;
+      var hay = (c.title + ' ' + c.boundary + ' ' + c.file + ' ' + c.symbol).toLowerCase();
+      return hay.indexOf(q) !== -1;
+    });
+  }
+
+  function renderTree() {
+    var tree = $('#tree');
+    clear(tree);
+    if (!S.p) {
+      tree.appendChild(el('div', { class: 'empty', text: '还没有项目。' }));
+      return;
+    }
+    var items = visibleItems();
+    if (!items.length) {
+      tree.appendChild(el('div', { class: 'empty', text: S.items.length ? '没有匹配的契约。' : '这个项目里还没纳管契约。' }));
+      return;
+    }
+    /* 归属结构：按文件路径分组，目录是容器，契约是叶子。 */
+    var groups = {};
+    items.forEach(function (it) {
+      var file = it.contract.file || '';
+      var dir = file.indexOf('/') === -1 ? '.' : file.slice(0, file.lastIndexOf('/'));
+      (groups[dir] = groups[dir] || []).push(it);
+    });
+    Object.keys(groups).sort().forEach(function (dir) {
+      tree.appendChild(el('div', { class: 'trow t-dir' },
+        el('span', { class: 'tdirname', text: dir === '.' ? '（根目录）' : dir }),
+        el('span', { class: 'cnt', text: String(groups[dir].length) })));
+      groups[dir].forEach(function (it) {
+        var c = it.contract;
+        var row = el('div', { class: 'trow t-con' + (c.id === S.sel ? ' on' : ''), title: c.boundary },
+          el('span', { class: 'tname', text: c.title }));
+        chipsOf(it).forEach(function (x) { row.appendChild(x); });
+        row.addEventListener('click', function () { S.sel = c.id; renderAll(); });
+        tree.appendChild(row);
+      });
+    });
+  }
+
+  /* ---------- 主区 ---------- */
+  function verdict(text, bad) { return el('div', { class: 'verdict' + (bad ? ' bad' : '') }, text); }
+
+  function renderOverview() {
+    var box = $('#detail');
+    clear(box);
+    var p = S.p;
+    var chgN = 0, badN = 0, brkN = 0;
+    S.items.forEach(function (it) {
+      if (changedIn(it).length) { chgN++; if (breakingIn(it)) brkN++; }
+      if (findingsOf(it).length) badN++;
+    });
+    box.appendChild(el('div', { class: 'chead' },
+      el('div', { class: 'ctitle', text: p.title }),
+      el('div', { class: 'cline2' },
+        el('span', { class: 'chip chip-dim', text: S.items.length + ' 条契约' }),
+        chgN ? el('span', { class: 'chip chip-warn', text: chgN + ' 条变过' }) : null,
+        brkN ? el('span', { class: 'chip chip-bad', text: brkN + ' 条有破坏性变化' }) : null,
+        badN ? el('span', { class: 'chip chip-bad', text: badN + ' 条检查到不符' }) : null,
+        (!chgN && !badN) ? el('span', { class: 'chip chip-dim', text: '一切照旧' }) : null)));
+
+    var sa = el('div', { class: 'scrollarea' });
+    if (S.note) sa.appendChild(el('div', { class: 'note', text: S.note }));
+    if (!S.items.length) {
+      sa.appendChild(el('div', { class: 'empty', text: '这个项目里还没有纳管契约。点「重新扫描」看看有没有新东西长出来。' }));
+    } else {
+      var b = el('div', { class: 'block' });
+      b.appendChild(el('div', { class: 'bh' }, el('h2', { text: '契约清单' }),
+        el('span', { class: 'sub', text: '点一条看它的输入输出与演化' })));
+      S.items.forEach(function (it) {
+        var c = it.contract;
+        var chg = changedIn(it).length, bad = findingsOf(it).length;
+        var row = el('div', { class: 'call', style: 'cursor:pointer' },
+          el('div', { class: 'call-h' },
+            el('span', { class: 'dot ' + (bad ? 'd-bad' : chg ? 'd-changed' : 'd-ok') }),
+            el('span', { class: 'call-who', text: c.title }),
+            el('span', { class: 'tag', text: c.boundaryKind }),
+            chg ? el('span', { class: 'chip chip-warn', text: '变过' }) : null,
+            bad ? el('span', { class: 'chip chip-bad', text: '不符' }) : null,
+            el('span', { style: 'font-size:11.5px;color:var(--ink3)', text: c.boundary })));
+        row.addEventListener('click', function () { S.sel = c.id; renderAll(); });
+        b.appendChild(row);
+      });
+      sa.appendChild(b);
+    }
+    box.appendChild(sa);
+  }
+
+  function renderContract() {
+    var box = $('#detail');
+    clear(box);
+    var item = null;
+    S.items.forEach(function (it) { if (it.contract.id === S.sel) item = it; });
+    if (!item) { S.sel = null; renderOverview(); return; }
+    var c = item.contract;
+    var sa = el('div', { class: 'scrollarea' });
+
+    box.appendChild(el('div', { class: 'chead' },
+      el('div', { class: 'ctitle', text: c.title }),
+      el('div', { class: 'cline1' }, el('span', { class: 'mono', text: c.boundary })),
+      el('div', { class: 'cline2' },
+        el('span', { class: 'chip chip-dim', text: c.boundaryKind }),
+        el('span', { class: 'chip chip-dim', text: '置信度 ' + c.confidence.toFixed(2) }),
+        chipsOf(item),
+        el('button', { class: 'ghost', type: 'button', text: '返回清单',
+          onclick: function () { S.sel = null; renderAll(); } }))));
+
+    /* 它是什么 */
+    var what = el('div', { class: 'block' });
+    what.appendChild(el('div', { class: 'bh' }, el('h2', { text: '它是什么' }),
+      el('span', { class: 'sub', text: c.file + (c.evidence && c.evidence.line ? ' : ' + c.evidence.line : '') })));
+    if (c.file === '(工具注册表)') {
+      what.appendChild(el('div', { class: 'note', text: '这条契约没有源码位置：声明活在运行时工具注册表里，所以行号为空。' }));
+    }
+    var inRows = shapeRows(c.input), outRows = shapeRows(c.output);
+    if (inRows.length) what.appendChild(fieldTable(inRows, '输入'));
+    if (outRows.length) what.appendChild(fieldTable(outRows, '输出'));
+    if (!inRows.length && !outRows.length) what.appendChild(el('div', { class: 'empty', text: '没有记录到字段。' }));
+    /* 抽取时能分清方向的（rpc / 工具 / HTTP）会各自填进输入输出两个槽；分不清方向的裸类型
+       声明（proto 消息、JSON Schema 组件）只填输出槽。这里如实说明，免得"输出"被读成
+       "这个接口返回什么"。 */
+    if ((inRows.length === 0) !== (outRows.length === 0)) {
+      what.appendChild(el('div', { class: 'note', style: 'color:var(--ink3)',
+        text: '只有一侧有形状：这是一条类型声明，本身不区分请求与响应，所以「输出」在这里读作「它声明的形状」。' }));
+    }
+    what.appendChild(verdict('来自 ' + c.source, false));
+    sa.appendChild(what);
+
+    /* 变了什么 */
+    var chgBlock = el('div', { class: 'block' });
+    var chg = changedIn(item);
+    chgBlock.appendChild(el('div', { class: 'bh' }, el('h2', { text: '变了什么' }),
+      el('span', { class: 'cmp' },
+        el('code', { text: shortSha(S.p.baselineSha) }),
+        el('span', { class: 'arrow', text: '→' }),
+        el('code', { text: '工作区' }))));
+    if (!chg.length) {
+      chgBlock.appendChild(el('div', { class: 'note', style: 'color:var(--ink3)',
+        text: '从基线到现在，这条契约没有改过形状。' }));
+    } else {
+      chg.forEach(function (ch) {
+        var wrap = el('div', { class: 'row' + (ch.sha === 'wt' ? '' : '') },
+          el('span', { class: 'when' },
+            el('span', { class: 'sha', text: shortSha(ch.sha) }),
+            el('span', { class: 'at', text: timeAgo(ch.at) })),
+          el('span', { class: 'what', text: ch.subject || '' }),
+          el('span', { class: 'tag ' + (ch.kind === 'breaking' ? 'bad' : 'warn'),
+            text: ch.kind === 'breaking' ? '破坏' : '放宽' }));
+        chgBlock.appendChild(wrap);
+        ch.reasons.forEach(function (reason) {
+          chgBlock.appendChild(el('div', { class: 'finding' + (ch.kind === 'breaking' ? '' : ' warn') },
+            el('div', { text: reason })));
+        });
+      });
+    }
+    chgBlock.appendChild(verdict(chg.length
+      ? (breakingIn(item) ? '有破坏性变化：老的产出方或消费方可能已经跟不上。' : '只是放宽，老的参与方仍然能对上。')
+      : '没有变化。', breakingIn(item)));
+    /* 决策：人对这个契约仅有的写入口。做过的事必须在界面上留痕，否则等于没做。 */
+    chgBlock.appendChild(decisionRow(item, chg, 'change'));
+    sa.appendChild(chgBlock);
+
+    /* 现在对不对。三种情况必须说成三句不同的话：从没调用过 / 调用过且都对 / 调用过但对不上。
+       把"没观测到"和"观测到且都对"混成一句，是这个工具最不该犯的错。 */
+    var calls = el('div', { class: 'block' });
+    var bad = findingsOf(item);
+    var total = typeof item.observedTotal === 'number' ? item.observedTotal : (item.observations || []).length;
+    calls.appendChild(el('div', { class: 'bh' }, el('h2', { text: '现在对不对' }),
+      el('span', { class: 'sub', text: '契约声明 ↔ 运行时的真实载荷' })));
+    if (total === 0) {
+      calls.appendChild(el('div', { class: 'note', style: 'color:var(--ink3)',
+        text: '还没有观测到这个边界的调用。等它被调用过，这里会出现真实载荷与声明的比对结果。' }));
+      calls.appendChild(verdict('还没有运行数据。', false));
+    } else {
+      var recent = item.observations || [];
+      recent.slice(0, 20).forEach(function (ob) {
+        var wrap = el('div', { class: 'call' });
+        wrap.appendChild(el('div', { class: 'call-h' },
+          el('span', { class: 'dot ' + (ob.ok ? 'd-ok' : 'd-bad') }),
+          el('span', { class: 'when', text: timeAgo(ob.at) }),
+          el('span', { class: 'call-who', text: ob.subject }),
+          el('span', { class: 'tag ' + (ob.ok ? '' : 'bad'), text: ob.ok ? '对得上' : '不符' })));
+        ob.reasons.forEach(function (reason) {
+          wrap.appendChild(el('div', { class: 'finding' }, el('div', { text: reason })));
+        });
+        calls.appendChild(wrap);
+      });
+      if (total > recent.length) {
+        calls.appendChild(el('div', { class: 'note',
+          text: '另有 ' + (total - recent.length) + ' 次更早的观测未显示。' }));
+      }
+      calls.appendChild(verdict(bad.length
+        ? '看过 ' + total + ' 次调用，其中 ' + bad.length + ' 次与声明不符。'
+        : '看过 ' + total + ' 次调用，都与声明一致。', bad.length > 0));
+      calls.appendChild(decisionRow(item, bad, 'observation'));
+    }
+    sa.appendChild(calls);
+
+    box.appendChild(sa);
+  }
+
+  function renderAll() {
+    renderTop();
+    renderTree();
+    if (S.sel) renderContract(); else renderOverview();
+    var badge = $('#filtBadge');
+    var n = (S.filt.changed ? 1 : 0) + (S.filt.finding ? 1 : 0);
+    badge.hidden = n === 0;
+    badge.textContent = String(n);
+  }
+
+  /* ---------- 数据加载 ---------- */
+  function loadProjects() {
+    return api('/projects').then(function (data) {
+      S.projects = data.projects || [];
+      var sel = $('#projSel');
+      clear(sel);
+      if (!S.projects.length) {
+        sel.appendChild(el('option', { value: '', text: '（没有项目）' }));
+        S.p = null; S.items = [];
+        return null;
+      }
+      S.projects.forEach(function (p) {
+        sel.appendChild(el('option', { value: p.id, text: p.title + '（' + p.contractCount + ' 条契约）' }));
+      });
+      var wanted = S.p && S.projects.some(function (p) { return p.id === S.p.id; }) ? S.p.id : S.projects[0].id;
+      return loadProject(wanted);
+    });
+  }
+
+  function loadProject(id) {
+    return api('/contracts?project=' + encodeURIComponent(id)).then(function (data) {
+      S.p = S.projects.filter(function (p) { return p.id === id; })[0] || null;
+      S.items = data.contracts || [];
+      if (S.sel && !S.items.some(function (it) { return it.contract.id === S.sel; })) S.sel = null;
+      renderAll();
+    });
+  }
+
+  function refresh() {
+    if (!S.p) return loadProjects().then(renderAll);
+    var id = S.p.id;
+    var keepSel = S.sel;
+    return api('/projects').then(function (data) {
+      S.projects = data.projects || [];
+      return loadProject(id);
+    }).then(function () {
+      S.sel = keepSel;
+      renderAll();
+    });
+  }
+
+  /* ---------- 纳管向导 ---------- */
+  function openOverlay(title, body) {
+    $('#ovTitle').textContent = title;
+    var box = $('#ovBody');
+    clear(box);
+    box.appendChild(body);
+    $('#ov').classList.add('open');
+  }
+  function closeOverlay() { $('#ov').classList.remove('open'); }
+
+  function openInit() {
+    S.init = null;
+    var body = el('div', {});
+    body.appendChild(el('div', { class: 'note',
+      text: '给一个项目的绝对路径，先看一遍它会抽出什么，再由你决定纳管哪些。这一步只读，不会写任何东西。' }));
+    var input = el('input', { class: 'search', id: 'initPath', placeholder: '/Users/you/code/project',
+      style: 'margin:10px 0' });
+    body.appendChild(input);
+    var row = el('div', { class: 'bh' });
+    var go = el('button', { class: 'ghost', type: 'button', text: '预览' });
+    go.addEventListener('click', function () { doPreview(input.value.trim()); });
+    row.appendChild(go);
+    body.appendChild(row);
+    body.appendChild(el('div', { id: 'initOut' }));
+    openOverlay('纳管项目', body);
+    input.focus();
+  }
+
+  function doPreview(root) {
+    if (!root) return;
+    var out = $('#initOut');
+    clear(out);
+    out.appendChild(el('div', { class: 'note', text: '正在扫描…' }));
+    api('/init', { method: 'POST', body: { root: root } }).then(function (data) {
+      S.init = data.preview;
+      renderPreview();
+    }).catch(function (e) {
+      clear(out);
+      out.appendChild(el('div', { class: 'empty', text: '预览失败：' + e.message }));
+    });
+  }
+
+  function renderPreview() {
+    var out = $('#initOut');
+    clear(out);
+    var pv = S.init;
+    if (!pv) return;
+    var picked = {};
+    pv.candidates.forEach(function (c) { picked[c.id] = true; });
+
+    out.appendChild(el('div', { class: 'block' },
+      el('div', { class: 'bh' }, el('h2', { text: '这个目录里有什么' })),
+      el('div', { class: 'cline2' },
+        el('span', { class: 'chip chip-dim', text: pv.root }),
+        el('span', { class: 'chip chip-dim', text: pv.vcs === 'git' ? 'git 仓库' : '没有 git' }),
+        el('span', { class: 'chip chip-dim', text: '读了 ' + pv.scan.filesSeen + ' 个文件' }),
+        el('span', { class: 'chip chip-dim', text: pv.candidates.length + ' 个候选' }),
+        pv.scan.truncated ? el('span', { class: 'chip chip-warn', text: '文件太多，只扫了一部分' }) : null),
+      pv.head ? el('div', { class: 'note', text: '基线会定在 ' + shortSha(pv.head.sha) + '（' + pv.head.subject + '）' }) : null,
+      pv.vcs === 'none' ? el('div', { class: 'note',
+        text: '这个项目没有 git：基线会退化成内容哈希，之后只能比"文件内容变没变"，比不了版本。' }) : null));
+
+    var list = el('div', { class: 'block' },
+      el('div', { class: 'bh' }, el('h2', { text: '要纳管哪些' }),
+        el('span', { class: 'sub', text: '不勾的只是"知道它在，但不管"' })));
+    if (!pv.candidates.length) {
+      list.appendChild(el('div', { class: 'empty',
+        text: '没找到可纳管的契约。当前会看 OpenAPI / JSON Schema / .proto / 导出类型 / 运行时工具注册表。' }));
+    }
+    pv.candidates.forEach(function (c) {
+      var row = el('div', { class: 'call', style: 'cursor:pointer' });
+      var box = el('input', { type: 'checkbox', checked: true, style: 'margin-right:8px' });
+      box.addEventListener('change', function () { picked[c.id] = box.checked; });
+      row.appendChild(el('div', { class: 'call-h' },
+        box,
+        el('span', { class: 'call-who', text: c.title }),
+        el('span', { class: 'tag', text: c.boundaryKind }),
+        el('span', { class: 'chip chip-dim', text: '置信度 ' + c.confidence.toFixed(2) }),
+        el('span', { style: 'font-size:11.5px;color:var(--ink3)', text: c.boundary })));
+      row.appendChild(el('div', { style: 'font-size:11.5px;color:var(--ink3);margin-left:22px',
+        text: c.file + (c.evidence && c.evidence.line ? ' : ' + c.evidence.line : '') + ' · ' + c.note }));
+      row.addEventListener('click', function (ev) {
+        if (ev.target === box) return;
+        box.checked = !box.checked;
+        picked[c.id] = box.checked;
+      });
+      list.appendChild(row);
+    });
+    out.appendChild(list);
+
+    if (pv.scan.errors && pv.scan.errors.length) {
+      out.appendChild(el('div', { class: 'block' },
+        el('div', { class: 'bh' }, el('h2', { text: '读不动的东西' })),
+        pv.scan.errors.slice(0, 10).map(function (e) {
+          return el('div', { class: 'note', text: e.file + '：' + e.message });
+        })));
+    }
+
+    var confirm = el('button', { class: 'ghost', type: 'button', text: '确认纳管' });
+    confirm.addEventListener('click', function () {
+      var include = Object.keys(picked).filter(function (k) { return picked[k]; });
+      confirm.disabled = true;
+      confirm.textContent = '正在写入…';
+      api('/init', { method: 'POST', body: {
+        root: pv.root, include: include, confirm: true,
+        ...(pv.title ? { title: pv.title } : {})
+      } }).then(function (data) {
+        closeOverlay();
+        S.sel = null;
+        S.note = '已纳管 ' + data.result.contracts + ' 条契约'
+          + (data.result.skipped.length ? '，另有 ' + data.result.skipped.length + ' 个候选没有形状、未纳管。' : '。');
+        return loadProjects();
+      }).catch(function (e) {
+        confirm.disabled = false;
+        confirm.textContent = '确认纳管';
+        alert('纳管失败：' + e.message);
+      });
+    });
+    out.appendChild(el('div', { class: 'bh', style: 'margin-top:18px' }, confirm));
+  }
+
+  /* ---------- 扫描与实时 ---------- */
+  function rescan() {
+    if (!S.p) { openInit(); return; }
+    var btn = $('#btnRescan');
+    btn.disabled = true;
+    btn.textContent = '扫描中…';
+    api('/rescan', { method: 'POST', body: { project: S.p.id } }).then(function (data) {
+      var r = data.result;
+      S.note = '重扫完成：' + r.filesSeen + ' 个文件，' + r.changes.length + ' 条演化'
+        + (r.newCandidates.length ? '，新出现 ' + r.newCandidates.length + ' 个未纳管候选' : '') + '。';
+      return refresh();
+    }).catch(function (e) {
+      S.note = '重扫失败：' + e.message;
+      renderAll();
+    }).then(function () {
+      btn.disabled = false;
+      btn.textContent = '重新扫描';
+    });
+  }
+
+  function connect() {
+    var chip = $('#liveChip');
+    try {
+      var es = new EventSource(API + '/events');
+      es.addEventListener('ready', function () { chip.textContent = '实时'; chip.className = 'chip chip-dim'; });
+      es.addEventListener('changed', function () { refresh(); });
+      es.addEventListener('finding', function () { refresh(); });
+      es.addEventListener('project', function () { loadProjects(); });
+      es.onerror = function () { chip.textContent = '离线'; chip.className = 'chip chip-warn'; };
+    } catch (e) {
+      chip.textContent = '离线';
+    }
+  }
+
+  /* ---------- 决策 ----------
+     人只有两个写入口：纳管，以及这里。所以这一行必须把"做过什么"和"能做什么"同时说清。 */
+  var ACTION_LABEL = {
+    ack: '标记为已知',
+    'accept-baseline': '接受为新基线',
+    silence: '不再提醒',
+    scope: '调整纳管范围'
+  };
+
+  function decisionRow(item, targets, kind) {
+    var box = el('div', { class: 'bh', style: 'margin-top:14px;gap:8px;flex-wrap:wrap' });
+    var mine = (item.decisions || []);
+    var ids = {};
+    targets.forEach(function (t) { ids[t.id] = true; });
+
+    // 已经对这批目标做过的决策。
+    var done = mine.filter(function (d) {
+      return (kind === 'change' && d.targetKind === 'change' && ids[d.targetId]) ||
+        (kind === 'observation' && d.targetKind === 'observation' && ids[d.targetId]);
+    });
+    if (done.length) {
+      box.appendChild(el('span', { class: 'chip chip-dim',
+        text: '已决策：' + done.map(function (d) {
+          return ACTION_LABEL[d.action] || d.action;
+        }).join(' · ') + '（' + timeAgo(done[0].at) + '）' }));
+    }
+
+    if (!targets.length) return box;
+
+    /* 同一个动作不重复提供：已经标记过"已知"就只留痕迹，不再摆一个按了也没新信息的按钮。
+       「接受为新基线」照旧保留——它在新提交之后重新有意义。 */
+    var acked = done.some(function (d) { return d.action === 'ack'; });
+    if (!acked) {
+      var ack = el('button', { class: 'ghost', type: 'button',
+        text: kind === 'change' ? '这些变化是预期的' : '这些不符是预期的',
+        title: '记一条决策，表示已经看过并且接受。契约本身不会被改动。' });
+      ack.addEventListener('click', function () { sendDecision(item, targets, kind, 'ack', ack); });
+      box.appendChild(ack);
+    }
+
+    // 「接受为新基线」只在契约层有意义：它把基线推到当前版本，之后这些变化就不算"这次"的了。
+    if (kind === 'change' && S.p && S.p.vcs === 'git') {
+      var accept = el('button', { class: 'ghost', type: 'button', text: '接受为新基线',
+        title: '把基线推到当前 HEAD。变化记录仍在，但不再算作"从基线到现在变过"。' });
+      accept.addEventListener('click', function () {
+        sendDecision(item, [{ id: item.contract.id }], 'contract', 'accept-baseline', accept);
+      });
+      box.appendChild(accept);
+    }
+
+    // 全局的决策痕迹（范围/静默这类，不属于上面两组目标）。
+    var others = mine.filter(function (d) { return done.indexOf(d) === -1; });
+    if (others.length) {
+      box.appendChild(el('span', { style: 'font-size:11.5px;color:var(--ink3)',
+        text: '另有 ' + others.length + ' 条决策：' + others.map(function (d) {
+          return (ACTION_LABEL[d.action] || d.action);
+        }).join(' · ') }));
+    }
+    return box;
+  }
+
+  function sendDecision(item, targets, kind, action, button) {
+    button.disabled = true;
+    var label = button.textContent;
+    button.textContent = '记录中…';
+    var body = {
+      project: item.contract.projectId,
+      targetKind: kind,
+      targetId: targets[0].id,
+      action: action
+    };
+    api('/decisions', { method: 'POST', body: body }).then(function () {
+      /* 决策会经 SSE 的 decision 事件回来，届时整屏刷新；这里先给个即时反馈。 */
+      S.note = '已记录：' + (ACTION_LABEL[action] || action) + '。';
+      if (action === 'accept-baseline') return loadProjects();
+      return loadProject(item.contract.projectId);
+    }).catch(function (e) {
+      button.disabled = false;
+      button.textContent = label;
+      S.note = '记录决策失败：' + e.message;
+      renderAll();
+    });
+  }
+
+
+  /* ---------- 主题 ---------- */
+  function setTheme(name) {
+    if (name === 'dark') document.body.classList.add('dark');
+    else document.body.classList.remove('dark');
+    try { localStorage.setItem('dsh-contract-butler.theme', name); } catch (e) {}
+    Array.prototype.forEach.call($('#themeSeg').children, function (b) {
+      b.classList.toggle('on', b.getAttribute('data-theme') === name);
+    });
+  }
+
+  /* ---------- 启动 ---------- */
+  function boot() {
+    var saved = 'light';
+    try { saved = localStorage.getItem('dsh-contract-butler.theme') || 'light'; } catch (e) {}
+    /* 被嵌进宿主页签时，主题由宿主通过 ?theme= 或 postMessage 告知（iframe 里取不到宿主的变量）。 */
+    try {
+      var q = new URLSearchParams(location.search).get('theme');
+      if (q === 'dark' || q === 'light') saved = q;
+    } catch (e) {}
+    setTheme(saved);
+    window.addEventListener('message', function (ev) {
+      var d = ev && ev.data;
+      if (d && d.type === 'dsh-contract-butler:theme') setTheme(d.dark ? 'dark' : 'light');
+    });
+    $('#themeSeg').addEventListener('click', function (ev) {
+      var b = ev.target.closest('button[data-theme]');
+      if (b) setTheme(b.getAttribute('data-theme'));
+    });
+
+    $('#projSel').addEventListener('change', function (ev) { S.sel = null; loadProject(ev.target.value); });
+    $('#q').addEventListener('input', function (ev) { S.q = ev.target.value; renderTree(); });
+    $('#btnInit').addEventListener('click', openInit);
+    $('#btnRescan').addEventListener('click', rescan);
+    $('#ovClose').addEventListener('click', closeOverlay);
+    $('#ov').addEventListener('click', function (ev) { if (ev.target === $('#ov')) closeOverlay(); });
+
+    var FB = [
+      { k: 'changed', label: '变过' },
+      { k: 'finding', label: '不符' }
+    ];
+    var pop = $('#filtPop');
+    FB.forEach(function (f) {
+      var opt = el('div', { class: 'fopt', text: f.label });
+      opt.addEventListener('click', function () {
+        S.filt[f.k] = !S.filt[f.k];
+        opt.classList.toggle('on', S.filt[f.k]);
+        renderAll();
+      });
+      pop.appendChild(opt);
+    });
+    pop.appendChild(el('div', { class: 'filtclear', text: '清除筛选' })).addEventListener('click', function () {
+      S.filt.changed = false; S.filt.finding = false;
+      Array.prototype.forEach.call(pop.querySelectorAll('.fopt'), function (o) { o.classList.remove('on'); });
+      renderAll();
+    });
+    $('#filtBtn').addEventListener('click', function () {
+      var hidden = pop.hidden;
+      pop.hidden = !hidden;
+      $('#filtBtn').setAttribute('aria-expanded', String(hidden));
+      $('#filtBtn').classList.toggle('on', !hidden);
+    });
+    document.addEventListener('click', function (ev) {
+      if (!pop.hidden && !$('#filtWrap').contains(ev.target)) {
+        pop.hidden = true;
+        $('#filtBtn').setAttribute('aria-expanded', 'false');
+        $('#filtBtn').classList.remove('on');
+      }
+    });
+
+    api('/status').then(function (st) { S.status = st; return loadProjects(); })
+      .then(function () { renderAll(); connect(); })
+      .catch(function (e) {
+        $('#hsub').textContent = '连不上宿主接口：' + e.message;
+      });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>
+</body>
+</html>
