@@ -5,6 +5,9 @@
  * `dsh-storage-domain`），所以本插件**不自己写 JSON 文件**，也不新增后端：
  * 一次 `defineDomain` + `ctx.storageDomain.open` 就拿到了"读同步、写持久、按序发事件"的语义。
  *
+ * `defineDomain`/`domainTable` 取自本包的 `./spec.js`（而不是那个包本身），原因见那里的说明：
+ * 那个包只存在于 app 的 node_modules，profile 插件在运行时解析不到它。
+ *
  * **记录 schema 必须是 zod**（`domainTable` 的值 schema 会在领域打开时被
  * `valueSchema.parse(raw)` 逐条校验）。宿主自己也是这么分的：领域记录用 zod（以后同一份
  * schema 可以直接投影成 RPC 线的格式），插件 Config 才用 schemastery。用错库的后果不是
@@ -24,7 +27,7 @@
  * 让校验器多认一种类型更重要。
  */
 import { z } from 'zod'
-import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
+import { defineDomain, domainTable } from './spec.js'
 import type { DomainSpecLike } from './types.js'
 
 /** 形状子树的占位 schema；见文件头说明。 */

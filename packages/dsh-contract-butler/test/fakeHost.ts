@@ -114,7 +114,16 @@ export function fakeCtx(): FakeCtx {
           /* 同上 */
         },
       }
-      route.handler(req, res)
+      // 处理函数是 async 的（routes.ts 的 handle 会 await 插件处理函数再写响应），所以必须
+      // await 它——否则就要靠"轮询等 ended"来猜什么时候写完，而这个猜测的预算一旦被
+      // 纳管/重扫这类要跑 git 与文件扫描的处理函数用光，就会返回空 body，表现为
+      // `Unexpected end of JSON input`：一个看起来像插件 bug 的假故障。
+      const returned = route.handler(req, res) as unknown
+      if (returned !== null && typeof returned === 'object' && typeof (returned as PromiseLike<void>).then === 'function') {
+        await (returned as PromiseLike<void>)
+      }
+      // 走到这里正常响应已经写完了。只有 SSE 这类**故意不结束**的连接还需要再等一小会儿，
+      // 好让它把首批事件吐出来。
       for (let index = 0; index < 50 && !state.ended; index += 1) {
         await new Promise((resolve) => setTimeout(resolve, 5))
       }

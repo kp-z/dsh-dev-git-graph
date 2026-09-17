@@ -10,7 +10,8 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { descriptorOf } from '@deepseek-ai/dsh-storage-domain'
+import { defineDomain as realDefineDomain, descriptorOf } from '@deepseek-ai/dsh-storage-domain'
+import { defineDomain as inlineDefineDomain } from '../lib/spec.js'
 import {
   CONTRACT_BUTLER_DOMAIN,
   changeSchema,
@@ -200,4 +201,70 @@ test('每条记录都声明了自己的 id，落盘再读出不会丢', () => {
     }).success,
     false,
   )
+})
+
+test('内联的 spec 必须被真的 defineDomain 接受（两边形状不许分叉）', () => {
+  // 本插件自带一份 defineDomain/domainTable（见 src/spec.ts：那个包只在 app 的 node_modules
+  // 里，profile 插件运行时解析不到）。自带一份的风险是"我抄的形状和人家要的不一样"，
+  // 所以这里把产出的 spec 原样喂给真实现——它一旦拒收，说明形状已经分叉了。
+  const accepted = realDefineDomain(CONTRACT_BUTLER_DOMAIN)
+  assert.equal(accepted, CONTRACT_BUTLER_DOMAIN, '真实现应当原样收下')
+
+  // 投影结果也要一致：这是宿主真正拿去开领域的东西。
+  const descriptor = descriptorOf(CONTRACT_BUTLER_DOMAIN)
+  assert.deepEqual(
+    { name: descriptor.name, version: descriptor.version, hasGlobal: descriptor.hasGlobal },
+    { name: 'contract_butler', version: 1, hasGlobal: false },
+  )
+})
+
+test('内联的 defineDomain 与真实现的拒收口径一致', () => {
+  const cases: { name: string; spec: Record<string, unknown>; label: string }[] = [
+    { name: '域名字母大写', spec: { name: 'Butler', version: 1, tables: {} }, label: 'name 必须匹配 ^[a-z][a-z0-9_]*$' },
+    { name: '版本是负数', spec: { name: 'ok_name', version: -1, tables: {} }, label: 'version 必须非负整数' },
+    { name: '版本不是整数', spec: { name: 'ok_name', version: 1.5, tables: {} }, label: 'version 必须整数' },
+    { name: '表名带横线', spec: { name: 'ok_name', version: 1, tables: { 'bad-table': {} } }, label: '表名必须匹配同一正则' },
+    { name: 'layout 越界', spec: { name: 'ok_name', version: 1, tables: {}, layout: 'per-day' }, label: 'layout 只能是 single 或 per-record' },
+    { name: 'invalidRecords 越界', spec: { name: 'ok_name', version: 1, tables: {}, invalidRecords: 'drop' }, label: '策略只能是 backup-and-skip' },
+    { name: 'compatibleVersions 不小于 version', spec: { name: 'ok_name', version: 2, tables: {}, compatibleVersions: [2] }, label: '必须低于 version' },
+  ]
+
+  for (const item of cases) {
+    let realRejected = false
+    try {
+      realDefineDomain(item.spec as never)
+    } catch {
+      realRejected = true
+    }
+    assert.equal(realRejected, true, `真实现应当拒收：${item.label}`)
+
+    let mineRejected = false
+    try {
+      inlineDefineDomain(item.spec as never)
+    } catch {
+      mineRejected = true
+    }
+    assert.equal(mineRejected, true, `内联实现也应当拒收：${item.label}`)
+  }
+})
+
+test('内联的 defineDomain 也拒绝「接受 null 的 global」', () => {
+  // global 用了 null 当"从没写过"的哨兵，可空 global 会让"存过 null"和"没存过"分不清。
+  const nullableGlobal = {
+    name: 'ok_name',
+    version: 1,
+    tables: {},
+    global: { schema: { safeParse: () => ({ success: true }) } },
+  }
+  assert.throws(() => inlineDefineDomain(nullableGlobal as never))
+  assert.throws(() => realDefineDomain(nullableGlobal as never))
+
+  const strictGlobal = {
+    name: 'ok_name',
+    version: 1,
+    tables: {},
+    global: { schema: { safeParse: () => ({ success: false }) } },
+  }
+  assert.doesNotThrow(() => inlineDefineDomain(strictGlobal as never))
+  assert.doesNotThrow(() => realDefineDomain(strictGlobal as never))
 })
