@@ -6,7 +6,7 @@
  *
  * - 平台支持递归监视（macOS / Windows / Linux 上 node 20+）时用 `fs.watch({ recursive: true })`，
  *   它是事件驱动的，几乎零成本；
- * - 否则退化为定时轮询（比对 mtime），慢但确定。
+ * - 否则退化为定时轮询（列出文件并比对 mtime 与大小），慢但确定。
  *
  * 三个必须处理的现实：
  * - **一次 checkout 会砸下成百上千个事件。** 所以去抖窗口内合并成一批，只重扫真正涉及的
@@ -15,10 +15,15 @@
  *   真正决定"要不要记演化"的是形状指纹，不是文件系统说了什么。
  * - **监视目录数量会撞上限。** 只监视纳管项目根，不递归监视每个子目录句柄；超出上限就整体
  *   退化为轮询。
+ *
+ * 轮询必须是**真的在轮询**：只把标志位置成 `polling` 而不做事，会让"正在盯着"变成一句谎话，
+ * 而监视失效恰恰是用户最不可能自己发现的那种故障。
  */
 import { watch } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { relative, sep } from 'node:path'
 import type { FSWatcher } from 'node:fs'
+import { listProjectFiles } from './scan.js'
 
 /** 默认去抖窗口：一次保存/checkout 的写入都落在这段时间里。 */
 export const DEFAULT_DEBOUNCE_MS = 500
@@ -43,6 +48,10 @@ export interface WatchOptions {
   /** 排除的目录名；`node_modules` 这类目录的变化不该触发重扫。 */
   excludeDirs: string[]
   debounceMs?: number
+  /** 轮询兜底的间隔（ms）。 */
+  pollMs?: number
+  /** 轮询时列文件的上限；与扫描器的 maxFiles 保持一致，避免两边规则分叉。 */
+  maxFiles?: number
   handlers: WatchHandlers
 }
 
@@ -61,12 +70,17 @@ export interface Watcher {
  */
 export function watchProject(options: WatchOptions): Watcher {
   const debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS
+  const pollMs = options.pollMs ?? DEFAULT_POLL_MS
+  const maxFiles = options.maxFiles ?? 2000
   const excluded = new Set(options.excludeDirs)
   let pending = new Set<string>()
   let timer: NodeJS.Timeout | null = null
   let closed = false
   let handle: FSWatcher | null = null
   let polling = false
+  let pollTimer: NodeJS.Timeout | null = null
+  /** 上一轮轮询看到的文件清单：相对路径 → "mtime:size"。 */
+  let snapshot: Map<string, string> | null = null
 
   const flush = (): void => {
     timer = null
@@ -114,6 +128,45 @@ export function watchProject(options: WatchOptions): Watcher {
     }
     handle = null
     polling = true
+    void pollOnce()
+  }
+
+  /** 列一遍文件，和上一轮比对，把变化当成一批交出去。 */
+  async function pollOnce(): Promise<void> {
+    if (closed) return
+    try {
+      const { files } = await listProjectFiles(options.root, options.excludeDirs, maxFiles)
+      const next = new Map<string, string>()
+      for (const file of files) {
+        if (isExcluded(file, excluded)) continue
+        try {
+          const info = await stat(`${options.root}${sep}${file}`)
+          next.set(file, `${info.mtimeMs}:${info.size}`)
+        } catch {
+          // 这一轮读不到就先当作没见过，下一轮再说。
+        }
+      }
+      if (snapshot !== null) {
+        const changed: string[] = []
+        for (const [file, stamp] of next) {
+          if (snapshot.get(file) !== stamp) changed.push(file)
+        }
+        for (const file of snapshot.keys()) {
+          if (!next.has(file)) changed.push(file)
+        }
+        if (changed.length > 0 && !closed) options.handlers.onBatch(changed.sort())
+      }
+      snapshot = next
+      if (closed) return
+      if (pollTimer !== null) clearTimeout(pollTimer)
+      // 用 setTimeout 串行排下一轮，而不是 setInterval：一轮没跑完就不该叠上第二轮。
+      pollTimer = setTimeout(() => void pollOnce(), pollMs)
+    } catch (error) {
+      options.handlers.onError?.(error)
+      if (closed) return
+      if (pollTimer !== null) clearTimeout(pollTimer)
+      pollTimer = setTimeout(() => void pollOnce(), pollMs)
+    }
   }
 
   return {
@@ -121,6 +174,8 @@ export function watchProject(options: WatchOptions): Watcher {
       closed = true
       if (timer !== null) clearTimeout(timer)
       timer = null
+      if (pollTimer !== null) clearTimeout(pollTimer)
+      pollTimer = null
       try {
         handle?.close()
       } catch {

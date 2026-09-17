@@ -54,6 +54,27 @@ export interface ScanOptions {
 }
 
 /** 一次扫描过程。 */
+/**
+ * 只列出会被扫描的文件（不做抽取）。
+ *
+ * 轮询兜底需要一份"这个项目里有哪些文件"的清单，并且必须与扫描器用**同一套**排除规则——
+ * 两边规则一旦不一致，轮询就会不断报出扫描器根本不看的文件（比如产物目录），把重扫变成空转。
+ * @param root - 项目根。
+ * @param excludeDirs - 排除的目录名。
+ * @param maxFiles - 文件数上限。
+ * @returns 相对路径清单（POSIX 分隔符）与截断标志。
+ */
+export async function listProjectFiles(
+  root: string,
+  excludeDirs: string[],
+  maxFiles: number,
+  honorGitignore = true,
+): Promise<{ files: string[]; truncated: boolean }> {
+  const ignore = honorGitignore ? await loadGitignore(root) : () => false
+  const walk = await walkFiles(root, excludeDirs, ignore, maxFiles)
+  return { files: walk.files, truncated: walk.truncated }
+}
+
 export async function scanProject(options: ScanOptions): Promise<ScanResult> {
   const started = Date.now()
   const errors: { file: string; message: string }[] = []

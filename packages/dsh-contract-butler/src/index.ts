@@ -44,6 +44,8 @@ export const ContractButlerConfig = z.object({
   watchEnabled: z.boolean().default(true),
   /** 监视去抖窗口（ms）。 */
   debounceMs: z.number().default(500),
+  /** 递归监视不可用时，轮询兜底的间隔（ms）。 */
+  pollMs: z.number().default(5000),
   /** 运行时观测的内存环形缓冲条数。 */
   liveRingSize: z.number().default(500),
   /** 每条契约保留的快照条数。 */
@@ -100,6 +102,7 @@ interface Settings {
   excludeDirs: string[]
   watchEnabled: boolean
   debounceMs: number
+  pollMs: number
   liveRingSize: number
   snapshotKeep: number
   payloadMaxBytes: number
@@ -115,6 +118,7 @@ function normalize(config: Partial<ContractButlerConfig>): Settings {
     excludeDirs: config.excludeDirs ?? [],
     watchEnabled: config.watchEnabled ?? true,
     debounceMs: config.debounceMs ?? 500,
+    pollMs: config.pollMs ?? 5000,
     liveRingSize: config.liveRingSize ?? 500,
     snapshotKeep: config.snapshotKeep ?? 50,
     payloadMaxBytes: config.payloadMaxBytes ?? 8192,
@@ -297,6 +301,8 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
       root: project.root,
       excludeDirs: project.scan.excludeDirs,
       debounceMs: settings.debounceMs,
+      pollMs: settings.pollMs,
+      maxFiles: project.scan.maxFiles,
       handlers: {
         onBatch: (files) => {
           void serialize(async () => {
