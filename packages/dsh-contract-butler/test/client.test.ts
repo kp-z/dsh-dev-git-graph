@@ -144,3 +144,55 @@ test('客户端：宿主没有这些服务时安静退出，不抛错', () => {
   // 宿主版本不匹配时也应当只是不出来，而不是把整个界面带崩。
   clientModule().apply({ get: () => undefined, effect: () => () => undefined })
 })
+
+test('客户端：把当前会话的工作目录带进面板 URL', () => {
+  // 右侧栏把 sessionId 交给页签内容，内容再去会话服务里取 cwd——面板靠它定位当前项目。
+  const module = clientModule()
+  let Panel: ((props: unknown) => unknown) | undefined
+  const slots = {
+    inject(_name: string, cb: () => unknown) {
+      cb()
+      return () => undefined
+    },
+    register(_spec: unknown, component: (props: unknown) => unknown) {
+      Panel = component
+      return () => undefined
+    },
+  }
+  const snapshot = { byId: { 'session-7': { cwd: '/Users/kp/DEV/当前 项目' } } }
+  module.apply({
+    get: (name: string) => {
+      if (name === 'slots') return slots
+      if (name === 'sessions') return { list: { getSnapshot: () => snapshot } }
+      return undefined
+    },
+    effect: (fn: () => unknown) => {
+      fn()
+      return () => undefined
+    },
+  })
+
+  assert.ok(Panel, '页签内容组件应当被注册')
+
+  /** 在假 React 造出的元素树里找 iframe 的 src。 */
+  function findFrameSrc(node: unknown): string | undefined {
+    const el = node as { args?: unknown[] } | undefined
+    const args = el?.args
+    if (!Array.isArray(args)) return undefined
+    if (args[0] === 'iframe') return (args[1] as { src?: string }).src
+    for (let i = 2; i < args.length; i++) {
+      const found = findFrameSrc(args[i])
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
+
+  const src = findFrameSrc(Panel({ sessionId: 'session-7' }))
+  assert.ok(src, '应当渲染出 iframe')
+  assert.ok(src.startsWith('/dsh-contract-butler/panel?'), `URL 应当带查询参数：${src}`)
+  assert.ok(src.includes('cwd=' + encodeURIComponent('/Users/kp/DEV/当前 项目')), `应当带当前目录：${src}`)
+
+  // 没有 sessionId 时退回不带参数的 URL，而不是崩掉。
+  const bare = findFrameSrc(Panel({}))
+  assert.equal(bare, '/dsh-contract-butler/panel')
+})
