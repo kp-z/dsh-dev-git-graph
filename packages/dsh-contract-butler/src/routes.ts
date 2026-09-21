@@ -22,9 +22,16 @@ export interface WebServerLike {
 
 /** 带状态码的错误。处理器抛它就能得到想要的状态码。 */
 export class HttpError extends Error {
+  /**
+   * @param status - HTTP 状态码。
+   * @param message - 给人看的一句话原因（面板会直接显示它）。
+   * @param detail - 可选的结构化细节，会原样进响应的 `detail` 字段。用在"拒绝了一批 AI 返回、
+   *   要把原始返回与逐条原因一起回显"这类场景——光一句话说不清发生了什么。
+   */
   constructor(
     readonly status: number,
     message: string,
+    readonly detail?: unknown,
   ) {
     super(message)
   }
@@ -134,9 +141,10 @@ export function registerRoutes(webServer: WebServerLike, entries: RouteEntry[]):
         path,
         handler:
           raw === undefined
-            ? (req, res) => {
-                void handle(entry, req, res)
-              }
+            ? /* 把 `handle` 的 promise **返回**出去：宿主自己不看返回值，但"处理器什么时候真的写完"
+                 只有这个 promise 知道。丢掉它，任何调用方（测试、面板开发服务器）就只剩"猜一个
+                 超时"这一条路——git 与文件扫描在机器忙的时候必然超过那个猜测值，表现为空响应。 */
+              (req, res) => handle(entry, req, res)
             : raw,
       }),
     )
@@ -177,7 +185,8 @@ async function handle(entry: RouteEntry, req: http.IncomingMessage, res: http.Se
   } catch (error) {
     if (res.headersSent) return
     if (error instanceof HttpError) {
-      sendJson(res, error.status, { error: error.message })
+      // 有细节就带上（`detail` 是新增的可选字段）：老调用方只看 `error`，行为不变。
+      sendJson(res, error.status, error.detail === undefined ? { error: error.message } : { error: error.message, detail: error.detail })
       return
     }
     sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) })

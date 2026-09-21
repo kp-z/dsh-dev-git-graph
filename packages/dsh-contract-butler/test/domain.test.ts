@@ -14,6 +14,7 @@ import { defineDomain as realDefineDomain, descriptorOf } from '@deepseek-ai/dsh
 import { defineDomain as inlineDefineDomain } from '../lib/spec.js'
 import {
   CONTRACT_BUTLER_DOMAIN,
+  aiSchema,
   changeSchema,
   contractSchema,
   decisionSchema,
@@ -22,7 +23,7 @@ import {
   snapshotSchema,
 } from '../lib/domain.js'
 
-test('真实实现接受本插件的领域规格，并认出六张表', () => {
+test('真实实现接受本插件的领域规格，并认出七张表', () => {
   // `defineDomain` 在模块加载时就已经跑过了（domain.ts 顶层调用），这里确认投影结果。
   const descriptor = descriptorOf(CONTRACT_BUTLER_DOMAIN)
   assert.equal(descriptor.name, 'contract_butler')
@@ -31,7 +32,9 @@ test('真实实现接受本插件的领域规格，并认出六张表', () => {
   assert.equal(descriptor.hasGlobal, false)
   assert.deepEqual(
     [...descriptor.tables].sort(),
-    ['changes', 'contracts', 'decisions', 'observations', 'projects', 'snapshots'],
+    // `ai` 是 AI 理解结果的缓存表（跟着领域落盘）。加表**不动 version**：介质按这份清单逐张取，
+    // 缺的那张初始化成空表，所以对已经在盘上的老数据是纯增量。
+    ['ai', 'changes', 'contracts', 'decisions', 'observations', 'projects', 'snapshots'],
   )
   assert.equal(CONTRACT_BUTLER_DOMAIN.invalidRecords, 'backup-and-skip')
 })
@@ -267,4 +270,119 @@ test('内联的 defineDomain 也拒绝「接受 null 的 global」', () => {
   }
   assert.doesNotThrow(() => inlineDefineDomain(strictGlobal as never))
   assert.doesNotThrow(() => realDefineDomain(strictGlobal as never))
+})
+
+/* ---------- 字段级中文：落盘不许丢 ----------
+   这一组是**回归测试**，钉的是一次真实事故：契约记录的 schema 里漏声明了 `aiFields`，
+   缓存行的 schema 里漏声明了 `fields`。宿主在领域打开时对每条记录调 `valueSchema.parse`
+   （真包 `dsh-storage-domain` 的 `parseRecord`），而 zod 会**静默剥掉**未声明的键——
+   于是 AI 明明写回了字段中文，落盘再打开就没了，界面表现成"外层中文有、每个字段的中文全空"。
+   它不会在类型层面报出来，也不会被纯 Map 的存储替身（`memoryFacility`）抓到：只有在这里、
+   对着**真实现的 parse** 才会现原形。 */
+
+/** 一条合法的、带完整 AI 结果的契约记录（真实现要的必填项一个不少）。 */
+function contractWithAiFields(): Record<string, unknown> {
+  return {
+    id: 'c_ai_1',
+    projectId: 'p_ai',
+    file: 'proto/user.proto',
+    boundary: 'proto:User',
+    boundaryKind: 'proto',
+    source: 'proto',
+    title: 'User',
+    symbol: 'User',
+    input: null,
+    output: { kind: 'object', fields: { id: { kind: 'string' } } },
+    twins: [],
+    evidence: { line: 3, hash: 'h' },
+    confidence: 0.85,
+    createdAt: 1,
+    updatedAt: 1,
+    aiTitle: '用户',
+    aiFamily: '契约存储',
+    aiFields: [
+      { name: 'id', zh: '用户 id' },
+      { name: 'user_id', zh: '下单用户 id' },
+    ],
+    aiRelations: [],
+    aiHash: 'abc123',
+    aiAt: 2,
+  }
+}
+
+test('契约记录：AI 字段级中文（aiFields）落盘再读出不许丢', () => {
+  const record = contractWithAiFields()
+  const parsed = contractSchema.parse(record) as { aiFields?: { name: string; zh: string }[] }
+  assert.deepEqual(
+    parsed.aiFields,
+    [
+      { name: 'id', zh: '用户 id' },
+      { name: 'user_id', zh: '下单用户 id' },
+    ],
+    '漏声明 aiFields → zod 会把它剥掉，面板那一栏就成了空白',
+  )
+  // 名字与中文都必须逐字保住：面板是按名字精确匹配后才渲染的。
+  assert.deepEqual(
+    (parsed.aiFields ?? []).map((f) => f.name),
+    ['id', 'user_id'],
+    '字段名是面板匹配的依据，顺序也要原样回来',
+  )
+})
+
+test('AI 缓存行：字段级中文（fields）落盘再读出不许丢', () => {
+  const row = {
+    id: 'ai_c_ai_1',
+    projectId: 'p_ai',
+    contractId: 'c_ai_1',
+    hash: 'abc123',
+    titleZh: '用户',
+    family: '契约存储',
+    relations: [],
+    fields: [{ name: 'id', zh: '用户 id' }],
+    at: 2,
+    channel: 'fake · fake-model',
+  }
+  const parsed = aiSchema.parse(row) as { fields?: { name: string; zh: string }[] }
+  assert.deepEqual(parsed.fields, [{ name: 'id', zh: '用户 id' }], '缓存行丢了 fields，缓存命中时就补不回字段中文')
+})
+
+test('AI 字段是后加的：老记录/老缓存行（没有这两项）仍然合法', () => {
+  // 老数据必须照样能读出来（否则 invalidRecords: backup-and-skip 会把它们整条移走）。
+  const record = contractWithAiFields()
+  delete record.aiFields
+  assert.equal(contractSchema.safeParse(record).success, true, '没有 aiFields 的老契约记录仍然合法')
+  assert.equal(
+    aiSchema.safeParse({
+      id: 'ai_old',
+      projectId: 'p_ai',
+      contractId: 'c_old',
+      hash: 'h',
+      titleZh: '旧',
+      family: '',
+      relations: [],
+      at: 1,
+      channel: '',
+    }).success,
+    true,
+    '没有 fields 的老缓存行仍然合法（由引擎判成"不算命中"，而不是判成坏记录）',
+  )
+})
+
+test('AI 缓存行也走真实现的 round-trip（与其它六张表同一套判据）', () => {
+  const parsed = aiSchema.safeParse({
+    id: 'ai_c_1',
+    projectId: 'p_1',
+    contractId: 'c_1',
+    hash: 'h1',
+    titleZh: '用户',
+    family: '契约存储',
+    relations: [{ to: 'c_2', rel: 'imports', why: '' }],
+    fields: [{ name: 'id', zh: '用户 id' }],
+    at: 3,
+    channel: 'fake · fake-model',
+  })
+  assert.equal(parsed.success, true, 'ai 表的一条合法记录应当通过')
+  if (parsed.success) {
+    assert.deepEqual((parsed.data as { fields?: unknown }).fields, [{ name: 'id', zh: '用户 id' }])
+  }
 })

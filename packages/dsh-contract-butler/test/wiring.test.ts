@@ -165,10 +165,28 @@ test('装配：契约查询带上"这次对比之内"的标记', async () => {
     assert.equal(item.contract.projectId, projectId)
     assert.ok(Array.isArray(item.changes))
     assert.ok(Array.isArray(item.findings))
+    // 分面：面板靠它做过滤与计数，结构性那六轴一条都不能漏。
+    assert.ok(Array.isArray(item.facets), '每条契约都要带分面 tag')
+    for (const tag of item.facets as string[]) {
+      assert.match(tag, /^[a-z]+:[^:]+$/, `tag 形状应为 轴:取值，实际是 ${tag}`)
+    }
+    for (const axis of ['module', 'channel', 'kind', 'source', 'shape', 'dup']) {
+      assert.ok(
+        (item.facets as string[]).some((tag) => tag.startsWith(`${axis}:`)),
+        `结构分面缺轴 ${axis}`,
+      )
+    }
   }
   // 刚纳管、什么都没改：不该有任何"变过"。
   const fresh = list.contracts.flatMap((item: { changes: { fresh?: boolean }[] }) => item.changes)
   assert.equal(fresh.filter((ch: { fresh?: boolean }) => ch.fresh === true).length, 0)
+
+  // 轴定义与取值标签随列表一起下发：面板不自己造一套，否则两边迟早会分叉。
+  assert.deepEqual(
+    (list.axes as { id: string }[]).map((axis) => axis.id),
+    ['state', 'module', 'channel', 'kind', 'source', 'shape', 'dup'],
+  )
+  assert.equal(typeof (list.labels as Record<string, unknown>).state, 'object')
 })
 
 test('装配：重扫发现改动，并把它标成这次对比之内的', async () => {

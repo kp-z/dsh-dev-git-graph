@@ -39,6 +39,17 @@ const boundaryKind = z.enum(['tool', 'http', 'event', 'proto', 'schema', 'db', '
 /** 版本控制形态，与 `VcsKind` 保持一致。 */
 const vcsKind = z.enum(['git', 'none'])
 
+/**
+ * 一个字段的中文解释：`name` 与扫描出的字段名逐字相同，`zh` 是模型给出的中文。
+ *
+ * 契约记录与 AI 缓存行共用同一个形状——两处必须是同一条，否则缓存命中时补回契约记录的那一步
+ * 会悄悄换成另一种形状（而面板只认 `{name, zh}`）。
+ */
+export const aiFieldSchema = z.object({
+  name: z.string(),
+  zh: z.string(),
+})
+
 /** 项目的纳管记录。 */
 export const projectSchema = z.object({
   /** 记录 key，同时也是项目 id。 */
@@ -82,6 +93,47 @@ export const contractSchema = z.object({
   confidence: z.number(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  /**
+   * AI 理解结果（可选）。
+   *
+   * 声明成 optional 而不是 nullable：老记录里根本没有这几个字段，`undefined` 才是"没问过"
+   * 的准确表达；而且 zod 会剥掉未声明的键，不在这儿声明出来，写回的结果落盘后就没了。
+   * 另外注意：`title`（原始符号名）不在这一组里，它永远不会被 AI 结果覆盖。
+   */
+  aiTitle: z.string().optional(),
+  aiFamily: z.string().optional(),
+  /**
+   * 字段级中文：`[{name, zh}]`，`name` 与扫描出的字段名逐字相同。
+   *
+   * **必须在这里声明**：它就是本插件唯一的"字段中文"落点（面板按名字对上才渲染那一栏）。
+   * 漏声明的代价不是类型报错，而是 writeBack 明明写了、落盘那一刻被 zod 静默剥掉——
+   * 界面表现为"外层中文有、每个字段的中文全空"，而所有单测（纯 Map 的存储替身）照样全绿。
+   */
+  aiFields: z.array(aiFieldSchema).optional(),
+  aiRelations: z.array(z.object({ to: z.string(), rel: z.string(), why: z.string() })).optional(),
+  aiHash: z.string().optional(),
+  aiAt: z.number().optional(),
+})
+
+/** AI 结果的缓存行。key 是 `ai_<契约 id>`，是否可用由 `hash` 与当前内容对不对得上决定。 */
+export const aiSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  contractId: z.string(),
+  hash: z.string(),
+  titleZh: z.string(),
+  family: z.string(),
+  /**
+   * 缓存里的字段级中文。**与契约记录上的 `aiFields` 同理必须声明**：不声明的话缓存命中时
+   * 拿回来的永远是 `undefined`，而 hash 又对得上、模型不会再被问一次，字段中文就再也补不上。
+   *
+   * optional：本功能之前写下的老缓存行没有这一项。缺这一项的行由 `aiWorkflow.ts` 判成
+   * "不算命中"（重新问模型），而不是在这里把它判成非法记录。
+   */
+  fields: z.array(aiFieldSchema).optional(),
+  relations: z.array(z.object({ to: z.string(), rel: z.string(), why: z.string() })),
+  at: z.number(),
+  channel: z.string(),
 })
 
 /** 形状快照：某条契约在某一版上的样子。key 由 `snapshotKey()` 生成。 */
@@ -142,8 +194,12 @@ export const decisionSchema = z.object({
 /**
  * 本插件独占的存储域。
  *
- * 六张表各管一层：`projects` 纳管范围、`contracts` 定义层、`snapshots` 某一版的形状、
- * `changes` 演化层、`observations` 运行层、`decisions` 人的全部写入。
+ * 七张表各管一层：`projects` 纳管范围、`contracts` 定义层、`snapshots` 某一版的形状、
+ * `changes` 演化层、`observations` 运行层、`decisions` 人的全部写入、`ai` AI 理解的缓存。
+ *
+ * 加表**不动 version**：宿主那侧的介质是按 descriptor 里的表名逐个取的，缺的那张初始化成空表
+ * （见 `dsh-storage-json` 的 `for (const table of descriptor.tables)`），所以加一张表对老数据是
+ * 纯增量；反过来 bump 版本会让「stored version != expected」直接把整个域拒之门外。
  */
 export const CONTRACT_BUTLER_DOMAIN: DomainSpecLike = defineDomain({
   name: 'contract_butler',
@@ -157,5 +213,6 @@ export const CONTRACT_BUTLER_DOMAIN: DomainSpecLike = defineDomain({
     changes: domainTable(changeSchema),
     observations: domainTable(observationSchema),
     decisions: domainTable(decisionSchema),
+    ai: domainTable(aiSchema),
   },
 })

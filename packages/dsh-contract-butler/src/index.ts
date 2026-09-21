@@ -20,10 +20,14 @@ import { commitInit, previewInit } from './manage.js'
 import { evolveProject, WORKTREE } from './evolve.js'
 import { commitsBetween, headSha, isDirty } from './git.js'
 import { Observer, SOURCE_TOOLS } from './observe.js'
-import { panelPath, readPanel } from './panel.js'
-import { DEFAULT_EXCLUDE_DIRS } from './scan.js'
+import { panelPath, readPanel, readVendor, vendorNameOf, vendorPath } from './panel.js'
+import { DEFAULT_EXCLUDE_DIRS, listProjectFiles } from './scan.js'
 import { EventHub, HttpError, registerRoutes } from './routes.js'
-import { ButlerStore } from './store.js'
+import { aiKey, ButlerStore } from './store.js'
+import { FACET_AXES, FACET_VALUE_LABELS, stateFacets, structuralFacets } from './facets.js'
+import { buildNeighbourIndex, clampBatch, hashOf, understandContracts } from './aiWorkflow.js'
+import { createHostAi, describeHostAi } from './hostAi.js'
+import type { HostAiServices } from './hostAi.js'
 import { watchProject } from './watch.js'
 import type { Watcher } from './watch.js'
 import type { Candidate, ChangeRecord, ContractRecord, DecisionRecord, ProjectRecord } from './types.js'
@@ -60,6 +64,29 @@ export const ContractButlerConfig = z.object({
     .default(['authorization', 'token', 'api_key', 'apikey', 'password', 'secret', 'cookie']),
   /** 是否把 `ctx.tools` 里的工具边界并入候选。 */
   introspectTools: z.boolean().default(true),
+  /** AI 理解时每批多少条契约（20~30，超出的值会被夹住）。 */
+  understandBatchSize: z.number().default(24),
+  /**
+   * 指定 AI 理解用哪个模型：`provider:model` 直接指名，或只给模型名（在宿主已注册的 provider 里找）。
+   * 空串 = 用宿主自己选定的默认模型（`agentDefaultModel`）。挑不出来是 503 + 可读原因，不会悄悄换一个。
+   */
+  understandModel: z.string().default(''),
+  /**
+   * 钉死 AI 理解走哪个 provider（配 `understandModel` 指定模型；不配就取它最可能能用的那条）。
+   * 空串 = 按宿主的默认模型；默认模型指着一个没注册 adapter 的 provider 时会自动避开。
+   */
+  understandProvider: z.string().default(''),
+  /** AI 理解的并发批次数。 */
+  understandConcurrency: z.number().default(3),
+  /** 单批的模型调用超时（ms）。 */
+  understandTimeoutMs: z.number().default(90_000),
+  /** 单批的输出上限（token）。 */
+  /**
+   * 一次调用的输出预算（含模型的思考 token）。默认 16000，是**实测**定的：同一批真契约在
+   * `mmt · deepseek-v4-flash-tencent` 上，4000 会截断（23 秒后整批失败），16000 正常返回并通过校验。
+   * 调小它只该是因为某条线的输出上限更小（被拒会照实报错并换下一条候选）。
+   */
+  understandMaxTokens: z.number().default(16000),
 })
 
 /** 从 schema 推导的配置类型。 */
@@ -109,6 +136,12 @@ interface Settings {
   capturePayloads: boolean
   redactKeys: string[]
   introspectTools: boolean
+  understandBatchSize: number
+  understandModel: string
+  understandProvider: string
+  understandConcurrency: number
+  understandTimeoutMs: number
+  understandMaxTokens: number
 }
 
 /** 从 Loader 传来的 patch 原始值里取默认值。 */
@@ -125,6 +158,12 @@ function normalize(config: Partial<ContractButlerConfig>): Settings {
     capturePayloads: config.capturePayloads ?? false,
     redactKeys: config.redactKeys ?? ['authorization', 'token', 'api_key', 'apikey', 'password', 'secret', 'cookie'],
     introspectTools: config.introspectTools ?? true,
+    understandBatchSize: config.understandBatchSize ?? 24,
+    understandModel: config.understandModel ?? '',
+    understandProvider: config.understandProvider ?? '',
+    understandConcurrency: config.understandConcurrency ?? 3,
+    understandTimeoutMs: config.understandTimeoutMs ?? 90_000,
+    understandMaxTokens: config.understandMaxTokens ?? 16000,
   }
 }
 
@@ -230,6 +269,15 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
       observedTotal: all.length,
       findings: all.filter((item) => !item.ok),
       decisions,
+      // 分面在这里补齐：结构性的由 facets.ts 算，事态要看这次区间与观测结果。
+      // 面板只按 tag 做集合运算，不自己判断归属——两边各算一次必然会分叉。
+      facets: [
+        ...structuralFacets(contract),
+        ...stateFacets({
+          changed: changes.some((item) => item.fresh),
+          finding: all.some((item) => !item.ok),
+        }),
+      ],
     }
   }
 
@@ -413,7 +461,9 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
       workspaceRegistry: { list?: () => unknown[] }
     }).workspaceRegistry
     // 先取成局部常量：可选属性不会在闭包里保持窄化。
-    const listFn = registry === undefined ? undefined : registry.list
+    const listFn = registry === undefined || typeof registry.list !== "function"
+      ? undefined
+      : (registry.list.bind(registry) as () => unknown[])
     if (typeof listFn === 'function') {
       workspaceList = () => listFn()
     }
@@ -428,6 +478,28 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
       id: typeof item.id === 'string' && item.id !== '' ? item.id : item.path,
       path: item.path,
       title: typeof item.title === 'string' && item.title !== '' ? item.title : item.path,
+    }
+  }
+
+  /**
+   * 现取宿主的 AI 面（`llm` + `agentDefaultModel`）。
+   *
+   * **每次请求现取**，不缓存句柄：服务可能晚于本插件挂上来，宿主重载后旧句柄也不该被认死。
+   * 取不到就是取不到——这里不猜、不兜底、更不自建通道，缺什么由 `hostAi.ts` 说清。
+   */
+  const hostAiServices = (): HostAiServices => {
+    const pick = <T>(name: string): T | undefined => {
+      try {
+        const service = ctx.get(name) as T | undefined
+        return service === undefined ? undefined : service
+      } catch {
+        // 宿主的服务在"不可用"状态下 get 可能抛，这里只是探测，抛了就等于没有。
+        return undefined
+      }
+    }
+    return {
+      llm: pick<HostAiServices['llm']>('llm'),
+      defaultModel: pick<HostAiServices['defaultModel']>('agentDefaultModel'),
     }
   }
 
@@ -525,7 +597,7 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
               contracts.push(contractDetail(contract, fresh))
             }
           }
-          return { contracts }
+          return { contracts, axes: FACET_AXES, labels: FACET_VALUE_LABELS }
         },
       },
       {
@@ -577,7 +649,7 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
       {
         method: 'GET',
         path: '/status',
-        handler: () => ({
+        handler: async () => ({
           active: [...watchers.keys()],
           polling: [...watchers.values()].filter((watcher) => watcher.polling).length,
           subscribers: hub.size,
@@ -590,7 +662,136 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
           payloadMaxBytes: settings.payloadMaxBytes,
           redactKeys: settings.redactKeys,
           runtimeFile: RUNTIME_FILE,
+          /* AI 面的现状：面板那条加载动画要显示"用的是哪个模型"，出问题时人也要能一眼看到
+             "到底有没有 AI、缺什么"。这里只给服务名与路由名，**不给任何凭据**
+             （插件这一侧也从来不认识凭据）。 */
+          understand: await (async () => {
+            const status = await describeHostAi(hostAiServices(), settings.understandModel, settings.understandProvider)
+            return {
+              batchSize: settings.understandBatchSize,
+              concurrency: settings.understandConcurrency,
+              timeoutMs: settings.understandTimeoutMs,
+              model: settings.understandModel,
+              provider: settings.understandProvider,
+              /* 这条路走的是宿主的 llm 服务，不是插件自建通道。 */
+              path: status.path,
+              available: status.available,
+              route: status.route,
+              /* 首选发不出去时会按这个顺序换线——调不通的时候，这一行就是"接下来会试什么"。 */
+              fallbacks: status.fallbacks,
+              /* 与旧版字段兼容：`channels` 就是"现在能用哪条路由"，没有就空表。 */
+              channels: status.route === null ? [] : [status.route],
+              providers: status.providers,
+              reason: status.reason,
+              notes: status.notes,
+            }
+          })(),
         }),
+      },
+      {
+        /**
+         * 生成前的**只读预告**：按现在的真实状态算出"这一次点下去到底会发生什么"。
+         *
+         * 存在的理由：面板把「重新扫描 / 重新生成 / AI 理解」三个按钮并成了一个「生成」+
+         * 一个选择弹窗，弹窗里必须写出"将重扫 112 个文件；31 条契约缺 AI 说明，会问 2 批模型"
+         * 这样的话。这些数字**只能在这里算**：文件数要按扫描器同一套排除规则真的走一遍目录，
+         * "这一条要不要问模型"要看内容哈希与 AI 缓存表对不对得上。面板拿不到这些事实，硬在
+         * 前端猜一个数字，就是让人照着一句假话做决定。
+         *
+         * 与真实动作的对应关系（口径必须一模一样，否则预告就是骗人）：
+         * - `code.mode = 'rescan'` → 走 `evolveProject` 的扫描：同一套 `project.scan` 排除规则、
+         *   同一个 `listProjectFiles`；**不写任何东西**（这里只数文件）。
+         * - `code.mode = 'rebuild'` → `clearGenerated` 会清掉哪些，就用 `countGenerated` 数哪些
+         *   （两者共用 `generatedScope()` 那一套判据）。
+         * - `ai` → 与 `understandContracts` 逐条判定缓存命中用的**同一个** `hashOf`：命中就不问
+         *   模型；`force` 时全部重问。批数按 `clampBatch` 之后的大小切，与真实分批一致。
+         *
+         * 全程零副作用：不写库、不调模型、不动预算。
+         */
+        method: 'POST',
+        path: '/generate/plan',
+        handler: async ({ body }) => {
+          const input = body === null || typeof body !== 'object' ? {} : (body as Record<string, unknown>)
+          const projectId =
+            typeof input.projectId === 'string'
+              ? input.projectId
+              : typeof input.project === 'string'
+                ? input.project
+                : ''
+          if (projectId === '') throw new HttpError(400, '缺少 projectId（要预告的项目 id）')
+          const current = requireStore()
+          const project = current.projects().get(projectId)
+          if (project === undefined) throw new HttpError(404, `没有这个项目：${projectId}`)
+
+          const all = current.contractsOf(projectId)
+          const byId = new Map(all.map((contract) => [contract.id, contract]))
+          const wanted = Array.isArray(input.contractIds)
+            ? input.contractIds.filter((item): item is string => typeof item === 'string' && item !== '')
+            : []
+          if (wanted.length > 0) {
+            const absent = wanted.filter((id) => !byId.has(id))
+            if (absent.length > 0) throw new HttpError(404, `没有这些契约：${absent.join('、')}`)
+          }
+          /* 范围只有一个机制：`contractIds`——与 `/understand` 逐字同构。
+             刻意**不做**"面板给个目录名、宿主自己过滤"这种方便接口：那样"范围内多少条"（宿主
+             按目录前缀算）与"实际会问多少条"（面板传的那批 id）就成了两套算法，一旦分叉，
+             预告就是假的。目录是面板那边的概念（左树），由面板把那一批 id 算出来传进来即
+             可——两边算的是同一份清单，想分叉都没有地方分叉。 */
+          const scoped = wanted.length > 0
+            ? wanted.map((id) => byId.get(id)).filter((item): item is ContractRecord => item !== undefined)
+            : all
+
+          /* 逐条判定"要不要问模型"：判据与 `understandContracts` 的缓存命中判定逐字对应
+             （缓存行存在 + 属于这条契约 + 哈希对得上 = 命中，不问模型）。 */
+          const force = input.force === true
+          const index = buildNeighbourIndex(scoped)
+          let cached = 0
+          for (const contract of scoped) {
+            if (force) break
+            const hash = hashOf(contract, index)
+            const row = current.ai().get(aiKey(contract.id))
+            if (row !== undefined && row.contractId === contract.id && row.hash === hash) cached += 1
+          }
+          const pending = force ? scoped.length : scoped.length - cached
+          const batchSize = clampBatch(settings.understandBatchSize)
+          /* AI 面现取：宿主没有可用模型时，弹窗当场就能说清"这一步会失败、原因是什么"，
+             而不是等人点完再来一个 503。取不到就是取不到，这里不猜、不兜底。 */
+          const availability = await describeHostAi(hostAiServices(), settings.understandModel, settings.understandProvider)
+
+          /* 代码那一步的预告：只有点名要看的时候才真走一遍目录（只读）。`listProjectFiles` 与
+             `scanProject` 共用同一个 walker，所以这个数就是 `/rescan` 会读到的文件数。 */
+          const mode = input.mode === 'rebuild' ? 'rebuild' : input.mode === 'rescan' ? 'rescan' : 'none'
+          let code: { mode: 'rescan' | 'rebuild'; files: number; truncated: boolean; maxFiles: number } | null = null
+          if (mode !== 'none') {
+            const walk = await listProjectFiles(project.root, project.scan.excludeDirs, project.scan.maxFiles)
+            code = { mode, files: walk.files.length, truncated: walk.truncated, maxFiles: project.scan.maxFiles }
+          }
+
+          return {
+            ok: true,
+            projectId,
+            scope: {
+              kind: wanted.length > 0 ? 'contracts' : 'project',
+              contracts: scoped.length,
+              /** 这次**会问模型**的条数（缓存命中的不在内；`force` 时就是全部）。 */
+              pending,
+              cached: force ? 0 : cached,
+            },
+            ai: {
+              projectContracts: all.length,
+              batchSize,
+              batches: pending === 0 ? 0 : Math.ceil(pending / batchSize),
+              force,
+              available: availability.available,
+              route: availability.route,
+              reason: availability.reason,
+            },
+            code,
+            /* 重建会清掉多少：永远给（它就是"现在的状态"），面板据此把不可撤销摆在弹窗里。
+               与真正的 `clearGenerated` 共用一套判据，所以这个数不是估的，是要清的那一批。 */
+            generated: current.countGenerated(projectId),
+          }
+        },
       },
       {
         method: 'POST',
@@ -617,6 +818,219 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
             newCandidates: result.newCandidates.length,
           })
           return { result }
+        },
+      },
+      {
+        /**
+         * 重新生成：清掉这个项目已生成的数据，再按当前代码重抽一遍。
+         *
+         * 与「重新扫描」的区别是**破坏性**：重扫只往前推（比形状、记演化），重建把契约 / 快照 /
+         * 演化 / 观测 / 决策全清掉再重写一遍。所以它复用**纳管那条扫描路径**（`commitInit`）而不是
+         * `evolveProject`——后者只会更新已存在的契约，契约一旦清空，它没有东西可以比，也就写不出
+         * 任何契约。
+         *
+         * 两条边界：
+         * - 项目记录保留。纳管范围与基线是人的决定，不是扫描器的产物；基线的移动只属于
+         *   「接受为新基线」那一件事。
+         * - `include` 沿用原范围。重建之后新冒出来的候选仍然要人点头才进来，这是既有的口径
+         *   （见 /init 与 /rescan 的一贯做法）。
+         */
+        method: 'POST',
+        path: '/rebuild',
+        handler: async ({ body }) => {
+          const input = body === null || typeof body !== 'object' ? {} : (body as Record<string, unknown>)
+          // 面板发 `projectId`；`project` 也认，和相邻路由的字段名保持兼容。
+          const projectId =
+            typeof input.projectId === 'string'
+              ? input.projectId
+              : typeof input.project === 'string'
+                ? input.project
+                : ''
+          if (projectId === '') throw new HttpError(400, '缺少 projectId（要重新生成的项目 id）')
+          const current = requireStore()
+          const project = current.projects().get(projectId)
+          if (project === undefined) throw new HttpError(404, `没有这个项目：${projectId}`)
+          const rebuilt = await serialize(async () => {
+            const cleared = await current.clearGenerated(projectId)
+            const result = await commitInit(current, {
+              root: project.root,
+              extractors: FILE_EXTRACTORS,
+              scan: project.scan,
+              runtimeCandidates: runtimeCandidates(),
+              title: project.title,
+              include: [...project.include],
+            })
+            // 把"不是抽出来"的那几项放回项目记录。`commitInit` 会按当时的 HEAD 重新定基线、
+            // 并把纳管时刻改写成现在——那两件事都不该由一次重建代办。
+            await current.projects().update(projectId, (record) => ({
+              ...record,
+              title: project.title,
+              vcs: project.vcs,
+              baselineSha: project.baselineSha,
+              baselineHash: project.baselineHash,
+              createdAt: project.createdAt,
+            }))
+            return { cleared, contracts: result.contracts, skipped: result.skipped.length }
+          })
+          observer?.invalidate()
+          hub.broadcast('changed', { projectId, changes: [], newCandidates: 0 })
+          const latest = current.projects().get(projectId) ?? project
+          const fresh = await freshChangeIds(latest)
+          return {
+            ok: true,
+            // 和 `/contracts` 同构：面板拿到就能直接照着渲染，不必再打一次列表接口。
+            contracts: current.contractsOf(projectId).map((contract) => contractDetail(contract, fresh)),
+            axes: FACET_AXES,
+            labels: FACET_VALUE_LABELS,
+            cleared: rebuilt.cleared,
+            regenerated: rebuilt.contracts,
+            skipped: rebuilt.skipped,
+          }
+        },
+      },
+      {
+        /**
+         * AI 理解：把扫描出来的契约交给模型，换回"人一眼看懂的中文职责"。
+         *
+         * 这是新工作流的第二段（第一段是既有的确定性抽取），与「重新生成」的区别是它**不删任何
+         * 东西**：只在契约记录上补 `aiTitle` / `aiFamily` / `aiRelations` / `aiHash` / `aiAt`，
+         * 原始 `title`（符号名）一个字都不动。
+         *
+         * 几个刻意的口径：
+         * - `contractIds` 给了就只理解这几条（面板详情页的「重新理解」走这条路，配 `force`）；
+         *   没给就理解这个项目下**全部**纳管契约；`limit` 给了就再裁到前 N 条（**在分批之前**裁，
+         *   否则第一批还是整批，"先看前几条效果"就落空）。
+         * - 缓存按内容哈希：内容没变的契约直接读缓存、不问模型，所以第二次调用通常几秒就回来。
+         * - `force: true` 忽略缓存全部重问。
+         * - 一批不合格就整批拒绝：那几条既不写回也不进缓存，原始返回与原因随响应回显（面板能
+         *   展开看）。**绝不**在本地补一个中文标题顶上。
+         * - 模型从**宿主自己的 llm 服务**上要（`hostAi.ts`）：插件不自建通道、不读配置里的密钥。
+         *   宿主没挂 llm / 没有可用 provider 时是明确的 503 + 可读原因；宿主默认模型指着一个没注册
+         *   adapter 的 provider 时，会在已注册的 provider 里找同名模型继续用（`notes` 里如实记）。
+         */
+        method: 'POST',
+        path: '/understand',
+        handler: async ({ body }) => {
+          const input = body === null || typeof body !== 'object' ? {} : (body as Record<string, unknown>)
+          const projectId =
+            typeof input.projectId === 'string'
+              ? input.projectId
+              : typeof input.project === 'string'
+                ? input.project
+                : ''
+          if (projectId === '') throw new HttpError(400, '缺少 projectId（要理解的项目 id）')
+          const current = requireStore()
+          const project = current.projects().get(projectId)
+          if (project === undefined) throw new HttpError(404, `没有这个项目：${projectId}`)
+
+          const all = current.contractsOf(projectId)
+          const byId = new Map(all.map((contract) => [contract.id, contract]))
+          const wanted = Array.isArray(input.contractIds)
+            ? input.contractIds.filter((item): item is string => typeof item === 'string' && item !== '')
+            : []
+          if (wanted.length > 0) {
+            const absent = wanted.filter((id) => !byId.has(id))
+            if (absent.length > 0) throw new HttpError(404, `没有这些契约：${absent.join('、')}`)
+          }
+          /* `limit`：这次最多理解多少条。**必须在分批之前**裁掉多余的候选——否则第一批照样是整批
+             24 条，"只想先看前几条的生成效果"就落空了。（面板不用它；手动验证与脚本用它。） */
+          const limit = typeof input.limit === 'number' && Number.isFinite(input.limit) && input.limit > 0
+            ? Math.floor(input.limit)
+            : 0
+          const candidates = wanted.length > 0
+            ? wanted.map((id) => byId.get(id)).filter((item): item is ContractRecord => item !== undefined)
+            : all
+          const contracts = limit > 0 ? candidates.slice(0, limit) : candidates
+          if (contracts.length === 0) throw new HttpError(400, '这个项目下没有纳管的契约，先扫描 / 纳管再理解')
+
+          /* AI 面在**每次请求时**现取：宿主换模型 / 换 provider 不该要求重启插件。挑不出路由
+             （宿主没挂 llm、没有可用 provider、指名模型不存在）就是明确的 503 + 可读原因，
+             绝不悄悄退回一条自建通道。 */
+          const ai = await createHostAi({
+            services: hostAiServices(),
+            model: settings.understandModel,
+            provider: settings.understandProvider,
+            maxTokens: settings.understandMaxTokens,
+            timeoutMs: settings.understandTimeoutMs,
+          })
+          if (!ai.ok) throw new HttpError(503, ai.reason)
+          /* `ai.notes` 是同一个数组：调用期间"换线"之类的运行期说明会**追加**进去，所以两头都刷一次，
+             且只刷新增的（既不漏掉换线，也不重复刷屏）。 */
+          let notesLogged = 0
+          const flushNotes = (): void => {
+            for (; notesLogged < ai.notes.length; notesLogged += 1) logger.warn(`AI 面：${ai.notes[notesLogged]}`)
+          }
+          flushNotes()
+          const caller = ai.caller
+
+          const batchSize = typeof input.batchSize === 'number' ? input.batchSize : settings.understandBatchSize
+          const force = input.force === true
+          /* 与监视触发的重扫排在同一条写链上：理解要往契约记录里写东西，交叉写同一批记录是
+             这个插件从第一天起就不允许的事。 */
+          const summary = await serialize(() =>
+            understandContracts({
+              store: current,
+              projectId,
+              contracts,
+              caller,
+              batchSize,
+              concurrency: settings.understandConcurrency,
+              force,
+              onProgress: (progress) => {
+                hub.broadcast('understand', {
+                  projectId,
+                  stage: 'ai',
+                  done: progress.done,
+                  total: progress.total,
+                  batch: progress.batch,
+                })
+              },
+            }),
+          )
+          /* 跑完了再把新增的说明刷出去：换线是发生在调用期间的，这里才是它真正出现的时刻。 */
+          flushNotes()
+          hub.broadcast('understand', {
+            projectId,
+            stage: 'done',
+            done: summary.batches,
+            total: summary.batches,
+            ok: summary.ok,
+            understood: summary.understood,
+            cached: summary.cached,
+            requested: summary.requested,
+            failed: summary.failures.length,
+          })
+
+          /* 一条都没成 → 明确的 4xx/5xx，而不是"200 但什么都没发生"。面板据此退回"只有原始
+             记录"的基线视图（它本来就没有本地补写中文这条路）。 */
+          if (summary.understood === 0 && summary.failures.length > 0) {
+            const first = summary.failures[0]
+            throw new HttpError(
+              422,
+              `AI 返回没有一批通过校验：${summary.failures.length} 批被拒绝。` +
+                (first === undefined ? '' : `最早一批（第 ${first.index} 批，${first.ids.length} 条）的原因：${first.why}`),
+              {
+                failures: summary.failures,
+                batches: summary.batches,
+                channels: summary.channels,
+                ms: summary.ms,
+              },
+            )
+          }
+
+          const fresh = await freshChangeIds(project)
+          return {
+            ok: summary.ok,
+            summary: {
+              ...summary,
+              // 逐条结果够面板写报告了；`entries` 也留着，报告要给出"符号名 → 中文职责"的对照。
+              entries: summary.entries,
+            },
+            /* 和 /contracts、/rebuild 同构：面板拿到就能直接照着渲染，不必再打一次列表接口。 */
+            contracts: current.contractsOf(projectId).map((contract) => contractDetail(contract, fresh)),
+            axes: FACET_AXES,
+            labels: FACET_VALUE_LABELS,
+          }
         },
       },
       {
@@ -701,6 +1115,45 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
       },
       {
         method: 'GET',
+        path: '/vendor/:file',
+        /* 面板的第三方资源（Tabulator）。**只读 + 白名单**：名字对不上、带 `/`、带 `..`、
+           编码穿越一律 404——别的一概不谈。命中就给一年 immutable：文件名带版本号查询串
+           （`?v=6.5.3`），换版本时 URL 变了，所以长缓存不会让人卡在旧文件上。 */
+        raw: (req, res) => {
+          if ((req.method ?? 'GET').toUpperCase() !== 'GET') {
+            res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' })
+            res.end('这个资源只接受 GET\n')
+            return
+          }
+          const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
+          const name = vendorNameOf(pathname)
+          /* 两道门：名字要能从路径里取出来，而且必须在白名单里。
+             两道都走不通就都是 404——**不区分**"名字不合法"和"没这个东西"，免得探测者
+             从状态码差异里读出目录里有什么。（少了白名单这一道，`ghost.js` 会掉进下面
+             那个 500 分支，把"没有这个资源"说成"读不出来"，这正是本文件里踩过的坑。） */
+          if (name === null || vendorPath(name) === null) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+            res.end(`没有这个资源：${pathname}\n`)
+            return
+          }
+          void readVendor(name)
+            .then(({ body, type }) => {
+              res.writeHead(200, {
+                'Content-Type': type,
+                'Cache-Control': 'public, max-age=31536000, immutable',
+                'X-Content-Type-Options': 'nosniff',
+              })
+              // 直接吐字节：JS/CSS 是文本也不当字符串过一道，省得哪天加了二进制资源才发现。
+              res.end(body)
+            })
+            .catch((error: unknown) => {
+              res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' })
+              res.end(`资源读不出来：${String(error)}\n路径：${vendorPath(name)}`)
+            })
+        },
+      },
+      {
+        method: 'GET',
         path: '/events',
         raw: (req, res) => {
           hub.subscribe(res, { type: 'ready', data: { projects: [...watchers.keys()] } })
@@ -717,3 +1170,4 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
     }
   })
 }
+

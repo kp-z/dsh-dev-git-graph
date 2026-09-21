@@ -115,6 +115,66 @@ export interface ContractRecord {
   confidence: number
   createdAt: number
   updatedAt: number
+  /**
+   * AI 理解出来的中文职责（一句话）。
+   *
+   * **有就显示，没有就不显示**：面板绝不会在本地补一个中文标题出来。原始 `title`（符号名）
+   * 永远原样保留，方便 grep——"给人看的名字"与"给机器找的名字"是两件事。
+   */
+  aiTitle?: string
+  /** AI 归的中文族名。 */
+  aiFamily?: string
+  /** AI 给出的关系。 */
+  aiRelations?: AiEdge[]
+  /**
+   * AI 理解出来的**字段级**中文解释（字段名 → 一句中文）。
+   *
+   * 只加不改：字段名与类型仍由扫描结果给出，这里只多一句"这个字段是干什么的"。字段名必须与
+   * 扫描到的字段名逐字对上（对不上、或少了哪个字段，整批拒绝，见 `validateAiPayload`），
+   * 也**不做任何本地词典式翻译**——模型没给就是没有。
+   */
+  aiFields?: AiField[]
+  /** 上面几个字段对应的契约内容哈希；与当前内容对不上即视为过期。 */
+  aiHash?: string
+  /** 这次理解的时间。 */
+  aiAt?: number
+}
+
+/** AI 理解出来的一条字段级中文解释。`name` 必须是扫描到的字段名（逐字相同）。 */
+export interface AiField {
+  name: string
+  zh: string
+}
+
+/** AI 理解出来的一条关系。合法关系词见 `understand.ts` 的 `REL_ALLOWED`。 */
+export interface AiEdge {
+  /** 指向的契约 id。 */
+  to: string
+  /** `imports` / `emits` / `contains` / `defines` 之一。 */
+  rel: string
+  /** 一句话理由。 */
+  why: string
+}
+
+/**
+ * AI 结果的持久化缓存行（表 `ai`，key 是 `ai_<契约 id>`）。
+ *
+ * 缓存按**内容哈希**判定是否可用：哈希由"符号名 + 字段名/类型 + 来源文件"算出来，所以契约
+ * 内容一动哈希就变，那一条自然重新问模型；内容没变则连模型都不用叫。
+ */
+export interface AiRecord {
+  id: string
+  projectId: string
+  contractId: string
+  hash: string
+  titleZh: string
+  family: string
+  relations: AiEdge[]
+  /** 字段级中文（没有就是空数组：缓存里存的也必须是"模型真给过的"，不补）。 */
+  fields: AiField[]
+  at: number
+  /** 实际用的模型路由（回显用，如 `mmt-vision · deepseek-v4-flash-tencent`；由宿主的 llm 服务给出）。 */
+  channel: string
 }
 
 /** 一条演化：某个提交把某条契约改成了什么样。 */

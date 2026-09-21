@@ -19,7 +19,6 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { apply } from '../lib/index.js'
-import { describeHostAi } from '../lib/hostAi.js'
 import { fakeCtx, type RouteSpec } from '../test/fakeHost.ts'
 import { memoryFacility } from '../test/fake.ts'
 
@@ -38,6 +37,17 @@ const GIT_ENV = {
 /** 造一个带三个边界、且已经提交过的演示项目。 */
 function makeProject(): string {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'butler-demo-'))
+  /* 深目录 fixture：专门用来量叶子（契约行）的缩进，浅树看不出问题 */
+  fs.mkdirSync(path.join(root, 'deep/app/api/v2/types'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'deep/app/api/v2/types/deep.ts'), [
+    'export type DeepOne = { id: string; n: number }',
+    'export type DeepTwo = { a: string[]; b?: boolean }',
+    'export type DeepThree = { nested: DeepTwo }',
+  ].join('\n'))
+  fs.mkdirSync(path.join(root, 'deep/app/api/v2/handlers'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'deep/app/api/v2/handlers/h.ts'), [
+    'export type HandlerInput = { q: string }',
+  ].join('\n'))
   fs.mkdirSync(path.join(root, 'proto'), { recursive: true })
   fs.mkdirSync(path.join(root, 'src'), { recursive: true })
   fs.writeFileSync(
@@ -105,85 +115,9 @@ components:
   return root
 }
 
-/**
- * 造第二个演示项目：目录多一层（`packages/api`、`packages/web`、`scripts`）。
- * 面板的「纳管项目」是"左选项目 / 右选目录"两栏，"切一个项目看它的目录"得有得可切。
- */
-function makeSecondProject(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'butler-demo2-'))
-  fs.mkdirSync(path.join(root, 'packages', 'api'), { recursive: true })
-  fs.mkdirSync(path.join(root, 'packages', 'web'), { recursive: true })
-  fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
-  fs.writeFileSync(
-    path.join(root, 'packages', 'api', 'openapi.yaml'),
-    `openapi: 3.0.0
-info: { title: 计费服务, version: "1.0" }
-paths:
-  /bills/{id}:
-    get:
-      operationId: getBill
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string }
-      responses:
-        "200":
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/Bill" }
-components:
-  schemas:
-    Bill:
-      type: object
-      required: [id, cents]
-      properties:
-        id: { type: string }
-        cents: { type: integer }
-`,
-  )
-  fs.writeFileSync(
-    path.join(root, 'scripts', 'job.proto'),
-    `syntax = "proto3";
-package ops.v1;
-
-message Job {
-  string id = 1;
-  string kind = 2;
-}
-`,
-  )
-  // packages 下面的第二枝：有了兄弟目录，"勾一半"的三态才有得看。
-  fs.writeFileSync(
-    path.join(root, 'packages', 'web', 'types.ts'),
-    `export interface BillView {
-  id: string
-  cents: number
-  note?: string
-}
-`,
-  )
-  fs.writeFileSync(path.join(root, 'README.md'), '# 计费（演示）\n')
-  return root
-}
-
-/** 造第三个演示项目：一条候选都没有——右栏该如实说"没扫到"，而不是给个空框。 */
-function makeEmptyProject(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'butler-empty-'))
-  fs.mkdirSync(path.join(root, 'docs'), { recursive: true })
-  fs.writeFileSync(path.join(root, 'docs', 'notes.md'), '这里只有文档，没有任何边界。\n')
-  return root
-}
-
 const fake = fakeCtx()
 const { facility } = memoryFacility()
-/**
- * 默认带上运行时工具边界（宿主真有工具服务时的样子）。
- * `DEMO_NO_RUNTIME=1` 时把工具服务摘掉：此时"空项目"才是真的零候选，
- * 面板那句"这个项目里没扫到可纳管的边界"才有得看——否则每个项目都会被运行时那条兜着。
- */
-const WITH_RUNTIME = process.env.DEMO_NO_RUNTIME !== '1'
-apply(fake.ctx as never, { watchEnabled: false, introspectTools: WITH_RUNTIME })
+apply(fake.ctx as never, { watchEnabled: false, introspectTools: true })
 fake.mount('storageDomain', facility)
 fake.mount('webServer', {
   register(spec: RouteSpec) {
@@ -191,27 +125,25 @@ fake.mount('webServer', {
     return () => undefined
   },
 })
-if (WITH_RUNTIME) {
-  fake.mount('tools', {
-    schemas: () => [{ name: 'search_orders', description: '按用户查订单', parameters: { user_id: { type: 'string', required: true }, limit: { type: 'number' } } }],
-    get: (name: string) =>
-      name === 'search_orders'
-        ? {
-            name: 'search_orders',
-            description: '按用户查订单',
-            parameters: { user_id: { type: 'string', required: true }, limit: { type: 'number' } },
-            output: {
-              schema: {
-                type: 'object',
-                properties: { orders: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } } },
-                required: ['orders'],
-                additionalProperties: false,
-              },
+fake.mount('tools', {
+  schemas: () => [{ name: 'search_orders', description: '按用户查订单', parameters: { user_id: { type: 'string', required: true }, limit: { type: 'number' } } }],
+  get: (name: string) =>
+    name === 'search_orders'
+      ? {
+          name: 'search_orders',
+          description: '按用户查订单',
+          parameters: { user_id: { type: 'string', required: true }, limit: { type: 'number' } },
+          output: {
+            schema: {
+              type: 'object',
+              properties: { orders: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] } } },
+              required: ['orders'],
+              additionalProperties: false,
             },
-          }
-        : undefined,
-  })
-}
+          },
+        }
+      : undefined,
+})
 
 /** 让出时间等插件把存储打开。 */
 async function settle(ms = 400): Promise<void> {
@@ -221,17 +153,6 @@ async function settle(ms = 400): Promise<void> {
 async function seed(): Promise<void> {
   await settle()
   const root = makeProject()
-  const second = makeSecondProject()
-  const empty = makeEmptyProject()
-  // 「纳管项目」对话框从 DSH 的项目清单里选，所以假宿主也挂一个：
-  // 一个已纳管、一个待纳管（目录多一层）、一个没有边界——三种右栏都要被看到。
-  fake.mount('workspaceRegistry', {
-    list: () => [
-      { id: 'demo-managed', path: root, title: '订单服务（演示 · 已纳管）' },
-      { id: 'demo-billing', path: second, title: '计费服务（演示 · 待纳管）' },
-      { id: 'demo-empty', path: empty, title: '空项目（演示 · 没边界）' },
-    ],
-  })
   const init = await fake.call('POST', '/dsh-contract-butler/init', { root, confirm: true, title: '订单服务（演示）' })
   const parsed = JSON.parse(init.body)
   if (parsed.result === undefined) throw new Error(`纳管失败：${init.body.slice(0, 300)}`)
@@ -278,14 +199,6 @@ message User {
   )
   console.log(`演示项目：${root}`)
   console.log(`纳管契约：${counts.join('  ')}`)
-  console.log(`项目清单：已纳管 1 / 待纳管 ${second} / 没边界 ${empty}`)
-
-  /* AI 理解在这里**故意不可用**：这个假宿主没有 llm 服务，而插件也不再自建 AI 管道
-     （不读配置文件、不直连网关）。所以"点一下生成中文"必然是 503，面板会把原因照实显示。
-     这里显式打出来，免得有人以为是面板坏了。 */
-  const status = await describeHostAi({})
-  console.log(`AI 理解：${status.available ? `可用（${status.route}）` : '不可用'}`)
-  if (!status.available) console.log(`  原因（面板上点"生成"会显示同一句）：${status.reason}`)
 }
 
 const server = http.createServer((req, res) => {

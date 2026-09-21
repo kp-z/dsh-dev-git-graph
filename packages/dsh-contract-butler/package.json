@@ -22,10 +22,11 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/client.js lib/client.js && cp src/panel.html lib/panel.html",
+    "build": "tsc -p tsconfig.json && npm run build:assets",
+    "build:assets": "cp src/client.js lib/client.js && cp src/panel.html lib/panel.html && rm -rf lib/vendor && mkdir -p lib/vendor && cp src/vendor/* lib/vendor/",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsc -p tsconfig.json --watch",
-    "test": "tsc -p tsconfig.json && node --test \"test/*.test.ts\""
+    "test": "tsc -p tsconfig.json && npm run build:assets && node --test \"test/*.test.ts\""
   },
   "dsh": {
     "bundle": {

@@ -9,6 +9,7 @@
 import { parseShape } from './shape.js'
 import { CONTRACT_BUTLER_DOMAIN } from './domain.js'
 import type {
+  AiRecord,
   ChangeRecord,
   ContractRecord,
   DecisionRecord,
@@ -38,7 +39,7 @@ export interface StorageDomainFacility {
   open(spec: unknown): Promise<DomainLike>
 }
 
-/** 六张表的表名。 */
+/** 七张表的表名。 */
 export const TABLES = {
   projects: 'projects',
   contracts: 'contracts',
@@ -46,6 +47,8 @@ export const TABLES = {
   changes: 'changes',
   observations: 'observations',
   decisions: 'decisions',
+  /** AI 理解结果的缓存；按内容哈希判定可用性。 */
+  ai: 'ai',
 } as const
 
 /** 形状快照记录（快照表用）。 */
@@ -58,6 +61,17 @@ export interface SnapshotRecord {
   outputHash: string
   input: unknown
   output: unknown
+}
+
+/** 一次"清掉生成出来的数据"的结果：各表清掉了多少条。 */
+export interface ClearedCounts {
+  contracts: number
+  snapshots: number
+  changes: number
+  observations: number
+  decisions: number
+  /** 清掉的 AI 结果缓存条数。 */
+  ai: number
 }
 
 /**
@@ -108,6 +122,16 @@ export class ButlerStore {
   /** 决策表。 */
   decisions(): TableLike<DecisionRecord> {
     return this.domain.table<DecisionRecord>(TABLES.decisions)
+  }
+
+  /**
+   * AI 结果的缓存表。
+   *
+   * 缓存**必须跟着领域落盘**，而不是留在内存里：重启宿主的代价不该是"再问一遍所有契约"——
+   * 那既慢又费钱，而且两次回答未必一致，人会以为契约变了。
+   */
+  ai(): TableLike<AiRecord> {
+    return this.domain.table<AiRecord>(TABLES.ai)
   }
 
   /**
@@ -185,6 +209,107 @@ export class ButlerStore {
   }
 
   /**
+   * 清掉某个项目**生成出来的**数据：契约、快照、演化、观测、决策、AI 结果缓存。
+   *
+   * 项目记录本身不在清理范围内——它是"人的决定"（纳管范围、基线），不是扫描器的产物；
+   * 把基线一起抹掉，等于替用户做了一次「接受为新基线」，那不是重建该有的副作用。
+   *
+   * AI 缓存也在清理范围内：重建是"按当前代码重做一遍"，留下上一轮的中文说明会让一次重建
+   * 看起来只换了一半。想要省这一次调用的场景是**重新扫描**（它不清任何东西，缓存自然命中）。
+   *
+   * 快照按"这个项目下契约的 id"过滤，所以契约 id 必须**先收集再删**：契约记录一旦删掉，
+   * 就再也问不出哪些快照属于它了。另外并上 `projectId` 兜一手，免得上一轮中途失败留下的
+   * 孤儿快照永远清不掉。
+   * @param projectId - 项目 id。
+   * @returns 各表清掉的条数。
+   */
+  async clearGenerated(projectId: string): Promise<ClearedCounts> {
+    const scope = this.generatedScope(projectId)
+    return {
+      contracts: await this.clearWhere(this.contracts(), scope.contracts),
+      snapshots: await this.clearWhere(this.snapshots(), scope.snapshots),
+      changes: await this.clearWhere(this.changes(), scope.changes),
+      observations: await this.clearWhere(this.observations(), scope.observations),
+      decisions: await this.clearWhere(this.decisions(), scope.decisions),
+      ai: await this.clearWhere(this.ai(), scope.ai),
+    }
+  }
+
+  /**
+   * 只数不删：一次重建**会**清掉多少条。
+   *
+   * 面板上那句"会清掉 N 条契约、N 条快照"的预告就是它算的，用户正是照着那句话点的确认。
+   * 所以它必须与 `clearGenerated` 说同一件事——两者共用 `generatedScope()` 这一套判据，
+   * 判据一旦分叉，预告就成了假话（预告 143 条、实际清掉 140 条），而这正是最不该出错的地方。
+   * @param projectId - 项目 id。
+   * @returns 各表**将要**清掉的条数（不改任何数据）。
+   */
+  countGenerated(projectId: string): ClearedCounts {
+    const scope = this.generatedScope(projectId)
+    const count = <T>(table: TableLike<T>, match: (record: T) => boolean): number => {
+      let found = 0
+      for (const [, record] of table.entries()) if (match(record)) found += 1
+      return found
+    }
+    return {
+      contracts: count(this.contracts(), scope.contracts),
+      snapshots: count(this.snapshots(), scope.snapshots),
+      changes: count(this.changes(), scope.changes),
+      observations: count(this.observations(), scope.observations),
+      decisions: count(this.decisions(), scope.decisions),
+      ai: count(this.ai(), scope.ai),
+    }
+  }
+
+  /**
+   * "生成出来的数据"的判据集合（`clearGenerated` 与 `countGenerated` 的唯一来源）。
+   *
+   * 快照与 AI 缓存按"这个项目下契约的 id"过滤，所以契约 id 必须**先收集再删**：契约记录一旦
+   * 删掉，就再也问不出哪些快照属于它了。另外并上 `projectId` 兜一手，免得上一轮中途失败留下
+   * 的孤儿记录永远清不掉。
+   * @param projectId - 项目 id。
+   * @returns 六张表各自的命中判据。
+   */
+  private generatedScope(projectId: string): {
+    contracts: (record: ContractRecord) => boolean
+    snapshots: (record: SnapshotRecord) => boolean
+    changes: (record: ChangeRecord) => boolean
+    observations: (record: ObservationRecord) => boolean
+    decisions: (record: DecisionRecord) => boolean
+    ai: (record: AiRecord) => boolean
+  } {
+    const contractIds = new Set<string>()
+    for (const [key, record] of this.contracts().entries()) {
+      if (record.projectId === projectId) contractIds.add(key)
+    }
+    return {
+      contracts: (record) => record.projectId === projectId,
+      snapshots: (record) => contractIds.has(record.contractId) || record.projectId === projectId,
+      changes: (record) => record.projectId === projectId,
+      observations: (record) => record.projectId === projectId,
+      decisions: (record) => record.projectId === projectId,
+      ai: (record) => contractIds.has(record.contractId) || record.projectId === projectId,
+    }
+  }
+
+  /**
+   * 按条件清掉一张表里匹配的记录。
+   *
+   * 先收集 key 再删：表实现给出的 `entries()` 是活迭代器，边遍历边删是在赌它的实现细节，
+   * 而这里没有任何性能理由去赌。
+   * @param table - 要清的表。
+   * @param match - 命中判据。
+   * @returns 清掉的条数。
+   */
+  private async clearWhere<T>(table: TableLike<T>, match: (record: T) => boolean): Promise<number> {
+    const doomed: string[] = []
+    for (const [key, record] of table.entries()) if (match(record)) doomed.push(key)
+    let removed = 0
+    for (const key of doomed) if (await table.delete(key)) removed += 1
+    return removed
+  }
+
+  /**
    * 裁剪某个项目的观测，只留最新的若干条。
    * @param projectId - 项目 id。
    * @param keep - 保留条数。
@@ -213,4 +338,9 @@ export function changeKey(contractId: string, sha: string, beforeHash: string, a
 /** 观测记录的 key：时间戳 + 序号，保证唯一且可按时间排序。 */
 export function observationKey(at: number, seq: number): string {
   return `ob_${at.toString(36)}_${seq.toString(36)}`
+}
+
+/** AI 缓存行的 key：一条契约一行（是否可用另看 `hash`）。key 必须匹配 `[a-zA-Z0-9_-]+`。 */
+export function aiKey(contractId: string): string {
+  return `ai_${contractId}`
 }
