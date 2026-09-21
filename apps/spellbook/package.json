@@ -1,0 +1,13 @@
+{
+  "name": "spellbook",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "咒语书 —— 前端效果库。一条咒语 = 描述 + 示例代码，预览是真实运行的。",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node serve.mjs",
+    "test": "node --test test/",
+    "vault": "node scripts/vault.mjs"
+  }
+}
