@@ -168,6 +168,12 @@ export interface UnderstandProgress {
   total: number
   /** 正在处理的批次序号（1 起）。 */
   batch: number
+  /** 这一组正在问的契约名（面板要说人话："正在为 a、b 生成中文说明"）。 */
+  names?: string[]
+  /** 已经问完的**条**数。组数是实现细节，条数才是人关心的。 */
+  contractsDone?: number
+  /** 这一轮一共要问多少条。 */
+  contractsTotal?: number
 }
 
 /** 一批被拒绝的记录，原样保留模型的返回。 */
@@ -442,15 +448,30 @@ export async function understandContracts(input: UnderstandInput): Promise<Under
     }
   }
 
+  /* 进度同时给两套口径：组（done/total，宿主内部是按组问模型的）与条（contractsDone/contractsTotal）。
+     名字取的是**这一组真的在问的那几条**，不按 batchSize 猜切片。 */
+  let contractsDone = 0
   const worker = async (): Promise<void> => {
     for (;;) {
       const batchIndex = cursor
       cursor += 1
       if (batchIndex >= batches.length) return
-      input.onProgress?.({ done, total: batches.length, batch: batchIndex + 1 })
+      /* 上面已经挡了越界，这里 ?? [] 只是让类型收敛（strict 下索引访问是可空的） */
+      const group = batches[batchIndex] ?? []
+      const names = group.slice(0, 3).map((one) => one.symbol || one.file || one.id)
+      const report = {
+        done,
+        total: batches.length,
+        batch: batchIndex + 1,
+        names,
+        contractsDone,
+        contractsTotal: pending.length,
+      }
+      input.onProgress?.(report)
       await runBatch(batchIndex)
       done += 1
-      input.onProgress?.({ done, total: batches.length, batch: batchIndex + 1 })
+      contractsDone += group.length
+      input.onProgress?.({ ...report, done, contractsDone })
     }
   }
 

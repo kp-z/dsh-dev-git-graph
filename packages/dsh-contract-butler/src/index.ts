@@ -983,6 +983,10 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
                   done: progress.done,
                   total: progress.total,
                   batch: progress.batch,
+                  /* 面板说人话要的两样：正在问哪几条（契约名）+ 条口径的进度。 */
+                  names: progress.names,
+                  contractsDone: progress.contractsDone,
+                  contractsTotal: progress.contractsTotal,
                 })
               },
             }),

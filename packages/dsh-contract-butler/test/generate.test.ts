@@ -495,8 +495,16 @@ test('面板：一条链 = 扫描 → 理解 → 渲染，且"AI 理解"不再�
   // 三段的名字（加载卡片上的阶段就是这三个）。
   assert.ok(html.includes("var UND_STAGES = ['扫描', '理解', '渲染']"), '三个阶段应当是 扫描 / 理解 / 渲染')
   // 阶段文字要体现"在扫描还是在理解"。
-  assert.ok(html.includes("'扫描中…'"), '应当有「扫描中…」这段文字')
-  assert.ok(html.includes("'理解中 第 '") && html.includes('批'), '应当有「理解中 第 N / M 批」这段文字')
+  /* 这条也翻转过一次：原来钉「扫描中…」，用户要求说人话 → 「正在扫描 <项目名>…」。 */
+  assert.ok(html.includes("'正在扫描 ' + ((S.p && S.p.title) ? S.p.title : '这个项目') + '…'"),
+    '应当有「正在扫描 <项目名>…」这段文字')
+  /* 这条断言在"右下角说人话"那一轮**翻转过一次**：原来钉的是「理解中 第 N / M 批」，
+     用户明令"批/批次/分批不许再出现"，所以改成钉同一件事的新说法——AI 那一段的标题里
+     必须写出"正在为谁生成、已经完成几条"，而且数字口径是**条**不是组。
+     意图没变：这一段的标题必须是真的进度，不是一句空转的"理解中…"。 */
+  assert.ok(html.includes("'正在为 '") && html.includes("' 生成中文说明（已完成 '"),
+    '应当有「正在为 a、b 生成中文说明（已完成 5 / 12 条）」这段文字')
+  assert.ok(!html.includes('批'), '那一段的文案里不许再出现"批"')
   assert.ok(html.includes("'渲染中…'"), '应当有「渲染中…」这段文字')
   // 一条链：runGenerate 里按顺序调这三条路由。
   const start = html.indexOf('function runGenerate')
@@ -859,4 +867,120 @@ test('弹窗：默认必须是"增量重扫"，而且那一档真的处于选中
   const g = html.slice(open, open + 600)
   assert.ok(g.includes("mode: 'rescan'"), '打开弹窗时的默认模式必须是增量重扫')
   assert.ok(html.includes('增量重扫（默认）'), '那一档的标题要写明它是默认')
+})
+
+/**
+ * 生成弹窗这一轮的三件事：网格卡片布局、目录块（只能加、提交是并集）、右下角说人话。
+ *
+ * 最要紧的一条是**并集**：项目记录里的 `include` 存的是**候选（文件）id**，重跑 init 是
+ * **替换**语义——不在集合里的候选就不算纳管了。所以这个块提交时必须发"现有 ∪ 新勾"，
+ * 只发新勾的那几条会把已经纳管的一整组挤掉。这条一旦写错，用户就是"加一个目录，掉了十个"。
+ */
+/**
+ * 目录块的**真实口径**：并入是并集（老的一条不掉），并入之后下一次扫描仍在。
+ *
+ * 为什么单独压这一条：面板那个块提交的是"现有 id ∪ 新勾的 id"，而 `commitInit` 对 `include`
+ * 是**替换**语义——只发新勾的那几条，已经纳管的一整组就会被挤出项目。这条测试走真路由、
+ * 真存储，先人为把 include 缩到一半（还原"早就纳管过、但只纳了一部分"的现场），再并回去。
+ */
+test('目录块：并入是并集（老的一条不掉），并入后下一次扫描仍在', async () => {
+  const { fake, root, projectId } = await mountPlugin()
+  const includeOf = async (): Promise<string[]> => {
+    const data = JSON.parse((await fake.call('GET', '/dsh-contract-butler/projects')).body) as { projects: any[] }
+    const mine = data.projects.find((p) => p.id === projectId)
+    assert.ok(mine, '项目记录要在')
+    return mine.include as string[]
+  }
+  const full = await includeOf()
+  assert.ok(full.length > 1, `布景要有不止一条候选，现在是 ${full.length} 条`)
+
+  // 只读预览：不带 confirm，拿候选（这一步不该有任何副作用）。
+  const preview = JSON.parse((await fake.call('POST', '/dsh-contract-butler/init', { root })).body) as { preview: any }
+  const ids = (preview.preview.candidates as any[]).map((c) => String(c.id))
+  assert.ok(ids.length > 1, '预览要给得出候选')
+  assert.deepEqual(await includeOf(), full, '不带 confirm 的 /init 必须只读，不许改 include')
+
+  // 缩到一半：替换语义在这里是**真的**（这条也顺手钉住了"只发一部分会掉老的"）。
+  const half = ids.slice(0, Math.max(1, Math.floor(ids.length / 2)))
+  await fake.call('POST', '/dsh-contract-butler/init', { root, include: half, confirm: true })
+  const shrunk = await includeOf()
+  assert.ok(shrunk.length < full.length, '显式给 include 时是替换：给小了就真的变小')
+
+  // 面板那一块提交的是并集：现有 ∪ 新勾。
+  const add = ids.filter((id) => !half.includes(id))
+  const union = [...half, ...add]
+  await fake.call('POST', '/dsh-contract-butler/init', { root, include: union, confirm: true })
+  const merged = await includeOf()
+  assert.equal(merged.length, union.length, '并集要整份进去')
+  for (const id of half) assert.ok(merged.includes(id), '老的一条都不许掉——只发新勾就会闯这个祸')
+  for (const id of add) assert.ok(merged.includes(id), '新勾的也要进去')
+
+  // 下一次扫描（增量重扫）之后，include 不该变。
+  const scan = await fake.call('POST', '/dsh-contract-butler/rescan', { project: projectId })
+  assert.equal(scan.status, 200, `重扫要成：${scan.body.slice(0, 200)}`)
+  const after = await includeOf()
+  for (const id of union) assert.ok(after.includes(id), '重扫之后 include 里还得有它')
+  assert.equal(after.length, merged.length, '重扫不该动 include')
+})
+
+test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 右下角不说"批"', () => {
+  const html = panelHtml()
+
+  // 1) 弹窗是网格卡片，不是单列堆叠；两列并排，窄屏塌成一列。
+  assert.ok(html.includes("el('div', { class: 'gengrid' }"), '生成弹窗要用网格容器')
+  const grid = html.slice(html.indexOf('.gengrid {'), html.indexOf('.gengrid {') + 700)
+  assert.match(grid, /grid-template-columns:\s*minmax\(0,\s*1fr\)\s*minmax\(0,\s*1fr\)/,
+    '两列网格：左「这一步做什么」、右「在哪些目录上做」')
+  assert.ok(html.includes('@media (max-width: 780px) { .gengrid { grid-template-columns: minmax(0, 1fr); } }'),
+    '窄屏要塌成一列，不能挤成两条缝')
+  // 通栏：按钮条 / 预告 / 作用范围 / 确认条都要横跨两列
+  assert.match(html, /\.gengrid > \.genspan, \.gengrid > \.genfoot, \.gengrid > \.genplan,/,
+    '通栏规则要写明')
+  assert.ok(html.includes("class: 'gpl warn genspan'"), '「清掉重生成」的确认条要通栏')
+  // 弹窗要用宽版（两列才有意义）
+  assert.match(html, /openOverlay\('生成', el\('div', \{ class: 'gengrid' \}[\s\S]{0,1600}?\n      true\);/,
+    '生成弹窗要按宽版打开')
+
+  // 2) 目录块：显示 root 与"现在纳管了哪些目录"，但**只提供加**。
+  assert.ok(html.includes("text: '在哪些目录上做'"), '目录块的标题')
+  assert.ok(html.includes("text: '再加目录…'"), '要有"再加目录"的入口（用户抱怨的就是没有这个入口）')
+  assert.ok(html.includes("text: '只能加，不能减'"), '口径要写在脸上：这块只能加')
+  assert.ok(html.includes("placeholder: '也可以手填绝对路径（要在本项目的 root 里）'"), '要能手填绝对路径')
+  // 已纳管范围是**展示用**：从契约 file 归纳，写回永远用 id。
+  assert.ok(html.includes('function renderDirList()'), '已纳管范围要有归纳展示')
+  assert.ok(html.includes('只是给人看；真正的依据是候选 id'), '要写明归纳只是展示口径')
+  assert.ok(html.includes("return '（运行时）';"), '没有 file 的那几条也要有归宿，不能凭空消失')
+  // 只读预览拿候选：POST /init 不带 confirm。
+  assert.match(html, /api\('\/init', \{ method: 'POST', body: \{ root: S\.p\.root \} \}\)/,
+    '扫目录只走只读预览（不带 confirm）')
+  // 复用纳管那套目录树：同一份 S.init / S.pick 状态与同一套勾父连子。
+  assert.ok(html.includes('S.init = pv;'), '目录树要接上纳管那套状态')
+  assert.ok(html.includes('S.pick = DG.pick;'), '目录树要接上纳管那套勾选状态')
+  assert.ok(html.includes('setDir(node, true);'), '手填路径也要走同一套勾选（勾父连子）')
+
+  // 3) 提交必须是并集，而且绝不能只发新勾的。
+  const saveAt = html.indexOf("dirSave.addEventListener('click'")
+  assert.ok(saveAt > 0, '要有"并入"的提交点')
+  const save = html.slice(saveAt, saveAt + 1400)
+  assert.ok(save.includes('var existing = includeIds();'), '提交前要先读出现有的 id（并集的左半边）')
+  assert.ok(save.includes('var union = existing.slice();'), '并集从"现有"起手')
+  assert.ok(save.includes('if (union.indexOf(id) < 0) union.push(id);'), '新勾的并进现有，不许去重掉老的')
+  assert.ok(save.includes('include: union, confirm: true'), '提交的是并集 + confirm')
+  /* 这条是被量出来的教训：按钮创建了不等于挂上了——漏了 appendChild，界面上就没有它。 */
+  assert.ok(html.includes('dirManual, dirManualGo, dirSave'), '「并入」那个按钮必须真的挂进 DOM')
+  assert.ok(!/include: picked/.test(html), '绝不能只提交新勾的那几条（那会把老的一整组挤掉）')
+  // 提交成功后再走 AI 那一段（/understand），不是另起一条链。
+  assert.ok(save.includes("mode: 'none', ai: true"), '并入后接着走 AI 那一段')
+  assert.ok(save.includes('return loadProjects().then'), '并入后要先刷新项目记录（include 变了）')
+  // 不给"取消纳管"的入口：那是另一件事，要先给代价与确认。
+  assert.ok(html.includes('取消已纳管目录是另一件事，这里不给入口'), '要把"不给减"的理由写下来')
+  assert.ok(!/dirRemove|removeDir|取消纳管/.test(html), '这块里不许出现移除已纳管目录的入口')
+
+  // 4) 右下角说人话：全文件不许再出现"批"这个字。
+  assert.ok(!html.includes('批'), '右下角与注释里都不许再出现"批/批次/分批"')
+  assert.ok(html.includes("'模型：' + result.channels.join('、')"), '通道要改叫"模型："')
+  assert.ok(html.includes("'正在准备…'"), '数字没到就说"正在准备…"，不猜')
+  assert.ok(html.includes('正在为 '), '标题要说人话：正在为 a、b 生成中文说明')
+  assert.ok(html.includes('（已完成 '), '进度要写"已完成 5 / 12 条"这种条数口径')
+  assert.ok(!html.includes('第 N / M'), '旧的"第 N / M"字样不许再留')
 })
