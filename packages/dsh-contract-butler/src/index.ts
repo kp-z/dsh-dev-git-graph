@@ -1050,7 +1050,7 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
 
           /* 目录级 AI 中文：与契约那轮用同一个 AI 面（同一个 caller），写回也走同一条写链。
              body.dirAi === true 时才跑（面板勾了'补 AI 中文说明'才会点名）。 */
-          let dirSummary = { generated: 0, cached: 0, failed: 0, total: 0 }
+          let dirSummary = { generated: 0, cached: 0, failed: 0, graphFailed: 0, total: 0 }
           if (input.dirAi === true) {
             const dirResult = await serialize(() =>
               understandDirs({
@@ -1074,6 +1074,7 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
               generated: dirResult.generated,
               cached: dirResult.cached,
               failed: dirResult.failed,
+              graphFailed: dirResult.graphFailed,
               total: dirResult.dirs.length,
             }
           }

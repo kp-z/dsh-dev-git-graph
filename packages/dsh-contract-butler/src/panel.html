@@ -1605,7 +1605,8 @@
   function aiSummaryText(s) {
     var dirs = s.dirs || {};
     var dirTxt = dirs.total ? '，另外 ' + dirs.total + ' 个目录也补了中文' +
-      (dirs.failed ? '（' + dirs.failed + ' 个没成）' : '') : '';
+      (dirs.failed ? '（' + dirs.failed + ' 个没成）' : '') +
+      (dirs.graphFailed ? '（' + dirs.graphFailed + ' 个目录的图没画成，只剩分区图）' : '') : '';
     return 'AI 中文说明：' + (s.understood || 0) + ' 条'
       + (s.cached ? '（其中 ' + s.cached + ' 条命中缓存、没再问模型）' : '')
       + (s.failures && s.failures.length ? '，' + s.failures.length + ' 组被拒绝' : '')

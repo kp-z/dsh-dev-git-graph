@@ -250,6 +250,7 @@ test('路由接线：/dirs 只读出口、/understand 里目录那轮要点名�
   assert.ok(src.includes('current.dirAi().entries()'), '/dirs 从 dir_ai 表里读')
   assert.ok(src.includes('input.dirAi === true'), '目录那轮默认不跑，面板点名才跑（否则会多问模型）')
   assert.ok(src.includes('dirs: dirSummary'), '/understand 的响应里要带目录计数')
+  assert.ok(src.includes('graphFailed: dirResult.graphFailed'), '图没画成也要如实上报，不能只说"补了中文"')
   assert.ok(src.includes("stage: 'dirs'"), '目录那轮要有自己的进度事件')
 })
 
