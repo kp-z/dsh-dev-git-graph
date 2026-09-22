@@ -75,6 +75,11 @@
 
 /* 夜（默认）。冷紫近黑的石板底，配陈年金——金取自画框素材自身的颜色。 */
 :root {
+  /* 让浏览器知道这本「书」现在是夜里还是白天。
+     不写的话，滚动条、<input type=search> 自带的清除按钮、自动填充底色这些
+     由浏览器自己画的部分会一直按浅色渲染 —— 在暗色页面上就是几块白斑。
+     默认必须是 dark：这本书默认就是夜里那本，不跟随系统。 */
+  color-scheme: dark;
   --ground: #0b0910;
   --ground-2: #14111c;
   --ground-3: #1d1828;
@@ -83,7 +88,7 @@
   --rule: #2c2636;
   --gilt: #a88848;
   --gilt-bright: #f0e0b8;
-  --rubric: #c1544a;
+  --rubric: #cf5f52;
   --shadow: 0 2px 14px rgb(0 0 0 / 0.5);
 
   /* 圆角只有一个值。所有方块共用它，不再各处各写。 */
@@ -101,14 +106,19 @@
 
 /* 昼：做成一页旧羊皮纸，而不是把暗色简单反相 */
 :root[data-theme='light'] {
+  color-scheme: light;
   --ground: #e5ddce;
   --ground-2: #eee7da;
   --ground-3: #f6f1e7;
   --text: #1b1710;
   --text-dim: #60564a;
   --rule: #c6bba4;
-  --gilt: #8a6a2e;
-  --gilt-bright: #b8933f;
+  /* 「亮金」的意思是**比金更跳**，不是「颜色更浅」。
+     夜本里更跳是往白里走（#f0e0b8 点在 #14111c 上）；羊皮纸上更跳必须往深里走。
+     原先这里直接沿用了夜本的 #b8933f，落在 #eee7da 上对比度只有 2.3 ——
+     「全书/材质/动效」那几个选中筹码几乎是看不见的。 */
+  --gilt: #775a22;
+  --gilt-bright: #674d18;
   --rubric: #98281f;
   --shadow: 0 1px 3px rgb(60 48 30 / 0.12);
 }
@@ -161,6 +171,15 @@ main {
 
 ::selection {
   background: color-mix(in srgb, var(--rubric) 32%, transparent);
+}
+
+/* hidden 必须真的藏住。
+   浏览器自带的 [hidden] { display: none } 是**元素选择器**，任何一条带 display
+   的类规则都能盖过它 —— 而 .index-body.has-nav 就是 display: grid。
+   实测过一次：搜索时给目录加了 hidden，目录照样铺在结果下面 13570px 高。
+   这里用 !important 钉死，免得以后再被同一个坑绊一次。 */
+[hidden] {
+  display: none !important;
 }
 
 a {
@@ -479,13 +498,22 @@ html {
   border-top: 1px solid var(--rule);
 }
 
+/* 一行由三个兄弟组成：链接（编号/名称/引导线/场合）、放大预览、抄咒语。
+   按钮不能嵌在 <a> 里，所以它们必须是兄弟节点，这一层网格负责排它们。 */
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  column-gap: 14px;
+}
+
 .row-link {
   display: grid;
   /* 末尾不再挂分类——整章都是同一个分类，章标题已经写过一次了。 */
-  grid-template-columns: 2.6rem auto 1fr 88px;
+  grid-template-columns: 2.6rem auto 1fr;
   grid-template-areas:
-    'num name leader preview'
-    '.   when when   when';
+    'num name leader'
+    '.   when when';
   align-items: baseline;
   column-gap: 14px;
   row-gap: 5px;
@@ -496,11 +524,10 @@ html {
 /* 缩略图：真实 demo 文档按比例缩小，穿在九宫格画框里。
    框是自绘的「双细线」（古书整版插图的锁边，见 frames/README.md）。
    四角必须是方的——圆角会把角上的线切掉，所以这两处不用 --radius。 */
-.row-preview {
-  grid-area: preview;
-  align-self: center;
-  justify-self: end;
+.row-peek {
   position: relative;
+  display: block;
+  padding: 0;
   /* 双细线的线宽与线距都是边框宽度的固定比例，所以缩到 13px 只是变细，
      不会像花框那样糊成一排锯齿。缩略图 104×75 配 13px 框——净内容 78×48。 */
   width: 104px;
@@ -510,8 +537,79 @@ html {
   border-radius: 0;
   background: var(--ground-2);
   overflow: hidden;
-  pointer-events: none;
+  cursor: zoom-in;
   transition: filter 0.16s;
+}
+
+.row-peek:hover,
+.row-peek:focus-visible {
+  filter: brightness(1.18);
+}
+
+/* 悬停时角上出现一个「放大」的记号，说明这块是可以点的 */
+.row-peek-zoom {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 13px;
+  height: 13px;
+  opacity: 0;
+  background: var(--ground);
+  transition: opacity 0.16s;
+}
+
+.row-peek-zoom::before,
+.row-peek-zoom::after {
+  content: '';
+  position: absolute;
+  background: var(--gilt-bright);
+}
+
+.row-peek-zoom::before {
+  inset: 4px 1px 4px 4px;
+  border-top: 1px solid var(--gilt-bright);
+  background: none;
+}
+
+.row-peek-zoom::after {
+  left: 4px;
+  top: 4px;
+  width: 1px;
+  height: 5px;
+}
+
+.row-peek:hover .row-peek-zoom,
+.row-peek:focus-visible .row-peek-zoom {
+  opacity: 1;
+}
+
+.row-copy {
+  padding: 6px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: transparent;
+  font: 400 0.76rem/1 var(--font-label);
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+
+.row-copy:hover,
+.row-copy:focus-visible {
+  border-color: var(--gilt);
+  color: var(--gilt-bright);
+}
+
+.row-copy.is-done {
+  border-color: var(--rubric);
+  color: var(--rubric);
+}
+
+.row-copy:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .row-preview-doc {
@@ -1104,7 +1202,8 @@ html {
       'num name'
       '.   when';
   }
-  .row-preview {
+  .row-peek,
+  .row-copy {
     display: none;
   }
 }
@@ -1128,5 +1227,395 @@ html {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+}
+
+/* ==========================================================================
+   检索（首页首屏）
+
+   这一屏不是标语，是这本书的 concordance —— 古书后面那份「要紧词出现在哪一页」
+   的索引。所以它用的是器物那一档的待遇：金、双细线框、碑铭体标签。
+   正文仍是正文色，只有**命中的机制**用朱批 —— 全库只有这一处被强调，检索也不例外。
+   ========================================================================== */
+
+.concordance {
+  max-width: 880px;
+  margin: 34px 0 0;
+}
+
+.concordance-head {
+  margin: 0 0 14px;
+  font: 400 clamp(1.5rem, 3.4vw, 2.1rem) / 1.25 var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+.concordance-field {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  /* 与画框同一条双细线，放大到 22px 一档 —— 够粗才像一件器物而不是一条提示框 */
+  border: 22px solid transparent;
+  border-image: url('../frames/rule-frame.png') 32 / 22px repeat;
+  border-radius: 0;
+  background: var(--ground-2);
+  transition: background 0.16s;
+}
+
+.concordance-field:focus-within {
+  background: var(--ground-3);
+}
+
+.concordance-label {
+  font: 400 0.86rem/1 var(--font-display);
+  letter-spacing: 0.16em;
+  color: var(--gilt);
+  user-select: none;
+}
+
+.concordance-input {
+  width: 100%;
+  min-width: 0;
+  padding: 18px 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 400 1.18rem/1.4 var(--font-body);
+}
+
+.concordance-input::placeholder {
+  color: var(--text-dim);
+  opacity: 0.72;
+}
+
+.concordance-input:focus {
+  outline: none;
+}
+
+/* 有些引擎自带搜索框的清除按钮，与「清空」重复，关掉 */
+.concordance-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.concordance-clear {
+  padding: 5px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: transparent;
+  font: 400 0.72rem/1 var(--font-label);
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.concordance-clear:hover {
+  border-color: var(--rubric);
+  color: var(--rubric);
+}
+
+.concordance-key {
+  padding: 4px 7px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  font: 400 0.72rem/1 var(--font-note);
+  color: var(--text-dim);
+}
+
+.concordance-field:focus-within .concordance-key {
+  opacity: 0;
+}
+
+.concordance-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 12px;
+}
+
+.scope-chip {
+  padding: 5px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: none;
+  font: 400 0.76rem/1 var(--font-label);
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+
+.scope-chip:hover {
+  color: var(--text);
+}
+
+.scope-chip.is-on {
+  border-color: var(--gilt);
+  color: var(--gilt-bright);
+}
+
+.concordance-status {
+  margin: 12px 0 0;
+  font: 400 0.8rem/1.5 var(--font-note);
+  color: var(--text-dim);
+}
+
+/* ------------------------------------------------------------ 命中 */
+
+.search-results {
+  max-width: 880px;
+  margin: 30px 0 0;
+}
+
+.hits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.hit {
+  padding: 20px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.hit-link {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  text-decoration: none;
+}
+
+.hit-name {
+  font: 400 1.22rem/1.35 var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+.hit-link:hover .hit-name {
+  color: var(--gilt-bright);
+}
+
+.hit-cat {
+  font: 400 0.72rem/1 var(--font-label);
+  letter-spacing: 0.12em;
+  color: var(--text-dim);
+}
+
+/* 签名：把命中的那句机制原文摆出来。
+   全库的立论是「机制是承重墙」，所以检索也照这条立论解释自己 ——
+   结果不只给标题，还给出它是靠哪句机制被命中的。这是唯一用朱批的地方。 */
+.hit-why {
+  display: flex;
+  gap: 10px;
+  margin: 9px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--rubric);
+  font-size: 0.94rem;
+  line-height: 1.6;
+}
+
+.hit-why-label {
+  flex: none;
+  font: 400 0.7rem/1.7 var(--font-label);
+  letter-spacing: 0.12em;
+  color: var(--rubric);
+}
+
+.hit-why em {
+  font-style: normal;
+  color: var(--text);
+}
+
+.hit-when {
+  margin: 7px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+
+.hit-tools {
+  display: inline-flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.hit-tool {
+  padding: 5px 11px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: none;
+  font: 400 0.74rem/1 var(--font-label);
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+
+.hit-tool:hover,
+.hit-tool:focus-visible {
+  border-color: var(--gilt);
+  color: var(--gilt-bright);
+}
+
+.hit-tool.is-done {
+  border-color: var(--rubric);
+  color: var(--rubric);
+}
+
+.hit-tool:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* 命中词。用 --rubric 的低浓度底，不加粗 —— 加粗会把整行读得一顿一顿的 */
+mark {
+  padding: 0 1px;
+  background: color-mix(in srgb, var(--rubric) 22%, transparent);
+  color: inherit;
+}
+
+.search-empty {
+  margin: 0;
+  font: 400 1.1rem/1.5 var(--font-display);
+}
+
+.search-empty-hint {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+/* ---------------------------------------------------------- 放大预览 */
+
+.peek {
+  width: min(1040px, 94vw);
+  max-width: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  overflow: visible;
+}
+
+.peek::backdrop {
+  background: rgb(6 4 10 / 0.82);
+  backdrop-filter: blur(2px);
+}
+
+.peek-frame {
+  border: 30px solid transparent;
+  border-image: url('../frames/rule-frame.png') 32 / 30px repeat;
+  border-radius: 0;
+  background: var(--ground-2);
+}
+
+.peek-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.peek-title {
+  margin: 0;
+  font: 400 1.25rem/1.3 var(--font-display);
+  letter-spacing: 0.02em;
+}
+
+.peek-close {
+  flex: none;
+  padding: 5px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: none;
+  font: 400 0.76rem/1 var(--font-label);
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.peek-close:hover,
+.peek-close:focus-visible {
+  border-color: var(--gilt);
+  color: var(--gilt-bright);
+}
+
+.peek-stage {
+  height: min(62vh, 560px);
+  background: var(--ground-3);
+}
+
+.peek-doc {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.peek-foot {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 22px;
+  border-top: 1px solid var(--rule);
+}
+
+.peek-why {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.peek-more {
+  flex: none;
+  font: 400 0.78rem/1 var(--font-label);
+  letter-spacing: 0.08em;
+  color: var(--gilt);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.peek-more:hover {
+  color: var(--gilt-bright);
+}
+
+/* ---------------------------------------------------------- 窄屏 */
+
+@media (max-width: 700px) {
+  .concordance-field {
+    grid-template-columns: auto 1fr auto;
+    border-width: 16px;
+    border-image-width: 16px;
+    padding: 0 14px;
+  }
+  .concordance-key {
+    display: none;
+  }
+  .concordance-input {
+    font-size: 1.05rem;
+  }
+  .row-copy {
+    display: none;
+  }
+  .peek-frame {
+    border-width: 16px;
+    border-image-width: 16px;
+  }
+  .peek-stage {
+    height: 46vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-peek,
+  .row-copy,
+  .scope-chip,
+  .hit-tool,
+  .concordance-field {
+    transition: none;
   }
 }

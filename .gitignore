@@ -20,3 +20,14 @@ $DSH_HOME/
 # 自动生成/运行时产物（不入库）
 PROJECT_MEMORY.md
 graphflow-out/
+# 本地 GraphFlow overlay 配置（watcher 根目录钉死在 dsh-plugins，避免从 /Users/kp/DEV 启动时 EMFILE）
+.graphflow/
+
+# 插件审计的本地备份与修复脚本（$DSH_HOME 侧 profile 状态快照，不入库）
+.tmp-profile-backup/
+
+# 咒语书：数据库是投影 + 本地事件流，不入库
+#   A 区丢了 rebuild 就回来；真正不可重建的 events 用 `node scripts/vault.mjs export` 搬走
+apps/spellbook/data/
+apps/spellbook/artifacts/
+

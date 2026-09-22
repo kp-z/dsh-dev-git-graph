@@ -18,6 +18,7 @@ import { validateAll, CATEGORIES } from './shared/schema.mjs'
 import { buildDemoDocument } from './src/render/demo.mjs'
 import { renderIndex, renderSpell, chaptersOf } from './src/render/pages.mjs'
 import { stripMechanismMarkers } from './src/render/text.mjs'
+import { buildPrompt } from './shared/prompt.mjs'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const CONTENT_DIR = path.join(ROOT, 'content', 'effects')
@@ -86,11 +87,56 @@ function machineIndex(entries, chapterMap) {
   }
 }
 
+/**
+ * 站点检索用的索引。
+ *
+ * 列名与口径刻意与 shared/vault-text.mjs 的 BM25_WEIGHTS 一一对应 ——
+ * 浏览器侧 shared/rank.mjs 就是按这些列名取权重算分的，
+ * 这里改名字或漏一列，站点与库的排序就会分道扬镳。
+ *
+ * 与库里的差别：这里**不带 slug_prior 的历史先验**（构建期不读数据库）。
+ * 先验为空时两者结果一致；一旦有先验，parity 测试会红，那时再把权重并进来。
+ */
+function searchIndex(entries) {
+  return {
+    version: 1,
+    generatedAt: new Date().toISOString(),
+    count: entries.length,
+    docs: entries.map(({ entry }) => {
+      const meta = entry.meta
+      return {
+        slug: meta.slug,
+        // —— 参与打分的列（与 BM25_WEIGHTS 同名同义）——
+        title: meta.title,
+        when_text: meta.when ?? '',
+        tags: (meta.tags ?? []).join(' '),
+        mechanisms: (entry.mechanisms ?? []).join(' '),
+        code_text: entry.code.map((block) => stripMechanismMarkers(block.lines.join('\n'))).join('\n'),
+        description: entry.description ?? '',
+        // —— 展示与筛选用 ——
+        category: meta.category,
+        tier: meta.tier ?? 'candidate',
+        stage: meta.stage,
+        since: meta.since,
+        source: meta.source ?? '',
+        url: `spell/${encodeURIComponent(meta.slug)}/`,
+        tag_list: meta.tags ?? [],
+        mechanism_list: entry.mechanisms ?? [],
+        caveat_count: (entry.caveats ?? []).length,
+        param_count: (meta.params ?? []).length,
+      }
+    }),
+  }
+}
+
 async function copyAssets() {
   await cp(path.join(SRC, 'styles'), path.join(DIST, 'styles'), { recursive: true })
   await cp(path.join(SRC, 'site.js'), path.join(DIST, 'site.js'))
   // 浏览器侧要用同一份「参数 → CSS 值」规则
   await cp(path.join(ROOT, 'shared', 'param.mjs'), path.join(DIST, 'param.mjs'))
+  // 以及同一份分词与排序规则：站点搜出来的顺序必须与库里一致
+  await cp(path.join(ROOT, 'shared', 'vault-text.mjs'), path.join(DIST, 'vault-text.mjs'))
+  await cp(path.join(ROOT, 'shared', 'rank.mjs'), path.join(DIST, 'rank.mjs'))
   const fonts = path.join(SRC, 'fonts')
   if (existsSync(fonts)) {
     await cp(fonts, path.join(DIST, 'fonts'), { recursive: true })
@@ -143,7 +189,15 @@ async function build() {
       'utf8',
     )
     await writeFile(path.join(dir, 'demo.html'), buildDemoDocument(entry), 'utf8')
+    // 首页「抄咒语」按需取这一份；同时它也是一个能直接 curl 的纯文本咒语
+    await writeFile(path.join(dir, 'prompt.txt'), buildPrompt(entry), 'utf8')
   }
+
+  await writeFile(
+    path.join(DIST, 'search-index.json'),
+    JSON.stringify(searchIndex(sorted), null, 0) + '\n',
+    'utf8',
+  )
 
   await writeFile(
     path.join(DIST, 'effects.json'),

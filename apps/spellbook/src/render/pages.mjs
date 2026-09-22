@@ -66,17 +66,27 @@ ${current ? `  <p class="masthead-current">${escapeHtml(current)}</p>` : ''}
 
 function renderTabulaRow(entry, ordinal) {
   const numeral = roman(ordinal)
-  const href = `spell/${encodeURIComponent(entry.meta.slug)}/`
-  return `<li class="row" data-category="${escapeHtml(entry.meta.category)}">
+  const slug = entry.meta.slug
+  const href = `spell/${encodeURIComponent(slug)}/`
+  const title = escapeHtml(entry.meta.title)
+  // 一行的三个兄弟：链接、放大预览、抄咒语。
+  // 按钮不能塞进 <a> 里（无效 HTML，且点「抄」会连带跳页），所以它们必须是兄弟节点。
+  //
+  // 编号则相反，必须留在链接**内部**：.row-link 的 grid-template-areas 里点名了 num
+  // 那一格，把它挪到链接外面就会失去那一格、被自动排到行尾（实测跑到 x=1237 去了）。
+  // 而且编号本来就是这个条目名字的一部分，跟着链接一起点得通才对。
+  return `<li class="row" data-category="${escapeHtml(entry.meta.category)}" data-slug="${escapeHtml(slug)}">
   <a class="row-link" href="${href}">
     <span class="row-numeral" aria-hidden="true">${numeral}</span>
-    <span class="row-name">${escapeHtml(entry.meta.title)}</span>
+    <span class="row-name">${title}</span>
     <span class="row-leader" aria-hidden="true"></span>
-    <span class="row-preview" aria-hidden="true">
-      <iframe class="row-preview-doc" src="${href}demo.html" loading="lazy" sandbox="allow-scripts" tabindex="-1" title=""></iframe>
-    </span>
     <span class="row-when">${escapeHtml(entry.meta.when)}</span>
   </a>
+  <button class="row-peek" type="button" data-peek="${escapeHtml(slug)}" aria-label="放大预览：${title}">
+    <iframe class="row-preview-doc" src="${href}demo.html" loading="lazy" sandbox="allow-scripts" tabindex="-1" title=""></iframe>
+    <span class="row-peek-zoom" aria-hidden="true"></span>
+  </button>
+  <button class="row-copy" type="button" data-prompt="${escapeHtml(slug)}" aria-label="复制咒语：${title}">抄咒语</button>
 </li>`
 }
 
@@ -93,12 +103,45 @@ export function chaptersOf(entries) {
     .map((chapter, index) => ({ ...chapter, index: index + 1 }))
 }
 
-const PROLOGUE = `  <section class="prologue">
-    <h1 class="prologue-lede">一条咒语 = 一段描述 + 一段示例代码。</h1>
-    <p class="prologue-note">描述负责说清它靠什么机制成立，代码负责证明这件事真的能做到。图版里的预览是真在跑的，不是截图。</p>
-  </section>`
+/**
+ * 首屏不是标语，是检索。
+ *
+ * 这本书的用法是「说一句你要什么，找到那条咒语」，所以首页最该占先的是查词口，
+ * 不是一句介绍自己是什么的话。原来那两行导语挪去做 placeholder 与页脚了。
+ *
+ * 结果区由 site.js 填。之所以把「命中机制」也渲染出来，是因为全库的立论是
+ * 「机制是承重墙」——检索也该照这条立论解释自己为什么给这一条，而不是只丢一个标题。
+ */
+const CONCORDANCE = `  <section class="concordance" aria-labelledby="concordance-head">
+    <h1 class="concordance-head" id="concordance-head">说一句你要的效果</h1>
+    <div class="concordance-field">
+      <label class="concordance-label" for="spellbook-query">查</label>
+      <input
+        class="concordance-input"
+        id="spellbook-query"
+        type="search"
+        name="q"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        enterkeyhint="search"
+        placeholder="跟着鼠标动的按钮 / 玻璃 / 斜条纹 / 文字绕图排">
+      <button class="concordance-clear" type="button" data-search-clear hidden>清空</button>
+      <kbd class="concordance-key" data-search-key aria-hidden="true">/</kbd>
+    </div>
+    <div class="concordance-scope" role="group" aria-label="限定分类">
+      <button class="scope-chip is-on" type="button" data-scope="" aria-pressed="true">全书</button>
+    </div>
+    <p class="concordance-status" data-search-status role="status" aria-live="polite"></p>
+  </section>
+
+  <div class="search-results" data-search-results hidden></div>`
+
+/* 原先把这条立论挂在首屏当标语。现在首屏让给检索，立论挪到页脚，位置换了，话没变。 */
+const PROLOGUE_NOTE = '描述负责说清它靠什么机制成立，代码负责证明这件事真的能做到。图版里的预览是真在跑的，不是截图。'
 
 const COLOPHON = `      <section class="colophon">
+        <p class="colophon-lede">一条咒语 = 一段描述 + 一段示例代码。${PROLOGUE_NOTE}</p>
         <h2 class="colophon-head">收录标准</h2>
         <ul class="colophon-list">
           <li><strong>跑得起来</strong>——演示代码在图版里真的渲染，跑不通的不进。</li>
@@ -115,7 +158,7 @@ export function renderIndex(entries) {
   if (!chapters.length) {
     const body = `${header({ root: './' })}
 <main id="main">
-${PROLOGUE}
+${CONCORDANCE}
   <p class="empty">库还是空的。往 <code>content/effects/</code> 里放一个 <code>.md</code>，它就会出现在这里。</p>
 </main>`
     return layout({
@@ -164,20 +207,40 @@ ${chapters
 `
     : ''
 
+  // 限定分类的筹码由分类表生成，注意别把「全书」写成死值——分类改了这里要跟着走
+  const scopeChips = CATEGORIES.map(
+    (category) => `      <button class="scope-chip" type="button" data-scope="${escapeHtml(category)}" aria-pressed="false">${escapeHtml(category)}</button>`,
+  ).join('\n')
+  const concordance = CONCORDANCE.replace('</div>\n    <p class="concordance-status"', `</div>\n${scopeChips}\n    <p class="concordance-status"`)
+
   const body = `${header({ root: './' })}
 <main id="main">
-${PROLOGUE}
+${concordance}
 
 ${fleuron()}
 
-  <div class="index-body${withNav ? ' has-nav' : ''}">
+  <div class="index-body${withNav ? ' has-nav' : ''}" data-browse>
 ${nav}        <div class="chapters">
 ${sections}
 
 ${COLOPHON}
         </div>
   </div>
-</main>`
+</main>
+
+<dialog class="peek" data-peek-dialog aria-labelledby="peek-title">
+  <div class="peek-frame">
+    <div class="peek-head">
+      <h2 class="peek-title" id="peek-title" data-peek-title></h2>
+      <button class="peek-close" type="button" data-peek-close aria-label="关闭预览">关闭</button>
+    </div>
+    <div class="peek-stage" data-peek-stage></div>
+    <div class="peek-foot">
+      <p class="peek-why" data-peek-why></p>
+      <a class="peek-more" data-peek-more href="#">看这一条的全文</a>
+    </div>
+  </div>
+</dialog>`
 
   return layout({
     title: `${SITE_NAME} · ${SITE_TAGLINE}`,

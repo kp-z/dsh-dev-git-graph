@@ -1,8 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { chineseNumeral, roman } from '../src/render/text.mjs'
 import { chaptersOf, renderIndex, renderSpell } from '../src/render/pages.mjs'
+import { CATEGORIES } from '../shared/schema.mjs'
 
 function entry(meta = {}, extra = {}) {
   return {
@@ -100,11 +102,14 @@ test('多章时目录带 has-nav，走两栏布局', () => {
   assert.match(html, /index-body has-nav/)
 })
 
-test('每行右侧的缩略图指向该条目自己的 demo', () => {
+test('每行右侧的缩略图指向该条目自己的 demo，并且自己是个按钮', () => {
   const html = renderIndex([entry({ slug: 'liquid-glass', category: '材质' })])
-  assert.match(html, /class="row-preview"/)
+  // 缩略图从 <span> 改成了 <button data-peek>：它要点开放大预览。
+  // 按钮不能嵌在 <a> 里（无效 HTML，而且点它会连带跳页），所以它是链接的兄弟节点。
+  assert.match(html, /<button class="row-peek" type="button" data-peek="liquid-glass"/)
   assert.match(html, /src="spell\/liquid-glass\/demo\.html"/)
   assert.match(html, /href="spell\/liquid-glass\/"/)
+  assert.match(html, /data-prompt="liquid-glass"/)
 })
 
 test('缩略图与图版一样走沙箱，且不给它键盘焦点', () => {
@@ -151,4 +156,58 @@ test('对开页不再单独列一行「分类」，章号已经说清楚了', ()
   assert.doesNotMatch(html, /<dt>分类<\/dt>/)
   assert.match(html, /<dt>收录<\/dt>/)
   assert.match(html, /<dt>出处<\/dt>/)
+})
+
+test('首页首屏让给检索，原导语挪到页脚', () => {
+  const html = renderIndex([entry({ category: '材质' })])
+  assert.match(html, /<section class="concordance"/)
+  assert.match(html, /id="spellbook-query"/)
+  // 立论还在，但不再是首屏标语
+  assert.match(html, /colophon-lede[^>]*>一条咒语 = 一段描述 \+ 一段示例代码。/)
+  assert.doesNotMatch(html, /class="prologue-lede"/)
+})
+
+test('限定分类的筹码由分类表生成，不是写死的', () => {
+  const html = renderIndex([entry({ category: '材质' })])
+  for (const category of CATEGORIES) {
+    assert.match(html, new RegExp(`data-scope="${category}"`), `缺 ${category} 的筹码`)
+  }
+  assert.match(html, /data-scope="" aria-pressed="true"/)
+})
+
+test('放大预览用的 dialog 只在首页出现一次，且默认没内容', () => {
+  const html = renderIndex([entry({ category: '材质' })])
+  assert.equal((html.match(/data-peek-dialog/g) ?? []).length, 1)
+  assert.match(html, /data-peek-stage><\/div>/)
+})
+
+test('编号在链接内部 —— 挪出去会失去 num 那一格', () => {
+  const html = renderIndex([entry({ slug: 'x' })])
+  // .row-link 的 grid-template-areas 点名了 num/name/leader/when 四格。
+  // 编号一旦被挪到 <a> 外面，就找不到 num 那一格，会被自动排到整行的末尾。
+  const link = html.match(/<a class="row-link"[\s\S]*?<\/a>/)?.[0] ?? ''
+  assert.match(link, /class="row-numeral"/, '编号必须在 .row-link 里面')
+  assert.match(link, /class="row-name"/)
+  assert.match(link, /class="row-leader"/)
+  assert.match(link, /class="row-when"/)
+})
+
+test('放大预览与抄咒语是链接的兄弟节点，不是它的子节点', () => {
+  const html = renderIndex([entry({ slug: 'x' })])
+  const link = html.match(/<a class="row-link"[\s\S]*?<\/a>/)?.[0] ?? ''
+  assert.doesNotMatch(link, /<button/, '按钮嵌在 <a> 里是无效 HTML')
+  assert.match(html, /<\/a>\s*<button class="row-peek"/)
+})
+
+test('样式表里有 [hidden] 兜底 —— 类规则上的 display 会盖过浏览器默认', () => {
+  // .index-body.has-nav 是 display: grid，会盖掉浏览器自带的 [hidden] { display: none }。
+  // 搜索时目录藏不住，会整片铺在结果下面。
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important/)
+})
+
+test('两套主题都声明了 color-scheme', () => {
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  assert.match(css, /:root \{[^}]*color-scheme: dark/)
+  assert.match(css, /:root\[data-theme='light'\] \{[^}]*color-scheme: light/)
 })
