@@ -942,13 +942,17 @@ test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 
     '生成弹窗要按宽版打开')
 
   // 2) 目录块：显示 root 与"现在纳管了哪些目录"，但**只提供加**。
-  assert.ok(html.includes("text: '在哪些目录上做'"), '目录块的标题')
+  /* 这一条在"极简化"那一轮**翻转过**：原来钉「在哪些目录上做」这个长句，用户要求标题短，
+     而且整块从一张卡变成"这一步做什么"里的一行。 */
+  assert.ok(html.includes("text: '目录'") || html.includes("'目录'"), '目录那一行的标题要短')
+  assert.ok(!html.includes('在哪些目录上做'), '那个长句标题不许再出现')
   assert.ok(html.includes("text: '再加目录…'"), '要有"再加目录"的入口（用户抱怨的就是没有这个入口）')
-  assert.ok(html.includes("text: '只能加，不能减'"), '口径要写在脸上：这块只能加')
+  /* 也翻转过：卡面上不许再写"只能加，不能减"这种解释——规则说明只放选择器里那一句。 */
+  assert.ok(!html.includes('只能加，不能减'), '卡面上不许再出现"只能加，不能减"')
   assert.ok(html.includes("placeholder: '也可以手填绝对路径（要在本项目的 root 里）'"), '要能手填绝对路径')
   // 已纳管范围是**展示用**：从契约 file 归纳，写回永远用 id。
-  assert.ok(html.includes('function renderDirList()'), '已纳管范围要有归纳展示')
-  assert.ok(html.includes('只是给人看；真正的依据是候选 id'), '要写明归纳只是展示口径')
+  assert.ok(html.includes('function renderDirFact()'), '已纳管范围要归纳成一行事实')
+  assert.ok(!html.includes('真正的依据是候选 id'), '不许在界面上讲实现（id / 并集 / 替换）')
   assert.ok(html.includes("return '（运行时）';"), '没有 file 的那几条也要有归宿，不能凭空消失')
   // 只读预览拿候选：POST /init 不带 confirm。
   assert.match(html, /api\('\/init', \{ method: 'POST', body: \{ root: S\.p\.root \} \}\)/,
@@ -968,12 +972,18 @@ test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 
   assert.ok(save.includes('include: union, confirm: true'), '提交的是并集 + confirm')
   /* 这条是被量出来的教训：按钮创建了不等于挂上了——漏了 appendChild，界面上就没有它。 */
   assert.ok(html.includes('dirManual, dirManualGo, dirSave'), '「并入」那个按钮必须真的挂进 DOM')
+  assert.ok(html.includes("text: '并入'"), '动作名要短：一个「并入」')
+  assert.ok(!html.includes('并入并补中文说明'), '长按钮名不许再出现')
   assert.ok(!/include: picked/.test(html), '绝不能只提交新勾的那几条（那会把老的一整组挤掉）')
   // 提交成功后再走 AI 那一段（/understand），不是另起一条链。
-  assert.ok(save.includes("mode: 'none', ai: true"), '并入后接着走 AI 那一段')
+  /* 翻转过：并入之后跑的是**默认那条链**（增量重扫 → 补 AI），这样"加目录"一次做完。
+     绝不能是 /rebuild——破坏性那档必须自己按第二道确认。 */
+  assert.ok(save.includes("mode: 'rescan', ai: true"), '并入后跑默认链（扫描 → 补 AI）')
+  assert.ok(!save.includes("mode: 'rebuild'"), '并入这条路绝不触发 /rebuild')
   assert.ok(save.includes('return loadProjects().then'), '并入后要先刷新项目记录（include 变了）')
   // 不给"取消纳管"的入口：那是另一件事，要先给代价与确认。
-  assert.ok(html.includes('取消已纳管目录是另一件事，这里不给入口'), '要把"不给减"的理由写下来')
+  assert.ok(!html.includes('并入时发的是'), '卡面上不许讲并集/载荷')
+  assert.ok(html.includes('只会增加，不会移除已纳管的目录'), '规则只在选择器里说一句')
   assert.ok(!/dirRemove|removeDir|取消纳管/.test(html), '这块里不许出现移除已纳管目录的入口')
 
   // 4) 右下角说人话：全文件不许再出现"批"这个字。

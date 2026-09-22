@@ -968,7 +968,7 @@
   .genplan .gpl { margin-top: 6px; font-size: 12px; color: var(--ink); line-height: 1.65; }
   .genplan .gpl.warn { color: var(--bad); }
   .genplan .gpl.dim { color: var(--ink3); font-size: 11.5px; }
-  /* 生成弹窗：网格卡片。左「这一步做什么」/ 右「在哪些目录上做」并排，
+  /* 生成弹窗：网格卡片。左「这一步做什么」/ 右「目录」并排，
      AI、作用范围、预告、按钮条通栏；窄屏塌成一列。 */
   .gengrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 12px; align-items: start; }
@@ -981,6 +981,12 @@
   .gencard > .gsh .gsn { font-family: var(--mono); letter-spacing: 0; color: var(--ink3);
     opacity: .8; font-weight: 400; }
   .gencard .gensec:first-child { margin-top: 0; }
+  /* 「目录」那一行：左边一行事实，右边一个动作。整块只有这两样。 */
+  .gdirbox { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 9px; }
+  .gdirrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .gdirfact { flex: 1; min-width: 0; font-size: 11.5px; color: var(--ink3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gdirrow > button { flex: 0 0 auto; }
   .gdirs { display: grid; gap: 4px; margin: 6px 0 8px; }
   .gdir { display: flex; align-items: center; gap: 8px; font-size: 11.5px; min-width: 0; }
   .gdir .gp { font-family: var(--mono); color: var(--ink); overflow: hidden;
@@ -2018,11 +2024,11 @@
     var DG = { open: false, pv: null, pick: null, busy: false };
     var dirErr = el('div', { class: 'gpl warn', text: '' });
     dirErr.style.display = 'none';
-    var dirList = el('div', { class: 'gdirs' });
+    var dirFact = el('div', { class: 'gdirfact', id: 'gDirFact', text: '' });
     var dirPick = el('div', { class: 'gpick' });
     dirPick.style.display = 'none';
     var dirAdd = el('button', { class: 'ghost', type: 'button', text: '再加目录…' });
-    var dirSave = el('button', { class: 'ghost', type: 'button', text: '并入并补中文说明' });
+    var dirSave = el('button', { class: 'ghost', type: 'button', text: '并入' });
     dirSave.style.display = 'none';
     var dirManual = el('input', { class: 'search', id: 'gdirPath', type: 'text',
       placeholder: '也可以手填绝对路径（要在本项目的 root 里）', autocomplete: 'off' });
@@ -2038,31 +2044,19 @@
       var parts = f.split('/').filter(function (x) { return x.length > 0; });
       return parts.length > 1 ? parts.slice(0, parts.length - 1).join('/') : '（根目录）';
     }
-    /* 已纳管范围（**展示用**）：按契约 file 归纳成目录 + 条数。 */
-    function renderDirList() {
-      clear(dirList);
+    /* 一行事实：项目名 + 现在纳管了多少（条 / 目录）。目录数按契约 file 归纳，**只展示**。
+       这一行就是这块卡片的全部文字——用户不需要知道 include 是 id 还是路径。 */
+    function renderDirFact() {
+      if (!dirFact) return;
       var byId = {};
       (S.items || []).forEach(function (it) { byId[it.contract.id] = it.contract.file || ''; });
       var buckets = {};
-      var unknown = 0;
       includeIds().forEach(function (id) {
-        if (byId[id] === undefined) { unknown += 1; return; }
-        var d = dirNameOf(byId[id]);
-        buckets[d] = (buckets[d] || 0) + 1;
+        if (byId[id] === undefined) return;
+        buckets[dirNameOf(byId[id])] = 1;
       });
-      var dirs = Object.keys(buckets).sort();
-      dirList.appendChild(el('div', { class: 'dnote',
-        text: '现纳管 ' + includeIds().length + ' 条候选，落在 ' + dirs.length + ' 个目录里'
-          + '（这里按契约路径归纳，只是给人看；真正的依据是候选 id）。' }));
-      dirs.forEach(function (d) {
-        dirList.appendChild(el('div', { class: 'gdir' },
-          el('span', { class: 'gp', text: d, title: d }),
-          el('span', { class: 'chip chip-dim', text: buckets[d] + ' 条' })));
-      });
-      if (unknown > 0) {
-        dirList.appendChild(el('div', { class: 'dnote',
-          text: '另有 ' + unknown + ' 条纳管记录的来源文件读不到（这不是这次生成能修的）。' }));
-      }
+      dirFact.textContent = (S.p && S.p.title ? S.p.title : '这个项目')
+        + ' · 已纳管 ' + includeIds().length + ' 个契约 / ' + Object.keys(buckets).length + ' 个目录';
     }
     /* 选择器头部：过滤 + 全加 / 全不加。成组操作只作用于**当前列出来的**目录（含子目录）。 */
     function dirPickHeader(pv) {
@@ -2109,6 +2103,7 @@
         S.init = pv;
         S.pick = DG.pick;
         clear(dirPick);
+        dirPick.appendChild(el('div', { class: 'pkhint', text: '只会增加，不会移除已纳管的目录' }));
         dirPick.appendChild(dirPickHeader(pv));
         dirPick.appendChild(el('div', { class: 'drows', id: 'dRows' }));
         dirPick.appendChild(el('div', { class: 'dnote', id: 'dSum' }));
@@ -2172,8 +2167,10 @@
           dirSave.disabled = false;
           dirSave.textContent = was;
           closeOverlay();
+          /* 并入之后直接跑**默认那条链**（增量重扫 → 补中文说明）：这样"加一个目录"这件事
+             一次做完，不用再点一遍生成。绝不跑 /rebuild——破坏性那档必须自己按第二道确认。 */
           return loadProjects().then(function () {
-            return runGenerate({ mode: 'none', ai: true, force: false, scope: { kind: 'project' } });
+            return runGenerate({ mode: 'rescan', ai: true, force: false, scope: { kind: 'project' } });
           });
         })
         .catch(function (e) {
@@ -2184,17 +2181,9 @@
         });
     });
 
-    renderDirList();
-    var dirCard = el('div', { class: 'gencard' },
-      el('div', { class: 'gsh' },
-        el('span', { text: '在哪些目录上做' }),
-        el('span', { class: 'gsn', text: '只能加，不能减' })),
-      el('div', { class: 'dnote', text: '项目 root：' + S.p.root }),
-      dirList,
-      el('div', { class: 'pkrow2' }, dirAdd),
-      el('div', { class: 'dnote',
-        text: '并入时发的是「现有 ' + includeIds().length + ' 条候选 + 新勾的」并集：老的一条都不会掉。'
-          + '取消已纳管目录是另一件事，这里不给入口。' }),
+    renderDirFact();
+    var dirCard = el('div', { class: 'gdirbox' },
+      el('div', { class: 'gdirrow' }, dirFact, dirAdd),
       dirErr,
       dirPick);
 
@@ -2205,8 +2194,9 @@
         el('div', { class: 'gsh' },
           el('span', { text: '这一步做什么' }),
           el('span', { class: 'gsn', text: '代码' })),
-        modeRows.map(function (r) { return r.row; })),
-      dirCard,
+        modeRows.map(function (r) { return r.row; }),
+        /* 「目录」是这张卡里的一行：一行事实 + 一个动作。选择器点开才出现。 */
+        dirCard),
       el('div', { class: 'gencard genspan' },
         el('div', { class: 'gsh' },
           el('span', { text: 'AI 中文说明' }),
