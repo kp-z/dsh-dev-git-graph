@@ -358,6 +358,13 @@
   .t-con.on { background-color: var(--fill-selected); }
   .tdirname { font-size: 12px; font-weight: 500; }
   .t-dir .tdirname { font-family: var(--mono); font-size: 11px; }
+  /* 目录节点的 AI 中文：树行与带头共用一个小胶囊；没有中文就什么都不画。 */
+  .tdirai { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10px; line-height: 15px;
+    color: var(--ink2); background: var(--fill-secondary, rgba(127,127,127,.10)); white-space: nowrap; }
+  .gbandai { margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 10px; line-height: 15px;
+    color: var(--ink2); background: var(--fill-secondary, rgba(127,127,127,.10)); }
+  .dirnote { display: flex; align-items: center; gap: 8px; margin: 0 0 8px 2px; font-size: 11.5px; color: var(--ink3); }
+  .dirnote .tdirai { margin-left: 0; font-size: 11px; }
   .t-dir .tfilen { font-family: var(--mono); font-size: 10.5px; color: var(--accent);
     flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .t-file { padding-left: 26px; color: var(--ink2); font-size: 11.5px; }
@@ -1203,7 +1210,8 @@
        左边就是那棵目录树，右边的带就是同一层的目录名，块上写明「对应左边：<目录路径>」。
        语义族的分组代码（familyGroupsOf / groupNodeRow / renderFamilyTree）还留着，
        但**没有任何渲染路径会调用它们**：UI 上再也没有"语义族"这个开关。 */
-    axis: 'dir', ctx: null
+    axis: 'dir', ctx: null,
+    dirs: {},
   };
 
   /* ---------- 基础工具 ---------- */
@@ -1589,10 +1597,14 @@
 
   /** AI 那一段的汇总人话（成功、部分被拒都用它；数字全部来自宿主返回）。 */
   function aiSummaryText(s) {
+    var dirs = s.dirs || {};
+    var dirTxt = dirs.total ? '，另外 ' + dirs.total + ' 个目录也补了中文' +
+      (dirs.failed ? '（' + dirs.failed + ' 个没成）' : '') : '';
     return 'AI 中文说明：' + (s.understood || 0) + ' 条'
       + (s.cached ? '（其中 ' + s.cached + ' 条命中缓存、没再问模型）' : '')
       + (s.failures && s.failures.length ? '，' + s.failures.length + ' 组被拒绝' : '')
       + (s.missing && s.missing.length ? '，' + s.missing.length + ' 条未覆盖' : '')
+      + dirTxt
       + '；耗时 ' + Math.round((s.ms || 0) / 1000) + ' 秒';
   }
 
@@ -3271,6 +3283,7 @@
         }
         S.sel = null; S.dirView = full; renderAll();
       });
+      var dirAi = dirAiOf(full);
       var head = el('div', { class: 'trow t-dir t-fold' + (S.dirView === full ? ' on' : ''), title: full,
         /* data-dir = 完整目录路径。点右图那条带的标题时，就是按这个串回到这一行（revealDirInTree） */
         'data-dir': full },
@@ -3278,6 +3291,8 @@
         caret,
         graphBtn,
         el('span', { class: 'tdirname', text: name }),
+        (dirAi && dirAi.titleZh) ? el('span', { class: 'tdirai', text: dirAi.titleZh,
+          title: dirAi.noteZh || dirAi.titleZh }) : null,
         child.hot ? el('span', { class: 'chip chip-warn', text: child.hot + ' 条要注意' }) : null,
         el('span', { class: 'cnt', text: String(child.n) }));
       head.addEventListener('click', function () {
@@ -3767,6 +3782,7 @@
       dot ? el('span', { class: 'dot ' + dot }) : null,
       (reg && reg.icon) ? el('span', { class: 'gbandicon', text: reg.icon }) : null,
       el('span', { class: 'gbandname', text: b.label || '' }),
+      b.aiTitle ? el('span', { class: 'gbandai', text: b.aiTitle }) : null,
       /* 这条带对应左边哪个目录 —— 原样印出完整路径（带层级），点标题就定位到那一行。
          左右是同一套分区，所以这里写的串就是左树那一行的 data-dir / 范围串。 */
       b.note ? el('span', { class: 'gbandnote', text: b.note }) : null,
@@ -3781,6 +3797,7 @@
     var t = [];
     if (b.kind === 'project') t.push('范围：' + (b.label || ''));
     else t.push('这一条带 = 左树里的分组节点「' + (b.label || '') + '」');
+    if (b.aiNote) t.push('AI 中文：' + b.aiNote);
     if (b.note) t.push(b.note);
     var full = sourceTip({ sources: b.sources });
     if (full) t.push(full);
@@ -4756,17 +4773,9 @@
 
   /* 每条协议最多挂几个子卡片（字段；字段更多时最后一张是"还有 N 个字段没画"）。
      和"节点上限 80"一起算：宁可少画几个协议，也不要画一堆没法读的卡片。 */
-  var G_PARTS_MAX = 6;
 
   /* 每条协议画几个字段：视图越大画得越浅，让"有哪些协议"这件事还看得见。
      这是"画多少"的取舍，不是判定 —— 没画的那部分一定如实写在卡片上。 */
-  function partQuota(n) {
-    if (n <= 12) return G_PARTS_MAX - 1;
-    if (n <= 24) return 3;
-    if (n <= 60) return 2;
-    return 1;
-  }
-
   /* 谁先上墙：有要注意的事的先来（这就是这个工具存在的理由），其次字段多的（信息量大），
      最后按标题排 —— 顺序稳定、可复现，不因为字段的遍历顺序而变。 */
   function protocolOrder(a, b) {
@@ -4780,7 +4789,9 @@
   /* 名额分配：按域轮转 —— 先让每个族都露一条协议，再回头加深。
      这样一张图里"有哪些族"和"族里有什么协议"同时看得见，
      而不是第一族吃掉全部名额、别的族只剩一个空框。 */
-  function pickProtocols(domains, quota, budget) {
+  /* 目录图上"画谁"：按组轮转着挑，每组先露一条再回头加深，直到用完名额。
+     一条协议就是一个节点（字段节点在这一版图上不画了），所以每条的开销恒为 1。 */
+  function pickProtocols(domains, budget) {
     var groups = domains.map(function (d) {
       return { dom: d, items: d.items.slice().sort(protocolOrder), at: 0 };
     });
@@ -4791,13 +4802,9 @@
       for (var i = 0; i < groups.length && !stop; i++) {
         var g = groups[i];
         if (g.at >= g.items.length) continue;
-        var it = g.items[g.at];
-        var fields = protocolFields(it);
-        var drawn = Math.min(fields.length, quota);
-        var cost = 1 + drawn + (fields.length > drawn ? 1 : 0);
-        if (used + cost > budget) { stop = true; break; }
-        used += cost;
-        out.push({ dom: g.dom, item: it, fields: fields, drawn: drawn });
+        if (used + 1 > budget) { stop = true; break; }
+        used += 1;
+        out.push({ dom: g.dom, item: g.items[g.at] });
         g.at++;
         progressed = true;
       }
@@ -4834,10 +4841,12 @@
 
   /* 目录图的 IR。带**不在这里算**：plan 由 planOf() 给出（左树画分组节点用的就是同一份），
      这里只负责把每一组画成一条带。没传 plan 时（探针直接调用）就地按当前轴算一份。 */
+  /* 目录图的 IR：带 = 目录（与左树同一份分区），节点 = 协议，**不画字段节点**——
+     字段是"协议内部长什么样"，那是契约形状图的活；这张图看的是"这一层有哪些协议、它们归谁"。
+     带不在这里算：plan 由 planOf() 给出（左树画分组节点用的就是同一份）。 */
   function dirGraphIR(path, plan) {
     if (!plan) plan = planOf(scopeItemsOf(visibleItems(), path), S.axis, path);
     var all = plan.items;
-    var quota = partQuota(all.length);
     var ir = { direction: 'LR', bands: [], nodes: [], edges: [] };
 
     /* 第一条带 = 范围自己：带名与左树顶上那行"范围"**同一个字符串**（plan.scopeLabel）。
@@ -4863,23 +4872,20 @@
     var bandOf = {};
     plan.groups.forEach(function (d, di) {
       bandOf[d.key] = 'dom' + di;
-      /* 带上也挂一个状态点：这一组里最要紧的那件事（有不对 > 破坏性变更 > 变过），
-         和卡片上用的是同一份判定、同一套优先级。 */
+      /* 带上也挂一个状态点：这一组里最要紧的那件事（有不对 > 破坏性变更 > 变过）。 */
       ir.bands.push({ id: 'dom' + di, label: d.label, kind: 'domain', note: d.note,
                       dirPath: d.path || null, here: !!d.here,
                       n: d.n, unit: d.unit || '协议', kinds: ['protocol', 'gap'],
-                      status: worstStatusOf(d.items), sources: d.sources });
+                      status: worstStatusOf(d.items), sources: d.sources,
+                      aiTitle: (dirAiOf(d.path) || {}).titleZh || null,
+                      aiNote: (dirAiOf(d.path) || {}).noteZh || null });
       ir.edges.push({ from: 'root', to: 'dom' + di, rel: 'contains' });
     });
 
-    /* 画谁：按组轮转分名额（每组先露一条，再回头加深），每条协议最多画 quota 个字段。
-       画不下的不在这里偷偷砍掉 —— 全部照实交给 IR，由 capGraphIR 按上限截断并如实报出
-       "还有几个协议、几个字段没画"。 */
-    var picks = pickProtocols(plan.groups, quota, G_MAXN - 1);
-    var drawnFields = 0;
-    picks.forEach(function (p) { drawnFields += Math.min(p.fields.length, quota); });
-    /* 组号必须在「带内」从 0 数起：组是"这条带里的第几列"。
-       用全局序号的话，每条带都以为自己有二十多个组，一条带就被撑成二十多行。 */
+    /* 画谁：按组轮转分名额（每组先露一条，再回头加深）。画不下的不在这里偷偷砍掉 ——
+       全部照实交给 IR，由 capGraphIR 按上限截断并如实报出"还有几个协议没画"。 */
+    var picks = pickProtocols(plan.groups, G_MAXN - 1);
+    /* 组号必须在「带内」从 0 数起：组是"这条带里的第几列"。 */
     var grpSeq = {};
     picks.forEach(function (p, pi) {
       var c = (p.item && p.item.contract) || {};
@@ -4895,40 +4901,16 @@
       if (c.aiTitle) pn.aiTitle = c.aiTitle;
       pn.ord = ir.nodes.length;
       ir.nodes.push(pn);
-
-      /* 协议的字段竖着摞在它下面（同一组、同一列）：子名字的名字就是字段名本身 */
-      var row = 1;
-      p.fields.slice(0, p.drawn).forEach(function (f) {
-        var part = { id: 'p' + pi + 'f' + row, label: f.name, kind: 'part', band: bid,
-                     grp: grp, grow: row, sub: partTypeText(f.node, f.side),
-                     status: null, tip: partTip(f) };
-        part.ord = ir.nodes.length;
-        ir.nodes.push(part);
-        ir.edges.push({ from: pn.id, to: part.id, rel: 'defines' });
-        row++;
-      });
-      /* 字段没画全就说清还有几个 —— 这一行也是真数出来的 */
-      if (p.fields.length > p.drawn) {
-        var restN = p.fields.length - p.drawn;
-        var more = { id: 'p' + pi + 'more', label: '还有 ' + restN + ' 个字段没画', kind: 'part',
-                     band: bid, grp: grp, grow: row,
-                     sub: '这条一共 ' + p.fields.length + ' 个字段，图上画了 ' + p.drawn + ' 个',
-                     status: null,
-                     tip: '这条协议一共 ' + p.fields.length + ' 个字段，图上画了 ' + p.drawn + ' 个' };
-        more.ord = ir.nodes.length;
-        ir.nodes.push(more);
-        ir.edges.push({ from: pn.id, to: more.id, rel: 'defines' });
-      }
     });
     bandCounts(ir);
-    /* 图上到底画了多少、没画多少，一律说清楚：这张图是"按分组轮着挑"挑出来的样本，
-       不写清楚就会被读成"这个范围里只有这几个协议"。 */
-    var note = '图上画了 ' + picks.length + ' 个协议、它们的 ' + drawnFields + ' 个字段（每个' + plan.axisName +
-      '轮着挑，每条协议最多画 ' + quota + ' 个字段）；这个范围里还有 ' + (all.length - picks.length) + ' 个协议没画。';
+    /* 图上画了多少、没画多少，一律说清楚：这张图是"按分组轮着挑"挑出来的样本。 */
+    var note = '图上画了 ' + picks.length + ' 个协议（每个' + plan.axisName + '轮着挑）；' +
+      '这个范围里还有 ' + (all.length - picks.length) + ' 个协议没画。';
     if (all.length > picks.length) note += '点左树里更细的目录，能看得更小、更全。';
     ir.note = note;
     return ir;
   }
+
 
   function renderDirView(ctx) {
     var box = $('#detail');
@@ -4952,6 +4934,13 @@
         el('span', { class: 'chip chip-dim', text: '有重复 ' + dupN }),
         el('button', { class: 'ghost', type: 'button', text: '返回清单',
           onclick: function () { S.dirView = null; renderAll(); } }))));
+
+    var dai = dirAiOf(S.dirView);
+    if (dai && dai.titleZh) {
+      box.appendChild(el('div', { class: 'dirnote' },
+        el('span', { class: 'tdirai', text: dai.titleZh }),
+        dai.noteZh ? el('span', { class: 'dirnote2', text: dai.noteZh }) : null));
+    }
 
     var block = el('div', { class: 'block' });
     if (!all.length) {
@@ -5252,14 +5241,26 @@
   }
 
   function loadProject(id) {
-    return api('/contracts?project=' + encodeURIComponent(id)).then(function (data) {
+    return Promise.all([
+      api('/contracts?project=' + encodeURIComponent(id)),
+      api('/dirs?project=' + encodeURIComponent(id)).catch(function () { return { dirs: [] }; })
+    ]).then(function (res) {
+      var data = res[0] || {}, dirData = res[1] || {};
       S.p = S.projects.filter(function (p) { return p.id === id; })[0] || null;
       S.items = data.contracts || [];
       S.axes = data.axes || [];
       S.labels = data.labels || {};
+      S.dirs = {};
+      (dirData.dirs || []).forEach(function (d) { if (d && d.path) S.dirs[d.path] = d; });
       if (S.sel && !S.items.some(function (it) { return it.contract.id === S.sel; })) S.sel = null;
       renderAll();
     });
+  }
+
+  /* 目录级 AI 中文的查表：口径与左树 data-dir 一致；根目录在树上的串是空串。 */
+  function dirAiOf(path) {
+    var key = (path === null || path === undefined || path === '') ? '（根目录）' : String(path);
+    return S.dirs[key] || null;
   }
 
   function refresh() {

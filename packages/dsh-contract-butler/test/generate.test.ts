@@ -1039,3 +1039,34 @@ test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 
   assert.ok(html.includes('（已完成 '), '进度要写"已完成 5 / 12 条"这种条数口径')
   assert.ok(!html.includes('第 N / M'), '旧的"第 N / M"字样不许再留')
 })
+
+
+/* ============================================================
+   7) 目录节点：目录图只画协议（不画绿色字段节点），目录的 AI 中文有地方显示
+   ============================================================ */
+
+test('目录图不画字段节点；目录节点的 AI 中文能显示出来', () => {
+  const html = panelHtml()
+  const gi = html.indexOf('function dirGraphIR')
+  const gj = html.indexOf('function renderDirView')
+  assert.ok(gi > 0 && gj > gi, '应当能取出 dirGraphIR 这一段')
+  const dirFn = html.slice(gi, gj)
+  /* 用户的原话："目录节点图不需要显示绿色字段节点"——字段是"协议内部长什么样"，
+     属于契约形状图；目录图看的是"这一层有哪些协议、它们归谁"。 */
+  assert.ok(!dirFn.includes("kind: 'part'"), '目录图不该再画字段节点')
+  assert.ok(!dirFn.includes('字段没画'), '"还有 N 个字段没画"那句也不该留')
+  assert.ok(!dirFn.includes('partTip'), '字段节点的提示在目录图里不该再被调用')
+  assert.ok(html.includes('function pickProtocols(domains, budget)'), '挑协议只按条数算名额')
+  assert.ok(!html.includes('function partQuota'), '按字段配额那个函数已成死代码，删掉')
+  const si = html.indexOf('function shapeGraphIR')
+  assert.ok(si > 0 && html.slice(si, gi).includes("kind: 'part'"), '契约形状图仍然要画字段节点')
+
+  /* 目录节点的 AI 中文：取 /dirs → 查表 → 左树行与图上带都印；没有就什么都不画
+     （绝不在本地编一句中文）。 */
+  assert.ok(html.includes("api('/dirs?project='"), '面板要取目录级 AI 中文')
+  assert.ok(html.includes('function dirAiOf'), '目录中文查表要有')
+  assert.ok(html.includes("class: 'tdirai'"), '左树目录行要能挂 AI 中文')
+  assert.ok(html.includes("class: 'gbandai'"), '图上的目录带要能挂 AI 中文')
+  assert.ok(html.includes('b.aiTitle ? el('), '带上印 AI 中文')
+  assert.ok(html.includes("'，另外 ' + dirs.total + ' 个目录也补了中文'"), '生成完成的文案里要报目录口径')
+})
