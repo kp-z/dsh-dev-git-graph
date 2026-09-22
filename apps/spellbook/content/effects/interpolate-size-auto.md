@@ -2,7 +2,7 @@
 title: 过渡到 auto 高度
 slug: interpolate-size-auto
 category: 动效
-tags: [高度, 关键字, 过渡]
+tags: [transition, overflow, 容器, 点击, 切换]
 since: 2026-10
 source: 机制来自 CSS Values and Units Level 5 的 interpolate-size，自行实现
 when: 折叠面板要平滑展开，可高度由内容决定，两端写不出数值

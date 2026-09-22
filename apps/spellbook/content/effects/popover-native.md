@@ -2,7 +2,7 @@
 title: 原生顶层弹层
 slug: popover-native
 category: 交互
-tags: [popover, 弹层, 顶层]
+tags: [popover, layer, 浮层, 点击, 键盘]
 since: 2026-09
 source: 机制来自 HTML 规范的 popover 属性，自行实现
 when: 要一个浮层，但不想处理 z-index、焦点陷阱与点外关闭

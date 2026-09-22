@@ -2,7 +2,7 @@
 title: 表格列宽只认首行
 slug: table-layout-fixed-columns
 category: 布局
-tags: [表格, 列宽, table-layout]
+tags: [table-layout, text-overflow, 表格]
 since: 2026-10
 source: 机制来自 CSS Table 规范的 table-layout: fixed 列宽算法，自行实现
 when: 同一张表格换一批数据列宽就跟着挪位，想要列宽稳定、长内容自己截断

@@ -2,7 +2,7 @@
 title: 无缝走动的条纹
 slug: seamless-stripe-scroll
 category: 图形
-tags: [条纹, 相位, 无缝循环]
+tags: [background-size, keyframes, 图案, 加载, 自动]
 since: 2026-10
 source: 机制来自背景图块的平铺晶格与 background-position 的整格平移，自行实现
 when: 要一条「正在运行」的条纹带（加载、传输、警戒线），循环点必须完全看不出来

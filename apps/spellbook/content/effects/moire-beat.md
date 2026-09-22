@@ -2,7 +2,7 @@
 title: 拍频摩尔纹
 slug: moire-beat
 category: 图形
-tags: [摩尔纹, 莫尔条纹, 拍频, 干涉]
+tags: [repeating-gradient, gradient, 图案, 几何]
 since: 2026-10
 source: 机制来自两层周期微差条纹的拍频干涉，自行实现
 when: 想要一层比条纹本身大得多的图案，但不想画第三层

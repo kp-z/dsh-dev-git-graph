@@ -2,7 +2,7 @@
 title: 换行之后的末行
 slug: flex-wrap-last-row
 category: 布局
-tags: [flex, 换行, flex-grow]
+tags: [flex, grid, 列表, 卡片]
 since: 2026-10
 source: 机制来自 Flexbox 规范「剩余空间按行分配」的弹性长度算法，自行实现
 when: 标签按宽度自动换行铺开，末行项数少，不该被拉得比上面几行宽

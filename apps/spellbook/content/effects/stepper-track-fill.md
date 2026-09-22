@@ -2,7 +2,7 @@
 title: 步骤条的进度填充
 slug: stepper-track-fill
 category: 交互
-tags: [步骤条, 进度, 自定义属性]
+tags: [custom-property, has-selector, 步骤, 进度]
 since: 2026-10
 source: 机制来自 CSS 自定义属性与 calc 的换算、以及 :has() 的前向兄弟匹配，自行实现
 when: 一条三到七步的流程条，要知道走到第几步，但不想为每一步写一条规则

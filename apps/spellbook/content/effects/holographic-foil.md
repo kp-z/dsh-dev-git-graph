@@ -2,7 +2,7 @@
 title: 全息贴纸
 slug: holographic-foil
 category: 材质
-tags: [全息, 叠加, 金属]
+tags: [repeating-gradient, blend-mode, 全息, 虹彩]
 since: 2026-09
 source: 自行实现
 when: 一块表面要有镭射贴纸那种随角度变的彩色

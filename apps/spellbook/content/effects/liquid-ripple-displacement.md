@@ -2,7 +2,7 @@
 title: 液体波纹折射
 slug: liquid-ripple-displacement
 category: 图形
-tags: [滤镜, 位移, 噪声, 折射]
+tags: [svg-filter, feTurbulence, feDisplacementMap, 液体, 图片, 自动]
 since: 2026-10
 source: 机制来自 SVG 滤镜规范里 feTurbulence 与 feDisplacementMap 的通道约定，自行实现
 when: 一张静止的图想要像隔着一层晃动的水面，但不想引入视频或 WebGL

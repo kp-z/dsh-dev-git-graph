@@ -2,7 +2,7 @@
 title: 给滚动条预留位置
 slug: scrollbar-gutter-stable
 category: 布局
-tags: [滚动条, 布局抖动, 预留]
+tags: [scrollbar, overflow, 容器]
 since: 2026-10
 source: 机制来自 CSS Overflow 的 scrollbar-gutter，自行实现
 when: 页面从短变长时，内容因为滚动条出现而整体向左跳一下

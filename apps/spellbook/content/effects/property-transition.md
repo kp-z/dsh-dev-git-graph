@@ -2,7 +2,7 @@
 title: 让自定义属性可过渡
 slug: property-transition
 category: 动效
-tags: [property, 自定义属性, 渐变角度]
+tags: [property, conic-gradient, 色彩, 自动]
 since: 2026-09
 source: 机制来自 CSS Properties and Values API，自行实现
 when: 渐变的角要转起来，或者自定义属性要参与过渡，但改了值只会硬跳

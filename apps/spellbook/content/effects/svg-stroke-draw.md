@@ -2,7 +2,7 @@
 title: 把线画出来
 slug: svg-stroke-draw
 category: 图形
-tags: [描边, 虚线, 路径]
+tags: [svg, stroke, 描边, 图标, 入场]
 since: 2026-09
 source: 机制来自 SVG 的 stroke-dasharray / stroke-dashoffset，自行实现
 when: 图标或下划线要像被一笔画出来，而不是直接出现

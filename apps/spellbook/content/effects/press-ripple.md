@@ -2,7 +2,7 @@
 title: 按下扩散的波纹
 slug: press-ripple
 category: 交互
-tags: [点击, 波纹, 伪元素]
+tags: [radial-gradient, keyframes, pointer-events, 按钮, 点击]
 since: 2026-09
 source: 自行实现
 when: 按钮按下去要有一圈从中间荡开的光，像水面

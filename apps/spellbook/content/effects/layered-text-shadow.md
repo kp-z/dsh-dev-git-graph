@@ -2,7 +2,7 @@
 title: 分层文字阴影
 slug: layered-text-shadow
 category: 排版
-tags: [阴影, 景深, 层次]
+tags: [drop-shadow, 标题, 阴影, 浮雕]
 since: 2026-10
 source: 机制来自 CSS Text Decoration 的 text-shadow 多层叠加，自行实现
 when: 标题要看起来悬在背景上方，而不是印在纸上

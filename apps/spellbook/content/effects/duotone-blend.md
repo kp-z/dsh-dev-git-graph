@@ -2,7 +2,7 @@
 title: 双色调
 slug: duotone-blend
 category: 图形
-tags: [混合模式, 双色调, 图片]
+tags: [blend-mode, filter, 色彩, 图片]
 since: 2026-09
 source: 机制来自 CSS mix-blend-mode 与灰度滤镜的组合，自行实现
 when: 一张彩色图片要压成只有两个颜色的风格化版本

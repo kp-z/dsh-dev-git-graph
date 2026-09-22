@@ -2,7 +2,7 @@
 title: 用名字描述布局
 slug: grid-named-areas
 category: 布局
-tags: [网格, 命名区域, 可读性]
+tags: [grid, 页头, 导航, 容器]
 since: 2026-09
 source: 机制来自 CSS Grid 的 grid-template-areas，自行实现
 when: 布局要一眼看出结构，而不是靠一串列宽去推

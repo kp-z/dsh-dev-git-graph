@@ -2,7 +2,7 @@
 title: 乱码解码
 slug: scramble-decode
 category: 动效
-tags: [乱码, 解码, 定时器]
+tags: [font-face, text-shadow, 发光, 代码, 定时]
 since: 2026-10
 source: 机制来自逐字符解锁阈值的定时刷新，自行实现
 when: 一段文字要像被终端解出来，从噪声慢慢定形

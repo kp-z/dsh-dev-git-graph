@@ -2,7 +2,7 @@
 title: 裁掉行高留白
 slug: text-box-trim
 category: 排版
-tags: [行盒, 间距, 对齐]
+tags: [line-height, margin, 标题]
 since: 2026-09
 source: 机制来自 CSS Inline Layout 的 text-box-trim，自行实现
 when: 标题上方总有一块看不见的空，怎么调 margin 都对不齐

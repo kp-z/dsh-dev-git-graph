@@ -2,7 +2,7 @@
 title: 滚动驱动进度条
 slug: scroll-progress
 category: 动效
-tags: [滚动驱动, 时间线, 进度]
+tags: [scroll-driven, sticky, 进度, 滚动]
 since: 2026-09
 source: 机制来自 CSS Scroll-driven Animations 规范，自行实现
 when: 一条进度条要跟着滚动位置长出来，但不想监听 scroll 事件

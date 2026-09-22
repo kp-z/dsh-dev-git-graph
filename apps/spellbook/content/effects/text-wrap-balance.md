@@ -2,7 +2,7 @@
 title: 平衡换行
 slug: text-wrap-balance
 category: 排版
-tags: [换行, 标题, text-wrap]
+tags: [text-wrap, custom-property, 标题]
 since: 2026-09
 source: 机制来自 CSS Text 规范的 text-wrap，自行实现
 when: 短标题换行后末行只剩一两个字，看着别扭

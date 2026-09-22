@@ -2,7 +2,7 @@
 title: 玻璃上的可读性护栏
 slug: glass-scrim
 category: 材质
-tags: [可读性, 遮蔽, 对比度]
+tags: [backdrop-filter, blur, gradient, 图片, 正文]
 since: 2026-10
 source: 机制来自 backdrop-filter 只作用于高频这一特性，自行实现
 when: 文字压在有内容的底上，加多少模糊都不够清楚

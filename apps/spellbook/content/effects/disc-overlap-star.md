@@ -2,7 +2,7 @@
 title: 交叠圆盘的四角星
 slug: disc-overlap-star
 category: 图形
-tags: [四角星, 负空间, 径向渐变]
+tags: [radial-gradient, background-size, 图案, 几何, 容器]
 since: 2026-10
 source: 机制来自圆心落在瓦片四角后的圆盘交叠与负空间，自行实现
 when: 要一层四角星／四叶草的镂空花纹，但不想画星星的形状

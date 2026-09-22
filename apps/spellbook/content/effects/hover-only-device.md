@@ -2,7 +2,7 @@
 title: 把悬停效果关在指针设备里
 slug: hover-only-device
 category: 交互
-tags: [悬停, 媒体查询, 触屏]
+tags: [transition, transform, 悬停, 指针, 卡片]
 since: 2026-09
 source: 机制来自 Media Queries Level 4 的 hover / pointer 特性，自行实现
 when: 卡片悬浮要浮起来，但手机上点一下不能一直粘在浮起状态

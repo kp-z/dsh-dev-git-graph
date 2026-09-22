@@ -2,7 +2,7 @@
 title: 目录跟随滚动高亮
 slug: sticky-toc-highlight
 category: 交互
-tags: [目录, 观察器, 根边距]
+tags: [intersection-observer, 目录, 滚动]
 since: 2026-09
 source: 机制来自 IntersectionObserver 与 rootMargin 的经典用法，自行实现
 when: 长文旁边有目录，滚到哪里就高亮哪一项

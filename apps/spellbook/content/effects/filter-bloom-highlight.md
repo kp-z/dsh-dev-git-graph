@@ -2,7 +2,7 @@
 title: 高光漏光
 slug: filter-bloom-highlight
 category: 图形
-tags: [发光, 阈值, 滤镜, 叠加]
+tags: [svg-filter, blur, blend-mode, 发光, 光晕]
 since: 2026-10
 source: 机制来自实时渲染里的 bloom 管线（阈值、模糊、叠加），自行实现
 when: 亮部要往外溢出一层光，而暗部必须一点都不能被照亮

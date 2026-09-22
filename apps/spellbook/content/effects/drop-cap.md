@@ -2,7 +2,7 @@
 title: 首字下沉
 slug: drop-cap
 category: 排版
-tags: [首字, 段落, 书籍感]
+tags: [first-letter, line-height, 正文]
 since: 2026-09
 source: 机制来自 CSS Pseudo-Elements 的 ::first-letter，自行实现
 when: 正文开头要一个大写的首字母，像旧书那样压住前三行

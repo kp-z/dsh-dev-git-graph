@@ -2,7 +2,7 @@
 title: 不额外加元素的脉冲环
 slug: shadow-ring-pulse
 category: 动效
-tags: [脉冲, 阴影, 扩散]
+tags: [box-shadow, keyframes, 光晕, 徽章, 自动]
 since: 2026-10
 source: 机制来自 CSS box-shadow 的 spread 半径可动画，自行实现
 when: 一个小圆点要表示"正在连接 / 正在收录"，向外一圈圈扩出去

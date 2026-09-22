@@ -47,7 +47,7 @@ function entryMd({
 title: ${title}
 slug: ${slug}
 category: ${category}
-tags: [测试]
+tags: [grid, 容器, 自动]
 since: 2026-01
 source: 测试
 when: ${when}
@@ -456,7 +456,7 @@ const GOOD_SPEC = {
   slug: 'promoted-one',
   title: '转正条目',
   category: '动效',
-  tags: ['测试'],
+  tags: ['grid', '容器', '自动'],
   since: '2026-02',
   source: '测试来源',
   when: '需要转正的时候',

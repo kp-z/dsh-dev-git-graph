@@ -2,7 +2,7 @@
 title: 液态水银
 slug: liquid-mercury
 category: 材质
-tags: [水银, 融合, 滤镜]
+tags: [blur, feColorMatrix, radial-gradient, 金属, 液体]
 since: 2026-10
 source: 机制来自 CSS blur 与 SVG feColorMatrix 的 alpha 阈值化（gooey 融合），自行实现
 when: 几个圆形要合并成一大滴镜面液态金属，像水银在表面上聚散

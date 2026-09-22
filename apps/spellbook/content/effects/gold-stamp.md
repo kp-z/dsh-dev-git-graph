@@ -2,7 +2,7 @@
 title: 金箔压印
 slug: gold-stamp
 category: 材质
-tags: [金箔, 烫印, 文字]
+tags: [background-clip, gradient, 箔金, 凹刻, 标题]
 since: 2026-10
 source: 机制来自 background-clip: text 与底层独立的 text-shadow 副本，自行实现
 when: 标题要做成烫金压印的样子，像精装书封面上压出来的字

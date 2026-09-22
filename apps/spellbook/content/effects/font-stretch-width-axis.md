@@ -2,7 +2,7 @@
 title: 字宽过渡
 slug: font-stretch-width-axis
 category: 排版
-tags: [可变字体, 字宽, 伸展]
+tags: [font-face, transition, 标题, 悬停]
 since: 2026-10
 source: 机制来自 CSS Fonts 4 的 font-stretch 百分比与可变字体的 wdth 轴，自行实现
 when: 标题要刚好占满一行，但不想用缩放把字压变形

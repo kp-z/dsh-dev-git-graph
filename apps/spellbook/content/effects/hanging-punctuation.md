@@ -2,7 +2,7 @@
 title: 标点悬挂
 slug: hanging-punctuation
 category: 排版
-tags: [标点, 中文排版, 对齐]
+tags: [text-align, 标点, 正文]
 since: 2026-09
 source: 机制来自 CSS Text 的 hanging-punctuation，自行实现
 when: 段落以引号开头，整行被推进去一格，左右边线不齐

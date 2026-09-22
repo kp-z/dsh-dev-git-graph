@@ -2,7 +2,7 @@
 title: 变形镜头拉丝
 slug: anamorphic-streak
 category: 材质
-tags: [镜头光晕, 单向模糊, 蓝色]
+tags: [blur, transform, 光晕, 胶片]
 since: 2026-10
 source: 机制来自变形镜头在垂直方向压缩画面、使点光源被拉成水平线，自行实现
 when: 画面里有一个高亮的光点，想要一条水平穿过去的蓝色光丝

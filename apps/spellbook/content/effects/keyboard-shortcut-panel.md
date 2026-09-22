@@ -2,7 +2,7 @@
 title: 快捷键面板
 slug: keyboard-shortcut-panel
 category: 交互
-tags: [键盘, 快捷键, 浮层]
+tags: [focus, 键盘, 浮层, 输入]
 since: 2026-10
 source: 机制来自 keydown 与可编辑元素的判定，自行实现
 when: 应用有一堆快捷键，按 ? 就能查一遍

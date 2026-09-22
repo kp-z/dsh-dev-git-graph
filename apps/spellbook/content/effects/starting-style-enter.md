@@ -2,7 +2,7 @@
 title: 首次出现也能过渡
 slug: starting-style-enter
 category: 动效
-tags: [starting-style, 入场, 过渡]
+tags: [starting-style, transition, 入场, 容器]
 since: 2026-09
 source: 机制来自 CSS Transitions Level 2 的 @starting-style，自行实现
 when: 元素从隐藏变可见时要淡入，但 transition 死活不触发

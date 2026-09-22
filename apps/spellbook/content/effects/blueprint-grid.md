@@ -2,7 +2,7 @@
 title: 蓝图网格
 slug: blueprint-grid
 category: 图形
-tags: [网格, 纹理, 技术感]
+tags: [gradient, background-size, 图案, 纹理, 容器]
 since: 2026-09
 source: 机制来自 CSS 线性渐变平铺，自行实现
 when: 要一层技术图纸那样的细网格，做深色底或图版背衬

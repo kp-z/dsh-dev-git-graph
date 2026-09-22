@@ -2,7 +2,7 @@
 title: 高光扫过
 slug: highlight-sweep
 category: 材质
-tags: [金属, 高光, 动画]
+tags: [gradient, transform, 金属, 发光, 自动]
 since: 2026-10
 source: 机制来自窄色标线性渐变的层内平移，自行实现
 when: 一块金属面板要有光带斜着扫过去的动感，像转动角度时的反光

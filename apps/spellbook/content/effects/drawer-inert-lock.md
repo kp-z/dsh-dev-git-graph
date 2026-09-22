@@ -2,7 +2,7 @@
 title: 用 inert 关掉抽屉外面
 slug: drawer-inert-lock
 category: 交互
-tags: [抽屉, inert, 焦点]
+tags: [inert, focus, 导航, 浮层, 点击]
 since: 2026-10
 source: 机制来自 HTML 的 inert 属性与 CSS scrollbar-gutter，自行实现
 when: 侧边抽屉打开后，键盘和读屏都不该再走到抽屉后面的页面上

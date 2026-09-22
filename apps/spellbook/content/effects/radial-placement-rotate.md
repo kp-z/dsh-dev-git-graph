@@ -2,7 +2,7 @@
 title: 用旋转来摆位
 slug: radial-placement-rotate
 category: 动效
-tags: [旋转, 摆位, 圆周]
+tags: [transform, keyframes, 加载, 自动]
 since: 2026-09
 source: tobiasahlin/SpinKit（MIT） — sk-circle-fade，改写为独立最小示例
 when: 一圈点要均匀分布，但不想逐个算坐标

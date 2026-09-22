@@ -2,7 +2,7 @@
 title: 内发光
 slug: inner-glow
 category: 材质
-tags: [发光, 阴影, 质感]
+tags: [drop-shadow, 发光, 光晕, 容器]
 since: 2026-09
 source: 机制来自 CSS box-shadow 的 inset，自行实现
 when: 深色面板要有一圈从边缘渗进去的光，像里面有东西在亮

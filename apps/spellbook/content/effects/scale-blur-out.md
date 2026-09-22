@@ -2,7 +2,7 @@
 title: 化开一样消失
 slug: scale-blur-out
 category: 动效
-tags: [退场, 模糊, 缩放]
+tags: [keyframes, transform, blur, 退场, 渐隐]
 since: 2026-09
 source: miniMAC/magic（MIT） — puffOut，改写为独立最小示例
 when: 元素消失时要有「化掉」的质感，而不是单纯淡出

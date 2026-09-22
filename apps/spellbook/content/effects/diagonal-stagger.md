@@ -2,7 +2,7 @@
 title: 沿对角线错开的波
 slug: diagonal-stagger
 category: 动效
-tags: [错开, 延迟, 网格]
+tags: [keyframes, transform, 加载, 自动]
 since: 2026-09
 source: tobiasahlin/SpinKit（MIT） — sk-grid，改写为独立最小示例
 when: 一片格子要有一道波斜着扫过，而不是整体一起动

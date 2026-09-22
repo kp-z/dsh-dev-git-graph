@@ -2,7 +2,7 @@
 title: 渐变描边
 slug: conic-border
 category: 图形
-tags: [渐变, 边框, 背景裁切]
+tags: [conic-gradient, background-clip, 金属, 卡片]
 since: 2026-09
 source: 机制来自 CSS background-clip 的双层裁切，自行实现
 when: 卡片要一圈彩色描边，但 border 只能给单色

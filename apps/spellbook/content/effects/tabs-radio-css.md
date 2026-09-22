@@ -2,7 +2,7 @@
 title: 单选组撑起的标签页
 slug: tabs-radio-css
 category: 交互
-tags: [标签页, 单选组, 兄弟选择器]
+tags: [has-selector, 标签页, 点击, 切换]
 since: 2026-10
 source: 机制来自 CSS :checked 伪类与通用兄弟选择器的组合，自行实现
 when: 标签页只是切换几块静态内容，不想为「哪个亮着」再维护一份 JS 状态

@@ -2,7 +2,7 @@
 title: 用 details 搭可折叠树
 slug: tree-details-guides
 category: 交互
-tags: [树, details, 引导线]
+tags: [details, logical-property, 目录, 点击]
 since: 2026-10
 source: 机制来自嵌套 details 的 open 状态与伪元素画的引导线，自行实现
 when: 文件树、目录或多层筛选，要能一层层展开又不想引入树控件

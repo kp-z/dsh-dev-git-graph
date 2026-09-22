@@ -2,7 +2,7 @@
 title: 碳纤维编织
 slug: carbon-weave
 category: 材质
-tags: [编织, 纹理, 交叉渐变]
+tags: [repeating-gradient, background-size, 纹理, 图案, 容器]
 since: 2026-09
 source: 机制来自 CSS repeating-linear-gradient 的交叉叠加，自行实现
 when: 面板要一层细密的技术感底纹，不能太平

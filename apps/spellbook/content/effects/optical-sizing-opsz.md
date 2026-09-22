@@ -2,7 +2,7 @@
 title: 光学尺寸
 slug: optical-sizing-opsz
 category: 排版
-tags: [可变字体, 光学尺寸, 字号]
+tags: [font-face, letter-spacing, 标题, 正文]
 since: 2026-10
 source: 机制来自 CSS Fonts 4 的 font-optical-sizing 与可变字体的 opsz 轴，自行实现
 when: 同一款字体要同时用在 12px 的注释和 60px 的标题上，又不想维护两套字体

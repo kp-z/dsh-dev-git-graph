@@ -2,7 +2,7 @@
 title: auto 与 fr 混用的轨道
 slug: grid-track-sizing-mix
 category: 布局
-tags: [轨道尺寸, fr, auto]
+tags: [grid, 按钮, 容器]
 since: 2026-10
 source: 机制来自 CSS Grid 规范的轨道尺寸算法（flex 轨道与 auto 轨道协同），自行实现
 when: 工具栏按内容宽自适应，剩下的空间全归主区，且主区要能缩到不溢出

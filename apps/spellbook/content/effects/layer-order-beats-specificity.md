@@ -2,7 +2,7 @@
 title: 顺序压过具体性
 slug: layer-order-beats-specificity
 category: 布局
-tags: [层叠层, 优先级, 覆盖]
+tags: [layer, 卡片, 容器]
 since: 2026-10
 source: 机制来自 CSS Cascading and Inheritance Level 5 的 @layer，自行实现
 when: 覆盖某个样式要不停堆具体性，样式表越改越硬，谁赢全看选择器写得多长

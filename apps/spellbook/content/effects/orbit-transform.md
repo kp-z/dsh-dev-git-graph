@@ -2,7 +2,7 @@
 title: 偏移原点的公转
 slug: orbit-transform
 category: 动效
-tags: [旋转, 公转, 变换原点]
+tags: [transform, keyframes, easing, 加载, 自动]
 since: 2026-09
 source: 自行实现
 when: 元素要绕着另一个点转圈，而不是绕自己打转

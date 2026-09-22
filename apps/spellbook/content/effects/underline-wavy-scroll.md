@@ -2,7 +2,7 @@
 title: 会跑的波浪下划线
 slug: underline-wavy-scroll
 category: 排版
-tags: [下划线, 波浪, 背景平铺]
+tags: [background-repeat, keyframes, 正文, 自动]
 since: 2026-10
 source: 机制来自可平铺背景图样的位移，自行实现
 when: 链接要一条会流动的波浪线，像手写标注一样不安分

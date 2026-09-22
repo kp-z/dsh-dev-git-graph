@@ -2,7 +2,7 @@
 title: 数字与单位之间的那条窄缝
 slug: number-unit-space
 category: 排版
-tags: [数字, 单位, 断行]
+tags: [text-wrap, letter-spacing, 数字, 标点]
 since: 2026-10
 source: 机制来自 Unicode 的 U+202F 窄不换行空格与 UAX #14 的断行类，自行实现
 when: 写「20 kWh」「86 mm」时，希望数字与单位不断开、又不要普通空格那么宽

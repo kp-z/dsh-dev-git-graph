@@ -2,7 +2,7 @@
 title: 通道曲线双色调
 slug: component-transfer-duotone
 category: 图形
-tags: [滤镜, 双色调, 查找曲线, 调色]
+tags: [feColorMatrix, svg-filter, 图片, 色彩]
 since: 2026-10
 source: 机制来自 SVG feComponentTransfer 的逐通道查找表，自行实现
 when: 一张照片要压成暗部一个色、亮部另一个色，而且中间过渡要能自己定

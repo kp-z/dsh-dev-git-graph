@@ -2,7 +2,7 @@
 title: 故障字
 slug: glitch-slice-clone
 category: 动效
-tags: [故障, 色差, 切片]
+tags: [clip-path, keyframes, 标题, 自动, 色彩]
 since: 2026-10
 source: 机制来自伪元素副本与 clip-path 水平切条，自行实现
 when: 标题要像信号坏掉一样抽一下，是「偶尔抽一下」而不是一直在抖

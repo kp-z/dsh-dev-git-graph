@@ -2,7 +2,7 @@
 title: 网格渐变
 slug: mesh-gradient
 category: 材质
-tags: [渐变, 径向, 背景]
+tags: [radial-gradient, gradient, 色彩, 容器]
 since: 2026-09
 source: 机制来自 CSS 多重背景叠加，自行实现
 when: 要一块柔和流动的彩色底，但不想用图片、也不想上 WebGL

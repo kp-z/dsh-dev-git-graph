@@ -2,7 +2,7 @@
 title: 乘法混色的格纹
 slug: tartan-multiply
 category: 图形
-tags: [格纹, 混合模式, 条纹]
+tags: [blend-mode, repeating-gradient, 图案, 纹理]
 since: 2026-10
 source: 机制来自纺织格纹的经纬混色与 CSS background-blend-mode 的 multiply，自行实现
 when: 要一块苏格兰呢那样的格纹，交叉处必须有第三档颜色才像织物

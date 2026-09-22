@@ -2,7 +2,7 @@
 title: 栅格版瀑布流
 slug: grid-masonry-auto-rows
 category: 布局
-tags: [瀑布流, 行跨度, 网格]
+tags: [grid, custom-property, 卡片, 画廊]
 since: 2026-10
 source: 机制来自 CSS Grid 的 grid-auto-rows 加 span 行跨度，跨行数由脚本测量，自行实现
 when: 卡片要参差排布，但又要能跨列、要按行阅读顺序、要能排序

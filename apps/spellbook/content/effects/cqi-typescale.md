@@ -2,7 +2,7 @@
 title: 跟着容器缩放的排版
 slug: cqi-typescale
 category: 布局
-tags: [容器查询, 单位, 字号]
+tags: [container-query, 标题, 正文]
 since: 2026-09
 source: 机制来自 CSS Containment 的容器查询长度单位，自行实现
 when: 同一个卡片组件要放进宽窄不同的槽位，字号得跟着槽位走

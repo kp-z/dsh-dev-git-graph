@@ -2,7 +2,7 @@
 title: 按自定义属性换样式
 slug: container-style-query
 category: 布局
-tags: [容器查询, 样式查询, 自定义属性]
+tags: [style-query, container-query, custom-property, 卡片]
 since: 2026-10
 source: 机制来自 CSS Containment 规范的 @container style() 查询，自行实现
 when: 一个组件要按它所在区域的「密度」「主题」换样式，又不想给每种组合都加一个类

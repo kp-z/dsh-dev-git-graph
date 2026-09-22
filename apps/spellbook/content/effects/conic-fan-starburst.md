@@ -2,7 +2,7 @@
 title: 放射星芒
 slug: conic-fan-starburst
 category: 图形
-tags: [放射, 锥形渐变, 循环]
+tags: [repeating-gradient, conic-gradient, radial-gradient, 光晕, 几何]
 since: 2026-10
 source: 机制来自 CSS repeating-conic-gradient 的角向循环，自行实现
 when: 要一圈放射状的扇形（星芒、齿轮、扫描线），而且扇形的条数要能精确控制

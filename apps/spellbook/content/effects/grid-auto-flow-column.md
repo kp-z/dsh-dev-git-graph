@@ -2,7 +2,7 @@
 title: 列优先的网格流
 slug: grid-auto-flow-column
 category: 布局
-tags: [自动放置, 列方向, 看板]
+tags: [grid, 看板, 列表]
 since: 2026-10
 source: 机制来自 CSS Grid 的 grid-auto-flow: column，自行实现
 when: 元素要竖着先填一列再填下一列，像看板的泳道

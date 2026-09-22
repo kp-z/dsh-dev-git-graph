@@ -2,7 +2,7 @@
 title: 放倒一样的翻面
 slug: perspective-unfold
 category: 动效
-tags: [透视, 翻转, 原点]
+tags: [3d, transform, keyframes, 卡片, 退场]
 since: 2026-09
 source: miniMAC/magic（MIT） — perspectiveDown，改写为独立最小示例
 when: 一张卡片要绕底边往后倒下去，像立牌被放倒

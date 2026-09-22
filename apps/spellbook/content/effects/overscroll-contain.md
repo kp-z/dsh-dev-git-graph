@@ -2,7 +2,7 @@
 title: 嵌套滚动的边界
 slug: overscroll-contain
 category: 交互
-tags: [滚动链, overscroll-behavior, 嵌套滚动]
+tags: [overscroll, overflow, 弹窗, 列表, 滚动]
 since: 2026-10
 source: 机制来自 CSS Overscroll Behavior 规范的滚动链阻断，自行实现
 when: 弹窗里有一个自己的滚动区，滚到底后不想把背后的页面一起带走

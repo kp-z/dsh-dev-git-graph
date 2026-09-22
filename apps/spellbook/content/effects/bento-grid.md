@@ -2,7 +2,7 @@
 title: 不对称拼贴板块
 slug: bento-grid
 category: 布局
-tags: [bento, 拼贴, 跨行跨列]
+tags: [grid, 卡片, 看板]
 since: 2026-10
 source: 机制来自 CSS Grid 的 grid-template-areas 与不等列宽组合，自行实现
 when: 一块概览区要有一张主卡和几张副卡，大小不一但共用一套边线

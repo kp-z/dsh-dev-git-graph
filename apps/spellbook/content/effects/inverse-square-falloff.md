@@ -2,7 +2,7 @@
 title: 平方反比衰减
 slug: inverse-square-falloff
 category: 材质
-tags: [点光源, 径向渐变, 衰减]
+tags: [radial-gradient, 光晕, 发光, 渐隐]
 since: 2026-10
 source: 机制来自点光源照度按距离平方反比衰减，用 radial-gradient 的色标停点拟合，自行实现
 when: 画一个点光源的光晕，但默认的径向渐变看起来像一块均匀的圆饼

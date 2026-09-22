@@ -2,7 +2,7 @@
 title: 荧光笔高亮
 slug: highlight-marker
 category: 排版
-tags: [高亮, 渐变, 强调]
+tags: [gradient, 正文, 色彩]
 since: 2026-09
 source: 机制来自 CSS 多重色标背景，自行实现
 when: 一句话要像被荧光笔划过，但又不想盖住整个字

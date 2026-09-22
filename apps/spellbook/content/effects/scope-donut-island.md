@@ -2,7 +2,7 @@
 title: 作用域到边界为止
 slug: scope-donut-island
 category: 布局
-tags: [作用域, 嵌套, 边界]
+tags: [scope, 容器, 卡片]
 since: 2026-10
 source: 机制来自 CSS Cascading and Inheritance Level 6 的 @scope，自行实现
 when: 一套组件样式套在嵌套实例上，内层被外层的选择器一并染指

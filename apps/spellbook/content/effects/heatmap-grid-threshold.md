@@ -2,7 +2,7 @@
 title: 热力格子的色阶
 slug: heatmap-grid-threshold
 category: 图形
-tags: [热力图, color-mix, 色阶]
+tags: [color-mix, grid, 色彩, 图表, 数字]
 since: 2026-10
 source: 机制来自 color-mix 的百分比插值与 grid 排布，自行实现
 when: 一年 365 个格子里每格一个数值，要一眼看出疏密

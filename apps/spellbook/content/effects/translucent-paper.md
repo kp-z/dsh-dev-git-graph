@@ -2,7 +2,7 @@
 title: 透光纸
 slug: translucent-paper
 category: 材质
-tags: [纸, 同元素混合, 逆光]
+tags: [blend-mode, backdrop-filter, 纸感, 容器]
 since: 2026-10
 source: 机制来自 CSS Compositing 规范的 background-blend-mode，自行实现
 when: 一张纸要透着背后的光，纤维和厚薄不均都得看得见

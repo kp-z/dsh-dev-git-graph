@@ -2,7 +2,7 @@
 title: 过冲才有弹性
 slug: overshoot-enter
 category: 动效
-tags: [过冲, 弹性, 关键帧]
+tags: [keyframes, transform, 3d, 卡片, 入场]
 since: 2026-09
 source: miniMAC/magic（MIT） — boingInUp，改写为独立最小示例
 when: 元素入场要有回弹的劲儿，不想引入弹性库

@@ -2,7 +2,7 @@
 title: 打字机的光标
 slug: typewriter-caret
 category: 动效
-tags: [打字机, 光标, 两套时钟]
+tags: [keyframes, easing, 正文, 自动]
 since: 2026-10
 source: 机制来自 CSS Animations 的动画重启与 step-end 硬切换，自行实现
 when: 一段文字要逐字打出来，光标得像真人一样「打的时候不闪、停笔才闪」

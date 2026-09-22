@@ -2,7 +2,7 @@
 title: 逐字入场的拆分
 slug: text-split-grapheme
 category: 排版
-tags: [字素簇, 拆分, 入场]
+tags: [keyframes, custom-property, 标题, 入场]
 since: 2026-10
 source: 机制来自 Intl.Segmenter 的字素簇切分，自行实现
 when: 要把一句话拆成单字再逐个入场，而句子里有 emoji 或带声调符号的字母

@@ -2,7 +2,7 @@
 title: 括号在 RTL 里会自己翻过来
 slug: bidi-auto-mirroring
 category: 排版
-tags: [双向文字, RTL, 镜像]
+tags: [bidi, 标点, 正文]
 since: 2026-10
 source: 机制来自 Unicode 双向算法的镜像规则（UAX #9 L4）与 CSS Writing Modes 的 direction / unicode-bidi，自行实现
 when: 页面要支持阿拉伯语或希伯来语，可括号在阿语行里看着是反的

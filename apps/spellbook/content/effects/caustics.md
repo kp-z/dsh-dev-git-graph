@@ -2,7 +2,7 @@
 title: 水波焦散
 slug: caustics
 category: 材质
-tags: [水, 焦散, 重复渐变]
+tags: [repeating-gradient, radial-gradient, 液体, 自动]
 since: 2026-09
 source: 自行实现
 when: 深色水面上要有那种网状的、缓慢游动的光纹

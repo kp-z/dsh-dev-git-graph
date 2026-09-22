@@ -2,7 +2,7 @@
 title: 开关只读一次状态
 slug: toggle-switch
 category: 交互
-tags: [表单, 开关, 自定义属性]
+tags: [custom-property, appearance, 开关, 表单, 点击]
 since: 2026-10
 source: 机制来自 CSS 自定义属性与 :checked 的组合，自行实现
 when: 开关一多，轨道、滑块、文字、图标都要跟着切换，选择器越写越乱

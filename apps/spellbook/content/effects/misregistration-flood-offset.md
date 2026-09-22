@@ -2,7 +2,7 @@
 title: 印刷错版
 slug: misregistration-flood-offset
 category: 图形
-tags: [错版, 套印, 双色, 滤镜]
+tags: [svg-filter, 标题, 色彩]
 since: 2026-10
 source: 机制来自 SVG feFlood 与 feOffset 加 feComposite 的 in 运算符，自行实现
 when: 标题要有廉价印刷那种套色没对准的味道，而不是加一圈硬阴影

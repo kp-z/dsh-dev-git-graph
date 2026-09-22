@@ -2,7 +2,7 @@
 title: 依次入场
 slug: stagger-enter
 category: 动效
-tags: [入场, 延迟, 交错]
+tags: [keyframes, 入场, 加载时, 列表]
 since: 2026-09
 source: 机制来自 CSS Animations 的 animation-fill-mode，自行实现
 when: 一列元素要一个个出现，而不是同时冒出来

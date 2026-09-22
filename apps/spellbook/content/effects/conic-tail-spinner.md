@@ -2,7 +2,7 @@
 title: 带渐隐尾巴的转圈
 slug: conic-tail-spinner
 category: 动效
-tags: [spinner, 锥形渐变, 遮罩]
+tags: [conic-gradient, mask, keyframes, 加载, 自动]
 since: 2026-10
 source: 机制来自 CSS conic-gradient 的角向插值与 mask 挖空，自行实现
 when: 要一个转圈等待指示器，尾巴要自然淡出，但不想切图也不想引 SVG

@@ -2,7 +2,7 @@
 title: 在框内推镜
 slug: object-view-box-crop
 category: 图形
-tags: [裁切, 推近, 替换元素]
+tags: [object-view-box, object-fit, transition, 图片, 悬停]
 since: 2026-10
 source: 机制来自 CSS Images Level 4 的 object-view-box，自行实现
 when: 图片要从自己的框里推近、平移，像镜头一样，但不想套一层裁剪容器

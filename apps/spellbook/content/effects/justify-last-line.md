@@ -2,7 +2,7 @@
 title: 最后一行也要两端对齐
 slug: justify-last-line
 category: 排版
-tags: [两端对齐, 最后一行, 键值行]
+tags: [text-align, 列表, 正文]
 since: 2026-10
 source: 机制来自 CSS Text 的 text-align-last，自行实现
 when: 每行只有一条「标签 —— 值」的窄栏列表，想让两头都贴边

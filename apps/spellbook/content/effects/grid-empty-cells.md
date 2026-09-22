@@ -2,7 +2,7 @@
 title: 点号留白与跨区共享
 slug: grid-empty-cells
 category: 布局
-tags: [留白, 点号, 跨区]
+tags: [grid, 标题, 图片, 正文]
 since: 2026-10
 source: 机制来自 CSS Grid 区域图里的点号语法与区域跨列，自行实现
 when: 头部要有一部分空着不铺元素，正文又有几块共用同一行高度

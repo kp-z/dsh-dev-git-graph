@@ -2,7 +2,7 @@
 title: 菱形网格
 slug: diagonal-lattice
 category: 图形
-tags: [菱形, 对角网格, 平铺]
+tags: [gradient, background-size, 图案, 几何]
 since: 2026-10
 source: 机制来自线性渐变的对角线与平铺相位的连续性，自行实现
 when: 要一层斜向的网格，比正交网格更松弛、更像手绘稿纸

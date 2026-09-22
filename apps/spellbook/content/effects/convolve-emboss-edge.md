@@ -2,7 +2,7 @@
 title: 卷积浮雕
 slug: convolve-emboss-edge
 category: 图形
-tags: [卷积, 浮雕, 边缘, 滤镜]
+tags: [svg-filter, 浮雕, 描边, 标题]
 since: 2026-10
 source: 机制来自 SVG feConvolveMatrix 的 3x3 卷积核，自行实现
 when: 文字或线稿要一条自己长出来的立体边，而不是另画一层描边

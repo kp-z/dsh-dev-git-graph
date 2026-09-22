@@ -2,7 +2,7 @@
 title: 移动端的一屏高度
 slug: dvh-viewport-100
 category: 布局
-tags: [视口单位, 移动端, 100vh]
+tags: [containing-block, 容器, 页头]
 since: 2026-10
 source: 机制来自 CSS 视口单位 dvh / svh 的定义，自行实现
 when: 想在手机上做一屏高的首屏，又不想被地址栏收放搞出滚动条

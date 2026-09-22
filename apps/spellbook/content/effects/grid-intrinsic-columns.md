@@ -2,7 +2,7 @@
 title: 让内容决定列宽
 slug: grid-intrinsic-columns
 category: 布局
-tags: [网格, 内容宽度, 自适应]
+tags: [grid, 表格, 列表]
 since: 2026-10
 source: 机制来自 CSS Grid 规范的 min-content / max-content / fit-content 关键字，自行实现
 when: 一列要刚好装下最长的那个词，另一列吃掉剩下的全部宽度

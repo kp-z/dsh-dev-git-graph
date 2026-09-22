@@ -2,7 +2,7 @@
 title: 遮罩渐隐边缘
 slug: mask-fade-edges
 category: 图形
-tags: [遮罩, 渐隐, 溢出提示]
+tags: [mask, gradient, 渐隐, 卡片]
 since: 2026-09
 source: 机制来自 CSS Masking 的 mask-image，自行实现
 when: 横向滚动的内容要在一侧淡出，暗示「还有更多」

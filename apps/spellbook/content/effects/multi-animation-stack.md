@@ -2,7 +2,7 @@
 title: 一块元素叠两个动画
 slug: multi-animation-stack
 category: 动效
-tags: [多动画, 叠加, 属性冲突]
+tags: [keyframes, transform, 卡片, 入场, 自动]
 since: 2026-09
 source: 机制来自 CSS Animations 的多值语法，自行实现
 when: 元素要一边做入场、一边持续呼吸，两件事同时进行

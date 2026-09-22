@@ -2,7 +2,7 @@
 title: 整块区域跟随焦点
 slug: focus-within-group
 category: 交互
-tags: [焦点, 容器, 键盘]
+tags: [focus, 表单, 容器, 焦点]
 since: 2026-09
 source: 机制来自 CSS Selectors 的 :focus-within，自行实现
 when: 焦点落在框里的某个输入项时，整块区域都该有提示

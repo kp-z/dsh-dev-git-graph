@@ -2,7 +2,7 @@
 title: 金属箔
 slug: metal-foil
 category: 材质
-tags: [金属, 锥形渐变, 高光]
+tags: [conic-gradient, 金属, 箔金, 徽章, 标题]
 since: 2026-09
 source: 机制来自 CSS 锥形渐变，自行实现
 when: 徽章或标题要一片会反光的金属面，不想用贴图

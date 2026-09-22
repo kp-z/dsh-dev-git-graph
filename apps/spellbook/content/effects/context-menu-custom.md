@@ -2,7 +2,7 @@
 title: 自建的右键菜单
 slug: context-menu-custom
 category: 交互
-tags: [右键菜单, 指针, 定位]
+tags: [position, 菜单, 浮层, 指针]
 since: 2026-10
 source: 机制来自 contextmenu 事件与视口翻转定位，自行实现
 when: 想给一个列表或画布加右键操作项，替掉浏览器的默认菜单

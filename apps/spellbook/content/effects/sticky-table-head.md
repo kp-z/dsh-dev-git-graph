@@ -2,7 +2,7 @@
 title: 表头留在滚动区里
 slug: sticky-table-head
 category: 布局
-tags: [表格, sticky, 表头]
+tags: [sticky, 表格, 表头, 滚动]
 since: 2026-10
 source: 机制来自 CSS Position Layout 规范中 sticky 的粘附范围与表格盒的绘制分层，自行实现
 when: 长表格要在一个固定高度的区域里滚动，表头始终停在顶部

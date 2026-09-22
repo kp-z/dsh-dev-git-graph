@@ -2,7 +2,7 @@
 title: 金属拼缝
 slug: panel-seam
 category: 材质
-tags: [接缝, 面板, 重复渐变]
+tags: [repeating-gradient, 金属, 纹理, 容器]
 since: 2026-10
 source: 机制来自 repeating-linear-gradient 的对称亮暗色标对，自行实现
 when: 一大块金属要切成几块面板，接缝处有上一块压住下一块的厚度

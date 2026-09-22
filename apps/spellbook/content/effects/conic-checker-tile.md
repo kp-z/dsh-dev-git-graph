@@ -2,7 +2,7 @@
 title: 锥形渐变棋盘格
 slug: conic-checker-tile
 category: 图形
-tags: [棋盘, 锥形渐变, 平铺]
+tags: [conic-gradient, background-size, 图案, 几何]
 since: 2026-10
 source: 机制来自 CSS conic-gradient 的角向硬色标与 background-size 平铺，自行实现
 when: 要一块棋盘底纹，格子大小与两个颜色都能随手改，又不想放图片

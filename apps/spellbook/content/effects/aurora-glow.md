@@ -2,7 +2,7 @@
 title: 极光流动
 slug: aurora-glow
 category: 图形
-tags: [光晕, 模糊, 动效背景]
+tags: [blur, conic-gradient, 极光, 光晕, 页头]
 since: 2026-09
 source: 自行实现
 when: 首屏背景要一片缓慢流动的彩色光，但不想上 WebGL、也不想视频

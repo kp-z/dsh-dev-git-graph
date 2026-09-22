@@ -2,7 +2,7 @@
 title: 一侧固定一侧流式
 slug: sidebar-fluid
 category: 布局
-tags: [侧栏, flex, 自适应]
+tags: [flex, 容器, 正文]
 since: 2026-09
 source: 机制来自 CSS Flexbox 的 flex-grow 与 flex-wrap，自行实现
 when: 侧栏宽度固定，主区吃掉剩余空间，窄屏时自动堆叠

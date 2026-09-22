@@ -2,7 +2,7 @@
 title: 磁性吸附按钮
 slug: magnetic-button
 category: 交互
-tags: [指针, 跟随, 微交互]
+tags: [custom-property, transform, 按钮, 指针, 悬停]
 since: 2025-09
 source: 自行实现
 when: 想让一个按钮在指针靠近时轻微跟过去，显得有回应

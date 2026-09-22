@@ -2,7 +2,7 @@
 title: 给任意形状加辉光
 slug: svg-glow-filter
 category: 材质
-tags: [SVG滤镜, 辉光, 矢量]
+tags: [svg-filter, 发光, 光晕, 图标]
 since: 2026-10
 source: 机制来自 SVG 滤镜的 feGaussianBlur 加 feMerge 子链，自行实现
 when: 要发光的是一个非矩形的形状或路径，box-shadow 与 text-shadow 都用不上

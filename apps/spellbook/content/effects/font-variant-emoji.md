@@ -2,7 +2,7 @@
 title: 同一个字符，彩色还是单色
 slug: font-variant-emoji
 category: 排版
-tags: [字形选择, 变体, 符号]
+tags: [font-variant, 正文, 图标, 色彩]
 since: 2026-10
 source: 机制来自 CSS Fonts 4 的 font-variant-emoji 与 Unicode 的变体选择符，自行实现
 when: 正文里的 ❤ 或 ☺ 变成彩色表情，把一段沉稳的文字搅得很花

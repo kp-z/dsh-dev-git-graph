@@ -2,7 +2,7 @@
 title: 一个元素画整屏骨架
 slug: skeleton-single-element
 category: 动效
-tags: [骨架屏, 多层背景, 零子元素]
+tags: [gradient, background-size, background-repeat, 骨架屏]
 since: 2026-10
 source: 机制来自 CSS 多层 background 的定位与尺寸，自行实现
 when: 骨架屏的形状是固定的，不值得为它写一堆占位 div

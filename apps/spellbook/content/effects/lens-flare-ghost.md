@@ -2,7 +2,7 @@
 title: 镜头鬼影
 slug: lens-flare-ghost
 category: 材质
-tags: [镜头光晕, 对称, 指针]
+tags: [radial-gradient, blend-mode, 悬停, 光晕, 指针]
 since: 2026-10
 source: 机制来自镜头内多次反射形成的鬼影关于光轴中心对称，自行实现
 when: 画面里有一个强光源，想补上一串沿光轴排开的光斑

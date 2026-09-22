@@ -2,7 +2,7 @@
 title: 自动填空的网格
 slug: dense-grid
 category: 布局
-tags: [网格, 密集, 自动放置]
+tags: [grid, 看板, 卡片]
 since: 2026-09
 source: 机制来自 CSS Grid 的 grid-auto-flow: dense，自行实现
 when: 网格里有大小不一的块，不希望大块后面留下空洞

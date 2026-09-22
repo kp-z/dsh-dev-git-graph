@@ -2,7 +2,7 @@
 title: 虹彩珠光
 slug: iridescent
 category: 材质
-tags: [虹彩, 色相, 珠光]
+tags: [conic-gradient, 珠光, 虹彩, 色彩]
 since: 2026-09
 source: 自行实现
 when: 一块表面要在转动时透出不同的颜色，像珠光漆或鲍鱼壳

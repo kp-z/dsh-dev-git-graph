@@ -2,7 +2,7 @@
 title: 镜面高光的位置
 slug: specular-highlight
 category: 材质
-tags: [高光, 光源, 拟物]
+tags: [radial-gradient, box-shadow, 发光, 卡片]
 since: 2026-09
 source: 自行实现
 when: 色块看起来是平的，想让它有一点「表面朝向」

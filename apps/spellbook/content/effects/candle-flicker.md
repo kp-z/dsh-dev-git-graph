@@ -2,7 +2,7 @@
 title: 烛光的两个频率
 slug: candle-flicker
 category: 材质
-tags: [烛光, 频率叠加, 图层]
+tags: [keyframes, transform, 发光, 自动]
 since: 2026-10
 source: 机制来自烛焰抖动是低频摆动与高频燃烧噪声的叠加，自行实现
 when: 一团暖光要「活着」，但单条 animation 看起来像呼吸灯

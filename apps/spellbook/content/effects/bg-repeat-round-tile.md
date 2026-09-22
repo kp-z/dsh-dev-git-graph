@@ -2,7 +2,7 @@
 title: 整格平铺的两种排法
 slug: bg-repeat-round-tile
 category: 图形
-tags: [平铺, 取整, 缝隙]
+tags: [background-repeat, background-size, 图案]
 since: 2026-10
 source: 机制来自 CSS Backgrounds 3 的 background-repeat: round 与 space，自行实现
 when: 图案的图块除不尽元素尺寸，右侧／下方拖着一条被切掉的半格

@@ -2,7 +2,7 @@
 title: 主色调洗出深浅
 slug: color-mix-tint-shade
 category: 材质
-tags: [颜色, color-mix, 主题]
+tags: [color-mix, oklch, 色彩]
 since: 2026-10
 source: 机制来自 color-mix 的百分比插值，自行实现
 when: 界面里有一堆「同一个主色的浅底、深边、悬停态」，希望改主色时它们一起改

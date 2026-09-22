@@ -2,7 +2,7 @@
 title: 一处写两个颜色
 slug: light-dark-pair
 category: 材质
-tags: [明暗, 主题, 颜色]
+tags: [light-dark, color-scheme, 卡片, 切换]
 since: 2026-10
 source: 机制来自 CSS Color Level 5 的 light-dark()，自行实现
 when: 同一套组件要在明暗两种配色下都对，但不想把每条规则写两遍

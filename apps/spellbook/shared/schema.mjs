@@ -5,6 +5,8 @@
  * 与 parse.mjs 一样，这里不依赖任何第三方库 —— 未来的 DSH 插件要复用同一套规则。
  */
 
+import { validateTags } from './tags.mjs'
+
 export const CATEGORIES = ['材质', '动效', '排版', '交互', '布局', '图形']
 
 /**
@@ -80,9 +82,18 @@ export function validateEntry(entry, { file = '<unknown>', expectedSlug } = {}) 
     }
   }
 
+  /*
+   * 标签要走受控词表（shared/tags.mjs）。
+   *
+   * 原来这里只检查「是非空字符串数组」，于是 332 条咒语上挂出了 631 个不同标签，
+   * 458 个只出现一次 —— 「吸附」与「滚动吸附」并排、「SVG 滤镜」与「SVG滤镜」
+   * 只差一个空格。这样的标签筛不了也数不出。现在写词表外的值直接拒绝。
+   */
   if (meta.tags !== undefined) {
     if (!Array.isArray(meta.tags) || meta.tags.some((t) => typeof t !== 'string' || !t.trim())) {
       problems.push('tags 必须是非空字符串数组')
+    } else {
+      problems.push(...validateTags(meta.tags))
     }
   }
 

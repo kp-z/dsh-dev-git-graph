@@ -2,7 +2,7 @@
 title: 用噪点打散色带
 slug: dither-anti-banding
 category: 材质
-tags: [噪点, 色带, 渐变色深]
+tags: [svg-filter, feTurbulence, 颗粒, 容器]
 since: 2026-09
 source: 机制来自 openColorIO 与 Dither 的经典做法，自行实现
 when: 大面积渐变上出现一道道可见的同心色带

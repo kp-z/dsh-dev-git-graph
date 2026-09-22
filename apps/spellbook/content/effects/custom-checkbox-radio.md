@@ -2,7 +2,7 @@
 title: 自绘复选框与单选钮
 slug: custom-checkbox-radio
 category: 交互
-tags: [表单, 控件, appearance]
+tags: [background-size, radial-gradient, focus, 表单, 选择]
 since: 2026-10
 source: 机制来自 CSS 的 appearance 属性与 :checked 伪类，自行实现
 when: 原生控件太素、又不想用 div 假装一个复选框，怕丢掉键盘和表单提交值

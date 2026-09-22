@@ -2,7 +2,7 @@
 title: 分数与斜杠零
 slug: numeric-shape-features
 category: 排版
-tags: [数字, OpenType, 字形]
+tags: [font-variant, 数字, 正文]
 since: 2026-10
 source: 机制来自 CSS Fonts 4 的 font-variant-numeric 与 OpenType 的 frac / zero 特性，自行实现
 when: 配方里要写 1/2、机器编号里的 0 必须和字母 O 分得开

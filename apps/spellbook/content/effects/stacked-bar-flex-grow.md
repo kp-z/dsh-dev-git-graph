@@ -2,7 +2,7 @@
 title: 堆叠条用 flex-grow 分额
 slug: stacked-bar-flex-grow
 category: 图形
-tags: [图表, flex, 比例]
+tags: [flex, custom-property, 图表]
 since: 2026-10
 source: 机制来自 flex-grow 的按值分配与 basis 归零，自行实现
 when: 要把总量拆成几段显示占比，而且宽度要随容器自适应

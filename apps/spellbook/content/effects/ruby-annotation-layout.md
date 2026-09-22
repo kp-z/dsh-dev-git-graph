@@ -2,7 +2,7 @@
 title: 注音排版
 slug: ruby-annotation-layout
 category: 排版
-tags: [注音, ruby, 中文排版]
+tags: [ruby, line-height, 正文]
 since: 2026-10
 source: 机制来自 HTML 的 ruby 元素与 CSS Ruby 的 ruby-align / ruby-position，自行实现
 when: 生僻字要标拼音，而且注音不能把行高顶开、也不能压到旁边的字

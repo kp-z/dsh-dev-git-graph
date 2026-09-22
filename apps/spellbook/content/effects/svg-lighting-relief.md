@@ -2,7 +2,7 @@
 title: 给纹理打一盏光
 slug: svg-lighting-relief
 category: 材质
-tags: [滤镜, 光照, 高度图]
+tags: [svg-filter, feLighting, feTurbulence, 浮雕, 纹理]
 since: 2026-10
 source: 机制来自 SVG 滤镜规范的 feDiffuseLighting 与 feSpecularLighting 及光源元素，自行实现
 when: 一块纹理想有「光从那一边打过来」的立体感，但不想画高光图片

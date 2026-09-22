@@ -2,7 +2,7 @@
 title: 分页时不许留下孤行
 slug: orphans-widows-control
 category: 排版
-tags: [分页, 打印, 排版]
+tags: [multi-column, media-query, 正文]
 since: 2026-10
 source: 机制来自 CSS Fragmentation 的 orphans 与 widows，自行实现
 when: 一段文字被分到两页（或两个分栏）时，不希望首尾只剩一行

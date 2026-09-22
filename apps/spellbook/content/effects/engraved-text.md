@@ -2,7 +2,7 @@
 title: 金属凹刻
 slug: engraved-text
 category: 材质
-tags: [雕刻, 文字, 内阴影]
+tags: [drop-shadow, 凹刻, 金属, 容器]
 since: 2026-10
 source: 机制来自内嵌容器的双向 inset 阴影与文字反向 text-shadow，自行实现
 when: 金属铭牌上的字要是被刻进去的，而不是印上去的

@@ -2,7 +2,7 @@
 title: 验证码格子
 slug: otp-auto-advance
 category: 交互
-tags: [表单, 验证码, 粘贴]
+tags: [focus, 表单, 输入, 数字, 键盘]
 since: 2026-10
 source: 机制来自 HTML 的 autocomplete="one-time-code" 与剪贴板事件，自行实现
 when: 六位验证码要一个格子一位，且用户从短信里整串复制过来时不能被卡在第一个格子

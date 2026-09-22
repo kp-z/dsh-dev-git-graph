@@ -2,7 +2,7 @@
 title: 两层遮罩做布尔运算
 slug: mask-composite-boolean
 category: 图形
-tags: [遮罩, 交集, 合成]
+tags: [mask, repeating-gradient, gradient, 图案]
 since: 2026-10
 source: 机制来自 CSS Masking 的 mask-composite，自行实现
 when: 想只在渐变淡出的范围里露出条纹，而不是整块都露

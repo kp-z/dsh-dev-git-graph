@@ -2,7 +2,7 @@
 title: 浮层被祖先的变换困住
 slug: fixed-in-transform
 category: 布局
-tags: [固定定位, transform, 包含块]
+tags: [containing-block, transform, position, 浮层, 卡片]
 since: 2026-10
 source: 机制来自 CSS 变换规范：非 none 的 transform 让元素成为绝对与固定定位后代的包含块，自行实现
 when: 浮层写在卡片组件内部，结果它相对卡片定位而不是视口

@@ -2,7 +2,7 @@
 title: 刻意让元素重叠
 slug: grid-overlap-cells
 category: 布局
-tags: [重叠, 网格单元, 层叠]
+tags: [grid, 图片, 卡片, 徽章]
 since: 2026-10
 source: 机制来自 CSS Grid 允许同一单元被多个元素占据，自行实现
 when: 文字要压在图上、徽标要骑在卡片角上，但不想用绝对定位去算坐标

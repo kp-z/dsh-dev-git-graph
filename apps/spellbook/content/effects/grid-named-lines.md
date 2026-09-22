@@ -2,7 +2,7 @@
 title: 给网格线起名字
 slug: grid-named-lines
 category: 布局
-tags: [网格线, 命名, 可读性]
+tags: [grid, 正文, 图片, 引用]
 since: 2026-10
 source: 机制来自 CSS Grid 规范的方括号线名语法，自行实现
 when: 布局有多层宽度（正文栏、插图栏、通栏），不想靠数第几条线来放置

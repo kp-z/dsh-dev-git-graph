@@ -2,7 +2,7 @@
 title: 网格简写与它的重置
 slug: grid-template-shorthand
 category: 布局
-tags: [简写, 重置, 命名网格]
+tags: [grid, 容器, 导航]
 since: 2026-10
 source: 机制来自 CSS Grid 规范的 grid-template 简写及其重置行为，自行实现
 when: 行列定义都简单，想在一行里写完，又需要顺便给网格线起名字

@@ -2,7 +2,7 @@
 title: 镜头脏污与光斑
 slug: lens-dirt-flare
 category: 材质
-tags: [脏污, 光斑, 噪声阈值]
+tags: [feTurbulence, svg-filter, blend-mode, 颗粒, 胶片]
 since: 2026-10
 source: 机制来自 SVG feTurbulence 与 feComponentTransfer 的阈值化，自行实现
 when: 光源进入画面时要有一层脏镜头才有的油渍与颗粒光斑

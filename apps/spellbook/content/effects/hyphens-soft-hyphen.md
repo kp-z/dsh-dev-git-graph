@@ -2,7 +2,7 @@
 title: 断词靠词典，不靠宽度
 slug: hyphens-soft-hyphen
 category: 排版
-tags: [断词, 连字符, lang]
+tags: [hyphens, text-wrap, 正文]
 since: 2026-10
 source: 机制来自 CSS Text 的 hyphens 与 U+00AD 软连字符，配合 HTML 的 lang 属性，自行实现
 when: 窄栏里的英文长词总整词掉下去，前一行右端空出一大块

@@ -2,7 +2,7 @@
 title: 斜射光柱
 slug: light-shaft
 category: 材质
-tags: [光, 模糊, 斜切]
+tags: [gradient, blur, transform, 发光]
 since: 2026-09
 source: 自行实现
 when: 深色场景里要一束从上方斜射下来的光

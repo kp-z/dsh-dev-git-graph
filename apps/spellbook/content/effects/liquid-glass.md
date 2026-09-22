@@ -2,7 +2,7 @@
 title: 液态玻璃面板
 slug: liquid-glass
 category: 材质
-tags: [玻璃, 模糊, 深色模式]
+tags: [backdrop-filter, blur, 玻璃, 浮层]
 since: 2025-09
 source: 灵感来源 iOS 26，自行实现
 when: 需要一块浮在内容之上的面板，又不想把底下的东西遮死

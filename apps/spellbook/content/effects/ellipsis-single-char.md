@@ -2,7 +2,7 @@
 title: 省略号是一个字符
 slug: ellipsis-single-char
 category: 排版
-tags: [省略号, 标点, 截断]
+tags: [letter-spacing, text-overflow, 标点, 正文]
 since: 2026-10
 source: 机制来自 Unicode 的 U+2026 与 CSS Text 的 text-overflow，自行实现
 when: 三个点的省略号在字距下散开、在中文里宽度不对、在截断处还被画成另一个样子

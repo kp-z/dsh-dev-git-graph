@@ -2,7 +2,7 @@
 title: 密码可见切换
 slug: password-reveal
 category: 交互
-tags: [表单, 密码, 焦点]
+tags: [focus, 表单, 输入, 按钮, 点击]
 since: 2026-10
 source: 机制来自 DOM 的 HTMLInputElement.type 切换与 setSelectionRange，自行实现
 when: 登录框边上要一个「显示密码」的小按钮，且切换后不能打断用户继续输入

@@ -2,7 +2,7 @@
 title: 雨痕玻璃
 slug: rain-on-glass
 category: 材质
-tags: [玻璃, 水滴, 透镜阵列]
+tags: [backdrop-filter, blur, 玻璃, 液体, 自动]
 since: 2026-10
 source: 机制来自多个独立 backdrop-filter 面板的拼贴，自行实现
 when: 玻璃上要有几道往下爬的雨痕，每道都把底下的画面擦亮一小块

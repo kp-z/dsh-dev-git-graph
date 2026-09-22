@@ -2,7 +2,7 @@
 title: 压印浮雕
 slug: emboss-relief
 category: 材质
-tags: [浮雕, 内阴影, 光向]
+tags: [drop-shadow, 浮雕, 阴影, 按钮]
 since: 2026-09
 source: 机制来自 CSS box-shadow 的双向 inset，自行实现
 when: 按钮或面板要做成被压出来的样子，像纸上盖的钢印

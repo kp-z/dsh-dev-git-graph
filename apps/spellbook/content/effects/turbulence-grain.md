@@ -2,7 +2,7 @@
 title: 滤镜噪点质感
 slug: turbulence-grain
 category: 图形
-tags: [噪点, 滤镜, 质感, 颗粒]
+tags: [feTurbulence, svg-filter, blend-mode, 颗粒, 纹理]
 since: 2026-09
 source: 机制来自 SVG feTurbulence 滤镜，自行实现
 when: 要一层颗粒感把过于干净的色块压旧一点，但不想引入任何图片文件

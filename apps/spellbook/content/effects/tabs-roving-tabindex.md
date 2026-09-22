@@ -2,7 +2,7 @@
 title: 复合控件的移动焦点
 slug: tabs-roving-tabindex
 category: 交互
-tags: [键盘, tabindex, 焦点模型]
+tags: [focus, 键盘, 标签页, 菜单]
 since: 2026-10
 source: 机制来自 WAI-ARIA 作者实践里的 roving tabindex 焦点模型，自行实现
 when: 一排标签、菜单或工具按钮挨在一起，Tab 键不该在其中逐项停留

@@ -2,7 +2,7 @@
 title: 胶片光晕的偏色
 slug: halation-red-bloom
 category: 材质
-tags: [胶片, 光晕, 色偏]
+tags: [blur, blend-mode, 胶片, 光晕, 图片]
 since: 2026-10
 source: 机制来自胶片 halation 的成因，红光在片基里二次散射，自行实现
 when: 一张夜景要有胶片味，亮处周围带着一圈红

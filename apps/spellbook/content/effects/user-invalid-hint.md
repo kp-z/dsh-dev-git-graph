@@ -2,7 +2,7 @@
 title: 用户犯错了才标红
 slug: user-invalid-hint
 category: 交互
-tags: [表单, 校验, 提示]
+tags: [form-validation, 表单, 错误态, 提示]
 since: 2026-09
 source: 机制来自 CSS Selectors Level 4 的 :user-invalid，自行实现
 when: 表单刚打开时不要一片红，用户真的填错了才提示

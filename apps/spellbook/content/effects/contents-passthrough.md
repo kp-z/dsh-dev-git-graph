@@ -2,7 +2,7 @@
 title: 拆掉多余的包裹层
 slug: contents-passthrough
 category: 布局
-tags: [display, 网格项, 透传]
+tags: [grid, 卡片, 容器]
 since: 2026-10
 source: 机制来自 CSS Display 规范的 display: contents，自行实现
 when: 组件外那层 div 只是为了挂类名，却把子元素挡在了父级网格之外

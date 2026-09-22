@@ -2,7 +2,7 @@
 title: 不确定进度条
 slug: indeterminate-bar
 category: 动效
-tags: [进度条, 循环, 合成器]
+tags: [transform, keyframes, 进度, 加载, 自动]
 since: 2026-10
 source: 机制来自 Material Design 线性不确定进度的几何做法，自行实现
 when: 任务在跑但不知道还要多久，要让进度条一直有动静，又不报一个假百分比

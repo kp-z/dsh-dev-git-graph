@@ -2,7 +2,7 @@
 title: 自定义选中色
 slug: selection-style
 category: 交互
-tags: [选中, 伪元素, 品牌色]
+tags: [first-letter, 色彩, 正文, 拖拽]
 since: 2026-09
 source: 机制来自 CSS Pseudo-Elements 的 ::selection，自行实现
 when: 选中文字时的那片高亮要用品牌色，而不是系统默认的蓝

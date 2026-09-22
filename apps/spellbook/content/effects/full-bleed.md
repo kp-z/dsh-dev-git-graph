@@ -2,7 +2,7 @@
 title: 通栏突破
 slug: full-bleed
 category: 布局
-tags: [通栏, 网格, 正文]
+tags: [grid, 正文, 图片, 容器]
 since: 2026-09
 source: 机制来自 CSS Grid 的命名列与跨列，自行实现
 when: 正文要窄栏好读，但图、色块和引用要突破到整屏宽

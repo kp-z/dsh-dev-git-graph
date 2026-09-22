@@ -2,7 +2,7 @@
 title: 点阵底纹
 slug: dot-matrix
 category: 图形
-tags: [点阵, 纹理, 径向渐变]
+tags: [radial-gradient, background-size, 图案, 纹理, 容器]
 since: 2026-09
 source: 机制来自 CSS 径向渐变平铺，自行实现
 when: 要一层规整的点阵把空地填住，但不想用图片

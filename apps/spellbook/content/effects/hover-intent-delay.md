@@ -2,7 +2,7 @@
 title: 给指针留出穿越时间
 slug: hover-intent-delay
 category: 交互
-tags: [悬停, 延迟, 方向]
+tags: [transition, 悬停, 浮层, 指针]
 since: 2026-09
 source: 机制来自 CSS transition-delay 的分状态声明，自行实现
 when: 触发区和面板之间有一道缝，鼠标穿过去时面板总会先消失

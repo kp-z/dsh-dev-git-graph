@@ -2,7 +2,7 @@
 title: 仪表盘的弧与指针
 slug: gauge-arc-needle
 category: 图形
-tags: [仪表盘, 锥形渐变, 变量]
+tags: [conic-gradient, custom-property, mask, 图表, 数字]
 since: 2026-10
 source: 机制来自 conic-gradient 的硬色标与 CSS 变量的角度换算，自行实现
 when: 要显示一个 0–100 的量，但想要的是「仪表」而不是「进度条」

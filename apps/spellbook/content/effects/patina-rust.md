@@ -2,7 +2,7 @@
 title: 铜绿锈迹
 slug: patina-rust
 category: 材质
-tags: [氧化, 锈迹, 噪声滤镜]
+tags: [svg-filter, feTurbulence, 锈蚀, 纹理, 容器]
 since: 2026-10
 source: 机制来自 SVG feTurbulence 配合离散型 feComponentTransfer 得到硬边斑块，自行实现
 when: 一块金属要有久经风霜的氧化斑，而不是均匀的做旧

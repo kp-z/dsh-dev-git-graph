@@ -2,7 +2,7 @@
 title: 滑动关闭
 slug: swipe-dismiss
 category: 交互
-tags: [滑动, 阈值, 归位]
+tags: [transform, transition, pointer-events, 拖拽, 提示]
 since: 2026-09
 source: 自行实现
 when: 一条消息要能滑动划掉，松手时没划够就弹回去

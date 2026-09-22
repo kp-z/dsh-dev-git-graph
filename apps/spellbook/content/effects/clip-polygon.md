@@ -2,7 +2,7 @@
 title: 多边形裁切
 slug: clip-polygon
 category: 图形
-tags: [裁切, 形状, 斜切]
+tags: [clip-path, 几何, 图案]
 since: 2026-09
 source: 机制来自 CSS Shapes 的 clip-path，自行实现
 when: 色块要有斜切口或非矩形的轮廓，不想用 SVG、也不想透明图片

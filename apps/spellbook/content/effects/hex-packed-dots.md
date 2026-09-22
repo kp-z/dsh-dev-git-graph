@@ -2,7 +2,7 @@
 title: 六方密排点阵
 slug: hex-packed-dots
 category: 图形
-tags: [点阵, 六方密排, 六边形点阵, 错位]
+tags: [radial-gradient, background-size, 图案, 几何]
 since: 2026-10
 source: 机制来自三角晶格（六方密排）的几何与背景层的整格偏移，自行实现
 when: 点阵要铺满一片区域，又不想让点排成规规矩矩的方阵

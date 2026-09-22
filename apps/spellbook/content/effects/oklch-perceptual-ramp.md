@@ -2,7 +2,7 @@
 title: 等感知的色阶
 slug: oklch-perceptual-ramp
 category: 材质
-tags: [颜色, oklch, 色阶]
+tags: [oklch, custom-property, 色彩]
 since: 2026-10
 source: 机制来自 oklch 的感知均匀性，自行实现
 when: 要为一套界面生成一整条深浅色阶，希望相邻两档看起来的差距一样大

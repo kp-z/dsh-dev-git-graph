@@ -2,7 +2,7 @@
 title: 骨架屏扫光
 slug: skeleton-shimmer
 category: 材质
-tags: [骨架屏, 扫光, 加载]
+tags: [keyframes, transform, gradient, 骨架屏, 加载]
 since: 2026-09
 source: 自行实现
 when: 内容还在加载，用一块灰底加一道扫光占住位置

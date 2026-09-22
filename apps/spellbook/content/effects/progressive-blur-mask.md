@@ -2,7 +2,7 @@
 title: 渐进模糊
 slug: progressive-blur-mask
 category: 材质
-tags: [模糊, 蒙版, 景深]
+tags: [backdrop-filter, mask, 玻璃, 浮层, 页头]
 since: 2026-10
 source: 机制来自 backdrop-filter 与 mask-image 的叠加，自行实现
 when: 顶部浮层要有一个软边，别让底下的内容在一条硬线上忽然糊掉

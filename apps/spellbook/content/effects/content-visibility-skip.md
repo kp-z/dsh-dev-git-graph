@@ -2,7 +2,7 @@
 title: 跳过屏幕外的渲染
 slug: content-visibility-skip
 category: 布局
-tags: [性能, 渲染, 长页面]
+tags: [content-visibility, 列表, 滚动]
 since: 2026-09
 source: 机制来自 CSS Containment 的 content-visibility，自行实现
 when: 页面很长，滚动时明显发涩，但内容是静态的

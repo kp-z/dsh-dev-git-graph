@@ -2,7 +2,7 @@
 title: 支点在元素之外
 slug: origin-outside-orbit
 category: 动效
-tags: [变换原点, 公转, 甩出]
+tags: [transform, keyframes, blur, 卡片, 退场]
 since: 2026-09
 source: miniMAC/magic（MIT） — bombLeftOut，改写为独立最小示例
 when: 元素要像被甩出去一样画一条大弧离场

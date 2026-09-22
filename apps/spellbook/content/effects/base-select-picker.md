@@ -2,7 +2,7 @@
 title: 可定制的原生下拉
 slug: base-select-picker
 category: 交互
-tags: [select, 弹层, 表单]
+tags: [select, 选择, 表单, 菜单]
 since: 2026-10
 source: 机制来自 HTML 的可定制 select 与 CSS ::picker(select)，自行实现
 when: 下拉选项里要放图标和说明文字，但不想用 div 假造一个 select

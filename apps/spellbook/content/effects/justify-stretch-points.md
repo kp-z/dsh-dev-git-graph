@@ -2,7 +2,7 @@
 title: 两端对齐拉的是哪里
 slug: justify-stretch-points
 category: 排版
-tags: [两端对齐, 中西混排, 可拉伸点]
+tags: [text-align, letter-spacing, 正文]
 since: 2026-10
 source: 机制来自 CSS Text 的可拉伸点分配规则与 text-justify，自行实现
 when: 同样两端对齐，中文那段被拉得松松垮垮，夹在里面的英文单词却一动不动

@@ -2,7 +2,7 @@
 title: 原生互斥手风琴
 slug: details-accordion-name
 category: 交互
-tags: [details, 手风琴, 互斥]
+tags: [details, transition, 列表, 点击]
 since: 2026-10
 source: 机制来自 HTML 规范 details 元素的 name 属性，自行实现
 when: 一组折叠面板，一次只想开一个，又不想为此写脚本

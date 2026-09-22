@@ -2,7 +2,7 @@
 title: 表单无效时才提示提交
 slug: form-disable-submit
 category: 交互
-tags: [表单, 校验, has]
+tags: [form-validation, 表单, 按钮, 输入]
 since: 2026-09
 source: 机制来自 CSS Selectors 的 :has(:user-invalid)，自行实现
 when: 提交按钮不该在用户还没动手时就变灰

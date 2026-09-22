@@ -2,7 +2,7 @@
 title: 比例算在哪个盒子上
 slug: aspect-ratio-box-sizing
 category: 布局
-tags: [比例, 盒模型, box-sizing]
+tags: [aspect-ratio, 卡片, 容器]
 since: 2026-10
 source: 机制来自 CSS Sizing 规范中 aspect-ratio 与 box-sizing 的交互，自行实现
 when: 两个盒子写了同样的宽度、同样的比例、同样的内边距，量出来的外框却不一样

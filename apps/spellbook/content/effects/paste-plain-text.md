@@ -2,7 +2,7 @@
 title: 粘贴只要纯文本
 slug: paste-plain-text
 category: 交互
-tags: [表单, 粘贴, 富文本]
+tags: [focus, 正文, 输入, 键盘]
 since: 2026-10
 source: 机制来自 Clipboard API 的 clipboardData 与 execCommand('insertText')，自行实现
 when: 富文本输入框里粘进来的内容带着别处的字号、颜色和行内样式，把版面弄乱

@@ -2,7 +2,7 @@
 title: 荧光屏余辉
 slug: phosphor-persistence
 category: 材质
-tags: [canvas, 拖尾, 余辉]
+tags: [custom-property, box-shadow, 发光, 光晕]
 since: 2026-10
 source: 机制来自 CRT 荧光粉余辉，以及用半透明覆盖代替历史轨迹的经典画法，自行实现
 when: 一个移动的光点要留下逐渐消退的拖尾

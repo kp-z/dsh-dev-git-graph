@@ -2,7 +2,7 @@
 title: 模糊占位交叉淡入
 slug: blur-up-image
 category: 动效
-tags: [图片加载, LQIP, 模糊]
+tags: [blur, 图片, 骨架屏, 加载时]
 since: 2026-10
 source: 机制来自 LQIP（低质量图像占位）的做法，自行实现
 when: 图片要等一下才到，先用一张极小的模糊版本占住位置，加载完再淡入

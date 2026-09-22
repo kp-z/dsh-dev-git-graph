@@ -2,7 +2,7 @@
 title: 按高度换版式的卡片
 slug: cqh-block-size
 category: 布局
-tags: [容器查询, 尺寸收容, 块轴]
+tags: [container-query, grid, 卡片]
 since: 2026-10
 source: 机制来自 CSS Containment 的 container-type: size 与尺寸收容，自行实现
 when: 组件要按「自己有多高」换版式，而不只是按宽度

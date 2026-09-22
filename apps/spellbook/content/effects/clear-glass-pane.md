@@ -2,7 +2,7 @@
 title: 透光清晰玻璃
 slug: clear-glass-pane
 category: 材质
-tags: [玻璃, 反差, 透光]
+tags: [backdrop-filter, 玻璃, 容器]
 since: 2026-10
 source: 机制来自 CSS Filter Effects 规范的 backdrop-filter 反差函数，自行实现
 when: 面板压在内容上，你要的是能看清底下，而不是糊掉底下

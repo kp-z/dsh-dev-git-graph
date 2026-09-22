@@ -2,7 +2,7 @@
 title: 倾斜容器里的翻折
 slug: folding-cube
 category: 动效
-tags: [翻折, 倾斜, 3D]
+tags: [transform, 3d, keyframes, 加载, 自动]
 since: 2026-09
 source: tobiasahlin/SpinKit（MIT） — sk-fold，改写为独立最小示例
 when: 四个方块像折纸一样依次翻面，整体还带着斜角

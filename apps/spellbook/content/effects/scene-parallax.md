@@ -2,7 +2,7 @@
 title: 透视视差
 slug: scene-parallax
 category: 动效
-tags: [视差, 透视, 深度]
+tags: [3d, transform, 容器, 滚动]
 since: 2026-09
 source: 机制来自 CSS 3D Transforms 的 translateZ 与 perspective，自行实现
 when: 滚动时前后景以不同速度移动，做出景深

@@ -2,7 +2,7 @@
 title: 负外边距做重叠
 slug: negative-margin-overlap
 category: 布局
-tags: [负外边距, 重叠, 头像组]
+tags: [margin, flex, z-index, 头像, 悬停]
 since: 2026-10
 source: 机制来自 CSS 盒模型中负外边距参与布局、负值只缩小占位，自行实现
 when: 一排头像要互相叠一点，或者一块内容要压到上一块的边上

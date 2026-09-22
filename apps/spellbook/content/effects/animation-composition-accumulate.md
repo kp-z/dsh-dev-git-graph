@@ -2,7 +2,7 @@
 title: 多层动画叠加
 slug: animation-composition-accumulate
 category: 动效
-tags: [动画合成, 叠加, transform]
+tags: [animation-composition, keyframes, transform, 容器, 自动]
 since: 2026-10
 source: 机制来自 CSS Animations Level 2 的 animation-composition，自行实现
 when: 元素身上有两条动画改同一个属性，后一条把前一条整个顶掉了

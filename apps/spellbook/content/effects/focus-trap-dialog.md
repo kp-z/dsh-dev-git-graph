@@ -2,7 +2,7 @@
 title: 让焦点困在浮层里
 slug: focus-trap-dialog
 category: 交互
-tags: [焦点, 无障碍, 浮层]
+tags: [focus, 弹窗, 浮层, 键盘, 焦点]
 since: 2026-10
 source: 机制来自 focusin 事件与文档位置判断，自行实现
 when: 打开一个模态浮层之后，按 Tab 不该跑到背后的页面上

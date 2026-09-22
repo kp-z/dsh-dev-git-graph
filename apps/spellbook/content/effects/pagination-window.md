@@ -2,7 +2,7 @@
 title: 分页的滑动窗口
 slug: pagination-window
 category: 交互
-tags: [分页, 窗口, 省略号]
+tags: [flex, 导航, 按钮, 数字, 点击]
 since: 2026-10
 source: 机制来自经典「定长页码窗口 + 两端锚定」的分页算法，自行实现
 when: 页码多到二三十页，要固定住一行里按钮的数量

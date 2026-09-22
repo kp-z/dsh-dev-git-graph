@@ -2,7 +2,7 @@
 title: 双层中空玻璃
 slug: double-glaze
 category: 材质
-tags: [玻璃, 叠层, 模糊]
+tags: [backdrop-filter, blur, 玻璃, 容器]
 since: 2026-10
 source: 机制来自 backdrop-filter 的逐层累积，自行实现
 when: 一层玻璃压不住底下的乱，但你又不想把它糊成一块

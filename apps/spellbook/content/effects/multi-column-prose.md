@@ -2,7 +2,7 @@
 title: 多栏正文
 slug: multi-column-prose
 category: 布局
-tags: [多栏, 正文, 断行]
+tags: [multi-column, 正文, 标题]
 since: 2026-09
 source: 机制来自 CSS Multi-column Layout，自行实现
 when: 正文要分两栏排，但不想手工切成两个 div

@@ -2,7 +2,7 @@
 title: 单元素翻折
 slug: fold-plane
 category: 动效
-tags: [3D, 透视, 变换]
+tags: [transform, 3d, keyframes, 容器, 自动]
 since: 2026-09
 source: 机制取自 SpinKit（MIT）的 sk-plane，自行实现
 when: 一个方块要有真实的翻折立体感，但不想加容器、不想加 JS

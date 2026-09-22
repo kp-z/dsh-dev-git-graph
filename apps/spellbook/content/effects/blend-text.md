@@ -2,7 +2,7 @@
 title: 与背景反相的文字
 slug: blend-text
 category: 排版
-tags: [混合模式, 对比, 文字]
+tags: [blend-mode, 标题, 图片]
 since: 2026-09
 source: 机制来自 CSS Compositing 的 mix-blend-mode，自行实现
 when: 文字要压在明暗不定的图上，而且不管底下是什么颜色都看得清

@@ -2,7 +2,7 @@
 title: 按书写方向写样式
 slug: logical-properties
 category: 布局
-tags: [逻辑属性, RTL, 书写模式]
+tags: [logical-property, writing-mode, bidi, 正文]
 since: 2026-09
 source: 机制来自 CSS Logical Properties，自行实现
 when: 同一套样式要同时支持从左到右、从右到左和竖排

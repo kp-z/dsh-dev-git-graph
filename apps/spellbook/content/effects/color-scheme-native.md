@@ -2,7 +2,7 @@
 title: 让浏览器自己画的东西也变暗
 slug: color-scheme-native
 category: 材质
-tags: [暗色, 原生控件, color-scheme]
+tags: [color-scheme, light-dark, 表单, 输入]
 since: 2026-10
 source: 机制来自 CSS Color Adjustment 的 color-scheme 属性，自行实现
 when: 页面已经是暗色了，但滚动条、下拉框、日期选择器还是白的

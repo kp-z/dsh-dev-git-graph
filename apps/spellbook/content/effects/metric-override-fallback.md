@@ -2,7 +2,7 @@
 title: 回退字体的度量伪装
 slug: metric-override-fallback
 category: 排版
-tags: [字体回退, 布局抖动, 度量]
+tags: [font-face, line-height, 正文]
 since: 2026-10
 source: 机制来自 CSS Fonts 5 的 @font-face 度量描述符，next/font 的 adjustFontFallback 用同一招（MIT），自行实现
 when: 自定义字体到位前后行高不一样，整页内容在加载完成时往下跳一次

@@ -2,7 +2,7 @@
 title: 条形从底部生长
 slug: bar-grow-chart
 category: 动效
-tags: [图表, 缩放, 原点]
+tags: [transform, keyframes, 图表, 入场]
 since: 2026-09
 source: 自行实现
 when: 图表里的条要在出现时从底部往上长，而不是从中间撑开

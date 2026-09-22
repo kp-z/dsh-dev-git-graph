@@ -2,7 +2,7 @@
 title: 让父级跟着子级变
 slug: has-parent-state
 category: 交互
-tags: [has, 选择器, 状态]
+tags: [color-mix, transition, 表单, 卡片, 切换]
 since: 2026-09
 source: 机制来自 CSS Selectors Level 4 的 :has()，自行实现
 when: 勾选之后整张卡片要换样子，但不想加 JS、也不想给父级加类名

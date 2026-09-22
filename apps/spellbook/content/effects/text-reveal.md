@@ -2,7 +2,7 @@
 title: 逐字揭示
 slug: text-reveal
 category: 动效
-tags: [排版, 入场, 交错]
+tags: [custom-property, keyframes, 标题, 入场]
 since: 2025-09
 source: 自行实现
 when: 想让一句标题一个字一个字浮上来，而不是整段淡入

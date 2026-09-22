@@ -2,7 +2,7 @@
 title: 悬停就能按停的倒计时条
 slug: pausable-timeout-bar
 category: 动效
-tags: [倒计时, 动画时钟, 暂停]
+tags: [keyframes, transform, 提示, 进度, 悬停]
 since: 2026-10
 source: 机制来自 CSS Animations 的 animation-play-state，自行实现
 when: 撤销提示、自动跳转、限时操作上有一条代表剩余时间的条，鼠标移上去应当停住

@@ -2,7 +2,7 @@
 title: 手绘抖线
 slug: hand-drawn-wobble
 category: 图形
-tags: [手绘, 滤镜, 位移]
+tags: [svg-filter, feDisplacementMap, feTurbulence, 手绘, 容器]
 since: 2026-09
 source: 机制来自 SVG feDisplacementMap，自行实现
 when: 规整的边框和图形想变成手绘的，但不想重画路径

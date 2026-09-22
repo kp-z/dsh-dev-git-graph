@@ -2,7 +2,7 @@
 title: 只在键盘操作时显焦点环
 slug: focus-visible-ring
 category: 交互
-tags: [焦点, 无障碍, 键盘]
+tags: [focus, 键盘, 焦点, 按钮, 输入]
 since: 2026-09
 source: 机制来自 CSS Selectors 规范的 :focus-visible，自行实现
 when: 鼠标点击不要留下难看的焦点框，但键盘 Tab 时必须看得见自己在哪

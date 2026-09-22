@@ -2,7 +2,7 @@
 title: 自定义校验文案
 slug: custom-validity-message
 category: 交互
-tags: [表单, 校验, ConstraintValidation]
+tags: [form-validation, 表单, 错误态, 输入]
 since: 2026-10
 source: 机制来自 HTML 约束校验 API 的 setCustomValidity 与 validationMessage，自行实现
 when: 校验规则比 minlength、pattern 能表达得更复杂，但还想用浏览器原生的提示气泡

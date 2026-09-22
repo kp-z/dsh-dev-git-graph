@@ -2,7 +2,7 @@
 title: 描边空心字
 slug: text-stroke-outline
 category: 排版
-tags: [描边, 文字, 空心]
+tags: [stroke, paint-order, 描边, 标题]
 since: 2026-09
 source: 机制来自 CSS Text Decoration 与 -webkit-text-stroke，自行实现
 when: 标题要只有轮廓、中间透空，像版画或霓虹管

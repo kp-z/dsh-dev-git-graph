@@ -2,7 +2,7 @@
 title: 像素放不糊
 slug: pixelated-magnify
 category: 图形
-tags: [像素画, 放大, 采样]
+tags: [image-rendering, 像素, 图片]
 since: 2026-10
 source: 机制来自 CSS Images 的 image-rendering: pixelated，自行实现
 when: 小尺寸像素画要放大展示，默认的平滑插值会把它糊成一团

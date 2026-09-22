@@ -2,7 +2,7 @@
 title: 阳极氧化色
 slug: anodized-oxide
 category: 材质
-tags: [氧化, 干涉色, 色相插值]
+tags: [conic-gradient, oklch, 金属, 虹彩]
 since: 2026-10
 source: 机制来自 conic-gradient 的多段色相序列与 oklch 插值，自行实现
 when: 金属表面要有钛阳极氧化那种沿一个方向连续扫过的薄膜色

@@ -2,7 +2,7 @@
 title: 长阴影
 slug: long-shadow
 category: 图形
-tags: [阴影, 等距, 叠加]
+tags: [box-shadow, 阴影, 图标, 标题]
 since: 2026-09
 source: 机制来自 CSS 多层同向偏移的 box-shadow，自行实现
 when: 图标或标题要一条斜向拉长的实心投影，像等距视角

@@ -2,7 +2,7 @@
 title: 绝对定位落进网格区域
 slug: abspos-in-grid-area
 category: 布局
-tags: [grid, 绝对定位, 角标]
+tags: [grid, position, 卡片, 徽章]
 since: 2026-10
 source: 机制来自 CSS Grid 规范：绝对定位子项在网格容器为其包含块时按网格区域定位，自行实现
 when: 卡片右上角要挂一个角标，但不想为它多加一个定位包裹层

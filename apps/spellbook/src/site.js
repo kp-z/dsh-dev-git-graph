@@ -43,6 +43,109 @@ function initTheme() {
   paint()
 }
 
+/* ------------------------------------------------------ 条列 / 卡片 */
+
+/**
+ * 目录的两种排法。
+ *
+ *   条列（默认）—— 一行一条，缩略图是「页码」，钉在右边距上，配一条引导线走到底。
+ *   卡片        —— 一行四张上下叠的小牌，缩略图放大成主角，扫一眼能看很多条。
+ *
+ * 两种都留着，因为找东西有两种动作：**认出**（在卡片里瞥见那个效果）和
+ * **读到**（在条列里顺着 `when` 那句读完再决定）。缩略图越大越靠「认出」，
+ * 文字越宽越靠「读到」，没有一种排法能同时做到底。
+ *
+ * 开关状态和明暗一样存 localStorage —— 这不是临时筛选，是「我怎么读这本书」。
+ */
+function initView() {
+  const toggle = document.querySelector('[data-view-toggle]')
+  if (!toggle) return
+
+  const label = toggle.querySelector('[data-view-label]')
+
+  const current = () => html.dataset.view || 'list'
+
+  const paint = () => {
+    // 标签写的是**按下去会得到什么**，和明暗开关同一套规矩：
+    // 现在是条列，就写着「卡」，按下去变成卡片。
+    if (label) label.textContent = current() === 'list' ? '卡' : '列'
+  }
+
+  toggle.addEventListener('click', () => {
+    const next = current() === 'list' ? 'card' : 'list'
+    html.dataset.view = next
+    try {
+      localStorage.setItem('spellbook:view', next)
+    } catch {
+      /* 隐私模式下写不了，不影响使用 */
+    }
+    paint()
+    // 缩略图是 iframe，切排法时它们的尺寸会变。浏览器会自己重排，
+    // 但滚动位置常常落在一张已经换了位置的卡片上 —— 把锚点交还给浏览器。
+    requestAnimationFrame(() => {
+      const focused = document.activeElement
+      if (focused && focused !== document.body && focused.scrollIntoView) {
+        focused.scrollIntoView({ block: 'nearest' })
+      }
+    })
+  })
+
+  paint()
+}
+
+/* -------------------------------------------------------- 按标签筛 */
+
+/**
+ * `?tag=玻璃` —— 只看带这个标签的咒语。
+ *
+ * 为什么不复用查词口：那是**全文检索**，查「玻璃」会把正文里提了一句玻璃的
+ * 条目也捞进来（实测 14 条命中，而真正带 `玻璃` 标签的是 8 条）。全文检索适合
+ * 「我想找那个大概跟玻璃有关的东西」，标签筛选回答的是另一个问题 ——
+ * 「带这个标签的都有哪些」。两个都要，所以两个都留着。
+ *
+ * 标签是受控词表里的枚举值，所以这里是**精确匹配整个标签**，不是子串包含：
+ * 点「标签」不该把「标签页」也带出来。
+ *
+ * 筛选在客户端做（每一行都带着自己的 data-tags），不走检索、不请求任何东西 ——
+ * 于是「点标签 → 看到结果」是零延迟的。
+ */
+function initTagFilter() {
+  const bar = document.querySelector('[data-tag-filter]')
+  if (!bar) return
+
+  const rows = [...document.querySelectorAll('.row')]
+  if (!rows.length) return
+
+  // 每个标签都是完整的词，用空格分隔；精确比较，不做子串匹配
+  const tagOf = (row) => (row.dataset.tags || '').split(' ').filter(Boolean)
+
+  const apply = (tag) => {
+    if (!tag) return
+    let shown = 0
+    for (const row of rows) {
+      const hit = tagOf(row).includes(tag)
+      row.hidden = !hit
+      if (hit) shown++
+    }
+    // 一条都没有的分类不该留着一个空的章标题
+    for (const chapter of document.querySelectorAll('.chapter')) {
+      chapter.hidden = !chapter.querySelector('.row:not([hidden])')
+    }
+    // 章目导航与「第 N 章」都是按分类数的，筛完就对不上了 —— 整条收起
+    const nav = document.querySelector('.chapter-nav')
+    if (nav) nav.hidden = true
+
+    const name = bar.querySelector('[data-tag-filter-name]')
+    const count = bar.querySelector('[data-tag-filter-count]')
+    if (name) name.textContent = tag
+    if (count) count.textContent = `${shown} 条`
+    bar.hidden = false
+    document.title = `${tag} · ${document.title}`
+  }
+
+  apply(new URLSearchParams(location.search).get('tag'))
+}
+
 /* ---------------------------------------------------------- 章目高亮 */
 
 /**
@@ -394,6 +497,15 @@ function initSearch() {
   input.addEventListener('focus', warm, { once: true })
   input.addEventListener('pointerdown', warm, { once: true })
 
+  // 从条目页点标签过来会带 ?q=<标签>：把词填进查词口并当场查一遍。
+  // 于是标签不只是「这条咒语被标了什么」，而是一个能一路点下去的入口 ——
+  // 这是标签系统真正省事的地方：不用先把词抄进查词口。
+  const initial = new URLSearchParams(location.search).get('q')
+  if (initial) {
+    input.value = initial
+    render()
+  }
+
   input.addEventListener('input', render)
 
   input.addEventListener('keydown', (event) => {
@@ -555,6 +667,7 @@ function syncMastheadHeight() {
 }
 
 initTheme()
+initView()
 syncMastheadHeight()
 window.addEventListener('resize', syncMastheadHeight)
 // 自托管字体是后到的，落位后刊头可能变高，得再量一次
@@ -564,5 +677,6 @@ initPlate()
 initMechanismLink()
 initCopy()
 initSearch()
+initTagFilter()
 initPromptCopy()
 initPeek()

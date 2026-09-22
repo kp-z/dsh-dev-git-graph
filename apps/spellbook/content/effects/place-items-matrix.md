@@ -2,7 +2,7 @@
 title: 对齐矩阵
 slug: place-items-matrix
 category: 布局
-tags: [对齐, place-items, 网格]
+tags: [grid, 容器, 卡片]
 since: 2026-10
 source: 机制来自 CSS Box Alignment 规范的 place-* 简写族，自行实现
 when: 网格里每个格子都要居中，但有个别格子要贴到别的角

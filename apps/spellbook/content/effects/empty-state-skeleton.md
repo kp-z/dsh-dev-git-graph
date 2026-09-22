@@ -2,7 +2,7 @@
 title: 让 DOM 自己说还没数据
 slug: empty-state-skeleton
 category: 动效
-tags: [骨架屏, 空状态, 伪类]
+tags: [grid, 骨架屏, 空状态, 加载时]
 since: 2026-10
 source: 机制来自 CSS Selectors 的 :empty 伪类，自行实现
 when: 列表还没数据时要有骨架，但又不想为此维护一个 isLoading 状态

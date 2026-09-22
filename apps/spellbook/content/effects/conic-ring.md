@@ -2,7 +2,7 @@
 title: 锥形渐变环
 slug: conic-ring
 category: 图形
-tags: [锥形渐变, 遮罩, 环]
+tags: [conic-gradient, mask, 几何, 色彩]
 since: 2026-09
 source: 机制来自 CSS conic-gradient 与 mask，自行实现
 when: 要一个多色渐变的圆环，但不想用 SVG、不想切图

@@ -2,7 +2,7 @@
 title: 拒绝伪合成
 slug: font-synthesis-guard
 category: 排版
-tags: [合成加粗, 伪斜体, 字重回退]
+tags: [font-face, font-weight, 正文]
 since: 2026-10
 source: 机制来自 CSS Fonts 4 的 font-synthesis 与 @font-face 的声明范围，自行实现
 when: 项目只带了一个字重，浏览器自己给它加了「假粗体」，字宽被撑开、对齐全乱

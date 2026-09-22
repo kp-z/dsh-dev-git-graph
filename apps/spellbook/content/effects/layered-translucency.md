@@ -2,7 +2,7 @@
 title: 半透明叠层
 slug: layered-translucency
 category: 材质
-tags: [混合模式, 透光, 叠层]
+tags: [blend-mode, 玻璃, 纹理, 图片]
 since: 2026-10
 source: 机制来自 CSS Compositing 规范的 mix-blend-mode，自行实现
 when: 好几层薄膜材质要各留个性，但还会互相影响颜色

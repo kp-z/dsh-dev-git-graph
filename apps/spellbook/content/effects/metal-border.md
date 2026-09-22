@@ -2,7 +2,7 @@
 title: 金属描边
 slug: metal-border
 category: 材质
-tags: [描边, 边框, 渐变]
+tags: [border-image, gradient, 金属, 描边, 卡片]
 since: 2026-10
 source: 机制来自 border-image 对线性渐变的九宫格切片，自行实现
 when: 卡片或按钮要一圈金属细边，但不想为它写第二个元素或伪元素

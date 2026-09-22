@@ -2,7 +2,7 @@
 title: 绒面光泽
 slug: velvet-sheen
 category: 材质
-tags: [绒面, 光泽, 径向渐变]
+tags: [radial-gradient, 绒面, 容器]
 since: 2026-09
 source: 自行实现
 when: 一块深色区域要有天鹅绒那种「顺着摸会变色」的柔光

@@ -2,7 +2,7 @@
 title: 按比例占位，防抖动
 slug: aspect-ratio-box
 category: 布局
-tags: [比例, 防抖动, 图片]
+tags: [aspect-ratio, 图片, 骨架屏, 加载时]
 since: 2026-09
 source: 机制来自 CSS aspect-ratio，自行实现
 when: 图片还没加载，但版面不能等它；加载完也不能把下面的内容顶走

@@ -2,7 +2,7 @@
 title: 跟着指针的光晕
 slug: cursor-glow-follow
 category: 交互
-tags: [指针, 光晕, 变量桥]
+tags: [custom-property, radial-gradient, 光晕, 指针]
 since: 2026-09
 source: 自行实现
 when: 一块面板上有一团光跟着鼠标走，但不想让脚本管样式

@@ -2,7 +2,7 @@
 title: 色散边缘
 slug: chromatic-edge
 category: 材质
-tags: [色差, 描边, 混合模式]
+tags: [blend-mode, backdrop-filter, 玻璃, 虹彩, 描边]
 since: 2026-10
 source: 机制来自 CSS Compositing 规范的 screen 叠加与通道错位，自行实现
 when: 玻璃的切边要有一道彩边，像真镜头那样把红绿蓝分开了

@@ -2,7 +2,7 @@
 title: 等宽数字
 slug: tabular-numbers
 category: 排版
-tags: [数字, 表格, 对齐]
+tags: [font-variant, 数字, 表格]
 since: 2026-09
 source: 机制来自 OpenType 的 tnum 特性与 font-variant-numeric，自行实现
 when: 计时器、计数器或表格里的数字一变，整行就在左右抖

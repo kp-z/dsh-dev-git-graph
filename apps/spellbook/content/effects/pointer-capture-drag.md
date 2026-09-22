@@ -2,7 +2,7 @@
 title: 拖拽时把指针抓住
 slug: pointer-capture-drag
 category: 交互
-tags: [指针, 拖拽, setPointerCapture]
+tags: [setPointerCapture, 滑杆, 拖拽, 指针]
 since: 2026-10
 source: 机制来自 Pointer Events 的 setPointerCapture，自行实现
 when: 做一个滑块或拖拽把手，希望指针移出元素后拖动仍然跟着走

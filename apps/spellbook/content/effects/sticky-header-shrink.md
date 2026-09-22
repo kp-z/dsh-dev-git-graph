@@ -2,7 +2,7 @@
 title: 滚动时收缩的表头
 slug: sticky-header-shrink
 category: 布局
-tags: [sticky, 收缩, 滚动驱动]
+tags: [sticky, scroll-driven, 页头, 滚动]
 since: 2026-09
 source: 机制来自 position: sticky 与 scroll-driven animations 的组合，自行实现
 when: 大表头滚上去之后要缩成一条细条，但不想监听滚动写 JS

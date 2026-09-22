@@ -2,7 +2,7 @@
 title: 被拉伸的粘性项
 slug: sticky-travel-budget
 category: 布局
-tags: [粘性定位, 拉伸, 网格项]
+tags: [sticky, containing-block, grid, 目录]
 since: 2026-10
 source: 机制来自 CSS 定位规范中 sticky 的包含块约束与对齐属性的拉伸行为，自行实现
 when: 网格或弹性行里的侧栏目录不跟着滚，而在它外面包一层 div 就好了

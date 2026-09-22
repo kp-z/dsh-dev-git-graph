@@ -2,7 +2,7 @@
 title: 无限跑马灯
 slug: marquee
 category: 动效
-tags: [循环, 横向滚动, 无缝]
+tags: [keyframes, transform, 列表, 自动]
 since: 2025-09
 source: 自行实现
 when: 要横向滚动一排标签，并且接得上看不出接缝

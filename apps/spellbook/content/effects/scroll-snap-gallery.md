@@ -2,7 +2,7 @@
 title: 横向吸附画廊
 slug: scroll-snap-gallery
 category: 布局
-tags: [吸附, 横向滚动, 画廊]
+tags: [scroll-snap, 画廊, 卡片, 拖拽]
 since: 2026-09
 source: 机制来自 CSS Scroll Snap，自行实现
 when: 一排卡片横滑时每一张都停在正中，而不是停在任意位置

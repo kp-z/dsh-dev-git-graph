@@ -2,7 +2,7 @@
 title: 像门一样推开
 slug: door-open-3d
 category: 动效
-tags: [3D, 变换原点, 铰链]
+tags: [transform, 3d, keyframes, 卡片, 自动]
 since: 2026-09
 source: miniMAC/magic（MIT） — openDownLeft，改写为独立最小示例
 when: 一块面板要像被推开一扇门那样转出去，而不是原地自转

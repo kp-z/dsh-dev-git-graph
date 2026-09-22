@@ -2,7 +2,7 @@
 title: 把方向钉死的一帧
 slug: half-turn-direction-pin
 category: 动效
-tags: [旋转方向, 关键帧, 插值]
+tags: [keyframes, transform, 加载, 自动]
 since: 2026-09
 source: tobiasahlin/SpinKit（MIT） — sk-wander 里的 50% / 50.1% 那一对帧，改写为独立最小示例
 when: 旋转角度跨过 180 度时，转的方向和你写的相反

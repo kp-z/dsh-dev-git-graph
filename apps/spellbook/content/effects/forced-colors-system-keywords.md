@@ -2,7 +2,7 @@
 title: 强制颜色模式下还能看
 slug: forced-colors-system-keywords
 category: 交互
-tags: [无障碍, 强制颜色, 系统色]
+tags: [color-scheme, 按钮, 提示]
 since: 2026-10
 source: 机制来自 CSS Color Adjustment 的强制颜色模式与系统色关键字，自行实现
 when: 用户开了 Windows 高对比度之类的强制配色，页面不能变成一片糊

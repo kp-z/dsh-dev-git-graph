@@ -2,7 +2,7 @@
 title: 字符随机抖动
 slug: char-jitter-random
 category: 动效
-tags: [随机, 抖动, 动画周期]
+tags: [keyframes, transform, custom-property, 标题, 自动]
 since: 2026-10
 source: 机制来自逐字符随机化的动画周期，自行实现
 when: 一段文字要像霓虹灯或手写一样不安分，每个字抖的节奏都不一样

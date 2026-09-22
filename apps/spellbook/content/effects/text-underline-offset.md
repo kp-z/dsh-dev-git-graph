@@ -2,7 +2,7 @@
 title: 下划线的位置与粗细
 slug: text-underline-offset
 category: 排版
-tags: [下划线, 装饰线, 链接]
+tags: [text-decoration, 正文, 悬停]
 since: 2026-09
 source: 机制来自 CSS Text Decoration 的三个独立属性，自行实现
 when: 默认下划线贴着字、穿过字母尾巴，看着很挤

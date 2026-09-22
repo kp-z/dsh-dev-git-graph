@@ -2,7 +2,7 @@
 title: 文字软边擦除
 slug: text-mask-erase
 category: 排版
-tags: [遮罩, 渐变色标, 注册属性]
+tags: [mask, property, gradient, 渐隐, 正文]
 since: 2026-10
 source: 机制来自 mask-image 的渐变与 @property 注册的色标动画，自行实现
 when: 一段字要被擦掉或擦出来，边缘要柔和，像雾推过去而不是一刀切

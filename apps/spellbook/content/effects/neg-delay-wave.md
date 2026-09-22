@@ -2,7 +2,7 @@
 title: 负延迟造波
 slug: neg-delay-wave
 category: 动效
-tags: [动画延迟, 相位, 交错]
+tags: [keyframes, transform, 加载, 自动]
 since: 2026-09
 source: 机制取自 SpinKit（MIT）的 sk-wave，自行实现
 when: 一排元素要依次动起来，形成波浪，但只想写一套关键帧

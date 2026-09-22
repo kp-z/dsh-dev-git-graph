@@ -2,7 +2,7 @@
 title: 文字绕着形状排
 slug: shape-outside-wrap
 category: 图形
-tags: [绕排, 浮动, 形状]
+tags: [shape-outside, float, 图片, 正文]
 since: 2026-09
 source: 机制来自 CSS Shapes 的 shape-outside，自行实现
 when: 圆形图片旁边的文字要沿着弧形排，而不是留一块方形的空

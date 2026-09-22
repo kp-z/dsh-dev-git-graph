@@ -2,7 +2,7 @@
 title: 打开浮层时锁住背景滚动
 slug: scroll-lock-compensate
 category: 交互
-tags: [滚动锁, 浮层, 滚动条]
+tags: [overflow, scrollbar, 浮层, 点击]
 since: 2026-10
 source: 机制来自 overflow: hidden 与滚动条宽度的补偿，自行实现
 when: 打开一个长内容的浮层，不希望背后的页面跟着滚

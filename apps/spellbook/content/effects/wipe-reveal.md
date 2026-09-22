@@ -2,7 +2,7 @@
 title: 擦拭揭示
 slug: wipe-reveal
 category: 图形
-tags: [裁剪, 揭示, inset]
+tags: [clip-path, keyframes, 图片, 入场]
 since: 2026-09
 source: 机制来自 CSS clip-path 的 inset()，自行实现
 when: 内容要像被一块抹布擦出来，而不是整体淡入

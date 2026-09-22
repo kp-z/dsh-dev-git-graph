@@ -2,7 +2,7 @@
 title: 3D 翻转卡片
 slug: flip-3d-card
 category: 动效
-tags: [3D, 翻转, 背面]
+tags: [3d, transform, transition, 卡片, 悬停]
 since: 2026-09
 source: 机制来自 CSS Transforms 的 preserve-3d 与 backface-visibility，自行实现
 when: 卡片正反面切换要有真实的翻面感，不是交叉淡入

@@ -2,7 +2,7 @@
 title: 粘性融合
 slug: gooey-blob
 category: 图形
-tags: [滤镜, 融合, 阈值]
+tags: [svg-filter, feColorMatrix, blur, 液体, 自动]
 since: 2026-09
 source: 机制来自 feGaussianBlur + feColorMatrix 的经典组合，自行实现
 when: 两个圆形靠近时要像水银一样粘在一起，而不是各是各的

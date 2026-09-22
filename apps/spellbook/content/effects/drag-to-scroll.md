@@ -2,7 +2,7 @@
 title: 按住拖动来横向滚动
 slug: drag-to-scroll
 category: 交互
-tags: [拖拽, 滚动, 指针捕获]
+tags: [setPointerCapture, overflow, 拖拽, 指针, 列表]
 since: 2026-09
 source: 自行实现
 when: 一排卡片要能按住拖，而不是只能滚轮或滚动条

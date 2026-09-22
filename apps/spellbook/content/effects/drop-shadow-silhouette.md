@@ -2,7 +2,7 @@
 title: 轮廓投影
 slug: drop-shadow-silhouette
 category: 图形
-tags: [阴影, 轮廓, 层次, 滤镜]
+tags: [drop-shadow, 阴影, 图标, 图片]
 since: 2026-10
 source: 机制来自 CSS filter 的 drop-shadow 按 alpha 轮廓取形，自行实现
 when: 剪影形状或不规则图标要投影，而 box-shadow 只能给出一个方块

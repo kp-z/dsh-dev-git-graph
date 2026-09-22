@@ -2,7 +2,7 @@
 title: 跳转链接与它的落点
 slug: skip-link-reveal
 category: 交互
-tags: [跳转链接, 焦点, 键盘]
+tags: [transform, focus, 导航, 正文, 键盘]
 since: 2026-10
 source: 机制来自 CSS transform 移出视口与 tabindex 的顺序焦点模型，自行实现
 when: 键盘用户要跳过一整排导航，直接落到正文

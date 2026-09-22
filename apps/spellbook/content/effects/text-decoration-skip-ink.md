@@ -2,7 +2,7 @@
 title: 下划线让开字母的降部
 slug: text-decoration-skip-ink
 category: 排版
-tags: [下划线, 字体度量, 细节]
+tags: [text-decoration, font-face, 正文]
 since: 2026-10
 source: 机制来自 CSS Text Decoration 的 text-decoration-skip-ink，自行实现
 when: 正文里的下划线穿过 g、y、p 的尾巴，看着糊成一团

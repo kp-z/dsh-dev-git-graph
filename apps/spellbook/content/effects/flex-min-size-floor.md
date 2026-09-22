@@ -2,7 +2,7 @@
 title: 弹性项不肯缩
 slug: flex-min-size-floor
 category: 布局
-tags: [flex, 收缩, 省略号]
+tags: [flex, overflow, text-overflow, 列表, 头像]
 since: 2026-10
 source: 机制来自 CSS Flexbox 规范的自动最小尺寸（automatic minimum size）规则，自行实现
 when: 头像加一段长文字的横排条目要塞进窄容器，文字该缩并出省略号

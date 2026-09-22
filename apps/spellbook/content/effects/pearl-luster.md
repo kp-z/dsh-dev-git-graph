@@ -2,7 +2,7 @@
 title: 珠光层叠
 slug: pearl-luster
 category: 材质
-tags: [珠光, 柔和, 径向渐变]
+tags: [radial-gradient, box-shadow, 珠光, 容器]
 since: 2026-10
 source: 机制来自多层错位径向渐变与极低对比的光斑叠加，自行实现
 when: 一块表面要有珍珠贝母那种柔和的、几乎看不出边界的彩光

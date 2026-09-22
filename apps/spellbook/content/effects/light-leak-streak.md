@@ -2,7 +2,7 @@
 title: 漏光
 slug: light-leak-streak
 category: 材质
-tags: [漏光, 加光混合, 边缘]
+tags: [blend-mode, gradient, 胶片, 图片]
 since: 2026-10
 source: 机制来自胶片漏光与 plus-lighter 的加光混合，自行实现
 when: 一张暗色画面想要胶片的意外曝光，光从某一侧边缘渗进来

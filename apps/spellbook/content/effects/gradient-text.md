@@ -2,7 +2,7 @@
 title: 渐变文字
 slug: gradient-text
 category: 排版
-tags: [渐变, 文字, 背景裁切]
+tags: [background-clip, gradient, 标题]
 since: 2026-09
 source: 机制来自 CSS background-clip，自行实现
 when: 标题要一段颜色渐变，不想切图、不想用 SVG

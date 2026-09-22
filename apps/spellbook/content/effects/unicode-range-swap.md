@@ -2,7 +2,7 @@
 title: 只给数字换一套字体
 slug: unicode-range-swap
 category: 排版
-tags: [字体回退, 码位, 数字]
+tags: [unicode-range, font-face, 数字, 正文]
 since: 2026-10
 source: 机制来自 CSS Fonts 的 @font-face unicode-range 与逐字符字体回退，自行实现
 when: 只想让数字换成旧式数字或等宽数字，又不想给每个数字包一层 span

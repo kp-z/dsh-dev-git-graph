@@ -2,7 +2,7 @@
 title: 印刷网屏
 slug: halftone-screen-angle
 category: 图形
-tags: [网屏, 半调, 摩尔纹, 混合模式]
+tags: [blend-mode, radial-gradient, 图案, 纸感, 图片]
 since: 2026-10
 source: 机制来自印刷业的网屏与 45 度丝网角度，自行实现
 when: 图像要有一层均匀的印刷网点，而且不希望它跟屏幕像素栅格打架

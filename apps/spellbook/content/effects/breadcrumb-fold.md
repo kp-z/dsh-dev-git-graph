@@ -2,7 +2,7 @@
 title: 按自身宽度收缩的面包屑
 slug: breadcrumb-fold
 category: 交互
-tags: [面包屑, 容器查询, 折叠]
+tags: [container-query, flex, 面包屑, 导航]
 since: 2026-10
 source: 机制来自 CSS Containment 的容器查询 @container 与弹性收缩优先级，自行实现
 when: 面包屑放在侧栏或窄容器里，层数一多就挤成一团

@@ -2,7 +2,7 @@
 title: 用计数器做数字滚动
 slug: counter-property-anim
 category: 排版
-tags: [计数器, 整数, 注册属性]
+tags: [property, counter-style, keyframes, 数字, 自动]
 since: 2026-10
 source: 机制来自 @property 的 integer 语法与 counter-reset，自行实现
 when: 一个统计数字要从 0 涨到目标值，却不想为此写一段补间脚本

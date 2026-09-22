@@ -2,7 +2,7 @@
 title: URL 片段当状态的标签页
 slug: tabs-target-deeplink
 category: 交互
-tags: [target, 深链, 无脚本]
+tags: [target, 标签页, 点击]
 since: 2026-10
 source: 机制来自 CSS :target 伪类与 URL 片段标识符，自行实现
 when: 标签页要能被直接分享、后退键能回到上一页，而状态不想只活在内存里

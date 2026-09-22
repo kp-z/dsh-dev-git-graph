@@ -2,7 +2,7 @@
 title: 遮罩挖空的字
 slug: knockout-text-mask
 category: 排版
-tags: [遮罩, 镂空, SVG]
+tags: [mask, svg, 标题, 描边]
 since: 2026-10
 source: 机制来自 SVG mask 的黑白通道语义，自行实现
 when: 想从一个不透明的面上把字挖出来，让背后的东西从字里透出去

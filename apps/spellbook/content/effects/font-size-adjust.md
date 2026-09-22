@@ -2,7 +2,7 @@
 title: 换字体不改视觉大小
 slug: font-size-adjust
 category: 排版
-tags: [字体, x 高度, 回退]
+tags: [font-face, line-height, 正文]
 since: 2026-09
 source: 机制来自 CSS Fonts 的 font-size-adjust，自行实现
 when: 回退字体一加载，整页文字看起来忽然变大或变小

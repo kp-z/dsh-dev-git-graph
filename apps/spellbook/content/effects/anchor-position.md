@@ -2,7 +2,7 @@
 title: 声明式锚点定位
 slug: anchor-position
 category: 布局
-tags: [锚点, 浮层, 定位]
+tags: [anchor-position, 提示, 浮层]
 since: 2026-09
 source: 机制来自 CSS Anchor Positioning 规范，自行实现
 when: 提示气泡要贴住触发它的那个元素，而且放不下时要自动翻到另一边

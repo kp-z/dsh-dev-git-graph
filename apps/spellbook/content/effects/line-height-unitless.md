@@ -2,7 +2,7 @@
 title: 无单位行高
 slug: line-height-unitless
 category: 排版
-tags: [行高, 继承, 字号]
+tags: [line-height, 正文, 标题]
 since: 2026-09
 source: 机制来自 CSS 行高的计算值继承规则，自行实现
 when: 正文的行高挺好，但里面字号不同的元素行距全乱了

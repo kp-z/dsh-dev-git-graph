@@ -2,7 +2,7 @@
 title: 继承祖先的轨道
 slug: subgrid-tracks-inherit
 category: 布局
-tags: [subgrid, 轨道对齐, 嵌套网格]
+tags: [subgrid, grid, 卡片]
 since: 2026-10
 source: 机制来自 CSS Grid 规范的 grid-template-columns: subgrid，自行实现
 when: 卡片里的每一行要跟卡片外的其它卡片共用同一套列线，边缘才对得齐

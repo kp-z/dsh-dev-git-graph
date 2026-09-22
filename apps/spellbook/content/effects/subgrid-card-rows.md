@@ -2,7 +2,7 @@
 title: 子网格的行轨道
 slug: subgrid-card-rows
 category: 布局
-tags: [subgrid, 行轨道, 等高]
+tags: [subgrid, grid, 卡片]
 since: 2026-10
 source: 机制来自 CSS Grid 规范的 grid-template-rows: subgrid，自行实现
 when: 若干张卡片并排，要求标题、正文、操作在卡片之间横向对齐

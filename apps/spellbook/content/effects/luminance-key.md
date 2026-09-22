@@ -2,7 +2,7 @@
 title: 亮度抠图
 slug: luminance-key
 category: 图形
-tags: [抠图, 亮度, alpha, 滤镜]
+tags: [svg-filter, feColorMatrix, 图片]
 since: 2026-10
 source: 机制来自 SVG feColorMatrix 的 alpha 行按 RGB 加权取值，自行实现
 when: 一张白底的图要直接叠到深色页面上，而手上没有透明版本

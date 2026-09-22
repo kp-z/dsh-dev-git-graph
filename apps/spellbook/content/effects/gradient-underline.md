@@ -2,7 +2,7 @@
 title: 渐变下划线
 slug: gradient-underline
 category: 排版
-tags: [下划线, 渐变, 链接]
+tags: [gradient, background-size, transition, 正文, 悬停]
 since: 2026-09
 source: 机制来自 CSS 背景定位，自行实现
 when: 链接要一条彩色下划线，而且想让它从细变粗或从无到有

@@ -2,7 +2,7 @@
 title: 行内迷你趋势线
 slug: sparkline-inline
 category: 图形
-tags: [图表, SVG, 归一化]
+tags: [svg, stroke, 图表, 卡片]
 since: 2026-10
 source: 机制来自 SVG polyline 与 viewBox 的等比拉伸，自行实现
 when: 表格或卡片里要在一个文字行的高度内显示一串数据的走势

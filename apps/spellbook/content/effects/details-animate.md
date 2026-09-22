@@ -2,7 +2,7 @@
 title: 折叠面板的展开动画
 slug: details-animate
 category: 交互
-tags: [details, 折叠, 网格过渡]
+tags: [grid, transition, details, 列表, 点击]
 since: 2026-09
 source: 机制来自 CSS Grid 的 fr 可插值特性，自行实现
 when: 用原生 details 做折叠，但打开时想要一段展开动画而不是硬跳

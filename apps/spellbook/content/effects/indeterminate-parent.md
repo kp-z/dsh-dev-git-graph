@@ -2,7 +2,7 @@
 title: 全选与半选
 slug: indeterminate-parent
 category: 交互
-tags: [表单, 复选框, 三态]
+tags: [form-validation, 表单, 选择, 点击, 切换]
 since: 2026-10
 source: 机制来自 DOM 的 HTMLInputElement.indeterminate 与 CSS :indeterminate 伪类，自行实现
 when: 一组权限的子项只勾了一部分，头部那个框要显示成「半选」而不是全选或全不选

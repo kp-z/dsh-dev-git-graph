@@ -2,7 +2,7 @@
 title: 叠瓦鱼鳞纹
 slug: fish-scale-scallop
 category: 图形
-tags: [鱼鳞, 半圆, 错位]
+tags: [radial-gradient, background-size, 图案, 有机]
 since: 2026-10
 source: 机制来自半圆瓦片的错位镶嵌与 CSS 径向渐变的显式半径，自行实现
 when: 要一层扇贝／鱼鳞底纹，且每片的大小、边缘厚度都可调

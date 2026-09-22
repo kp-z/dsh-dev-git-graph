@@ -2,7 +2,7 @@
 title: 行尾的空格挂不挂起
 slug: white-space-break-spaces
 category: 排版
-tags: [空白, 折行, 代码块]
+tags: [text-wrap, 代码, 正文]
 since: 2026-10
 source: 机制来自 CSS Text 的 white-space: break-spaces 与行尾空白挂起规则，自行实现
 when: 代码块或预排文本里有一长串空格，在窄容器里溢出、或者对不齐

@@ -2,7 +2,7 @@
 title: 有内容时自己出现的滚动阴影
 slug: scroll-shadow
 category: 布局
-tags: [滚动, 阴影, 背景附着]
+tags: [gradient, overflow, 列表, 滚动]
 since: 2026-09
 source: 机制来自 CSS background-attachment 的 local 值，自行实现
 when: 可滚动区域的上下边缘要提示「这里还有内容」，但滚到底时提示要自动消失

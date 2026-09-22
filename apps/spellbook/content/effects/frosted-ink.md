@@ -2,7 +2,7 @@
 title: 局部磨砂
 slug: frosted-ink
 category: 材质
-tags: [蒙版, 背景分离, 聚焦]
+tags: [backdrop-filter, mask, 玻璃, 标题, 图片]
 since: 2026-10
 source: 机制来自 mask-image 与 backdrop-filter 的局部裁剪，自行实现
 when: 只想把内容的一小块磨掉，让标题从这块磨砂里浮出来

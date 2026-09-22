@@ -2,7 +2,7 @@
 title: 浮动标签
 slug: float-label
 category: 交互
-tags: [表单, 占位, 伪类]
+tags: [transition, pointer-events, 表单, 输入, 焦点]
 since: 2026-09
 source: 机制来自 CSS 的 :placeholder-shown，自行实现
 when: 标签要在框里当占位、有内容时缩到上面去，但不想用 JS 判断空值

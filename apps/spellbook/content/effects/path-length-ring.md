@@ -2,7 +2,7 @@
 title: 不用量周长的环形进度
 slug: path-length-ring
 category: 动效
-tags: [环形进度, SVG, 描边]
+tags: [svg, stroke, custom-property, transition, 进度]
 since: 2026-10
 source: 机制来自 SVG 2 规范的 pathLength 属性，自行实现
 when: 要一个环形进度，但不想为了算周长去写 2πr，也不想每次改半径就重算样式

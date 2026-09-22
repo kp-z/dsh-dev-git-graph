@@ -2,7 +2,7 @@
 title: 不动物件挪动位置
 slug: flex-order-visual
 category: 布局
-tags: [flex, order, 视觉顺序]
+tags: [flex, 按钮, 卡片]
 since: 2026-10
 source: 机制来自 CSS Flexbox 规范的 order 属性与主轴排序，自行实现
 when: 小屏时要把操作按钮排到最后，大屏时排在前面，但不想用两份 HTML

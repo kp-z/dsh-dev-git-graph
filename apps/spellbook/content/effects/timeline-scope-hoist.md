@@ -2,7 +2,7 @@
 title: 把时间线提到上层
 slug: timeline-scope-hoist
 category: 动效
-tags: [滚动驱动, 命名时间线, 作用域]
+tags: [scroll-driven, scope, 进度, 滚动]
 since: 2026-10
 source: 机制来自 CSS Scroll-driven Animations 的 scroll-timeline-name 与 timeline-scope，自行实现
 when: 侧栏里的指示条要反映内容区的滚动进度，但两者不在同一棵子树里

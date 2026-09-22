@@ -2,7 +2,7 @@
 title: 从一个颜色里派生出透明版
 slug: relative-color-alpha
 category: 材质
-tags: [颜色, 相对颜色, 透明]
+tags: [relative-color, custom-property, 色彩, 容器]
 since: 2026-10
 source: 机制来自 CSS 相对颜色语法，自行实现
 when: 需要「同一个色的 10% 透明版」做描边或叠层，又不想为此再定义一堆变量

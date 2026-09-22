@@ -2,7 +2,7 @@
 title: 上面变了，位置不动
 slug: overflow-anchor
 category: 布局
-tags: [滚动锚定, 稳定性, 布局位移]
+tags: [scroll-anchor, overflow, 容器, 滚动]
 since: 2026-10
 source: 机制来自 CSS Scroll Anchoring 规范的 overflow-anchor，自行实现
 when: 滚动位置上方的内容异步变高了（图片加载、插进一条新内容），视口不该跟着往下跳

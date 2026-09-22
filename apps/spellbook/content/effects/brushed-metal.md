@@ -2,7 +2,7 @@
 title: 拉丝金属
 slug: brushed-metal
 category: 材质
-tags: [金属, 拉丝, 各向异性]
+tags: [repeating-gradient, gradient, 金属, 纹理, 按钮]
 since: 2026-10
 source: 机制来自 repeating-linear-gradient 的细密纹路配合方向性渐变遮罩，自行实现
 when: 按钮或面板要做成拉丝铝那种有方向感的哑光金属

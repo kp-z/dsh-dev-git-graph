@@ -2,7 +2,7 @@
 title: 中西混排的断行策略
 slug: word-break-mixed-script
 category: 排版
-tags: [断行, 中西混排, 标点]
+tags: [hyphens, text-wrap, 正文, 标点]
 since: 2026-10
 source: 机制来自 CSS Text 的 word-break / overflow-wrap / line-break 三者分工，自行实现
 when: 一段中英混排的正文里夹着长 URL 或长英文单词，断得不好看或撑破了容器

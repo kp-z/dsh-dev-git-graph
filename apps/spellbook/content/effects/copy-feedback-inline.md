@@ -2,7 +2,7 @@
 title: 复制之后给个准话
 slug: copy-feedback-inline
 category: 交互
-tags: [剪贴板, 反馈, Promise]
+tags: [transition, 按钮, 提示, 点击]
 since: 2026-10
 source: 机制来自 Clipboard API 的 Promise 与一次性复位计时器，自行实现
 when: 页面上有个「复制」按钮，用户按下去要知道到底成没成

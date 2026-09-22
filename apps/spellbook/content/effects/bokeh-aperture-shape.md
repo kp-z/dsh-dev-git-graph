@@ -2,7 +2,7 @@
 title: 光圈形状的光斑
 slug: bokeh-aperture-shape
 category: 材质
-tags: [光斑, 景深, 多边形]
+tags: [clip-path, blur, radial-gradient, 光晕, 容器]
 since: 2026-10
 source: 机制来自相机光圈孔径形状决定离焦光斑的形状，自行实现
 when: 夜景背景要有虚化的灯光，但 blur 出来的光团太糊、不像照片

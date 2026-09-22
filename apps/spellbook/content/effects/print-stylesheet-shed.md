@@ -2,7 +2,7 @@
 title: 打印样式是做减法
 slug: print-stylesheet-shed
 category: 布局
-tags: [打印, 分页, 媒体查询]
+tags: [media-query, 正文, 卡片]
 since: 2026-10
 source: 机制来自 CSS 分页媒体与 @page 规则，自行实现
 when: 页面要能被干干净净地打印或存成 PDF，而不是把导航栏也一起印出来

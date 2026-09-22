@@ -2,7 +2,7 @@
 title: 折射边缘
 slug: refractive-edge
 category: 材质
-tags: [折射, 置换, SVG 滤镜]
+tags: [svg-filter, feDisplacementMap, feTurbulence, backdrop-filter, 玻璃]
 since: 2026-10
 source: 机制来自 SVG feTurbulence 与 feDisplacementMap，自行实现
 when: 玻璃边缘要真的把背后的画面推歪一下，而不只是描一条亮边

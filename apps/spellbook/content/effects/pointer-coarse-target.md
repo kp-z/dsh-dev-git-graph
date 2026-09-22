@@ -2,7 +2,7 @@
 title: 给手指更大的靶子
 slug: pointer-coarse-target
 category: 交互
-tags: [触摸, 命中区域, 无障碍]
+tags: [media-query, 按钮, 指针]
 since: 2026-09
 source: 机制来自 Media Queries Level 4 的 pointer 特性，自行实现
 when: 桌面端合适的按钮在手机上总是点不中

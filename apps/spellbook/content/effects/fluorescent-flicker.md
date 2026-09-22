@@ -2,7 +2,7 @@
 title: 荧光灯的闪烁
 slug: fluorescent-flicker
 category: 材质
-tags: [闪烁, 关键帧, 荧光]
+tags: [keyframes, 霓虹, 发光, 容器, 自动]
 since: 2026-10
 source: 机制来自荧光灯镇流器不稳定时的闪烁波形，自行实现
 when: 一个场景要「这盏灯快坏了」的不安感

@@ -2,7 +2,7 @@
 title: 二向色镀膜
 slug: dichroic-film
 category: 材质
-tags: [镀膜, 干涉色, 混合模式]
+tags: [svg-filter, feColorMatrix, blend-mode, 虹彩, 容器]
 since: 2026-10
 source: 机制来自亮度守恒的色相旋转矩阵配合 difference 混合，自行实现
 when: 一块玻璃或金属表面要呈现成对出现的干涉色，像镀了二向色膜

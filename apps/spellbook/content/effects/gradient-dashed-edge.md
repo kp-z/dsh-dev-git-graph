@@ -2,7 +2,7 @@
 title: 渐变画的虚线边
 slug: gradient-dashed-edge
 category: 图形
-tags: [虚线, 边框, 背景瓦片]
+tags: [gradient, background-size, 容器, 图案]
 since: 2026-10
 source: 机制来自 CSS 多重背景把四条边拆成四块瓦片，自行实现
 when: 要一圈虚线，但 border-style: dashed 的段长和间隙不可控、角上还对不齐

@@ -2,7 +2,7 @@
 title: 刻度尺与标签对齐
 slug: axis-ticks-alignment
 category: 图形
-tags: [坐标轴, 重复渐变, 对齐]
+tags: [repeating-gradient, margin, 图表]
 since: 2026-10
 source: 机制来自 repeating-linear-gradient 画刻度与两端标签的半格偏移，自行实现
 when: 图表底下要一排刻度线配一排数字，而且两者必须严格对齐

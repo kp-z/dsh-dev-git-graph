@@ -2,7 +2,7 @@
 title: 上标不撑开行距
 slug: superscript-line-box
 category: 排版
-tags: [上下标, 行盒, 脚注]
+tags: [vertical-align, line-height, 正文]
 since: 2026-10
 source: 机制来自 CSS Inline Layout 的行盒高度计算与 CSS Fonts 4 的 font-variant-position，自行实现
 when: 正文里插一个脚注序号或商标上标，那一行的行距就被顶开一截

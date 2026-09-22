@@ -2,7 +2,7 @@
 title: auto 外边距吃掉剩余空间
 slug: margin-auto-free-space
 category: 布局
-tags: [自动外边距, flex, 对齐]
+tags: [margin, flex, grid, 按钮, 容器]
 since: 2026-10
 source: 机制来自 CSS 盒模型中 auto 外边距吸收剩余空间，在弹性与网格布局里优先于对齐属性，自行实现
 when: 一排按钮里大部分靠左、最后一个贴在右边，又不想加分隔元素或绝对定位

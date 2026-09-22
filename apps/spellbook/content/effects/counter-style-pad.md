@@ -2,7 +2,7 @@
 title: 给编号补零或换一套数字
 slug: counter-style-pad
 category: 排版
-tags: [编号, 计数器, 数字]
+tags: [counter-style, font-variant, 列表, 数字]
 since: 2026-10
 source: 机制来自 CSS Counter Styles 的 @counter-style 与 pad 描述符，自行实现
 when: 章节号、版本号、清单编号要固定位数，或者想换成中文数字编号

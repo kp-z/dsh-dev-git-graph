@@ -2,7 +2,7 @@
 title: 按自身宽度换布局
 slug: container-card
 category: 布局
-tags: [容器查询, 组件, 自适应]
+tags: [container-query, grid, 卡片]
 since: 2026-09
 source: 机制来自 CSS Containment 规范的容器查询，自行实现
 when: 同一个卡片组件，放在窄侧栏要竖排、放在宽主区要横排

@@ -2,7 +2,7 @@
 title: 用户要求更强的对比度
 slug: prefers-contrast-more
 category: 交互
-tags: [无障碍, 对比度, 媒体查询]
+tags: [media-query, 正文, 提示, 卡片]
 since: 2026-10
 source: 机制来自 Media Queries Level 5 的 prefers-contrast，自行实现
 when: 有人把系统调成了「提高对比度」，页面上的浅灰细节应该变成实打实的深色

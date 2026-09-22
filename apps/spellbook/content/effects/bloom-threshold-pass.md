@@ -2,7 +2,7 @@
 title: 阈值泛光
 slug: bloom-threshold-pass
 category: 材质
-tags: [泛光, 阈值, 混合模式]
+tags: [filter, blur, blend-mode, 发光]
 since: 2026-10
 source: 机制来自实时渲染里 bloom 的阈值提取加模糊再加回，用 CSS filter 链复现，自行实现
 when: 深色界面上有一块很亮的元素，想让光从它边缘溢出去

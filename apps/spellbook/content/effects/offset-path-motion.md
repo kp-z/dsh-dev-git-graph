@@ -2,7 +2,7 @@
 title: 沿路径运动
 slug: offset-path-motion
 category: 动效
-tags: [路径, 运动, offset]
+tags: [transform, keyframes, 图标, 自动]
 since: 2026-09
 source: 机制来自 CSS Motion Path，自行实现
 when: 元素要沿一条曲线走，而不是直线来回

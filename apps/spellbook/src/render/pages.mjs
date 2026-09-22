@@ -21,6 +21,8 @@ import {
 import { STAGES } from './demo.mjs'
 import { bookMark, wandMark } from './marks.mjs'
 import { CATEGORIES } from '../../shared/schema.mjs'
+// 标签按轴分组显示用（机制 / 观感 / 场合 / 触发），词表在 shared/tags.mjs
+import { tagsByAxis } from '../../shared/tags.mjs'
 
 const SITE_NAME = '咒语书'
 const SITE_TAGLINE = '前端效果库'
@@ -36,7 +38,9 @@ function layout({ title, description, body, root, isSpell = false }) {
 <link rel="stylesheet" href="${root}styles/spellbook.css">
 <!-- 编号栏宽与页边注编号字号由构建期按条目数算出，见 shared/numeral.mjs -->
 <link rel="stylesheet" href="${root}numeral.css">
+<!-- 明暗与「条列/卡片」都在首屏渲染前恢复：晚一步就会先闪一下默认布局 -->
 <script>try{var t=localStorage.getItem('spellbook:theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script>try{var v=localStorage.getItem('spellbook:view');if(v)document.documentElement.dataset.view=v;}catch(e){}</script>
 </head>
 <body${isSpell ? ' class="is-spell"' : ''}>
 <a class="skip" href="#main">跳到正文</a>
@@ -65,7 +69,7 @@ ${body}
  * 首页于是没有别的 h1 了，书名就顶上 h1（`asHeading`）：
  * 首页用书名当一级标题，内页用条目名当一级标题，各页正好各一个。
  */
-function header({ root, current = null, search = '', asHeading = false }) {
+function header({ root, current = null, search = '', asHeading = false, view = false }) {
   const wordmark = `<a class="wordmark" href="${root}">
     ${bookMark('wordmark-book')}
     <span class="wordmark-text">
@@ -73,6 +77,14 @@ function header({ root, current = null, search = '', asHeading = false }) {
       <span class="wordmark-tagline">${escapeHtml(SITE_TAGLINE)}</span>
     </span>
   </a>`
+  // 「条列 / 卡片」的开关只在目录页出现 —— 条目页没有条目可排。
+  // 和明暗开关并排：两个都是「怎么读这本书」的选择，属同一类器物。
+  const viewToggle = view
+    ? `<button class="view-toggle" type="button" data-view-toggle aria-label="切换条列与卡片">
+      <span class="view-toggle-mark" aria-hidden="true"></span>
+      <span data-view-label>卡</span>
+    </button>`
+    : ''
   return `<header class="masthead">
   <div class="masthead-id">
     ${asHeading ? `<h1 class="masthead-heading">${wordmark}</h1>` : wordmark}
@@ -80,6 +92,7 @@ function header({ root, current = null, search = '', asHeading = false }) {
       <span class="theme-toggle-mark" aria-hidden="true"></span>
       <span data-theme-label>明</span>
     </button>
+    ${viewToggle}
   </div>
 ${search || (current ? `  <p class="masthead-current">${escapeHtml(current)}</p>` : '')}
 </header>`
@@ -102,7 +115,7 @@ function renderTabulaRow(entry, ordinal) {
   // 编号则相反，必须留在链接**内部**：.row-link 的 grid-template-areas 里点名了 num
   // 那一格，把它挪到链接外面就会失去那一格、被自动排到行尾（实测跑到 x=1237 去了）。
   // 而且编号本来就是这个条目名字的一部分，跟着链接一起点得通才对。
-  return `<li class="row" data-category="${escapeHtml(entry.meta.category)}" data-slug="${escapeHtml(slug)}">
+  return `<li class="row" data-category="${escapeHtml(entry.meta.category)}" data-slug="${escapeHtml(slug)}" data-tags="${escapeHtml((entry.meta.tags ?? []).join(' '))}">
   <a class="row-link" href="${href}">
     <span class="row-numeral" aria-hidden="true">${numeral}</span>
     <span class="row-name">${title}</span>
@@ -251,9 +264,15 @@ ${chapters
 `
     : ''
 
-  const body = `${header({ root: './', search: searchField(), asHeading: true })}
+  const body = `${header({ root: './', search: searchField(), asHeading: true, view: true })}
 <main id="main"${withNav ? ' class="has-rail"' : ''}>
 ${concordance()}
+  <div class="tag-filter" data-tag-filter hidden>
+    <span class="tag-filter-label">只看带</span>
+    <span class="tag-filter-tag" data-tag-filter-name></span>
+    <span class="tag-filter-count" data-tag-filter-count></span>
+    <a class="tag-filter-clear" href="./">看全部<b aria-hidden="true"> ↩</b></a>
+  </div>
 
   <div class="index-body${withNav ? ' has-nav' : ''}" data-browse>
 ${nav}        <div class="chapters">
@@ -371,9 +390,30 @@ export function renderSpell(entry, { ordinal, total, chapter }) {
   const firstSentence = description.split(/(?<=。)/)[0] ?? ''
   const numeral = roman(ordinal)
 
-  const tagList = (meta.tags ?? [])
-    .map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`)
-    .join('')
+  /*
+   * 标签按轴分组显示，每个都是通往目录检索的入口。
+   *
+   * 分组是因为四个轴回答的是四个不同的问题（靠什么做的 / 像什么 / 用在哪 /
+   * 什么让它动），混成一排就看不出哪个是哪个了 —— 而「这是机制还是场合」
+   * 恰恰是读的人要判断的事。
+   *
+   * 做成链接而不是死字：点一下回到目录，查词口已经填好、结果已经列出来。
+   * 标签的价值一半在「这条被标了什么」，另一半在「顺着它能走到哪儿」。
+   */
+  const tagGroups = tagsByAxis(meta.tags ?? [])
+  const tagList = tagGroups
+    .map(
+      (group) => `<div class="tag-group">
+          <span class="tag-axis">${escapeHtml(group.label)}</span>
+          <span class="tag-row">${group.tags
+            .map(
+              (tag) =>
+                `<a class="tag" href="../../?tag=${encodeURIComponent(tag)}" title="看目录里所有带「${escapeHtml(tag)}」标签的咒语">${escapeHtml(tag)}</a>`,
+            )
+            .join('')}</span>
+        </div>`,
+    )
+    .join('\n')
 
   const body = `${header({ root: '../../', current: meta.title })}
 <main id="main">

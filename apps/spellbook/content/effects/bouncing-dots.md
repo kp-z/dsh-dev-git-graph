@@ -2,7 +2,7 @@
 title: 会压扁的加载点
 slug: bouncing-dots
 category: 动效
-tags: [spinner, 挤压拉伸, 关键帧]
+tags: [keyframes, transform, 加载, 自动]
 since: 2026-10
 source: 机制来自动画的挤压-拉伸原理，自行实现
 when: 三个点在跳的加载指示器，要跳出"重量"，而不是像三个气球在飘

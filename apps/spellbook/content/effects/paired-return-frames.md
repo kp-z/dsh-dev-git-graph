@@ -2,7 +2,7 @@
 title: 进出各写一套关键帧
 slug: paired-return-frames
 category: 动效
-tags: [关键帧, 回程, 缓动]
+tags: [keyframes, easing, 卡片, 入场, 退场]
 since: 2026-09
 source: miniMAC/magic（MIT） — slideDown / slideDownReturn 的成对命名法，改写为独立最小示例
 when: 元素进场和退场都想有自己的缓动，但不想写两份重复的位移

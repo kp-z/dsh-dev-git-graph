@@ -2,7 +2,7 @@
 title: 文件拖放区
 slug: dropzone
 category: 交互
-tags: [表单, 拖放, DataTransfer]
+tags: [pointer-events, 表单, 拖拽, 指针]
 since: 2026-10
 source: 机制来自 HTML 拖放 API 的 dragenter 计数与 DataTransfer，自行实现
 when: 上传框要能整块接住拖进来的文件，且高亮状态不能因为鼠标划过子元素就闪

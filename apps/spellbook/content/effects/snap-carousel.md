@@ -2,7 +2,7 @@
 title: 吸附轮播
 slug: snap-carousel
 category: 布局
-tags: [滚动吸附, 横向滚动, 轮播]
+tags: [scroll-snap, 卡片, 拖拽, 滚动]
 since: 2026-09
 source: 机制来自 CSS Scroll Snap 规范，自行实现
 when: 横向滑动一排卡片，松手后要自己停在整张上，不要停在两张之间

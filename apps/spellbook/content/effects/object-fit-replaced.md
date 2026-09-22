@@ -2,7 +2,7 @@
 title: 图片在框里怎么裁
 slug: object-fit-replaced
 category: 布局
-tags: [object-fit, 替换元素, 裁剪]
+tags: [object-fit, aspect-ratio, 图片, 画廊]
 since: 2026-10
 source: 机制来自 CSS Images 规范的 object-fit 与 object-position（替换内容的尺寸适配），自行实现
 when: 同一张宽图要塞进几个形状相同的方框当缩略图，还要控制露出画面里的哪一块

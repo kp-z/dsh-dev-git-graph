@@ -2,7 +2,7 @@
 title: 滑杆画出去过的部分
 slug: range-track-fill
 category: 交互
-tags: [表单, 滑杆, 渐变]
+tags: [custom-property, gradient, background-size, 滑杆, 拖拽]
 since: 2026-10
 source: 机制来自 CSS 自定义属性配合双色硬色标渐变，自行实现
 when: 滑杆要一眼看出当前值占了全长的多少，而轨道本身没有这个信息

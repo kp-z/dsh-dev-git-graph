@@ -2,7 +2,7 @@
 title: 体积光的错觉
 slug: volumetric-cone
 category: 材质
-tags: [体积光, 尘埃, 遮罩]
+tags: [conic-gradient, mask, repeating-gradient, 颗粒, 容器]
 since: 2026-10
 source: 机制来自丁达尔效应，光柱靠被照亮的介质才可见，用锥形渐变与遮罩合成，自行实现
 when: 一束光从上方缝隙射进暗房间，要看到光锥本身

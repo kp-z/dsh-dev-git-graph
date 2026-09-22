@@ -2,7 +2,7 @@
 title: 引号按嵌套层级自动换
 slug: quotes-nesting-levels
 category: 排版
-tags: [引号, 嵌套, 标点]
+tags: [hanging-punctuation, 标点, 正文]
 since: 2026-10
 source: 机制来自 CSS Generated Content 的 quotes 属性，自行实现
 when: 正文里的引文套着引文，每一层要用不同样式的引号

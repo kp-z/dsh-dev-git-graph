@@ -2,7 +2,7 @@
 title: 竖向跑马灯与渐隐边
 slug: marquee-vertical-fade
 category: 动效
-tags: [跑马灯, 竖向, 遮罩]
+tags: [mask, keyframes, 渐隐, 列表, 自动]
 since: 2026-10
 source: 机制来自内容复制与 mask-image 渐隐，自行实现
 when: 一列公告要上下无尽循环，进出两端要淡掉而不是硬切

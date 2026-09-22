@@ -2,7 +2,7 @@
 title: 用 SMIL 驱动滤镜参数
 slug: smil-filter-animate
 category: 动效
-tags: [SMIL, 滤镜, 动画, 参数]
+tags: [svg-filter, blur, 光晕, 按钮, 自动]
 since: 2026-10
 source: 机制来自 SMIL animate 对滤镜原语属性的驱动，自行实现
 when: 想让模糊、噪声、位移这些滤镜参数自己动起来，而 CSS 动画根本够不到它们

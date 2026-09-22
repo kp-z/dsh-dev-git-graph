@@ -2,7 +2,7 @@
 title: 长按触发
 slug: long-press-action
 category: 交互
-tags: [长按, 指针, 定时器]
+tags: [setPointerCapture, transition, 按钮, 长按, 定时]
 since: 2026-09
 source: 自行实现
 when: 按住不放才能执行的操作，比如删除或拖动前的确认

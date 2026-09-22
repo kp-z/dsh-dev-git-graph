@@ -2,7 +2,7 @@
 title: 渐变扫过文字
 slug: gradient-sweep-text
 category: 排版
-tags: [渐变, 扫光, background-clip]
+tags: [background-clip, gradient, 标题, 金属, 自动]
 since: 2026-10
 source: 机制来自 background-clip 与超大背景的位移，自行实现
 when: 深色标题上要有一道亮光慢慢扫过去，像金属字被转动

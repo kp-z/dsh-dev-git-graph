@@ -2,7 +2,7 @@
 title: 半调网点渐隐
 slug: halftone-mask
 category: 图形
-tags: [半调, 遮罩, 网点]
+tags: [mask, radial-gradient, 图案, 渐隐]
 since: 2026-09
 source: 机制来自 CSS mask-image，自行实现
 when: 点阵要往下逐渐消失，像漫画里从实到虚的网点

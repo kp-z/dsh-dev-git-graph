@@ -2,7 +2,7 @@
 title: 逐字打出
 slug: steps-typing
 category: 动效
-tags: [steps, 打字机, 时序函数]
+tags: [easing, 正文, 自动]
 since: 2026-09
 source: 机制来自 CSS Easing Functions 的 steps()，自行实现
 when: 一行字要一个字一个字出现，像有人在打

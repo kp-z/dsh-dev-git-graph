@@ -2,7 +2,7 @@
 title: 着重号挂在字上
 slug: text-emphasis-marks
 category: 排版
-tags: [着重号, 标点, 中日排印]
+tags: [text-decoration, 标点, 正文]
 since: 2026-10
 source: 机制来自 CSS Text Decoration 的 text-emphasis，自行实现
 when: 中文正文里要标出重点字词，用的是那种一个字一个点的着重号

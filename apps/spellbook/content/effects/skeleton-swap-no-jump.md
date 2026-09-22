@@ -2,7 +2,7 @@
 title: 骨架换内容不跳版
 slug: skeleton-swap-no-jump
 category: 动效
-tags: [骨架屏, 网格叠放, 防跳动]
+tags: [grid, transition, 骨架屏, 加载时]
 since: 2026-10
 source: 机制来自 CSS Grid 同格叠放与自动高度取最大值，自行实现
 when: 骨架屏换成真实内容的那一瞬间，页面不该往上跳一下

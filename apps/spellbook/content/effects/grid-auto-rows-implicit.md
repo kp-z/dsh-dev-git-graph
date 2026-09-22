@@ -2,7 +2,7 @@
 title: 看不见的行轨道
 slug: grid-auto-rows-implicit
 category: 布局
-tags: [grid, 隐式轨道, auto-rows]
+tags: [grid, 看板, 容器]
 since: 2026-10
 source: 机制来自 CSS Grid 规范的隐式轨道与 grid-auto-rows，自行实现
 when: 网格只声明了列、项数事先不知道，多出来的那些行得由你说了算

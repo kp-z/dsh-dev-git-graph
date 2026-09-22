@@ -2,7 +2,7 @@
 title: 不拆 DOM 的逐字揭示
 slug: text-band-reveal
 category: 排版
-tags: [background-clip, 硬色标, steps]
+tags: [background-clip, easing, 代码, 自动]
 since: 2026-10
 source: 机制来自 CSS background-clip 的硬色标渐变与 steps()，自行实现
 when: 要逐字揭示一行代码或数字，但不想让 DOM 被几十个 span 撑大

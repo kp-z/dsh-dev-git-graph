@@ -2,7 +2,7 @@
 title: 拿字号量行长
 slug: reading-measure
 category: 布局
-tags: [行长, 可读性, 单位]
+tags: [logical-property, custom-property, 正文]
 since: 2026-09
 source: 机制来自排版的 measure 原则与 ch 单位，自行实现
 when: 正文长度要靠字号来定，而不是写死一个像素宽度

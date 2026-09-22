@@ -2,7 +2,7 @@
 title: 内层有深度的倾斜卡片
 slug: tilt-3d-hover
 category: 交互
-tags: [3D, 倾斜, 深度]
+tags: [3d, transform, 卡片, 悬停]
 since: 2026-09
 source: 机制来自 CSS translateZ 与 preserve-3d，自行实现
 when: 悬浮时卡片倾向一边，而且里面的元素看起来有厚薄

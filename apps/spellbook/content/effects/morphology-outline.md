@@ -2,7 +2,7 @@
 title: 膨胀描边
 slug: morphology-outline
 category: 图形
-tags: [描边, 滤镜, 贴纸, alpha]
+tags: [svg-filter, feMorphology, 描边, 标题, 图标]
 since: 2026-10
 source: 机制来自 SVG feMorphology 在 alpha 通道上的膨胀与收缩，自行实现
 when: 文字或图标要一圈贴纸式的实心描边，而且笔画不能被描边吃掉

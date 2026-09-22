@@ -2,7 +2,7 @@
 title: 铬的带状反射
 slug: chrome-band-reflect
 category: 材质
-tags: [镀铬, 反射, 环境贴图]
+tags: [gradient, 铬, 金属, 数字, 徽章]
 since: 2026-10
 source: 机制来自线性渐变的横向色带模拟环境反射，自行实现
 when: 数字或徽标要做成镀铬的，但不想上 WebGL 或贴图

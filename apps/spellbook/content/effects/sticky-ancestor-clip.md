@@ -2,7 +2,7 @@
 title: 被祖先截住的粘性
 slug: sticky-ancestor-clip
 category: 布局
-tags: [粘性定位, 滚动容器, overflow]
+tags: [sticky, overflow, containing-block, 目录]
 since: 2026-10
 source: 机制来自 CSS 定位规范中 sticky 的滚动容器（scrollport）判定，自行实现
 when: 侧栏目录要跟着长文滚动钉在顶部，却怎么也不肯钉住

@@ -2,7 +2,7 @@
 title: min 反而是上限
 slug: min-max-inversion
 category: 布局
-tags: [min, max, minmax, 约束]
+tags: [clamp, grid, 容器]
 since: 2026-10
 source: 机制来自 CSS 值与单位规范的 min() / max() / clamp() 与 Grid 的 minmax()，自行实现
 when: 一个尺寸要跟着容器缩放，但两头都得兜住，又不想写媒体查询

@@ -2,7 +2,7 @@
 title: 纯 CSS 重复图案
 slug: repeating-pattern
 category: 图形
-tags: [图案, 重复渐变, 背景]
+tags: [repeating-gradient, 图案, 几何, 容器]
 since: 2026-09
 source: 机制来自 repeating-linear-gradient 的色标周期，自行实现
 when: 背景要有斜纹或格纹，但不想引入图片

@@ -2,7 +2,7 @@
 title: 撕纸边
 slug: torn-paper-edge
 category: 图形
-tags: [撕裂, 位移, 纸张, 边缘]
+tags: [feDisplacementMap, svg-filter, 纸感, 容器]
 since: 2026-10
 source: 机制来自 SVG feDisplacementMap 的各向异性位移，自行实现
 when: 一块色带要做成从纸上撕下来的样子，边缘是纤维而不是刀切

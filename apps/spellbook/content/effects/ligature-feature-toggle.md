@@ -2,7 +2,7 @@
 title: 连字的开关
 slug: ligature-feature-toggle
 category: 排版
-tags: [连字, OpenType, 字距]
+tags: [font-variant, letter-spacing, 正文, 代码]
 since: 2026-10
 source: 机制来自 CSS Fonts 4 的 font-variant-ligatures 与 OpenType 的 liga / dlig 特性，自行实现
 when: 正文里的 fi 要合并成一个字，但编号、代码、可复制文本里必须逐字分开

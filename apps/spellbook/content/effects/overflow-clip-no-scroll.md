@@ -2,7 +2,7 @@
 title: 裁剪但不滚动
 slug: overflow-clip-no-scroll
 category: 布局
-tags: [overflow, clip, 裁剪]
+tags: [overflow, 容器, 卡片]
 since: 2026-10
 source: 机制来自 CSS Overflow 规范的 overflow: clip（不产生滚动容器）与 overflow-clip-margin，自行实现
 when: 想裁掉溢出的内容，却不想凭空多出一个滚动容器

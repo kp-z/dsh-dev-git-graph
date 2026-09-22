@@ -2,7 +2,7 @@
 title: 有机形状变形
 slug: morph-blob
 category: 图形
-tags: [形状, 圆角, 变形]
+tags: [border-radius, keyframes, 有机, 容器]
 since: 2026-09
 source: 机制来自 CSS border-radius 的斜杠语法，自行实现
 when: 色块要像一团会呼吸的墨，而不是圆角矩形

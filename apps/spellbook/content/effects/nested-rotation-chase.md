@@ -2,7 +2,7 @@
 title: 旋转套旋转
 slug: nested-rotation-chase
 category: 动效
-tags: [嵌套旋转, 轨道, 追逐]
+tags: [keyframes, transform, 加载, 自动]
 since: 2026-09
 source: tobiasahlin/SpinKit（MIT） — sk-chase，改写为独立最小示例
 when: 几个点要沿一条轨道互相追逐，而不是一起转圈

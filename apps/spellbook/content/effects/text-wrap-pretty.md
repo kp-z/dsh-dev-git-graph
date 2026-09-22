@@ -2,7 +2,7 @@
 title: 避免末行只剩一个字
 slug: text-wrap-pretty
 category: 排版
-tags: [换行, 段落, 孤字]
+tags: [text-wrap, 正文, 标题]
 since: 2026-09
 source: 机制来自 CSS Text 的 text-wrap 取值，自行实现
 when: 段落最后一行总是掉下来一个词，看着难受

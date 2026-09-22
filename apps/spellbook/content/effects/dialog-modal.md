@@ -2,7 +2,7 @@
 title: 原生模态对话框
 slug: dialog-modal
 category: 交互
-tags: [dialog, 模态, 焦点]
+tags: [dialog, inert, 弹窗, 浮层, 点击]
 since: 2026-09
 source: 机制来自 HTML 的 dialog 元素与 showModal()，自行实现
 when: 要一个真正的模态弹窗，但不想自己写焦点陷阱与背景遮罩

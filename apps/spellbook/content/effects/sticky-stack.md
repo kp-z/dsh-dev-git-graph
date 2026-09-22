@@ -2,7 +2,7 @@
 title: 滚动堆叠卡片
 slug: sticky-stack
 category: 布局
-tags: [粘性定位, 堆叠, 滚动]
+tags: [sticky, 卡片, 滚动]
 since: 2026-09
 source: 机制来自 CSS position: sticky，自行实现
 when: 几张卡片要一张张钉在顶部，被下一张盖住，像翻一叠牌

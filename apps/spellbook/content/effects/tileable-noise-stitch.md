@@ -2,7 +2,7 @@
 title: 无缝噪声瓦片
 slug: tileable-noise-stitch
 category: 材质
-tags: [噪声, 平铺, 滤镜, 纹理]
+tags: [feTurbulence, svg-filter, 颗粒, 纹理, 容器]
 since: 2026-10
 source: 机制来自 SVG feTurbulence 的 stitchTiles 与 feTile 的配合，自行实现
 when: 同一片颗粒要用在很多元素上，既不想每次随机、也不想存一张图片

@@ -2,7 +2,7 @@
 title: 自动填充网格
 slug: auto-fit-grid
 category: 布局
-tags: [网格, 响应式, 无媒体查询]
+tags: [grid, 卡片, 列表]
 since: 2026-09
 source: 机制来自 CSS Grid 规范的 auto-fit 关键字，自行实现
 when: 一排卡片要随容器宽度自动增减列数，又不想写一串媒体查询

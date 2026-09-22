@@ -2,7 +2,7 @@
 title: 悬停时字符四散
 slug: hover-scatter-chars
 category: 交互
-tags: [悬停, 逐字, 位移函数]
+tags: [transition, custom-property, 悬停, 标题]
 since: 2026-10
 source: 机制来自逐字位移变量与过渡延迟，自行实现
 when: 标题被悬停时整句话散开、移开又合上，作为一次轻量的趣味回应

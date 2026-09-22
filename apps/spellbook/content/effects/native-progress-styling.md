@@ -2,7 +2,7 @@
 title: 给原生进度条上色
 slug: native-progress-styling
 category: 动效
-tags: [进度条, 原生元素, 伪元素]
+tags: [appearance, gradient, 进度, 表单, 切换]
 since: 2026-10
 source: 机制来自 HTML 规范中 progress 元素的影子伪元素，自行实现
 when: 需要一条真进度条，但不想自己画 div，也不想丢掉现成的语义与无障碍

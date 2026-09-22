@@ -2,7 +2,7 @@
 title: 自动补全下拉
 slug: autocomplete-combobox
 category: 交互
-tags: [表单, 补全, 无障碍]
+tags: [focus, 输入, 表单, 键盘]
 since: 2026-10
 source: 机制来自 WAI-ARIA 的 combobox 模式与 aria-activedescendant，自行实现
 when: 输入框要边打边给候选，且上下键选择时不能打断打字

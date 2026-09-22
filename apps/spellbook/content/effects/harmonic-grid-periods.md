@@ -2,7 +2,7 @@
 title: 整数倍的谐波格
 slug: harmonic-grid-periods
 category: 图形
-tags: [网格, 周期, 整数倍]
+tags: [repeating-gradient, grid, 图案, 几何]
 since: 2026-10
 source: 机制来自版式网格的模数（周期取整数倍）与重复渐变的色标周期，自行实现
 when: 一层细网格上要叠一层粗主格线，两者必须严丝合缝地落在同一批位置上

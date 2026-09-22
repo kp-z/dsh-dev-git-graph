@@ -2,7 +2,7 @@
 title: 换个支点继续转
 slug: origin-hop-in
 category: 动效
-tags: [变换原点, 滚入, 关键帧]
+tags: [keyframes, transform, easing, 卡片, 入场]
 since: 2026-09
 source: miniMAC/magic（MIT） — foolishIn，改写为独立最小示例
 when: 元素要「翻滚着」跳进来，而不是平滑地滑进来

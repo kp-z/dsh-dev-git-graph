@@ -2,7 +2,7 @@
 title: 汉堡按钮的形状变化
 slug: hamburger-morph
 category: 交互
-tags: [汉堡, 伪元素, 形变]
+tags: [transform, transition, 导航, 按钮, 点击]
 since: 2026-10
 source: 机制来自三条线共用同一原点后的平移与旋转，自行实现
 when: 移动端导航按钮，点开时三条线要变成叉号，而不是换个图标

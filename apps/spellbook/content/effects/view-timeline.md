@@ -2,7 +2,7 @@
 title: 滚到才播
 slug: view-timeline
 category: 动效
-tags: [滚动驱动, 视图时间线, 入场]
+tags: [scroll-driven, 列表, 入场, 滚动]
 since: 2026-09
 source: 机制来自 CSS Scroll-driven Animations 的 view()，自行实现
 when: 元素滚进视口时才播放动画，不想引入 IntersectionObserver

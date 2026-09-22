@@ -2,7 +2,7 @@
 title: 数码管数字
 slug: odometer-count
 category: 动效
-tags: [数字, 位移, 等宽]
+tags: [transition, transform, font-variant, 数字, 自动]
 since: 2026-09
 source: 自行实现
 when: 计数器变化时数字要滚动着换，而不是直接跳成新值

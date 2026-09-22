@@ -2,7 +2,7 @@
 title: 字数还剩多少
 slug: char-counter
 category: 交互
-tags: [表单, 计数, 自定义属性]
+tags: [color-mix, custom-property, 表单, 输入, 错误态]
 since: 2026-10
 source: 机制来自 HTML 的 maxlength 约束与 CSS color-mix 的连续插值，自行实现
 when: 输入框有长度上限，用户需要提前知道自己离超限还有多远

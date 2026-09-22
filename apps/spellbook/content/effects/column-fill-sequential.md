@@ -2,7 +2,7 @@
 title: 多栏是填满还是均分
 slug: column-fill-sequential
 category: 布局
-tags: [多栏, column-fill, 填充顺序]
+tags: [multi-column, 列表, 目录]
 since: 2026-10
 source: 机制来自 CSS Multi-column Layout 规范的 column-fill，自行实现
 when: 一长串条目要按顺序灌进几栏，第一栏填到底再开第二栏，而不是三栏一样高

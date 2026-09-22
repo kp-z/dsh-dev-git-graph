@@ -2,7 +2,7 @@
 title: 让离散属性也能过渡
 slug: allow-discrete
 category: 动效
-tags: [离散属性, display, 过渡]
+tags: [discrete-transition, transition, 浮层, 退场]
 since: 2026-09
 source: 机制来自 CSS Transitions 规范的 transition-behavior，自行实现
 when: 元素要淡出之后再消失，而不是淡出未完就已经不见

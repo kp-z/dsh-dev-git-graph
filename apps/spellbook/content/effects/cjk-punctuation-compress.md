@@ -2,7 +2,7 @@
 title: 中文标点的挤压
 slug: cjk-punctuation-compress
 category: 排版
-tags: [中文排版, 标点, OpenType]
+tags: [font-variant, 标点, 正文]
 since: 2026-10
 source: 机制来自 OpenType 的 halt / palt 特性与 CSS Text 4 的 text-spacing-trim，自行实现
 when: 一行中文里连续出现《「（等多个标点，中间空出一大片空白

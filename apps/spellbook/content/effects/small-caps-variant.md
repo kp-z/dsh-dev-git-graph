@@ -2,7 +2,7 @@
 title: 小型大写
 slug: small-caps-variant
 category: 排版
-tags: [大小写, 字形替换, 标签]
+tags: [font-variant, 徽章, 面包屑, 导航]
 since: 2026-10
 source: 机制来自 CSS Fonts 4 的 font-variant-caps 与 OpenType 的 smcp 特性，自行实现
 when: 标签、面包屑想要全大写的派头，又不能真的喊出来

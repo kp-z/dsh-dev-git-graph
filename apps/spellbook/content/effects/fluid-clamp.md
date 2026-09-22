@@ -2,7 +2,7 @@
 title: 流式字号
 slug: fluid-clamp
 category: 排版
-tags: [clamp, 流式, 响应式]
+tags: [custom-property, 标题, 正文]
 since: 2026-09
 source: 机制来自 CSS clamp() 函数，自行实现
 when: 标题要随屏幕连续变大变小，而不是在断点处跳一下

@@ -2,7 +2,7 @@
 title: 轨道之间分剩余空间
 slug: content-distribution-leftover
 category: 布局
-tags: [对齐, justify-content, 剩余空间]
+tags: [grid, 列表, 容器]
 since: 2026-10
 source: 机制来自 CSS Box Alignment 规范的 content-distribution（justify-content / align-content），自行实现
 when: 网格的轨道加起来没有铺满容器，想让整组轨道居中或散开分布

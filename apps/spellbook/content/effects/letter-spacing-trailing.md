@@ -2,7 +2,7 @@
 title: 字距加在最后一个字后面
 slug: letter-spacing-trailing
 category: 排版
-tags: [字距, 居中, 宽度]
+tags: [letter-spacing, margin, 标题, 正文]
 since: 2026-10
 source: 机制来自 CSS Text 的 letter-spacing 作用于每个字符的推进宽度，自行实现
 when: 标题加了字距之后怎么看都偏左，居中也不居中

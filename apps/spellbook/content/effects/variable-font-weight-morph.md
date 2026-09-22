@@ -2,7 +2,7 @@
 title: 字重的连续过渡
 slug: variable-font-weight-morph
 category: 排版
-tags: [可变字体, 字重, 插值]
+tags: [font-weight, keyframes, 标题, 自动]
 since: 2026-10
 source: 机制来自 CSS Fonts 4 的 font-weight 数值插值与 OpenType 可变字体的 wght 轴，自行实现
 when: 悬停或入场时字重要从细长到粗，而不是从一个字重跳到另一个

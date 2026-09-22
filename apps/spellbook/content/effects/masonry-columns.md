@@ -2,7 +2,7 @@
 title: 多列瀑布流
 slug: masonry-columns
 category: 布局
-tags: [瀑布流, 多列, 不等高]
+tags: [multi-column, 卡片, 列表]
 since: 2026-09
 source: 机制来自 CSS Multi-column Layout，自行实现
 when: 一组高矮不一的卡片要紧凑排成几列，不留大洞

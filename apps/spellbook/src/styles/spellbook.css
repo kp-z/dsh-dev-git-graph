@@ -735,6 +735,103 @@ html {
 .row-link:hover .row-leader {
   border-bottom-color: var(--gilt);
 }
+
+/* ------------------------------------------------------------------ *
+ * 卡片模式
+ *
+ * 一行几张牌，缩略图从「页码」升成主角。两种排法都留着，因为找东西有两种
+ * 动作：**认出**（在卡片里瞥见那个效果）和**读到**（在条列里顺着 when 那句
+ * 读完再决定）。图越大越靠认出，字越宽越靠读到，没有一种排法能同时做到底。
+ *
+ * 列宽写死 208px、不用 minmax(…, 1fr)，因为缩略图是 iframe —— 它按固定倍数
+ * 缩小，倍数只有在宽度确定时才算得准。208 是这么来的：
+ *
+ *     208（列宽） − 2×1（卡片边框） − 2×10（卡片内边距） = 186
+ *     186 − 2×13（画框）                               = 160
+ *     160 ÷ 320（demo 文档宽）                         = 0.5
+ *
+ * 于是 transform 正好是 0.5，缩略图净内容 160×100 —— 不必写 0.49375 这种
+ * 看着像手滑的数。列宽固定还有个好处：窄屏只减少每行张数，牌的大小不变。
+ *
+ * 顺带一个巧合：880（正文栏宽）= 4×208 + 3×16，满宽正好四张，不留余量。
+ * ------------------------------------------------------------------ */
+:root[data-view='card'] .tabula {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 208px);
+  gap: 12px 16px;
+}
+
+/* 牌面用竖排 flex 而不是网格：同一行里的牌高度会不一样（标题一行还是两行），
+   竖排 flex 让每张牌被拉到等高（.tabula 默认 stretch），再用 margin-top: auto
+   把「抄咒语」钉在牌底 —— 于是四张牌的下沿齐平，按钮也齐平。
+   顺序靠 order 调：DOM 里是「链接 → 抄咒语 → 缩略图」，牌面要的是缩略图在最上。 */
+:root[data-view='card'] .row {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 10px;
+  /* 条列靠横贯的分隔线分条，卡片自己成一块，所以四周都有边 */
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--ground-2);
+}
+
+/* 卡片模式下每块都自带边框，条列那条上边线就不需要了 */
+:root[data-view='card'] .row + .row {
+  border-top: 1px solid var(--rule);
+}
+
+:root[data-view='card'] .row-peek {
+  order: 1;
+  flex: none;
+  width: 100%;
+  /* 100（缩略图净高）+ 2×13（画框） */
+  height: 126px;
+}
+
+:root[data-view='card'] .row-preview-doc {
+  transform: scale(0.5);
+}
+
+:root[data-view='card'] .row-link {
+  order: 2;
+  flex: none;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    'num name'
+    'when when';
+  column-gap: 8px;
+  row-gap: 4px;
+  padding: 0;
+}
+
+/* 引导线是给宽行「一路连到缩略图」用的，208px 的牌里它只是噪声 */
+:root[data-view='card'] .row-leader {
+  display: none;
+}
+
+:root[data-view='card'] .row-name {
+  font-size: 1.02rem;
+  line-height: 1.3;
+}
+
+:root[data-view='card'] .row-when {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  /* 场合最多两行 —— 卡片是给你「认出」的，不是给你读完整的 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+:root[data-view='card'] .row-copy {
+  order: 3;
+  /* 钉在牌底：同一行四张牌高度不一，按钮却要齐平 */
+  margin-top: auto;
+  align-self: flex-end;
+}
+
 .empty {
   padding: 48px 0;
   color: var(--text-dim);
@@ -838,18 +935,95 @@ html {
   overflow-wrap: anywhere;
 }
 
-.marginalia-tags {
+/* 按标签筛的横条：只在 ?tag=… 时出现，说明「现在看的不是全部」。 */
+.tag-filter {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 9px 13px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--ground-2);
+  font-size: 0.86rem;
+  color: var(--text-dim);
 }
 
+.tag-filter-label {
+  font: 400 10px/1.4 var(--font-note);
+  letter-spacing: 0.1em;
+  color: var(--gilt);
+  opacity: 0.8;
+}
+
+.tag-filter-tag {
+  padding: 2px 7px;
+  border: 1px solid var(--gilt);
+  border-radius: var(--radius);
+  color: var(--gilt-bright);
+}
+
+.tag-filter-count {
+  font: 400 10.5px/1.4 var(--font-note);
+}
+
+.tag-filter-clear {
+  margin-left: auto;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.tag-filter-clear:hover,
+.tag-filter-clear:focus-visible {
+  color: var(--gilt-bright);
+}
+
+.marginalia-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* 一个轴一组：左边是轴名（机制/观感/场合/触发），右边是这轴的标签。
+   分组是为了让人一眼看出「这是机制还是场合」—— 混成一排就看不出哪个是哪个。 */
+.tag-group {
+  display: grid;
+  grid-template-columns: 2.6em minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+}
+
+.tag-axis {
+  font: 400 9.5px/1.4 var(--font-note);
+  letter-spacing: 0.08em;
+  color: var(--gilt);
+  opacity: 0.75;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* 标签是链接，不是死字 —— 点一下回目录，查词口已经填好、结果已经列出来。
+   提示用边框变化而不是换色：底是深色，换色在低反差下看不清。 */
 .tag {
-  padding: 3px 7px;
+  padding: 2px 6px;
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   font: 400 10.5px/1.4 var(--font-note);
   color: var(--text-dim);
+  text-decoration: none;
+  transition:
+    color 0.16s,
+    border-color 0.16s;
+}
+
+.tag:hover,
+.tag:focus-visible {
+  color: var(--gilt-bright);
+  border-color: var(--gilt);
 }
 
 .marginalia-ordinal {

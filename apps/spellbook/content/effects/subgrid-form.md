@@ -2,7 +2,7 @@
 title: 子网格对齐
 slug: subgrid-form
 category: 布局
-tags: [subgrid, 对齐, 表单]
+tags: [subgrid, grid, 表单]
 since: 2026-09
 source: 机制来自 CSS Grid 规范的 subgrid 关键字，自行实现
 when: 多行表单的标签宽度要互相对齐，但每行又是独立的一块

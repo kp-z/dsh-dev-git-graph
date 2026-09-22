@@ -2,7 +2,7 @@
 title: 霓虹灯管
 slug: neon-glow
 category: 材质
-tags: [霓虹, 发光, 文字]
+tags: [text-shadow, 霓虹, 发光, 光晕, 标题]
 since: 2026-09
 source: 机制来自 CSS 多层 text-shadow，自行实现
 when: 深色招牌上要一行发光的字，像真灯管

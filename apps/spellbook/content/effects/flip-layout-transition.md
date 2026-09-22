@@ -2,7 +2,7 @@
 title: 布局变化的平滑过渡
 slug: flip-layout-transition
 category: 动效
-tags: [视图过渡, 布局, 快照]
+tags: [view-transition, transition, 卡片, 点击, 切换]
 since: 2026-09
 source: 机制来自 View Transitions API，自行实现
 when: 点一下要在两种布局间切换，希望变化是滑过去的而不是瞬间跳

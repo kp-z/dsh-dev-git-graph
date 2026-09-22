@@ -2,7 +2,7 @@
 title: 锥形渐变的饼图
 slug: conic-pie-chart
 category: 图形
-tags: [饼图, 锥形渐变, 硬色标]
+tags: [conic-gradient, mask, 图表, 几何]
 since: 2026-09
 source: 机制来自 conic-gradient 的硬色标，自行实现
 when: 要一个饼图，但不想引入图表库

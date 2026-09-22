@@ -2,7 +2,7 @@
 title: 逼近但不到达的进度条
 slug: trickle-progress
 category: 动效
-tags: [进度条, 拟进度, 节流]
+tags: [transition, 进度, 加载, 定时]
 since: 2026-10
 source: 机制来自 NProgress（MIT）的 trickle 增量思路，自行实现最小示例
 when: 请求不知道要跑多久，但页面上得有一条一直在动、且不会撒谎的进度

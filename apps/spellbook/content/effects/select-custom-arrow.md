@@ -2,7 +2,7 @@
 title: 用遮罩画的下拉箭头
 slug: select-custom-arrow
 category: 交互
-tags: [表单, 下拉框, mask]
+tags: [mask, appearance, select, 表单, 选择]
 since: 2026-10
 source: 机制来自 CSS mask 属性与内联 SVG，自行实现
 when: 下拉框要换掉原生箭头，又不想为了它外挂一张图片或一个图标字体

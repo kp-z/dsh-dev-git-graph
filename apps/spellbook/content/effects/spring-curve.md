@@ -2,7 +2,7 @@
 title: 会过冲的弹簧曲线
 slug: spring-curve
 category: 动效
-tags: [缓动, 弹簧, linear]
+tags: [easing, keyframes, 容器, 自动]
 since: 2026-09
 source: 机制来自 CSS Easing Functions Level 2 的 linear()，自行实现
 when: 元素要冲过目标再弹回来，但 cubic-bezier 怎么调都弹不起来

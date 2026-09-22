@@ -2,7 +2,7 @@
 title: 动效的等价替代
 slug: reduced-motion-guard
 category: 动效
-tags: [无障碍, 动效, 媒体查询]
+tags: [media-query, 入场, 渐隐]
 since: 2026-09
 source: 机制来自 Media Queries Level 5 的 prefers-reduced-motion，自行实现
 when: 系统里关掉了动效，界面还必须有完整的反馈与内容

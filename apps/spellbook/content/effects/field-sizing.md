@@ -2,7 +2,7 @@
 title: 输入框随内容自己变宽
 slug: field-sizing
 category: 布局
-tags: [表单, 自适应, 输入框]
+tags: [overflow, 表单, 输入]
 since: 2026-09
 source: 机制来自 CSS field-sizing，自行实现
 when: 用户边打边看，输入框要跟着内容长，而不是把字藏起来

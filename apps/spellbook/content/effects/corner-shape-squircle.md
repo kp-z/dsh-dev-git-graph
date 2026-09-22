@@ -2,7 +2,7 @@
 title: 超椭圆圆角
 slug: corner-shape-squircle
 category: 图形
-tags: [圆角, 超椭圆, 连续曲率]
+tags: [corner-shape, border-radius, 几何, 卡片]
 since: 2026-10
 source: 机制来自 CSS Borders and Box Decorations Level 4 的 corner-shape，自行实现
 when: 大圆角卡片想要连续曲率的「苹果式」圆角，而不是几何圆弧

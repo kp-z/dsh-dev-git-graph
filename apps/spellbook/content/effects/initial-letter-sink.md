@@ -2,7 +2,7 @@
 title: 首字沉进去几行
 slug: initial-letter-sink
 category: 排版
-tags: [首字, 下沉, 字体]
+tags: [initial-letter, first-letter, 正文]
 since: 2026-10
 source: 机制来自 CSS Inline Layout 的 initial-letter，自行实现
 when: 章节开头要一个下沉首字，希望它精确占满三行而不是靠调字号凑

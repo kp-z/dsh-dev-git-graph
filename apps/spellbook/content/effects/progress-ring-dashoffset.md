@@ -2,7 +2,7 @@
 title: 环形进度靠描边偏移
 slug: progress-ring-dashoffset
 category: 图形
-tags: [进度环, SVG, 描边]
+tags: [svg, stroke, custom-property, 进度]
 since: 2026-10
 source: 机制来自 SVG 的 stroke-dasharray / stroke-dashoffset，自行实现
 when: 需要一个能精确停在任意百分比、且端口是圆头的环形进度

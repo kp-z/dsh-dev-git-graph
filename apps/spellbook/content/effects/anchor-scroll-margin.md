@@ -2,7 +2,7 @@
 title: 锚点跳转的让位
 slug: anchor-scroll-margin
 category: 交互
-tags: [锚点, 滚动, 固定头部]
+tags: [scroll-anchor, margin, 目录, 导航]
 since: 2026-10
 source: 机制来自 CSS Scroll Snap 规范的 scroll-margin 与 scroll-padding 属性，自行实现
 when: 顶部有固定工具栏，点目录里的锚点跳过去时标题总被压在工具栏底下

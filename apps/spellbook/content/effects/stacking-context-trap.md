@@ -2,7 +2,7 @@
 title: 被层叠上下文困住的 z-index
 slug: stacking-context-trap
 category: 布局
-tags: [层叠上下文, z-index, 定位]
+tags: [stacking-context, z-index, 浮层, 菜单]
 since: 2026-10
 source: 机制来自 CSS 定位规范的层叠上下文与绘制顺序，自行实现
 when: 下拉菜单的 z-index 已经写到 9999，还是被隔壁卡片盖住

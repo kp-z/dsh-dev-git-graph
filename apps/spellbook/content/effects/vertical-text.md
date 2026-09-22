@@ -2,7 +2,7 @@
 title: 竖排文字
 slug: vertical-text
 category: 排版
-tags: [竖排, 书写模式, 东亚]
+tags: [writing-mode, letter-spacing, 标题]
 since: 2026-09
 source: 机制来自 CSS Writing Modes 的 writing-mode，自行实现
 when: 要一行从右往左竖着排的字，像旧书封面或牌匾
