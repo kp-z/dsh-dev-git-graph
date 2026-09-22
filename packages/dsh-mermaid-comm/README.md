@@ -8,10 +8,25 @@ Make the AI **default to Mermaid diagrams** in development conversations. Render
 
 | Capability | What it does |
 |---|---|
-| **A. Behavior guidance** | Injects a `systemPrompt.section`: architecture, data flow, sequence, state, and dependency topics default to Mermaid — diagram first, then a short explanation. |
+| **A. Behavior guidance** | Injects a `systemPrompt.section`: architecture, data flow, sequence, state, and dependency topics default to Mermaid — diagram first, then a short explanation. **Controlled by a checkbox in the chat input; off by default** (see below). |
 | **B. Syntax validation** | Registers the `mermaid_validate` tool: dangerous-character scan first, then real parsing via the same-version `mermaid-runtime` shipped with dsh-mermaid. |
 | **C. Output gate** | Listens for assistant message events; auto-fixes Unicode arrows / dangerous labels in Mermaid fences, and removes broken diagrams from the visible surface when they cannot be confirmed. |
 | **D. Mermaid Vault** | Persists validated diagrams to `<workspace>/.dsh/mermaid/` as versioned assets: `<name>.mmd` (current version) + `<name>.history.md` (evolution history) + `INDEX.md`. The index is injected into the system prompt so later conversations evolve existing diagrams instead of redrawing from scratch. |
+
+## The injection switch — a checkbox in the chat input
+
+As of 0.3.0 prompt injection is **off by default** and driven by a checkbox at the left of the composer tool row:
+
+| State | Behavior |
+|---|---|
+| Unchecked (default) | Neither the guidance nor the vault index is injected — the model sees no Mermaid guidance at all |
+| Checked | Injected from the next turn on; the system prompt is re-assembled every turn, so the change takes effect immediately |
+
+**The host owns the truth** (`ctx.settings`, namespace `mermaid-comm-inject`), and it is **globally sticky**: check it once, every conversation follows, and it survives a restart. The button in the composer is only the switch's remote control — it lives in a per-session slot that the official renderer remounts on every session change (its own rule: component-local state must not leak between sessions), so the state cannot live in the component.
+
+`promptLevel` has three states: `toggle` (default, driven by the button) / `global` (always inject, button hides itself) / `off` (never inject, button hides itself).
+
+The tools (`mermaid_validate` and the four vault tools) and the output gate are **unaffected by the switch** and always available: injection is "nudging the model to draw", the tools are "checking the drawing once it is drawn" — two separate concerns.
 
 ## Mermaid Vault (diagram persistence)
 
@@ -39,11 +54,19 @@ Safety: topic names are sanitized to `[a-zA-Z0-9-_]` (no path traversal), writes
 
 ```sh
 dsh plugin --profile web add dsh-mermaid-comm
-# also install dsh-mermaid (handles chat rendering)
-dsh plugin --profile web add dsh-mermaid
 ```
 
-Restart `dsh web`. If dsh-mermaid is not installed or its runtime is unavailable, `mermaid_validate` fails explicitly instead of reporting unvalidated diagrams as passing; the output gate never silently lets a broken diagram through.
+**One command — the renderer comes with it.** This plugin declares `dsh-mermaid` as a regular dependency (so pnpm always installs it) and then mounts it as a real loader entry from its own `cordis.patch.yml` (the CARRIER pattern). That second step is not optional: DSH has no first-class "install this other plugin too" mechanism — `dsh plugin add` just forwards its arguments to pnpm, and the profile template pins `autoInstallPeers` to `false`. Even an installed dependency is inert unless it joins `dsh.profile.bundles`, because a package that is not a bundle never has its own `cordis.patch.yml` applied.
+
+> ⚠️ **Do not install `dsh-mermaid` separately.** This plugin mounts it under `id: ui-mermaid`; if `dsh.profile.bundles` also lists `dsh-mermaid`, both patches insert the same entry id, and cordis **hard-fails on a duplicate entry id** (the whole tree refuses to boot, naming neither plugin). If you already installed it separately, remove it first:
+>
+> ```sh
+> dsh plugin --profile web remove dsh-mermaid
+> ```
+>
+> It then stays in `node_modules` as this plugin's dependency and is mounted by the carrier row. (`dsh --profile web --dump-config` should show `ui-mermaid` exactly once.)
+
+Restart `dsh web` (both the plugin roster and the client bundle load at startup). If dsh-mermaid is unavailable, `mermaid_validate` fails explicitly instead of reporting unvalidated diagrams as passing; the output gate never silently lets a broken diagram through.
 
 ## Usage
 

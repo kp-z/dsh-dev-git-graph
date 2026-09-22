@@ -35,3 +35,9 @@ apps/spellbook/artifacts/
 # 构建中途的临时目录（换名前）
 apps/spellbook/.dist-staging-*/
 apps/spellbook/.build.lock/
+
+# 本机凭据与本地临时产物——绝不可入库
+#   .npmrc 含 npm publish 用的 _authToken；漏进仓库等于泄露发布凭据
+.npmrc
+.backup-web-profile-package.json
+*.tmp.html

@@ -43,15 +43,23 @@ export function buildPromptText(opts: {
 - **每改一次图（哪怕是改一个字），都必须重新调用 mermaid_validate 校验**——已校验过再小改也可能改坏，不重新校验不准输出。`
 }
 
-/** 注入 systemPrompt.section（order 150，工具引导带）。 */
+/**
+ * 注入 systemPrompt.section（order 150，工具引导带）。
+ *
+ * text 是函数而非静态串：每次组装实时向 `isOn` 要答案，所以勾选按钮一改，
+ * 下一轮 system prompt 立刻跟着变（与 dsh-plan-mode 的 plan:policy 同款做法）。
+ * 未勾选时返回空串——renderPrompt 会丢弃空段，等于这段不存在。
+ */
 export function registerMermaidPrompt(ctx: Context, opts: {
   diagramTypes: string[]
   validateBeforeRender: boolean
+  isOn?: () => boolean
 }) {
+  const text = buildPromptText(opts)
   ctx.systemPrompt.section({
     name: 'mermaid-comm:guidance',
     order: 150,
-    text: buildPromptText(opts),
+    text: () => (opts.isOn === undefined || opts.isOn() ? text : ''),
   })
 }
 
@@ -65,11 +73,14 @@ export function registerVaultIndexSection(ctx: Context, opts: {
   vaultDir?: string
   maxVersions?: number
   maxFileBytes?: number
+  isOn?: () => boolean
 }) {
   ctx.systemPrompt.section({
     name: 'mermaid-comm:vault-index',
     order: 160,
     text: () => {
+      // 图库索引也是一段注入（要占上下文），跟 guidance 共用同一个开关。
+      if (opts.isOn !== undefined && !opts.isOn()) return ''
       let entries: ReturnType<MermaidVault['list']> = []
       let vaultRoot = ''
       try {

@@ -263,3 +263,59 @@ export const MermaidCommConfig = z.object({
       流式期间块内容持续变化时自动更新到最终图。
 - [ ] 历史会话回放时渲染的节流/批量：多条旧消息带 mermaid 时，是否全部渲染还是
       折叠为「点击展开」。
+
+---
+
+## 9. v0.3.0：注入改为勾选可控 + 安装自带渲染器
+
+两处改动，都是「机制约束逼出来的形状」，不是偏好问题。
+
+### 9.1 注入开关：勾选后才注入（promptLevel 增加 `toggle`）
+
+需求：在 dsh 的对话输入框加勾选按钮，勾选后才注入。
+
+**机制约束**（决定了状态必须住在 host）：
+
+1. 注入点是 host 侧的 `ctx.systemPrompt.section()`——prompt 在 host 组装，客户端按钮只是遥控器。
+2. 客户端控件挂 `conversation.input.left`（list 槽，scope session，无 owner props，官方 occupants 为空 → 净新增，不遮蔽任何官方控件）。该槽组件**切换会话时会被 renderer 重挂载**（官方注释明确要求组件局部状态不得跨会话泄漏）→ 状态放组件里既会丢，也永远到不了 host。
+3. 门控不需要新机制：`PromptSection.text` 本来就允许是 `(context) => string`，每轮组装实时求值。官方 `dsh-plan-mode` 的 `plan:policy` 就是这么按会话条件注入的（`context.agent.session`）——本插件照此把 text 改成函数即可，空串会被 `renderPrompt` 丢弃，等于该段不存在。
+
+选型：用户拍板**全局粘性**（非每会话）——状态存 `ctx.settings`（namespace `mermaid-comm-inject`），落在 profile 的 settings 文档里，重启后仍在；勾一次所有会话生效。理由：注入本身是全局段（插件 ctx 无 scope 标签），做成每会话的按钮与全局注入语义不匹配，且每会话都要重勾的体验更差。
+
+落地形状：
+
+| 位置 | 职责 |
+|---|---|
+| `src/switch.ts` | 开关真值：`ctx.inject(['settings'])` 可选注入 → 有则持久化 + watch 跟随，无则退化为进程内（功能不降级，只是重启回默认）；注册 `GET/POST /dsh-mermaid-comm/state` 供客户端读写 |
+| `src/prompt.ts` | guidance 与 vault-index 两段的 text 改为函数，未勾选返回 `''` |
+| `src/client.js` | 勾选按钮（28×28 圆形，照抄官方 composer 工具行 `.p_FcLG_add` 的尺寸/hover token；选中态用 business 状态色对，与官方 plan chip 同构）；`toggle:false` 时自隐藏 |
+| `src/index.ts` | `promptLevel` 三态接线：`toggle`（默认）/`global`（恒注入，按钮隐藏）/`off`（不注册 prompt 段，工具仍可用） |
+
+**边界**：工具（`mermaid_validate` + 图库四件套）与输出闸不随开关走——注入是「引导画」，工具是「画了帮你把关」，解耦才合理。
+
+### 9.2 安装时自动带上 dsh-mermaid（CARRIER 模式）
+
+需求：安装本插件时自动安装依赖的另一个插件。
+
+**调研结论（都是读码实证）**：
+
+- dsh **没有**一等机制：`dsh plugin add` 只是把参数原样转发给 pnpm（`@deepseek-ai/dsh/lib/plugin-*.js` 的 `runPlugin`：`spawnSync('pnpm', args, {cwd: profileDir})`，不附加任何 flag）；manifest 里也不存在 `requires`/`plugins` 字段。
+- profile 模板把 **`autoInstallPeers: false`** 写死（`dsh-app-boot` 的 `PROFILE_PNPM_WORKSPACE`，profile 首次初始化时落盘）→ 非可选 `peerDependencies` **不会**被自动安装（pnpm 8 起「默认 true」的内建行为在此被显式覆盖）。
+- 更关键的第二道坎：`reconcilePlugins` 只把 **profile 顶层 `dependencies`** 里声明了 `dsh.bundle.patch` 的包提升进 `dsh.profile.bundles`。传递依赖即使被装上也不会进 bundles → 它的 `cordis.patch.yml` 永不被应用 → **装了也是死的**。
+
+**采用方案：普通 `dependencies` + carrier patch**（DSH 生态既有模式，如 `@linxin666/dsh-skins` 挂载 skin-center）：
+
+1. `dependencies: { "dsh-mermaid": "^0.4.0" }` → pnpm 必装（普通依赖不走 autoInstallPeers）。
+2. 本插件 `cordis.patch.yml` 追加一行 `{ id: ui-mermaid, name: dsh-mermaid }` → 把它挂成真正的 loader entry。此时它的 `dsh.client` 才会被客户端加载器扫到并加载（客户端模块加载器只扫 host Loader entries）。
+
+**必须同 id（`ui-mermaid`）**：这样若用户另外把 dsh-mermaid 也装成 bundle，`dshmarket` 的 `conflictingEntryIds` 能识别冲突并拒绝安装；换成别的 id 只会绕过检测、变成静默重复挂载。
+
+**红线与迁移**：cordis 对**重复 entry id 是硬失败**（`cordis-plugin-loader`：`if (seen.has(id)) throw new TypeError('duplicate loader entry id: ...')`，整棵树起不来且报错不点名任何插件）。因此**装本插件就不要再单独装 dsh-mermaid**；已单独装过的需先 `dsh plugin --profile <p> remove dsh-mermaid`（它仍作为本插件依赖留在 node_modules，由 carrier 行挂载）。README 已就此加显式警告，并给出 `dsh --profile web --dump-config | grep -c ui-mermaid` 的自查法（应为 1）。
+
+### 9.3 验证
+
+- 单测：`node --test test/*.test.ts` → 20 通过（开关持久化/降级/watch、路由 GET/POST/非法体/非法方法/非 toggle 模式、prompt 段门控、vault 既有 9 项）。
+- 装配冒烟 6 项：在 workspace 里因 `@deepseek-ai/dsh-tools@0.1.1-rc.2` 与其拉入的 `dsh-llm` 版本错配而**跳过**（工作区既有问题，非本次改动）；改用与 profile 版本对齐（`0.1.5-rc.2`）的 scratch 环境跑，**6/6 通过**。
+- 组合树预检：`dsh --profile web --dump-config` 退出码 0、`ui-mermaid` 恰好出现 1 次 → 不会撞重复 entry id。
+- 待用户在重启 `dsh web` 后验证真实 GUI：按钮出现、勾选后注入、图库索引随勾选开关。
+

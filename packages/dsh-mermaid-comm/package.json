@@ -1,7 +1,7 @@
 {
   "name": "dsh-mermaid-comm",
-  "version": "0.2.0",
-  "description": "让 AI 在开发交流中优先用 Mermaid 图表达：全局 prompt 引导 + mermaid_validate 语法校验。渲染交给 dsh-mermaid（MrmoLabs）。",
+  "version": "0.3.0",
+  "description": "让 AI 在开发交流中优先用 Mermaid 图表达：对话输入框勾选按钮控制 prompt 注入 + mermaid_validate 语法校验 + Mermaid 图库。渲染由 dsh-mermaid（MrmoLabs）承担，安装本插件会一并装上并挂载它。",
   "license": "MIT",
   "keywords": [
     "deepseek",
@@ -26,6 +26,9 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "default": "./lib/client.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -37,28 +40,31 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "prepublishOnly": "pnpm run build",
+    "build": "tsc -p tsconfig.json && cp src/client.js lib/client.js",
+    "prepublishOnly": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm run build && node --test \"test/*.test.ts\"",
+    "test": "npm run build && node --test \"test/*.test.ts\"",
     "dev": "tsc -p tsconfig.json --watch"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     }
+  },
+  "dependencies": {
+    "dsh-mermaid": "^0.4.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-system-prompt": "*",
     "@deepseek-ai/dsh-tools": "*",
-    "@deepseek-ai/schemastery": "*",
-    "dsh-mermaid": "*"
-  },
-  "peerDependenciesMeta": {
-    "dsh-mermaid": {
-      "optional": true
-    }
+    "@deepseek-ai/schemastery": "*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

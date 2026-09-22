@@ -4,8 +4,10 @@ import z from '@deepseek-ai/schemastery'
 export interface MermaidCommConfig {
   /** 总开关：false 时不注入 prompt、不注册校验工具。 */
   enabled: boolean
-  /** 行为引导强度：global=所有 agent 注入；off=关闭 prompt 注入（工具仍可用）。 */
-  promptLevel: 'global' | 'off'
+  /** 行为引导强度：toggle=由对话输入框的勾选按钮控制（默认）；global=始终注入；off=关闭 prompt 注入（工具仍可用）。 */
+  promptLevel: 'toggle' | 'global' | 'off'
+  /** 勾选按钮的初始状态（从未勾选过时；默认 false=不注入）。 */
+  defaultInject: boolean
   /** 允许的图类型（数组）。空/缺省 = 全部类型开放。 */
   diagramTypes: string[]
   /** 提示模型在输出前用 mermaid_validate 自检。 */
@@ -26,8 +28,10 @@ export interface MermaidCommConfig {
 export const MermaidCommConfig: z<MermaidCommConfig> = z.object({
   /** 总开关：false 时不注入 prompt、不注册校验工具。 */
   enabled: z.boolean().default(true),
-  /** 行为引导强度：global=所有 agent 注入；off=关闭 prompt 注入（工具仍可用）。 */
-  promptLevel: z.union(['global', 'off']).default('global'),
+  /** 行为引导强度：toggle=由对话输入框的勾选按钮控制（默认）；global=始终注入；off=关闭 prompt 注入（工具仍可用）。 */
+  promptLevel: z.union(['toggle', 'global', 'off']).default('toggle'),
+  /** 勾选按钮的初始状态（从未勾选过时；默认 false=不注入）。 */
+  defaultInject: z.boolean().default(false),
   /** 允许的图类型（数组）。空/缺省 = 全部类型开放。 */
   diagramTypes: z.array(z.string()).default([]),
   /** 提示模型在输出前用 mermaid_validate 自检。 */

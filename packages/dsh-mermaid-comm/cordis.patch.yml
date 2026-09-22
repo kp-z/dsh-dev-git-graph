@@ -1,4 +1,21 @@
-# 每个 bundle 的 patch：把本插件插进 profile 的层栈。
+# 本 bundle 的 patch：把本插件插进 profile 的层栈，并「顺带挂载」渲染器 dsh-mermaid。
+#
+# 为什么第二行写在这里（CARRIER 模式，DSH 生态既有做法，如 @linxin666/dsh-skins）：
+#   dsh 没有「装我就顺带装它」的一等机制——`dsh plugin add` 只是把参数原样转发给 pnpm，
+#   而 profile 模板把 autoInstallPeers 钉成 false；peerDependencies 因此既不会被自动安装，
+#   就算装上了也不会进 dsh.profile.bundles（reconcilePlugins 只提升 profile 顶层
+#   dependencies），它的 cordis.patch.yml 永远不会被应用 —— 装了也是死的。
+#   所以本插件把 dsh-mermaid 声明为普通 dependencies（pnpm 必装），再用这行把它挂成
+#   真正的 loader entry；只有这样它的 dsh.client 才会被客户端加载器扫到并加载。
+#
+# 注意：entry id 必须是 ui-mermaid —— 与 dsh-mermaid 自己 patch 的 id 一致。
+#   这样若用户另外把 dsh-mermaid 也装成 bundle，dshmarket 的 conflictingEntryIds
+#   能识别出 id 冲突并拒绝安装；而 cordis 对重复 entry id 是**硬失败**（整棵树起不来，
+#   且报错不会点名任何一个插件）。因此：**装了本插件就不要单独再装 dsh-mermaid**；
+#   若已单独装过，先 `dsh plugin --profile <p> remove dsh-mermaid`（它仍会作为本插件的
+#   依赖留在 node_modules 里，由这行挂载）。
 - insert:
     - id: mermaid-comm
       name: dsh-mermaid-comm
+    - id: ui-mermaid
+      name: dsh-mermaid

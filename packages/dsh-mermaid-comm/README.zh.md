@@ -8,10 +8,25 @@
 
 | 能力 | 作用 |
 |---|---|
-| **A. 行为引导** | 注入 `systemPrompt.section`：架构、数据流、时序、状态、依赖等开发话题优先用 Mermaid，先图后简短解释。 |
+| **A. 行为引导** | 注入 `systemPrompt.section`：架构、数据流、时序、状态、依赖等开发话题优先用 Mermaid，先图后简短解释。**由对话输入框的勾选按钮控制，默认关**（见下）。 |
 | **B. 语法校验** | 注册 `mermaid_validate` 工具，先做危险字符扫描，再调用 dsh-mermaid 同版本 `mermaid-runtime` 真解析。 |
 | **C. 输出闸** | 监听 assistant 消息落盘事件；对 Mermaid 围栏自动修复 Unicode 箭头/危险标签，无法确认通过时从可见 surface 摘除坏图。 |
 | **D. 图库（Mermaid Vault）** | 把验证通过的图持久化到 `<workspace>/.dsh/mermaid/`，形成同主题多版本资产：`<name>.mmd`（当前版）+ `<name>.history.md`（演进历史）+ `INDEX.md`。索引注入系统提示，后续对话基于旧图演进而非从零重画。 |
+
+## 注入开关——对话输入框的勾选按钮
+
+0.3.0 起，prompt 注入默认**关闭**，由对话输入框工具行左侧的勾选按钮控制：
+
+| 状态 | 行为 |
+|---|---|
+| 未勾选（默认） | 不注入 guidance，也不注入图库索引——模型看不到任何 Mermaid 引导 |
+| 勾选 | 从下一轮开始注入；system prompt 每轮实时重算，改动立刻生效 |
+
+**真值住在 host**（`ctx.settings`，namespace `mermaid-comm-inject`），**全局粘性**：勾一次所有会话都生效，重启后仍在。输入框里那颗按钮只是这台开关的遥控器——它挂在 per-session 插槽上，切换会话会重挂载（官方 renderer 明确要求组件局部状态不得跨会话泄漏），所以状态不能放在组件里。
+
+`promptLevel` 三态：`toggle`（默认，由按钮控制）/ `global`（恒定注入，按钮自动隐藏）/ `off`（从不注入，按钮自动隐藏）。
+
+工具（`mermaid_validate` + 图库四件套）与输出闸**不受开关影响**，始终可用——注入是「引导模型画」，工具是「画的时候帮你把关」，两件事解耦。
 
 ## 图库（Mermaid Vault）——图的持久化与演进
 
@@ -39,11 +54,19 @@
 
 ```sh
 dsh plugin --profile web add dsh-mermaid-comm
-# 同时安装 dsh-mermaid（负责聊天渲染）
-dsh plugin --profile web add dsh-mermaid
 ```
 
-重启 `dsh web`。如果 dsh-mermaid 未安装或运行时不可用，`mermaid_validate` 会明确返回失败，不会把未校验的图误报为通过；输出闸也不会把坏图静默放行。
+**一条命令即可，会自动带上渲染器。** 本插件把 `dsh-mermaid` 声明为普通依赖（pnpm 必装），并在自己的 `cordis.patch.yml` 里把它**顺带挂载**成真正的 loader entry（CARRIER 模式）。这一步不能省：dsh 没有「装我就顺带装它」的一等机制，`dsh plugin add` 只是把参数转发给 pnpm，而 profile 模板把 `autoInstallPeers` 钉死为 `false`——就算依赖装上了，没进 `dsh.profile.bundles` 的包其 `cordis.patch.yml` 也永远不会被应用，等于装了是死的。
+
+> ⚠️ **不要再单独安装 `dsh-mermaid`。** 本插件用 `id: ui-mermaid` 挂载它；若 profile 的 `dsh.profile.bundles` 里同时也有 `dsh-mermaid`，两处会插入同一个 entry id，而 cordis 对重复 entry id 是**硬失败**（整棵树起不来，且报错不会点名任何插件）。已经单独装过就先移掉：
+>
+> ```sh
+> dsh plugin --profile web remove dsh-mermaid
+> ```
+>
+> 移除后它仍会作为本插件的依赖留在 `node_modules`，由 carrier 行挂载。（用 `dsh --profile web --dump-config` 可自查组合结果里 `ui-mermaid` 只出现一次。）
+
+重启 `dsh web`（插件名册与客户端 bundle 均在启动时加载）。如果 dsh-mermaid 不可用，`mermaid_validate` 会明确返回失败，不会把未校验的图误报为通过；输出闸也不会把坏图静默放行。
 
 ## 使用
 
