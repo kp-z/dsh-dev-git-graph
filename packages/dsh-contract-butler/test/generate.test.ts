@@ -1070,3 +1070,34 @@ test('目录图不画字段节点；目录节点的 AI 中文能显示出来', (
   assert.ok(html.includes('b.aiTitle ? el('), '带上印 AI 中文')
   assert.ok(html.includes("'，另外 ' + dirs.total + ' 个目录也补了中文'"), '生成完成的文案里要报目录口径')
 })
+
+
+test('首页：分区图下面那份契约清单还在，图例只在图那一块里，不会顶掉清单', () => {
+  const html = panelHtml()
+  const start = html.indexOf('function renderOverview(ctx) {')
+  const end = html.indexOf('function renderGraph(ir, opts) {')
+  assert.ok(start > 0 && end > start, 'renderOverview 要还在')
+  const box = html.slice(start, end)
+
+  /* 清单必须在首页这块里，而且带着它的标题与渐进展开 */
+  assert.ok(box.includes("text: '契约清单'"), '首页要保留契约清单')
+  assert.ok(box.includes('S.listCap'), '清单的渐进展开不能被拿走')
+  assert.ok(box.includes("text: '更多'") || box.includes('moreBtn'), '清单要有继续展开的入口')
+
+  /* 顺序：图那一块先 append，清单那一块后 append —— 清单在图下面 */
+  const atGraph = box.indexOf('sa.appendChild(gb)')
+  const atList = box.indexOf('sa.appendChild(b)')
+  assert.ok(atGraph > 0 && atList > atGraph, '清单要挂在图后面，不能挪到图上面或消失')
+
+  /* 两块在同一个分支里：图被画出来的情形，清单也必须被画出来 */
+  const itemsGuard = box.indexOf('if (!S.items.length) {')
+  assert.ok(itemsGuard > 0 && itemsGuard < atGraph, '两张块都要在有内容这一支里')
+  /* 图和清单之间不许有提前退出：一个 return 就能把清单吞掉，而"图还在"会让人以为没出问题。
+     中间那些 if 是清单自己的分页（每次多铺 200 条），不是跳过清单的守卫。 */
+  assert.equal(/\breturn\b/.test(box.slice(atGraph, atList)), false, '图和清单之间不许有 return 把清单吞掉')
+
+  /* 图例是 renderGraph 自己那块片段里的，不占清单的位置 */
+  const legendAt = html.indexOf('var legend = gLegend(capped.ir)')
+  assert.ok(legendAt > 0, '图例要挂在 renderGraph 里')
+  assert.ok(html.indexOf('function renderGraph(ir, opts) {') < legendAt, '图例属于图那一块')
+})
