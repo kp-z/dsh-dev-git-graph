@@ -482,8 +482,11 @@ test('面板：弹窗里有那四组选择，且预告是问宿主算出来的�
   for (const text of ['不动代码', '增量重扫', '清掉重生成', '补 AI 中文说明', '忽略缓存，强制重问', '作用范围']) {
     assert.ok(html.includes(text), `弹窗里应当有「${text}」这一项`)
   }
-  // 预告必须来自宿主：面板唯一能拿到"这次会做什么"的地方就是这条只读路由。
-  assert.ok(html.includes("'/generate/plan'"), '弹窗必须问 /generate/plan 要真实数字')
+  /* 本轮翻转：用户要求把「这次会做什么」那块预告整块删掉（原话"图二三完全删除不需要"），
+     面板不再请求 /generate/plan，也不再有那块标题。只读路由本身保留（宿主侧另有测试覆盖）。 */
+  assert.ok(!html.includes("'/generate/plan'"), '预告块已删，面板不该再请求 /generate/plan')
+  assert.ok(!html.includes('genPlanLines'), '那块预告的渲染函数要一并删掉，不留死代码')
+  assert.ok(!html.includes("class: 'genplan'"), '预告块的容器不再创建')
   // 范围只作用于 AI 那一段——做不到的范围维度不假装有，所以这句话必须写在弹窗里。
   /* 翻转过：用户要求删掉"作用范围"整块，那句"重扫与重生成不受这个范围影响"也一并删了。 */
   assert.ok(!html.includes('重扫与重生成是项目级动作'), '那句说明句要删掉，不许换个说法放回来')

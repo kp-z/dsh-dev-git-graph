@@ -961,7 +961,11 @@
   .genopt .gn { font-size: 12.5px; color: var(--ink); }
   .genopt .gd { margin-top: 2px; font-size: 11px; color: var(--ink3); line-height: 1.55; }
   .genopt .gn code, .genopt .gd code { font-family: var(--mono); font-size: 10.5px; }
-  /* 预告：这次到底会发生什么。数字全部来自宿主现算（/generate/plan），不是写死的。 */
+  /* 选项收成一行：只留标签，说明一律不写（用户："一行就够了""说明全删"）。 */
+  .genrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 3px; }
+  .genrow .genopt { padding: 5px 9px; align-items: center; }
+  .genrow .genopt input { margin: 0; }
+  /* 「这次会做什么」预告块已整块删除；这里只留破坏性动作的代价说明（.gpl）。 */
   .genplan { margin-top: 14px; padding: 10px 12px; border-radius: 12px;
     border: 1px solid var(--line2); background: var(--fill-secondary, rgba(127,127,127,.07)); }
   .genplan .gpt { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; color: var(--ink3); }
@@ -1341,7 +1345,7 @@
    * 普通在途请求借这一块 UI 的**胶囊那一档**（"加载中…"）——这是全页唯一的加载指示器。
    * 生成那条链在跑（`UND.running`）或者上一次的结果还停着（`UND.result`）时直接让位：
    * 同一时刻右下角只允许有一个指示器，绝不再叠第二个出来。弹窗开着的时候也不显示——
-   * 弹窗里那句"正在按当前状态算…"就是那一次的反馈，右下角再冒一个纯属打扰。
+   * 弹窗自己会给反馈，右下角再冒一个纯属打扰。
    */
   function undAmbient(on) {
     if (on) {
@@ -1762,48 +1766,6 @@
     return found;
   }
 
-  /** 预告：把宿主算出来的真实数字翻成人话。每一句都能追到一个真数字，没有一句是猜的。 */
-  function genPlanLines(plan, G) {
-    var lines = [];
-    var code = plan.code;
-    if (code) {
-      if (code.mode === 'rebuild') {
-        var g = plan.generated || {};
-        lines.push({ text: '清掉重生成：先清掉 ' + (g.contracts || 0) + ' 条契约、' + (g.snapshots || 0)
-          + ' 条快照、' + (g.changes || 0) + ' 条演化、' + (g.observations || 0) + ' 条观测、'
-          + (g.decisions || 0) + ' 条决策、' + (g.ai || 0) + ' 条 AI 缓存，再按当前代码抽一遍',
-          warn: true });
-        lines.push({ text: '这一步不可撤销：清掉的记录不会回来。' + (g.contracts || 0) + ' 条契约会被重新抽一遍'
-          + (code.files ? '（读 ' + code.files + ' 个文件' : '（读文件数还没算出来')
-          + (code.truncated ? '，已达上限 ' + code.maxFiles + '、只会读前 ' + code.maxFiles + ' 个）' : '）'),
-          dim: true });
-      } else {
-        lines.push({ text: '增量重扫 ' + code.files + ' 个文件'
-          + (code.truncated ? '（已达上限 ' + code.maxFiles + '，只会扫前 ' + code.maxFiles + ' 个）' : '')
-          + '：比形状、记演化，不清任何东西。' });
-      }
-    } else {
-      lines.push({ text: '不动代码：只把当前契约清单拉一遍。' });
-    }
-    if (G.ai) {
-      if (!plan.ai.available) {
-        /* 宿主没有可用模型这件事现在就知道，当场说清——别等人点完再看一个失败。 */
-        lines.push({ text: '⚠ 补 AI 说明这一步会失败：宿主现在没有可用的 AI。' + (plan.ai.reason || ''), warn: true });
-      } else if (plan.scope.pending === 0) {
-        lines.push({ text: '范围内 ' + plan.scope.contracts + ' 条契约全部命中缓存，不会问模型。' });
-      } else {
-        lines.push({ text: '补 AI 说明：范围内 ' + plan.scope.contracts + ' 条契约里有 ' + plan.scope.pending
-          + ' 条缺说明或内容变过，会分 ' + plan.ai.batches + ' 组问模型（每组 ' + plan.ai.batchSize + ' 条）'
-          + (plan.ai.force
-            ? '；已勾选忽略缓存，全部重问。'
-            : '；其余 ' + plan.scope.cached + ' 条命中缓存、不问。') });
-      }
-    } else {
-      lines.push({ text: '不补 AI 说明：中文说明保持原样（不会问模型）。' });
-    }
-    lines.push({ text: '最后重画界面。', dim: true });
-    return lines;
-  }
 
   /**
    * 生成弹窗：这一次要重新生成什么，在这里选。
@@ -1856,10 +1818,6 @@
       return found || scopes[0];
     };
 
-    var planBox = el('div', { class: 'genplan' },
-      el('div', { class: 'gpt', text: '这次会做什么' }),
-      el('div', { class: 'gpl dim', text: '正在按当前状态算…' }));
-    var planBody = planBox.lastChild;
     var go = el('button', { class: 'ghost', type: 'button', text: '开始生成' });
     go.style.color = 'var(--accent)';
     go.style.boxShadow = 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent)';
@@ -1876,38 +1834,8 @@
       confirmNote.style.display = 'none';
     };
 
-    /* 每次选项一变就重新问一遍宿主："这次会做什么"必须跟着选项走，不能是打开弹窗那一刻的快照。 */
-    function replan() {
-      /* 每次选项一变就撤掉"确认清掉"那道闸。 */
-      resetRebuildGate();
-      G.seq += 1;
-      var mine = G.seq;
-      clear(planBody);
-      planBody.className = 'gpl dim';
-      planBody.textContent = '正在按当前状态算…';
-      var scope = chosen();
-      var payload = { projectId: S.p.id, mode: G.mode === 'none' ? 'none' : G.mode, force: G.ai && G.force };
-      if (scope.ids) payload.contractIds = scope.ids;
-      return api('/generate/plan', { method: 'POST', body: payload }).then(function (plan) {
-        if (mine !== G.seq) return;
-        G.plan = plan;
-        G.error = '';
-        clear(planBody);
-        planBody.className = 'gpl';
-        genPlanLines(plan, G).forEach(function (line) {
-          planBody.appendChild(el('div', { class: line.warn ? 'gpl warn' : line.dim ? 'gpl dim' : 'gpl',
-            style: 'margin-top:4px', text: line.text }));
-        });
-      }).catch(function (e) {
-        if (mine !== G.seq) return;
-        G.plan = null;
-        G.error = (e && e.message) || String(e);
-        clear(planBody);
-        planBody.className = 'gpl warn';
-        /* 算不出来就说算不出来：预告是给人做决定用的，宁可说"我算不出来"，也不编一个数字。 */
-        planBody.textContent = '算不出这次的预告：' + G.error + '（仍然可以点「开始生成」）';
-      });
-    }
+    /* 预告块已删：这里只剩"选项一变就撤掉确认闸"这一件事（旧确认不能盖住新选择）。
+       面板不再请求 /generate/plan——没有地方显示它了。 */
 
     /* 单选组：同一组里永远只有一个选中。 */
     /* `get` / `set` 必须分开给：同一个回调既当读又当写的话，"同步整张表"那次读取
@@ -1925,7 +1853,7 @@
           disabledReason !== undefined ? el('div', { class: 'gd', text: disabledReason }) : null));
       var sync = function () { input.checked = value === get(); row.classList.toggle('on', input.checked); };
       if (disabledReason === undefined) {
-        input.addEventListener('change', function () { if (input.checked) { set(value); replan(); } });
+        input.addEventListener('change', function () { if (input.checked) { set(value); resetRebuildGate(); } });
       }
       return { row: row, sync: sync };
     }
@@ -1950,22 +1878,22 @@
     /* 代码这一步：三个选项就是原来那三个按钮里"扫描"相关的全部能力。 */
     var modeRows = [
       radioRow('genmode', 'none', '不动代码',
-        '只补 AI 说明 / 重画界面。契约还是现在这一份。',
+        '',
         function () { return G.mode; }, function () { G.mode = 'none'; }, undefined),
       radioRow('genmode', 'rescan', '增量重扫（默认）',
-        '按当前代码扫一遍，比形状、记演化；不清任何东西，没变的契约一条都不动。',
+        '',
         function () { return G.mode; }, function () { G.mode = 'rescan'; }, undefined),
       radioRow('genmode', 'rebuild', '清掉重生成',
-        '清掉这个项目已生成的契约、快照、演化、观测、决策与 AI 缓存，再按当前代码重新抽一遍。不可撤销。',
+        '',
         function () { return G.mode; }, function () { G.mode = 'rebuild'; }, undefined),
     ];
 
     var aiRow = checkRow('补 AI 中文说明',
-      '只给缺说明、或内容变过（哈希对不上）的契约问模型；内容没变的直接读缓存，不重复问。',
+      '',
       function () { return G.ai; },
       function (v) { G.ai = v; }, function () { return true; });
     var forceRow = checkRow('忽略缓存，强制重问',
-      '连内容没变的契约也重新问一遍模型。只在换了模型、或想推翻上一轮中文时才需要。',
+      '',
       function () { return G.force; },
       function (v) { G.force = v; }, function () { return G.ai; });
 
@@ -1982,14 +1910,14 @@
       /* 范围只管 AI：没勾 AI 就整块不出现。 */
       scopeSec.style.display = G.ai ? '' : 'none';
     }
-    /* 勾选框自己不带 replan，这里统一挂上；再统一做一次同步。 */
+    /* 勾选框自己不带"撤确认闸"，这里统一挂上；再统一做一次同步。 */
     [aiRow, forceRow].forEach(function (r) {
       var input = r.row.querySelector('input');
       r.row.classList.toggle('on', input.checked);
       input.addEventListener('change', function () {
         r.set(input.checked);
         syncAll();
-        replan();
+        resetRebuildGate();
       });
     });
 
@@ -2222,13 +2150,14 @@
         el('div', { class: 'gsh' },
           el('span', { text: '这一步做什么' }),
           el('span', { class: 'gsn', text: '代码' })),
-        modeRows.map(function (r) { return r.row; }),
-        el('div', { class: 'gsub' }, el('span', { class: 'gsn', text: '中文只来自 AI' })),
-        aiRow.row, forceRow.row),
+        el('div', { class: 'genrow' },
+          modeRows.map(function (r) { return r.row; }),
+          aiRow.row, forceRow.row,
+          el('span', { class: 'gsn', text: '中文只来自 AI' }))),
       dirCard,
       /* 作用范围那块已经去掉：范围由目录卡决定（勾了哪些目录就在哪些目录上作用；
-         没动过勾选就是当前已纳管的全部）。重扫/重生成本来就是项目级动作。 */
-      planBox,
+         没动过勾选就是当前已纳管的全部）。重扫/重生成本来就是项目级动作。
+         「这次会做什么」预告块也整块删掉（用户："图二三完全删除不需要"）：只留破坏性动作的第二道闸。 */
       confirmNote,
       el('div', { class: 'genfoot genspan' },
         el('span', { class: 'gsum', text: S.p.title }),
@@ -2236,7 +2165,6 @@
       true);
 
     syncAll();
-    replan();
   }
 
   /** 左树行上的那一小截灰字：简短形式（全文在悬浮提示里）。 */
