@@ -1,7 +1,6 @@
 {
   "name": "dsh-spellbook",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "DSH 插件：咒语书 —— 前端效果库，右侧栏一个「咒语书」tab。一条咒语 = 描述 + 示例代码，预览是真实运行的（332 条）。",
   "license": "MIT",
@@ -17,6 +16,15 @@
     "effects",
     "dsh-better-sidebar"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kp-z/dsh-dev-git-graph.git",
+    "directory": "packages/dsh-spellbook"
+  },
+  "homepage": "https://github.com/kp-z/dsh-dev-git-graph/tree/main/packages/dsh-spellbook#readme",
+  "bugs": {
+    "url": "https://github.com/kp-z/dsh-dev-git-graph/issues"
+  },
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "exports": {
@@ -34,7 +42,8 @@
     "lib",
     "dist",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "node build.mjs && npm run build:plugin",
@@ -43,7 +52,8 @@
     "dev": "node serve.mjs",
     "test": "node --test test/",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "vault": "node scripts/vault.mjs"
+    "vault": "node scripts/vault.mjs",
+    "prepublishOnly": "npm run build"
   },
   "dsh": {
     "bundle": {

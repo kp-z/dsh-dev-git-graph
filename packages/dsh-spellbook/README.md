@@ -18,19 +18,25 @@ packages/dsh-spellbook/
 └── dist/                  站点构建产物（插件端出去的就是它）
 ```
 
-装：
+装（已发布到 npm）：
 
 ```bash
-dsh plugin --profile web add link:/Users/kp/DEV/dsh-plugins/packages/dsh-spellbook
+dsh plugin --profile web add dsh-spellbook
 ```
 
-用 `link:` 而不是 `file:`：`file:` 会把包**拷贝**进 profile，而 `dist/` 是构建产物、
-天天重建 —— 拷进去之后每次重建都要重装一遍。`link:` 是软链，重建完刷新就有。
 装完重启 DSH，右侧栏「+」里出现「咒语书」。
 
+> **改这个包的时候**用 `link:` 而不是 `file:`：
+> `dsh plugin --profile web add link:/Users/kp/DEV/dsh-plugins/packages/dsh-spellbook`
+>
+> `file:` 会把包**拷贝**进 profile，而 `dist/` 是构建产物、天天重建 ——
+> 拷进去之后每次重建都要重装一遍。`link:` 是软链，重建完刷新就有。
+> 只是「试用发布版」的话，直接用注册表版本更简单。
+
 > desktop profile 由 Electron 应用独占管理，`dsh plugin` 会拒绝；
-> 那条路要手工改 `~/.dsh/profiles/desktop/package.json`（dependencies 用 `link:`，
-> 同时把 `dsh-spellbook` 加进 `dsh.profile.bundles`）再 `pnpm install`。
+> 那条路要手工改 `~/.dsh/profiles/desktop/package.json`（dependencies 填
+> `dsh-spellbook` 或 `link:` 路径，同时把 `dsh-spellbook` 加进
+> `dsh.profile.bundles`）再 `pnpm install`。
 
 两半各自的职责：
 
