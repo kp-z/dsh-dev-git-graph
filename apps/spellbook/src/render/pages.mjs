@@ -48,11 +48,19 @@ ${body}
 }
 
 /**
- * 刊头：一行装三样 —— 书名、检索口（或当前条目名）、明暗开关。
+ * 刊头：左边一格「书名 + 明暗开关」，右边一格拉满检索口。
  *
  * 检索口搬进刊头，是因为它要**吸顶**：整条刊头 sticky，滚到哪儿都能查。
  * 原来那个「说一句你要的效果」的标题因此去掉 —— 它本来只是在给查词口配句话，
  * 而刊头这一行已经说清这是什么书了，再顶一行字反而把首屏往下压。
+ *
+ * 开关为什么挪到书名这边来：查词口的**右边缘要和下面的条目对齐**（370 → 1250）。
+ * 开关只要自己占着第三格，查词口就够不着 1250，右边缘差着一整个开关（73px），
+ * 和条目对不齐 —— 首屏上就是一条缺了角的边。把开关收进书名那一格（边栏 220px），
+ * 第二格便整整是 880 的正文宽：查词口、分类筹码、检索结果、条目，四条右边缘齐平。
+ *
+ * 代价是副标题得改竖排（书名在上、副题在下）。横排时「咒语书 前端效果库」
+ * 一个块就占 198px，再塞不下一个开关；竖排后书名块收成 ~110px，同格还有富余。
  *
  * 首页于是没有别的 h1 了，书名就顶上 h1（`asHeading`）：
  * 首页用书名当一级标题，内页用条目名当一级标题，各页正好各一个。
@@ -60,16 +68,20 @@ ${body}
 function header({ root, current = null, search = '', asHeading = false }) {
   const wordmark = `<a class="wordmark" href="${root}">
     ${wandMark('wordmark-wand')}
-    <span class="wordmark-name">${escapeHtml(SITE_NAME)}</span>
-    <span class="wordmark-tagline">${escapeHtml(SITE_TAGLINE)}</span>
+    <span class="wordmark-text">
+      <span class="wordmark-name">${escapeHtml(SITE_NAME)}</span>
+      <span class="wordmark-tagline">${escapeHtml(SITE_TAGLINE)}</span>
+    </span>
   </a>`
   return `<header class="masthead">
-  ${asHeading ? `<h1 class="masthead-heading">${wordmark}</h1>` : wordmark}
+  <div class="masthead-id">
+    ${asHeading ? `<h1 class="masthead-heading">${wordmark}</h1>` : wordmark}
+    <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换明暗">
+      <span class="theme-toggle-mark" aria-hidden="true"></span>
+      <span data-theme-label>明</span>
+    </button>
+  </div>
 ${search || (current ? `  <p class="masthead-current">${escapeHtml(current)}</p>` : '')}
-  <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换明暗">
-    <span class="theme-toggle-mark" aria-hidden="true"></span>
-    <span data-theme-label>明</span>
-  </button>
 </header>`
 }
 

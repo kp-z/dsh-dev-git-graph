@@ -268,16 +268,17 @@ textarea {
 
 /* -------------------------------------------------------------- 刊头 */
 
-/* 刊头：书名 + 查词口（或当前条目名）+ 明暗开关，一行。
-   格子是按版面的边栏算的，所以查词口的左边缘正好落在正文那条线上（370），
-   与下面的分类筹码、检索结果、条目整齐齐 —— 吸顶时也不会跳。
+/* 刊头：左边一格「书名 + 明暗开关」，右边一格拉满查词口。
+   两格是按版面的边栏算的：第一格 198 = 边栏 220 - 格间距 22，
+   于是第二格从 370 起、宽 880 —— 查词口的左**右**两边都跟下面的
+   分类筹码、检索结果、条目严丝合缝，吸顶时也不会跳。
    sticky 让整条刊头跟着滚，去哪儿都能查。 */
 .masthead {
   position: sticky;
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: calc(var(--rail) - var(--masthead-gap)) minmax(0, 1fr) auto;
+  grid-template-columns: calc(var(--rail) - var(--masthead-gap)) minmax(0, 1fr);
   column-gap: var(--masthead-gap);
   align-items: center;
   max-width: var(--shell);
@@ -295,29 +296,39 @@ textarea {
   letter-spacing: inherit;
 }
 
-/* 三样各就各位，别靠自动排布。
-   自动排布在内页上会出事：内页刊头只有书名与开关，第三格空着就塌成 0 宽，
-   开关于是落到第二格（1fr）的**末尾**，右边缘停在 1228 而不是 1250 ——
-   比首页短 22px。来回点首页和内页，开关就会左右跳一下。
-   点明格子之后，第三格永远按开关的实际宽度定，开关也就永远贴住 1250。 */
-.masthead-heading,
-.masthead > .wordmark {
+/* 第一格：书名与开关。开头顶到左边，开关顶到右边（也就是 348 那条线上，
+   与查词口隔着 22 的格间距）。两块加起来 ~160，边栏 198 装得下还有余。 */
+.masthead-id {
   grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
 }
+
+/* 第二格：查词口，或内页上的当前条目名。
+   上一版这里还得给开关留第三格，查词口因此少 73px；现在整格都是它的。 */
 .masthead > .concordance-field,
 .masthead > .masthead-current {
   grid-column: 2;
 }
-.masthead > .theme-toggle {
-  grid-column: 3;
-  justify-self: end;
-}
 
 .wordmark {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   text-decoration: none;
+}
+
+/* 书名与副题竖排。横排时这一块要 198px，把开关挤出第一格；
+   竖排后最宽的是书名（~110px），副题在下面接着排。 */
+.wordmark-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
 .wordmark-name {
@@ -334,16 +345,16 @@ textarea {
   color: var(--gilt);
 }
 
+/* 副题不再挂一道竖线（那是横排时的分隔法），竖排直接一行小字 */
 .wordmark-tagline {
-  padding-left: 12px;
-  border-left: 1px solid var(--rule);
   font: 400 10px/1 var(--font-note);
   letter-spacing: 0.18em;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .theme-toggle {
-  margin-left: auto;
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -1236,15 +1247,17 @@ html {
 
   /* 窄屏刊头收成一行。原本让它换行成「书名一行、查词一行」，
      结果吸顶那一坨有 117px 高 —— 手机上本来就窄，再钉掉一成多屏幕，
-     看目录就只剩一条缝。所以窄屏藏掉副标题、把行距压紧，
-     三样仍旧一行并排。 */
+     看目录就只剩一条缝。所以窄屏藏掉副标题、把行距压紧，仍旧一行并排。 */
   .masthead {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr);
     column-gap: 8px;
     padding: 10px var(--gutter);
   }
   .wordmark-tagline {
     display: none;
+  }
+  .masthead-id {
+    gap: 8px;
   }
   .wordmark {
     gap: 6px;
@@ -1328,25 +1341,19 @@ html {
      所以这里退回两行 —— 第一行书名与开关，第二行查词口独占整幅。
      宁可吸顶那一坨高一点，也不能给一个敲不进字的检索口。 */
   .masthead {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     row-gap: 8px;
   }
-  .masthead-heading,
-  .masthead > .wordmark {
+  .masthead-id {
     grid-column: 1;
     grid-row: 1;
-    /* 别让它撑满整格：那会让"点书名回家"的可点区域凭空宽出两倍，
-       在书名右边、开关左边的空白处点到也会跳走 */
-    justify-self: start;
   }
-  /* 选择器必须写成 .masthead > X：基础规则用的是这个特异度，
-     写成裸 .theme-toggle 会被它盖掉（哪怕这里排在后面），窄屏就又挤回一行了。 */
-  .masthead > .theme-toggle {
-    grid-column: 2;
-    grid-row: 1;
-  }
+  /* 开关现在住在 .masthead-id 里面，第一行不用再操心它的落位：
+     整个 .masthead-id 占满第一行，块内自己就是「书名靠左、开关靠右」。
+     上一版为此写过一条 .masthead > .theme-toggle（还专门注了特异度的事），
+     现在开关不再是栅格的直接子元素，那条写法连同它的坑一齐没了。 */
   .masthead > .concordance-field {
-    grid-column: 1 / -1;
+    grid-column: 1;
     grid-row: 2;
   }
   .replay {

@@ -255,7 +255,7 @@ test('所有分类筹码都在 role=group 容器里', () => {
 
 /* ── 刊头：书名与检索口一行，检索口吸顶 ───────────────────────────── */
 
-test('查词口住在刊头里，跟书名单行并排', () => {
+test('查词口住在刊头里，整格占满正文宽（右缘要跟条目对齐）', () => {
   const html = renderIndex([entry({ slug: 'x' })])
   const masthead = html.match(/<header class="masthead">[\s\S]*?<\/header>/)?.[0] ?? ''
   assert.ok(masthead, '该有刊头')
@@ -263,15 +263,38 @@ test('查词口住在刊头里，跟书名单行并排', () => {
   assert.match(masthead, /class="concordance-field"/, '查词口要在刊头里')
   assert.match(masthead, /id="spellbook-query"/, '输入框也在刊头里')
   assert.match(masthead, /data-theme-toggle/, '明暗开关也在这一行')
-  // 查词口必须排在书名之后、明暗开关之前 —— 这一行的次序就是「书 → 查 → 灯」
-  assert.ok(
-    masthead.indexOf('wordmark') < masthead.indexOf('concordance-field'),
-    '书名在查词口左边',
-  )
-  assert.ok(
-    masthead.indexOf('concordance-field') < masthead.indexOf('data-theme-toggle'),
-    '查词口在明暗开关左边',
-  )
+  // 刊头是两格：第一格「书名 + 开关」，第二格整格给查词口。
+  // 查词口必须**独占第二格** —— 开关但凡自己占一格，查词口就够不到 1250，
+  // 右缘比下面的条目短一整个开关（实测 73px），首屏上缺一角。
+  const idCell = masthead.match(/<div class="masthead-id">[\s\S]*?\n  <\/div>/)?.[0] ?? ''
+  assert.ok(idCell, '该有 .masthead-id 这一格')
+  assert.ok(idCell.includes('class="wordmark"'), '书名在第一格')
+  assert.ok(idCell.includes('data-theme-toggle'), '开关也在第一格')
+  assert.ok(!idCell.includes('concordance-field'), '查词口不许挤进第一格')
+  // 栅格只留两列：任何第三列都会把查词口从右边缘顶开
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  const grid = css.match(/\n\.masthead \{[\s\S]*?\n\}/)?.[0] ?? ''
+  const cols = grid.match(/grid-template-columns:([^;]+);/)?.[1] ?? ''
+  assert.ok(cols, '刊头该写明栅格列')
+  // 拆列时不能把 calc(...) / minmax(...) 里面的空格算成列分隔，所以要数括号层数
+  const topLevel = (s) => {
+    const out = []
+    let depth = 0
+    let cur = ''
+    for (const ch of s.trim()) {
+      if (ch === '(') depth++
+      if (ch === ')') depth--
+      if (/\s/.test(ch) && depth === 0) {
+        if (cur) out.push(cur)
+        cur = ''
+        continue
+      }
+      cur += ch
+    }
+    if (cur) out.push(cur)
+    return out
+  }
+  assert.equal(topLevel(cols).length, 2, `刊头只该有两列，实为「${cols.trim()}」`)
 })
 
 test('「说一句你要的效果」那个标题已经去掉', () => {
@@ -411,4 +434,39 @@ test('没有对着链接去筛缩略图的死规则', () => {
   assert.doesNotMatch(css, /\.row-link:hover\s+\.row-peek/, '.row-link 里没有 .row-peek，别这么选')
   // 改名漏掉的那处也要清掉：HTML 里已经没有任何 .row-preview 元素了
   assert.doesNotMatch(css, /[^-]\.row-preview\s*\{/, '.row-preview 已改名 .row-peek，不该再有规则')
+})
+
+test('刊头第二格 = 正文宽，所以查词口的右缘才够得着 1250', () => {
+  // 这是本次改动的要害：查词口右缘差 73px，等于「一个开关 + 一个格间距」。
+  // 光看 CSS 很难发现，所以把这条算术钉住：首格 + 格间距 + 第二格 = 正文宽。
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  const grid = css.match(/\n\.masthead \{[\s\S]*?\n\}/)?.[0] ?? ''
+  assert.match(grid, /grid-template-columns:\s*calc\(var\(--rail\) - var\(--masthead-gap\)\)\s+minmax\(0, 1fr\)/,
+    '首格该是 rail - masthead-gap，第二格该吃掉剩下的全部')
+  // 算一遍：--rail 220 = --rail-w 176 + --rail-gap 44
+  // 首格（220 - 22）+ 格间距 22 = 220 = --rail
+  // 第二格 = 正文宽 880 → 查词口右缘 = 370 + 880 = 1250 = 条目右缘 ✓
+  const num = (name) => {
+    const m = css.match(new RegExp(`--${name}:\\s*([0-9.]+)px;`))
+    assert.ok(m, `该有 --${name}`)
+    return Number(m[1])
+  }
+  const rail = num('rail-w') + num('rail-gap')
+  assert.equal(num('rail-w') + num('rail-gap') - num('masthead-gap') + num('masthead-gap'), rail,
+    '首格加格间距该正好等于 --rail')
+  assert.equal(num('measure'), num('shell') - 2 * num('gutter') - rail,
+    `正文宽该是 shell - 两侧留白 - 边栏，实得 --measure ${num('measure')}`)
+  // 边栏的算法在 CSS 里写成 calc，确认它确实是 rail-w + rail-gap
+  assert.match(css, /--rail:\s*calc\(var\(--rail-w\)\s*\+\s*var\(--rail-gap\)\)/,
+    '--rail 该是 rail-w + rail-gap')
+})
+
+test('开关住在 .masthead-id 里，不再自己占一列', () => {
+  const raw = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  // 先把注释剥掉 —— 注释里提到某个选择器，不代表真有那条规则
+  const css = raw.replace(/\/\*[\s\S]*?\*\//g, '')
+  // 只要还有 .masthead > .theme-toggle 这种「开关是栅格子元素」的写法，
+  // 就说明开关又跑回第三格了 —— 查词口会立刻短 73px
+  assert.doesNotMatch(css, /\.masthead\s*>\s*\.theme-toggle/, '开关不该是刊头的直接栅格子元素')
+  assert.match(css, /\.masthead-id \{[\s\S]*?justify-content: space-between/, '第一格内部该是书名靠左、开关靠右')
 })
