@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { buildIndex, rank, tokenize } from '../shared/rank.mjs'
 import { units, BM25_WEIGHTS } from '../shared/vault-text.mjs'
 import { buildPrompt, stripMarks, stripMechanismAnnotations } from '../shared/prompt.mjs'
+import { renderInline } from '../src/render/text.mjs'
 import { openVault, defaultVaultPaths } from '../shared/vault.mjs'
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -275,10 +276,30 @@ test('真实内容里的每一份咒语都不含站内标记、且都带代码',
   const slugs = vault.db.prepare('SELECT slug FROM entries').all().map((r) => r.slug)
   const problems = []
   for (const slug of slugs) {
-    const text = buildPrompt(vault.get(slug))
+    const entry = vault.get(slug)
+    const text = buildPrompt(entry)
     if (text.includes('@mechanism')) problems.push(`${slug}: 残留 @mechanism`)
     if (/---\s*(HTML|CSS|JavaScript)\s*---\n\s*\n/.test(text)) problems.push(`${slug}: 代码段是空的`)
     if (!text.includes('容易失效的地方')) problems.push(`${slug}: 缺边界`)
+
+    /*
+     * ==机制== 必须被真正认出来，不能原样漏进复制出去的咒语。
+     *
+     * 这一条是被咬过才补上的：原先两个正则都写成 /==([^=]+)==/，
+     * 而机制短语里**可以**出现一个等号 —— 它常常引一段真实属性值，
+     * 例如「==给路径写 pathLength="100"==」「==拿到片段的元素要带 tabindex="-1"==」。
+     * [^=]+ 跨不过那个等号，整条标记匹配不上：页面上朱批红不亮、裸的 == 露出来，
+     * 复制出去的咒语里也带着 ==。当时实测有 5 条踩中，而这一条测试没盯这件事，
+     * 所以一直是绿的。
+     *
+     * 注意只能查**描述**：代码里本来就该有 === / !==，那是 JavaScript，不是标记。
+     */
+    if (stripMarks(entry.description).includes('==')) problems.push(`${slug}: 描述里的 == 没被剥掉`)
+    const html = renderInline(entry.description)
+    if (html.includes('==')) problems.push(`${slug}: 渲染后仍露出 ==`)
+    if (entry.mechanisms.length && !html.includes('data-mech')) {
+      problems.push(`${slug}: 有机制却没渲染出朱批`)
+    }
   }
   vault.close()
   assert.deepEqual(problems, [], `咒语拼装有问题：\n  ${problems.join('\n  ')}`)
@@ -287,4 +308,14 @@ test('真实内容里的每一份咒语都不含站内标记、且都带代码',
 test('stripMarks 只去标记，不动文字', () => {
   assert.equal(stripMarks('这是 ==机制== 描述'), '这是 机制 描述')
   assert.equal(stripMarks('没有标记'), '没有标记')
+  /*
+   * 机制短语里带等号的样子 —— 它常引一段真实属性值。
+   * 老写法 /==([^=]+)==/ 在这里跨不过那个等号，标记原样留下（实测 5 条踩中）。
+   */
+  assert.equal(
+    stripMarks('机制是 ==给路径写 pathLength="100"==。'),
+    '机制是 给路径写 pathLength="100"。',
+  )
+  // 认不出收尾的 == 时也不该把整段吞掉（所以用 [^\n]+? 而不是 [\s\S]+?）
+  assert.equal(stripMarks('单独一个 == 不构成标记'), '单独一个 == 不构成标记')
 })

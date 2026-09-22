@@ -31,7 +31,10 @@ export function escapeTemplateContent(markup) {
  */
 export function renderInline(text) {
   let out = escapeHtml(text)
-  out = out.replace(/==([^=]+?)==/g, (_, phrase) => `<mark class="mech" data-mech>${phrase}</mark>`)
+  // [^\n]+? 而不是 [^=]+?：机制短语里可以带一个等号 —— 它常常引一段真实属性值，
+  // 例如 ==给路径写 pathLength="100"==。用 [^=] 就跨不过去，朱批红整条不亮，
+  // 页面上反而露出裸的 ==。不跨行是为了让「匹配不到收尾 ==」时不至于吞掉一整段。
+  out = out.replace(/==([^\n]+?)==/g, (_, phrase) => `<mark class="mech" data-mech>${phrase}</mark>`)
   out = out.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>')
   out = out.replace(/`([^`]+?)`/g, '<code>$1</code>')
   return out

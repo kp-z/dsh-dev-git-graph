@@ -27,9 +27,20 @@
  * 什么会坏，再给一个参考 —— 把代码摆在最后，它读起来才像例子而不像模板。
  */
 
-/** 去掉描述里的 ==…== 标记，保留文字。 */
+/**
+ * 去掉描述里的 ==…== 标记，保留文字。
+ *
+ * 为什么不是 `[^=]+`：机制短语里**可以**出现一个等号，因为它常常引一段真实属性值 ——
+ * 「==给路径写 pathLength="100"==」「==拿到片段的元素要带 tabindex="-1"==」。
+ * 用 `[^=]+` 就跨不过那个等号，整条标记匹配不上，于是 == 原样留在复制出去的咒语里。
+ * 实测有 5 条踩中（path-length-ring / tabs-roving-tabindex / tileable-noise-stitch /
+ * skip-link-reveal / otp-auto-advance）。
+ *
+ * 用 `[^\n]+?` 而不是 `.+?`：机制短语是行内的一句，不该跨行；
+ * 匹配不到收尾的 == 时也不会把整段文字吞掉。
+ */
 export function stripMarks(text) {
-  return String(text ?? '').replace(/==([^=]+)==/g, '$1')
+  return String(text ?? '').replace(/==([^\n]+?)==/g, '$1')
 }
 
 /**
