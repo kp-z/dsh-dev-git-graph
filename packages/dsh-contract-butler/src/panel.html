@@ -783,7 +783,7 @@
   .dhint { padding: 0 2px; font-size: 11px; color: var(--ink3); }
   .dmore { padding: 6px 11px 8px; }
 
-  /* 操作条 / 批量按钮 / 就地报错：两栏共用这一套，别再造第二种长相 */
+  /* 操作条 / 成组按钮 / 就地报错：两栏共用这一套，别再造第二种长相 */
   .pkrow1 { display: flex; align-items: center; gap: 8px; }
   .pkrow1 .search { flex: 1; min-width: 0; }
   .pkrow2 { display: flex; align-items: center; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
@@ -968,6 +968,27 @@
   .genplan .gpl { margin-top: 6px; font-size: 12px; color: var(--ink); line-height: 1.65; }
   .genplan .gpl.warn { color: var(--bad); }
   .genplan .gpl.dim { color: var(--ink3); font-size: 11.5px; }
+  /* 生成弹窗：网格卡片。左「这一步做什么」/ 右「在哪些目录上做」并排，
+     AI、作用范围、预告、按钮条通栏；窄屏塌成一列。 */
+  .gengrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px; align-items: start; }
+  .gengrid > .genspan, .gengrid > .genfoot, .gengrid > .genplan,
+  .gengrid > .gensec, .gengrid > .note { grid-column: 1 / -1; }
+  .gencard { border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px 12px;
+    min-width: 0; }
+  .gencard > .gsh { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px;
+    font-weight: 700; font-size: 12.5px; }
+  .gencard > .gsh .gsn { font-family: var(--mono); letter-spacing: 0; color: var(--ink3);
+    opacity: .8; font-weight: 400; }
+  .gencard .gensec:first-child { margin-top: 0; }
+  .gdirs { display: grid; gap: 4px; margin: 6px 0 8px; }
+  .gdir { display: flex; align-items: center; gap: 8px; font-size: 11.5px; min-width: 0; }
+  .gdir .gp { font-family: var(--mono); color: var(--ink); overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .gdir .chip { flex: 0 0 auto; }
+  .gpick { margin-top: 8px; }
+  .gpick .drows { max-height: 210px; overflow: auto; }
+  @media (max-width: 780px) { .gengrid { grid-template-columns: minmax(0, 1fr); } }
   .genfoot { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
   .genfoot .gsum { margin-right: auto; font-size: 11px; color: var(--ink3); }
 
@@ -976,8 +997,8 @@
      大一点吧。这一块不要搞得太小了。" 所以面板里只剩这一个指示器：原先顶部那条 2px 进度条
      （`#busybar`）与右上角「加载中…」小药丸（`#busypill`）已经连同 DOM 与 CSS 一起删干净，
      任何在途动作——生成那条链，或者普通一次读接口——都显示在这一个里面，绝不再起第二个。
-     生成时先弹卡片（阶段 + 第 N / M 批）→ 约 2 秒后最小化成胶囊（点头部展开/收起）→ 结束变
-     结果态（成功给条数，失败给原因 + 失败批次）；普通在途请求直接用胶囊那一档。
+     生成时先弹卡片（阶段 + 已完成条数）→ 约 2 秒后最小化成胶囊（点头部展开/收起）→ 结束变
+     结果态（成功给条数，失败给原因 + 失败明细）；普通在途请求直接用胶囊那一档。
      尺寸是**刻意放大**的：卡片 380×150 起、胶囊 150×58 起，标题 15.5px、正文 13px 起、转圈
      22px——它在右下角要显眼、可读，不能小气。配色全部走主题变量，浅色/深色都可读。 */
   #und { position: fixed; right: 20px; bottom: 20px; z-index: 98; display: none;
@@ -1224,7 +1245,7 @@
         var data = null;
         try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
         if (!r.ok) {
-          /* 失败也要把结构化细节带出来：AI 理解被拒的批次（原始返回 + 原因）就在 `detail` 里，
+          /* 失败也要把结构化细节带出来：AI 理解被拒的那几组（原始返回 + 原因）就在 `detail` 里，
              只留一句话的话，人就只能看到"失败了"，看不到为什么。加载态是右下角那一个，逻辑不变。 */
           var err = new Error((data && data.error) || ('HTTP ' + r.status));
           err.status = r.status;
@@ -1240,20 +1261,22 @@
   /* ---------- 生成：三段加载 + 中文渲染 ----------
      三段是**一条链**，不再是三个按钮：先按当前代码扫一遍，再让模型写中文说明，最后重画界面。
      呈现顺序（代码也照着这个顺序写）：
-       1) 右下角先弹一个卡片，标题就是当前阶段（"扫描中…" → "理解中 第 2 / 7 批" → "渲染中…"）；
+       1) 右下角先弹一个卡片，标题就是当前阶段（"扫描中…" → "正在为 a、b 生成中文说明（已完成 5 / 12 条）" → "渲染中…"）；
        2) 约 2 秒后自动最小化成右下角一个小胶囊（点胶囊头部展开 / 收起，不遮主内容）；
-       3) 胶囊里是加载动画（进度条 + 阶段 + 批次），结束变结果态：成功写清这次做了什么，
-          失败写原因并且能展开看被拒绝批次的原始返回。
+       3) 胶囊里是加载动画（进度条 + 阶段 + 条数），结束变结果态：成功写清这次做了什么，
+          失败写原因并且能展开看被拒绝那几组的原始返回。
      "理解"不是独立入口、也不是独立的一步——它就是这条链的第二段（用户的原话是
      "AI 理解完全不是一个单独的步骤，是要和整个东西的生成结合在一起的"）。
-     批次进度是**真的**：宿主在每批开始时经 SSE 广播 `understand` 事件，这里只负责显示；
-     事件没到就显示"正在分批…"，绝不编一个数字出来。
+     进度是**真的**：宿主在每一组开始时经 SSE 广播 `understand` 事件（还带上正在问的契约名），
+     这里只负责显示；事件没到就显示"正在准备…"，绝不编一个数字出来。
      中文只有一个来源——模型的返回。这里没有任何"按名字猜一个中文"的兜底：没有 aiTitle 就
      不显示，诚实比好看重要。 */
   var UND = {
     host: null, box: null, head: null, title: null, mini: null, pct: null, stages: [], bar: null,
     fill: null, batch: null, expr: null, fails: null, act: null,
     stage: 0, minimized: false, timer: null, running: false, lastTotal: 0, lastDone: 0, lastBatch: 0,
+    /* 说人话要的两样：这一组正在问的契约名，以及**条**口径的进度（组数是实现细节）。 */
+    lastNames: [], contractsDone: 0, contractsTotal: 0,
     /* 这一块 UI 现在有三档，`ambient` / `result` 是另两档的占用标记：
        - `ambient`：普通在途请求（不是生成那条链）借它显示"加载中…"，请求一完就收掉；
        - `result`：上一次生成的结果还停在这儿等人看（"知道了"才清）。
@@ -1280,7 +1303,7 @@
     });
     var fill = el('i');
     var bar = el('div', { class: 'undbar' }, fill);
-    var batch = el('div', { class: 'undbatch', text: '正在分批…' });
+    var batch = el('div', { class: 'undbatch', text: '正在准备…' });
     var expr = el('div', { class: 'undexpr' });
     var fails = el('div', { class: 'undfails', hidden: true });
     var act = el('div', { class: 'undact', hidden: true });
@@ -1348,12 +1371,17 @@
 
   /** 当前阶段的标题文字。阶段本身必须看得出来："在扫描"和"在问模型"是两件事。 */
   function undStageTitle(index) {
-    if (index <= 0) return '扫描中…';
+    if (index <= 0) {
+      /* 说人话：这一阶段在扫哪个项目，写出来（项目名是真的，没有就不编）。 */
+      return '正在扫描 ' + ((S.p && S.p.title) ? S.p.title : '这个项目') + '…';
+    }
     if (index === 1) {
-      /* 批次号是真的才写：一次都没报过就只写"理解中…"，绝不编一个"第 1 / 1 批"出来。 */
-      return UND.lastTotal > 0 && UND.lastBatch > 0
-        ? '理解中 第 ' + UND.lastBatch + ' / ' + UND.lastTotal + ' 批'
-        : '理解中…';
+      /* 没有真数字就只说"正在生成中文说明"，绝不编一个出来。
+         有真数字就按**条**说人话：正在为 a、b 生成中文说明（已完成 5 / 12 条）。 */
+      var who = (UND.lastNames && UND.lastNames.length) ? UND.lastNames.join('、') : '';
+      return UND.contractsTotal > 0
+        ? '正在为 ' + who + ' 生成中文说明（已完成 ' + UND.contractsDone + ' / ' + UND.contractsTotal + ' 条）'
+        : '正在生成中文说明…';
     }
     return '渲染中…';
   }
@@ -1372,35 +1400,39 @@
       if (i < index) node.textContent = UND_STAGES[i] + ' ✓';
       else node.textContent = UND_STAGES[i];
     });
-    /* 阶段文字跟着走：正在扫描 → 正在理解（第 N / M 批）→ 正在渲染。
+    /* 阶段文字跟着走：正在扫描 → 正在为这几条生成中文说明（已完成 5 / 12 条）→ 正在渲染。
        只有还在跑的这次才改标题；结果态的标题由 undResult 负责。 */
     if (UND.running) u.title.textContent = undStageTitle(index);
   }
 
-  /** 批次进度。`total` 还不知道时只写"正在分批…"，不猜数字。 */
-  function undProgress(batch, total, done) {
+  /** 进度说人话。数字没到就只说"正在准备…"，绝不猜一个出来。
+      主口径是**条**（用户关心"还剩几条没写"），组数只在没有条数时兜底。 */
+  function undProgress(batch, total, done, names, contractsDone, contractsTotal) {
     var u = undBuild();
     if (typeof total === 'number' && total > 0) UND.lastTotal = total;
     if (typeof done === 'number') UND.lastDone = done;
     if (typeof batch === 'number' && batch > 0) UND.lastBatch = batch;
-    if (typeof batch === 'number' && batch > 0 && UND.lastTotal > 0) {
-      u.batch.textContent = '第 ' + batch + ' / ' + UND.lastTotal + ' 批'
-        + (UND.lastDone > 0 ? '（已完成 ' + UND.lastDone + ' 批）' : '');
+    if (names && names.length) UND.lastNames = names;
+    if (typeof contractsTotal === 'number' && contractsTotal > 0) UND.contractsTotal = contractsTotal;
+    if (typeof contractsDone === 'number') UND.contractsDone = contractsDone;
+    if (UND.contractsTotal > 0) {
+      u.batch.textContent = '已完成 ' + UND.contractsDone + ' / ' + UND.contractsTotal + ' 条'
+        + (UND.lastNames && UND.lastNames.length ? '（刚问完 ' + UND.lastNames.join('、') + '）' : '');
       /* 有总数就画确定进度：让人看得出"快完了"还是"刚开始"。
          百分比同时写进头部——收成胶囊以后主内容都藏了，就靠这个数字 + 底下那条进度条
          说明"还剩多少"（用户要求胶囊里"进度可见"）。 */
-      var pct = Math.max(2, Math.round((UND.lastDone / UND.lastTotal) * 100));
+      var pct = Math.max(2, Math.round((UND.contractsDone / UND.contractsTotal) * 100));
       u.bar.classList.add('det');
       u.fill.style.width = pct + '%';
       u.pct.textContent = pct + '%';
     } else if (UND.lastTotal > 0) {
-      u.batch.textContent = '共 ' + UND.lastTotal + ' 批';
+      u.batch.textContent = '这一轮要问 ' + UND.lastTotal + ' 组契约';
     }
-    /* 标题里的批次号也要实时跟着：用户看的就是这一行。 */
+    /* 标题也要实时跟着：用户看的就是这一行。 */
     if (UND.running && UND.stage === 1) u.title.textContent = undStageTitle(1);
   }
 
-  /** 开始一次生成：弹卡片 → 2 秒后自动最小化 → 阶段与批次随真实进度走。 */
+  /** 开始一次生成：弹卡片 → 2 秒后自动最小化 → 阶段与条数随真实进度走。 */
   function undOpen(label) {
     var u = undBuild();
     clearTimeout(UND.timer);
@@ -1415,7 +1447,7 @@
     clear(u.act);
     u.expr.className = 'undexpr';
     u.expr.textContent = '';
-    u.batch.textContent = '正在分批…';
+    u.batch.textContent = '正在准备…';
     u.pct.textContent = '';
     u.bar.classList.remove('det');
     u.fill.style.width = '';
@@ -1447,7 +1479,7 @@
     }
   }
 
-  /** 结果态：成功 / 失败都停在这儿；失败可以把被拒绝的批次展开看原始返回。 */
+  /** 结果态：成功 / 失败都停在这儿；失败可以把被拒绝的那几组展开看原始返回。 */
   function undResult(result) {
     var u = undBuild();
     clearTimeout(UND.timer);
@@ -1480,26 +1512,26 @@
     u.expr.className = 'undexpr' + (result.ok ? ' ok' : ' bad');
     u.expr.textContent = result.text || '';
     if (result.channels && result.channels.length) {
-      u.batch.textContent = '通道：' + result.channels.join('、');
+      u.batch.textContent = '模型：' + result.channels.join('、');
     }
     var failures = result.failures || [];
     if (failures.length) {
-      /* 失败要有细节可看：每一批的原因 + 模型原始返回（原样，截断由宿主做） */
+      /* 失败要有细节可看：每一组的原因 + 模型原始返回（原样，截断由宿主做） */
       failures.forEach(function (f) {
         u.fails.appendChild(el('div', { class: 'undfail' },
-          el('div', { text: '第 ' + f.index + ' 批（' + (f.ids ? f.ids.length : 0) + ' 条）：' + (f.why || '') }),
+          el('div', { text: '第 ' + f.index + ' 组（' + (f.ids ? f.ids.length : 0) + ' 条）：' + (f.why || '') }),
           f.raw ? el('code', { text: f.raw }) : null));
       });
-      var toggle = el('button', { class: 'ghost', type: 'button', text: '展开看失败批次（' + failures.length + '）' });
+      var toggle = el('button', { class: 'ghost', type: 'button', text: '展开看失败明细（' + failures.length + '）' });
       toggle.addEventListener('click', function () {
         var open = u.fails.hidden;
         u.fails.hidden = !open;
-        toggle.textContent = (open ? '收起失败批次' : '展开看失败批次（' + failures.length + '）');
+        toggle.textContent = (open ? '收起失败明细' : '展开看失败明细（' + failures.length + '）');
       });
       u.act.appendChild(toggle);
       /* 默认就把失败摆出来：失败态里最关键的信息，不该再点一次才看得到 */
       u.fails.hidden = false;
-      toggle.textContent = '收起失败批次';
+      toggle.textContent = '收起失败明细';
     }
     var close = el('button', { class: 'ghost', type: 'button', text: '知道了' });
     close.addEventListener('click', function () {
@@ -1521,8 +1553,11 @@
         var data = null;
         try { data = JSON.parse(ev.data); } catch (e) { return; }
         if (!data || data.projectId !== projectId) return;
-        if (data.stage === 'ai' || data.stage === 'start') undProgress(data.batch, data.total, data.done);
-        else if (data.stage === 'done') undProgress(data.total, data.total, data.done);
+        if (data.stage === 'ai' || data.stage === 'start') {
+          undProgress(data.batch, data.total, data.done, data.names, data.contractsDone, data.contractsTotal);
+        } else if (data.stage === 'done') {
+          undProgress(data.total, data.total, data.done, null, data.contractsTotal, data.contractsTotal);
+        }
       });
       es.onerror = function () {};
       return es;
@@ -1535,7 +1570,7 @@
   function aiSummaryText(s) {
     return 'AI 中文说明：' + (s.understood || 0) + ' 条'
       + (s.cached ? '（其中 ' + s.cached + ' 条命中缓存、没再问模型）' : '')
-      + (s.failures && s.failures.length ? '，' + s.failures.length + ' 批被拒绝' : '')
+      + (s.failures && s.failures.length ? '，' + s.failures.length + ' 组被拒绝' : '')
       + (s.missing && s.missing.length ? '，' + s.missing.length + ' 条模型没覆盖（不写、不猜）' : '')
       + '；耗时 ' + Math.round((s.ms || 0) / 1000) + ' 秒';
   }
@@ -1569,7 +1604,7 @@
     var wantAi = choice.ai === true;
     var scope = choice.scope || { kind: 'project' };
     var body = { projectId: projectId };
-    /* 范围**只**经 `contractIds` 下传：预告问的是这一批 id，真跑的也是这一批 id。
+    /* 范围**只**经 `contractIds` 下传：预告问的是这一组 id，真跑的也是这一组 id。
        两者用同一个机制，就不会出现"预告说 12 条、实际问了整个项目"这种假话。 */
     if (scope.ids && scope.ids.length) body.contractIds = scope.ids;
     if (choice.force === true) body.force = true;
@@ -1746,7 +1781,7 @@
         lines.push({ text: '范围内 ' + plan.scope.contracts + ' 条契约全部命中缓存，不会问模型。' });
       } else {
         lines.push({ text: '补 AI 说明：范围内 ' + plan.scope.contracts + ' 条契约里有 ' + plan.scope.pending
-          + ' 条缺说明或内容变过，会问 ' + plan.ai.batches + ' 批模型（每批 ' + plan.ai.batchSize + ' 条）'
+          + ' 条缺说明或内容变过，会分 ' + plan.ai.batches + ' 组问模型（每组 ' + plan.ai.batchSize + ' 条）'
           + (plan.ai.force
             ? '；已勾选忽略缓存，全部重问。'
             : '；其余 ' + plan.scope.cached + ' 条命中缓存、不问。') });
@@ -1819,7 +1854,7 @@
 
     /* 破坏性动作的第二道闸：选中「清掉重生成」之后再点「开始生成」不算确认，要再点一次
        写清代价的按钮。选项一变（replan）就把这道闸撤掉——旧的确认不能盖住新的选择。 */
-    var confirmNote = el('div', { class: 'gpl warn', text: '清掉这个项目已生成的契约、快照、演化、观测、决策与 AI 缓存，'
+    var confirmNote = el('div', { class: 'gpl warn genspan', text: '清掉这个项目已生成的契约、快照、演化、观测、决策与 AI 缓存，'
       + '再按当前代码重新抽一遍。不可撤销。' });
     confirmNote.style.display = 'none';
     var resetRebuildGate = function () {
@@ -1971,19 +2006,219 @@
         + '这个范围决定的是"给哪些契约补中文说明"。' }),
       scopeRows.map(function (r) { return r.row; }));
 
-    openOverlay('生成', el('div', {},
+    /* ---- 目录块：说清"现在纳管了哪些目录"，并且只提供**加一个目录**。 ----
+       口径（别搞错，写死在这儿）：项目记录里的 `include` 存的是**候选（文件）id**，不是目录路径；
+       重跑 init 时它是**替换**语义——不在集合里的候选就不算纳管了。所以：
+         1) 这块里的"已纳管目录"是从已纳管契约的 file 路径归纳出来的，**只给人看**；
+            写回永远用 id，绝不拿路径当依据；
+         2) 提交时 include = 现有 id ∪ 新勾目录扫出来的 id（并集）——只发新的会把老的一整组挤掉；
+         3) 这里**不提供取消**：把已纳管目录去掉是另一件事（要先给代价与确认），不在这块里做。
+       用户抱怨的"纳管完之后没有任何入口能再加一个目录"，根源是纳管向导对已纳管项目只给
+       「只读预览它的目录」；这里补的就是那个入口。 */
+    var DG = { open: false, pv: null, pick: null, busy: false };
+    var dirErr = el('div', { class: 'gpl warn', text: '' });
+    dirErr.style.display = 'none';
+    var dirList = el('div', { class: 'gdirs' });
+    var dirPick = el('div', { class: 'gpick' });
+    dirPick.style.display = 'none';
+    var dirAdd = el('button', { class: 'ghost', type: 'button', text: '再加目录…' });
+    var dirSave = el('button', { class: 'ghost', type: 'button', text: '并入并补中文说明' });
+    dirSave.style.display = 'none';
+    var dirManual = el('input', { class: 'search', id: 'gdirPath', type: 'text',
+      placeholder: '也可以手填绝对路径（要在本项目的 root 里）', autocomplete: 'off' });
+    var dirManualGo = el('button', { class: 'ghost', type: 'button', text: '把这条路径加进来' });
+
+    function dirFail(msg) { dirErr.textContent = msg; dirErr.style.display = ''; }
+    function dirOk() { dirErr.style.display = 'none'; }
+    function includeIds() { return (S.p && S.p.include ? S.p.include : []).slice(); }
+    /* 契约的 file → 它所在的目录。口径与选择器里的 buildPickTree 一致，免得两处对不上。 */
+    function dirNameOf(file) {
+      var f = String(file || '');
+      if (!f || f.charAt(0) === '(') return '（运行时）';
+      var parts = f.split('/').filter(function (x) { return x.length > 0; });
+      return parts.length > 1 ? parts.slice(0, parts.length - 1).join('/') : '（根目录）';
+    }
+    /* 已纳管范围（**展示用**）：按契约 file 归纳成目录 + 条数。 */
+    function renderDirList() {
+      clear(dirList);
+      var byId = {};
+      (S.items || []).forEach(function (it) { byId[it.contract.id] = it.contract.file || ''; });
+      var buckets = {};
+      var unknown = 0;
+      includeIds().forEach(function (id) {
+        if (byId[id] === undefined) { unknown += 1; return; }
+        var d = dirNameOf(byId[id]);
+        buckets[d] = (buckets[d] || 0) + 1;
+      });
+      var dirs = Object.keys(buckets).sort();
+      dirList.appendChild(el('div', { class: 'dnote',
+        text: '现纳管 ' + includeIds().length + ' 条候选，落在 ' + dirs.length + ' 个目录里'
+          + '（这里按契约路径归纳，只是给人看；真正的依据是候选 id）。' }));
+      dirs.forEach(function (d) {
+        dirList.appendChild(el('div', { class: 'gdir' },
+          el('span', { class: 'gp', text: d, title: d }),
+          el('span', { class: 'chip chip-dim', text: buckets[d] + ' 条' })));
+      });
+      if (unknown > 0) {
+        dirList.appendChild(el('div', { class: 'dnote',
+          text: '另有 ' + unknown + ' 条纳管记录的来源文件读不到（这不是这次生成能修的）。' }));
+      }
+    }
+    /* 选择器头部：过滤 + 全加 / 全不加。成组操作只作用于**当前列出来的**目录（含子目录）。 */
+    function dirPickHeader(pv) {
+      var q = el('input', { class: 'search', id: 'dQ', type: 'text', value: '',
+        placeholder: '按目录名过滤…', autocomplete: 'off' });
+      q.addEventListener('input', function () { if (DG.pick) DG.pick.q = q.value; renderDirRows(); });
+      function bulk(label, on) {
+        var b = el('button', { class: 'pkbtn', type: 'button', text: label,
+          title: label + '只作用于当前列出来的目录（含子目录）；这块只能加，不会取消已纳管的' });
+        b.addEventListener('click', function () {
+          if (!DG.pick) return;
+          var tree = buildPickTree((DG.pv && DG.pv.candidates) || []);
+          listed(tree, DG.pick).forEach(function (n) { setDir(n, on); });
+          renderDirRows();
+        });
+        return b;
+      }
+      return el('div', { class: 'dbar' },
+        el('div', { class: 'dprefix' },
+          el('span', { text: '目录' }),
+          el('span', { class: 'dp', text: pv.root, title: pv.root })),
+        el('div', { class: 'pkrow1' }, q, el('span', { class: 'chip chip-dim', id: 'dCount', text: '' })),
+        el('div', { class: 'pkrow2' }, bulk('全加上', true), bulk('全不加', false),
+          el('span', { class: 'pkhint', id: 'dHint', text: '' })));
+    }
+    /* 只读扫当前项目（POST /init 不带 confirm = 纯预览，无副作用），把目录树挂进来。
+       树用的是纳管那套渲染（同一份 S.init / S.pick 状态、同一套勾父连子的规则）。 */
+    function openDirPick() {
+      if (DG.open) {
+        DG.open = false; dirPick.style.display = 'none'; dirAdd.textContent = '再加目录…';
+        return;
+      }
+      DG.open = true; dirPick.style.display = '';
+      dirAdd.textContent = '收起选择器';
+      if (DG.pv) return;
+      dirPick.appendChild(el('div', { class: 'note', text: '正在只读扫这个项目的目录…（不写任何东西）' }));
+      api('/init', { method: 'POST', body: { root: S.p.root } }).then(function (data) {
+        var pv = data.preview;
+        DG.pv = pv;
+        /* 形状必须与 pickOf() 造的那份**一模一样**：目录树那几个渲染函数会直接读
+           pk.open / pk.peek / pk.all，少一个键就是运行时抛错。filled 置 true 是因为
+           这块不吃"第一次打开默认全勾"那套——这里只勾**新加的**，加不加由人点。 */
+        DG.pick = { picked: {}, q: '', open: {}, peek: {}, all: false, filled: true };
+        S.init = pv;
+        S.pick = DG.pick;
+        clear(dirPick);
+        dirPick.appendChild(dirPickHeader(pv));
+        dirPick.appendChild(el('div', { class: 'drows', id: 'dRows' }));
+        dirPick.appendChild(el('div', { class: 'dnote', id: 'dSum' }));
+        /* 手填路径 + 「并入」按钮都在这一行：并入只对"勾了的新目录"有意义，所以它跟着选择器走。
+           （曾经这里漏了 appendChild(dirSave)，按钮创建了却没挂上——等于白做，量的时候才发现。） */
+        dirPick.appendChild(el('div', { class: 'pkrow2' }, dirManual, dirManualGo, dirSave));
+        dirSave.style.display = '';
+        renderDirRows();
+      }).catch(function (e) {
+        clear(dirPick);
+        dirPick.appendChild(el('div', { class: 'note',
+          text: '扫不动这个项目的目录：' + ((e && e.message) || String(e)) }));
+      });
+    }
+    dirAdd.addEventListener('click', openDirPick);
+    /* 手填绝对路径：只接受 root 里面、且树上真有的目录——不然就如实说不行。 */
+    function addManualDir() {
+      var p = String(dirManual.value || '').trim().replace(/\/+$/, '');
+      if (p === '') return;
+      if (p.charAt(0) !== '/') { dirFail('要写绝对路径（以 / 开头）。'); return; }
+      var root = String(S.p.root || '').replace(/\/+$/, '');
+      if (p !== root && p.indexOf(root + '/') !== 0) {
+        dirFail('这条路径不在本项目的 root 里：' + root + '。选择器只能扫 root 下面的目录。');
+        return;
+      }
+      if (!DG.pv) { dirFail('先点「再加目录…」把目录树扫出来。'); return; }
+      var rel = p === root ? '' : p.slice(root.length + 1);
+      var node = buildPickTree(DG.pv.candidates || []);
+      var segs = rel === '' ? [] : rel.split('/');
+      for (var i = 0; i < segs.length; i++) {
+        if (!node.kids[segs[i]]) { node = null; break; }
+        node = node.kids[segs[i]];
+      }
+      if (!node) {
+        dirFail('这个 root 里没有这个目录，或者它下面没有可纳管的边界：' + p);
+        return;
+      }
+      setDir(node, true);
+      dirOk();
+      renderDirRows();
+    }
+    dirManualGo.addEventListener('click', addManualDir);
+    dirManual.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') addManualDir(); });
+    /* 并入：提交的是**并集**（现有 ∪ 新勾）。成功后接着走 AI 那一段（/understand）。 */
+    dirSave.addEventListener('click', function () {
+      if (DG.busy || !DG.pick) return;
+      var pk = DG.pick;
+      var picked = Object.keys(pk.picked).filter(function (k) { return pk.picked[k]; });
+      if (picked.length === 0) { dirFail('还没勾任何新目录——先勾一个再并入。'); return; }
+      var existing = includeIds();
+      var union = existing.slice();
+      picked.forEach(function (id) { if (union.indexOf(id) < 0) union.push(id); });
+      DG.busy = true;
+      dirSave.disabled = true;
+      var was = dirSave.textContent;
+      dirSave.textContent = '正在写入…';
+      dirOk();
+      api('/init', { method: 'POST', body: { root: S.p.root, include: union, confirm: true } })
+        .then(function () {
+          DG.busy = false;
+          dirSave.disabled = false;
+          dirSave.textContent = was;
+          closeOverlay();
+          return loadProjects().then(function () {
+            return runGenerate({ mode: 'none', ai: true, force: false, scope: { kind: 'project' } });
+          });
+        })
+        .catch(function (e) {
+          DG.busy = false;
+          dirSave.disabled = false;
+          dirSave.textContent = was;
+          dirFail('没能并入：' + ((e && e.message) || String(e)));
+        });
+    });
+
+    renderDirList();
+    var dirCard = el('div', { class: 'gencard' },
+      el('div', { class: 'gsh' },
+        el('span', { text: '在哪些目录上做' }),
+        el('span', { class: 'gsn', text: '只能加，不能减' })),
+      el('div', { class: 'dnote', text: '项目 root：' + S.p.root }),
+      dirList,
+      el('div', { class: 'pkrow2' }, dirAdd),
+      el('div', { class: 'dnote',
+        text: '并入时发的是「现有 ' + includeIds().length + ' 条候选 + 新勾的」并集：老的一条都不会掉。'
+          + '取消已纳管目录是另一件事，这里不给入口。' }),
+      dirErr,
+      dirPick);
+
+    openOverlay('生成', el('div', { class: 'gengrid' },
       el('div', { class: 'note', text: '扫描、补 AI 中文说明、重画界面本来是一条链——这里选的是这次要重新生成的内容，'
         + '点一次就跑完整条链。' }),
-      el('div', { class: 'gensec' }, el('div', { class: 'gsh' }, el('span', { text: '代码' })),
+      el('div', { class: 'gencard' },
+        el('div', { class: 'gsh' },
+          el('span', { text: '这一步做什么' }),
+          el('span', { class: 'gsn', text: '代码' })),
         modeRows.map(function (r) { return r.row; })),
-      el('div', { class: 'gensec' }, el('div', { class: 'gsh' }, el('span', { text: 'AI 中文说明' })),
+      dirCard,
+      el('div', { class: 'gencard genspan' },
+        el('div', { class: 'gsh' },
+          el('span', { text: 'AI 中文说明' }),
+          el('span', { class: 'gsn', text: '中文只来自 AI' })),
         aiRow.row, forceRow.row),
       scopeSec,
       planBox,
       confirmNote,
-      el('div', { class: 'genfoot' },
+      el('div', { class: 'genfoot genspan' },
         el('span', { class: 'gsum', text: S.p.title }),
-        cancel, go)));
+        cancel, go)),
+      true);
 
     syncAll();
     replan();
@@ -4984,7 +5219,7 @@
   /* 一次渲染的全部上下文：**分区只在这里算一次**，左树与主区图共用同一个 plan。
      两条链路各自算一遍分区，正是"左边一套、右边一套"的病根，所以这里把它掐死：
      renderTree(ctx) 照 ctx.plan 画分组节点，renderOverview/renderDirView 照同一个 ctx.plan 画带。
-     边界情形也一并定下：分面/搜索筛掉谁、事态收窄到哪几条、范围是哪一层，两边永远是同一批条目。 */
+     边界情形也一并定下：分面/搜索筛掉谁、事态收窄到哪几条、范围是哪一层，两边永远是同一组条目。 */
   function currentCtx() {
     var items = visibleItems();
     var hot = [], cold = [];
@@ -5332,7 +5567,7 @@
     renderDirRows();
   }
 
-  /* 右栏顶栏：目录前缀 + 过滤 + 全选 / 全不选。批量只作用于**当前列出来的**目录。 */
+  /* 右栏顶栏：目录前缀 + 过滤 + 全选 / 全不选。成组操作只作用于**当前列出来的**目录。 */
   function dirBar(pv, pk, tree) {
     var q = el('input', { class: 'search', id: 'dQ', type: 'text', value: pk.q,
       placeholder: '按目录名过滤…', autocomplete: 'off' });
@@ -5351,7 +5586,7 @@
         el('span', { text: '目录' }),
         el('span', { class: 'dp', text: pv.root, title: pv.root })),
       el('div', { class: 'pkrow1' }, q, el('span', { class: 'chip chip-dim', id: 'dCount', text: '' })),
-      // 没候选就没有可勾的目录：批量按钮在这里是死控件，不如不给。
+      // 没候选就没有可勾的目录：成组按钮在这里是死控件，不如不给。
       pv.candidates.length
         ? el('div', { class: 'pkrow2' },
           bulk('全选', true), bulk('全不选', false),
@@ -5692,7 +5927,7 @@
     var ids = {};
     targets.forEach(function (t) { ids[t.id] = true; });
 
-    // 已经对这批目标做过的决策。
+    // 已经对这组目标做过的决策。
     var done = mine.filter(function (d) {
       return (kind === 'change' && d.targetKind === 'change' && ids[d.targetId]) ||
         (kind === 'observation' && d.targetKind === 'observation' && ids[d.targetId]);
