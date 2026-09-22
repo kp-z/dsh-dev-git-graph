@@ -961,10 +961,17 @@
   .genopt .gn { font-size: 12.5px; color: var(--ink); }
   .genopt .gd { margin-top: 2px; font-size: 11px; color: var(--ink3); line-height: 1.55; }
   .genopt .gn code, .genopt .gd code { font-family: var(--mono); font-size: 10.5px; }
-  /* 选项收成一行：只留标签，说明一律不写（用户："一行就够了""说明全删"）。 */
-  .genrow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 3px; }
-  .genrow .genopt { padding: 5px 9px; align-items: center; }
-  .genrow .genopt input { margin: 0; }
+  /* 目录卡里搜索那一栏收成一行：标签 · 根路径 · 搜索框 · 计数 · 全选都在同一条线上。
+     做法是把内层两行用 display:contents 溶进父行——不动共享结构，
+     纳管向导那边的选择器保持原样（那边仍是三行）。 */
+  .gencard .dbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .gencard .dbar > .dprefix,
+  .gencard .dbar > .pkrow1,
+  .gencard .dbar > .pkrow2 { display: contents; }
+  .gencard .dbar .search { flex: 1 1 130px; min-width: 0; }
+  .gencard .dbar .dp { flex: 0 1 auto; max-width: 42%; }
+  .gencard .dbar #dCount { flex: none; }
+  .gencard .dbar .pkbtn { flex: none; }
   /* 「这次会做什么」预告块已整块删除；这里只留破坏性动作的代价说明（.gpl）。 */
   .genplan { margin-top: 14px; padding: 10px 12px; border-radius: 12px;
     border: 1px solid var(--line2); background: var(--fill-secondary, rgba(127,127,127,.07)); }
@@ -2150,10 +2157,9 @@
         el('div', { class: 'gsh' },
           el('span', { text: '这一步做什么' }),
           el('span', { class: 'gsn', text: '代码' })),
-        el('div', { class: 'genrow' },
-          modeRows.map(function (r) { return r.row; }),
-          aiRow.row, forceRow.row,
-          el('span', { class: 'gsn', text: '中文只来自 AI' }))),
+        modeRows.map(function (r) { return r.row; }),
+        el('div', { class: 'gsub' }, el('span', { class: 'gsn', text: '中文只来自 AI' })),
+        aiRow.row, forceRow.row),
       dirCard,
       /* 作用范围那块已经去掉：范围由目录卡决定（勾了哪些目录就在哪些目录上作用；
          没动过勾选就是当前已纳管的全部）。重扫/重生成本来就是项目级动作。
