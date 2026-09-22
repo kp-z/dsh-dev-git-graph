@@ -485,7 +485,8 @@ test('面板：弹窗里有那四组选择，且预告是问宿主算出来的�
   // 预告必须来自宿主：面板唯一能拿到"这次会做什么"的地方就是这条只读路由。
   assert.ok(html.includes("'/generate/plan'"), '弹窗必须问 /generate/plan 要真实数字')
   // 范围只作用于 AI 那一段——做不到的范围维度不假装有，所以这句话必须写在弹窗里。
-  assert.ok(html.includes('重扫与重生成是项目级动作'), '必须写明代码那一步不受范围影响')
+  /* 翻转过：用户要求删掉"作用范围"整块，那句"重扫与重生成不受这个范围影响"也一并删了。 */
+  assert.ok(!html.includes('重扫与重生成是项目级动作'), '那句说明句要删掉，不许换个说法放回来')
   // 预告里的数字全部来自宿主返回，面板不自己编一个。
   assert.ok(!/将重扫\s*\d+\s*个文件/.test(html), '预告文案不许写死任何数字')
 })
@@ -959,10 +960,11 @@ test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 
      而已纳管集合的键是完整目录路径——早先按 node.name 比，预勾永远是 0（活体量到勾选数 0）。 */
   assert.ok(html.includes('managed[node.path || node.name]'), '预勾要比完整目录路径，不是单段节点名')
   /* A1 的硬证据：变更钩子挂在容器上（事件委托），不依赖 setDir 尾部、也不怕重画换对象。 */
-  assert.ok(html.includes("rowsBox.addEventListener('change', function () { DG.dirty = true; })"),
+  assert.ok(html.includes("rowsBox.addEventListener('change', function () { DG.dirty = true;"),
     '勾选变化必须能置上 dirty（事件委托，别依赖 setDir 尾部）')
   assert.ok(html.includes('if (!DG.dirty || !DG.pick) { run(); return; }'), '主按钮靠 dirty 决定走不走进写回')
-  assert.ok(html.includes('正在读目录…'), '加载中要说人话')
+  /* 翻转过：加载态从「正在读目录…」压成「读取中…」（用户要求删说明、压到最短）。 */
+  assert.ok(html.includes('读取中…'), '加载中要说人话（压短后也得有）')
   assert.ok(html.includes('DG.pick.locked[node.name] = true'), '已纳管目录要预勾并锁住')
   /* A2：已纳管目录两条口径取并集——契约记录的 file + include 里候选自带的 file。 */
   assert.ok(html.includes('it.contract.file'), '要用契约记录自己的 file 归纳已纳管目录')
@@ -970,7 +972,10 @@ test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 
   assert.ok(html.includes('pk.locked') && html.includes('onLocked'), '锁住要有视觉与一句轻提示')
   /* 也翻转过：卡面上不许再写"只能加，不能减"这种解释——规则说明只放选择器里那一句。 */
   assert.ok(!html.includes('只能加，不能减'), '卡面上不许再出现"只能加，不能减"')
-  assert.ok(html.includes("placeholder: '路径读不到？填绝对路径后回车'"), '手填绝对路径留着（回车即勾上，不给它单独按钮）')
+  /* 本轮翻转：用户要求"删除大部分说明"，手填框的占位语从"路径读不到？填绝对路径后回车"压到"绝对路径，回车"。
+     要求本身没变：手填绝对路径必须在，且**不给它单独按钮**（回车即勾上）。 */
+  assert.ok(html.includes("placeholder: '绝对路径，回车'"), '手填绝对路径留着（回车即勾上，不给它单独按钮）')
+  assert.ok(!html.includes('路径读不到？填绝对路径后回车'), '那条解释性占位语要删掉')
   // 已纳管范围是**展示用**：从契约 file 归纳，写回永远用 id。
   assert.ok(html.includes('function renderDirFact()'), '已纳管范围要归纳成一行事实')
   assert.ok(!html.includes('真正的依据是候选 id'), '不许在界面上讲实现（id / 并集 / 替换）')

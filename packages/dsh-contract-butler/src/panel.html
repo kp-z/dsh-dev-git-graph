@@ -1583,7 +1583,7 @@
     return 'AI 中文说明：' + (s.understood || 0) + ' 条'
       + (s.cached ? '（其中 ' + s.cached + ' 条命中缓存、没再问模型）' : '')
       + (s.failures && s.failures.length ? '，' + s.failures.length + ' 组被拒绝' : '')
-      + (s.missing && s.missing.length ? '，' + s.missing.length + ' 条模型没覆盖（不写、不猜）' : '')
+      + (s.missing && s.missing.length ? '，' + s.missing.length + ' 条未覆盖' : '')
       + '；耗时 ' + Math.round((s.ms || 0) / 1000) + ' 秒';
   }
 
@@ -2036,8 +2036,7 @@
     /* 作用范围只管 AI 那一段：不勾「补 AI 中文说明」时整块不出现，少一个要读的东西。 */
     var scopeSec = el('div', { class: 'gensec' },
       el('div', { class: 'gsh' }, el('span', { text: '作用范围' }), el('span', { class: 'gsn', text: '只管 AI 这一段' })),
-      el('div', { class: 'gsnote', text: '重扫与重生成是项目级动作，永远覆盖整个项目——它们不受这个范围影响。'
-        + '这个范围决定的是"给哪些契约补中文说明"。' }),
+      el('div', { class: 'gsnote', text: '这个范围决定的是"给哪些契约补中文说明"。' }),
       scopeRows.map(function (r) { return r.row; }));
 
     /* ---- 目录块：说清"现在纳管了哪些目录"，并且只提供**加一个目录**。 ----
@@ -2058,7 +2057,7 @@
     var dirPick = el('div', { class: 'gpick' });
     /* 手填路径没有自己的按钮——回车就勾上（少一个按钮少一步）。 */
     var dirManual = el('input', { class: 'search', id: 'gdirPath', type: 'text',
-      placeholder: '路径读不到？填绝对路径后回车', autocomplete: 'off' });
+      placeholder: '绝对路径，回车', autocomplete: 'off' });
 
     function dirFail(msg) { dirErr.textContent = msg; dirErr.style.display = ''; }
     function dirOk() { dirErr.style.display = 'none'; }
@@ -2084,16 +2083,16 @@
         buckets[dirNameOf(byId[id])] = 1;
       });
       dirFact.textContent = (S.p && S.p.title ? S.p.title : '这个项目')
-        + ' · 已纳管 ' + includeIds().length + ' 个契约 / ' + Object.keys(buckets).length + ' 个目录';
+        + ' · ' + includeIds().length + ' 契约 · ' + Object.keys(buckets).length + ' 目录';
     }
     /* 选择器头部：过滤 + 全加 / 全不加。成组操作只作用于**当前列出来的**目录（含子目录）。 */
     function dirPickHeader(pv) {
       var q = el('input', { class: 'search', id: 'dQ', type: 'text', value: '',
-        placeholder: '按目录名过滤…', autocomplete: 'off' });
+        placeholder: '过滤', autocomplete: 'off' });
       q.addEventListener('input', function () { if (DG.pick) DG.pick.q = q.value; renderDirRows(); });
       function bulk(label, on) {
         var b = el('button', { class: 'pkbtn', type: 'button', text: label,
-          title: label + '只作用于当前列出来的目录（含子目录）；这块只能加，不会取消已纳管的' });
+          title: label });
         b.addEventListener('click', function () {
           if (!DG.pick) return;
           DG.dirty = true;
@@ -2108,8 +2107,15 @@
           el('span', { text: '目录' }),
           el('span', { class: 'dp', text: pv.root, title: pv.root })),
         el('div', { class: 'pkrow1' }, q, el('span', { class: 'chip chip-dim', id: 'dCount', text: '' })),
-        el('div', { class: 'pkrow2' }, bulk('全加上', true), bulk('全不加', false),
+        el('div', { class: 'pkrow2' }, bulk('全选', true),
           el('span', { class: 'pkhint', id: 'dHint', text: '' })));
+    }
+    /* 「看候选」是纳管向导那边的诊断入口：生成卡片这张卡里不显示（用户要求删掉）。
+       只在这张卡里隐掉，不动共享渲染——纳管向导那边还要用。 */
+    function hidePeek() {
+      Array.prototype.forEach.call(dirPick.querySelectorAll('button, .chip, .pkbtn'), function (el) {
+        if ((el.textContent || '').trim() === '看候选') el.style.display = 'none';
+      });
     }
     /* 打开弹窗就把目录读出来（POST /init 不带 confirm = 纯只读预览，无副作用）：
        目录树直接铺在卡里，已纳管的目录**默认就是勾上的**（并锁住），不用先点任何东西。
@@ -2117,7 +2123,7 @@
     function loadDirs() {
       dirOk();
       clear(dirPick);
-      dirPick.appendChild(el('div', { class: 'dnote', id: 'gDirLoading', text: '正在读目录…' }));
+      dirPick.appendChild(el('div', { class: 'dnote', id: 'gDirLoading', text: '读取中…' }));
       api('/init', { method: 'POST', body: { root: S.p.root } }).then(function (data) {
         var pv = data.preview;
         DG.pv = pv;
@@ -2162,16 +2168,17 @@
         var rowsBox = el('div', { class: 'drows', id: 'dRows' });
         /* 变更钩子挂在**容器**上（事件委托）：不怕重画换对象，也不依赖 setDir 的尾部——
            任何一个勾选框变化都算"人动过"，主按钮才会走并集写回那条分支。 */
-        rowsBox.addEventListener('change', function () { DG.dirty = true; });
+        rowsBox.addEventListener('change', function () { DG.dirty = true; setTimeout(hidePeek, 0); });
         dirPick.appendChild(rowsBox);
         dirPick.appendChild(el('div', { class: 'dnote', id: 'dSum' }));
         dirPick.appendChild(el('div', { class: 'pkrow2' }, dirManual));
         renderDirFact();
         renderDirRows();
+        hidePeek();
       }).catch(function (e) {
         clear(dirPick);
         dirPick.appendChild(el('div', { class: 'note',
-          text: '扫不动这个项目的目录：' + ((e && e.message) || String(e)) }));
+          text: '读不到目录：' + ((e && e.message) || String(e)) }));
       });
     }
     /* 手填绝对路径：只接受 root 里面、且树上真有的目录——不然就如实说不行。 */
@@ -2255,7 +2262,7 @@
       if (c.aiFamily) head.appendChild(el('span', { class: 'aifam', text: c.aiFamily }));
     } else {
       /* 没有就说没有：不说"未生成"也不编一个——用户明确否决了本地生成中文这条路。 */
-      head.appendChild(el('span', { class: 'ainone', text: '这条还没有 AI 中文说明（没问过模型，或模型返回没通过校验）。' }));
+      head.appendChild(el('span', { class: 'ainone', text: '这条还没有中文说明' }));
     }
     box.appendChild(head);
     if (c.aiTitle) {
@@ -2272,7 +2279,7 @@
         });
       }
       box.appendChild(el('div', { class: 'ainote',
-        text: '这是 AI 生成的，不是抽取出来的事实：' + (c.aiAt ? timeAgo(c.aiAt) + '生成' : '')
+        text: '' + (c.aiAt ? timeAgo(c.aiAt) + '生成' : '')
           + (c.aiHash ? '，内容哈希 ' + c.aiHash.slice(0, 8) : '')
           + '。契约内容变了哈希就变，下次会重新问；内容没变则直接读缓存。' }));
     }
@@ -5866,15 +5873,16 @@
     var sum = $('#dSum');
     if (sum) {
       clear(sum);
-      sum.appendChild(el('span', {}, '已选 ', el('b', { text: String(s.dirs) }), ' 个目录 · 覆盖 ',
-        el('b', { text: String(tree.sel) }), ' 条契约'));
+      sum.appendChild(el('span', {}, el('b', { text: String(s.dirs) }), ' 目录 · ',
+        el('b', { text: String(tree.sel) }), ' 契约'));
     }
     var cnt = $('#dCount');
-    if (cnt) cnt.textContent = '共 ' + tree.n + ' 条候选';
+    if (cnt) cnt.textContent = tree.n + ' 条';
     var hint = $('#dHint');
     if (hint) {
-      hint.textContent = (s.partial ? '有 ' + s.partial + ' 个目录只选了一部分；' : '')
-        + '全选 / 全不选只作用于当前列出的目录（含子目录）';
+      /* 生成卡片里不再解释怎么用（用户要求删掉大部分说明）；纳管向导那边保留这句指导。 */
+      hint.textContent = (s.partial ? '有 ' + s.partial + ' 个目录只选了一部分' : '')
+        + (pk.locked ? '' : (s.partial ? '；' : '') + '全选 / 全不选只作用于当前列出的目录（含子目录）');
     }
     var go = $('#dGo');
     if (go && !pk.busy) {
