@@ -325,6 +325,20 @@ test('生成预告：范围缩到一批 id 时，预告与真跑问的是**同�
   assert.ok(ids.length >= 1, 'api/ 下应当至少有一条契约')
   assert.ok(ids.length < total, '这一批应当是整个项目的真子集')
 
+  /* 列表载荷精简（本轮为"打开很卡"做的）：实测 worktrees 项目整包 1.31MB，
+     其中 `twins` 的 id 数组独占 538KB（43%），而面板一次都没用过它——列表只给数量。
+     要逐条孪生关系的走详情路由，那边仍然下全。 */
+  const lite = list.contracts as { contract: Record<string, unknown> }[]
+  assert.ok(lite.length > 0, '列表得有东西才能谈载荷')
+  assert.ok(
+    lite.every((item) => !('twins' in item.contract)),
+    '列表不许再下发整份孪生 id（面板不用它，白占 43% 载荷）',
+  )
+  assert.ok(
+    lite.every((item) => typeof item.contract.twinCount === 'number'),
+    '列表要给孪生数量，别把这条关系信息整个丢掉',
+  )
+
   const scoped = await plan(fake, { projectId, contractIds: ids })
   assert.equal(scoped.data.scope.kind, 'contracts')
   assert.equal(scoped.data.scope.contracts, ids.length, '预告里的条数就是这一批')

@@ -281,6 +281,13 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
     }
   }
 
+  /** 列表专用：不下发整份孪生 id（实测占载荷 43%），只给数量；要逐条孪生走 /contracts/:id。 */
+  const contractLite = (contract: ContractRecord, fresh: Set<string>) => {
+    const detail = contractDetail(contract, fresh)
+    const { twins, ...rest } = contract
+    return { ...detail, contract: { ...rest, twinCount: Array.isArray(twins) ? twins.length : 0 } }
+  }
+
   /**
    * 算出某个项目"这次对比之内"的演化记录 id。
    *
@@ -594,7 +601,7 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
           for (const project of scope) {
             const fresh = await freshChangeIds(project)
             for (const contract of current.contractsOf(project.id)) {
-              contracts.push(contractDetail(contract, fresh))
+              contracts.push(contractLite(contract, fresh))
             }
           }
           return { contracts, axes: FACET_AXES, labels: FACET_VALUE_LABELS }
@@ -879,7 +886,7 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
           return {
             ok: true,
             // 和 `/contracts` 同构：面板拿到就能直接照着渲染，不必再打一次列表接口。
-            contracts: current.contractsOf(projectId).map((contract) => contractDetail(contract, fresh)),
+            contracts: current.contractsOf(projectId).map((contract) => contractLite(contract, fresh)),
             axes: FACET_AXES,
             labels: FACET_VALUE_LABELS,
             cleared: rebuilt.cleared,
@@ -1031,7 +1038,7 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
               entries: summary.entries,
             },
             /* 和 /contracts、/rebuild 同构：面板拿到就能直接照着渲染，不必再打一次列表接口。 */
-            contracts: current.contractsOf(projectId).map((contract) => contractDetail(contract, fresh)),
+            contracts: current.contractsOf(projectId).map((contract) => contractLite(contract, fresh)),
             axes: FACET_AXES,
             labels: FACET_VALUE_LABELS,
           }
@@ -1174,4 +1181,5 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
     }
   })
 }
+
 
