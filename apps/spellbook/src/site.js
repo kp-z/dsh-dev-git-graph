@@ -281,7 +281,6 @@ function initSearch() {
   const status = document.querySelector('[data-search-status]')
   const results = document.querySelector('[data-search-results]')
   const browse = document.querySelector('[data-browse]')
-  const fleuron = document.querySelector('.fleuron')
   const clear = document.querySelector('[data-search-clear]')
   if (!input || !results || !browse) return
 
@@ -302,8 +301,6 @@ function initSearch() {
       results.hidden = true
       results.replaceChildren()
       browse.hidden = false
-      // 花饰是「序言与正文之间」的分隔纹。正文回来，它才回来。
-      if (fleuron) fleuron.hidden = false
       if (clear) clear.hidden = true
       current = []
       selected = -1
@@ -331,10 +328,6 @@ function initSearch() {
 
     browse.hidden = true
     results.hidden = false
-    /* 花饰必须跟着正文一起退场。
-       它在 DOM 里排在结果区**后面**，不藏的话，搜出 15 条之后它会孤零零挂在
-       结果下面 2900px 处，谁也不分隔——一条失去了对象的装饰线比没有更糟。 */
-    if (fleuron) fleuron.hidden = true
 
     if (!hits.length) {
       results.innerHTML = `<p class="search-empty">没有匹配的咒语。</p>

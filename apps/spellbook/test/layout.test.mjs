@@ -136,11 +136,33 @@ test('刊头放的是魔法书，不是魔杖', () => {
   assert.doesNotMatch(book, /wand-shaft|wand-spark/, '书不该用魔杖的零件名')
 })
 
-test('魔杖仍在它该在的地方：查词口与花饰', () => {
+test('魔杖只留在查词口一处', () => {
+  // 刊头换成了书、花饰整条去掉了 —— 一页上只剩查词口这一个魔杖。
+  // 同一个记号在一页上出现两次就不再是记号。
   const html = renderIndex([entry()])
   assert.match(html, /class="concordance-wand"/, '查词口该是魔杖')
-  assert.match(html, /class="fleuron-wand"/, '花饰该是魔杖')
-  assert.match(html, /class="fleuron"/)
+  assert.equal((html.match(/wand-shaft|mark-line/g) ?? []).length > 0, true)
+  assert.equal((html.match(/concordance-wand/g) ?? []).length, 1, '魔杖只该出现一次')
+})
+
+test('刊头与正文之间不再夹着花饰', () => {
+  // 那道分隔纹（细线—魔杖—细线）整条去掉了：它只是一道分隔纹，
+  // 而刊头本来就有下边线、章首本来就有饰线，三条横线互相打岔。
+  const html = renderIndex([entry({ category: '材质' }), entry({ slug: 'y', category: '动效' })])
+  assert.doesNotMatch(html, /class="fleuron/, '花饰该整条去掉')
+  assert.doesNotMatch(html, /fleuron-wand/, '花饰里的魔杖也该走')
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.doesNotMatch(css, /\.fleuron/, 'CSS 里不该再有花饰')
+  assert.doesNotMatch(css, /has-rail\s+\.fleuron/, '让位名单里也要清掉')
+  // 花饰原先靠 58px 内边距撑出刊头与正文的气口，现在得由正文自己给
+  const body = css.match(/\n\.index-body \{[\s\S]*?\n\}/)?.[0] ?? ''
+  assert.ok(body, '.index-body 该有自己的基础规则')
+  assert.match(body, /margin-top:\s*\d+px/, '.index-body 该自己留出上方的气口')
+  const js = readFileSync(new URL('../src/site.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+  assert.doesNotMatch(js, /fleuron/, 'site.js 里不该再管花饰的显隐')
 })
 
 test('条目序号全书连续，不随章节重置', () => {

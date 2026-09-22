@@ -395,26 +395,6 @@ main {
 
 /* ---------------------------------------------------------- 目录（tabula） */
 
-/* 花饰：序言与正文之间的分隔纹 */
-.fleuron {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  max-width: var(--measure);
-  padding: 58px 0 58px;
-}
-.fleuron-rule {
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(to right, transparent, var(--rule) 12%, var(--rule) 88%, transparent);
-}
-.fleuron-wand {
-  width: 20px;
-  height: 20px;
-  flex: none;
-  color: var(--gilt);
-}
-
 /* 线稿只有两种笔画：描边的线与填实的火星。魔法书、魔杖、花饰共用这两种，
    所以名字不挂在某一个装置上 —— 书身上不该长着「魔杖的零件」。 */
 .mark-line {
@@ -425,6 +405,15 @@ main {
 }
 .mark-spark {
   fill: var(--gilt);
+}
+
+/* 目录（tabula）从这里开始。
+   原先刊头与正文之间夹着一道花饰（细线—魔杖—细线），整条去掉了：
+   它只是一道分隔纹，而刊头本来就有下边线、章首本来就有饰线，
+   三条横线隔着几十像素互相打岔。省下的 136px 里留 44px 当气口，
+   取的是 --rail-gap 那个刻度，跟左边那条侧注列同一个节奏。 */
+.index-body {
+  margin-top: 44px;
 }
 
 /* 章目导航 + 各章 */
@@ -440,7 +429,6 @@ main {
    编辑上这叫「正文块 + 边栏」，左栏那条章目导航是侧注，不是正文的一部分。
    没有边栏时（只有一章）不加位移，那时正文列本来就从 150 起。 */
 main.has-rail .concordance,
-main.has-rail .fleuron,
 main.has-rail .search-results {
   margin-left: var(--rail);
 }
@@ -1225,11 +1213,6 @@ html {
     display: none;
   }
 
-  .fleuron {
-    padding-top: 40px;
-    padding-bottom: 40px;
-  }
-
   /* 章目从左侧栏落到正文上方，变成一条横排。
      边栏没了，首屏那几块也就不该再让位 —— 否则它们会平白缩掉 220px。 */
   .index-body.has-nav {
@@ -1237,8 +1220,7 @@ html {
     gap: 32px;
   }
   main.has-rail .concordance,
-  main.has-rail .fleuron,
-  main.has-rail .search-results {
+    main.has-rail .search-results {
     margin-left: 0;
   }
 

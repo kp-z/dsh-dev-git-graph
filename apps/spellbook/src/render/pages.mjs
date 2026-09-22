@@ -19,7 +19,7 @@ import {
   stripMechanismMarkers,
 } from './text.mjs'
 import { STAGES } from './demo.mjs'
-import { bookMark, fleuron, wandMark } from './marks.mjs'
+import { bookMark, wandMark } from './marks.mjs'
 import { CATEGORIES } from '../../shared/schema.mjs'
 
 const SITE_NAME = '咒语书'
@@ -254,8 +254,6 @@ ${chapters
   const body = `${header({ root: './', search: searchField(), asHeading: true })}
 <main id="main"${withNav ? ' class="has-rail"' : ''}>
 ${concordance()}
-
-${fleuron()}
 
   <div class="index-body${withNav ? ' has-nav' : ''}" data-browse>
 ${nav}        <div class="chapters">
