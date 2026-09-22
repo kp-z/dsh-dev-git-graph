@@ -2149,7 +2149,10 @@
         (function prefill(node) {
           var inside = false;
           kidNames(node).forEach(function (k) { if (prefill(k.node)) inside = true; });
-          var mine = !!managed[node.name];
+          /* 目录口径：节点是**逐段嵌套**的——node.name 只是单段，完整目录路径在 node.path；
+           而已纳管集合的键是完整目录路径（dirNameOf(file)）。所以先按 path 比，
+           只有占位节点（"（根目录）""（运行时）"）才退回 name。这一处错了预勾就永远是 0。 */
+        var mine = !!managed[node.path || node.name];
           if (mine) (node.items || []).forEach(function (c) { DG.pick.picked[c.id] = true; });
           if (mine || inside) DG.pick.locked[node.name] = true;
           return mine || inside;

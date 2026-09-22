@@ -955,6 +955,9 @@ test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 
   assert.ok(!html.includes('再加目录…'), '「再加目录…」这个多余步骤要删掉')
   assert.ok(!html.includes("dirPick.style.display = 'none'"), '选择器要常显，不许默认藏起来')
   assert.ok(html.includes('loadDirs();'), '打开弹窗就要自动把目录读出来')
+  /* 预勾口径回归：目录树节点是逐段嵌套的（name 只是单段、完整路径在 path），
+     而已纳管集合的键是完整目录路径——早先按 node.name 比，预勾永远是 0（活体量到勾选数 0）。 */
+  assert.ok(html.includes('managed[node.path || node.name]'), '预勾要比完整目录路径，不是单段节点名')
   /* A1 的硬证据：变更钩子挂在容器上（事件委托），不依赖 setDir 尾部、也不怕重画换对象。 */
   assert.ok(html.includes("rowsBox.addEventListener('change', function () { DG.dirty = true; })"),
     '勾选变化必须能置上 dirty（事件委托，别依赖 setDir 尾部）')
