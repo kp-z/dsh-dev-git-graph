@@ -401,7 +401,8 @@ test('图校验：首行不对 / 编契约 / 类型标错 / 编关系 / 看不�
   assert.match(bad('flowchart LR\nc9["编的"]:::protocol'), /不在这个目录/)
   assert.match(bad('flowchart LR\nc1["a"]:::gap'), /其实是 protocol/)
   assert.match(bad('flowchart LR\nc1["a"]:::protocol\nc2["b"]:::protocol\nc1-->|emits|c2'), /不在给定的关系里/)
-  assert.match(bad('flowchart LR\nc1["a"]:::protocol\nc2["b"]:::protocol\nsubgraph g["组"]'), /看不懂/)
+  /* subgraph 现在允许一层（AI 可以按模块/模型分组），但必须闭合、不许嵌套、不许和实体撞名。 */
+  assert.match(bad('flowchart LR\nc1["a"]:::protocol\nc2["b"]:::protocol\nsubgraph g["组"]'), /没有 end 关闭/)
   assert.match(bad('flowchart LR\nc1["a"]:::protocol\nc1["b"]:::protocol'), /声明了两遍/)
 })
 
@@ -473,4 +474,72 @@ test('面板接线：AI 图优先渲染，读不动就退回分区图并把原�
   assert.equal((html.match(/pick: pickContractNode/g) ?? []).length, 2, '两张图（AI 图与分区图）都用它')
   assert.ok(html.includes("n.contractId = n.id"), '解析出来的节点要挂回契约才能点')
   assert.ok(html.includes("whyOf[e.from + '>' + e.rel + '>' + e.to]"), '关系的理由要从 aiRelations 找回来给悬浮提示')
+})
+
+
+test('图校验：允许一层 subgraph 分组，组名要中文、要闭合', () => {
+  const allowed = new Set(['c1', 'c2'])
+  const declared = new Set(['c1\u0000imports\u0000c2'])
+  const kindOf = () => 'protocol'
+  const grouped = [
+    'flowchart LR',
+    'subgraph g1["按模块"]',
+    'c1["a"]:::protocol',
+    'c2["b"]:::protocol',
+    'end',
+    'c1-->|imports|c2',
+  ].join('\n')
+  const ok = validateDirGraph(grouped, allowed, kindOf, declared)
+  assert.equal(ok.ok, true, ok.ok === false ? ok.why : '')
+  const bad = (text: string) => {
+    const checked = validateDirGraph(text, allowed, kindOf, declared)
+    return checked.ok === false ? checked.why : ''
+  }
+  assert.match(bad('flowchart LR\nsubgraph g1[""]'), /分组名要在 1-20 字之间/)
+  assert.match(bad('flowchart LR\nsubgraph g1["名字很长很长很长很长很长很长很长很长很长很长很长"]'), /分组名要在 1-20 字之间/)
+  assert.match(bad('flowchart LR\nsubgraph c1["跟实体撞名"]'), /已经是个实体了/)
+})
+
+test('样式：五种关系各有各的线型，不只靠颜色区分', () => {
+  const html = panelSource()
+  assert.ok(html.includes('var REL_REGISTRY = {'), '关系的样式要有一处登记表')
+  assert.equal(html.includes('G_RELCOLOR'), false, '旧的硬编码色板要清掉，颜色只留一处定义')
+  const box = html.slice(html.indexOf('var REL_REGISTRY = {'), html.indexOf('var G_RELORDER'));
+  const rels = ['contains', 'imports', 'emits', 'defines', 'missing']
+  const dashes = rels.map((rel) => {
+    const at = box.indexOf(rel + ': {')
+    assert.ok(at > 0, `登记表里要有 ${rel}`)
+    const line = box.slice(at, box.indexOf('}', at))
+    return line
+  })
+  assert.equal(new Set(dashes).size, 5, '五种关系的画法要各不相同')
+  assert.ok(dashes.every((line) => line.includes('hue:') && line.includes('w:')), '每种关系都要有颜色和粗细')
+  assert.ok(html.includes('relStyle(path, l.rel)'), '边要走登记表上样式')
+  assert.ok(html.includes('pth.style.fill = relReg(rel).hue'), '箭头也要同色')
+})
+
+test('样式：数据来源与数据类型各带标签，判据是文件与形状本身', () => {
+  const html = panelSource()
+  assert.ok(html.includes('var MODEL_REGISTRY = {'), '数据来源要有登记表')
+  assert.ok(html.includes('var DTYPE_REGISTRY = {'), '数据类型要有登记表')
+  /* 判据是确定性事实：文件扩展名 / 形状的 kind，不问模型 */
+  assert.ok(html.includes("/\\.proto$/"), 'proto 按扩展名判')
+  assert.ok(html.includes('function modelOf(contract)'), '来源从契约的文件名算')
+  assert.ok(html.includes('function dtypeOf(node)'), '类型从形状节点算')
+  assert.ok(html.includes("n.model = modelOf(hit.contract)"), 'AI 图上的节点也要标来源')
+  assert.ok(html.includes('pn.model = modelOf(c)'), '分区图上的节点也要标来源')
+  assert.ok(html.includes('dtypeOf(f.node)'), '形状图的字段要标数据类型')
+  assert.ok(html.includes("class: 'gmodel m-'"), '标签要画在卡片上')
+  assert.ok(html.includes("class: 'gdtype t-'"), '类型标签要画在卡片上')
+})
+
+test('图例：只标图上真画了的东西，与卡片同源', () => {
+  const html = panelSource()
+  assert.ok(html.includes('function gLegend(ir)'), '要有图例')
+  const box = html.slice(html.indexOf('function gLegend(ir)'), html.indexOf('function renderGraph(ir, opts)'))
+  assert.ok(box.includes('ir.nodes.forEach'), '节点类型从图上的节点里取')
+  assert.ok(box.includes('ir.edges.forEach'), '关系从图上的边里取 —— 没画的关系不许列进图例')
+  assert.ok(box.includes("class: 'gmodel m-'") && box.includes("class: 'gdtype t-'"), '图例里的标签与卡片同一套样式')
+  assert.ok(box.includes('relReg(rel)'), '图例里的线段与边同一套样式')
+  assert.ok(html.includes('var legend = gLegend(capped.ir)'), '图例挂在图后面')
 })

@@ -111,7 +111,9 @@ export const DIR_PROMPT_INTRO = [
   '2) 每个实体一行：<契约 id>["显示名"]:::protocol（或 :::gap）—— 契约 id 必须原样照抄输入里的 id；',
   '3) 每条关系一行：<契约 id>-->|关系词|<契约 id> —— 关系词只能是 contains/imports/emits/defines；',
   '4) 边只能画输入 relations 里给的那些，**不许自己新增关系**，也不许把没给过的两端连起来；',
-  '5) 最多 40 个实体、80 条边；不要写 subgraph，不要写注释，不要出现 %% 开头的行。',
+  '5) 最多 40 个实体、80 条边；不要写注释，不要出现 %% 开头的行；',
+  '6) 想分组就这样写（可选、只允许一层）：subgraph g1["分组名"] 开头，里面放实体，最后一行 end；',
+  '7) 分组名要中文、1-20 字，比如按模块或按数据模型分。',
   '其它：输入的每个目录都要出现且只出现一次，path 必须逐字抄回，不许新增输入里没有的目录；',
   'title 与 note 必须是中文（含中日韩汉字），不许写"未知""待补充"这类空话；',
   '依据只能是输入给的东西：目录路径、成员符号名、以及给定的关系。不要编业务含义。',
@@ -210,6 +212,8 @@ export function validateDirGraph(
     return { ok: false, why: '第一行必须是 flowchart LR 或 flowchart TB' }
   }
   const declared = new Set<string>()
+  const bands: string[] = []
+  let openBand: string | null = null
   let edges = 0
   for (let at = 1; at < lines.length; at += 1) {
     const line = lines[at] as string
@@ -218,6 +222,8 @@ export function validateDirGraph(
       const id = node[1] as string
       if (!allowedIds.has(id)) return { ok: false, why: `第 ${at + 1} 行的 ${id} 不在这个目录的输入里` }
       if (declared.has(id)) return { ok: false, why: `第 ${at + 1} 行把 ${id} 声明了两遍` }
+      /* 反向也要查：带在前、实体在后时，撞名同样会让面板解析器整张拒掉 */
+      if (bands.includes(id)) return { ok: false, why: `第 ${at + 1} 行的 ${id} 已经是个分组了` }
       const label = node[2] as string
       if (label.trim() === '') return { ok: false, why: `第 ${at + 1} 行的显示名是空的` }
       if (label.length > 60) return { ok: false, why: `第 ${at + 1} 行的显示名超过 60 字` }
@@ -244,8 +250,32 @@ export function validateDirGraph(
       if (edges > DIR_GRAPH_MAX_EDGES) return { ok: false, why: `关系超过 ${DIR_GRAPH_MAX_EDGES} 条` }
       continue
     }
+    if (/^subgraph\b/.test(line)) {
+      const sub = /^subgraph[ \t]+([A-Za-z_]\w*)[ \t]*\["((?:[^"\\]|\\.)*)"\][ \t]*$/.exec(line)
+      if (sub === null) return { ok: false, why: `第 ${at + 1} 行的 subgraph 只允许 subgraph id["显示名"]` }
+      if (openBand !== null) return { ok: false, why: `第 ${at + 1} 行套了第二层 subgraph（只允许一层）` }
+      const bandId = sub[1] as string
+      /* 带 id 不许和**任何一条契约 id** 重名：就算这张图里没声明它，撞名也会让人读错，
+         面板解析器更是直接把整张图判掉。 */
+      if (declared.has(bandId) || allowedIds.has(bandId)) {
+        return { ok: false, why: `第 ${at + 1} 行的 ${bandId} 已经是个实体了` }
+      }
+      if (bands.includes(bandId)) return { ok: false, why: `第 ${at + 1} 行把 ${bandId} 声明了两遍` }
+      const bandLabel = (sub[2] as string).trim()
+      if (bandLabel === '' || bandLabel.length > 20) return { ok: false, why: `第 ${at + 1} 行的分组名要在 1-20 字之间` }
+      bands.push(bandId)
+      if (bands.length > 12) return { ok: false, why: '分组超过 12 个（再多就不是一眼能读的图了）' }
+      openBand = bandId
+      continue
+    }
+    if (line === 'end') {
+      if (openBand === null) return { ok: false, why: `第 ${at + 1} 行的 end 没有对应的 subgraph` }
+      openBand = null
+      continue
+    }
     return { ok: false, why: `第 ${at + 1} 行看不懂：${line}` }
   }
+  if (openBand !== null) return { ok: false, why: `subgraph ${openBand} 没有 end 关闭` }
   if (declared.size === 0) return { ok: false, why: '一个实体都没声明' }
   return { ok: true, nodes: declared.size, edges }
 }

@@ -863,6 +863,26 @@
   .tone-part { --k-hue: color-mix(in srgb, var(--ok) 46%, var(--accent)); }
   .tone-gap { --k-hue: var(--bad); }
   .tone-neutral { --k-hue: var(--ink3); }
+  /* 数据来源（proto / json / ts）与数据类型（object / array / string …）各一个小标签。
+     色相全部由现有 token 混出来，不新造色板；黑白打印时靠标签文字本身也读得出。 */
+  .gmodel, .gdtype { flex: none; font-size: 9px; line-height: 14px; padding: 0 4px; border-radius: 3px;
+    margin-left: 4px; font-family: var(--mono); }
+  .gmodel { color: color-mix(in srgb, var(--m-hue) 76%, var(--ink));
+    background: color-mix(in srgb, var(--m-hue) 15%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--m-hue) 40%, transparent); }
+  .gdtype { color: color-mix(in srgb, var(--t-hue) 76%, var(--ink));
+    background: color-mix(in srgb, var(--t-hue) 13%, transparent); }
+  .m-proto { --m-hue: var(--accent); }
+  .m-json { --m-hue: var(--warn); }
+  .m-ts { --m-hue: var(--ok); }
+  .m-other { --m-hue: var(--ink3); }
+  .t-object { --t-hue: var(--accent); }
+  .t-array { --t-hue: var(--warn); }
+  .t-string { --t-hue: var(--ok); }
+  .t-number { --t-hue: var(--bad); }
+  .t-bool { --t-hue: var(--ink3); }
+  .t-enum { --t-hue: var(--accent); }
+  .t-unknown { --t-hue: var(--ink3); }
   .gnode {
     position: absolute; margin: 0; display: flex; align-items: center; gap: 8px; text-align: left;
     padding: 7px 10px; cursor: pointer; overflow: hidden;
@@ -3711,13 +3731,73 @@
      区别只有一处：demo 的节点属于"契约"，这里的节点属于 IR。 */
   var G_NW = 200, G_NH = 44, G_ROWGAP = 14, G_PAD = 24, G_COLGAP = 38, G_GUT = 38;
   var G_BANDGAP = 26, G_BANDHEAD = 26, G_BANDPAD = 20, G_MAXCOL = 4, G_LANE = 30;
-  var G_RELORDER = ['contains', 'imports', 'emits', 'missing', 'defines'];
-  /* defines = 协议定义字段：换成紫色，和其他四种关系分得开，浅色深色都读得清 */
-  var G_RELCOLOR = { contains: '#8a8f98', imports: '#007aff', emits: '#16a34a', missing: '#dc2b22',
-                     defines: '#7c4dff' };
+  /* 关系的样式只有这一处定义：中文名、颜色（走 token，跟着主题走）、线型、粗细。
+     线型不只靠颜色区分 —— 打印成黑白、或色觉不一样的人，也要分得出是哪一种关系。 */
+  var REL_REGISTRY = {
+    contains: { label: '包含', hue: 'var(--ink3)', dash: null, w: 1.4 },
+    imports: { label: '引用', hue: 'var(--accent)', dash: '7 3', w: 1.9 },
+    emits: { label: '发出', hue: 'var(--ok)', dash: null, w: 2.4 },
+    defines: { label: '定义', hue: 'color-mix(in srgb, var(--accent) 55%, var(--bad))', dash: '2 3', w: 1.6 },
+    missing: { label: '缺口', hue: 'var(--bad)', dash: '5 4', w: 1.6 },
+  };
+  var G_RELORDER = Object.keys(REL_REGISTRY);
+  /* 没登记的关系：中性灰 + 点线，不猜它是什么意思（和 KIND_UNKNOWN 一个态度）。 */
+  var REL_UNKNOWN = { label: '未登记', hue: 'var(--ink3)', dash: '1 3', w: 1.4 };
+  function relReg(rel) {
+    return Object.prototype.hasOwnProperty.call(REL_REGISTRY, rel) ? REL_REGISTRY[rel] : REL_UNKNOWN;
+  }
+  /* 把登记表里的样子落到一条边（或图例里那根线段）上。 */
+  function relStyle(el, rel) {
+    var reg = relReg(rel);
+    el.style.stroke = reg.hue;
+    el.style.strokeWidth = reg.w + 'px';
+    el.style.strokeDasharray = reg.dash ? reg.dash : '';
+    return reg;
+  }
   var G_UID = 0;
   /* 实体间关系边最多画多少条：再多就是一团毛线，画不下就如实报出还有几条没画。 */
   var G_RELEDGE_MAX = 240;
+
+  /* 数据来源只有这一处定义。判据是**文件扩展名**这个确定性事实 —— 不问模型，
+     也不因为它答得好听就采信：文件叫什么，它就是什么。 */
+  var MODEL_REGISTRY = {
+    proto: { label: 'Protobuf', tag: 'proto' },
+    json: { label: 'JSON Schema', tag: 'json' },
+    ts: { label: 'TypeScript', tag: 'ts' },
+    other: { label: '其它来源', tag: 'src' },
+  };
+  function modelOf(contract) {
+    var f = String((contract && contract.file) || '').toLowerCase();
+    if (/\.proto$/.test(f)) return 'proto';
+    if (/\.(json|json5|ya?ml)$/.test(f)) return 'json';
+    if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(f)) return 'ts';
+    return 'other';
+  }
+  function modelLabel(key) {
+    var reg = MODEL_REGISTRY[key];
+    return reg ? reg.label : '';
+  }
+
+  /* 数据类型（形状图的字段）：与扫描出来的 ShapeNode.kind 同名，一个类型一种画法。 */
+  var DTYPE_REGISTRY = {
+    object: { label: '对象', tag: 'obj' },
+    array: { label: '数组', tag: 'arr' },
+    string: { label: '字符串', tag: 'str' },
+    number: { label: '数字', tag: 'num' },
+    boolean: { label: '布尔', tag: 'bool' },
+    enum: { label: '枚举', tag: 'enum' },
+    unknown: { label: '读不出', tag: '?' },
+  };
+  function dtypeOf(node) {
+    if (!node || typeof node !== 'object') return 'unknown';
+    if (node.enumValues) return 'enum';
+    var kind = String(node.kind || '');
+    return Object.prototype.hasOwnProperty.call(DTYPE_REGISTRY, kind) ? kind : 'unknown';
+  }
+  function dtypeLabel(key) {
+    var reg = DTYPE_REGISTRY[key];
+    return reg ? reg.label : '';
+  }
 
   /* 量文字：屏幕外造一张真卡片量它需要多高（canvas 的 measureText 拿不到 CSS 里的
      --mono，会退回默认字体算窄，不能用）。用真 class 才不会量错换行行数。 */
@@ -3745,7 +3825,9 @@
       reg.icon ? el('span', { class: 'gicon', text: reg.icon }) : null,
       el('span', { class: 'gtext' },
         el('span', { class: 'gname', text: n.label === undefined || n.label === null ? '' : n.label }),
-        el('span', { class: 'gkind', text: gKindText(n, reg) }),
+        el('span', { class: 'gkind' }, gKindText(n, reg),
+          n.model ? el('span', { class: 'gmodel m-' + n.model, text: MODEL_REGISTRY[n.model].tag }) : null,
+          n.dtype ? el('span', { class: 'gdtype t-' + n.dtype, text: DTYPE_REGISTRY[n.dtype].tag }) : null),
         /* AI 中文职责当第三行（最多两行，多了截断）。有就画、没有就不画——
            卡片高度是拿这一段真量出来的（gNodeH 用同一个函数建卡片），所以多一行也不会压到别的。 */
         n.aiTitle ? el('span', { class: 'gai', text: n.aiTitle }) : null)
@@ -4144,7 +4226,7 @@
       mk.setAttribute('orient', 'auto');
       var pth = document.createElementNS(SVG_NS, 'path');
       pth.setAttribute('d', 'M0,0 L8,4 L0,8 z');
-      pth.setAttribute('fill', G_RELCOLOR[rel]);
+      pth.style.fill = relReg(rel).hue;
       mk.appendChild(pth);
       defs.appendChild(mk);
     });
@@ -4170,11 +4252,10 @@
       path.setAttribute('d', polyPath(pts));
       if (!path.getAttribute('d')) return;
       path.setAttribute('fill', 'none');
-      path.setAttribute('stroke', G_RELCOLOR[l.rel] || '#8a8f98');
-      path.setAttribute('stroke-width', '1.6');
       path.setAttribute('stroke-linejoin', 'round');
       path.setAttribute('opacity', '.9');
-      if (l.rel === 'missing') path.setAttribute('stroke-dasharray', '5 4');
+      /* 线型、粗细、颜色全查登记表：一种关系一种画法，图上才分得清。 */
+      relStyle(path, l.rel);
       path.setAttribute('marker-end', 'url(#gah' + G_RELORDER.indexOf(l.rel) + '_' + uid + ')');
       var t = document.createElementNS(SVG_NS, 'title');
       t.textContent = (nameOf[l.from] || l.from) + ' → ' + (nameOf[l.to] || l.to) + '（' + l.rel + '）' +
@@ -4207,6 +4288,8 @@
     var reg = kindReg(n.kind), dot = reg.dot ? statusDot(n.status) : '';
     var cls = 'gnode tone-' + reg.tone + (reg.dashed ? ' gapnode' : '');
     var tip = String(n.label === undefined || n.label === null ? '' : n.label) + '（' + reg.label + '）'
+      + (n.model ? ' · ' + modelLabel(n.model) : '')
+      + (n.dtype ? ' · ' + dtypeLabel(n.dtype) : '')
       + (n.tip ? ' · ' + n.tip : '')
       /* 悬浮提示里给 AI 中文的全文（卡片上那两行是截断的） */
       + (n.aiTitle ? ' · AI：' + n.aiTitle : '');
@@ -4231,6 +4314,53 @@
   }
 
   /* 唯一入口：IR → 一段可以 append 的 DOM（含如实说明的行） */
+  /* 图上实际画了什么就标什么：没有的绝不列进图例（列了等于骗人）。
+     四组都由登记表来 —— 节点类型、数据来源、数据类型、关系线型，与图上的画法同源。 */
+  function gLegend(ir) {
+    var kinds = [], models = [], dtypes = [], rels = [];
+    ir.nodes.forEach(function (n) {
+      if (n.kind && kinds.indexOf(n.kind) < 0) kinds.push(n.kind);
+      if (n.model && models.indexOf(n.model) < 0) models.push(n.model);
+      if (n.dtype && dtypes.indexOf(n.dtype) < 0) dtypes.push(n.dtype);
+    });
+    ir.edges.forEach(function (e) { if (rels.indexOf(e.rel) < 0) rels.push(e.rel); });
+    if (!kinds.length && !rels.length) return null;
+    var box = el('div', { class: 'legend' });
+    function group(items) {
+      if (box.childNodes.length) box.appendChild(el('span', { class: 'lsep' }));
+      items.forEach(function (item) { box.appendChild(item); });
+    }
+    var li = function (parts) { return el('span', { class: 'li' }, parts); };
+    if (kinds.length) {
+      group(kinds.map(function (k) {
+        var reg = kindReg(k);
+        return li([el('span', { class: 'gicon', text: reg.icon || '·' }),
+          el('span', { class: 'lgl', text: reg.label })]);
+      }));
+    }
+    if (models.length) {
+      group(models.map(function (m) {
+        return li([el('span', { class: 'gmodel m-' + m, text: MODEL_REGISTRY[m].tag }),
+          el('span', { class: 'lgl', text: MODEL_REGISTRY[m].label })]);
+      }));
+    }
+    if (dtypes.length) {
+      group(dtypes.map(function (t) {
+        return li([el('span', { class: 'gdtype t-' + t, text: DTYPE_REGISTRY[t].tag }),
+          el('span', { class: 'lgl', text: DTYPE_REGISTRY[t].label })]);
+      }));
+    }
+    if (rels.length) {
+      group(rels.map(function (rel) {
+        var reg = relReg(rel);
+        return li([el('span', { class: 'ls', style: 'color:' + reg.hue + ';border-top-width:' + reg.w +
+          'px;border-top-style:' + (reg.dash ? 'dashed' : 'solid') }),
+          el('span', { class: 'lgl', text: reg.label })]);
+      }));
+    }
+    return box;
+  }
+
   function renderGraph(ir, opts) {
     opts = opts || {};
     var frag = document.createDocumentFragment();
@@ -4254,6 +4384,9 @@
     L.nodes.forEach(function (n) { g.appendChild(gNodeEl(n, opts)); });
     wrap.appendChild(g);
     frag.appendChild(wrap);
+    /* 图例跟着图走：先图后例，说明"这些颜色和线型是什么意思" */
+    var legend = gLegend(capped.ir);
+    if (legend) frag.appendChild(legend);
     return frag;
   }
 
@@ -4450,9 +4583,12 @@
     var ir = { direction: 'TB', bands: [], nodes: [], edges: [] };
     var seq = 0, depthBands = {};
     /* sub = 名字下面那行副标题；形状图里的节点没有变更/观测数据，所以 status 一律 null（不编） */
-    function node(label, sub, kind, bandId, tip) {
+    function node(label, sub, kind, bandId, tip, dtype) {
       var n = { id: 'sn' + (seq++), label: label, sub: sub || null, kind: kind, band: bandId,
                 status: null, tip: tip || null };
+      /* 字段的数据类型单独标出来（对象/数组/字符串/枚举…）：这是"这个字段装的是什么"，
+         与 kind（结构角色）不是一回事，所以各画各的标签。 */
+      if (dtype) n.dtype = dtype;
       n.ord = ir.nodes.length;
       ir.nodes.push(n);
       return n;
@@ -4483,7 +4619,8 @@
         var unknown = !f.node || f.node.kind === 'unknown';
         var n = node(f.name, partTypeText(f.node, null),
           unknown ? 'gap' : 'part', bandAt(depth + 1).id,
-          unknown ? '这个字段的类型没解析出来（unknown）：这一支到这里就断了' : partTip(f, zh));
+          unknown ? '这个字段的类型没解析出来（unknown）：这一支到这里就断了' : partTip(f, zh),
+          dtypeOf(f.node));
         /* demo walk 的肘形规则：后面还有兄弟节点，这一支的线就得继续走 */
         n.rail = i < fields.length - 1;
         ir.edges.push({ from: parent.id, to: n.id, rel: unknown ? 'missing' : 'defines' });
@@ -4984,6 +5121,7 @@
       /* AI 中文职责随节点一起带过去：图上的副标题与悬浮提示都读它。
          没有这个字段就不画（`gCardInner` / `gNodeEl` 都只看"有没有"）。 */
       if (c.aiTitle) pn.aiTitle = c.aiTitle;
+      pn.model = modelOf(c);
       pn.ord = ir.nodes.length;
       ir.nodes.push(pn);
       if (c.id) drawn.push({ nid: pn.id, cid: c.id, band: bid });
@@ -5078,7 +5216,11 @@
         gIR.nodes.forEach(function (n) {
           var hit = null;
           all.forEach(function (it) { if (((it.contract || {}).id) === n.id) hit = it; });
-          if (hit) { n.contractId = n.id; if (!n.tip) n.tip = protocolTip(hit); }
+          if (hit) {
+            n.contractId = n.id;
+            n.model = modelOf(hit.contract);
+            if (!n.tip) n.tip = protocolTip(hit);
+          }
         });
         gIR.edges.forEach(function (e) {
           var w = whyOf[e.from + '>' + e.rel + '>' + e.to];
