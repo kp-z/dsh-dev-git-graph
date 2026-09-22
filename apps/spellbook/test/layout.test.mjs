@@ -368,3 +368,47 @@ test('画框只有两档，查词口用小件那一档', () => {
   const width = narrowField.match(/border-image-width:\s*(\d+)px/)
   assert.ok(Number(width[1]) <= 13, `窄屏画框该比 13px 细，实得 ${width[1]}px`)
 })
+
+/* ── 缩略图：点图就预览 ───────────────────────────────────────────── */
+
+test('缩略图的 iframe 必须让开指针 —— 否则点图没反应，而且不报错', () => {
+  // 缩略图的可见部分就是那块 iframe，而 iframe 是另一个文档，会自己吃掉点击。
+  // 实测：elementFromPoint 在缩略图正中心取到的是 IFRAME.row-preview-doc，
+  // 不是外面那个按钮 —— 于是整张图上只有悬停冒出来的 13px 角标点得动，
+  // 「点一下图就预览」是空话。这类失效不抛错、不报警，只能靠测试钉住。
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  const rule = css.match(/\.row-preview-doc \{[\s\S]*?\n\}/)?.[0] ?? ''
+  assert.ok(rule, '该有 .row-preview-doc 规则')
+  assert.match(rule, /pointer-events:\s*none/, '缩略图的 iframe 必须 pointer-events: none')
+})
+
+test('缩略图上的提示角标常驻，不只在悬停时出现', () => {
+  // 触屏没有悬停：把唯一的提示藏进 :hover，等于对触屏用户不存在。
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  const rule = css.match(/\n\.row-peek-zoom \{[\s\S]*?\n\}/)?.[0] ?? ''
+  assert.ok(rule, '该有 .row-peek-zoom 规则')
+  const opacity = rule.match(/opacity:\s*([\d.]+)/)
+  assert.ok(opacity, '该写明 opacity')
+  assert.ok(Number(opacity[1]) > 0, `角标默认要看得见，实得 opacity ${opacity[1]}`)
+})
+
+test('缩略图是按钮，点图与点标题各走各的', () => {
+  const html = renderIndex([entry({ slug: 'x', title: '液态玻璃面板' })])
+  const row = html.match(/<li class="row"[\s\S]*?<\/li>/)?.[0] ?? ''
+  // 缩略图必须是独立的 button，不能塞进 <a>：塞进去点图就跳条目页，预览反而开不了
+  const linkEnd = row.indexOf('</a>')
+  const peekAt = row.indexOf('row-peek')
+  assert.ok(peekAt > linkEnd, '预览按钮必须在链接之外（链接已经闭合）')
+  assert.match(row, /<button class="row-peek"[^>]*data-peek=/, '预览按钮该带 data-peek')
+  assert.match(row, /aria-label="放大预览：液态玻璃面板"/, '该说清它是放大预览')
+  assert.match(row, /<button class="row-copy"[^>]*data-prompt=/, '抄咒语仍该在')
+})
+
+test('没有对着链接去筛缩略图的死规则', () => {
+  // .row-peek 是 .row-link 的**兄弟**，不是后代。
+  // 原先写着 .row-link:hover .row-preview —— 选错了类，也选错了关系，永远匹配不上。
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  assert.doesNotMatch(css, /\.row-link:hover\s+\.row-peek/, '.row-link 里没有 .row-peek，别这么选')
+  // 改名漏掉的那处也要清掉：HTML 里已经没有任何 .row-preview 元素了
+  assert.doesNotMatch(css, /[^-]\.row-preview\s*\{/, '.row-preview 已改名 .row-peek，不该再有规则')
+})

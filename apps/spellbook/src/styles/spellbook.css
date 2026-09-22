@@ -614,14 +614,17 @@ html {
   filter: brightness(1.18);
 }
 
-/* 悬停时角上出现一个「放大」的记号，说明这块是可以点的 */
+/* 角上那个「放大」的记号：说明这块图点得开。
+   原先 opacity: 0，只有悬停才冒出来 —— 那是把唯一的提示藏了起来：
+   触屏没有悬停，看图的人永远不知道这里能点；鼠标用户也得先把光标碰上去。
+   现在常驻，只是压暗，悬停时提亮。 */
 .row-peek-zoom {
   position: absolute;
   right: 2px;
   bottom: 2px;
   width: 13px;
   height: 13px;
-  opacity: 0;
+  opacity: 0.72;
   background: var(--ground);
   transition: opacity 0.16s;
 }
@@ -690,6 +693,11 @@ html {
   /* 320 × 0.24375 = 78，正好是 104 减掉两侧 13px 框的净内容宽 */
   transform: scale(0.24375);
   transform-origin: top left;
+  /* 缩略图的可见部分就是这块 iframe —— 而 iframe 是另一个文档，它会自己吃掉点击。
+     不关掉的话点在图上什么都不会发生：elementFromPoint 在缩略图正中心取到的是
+     IFRAME，不是外面那个按钮。于是整张图上只有悬停时冒出来的 13px 角标点得动，
+     「点一下图就预览」就成了空话。关掉之后，点击与悬停都落到按钮上。 */
+  pointer-events: none;
 }
 
 .row-numeral {
@@ -726,10 +734,6 @@ html {
 .row-link:hover .row-leader {
   border-bottom-color: var(--gilt);
 }
-.row-link:hover .row-preview {
-  filter: brightness(1.22);
-}
-
 .empty {
   padding: 48px 0;
   color: var(--text-dim);
@@ -1288,7 +1292,7 @@ html {
     display: none;
   }
   /* 78 减掉两侧 9px 是 60，320 × 0.1875 = 60 */
-  .row-preview {
+  .row-peek {
     width: 78px;
     height: 58px;
     border-width: 9px;
