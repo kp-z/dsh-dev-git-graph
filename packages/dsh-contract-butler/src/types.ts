@@ -191,6 +191,10 @@ export interface DirAiRecord {
   hash: string
   titleZh: string
   noteZh: string
+  /** AI 自己写的 Mermaid 图（flowchart LR/TB）：节点是目录里的实体，边是实体间的关系。
+      面板用同一套语法解析并布局，所以这里必须是**解析器认得的**文本。空串 = 没什么可画的；
+      字段缺失 = 这一轮没产出（下次重问，不把没产出的当成产出过）。 */
+  mermaid?: string
   at: number
   /** 实际用的模型路由（与 `AiRecord.channel` 同源）。 */
   channel: string

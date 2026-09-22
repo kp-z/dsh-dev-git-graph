@@ -15,7 +15,16 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { dirHashOf, dirNameOf, groupByDir, understandDirs, validateDirPayload } from '../lib/dirAi.js'
+import {
+  buildDirPromptParts,
+  dirHashOf,
+  dirNameOf,
+  groupByDir,
+  kindOfContract,
+  understandDirs,
+  validateDirGraph,
+  validateDirPayload,
+} from '../lib/dirAi.js'
 import type { ContractRecord, DirAiRecord } from '../lib/types.js'
 import type { TableLike } from '../lib/store.js'
 
@@ -86,7 +95,11 @@ const GOOD = { dirs: [{ path: 'src/hooks', title: '钩子集合', note: '放各�
 test('校验：合格就放行，原样给出中文', () => {
   const checked = validateDirPayload(JSON.stringify(GOOD), ['src/hooks'])
   assert.equal(checked.ok, true)
-  if (checked.ok) assert.deepEqual(checked.items, [{ path: 'src/hooks', title: '钩子集合', note: '放各处复用的 React 钩子' }])
+  if (checked.ok) {
+    assert.deepEqual(checked.items, [
+      { path: 'src/hooks', title: '钩子集合', note: '放各处复用的 React 钩子', graph: '' },
+    ])
+  }
 })
 
 test('校验：缺一个目录 → 整批拒绝（不补、不猜）', () => {
@@ -328,4 +341,135 @@ test('目录图接线：关系边进 IR、说明里报口径、开关能关掉',
   const shapeEnd = html.indexOf('function enumGraphIR')
   assert.ok(shape > 0 && shapeEnd > shape)
   assert.ok(!html.slice(shape, shapeEnd).includes('dirRelEdges'), '形状图不掺和目录图的关系边')
+})
+
+
+/* ---------- 6) AI 自己写的 Mermaid 图 ---------- */
+
+const GRAPH_OK = [
+  'flowchart LR',
+  'c1["useX"]:::protocol',
+  'c2["useY"]:::protocol',
+  'c1-->|imports|c2',
+].join('\n')
+
+/** 两个实体、一条关系的目录：AI 要照着这个写图。 */
+function graphDir(): ContractRecord[] {
+  return [
+    contract('c1', 'src/hooks/useX.ts', {
+      input: { kind: 'object' } as never,
+      output: { kind: 'object' } as never,
+      aiRelations: [{ to: 'c2', rel: 'imports', why: '调用了 useY' }] as never,
+    }),
+    contract('c2', 'src/hooks/useY.ts', {
+      input: { kind: 'object' } as never,
+      output: { kind: 'object' } as never,
+    }),
+  ]
+}
+
+test('节点类型：口径与面板的 protocolKindOf 一致', () => {
+  assert.equal(kindOfContract(contract('c1', 'a.ts')), 'gap', '没有形状就是缺口')
+  assert.equal(kindOfContract(contract('c1', 'a.ts', {
+    input: { kind: 'unknown' } as never,
+    output: { kind: 'unknown' } as never,
+  })), 'gap', '两边都读不动也是缺口')
+  assert.equal(kindOfContract(contract('c1', 'a.ts', { input: { kind: 'object' } as never })), 'protocol')
+})
+
+test('图校验：空的就认（没什么可画的），合格的原样放行', () => {
+  const allowed = new Set(['c1', 'c2'])
+  const declared = new Set(['c1\u0000imports\u0000c2'])
+  const kindOf = (id: string) => (allowed.has(id) ? 'protocol' : '')
+  assert.deepEqual(validateDirGraph('', allowed, kindOf, declared), { ok: true, nodes: 0, edges: 0 })
+  const good = validateDirGraph(GRAPH_OK, allowed, kindOf, declared)
+  assert.equal(good.ok, true)
+  if (good.ok) assert.deepEqual({ nodes: good.nodes, edges: good.edges }, { nodes: 2, edges: 1 })
+})
+
+test('图校验：首行不对 / 编契约 / 类型标错 / 编关系 / 看不懂的行 → 全拒', () => {
+  const allowed = new Set(['c1', 'c2'])
+  const declared = new Set(['c1\u0000imports\u0000c2'])
+  const kindOf = (id: string) => (allowed.has(id) ? 'protocol' : '')
+  const bad = (text: string) => {
+    const checked = validateDirGraph(text, allowed, kindOf, declared)
+    assert.equal(checked.ok, false, `这段本该被拒：${text}`)
+    return checked.ok === false ? checked.why : ''
+  }
+  assert.match(bad('graph LR\nc1["a"]:::protocol'), /flowchart/)
+  assert.match(bad('flowchart LR\nc9["编的"]:::protocol'), /不在这个目录/)
+  assert.match(bad('flowchart LR\nc1["a"]:::gap'), /其实是 protocol/)
+  assert.match(bad('flowchart LR\nc1["a"]:::protocol\nc2["b"]:::protocol\nc1-->|emits|c2'), /不在给定的关系里/)
+  assert.match(bad('flowchart LR\nc1["a"]:::protocol\nc2["b"]:::protocol\nsubgraph g["组"]'), /看不懂/)
+  assert.match(bad('flowchart LR\nc1["a"]:::protocol\nc1["b"]:::protocol'), /声明了两遍/)
+})
+
+test('提示词：实体要带 id 与类型，关系要给全（边只能从这里面挑）', () => {
+  const dirs = graphDir()
+  const parts = buildDirPromptParts(['src/hooks'], new Map([['src/hooks', dirs]]), (c) => c.aiRelations ?? [])
+  const parsed = JSON.parse(parts.user) as {
+    dirs: { path: string; members: { id: string; kind: string }[]; relations: { from: string; rel: string; to: string; why?: string }[] }[]
+  }
+  const one = parsed.dirs[0]
+  assert.equal(one?.path, 'src/hooks')
+  assert.deepEqual(one?.members.map((m) => [m.id, m.kind]), [['c1', 'protocol'], ['c2', 'protocol']])
+  assert.deepEqual(one?.relations, [{ from: 'c1', rel: 'imports', to: 'c2', why: '调用了 useY' }])
+  assert.ok(parts.system.includes('flowchart LR'), '系统提示里要写清图怎么画')
+})
+
+/** 照请求回中文，并且顺手写一张合格的图。 */
+function graphingCaller(state: { calls: number; graph?: string }) {
+  return async (turn: { system: string; user: string }) => {
+    state.calls += 1
+    const parsed = JSON.parse(turn.user) as { dirs: { path: string; members: { id: string; kind: string }[]; relations: { from: string; rel: string; to: string }[] }[] }
+    const dirs = parsed.dirs.map((dir) => {
+      const lines = ['flowchart LR']
+      dir.members.forEach((m) => lines.push(`${m.id}["${m.id}"]:::${m.kind}`))
+      dir.relations.forEach((r) => lines.push(`${r.from}-->|${r.rel}|${r.to}`))
+      return { path: dir.path, title: '钩子集合', note: '放各处复用的钩子', graph: state.graph ?? lines.join('\n') }
+    })
+    return { text: JSON.stringify({ dirs }), channel: 'skynet · fake-model', ms: 1 }
+  }
+}
+
+test('存图：AI 给的图合格就写进这一行，再跑一次连图一起命中缓存', async () => {
+  const { table, store } = mount()
+  const contracts = graphDir()
+  const state: { calls: number; graph?: string } = { calls: 0 }
+  const first = await understandDirs({ store: store as never, projectId: 'p1', contracts, caller: graphingCaller(state) as never })
+  assert.equal(first.generated, 1)
+  assert.equal(first.graphFailed, 0)
+  const row = table.dump()[0]
+  assert.ok(row?.mermaid && row.mermaid.includes('c1-->|imports|c2'), '图要原样存下来')
+
+  const second = await understandDirs({ store: store as never, projectId: 'p1', contracts, caller: graphingCaller(state) as never })
+  assert.equal(second.cached, 1, '中文与图都在，就该一个请求都不发')
+  assert.equal(state.calls, 1)
+})
+
+test('图不合格：留中文、不存图、如实计数，并且下次还会重问', async () => {
+  const { table, store } = mount()
+  const contracts = graphDir()
+  const state = { calls: 0, graph: 'flowchart LR\nc1["x"]:::protocol\nc2["y"]:::protocol\nc1-->|emits|c2' }
+  const first = await understandDirs({ store: store as never, projectId: 'p1', contracts, caller: graphingCaller(state) as never })
+  assert.equal(first.generated, 1, '中文是好的，不该连中文一起丢')
+  assert.equal(first.graphFailed, 1)
+  assert.equal(table.dump()[0]?.titleZh, '钩子集合')
+  assert.equal(table.dump()[0]?.mermaid, undefined, '没产出图就不许有图')
+
+  /* 没有图的行不算命中：否则这一行会永远没有图。 */
+  const again = await understandDirs({ store: store as never, projectId: 'p1', contracts, caller: graphingCaller(state) as never })
+  assert.equal(again.cached, 0)
+  assert.equal(state.calls, 2)
+})
+
+test('面板接线：AI 图优先渲染，读不动就退回分区图并把原因写出来', () => {
+  const html = panelSource()
+  assert.ok(html.includes('parseMermaidGraph(dai.mermaid)'), '目录视图要拿 AI 给的图去解析')
+  assert.ok(html.includes('这张图是 AI 画的（Mermaid）'), '要交代这张图是谁画的')
+  assert.ok(html.includes('AI 给的图读不动'), '解析不过要说明原因，不能静默换图')
+  assert.ok(html.includes('function pickContractNode'), '点节点定位契约要提成同一个函数，两条路都用它')
+  assert.equal((html.match(/pick: pickContractNode/g) ?? []).length, 2, '两张图（AI 图与分区图）都用它')
+  assert.ok(html.includes("n.contractId = n.id"), '解析出来的节点要挂回契约才能点')
+  assert.ok(html.includes("whyOf[e.from + '>' + e.rel + '>' + e.to]"), '关系的理由要从 aiRelations 找回来给悬浮提示')
 })

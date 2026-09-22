@@ -5012,6 +5012,15 @@
   }
 
 
+  /* 点协议卡片直接进详情；点分组带 / 字段卡片不跳走，图上点到哪都是"看结构"。 */
+  function pickContractNode(n) {
+    var id = n && n.contractId;
+    if (!id) return;
+    S.dirView = null;
+    S.sel = id;
+    revealInTree(id);
+  }
+
   function renderDirView(ctx) {
     var box = $('#detail');
     clear(box);
@@ -5051,20 +5060,52 @@
       box.appendChild(el('div', { class: 'scrollarea' }, noteRow(), block));
       return;
     }
+    /* AI 画的图（Mermaid）优先：实体与关系都由模型声明，面板只解析 + 布局，用的是同一套引擎。
+       读不动就退回分区图，并把原因写在图上 —— 绝不静默换一张图给你看。 */
+    var gIR = null, gWhy = '';
+    if (dai && typeof dai.mermaid === 'string' && dai.mermaid !== '') {
+      var parsed = parseMermaidGraph(dai.mermaid);
+      if (parsed.ok) {
+        gIR = parsed.ir;
+        /* 节点的 id 就是契约 id（服务端也是这么校验的）：挂回契约，点一下能定位；
+           关系理由从成员声明的 aiRelations 里找回来，悬浮时能看见"为什么"。 */
+        var whyOf = {};
+        all.forEach(function (it) {
+          var c = (it && it.contract) || {};
+          (c.aiRelations || []).forEach(function (r) { whyOf[c.id + '>' + r.rel + '>' + r.to] = r.why || ''; });
+        });
+        gIR.nodes.forEach(function (n) {
+          var hit = null;
+          all.forEach(function (it) { if (((it.contract || {}).id) === n.id) hit = it; });
+          if (hit) { n.contractId = n.id; if (!n.tip) n.tip = protocolTip(hit); }
+        });
+        gIR.edges.forEach(function (e) {
+          var w = whyOf[e.from + '>' + e.rel + '>' + e.to];
+          if (w) e.why = w;
+        });
+        gIR.note = '这张图是 AI 画的（Mermaid）：实体与关系都是模型声明的，面板只负责解析与布局。';
+      } else {
+        gWhy = 'AI 给的图读不动（第 ' + parsed.no + ' 行：' + parsed.why + '），先给你看分区图。';
+      }
+    }
+    if (gWhy) block.appendChild(el('div', { class: 'note', text: gWhy }));
+    if (gIR) {
+      block.appendChild(renderGraph(gIR, {
+        avail: avail,
+        emptyText: '这张 AI 图里没有实体。',
+        pickDir: function (dirPath, here) { revealDirInTree(dirPath, here); },
+        pick: pickContractNode,
+      }));
+      box.appendChild(el('div', { class: 'scrollarea' }, noteRow(), block));
+      return;
+    }
     /* 图上少画了谁、少了多少，由 IR 层如实报出来（capNote），这里不再自己截断 */
     block.appendChild(renderGraph(dirGraphIR(path, plan), {
       avail: avail,
       emptyText: '这个范围里没有可以画成节点的协议。',
       /* 点带的标题 = 在左树里定位到这个块对应的子目录（与清单页同一个入口） */
       pickDir: function (dirPath, here) { revealDirInTree(dirPath, here); },
-      pick: function (n) {
-        /* 点协议卡片直接进详情；点分组带 / 字段卡片不跳走，图上点到哪都是"看结构" */
-        var id = n.contractId;
-        if (!id) return;
-        S.dirView = null;
-        S.sel = id;
-        revealInTree(id);
-      }
+      pick: pickContractNode
     }));
     box.appendChild(el('div', { class: 'scrollarea' }, noteRow(), block));
   }

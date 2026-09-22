@@ -75,6 +75,8 @@ export interface DirAiSummary {
   generated: number
   cached: number
   failed: number
+  /** 中文合格、但 AI 给的 Mermaid 图没过校验的目录数（这些目录这一轮没有图）。 */
+  graphFailed: number
   /** 模型没给、或校验没过被整批拒掉的目录路径。 */
   missing: string[]
 }
@@ -100,20 +102,27 @@ function safeStringify(value: unknown): string {
 
 /** 这套 prompt 的口径：目录是"这一层放什么"，不是逐个文件的复述。 */
 export const DIR_PROMPT_INTRO = [
-  '你在读一个代码仓库的目录结构，要给每个目录写一句中文职责。',
-  '输入是一个 JSON：{"dirs":[{"path":"目录路径","members":[{"symbol":"符号名","file":"文件路径","boundary":"边界种类","title":"已有的中文（可能没有）"}]}]}。',
-  '要求：',
-  '1) 只输出 JSON，不要解释、不要 Markdown 围栏。',
-  '2) 形状必须是 {"dirs":[{"path":"原样抄回的目录路径","title":"≤12 个字的职责","note":"4-40 个字说明这个目录负责什么"}]}。',
-  '3) 输入的每个目录都要出现且只出现一次，path 必须逐字抄回；**不许新增输入里没有的目录**。',
-  '4) title 与 note 必须是中文（含中日韩汉字），不要写英文、不要写"未知""待补充"这类空话。',
-  '5) 依据只能是输入给的东西：目录路径与成员的符号名/边界/已有中文。看不出来就写这个目录"放的是哪一类东西"，不要编业务含义。',
+  '你在读一个代码仓库的目录结构。对每个目录给出：中文职责、一句话说明，以及一张 Mermaid 图。',
+  '输入 JSON：{"dirs":[{"path":"目录路径","members":[{"id":"契约 id","symbol":"符号名","kind":"protocol|gap","file":"文件路径","title":"成员已有中文（可能没有）"}],"relations":[{"from":"契约 id","rel":"关系词","to":"契约 id","why":"理由"}]}]}。',
+  '只输出 JSON，不要解释、不要 Markdown 围栏。形状必须是：',
+  '{"dirs":[{"path":"原样抄回","title":"不超过 12 个字的职责","note":"4-40 个字说明这个目录负责什么","graph":"Mermaid 文本；没有可画的就写空串"}]}',
+  'graph 的写法（面板用的就是这个解析器，多一个字符都不认）：',
+  '1) 第一行只能是 flowchart LR 或 flowchart TB；',
+  '2) 每个实体一行：<契约 id>["显示名"]:::protocol（或 :::gap）—— 契约 id 必须原样照抄输入里的 id；',
+  '3) 每条关系一行：<契约 id>-->|关系词|<契约 id> —— 关系词只能是 contains/imports/emits/defines；',
+  '4) 边只能画输入 relations 里给的那些，**不许自己新增关系**，也不许把没给过的两端连起来；',
+  '5) 最多 40 个实体、80 条边；不要写 subgraph，不要写注释，不要出现 %% 开头的行。',
+  '其它：输入的每个目录都要出现且只出现一次，path 必须逐字抄回，不许新增输入里没有的目录；',
+  'title 与 note 必须是中文（含中日韩汉字），不许写"未知""待补充"这类空话；',
+  '依据只能是输入给的东西：目录路径、成员符号名、以及给定的关系。不要编业务含义。',
 ].join('\n')
 
 export interface DirPayload {
   path: string
   title: string
   note: string
+  /** AI 写的 Mermaid 图；空串 = 它说这个目录没什么可画的。图的合法性单独校验（见 validateDirGraph）。 */
+  graph: string
 }
 
 export type DirValidateResult =
@@ -156,30 +165,129 @@ export function validateDirPayload(raw: unknown, wantPaths: readonly string[]): 
       return { ok: false, why: `${path} 的 note 长度越界（${note.length}）`, raw: rawText }
     }
     seen.add(path)
-    out.push({ path, title, note })
+    const graph = typeof item.graph === 'string' ? item.graph.trim() : ''
+    out.push({ path, title, note, graph })
   }
   const absent = wantPaths.filter((path) => !seen.has(path))
   if (absent.length > 0) return { ok: false, why: `这些目录没给：${absent.join('、')}`, raw: rawText }
   return { ok: true, items: out }
 }
 
-/** 把一组目录摊成给模型看的 JSON：只放它需要的，不放记录里其它东西。 */
+/** 节点类型：口径与面板的 `protocolKindOf` 一致（有形状才算协议，两边都读不动就是缺口）。 */
+export function kindOfContract(contract: ContractRecord): 'protocol' | 'gap' {
+  const sides = [contract.input, contract.output].filter((side) => side !== null && side !== undefined)
+  if (sides.length === 0) return 'gap'
+  return sides.every((side) => (side as { kind?: string }).kind === 'unknown') ? 'gap' : 'protocol'
+}
+
+/** 图上最多多少个实体 / 多少条边：再大就不是"一眼看懂"的图了。 */
+const DIR_GRAPH_MAX_NODES = 40
+const DIR_GRAPH_MAX_EDGES = 80
+
+/** 关系词与面板的 `M_RELS` 同源（面板多一个 missing，那是它自己标缺口的，不许模型用）。 */
+const DIR_GRAPH_RELS = new Set(['contains', 'imports', 'emits', 'defines'])
+
+export type DirGraphCheck = { ok: true; nodes: number; edges: number } | { ok: false; why: string }
+
+/**
+ * 校验 AI 写的 Mermaid 图。
+ *
+ * 语法必须与面板的 `parseMermaidGraph` 逐字对齐——面板认不认这段文本，决定用户能不能看见图，
+ * 所以这里不能比它松：松一点的结果是"存下来了、面板渲染不出来"。
+ * 另外两条闸门：实体只能是给过的 id（不许编契约），边只能是已声明的 AI 关系（不许编关系）。
+ */
+export function validateDirGraph(
+  text: string,
+  allowedIds: ReadonlySet<string>,
+  kindOfId: (id: string) => string,
+  declaredRelations: ReadonlySet<string>,
+): DirGraphCheck {
+  const raw = String(text ?? '').trim()
+  if (raw === '') return { ok: true, nodes: 0, edges: 0 }
+  const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0)
+  const head = lines[0] ?? ''
+  if (!/^flowchart[ \t]+(LR|TB)$/.test(head)) {
+    return { ok: false, why: '第一行必须是 flowchart LR 或 flowchart TB' }
+  }
+  const declared = new Set<string>()
+  let edges = 0
+  for (let at = 1; at < lines.length; at += 1) {
+    const line = lines[at] as string
+    const node = /^([A-Za-z_]\w*)\["((?:[^"\\]|\\.)*)"\]:::(protocol|gap)$/.exec(line)
+    if (node !== null) {
+      const id = node[1] as string
+      if (!allowedIds.has(id)) return { ok: false, why: `第 ${at + 1} 行的 ${id} 不在这个目录的输入里` }
+      if (declared.has(id)) return { ok: false, why: `第 ${at + 1} 行把 ${id} 声明了两遍` }
+      const label = node[2] as string
+      if (label.trim() === '') return { ok: false, why: `第 ${at + 1} 行的显示名是空的` }
+      if (label.length > 60) return { ok: false, why: `第 ${at + 1} 行的显示名超过 60 字` }
+      if (/<[a-z!/][^>]*>/i.test(label)) return { ok: false, why: `第 ${at + 1} 行的显示名含 HTML 标签` }
+      const kind = node[3] as string
+      const want = kindOfId(id)
+      if (want !== '' && want !== kind) {
+        return { ok: false, why: `第 ${at + 1} 行把 ${id} 标成了 ${kind}，它其实是 ${want}` }
+      }
+      declared.add(id)
+      if (declared.size > DIR_GRAPH_MAX_NODES) return { ok: false, why: `实体超过 ${DIR_GRAPH_MAX_NODES} 个` }
+      continue
+    }
+    const edge = /^([A-Za-z_]\w*)[ \t]*-->[ \t]*\|[ \t]*([A-Za-z_]\w*)[ \t]*\|[ \t]*([A-Za-z_]\w*)$/.exec(line)
+    if (edge !== null) {
+      const from = edge[1] as string
+      const rel = edge[2] as string
+      const to = edge[3] as string
+      if (!DIR_GRAPH_RELS.has(rel)) return { ok: false, why: `第 ${at + 1} 行的关系词 ${rel} 不在允许的里面` }
+      if (!declaredRelations.has(`${from}\u0000${rel}\u0000${to}`)) {
+        return { ok: false, why: `第 ${at + 1} 行的关系 ${from}→${to} 不在给定的关系里（不许自己新增）` }
+      }
+      edges += 1
+      if (edges > DIR_GRAPH_MAX_EDGES) return { ok: false, why: `关系超过 ${DIR_GRAPH_MAX_EDGES} 条` }
+      continue
+    }
+    return { ok: false, why: `第 ${at + 1} 行看不懂：${line}` }
+  }
+  if (declared.size === 0) return { ok: false, why: '一个实体都没声明' }
+  return { ok: true, nodes: declared.size, edges }
+}
+
+/** 把一组目录摊成给模型看的 JSON：实体要给 id（它要照着写进图里），关系要给全（边只能从这里面挑）。 */
 export function buildDirPromptParts(
   paths: readonly string[],
   membersOf: ReadonlyMap<string, readonly ContractRecord[]>,
+  relationsOf: (contract: ContractRecord) => readonly { to: string; rel: string; why?: string }[] = () => [],
 ): { system: string; user: string } {
-  const dirs = paths.map((path) => ({
-    path,
-    members: (membersOf.get(path) ?? []).slice(0, 12).map((contract) => {
-      const row: Record<string, string> = {
-        symbol: contract.symbol,
-        file: contract.file,
-        boundary: contract.boundaryKind ?? '',
+  const dirs = paths.map((path) => {
+    const members = (membersOf.get(path) ?? []).slice(0, DIR_GRAPH_MAX_NODES)
+    const onGraph = new Set(members.map((contract) => contract.id))
+    const relations: { from: string; rel: string; to: string; why?: string }[] = []
+    for (const contract of members) {
+      for (const relation of relationsOf(contract)) {
+        /* 只给"图上的实体之间"的关系：对端不在这一批里，模型画了也连不上。 */
+        if (!onGraph.has(relation.to)) continue
+        const row: { from: string; rel: string; to: string; why?: string } = {
+          from: contract.id,
+          rel: relation.rel,
+          to: relation.to,
+        }
+        if (relation.why !== undefined) row.why = relation.why
+        relations.push(row)
       }
-      if (contract.aiTitle) row.title = contract.aiTitle
-      return row
-    }),
-  }))
+    }
+    return {
+      path,
+      members: members.map((contract) => {
+        const row: Record<string, string> = {
+          id: contract.id,
+          symbol: contract.symbol,
+          kind: kindOfContract(contract),
+          file: contract.file,
+        }
+        if (contract.aiTitle) row.title = contract.aiTitle
+        return row
+      }),
+      relations,
+    }
+  })
   return { system: DIR_PROMPT_INTRO, user: JSON.stringify({ dirs }) }
 }
 
@@ -225,7 +333,8 @@ export async function understandDirs(input: DirAiInput): Promise<DirAiSummary> {
     const hash = dirHashOf(path, members)
     hashes.set(path, hash)
     const row = force ? undefined : table.get(dirKeyOf(projectId, path))
-    if (row !== undefined && row.hash === hash) {
+    /* 命中要求"这一行有图"：本功能之前写下的行没有图，让它重问一次补上，而不是永远没有图。 */
+    if (row !== undefined && row.hash === hash && row.mermaid !== undefined) {
       resolved.push(row)
       cached += 1
       continue
@@ -239,11 +348,13 @@ export async function understandDirs(input: DirAiInput): Promise<DirAiSummary> {
   let done = cached
   const missing: string[] = []
   let failed = 0
+  /** 中文过了、图没过的目录数：如实报出来，不假装产出过图。 */
+  let graphFailed = 0
   let channel = ''
 
   const results = await runPool(
     batches.map((paths) => async () => {
-      const turn = buildDirPromptParts(paths, grouped)
+      const turn = buildDirPromptParts(paths, grouped, (contract) => contract.aiRelations ?? [])
       try {
         const answer = await caller(turn)
         channel = answer.channel || channel
@@ -254,6 +365,19 @@ export async function understandDirs(input: DirAiInput): Promise<DirAiSummary> {
           return
         }
         for (const item of checked.items) {
+          const members = grouped.get(item.path) ?? []
+          const allowed = new Set(members.map((contract) => contract.id))
+          const kinds = new Map(members.map((contract) => [contract.id, kindOfContract(contract)]))
+          const declared = new Set<string>()
+          for (const contract of members) {
+            for (const relation of contract.aiRelations ?? []) {
+              declared.add(`${contract.id}\u0000${relation.rel}\u0000${relation.to}`)
+            }
+          }
+          /* 图单独判：中文好、图不对时**保留中文**，只是这一轮没有图（字段缺失 → 下次重问）。
+             整批连中文一起丢，等于因为一张画错的图把已经对的东西也扔了。 */
+          const graph = validateDirGraph(item.graph, allowed, (id) => kinds.get(id) ?? '', declared)
+          if (!graph.ok) graphFailed += 1
           const record: DirAiRecord = {
             id: dirKeyOf(projectId, item.path),
             projectId,
@@ -264,6 +388,7 @@ export async function understandDirs(input: DirAiInput): Promise<DirAiSummary> {
             at: Date.now(),
             channel: answer.channel,
           }
+          if (graph.ok) record.mermaid = item.graph
           await table.put(record.id, record)
           resolved.push(record)
         }
@@ -281,5 +406,5 @@ export async function understandDirs(input: DirAiInput): Promise<DirAiSummary> {
 
   /* 顺序按目录路径排好再交出去：面板按 path 建表，顺序不影响，但人看日志时稳定。 */
   resolved.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-  return { dirs: resolved, generated: resolved.length - cached, cached, failed, missing }
+  return { dirs: resolved, generated: resolved.length - cached, cached, failed, missing, graphFailed }
 }

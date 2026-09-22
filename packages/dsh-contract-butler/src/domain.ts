@@ -144,6 +144,8 @@ export const dirAiSchema = z.object({
   hash: z.string(),
   titleZh: z.string(),
   noteZh: z.string(),
+  /** AI 写的 Mermaid 图。老行没有这一项，所以 optional；缺它就是"这一轮没产出"。 */
+  mermaid: z.string().optional(),
   at: z.number(),
   channel: z.string(),
 })
