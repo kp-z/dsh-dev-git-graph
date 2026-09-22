@@ -1,6 +1,6 @@
 # 给存量咒语重打标签 —— 派工书
 
-工作目录：`/Users/kp/DEV/dsh-plugins/apps/spellbook`
+工作目录：`/Users/kp/DEV/dsh-plugins/packages/dsh-spellbook`
 
 ## 背景（一句话）
 

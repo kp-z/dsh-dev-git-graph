@@ -8,9 +8,9 @@
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
     "dev:plugin": "pnpm --filter dsh-example-tool run dev",
-    "build:site": "node apps/spellbook/build.mjs",
-    "dev:site": "node apps/spellbook/serve.mjs",
-    "test:site": "node --test apps/spellbook/test/",
+    "build:site": "node packages/dsh-spellbook/build.mjs",
+    "dev:site": "node packages/dsh-spellbook/serve.mjs",
+    "test:site": "node --test packages/dsh-spellbook/test/",
     "install:web": "bash scripts/install-to-profile.sh web",
     "remove:web": "bash scripts/remove-from-profile.sh web",
     "reinstall:web": "bash scripts/reinstall-in-profile.sh web"

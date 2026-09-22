@@ -17,7 +17,7 @@
 
 ## 应用内目录规范（apps/<name>/）
 
-以 `apps/spellbook/`（咒语书）为准：
+以 `packages/dsh-spellbook/`（咒语书）为准：
 
 ```
 apps/<name>/

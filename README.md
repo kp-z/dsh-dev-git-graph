@@ -25,6 +25,8 @@ dsh-plugins/
 │   └── new-plugin.sh           # 脚手架：从 templates/ 生成新插件包
 ├── templates/
 │   └── tool-plugin/        # 工具类插件模板（new-plugin.sh 使用）
+├── apps/
+│   └── spellbook/          # 咒语书 · 前端效果库（独立站点，非 workspace 成员）
 └── packages/
     ├── example-tool/       # 最小工具插件示例
     ├── dsh-mermaid-comm/   # 让 AI 优先用 Mermaid 图交流的插件（MVP：prompt 引导 + 校验工具）
@@ -57,6 +59,20 @@ pnpm install:web
 | `pnpm reinstall:web` | 重装（开发联调） |
 | `bash scripts/new-plugin.sh my-plugin` | 从模板生成新插件包 |
 | `pnpm --filter <pkg> run dev` | 单个插件的 watch 构建 |
+| `pnpm dev:site` | 启动咒语书本地预览（默认 `127.0.0.1:5180`，改内容自动重建） |
+| `pnpm build:site` | 构建咒语书 → `packages/dsh-spellbook/dist/` |
+| `pnpm test:site` | 咒语书的解析与校验测试 |
+
+## 咒语书 · 前端效果库
+
+`packages/dsh-spellbook/` 是一个独立站点（**不是** workspace 成员，不参与 `pnpm -r run build`）：
+把「一句话能带来什么前端效果」沉淀成可检索的库。一条咒语 = 一段描述 + 一段示例代码，
+描述负责说清机制，代码负责证明它跑得起来，图版里跑的是真实代码。
+
+零运行时依赖、零 CDN、字体自托管。内容即唯一真相，`shared/` 里的解析与校验不依赖 DOM，
+将来会被 DSH 插件直接复用（插件的目标是自动匹配咒语并在沙盒里预览）。
+
+详见 [packages/dsh-spellbook/README.md](packages/dsh-spellbook/README.md)。
 
 ## 目标 profile 选择
 

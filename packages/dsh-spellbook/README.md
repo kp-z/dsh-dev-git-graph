@@ -348,9 +348,9 @@ source: miniMAC/magic（MIT） — openDownLeft，改写为独立最小示例
 | `exportState()` / `importState(s)` | 把不可重建的那部分搬走 / 合并回来（按内容去重，可重复导入） |
 
 ```bash
-pnpm --dir apps/spellbook vault rebuild
-pnpm --dir apps/spellbook vault search "要个跟着指针动的按钮"
-pnpm --dir apps/spellbook vault export --out backup.json
+pnpm --dir packages/dsh-spellbook vault rebuild
+pnpm --dir packages/dsh-spellbook vault search "要个跟着指针动的按钮"
+pnpm --dir packages/dsh-spellbook vault export --out backup.json
 ```
 
 **排序**：`exp(bm25/4) × 分层权重(core 1 / 候选 0.4 / 归档 0.05) × 历史先验`。

@@ -2,7 +2,7 @@
 
 这份文件是给**并行采集工人**看的说明书。目标：为「咒语书」批量新增前端效果条目。
 
-站点在 `apps/spellbook/`。每条「咒语」= **一段描述 + 一段最小可跑的示例代码**。
+站点在 `packages/dsh-spellbook/`。每条「咒语」= **一段描述 + 一段最小可跑的示例代码**。
 已有 125 条，在 `content/effects/*.md`。你这一批负责其中一部分。
 
 ---
@@ -214,7 +214,7 @@ params:
 ## 六、自检（必须做，做到全绿）
 
 ```bash
-cd /Users/kp/DEV/dsh-plugins/apps/spellbook
+cd /Users/kp/DEV/dsh-plugins/packages/dsh-spellbook
 node scripts/check-file.mjs content/effects/你写的每一条.md
 ```
 

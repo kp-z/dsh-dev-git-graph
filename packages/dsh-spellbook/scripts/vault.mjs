@@ -11,7 +11,7 @@
  *   node scripts/vault.mjs propose "要个跟着指针动的按钮" [--limit 3]
  *   node scripts/vault.mjs inbox
  *
- * 环境变量 SPELLBOOK_VAULT 可以指定数据库路径，默认 apps/spellbook/data/vault.db。
+ * 环境变量 SPELLBOOK_VAULT 可以指定数据库路径，默认 packages/dsh-spellbook/data/vault.db。
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
