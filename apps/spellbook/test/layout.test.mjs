@@ -252,3 +252,119 @@ test('所有分类筹码都在 role=group 容器里', () => {
   const between = html.slice(groupEnd, html.indexOf('concordance-status', groupEnd))
   assert.equal((between.match(/scope-chip/g) ?? []).length, 0, '不该有筹码散在 group 外面')
 })
+
+/* ── 刊头：书名与检索口一行，检索口吸顶 ───────────────────────────── */
+
+test('查词口住在刊头里，跟书名单行并排', () => {
+  const html = renderIndex([entry({ slug: 'x' })])
+  const masthead = html.match(/<header class="masthead">[\s\S]*?<\/header>/)?.[0] ?? ''
+  assert.ok(masthead, '该有刊头')
+  assert.match(masthead, /class="wordmark"/, '书名叫 wordmark')
+  assert.match(masthead, /class="concordance-field"/, '查词口要在刊头里')
+  assert.match(masthead, /id="spellbook-query"/, '输入框也在刊头里')
+  assert.match(masthead, /data-theme-toggle/, '明暗开关也在这一行')
+  // 查词口必须排在书名之后、明暗开关之前 —— 这一行的次序就是「书 → 查 → 灯」
+  assert.ok(
+    masthead.indexOf('wordmark') < masthead.indexOf('concordance-field'),
+    '书名在查词口左边',
+  )
+  assert.ok(
+    masthead.indexOf('concordance-field') < masthead.indexOf('data-theme-toggle'),
+    '查词口在明暗开关左边',
+  )
+})
+
+test('「说一句你要的效果」那个标题已经去掉', () => {
+  const html = renderIndex([entry({ slug: 'x' })])
+  assert.doesNotMatch(html, /说一句你要的效果/, '这句话不该再出现在页面上')
+  assert.doesNotMatch(html, /concordance-head/, '它的样式钩子也该一并清掉')
+})
+
+test('首页只剩一个 h1，就是书名 —— 标题去掉了，一级标题得有人接班', () => {
+  const html = renderIndex([entry({ slug: 'x' })])
+  const h1s = html.match(/<h1[\s>]/g) ?? []
+  assert.equal(h1s.length, 1, `首页该正好一个 h1，实得 ${h1s.length}`)
+  const masthead = html.match(/<header class="masthead">[\s\S]*?<\/header>/)?.[0] ?? ''
+  assert.match(masthead, /<h1 class="masthead-heading">/, '这个 h1 该是刊头里的书名')
+})
+
+test('内页的 h1 仍是条目名，不吃刊头那一份', () => {
+  const html = renderSpell(entry({ slug: 'x', title: '液态玻璃面板' }), {
+    ordinal: 1,
+    total: 1,
+    chapter: { index: 1 },
+  })
+  const h1s = html.match(/<h1[\s>]/g) ?? []
+  assert.equal(h1s.length, 1, '内页也该正好一个 h1')
+  assert.match(html, /<h1 class="title">/)
+  assert.doesNotMatch(html, /masthead-heading/, '内页书名的 h1 不该出现')
+})
+
+test('查词口的记号是魔杖，不是「查」字，但可访问名还在', () => {
+  const html = renderIndex([entry({ slug: 'x' })])
+  const masthead = html.match(/<header class="masthead">[\s\S]*?<\/header>/)?.[0] ?? ''
+  assert.doesNotMatch(masthead, /concordance-label/, '「查」字标签该没有了')
+  assert.match(masthead, /class="concordance-wand"/, '该换成魔杖')
+  // 魔杖是 aria-hidden 的画，读屏读不出，所以必须有别的办法说出这个输入框叫什么
+  assert.match(
+    masthead,
+    /<label class="concordance-mark"[^>]*>[\s\S]*?class="visually-hidden">[^<]+</,
+    '标签里要有一段只给读屏看的文字当可访问名',
+  )
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  assert.match(css, /\.visually-hidden \{/, '配套的隐藏类得在样式表里')
+})
+
+test('刊头吸顶，并且是不透明的 —— 透字就废了', () => {
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  const rule = css.match(/^\.masthead \{[\s\S]*?^\}/m)?.[0] ?? ''
+  assert.ok(rule, '该有 .masthead 规则')
+  assert.match(rule, /position:\s*sticky/, '刊头要吸顶')
+  assert.match(rule, /top:\s*0/, '吸在顶边')
+  assert.match(rule, /z-index:\s*\d/, '要压住底下的内容')
+  assert.match(rule, /background:\s*var\(--ground\)/, '底必须不透明')
+})
+
+test('章目导航吸顶时让开刊头，两级不会叠在一起', () => {
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  const rule = css.match(/^\.chapter-nav \{[\s\S]*?^\}/m)?.[0] ?? ''
+  assert.match(rule, /position:\s*sticky/)
+  assert.match(rule, /top:\s*calc\(var\(--masthead-h\)/, '让开的量要由 --masthead-h 算出来')
+  // 刊头多高是内容定的（字号、字体加载都会变），写死数字迟早错位，
+  // 所以得由脚本量一次写进变量。
+  const js = readFileSync(new URL('../src/site.js', import.meta.url), 'utf8')
+  assert.match(js, /setProperty\('--masthead-h'/)
+  assert.match(js, /fonts\?\.ready/, '自托管字体后到，落位后要重量一次')
+})
+
+test('查词口与正文列在同一条左边缘上', () => {
+  // 刊头第一格按 --rail 减掉间距来定宽，所以查词口正好落在正文那条线（370）上，
+  // 与下面的筹码、结果、条目齐平 —— 吸顶的时候也不会跳。
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  const rule = css.match(/^\.masthead \{[\s\S]*?^\}/m)?.[0] ?? ''
+  assert.match(
+    rule,
+    /grid-template-columns:\s*calc\(var\(--rail\) - var\(--masthead-gap\)\)/,
+    '第一格宽度要从边栏占位推出来，不能写死',
+  )
+  assert.match(rule, /--masthead-gap/)
+})
+
+test('画框只有两档，查词口用小件那一档', () => {
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  assert.match(css, /--frame:\s*30px/)
+  assert.match(css, /--frame-thin:\s*13px/)
+  const field = css.match(/^\.concordance-field \{[\s\S]*?^\}/m)?.[0] ?? ''
+  assert.match(field, /border-image-width:\s*var\(--frame-thin\)/, '查词口用小件档')
+  // 窄屏那档若要收，必须比 13px 更细 —— 之前写 16px，在大档是 22px 时是「收」，
+  // 大档改成 30px、小档 13px 之后，16px 反而变成了「放」，画框越缩越粗。
+  // 别按位置切媒体查询块：基础规则恰好夹在两个 700px 段之间，按段一取就先撞上基础规则，
+  // 于是"窄屏那条"取到的是 var(--frame-thin)，测出个 null 来。改成按内容找：
+  // 全表扫 .concordance-field 的规则，谁把 border-image-width 写成了具体数字，谁就是窄屏那条。
+  const allFieldRules = [...css.matchAll(/\.concordance-field \{[\s\S]*?\}/g)].map((m) => m[0])
+  const narrowField =
+    allFieldRules.find((rule) => /border-image-width:\s*\d+px/.test(rule)) ?? ''
+  assert.ok(narrowField, '该有一条把画框宽度写成具体数字的窄屏规则')
+  const width = narrowField.match(/border-image-width:\s*(\d+)px/)
+  assert.ok(Number(width[1]) <= 13, `窄屏画框该比 13px 细，实得 ${width[1]}px`)
+})

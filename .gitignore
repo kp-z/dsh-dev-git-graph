@@ -31,3 +31,7 @@ graphflow-out/
 apps/spellbook/data/
 apps/spellbook/artifacts/
 
+
+# 构建中途的临时目录（换名前）
+apps/spellbook/.dist-staging-*/
+apps/spellbook/.build.lock/

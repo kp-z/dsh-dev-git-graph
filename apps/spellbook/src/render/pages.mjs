@@ -47,18 +47,29 @@ ${body}
 `
 }
 
-function header({ root, current = null }) {
-  return `<header class="masthead">
-  <a class="wordmark" href="${root}">
+/**
+ * 刊头：一行装三样 —— 书名、检索口（或当前条目名）、明暗开关。
+ *
+ * 检索口搬进刊头，是因为它要**吸顶**：整条刊头 sticky，滚到哪儿都能查。
+ * 原来那个「说一句你要的效果」的标题因此去掉 —— 它本来只是在给查词口配句话，
+ * 而刊头这一行已经说清这是什么书了，再顶一行字反而把首屏往下压。
+ *
+ * 首页于是没有别的 h1 了，书名就顶上 h1（`asHeading`）：
+ * 首页用书名当一级标题，内页用条目名当一级标题，各页正好各一个。
+ */
+function header({ root, current = null, search = '', asHeading = false }) {
+  const wordmark = `<a class="wordmark" href="${root}">
     ${wandMark('wordmark-wand')}
     <span class="wordmark-name">${escapeHtml(SITE_NAME)}</span>
     <span class="wordmark-tagline">${escapeHtml(SITE_TAGLINE)}</span>
-  </a>
+  </a>`
+  return `<header class="masthead">
+  ${asHeading ? `<h1 class="masthead-heading">${wordmark}</h1>` : wordmark}
+${search || (current ? `  <p class="masthead-current">${escapeHtml(current)}</p>` : '')}
   <button class="theme-toggle" type="button" data-theme-toggle aria-label="切换明暗">
     <span class="theme-toggle-mark" aria-hidden="true"></span>
     <span data-theme-label>明</span>
   </button>
-${current ? `  <p class="masthead-current">${escapeHtml(current)}</p>` : ''}
 </header>`
 }
 
@@ -108,10 +119,38 @@ export function chaptersOf(entries) {
 }
 
 /**
- * 首屏不是标语，是检索。
+ * 查词口本身。它住在刊头里，跟着刊头一起吸顶。
  *
- * 这本书的用法是「说一句你要什么，找到那条咒语」，所以首页最该占先的是查词口，
- * 不是一句介绍自己是什么的话。原来那两行导语挪去做 placeholder 与页脚了。
+ * 左边原先是「查」字标签。换成一柄魔杖：这本书的器物是魔杖，
+ * 而放大镜在每一本工具书里都长一样 —— 这根杖才是这本书自己的记号。
+ *
+ * 但魔杖是 `aria-hidden` 的画，读屏读不出它，所以标签里另放一段
+ * `.visually-hidden` 的「查词」当输入框的可访问名。去掉文字留图标可以，
+ * 去掉可访问名不行。
+ */
+function searchField() {
+  return `  <div class="concordance-field">
+    <label class="concordance-mark" for="spellbook-query">
+      <span class="visually-hidden">查词</span>
+      ${wandMark('concordance-wand')}
+    </label>
+    <input
+      class="concordance-input"
+      id="spellbook-query"
+      type="search"
+      name="q"
+      autocomplete="off"
+      autocapitalize="off"
+      spellcheck="false"
+      enterkeyhint="search"
+      placeholder="跟着鼠标动的按钮 / 玻璃 / 斜条纹 / 文字绕图排">
+    <button class="concordance-clear" type="button" data-search-clear hidden>清空</button>
+    <kbd class="concordance-key" data-search-key aria-hidden="true">/</kbd>
+  </div>`
+}
+
+/**
+ * 检索区：只剩「限定分类」的筹码与状态行，查词口已经搬去刊头。
  *
  * 结果区由 site.js 填。之所以把「命中机制」也渲染出来，是因为全库的立论是
  * 「机制是承重墙」——检索也该照这条立论解释自己为什么给这一条，而不是只丢一个标题。
@@ -122,23 +161,7 @@ export function chaptersOf(entries) {
  * 模板留一个洞，就没法再插错位置。
  */
 function concordance(chips = '') {
-  return `  <section class="concordance" aria-labelledby="concordance-head">
-    <h1 class="concordance-head" id="concordance-head">说一句你要的效果</h1>
-    <div class="concordance-field">
-      <label class="concordance-label" for="spellbook-query">查</label>
-      <input
-        class="concordance-input"
-        id="spellbook-query"
-        type="search"
-        name="q"
-        autocomplete="off"
-        autocapitalize="off"
-        spellcheck="false"
-        enterkeyhint="search"
-        placeholder="跟着鼠标动的按钮 / 玻璃 / 斜条纹 / 文字绕图排">
-      <button class="concordance-clear" type="button" data-search-clear hidden>清空</button>
-      <kbd class="concordance-key" data-search-key aria-hidden="true">/</kbd>
-    </div>
+  return `  <section class="concordance" aria-label="限定分类">
     <div class="concordance-scope" role="group" aria-label="限定分类">
       <button class="scope-chip is-on" type="button" data-scope="" aria-pressed="true">全书</button>
 ${chips}
@@ -176,7 +199,7 @@ export function renderIndex(entries) {
   const chapters = chaptersOf(entries)
 
   if (!chapters.length) {
-    const body = `${header({ root: './' })}
+    const body = `${header({ root: './', search: searchField(), asHeading: true })}
 <main id="main">
 ${concordance()}
   <p class="empty">库还是空的。往 <code>content/effects/</code> 里放一个 <code>.md</code>，它就会出现在这里。</p>
@@ -227,7 +250,7 @@ ${chapters
 `
     : ''
 
-  const body = `${header({ root: './' })}
+  const body = `${header({ root: './', search: searchField(), asHeading: true })}
 <main id="main"${withNav ? ' class="has-rail"' : ''}>
 ${concordance(scopeChips())}
 

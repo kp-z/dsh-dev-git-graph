@@ -290,6 +290,8 @@ function initSearch() {
   let terms = []
   let current = []
   let selected = -1
+  // 上一轮是不是在检索。只用来认「刚进入检索」这个瞬间。
+  let wasSearching = false
 
   const setStatus = (text) => {
     if (status) status.textContent = text
@@ -307,6 +309,7 @@ function initSearch() {
       if (clear) clear.hidden = true
       current = []
       selected = -1
+      wasSearching = false
       setStatus(`共 ${ranker?.docs.length ?? ''} 条咒语，按章翻或直接查`)
       return
     }
@@ -345,6 +348,23 @@ function initSearch() {
 
     results.innerHTML = `<ol class="hits">${hits.map(renderHit).join('')}</ol>`
     setStatus(`${hits.length} 条命中${scope ? `（限${scope}）` : ''}${hits.length >= 40 ? '，只显示前 40 条' : ''}`)
+
+    /* 刚进入检索时，把结果的顶端挪到吸顶刊头底下。
+       不这么做的话：用户滚到第 6000 行才开始打字，而结果区在页面最上面，
+       他敲完却看着一片与搜索无关的旧内容。命中少的时候目录一收、页面塌下来，
+       浏览器顺手把他夹回顶部，看着像"能用"；可一命中 40 条、页面还是几千行高，
+       他就会停在结果中段。这是撞运气，得写明。
+       只在"刚进入检索"这一刻做，逐字输入时不抢滚动条。 */
+    if (!wasSearching) {
+      const bar = document.querySelector('.masthead')
+      const barH = bar ? bar.getBoundingClientRect().height : 0
+      const top = results.getBoundingClientRect().top + window.scrollY - barH - 12
+      // 已经在画面里就别动了
+      if (results.getBoundingClientRect().top < barH) {
+        window.scrollTo({ top: Math.max(0, top), behavior: 'instant' })
+      }
+    }
+    wasSearching = true
   }
 
   const renderHit = (hit) => {
@@ -539,7 +559,28 @@ function initPeek() {
   dialog.addEventListener('close', () => stage.replaceChildren())
 }
 
+/**
+ * 把吸顶刊头的真实高度写进 --masthead-h。
+ *
+ * 章目导航也要吸顶，它得让开刊头那一段。可刊头多高是内容定的 ——
+ * 查词口、书名的字号、字体加载前后都会变，写死一个数迟早错位
+ * （先前写 78px，实测 89px，于是两级吸顶只差 5px 就贴上了）。
+ * 所以量一次写进变量，字号变了、字体到了、窗口缩放了都重量。
+ */
+function syncMastheadHeight() {
+  const masthead = document.querySelector('.masthead')
+  if (!masthead) return
+  const height = Math.round(masthead.getBoundingClientRect().height)
+  if (height > 0) {
+    document.documentElement.style.setProperty('--masthead-h', `${height}px`)
+  }
+}
+
 initTheme()
+syncMastheadHeight()
+window.addEventListener('resize', syncMastheadHeight)
+// 自托管字体是后到的，落位后刊头可能变高，得再量一次
+if (document.fonts?.ready) document.fonts.ready.then(syncMastheadHeight).catch(() => {})
 initChapterNav()
 initPlate()
 initMechanismLink()
