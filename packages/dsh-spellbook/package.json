@@ -1,13 +1,74 @@
 {
   "name": "dsh-spellbook",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "咒语书 —— 前端效果库。一条咒语 = 描述 + 示例代码，预览是真实运行的。",
+  "description": "DSH 插件：咒语书 —— 前端效果库，右侧栏一个「咒语书」tab。一条咒语 = 描述 + 示例代码，预览是真实运行的（332 条）。",
+  "license": "MIT",
+  "author": "kp-z",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "spellbook",
+    "frontend",
+    "css",
+    "effects",
+    "dsh-better-sidebar"
+  ],
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "dist",
+    "cordis.patch.yml",
+    "README.md"
+  ],
   "scripts": {
-    "build": "node build.mjs",
+    "build": "node build.mjs && npm run build:plugin",
+    "build:site": "node build.mjs",
+    "build:plugin": "tsc -p tsconfig.json && cp src/plugin/client.js lib/client.js",
     "dev": "node serve.mjs",
     "test": "node --test test/",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "vault": "node scripts/vault.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots",
+        "betterSidebar"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "dsh-better-sidebar": ">=0.12.0"
+  },
+  "peerDependenciesMeta": {
+    "dsh-better-sidebar": {
+      "optional": true
+    }
   }
 }

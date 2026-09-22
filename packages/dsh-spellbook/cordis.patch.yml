@@ -1,0 +1,6 @@
+# dsh-spellbook：把咒语书插进 profile 的层栈。
+# host 挂 /dsh-spellbook/ 静态路由，client 在右侧栏注册「咒语书」tab。
+- insert:
+    - id: spellbook
+      name: dsh-spellbook
+      config: {}

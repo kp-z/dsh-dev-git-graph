@@ -5,6 +5,57 @@
 站点把每条咒语排成一页「对开」：左边页边注（章节 / 收录时间 / 出处），右边正文（描述、可交互图版、代码、备注）。
 图版里跑的是真实代码，不是录屏，也不是截图。
 
+## 装进 DSH（右侧栏一个「咒语书」tab）
+
+这个包同时是**一个 DSH 插件**：
+
+```
+packages/dsh-spellbook/
+├── src/plugin/index.ts    宿主：把 dist/ 挂到 /dsh-spellbook/ 前缀
+├── src/plugin/client.js   客户端：往 dsh-better-sidebar 注册「咒语书」tab
+├── cordis.patch.yml       插进 profile 的层栈
+├── lib/                   编译产物（宿主 .js + 客户端 .js）
+└── dist/                  站点构建产物（插件端出去的就是它）
+```
+
+装：
+
+```bash
+dsh plugin --profile web add link:/Users/kp/DEV/dsh-plugins/packages/dsh-spellbook
+```
+
+用 `link:` 而不是 `file:`：`file:` 会把包**拷贝**进 profile，而 `dist/` 是构建产物、
+天天重建 —— 拷进去之后每次重建都要重装一遍。`link:` 是软链，重建完刷新就有。
+装完重启 DSH，右侧栏「+」里出现「咒语书」。
+
+> desktop profile 由 Electron 应用独占管理，`dsh plugin` 会拒绝；
+> 那条路要手工改 `~/.dsh/profiles/desktop/package.json`（dependencies 用 `link:`，
+> 同时把 `dsh-spellbook` 加进 `dsh.profile.bundles`）再 `pnpm install`。
+
+两半各自的职责：
+
+**宿主**只做一件事 —— 把 `dist/` 原样端出去。不在插件里重新渲染一遍，因为咒语书
+本身已经是构建产物：332 条咒语、检索索引、按条目数算出的编号栏宽，都在 `build.mjs`
+里一次成型。再写一套渲染器就是维护第二个真相，而它迟早跟构建期那套长得不一样。
+路径先规范化再判断是否还在 `dist/` 里（`..` 出不去），只认 GET/HEAD。
+
+**客户端**只做一件事 —— 把站点用 iframe 嵌进侧边栏，并且**不加 sandbox 属性**。
+这一条是刻意的：嵌套 iframe 的 sandbox 标记往下取并集，外层若写了 `allow-same-origin`，
+里面那 332 个 `sandbox="allow-scripts"` 的预览文档会一并拿到同源 —— 而它们被关进沙箱，
+正是为了拿不到同源。不加 sandbox 就是普通同源 iframe：站点要的同源有了（检索索引、
+localStorage），预览的隔离原样保留。`test/plugin.test.mjs` 钉住了这条。
+
+嵌入时站点收两件事：
+
+| 参数 | 作用 |
+|---|---|
+| `?theme=dark\|light` | 首屏就跟宿主明暗一致（优先于 localStorage，宿主说了算） |
+| `?embed=1` | 收起书封那截刊头；查词口与卡片开关留着（到处都要用的工具） |
+
+之后宿主切明暗走 postMessage（`dsh-spellbook-theme`），不刷新侧边栏。
+首屏用参数、后续用消息 —— 两条路都要有：参数管不闪，消息管切换。
+
+
 ## 页面结构
 
 **首页**的第一屏是**检索**，不是标语。这本书的用法是「说一句你要什么 → 找到那条 → 抄走」，

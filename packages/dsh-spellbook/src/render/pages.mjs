@@ -38,9 +38,21 @@ function layout({ title, description, body, root, isSpell = false }) {
 <link rel="stylesheet" href="${root}styles/spellbook.css">
 <!-- 编号栏宽与页边注编号字号由构建期按条目数算出，见 shared/numeral.mjs -->
 <link rel="stylesheet" href="${root}numeral.css">
-<!-- 明暗与「条列/卡片」都在首屏渲染前恢复：晚一步就会先闪一下默认布局 -->
-<script>try{var t=localStorage.getItem('spellbook:theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
-<script>try{var v=localStorage.getItem('spellbook:view');if(v)document.documentElement.dataset.view=v;}catch(e){}</script>
+<!-- 明暗与「条列/卡片」都在首屏渲染前恢复：晚一步就会先闪一下默认布局。
+     被 DSH 侧边栏嵌进来时会多带两个参数：
+       ?theme=dark|light  让书跟宿主明暗同步（优先于 localStorage，宿主说了算）
+       ?embed=1           收起「书的封面」那截刊头 —— 在侧边栏里它是多余的壳，
+                          查词口与卡片开关留着（那是在任何地方都要用的东西） -->
+<script>try{
+var p=new URLSearchParams(location.search);
+var t=p.get('theme')||localStorage.getItem('spellbook:theme');
+if(t)document.documentElement.dataset.theme=t;
+var embed=p.get('embed');
+var v=localStorage.getItem('spellbook:view');
+if(v)document.documentElement.dataset.view=v;
+else if(embed)document.documentElement.dataset.view='card';
+if(embed)document.documentElement.dataset.embed='1';
+}catch(e){}</script>
 </head>
 <body${isSpell ? ' class="is-spell"' : ''}>
 <a class="skip" href="#main">跳到正文</a>

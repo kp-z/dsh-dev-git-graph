@@ -307,6 +307,85 @@ textarea {
   min-width: 0;
 }
 
+/* 嵌进 DSH 侧边栏（?embed=1）时，把「书的封面」那截收起来。
+   刊头里留着查词口与卡片开关 —— 那是到处都要用的工具；收起来的是书签式的招牌
+   与明暗开关（宿主自己管明暗，侧边栏里再放一个会跟它打架）。
+   顺带把刊头压成一条：侧边栏本来就只有 300 多像素宽，一屏要留够看咒语的地方。 */
+:root[data-embed] .wordmark,
+:root[data-embed] .theme-toggle {
+  display: none;
+}
+
+:root[data-embed] .masthead-id {
+  /* 招牌没了，剩下的按钮靠右站 */
+  justify-content: flex-end;
+}
+
+:root[data-embed] .masthead {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+:root[data-embed] .index-body,
+:root[data-embed] .opening {
+  margin-top: 20px;
+}
+
+/* 侧边栏里一栏到底：左右分栏（正文 + 页边注）在 300px 里只剩两条竖线 */
+:root[data-embed] .opening {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:root[data-embed] .marginalia {
+  order: 2;
+}
+
+/*
+ * 窄屏那条「藏起缩略图」（见上面 700px 断点）在手机上讲得通 —— 屏小、流量贵、
+ * 一行放不下。但侧边栏宽度通常只有 300–400px，正好落在那个断点下面，
+ * 于是「按 700px 的规矩来」会把图全藏掉：这本书就只剩一串标题了，
+ * 而它全部的价值就在那些真在跑的预览上。
+ *
+ * 所以嵌入模式下不给藏，只把缩略图缩小一号：牌面仍在，位置更省。
+ * 缩放倍数是按 104px 净宽算的（104 − 2×13 = 78，78 ÷ 320 = 0.24375），
+ * 换尺寸就得同时改倍数 —— 这里保持 104 不动，只把整条链接列压窄。
+ */
+@media (max-width: 700px) {
+  /* 这两条与排法无关：不论条列还是卡片，嵌入模式下都不许把缩略图藏掉 */
+  :root[data-embed] .row-peek {
+    display: block;
+  }
+
+  :root[data-embed] .row-copy {
+    display: inline-flex;
+  }
+
+  /* 下面这些只关条列的排法。卡片的牌面是竖排 flex，塞不进「图左字右」，
+     所以按 [data-view] 排除掉 —— 否则这些网格属性会落在 flex 容器上，
+     虽然被忽略（无害），但读的人会以为它在起作用。 */
+  :root[data-embed]:not([data-view='card']) .row {
+    grid-template-columns: 104px minmax(0, 1fr);
+    grid-template-areas: 'peek link';
+    align-items: center;
+  }
+
+  :root[data-embed]:not([data-view='card']) .row-link {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'name'
+      'when';
+  }
+
+  :root[data-embed]:not([data-view='card']) .row-num {
+    display: none;
+  }
+}
+
+/* 侧边栏里只有一两列，牌面靠左会留一条空边 —— 居中更稳 */
+:root[data-embed][data-view='card'] .tabula {
+  justify-content: center;
+}
+
 /* 第二格：查词口，或内页上的当前条目名。
    上一版这里还得给开关留第三格，查词口因此少 73px；现在整格都是它的。 */
 .masthead > .concordance-field,

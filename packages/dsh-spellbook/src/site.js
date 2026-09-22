@@ -146,6 +146,32 @@ function initTagFilter() {
   apply(new URLSearchParams(location.search).get('tag'))
 }
 
+/* ---------------------------------------------------------- 嵌进侧边栏 */
+
+/**
+ * 被 DSH 侧边栏以 iframe 嵌进来时，跟着宿主的明暗走。
+ *
+ * 首屏那次已经由 pages.mjs 里的内联脚本按 ?theme= 定好了（早于渲染，不闪）。
+ * 这里管的是**之后**：用户在 DSH 里切换明暗，宿主 postMessage 过来，书要当场
+ * 跟着变，而不是等他刷新侧边栏。所以是「首屏用参数、后续用消息」两条路，都要有。
+ */
+function initEmbed() {
+  if (!document.documentElement.dataset.embed) return
+
+  window.addEventListener('message', (event) => {
+    const data = event.data
+    if (!data || data.type !== 'dsh-spellbook-theme') return
+    const theme = data.theme === 'light' ? 'light' : 'dark'
+    document.documentElement.dataset.theme = theme
+    // 宿主是权威：顺手记下来，下次即使没带参数也不会闪回默认
+    try {
+      localStorage.setItem('spellbook:theme', theme)
+    } catch {
+      /* 隐私模式下 localStorage 会抛，忽略即可 */
+    }
+  })
+}
+
 /* ---------------------------------------------------------- 章目高亮 */
 
 /**
@@ -678,5 +704,6 @@ initMechanismLink()
 initCopy()
 initSearch()
 initTagFilter()
+initEmbed()
 initPromptCopy()
 initPeek()
