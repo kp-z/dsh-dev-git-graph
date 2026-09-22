@@ -121,9 +121,25 @@ test('缩略图与图版一样走沙箱，且不给它键盘焦点', () => {
   assert.doesNotMatch(preview, /allow-same-origin/)
 })
 
-test('目录里出现魔杖与花饰', () => {
+test('刊头放的是魔法书，不是魔杖', () => {
+  // 分工：书是「物」（刊头：这本书自己），杖是「器械」（查词口：你用来说话的东西）。
+  // 刊头答的是「这是什么」，不是「你怎么用」，所以那里该是一本书。
   const html = renderIndex([entry()])
-  assert.match(html, /wordmark-wand/)
+  assert.match(html, /wordmark-book/, '刊头那枚该是书')
+  assert.doesNotMatch(html, /wordmark-wand/, '刊头不该再是魔杖')
+  const book = html.match(/<svg class="wordmark-book"[\s\S]*?<\/svg>/)?.[0] ?? ''
+  assert.ok(book, '该有一枚 wordmark-book 图标')
+  assert.match(book, /<rect[^>]*class="mark-line"/, '书要有封面')
+  assert.match(book, /class="mark-spark"/, '书要有火星')
+  assert.match(book, /aria-hidden="true"/, '图标是装饰，书名才是名字')
+  // 线稿的两种笔画不挂在某个装置上，书身上不该出现「魔杖的零件」
+  assert.doesNotMatch(book, /wand-shaft|wand-spark/, '书不该用魔杖的零件名')
+})
+
+test('魔杖仍在它该在的地方：查词口与花饰', () => {
+  const html = renderIndex([entry()])
+  assert.match(html, /class="concordance-wand"/, '查词口该是魔杖')
+  assert.match(html, /class="fleuron-wand"/, '花饰该是魔杖')
   assert.match(html, /class="fleuron"/)
 })
 

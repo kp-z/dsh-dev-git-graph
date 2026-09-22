@@ -19,7 +19,7 @@ import {
   stripMechanismMarkers,
 } from './text.mjs'
 import { STAGES } from './demo.mjs'
-import { fleuron, wandMark } from './marks.mjs'
+import { bookMark, fleuron, wandMark } from './marks.mjs'
 import { CATEGORIES } from '../../shared/schema.mjs'
 
 const SITE_NAME = '咒语书'
@@ -67,7 +67,7 @@ ${body}
  */
 function header({ root, current = null, search = '', asHeading = false }) {
   const wordmark = `<a class="wordmark" href="${root}">
-    ${wandMark('wordmark-wand')}
+    ${bookMark('wordmark-book')}
     <span class="wordmark-text">
       <span class="wordmark-name">${escapeHtml(SITE_NAME)}</span>
       <span class="wordmark-tagline">${escapeHtml(SITE_TAGLINE)}</span>

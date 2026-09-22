@@ -337,7 +337,7 @@ textarea {
   color: var(--gilt);
 }
 
-.wordmark-wand {
+.wordmark-book {
   align-self: center;
   flex: none;
   width: 22px;
@@ -415,14 +415,15 @@ main {
   color: var(--gilt);
 }
 
-/* 魔杖：杖身与圆头描边，杖尖与火星填金 */
-.wand-shaft {
+/* 线稿只有两种笔画：描边的线与填实的火星。魔法书、魔杖、花饰共用这两种，
+   所以名字不挂在某一个装置上 —— 书身上不该长着「魔杖的零件」。 */
+.mark-line {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
   stroke-linecap: round;
 }
-.wand-spark {
+.mark-spark {
   fill: var(--gilt);
 }
 
@@ -1262,7 +1263,7 @@ html {
   .wordmark {
     gap: 6px;
   }
-  .wordmark-wand {
+  .wordmark-book {
     width: 16px;
     height: 16px;
   }
