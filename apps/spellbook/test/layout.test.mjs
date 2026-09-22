@@ -196,7 +196,29 @@ test('放大预览与抄咒语是链接的兄弟节点，不是它的子节点',
   const html = renderIndex([entry({ slug: 'x' })])
   const link = html.match(/<a class="row-link"[\s\S]*?<\/a>/)?.[0] ?? ''
   assert.doesNotMatch(link, /<button/, '按钮嵌在 <a> 里是无效 HTML')
-  assert.match(html, /<\/a>\s*<button class="row-peek"/)
+  assert.match(html, /<\/a>\s*<button class="row-copy"/)
+  assert.match(html, /<\/button>\s*<button class="row-peek"/)
+})
+
+test('缩略图排在最右 —— 它是这一条的页码，不能被工具挤到中间', () => {
+  // 次序是「正文 → 工具 → 页码」。缩略图一旦不在行尾，
+  // 「引导线一路连到缩略图」那条设计就断了。
+  const html = renderIndex([entry({ slug: 'x' })])
+  const row = html.match(/<li class="row"[\s\S]*?<\/li>/)?.[0] ?? ''
+  const peekAt = row.indexOf('row-peek')
+  const copyAt = row.indexOf('row-copy')
+  assert.ok(peekAt > -1 && copyAt > -1, '两个控件都该在行里')
+  assert.ok(peekAt > copyAt, '缩略图必须在抄咒语之后（也就是更靠右）')
+  assert.match(row, /row-peek"[^>]*$|<\/li>\s*$/)
+  assert.ok(row.lastIndexOf('row-peek') > row.lastIndexOf('row-copy'))
+})
+
+test('有边栏时给 main 挂 has-rail，首屏才好跟着正文列对齐', () => {
+  const two = renderIndex([entry({ category: '材质', slug: 'a' }), entry({ category: '动效', slug: 'b' })])
+  assert.match(two, /<main id="main" class="has-rail">/)
+  // 只有一章时没有边栏，就不该加位移
+  const one = renderIndex([entry({ category: '材质' })])
+  assert.match(one, /<main id="main">/)
 })
 
 test('样式表里有 [hidden] 兜底 —— 类规则上的 display 会盖过浏览器默认', () => {
@@ -210,4 +232,23 @@ test('两套主题都声明了 color-scheme', () => {
   const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
   assert.match(css, /:root \{[^}]*color-scheme: dark/)
   assert.match(css, /:root\[data-theme='light'\] \{[^}]*color-scheme: light/)
+})
+
+test('所有分类筹码都在 role=group 容器里', () => {
+  // 之前是用字符串 replace 把筹码塞到 </div> 后面，结果只有第一个落在 group 内，
+  // 另外六个散在外面：aria-label「限定分类」管不到它们，flex 间距也丢了，
+  // 首屏因此多出一段说不清的空白。模板留洞才治本。
+  const html = renderIndex([entry({ category: '材质' })])
+  const group = html.match(/<div class="concordance-scope"[\s\S]*?<\/div>/)?.[0] ?? ''
+  assert.ok(group, '应当有一个 concordance-scope 容器')
+  assert.equal((group.match(/scope-chip/g) ?? []).length, CATEGORIES.length + 1, '全书 + 每个分类都该在里面')
+  assert.match(group, /role="group"/)
+  assert.match(group, /aria-label="限定分类"/)
+
+  // group 结束后、状态行之前，不该再冒出击筹码。
+  // 切点必须落在整段 group 之后：若按 'concordance-scope' 切，切点落在开标签里，
+  // 会把组内的筹码也算进来，测试就会假红。
+  const groupEnd = html.indexOf(group) + group.length
+  const between = html.slice(groupEnd, html.indexOf('concordance-status', groupEnd))
+  assert.equal((between.match(/scope-chip/g) ?? []).length, 0, '不该有筹码散在 group 外面')
 })

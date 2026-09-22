@@ -34,6 +34,8 @@ function layout({ title, description, body, root, isSpell = false }) {
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <link rel="stylesheet" href="${root}styles/spellbook.css">
+<!-- 编号栏宽与页边注编号字号由构建期按条目数算出，见 shared/numeral.mjs -->
+<link rel="stylesheet" href="${root}numeral.css">
 <script>try{var t=localStorage.getItem('spellbook:theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 </head>
 <body${isSpell ? ' class="is-spell"' : ''}>
@@ -69,8 +71,10 @@ function renderTabulaRow(entry, ordinal) {
   const slug = entry.meta.slug
   const href = `spell/${encodeURIComponent(slug)}/`
   const title = escapeHtml(entry.meta.title)
-  // 一行的三个兄弟：链接、放大预览、抄咒语。
+  // 一行的三个兄弟：链接、抄咒语、放大预览。
   // 按钮不能塞进 <a> 里（无效 HTML，且点「抄」会连带跳页），所以它们必须是兄弟节点。
+  // 次序是「文本 → 工具 → 缩略图」：缩略图是这条咒语的**页码**，必须留在右边距上，
+  // 一旦被工具挤到中间，「一路连到缩略图」的那条引导线就断了。
   //
   // 编号则相反，必须留在链接**内部**：.row-link 的 grid-template-areas 里点名了 num
   // 那一格，把它挪到链接外面就会失去那一格、被自动排到行尾（实测跑到 x=1237 去了）。
@@ -82,11 +86,11 @@ function renderTabulaRow(entry, ordinal) {
     <span class="row-leader" aria-hidden="true"></span>
     <span class="row-when">${escapeHtml(entry.meta.when)}</span>
   </a>
+  <button class="row-copy" type="button" data-prompt="${escapeHtml(slug)}" aria-label="复制咒语：${title}">抄咒语</button>
   <button class="row-peek" type="button" data-peek="${escapeHtml(slug)}" aria-label="放大预览：${title}">
     <iframe class="row-preview-doc" src="${href}demo.html" loading="lazy" sandbox="allow-scripts" tabindex="-1" title=""></iframe>
     <span class="row-peek-zoom" aria-hidden="true"></span>
   </button>
-  <button class="row-copy" type="button" data-prompt="${escapeHtml(slug)}" aria-label="复制咒语：${title}">抄咒语</button>
 </li>`
 }
 
@@ -111,8 +115,14 @@ export function chaptersOf(entries) {
  *
  * 结果区由 site.js 填。之所以把「命中机制」也渲染出来，是因为全库的立论是
  * 「机制是承重墙」——检索也该照这条立论解释自己为什么给这一条，而不是只丢一个标题。
+ *
+ * `chips` 是整串分类筹码，**必须**由参数传进来而不是事后对模板做字符串替换：
+ * 之前就是靠 replace 往 `</div>` 后面塞，结果只有第一个筹码落在 group 里，
+ * 另外六个散在 group 外面——aria-label 管不到它们，flex 间距也丢了。
+ * 模板留一个洞，就没法再插错位置。
  */
-const CONCORDANCE = `  <section class="concordance" aria-labelledby="concordance-head">
+function concordance(chips = '') {
+  return `  <section class="concordance" aria-labelledby="concordance-head">
     <h1 class="concordance-head" id="concordance-head">说一句你要的效果</h1>
     <div class="concordance-field">
       <label class="concordance-label" for="spellbook-query">查</label>
@@ -131,11 +141,21 @@ const CONCORDANCE = `  <section class="concordance" aria-labelledby="concordance
     </div>
     <div class="concordance-scope" role="group" aria-label="限定分类">
       <button class="scope-chip is-on" type="button" data-scope="" aria-pressed="true">全书</button>
+${chips}
     </div>
     <p class="concordance-status" data-search-status role="status" aria-live="polite"></p>
   </section>
 
   <div class="search-results" data-search-results hidden></div>`
+}
+
+/** 分类筹码。由分类表生成，别把「全书」之外的那几个写死——分类改了要跟着走。 */
+function scopeChips() {
+  return CATEGORIES.map(
+    (category) =>
+      `      <button class="scope-chip" type="button" data-scope="${escapeHtml(category)}" aria-pressed="false">${escapeHtml(category)}</button>`,
+  ).join('\n')
+}
 
 /* 原先把这条立论挂在首屏当标语。现在首屏让给检索，立论挪到页脚，位置换了，话没变。 */
 const PROLOGUE_NOTE = '描述负责说清它靠什么机制成立，代码负责证明这件事真的能做到。图版里的预览是真在跑的，不是截图。'
@@ -158,7 +178,7 @@ export function renderIndex(entries) {
   if (!chapters.length) {
     const body = `${header({ root: './' })}
 <main id="main">
-${CONCORDANCE}
+${concordance()}
   <p class="empty">库还是空的。往 <code>content/effects/</code> 里放一个 <code>.md</code>，它就会出现在这里。</p>
 </main>`
     return layout({
@@ -207,15 +227,9 @@ ${chapters
 `
     : ''
 
-  // 限定分类的筹码由分类表生成，注意别把「全书」写成死值——分类改了这里要跟着走
-  const scopeChips = CATEGORIES.map(
-    (category) => `      <button class="scope-chip" type="button" data-scope="${escapeHtml(category)}" aria-pressed="false">${escapeHtml(category)}</button>`,
-  ).join('\n')
-  const concordance = CONCORDANCE.replace('</div>\n    <p class="concordance-status"', `</div>\n${scopeChips}\n    <p class="concordance-status"`)
-
   const body = `${header({ root: './' })}
-<main id="main">
-${concordance}
+<main id="main"${withNav ? ' class="has-rail"' : ''}>
+${concordance(scopeChips())}
 
 ${fleuron()}
 

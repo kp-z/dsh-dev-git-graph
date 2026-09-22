@@ -102,6 +102,23 @@
 
   --shell: 1180px;
   --gutter: 40px;
+
+  /* 版心 = shell 减去两侧留白。对齐一律从这里推，不再各处写死像素。 */
+  --content: calc(var(--shell) - 2 * var(--gutter));
+  /* 行宽：正文一行多宽。章目导航占掉的那条竖栏叫「边栏」。 */
+  --measure: 880px;
+  /* 散文另有一个更舒服的行宽。它比 --measure 窄，是**有意**的：
+     长段中文一行 54 个字太累，40rem 上下才顺眼。图版与代码则用满 --measure，
+     两者左边缘对齐、右边缘不等，是编辑上常见的「正文窄于图表」。 */
+  --prose: 40rem;
+  --rail-w: 176px;
+  --rail-gap: 44px;
+  /* 边栏连间距的总占位。首屏那几块要让开这一段，才能跟正文列对齐。 */
+  --rail: calc(var(--rail-w) + var(--rail-gap));
+
+  /* 画框（双细线金框）的宽度。全书只有一个比例 —— 同一件器物放大到两档，
+     线的粗细就会不一样，招牌元素也就被稀释了。 */
+  --frame: 30px;
 }
 
 /* 昼：做成一页旧羊皮纸，而不是把暗色简单反相 */
@@ -313,33 +330,13 @@ main {
 
 /* ---------------------------------------------------------- 目录（tabula） */
 
-.prologue {
-  max-width: 880px;
-  padding: 76px 0 56px;
-}
-
-.prologue-lede {
-  font: 400 clamp(1.55rem, 3.7vw, 2.5rem) / 1.28 var(--font-display);
-  letter-spacing: 0.01em;
-  max-width: 22em;
-  color: var(--text);
-}
-
-.prologue-note {
-  margin-top: 22px;
-  max-width: 34em;
-  color: var(--text-dim);
-  font-size: 1.02rem;
-  line-height: 1.8;
-}
-
 /* 花饰：序言与正文之间的分隔纹 */
 .fleuron {
   display: flex;
   align-items: center;
   gap: 18px;
-  max-width: 880px;
-  padding: 0 0 58px;
+  max-width: var(--measure);
+  padding: 58px 0 58px;
 }
 .fleuron-rule {
   flex: 1;
@@ -367,9 +364,19 @@ main {
 /* 章目导航 + 各章 */
 .index-body.has-nav {
   display: grid;
-  grid-template-columns: 176px minmax(0, 1fr);
-  gap: 44px;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  gap: var(--rail-gap);
   align-items: start;
+}
+
+/* 首屏与正文列同轴。
+   检索区、花饰都站在正文的**行宽**上（左边缘 370 而不是 150）——
+   编辑上这叫「正文块 + 边栏」，左栏那条章目导航是侧注，不是正文的一部分。
+   没有边栏时（只有一章）不加位移，那时正文列本来就从 150 起。 */
+main.has-rail .concordance,
+main.has-rail .fleuron,
+main.has-rail .search-results {
+  margin-left: var(--rail);
 }
 
 .chapter-nav {
@@ -491,7 +498,7 @@ html {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-width: 880px;
+  max-width: var(--measure);
 }
 
 .row + .row {
@@ -502,7 +509,8 @@ html {
    按钮不能嵌在 <a> 里，所以它们必须是兄弟节点，这一层网格负责排它们。 */
 .row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  /* 次序：正文链接 · 抄咒语 · 缩略图（缩略图是页码，钉在右边距上） */
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   column-gap: 14px;
 }
@@ -510,7 +518,10 @@ html {
 .row-link {
   display: grid;
   /* 末尾不再挂分类——整章都是同一个分类，章标题已经写过一次了。 */
-  grid-template-columns: 2.6rem auto 1fr;
+  /* 编号栏必须定宽（每行是独立栅格，不定宽标题就跨行对不齐），
+     但不能写死 —— 罗马数字长短不一，LXXXVIII 比 CXXV 宽得多。
+     宽度由构建期按当下载库算出，见 numeral.css 与 shared/numeral.mjs。 */
+  grid-template-columns: var(--numeral-w, 2.6rem) auto 1fr;
   grid-template-areas:
     'num name leader'
     '.   when when';
@@ -528,8 +539,10 @@ html {
   position: relative;
   display: block;
   padding: 0;
-  /* 双细线的线宽与线距都是边框宽度的固定比例，所以缩到 13px 只是变细，
-     不会像花框那样糊成一排锯齿。缩略图 104×75 配 13px 框——净内容 78×48。 */
+  /* 全书唯一一处不按 --frame 的画框，而且是有理由的一处：
+     双细线的线宽与线距都是边框宽度的固定比例，所以缩到 13px 只是变细，
+     不会像花框那样糊成一排锯齿。缩略图 104×75 配 30px 框就只剩 44×15 可看，
+     13px 才是这块尺寸上的同一条线——净内容 78×48。 */
   width: 104px;
   height: 75px;
   border: 13px solid transparent;
@@ -678,7 +691,7 @@ html {
 /* -------------------------------------------------------------- 题跋 */
 
 .colophon {
-  max-width: 880px;
+  max-width: var(--measure);
   margin-top: 96px;
   padding-top: 26px;
   border-top: 1px solid var(--rule);
@@ -712,8 +725,10 @@ html {
 
 .opening {
   display: grid;
-  grid-template-columns: 186px minmax(0, 1fr);
-  gap: 56px;
+  /* 与首页同一套栅格：边栏 176 + 间距 44 + 行宽 880。
+     两页的正文列因此落在同一条左边缘（370）上，翻页时不会跳。 */
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  gap: var(--rail-gap);
   align-items: start;
   padding: 64px 0 0;
 }
@@ -737,7 +752,8 @@ html {
 }
 
 .marginalia-numeral {
-  font: 400 2.4rem/1 var(--font-display);
+  /* 字号由构建期按最长编号封顶：2.4rem 的 LXXXVIII 要 195px，装不进 176px 的栏 */
+  font: 400 var(--numeral-lead, 2.4rem)/1 var(--font-display);
   letter-spacing: 0.06em;
   color: var(--gilt);
 }
@@ -784,9 +800,18 @@ html {
 
 /* 正文栏 */
 .column {
-  max-width: 40rem;
-  /* 栅格项默认 min-width:auto，会被 pre 的 min-content 撑开，整页横向溢出 */
+  /* 不封顶：代码块与图版应当用满行宽（880）。
+     原先这里写着 40rem，而它所在的轨道有 858 —— 右侧于是空出 218px 对不齐任何东西。
+     散文的行宽改由下面几条单独收窄。 */
   min-width: 0;
+}
+
+/* 散文：与图版左对齐，右边缘短一截。 */
+.column > .title,
+.column > .when,
+.column > .desc,
+.column > .notes {
+  max-width: var(--prose);
 }
 
 .title {
@@ -849,8 +874,11 @@ html {
 /* 图版画框：同一张双细线素材，这里边框更宽，线也跟着变粗，像画册里的整版插图。 */
 .plate-frame {
   position: relative;
-  border: 30px solid transparent;
-  border-image: url('../frames/rule-frame.png') 32 / 30px repeat;
+  border: var(--frame) solid transparent;
+  border-image-source: url('../frames/rule-frame.png');
+  border-image-slice: 32;
+  border-image-width: var(--frame);
+  border-image-repeat: repeat;
   border-radius: 0;
   background: var(--ground-2);
   aspect-ratio: 16 / 10;
@@ -1126,18 +1154,21 @@ html {
     display: none;
   }
 
-  .prologue {
-    padding: 46px 0 34px;
-  }
-
   .fleuron {
+    padding-top: 40px;
     padding-bottom: 40px;
   }
 
-  /* 章目从左侧栏落到正文上方，变成一条横排 */
+  /* 章目从左侧栏落到正文上方，变成一条横排。
+     边栏没了，首屏那几块也就不该再让位 —— 否则它们会平白缩掉 220px。 */
   .index-body.has-nav {
     grid-template-columns: minmax(0, 1fr);
     gap: 32px;
+  }
+  main.has-rail .concordance,
+  main.has-rail .fleuron,
+  main.has-rail .search-results {
+    margin-left: 0;
   }
 
   .chapter-nav {
@@ -1239,8 +1270,8 @@ html {
    ========================================================================== */
 
 .concordance {
-  max-width: 880px;
-  margin: 34px 0 0;
+  max-width: var(--measure);
+  margin: 46px 0 0;
 }
 
 .concordance-head {
@@ -1255,9 +1286,12 @@ html {
   align-items: center;
   gap: 12px;
   padding: 0 20px;
-  /* 与画框同一条双细线，放大到 22px 一档 —— 够粗才像一件器物而不是一条提示框 */
-  border: 22px solid transparent;
-  border-image: url('../frames/rule-frame.png') 32 / 22px repeat;
+  /* 与图版、放大预览同一档画框：全书只此一个比例 */
+  border: var(--frame) solid transparent;
+  border-image-source: url('../frames/rule-frame.png');
+  border-image-slice: 32;
+  border-image-width: var(--frame);
+  border-image-repeat: repeat;
   border-radius: 0;
   background: var(--ground-2);
   transition: background 0.16s;
@@ -1363,7 +1397,7 @@ html {
 /* ------------------------------------------------------------ 命中 */
 
 .search-results {
-  max-width: 880px;
+  max-width: var(--measure);
   margin: 30px 0 0;
 }
 
@@ -1488,7 +1522,8 @@ mark {
 /* ---------------------------------------------------------- 放大预览 */
 
 .peek {
-  width: min(1040px, 94vw);
+  /* 弹窗贴着版心走，不另起一套宽度 */
+  width: min(var(--content), 94vw);
   max-width: none;
   padding: 0;
   border: 0;
@@ -1503,8 +1538,11 @@ mark {
 }
 
 .peek-frame {
-  border: 30px solid transparent;
-  border-image: url('../frames/rule-frame.png') 32 / 30px repeat;
+  border: var(--frame) solid transparent;
+  border-image-source: url('../frames/rule-frame.png');
+  border-image-slice: 32;
+  border-image-width: var(--frame);
+  border-image-repeat: repeat;
   border-radius: 0;
   background: var(--ground-2);
 }

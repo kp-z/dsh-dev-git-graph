@@ -19,6 +19,11 @@ import { buildDemoDocument } from './src/render/demo.mjs'
 import { renderIndex, renderSpell, chaptersOf } from './src/render/pages.mjs'
 import { stripMechanismMarkers } from './src/render/text.mjs'
 import { buildPrompt } from './shared/prompt.mjs'
+import { widestNumeral, numeralColumnRem, numeralFontRem } from './shared/numeral.mjs'
+
+/* 目录行的编号字号 0.85rem = 13.6px；页边注那栏是 --rail-w。改 CSS 要同步改这里。 */
+const NUMERAL_ROW_PX = 13.6
+const RAIL_W = 176
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const CONTENT_DIR = path.join(ROOT, 'content', 'effects')
@@ -168,6 +173,7 @@ async function build() {
 
   const sorted = sortEntries(entries)
   const total = sorted.length
+  const widest = widestNumeral(total, NUMERAL_ROW_PX, 0.1)
   const plain = sorted.map((item) => item.entry)
   const chapterMap = new Map(chaptersOf(plain).map((chapter) => [chapter.category, chapter.index]))
 
@@ -202,6 +208,21 @@ async function build() {
   await writeFile(
     path.join(DIST, 'effects.json'),
     JSON.stringify(machineIndex(sorted, chapterMap), null, 2) + '\n',
+    'utf8',
+  )
+
+  // 编号栏要多宽，取决于**当下载库**里最长的那个罗马数字，而它不是条目数本身：
+  // 125 条的 CXXV 只有 44px，可 88 的 LXXXVIII 要 69px。算出来写进 CSS，
+  // 库长大了栏会自己变宽，不会悄悄撞到标题上。详见 shared/numeral.mjs。
+  await writeFile(
+    path.join(DIST, 'numeral.css'),
+    `:root {
+  /* 目录每行的编号栏宽（当下载库最宽的是 ${widest.text}） */
+  --numeral-w: ${numeralColumnRem(total, { fontSizePx: NUMERAL_ROW_PX })}rem;
+  /* 对开页页边注的大编号字号（栏只有 ${RAIL_W}px，再大就出框） */
+  --numeral-lead: ${numeralFontRem(total, { maxWidthPx: RAIL_W })}rem;
+}
+`,
     'utf8',
   )
 
