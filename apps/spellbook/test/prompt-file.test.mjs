@@ -75,7 +75,7 @@ test('每一份 prompt.txt 都不替对方决定技术栈，并且把决定权�
   for (const slug of readdirSync(SPELL)) {
     const text = readFileSync(path.join(SPELL, slug, 'prompt.txt'), 'utf8')
     if (/用 [A-Za-z/#+ ]+ 实现/.test(text)) ordered.push(slug)
-    if (!/取决于你手里这个项目/.test(text)) framing.push(slug)
+    if (!/取决于你那个项目/.test(text)) framing.push(slug)
   }
   assert.deepEqual(ordered, [], `这些还在替对方定技术栈：${ordered.join(', ')}`)
   assert.deepEqual(framing, [], `这些没把决定权交回给目标项目：${framing.join(', ')}`)

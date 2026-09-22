@@ -178,23 +178,30 @@ test('提示不替对方决定技术栈', () => {
   assert.doesNotMatch(text, /用 HTML\/CSS/, '不该点名 HTML/CSS 当实现栈')
   assert.doesNotMatch(text, /用 [A-Za-z/]+ 实现/, '任何语言都不该被写成命令')
   // 反过来，必须明说「按你手里那个项目来」
-  assert.match(text, /取决于你手里这个项目/, '该把决定权交回给目标项目')
-  assert.match(text, /代码只是其中一种落法/, '该点明代码只是其中一种落法')
+  assert.match(text, /取决于你那个项目/, '该把决定权交回给目标项目')
+  assert.match(text, /用什么都行/, '该点明换语言也行，不强制')
 })
 
-test('示例用的语言从数据里现算，不写死', () => {
-  const multi = buildPrompt({
+/*
+ * 曾经做过一版：从 entry_code.lang 现算一份语言清单，写成「示例用 A、B、C 写成」。
+ *
+ * 那是多余的机件。这份提示要交出去的是**效果与实现思路**，对方用什么语言是他
+ * 那一头的事 —— 提示不该管，也不该由提示来点。代码块自己在哪门语言里，
+ * 标签已经写在块头上，够用了。
+ */
+test('代码块的标签跟着数据走，但提示不替对方算一份语言清单', () => {
+  const doc = buildPrompt({
     meta: { title: 'x' },
-    code: [{ lang: 'html' }, { lang: 'js' }, { lang: 'ts' }],
+    code: [{ lang: 'tsx', body: 'const A = () => null' }],
   })
-  assert.match(multi, /示例用 HTML、JavaScript、TypeScript 写成/)
+  assert.match(doc, /^--- TSX ---$/m, '块头标签该写清这是哪门语言的例子')
+  assert.doesNotMatch(doc, /示例用.*写成/, '不该再算一份语言清单')
 
-  // 查不到的语言用原样，不吞不猜 —— 库迟早会收 html/css 之外的东西
+  // 查不到的语言用原样，不吞不猜 —— 例子不限于 html/css，React 也行，别的也行
   const exotic = buildPrompt({
     meta: { title: 'x' },
     code: [{ lang: 'swiftui', body: 'Text("hi")' }],
   })
-  assert.match(exotic, /示例用 swiftui 写成/)
   assert.match(exotic, /^--- swiftui ---$/m)
 })
 
@@ -209,8 +216,8 @@ test('约束排在示例前面 —— 先说要什么、什么会坏，再给参
   const at = (re) => text.search(re)
   assert.ok(at(/要的效果：/) < at(/靠什么成立：/), '效果该在机制前')
   assert.ok(at(/靠什么成立：/) < at(/容易失效的地方：/), '机制该在边界前')
-  assert.ok(at(/容易失效的地方：/) < at(/参考实现：/), '边界该在示例前')
-  assert.ok(at(/参考实现：/) < at(/^--- CSS ---$/m), '说明该在代码块前')
+  assert.ok(at(/容易失效的地方：/) < at(/参考实现/), '边界该在示例前')
+  assert.ok(at(/参考实现/) < at(/^--- CSS ---$/m), '说明该在代码块前')
 })
 
 test('prompt 认得两种代码块形状（lines 与 body）', () => {

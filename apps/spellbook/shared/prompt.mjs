@@ -96,9 +96,8 @@ export function buildPrompt(entry) {
   lines.push('')
   // 开场三句是这份提示最要紧的部分：它把「什么可搬、什么不可搬」先说了。
   // 不写这三句，AI 会把示例当规格照抄，而示例里的栈、类名、尺寸全是碰巧。
-  lines.push('要拿走的是效果、机制、边界这三样；代码只是其中一种落法。')
-  lines.push('用哪个栈、哪个框架、兼容到什么程度，取决于你手里这个项目：先看清它，再按它改写。')
-  lines.push('示例里的类名、尺寸、结构都是随手取的，不是接口。')
+  lines.push('要的是效果和实现思路，代码只是其中一种写法 —— 用什么都行，不限于示例里那一种。')
+  lines.push('栈、框架、兼容范围取决于你那个项目；示例里的类名、尺寸、结构都是随手取的，不是接口。')
   lines.push('')
 
   if (meta.category) lines.push(`类别：${meta.category}`)
@@ -130,10 +129,11 @@ export function buildPrompt(entry) {
 
   const code = entry.code ?? []
   if (code.length) {
-    // 语言名单从数据里现算，不写死。哪一天库里收了 React、Vue、shader，
-    // 这一句自己就跟着变，不需要有人记得回来改提示生成器。
-    const langs = [...new Set(code.map((block) => langLabel(block.lang)))]
-    lines.push(`参考实现：示例用 ${langs.join('、')} 写成，能直接跑 —— 它示范的是上面那条机制。`)
+    // 这里**不**报「示例是用哪几种语言写的」。曾经做过一版：从 entry_code.lang
+    // 现算一份语言清单。那是多余的机件 —— 这份提示要交出去的是效果与实现思路，
+    // 对方用什么语言是他那一头的事，不归提示管，更不该由提示来点。
+    // 代码块自己在哪门语言里，标签已经写在块头上了（见下面 `--- CSS ---`），够用。
+    lines.push('参考实现（一个例子）：')
     for (const block of code) {
       lines.push(`--- ${langLabel(block.lang)} ---`)
       // @mechanism 开头的行是站点自己的批注，对 AI 是实现细节的提示，留着有用，但去掉行首标记
