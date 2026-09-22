@@ -498,6 +498,10 @@
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
   .chip-gap { color: var(--bad); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
   .chip-dim { color: var(--ink3); box-shadow: inset 0 0 0 1px var(--line2); }
+  /* 可点的开关胶囊：关着是淡的，开着描一圈边（图上"显示关系"就是它）。 */
+  .chip-tog { cursor: pointer; color: var(--ink3); box-shadow: inset 0 0 0 1px var(--line2); }
+  .chip-tog:hover { color: var(--ink); }
+  .chip-tog.on { color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--ink3); }
 
   .bh { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
   .bh h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .06em; }
@@ -1212,6 +1216,8 @@
        但**没有任何渲染路径会调用它们**：UI 上再也没有"语义族"这个开关。 */
     axis: 'dir', ctx: null,
     dirs: {},
+    /* 图上画不画实体间的关系边（默认画；太乱时可以关掉）。 */
+    dirRel: true,
   };
 
   /* ---------- 基础工具 ---------- */
@@ -3361,7 +3367,10 @@
       var gb = el('div', { class: 'block' });
       gb.appendChild(el('div', { class: 'bh' }, el('h2', { text: plan.axisName + '分区图' }),
         el('span', { class: 'sub', text: '与左边树同一份分区：' + plan.groups.length + ' 个' + plan.axisName +
-          (ctx.focus ? '（只看要注意的 ' + ctx.shown.length + ' 条）' : '') })));
+          (ctx.focus ? '（只看要注意的 ' + ctx.shown.length + ' 条）' : '') }),
+        el('span', { class: 'chip chip-tog' + (S.dirRel === false ? '' : ' on'), text: '关系边',
+          title: '实体之间的关系来自 AI 理解；关掉就只看分区',
+          onclick: function () { S.dirRel = (S.dirRel === false); renderAll(); } })));
       gb.appendChild(renderGraph(dirGraphIR(null, plan), {
         avail: gAvail(box),
         emptyText: '这个范围里没有可以画成节点的协议。',
@@ -3706,6 +3715,8 @@
   var G_RELCOLOR = { contains: '#8a8f98', imports: '#007aff', emits: '#16a34a', missing: '#dc2b22',
                      defines: '#7c4dff' };
   var G_UID = 0;
+  /* 实体间关系边最多画多少条：再多就是一团毛线，画不下就如实报出还有几条没画。 */
+  var G_RELEDGE_MAX = 240;
 
   /* 量文字：屏幕外造一张真卡片量它需要多高（canvas 的 measureText 拿不到 CSS 里的
      --mono，会退回默认字体算窄，不能用）。用真 class 才不会量错换行行数。 */
@@ -4148,6 +4159,9 @@
       svg.appendChild(rp);
     });
 
+    /* 边的提示要说人话：节点 id（p0 → p1）谁都看不懂，用实体名；AI 给的关系理由一并带上。 */
+    var nameOf = {};
+    L.nodes.forEach(function (n) { nameOf[n.id] = n.aiTitle ? n.label + '（' + n.aiTitle + '）' : n.label; });
     L.links.forEach(function (l, li) {
       var pts = L.routes[li];
       if (!pts) return;
@@ -4162,7 +4176,8 @@
       if (l.rel === 'missing') path.setAttribute('stroke-dasharray', '5 4');
       path.setAttribute('marker-end', 'url(#gah' + G_RELORDER.indexOf(l.rel) + '_' + uid + ')');
       var t = document.createElementNS(SVG_NS, 'title');
-      t.textContent = l.from + ' → ' + l.to + '（' + l.rel + '）';
+      t.textContent = (nameOf[l.from] || l.from) + ' → ' + (nameOf[l.to] || l.to) + '（' + l.rel + '）' +
+        (l.why ? '：' + l.why : '');
       path.appendChild(t);
       svg.appendChild(path);
     });
@@ -4846,6 +4861,37 @@
   /* 目录图的 IR：带 = 目录（与左树同一份分区），节点 = 协议，**不画字段节点**——
      字段是"协议内部长什么样"，那是契约形状图的活；这张图看的是"这一层有哪些协议、它们归谁"。
      带不在这里算：plan 由 planOf() 给出（左树画分组节点用的就是同一份）。 */
+  /* 实体之间的关系边：两端都画出来了才画得出。抽样画的图必然漏掉一部分，如实报出来。
+     纯函数（传入"画出来的节点"与"取关系"），这样它能在页面外单独量。 */
+  function dirRelEdges(drawn, relsOf, maxEdges) {
+    var at = {};
+    drawn.forEach(function (d) { at[d.cid] = d; });
+    var seen = {}, edges = [], undrawn = 0, selfN = 0, total = 0;
+    drawn.forEach(function (d) {
+      (relsOf(d.cid) || []).forEach(function (r) {
+        if (!r || !r.to) return;
+        total++;
+        if (r.to === d.cid) { selfN++; return; }
+        var other = at[r.to];
+        if (!other) { undrawn++; return; }
+        var key = d.nid + '\u0000' + other.nid + '\u0000' + r.rel;
+        var hit = seen[key];
+        if (hit) { if (r.why && hit.why.indexOf(r.why) < 0) hit.why += '；' + r.why; return; }
+        var edge = { from: d.nid, to: other.nid, rel: r.rel || 'contains', why: r.why || '' };
+        if (d.band !== other.band) edge.cross = true;
+        seen[key] = edge;
+        edges.push(edge);
+      });
+    });
+    /* 上限：跨目录的排在前面（"这个改动会牵到别的目录"才是最该看见的）。 */
+    edges.sort(function (x, y) { return (y.cross ? 1 : 0) - (x.cross ? 1 : 0); });
+    var hidden = 0;
+    if (maxEdges && edges.length > maxEdges) { hidden = edges.length - maxEdges; edges = edges.slice(0, maxEdges); }
+    var cross = 0;
+    edges.forEach(function (e) { if (e.cross) cross++; });
+    return { edges: edges, total: total, undrawn: undrawn, self: selfN, cross: cross, hidden: hidden };
+  }
+
   function dirGraphIR(path, plan) {
     if (!plan) plan = planOf(scopeItemsOf(visibleItems(), path), S.axis, path);
     var all = plan.items;
@@ -4886,7 +4932,43 @@
 
     /* 画谁：按组轮转分名额（每组先露一条，再回头加深）。画不下的不在这里偷偷砍掉 ——
        全部照实交给 IR，由 capGraphIR 按上限截断并如实报出"还有几个协议没画"。 */
+    /* 关系先备好：挑节点时要用它把"关系对端"也抽进来（下面那段邻居补位）。 */
+    var relsByCid = {};
+    all.forEach(function (it) {
+      var c = (it && it.contract) || {};
+      if (c.id && c.aiRelations && c.aiRelations.length) relsByCid[c.id] = c.aiRelations;
+    });
     var picks = pickProtocols(plan.groups, G_MAXN - 1);
+    /* 邻居补位：轮转挑选只看"每条带都露脸"，看不出谁跟谁有关系；把已画实体的关系对端
+       也抽进来，图上才看得见真实的耦合（否则关系全落在"另一端没抽到图上"）。 */
+    if (S.dirRel !== false && picks.length > 1) {
+      var at = {}, picked = {};
+      plan.groups.forEach(function (g) {
+        (g.items || []).forEach(function (it) {
+          var c = (it && it.contract) || {};
+          if (c.id) at[c.id] = { item: it, dom: g };
+        });
+      });
+      picks.forEach(function (p) {
+        var c = (p.item && p.item.contract) || {};
+        if (c.id) picked[c.id] = 1;
+      });
+      var wanted = [];
+      picks.forEach(function (p) {
+        var c = (p.item && p.item.contract) || {};
+        (relsByCid[c.id] || []).forEach(function (r) {
+          var other = at[r.to];
+          if (!other || picked[r.to]) return;
+          var oc = (other.item && other.item.contract) || {};
+          if (!oc.id || picked[oc.id]) return;
+          picked[oc.id] = 1;
+          wanted.push(other);
+        });
+      });
+      var room = G_MAXN - 1 - picks.length;
+      wanted.forEach(function (w) { if (room > 0) { picks.push(w); room--; } });
+    }
+    var drawn = [];
     /* 组号必须在「带内」从 0 数起：组是"这条带里的第几列"。 */
     var grpSeq = {};
     picks.forEach(function (p, pi) {
@@ -4903,12 +4985,28 @@
       if (c.aiTitle) pn.aiTitle = c.aiTitle;
       pn.ord = ir.nodes.length;
       ir.nodes.push(pn);
+      if (c.id) drawn.push({ nid: pn.id, cid: c.id, band: bid });
     });
     bandCounts(ir);
+
+    /* 关系边：两端都被抽到图上才画得出；一对多/重复的规整在 dirRelEdges 里。 */
+    var relStat = { edges: [], total: 0, undrawn: 0, cross: 0, hidden: 0 };
+    if (S.dirRel !== false && drawn.length > 1) {
+      relStat = dirRelEdges(drawn, function (cid) { return relsByCid[cid]; }, G_RELEDGE_MAX);
+      relStat.edges.forEach(function (e) { ir.edges.push(e); });
+    }
     /* 图上画了多少、没画多少，一律说清楚：这张图是"按分组轮着挑"挑出来的样本。 */
-    var note = '图上画了 ' + picks.length + ' 个协议（每个' + plan.axisName + '轮着挑）；' +
+    var note = '图上画了 ' + picks.length + ' 个协议（每个' + plan.axisName + '轮着挑' +
+      (S.dirRel === false ? '' : '，再把关系对端补进来') + '）；' +
       '这个范围里还有 ' + (all.length - picks.length) + ' 个协议没画。';
     if (all.length > picks.length) note += '点左树里更细的目录，能看得更小、更全。';
+    if (S.dirRel === false) note += ' 关系边被关掉了。';
+    else if (relStat.total > 0) {
+      note += ' 关系画了 ' + relStat.edges.length + ' 条' +
+        (relStat.cross ? '（其中 ' + relStat.cross + ' 条跨' + plan.axisName + '）' : '') +
+        (relStat.hidden ? '；还有 ' + relStat.hidden + ' 条太密没画' : '') +
+        (relStat.undrawn ? '；' + relStat.undrawn + ' 条的另一端没抽到图上' : '') + '。';
+    }
     ir.note = note;
     return ir;
   }
@@ -4934,6 +5032,9 @@
           text: plan.groups.length + ' 个' + plan.axisName }),
         el('span', { class: 'chip chip-dim', text: '要注意 ' + hotN }),
         el('span', { class: 'chip chip-dim', text: '有重复 ' + dupN }),
+        el('span', { class: 'chip chip-tog' + (S.dirRel === false ? '' : ' on'), text: '关系边',
+          title: '实体之间的关系来自 AI 理解；关掉就只看分区',
+          onclick: function () { S.dirRel = (S.dirRel === false); renderAll(); } }),
         el('button', { class: 'ghost', type: 'button', text: '返回清单',
           onclick: function () { S.dirView = null; renderAll(); } }))));
 

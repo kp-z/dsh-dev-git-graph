@@ -239,3 +239,93 @@ test('路由接线：/dirs 只读出口、/understand 里目录那轮要点名�
   assert.ok(src.includes('dirs: dirSummary'), '/understand 的响应里要带目录计数')
   assert.ok(src.includes("stage: 'dirs'"), '目录那轮要有自己的进度事件')
 })
+
+/* ---------- 5) 目录图上的实体关系边 ---------- */
+
+function panelSource(): string {
+  return fs.readFileSync(path.resolve(fileURLToPath(new URL('..', import.meta.url)), 'src', 'panel.html'), 'utf8')
+}
+
+type RelEdge = { from: string; to: string; rel: string; why: string; cross?: boolean }
+type RelStat = { edges: RelEdge[]; total: number; undrawn: number; self: number; cross: number; hidden: number }
+
+/** `dirRelEdges` 是纯函数（不碰 DOM），把源码抽出来在页面外直接量它。 */
+function dirRelEdgesOf(): (drawn: unknown[], relsOf: (cid: string) => unknown, max?: number) => RelStat {
+  const html = panelSource()
+  const start = html.indexOf('function dirRelEdges')
+  const end = html.indexOf('function dirGraphIR')
+  assert.ok(start > 0 && end > start, '应当能从面板源码里取出 dirRelEdges 这一段')
+  return new Function(html.slice(start, end) + '; return dirRelEdges')() as never
+}
+
+const DRAWN = [
+  { nid: 'p0', cid: 'c1', band: 'dom0' },
+  { nid: 'p1', cid: 'c2', band: 'dom1' },
+  { nid: 'p2', cid: 'c3', band: 'dom0' },
+]
+
+test('关系边：两端都画出来才画，跨目录的标出来', () => {
+  const fn = dirRelEdgesOf()
+  const stat = fn(DRAWN, (cid) => (cid === 'c1' ? [{ to: 'c2', rel: 'imports', why: '调用了对方' }] : []))
+  assert.equal(stat.edges.length, 1)
+  assert.equal(stat.cross, 1, 'c1 与 c2 不在同一条带上')
+  assert.deepEqual(
+    { from: stat.edges[0]?.from, to: stat.edges[0]?.to, rel: stat.edges[0]?.rel },
+    { from: 'p0', to: 'p1', rel: 'imports' },
+  )
+})
+
+test('关系边：另一端没抽到图上 → 记一笔，不画半条边', () => {
+  const fn = dirRelEdgesOf()
+  const stat = fn(DRAWN, (cid) => (cid === 'c1' ? [{ to: 'c9', rel: 'emits' }] : []))
+  assert.equal(stat.edges.length, 0)
+  assert.equal(stat.undrawn, 1)
+  assert.equal(stat.total, 1)
+})
+
+test('关系边：同一条关系说两遍只画一条，理由合并；自指不算边', () => {
+  const fn = dirRelEdgesOf()
+  const twice = fn(DRAWN, (cid) => (cid === 'c1'
+    ? [{ to: 'c2', rel: 'imports', why: '甲' }, { to: 'c2', rel: 'imports', why: '乙' }]
+    : []))
+  assert.equal(twice.edges.length, 1)
+  assert.equal(twice.edges[0]?.why, '甲；乙')
+  const self = fn(DRAWN, (cid) => (cid === 'c1' ? [{ to: 'c1', rel: 'contains' }] : []))
+  assert.equal(self.edges.length, 0)
+  assert.equal(self.self, 1)
+})
+
+test('关系边：太密时先留跨目录的，并如实报出没画多少', () => {
+  const fn = dirRelEdgesOf()
+  const stat = fn(DRAWN, (cid) => (cid === 'c1'
+    ? [{ to: 'c3', rel: 'imports' }, { to: 'c2', rel: 'emits' }, { to: 'c2', rel: 'defines' }]
+    : []), 2)
+  assert.equal(stat.edges.length, 2)
+  assert.equal(stat.hidden, 1, '三条里只画了两条')
+  assert.ok(stat.edges.some((edge) => edge.cross === true), '跨目录的那条要留下')
+})
+
+test('关系边：没跑过 AI（没有 aiRelations）就一条都不画，也不编', () => {
+  const fn = dirRelEdgesOf()
+  const stat = fn(DRAWN, () => undefined)
+  assert.deepEqual({ edges: stat.edges.length, total: stat.total, undrawn: stat.undrawn }, { edges: 0, total: 0, undrawn: 0 })
+})
+
+test('目录图接线：关系边进 IR、说明里报口径、开关能关掉', () => {
+  const html = panelSource()
+  assert.ok(html.includes('function dirRelEdges'), '关系边的算法要在')
+  assert.ok(html.includes('relStat.edges.forEach(function (e) { ir.edges.push(e); })'), '关系边要进 IR')
+  assert.ok(html.includes("S.dirRel !== false && drawn.length > 1"), '关掉时一条都不画；只有一个节点时也不用算')
+  assert.ok(html.includes('关系画了 '), '说明里要说画了几条（含跨目录与没画的）')
+  assert.ok(html.includes('chip chip-tog'), '要有能关掉关系边的开关')
+  assert.ok(html.includes('var G_RELEDGE_MAX'), '太密时的上限要有明确定义')
+  /* 只抽"每条带露一条"的话，真实项目里关系几乎全落在"另一端没抽到图上" —— 那等于没展示关系。 */
+  assert.ok(html.includes('邻居补位'), '挑节点时要把关系对端也抽进来')
+  assert.ok(html.includes('再把关系对端补进来'), '说明里要如实交代挑选方式变了')
+  assert.ok(html.includes('(nameOf[l.from] || l.from)'), '边的提示要说人话（实体名，不是 p0 → p1）')
+  /* 关系边只加在目录图上：形状图那侧不许被带下去（它画的是字段之间）。 */
+  const shape = html.indexOf('function shapeGraphIR')
+  const shapeEnd = html.indexOf('function enumGraphIR')
+  assert.ok(shape > 0 && shapeEnd > shape)
+  assert.ok(!html.slice(shape, shapeEnd).includes('dirRelEdges'), '形状图不掺和目录图的关系边')
+})
