@@ -70,10 +70,7 @@ tier: core
   order: 1;
 }
 
-.bar-compact .bar-title {
-  /* @mechanism 同值项之间按文档顺序；不动的项留在默认的 0，就排在保存按钮前面 */
-  order: 0;
-}
+/* @mechanism 其余项保持默认的 order: 0，同值之间按文档顺序，所以它们仍排在保存按钮之前 */
 ```
 
 ## 边界
