@@ -25,6 +25,7 @@ params:
 ## 代码
 
 ```html
+<!-- @mechanism 三行文本字符相同，连字的有无全由 CSS 决定，标记不动 -->
 <p class="lg lg-on">office fluff — 连字打开</p>
 <p class="lg lg-off">office fluff — 连字关闭</p>
 <p class="lg lg-track">office fluff — 字距不为零</p>

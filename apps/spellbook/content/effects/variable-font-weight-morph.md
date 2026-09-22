@@ -26,6 +26,7 @@ params:
 ## 代码
 
 ```html
+<!-- @mechanism 字重不在这里给：可变字体把它做成轴上的数字，HTML 只提供文字 -->
 <h2 class="vw">SPELLBOOK</h2>
 <p class="vw-note">字重是一条可以停在任意位置上的轴</p>
 ```

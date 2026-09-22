@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 
 import { parse, ParseError } from './shared/parse.mjs'
 import { validateAll, CATEGORIES } from './shared/schema.mjs'
+import { openVault, defaultVaultPaths } from './shared/vault.mjs'
 import { buildDemoDocument } from './src/render/demo.mjs'
 import { renderIndex, renderSpell, chaptersOf } from './src/render/pages.mjs'
 import { stripMechanismMarkers } from './src/render/text.mjs'
@@ -233,8 +234,44 @@ async function build() {
     process.exit(1)
   }
 
+  /*
+   * 库与站点是同一份内容的两个投影，必须同一口气生成。
+   *
+   * 为什么不留给「人手跑两条命令」：`node build.mjs` 与 `node scripts/vault.mjs rebuild`
+   * 分开跑，两者就会停在不同时刻的内容上。而 test/rank.test.mjs 要的
+   * 「站点 Top-1 == 库 Top-1」正是拿这两个产物比出来的 —— 内容还在变的时候分开跑，
+   * 它会报出一个其实并不存在的「分岔」，把真正的排序回归淹掉。
+   * 实测踩过两次：站点说 sticky-ancestor-clip、库说 sticky-stack，看着像打分公式分了家，
+   * 其实只是库落后了一轮内容。dev 更明显：serve.mjs 只重跑 build.mjs，
+   * 库会一直悄悄停在旧内容上，直到有人手动 rebuild。
+   *
+   * rebuild 只动投影区；events / proposals / slug_prior 这些「不可重建的运行时历史」
+   * 原样留着（shared/vault.mjs 里那张表自己写着这条规矩）。
+   */
   const sorted = sortEntries(entries)
   const total = sorted.length
+
+  const vaultPaths = defaultVaultPaths(ROOT)
+  const vault = openVault(vaultPaths)
+  let projected
+  try {
+    projected = vault.rebuild({})
+  } finally {
+    vault.close()
+  }
+
+  /*
+   * 两个投影数出来的条数必须一样。不一样就说明有一边的扫描或解析口径变了 ——
+   * 那正是「同一个查询在两个地方给两个答案」的起点，宁可在构建期就炸掉。
+   */
+  if (projected.entries !== total) {
+    console.error(
+      `站点与库数出来的条数不一样：站点 ${total} 条，库 ${projected.entries} 条。\n` +
+        ' 两边读的是同一个 content/effects/，不一致说明有一边的扫描或解析口径变了。\n',
+    )
+    process.exit(1)
+  }
+
   const widest = widestNumeral(total, NUMERAL_ROW_PX, 0.1)
   const plain = sorted.map((item) => item.entry)
   const chapterMap = new Map(chaptersOf(plain).map((chapter) => [chapter.category, chapter.index]))
@@ -290,10 +327,25 @@ async function build() {
 
   await copyAssets(STAGE)
 
-  // 全部写完才动 dist：先删旧的，再整体换名过去。中间那段空窗只有毫秒级，
-  // 不会再出现「index.html 404、spell/ 只有一半」那种半成品对外服务。
-  await rm(DIST, { recursive: true, force: true })
+  /*
+   * 全部写完才动 dist。但**不是**「先删旧的、再换名过去」——
+   * 那样会留下一段没有 dist 的空窗，而 rm -rf 284 个目录要几十到几百毫秒，
+   * 不是「毫秒级」（原注释就是这么写的，写小了）。dev 下 serve.mjs 正在服务，
+   * 测试又是并行跑的（node --test 同时开几个测试文件），读 dist/search-index.json 的人
+   * 正好撞进这段空窗就拿到 ENOENT —— 它看起来像「构建坏了」，其实只是被偷走了一瞬。
+   *
+   * 改成「把旧的挪到一边、再把新的换过来」：空窗缩到两次 rename 系统调用之间，
+   * 微秒级，且不随库的规模增长。旧的那份随后删掉。
+   */
+  const RETIRED = path.join(ROOT, `.dist-retired-${process.pid}`)
+  await rm(RETIRED, { recursive: true, force: true })
+  try {
+    await rename(DIST, RETIRED)
+  } catch {
+    // 首次构建时 dist 还不存在，没什么可挪的
+  }
   await rename(STAGE, DIST)
+  await rm(RETIRED, { recursive: true, force: true })
 
   /* 收拾别的构建留下的临时目录。临时目录名字末尾就是那个构建的 pid，
      所以判断标准不用猜：**那个进程还活着就别碰**，死了才清。
@@ -303,10 +355,12 @@ async function build() {
      三十分钟还挂在那儿的，不管 pid 是谁都该清了。 */
   const PID_REUSE_MS = 30 * 60 * 1000
   const now = Date.now()
+  const JUNK_PREFIXES = ['.dist-staging-', '.dist-retired-']
   for (const name of await readdir(ROOT)) {
-    if (!name.startsWith('.dist-staging-') || name === path.basename(STAGE)) continue
+    const prefix = JUNK_PREFIXES.find((p) => name.startsWith(p))
+    if (!prefix || name === path.basename(STAGE)) continue
     const dir = path.join(ROOT, name)
-    const pid = Number(name.slice('.dist-staging-'.length))
+    const pid = Number(name.slice(prefix.length))
     let alive = false
     try {
       process.kill(pid, 0)
@@ -326,6 +380,10 @@ async function build() {
 
 
   console.log(`咒语书构建完成：${total} 条咒语 → ${path.relative(process.cwd(), DIST)}/`)
+  console.log(
+    `  · 库同步：${projected.entries} 条${projected.skipped ? '（内容没变，跳过重建）' : ''}` +
+      ` → ${path.relative(process.cwd(), vaultPaths.dbPath)}`,
+  )
   for (const { entry } of sorted) {
     console.log(`  · ${entry.meta.title}（${entry.meta.category}，${entry.meta.stage}）`)
   }

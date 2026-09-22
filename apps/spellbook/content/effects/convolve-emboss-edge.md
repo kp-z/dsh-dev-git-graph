@@ -25,6 +25,7 @@ tier: candidate
   <filter id="sb-relief" x="-6%" y="-6%" width="112%" height="112%"
           color-interpolation-filters="sRGB">
     <!-- @mechanism 权重和为 0：平坦处抵消，只有边留下；bias 把 0 抬到视觉中灰 -->
+    <!-- 对角线上的那个 0 不是留白：它保证正负权重只落在核的两侧，浮雕方向才干净 -->
     <feConvolveMatrix order="3" preserveAlpha="true" divisor="1" bias="0.5"
       kernelMatrix="-2 -1  0
                     -1  0  1

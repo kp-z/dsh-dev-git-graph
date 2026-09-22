@@ -24,6 +24,7 @@ params:
 ## 代码
 
 ```html
+<!-- @mechanism 文字内容没有变，变的是字体文件里那条字宽轴上的位置 -->
 <h2 class="fs">SPELLBOOK</h2>
 <p class="fs-note">悬停看它变宽，字高始终不变</p>
 ```
@@ -39,7 +40,6 @@ params:
   transition: font-stretch var(--dur, 0.6s) cubic-bezier(0.34, 1.4, 0.5, 1);
 }
 
-.fs-wrap:hover .fs,
 .fs:hover {
   font-stretch: var(--wd, 118%);
 }

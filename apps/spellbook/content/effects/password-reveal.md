@@ -2,7 +2,7 @@
 title: 密码可见切换
 slug: password-reveal
 category: 交互
-tags: [表单, 密码, 选区]
+tags: [表单, 密码, 焦点]
 since: 2026-10
 source: 机制来自 DOM 的 HTMLInputElement.type 切换与 setSelectionRange，自行实现
 when: 登录框边上要一个「显示密码」的小按钮，且切换后不能打断用户继续输入
@@ -12,15 +12,15 @@ tier: core
 
 ## 描述
 
-密码框右侧一个眼睛按钮，点一下变明文，再点一下变回圆点；键盘焦点和光标位置都不丢。
+密码框右侧一个眼睛按钮，点一下变明文，再点一下变回圆点，键盘焦点与光标位置都不丢。
 
-看着像只是把 `type` 从 `password` 改成 `text`，但直接这么写，用户会发现每点一次按钮，光标就跳到文字末尾，接着打字是从头插入——因为换 `type` 会让浏览器重建输入元素的渲染状态，`selectionStart` 与 `selectionEnd` 一并归零。
+看着像只是把 `type` 从 `password` 改成 `text`，但真正要处理的是焦点：用户是**点按钮**来切换的，那一下点击之后焦点落在按钮上，输入框已经失焦。不把它交还回去，用户接着打字就什么也打不进去。
 
-机制是 ==切换 type 会丢掉光标与选区，所以要在切换后显式把两者还原==。先读下 `selectionStart` / `selectionEnd`，改完 `type` 再 `focus()` 并把选区写回去。少了这一步，输入到一半去确认一眼的体验就不成立了。
+机制是 ==切换明文与密文是在同一个 input 上改 type，值、自动填充与密码管理器集成因此原样保留==。另一种常见做法是放一个隐藏的真实输入框、再放一个可见的假输入框去显示明文，靠同步 `value` 撑起两块状态——那样会丢掉浏览器的密码管理器集成与输入法上下文，还得自己维护两份必须一致的真相。改 `type` 只是在同一个元素上换一种呈现，值不搬家。
 
-第二件事是别用「真假两个输入框」的替代方案。有些实现放一个隐藏的真实输入框和一个可见的假输入框，靠同步 `value` 显示明文——那样会丢掉浏览器的密码管理器集成、自动填充和输入法上下文。改 `type` 是在原元素上操作，这些一个都不丢。
+光标与选区是第三件事，而它没有看上去那么确定：切换后各引擎的处理并不一致，实测 Chrome 会连带保留，但不该指望这一点。代价只有一行 `setSelectionRange`，顺手把读到的选区写回去，是消除引擎差异最省心的做法。
 
-按钮还有两个容易漏的性质：必须写 `type="button"`，否则它在表单里默认是提交按钮，点一下就提交；以及它的状态要用 `aria-pressed` 表达，读屏器才知道这是个可以按下去保持的开关，而不是一个动作。
+按钮本身还有两个容易漏的性质：必须写 `type="button"`，否则它在表单里默认是提交按钮，点一下眼睛就提交了；以及它的状态要用 `aria-pressed` 表达，读屏器才知道这是个可以按下去保持的开关，而不是一次性动作。
 
 ## 代码
 
@@ -88,14 +88,16 @@ const input = document.querySelector('.pw-input')
 const toggle = document.querySelector('.pw-toggle')
 
 toggle.addEventListener('click', () => {
-  // @mechanism 先存下光标与选区，改完 type 它们就没了
+  // @mechanism 先读下光标与选区，切换后各引擎给的位置并不一致
   const start = input.selectionStart
   const end = input.selectionEnd
   const reveal = input.type === 'password'
 
+  // @mechanism 同一个元素改 type，值不搬家，明文只是它的另一种呈现
   input.type = reveal ? 'text' : 'password'
+  // @mechanism 点按钮后焦点在按钮上，交还给输入框，用户才能接着打字
   input.focus()
-  // @mechanism 把选区写回去，否则用户接着打字会从末尾插入
+  // @mechanism 把选区写回读到的位置，换来跨引擎一致的光标
   input.setSelectionRange(start, end)
 
   toggle.setAttribute('aria-pressed', String(reveal))
@@ -106,14 +108,15 @@ toggle.addEventListener('click', () => {
 
 ## 边界
 
-- `setSelectionRange` 只在支持选区的类型上可用。目标是 `type="email"` 或 `type="number"` 时它会直接抛 `InvalidStateError`——想在这类字段上做类似切换，得先包一层 try 或者干脆不做。
-- 有些浏览器在 `type` 切换后会**重置**或截断已有内容（历史版本上 `value` 处理不一致）。切换前读一次 `value`、切换后确认还在，是廉价的自保。
-- 明文状态会把密码暴露在屏幕上，也会被输入法记住候选。切回密码时若字段已失焦，一些浏览器会重新触发拼写检查的下划线——这是外观上的小噪音，不影响功能。
+- `focus()` 不能省。用户点的是按钮，那一下之后 `document.activeElement` 就是按钮；不交还焦点，用户接着敲的字不会进入密码框，看起来像输入框坏了。
+- `setSelectionRange` 只在支持选区的类型上可用。目标是 `type="email"` 或 `type="number"` 时它会直接抛 `InvalidStateError`——想在这类字段上做类似切换，得先包一层判断或者干脆不做。
+- 实测当前 Chrome 在切换 `type` 时会保留 `value` 与选区，但这是引擎行为，不是规范保证的动作。别把「切换后光标还该在原处」当成浏览器会替你做的事，写一行还原才是稳的。
+- 明文状态会把密码暴露在屏幕上，也可能被输入法的候选与剪贴板记录带走。这是一次主动的信息暴露，产品上通常要配一个自动切回或短暂显示的策略。
 - 按钮漏写 `type="button"` 就是提交按钮。这个 bug 在只有密码框的表单里特别隐蔽：看起来一切正常，只是每次点眼睛都提交了一次。
 - 浏览器自带的密码框里往往已经有一个平台自己的「显示密码」控件。两者同时出现会重复，通常要靠 `::-ms-reveal` 之类的私有伪元素把它藏掉。
 - 按钮不能放进 `<label>` 里。`label` 只允许包一个可标记元素，多塞一个按钮进去会让「点标签聚焦输入框」和「点按钮切换」互相打架——点了按钮，焦点却跑到输入框上。
 
 ## 备注
 
-- 「切换后把选区与焦点还原」这条经验适用于任何会改动元素渲染状态的属性变更，不只是 `type`。
-- 把按钮的状态存在 `aria-pressed` 上而不是一个私有类名上，样式和无障碍就共用了同一份真相——这是本项目里反复出现的同一个取舍。
+- 「先把状态写进元素自己的属性，样式再去读它」在这个库里反复出现：`aria-pressed`、`:checked`、`indeterminate` 都是同一个思路。
+- 把按钮的文案与 `aria-label` 一起改掉，是因为读屏器念的是 `aria-label`，而视力用户看的是文字；只改一个，另一群用户就会听到「显示密码」却看到「隐藏」。

@@ -29,12 +29,14 @@ params:
     <a href="#sb-a1">第一节</a>
     <a href="#sb-a2">第二节</a>
     <a href="#sb-a3">第三节</a>
+    <a href="#sb-a4">第四节</a>
   </nav>
   <div class="am-scroll">
     <header class="am-bar">固定工具栏</header>
     <section class="am-sec" id="sb-a1"><h4>第一节</h4><p>点目录，标题停在工具栏下面。</p></section>
     <section class="am-sec" id="sb-a2"><h4>第二节</h4><p>靠的是对齐时才算上的那段空白。</p></section>
     <section class="am-sec" id="sb-a3"><h4>第三节</h4><p>把让位拖到 0，标题就被压住了。</p></section>
+    <section class="am-sec" id="sb-a4"><h4>第四节</h4><p>它后面没有内容了，让位会被夹住。</p></section>
   </div>
 </div>
 ```
@@ -77,8 +79,9 @@ params:
 }
 /* @mechanism 让位只在对齐那一刻参与：它属于目标元素的滚动边距，不占布局也不移元素 */
 .am-sec {
+  min-height: 118px;
   scroll-margin-top: var(--gap, 64px);
-  padding: 12px 0 26px;
+  padding: 12px 0 20px;
   border-bottom: 1px solid rgb(60 48 30 / 0.14);
 }
 .am-sec h4 {
@@ -104,6 +107,7 @@ params:
 - 与滚动容器上的 `scroll-padding-top` 同时写会出现**叠加**：让位变成两份，标题停得太靠下，而且两处的数值都不容易看出谁在起作用。
 - 目标位于嵌套滚动容器里时，只有**直接滚动它**的那个容器上的 `scroll-padding` 生效；外层固定头部的高度内层并不知道，所以通用做法是把让位写在目标自己的 `scroll-margin` 上。
 - 目标是 `position: sticky`、或者本身处在固定层里时，让位不起作用——它根本不随滚动移动。
+- 目标**后面内容不够**时让位会被夹住：浏览器滚到底就停，标题到不了让位高度，看起来像 scroll-margin 没生效。滚到「第四节」（它下面没有内容了）就能看到这个现象；末尾补一段占位内容即可。
 - `scroll-behavior: smooth` 要跟着 `prefers-reduced-motion` 关掉：平滑滚动会让前庭敏感的用户不适，而它不属于 transition/animation，全局的降级规则兜不住。
 - 用 `padding-top` 或 `::before` 占位来「顶开」头部，会把目标的命中区域一起挪走（标题上的链接会偏），而且只在视觉上管用——对齐位置依旧按元素上边缘算。要为对齐留白，就用只为对齐存在的 scroll-margin。
 

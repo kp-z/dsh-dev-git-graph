@@ -23,6 +23,7 @@ tier: core
 ## 代码
 
 ```html
+<!-- @mechanism 两行字完全一样的大写输入，一行换字形、一行缩放大写做对照 -->
 <nav class="sc">
   <span class="sc-item">Collected Works</span>
   <span class="sc-item sc-fake">Collected Works</span>
@@ -58,7 +59,7 @@ tier: core
 ```js
 const nav = document.querySelector('.sc')
 nav?.addEventListener('click', () => {
-  // 真假小型大写一对比就看出来了：合成的那行会明显偏细
+  // @mechanism 关掉合成后，没有 smcp 的那行会立刻显形：要么真字形、要么原样大写
   nav.classList.toggle('sc-nosynth')
 })
 ```

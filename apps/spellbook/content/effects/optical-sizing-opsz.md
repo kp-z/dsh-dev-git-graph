@@ -21,6 +21,7 @@ tier: core
 ## 代码
 
 ```html
+<!-- @mechanism 标记不参与选择：两行同一句话，光学尺寸只认字号 -->
 <p class="os-small">Handgloves — 12px needs stronger strokes.</p>
 <h2 class="os-large">Handgloves</h2>
 <p class="os-pinned">Handgloves — 钉在小号字形上</p>

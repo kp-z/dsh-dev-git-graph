@@ -23,6 +23,7 @@ tier: core
 ## 代码
 
 ```html
+<!-- @mechanism 三行的字符一字不差，区别只在字体特性开关 -->
 <p class="nm num-frac">面粉 1/2 杯，糖 3/4 杯</p>
 <p class="nm num-zero">编号 SN-10024 / SN-1OO24</p>
 <p class="nm num-ord">第 1st 名与第 2nd 名</p>

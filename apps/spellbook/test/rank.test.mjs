@@ -81,7 +81,17 @@ test('说人话的查询能命中该命中的那条', () => {
   const data = loadIndexFile()
   const index = buildIndex(data.docs)
   const cases = [
-    ['玻璃', 'liquid-glass'],
+    /*
+     * 「玻璃」曾经只有 liquid-glass 一条能命中，所以这条断言当年写的是它。
+     * 现在玻璃成了一族（double-glaze / clear-glass-pane / liquid-glass / …），
+     * 谁排第一交给 bm25：double-glaze 的描述通篇在讲玻璃本身
+     * （「两块玻璃叠着放」「上面那块玻璃」「两片 5px 的玻璃」），
+     * 词面上压过只把玻璃当材料名的 liquid-glass —— 这是排序的诚实结果，不是回归。
+     * 站点与库对这一条的答案一致（见下一条测试），所以不是两个真相。
+     * 想精确拿到 iOS 那层面板，查「液态玻璃」—— 那一条钉在下面。
+     */
+    ['玻璃', 'double-glaze'],
+    ['液态玻璃', 'liquid-glass'],
     ['文字绕图排', 'shape-outside-wrap'],
     ['跟着鼠标动的按钮', 'cursor-glow-follow'],
   ]
@@ -243,6 +253,21 @@ test('站内的机制批注不会混进复制出去的咒语', () => {
 
   const jsNote = stripMechanismAnnotations('// @mechanism 格子本身不转\nconst a = 1')
   assert.equal(jsNote, '// 格子本身不转\nconst a = 1')
+
+  // 示例的三种围栏各自有一种注释形态，三种都得认。
+  // 漏掉 HTML 那一种的后果不是多了点噪声，而是提示里漏出本库的私有记法。
+  const htmlNote = stripMechanismAnnotations(
+    '<!-- @mechanism 真实输入框始终只有一个 -->\n<input type="password">',
+  )
+  assert.equal(htmlNote, '<!-- 真实输入框始终只有一个 -->\n<input type="password">')
+
+  const htmlBare = stripMechanismAnnotations('<div class="a"></div> <!-- @mechanism -->\n<span></span>')
+  assert.ok(!htmlBare.includes('@mechanism'), `HTML 纯标记应当被删掉，实际：${htmlBare}`)
+  assert.match(htmlBare, /<span><\/span>/)
+
+  // 把记号写在注释末尾的写法（`/* 说明 @mechanism */`）也要接住
+  const trailing = stripMechanismAnnotations('grid-template-columns: subgrid; /* 父级定轨道 @mechanism */')
+  assert.ok(!trailing.includes('@mechanism'), `尾部写法应当被删掉，实际：${trailing}`)
 })
 
 test('真实内容里的每一份咒语都不含站内标记、且都带代码', () => {
