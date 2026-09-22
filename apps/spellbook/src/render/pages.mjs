@@ -162,34 +162,23 @@ function searchField() {
 }
 
 /**
- * 检索区：只剩「限定分类」的筹码与状态行，查词口已经搬去刊头。
+ * 检索区：一条状态行，查词口已经在刊头里。
  *
- * 结果区由 site.js 填。之所以把「命中机制」也渲染出来，是因为全库的立论是
- * 「机制是承重墙」——检索也该照这条立论解释自己为什么给这一条，而不是只丢一个标题。
+ * 这里原先还有一排「限定分类」的筹码（全书 / 材质 / 动效 / …）。它已经去掉了：
+ * 那排筹码是**章目导航的重复品** —— 分类本来就是章，左边的章目已经把同一个
+ * 分类列了一遍，再横着摆一排按钮，等于同样的入口做两遍。
+ * 去掉之后首屏是「刊头（含查词口）→ 分隔纹 → 目录」，一眼到底。
  *
- * `chips` 是整串分类筹码，**必须**由参数传进来而不是事后对模板做字符串替换：
- * 之前就是靠 replace 往 `</div>` 后面塞，结果只有第一个筹码落在 group 里，
- * 另外六个散在 group 外面——aria-label 管不到它们，flex 间距也丢了。
- * 模板留一个洞，就没法再插错位置。
+ * 状态行留着，但**只在检索时才有字**（`role="status"`，`aria-live="polite"`）：
+ * 它是检索的活口 —— 「正在取索引…」「N 条命中」「搜索不可用：…」都从这里报。
+ * 不查的时候它空着，`<p>` 没有内容就没有高度，不占地方，也不影响读屏播报。
  */
-function concordance(chips = '') {
-  return `  <section class="concordance" aria-label="限定分类">
-    <div class="concordance-scope" role="group" aria-label="限定分类">
-      <button class="scope-chip is-on" type="button" data-scope="" aria-pressed="true">全书</button>
-${chips}
-    </div>
+function concordance() {
+  return `  <section class="concordance" aria-label="检索状态">
     <p class="concordance-status" data-search-status role="status" aria-live="polite"></p>
   </section>
 
   <div class="search-results" data-search-results hidden></div>`
-}
-
-/** 分类筹码。由分类表生成，别把「全书」之外的那几个写死——分类改了要跟着走。 */
-function scopeChips() {
-  return CATEGORIES.map(
-    (category) =>
-      `      <button class="scope-chip" type="button" data-scope="${escapeHtml(category)}" aria-pressed="false">${escapeHtml(category)}</button>`,
-  ).join('\n')
 }
 
 /* 原先把这条立论挂在首屏当标语。现在首屏让给检索，立论挪到页脚，位置换了，话没变。 */
@@ -264,7 +253,7 @@ ${chapters
 
   const body = `${header({ root: './', search: searchField(), asHeading: true })}
 <main id="main"${withNav ? ' class="has-rail"' : ''}>
-${concordance(scopeChips())}
+${concordance()}
 
 ${fleuron()}
 

@@ -283,10 +283,8 @@ function initSearch() {
   const browse = document.querySelector('[data-browse]')
   const fleuron = document.querySelector('.fleuron')
   const clear = document.querySelector('[data-search-clear]')
-  const chips = [...document.querySelectorAll('.scope-chip')]
   if (!input || !results || !browse) return
 
-  let scope = ''
   let terms = []
   let current = []
   let selected = -1
@@ -310,7 +308,9 @@ function initSearch() {
       current = []
       selected = -1
       wasSearching = false
-      setStatus(`共 ${ranker?.docs.length ?? ''} 条咒语，按章翻或直接查`)
+      // 不查的时候状态行空着。它只在检索时报事（取索引 / 命中数 / 出错），
+      // 「共 N 条」那句是常驻说明，首屏不需要第二行字。
+      setStatus('')
       return
     }
 
@@ -324,10 +324,7 @@ function initSearch() {
       return
     }
 
-    const hits = ranker.mod.rank(ranker.index, query, {
-      category: scope || null,
-      limit: 40,
-    })
+    const hits = ranker.mod.rank(ranker.index, query, { limit: 40 })
     terms = ranker.mod.units ? ranker.mod.units(query).map((u) => u.join('')) : []
     current = hits
     selected = -1
@@ -342,12 +339,12 @@ function initSearch() {
     if (!hits.length) {
       results.innerHTML = `<p class="search-empty">没有匹配的咒语。</p>
         <p class="search-empty-hint">试试换个说法，或者只留一个关键词。比如「跟随」「玻璃」「条纹」「绕排」。</p>`
-      setStatus(`0 条命中${scope ? `（限${scope}）` : ''}`)
+      setStatus('0 条命中')
       return
     }
 
     results.innerHTML = `<ol class="hits">${hits.map(renderHit).join('')}</ol>`
-    setStatus(`${hits.length} 条命中${scope ? `（限${scope}）` : ''}${hits.length >= 40 ? '，只显示前 40 条' : ''}`)
+    setStatus(`${hits.length} 条命中${hits.length >= 40 ? '，只显示前 40 条' : ''}`)
 
     /* 刚进入检索时，把结果的顶端挪到吸顶刊头底下。
        不这么做的话：用户滚到第 6000 行才开始打字，而结果区在页面最上面，
@@ -436,18 +433,6 @@ function initSearch() {
     render()
     input.focus()
   })
-
-  for (const chip of chips) {
-    chip.addEventListener('click', () => {
-      scope = chip.dataset.scope ?? ''
-      for (const other of chips) {
-        const on = other === chip
-        other.classList.toggle('is-on', on)
-        other.setAttribute('aria-pressed', on ? 'true' : 'false')
-      }
-      render()
-    })
-  }
 
   // 「/」或 ⌘K 直接落到查词口。已经在输入控件里时不抢。
   window.addEventListener('keydown', (event) => {

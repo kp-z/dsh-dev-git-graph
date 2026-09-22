@@ -1385,9 +1385,12 @@ html {
    正文仍是正文色，只有**命中的机制**用朱批 —— 全库只有这一处被强调，检索也不例外。
    ========================================================================== */
 
+/* 检索区现在只剩一条状态行，平时是空的 —— 所以这里不留上边距：
+   空的时候整块高度就是 0，刊头下面直接是分隔纹，由花饰自己的 58px 内边距撑开。
+   留着 30px 的话，那 30px 会永远悬在刊头与花饰之间，白占一段。 */
 .concordance {
   max-width: var(--measure);
-  margin: 30px 0 0;
+  margin: 0;
 }
 
 .concordance-field {
@@ -1476,38 +1479,19 @@ html {
   opacity: 0;
 }
 
-.concordance-scope {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 6px;
-  margin-top: 12px;
-}
-
-.scope-chip {
-  padding: 5px 11px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  background: none;
-  font: 400 0.76rem/1 var(--font-label);
-  letter-spacing: 0.1em;
-  color: var(--text-dim);
-  cursor: pointer;
-  transition: color 0.16s, border-color 0.16s;
-}
-
-.scope-chip:hover {
-  color: var(--text);
-}
-
-.scope-chip.is-on {
-  border-color: var(--gilt);
-  color: var(--gilt-bright);
-}
-
+/* 状态行只在检索时有字。空着的时候 <p> 没有内容就没有行盒，高度自然是 0 ——
+   所以不写 display:none：那会把 role="status" 这个活口一起从无障碍树里摘掉。
+   留一个空的活口，读屏才播得出来「N 条命中」。 */
+/* 状态行的上边距只在**有字的时候**给。空着的时候它是个 0 高的空块，
+   可 margin 照样会漏出来 —— 一段凭空的 12px 横在刊头与花饰之间，
+   查不查都在那儿。:not(:empty) 把它钉在有字这一种情况上。 */
 .concordance-status {
-  margin: 12px 0 0;
+  margin: 0;
   font: 400 0.8rem/1.5 var(--font-note);
   color: var(--text-dim);
+}
+.concordance-status:not(:empty) {
+  margin-top: 12px;
 }
 
 /* ------------------------------------------------------------ 命中 */
@@ -1768,7 +1752,6 @@ mark {
 @media (prefers-reduced-motion: reduce) {
   .row-peek,
   .row-copy,
-  .scope-chip,
   .hit-tool,
   .concordance-field {
     transition: none;

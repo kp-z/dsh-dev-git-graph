@@ -167,12 +167,27 @@ test('首页首屏让给检索，原导语挪到页脚', () => {
   assert.doesNotMatch(html, /class="prologue-lede"/)
 })
 
-test('限定分类的筹码由分类表生成，不是写死的', () => {
-  const html = renderIndex([entry({ category: '材质' })])
-  for (const category of CATEGORIES) {
-    assert.match(html, new RegExp(`data-scope="${category}"`), `缺 ${category} 的筹码`)
-  }
-  assert.match(html, /data-scope="" aria-pressed="true"/)
+test('首屏不再有「限定分类」的筹码 —— 分类的入口只留章目导航一处', () => {
+  // 那排筹码是章目导航的重复品：分类本来就是章，左边已经列过一遍。
+  // 同样的入口做两遍，首屏就多出一条横带、还只占半幅，看着像没做完。
+  // 用两个分类，才会长出章目导航（只有一章时它本来就不出现）。
+  const html = renderIndex([entry({ category: '材质' }), entry({ slug: 'y', category: '动效' })])
+  assert.doesNotMatch(html, /scope-chip/, '筹码该整排去掉')
+  assert.doesNotMatch(html, /concordance-scope/, '容器也该去掉')
+  assert.doesNotMatch(html, /data-scope=/, '作用域的钩子一个都不该留')
+  // 但分类并没有从页面上消失：章首标题与章目导航仍在，按分类翻书照样成立
+  assert.match(html, /chapter-nav/, '章目导航要在')
+  assert.match(html, /材质/, '分类名仍该出现在章首/章目里')
+})
+
+test('筹码去掉后，site.js 里不该剩下作用域那套机件', () => {
+  const js = readFileSync(new URL('../src/site.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.doesNotMatch(js, /scope-chip/, '别再去找筹码')
+  assert.doesNotMatch(js, /let scope = /, '作用域变量该一起删掉')
+  assert.doesNotMatch(js, /category: scope/, '检索不该再按作用域过滤')
+  // 不限分类仍然要能查（rank 的 category 缺省就是 null）
+  assert.match(js, /rank\(ranker\.index, query, \{ limit: 40 \}\)/, '该退回到不限分类的查法')
 })
 
 test('放大预览用的 dialog 只在首页出现一次，且默认没内容', () => {
@@ -234,23 +249,28 @@ test('两套主题都声明了 color-scheme', () => {
   assert.match(css, /:root\[data-theme='light'\] \{[^}]*color-scheme: light/)
 })
 
-test('所有分类筹码都在 role=group 容器里', () => {
-  // 之前是用字符串 replace 把筹码塞到 </div> 后面，结果只有第一个落在 group 内，
-  // 另外六个散在外面：aria-label「限定分类」管不到它们，flex 间距也丢了，
-  // 首屏因此多出一段说不清的空白。模板留洞才治本。
+test('状态行只在检索时有字，平时是空的活口', () => {
+  // 状态行是检索的活口（role=status / aria-live），「正在取索引…」「N 条命中」
+  // 「搜索不可用：…」都从这里报。不查的时候它空着，不能 display:none ——
+  // 那会把活口从无障碍树里摘掉，读屏就播不出来了。
   const html = renderIndex([entry({ category: '材质' })])
-  const group = html.match(/<div class="concordance-scope"[\s\S]*?<\/div>/)?.[0] ?? ''
-  assert.ok(group, '应当有一个 concordance-scope 容器')
-  assert.equal((group.match(/scope-chip/g) ?? []).length, CATEGORIES.length + 1, '全书 + 每个分类都该在里面')
-  assert.match(group, /role="group"/)
-  assert.match(group, /aria-label="限定分类"/)
+  const status = html.match(/<p class="concordance-status"[^>]*><\/p>/)?.[0] ?? ''
+  assert.ok(status, '状态行该是空的（初值不由模板写死）')
+  assert.match(status, /role="status"/)
+  assert.match(status, /aria-live="polite"/)
+  assert.doesNotMatch(html, /共 \d+ 条咒语/, '「共 N 条」那句常驻说明已经去掉')
 
-  // group 结束后、状态行之前，不该再冒出击筹码。
-  // 切点必须落在整段 group 之后：若按 'concordance-scope' 切，切点落在开标签里，
-  // 会把组内的筹码也算进来，测试就会假红。
-  const groupEnd = html.indexOf(group) + group.length
-  const between = html.slice(groupEnd, html.indexOf('concordance-status', groupEnd))
-  assert.equal((between.match(/scope-chip/g) ?? []).length, 0, '不该有筹码散在 group 外面')
+  const js = readFileSync(new URL('../src/site.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '')
+  assert.match(js, /setStatus\(''\)/, '不查的时候该清空状态行')
+  assert.doesNotMatch(js, /条咒语/, '别再写那句常驻计数')
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+  assert.doesNotMatch(
+    css.replace(/\/\*[\s\S]*?\*\//g, ''),
+    /\.concordance-status[^{]*\{[^}]*display:\s*none/,
+    '空的状态行不能 display:none，否则活口失效',
+  )
 })
 
 /* ── 刊头：书名与检索口一行，检索口吸顶 ───────────────────────────── */
@@ -469,4 +489,24 @@ test('开关住在 .masthead-id 里，不再自己占一列', () => {
   // 就说明开关又跑回第三格了 —— 查词口会立刻短 73px
   assert.doesNotMatch(css, /\.masthead\s*>\s*\.theme-toggle/, '开关不该是刊头的直接栅格子元素')
   assert.match(css, /\.masthead-id \{[\s\S]*?justify-content: space-between/, '第一格内部该是书名靠左、开关靠右')
+})
+
+test('空的状态行不许漏出上边距', () => {
+  // 空块的高度是 0，可 margin 不会跟着消失 —— 那 12px 会永远横在
+  // 刊头和花饰之间，查不查都在，成了凭空的空白。
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  const base = css.match(/\.concordance-status \{[\s\S]*?\n\}/)?.[0] ?? ''
+  assert.ok(base, '该有 .concordance-status 基础规则')
+  assert.match(base, /margin:\s*0/, '基础规则不该带上边距')
+  assert.match(css, /\.concordance-status:not\(:empty\) \{[\s\S]*?margin-top:\s*12px/,
+    '上边距该钉在「有字」这一种情况上')
+})
+
+test('检索区的上边距不留给空状态行占位', () => {
+  const css = readFileSync(new URL('../src/styles/spellbook.css', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+  const rule = css.match(/\n\.concordance \{[\s\S]*?\n\}/)?.[0] ?? ''
+  assert.ok(rule, '该有 .concordance 规则')
+  assert.match(rule, /margin:\s*0/, '状态行空着时整块高度是 0，别再留 30px')
 })
