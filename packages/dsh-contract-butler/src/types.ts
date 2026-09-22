@@ -177,6 +177,25 @@ export interface AiRecord {
   channel: string
 }
 
+/**
+ * AI 理解出来的一个目录节点的中文（表 `dirAi`，key 是 `dir_<projectId>_<path>`）。
+ *
+ * 目录口径与面板的 `dirNameOf` 逐字一致：`src/hooks`、`（根目录）`、`（运行时）`。
+ * 中文只能来自 AI，拿不到就是没有——绝不本地编一句顶上去。
+ */
+export interface DirAiRecord {
+  id: string
+  projectId: string
+  path: string
+  /** 成员集合与成员 AI 中文的指纹：变了就重问。 */
+  hash: string
+  titleZh: string
+  noteZh: string
+  at: number
+  /** 实际用的模型路由（与 `AiRecord.channel` 同源）。 */
+  channel: string
+}
+
 /** 一条演化：某个提交把某条契约改成了什么样。 */
 export interface ChangeRecord {
   id: string

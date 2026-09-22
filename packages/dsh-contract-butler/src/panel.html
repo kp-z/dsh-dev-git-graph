@@ -1641,6 +1641,8 @@
        两者用同一个机制，就不会出现"预告说 12 条、实际问了整个项目"这种假话。 */
     if (scope.ids && scope.ids.length) body.contractIds = scope.ids;
     if (choice.force === true) body.force = true;
+    /* 勾了"补 AI 中文说明"，就把目录节点的中文和叶子（契约）的中文一起补。 */
+    if (wantAi) body.dirAi = true;
 
     var done = [];        // 每一步**真正做成**的事（失败时也要把这些说出来）
     var es = null;

@@ -23,7 +23,7 @@ import {
   snapshotSchema,
 } from '../lib/domain.js'
 
-test('真实实现接受本插件的领域规格，并认出七张表', () => {
+test('真实实现接受本插件的领域规格，并认出八张表', () => {
   // `defineDomain` 在模块加载时就已经跑过了（domain.ts 顶层调用），这里确认投影结果。
   const descriptor = descriptorOf(CONTRACT_BUTLER_DOMAIN)
   assert.equal(descriptor.name, 'contract_butler')
@@ -32,9 +32,10 @@ test('真实实现接受本插件的领域规格，并认出七张表', () => {
   assert.equal(descriptor.hasGlobal, false)
   assert.deepEqual(
     [...descriptor.tables].sort(),
-    // `ai` 是 AI 理解结果的缓存表（跟着领域落盘）。加表**不动 version**：介质按这份清单逐张取，
-    // 缺的那张初始化成空表，所以对已经在盘上的老数据是纯增量。
-    ['ai', 'changes', 'contracts', 'decisions', 'observations', 'projects', 'snapshots'],
+    // `ai` 是契约级 AI 理解的缓存，`dir_ai` 是目录级 AI 中文（都跟着领域落盘）。加表**不动
+    // version**：介质按这份清单逐张取，缺的那张初始化成空表，所以对已经在盘上的老数据是纯增量。
+    // （`dir_ai` 是这一轮加的第八张：表名要匹配宿主的 /^[a-z][a-z0-9_]*$/，所以是下划线不是驼峰。）
+    ['ai', 'changes', 'contracts', 'decisions', 'dir_ai', 'observations', 'projects', 'snapshots'],
   )
   assert.equal(CONTRACT_BUTLER_DOMAIN.invalidRecords, 'backup-and-skip')
 })

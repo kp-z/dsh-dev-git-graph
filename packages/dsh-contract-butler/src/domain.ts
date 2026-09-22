@@ -136,6 +136,18 @@ export const aiSchema = z.object({
   channel: z.string(),
 })
 
+/** 目录级 AI 中文：目录口径与面板 dirNameOf 逐字一致（`src/hooks` / `（根目录）` / `（运行时）`）。 */
+export const dirAiSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  path: z.string(),
+  hash: z.string(),
+  titleZh: z.string(),
+  noteZh: z.string(),
+  at: z.number(),
+  channel: z.string(),
+})
+
 /** 形状快照：某条契约在某一版上的样子。key 由 `snapshotKey()` 生成。 */
 export const snapshotSchema = z.object({
   projectId: z.string(),
@@ -214,5 +226,6 @@ export const CONTRACT_BUTLER_DOMAIN: DomainSpecLike = defineDomain({
     observations: domainTable(observationSchema),
     decisions: domainTable(decisionSchema),
     ai: domainTable(aiSchema),
+    dir_ai: domainTable(dirAiSchema),
   },
 })

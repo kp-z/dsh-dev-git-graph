@@ -26,11 +26,12 @@ import { EventHub, HttpError, registerRoutes } from './routes.js'
 import { aiKey, ButlerStore } from './store.js'
 import { FACET_AXES, FACET_VALUE_LABELS, stateFacets, structuralFacets } from './facets.js'
 import { buildNeighbourIndex, clampBatch, hashOf, understandContracts } from './aiWorkflow.js'
+import { understandDirs } from './dirAi.js'
 import { createHostAi, describeHostAi } from './hostAi.js'
 import type { HostAiServices } from './hostAi.js'
 import { watchProject } from './watch.js'
 import type { Watcher } from './watch.js'
-import type { Candidate, ChangeRecord, ContractRecord, DecisionRecord, ProjectRecord } from './types.js'
+import type { Candidate, ChangeRecord, ContractRecord, DecisionRecord, DirAiRecord, ProjectRecord } from './types.js'
 
 /** Loader entry id（kebab-case，全局唯一）。 */
 export const name = 'contract-butler'
@@ -609,6 +610,24 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
       },
       {
         method: 'GET',
+        path: '/dirs',
+        /* 目录级 AI 中文的只读出口。面板按 path 建表，与左树的 data-dir 同一个串。 */
+        handler: async ({ query }) => {
+          const current = requireStore()
+          const projectId = query.get('project') ?? ''
+          if (projectId === '') throw new HttpError(400, '缺少 project（要看哪个项目的目录中文）')
+          const project = current.projects().get(projectId)
+          if (project === undefined) throw new HttpError(404, `没有这个项目：${projectId}`)
+          const dirs: DirAiRecord[] = []
+          for (const [, record] of current.dirAi().entries()) {
+            if (record.projectId === projectId) dirs.push(record)
+          }
+          dirs.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+          return { projectId, dirs, total: dirs.length }
+        },
+      },
+      {
+        method: 'GET',
         path: '/contracts/:id',
         handler: async ({ query }) => {
           const current = requireStore()
@@ -1029,6 +1048,36 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
             )
           }
 
+          /* 目录级 AI 中文：与契约那轮用同一个 AI 面（同一个 caller），写回也走同一条写链。
+             body.dirAi === true 时才跑（面板勾了'补 AI 中文说明'才会点名）。 */
+          let dirSummary = { generated: 0, cached: 0, failed: 0, total: 0 }
+          if (input.dirAi === true) {
+            const dirResult = await serialize(() =>
+              understandDirs({
+                store: current,
+                projectId,
+                contracts: all,
+                caller,
+                force,
+                onProgress: (progress) => {
+                  hub.broadcast('understand', {
+                    projectId,
+                    stage: 'dirs',
+                    done: progress.done,
+                    total: progress.total,
+                    dirs: progress.dirs,
+                  })
+                },
+              }),
+            )
+            dirSummary = {
+              generated: dirResult.generated,
+              cached: dirResult.cached,
+              failed: dirResult.failed,
+              total: dirResult.dirs.length,
+            }
+          }
+
           const fresh = await freshChangeIds(project)
           return {
             ok: summary.ok,
@@ -1036,6 +1085,7 @@ export function apply(ctx: Context, config: Partial<ContractButlerConfig> = {}):
               ...summary,
               // 逐条结果够面板写报告了；`entries` 也留着，报告要给出"符号名 → 中文职责"的对照。
               entries: summary.entries,
+              dirs: dirSummary,
             },
             /* 和 /contracts、/rebuild 同构：面板拿到就能直接照着渲染，不必再打一次列表接口。 */
             contracts: current.contractsOf(projectId).map((contract) => contractLite(contract, fresh)),

@@ -10,6 +10,7 @@ import { parseShape } from './shape.js'
 import { CONTRACT_BUTLER_DOMAIN } from './domain.js'
 import type {
   AiRecord,
+  DirAiRecord,
   ChangeRecord,
   ContractRecord,
   DecisionRecord,
@@ -49,6 +50,8 @@ export const TABLES = {
   decisions: 'decisions',
   /** AI 理解结果的缓存；按内容哈希判定可用性。 */
   ai: 'ai',
+  /** 目录级 AI 中文；一张目录一行。 */
+  dirAi: 'dir_ai',
 } as const
 
 /** 形状快照记录（快照表用）。 */
@@ -132,6 +135,11 @@ export class ButlerStore {
    */
   ai(): TableLike<AiRecord> {
     return this.domain.table<AiRecord>(TABLES.ai)
+  }
+
+  /** 目录级 AI 中文的缓存表。判可用性与 `ai` 同理：指纹对不上就重问。 */
+  dirAi(): TableLike<DirAiRecord> {
+    return this.domain.table<DirAiRecord>(TABLES.dirAi)
   }
 
   /**
