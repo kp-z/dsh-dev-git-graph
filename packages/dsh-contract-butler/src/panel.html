@@ -937,6 +937,10 @@
   }
   .genbtn:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
   .genbtn:disabled { cursor: default; opacity: .6; }
+  /* 未纳管时这个按钮是"纳管项目"，给它一点强调：它是现在唯一该点的东西。 */
+  .genbtn.onboard { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+  /* 破坏性动作的第二道闸：那个"确认清掉并重新生成"必须是红的。 */
+  .ghost.danger { color: var(--bad); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bad) 45%, transparent); }
   .genbtn .gico { width: 12px; height: 12px; flex: none; display: block; }
 
   /* 弹窗里的四组选项。每一组都是"标题 + 若干行"，行里是控件 + 名字 + 说明。 */
@@ -1076,18 +1080,15 @@
       <div class="hsub" id="hsub">正在连接…</div>
     </div>
     <div class="tb-range" id="tbRange"></div>
-    <div style="display:flex;gap:8px;align-items:center">
-      <button class="ghost" id="btnInit" type="button">纳管项目</button>
-    </div>
   </header>
 
   <aside class="sidebar card">
     <div class="side-top">
       <select class="search" id="projSel" aria-label="选择项目"></select>
-      <!-- 生成是**唯一**的动作入口，所以它放在侧边栏最上面一排、紧挨着项目选择器。
-           原先顶栏那三个按钮（重新扫描 / 重新生成 / AI 理解）已经合并成这一个：
-           扫描、补 AI 中文说明、重画界面本来就是同一条链，分成三个按钮只会让人分不清
-           "点哪个才会真的问模型"。这一次要点什么，交给它弹出来的那个窗去选。 -->
+      <!-- **唯一**的动作入口，放在侧边栏最上面一排、紧挨着项目选择器。原先顶栏那三个按钮
+           （重新扫描 / 重新生成 / AI 理解）并成了它 + 一个选择弹窗；顶栏那个「纳管项目」也并了进来：
+           没纳管时它就是"纳管项目"，纳管之后才是"生成"。一个入口、一条路径，同一个弹窗按状态
+           分两个形态，两个形态之间不再互相跳转。 -->
       <button class="genbtn" id="btnGenerate" type="button"
         title="扫描代码 → 补 AI 中文说明 → 重画界面，一条链走完；点它选这次要重新生成什么">
         <svg class="gico" viewBox="0 0 14 14" aria-hidden="true">
@@ -1547,7 +1548,7 @@
         合并成一个，点击后弹出弹窗，选择需要重新生成的内容。"
        "AI 理解完全不是一个单独的步骤，是要和整个东西的生成结合在一起的。"
 
-     所以这一层只有两件事：openGenerate() 弹窗选这次要什么，runGenerate(choice) 真的去跑。
+     所以这一层只有两件事：flowGenerate() 弹窗选这次要什么，runGenerate(choice) 真的去跑。
      链子严格按三段走，任何一段失败都**如实**停下来说原因，并且把"已经做成的部分"一起说清
      ——尤其是 rebuild：它清掉的东西回不来，哪怕后面那句中文没补上，底下的契约也已经重生成
      过了，这件事必须写在结果里，不能因为整体失败就连带说成"什么都没发生"。
@@ -1561,7 +1562,7 @@
    * @param choice.scope - `{ kind, dir, contractIds }`；只作用于 AI 那一段（见弹窗里的说明）
    */
   function runGenerate(choice) {
-    if (!S.p) { openInit(); return Promise.resolve(null); }
+    if (!S.p) { openFlow(); return Promise.resolve(null); }
     choice = choice || {};
     var projectId = S.p.id;
     var mode = choice.mode === 'rebuild' ? 'rebuild' : choice.mode === 'rescan' ? 'rescan' : 'none';
@@ -1764,8 +1765,36 @@
    * 是项目级动作（宿主的接口就是这样），说明里也直接写明——做不到的范围维度不假装有。
    * @param preset - 预置范围（详情页的「重新生成这一条」用它把范围钉在那一条上）。
    */
-  function openGenerate(preset) {
-    if (!S.p) { openInit(); return; }
+  /* ---------- 一个入口，一条路径 ----------
+     动作入口只有侧栏那一个（#btnGenerate）。它背后只有这一个分流点：
+       没有项目 → 未纳管的形态：选目录（先只读预览）→ 决定纳管哪些；
+       已有项目 → 已纳管的形态：决定这次要重生成什么。
+     两个形态是同一个弹窗（同一个 #ov 壳）的两副面孔，彼此之间不再互相跳转。 */
+  function openFlow(preset, opts) {
+    /* opts.onboard：调用方明确知道"这次是要纳管"（例如启动时发现当前 workspace 还没纳管）。
+       它不是第二个入口——入口仍然只有那一个按钮，这里只是把状态说清楚。 */
+    var wantOnboard = (opts && opts.onboard === true) || !S.p;
+    if (wantOnboard) return flowOnboard(typeof preset === 'string' ? preset : undefined);
+    return flowGenerate(preset);
+  }
+
+  /* 入口按钮自己的文案跟着状态走：没纳管时它是"纳管项目"，纳管之后才是"生成"。
+     同一个按钮两种说法——不为第二种状态新增第二个入口。
+     正在跑（按钮被禁用）时不动它，免得盖掉 runGenerate 写的"生成中…"。 */
+  function syncFlowEntry() {
+    var btn = $('#btnGenerate');
+    var label = $('#genLabel');
+    if (!btn || !label || btn.disabled) return;
+    var onboard = !S.p;
+    var text = onboard ? '纳管项目' : '生成';
+    if (label.textContent !== text) label.textContent = text;
+    btn.title = onboard
+      ? '还没有纳管项目：点它选一个目录纳管（先只读预览，勾了才写）'
+      : '扫描代码 → 补 AI 中文说明 → 重画界面，一条链走完；点它选这次要重新生成什么';
+    btn.classList.toggle('onboard', onboard);
+  }
+
+  function flowGenerate(preset) {
     preset = preset || {};
     var scopes = genScopes();
     var wantKind = preset.contractId ? 'contracts' : (S.dirView ? 'dir' : 'project');
@@ -1788,8 +1817,22 @@
     go.style.color = 'var(--accent)';
     go.style.boxShadow = 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent)';
 
+    /* 破坏性动作的第二道闸：选中「清掉重生成」之后再点「开始生成」不算确认，要再点一次
+       写清代价的按钮。选项一变（replan）就把这道闸撤掉——旧的确认不能盖住新的选择。 */
+    var confirmNote = el('div', { class: 'gpl warn', text: '清掉这个项目已生成的契约、快照、演化、观测、决策与 AI 缓存，'
+      + '再按当前代码重新抽一遍。不可撤销。' });
+    confirmNote.style.display = 'none';
+    var resetRebuildGate = function () {
+      G.confirmRebuild = false;
+      go.textContent = '开始生成';
+      go.classList.remove('danger');
+      confirmNote.style.display = 'none';
+    };
+
     /* 每次选项一变就重新问一遍宿主："这次会做什么"必须跟着选项走，不能是打开弹窗那一刻的快照。 */
     function replan() {
+      /* 每次选项一变就撤掉"确认清掉"那道闸。 */
+      resetRebuildGate();
       G.seq += 1;
       var mine = G.seq;
       clear(planBody);
@@ -1889,6 +1932,8 @@
       aiRow.sync();
       forceRow.sync();
       scopeRows.forEach(function (r) { r.sync(); });
+      /* 范围只管 AI：没勾 AI 就整块不出现。 */
+      scopeSec.style.display = G.ai ? '' : 'none';
     }
     /* 勾选框自己不带 replan，这里统一挂上；再统一做一次同步。 */
     [aiRow, forceRow].forEach(function (r) {
@@ -1902,6 +1947,15 @@
     });
 
     go.addEventListener('click', function () {
+      /* 破坏性动作要两道闸：第一下只是把代价说清（不可撤销），第二下才真的跑。
+         非破坏性的档位一下就走，默认（增量重扫）不受影响。 */
+      if (G.mode === 'rebuild' && !G.confirmRebuild) {
+        G.confirmRebuild = true;
+        go.textContent = '确认清掉并重新生成（不可撤销）';
+        go.classList.add('danger');
+        confirmNote.style.display = '';
+        return;
+      }
       var scope = chosen();
       closeOverlay();
       runGenerate({ mode: G.mode, ai: G.ai, force: G.ai && G.force,
@@ -1910,6 +1964,13 @@
     var cancel = el('button', { class: 'ghost', type: 'button', text: '取消' });
     cancel.addEventListener('click', closeOverlay);
 
+    /* 作用范围只管 AI 那一段：不勾「补 AI 中文说明」时整块不出现，少一个要读的东西。 */
+    var scopeSec = el('div', { class: 'gensec' },
+      el('div', { class: 'gsh' }, el('span', { text: '作用范围' }), el('span', { class: 'gsn', text: '只管 AI 这一段' })),
+      el('div', { class: 'gsnote', text: '重扫与重生成是项目级动作，永远覆盖整个项目——它们不受这个范围影响。'
+        + '这个范围决定的是"给哪些契约补中文说明"。' }),
+      scopeRows.map(function (r) { return r.row; }));
+
     openOverlay('生成', el('div', {},
       el('div', { class: 'note', text: '扫描、补 AI 中文说明、重画界面本来是一条链——这里选的是这次要重新生成的内容，'
         + '点一次就跑完整条链。' }),
@@ -1917,12 +1978,9 @@
         modeRows.map(function (r) { return r.row; })),
       el('div', { class: 'gensec' }, el('div', { class: 'gsh' }, el('span', { text: 'AI 中文说明' })),
         aiRow.row, forceRow.row),
-      el('div', { class: 'gensec' },
-        el('div', { class: 'gsh' }, el('span', { text: '作用范围' }), el('span', { class: 'gsn', text: '只管 AI 这一段' })),
-        el('div', { class: 'gsnote', text: '重扫与重生成是项目级动作，永远覆盖整个项目——它们不受这个范围影响。'
-          + '这个范围决定的是"给哪些契约补中文说明"。' }),
-        scopeRows.map(function (r) { return r.row; })),
+      scopeSec,
       planBox,
+      confirmNote,
       el('div', { class: 'genfoot' },
         el('span', { class: 'gsum', text: S.p.title }),
         cancel, go)));
@@ -1979,7 +2037,7 @@
        这一条上。原来这里直接调理解接口，于是"重问这一条"与"重生成整个项目"是两套流程、
        两套说法——那正是用户说的"重复"。 */
     var btn = el('button', { class: 'ghost', type: 'button', text: '重新生成这一条…' });
-    btn.addEventListener('click', function () { openGenerate({ contractId: c.id }); });
+    btn.addEventListener('click', function () { openFlow({ contractId: c.id }); });
     box.appendChild(el('div', { class: 'aiact' }, btn));
     return box;
   }
@@ -1995,7 +2053,7 @@
     skip: undSkipStage,
     /* 直接跑一次生成链（弹窗里点"开始生成"走的就是它），供手动验证与截图用。 */
     start: runGenerate,
-    generate: openGenerate,
+    generate: flowGenerate,
     state: function () {
       var host = document.getElementById('und');
       if (!host) return null;
@@ -2409,13 +2467,15 @@
   /* ---------- 顶栏 ---------- */
   function renderTop() {
     var p = S.p;
+    /* 入口的文案跟着状态走（未纳管=纳管项目 / 已纳管=生成）——同一个按钮，不是第二个入口。 */
+    syncFlowEntry();
     $('#projSel').value = p ? p.id : '';
     var range = $('#tbRange');
     clear(range);
     var hsub = $('#hsub');
     if (!p) {
       hsub.textContent = S.status
-        ? '还没有纳管任何项目。点右上角「纳管项目」，选一个目录开始。'
+        ? '还没有纳管任何项目。点左边侧栏最上面那个「纳管项目」，选一个目录开始。'
         : '正在连接宿主…';
       return;
     }
@@ -5053,7 +5113,9 @@
   }
   function closeOverlay() { $('#ov').classList.remove('open'); }
 
-  function openInit(preselect) {
+  /* 未纳管的形态：选项目 → 选目录（先只读预览）→ 决定纳管哪些。入口是 openFlow()，
+     不是第二个按钮；纳管落库之后接着走同一条链的 AI 段（见 commitDirs）。 */
+  function flowOnboard(preselect) {
     S.init = null; S.pick = null;
     S.ws = []; S.wsSel = ''; S.wsSrc = ''; S.scanning = '';
     S.previews = {}; S.picks = {}; S.wsCounts = {};
@@ -5738,10 +5800,9 @@
       try { localStorage.setItem('dsh-contract-butler.project', ev.target.value); } catch (e) {} S.sel = null; loadProject(ev.target.value); });
     /* 搜索会改可见条目 → 分区跟着变，所以左树和主区图要一起重画（走 renderAll） */
     $('#q').addEventListener('input', function (ev) { S.q = ev.target.value; S.caps = {}; renderAll(); });
-    $('#btnInit').addEventListener('click', openInit);
-    /* 唯一的生成入口。原先的"重新扫描 / 重新生成 / AI 理解"三个按钮并成了它 + 一个选择弹窗：
-       这三个东西本来就是同一条链上的三段，做成三个按钮只会让人分不清"点哪个才会真的问模型"。 */
-    $('#btnGenerate').addEventListener('click', function () { openGenerate(); });
+    /* 唯一的动作入口：同一个弹窗，未纳管时是"选目录纳管"，纳管之后是"选这次重生成什么"。
+       原先顶栏那个「纳管项目」并进了它；"重新扫描 / 重新生成 / AI 理解"三个按钮也早已并进来。 */
+    $('#btnGenerate').addEventListener('click', function () { openFlow(); });
     $('#ovClose').addEventListener('click', closeOverlay);
     $('#ov').addEventListener('click', function (ev) { if (ev.target === $('#ov')) closeOverlay(); });
 
@@ -5804,7 +5865,8 @@
     var cwd = normPath(cwdHint());
     if (cwd && projectForCwd()) return;
     if (!cwd && S.projects.length) return;
-    openInit(cwd);
+    /* 当前 workspace 没纳管过 → 摆"未纳管"那个形态（哪怕别的项目已经纳管了）。 */
+    openFlow(cwd, { onboard: true });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

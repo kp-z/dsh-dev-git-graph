@@ -423,7 +423,57 @@ test('面板：原先那三个按钮全没了，入口只剩侧边栏里的一�
   assert.ok(aside.includes('>生成<'), '按钮上写的就该是「生成」')
   const topbar = html.slice(html.indexOf('<header class="topbar'), html.indexOf('</header>'))
   assert.ok(!topbar.includes('btnGenerate'), '生成按钮不该留在顶栏里')
-  assert.ok(topbar.includes('btnInit'), '「纳管项目」不属于被合并的三个按钮，它留在顶栏')
+  /* 下面这条原来是反的：「纳管项目」曾经作为第二个动作入口留在顶栏。现在它并进了侧栏那一个
+     入口（未纳管时它就叫"纳管项目"），所以这里改成钉"顶栏不再有动作入口"。 */
+  assert.ok(!topbar.includes('btnInit'), '顶栏不该再有第二个动作入口：纳管项目已并进侧栏那一个入口')
+  assert.ok(!/openFlow|btnInit|btnRescan|btnRebuild|btnUnderstand/.test(topbar),
+    '顶栏里不该有任何能到达 /init /rescan /rebuild 的入口')
+  // 侧栏那一个是**唯一**的动作入口：只有一个按钮绑 openFlow。
+  //（详情页那个「重新生成这一条…」是同一个弹窗的范围预置快捷方式，不是第二条路径。）
+  const binders = html.match(/addEventListener\('click', function \(\) \{ openFlow\(\); \}/g) || []
+  assert.strictEqual(binders.length, 1, '打开动作弹窗的按钮只能有一个：侧栏那一个')
+  assert.ok(!/openInit|openGenerate/.test(html), '旧的第二个入口（openInit/openGenerate）不该再存在')
+})
+
+test('面板：一个入口两个状态（未纳管=纳管项目 / 已纳管=生成），且不新增第二个入口', () => {
+  const html = panelHtml()
+  // 唯一的入口只有一个：openFlow 是唯一分流点。
+  assert.ok(html.includes('function openFlow(preset, opts)'), '要有唯一的入口分流函数 openFlow')
+  const flow = html.slice(html.indexOf('function openFlow(preset, opts)'), html.indexOf('function syncFlowEntry'))
+  assert.ok(flow.includes('var wantOnboard = (opts && opts.onboard === true) || !S.p;'),
+    '没有项目（或调用方明确要求）→ 未纳管的形态（选目录纳管）')
+  assert.ok(flow.includes('if (wantOnboard) return flowOnboard('), '未纳管走 flowOnboard，纳管过走 flowGenerate')
+  assert.ok(flow.includes('return flowGenerate(preset)'), '已有项目 → 已纳管的形态（选这次重生成什么）')
+  // 入口文案跟着状态走：同一个按钮，两种说法。
+  assert.ok(html.includes('function syncFlowEntry()'), '入口文案要有一个同步点')
+  const syncAt = html.indexOf('function syncFlowEntry()')
+  const sync = html.slice(syncAt, syncAt + 800)
+  assert.ok(sync.includes("onboard ? '纳管项目' : '生成'"), '未纳管写「纳管项目」、已纳管写「生成」')
+  // 状态一变（重画顶栏）就要同步，不能只在启动时写一次。
+  const topAt = html.indexOf('function renderTop()')
+  assert.ok(html.slice(topAt, topAt + 400).includes('syncFlowEntry()'),
+    '每次重画顶栏都要同步入口文案（状态一变就跟着变）')
+  // 两个形态之间不再互跳：旧的两处互跳要删掉。
+  assert.ok(!html.includes('{ openInit(); return'), '旧的两处互跳要删掉')
+  assert.ok(!html.includes('{ openInit(); }'), '旧的两处互跳要删掉')
+})
+
+test('弹窗：作用范围只在勾了 AI 时出现；「清掉重生成」要第二道确认', () => {
+  const html = panelHtml()
+  // 作用范围只管 AI：不勾 AI 整块不出现。
+  assert.ok(html.includes("scopeSec.style.display = G.ai ? '' : 'none'"), '不勾 AI 时作用范围整块不出现')
+  const syncAt = html.indexOf('function syncAll()')
+  assert.ok(html.slice(syncAt, syncAt + 500).includes('scopeSec.style.display'),
+    '显隐要在"选项联动"那一处统一同步，不能只在打开时算一次')
+  // 破坏性动作的第二道闸：第一下说清代价，第二下才真的跑；默认那档不受影响。
+  const goAt = html.indexOf("go.addEventListener('click'")
+  const go = html.slice(goAt, goAt + 800)
+  assert.ok(go.includes("G.mode === 'rebuild' && !G.confirmRebuild"),
+    '只有「清掉重生成」才要第二下确认（且第一下不跑）')
+  assert.ok(go.includes('确认清掉并重新生成（不可撤销）'), '第二下的按钮要把代价写在脸上')
+  assert.ok(html.includes('清掉这个项目已生成的契约、快照、演化、观测、决策与 AI 缓存'),
+    '确认文案要把清掉的东西列清楚')
+  assert.ok(html.includes('resetRebuildGate'), '选项一变就要把这道确认撤掉（旧确认不能盖住新选择）')
 })
 
 test('面板：弹窗里有那四组选择，且预告是问宿主算出来的（不是写死的）', () => {
@@ -804,8 +854,8 @@ test('弹窗：默认必须是"增量重扫"，而且那一档真的处于选中
     assert.ok(gi > 0, `${label} 这一档的 get 要读 G.mode`)
     assert.ok(si > gi, `${label} 这一档的写（G.mode = …）要在 get 之后，不能拿来当 get`)
   }
-  // 默认值本身：openGenerate 里初始化的就是 rescan。
-  const open = html.indexOf('function openGenerate')
+  // 默认值本身：flowGenerate 里初始化的就是 rescan。
+  const open = html.indexOf('function flowGenerate')
   const g = html.slice(open, open + 600)
   assert.ok(g.includes("mode: 'rescan'"), '打开弹窗时的默认模式必须是增量重扫')
   assert.ok(html.includes('增量重扫（默认）'), '那一档的标题要写明它是默认')
