@@ -981,12 +981,18 @@
   .gencard > .gsh .gsn { font-family: var(--mono); letter-spacing: 0; color: var(--ink3);
     opacity: .8; font-weight: 400; }
   .gencard .gensec:first-child { margin-top: 0; }
-  /* 「目录」那一行：左边一行事实，右边一个动作。整块只有这两样。 */
-  .gdirbox { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 9px; }
-  .gdirrow { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .gdirfact { flex: 1; min-width: 0; font-size: 11.5px; color: var(--ink3);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .gdirrow > button { flex: 0 0 auto; }
+  /* 右侧那张卡就是选择器本体：树铺在里面，卡内滚动，别把弹窗撑破。 */
+  /* 左右两张卡**等高**：网格拉伸 + 卡撑满，内容多的一侧在卡内自己滚。 */
+  .gengrid { align-items: stretch; }
+  .gencard { height: 100%; min-height: 0; }
+  .gencard .gpick { margin-top: 8px; }
+  .gencard .gpick .drows { max-height: 236px; overflow: auto; }
+  .gsub { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 9px; }
+  /* 已纳管目录：勾上且锁住（点它只给一句轻提示）。 */
+  .drow.locked { cursor: default; }
+  .drow.locked input[type=checkbox] { opacity: .7; }
+  .drow.locked::after { content: '已纳管'; margin-left: 6px; font-size: 10px;
+    color: var(--ink3); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; flex: 0 0 auto; }
   .gdirs { display: grid; gap: 4px; margin: 6px 0 8px; }
   .gdir { display: flex; align-items: center; gap: 8px; font-size: 11.5px; min-width: 0; }
   .gdir .gp { font-family: var(--mono); color: var(--ink); overflow: hidden;
@@ -1998,9 +2004,31 @@
         return;
       }
       var scope = chosen();
-      closeOverlay();
-      runGenerate({ mode: G.mode, ai: G.ai, force: G.ai && G.force,
-        scope: { kind: scope.kind, label: scope.label, ids: scope.ids } });
+      var run = function () {
+        closeOverlay();
+        runGenerate({ mode: G.mode, ai: G.ai, force: G.ai && G.force,
+          scope: { kind: scope.kind, label: scope.label, ids: scope.ids } });
+      };
+      /* 勾了新的目录就先并集写回（现有纳管 id ∪ 勾上的目录里的候选 id），再跑这一条链。
+         没动过就不写——避免"什么都没动也重发一次 include"这种无声的扩大。
+         写回只走 /init；破坏性的 /rebuild 永远只由主按钮那一档触发（而且已经有第二道闸）。 */
+      if (!DG.dirty || !DG.pick) { run(); return; }
+      var union = includeIds();
+      var tree = buildPickTree((DG.pv && DG.pv.candidates) || []);
+      (function walk(node) {
+        (node.items || []).forEach(function (c) {
+          if (DG.pick.picked[c.id] && union.indexOf(c.id) < 0) union.push(c.id);
+        });
+        kidNames(node).forEach(function (k) { walk(k.node); });
+      })(tree);
+      go.disabled = true;
+      api('/init', { method: 'POST', body: { root: S.p.root, include: union, confirm: true } })
+        .then(function () { return loadProjects(); })
+        .then(function () { run(); })
+        .catch(function (e) {
+          go.disabled = false;
+          dirFail('没能并入新目录：' + ((e && e.message) || String(e)));
+        });
     });
     var cancel = el('button', { class: 'ghost', type: 'button', text: '取消' });
     cancel.addEventListener('click', closeOverlay);
@@ -2024,15 +2052,13 @@
     var DG = { open: false, pv: null, pick: null, busy: false };
     var dirErr = el('div', { class: 'gpl warn', text: '' });
     dirErr.style.display = 'none';
-    var dirFact = el('div', { class: 'gdirfact', id: 'gDirFact', text: '' });
+    /* 一行事实就写在卡头的右半边（项目名 · 已纳管 N 个契约 / M 个目录）。 */
+    var dirFact = el('span', { class: 'gsn', id: 'gDirFact', text: '' });
+    /* 选择器本体：常显，不藏。 */
     var dirPick = el('div', { class: 'gpick' });
-    dirPick.style.display = 'none';
-    var dirAdd = el('button', { class: 'ghost', type: 'button', text: '再加目录…' });
-    var dirSave = el('button', { class: 'ghost', type: 'button', text: '并入' });
-    dirSave.style.display = 'none';
+    /* 手填路径没有自己的按钮——回车就勾上（少一个按钮少一步）。 */
     var dirManual = el('input', { class: 'search', id: 'gdirPath', type: 'text',
-      placeholder: '也可以手填绝对路径（要在本项目的 root 里）', autocomplete: 'off' });
-    var dirManualGo = el('button', { class: 'ghost', type: 'button', text: '把这条路径加进来' });
+      placeholder: '路径读不到？填绝对路径后回车', autocomplete: 'off' });
 
     function dirFail(msg) { dirErr.textContent = msg; dirErr.style.display = ''; }
     function dirOk() { dirErr.style.display = 'none'; }
@@ -2048,8 +2074,10 @@
        这一行就是这块卡片的全部文字——用户不需要知道 include 是 id 还是路径。 */
     function renderDirFact() {
       if (!dirFact) return;
+      /* 目录名从**扫出来的候选**里取：纳管记录本身可能读不到来源文件，候选这边是准的。 */
       var byId = {};
-      (S.items || []).forEach(function (it) { byId[it.contract.id] = it.contract.file || ''; });
+      ((DG.pv && DG.pv.candidates) || []).forEach(function (c) { byId[c.id] = c.file || ''; });
+      (S.items || []).forEach(function (it) { if (byId[it.contract.id] === undefined) byId[it.contract.id] = it.contract.file || ''; });
       var buckets = {};
       includeIds().forEach(function (id) {
         if (byId[id] === undefined) return;
@@ -2068,6 +2096,7 @@
           title: label + '只作用于当前列出来的目录（含子目录）；这块只能加，不会取消已纳管的' });
         b.addEventListener('click', function () {
           if (!DG.pick) return;
+          DG.dirty = true;
           var tree = buildPickTree((DG.pv && DG.pv.candidates) || []);
           listed(tree, DG.pick).forEach(function (n) { setDir(n, on); });
           renderDirRows();
@@ -2082,35 +2111,59 @@
         el('div', { class: 'pkrow2' }, bulk('全加上', true), bulk('全不加', false),
           el('span', { class: 'pkhint', id: 'dHint', text: '' })));
     }
-    /* 只读扫当前项目（POST /init 不带 confirm = 纯预览，无副作用），把目录树挂进来。
+    /* 打开弹窗就把目录读出来（POST /init 不带 confirm = 纯只读预览，无副作用）：
+       目录树直接铺在卡里，已纳管的目录**默认就是勾上的**（并锁住），不用先点任何东西。
        树用的是纳管那套渲染（同一份 S.init / S.pick 状态、同一套勾父连子的规则）。 */
-    function openDirPick() {
-      if (DG.open) {
-        DG.open = false; dirPick.style.display = 'none'; dirAdd.textContent = '再加目录…';
-        return;
-      }
-      DG.open = true; dirPick.style.display = '';
-      dirAdd.textContent = '收起选择器';
-      if (DG.pv) return;
-      dirPick.appendChild(el('div', { class: 'note', text: '正在只读扫这个项目的目录…（不写任何东西）' }));
+    function loadDirs() {
+      dirOk();
+      clear(dirPick);
+      dirPick.appendChild(el('div', { class: 'dnote', id: 'gDirLoading', text: '正在读目录…' }));
       api('/init', { method: 'POST', body: { root: S.p.root } }).then(function (data) {
         var pv = data.preview;
         DG.pv = pv;
         /* 形状必须与 pickOf() 造的那份**一模一样**：目录树那几个渲染函数会直接读
-           pk.open / pk.peek / pk.all，少一个键就是运行时抛错。filled 置 true 是因为
-           这块不吃"第一次打开默认全勾"那套——这里只勾**新加的**，加不加由人点。 */
-        DG.pick = { picked: {}, q: '', open: {}, peek: {}, all: false, filled: true };
+           pk.open / pk.peek / pk.all，少一个键就是运行时抛错。
+           locked = 已纳管目录（勾上、不能取消）；onChange 让弹窗知道"人动过"，没动过就不写回。 */
+        DG.pick = { picked: {}, q: '', open: {}, peek: {}, all: false, filled: true, locked: {},
+          onChange: function () { DG.dirty = true; },
+          onLocked: function (name) {
+            dirErr.textContent = '「' + name + '」已经纳管了，这块只能加不能减。';
+            dirErr.style.display = '';
+          } };
         S.init = pv;
         S.pick = DG.pick;
+        var dirById = {};
+        (pv.candidates || []).forEach(function (c) { dirById[c.id] = dirNameOf(c.file); });
+        var managed = {};
+        /* 已纳管 = include 里那些候选所在的目录。include 拿不到时（老项目、或宿主没给这一项）
+           退回**已纳管契约自己的 file** 归纳——两条口径都只用来找目录，写回永远用 id。 */
+        includeIds().forEach(function (id) { if (dirById[id]) managed[dirById[id]] = true; });
+        /* 再加一条口径：该项目**契约记录自己的 file**。include 里是候选 id 不是路径——
+           两条都只用来"找目录"，写回永远用 id。 */
+        (S.items || []).forEach(function (it) {
+          var f = (it && it.contract) ? it.contract.file : '';
+          if (f) managed[dirNameOf(f)] = true;
+        });
+        /* 预勾：已纳管目录整个勾上并锁住；它在的**父目录**也锁住（不然一取消就把子目录一起丢了）。 */
+        var tree = buildPickTree(pv.candidates || []);
+        (function prefill(node) {
+          var inside = false;
+          kidNames(node).forEach(function (k) { if (prefill(k.node)) inside = true; });
+          var mine = !!managed[node.name];
+          if (mine) (node.items || []).forEach(function (c) { DG.pick.picked[c.id] = true; });
+          if (mine || inside) DG.pick.locked[node.name] = true;
+          return mine || inside;
+        })(tree);
         clear(dirPick);
-        dirPick.appendChild(el('div', { class: 'pkhint', text: '只会增加，不会移除已纳管的目录' }));
         dirPick.appendChild(dirPickHeader(pv));
-        dirPick.appendChild(el('div', { class: 'drows', id: 'dRows' }));
+        var rowsBox = el('div', { class: 'drows', id: 'dRows' });
+        /* 变更钩子挂在**容器**上（事件委托）：不怕重画换对象，也不依赖 setDir 的尾部——
+           任何一个勾选框变化都算"人动过"，主按钮才会走并集写回那条分支。 */
+        rowsBox.addEventListener('change', function () { DG.dirty = true; });
+        dirPick.appendChild(rowsBox);
         dirPick.appendChild(el('div', { class: 'dnote', id: 'dSum' }));
-        /* 手填路径 + 「并入」按钮都在这一行：并入只对"勾了的新目录"有意义，所以它跟着选择器走。
-           （曾经这里漏了 appendChild(dirSave)，按钮创建了却没挂上——等于白做，量的时候才发现。） */
-        dirPick.appendChild(el('div', { class: 'pkrow2' }, dirManual, dirManualGo, dirSave));
-        dirSave.style.display = '';
+        dirPick.appendChild(el('div', { class: 'pkrow2' }, dirManual));
+        renderDirFact();
         renderDirRows();
       }).catch(function (e) {
         clear(dirPick);
@@ -2118,7 +2171,6 @@
           text: '扫不动这个项目的目录：' + ((e && e.message) || String(e)) }));
       });
     }
-    dirAdd.addEventListener('click', openDirPick);
     /* 手填绝对路径：只接受 root 里面、且树上真有的目录——不然就如实说不行。 */
     function addManualDir() {
       var p = String(dirManual.value || '').trim().replace(/\/+$/, '');
@@ -2129,7 +2181,7 @@
         dirFail('这条路径不在本项目的 root 里：' + root + '。选择器只能扫 root 下面的目录。');
         return;
       }
-      if (!DG.pv) { dirFail('先点「再加目录…」把目录树扫出来。'); return; }
+      if (!DG.pv) { dirFail('目录还没读出来，等一下再试。'); return; }
       var rel = p === root ? '' : p.slice(root.length + 1);
       var node = buildPickTree(DG.pv.candidates || []);
       var segs = rel === '' ? [] : rel.split('/');
@@ -2142,67 +2194,30 @@
         return;
       }
       setDir(node, true);
+      DG.dirty = true;
       dirOk();
       renderDirRows();
     }
-    dirManualGo.addEventListener('click', addManualDir);
     dirManual.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') addManualDir(); });
-    /* 并入：提交的是**并集**（现有 ∪ 新勾）。成功后接着走 AI 那一段（/understand）。 */
-    dirSave.addEventListener('click', function () {
-      if (DG.busy || !DG.pick) return;
-      var pk = DG.pick;
-      var picked = Object.keys(pk.picked).filter(function (k) { return pk.picked[k]; });
-      if (picked.length === 0) { dirFail('还没勾任何新目录——先勾一个再并入。'); return; }
-      var existing = includeIds();
-      var union = existing.slice();
-      picked.forEach(function (id) { if (union.indexOf(id) < 0) union.push(id); });
-      DG.busy = true;
-      dirSave.disabled = true;
-      var was = dirSave.textContent;
-      dirSave.textContent = '正在写入…';
-      dirOk();
-      api('/init', { method: 'POST', body: { root: S.p.root, include: union, confirm: true } })
-        .then(function () {
-          DG.busy = false;
-          dirSave.disabled = false;
-          dirSave.textContent = was;
-          closeOverlay();
-          /* 并入之后直接跑**默认那条链**（增量重扫 → 补中文说明）：这样"加一个目录"这件事
-             一次做完，不用再点一遍生成。绝不跑 /rebuild——破坏性那档必须自己按第二道确认。 */
-          return loadProjects().then(function () {
-            return runGenerate({ mode: 'rescan', ai: true, force: false, scope: { kind: 'project' } });
-          });
-        })
-        .catch(function (e) {
-          DG.busy = false;
-          dirSave.disabled = false;
-          dirSave.textContent = was;
-          dirFail('没能并入：' + ((e && e.message) || String(e)));
-        });
-    });
+    /* 目录写回不再有自己的按钮：勾选就是界面状态，由主按钮「开始生成」一次生效（并集 ∪ 这一档的扫法 ∪ 要不要补 AI）。 */
 
-    renderDirFact();
-    var dirCard = el('div', { class: 'gdirbox' },
-      el('div', { class: 'gdirrow' }, dirFact, dirAdd),
+    var dirCard = el('div', { class: 'gencard' },
+      el('div', { class: 'gsh' }, el('span', { text: '目录' }), dirFact),
       dirErr,
       dirPick);
+    loadDirs();
 
     openOverlay('生成', el('div', { class: 'gengrid' },
-      el('div', { class: 'note', text: '扫描、补 AI 中文说明、重画界面本来是一条链——这里选的是这次要重新生成的内容，'
-        + '点一次就跑完整条链。' }),
       el('div', { class: 'gencard' },
         el('div', { class: 'gsh' },
           el('span', { text: '这一步做什么' }),
           el('span', { class: 'gsn', text: '代码' })),
         modeRows.map(function (r) { return r.row; }),
-        /* 「目录」是这张卡里的一行：一行事实 + 一个动作。选择器点开才出现。 */
-        dirCard),
-      el('div', { class: 'gencard genspan' },
-        el('div', { class: 'gsh' },
-          el('span', { text: 'AI 中文说明' }),
-          el('span', { class: 'gsn', text: '中文只来自 AI' })),
+        el('div', { class: 'gsub' }, el('span', { class: 'gsn', text: '中文只来自 AI' })),
         aiRow.row, forceRow.row),
-      scopeSec,
+      dirCard,
+      /* 作用范围那块已经去掉：范围由目录卡决定（勾了哪些目录就在哪些目录上作用；
+         没动过勾选就是当前已纳管的全部）。重扫/重生成本来就是项目级动作。 */
       planBox,
       confirmNote,
       el('div', { class: 'genfoot genspan' },
@@ -5696,8 +5711,15 @@
   /* 勾一个目录 = 连它下面的子目录一起勾 / 一起取消。 */
   function setDir(node, on) {
     var pk = S.pick;
+    /* 锁住的目录 = 已经纳管的那些：只显示勾上，不给取消。点它给一句轻提示就完事，
+       不弹窗、不加确认流程。（只有生成弹窗会设置 pk.locked，纳管向导那套不受影响。） */
+    if (pk && pk.locked && pk.locked[node.name]) {
+      if (pk.onLocked) pk.onLocked(node.name);
+      return;
+    }
     node.items.forEach(function (c) { pk.picked[c.id] = on; });
     kidNames(node).forEach(function (k) { setDir(k.node, on); });
+    if (pk && pk.onChange) pk.onChange();
   }
 
   /* 只重画清单本体与底部计数，顶栏（有搜索框）不重画，否则每敲一个字就丢一次焦点。 */
@@ -5710,6 +5732,19 @@
     var budget = pk.all ? Infinity : DIR_CAP;
     var st = { shown: 0, hidden: 0 };
     clear(box);
+    /* 已纳管目录的"锁住"是纯视觉，等这一帧画完再点类名——不去改 dirRow 那套共享渲染。 */
+    if (pk.locked && Object.keys(pk.locked).length) {
+      var paintLock = function () {
+        Array.prototype.forEach.call(box.querySelectorAll('.drow'), function (row) {
+          var t = row.textContent || '';
+          Object.keys(pk.locked).forEach(function (nm) {
+            if (t.indexOf(nm) >= 0) row.classList.add('locked');
+          });
+        });
+      };
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(paintLock);
+      else paintLock();
+    }
     tops.forEach(function (n) { dirRow(box, n, 0, pk, st, budget, !!String(pk.q || '').trim()); });
     if (st.hidden > 0) box.appendChild(moreRow(st.hidden));
     if (!box.firstChild) {

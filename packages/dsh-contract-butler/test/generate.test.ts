@@ -945,11 +945,29 @@ test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 
   /* 这一条在"极简化"那一轮**翻转过**：原来钉「在哪些目录上做」这个长句，用户要求标题短，
      而且整块从一张卡变成"这一步做什么"里的一行。 */
   assert.ok(html.includes("text: '目录'") || html.includes("'目录'"), '目录那一行的标题要短')
+  /* B2：两卡等高。B1：作用范围那块不再挂进弹窗（范围由目录卡决定）。 */
+  assert.ok(html.includes('.gengrid { align-items: stretch; }'), '网格要拉伸，两卡等高')
+  assert.ok(html.includes('.gencard { height: 100%; min-height: 0; }'), '卡片要撑满那一行')
+  assert.ok(!/scopeSec,\s*planBox,/.test(html), '作用范围那块不许再挂进弹窗')
   assert.ok(!html.includes('在哪些目录上做'), '那个长句标题不许再出现')
-  assert.ok(html.includes("text: '再加目录…'"), '要有"再加目录"的入口（用户抱怨的就是没有这个入口）')
+  /* 这一轮又翻转过：用户说"步骤太多、不需要那么多按钮"——「再加目录…」这一步删了，
+     选择器**常显**在右侧那张卡里，点开弹窗就自动加载（不用先点一下才看到）。 */
+  assert.ok(!html.includes('再加目录…'), '「再加目录…」这个多余步骤要删掉')
+  assert.ok(!html.includes("dirPick.style.display = 'none'"), '选择器要常显，不许默认藏起来')
+  assert.ok(html.includes('loadDirs();'), '打开弹窗就要自动把目录读出来')
+  /* A1 的硬证据：变更钩子挂在容器上（事件委托），不依赖 setDir 尾部、也不怕重画换对象。 */
+  assert.ok(html.includes("rowsBox.addEventListener('change', function () { DG.dirty = true; })"),
+    '勾选变化必须能置上 dirty（事件委托，别依赖 setDir 尾部）')
+  assert.ok(html.includes('if (!DG.dirty || !DG.pick) { run(); return; }'), '主按钮靠 dirty 决定走不走进写回')
+  assert.ok(html.includes('正在读目录…'), '加载中要说人话')
+  assert.ok(html.includes('DG.pick.locked[node.name] = true'), '已纳管目录要预勾并锁住')
+  /* A2：已纳管目录两条口径取并集——契约记录的 file + include 里候选自带的 file。 */
+  assert.ok(html.includes('it.contract.file'), '要用契约记录自己的 file 归纳已纳管目录')
+  assert.ok(html.includes('managed[dirNameOf(f)] = true'), '两条口径要并起来找目录')
+  assert.ok(html.includes('pk.locked') && html.includes('onLocked'), '锁住要有视觉与一句轻提示')
   /* 也翻转过：卡面上不许再写"只能加，不能减"这种解释——规则说明只放选择器里那一句。 */
   assert.ok(!html.includes('只能加，不能减'), '卡面上不许再出现"只能加，不能减"')
-  assert.ok(html.includes("placeholder: '也可以手填绝对路径（要在本项目的 root 里）'"), '要能手填绝对路径')
+  assert.ok(html.includes("placeholder: '路径读不到？填绝对路径后回车'"), '手填绝对路径留着（回车即勾上，不给它单独按钮）')
   // 已纳管范围是**展示用**：从契约 file 归纳，写回永远用 id。
   assert.ok(html.includes('function renderDirFact()'), '已纳管范围要归纳成一行事实')
   assert.ok(!html.includes('真正的依据是候选 id'), '不许在界面上讲实现（id / 并集 / 替换）')
@@ -962,28 +980,30 @@ test('生成弹窗：网格布局 + 目录块（只加不减、提交并集）+ 
   assert.ok(html.includes('S.pick = DG.pick;'), '目录树要接上纳管那套勾选状态')
   assert.ok(html.includes('setDir(node, true);'), '手填路径也要走同一套勾选（勾父连子）')
 
-  // 3) 提交必须是并集，而且绝不能只发新勾的。
-  const saveAt = html.indexOf("dirSave.addEventListener('click'")
-  assert.ok(saveAt > 0, '要有"并入"的提交点')
-  const save = html.slice(saveAt, saveAt + 1400)
-  assert.ok(save.includes('var existing = includeIds();'), '提交前要先读出现有的 id（并集的左半边）')
-  assert.ok(save.includes('var union = existing.slice();'), '并集从"现有"起手')
-  assert.ok(save.includes('if (union.indexOf(id) < 0) union.push(id);'), '新勾的并进现有，不许去重掉老的')
+  // 3) 提交必须是并集，而且绝不能只发新勾的；提交点是**主按钮**，不再是自己的小按钮。
+  /* 这一轮翻转过：原来量的是「并入」那个独立按钮，用户说"不需要那么多按钮"——
+     勾选就是界面状态，由主按钮「开始生成」一次生效（并集 ∪ 这一档的扫法 ∪ 要不要补 AI）。 */
+  const goAt = html.indexOf("go.addEventListener('click'")
+  assert.ok(goAt > 0, '要找到主按钮的提交点')
+  const save = html.slice(goAt, goAt + 2400)
+  assert.ok(save.includes('var union = includeIds();'), '提交前要先读出现有的 id（并集的左半边）')
+  assert.ok(save.includes('if (DG.pick.picked[c.id] && union.indexOf(c.id) < 0) union.push(c.id);'),
+    '新勾的并进现有，不许去重掉老的')
   assert.ok(save.includes('include: union, confirm: true'), '提交的是并集 + confirm')
-  /* 这条是被量出来的教训：按钮创建了不等于挂上了——漏了 appendChild，界面上就没有它。 */
-  assert.ok(html.includes('dirManual, dirManualGo, dirSave'), '「并入」那个按钮必须真的挂进 DOM')
-  assert.ok(html.includes("text: '并入'"), '动作名要短：一个「并入」')
-  assert.ok(!html.includes('并入并补中文说明'), '长按钮名不许再出现')
+  assert.ok(save.includes('if (!DG.dirty || !DG.pick) { run(); return; }'), '没动过就不写回（避免无声扩大）')
+  assert.ok(save.includes('mode: G.mode'), '跑的是弹窗里选定的那一档（默认增量重扫）')
   assert.ok(!/include: picked/.test(html), '绝不能只提交新勾的那几条（那会把老的一整组挤掉）')
-  // 提交成功后再走 AI 那一段（/understand），不是另起一条链。
-  /* 翻转过：并入之后跑的是**默认那条链**（增量重扫 → 补 AI），这样"加目录"一次做完。
-     绝不能是 /rebuild——破坏性那档必须自己按第二道确认。 */
-  assert.ok(save.includes("mode: 'rescan', ai: true"), '并入后跑默认链（扫描 → 补 AI）')
-  assert.ok(!save.includes("mode: 'rebuild'"), '并入这条路绝不触发 /rebuild')
-  assert.ok(save.includes('return loadProjects().then'), '并入后要先刷新项目记录（include 变了）')
+  assert.ok(!html.includes('并入并补中文说明'), '长按钮名不许再出现')
+  assert.ok(!html.includes("text: '并入'"), '「并入」这个单独动作已经不存在了（勾选即状态）')
+  assert.ok(!html.includes('dirSave'), '那个独立提交按钮已经删掉了')
+  assert.ok(!html.includes('dirAdd'), '「再加目录…」那个按钮也已经删掉了')
+  assert.ok(save.includes('return loadProjects();'), '写回后要先刷新项目记录（include 变了）')
   // 不给"取消纳管"的入口：那是另一件事，要先给代价与确认。
   assert.ok(!html.includes('并入时发的是'), '卡面上不许讲并集/载荷')
-  assert.ok(html.includes('只会增加，不会移除已纳管的目录'), '规则只在选择器里说一句')
+  /* 这一轮翻转过：用户说"说明太多没必要"——那句规则小字删了，改由锁定徽标（已纳管）自己说明；
+     "点了已纳管目录"仍给一句轻提示，避免误操作。 */
+  assert.ok(!html.includes('只会增加，不会移除已纳管的目录'), '那句规则小字要删掉（用户要求少说明）')
+  assert.ok(html.includes('已经纳管了，这块只能加不能减'), '误点已纳管目录时仍给一句轻提示')
   assert.ok(!/dirRemove|removeDir|取消纳管/.test(html), '这块里不许出现移除已纳管目录的入口')
 
   // 4) 右下角说人话：全文件不许再出现"批"这个字。
