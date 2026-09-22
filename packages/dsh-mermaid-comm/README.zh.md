@@ -53,20 +53,21 @@
 ## 安装
 
 ```sh
-dsh plugin --profile web add dsh-mermaid-comm
+dsh plugin --profile web add dsh-mermaid-comm dsh-mermaid
 ```
 
-**一条命令即可，会自动带上渲染器。** 本插件把 `dsh-mermaid` 声明为普通依赖（pnpm 必装），并在自己的 `cordis.patch.yml` 里把它**顺带挂载**成真正的 loader entry（CARRIER 模式）。这一步不能省：dsh 没有「装我就顺带装它」的一等机制，`dsh plugin add` 只是把参数转发给 pnpm，而 profile 模板把 `autoInstallPeers` 钉死为 `false`——就算依赖装上了，没进 `dsh.profile.bundles` 的包其 `cordis.patch.yml` 也永远不会被应用，等于装了是死的。
+**一条命令装两个包。** 两个包各有分工，缺一不可：
 
-> ⚠️ **不要再单独安装 `dsh-mermaid`。** 本插件用 `id: ui-mermaid` 挂载它；若 profile 的 `dsh.profile.bundles` 里同时也有 `dsh-mermaid`，两处会插入同一个 entry id，而 cordis 对重复 entry id 是**硬失败**（整棵树起不来，且报错不会点名任何插件）。已经单独装过就先移掉：
->
-> ```sh
-> dsh plugin --profile web remove dsh-mermaid
-> ```
->
-> 移除后它仍会作为本插件的依赖留在 `node_modules`，由 carrier 行挂载。（用 `dsh --profile web --dump-config` 可自查组合结果里 `ui-mermaid` 只出现一次。）
+| 包 | 管什么 | 为什么必须单独装 |
+|---|---|---|
+| `dsh-mermaid-comm` | prompt 注入、`mermaid_validate`、图库、输出闸 | 就是本插件 |
+| `dsh-mermaid` | 把对话流里的 mermaid 围栏渲染成图 | **必须进 `dsh.profile.bundles` 才会被挂载** |
 
-重启 `dsh web`（插件名册与客户端 bundle 均在启动时加载）。如果 dsh-mermaid 不可用，`mermaid_validate` 会明确返回失败，不会把未校验的图误报为通过；输出闸也不会把坏图静默放行。
+`dsh-mermaid` 也已声明为本插件的普通依赖，所以只装本插件它也会被 pnpm 装上（代码在 `node_modules` 里）；但「装上」不等于「挂载」——dsh 只应用 `dsh.profile.bundles` 里各包的 `cordis.patch.yml`，不在名册里的包不会被挂载，图表也就不会渲染。所以要把它一并加进名册。
+
+> 为什么本插件不替你把 `dsh-mermaid` 挂上？试过（v0.3.0 的 carrier 方案），**必然启动失败**：`dsh-mermaid` 自带 `dsh.bundle.patch`，只要它成为 profile 顶层依赖就会被自动提升进 bundles，于是它与本插件的插入行撞同一个 entry id `ui-mermaid`，而 cordis 对重复 loader entry id 是**硬失败**（整棵树起不来，报错不点名任何插件）：`重复的 loader 条目 id "ui-mermaid"`。这不是能靠文档规避的边界，而是设计冲突，故 v0.3.1 撤销，改为上面这条两包命令。
+
+重启 `dsh web`（插件名册与客户端 bundle 均在启动时加载）。可自查组合结果：`dsh --profile web --dump-config`，`ui-mermaid` 与 `mermaid-comm` 各出现 1 次即为正常。
 
 ## 使用
 

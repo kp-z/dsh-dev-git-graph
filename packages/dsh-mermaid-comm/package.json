@@ -1,7 +1,7 @@
 {
   "name": "dsh-mermaid-comm",
-  "version": "0.3.0",
-  "description": "让 AI 在开发交流中优先用 Mermaid 图表达：对话输入框勾选按钮控制 prompt 注入 + mermaid_validate 语法校验 + Mermaid 图库。渲染由 dsh-mermaid（MrmoLabs）承担，安装本插件会一并装上并挂载它。",
+  "version": "0.3.1",
+  "description": "让 AI 在开发交流中优先用 Mermaid 图表达：对话输入框勾选按钮控制 prompt 注入 + mermaid_validate 语法校验 + Mermaid 图库。渲染由 dsh-mermaid（MrmoLabs）承担，本插件把它声明为依赖会自动装上（挂载仍需它作为 bundle 安装）。",
   "license": "MIT",
   "keywords": [
     "deepseek",

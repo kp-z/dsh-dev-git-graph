@@ -53,20 +53,21 @@ Safety: topic names are sanitized to `[a-zA-Z0-9-_]` (no path traversal), writes
 ## Installation
 
 ```sh
-dsh plugin --profile web add dsh-mermaid-comm
+dsh plugin --profile web add dsh-mermaid-comm dsh-mermaid
 ```
 
-**One command — the renderer comes with it.** This plugin declares `dsh-mermaid` as a regular dependency (so pnpm always installs it) and then mounts it as a real loader entry from its own `cordis.patch.yml` (the CARRIER pattern). That second step is not optional: DSH has no first-class "install this other plugin too" mechanism — `dsh plugin add` just forwards its arguments to pnpm, and the profile template pins `autoInstallPeers` to `false`. Even an installed dependency is inert unless it joins `dsh.profile.bundles`, because a package that is not a bundle never has its own `cordis.patch.yml` applied.
+**One command, two packages.** They split the work, and both are needed:
 
-> ⚠️ **Do not install `dsh-mermaid` separately.** This plugin mounts it under `id: ui-mermaid`; if `dsh.profile.bundles` also lists `dsh-mermaid`, both patches insert the same entry id, and cordis **hard-fails on a duplicate entry id** (the whole tree refuses to boot, naming neither plugin). If you already installed it separately, remove it first:
->
-> ```sh
-> dsh plugin --profile web remove dsh-mermaid
-> ```
->
-> It then stays in `node_modules` as this plugin's dependency and is mounted by the carrier row. (`dsh --profile web --dump-config` should show `ui-mermaid` exactly once.)
+| Package | Responsibility | Why it must be installed separately |
+|---|---|---|
+| `dsh-mermaid-comm` | prompt injection, `mermaid_validate`, the vault, the output gate | this plugin |
+| `dsh-mermaid` | renders mermaid fences in the chat transcript | **it is only mounted if it is in `dsh.profile.bundles`** |
 
-Restart `dsh web` (both the plugin roster and the client bundle load at startup). If dsh-mermaid is unavailable, `mermaid_validate` fails explicitly instead of reporting unvalidated diagrams as passing; the output gate never silently lets a broken diagram through.
+`dsh-mermaid` is also declared as a regular dependency of this plugin, so installing this plugin alone does pull its code into `node_modules` — but "installed" is not "mounted": dsh only applies the `cordis.patch.yml` of packages listed in `dsh.profile.bundles`, so a package outside the roster is never mounted and nothing gets rendered. Hence the two-package command.
+
+> Why doesn't this plugin mount `dsh-mermaid` for you? It tried (the v0.3.0 CARRIER approach) and **it cannot boot**: `dsh-mermaid` ships its own `dsh.bundle.patch`, so the moment it becomes a profile-level dependency it is auto-promoted into `dsh.profile.bundles`, where its patch and this plugin's carrier row insert the same entry id `ui-mermaid`. Cordis **hard-fails on a duplicate loader entry id** (the whole tree refuses to start, and the error names neither plugin): `duplicate loader entry id "ui-mermaid"`. That is not a boundary documentation can avoid — it is a design conflict, so v0.3.1 dropped it in favour of the two-package command above.
+
+Restart `dsh web` (both the plugin roster and the client bundle load at startup). To self-check the composition: `dsh --profile web --dump-config` should show `ui-mermaid` and `mermaid-comm` exactly once each.
 
 ## Usage
 

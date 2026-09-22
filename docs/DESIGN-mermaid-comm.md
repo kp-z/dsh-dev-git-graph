@@ -293,7 +293,7 @@ export const MermaidCommConfig = z.object({
 
 **边界**：工具（`mermaid_validate` + 图库四件套）与输出闸不随开关走——注入是「引导画」，工具是「画了帮你把关」，解耦才合理。
 
-### 9.2 安装时自动带上 dsh-mermaid（CARRIER 模式）
+### 9.2 安装时自动带上 dsh-mermaid（v0.3.0 用 CARRIER，v0.3.1 撤销）
 
 需求：安装本插件时自动安装依赖的另一个插件。
 
@@ -301,16 +301,27 @@ export const MermaidCommConfig = z.object({
 
 - dsh **没有**一等机制：`dsh plugin add` 只是把参数原样转发给 pnpm（`@deepseek-ai/dsh/lib/plugin-*.js` 的 `runPlugin`：`spawnSync('pnpm', args, {cwd: profileDir})`，不附加任何 flag）；manifest 里也不存在 `requires`/`plugins` 字段。
 - profile 模板把 **`autoInstallPeers: false`** 写死（`dsh-app-boot` 的 `PROFILE_PNPM_WORKSPACE`，profile 首次初始化时落盘）→ 非可选 `peerDependencies` **不会**被自动安装（pnpm 8 起「默认 true」的内建行为在此被显式覆盖）。
-- 更关键的第二道坎：`reconcilePlugins` 只把 **profile 顶层 `dependencies`** 里声明了 `dsh.bundle.patch` 的包提升进 `dsh.profile.bundles`。传递依赖即使被装上也不会进 bundles → 它的 `cordis.patch.yml` 永不被应用 → **装了也是死的**。
+- `reconcilePlugins` 只把 **profile 顶层 `dependencies`** 里声明了 `dsh.bundle.patch` 的包提升进 `dsh.profile.bundles`。传递依赖即使被装上也不会进 bundles → 它的 `cordis.patch.yml` 永不被应用 → **装了也是死的**。
 
-**采用方案：普通 `dependencies` + carrier patch**（DSH 生态既有模式，如 `@linxin666/dsh-skins` 挂载 skin-center）：
+**v0.3.0 采用 CARRIER（已撤销）**：`dependencies` 保证 pnpm 装上，再在自己 patch 里追加一行 `{ id: ui-mermaid, name: dsh-mermaid }` 把它挂成 loader entry。当时的判断依据是「同 id 才能让 `dshmarket` 的 `conflictingEntryIds` 拦住冲突」，并配了「不要再单独装 dsh-mermaid」的文档警告。
 
-1. `dependencies: { "dsh-mermaid": "^0.4.0" }` → pnpm 必装（普通依赖不走 autoInstallPeers）。
-2. 本插件 `cordis.patch.yml` 追加一行 `{ id: ui-mermaid, name: dsh-mermaid }` → 把它挂成真正的 loader entry。此时它的 `dsh.client` 才会被客户端加载器扫到并加载（客户端模块加载器只扫 host Loader entries）。
+**实测必然失败（用户真实安装报错）**：
 
-**必须同 id（`ui-mermaid`）**：这样若用户另外把 dsh-mermaid 也装成 bundle，`dshmarket` 的 `conflictingEntryIds` 能识别冲突并拒绝安装；换成别的 id 只会绕过检测、变成静默重复挂载。
+```
+重复的 loader 条目 id "ui-mermaid"
+```
 
-**红线与迁移**：cordis 对**重复 entry id 是硬失败**（`cordis-plugin-loader`：`if (seen.has(id)) throw new TypeError('duplicate loader entry id: ...')`，整棵树起不来且报错不点名任何插件）。因此**装本插件就不要再单独装 dsh-mermaid**；已单独装过的需先 `dsh plugin --profile <p> remove dsh-mermaid`（它仍作为本插件依赖留在 node_modules，由 carrier 行挂载）。README 已就此加显式警告，并给出 `dsh --profile web --dump-config | grep -c ui-mermaid` 的自查法（应为 1）。
+根因：`dsh-mermaid` **自己带 `dsh.bundle.patch`**，所以只要它成为 profile 顶层依赖，`reconcilePlugins` 就把它提升进 bundles，它自己的 patch 也插入 `ui-mermaid` → 与 carrier 行撞 id → cordis 硬失败（整棵树起不来，报错不点名任何插件）。触发它的不是误操作而是**正常安装路径**：任何把依赖落实为 profile 顶层依赖的安装器（市场/插件管理 UI）都会这样。**结论：只要 dsh-mermaid 可能被独立安装，carrier 就与它互斥——这是设计冲突，不是文档能规避的边界。**
+
+**v0.3.1 定案：职责切开，谁都不依赖谁。**
+
+| 关切 | 由谁负责 | 机制 |
+|---|---|---|
+| 代码供给（自动安装） | 本插件 `dependencies: { dsh-mermaid: "^0.4.0" }` | pnpm 必装，装本插件就带上 |
+| 挂载（entry + 客户端面） | `dsh-mermaid` 自己的 patch | 它作为 bundle 安装即可 |
+
+安装命令回到两包：`dsh plugin --profile web add dsh-mermaid-comm dsh-mermaid`。这样任何安装顺序/路径都不会产生重复 id；「自动安装依赖」的诉求由 `dependencies` 满足，「挂载」由 DSH 原本的 bundle 机制满足。README 已按此改写并保留失败原因说明。
+
 
 ### 9.3 验证
 
