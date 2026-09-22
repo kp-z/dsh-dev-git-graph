@@ -60,3 +60,37 @@ test('每一份 prompt.txt 都带上了机制那一句 —— 它是迁移时唯
   }
   assert.deepEqual(missing, [], `缺少「靠什么成立」或「参考实现」：${missing.join(', ')}`)
 })
+
+/*
+ * 这 125 份文件是用户真正带走的东西，所以要**逐份**验，不是验一份样例。
+ *
+ * 提示原先开口就是「用 HTML/CSS 实现这个前端效果：」，等于替对方把栈定死了。
+ * 库里全是 HTML/CSS 示例，于是这个错误整整 125 份都在，而网站上看不出任何异常
+ * —— 页面上只显示「抄咒语」四个字。改生成器容易，难得的是记住它曾经错过。
+ */
+test('每一份 prompt.txt 都不替对方决定技术栈，并且把决定权交回去', () => {
+  assert.ok(existsSync(SPELL), 'dist/spell 还没建')
+  const ordered = []
+  const framing = []
+  for (const slug of readdirSync(SPELL)) {
+    const text = readFileSync(path.join(SPELL, slug, 'prompt.txt'), 'utf8')
+    if (/用 [A-Za-z/#+ ]+ 实现/.test(text)) ordered.push(slug)
+    if (!/取决于你手里这个项目/.test(text)) framing.push(slug)
+  }
+  assert.deepEqual(ordered, [], `这些还在替对方定技术栈：${ordered.join(', ')}`)
+  assert.deepEqual(framing, [], `这些没把决定权交回给目标项目：${framing.join(', ')}`)
+})
+
+test('每一份 prompt.txt 里，约束都排在示例代码前面', () => {
+  assert.ok(existsSync(SPELL), 'dist/spell 还没建')
+  const wrong = []
+  for (const slug of readdirSync(SPELL)) {
+    const text = readFileSync(path.join(SPELL, slug, 'prompt.txt'), 'utf8')
+    const mark = text.search(/^--- .+ ---$/m)
+    if (mark < 0) continue
+    const before = text.slice(0, mark)
+    // 代码块之前必须已经交代过边界与机制；只给一段代码就等着被照抄
+    if (!/容易失效的地方：/.test(before) || !/靠什么成立：/.test(before)) wrong.push(slug)
+  }
+  assert.deepEqual(wrong, [], `边界或机制排到了代码后面：${wrong.join(', ')}`)
+})

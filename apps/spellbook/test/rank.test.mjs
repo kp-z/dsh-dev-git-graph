@@ -152,13 +152,65 @@ test('拼出来的咒语同时带着描述与代码', () => {
     caveats: ['会失效的情况'],
   }
   const text = buildPrompt(entry)
-  assert.match(text, /用 HTML\/CSS 实现这个前端效果：测试条/)
+  assert.match(text, /任务：把「测试条」这个效果做进我的项目。/)
   assert.match(text, /什么时候用它：什么时候用/)
+  assert.match(text, /要的效果：/)
   assert.match(text, /这是 机制 描述。/) // ==标记== 被去掉
   assert.match(text, /靠什么成立：/)
   assert.match(text, /\.a \{ color: red; \}/) // 代码在
   assert.match(text, /容易失效的地方：/)
   assert.match(text, /出处：出处/)
+})
+
+/*
+ * 这一条盯着这一层原先写错的地方。
+ *
+ * 提示开头曾是「用 HTML/CSS 实现这个前端效果：」。它替对方把技术栈定死了 ——
+ * 可库里的示例是 HTML/CSS，只因为「描述 + 代码」总要挑一种语言把机制演示出来，
+ * 不因为它就是对方项目该用的那一栈。落到什么栈上，只有对方那个项目知道。
+ */
+test('提示不替对方决定技术栈', () => {
+  const text = buildPrompt({
+    meta: { title: '液态玻璃', slug: 'g' },
+    description: '毛玻璃。',
+    code: [{ lang: 'css', body: '.a { backdrop-filter: blur(2px); }' }],
+  })
+  assert.doesNotMatch(text, /用 HTML\/CSS/, '不该点名 HTML/CSS 当实现栈')
+  assert.doesNotMatch(text, /用 [A-Za-z/]+ 实现/, '任何语言都不该被写成命令')
+  // 反过来，必须明说「按你手里那个项目来」
+  assert.match(text, /取决于你手里这个项目/, '该把决定权交回给目标项目')
+  assert.match(text, /代码只是其中一种落法/, '该点明代码只是其中一种落法')
+})
+
+test('示例用的语言从数据里现算，不写死', () => {
+  const multi = buildPrompt({
+    meta: { title: 'x' },
+    code: [{ lang: 'html' }, { lang: 'js' }, { lang: 'ts' }],
+  })
+  assert.match(multi, /示例用 HTML、JavaScript、TypeScript 写成/)
+
+  // 查不到的语言用原样，不吞不猜 —— 库迟早会收 html/css 之外的东西
+  const exotic = buildPrompt({
+    meta: { title: 'x' },
+    code: [{ lang: 'swiftui', body: 'Text("hi")' }],
+  })
+  assert.match(exotic, /示例用 swiftui 写成/)
+  assert.match(exotic, /^--- swiftui ---$/m)
+})
+
+test('约束排在示例前面 —— 先说要什么、什么会坏，再给参考', () => {
+  const text = buildPrompt({
+    meta: { title: 'x' },
+    description: '描述正文',
+    mechanisms: ['机制'],
+    caveats: ['边界'],
+    code: [{ lang: 'css', body: '.a{}' }],
+  })
+  const at = (re) => text.search(re)
+  assert.ok(at(/要的效果：/) < at(/靠什么成立：/), '效果该在机制前')
+  assert.ok(at(/靠什么成立：/) < at(/容易失效的地方：/), '机制该在边界前')
+  assert.ok(at(/容易失效的地方：/) < at(/参考实现：/), '边界该在示例前')
+  assert.ok(at(/参考实现：/) < at(/^--- CSS ---$/m), '说明该在代码块前')
 })
 
 test('prompt 认得两种代码块形状（lines 与 body）', () => {

@@ -11,6 +11,7 @@
 
 import { escapeHtml, escapeScriptContent, escapeTemplateContent } from './text.mjs'
 import { paramValues } from '../../shared/param.mjs'
+import { langLabel } from '../../shared/prompt.mjs'
 
 export const STAGES = {
   plain: { label: '无背景', note: '对照用：给不需要背景的条目' },
@@ -119,6 +120,52 @@ const RUNTIME = `
 `
 
 /**
+ * 图版渲染不了的那一条：直说，不装作渲染了。
+ *
+ * 预览是沙箱 iframe，只跑得了网页三件套（HTML/CSS/JS）。一条咒语的示例若换了语言
+ * —— React 组件、Vue 指令、SwiftUI、shader —— 这里就什么都拼不出来。
+ *
+ * 旧写法在这种条目上会**悄悄**给出一张空白图版：缩略图、放大预览全空，
+ * 而构建、测试、站点一个都不报错。这个库的立论是「一条咒语 = 描述 + 示例代码」，
+ * 预览渲染不了并不是错误，但装作渲染了是。
+ *
+ * 所以：给出这张说明卡，把语言名列清楚。真正的代码仍在正文里，抄咒语也照抄不误。
+ */
+function notWebDocument(entry, title, stage, langs) {
+  const list = langs.map((lang) => escapeHtml(langLabel(lang))).join('、')
+  return `<!doctype html>
+<html lang="zh-CN" data-stage="${escapeHtml(stage)}">
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(title)} · 图版</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 8px;
+    padding: 18px;
+    box-sizing: border-box;
+    background: #17110f;
+    font: 400 13px/1.6 system-ui, sans-serif;
+    color: #cbbfae;
+    text-align: center;
+  }
+  b { color: #d9a441; font-weight: 600; }
+  small { color: #8a7f70; }
+</style>
+</head>
+<body>
+<b>这一条不是网页语言写的</b>
+<span>示例用的是 ${list}，站内预览渲染不了。</span>
+<small>代码在正文里，抄咒语照常。</small>
+</body>
+</html>
+`
+}
+
+/**
  * @param {object} entry 已解析的条目
  * @param {string} title 无障碍标题
  * @returns {string} 完整的 demo.html
@@ -128,6 +175,11 @@ export function buildDemoDocument(entry, title = entry.meta.title) {
   const html = entry.code.find((block) => block.lang === 'html')
   const css = entry.code.find((block) => block.lang === 'css')
   const js = entry.code.find((block) => block.lang === 'js')
+
+  // 预览只跑得了网页三件套。没有这三样就说清楚，别给一张空白图版。
+  if (!html && !css && !js) {
+    return notWebDocument(entry, title, stage, entry.code.map((block) => block.lang))
+  }
 
   // 默认值也要过一遍单位规则：range 参数补上 unit，否则 blur(18) 是无效 CSS
   const defaults = paramValues(entry.meta.params)

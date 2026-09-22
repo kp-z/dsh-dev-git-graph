@@ -70,3 +70,38 @@ test('没有 JS 的条目也会生成完整的文档', async () => {
   assert.match(doc, /^<!doctype html>/)
   assert.match(doc, /<\/html>\s*$/)
 })
+
+/*
+ * 预览是沙箱 iframe，只跑得了网页三件套。一条咒语的示例若换了语言
+ * —— React 组件、Vue 指令、SwiftUI、shader —— 这里什么都拼不出来。
+ *
+ * 旧写法会**悄悄**给出一张空白图版：缩略图、放大预览全空，
+ * 而构建、测试、站点一个都不报错。预览渲染不了不是错误，装作渲染了才是。
+ */
+test('示例不是网页语言时，图版直说渲染不了，而不是给一张白图', () => {
+  const entry = {
+    meta: { title: '某个 React 效果', slug: 'r', stage: 'plain' },
+    description: '描述。',
+    code: [{ lang: 'tsx', lines: ['export const A = () => <div />'], mechanismLines: [] }],
+    mechanisms: ['X'],
+  }
+  const doc = buildDemoDocument(entry)
+  assert.match(doc, /不是网页语言写的/, '该明说渲染不了')
+  assert.match(doc, /TSX/, '该把语言名列出来')
+  assert.match(doc, /抄咒语照常/, '该说明代码仍在、抄咒语不受影响')
+  // 不能带着一个空的舞台假装渲染
+  assert.doesNotMatch(doc, /demo-stage/, '不该还有空舞台')
+  assert.doesNotMatch(doc, /spellbook-markup/, '不该还有空模板')
+})
+
+test('只要沾了网页三件套里的任何一件，就照常渲染', () => {
+  // 只有 CSS 也算 —— 有些条目本来就只有样式，没有结构也没有脚本
+  const doc = buildDemoDocument({
+    meta: { title: 't', slug: 't', stage: 'plain' },
+    description: 'd',
+    code: [{ lang: 'css', lines: ['.a{}'], mechanismLines: [] }],
+    mechanisms: [],
+  })
+  assert.match(doc, /demo-stage/, '有 CSS 就该正常出图版')
+  assert.doesNotMatch(doc, /不是网页语言写的/)
+})
