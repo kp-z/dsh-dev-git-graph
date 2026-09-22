@@ -483,7 +483,20 @@ export function openVault({ dbPath, contentDir }) {
     const unchanged = getMeta('library_fingerprint') === fingerprint
     const hasRows = db.prepare('SELECT COUNT(*) AS c FROM entries').get().c > 0
     if (!force && unchanged && hasRows) {
-      return { skipped: true, entries: parsed.length, fingerprint }
+      /*
+       * 跳过时也要报**库里真实的条数**，不能报解析出来的条数。
+       *
+       * build.mjs 拿这个返回值和内容条数对账（对不上就拒绝发布），那是一道
+       * 「站点与库不许各说各话」的闸。若这里返回 parsed.length，对账就变成
+       * 拿解析结果跟解析结果比 —— 自己跟自己比，恒等，闸门形同虚设；
+       * 而跳过恰恰是日常路径（内容没变时每次构建都走这条），
+       * 也就是说那道闸在最常走的路上从来没合上过。
+       *
+       * 指纹一致确实蕴含库是照着这份内容建的，所以现实里对得上；
+       * 但那是「按设计应该对」，不是「有人查过」。这里查一次。
+       */
+      const rows = db.prepare('SELECT COUNT(*) AS c FROM entries').get().c
+      return { skipped: true, entries: rows, fingerprint }
     }
 
     tx(() => {

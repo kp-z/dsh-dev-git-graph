@@ -305,6 +305,38 @@ test('真实内容里的每一份咒语都不含站内标记、且都带代码',
   assert.deepEqual(problems, [], `咒语拼装有问题：\n  ${problems.join('\n  ')}`)
 })
 
+/*
+ * 每条咒语都得能被它自己的标题搜到 —— 这是「一条咒语 = 一个效果」的最低要求。
+ *
+ * 这一条是被咬过才补上的。当时拿标题当查询跑了一遍全库，发现两条搜不到自己：
+ *   - hex-packed-dots 叫「六方密排点阵」，写的是晶格的行话，搜「六边形点阵」
+ *     排上来的是 bokeh-aperture-shape；
+ *   - moire-beat 叫「拍频摩尔纹」，正文里「莫尔」出现 0 次，搜「莫尔」一条不命中。
+ * 两条都不是排序问题，是内容里根本没有用户会打的那个词 —— 补进 tags 就好了
+ * （tags 在 BM25 里的权重是 2.5）。
+ *
+ * 判据分两层，因为「标题撞车」和「搜不到」是两回事：
+ *   - 硬要求：自己必须出现在前三。搜自己的名字却进不了前三，就是召回缺口。
+ *   - 软要求：Top-1 命中率 ≥ 95%。有四对条目讲的是同一个效果的两种机制
+ *     （首字下沉的 ::first-letter 与 initial-letter、逐字揭示的两种做法、
+ *     连字开关与分数斜杠零），它们互相排在前面是合理的，不该判失败。
+ *     真掉到 95% 以下，说明是成片的命名问题，不是个例。
+ */
+test('每条咒语都能被自己的标题搜到（召回下限）', () => {
+  const data = loadIndexFile()
+  const index = buildIndex(data.docs)
+  const missing = []
+  let top1 = 0
+  for (const doc of data.docs) {
+    const slugs = rank(index, doc.title, { limit: 3 }).map((h) => h.slug)
+    if (slugs[0] === doc.slug) top1++
+    if (!slugs.includes(doc.slug)) missing.push(`${doc.slug}「${doc.title}」→ ${slugs.join(', ') || '无命中'}`)
+  }
+  const rate = top1 / data.docs.length
+  assert.deepEqual(missing, [], `这些条目搜自己的标题都进不了前三：\n  ${missing.join('\n  ')}`)
+  assert.ok(rate >= 0.95, `Top-1 命中率只有 ${(rate * 100).toFixed(1)}%，低于 95%`)
+})
+
 test('stripMarks 只去标记，不动文字', () => {
   assert.equal(stripMarks('这是 ==机制== 描述'), '这是 机制 描述')
   assert.equal(stripMarks('没有标记'), '没有标记')
