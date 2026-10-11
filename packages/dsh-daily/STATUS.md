@@ -369,3 +369,52 @@ HTTP 端到端导入一份真实形状的 OPML 时发现：少数派（`https://
 
 **下轮起点**：第二波剩余项 —— 把 OPML 与周报做成侧边栏里的按钮（目前只有工具/HTTP 入口）、
 桌面通知。仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + 9 个工具 + ✨ 按钮 + 日期导航）。
+
+### R10 · 2026-10-12 07:06–07:35 — H11：侧边栏可点入口 + 客户端契约测试
+
+**为什么做它**：OPML 与周报上一轮只做了工具与 HTTP 入口 —— 用户要么对模型说、要么敲 curl。
+这是当时最明显的可用性缺口：功能都在，但**用不到**。
+
+**做了什么**
+1. **页脚两个入口**（放页脚而不是标题栏：280px 下标题栏已有 3 个图标按钮，再加必溢出；
+   页脚本来也是"次级操作"的位置）
+   - **订阅管理**：选 OPML 文件导入（`<input type=file>` + FileReader，读完 POST `/api/opml`）、
+     列出自定义源、逐条「移除」、复制 OPML / 下载 OPML
+   - **本周回顾**：弹层里渲染周报 Markdown（复用日报预览的极简 Markdown 渲染器）
+2. 通用弹层 `openModal(title, path, buildBody)`：把原来只服务日报预览的弹层抽成通用壳
+3. 后端：`listCustomFeeds()` / `removeCustomFeed()`（按**规范化 URL** 删除，带 utm 的写法也能命中）+
+   `GET/POST /api/feeds`；`/api/state` 增加 `feeds` 计数（入口上显示「订阅管理（N）」）
+4. **新增 `test/client-contract.test.js`（4 组静态契约测试）** —— 本轮最有价值的产出，见下
+
+**本轮抓到两个 bug，其中一个是"同一类 bug 第二次出现"**
+| 问题 | 表现 | 修法 |
+|---|---|---|
+| `discussUrl` 一直被丢掉 | 后端从 R2 起就在返回 HN 讨论页链接，但页面字段白名单 `normalizeItem` 没映射 → 侧边栏**从来没显示过**讨论入口（同一类 bug 上次是 `aiSummary`） | 补映射 + 在条目 meta 里真的渲染出「讨论」按钮 |
+| 引用了不存在的 API 键 | `API.opml` / `API.feeds` 没加进路径表 → fetch 了一个 `undefined`，**不报错、无日志**，界面表现是"点一下转完就没反应" | 补上，并写成静态断言守住 |
+
+**新测试为什么值得单独说**（`test/client-contract.test.js`）
+"同一类 bug 出现两次"说明它不能靠人记得。这四条断言全是静态的、毫秒级：
+1. 每个 `API.<key>` 引用都在路径表里有定义（本次就抓到两个）
+2. 路径表里每个 URL 在 `src/api.ts` 都有对应 `case` 分支
+3. `normalizeItem` 的字段白名单覆盖后端会返回的字段（**这条刚写出来就抓到 `discussUrl`**）
+4. `el.xxx = $('dd-…')` 里的 id 都真实存在于 `index.html`
+
+**证据（真实输出）**
+- 全量测试：`node --test test/` → **tests 144 / pass 144 / fail 0**（R9 基线 138 → 本轮 +6 组）
+- 类型检查：`tsc --noEmit` → 0 error；`node --check web/app.js` → 通过
+- **浏览器端到端（真实渲染）**：
+  - 页脚：`['订阅管理（2）', '本周回顾']`
+  - 订阅管理弹层：文件框 `accept=".opml,.xml,application/xml,text/xml"`、
+    按钮 `['复制 OPML','下载 OPML','移除','移除']`、2 行源（`Import AI`/`Lobsters`，主题 `AI`/`热点`）
+  - 点「移除 Import AI」→ 列表剩 `['Lobsters']`、提示「已移除「Import AI」。」、
+    后端 `/api/feeds` 同步只剩 `['Lobsters']`
+  - 本周回顾：标题「本周回顾」、路径 `digest/week-2026-10-06_2026-10-12.md`、正文 2339 字符，四节齐全
+  - 「讨论」按钮：后端 `probe hn` 产出 **16/16** 条带 `discussUrl`；注入 dev 数据后页面渲染出 3 个
+    `.dd-meta-discuss`，`data-action="open"`、目标 URL 正确、位于 `.dd-item-meta` 行内
+- 数据隔离：联调数据全在 `/tmp/dsh-ui`，收尾已删除；`~/.dsh/daily` 仍只有 1 天数据、`extraFeeds: []`
+
+**阻塞**：无
+
+**下轮起点**：第二波剩余项 —— 桌面通知；或做"条目详情/阅读态"。
+仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + 9 个工具 + ✨ 按钮 + 日期导航 + 页脚入口，
+现在唯一没在真实界面里看过的就是它们）。

@@ -338,6 +338,63 @@ test('集成：导入的源真的会被采集器读到（runCollection 的接线
 	assert.equal(outcome.items.length, 0)
 })
 
+test('集成：listCustomFeeds / removeCustomFeed（侧边栏「订阅管理」用的两个接口）', async (t) => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'dsh-daily-feeds-'))
+	t.after(() => rm(dir, { recursive: true, force: true }))
+
+	const service = new DailyService(resolveConfig({ dataDir: dir }), {
+		info() {},
+		warn() {},
+		error() {},
+	})
+	await service.init()
+	await service.importOpml(REAL_OPML)
+
+	const feeds = await service.listCustomFeeds()
+	assert.equal(feeds.length, 2, 'REAL_OPML 里与内置源重叠的应该没进来')
+	for (const feed of feeds) {
+		assert.ok(feed.name && feed.url && feed.topic, `每条都该有名字/地址/主题：${JSON.stringify(feed)}`)
+	}
+
+	// 按**规范化 URL** 删除：带 utm 参数的写法也该命中
+	const withUtm = feeds[0].url + '?utm_source=x'
+	const removed = await service.removeCustomFeed(withUtm)
+	assert.equal(removed.removed, 1, '带 utm 的写法应命中同一条')
+	assert.equal(removed.total, feeds.length - 1)
+
+	const after = await service.listCustomFeeds()
+	assert.equal(after.length, feeds.length - 1)
+	assert.ok(
+		!after.some((f) => normalizeUrl(f.url) === normalizeUrl(feeds[0].url)),
+		'被删的那条不该还在',
+	)
+
+	// 删一个不存在的：不报错、不误删
+	const none = await service.removeCustomFeed('https://never-added.example.com/feed')
+	assert.equal(none.removed, 0)
+	assert.equal((await service.listCustomFeeds()).length, after.length)
+})
+
+test('集成：listCustomFeeds 对畸形 spec 容错（跳过没有 URL 的行）', async (t) => {
+	const dir = await mkdtemp(path.join(os.tmpdir(), 'dsh-daily-feeds-bad-'))
+	t.after(() => rm(dir, { recursive: true, force: true }))
+
+	const service = new DailyService(resolveConfig({ dataDir: dir }), {
+		info() {},
+		warn() {},
+		error() {},
+	})
+	await service.init()
+	await service.store.updatePrefs((current) => ({
+		...current,
+		extraFeeds: ['没有地址的', '有名字|https://ok.com/feed', '||', '没有主题|https://b.com/feed|'],
+	}))
+	const feeds = await service.listCustomFeeds()
+	assert.equal(feeds.length, 2, '只有带 URL 的两条有效')
+	assert.equal(feeds[0].topic, '热点', '没写主题时回落成热点')
+	assert.equal(feeds[0].name, '有名字')
+})
+
 test('集成：daily_opml 的工具路径（写文件后导入）', async (t) => {
 	const dir = await mkdtemp(path.join(os.tmpdir(), 'dsh-daily-opml-file-'))
 	t.after(() => rm(dir, { recursive: true, force: true }))

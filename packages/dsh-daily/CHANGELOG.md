@@ -45,6 +45,9 @@
 - 右侧栏「日报」tab（`betterSidebar.registerTab` + iframe），常驻网页
 - 网页：分类筛选 / 搜索 / 仅未读 / 视频卡（封面·时长·播放量）/ 👍👎✓隐藏 / 调教输入 /
   刷新浮层（绝对定位不推版）/ 日报 Markdown 弹层 / 空态 / 错误态 / 明暗主题 / 280–420px 自适应
+- **页脚两个入口**：「订阅管理」（选 OPML 文件导入、看/移除自定义源、复制或下载 OPML）与
+  「本周回顾」（弹层里看周报）—— 不用再对模型说或敲 curl
+- 条目 meta 里的「讨论」入口（HN 这类源的价值一半在评论区）
 - HTTP：`/dsh-daily/` 直出网页 + `/dsh-daily/api/*`（state / items / feedback / tune / refresh / digest）
 - 7 个模型工具：`daily_brief` `daily_digest` `daily_search` `daily_sources`（只读）、
   `daily_tune` `daily_feedback` `daily_refresh`（写盘/联网）
@@ -81,6 +84,13 @@
 - 看历史时"刷新不可用"的说明**永远不会出现**：按钮是 `disabled`，点不动，
   写在那条分支里的提示代码是死代码；tooltip 又太容易忽略。
   改为把「历史数据 · 刷新只抓今天」直接写进统计行（用户一定会读的那一行）
+- **`discussUrl` 一直在被丢掉**：后端从 R2 起就在返回它（HN 讨论页），
+  但页面的字段白名单 `normalizeItem` 没映射 → 侧边栏从来没显示过讨论入口。
+  这条是**新写的静态契约测试抓出来的**（同一类 bug 第二次出现：上次是 `aiSummary`）
+- **页面引用了不存在的 API 键**：`API.opml` / `API.feeds` 没加进路径表，
+  于是 fetch 了一个 `undefined` —— 不报错、无日志，界面表现是"点一下转完就没反应"。
+  已修，并新增 `test/client-contract.test.js` 静态核对：
+  用到的键都在表里、表里每个 URL 后端都有路由分支、字段白名单覆盖后端字段、弹层 id 都存在于 HTML
 - **页面的字段白名单漏了 `aiSummary`**：后端正确返回了 AI 摘要，但 `normalizeItem` 没映射它，
   数据在这一层被静默丢掉 —— 表现是"功能跑通了、界面上什么都没有"。
   已在 `normalizeItem` 处留下注释：**新增条目字段必须同步这里**

@@ -73,6 +73,8 @@ export interface ServiceStatePayload {
 	counts: { total: number; unread: number; byTopic: Record<string, number> }
 	sources: SourceState[]
 	prefs: Prefs
+	/** 自定义源数量（内置源不计），给界面上的入口显示用。 */
+	feeds: number
 	digest: { available: boolean; path: string; updatedAt: string | null }
 	/** 最近一次 AI 摘要的运行统计；功能关闭时 last 为 null 但 enabled 仍如实反映配置。 */
 	ai: { enabled: boolean; last: AiRunStats | null }
@@ -293,6 +295,44 @@ export class DailyService {
 		)
 		this.emit()
 		return summary
+	}
+
+	/** 当前的自定义源（只有运行期追加的那些；内置源在代码里，不在此列）。 */
+	async listCustomFeeds(): Promise<Array<{ name: string; url: string; topic: string }>> {
+		const prefs = await this.store.readPrefs()
+		const out: Array<{ name: string; url: string; topic: string }> = []
+		for (const spec of prefs.extraFeeds) {
+			const [name, url, topic] = spec.split('|')
+			if (!url?.trim()) continue
+			out.push({ name: (name ?? '').trim() || url.trim(), url: url.trim(), topic: (topic ?? '').trim() || '热点' })
+		}
+		return out
+	}
+
+	/**
+	 * 移除一个自定义源（按规范化 URL 匹配，所以带 utm 参数的写法也能删掉）。
+	 * 已经有历史条目的源被移除后，**历史索引不受影响** —— 删的是"以后还抓不抓"，不是数据。
+	 */
+	async removeCustomFeed(url: string): Promise<{ removed: number; total: number }> {
+		const key = normalizeUrl((url ?? '').trim())
+		let removed = 0
+		let total = 0
+		await this.store.updatePrefs((current) => {
+			const kept: string[] = []
+			for (const spec of current.extraFeeds) {
+				const specUrl = (spec.split('|')[1] ?? '').trim()
+				if (specUrl && normalizeUrl(specUrl) === key) {
+					removed++
+					continue
+				}
+				kept.push(spec)
+			}
+			total = kept.length
+			return { ...current, extraFeeds: kept }
+		})
+		if (removed > 0) this.logger.info(`已移除自定义源：${url}`)
+		this.emit()
+		return { removed, total }
 	}
 
 	/**
@@ -713,6 +753,7 @@ export class DailyService {
 			},
 			sources: day.sources,
 			prefs,
+			feeds: prefs.extraFeeds.length,
 			digest: {
 				available: meta.lastDigestDate !== null,
 				// 用**真实**路径（可自定义数据目录），并在 home 之下时缩写成 ~/…

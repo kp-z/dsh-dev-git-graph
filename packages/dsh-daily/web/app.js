@@ -32,7 +32,13 @@
     digest: './api/digest',
     ai: './api/ai',
     archive: './api/archive',
-    weekly: './api/weekly'
+    weekly: './api/weekly',
+    // 订阅管理用的两个：opml 导入导出、自定义源列表与移除。
+    // 加进这张表**必须**同步 —— 键名写错不会报错，只会去 fetch `undefined`，
+    // 界面上表现为"转一下就没了"，非常难查（本轮就踩了一次：
+    // 所以 test/client-contract.test.js 会静态核对"用到的键都在表里"）。
+    opml: './api/opml',
+    feeds: './api/feeds'
   };
 
   var FETCH_TIMEOUT_MS = 20000;   // refresh 走后台，不需要长超时
@@ -354,6 +360,7 @@
     archive: [],            // 归档索引（新到旧），用于按天翻阅
     today: null,            // 服务端认为的"今天"
     datePinned: false,      // 用户是否手动翻到了某一天
+    feedsCount: 0,          // 自定义源数量（页脚入口显示用）
     digestBusy: false
   };
 
@@ -720,6 +727,16 @@
     if (typeof it.score === 'number' && isFinite(it.score)) {
       meta.appendChild(text('span', 'dd-hot', '▲ ' + Math.round(it.score)));
     }
+    // 讨论页：HN 这类源的价值一半在评论区。放在 meta 里而不是标题上，
+    // 因为"打开正文"是主操作，"去看讨论"是次操作。
+    if (it.discussUrl) {
+      var discuss = text('button', 'dd-meta-discuss', '讨论');
+      discuss.type = 'button';
+      discuss.dataset.action = 'open';
+      discuss.dataset.url = it.discussUrl;
+      discuss.title = '打开讨论页';
+      meta.appendChild(discuss);
+    }
     if (meta.childNodes.length) body.appendChild(meta);
 
     main.appendChild(body);
@@ -897,6 +914,27 @@
       el.footer.appendChild(warn);
     }
     if (state.demo) el.footer.appendChild(text('span', '', '演示数据'));
+
+    // 入口放在页脚而不是标题栏：标题栏在 280px 下已经挤了 3 个图标按钮，
+    // 再加两个就必然溢出；而页脚是"次级操作"的自然位置。
+    if (!state.demo) {
+      el.footer.appendChild(
+        footerLink(
+          state.feedsCount > 0 ? '订阅管理（' + state.feedsCount + '）' : '订阅管理',
+          '导入 / 导出 OPML、移除自定义源',
+          openFeedsModal
+        )
+      );
+      el.footer.appendChild(footerLink('本周回顾', '汇总最近 7 天：最值得看 / 主题分布 / 每天条数 / 源健康', openWeeklyModal));
+    }
+  }
+
+  function footerLink(label, title, handler) {
+    var b = text('button', 'dd-footer-link', label);
+    b.type = 'button';
+    if (title) b.title = title;
+    b.addEventListener('click', handler);
+    return b;
   }
 
   function render() {
@@ -1044,6 +1082,7 @@
     // AI 摘要入口只在配置里打开时出现（默认关闭 —— 它会真的调模型、花 token）
     state.ai = s.ai || { enabled: false, last: null };
     if (el.aiBtn) el.aiBtn.hidden = !state.ai.enabled;
+    state.feedsCount = typeof s.feeds === 'number' ? s.feeds : 0;
     state.counts = s.counts || { total: 0, unread: 0, byTopic: {} };
     state.sources = Array.isArray(s.sources) ? s.sources : [];
     state.prefs = s.prefs || null;
@@ -1148,6 +1187,10 @@
       // 这一层被静默丢掉（AI 摘要第一次就是这么丢的 —— 后端返回了、页面上什么都没有）。
       // 新增条目字段时**必须**同步这里。
       aiSummary: typeof raw.aiSummary === 'string' ? raw.aiSummary : undefined,
+      // 讨论页（Hacker News 的 item 页）。这张白名单是靠
+      // test/client-contract.test.js 守住的 —— 它静态核对"后端会返回的字段都在这里"，
+      // 而这条断言刚写出来就抓到了 discussUrl 被漏掉（后端一直在返回、页面上从来没显示过）。
+      discussUrl: typeof raw.discussUrl === 'string' ? raw.discussUrl : undefined,
       publishedAt: raw.publishedAt,
       author: raw.author,
       thumb: raw.thumb,
@@ -1460,6 +1503,178 @@
     if (lastFocused && typeof lastFocused.focus === 'function') lastFocused.focus();
   }
 
+  /* ---------- 5.5.1 通用弹层 ---------- */
+
+  /**
+   * 通用弹层。
+   *
+   * 之前只有"日报预览"这一个弹层，于是"订阅管理 / 周报"这类需要交互的界面
+   * 就只剩工具与 HTTP 入口 —— 用户要么对模型说、要么用 curl，这是当时最明显的可用性缺口。
+   * 抽出一个通用壳之后，这些界面都能在侧边栏里就地完成。
+   */
+  function openModal(title, pathText, buildBody) {
+    el.modalTitle.textContent = title;
+    el.modalPath.textContent = pathText || '';
+    clear(el.modalBody);
+    buildBody(el.modalBody);
+    el.modal.hidden = false;
+    el.modalClose.focus();
+  }
+
+  /* ---------- 5.5.2 订阅管理 ---------- */
+
+  function openFeedsModal() {
+    openModal('订阅管理', '', function (body) {
+      body.appendChild(
+        text('p', 'dd-md-p',
+          '这里只管**运行期追加**的源（OPML 导入进来的）。内置源（Hacker News / arXiv / GitHub / YouTube / 哔哩哔哩 / 少数派 / IT之家 / Solidot / 阮一峰）由插件本身提供，不在此列。')
+      );
+
+      var status = text('p', 'dd-md-note', '');
+      var list = text('div', 'dd-feeds-list');
+
+      var actions = text('div', 'dd-feeds-actions');
+      var file = document.createElement('input');
+      file.type = 'file';
+      file.accept = '.opml,.xml,application/xml,text/xml';
+      file.className = 'dd-file';
+      file.setAttribute('aria-label', '选择 OPML 文件导入');
+      file.addEventListener('change', function () {
+        var chosen = file.files && file.files[0];
+        if (!chosen) return;
+        status.textContent = '正在读取 ' + chosen.name + '…';
+        var reader = new FileReader();
+        reader.onerror = function () { status.textContent = '文件读取失败'; };
+        reader.onload = function () {
+          status.textContent = '正在导入…';
+          apiPost(API.opml, { xml: String(reader.result || '') }).then(function (r) {
+            if (r.error) { status.textContent = '导入失败：' + r.error; return; }
+            var d = r.data || {};
+            status.textContent =
+              '导入完成：解析 ' + (d.parsed || 0) + ' 条 · 新增 ' + (d.added || 0) +
+              ' 条 · 重复 ' + (d.duplicated || 0) + ' 条 · 跳过 ' + (d.skipped || 0) + ' 条。下一次刷新即生效。';
+            loadFeeds(list, status);
+            loadState();
+          });
+        };
+        reader.readAsText(chosen);
+      });
+      actions.appendChild(file);
+
+      var copyBtn = text('button', 'dd-btn', '复制 OPML');
+      copyBtn.type = 'button';
+      copyBtn.addEventListener('click', function () {
+        apiGet(API.opml).then(function (r) {
+          if (r.error) { status.textContent = '导出失败：' + r.error; return; }
+          var xml = r.data.xml || '';
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(xml).then(
+              function () { status.textContent = '已复制 ' + (r.data.count || 0) + ' 个订阅源到剪贴板。'; },
+              function () { status.textContent = '剪贴板不可用（可能不是安全上下文），请改用「下载 OPML」。'; }
+            );
+          } else {
+            status.textContent = '剪贴板不可用，请改用「下载 OPML」。';
+          }
+        });
+      });
+      actions.appendChild(copyBtn);
+
+      var dlBtn = text('button', 'dd-btn', '下载 OPML');
+      dlBtn.type = 'button';
+      dlBtn.addEventListener('click', function () {
+        apiGet(API.opml).then(function (r) {
+          if (r.error) { status.textContent = '导出失败：' + r.error; return; }
+          try {
+            var blob = new Blob([r.data.xml || ''], { type: 'text/xml' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'dsh-daily-feeds.opml';
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+            status.textContent = '已导出 ' + (r.data.count || 0) + ' 个订阅源（含内置源）。';
+          } catch (e) {
+            status.textContent = '下载失败：' + (e && e.message ? e.message : String(e));
+          }
+        });
+      });
+      actions.appendChild(dlBtn);
+
+      body.appendChild(actions);
+      body.appendChild(status);
+      body.appendChild(list);
+      loadFeeds(list, status);
+    });
+  }
+
+  /** 拉取自定义源清单并渲染（带"移除"）。 */
+  function loadFeeds(list, status) {
+    clear(list);
+    list.appendChild(text('p', 'dd-md-p', '载入中…'));
+    apiGet(API.feeds).then(function (r) {
+      clear(list);
+      if (r.error) {
+        list.appendChild(text('p', 'dd-md-p', '读取失败：' + r.error));
+        return;
+      }
+      var feeds = (r.data && r.data.feeds) || [];
+      if (feeds.length === 0) {
+        list.appendChild(
+          text('p', 'dd-md-p', '还没有自定义源。用上面的文件选择导入一份 OPML 就行 —— 从别的阅读器导出即可。')
+        );
+        return;
+      }
+      list.appendChild(text('p', 'dd-md-p', '共 ' + feeds.length + ' 个自定义源：'));
+      feeds.forEach(function (feed) {
+        var row = text('div', 'dd-feed-row');
+        var info = text('div', 'dd-feed-info');
+        info.appendChild(text('div', 'dd-feed-name', feed.name || feed.url));
+        info.appendChild(text('div', 'dd-feed-url', feed.url));
+        if (feed.topic) info.appendChild(text('span', 'dd-feed-topic', feed.topic));
+        row.appendChild(info);
+        var rm = text('button', 'dd-feed-remove', '移除');
+        rm.type = 'button';
+        rm.title = '移除后不再抓取；已有的历史条目不受影响';
+        rm.addEventListener('click', function () {
+          rm.disabled = true;
+          apiPost(API.feeds, { action: 'remove', url: feed.url }).then(function (res) {
+            if (res.error) {
+              rm.disabled = false;
+              if (status) status.textContent = '移除失败：' + res.error;
+              return;
+            }
+            if (status) status.textContent = '已移除「' + (feed.name || feed.url) + '」。';
+            loadFeeds(list, status);
+            loadState();
+          });
+        });
+        row.appendChild(rm);
+        list.appendChild(row);
+      });
+    });
+  }
+
+  /* ---------- 5.5.3 本周回顾 ---------- */
+
+  function openWeeklyModal() {
+    openModal('本周回顾', '正在汇总最近 7 天…', function (body) {
+      body.appendChild(text('p', 'dd-md-p', '正在汇总最近 7 天…'));
+    });
+    apiGet(API.weekly).then(function (r) {
+      // 用户可能在等待期间关掉了弹层；那就不要再往里写
+      if (el.modal.hidden) return;
+      clear(el.modalBody);
+      if (r.error) {
+        el.modalBody.appendChild(text('p', 'dd-md-p', '周报生成失败：' + r.error));
+        return;
+      }
+      el.modalPath.textContent = 'digest/' + (r.data.name || '');
+      el.modalBody.appendChild(renderMarkdown(String(r.data.markdown || '')));
+    });
+  }
+
   /**
    * 极简 Markdown → DOM（只支持日报用到的子集：标题/无序列表/引用/代码/粗体/分隔线）。
    * 全程 createElement + textContent，从不拼 HTML 字符串。
@@ -1645,6 +1860,7 @@
     el.modalClose = $('dd-modal-close');
     el.modalBody = $('dd-modal-body');
     el.modalPath = $('dd-modal-path');
+    el.modalTitle = $('dd-modal-title');
     el.capsuleExtra = '';
   }
 

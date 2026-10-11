@@ -176,6 +176,24 @@ async function handleApi(
 				}
 				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
 			}
+			case 'feeds': {
+				if (req.method === 'GET') {
+					return sendJson(res, 200, { ok: true, feeds: await service.listCustomFeeds() })
+				}
+				if (req.method === 'POST') {
+					const body = await readJsonBody(req)
+					const action = typeof body.action === 'string' ? body.action : ''
+					if (action !== 'remove') {
+						return sendJson(res, 400, { ok: false, error: `未知的 action：${action}（可用：remove）` })
+					}
+					if (typeof body.url !== 'string' || !body.url.trim()) {
+						return sendJson(res, 400, { ok: false, error: '需要 url' })
+					}
+					const result = await service.removeCustomFeed(body.url)
+					return sendJson(res, 200, { ok: true, ...result })
+				}
+				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
 			case 'archive': {
 				if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: '只支持 GET' })
 				const limit = Number(first(q.get('limit')) ?? 30)
