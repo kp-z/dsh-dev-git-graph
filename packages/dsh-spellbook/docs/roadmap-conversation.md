@@ -267,8 +267,31 @@ inputActions = {
 
 后续若有人想「优化相关性」，先回来看这张表。
 
+#### 修掉一个静默的假否定（2026-10-12 第二个窗口）
+
+`category` 参数原本是自由字符串，而 `rank` 的章节过滤是**精确相等**
+（`rank.mjs:147`：`if (category && doc.category !== category) continue`）。
+于是「材料」这种一字之差会让结果直接变 0 条 —— 模型只会看到「库里没有」，
+然后得出「这库办不到」的结论。**这是最坏的一种错：不报错的假否定。**
+
+现在三条路都兜住了：
+
+| 情况 | 行为 |
+|---|---|
+| 章节名对不上 | 按全书查，并把真实章节名（现算的）一起交出去 |
+| 章节名对、那一章里没有 | 给全书候选，并说清这不是它要的那一章 |
+| 章节名对、也有 | 正常筛，不加多余的话 |
+
+章节名单**只有构建产物一个来源**（从 `search-index.json` 的 docs 现算），
+代码里不写死 —— 有一条测试专门守着「那六个名字不许连成一串出现在 tool.ts 里」。
+描述里只举例（「比如『材质』『动效』」），因为举例是提示，名单是数据。
+
 #### 还没做的
 
+- **`/spell <slug>`（M3-3）暂缓，理由已查清**：客户端只有 `slash/input-begin-command`、
+  `slash/input-consume-token`、`slash/input-insert-reference`、`slash/input-insert-text`、
+  `slash/popup` 这几个**内部事件**，没有可注册的 slash 命令 API（客户端 Service 目录里
+  也没有 commands 之类的服务）。挂上去就是建在没文档的内部事件上，而这条我验不了。
 - **system prompt 注入**：`dsh-mermaid-comm` 用 `inject = ['tools','systemPrompt']`
   让模型知道有这条工具。现在只靠工具描述，应该够（工具列表本来就在模型眼前），
   但如果真机验下来模型不主动用，这就是下一条路。那需要 `@deepseek-ai/dsh-system-prompt`。

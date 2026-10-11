@@ -56,6 +56,8 @@ interface LoadedSearch {
   mod: RankModule
   index: unknown
   bySlug: Map<string, SearchDoc>
+  /** 这本书真实存在的章节。从产物里现算，不写死第二份。 */
+  categories: string[]
 }
 
 /**
@@ -74,6 +76,9 @@ function loadSearch(dist: string): Promise<LoadedSearch> {
         mod,
         index: mod.buildIndex(data.docs),
         bySlug: new Map(data.docs.map((doc) => [String(doc.slug), doc])),
+        // 章节名只有**一个来源**：构建产物。写死在代码或描述里迟早对不上，
+        // 而一旦对不上，模型就会拿着一份过期的名单去筛，筛出 0 条还不知道为什么。
+        categories: [...new Set(data.docs.map((doc) => String(doc.category)).filter(Boolean))],
       }
     })()
 
@@ -125,17 +130,41 @@ export async function lookupSpell(dist: string, query: string, category = ''): P
     return nothing('给一个关键词（「发光」「玻璃」）或一条咒语的 slug（「neon-glow」）。')
   }
 
-  const { mod, index, bySlug } = await loadSearch(dist)
+  const { mod, index, bySlug, categories } = await loadSearch(dist)
+  const notes: string[] = []
+  const wanted = String(category ?? '').trim()
 
   // slug 全等先短路。库里 RANK_COLUMNS 不含 slug 那一列，所以「neon-glow」这种
   // 最典型的引用形式走检索是**搜不到**的 —— 而它恰恰是「引用一条咒语」最常见的说法。
   const exact = bySlug.get(q) ?? bySlug.get(q.toLowerCase())
-  const hits = exact
-    ? [{ slug: String(exact.slug), score: 1 } as RankHit]
-    : mod.rank(index, q, { limit: LIMIT, category: category || null })
+
+  let hits: RankHit[]
+  if (exact) {
+    hits = [{ slug: String(exact.slug), score: 1 }]
+  } else if (wanted && !categories.includes(wanted)) {
+    // 章节名对不上就**不要**拿它去过滤。rank 的章节过滤是精确相等
+    // （rank.mjs：`if (category && doc.category !== category) continue`），
+    // 所以「材料」这种一字之差会让结果直接变 0 条 —— 而模型只会看到
+    // 「库里没有」，然后得出「这库办不到」的结论。那是最坏的一种错：
+    // 静默的假否定。这里改成按全书查，并把真实章节名一并交出去。
+    notes.push(`「${wanted}」不是这本书的章节（有 ${categories.join(' / ')}），已按全书查。`)
+    hits = mod.rank(index, q, { limit: LIMIT })
+  } else {
+    hits = mod.rank(index, q, { limit: LIMIT, category: wanted || null })
+    if (!hits.length && wanted) {
+      // 章节名没错，但那一章里确实没有。空手而归对模型没用；
+      // 给它全书候选、并说清这不是它要的那一章，才有用。
+      hits = mod.rank(index, q, { limit: LIMIT })
+      if (hits.length > 0) notes.push(`「${wanted}」这一章里没有匹配的，下面是全书里的候选。`)
+    }
+  }
 
   if (!hits.length) {
-    return nothing(`库里没有匹配「${q}」的咒语。换个说法再试 —— 直接描述你想要的效果就行。`)
+    return nothing(
+      wanted && categories.includes(wanted)
+        ? `「${wanted}」里和全书都没有匹配「${q}」的咒语。换个说法再试 —— 直接描述你想要的效果就行。`
+        : `库里没有匹配「${q}」的咒语。换个说法再试 —— 直接描述你想要的效果就行。`,
+    )
   }
 
   const items = hits.map((hit) => {
@@ -159,16 +188,20 @@ export async function lookupSpell(dist: string, query: string, category = ''): P
   const promptSlug = String(hits[0].slug)
   const prompt = await readPrompt(dist, promptSlug)
 
+  if (items.length > 1) {
+    notes.push(
+      '上面是候选。每条末尾的「命中：」就是它凭什么被选上 —— 依据弱就别用那条。' +
+        '要另一条的完整正文，用它的 slug 再查一次。',
+    )
+  }
+
   return {
     found: true,
     count: items.length,
     items,
     prompt,
     promptSlug,
-    hint: items.length > 1
-      ? '上面是候选。每条末尾的「命中：」就是它凭什么被选上 —— 依据弱就别用那条。' +
-        '要另一条的完整正文，用它的 slug 再查一次。'
-      : '',
+    hint: notes.join(' '),
   }
 }
 
@@ -188,7 +221,7 @@ const PARAMETERS = {
     },
     category: {
       type: 'string',
-      description: '可选，把结果限在一个章节里：材质 / 动效 / 排版 / 交互 / 布局 / 图形。',
+      description: '可选，把结果限在一个章节里，比如「材质」「动效」。写错也不会查空 —— 会按全书查，并把真实存在的章节名报回来。',
     },
   },
   required: ['query'],

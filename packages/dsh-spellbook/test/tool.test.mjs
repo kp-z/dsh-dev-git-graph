@@ -17,6 +17,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -118,6 +119,44 @@ test('slug 只当文件名用，不能翻出 dist/', async () => {
   const escaped = await lookupSpell(DIST, '../../package.json')
   assert.equal(escaped.prompt.includes('"name"'), false, '读到了包外的东西')
   assert.equal(escaped.found, false)
+})
+
+test('章节名写错不能变成静默的 0 条 —— 那是假否定', async () => {
+  // rank 的章节过滤是精确相等（rank.mjs:147），所以「材料」这种一字之差会让结果
+  // 直接变 0 条。模型只会看到「库里没有」，然后得出「这库办不到」的结论 ——
+  // 最坏的一种错：静默的假否定。这条钉住兜底。
+  const typo = await lookupSpell(DIST, '发光', '材料')
+  assert.equal(typo.found, true, '章节名写错就查空了 —— 静默假否定')
+  assert.equal(typo.promptSlug, 'neon-glow')
+  assert.match(typo.hint, /不是这本书的章节/)
+  // 真实的章节名要一起交出去，模型下一轮才知道该写什么
+  assert.match(typo.hint, /材质 \/ 动效 \/ 排版 \/ 交互 \/ 布局 \/ 图形/)
+})
+
+test('章节名写对就真筛；那一章里没有也要给出全书候选', async () => {
+  const filtered = await lookupSpell(DIST, '发光', '材质')
+  assert.equal(filtered.found, true)
+  assert.ok(filtered.items.length > 0)
+  for (const line of filtered.items) {
+    assert.match(line, /· 材质 ·/, `筛了章节却混进别的章：${line}`)
+  }
+  assert.equal(/不是这本书的章节/.test(filtered.hint), false, '章节名是对的却报了错')
+
+  // 章节名对、但那一章里确实没有 —— 空手而归对模型没用
+  const elsewhere = await lookupSpell(DIST, '发光', '布局')
+  assert.equal(elsewhere.found, true, '那一章没有就空手而归')
+  assert.match(elsewhere.hint, /这一章里没有匹配的/)
+  assert.equal(elsewhere.items.some((line) => line.includes('· 材质 ·')), true)
+})
+
+test('章节名单只有构建产物一个来源，代码里不写死', async () => {
+  // 写死一份名单迟早与产物不符，而那时模型会拿着过期名单去筛、筛出 0 条
+  // 还不知道为什么。所以 tool.ts 里不许出现那六个名字连成一串。
+  const source = readFileSync(path.join(ROOT, 'src', 'plugin', 'tool.ts'), 'utf8')
+  const allSix = ['材质', '动效', '排版', '交互', '布局', '图形'].join('')
+  assert.equal(source.includes(allSix), false, 'tool.ts 里硬编码了章节全名单')
+  // 但描述里举两个例子是可以的（它只是提示，不是名单）
+  assert.match(source, /比如「材质」「动效」/)
 })
 
 test('注册到 tools 服务：名字、必填参数、以及能真的跑一遍', async () => {
