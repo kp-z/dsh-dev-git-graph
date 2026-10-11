@@ -3,7 +3,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PLATFORM_LABEL } from './catalog.js'
 import type { DailyService } from './service.js'
 import { humanAge, statsText } from './render.js'
-import { localDate } from './store.js'
+import { expandHome, localDate } from './store.js'
 import type { Item } from './types.js'
 
 /**
@@ -230,6 +230,75 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 				}
 				await service.setFeedback(args.id, args.action)
 				return `已记录：条目 ${args.id} → ${args.action}。排序会在下一次刷新或调教时体现。`
+			},
+		}),
+	)
+
+	ctx.tools.register(
+		defineTool({
+			name: 'daily_opml',
+			description:
+				'导入或导出 OPML 订阅列表（import **会写盘**，export 可选写文件）。' +
+				'import：从文件路径或直接给的 XML 导入订阅源，按 URL 去重，**下一次刷新即生效**（不需改配置）。' +
+				'export：把内置源 + 自定义源导出成 OPML，便于带到别的阅读器。',
+			parameters: {
+				action: {
+					type: 'string',
+					required: true,
+					description: 'import | export',
+				},
+				path: {
+					type: 'string',
+					description: 'import 时读这个文件（支持 ~/）；export 时把结果写到这里（不写则直接返回内容）。',
+				},
+				xml: { type: 'string', description: 'import 时可直接给 OPML 文本（与 path 二选一，path 优先）。' },
+			},
+			output: {
+				schema: { type: 'string' },
+				render: (_args, value) => [{ type: 'text', text: value }],
+			},
+			async execute(args) {
+				const action = (args.action || '').trim()
+				if (action === 'import') {
+					let xml = args.xml ?? ''
+					if (args.path) {
+						const { readFile } = await import('node:fs/promises')
+						try {
+							xml = await readFile(expandHome(args.path.trim()), 'utf8')
+						} catch (error) {
+							throw new Error(
+								`读不到 OPML 文件：${args.path}（${error instanceof Error ? error.message : String(error)}）`,
+							)
+						}
+					}
+					if (!xml.trim()) throw new Error('需要 path 或 xml 之一')
+					const result = await service.importOpml(xml)
+					if (result.parsed === 0) {
+						return `没有从这份 OPML 里解析出任何订阅源（分类节点 ${result.categories} 个）。请确认文件是 OPML 而不是收藏夹 HTML。`
+					}
+					return [
+						`OPML 导入完成${result.title ? `（${result.title}）` : ''}：`,
+						`- 解析出订阅源 ${result.parsed} 条（分类节点 ${result.categories} 个，跳过 ${result.skipped} 条不合法地址）`,
+						`- 新增 ${result.added} 条 · 已存在跳过 ${result.duplicated} 条`,
+						`- 当前自定义源合计 ${result.total} 条`,
+						result.addedNames.length > 0
+							? `- 新增的：${result.addedNames.slice(0, 12).join(' / ')}${result.addedNames.length > 12 ? ` …（共 ${result.addedNames.length} 条）` : ''}`
+							: '',
+						'下一次 daily_refresh 就会抓这些源。',
+					]
+						.filter(Boolean)
+						.join('\n')
+				}
+				if (action === 'export') {
+					const { xml, count } = await service.exportOpml()
+					if (args.path) {
+						const { writeFile } = await import('node:fs/promises')
+						await writeFile(expandHome(args.path.trim()), xml, 'utf8')
+						return `已导出 ${count} 个订阅源到 ${args.path}。`
+					}
+					return `已导出 ${count} 个订阅源：\n\n${xml}`
+				}
+				throw new Error(`未知的 action：${args.action}（可用：import | export）`)
 			},
 		}),
 	)

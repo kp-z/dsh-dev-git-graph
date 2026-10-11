@@ -432,6 +432,14 @@ export function makeFeedRunner(id: string): SourceRunner {
 	})
 }
 
+/**
+ * 内置 feed 的 `名称|URL|主题` 清单。
+ * 导出 OPML 时把内置源也带上 —— 用户既然喜欢这几个源，就该能把它们带回自己的阅读器。
+ */
+export function builtinFeedSpecs(): Array<{ name: string; url: string; topic: string }> {
+	return Object.values(BUILTIN_FEEDS).map((feed) => ({ ...feed }))
+}
+
 /** 用户自配的额外 RSS 源，格式 `名称|URL|主题`。 */
 export function parseFeedSpec(spec: string): { name: string; url: string; topic: string } | null {
 	const parts = (spec ?? '').split('|').map((p) => p.trim())
@@ -458,9 +466,19 @@ export async function collectExtraFeeds(env: CollectEnv): Promise<SourceResult> 
 			failures.push(`${spec.name}: ${error instanceof Error ? error.message : String(error)}`)
 		}
 	}
+
+	// 全部失败就整体判失败。
+	// 踩过的坑：早先无论挂几条都只写进 note、源状态仍是"✅ 正常"，
+	// 于是用户导入了 12 个源、全都抓不到，日报上却显示"所有源都正常" —— 这是最坏的一种谎报。
+	// 与 YouTube 的"全部频道失败即抛"保持一致。
+	if (items.length === 0 && failures.length > 0) {
+		throw new Error(
+			`${failures.length} 个自定义源全部失败（${failures.slice(0, 2).join('；')}）`,
+		)
+	}
 	return {
 		items,
-		note: failures.length ? `${failures.length} 个自定义源失败` : undefined,
+		note: failures.length ? `${failures.length}/${specs.length} 个自定义源失败：${failures[0]}` : undefined,
 	}
 }
 

@@ -158,6 +158,21 @@ async function handleApi(
 				if (!stats) return sendJson(res, 200, { ok: false, error: '这一天还没有条目' })
 				return sendJson(res, 200, { ok: true, stats })
 			}
+			case 'opml': {
+				// GET = 导出（只读）；POST = 导入（写盘，下一次刷新生效）
+				if (req.method === 'GET') {
+					const { xml, count } = await service.exportOpml()
+					return sendJson(res, 200, { ok: true, count, xml })
+				}
+				if (req.method === 'POST') {
+					const body = await readJsonBody(req)
+					const xml = typeof body.xml === 'string' ? body.xml : ''
+					if (!xml.trim()) return sendJson(res, 400, { ok: false, error: '需要 xml 字段' })
+					const result = await service.importOpml(xml)
+					return sendJson(res, 200, { ok: true, ...result })
+				}
+				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
 			case 'refresh': {
 				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 POST' })
 				const summary = await service.refresh()

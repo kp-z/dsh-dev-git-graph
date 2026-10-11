@@ -99,6 +99,7 @@ Cannot find package '@deepseek-ai/dsh-tools'
 | `daily_search` | 只读 | 在最近 N 天索引里检索 |
 | `daily_sources` | 只读 | 源清单与最近一轮状态（排查「为什么没有 YouTube 条目」先看它） |
 | `daily_tune` | **写盘 + 重排** | 自然语言调教 |
+| `daily_opml` | **写盘**（import）/ 可选写文件（export） | 导入 / 导出 OPML 订阅列表 |
 | `daily_feedback` | **写盘** | like / dislike / read / hide |
 | `daily_refresh` | **联网 + 写盘** | 立刻抓一轮（5~20 秒） |
 
@@ -125,6 +126,25 @@ aiSummaryModel: ''
 
 失败面都被测试钉住了：超时、空输出、`max-tokens`、`error`/`aborted`、流中途抛错、
 没有 `finish` 事件、宿主没有 `llm` 服务、只填了一半的路由、缓存过期与超量淘汰。
+
+## 导入自己的订阅（OPML）
+
+你多半已经在别的阅读器里订阅了几十个源 —— 一条条抄 URL 是这个插件最可能被放弃的一步。
+直接给它一个 OPML 文件：
+
+> 「把这个文件里的订阅导进来：`~/Downloads/subscriptions.opml`」
+
+或者直接调用 `daily_opml({ action: 'import', path: '…' })`。行为：
+
+- **按 URL 去重**（`?utm_source=` 这类参数会先被规范化掉，绕不过去）
+- **内置源也参与判重**：你的 OPML 里若有少数派 / IT之家 / Solidot / 阮一峰的源，会被跳过 ——
+  它们已经在抓了，重复加入只会让同一份内容被抓两次
+- **已有条目不覆盖**：你手动改过的名字比 OPML 里的更可信
+- **即时生效**：写进 `prefs.extraFeeds`，下一次刷新就抓，**不需要改配置、不需要重载 profile**
+- 返回可核对的明细：解析出几条、新增几条、重复几条、跳过几条
+
+反向也支持：`daily_opml({ action: 'export' })` 把**内置源 + 自定义源**导出成 OPML，
+可以带回你自己的阅读器。
 
 ## 数据与文件
 

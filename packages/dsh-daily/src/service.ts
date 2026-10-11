@@ -10,7 +10,15 @@ import {
 import { SOURCE_CATALOG } from './catalog.js'
 import { runCollection } from './collect/index.js'
 import { MirrorPool } from './collect/mirror.js'
-import { buildRecentlySeen, rankItems, shiftDate } from './rank.js'
+import { buildRecentlySeen, normalizeUrl, rankItems, shiftDate } from './rank.js'
+import {
+	mergeFeedSpecs,
+	parseOpml,
+	serializeOpml,
+	specToFeed,
+	type OpmlFeed,
+} from './opml.js'
+import { builtinFeedSpecs } from './collect/sources.js'
 import { renderBrief, renderDigest } from './render.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
@@ -218,6 +226,8 @@ export class DailyService {
 			pool: this.pool,
 			...(options.sourceIds ? { sourceIds: options.sourceIds } : {}),
 			...(options.signal ? { signal: options.signal } : {}),
+			// 运行期追加的源（OPML 导入进来的）在这里并入，不需要改配置、不需要重载
+			extraFeeds: prefs.extraFeeds,
 		})
 		this.pool = outcome.pool
 
@@ -512,6 +522,89 @@ export class DailyService {
 			days.push({ date, urls: day.items.map((item) => item.url) })
 		}
 		return buildRecentlySeen(days, today, windowDays)
+	}
+
+	/**
+	 * 导入 OPML：解析 → 合并（按 URL 去重）→ 落进 prefs.extraFeeds。
+	 *
+	 * 不需要改配置、不需要重载 profile，**下一次刷新就生效**。
+	 * 返回的明细是给用户核对的：加了几条、跳过了几条、有几条重复。
+	 */
+	async importOpml(xml: string): Promise<{
+		title: string | null
+		parsed: number
+		categories: number
+		skipped: number
+		added: number
+		duplicated: number
+		addedNames: string[]
+		total: number
+	}> {
+		const parsed = parseOpml(xml)
+		let added = 0
+		let duplicated = 0
+		let addedNames: string[] = []
+		let total = 0
+
+		if (parsed.feeds.length > 0) {
+			// 内置源也参与判重：用户的 OPML 里若有同一条（哪怕带 utm 参数），
+			// 就不该再加一遍 —— 否则同一份内容会被抓两次，源列表也会重复。
+			const reserved = builtinFeedSpecs().map((f) => `${f.name}|${f.url}|${f.topic}`)
+			const saved = await this.store.updatePrefs((current) => {
+				const merged = mergeFeedSpecs(
+					current.extraFeeds,
+					parsed.feeds,
+					normalizeUrl,
+					'热点',
+					reserved,
+				)
+				added = merged.added
+				duplicated = merged.duplicated
+				addedNames = merged.addedNames
+				total = merged.feeds.length
+				return { ...current, extraFeeds: merged.feeds }
+			})
+			total = saved.extraFeeds.length
+		} else {
+			total = (await this.store.readPrefs()).extraFeeds.length
+		}
+
+		this.logger.info(
+			`OPML 导入：解析 ${parsed.feeds.length} 条 · 新增 ${added} · 重复 ${duplicated} · 跳过 ${parsed.skipped}`,
+		)
+		this.emit()
+		return {
+			title: parsed.title,
+			parsed: parsed.feeds.length,
+			categories: parsed.categories,
+			skipped: parsed.skipped,
+			added,
+			duplicated,
+			addedNames,
+			total,
+		}
+	}
+
+	/** 导出 OPML：内置源 + 配置里的额外源 + 导入进来的源，按 URL 去重。 */
+	async exportOpml(): Promise<{ xml: string; count: number }> {
+		const prefs = await this.store.readPrefs()
+		const specs = [
+			...builtinFeedSpecs().map((f) => `${f.name}|${f.url}|${f.topic}`),
+			...this.config.extraFeeds,
+			...prefs.extraFeeds,
+		]
+		const seen = new Set<string>()
+		const feeds: OpmlFeed[] = []
+		for (const spec of specs) {
+			const feed = specToFeed(spec)
+			if (!feed) continue
+			const key = normalizeUrl(feed.url)
+			if (seen.has(key)) continue
+			seen.add(key)
+			feeds.push(feed)
+		}
+		const xml = serializeOpml({ feeds, title: 'dsh-daily 订阅源' })
+		return { xml, count: feeds.length }
 	}
 
 	/** 用现有原始条目按新偏好重新排名（不重新抓取）。 */

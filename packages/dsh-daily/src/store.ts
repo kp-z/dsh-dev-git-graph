@@ -36,6 +36,7 @@ export function defaultPrefs(): Prefs {
 		maxItemsPerSource: 8,
 		halfLifeHours: 36,
 		tuningNotes: [],
+		extraFeeds: [],
 		updatedAt: new Date().toISOString(),
 	}
 }
@@ -179,6 +180,7 @@ export class DailyStore {
 					? stored.sourceWeights
 					: base.sourceWeights,
 			tuningNotes: Array.isArray(stored.tuningNotes) ? stored.tuningNotes : base.tuningNotes,
+			extraFeeds: Array.isArray(stored.extraFeeds) ? stored.extraFeeds : base.extraFeeds,
 		}
 	}
 

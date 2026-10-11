@@ -100,6 +100,14 @@ export interface Prefs {
 	halfLifeHours: number
 	/** 用户原话。模型可读，用于让推荐"有上下文"。 */
 	tuningNotes: string[]
+	/**
+	 * 运行期追加的自定义 RSS 源，编码 `名称|URL|主题`（与 config.extraFeeds 同格式）。
+	 *
+	 * 为什么不直接写进 config：改 config 会触发 profile 重载。而"导入一个 OPML"
+	 * 是日常操作，跟"调教偏好"是同一类东西，应该即时生效、当场可回退。
+	 * 采集时这两处会合并。
+	 */
+	extraFeeds: string[]
 	updatedAt: string
 }
 

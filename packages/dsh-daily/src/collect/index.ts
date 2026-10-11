@@ -52,6 +52,11 @@ export interface CollectOptions {
 	signal?: AbortSignal
 	/** 只跑这些源；缺省=内置目录 + extra，并按 config.enabledSources 过滤。 */
 	sourceIds?: string[]
+	/**
+	 * 运行期追加的自定义源（`名称|URL|主题`），与 config.extraFeeds 合并后使用。
+	 * 用户导入 OPML 后不需要改配置、不需要重载 profile 就能生效。
+	 */
+	extraFeeds?: readonly string[]
 }
 
 export interface CollectOutcome {
@@ -87,16 +92,20 @@ function sourceMeta(id: string): { name: string; kind: 'web' | 'video' } {
  */
 export async function runCollection(options: CollectOptions): Promise<CollectOutcome> {
 	const started = Date.now()
+	// 运行期追加的源与配置里的合并：两者同格式，去重交给下游（它按 URL 去重）
+	const config: DailyConfig =
+		options.extraFeeds && options.extraFeeds.length > 0
+			? { ...options.config, extraFeeds: [...options.config.extraFeeds, ...options.extraFeeds] }
+			: options.config
 	const pool =
-		options.pool ??
-		new MirrorPool(options.config.rsshubMirrors, options.config.requestTimeoutMs)
+		options.pool ?? new MirrorPool(config.rsshubMirrors, config.requestTimeoutMs)
 	const env: CollectEnv = {
-		config: options.config,
+		config,
 		pool,
 		...(options.signal ? { signal: options.signal } : {}),
 	}
 
-	const ids = resolveSourceIds(options.config, options.sourceIds)
+	const ids = resolveSourceIds(config, options.sourceIds)
 	const results = await mapLimit(ids, Math.max(1, options.config.concurrency), async (id) => {
 		const runner = SOURCE_RUNNERS[id]
 		const meta = sourceMeta(id)
