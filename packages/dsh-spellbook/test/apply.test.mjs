@@ -373,6 +373,49 @@ test('只有一个实例时，它卸载后必须回落成 no-sink', () => {
   }
 })
 
+test('每个「抄咒语 / 应用」按钮都必须带上它自己的取址属性', () => {
+  // 这条是拿一次真实的回归换来的。
+  //
+  // 第 2 轮把 initPromptCopy 改成只读 data-prompt-url（理由是地址由模板给，
+  // 不在 JS 里按 slug 拼 —— 目录页与条目页深度不同，拼法不同），却漏了
+  // **site.js 里检索结果那一个按钮**。它在浏览器里 fetch(undefined) → 404
+  // → 显示「没取到」，不报错。而当时的测试只断言了模板那一处，所以没拦住。
+  //
+  // 所以这里扫所有会出现这类按钮的地方：客户端模板、构建期模板、构建产物。
+  const files = [
+    path.join(ROOT, 'src', 'site.js'),
+    path.join(ROOT, 'src', 'render', 'pages.mjs'),
+    path.join(ROOT, 'dist', 'index.html'),
+    path.join(ROOT, 'dist', 'spell', 'liquid-glass', 'index.html'),
+  ]
+  const pairs = [
+    ['data-prompt=', 'data-prompt-url='],
+    ['data-apply=', 'data-apply-url='],
+  ]
+
+  const problems = []
+  let checked = 0
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8')
+    for (const tag of text.match(/<button\b[^>]*>/g) ?? []) {
+      for (const [attr, urlAttr] of pairs) {
+        if (!tag.includes(attr)) continue
+        checked += 1
+        if (!tag.includes(urlAttr)) {
+          problems.push(`${path.relative(ROOT, file)} 缺 ${urlAttr}：${tag.slice(0, 100)}`)
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(problems, [], '有按钮没带上取址属性，点下去只会 404')
+  assert.ok(checked >= 5, `只扫到 ${checked} 个按钮 —— 扫描本身大概失效了`)
+
+  // 顺带确认真扫到了检索结果那一个（它没进 dist，只在 site.js 模板里）
+  const siteSource = readFileSync(path.join(ROOT, 'src', 'site.js'), 'utf8')
+  assert.match(siteSource, /class="hit-tool hit-apply"[^>]*data-apply-url=/, '检索结果里没有可用的应用按钮')
+})
+
 test('产物：embed 跨页记住，应用按钮默认藏着', () => {
   const indexHtml = path.join(ROOT, 'dist', 'index.html')
   const spellHtml = path.join(ROOT, 'dist', 'spell', 'liquid-glass', 'index.html')
@@ -402,6 +445,9 @@ test('产物：embed 跨页记住，应用按钮默认藏着', () => {
   const css = readFileSync(path.join(ROOT, 'dist', 'styles', 'spellbook.css'), 'utf8')
   assert.match(css, /\.apply-bar\s*\{\s*display:\s*none/, '应用按钮默认没有藏起来')
   assert.match(css, /:root\[data-embed\]\s+\.apply-bar\s*\{\s*display:\s*flex/, '嵌入模式下应用按钮没显示')
+  // 检索结果里的那个也一样：自己开标签页看站时没有对话可应用
+  assert.match(css, /\.hit-apply\s*\{\s*display:\s*none/, '检索结果的应用按钮默认没有藏起来')
+  assert.match(css, /:root\[data-embed\]\s+\.hit-apply\s*\{\s*display:\s*inline-flex/, '嵌入模式下检索结果的应用按钮没显示')
 
   // 4. 目录页的「抄咒语」也改用模板给的地址
   assert.match(index, /data-prompt-url="spell\/[^"]+\/prompt\.txt"/, '抄咒语没有带咒语地址')

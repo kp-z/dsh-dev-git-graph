@@ -1895,6 +1895,25 @@ html {
   opacity: 0.7;
 }
 
+/* 「应用」只在被侧边栏嵌进来时出现 —— 自己开标签页看站时没有对话可应用。
+   判据与 .apply-bar 同一条 :root[data-embed]，别在两处各写一套。
+   显式继承 .hit-tool 的 display，否则这条 display:none 会把布局也改掉。 */
+.hit-apply {
+  display: none;
+}
+
+:root[data-embed] .hit-apply {
+  display: inline-flex;
+}
+
+/* 失败必须看得见。与 .apply.is-failed 同一条理由：这一路最常见的错是
+   「以为送过去了，输入框里却是空的」。 */
+.hit-tool.is-failed {
+  color: var(--rubric);
+  border-color: var(--rubric);
+  text-decoration: line-through;
+}
+
 /* 命中词。用 --rubric 的低浓度底，不加粗 —— 加粗会把整行读得一顿一顿的 */
 mark {
   padding: 0 1px;

@@ -505,7 +505,8 @@ function initSearch() {
       <p class="hit-when">${markTerms(doc.when_text, input.value, terms)}</p>
       <span class="hit-tools">
         <button class="hit-tool" type="button" data-peek="${escapeHtml(doc.slug)}">预览</button>
-        <button class="hit-tool" type="button" data-prompt="${escapeHtml(doc.slug)}">抄咒语</button>
+        <button class="hit-tool" type="button" data-prompt="${escapeHtml(doc.slug)}" data-prompt-url="spell/${encodeURIComponent(doc.slug)}/prompt.txt">抄咒语</button>
+        <button class="hit-tool hit-apply" type="button" data-apply="${escapeHtml(doc.slug)}" data-apply-url="spell/${encodeURIComponent(doc.slug)}/prompt.txt" data-apply-mode="insert">应用</button>
       </span>
     </li>`
   }
