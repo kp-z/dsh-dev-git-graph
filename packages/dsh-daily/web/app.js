@@ -30,7 +30,9 @@
     tune: './api/tune',
     refresh: './api/refresh',
     digest: './api/digest',
-    ai: './api/ai'
+    ai: './api/ai',
+    archive: './api/archive',
+    weekly: './api/weekly'
   };
 
   var FETCH_TIMEOUT_MS = 20000;   // refresh 走后台，不需要长超时
@@ -349,6 +351,9 @@
     refreshBusy: false,
     aiBusy: false,
     ai: { enabled: false, last: null },
+    archive: [],            // 归档索引（新到旧），用于按天翻阅
+    today: null,            // 服务端认为的"今天"
+    datePinned: false,      // 用户是否手动翻到了某一天
     digestBusy: false
   };
 
@@ -531,9 +536,20 @@
     if (state.items.length) {
       el.stats.appendChild(document.createTextNode(' · 已加载 ' + state.items.length));
     }
+    // 看历史时把"刷新不适用"写在统计行里。
+    // 为什么不用"按钮 disabled + tooltip"就完事：实测点不动 disabled 按钮，
+    // 提示永远不会出现，而 tooltip 又太容易被忽略 —— 放在用户一定会读的那一行才有效。
+    if (state.today && state.date !== state.today) {
+      el.stats.appendChild(document.createTextNode(' · '));
+      el.stats.appendChild(
+        text('span', 'dd-stat-history', '历史数据 · 刷新只抓今天'),
+      );
+    }
 
-    el.refreshBtn.disabled = state.refreshBusy || state.aiBusy;
+    var history = !!(state.today && state.date !== state.today);
+    el.refreshBtn.disabled = state.refreshBusy || state.aiBusy || history;
     el.refreshBtn.classList.toggle('dd-spin', state.refreshBusy);
+    el.refreshBtn.title = history ? '正在看历史数据：刷新只会抓今天' : '刷新订阅源';
     if (el.aiBtn) {
       el.aiBtn.disabled = state.refreshBusy || state.aiBusy;
       el.aiBtn.classList.toggle('dd-spin', state.aiBusy);
@@ -926,6 +942,76 @@
    * 5. events
    * ==================================================================== */
 
+  /* ---------- 4.7 按天翻阅（归档） ---------- */
+
+  /**
+   * 归档导航。
+   *
+   * 为什么值得单独做：`daily_search` 能按关键词找，"按天翻"是另一条检索路径 ——
+   * 而且更符合人的回忆方式（"我记得是周二前后看到的"）。
+   * 同时它让"哪天断采了"变得可见：某天条数骤降一眼就能看出来。
+   */
+  function loadArchive() {
+    return apiGet(API.archive, { limit: 60 }).then(function (r) {
+      if (r.error || !r.data || !Array.isArray(r.data.days)) return;
+      state.archive = r.data.days;
+      renderDateBar();
+    });
+  }
+
+  function archiveIndex(date) {
+    for (var i = 0; i < state.archive.length; i++) {
+      if (state.archive[i].date === date) return i;
+    }
+    return -1;
+  }
+
+  function renderDateBar() {
+    if (!el.datebar) return;
+    // 只有一天数据时不显示（别给刚装上的用户添噪音）
+    var meaningful = state.archive.length > 1;
+    el.datebar.hidden = !meaningful;
+    if (!meaningful) return;
+
+    var index = archiveIndex(state.date);
+    var older = index >= 0 ? state.archive[index + 1] : null;
+    var newer = index >= 0 ? state.archive[index - 1] : null;
+    el.datePrev.disabled = !older;
+    el.dateNext.disabled = !newer;
+    el.dateCurrent.textContent = state.date;
+    var isToday = !state.today || state.date === state.today;
+    el.dateToday.hidden = isToday;
+    el.datebar.classList.toggle('is-history', !isToday);
+
+    var day = index >= 0 ? state.archive[index] : null;
+    el.dateCurrent.title = day
+      ? day.date + ' · ' + day.total + ' 条 · ' + day.unread + ' 未读' + (day.digest ? ' · 有日报' : '')
+      : state.date;
+  }
+
+  function selectDate(date) {
+    if (!date || date === state.date) return;
+    state.date = date;
+    state.datePinned = !state.today || date !== state.today;
+    // 换天等于换数据集：清掉只对旧数据有效的筛选与展开态，避免"筛选残留导致列表空空"
+    state.topic = '全部';
+    state.unreadOnly = false;
+    state.expanded = {};
+    state.hiddenIds = {};
+    state.queryServerHits = null;
+    syncSearchInputs();
+    renderDateBar();
+    loadItems();
+    render();
+  }
+
+  function stepDate(delta) {
+    var index = archiveIndex(state.date);
+    if (index < 0) return;
+    var target = state.archive[index + delta];
+    if (target) selectDate(target.date);
+  }
+
   /* ---------- 5.1 数据载入 ---------- */
 
   function loadState() {
@@ -946,7 +1032,12 @@
 
   function applyStatePayload(s) {
     state.demo = false;
-    if (s.date) state.date = String(s.date);
+    // 服务端的"今天"始终采纳；但**用户手动翻到某一天后不能再被拽回来** ——
+    // 状态轮询在点赞/调教后都会发生，否则用户看昨天的列表时点个 👍 就被弹回今天。
+    if (s.date) {
+      state.today = String(s.date);
+      if (!state.datePinned) state.date = String(s.date);
+    }
     state.generatedAt = s.generatedAt || null;
     state.lastRefresh = s.lastRefresh || null;
     state.refreshing = !!s.refreshing;
@@ -1211,6 +1302,16 @@
 
   function startRefresh() {
     if (state.refreshBusy || state.demo) return;
+    // 刷新只对"今天"有意义：抓取总会写进当天。
+    // 按钮在历史态下是 disabled（点不动的），所以正常情况下走不到这里；
+    // 这段是**兜底**：万一将来有别的入口（快捷键/命令）调用它，也不能静默什么都不做。
+    if (state.today && state.date !== state.today) {
+      showTuneNote('只能刷新今天', [
+        '当前正在查看 ' + state.date + ' 的历史数据。',
+        '点日期条上的「回到今天」再刷新。',
+      ]);
+      return;
+    }
 
     state.refreshBusy = true;
     el.capsuleExtra = '';
@@ -1315,11 +1416,9 @@
         '（演示模式，无真实文件路径）');
       return;
     }
-    if (state.digest && state.digest.available === false) {
-      showDigest('', '', '日报尚未生成：等一次刷新完成后会自动产出。');
-      return;
-    }
-
+    // 这里**不再**用全局的 state.digest.available 提前 return：
+    // 它描述的是"最近一次日报"，而用户可能正在看某一天的历史 ——
+    // 那个判断会让"看历史日报"这件正确的事被错误地挡住。按日期问后端才是对的。
     state.digestBusy = true;
     el.digestBtn.disabled = true;
     apiGet(API.digest, { date: state.date }).then(function (r) {
@@ -1328,6 +1427,16 @@
       if (r.error) {
         state.stateError = '日报预览失败：' + r.error;
         renderError();
+        return;
+      }
+      // 这一天没有日报是正常状态（比如刚装、或那天没开机），
+      // 该在弹层里说清楚，而不是让页面报错、按钮看起来像坏了。
+      if (!r.data.markdown) {
+        showDigest(
+          '',
+          '',
+          state.date + ' 还没有日报。日报在每次采集完成后自动生成；也可以点右上角刷新抓一轮。'
+        );
         return;
       }
       showDigest(r.data.markdown, r.data.path || (state.digest && state.digest.path) || '');
@@ -1503,6 +1612,11 @@
     el.refreshBtn = $('dd-refresh');
     el.digestBtn = $('dd-digest');
     el.aiBtn = $('dd-ai');
+    el.datebar = $('dd-datebar');
+    el.datePrev = $('dd-date-prev');
+    el.dateNext = $('dd-date-next');
+    el.dateCurrent = $('dd-date-current');
+    el.dateToday = $('dd-date-today');
     el.progress = $('dd-progress');
     el.capsule = $('dd-capsule');
     el.capsuleText = $('dd-capsule-text');
@@ -1612,6 +1726,13 @@
 
     // 列表交互（委托：动作 / 打开 / 折叠 / 空态重试）
     el.list.addEventListener('click', onListClick);
+
+    // 按天翻阅（归档）
+    el.datePrev.addEventListener('click', function () { stepDate(1); });
+    el.dateNext.addEventListener('click', function () { stepDate(-1); });
+    el.dateToday.addEventListener('click', function () {
+      if (state.today) selectDate(state.today);
+    });
   }
 
   function onListClick(e) {
@@ -1723,6 +1844,8 @@
     clear(el.chips);
     renderProgress();
     loadState();
+    // 归档索引与首屏数据并行拉，谁先到都不影响另一边
+    loadArchive();
   }
 
   if (document.readyState === 'loading') {

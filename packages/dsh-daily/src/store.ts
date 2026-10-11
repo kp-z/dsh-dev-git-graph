@@ -286,4 +286,14 @@ export class DailyStore {
 		const file = this.digestFile(date)
 		await this.enqueue(file, () => this.writeFileAtomic(file, markdown))
 	}
+
+	/** 按名字读写 digest 目录里的文件（周报用 `week-<start>_<end>.md`）。 */
+	async readDigestNamed(name: string): Promise<string | null> {
+		return this.readText(path.join(this.digestDir, name))
+	}
+
+	async writeDigestNamed(name: string, markdown: string): Promise<void> {
+		const file = path.join(this.digestDir, name)
+		await this.enqueue(file, () => this.writeFileAtomic(file, markdown))
+	}
 }

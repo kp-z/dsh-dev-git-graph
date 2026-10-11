@@ -1,4 +1,7 @@
 import type { DailyConfig } from './config.js'
+import { homedir } from 'node:os'
+import { sep } from 'node:path'
+import { summarizeDay, renderWeeklyReview, weekFileName, type ArchiveDay } from './archive.js'
 import {
 	emptyCache,
 	mergeCache,
@@ -128,6 +131,14 @@ function applyFeedbackAction(current: FeedbackMap, id: string, action: string): 
 	entry.at = new Date().toISOString()
 	next[id] = entry
 	return next
+}
+
+/** 把绝对路径缩写成 `~/…`；不在 home 之下时原样返回。给界面显示用。 */
+export function displayPath(absolute: string): string {
+	const home = homedir()
+	if (absolute === home) return '~'
+	if (absolute.startsWith(`${home}${sep}`)) return `~${absolute.slice(home.length)}`
+	return absolute
 }
 
 export class DailyService {
@@ -282,6 +293,58 @@ export class DailyService {
 		)
 		this.emit()
 		return summary
+	}
+
+	/**
+	 * 归档索引：最近 N 天的摘要（新到旧）。
+	 *
+	 * 读的是 days/*.json —— 那是**已经落盘的真实数据**，不是重新抓的。
+	 * 只给摘要（条数/未读/主题分布/有没有日报），条目本身按需再取，避免一次把几十天的数据全塞给前端。
+	 */
+	async listArchive(limit = 30): Promise<ArchiveDay[]> {
+		const all = await this.store.listDays()
+		const targets = all.slice(-Math.max(1, limit)).reverse()
+		const out: ArchiveDay[] = []
+		for (const date of targets) {
+			const day = await this.store.readDay(date)
+			const digestAvailable = (await this.store.readDigest(date)) !== null
+			out.push(summarizeDay(date, day.items, digestAvailable))
+		}
+		return out
+	}
+
+	/**
+	 * 周报：截至 `endDate` 的 N 天汇总，落盘到 `digest/week-<start>_<end>.md`。
+	 *
+	 * 与日报的区别是它回答的是"这一周"的问题：哪个方向占了我的注意力、
+	 * 哪天信息量骤降（通常意味着采集出问题）、这周最好的是什么。
+	 */
+	async buildWeeklyReview(
+		endDate?: string,
+		windowDays = 7,
+	): Promise<{ markdown: string; name: string; days: number; items: number; start: string; end: string }> {
+		const end = endDate ?? localDate()
+		const window = Math.max(1, windowDays)
+		const dates: string[] = []
+		for (let i = window - 1; i >= 0; i--) dates.push(shiftDate(end, -i))
+
+		const days: ArchiveDay[] = []
+		const items: Item[] = []
+		let sources: SourceState[] = []
+		for (const date of dates) {
+			const day = await this.store.readDay(date)
+			if (day.items.length === 0) continue
+			days.push(summarizeDay(date, day.items, (await this.store.readDigest(date)) !== null))
+			items.push(...day.items)
+			if (day.sources.length > 0) sources = day.sources
+		}
+
+		const start = dates[0] ?? end
+		const markdown = renderWeeklyReview({ days, items, sources, start, end })
+		const name = weekFileName(start, end)
+		await this.store.writeDigestNamed(name, markdown)
+		this.logger.info(`周报已生成：${name}（${days.length} 天 / ${items.length} 条）`)
+		return { markdown, name, days: days.length, items: items.length, start, end }
 	}
 
 	/**
@@ -652,7 +715,9 @@ export class DailyService {
 			prefs,
 			digest: {
 				available: meta.lastDigestDate !== null,
-				path: `~/.dsh/daily/digest/${digestDate}.md`,
+				// 用**真实**路径（可自定义数据目录），并在 home 之下时缩写成 ~/…
+				// —— 早先这里是硬编码的 ~/.dsh/daily/…，自定义目录时界面上显示的是个不存在的路径。
+				path: displayPath(this.store.digestFile(digestDate)),
 				updatedAt: meta.lastDigestDate ? day.lastRefresh?.at ?? null : null,
 			},
 			ai: { enabled: this.config.aiSummaryEnabled, last: this.lastAiRun },

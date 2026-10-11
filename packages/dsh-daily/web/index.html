@@ -35,6 +35,13 @@
       </div>
       <p class="dd-stats" id="dd-stats">正在载入…</p>
     </div>
+    <!-- 按天翻阅：只有存在多天归档时才显示（默认隐藏，别给只有一天数据的用户添噪音） -->
+    <div class="dd-datebar" id="dd-datebar" hidden>
+      <button type="button" class="dd-date-step" id="dd-date-prev" aria-label="前一天" title="前一天">‹</button>
+      <span class="dd-date-current" id="dd-date-current" aria-live="polite">—</span>
+      <button type="button" class="dd-date-step" id="dd-date-next" aria-label="后一天" title="后一天">›</button>
+      <button type="button" class="dd-date-today" id="dd-date-today" hidden>回到今天</button>
+    </div>
     <div class="dd-head-actions">
       <button type="button" class="dd-icon-btn" id="dd-refresh" title="刷新订阅源" aria-label="刷新订阅源">
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false">

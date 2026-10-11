@@ -123,9 +123,12 @@ async function handleApi(
 				const date = first(q.get('date')) ?? localDate()
 				const markdown = await service.store.readDigest(date)
 				if (markdown === null) {
-					return sendJson(res, 200, { ok: false, error: '这一天还没有生成日报', date })
+					// 「这一天还没有日报」是**正常状态**，不是接口错误。
+					// 早先返回 ok:false，前端把它当整页错误处理，于是点「日报预览」什么都不发生、
+					// 页面顶上却弹出一条错误 —— 一个正常的空状态被表达成了故障。
+					return sendJson(res, 200, { ok: true, available: false, date, markdown: null })
 				}
-				return sendJson(res, 200, { ok: true, date, markdown })
+				return sendJson(res, 200, { ok: true, available: true, date, markdown })
 			}
 			case 'feedback': {
 				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 POST' })
@@ -172,6 +175,25 @@ async function handleApi(
 					return sendJson(res, 200, { ok: true, ...result })
 				}
 				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
+			case 'archive': {
+				if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: '只支持 GET' })
+				const limit = Number(first(q.get('limit')) ?? 30)
+				return sendJson(res, 200, {
+					ok: true,
+					days: await service.listArchive(Number.isFinite(limit) ? Math.min(180, limit) : 30),
+				})
+			}
+			case 'weekly': {
+				if (req.method !== 'GET') return sendJson(res, 405, { ok: false, error: '只支持 GET' })
+				// 与 digest 一致：缺就现场生成（幂等，且会落盘到 digest/）
+				const end = first(q.get('end'))
+				const days = Number(first(q.get('days')) ?? 7)
+				const review = await service.buildWeeklyReview(
+					end,
+					Number.isFinite(days) ? Math.min(31, Math.max(1, days)) : 7,
+				)
+				return sendJson(res, 200, { ok: true, ...review })
 			}
 			case 'refresh': {
 				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 POST' })

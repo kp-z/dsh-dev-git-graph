@@ -228,6 +228,61 @@ button { font-family: inherit; }
 }
 .dd-capsule-spin { display: inline-block; animation: dd-spin 1.1s linear infinite; }
 
+/* ---------- 4.7 按天翻阅（归档） ---------- */
+.dd-datebar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px 0;
+}
+/* 看历史时给整条加一条强调色左边框：让"这不是今天"一眼可见 */
+.dd-datebar.is-history {
+  border-left: 2px solid var(--dd-accent);
+  padding-left: 8px;
+}
+.dd-date-step {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-sm);
+  background: transparent;
+  color: var(--dd-text-secondary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dd-date-step:hover:not(:disabled) {
+  background: var(--dd-bg-hover);
+  color: var(--dd-text);
+}
+.dd-date-step:disabled {
+  opacity: .4;
+  cursor: default;
+}
+.dd-date-current {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--dd-text);
+}
+.dd-date-today {
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--dd-accent);
+  border-radius: 999px;
+  background: var(--dd-accent-soft);
+  color: var(--dd-accent-text);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dd-date-today:hover { filter: brightness(1.05); }
+
+/* 历史态：统计行里那句"刷新只抓今天"用强调色，和普通统计区分开 */
+.dd-stat-history { color: var(--dd-accent-text); }
+
 /* ---------- 5. 调教 ---------- */
 .dd-input {
   width: 100%;

@@ -305,6 +305,40 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 
 	ctx.tools.register(
 		defineTool({
+			name: 'daily_weekly',
+			description:
+				'生成日报周报（**会写盘** ~/.dsh/daily/digest/week-<起>_<止>.md，并返回全文）。' +
+				'汇总最近 N 天（默认 7）的索引：跨天最值得看的、主题分布、每天条数与未读、采集源健康。' +
+				'适合回答「这周有什么变化」「我这周都在看什么方向」「哪天是不是没抓到」。',
+			parameters: {
+				end: { type: 'string', description: '截止日期 YYYY-MM-DD，默认今天。' },
+				days: { type: 'number', description: '往前汇总几天，默认 7，上限 31。' },
+				path: { type: 'string', description: '另存一份到这个路径（支持 ~/）；不填则只落在数据目录。' },
+			},
+			output: {
+				schema: { type: 'string' },
+				render: (_args, value) => [{ type: 'text', text: value }],
+			},
+			async execute(args) {
+				const days = typeof args.days === 'number' ? Math.min(31, Math.max(1, args.days)) : 7
+				const review = await service.buildWeeklyReview(args.end?.trim() || undefined, days)
+				if (review.items === 0) {
+					return `${review.start} ~ ${review.end} 这 ${days} 天里没有任何落盘数据，周报是空的。先 daily_refresh 抓一轮。`
+				}
+				if (args.path) {
+					const { writeFile } = await import('node:fs/promises')
+					await writeFile(expandHome(args.path.trim()), review.markdown, 'utf8')
+				}
+				const head = `周报已生成：${review.start} ~ ${review.end} · ${review.days} 天有数据 · 共 ${review.items} 条 · 落盘 digest/${review.name}${
+					args.path ? ` · 另存到 ${args.path}` : ''
+				}\n\n`
+				return head + review.markdown
+			},
+		}),
+	)
+
+	ctx.tools.register(
+		defineTool({
 			name: 'daily_refresh',
 			description:
 				'立刻抓一轮所有采集源并重排（**会联网**，通常 5~20 秒，偶发源会失败但不会中断）。' +

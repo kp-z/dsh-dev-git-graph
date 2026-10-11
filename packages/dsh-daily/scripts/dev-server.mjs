@@ -29,7 +29,21 @@ const port = portArg >= 0 ? Number(args[portArg + 1]) : 8799
  */
 const aiFake = args.includes('--ai-fake')
 
+/**
+ * `--data-dir=<path>`：指向一个临时数据目录。
+ * `--seed-history=N`：把今天的落盘数据复制成 N 个过去的日子。
+ *
+ * 这两个开关是为了**验证跨天 UI（按天翻阅 / 周报）而不用等好几天**，
+ * 而且不会污染 `~/.dsh/daily` —— 归档相关的界面状态（日期条、回到今天、
+ * 历史态禁用刷新）只有多天数据时才看得到。
+ */
+const dataDirArg = args.find((a) => a.startsWith('--data-dir='))
+const dataDir = dataDirArg ? dataDirArg.slice('--data-dir='.length) : ''
+const seedArg = args.find((a) => a.startsWith('--seed-history='))
+const seedDays = seedArg ? Number(seedArg.slice('--seed-history='.length)) : 0
+
 const config = resolveConfig({
+	dataDir,
 	...(aiFake
 		? {
 				aiSummaryEnabled: true,
@@ -48,6 +62,30 @@ const service = new DailyService(config, {
 })
 
 await service.init()
+
+if (seedDays > 0) {
+	const { writeFile, readFile } = await import('node:fs/promises')
+	const { shiftDate } = await import('../lib/rank.js')
+	const { localDate: currentDate } = await import('../lib/store.js')
+	// 这里不能用文件后面那个 `today`：它在 TDZ 里（这里还在它声明之前）
+	const seedToday = currentDate()
+	const source = await readFile(service.store.dayFile(seedToday), 'utf8').catch(() => null)
+	if (!source) {
+		console.log('[warn] --seed-history 需要当天已有落盘数据，先跑一次抓取')
+	} else {
+		for (let i = 1; i <= seedDays; i++) {
+			const date = shiftDate(seedToday, -i)
+			if (await service.store.readText(service.store.dayFile(date))) continue
+			const day = JSON.parse(source)
+			day.date = date
+			// 每天留一部分、去掉一部分：让"条数不同"这件事在界面/周报里看得出来
+			day.items = day.items.filter((_, index) => index % (i + 1) !== 0)
+			day.lastRefresh = null
+			await writeFile(service.store.dayFile(date), JSON.stringify(day) + '\n')
+		}
+		console.log(`[info] 已播种 ${seedDays} 天历史数据（仅用于联调，位于 ${service.store.dir}）`)
+	}
+}
 
 if (aiFake) {
 	let n = 0
