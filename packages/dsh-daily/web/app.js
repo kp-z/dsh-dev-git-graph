@@ -713,7 +713,15 @@
     return b;
   }
 
-  var THUMB_TIMEOUT_MS = 6000;
+  /**
+   * 封面加载上限。
+   *
+   * 原本是 6000。H5 复验实测：本机网络下 **YouTube 缩略图（i.ytimg.com）100% 不可达**，
+   * 而这类"请求挂着、既不 error 也不 load"只能靠超时兜住 ——
+   * 6 秒意味着 8 张 YouTube 卡要白等 6 秒才变占位块，观感就是"一片空白停在那儿"。
+   * 3 秒是权衡：正常网络下足够（缩略图普遍几十 KB），坏源也能很快出占位。
+   */
+  var THUMB_TIMEOUT_MS = 3000;
 
   function renderThumb(it) {
     var wrap = text('div', 'dd-thumb');
