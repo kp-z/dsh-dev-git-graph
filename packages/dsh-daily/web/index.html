@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>日报</title>
+<link rel="stylesheet" href="./style.css">
+<script>
+/* 首屏主题：必须在 CSS 生效前同步执行，避免闪白/闪黑。
+   优先级：?theme= → 宿主 <html> 上的深色标记 → 系统偏好。
+   注意：这里只是给 <html> 打标记，真正的调色板在 style.css 里。 */
+(function () {
+  var theme = null;
+  try {
+    theme = new URLSearchParams(location.search).get('theme');
+  } catch (e) { /* 极老的 URL 解析异常，忽略 */ }
+  if (theme !== 'dark' && theme !== 'light') {
+    var de = document.documentElement;
+    theme = (de.hasAttribute('data-ds-dark-theme') || de.classList.contains('dark')) ? 'dark' : 'light';
+  }
+  document.documentElement.setAttribute('data-theme', theme);
+})();
+</script>
+</head>
+<body>
+<div class="dd-app">
+
+  <!-- 顶部：标题 / 日期 / 统计 / 两个图标按钮 -->
+  <header class="dd-header">
+    <div class="dd-head-main">
+      <div class="dd-head-line">
+        <h1 class="dd-title">日报</h1>
+        <span class="dd-date" id="dd-date">—</span>
+      </div>
+      <p class="dd-stats" id="dd-stats">正在载入…</p>
+    </div>
+    <div class="dd-head-actions">
+      <button type="button" class="dd-icon-btn" id="dd-refresh" title="刷新订阅源" aria-label="刷新订阅源">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M8 2.6a5.4 5.4 0 1 0 5.14 3.75.75.75 0 0 1 1.42-.48A6.9 6.9 0 1 1 8 1.1c1.9 0 3.6.77 4.85 2.01V1.5a.75.75 0 0 1 1.5 0v3.4c0 .41-.34.75-.75.75h-3.4a.75.75 0 0 1 0-1.5h1.6A5.37 5.37 0 0 0 8 2.6Z"/>
+        </svg>
+      </button>
+      <button type="button" class="dd-icon-btn" id="dd-digest" title="打开日报预览" aria-label="打开日报预览">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M3 1.75A1.75 1.75 0 0 1 4.75 0h4.19c.46 0 .9.18 1.23.51l2.32 2.32c.33.33.51.77.51 1.23v9.19A1.75 1.75 0 0 1 11.25 15h-6.5A1.75 1.75 0 0 1 3 13.25V1.75Zm5.5.66v1.84c0 .41.34.75.75.75h1.84L8.5 2.41ZM5.5 7.5a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5h-5Zm0 2.75a.75.75 0 0 0 0 1.5h3.5a.75.75 0 0 0 0-1.5h-3.5Z"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- 刷新中的不定长流光条 + 胶囊提示：绝对定位，不占文档流，不推版 -->
+  <div class="dd-progress" id="dd-progress" aria-hidden="true"><span class="dd-progress-bar"></span></div>
+  <div class="dd-capsule" id="dd-capsule" role="status" aria-live="polite" hidden>
+    <span class="dd-capsule-spin" aria-hidden="true">⟳</span>
+    <span id="dd-capsule-text">正在刷新订阅源</span>
+  </div>
+
+  <!-- 调教输入框 -->
+  <form class="dd-tune" id="dd-tune-form" autocomplete="off">
+    <input type="text" class="dd-input dd-tune-input" id="dd-tune-input"
+           placeholder="例如：以后每天多推 AI Agent 相关"
+           aria-label="调教推荐偏好" maxlength="300">
+    <button type="submit" class="dd-btn dd-btn-primary" id="dd-tune-submit">调教</button>
+  </form>
+
+  <!-- 调教结果提示条（可关闭） -->
+  <div class="dd-note" id="dd-note" role="status" aria-live="polite" hidden>
+    <div class="dd-note-body">
+      <strong class="dd-note-title" id="dd-note-title">已应用</strong>
+      <ul class="dd-note-list" id="dd-note-list"></ul>
+    </div>
+    <button type="button" class="dd-note-close" id="dd-note-close" aria-label="关闭提示">×</button>
+  </div>
+
+  <!-- 错误 / 降级提示条 -->
+  <div class="dd-error" id="dd-error" role="alert" hidden>
+    <div class="dd-error-body">
+      <strong class="dd-error-title" id="dd-error-title">出错了</strong>
+      <p class="dd-error-msg" id="dd-error-msg"></p>
+    </div>
+    <button type="button" class="dd-btn dd-error-retry" id="dd-error-retry">重试</button>
+  </div>
+
+  <!-- 筛选行：主题 chips + 搜索 -->
+  <div class="dd-filters">
+    <div class="dd-chips" id="dd-chips" role="tablist" aria-label="按主题筛选"></div>
+    <div class="dd-search-wrap" id="dd-search-wrap">
+      <input type="search" class="dd-input dd-search" id="dd-search"
+             placeholder="搜索标题 / 摘要 / 来源" aria-label="搜索条目" autocomplete="off">
+      <button type="button" class="dd-search-clear" id="dd-search-clear" aria-label="清空搜索" hidden>×</button>
+    </div>
+    <label class="dd-unread-toggle">
+      <input type="checkbox" id="dd-unread-only" aria-label="仅显示未读条目">
+      <span>仅未读</span>
+    </label>
+  </div>
+
+  <!-- 列表 -->
+  <main class="dd-list" id="dd-list" aria-live="polite" aria-busy="false"></main>
+
+  <!-- 偏好区：当前生效的调教结果 -->
+  <section class="dd-prefs" id="dd-prefs" hidden>
+    <h2 class="dd-prefs-title">当前偏好</h2>
+    <div class="dd-prefs-body" id="dd-prefs-body"></div>
+  </section>
+
+  <footer class="dd-footer" id="dd-footer"></footer>
+</div>
+
+<!-- 日报 Markdown 预览 -->
+<div class="dd-modal" id="dd-modal" hidden>
+  <div class="dd-modal-backdrop" id="dd-modal-backdrop"></div>
+  <div class="dd-modal-panel" role="dialog" aria-modal="true" aria-labelledby="dd-modal-title">
+    <div class="dd-modal-head">
+      <h2 class="dd-modal-title" id="dd-modal-title">日报预览</h2>
+      <button type="button" class="dd-icon-btn" id="dd-modal-close" aria-label="关闭预览">×</button>
+    </div>
+    <p class="dd-modal-path" id="dd-modal-path"></p>
+    <div class="dd-modal-body" id="dd-modal-body"></div>
+  </div>
+</div>
+
+<script src="./app.js"></script>
+</body>
+</html>

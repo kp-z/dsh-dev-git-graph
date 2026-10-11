@@ -1,0 +1,9 @@
+# dsh-daily：把日报插进 profile 的层栈。
+#
+# host 半体：采集 / 评分 / 调教 / 日报生成 / 定时 / systemPrompt 主动推荐 / HTTP 路由
+#            （前缀 /dsh-daily/ 直出右侧栏网页 + /dsh-daily/api/* 接口）
+# client 半体：在右侧栏注册「日报」tab（依赖 dsh-better-sidebar）
+- insert:
+    - id: daily
+      name: dsh-daily
+      config: {}

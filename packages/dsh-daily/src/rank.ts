@@ -1,0 +1,348 @@
+import { createHash } from 'node:crypto'
+import { FALLBACK_TOPIC, TOPIC_KEYWORDS } from './catalog.js'
+import type { FeedbackMap, Item, ItemKind, KeywordWeight, Platform, Prefs, RawItem } from './types.js'
+import { inferKind } from './collect/sources.js'
+
+/**
+ * 排序引擎 —— 这个插件的"高价值"就落在这个文件里。
+ *
+ * 设计取舍：**乘法模型 + 可解释理由**。
+ * - 乘法意味着任何一个因子为 0 就出局（屏蔽词就该这样），而各因子之间可以独立调参。
+ * - 每个因子都必须能吐出一句人话进 `reasons`：用户看不到"为什么给我看这个"，
+ *   就永远调不动推荐，最后会直接放弃这个插件。
+ */
+
+/** 稳定短 id：同一条 URL 每天重建后仍然指向同一条，反馈才能跨天累积。 */
+export function itemId(url: string): string {
+	return createHash('sha1').update(url).digest('hex').slice(0, 12)
+}
+
+const TRACKING_PARAMS = [
+	'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
+	'fbclid', 'gclid', 'spm_id_from', 'vd_source', 'from_source', 'share_source',
+	'ref', 'ref_src', 'ref_url', 'share_medium', 'share_plat', 'share_tag', 'timestamp',
+]
+
+/** URL 规范化：去 fragment、去跟踪参数、去尾斜杠。用于去重与稳定 id。 */
+export function normalizeUrl(input: string): string {
+	try {
+		const url = new URL(input)
+		for (const key of [...url.searchParams.keys()]) {
+			if (TRACKING_PARAMS.includes(key.toLowerCase())) url.searchParams.delete(key)
+		}
+		url.hash = ''
+		url.hostname = url.hostname.toLowerCase().replace(/^www\./, '')
+		let out = url.toString()
+		if (out.endsWith('/') && url.pathname !== '/') out = out.slice(0, -1)
+		return out
+	} catch {
+		return input.trim()
+	}
+}
+
+/** 标题归一化：只留下有区分度的字符，用于相似度比较与去重键。 */
+export function titleKey(title: string): string {
+	return title
+		.toLowerCase()
+		.replace(/[\s\u3000]+/g, ' ')
+		.replace(/[!-/:-@[-`{-~。，、；：？！“”‘’（）《》【】—…·]/g, '')
+		.trim()
+}
+
+function shingles(text: string): Set<string> {
+	const clean = titleKey(text).replace(/\s/g, '')
+	const out = new Set<string>()
+	const size = clean.length >= 12 ? 3 : 2
+	for (let i = 0; i + size <= clean.length; i++) out.add(clean.slice(i, i + size))
+	if (out.size === 0 && clean) out.add(clean)
+	return out
+}
+
+/** 标题相似度（字符 shingle 的 Jaccard）。用来抓"同一件事被多个源报道"。 */
+export function titleSimilarity(a: string, b: string): number {
+	const sa = shingles(a)
+	const sb = shingles(b)
+	if (sa.size === 0 || sb.size === 0) return 0
+	let inter = 0
+	for (const s of sa) if (sb.has(s)) inter++
+	return inter / (sa.size + sb.size - inter)
+}
+
+const ASCII_WORD_RE = /^[a-z0-9+#. -]+$/i
+
+/**
+ * 关键词匹配。
+ *
+ * 为什么不能直接 `includes`：`ai` 会命中 `email`、`said`、`maintain`，
+ * 于是"AI 相关"这个偏好会把一堆不相干的条目拉上来。
+ * 纯 ASCII 的词强制走词边界；CJK 没有词边界概念，仍然用子串包含（这也是对的，
+ * 中文的"大模型"就该在"大模型推理"里命中）。
+ */
+export function matchKeyword(haystack: string, word: string): boolean {
+	const needle = word.trim().toLowerCase()
+	if (!needle) return false
+	const hay = haystack.toLowerCase()
+	if (!ASCII_WORD_RE.test(needle)) return hay.includes(needle)
+	const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+	return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, 'i').test(hay)
+}
+
+/** 依关键词词典给条目定主题；全部落空时退回采集器自带主题，再退回"热点"。 */
+export function classifyTopic(input: { title: string; summary?: string; fallback?: string }): string {
+	const haystack = `${input.title} ${input.summary ?? ''}`
+	for (const entry of TOPIC_KEYWORDS) {
+		for (const word of entry.words) {
+			if (matchKeyword(haystack, word)) return entry.topic
+		}
+	}
+	return input.fallback?.trim() || FALLBACK_TOPIC
+}
+
+function heatBoost(platform: Platform, stats: Record<string, number> | undefined): { factor: number; text: string | null } {
+	if (!stats) return { factor: 1, text: null }
+	const digits = (n: number) => (n >= 10_000 ? `${(n / 10_000).toFixed(1)}万` : `${n}`)
+	switch (platform) {
+		case 'hackernews': {
+			const points = stats.points ?? 0
+			if (points <= 0) return { factor: 1, text: null }
+			// 100 分 ≈ ×1.3。HN 的分数是强信号，但别让它压过新鲜度
+			return { factor: 1 + Math.min(0.55, Math.log10(1 + points) / 4), text: `HN ${points} 分` }
+		}
+		case 'github': {
+			const stars = stats.stars ?? 0
+			if (stars <= 0) return { factor: 1, text: null }
+			return { factor: 1 + Math.min(0.55, Math.log10(1 + stars) / 4.2), text: `★ ${digits(stars)}` }
+		}
+		case 'bilibili':
+		case 'youtube': {
+			const views = stats.views ?? 0
+			if (views <= 0) return { factor: 1, text: null }
+			return { factor: 1 + Math.min(0.5, Math.log10(1 + views) / 6), text: `${digits(views)} 播放` }
+		}
+		default:
+			return { factor: 1, text: null }
+	}
+}
+
+/** 新鲜度：半衰期衰减。没有发布时间时按"首次见到"算，并按 0.9 略罚（未知时间不该占便宜）。 */
+export function freshnessFactor(publishedAt: string | undefined, firstSeenAt: string, halfLifeHours: number, now: Date): number {
+	const halfLife = Math.max(1, halfLifeHours)
+	const base = publishedAt ? Date.parse(publishedAt) : NaN
+	const known = Number.isFinite(base)
+	const reference = known ? base : Date.parse(firstSeenAt)
+	if (!Number.isFinite(reference)) return 0.5
+	const ageHours = Math.max(0, (now.getTime() - reference) / 3_600_000)
+	const factor = 0.5 ** (ageHours / halfLife)
+	return Math.max(0.04, known ? factor : factor * 0.9)
+}
+
+export interface ScoreBreakdown {
+	score: number
+	reasons: string[]
+}
+
+/** 单条评分。导出是为了让测试与 `daily_search` 能用同一套逻辑。 */
+export function scoreItem(
+	item: Item,
+	prefs: Prefs,
+	now: Date,
+): ScoreBreakdown {
+	const reasons: string[] = []
+	let score = 100
+
+	const fresh = freshnessFactor(item.publishedAt, item.firstSeenAt, prefs.halfLifeHours, now)
+	score *= fresh
+	if (item.publishedAt) {
+		const ageHours = (now.getTime() - Date.parse(item.publishedAt)) / 3_600_000
+		if (Number.isFinite(ageHours)) {
+			if (ageHours < 1) reasons.push('刚刚发布')
+			else if (ageHours < 24) reasons.push(`${Math.round(ageHours)} 小时前发布`)
+			else reasons.push(`${Math.round(ageHours / 24)} 天前发布`)
+		}
+	}
+
+	const sourceWeight = prefs.sourceWeights[item.sourceId]
+	if (typeof sourceWeight === 'number' && Math.abs(sourceWeight - 1) > 0.01) {
+		score *= Math.max(0.1, sourceWeight)
+		reasons.push(`来源权重 ×${sourceWeight.toFixed(2)}`)
+	}
+
+	// 主题：用户点名要的主题优先；靠前的主题再高一点
+	if (prefs.topics.length > 0) {
+		const index = prefs.topics.indexOf(item.topic)
+		if (index >= 0) {
+			const boost = Math.max(1.25, 1.7 - index * 0.1)
+			score *= boost
+			reasons.push(`主题命中「${item.topic}」`)
+		} else {
+			score *= 0.7
+		}
+	}
+
+	// 关键词：多命中可叠加，但设上限，避免长摘要把权重刷爆
+	let keywordFactor = 1
+	const haystack = `${item.title} ${item.summary ?? ''}`
+	const hitWords: string[] = []
+	for (const kw of prefs.keywords as KeywordWeight[]) {
+		if (matchKeyword(haystack, kw.word)) {
+			keywordFactor *= 1 + 0.22 * Math.max(0.2, kw.weight)
+			hitWords.push(kw.word)
+		}
+	}
+	keywordFactor = Math.min(2.4, keywordFactor)
+	if (hitWords.length > 0) {
+		score *= keywordFactor
+		reasons.push(`关键词命中：${hitWords.slice(0, 3).join(' / ')}`)
+	}
+
+	const heat = heatBoost(item.platform, item.stats)
+	score *= heat.factor
+	if (heat.text) reasons.push(heat.text)
+
+	// 屏蔽词：降到几乎不可见，但仍留在索引里（用户搜得到，只是不被推荐）
+	const blocked = prefs.blocked.filter((word) => word && matchKeyword(haystack, word))
+	if (blocked.length > 0) {
+		score *= 0.02
+		reasons.push(`命中屏蔽词：${blocked.slice(0, 2).join(' / ')}`)
+	}
+
+	if (item.liked) {
+		score *= 1.35
+		reasons.push('你标记过「有意思」')
+	}
+	if (item.disliked) {
+		score *= 0.3
+		reasons.push('你标记过「少推这类」')
+	}
+
+	return { score: Math.max(0, Math.round(score * 10) / 10), reasons: reasons.slice(0, 4) }
+}
+
+function mergeDuplicate(keep: Item, extra: Item): Item {
+	// 同一件事被多个源报道：保留信息更全的那条，把来源合并进理由
+	const stats = { ...(keep.stats ?? {}), ...(extra.stats ?? {}) }
+	const reasons = [...keep.reasons]
+	const otherSource = `${extra.sourceName}`
+	if (otherSource !== keep.sourceName) reasons.push(`另有 ${otherSource} 报道`)
+	return {
+		...keep,
+		stats,
+		reasons: reasons.slice(0, 5),
+		// 视频形态优先：视频信息量更低、更容易被忽略，让它保留缩略图
+		...(keep.kind === 'web' && extra.kind === 'video'
+			? { kind: 'video' as ItemKind, platform: extra.platform, thumb: extra.thumb ?? keep.thumb, duration: extra.duration ?? keep.duration }
+			: {}),
+		summary: keep.summary ?? extra.summary,
+		thumb: keep.thumb ?? extra.thumb,
+		duration: keep.duration ?? extra.duration,
+		publishedAt: keep.publishedAt ?? extra.publishedAt,
+	}
+}
+
+export interface RankOptions {
+	prefs: Prefs
+	feedback: FeedbackMap
+	now?: Date
+	/** 每源上限（粗筛，防止某一源把配额吃光）。 */
+	maxItemsPerSource?: number
+	/** 总量上限。 */
+	quota?: number
+	/**
+	 * 上一轮已见过条目的首次发现时间（url → ISO）。
+	 *
+	 * 没有这个，每次刷新都会把"首次见到"重置成现在 —— 那些**没有发布时间**的条目
+	 * （HN 的部分条目、GitHub 之外的自建 feed）会因为"看起来刚出现"而反复冲到顶部。
+	 */
+	firstSeen?: Record<string, string>
+}
+
+/**
+ * 把原始条目整理成最终索引：
+ * 规范化 → 去重 → 合并用户态 → 定主题 → 评分 → 每源配额 → 全局配额 → 排序。
+ *
+ * 去重是两段式的：先按规范化 URL 精确合并（同一链接绝对不该出现两次），
+ * 再按标题相似度合并（同一件事的不同链接）。第二段有小概率误伤，
+ * 所以阈值定得偏保守（0.72）。
+ */
+export function rankItems(rawItems: readonly RawItem[], options: RankOptions): Item[] {
+	const now = options.now ?? new Date()
+	const { prefs, feedback } = options
+	const maxPerSource = options.maxItemsPerSource ?? prefs.maxItemsPerSource ?? 8
+	const quota = options.quota ?? prefs.dailyQuota ?? 120
+
+	// ---- 1. 规范化 + 用户态 ----
+	const byUrl = new Map<string, Item>()
+	for (const raw of rawItems) {
+		if (!raw.title?.trim() || !raw.url?.trim()) continue
+		const url = normalizeUrl(raw.url)
+		const id = itemId(url)
+		const fb = feedback[id]
+		const platform: Platform = raw.platform ?? 'web'
+		const topic = raw.topic && raw.topic.trim() ? classifyTopic({ title: raw.title, summary: raw.summary, fallback: raw.topic }) : classifyTopic({ title: raw.title, summary: raw.summary })
+		const candidate: Item = {
+			...raw,
+			url,
+			id,
+			kind: raw.kind ?? inferKind(platform, url),
+			platform,
+			topic,
+			score: 0,
+			reasons: [],
+			read: fb?.read ?? false,
+			liked: fb?.liked ?? false,
+			disliked: fb?.disliked ?? false,
+			hidden: fb?.hidden ?? false,
+			firstSeenAt: options.firstSeen?.[url] ?? now.toISOString(),
+		}
+		const existing = byUrl.get(url)
+		byUrl.set(url, existing ? mergeDuplicate(existing, candidate) : candidate)
+	}
+
+	// ---- 2. 标题相似度合并 ----
+	const merged: Item[] = []
+	for (const item of byUrl.values()) {
+		let target: Item | undefined
+		for (const candidate of merged) {
+			if (candidate.topic !== item.topic && candidate.platform !== item.platform) continue
+			if (titleSimilarity(candidate.title, item.title) >= 0.72) {
+				target = candidate
+				break
+			}
+		}
+		if (target) {
+			const index = merged.indexOf(target)
+			merged[index] = mergeDuplicate(target, item)
+		} else {
+			merged.push(item)
+		}
+	}
+
+	// ---- 3. 评分 ----
+	for (const item of merged) {
+		const breakdown = scoreItem(item, prefs, now)
+		item.score = breakdown.score
+		item.reasons = breakdown.reasons
+	}
+
+	// ---- 4. 每源配额：同一源最多 maxPerSource 条进最终列表 ----
+	merged.sort((a, b) => b.score - a.score)
+	const perSourceCount = new Map<string, number>()
+	const selected: Item[] = []
+	const overflow: Item[] = []
+	for (const item of merged) {
+		const used = perSourceCount.get(item.sourceId) ?? 0
+		if (used >= maxPerSource) {
+			overflow.push(item)
+			continue
+		}
+		perSourceCount.set(item.sourceId, used + 1)
+		selected.push(item)
+	}
+
+	// 隐藏的条目不进推荐列表（但仍留在索引里，daily_search 能找到）
+	const visible = selected.filter((item) => !item.hidden)
+	const hidden = selected.filter((item) => item.hidden)
+	const finalList = [...visible, ...hidden].slice(0, quota)
+	void overflow
+	return finalList
+}
