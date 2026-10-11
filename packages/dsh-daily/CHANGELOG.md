@@ -18,6 +18,8 @@
 
 **排序与调教**
 - 去重两段式：URL 规范化精确合并 → 标题相似度合并（词级 `max(Jaccard, containment)`，阈值 0.8）
+- **跨天去重**（`dedupeWindowDays`，默认 3 个日历天）：窗口内推过的条目重罚到 ×0.2 并标注「X 月 X 日已推过」；
+  重罚**不删除** —— 真正重要的事仍然进得来，只是排在后面；`daily_search` 依旧搜得到
 - 评分：新鲜度半衰期 × 源权重 × 主题命中 × 关键词 × 平台热度信号（HN 分 / star / 播放量），
   **每条都带可解释的推荐理由**
 - 自然语言调教：主题 / 关键词 / 屏蔽词 / 来源权重 / 每日配额，落盘后**立即重排当天**
@@ -41,6 +43,7 @@
 - `scripts/probe-sources.mjs`：真实采集探针（不落盘），可指定源
 - `scripts/dev-server.mjs`：不开 dsh 就联调页面与接口
 - `scripts/tune-demo.mjs`：调教前/后 Top10 对照 + 升降摘要 + 重合度
+- `scripts/dedupe-demo.mjs`：跨天去重效果演示（真实条目 + 临时目录，不污染用户数据）
 - `scripts/install-to-profile.mjs`：真实目录安装（绕开 `link:` 的解析陷阱），幂等
 
 ### Fixed

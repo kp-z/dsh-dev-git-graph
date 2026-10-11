@@ -192,3 +192,41 @@
 **下轮起点**：H7+（第二波）—— 可选 AI 摘要（借鉴 dsh-rss 的经验：`maxTokens` 要留足推理预算，
 推理 token 与正文共享上限，太小会让"还没写正文就耗尽预算"）、OPML 导入导出、跨天去重与归档、周报、桌面通知。
 另外：**重启一次 DSH** 后需要复验右侧栏「日报」tab 与 7 个工具在真实 GUI 里的表现（这是唯一还没在真实 GUI 里看过的部分）。
+
+### R6 · 2026-10-12 03:06–03:25 — H7：跨天去重（第二波第一项）
+
+**为什么先做它**：三条需求里"每日主动推荐"最容易被一条新闻毁掉 —— 连着三天给你同一条，
+用户会立刻认定这个插件没用。这一项直接决定日报**能不能长期看下去**。
+
+**做了什么**
+1. `rank.ts` 新增 `buildRecentlySeen`（纯函数）+ `shiftDate`；`RankOptions` 增加
+   `recentlySeen` / `today` / `repeatPenalty`
+2. 窗口内重复的条目**重罚到 ×0.2 并标注「YYYY-MM-DD 已推过」**，但**不删除** ——
+   真正重要的事（同一篇论文被反复讨论）仍然进得来，只是排在后面；`daily_search` 依旧搜得到
+3. 同日重排**不判重复**（用户调教后会触发重排，若把今天算进窗口就会自己罚自己）
+4. `config.ts` 新增 `dedupeWindowDays`（默认 3 个日历天，0 = 关闭），`resolveConfig` 同步兜底
+5. `service.ts` 新增 `loadRecentlySeen`，接入 `refresh()` 与 `reRank()` 两条路径
+6. 新增 `test/dedupe.test.js`（12 组）+ `test/dedupe-integration.test.js`（2 组，走真实 DailyService + 真实落盘）
+7. 新增 `scripts/dedupe-demo.mjs`：真实条目 + 临时目录的效果演示
+
+**本轮抓到一个真 bug（集成测试逼出来的）**
+窗口原本写成对归档文件列表 `slice(-windowDays)` —— **按"存在几个文件"取，而不是按日历天**。
+后果：当归档稀疏（机器只是偶尔开机）时，`dedupeWindowDays: 3` 会把**十天前**那天的条目也算进窗口，
+把真正的新内容一起压下去。改成 `shiftDate(today, -windowDays)` 的**日历窗口**后修复，
+并为它补了两条边界断言（稀疏归档、窗口下界含当天）。
+
+**证据（真实输出）**
+- 全量测试：`node --test test/` → **tests 82 / pass 82 / fail 0**（R5 基线 69 → 本轮 +13 组）
+- 集成证据（真实 DailyService + 真实 days/*.json，临时目录）：
+  昨天已推过 → 今天重排后对应条目 `reasons` 出现「2026-10-11 已推过」，
+  `score` 从 100 量级降到 18~33；窗口外（四天前）与全新条目**不受影响**；关闭窗口（=0）时无惩罚
+- 真实内容演示 `node scripts/dedupe-demo.mjs`（67 条真实条目，模拟"这批昨天推过"）：
+  - 去重前 Top1 `Documents Add to Evidence…`（HN 301 分，144.1）
+  - 去重后 Top1 换成 `DeepSeek's Insane Technique Makes AI Forget`（32.6），8 条全部带「已推过」标注
+  - 用户数据未被改动：`~/.dsh/daily/days/` 仍只有 1 个文件
+- 类型检查：`tsc -p tsconfig.json --noEmit` → **0 error**
+
+**阻塞**：无
+
+**下轮起点**：第二波下一项 —— 可选 AI 摘要（需要先摸清 `ctx.llm` 的路由契约与 provider/model 取法），
+或者先做 OPML 导入导出（纯逻辑、风险低、能立刻提升"自定义"体验）。

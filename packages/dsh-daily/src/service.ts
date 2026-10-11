@@ -2,7 +2,7 @@ import type { DailyConfig } from './config.js'
 import { SOURCE_CATALOG } from './catalog.js'
 import { runCollection } from './collect/index.js'
 import { MirrorPool } from './collect/mirror.js'
-import { rankItems } from './rank.js'
+import { buildRecentlySeen, rankItems, shiftDate } from './rank.js'
 import { renderBrief, renderDigest } from './render.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
@@ -183,12 +183,15 @@ export class DailyService {
 		for (const item of previous.items) firstSeen[item.url] = item.firstSeenAt
 
 		const quota = Math.max(prefs.dailyQuota || 0, this.config.dailyQuota)
+		const recentlySeen = await this.loadRecentlySeen(date, this.config.dedupeWindowDays)
 		const items = rankItems(outcome.items, {
 			prefs,
 			feedback,
 			maxItemsPerSource: Math.max(prefs.maxItemsPerSource || 0, this.config.maxItemsPerSource),
 			quota,
 			firstSeen,
+			recentlySeen,
+			today: date,
 		})
 
 		const okSources = outcome.sources.filter((s) => s.ok).length
@@ -283,6 +286,26 @@ export class DailyService {
 		return { ...result, prefs: saved }
 	}
 
+	private async loadRecentlySeen(
+		today: string,
+		windowDays: number,
+	): Promise<Record<string, string>> {
+		if (windowDays <= 0) return {}
+		// 窗口是**日历窗口**（往前数 windowDays 天），不是"最近 N 个归档文件" ——
+		// 后者在归档稀疏时会把很久以前的条目也算进来。这里把所有落在窗口内的天读出来，
+		// 边界判断交给纯函数（它同时也是被测对象）。
+		const cutoff = shiftDate(today, -windowDays)
+		const candidates = (await this.store.listDays()).filter(
+			(date) => date < today && date >= cutoff,
+		)
+		const days = []
+		for (const date of candidates) {
+			const day = await this.store.readDay(date)
+			days.push({ date, urls: day.items.map((item) => item.url) })
+		}
+		return buildRecentlySeen(days, today, windowDays)
+	}
+
 	/** 用现有原始条目按新偏好重新排名（不重新抓取）。 */
 	private async reRank(date: string, day: DayState, prefs: Prefs): Promise<void> {
 		const feedback = await this.store.readFeedback()
@@ -294,6 +317,10 @@ export class DailyService {
 			maxItemsPerSource: Math.max(prefs.maxItemsPerSource || 0, this.config.maxItemsPerSource),
 			quota: Math.max(prefs.dailyQuota || 0, this.config.dailyQuota),
 			firstSeen,
+			// 当天的条目本身就在 recentlySeen 的窗口之外（窗口只取 `< today`），
+			// 所以这里可以安全复用同一份去重窗口
+			recentlySeen: await this.loadRecentlySeen(date, this.config.dedupeWindowDays),
+			today: date,
 		})
 		await this.store.writeDay({ ...day, items })
 		await this.rebuildDigest(date)

@@ -272,6 +272,51 @@ function mergeDuplicate(keep: Item, extra: Item, notes: string[]): Item {
 	}
 }
 
+/** `YYYY-MM-DD` 加减天数。纯字符串进、纯字符串出，不碰时区。 */
+export function shiftDate(date: string, days: number): string {
+	const base = new Date(`${date}T12:00:00`)
+	if (!Number.isFinite(base.getTime())) return date
+	base.setDate(base.getDate() + days)
+	const y = base.getFullYear()
+	const m = `${base.getMonth() + 1}`.padStart(2, '0')
+	const d = `${base.getDate()}`.padStart(2, '0')
+	return `${y}-${m}-${d}`
+}
+
+/**
+ * 从历史几天的 URL 列表算出"最近一次推荐日期"表。
+ *
+ * 抽成纯函数是为了能测：跨天去重的**窗口边界**（含不含今天、取几天、同一条出现在多天留哪天）
+ * 全是容易写错又不容易发现的地方，而它们一旦错了，表现是"推荐里天天有重复"或者"什么都推不出来"。
+ * 调用方（service）负责读盘，这里只做计算。
+ *
+ * **窗口按日历天算，不按"存在几个归档文件"算**（集成测试抓出来的 bug）：
+ * 早先写成对文件列表 `slice(-windowDays)`，于是当归档稀疏时（比如机器只是偶尔开机），
+ * `windowDays: 3` 会把**十天前**那天的条目也纳入窗口，把真正的新内容压下去。
+ * 现在改成 `windowDays` 是"往前数 N 个日历天"。
+ */
+export function buildRecentlySeen(
+	days: ReadonlyArray<{ date: string; urls: readonly string[] }>,
+	today: string,
+	windowDays: number,
+): Record<string, string> {
+	if (windowDays <= 0) return {}
+	const cutoff = shiftDate(today, -windowDays)
+	const window = days.filter(
+		// 下界含当天（往前数满 windowDays 天），上界不含今天（当天的条目正在被排名，算了就是自己罚自己）
+		(day) => day.date < today && day.date >= cutoff,
+	)
+
+	const seen: Record<string, string> = {}
+	for (const day of window) {
+		for (const url of day.urls) {
+			// 同一条 URL 出现在窗口里多天时，留**最近**的那天 —— 文案上"昨天推过"比"三天前推过"更准确
+			if (!seen[url] || seen[url] < day.date) seen[url] = day.date
+		}
+	}
+	return seen
+}
+
 export interface RankOptions {
 	prefs: Prefs
 	feedback: FeedbackMap
@@ -287,6 +332,18 @@ export interface RankOptions {
 	 * （HN 的部分条目、GitHub 之外的自建 feed）会因为"看起来刚出现"而反复冲到顶部。
 	 */
 	firstSeen?: Record<string, string>
+	/**
+	 * url → **最近一次被推荐过的日期**（YYYY-MM-DD）。用于跨天去重。
+	 *
+	 * 这是"每日推荐"最容易翻车的地方：同一条新闻连续三天出现在日报里，
+	 * 用户会立刻认为这个插件没有价值。窗口内重复的条目**重罚而不删除** ——
+	 * 万一是真正重要的事（比如同一篇论文被反复讨论），它仍然进得来，只是排在后面。
+	 */
+	recentlySeen?: Record<string, string>
+	/** 当天日期，用来区分"今天推过"（同一天重排，正常）与"以前推过"。 */
+	today?: string
+	/** 窗口内重复条目的分数倍数。越小越激进。 */
+	repeatPenalty?: number
 }
 
 /**
@@ -367,6 +424,18 @@ export function rankItems(rawItems: readonly RawItem[], options: RankOptions): I
 		item.score = breakdown.score
 		// 合并说明放最前：它是"这条为什么值得看"里最具体的一条
 		item.reasons = [...notes, ...breakdown.reasons].slice(0, 5)
+	}
+
+	// ---- 3.5 跨天去重：最近推过的重罚（不删，保证"真重要的事"仍进得来）----
+	const repeatPenalty = options.repeatPenalty ?? 0.2
+	if (options.recentlySeen && repeatPenalty > 0) {
+		for (const item of merged) {
+			const seenOn = options.recentlySeen[item.url]
+			// 同一天的重排（用户调教后重算）不该被判成重复
+			if (!seenOn || seenOn === options.today) continue
+			item.score = Math.round(item.score * repeatPenalty * 10) / 10
+			item.reasons = [`${seenOn} 已推过`, ...item.reasons].slice(0, 5)
+		}
 	}
 
 	// ---- 4. 每源配额：同一源最多 maxPerSource 条进最终列表 ----

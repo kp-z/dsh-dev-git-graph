@@ -75,6 +75,7 @@ Cannot find package '@deepseek-ai/dsh-tools'
 | `refreshIntervalMinutes` | `0` | 额外周期抓取，0 = 关 |
 | `requestTimeoutMs` / `concurrency` | `12000` / `6` | 单请求超时 / 并发上限 |
 | `maxItemsPerSource` / `dailyQuota` | `8` / `120` | 每源与全天的条数上限 |
+| `dedupeWindowDays` | `3` | **跨天去重窗口**（日历天）。窗口内推过的条目重罚到 ×0.2 并标注「X 月 X 日已推过」——但仍留在索引里，`daily_search` 搜得到。0 = 关闭 |
 | `rsshubMirrors` | 3 个镜像 | 按顺序探测，成功优先 |
 | `youtubeChannels` | 5 个 AI/技术频道 | 格式 `名称\|频道ID或@handle\|主题` |
 | `extraFeeds` | `[]` | 额外 RSS，格式 `名称\|URL\|主题` |

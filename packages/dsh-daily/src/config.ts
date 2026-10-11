@@ -47,6 +47,15 @@ export const DailyConfig = z.object({
 	dailyQuota: z.number().default(120),
 
 	/**
+	 * 跨天去重窗口（天）。0 = 关闭。
+	 *
+	 * 默认 3：同一条新闻在最近 3 天推过，就重罚到几乎不会出现在推荐位
+	 * （但仍在索引里，`daily_search` 搜得到）。这是"每日推荐"最容易被诟病的地方 ——
+	 * 连着三天给你同一条，用户会立刻认定这个插件没用。
+	 */
+	dedupeWindowDays: z.number().default(3),
+
+	/**
 	 * RSSHub 镜像池（按顺序探测，第一个健康的就是它）。
 	 * 本机实测（2026-10-12）：8 个公共镜像里只有 ktachibana 可用，
 	 * 其余超时 / 502 / DNS 失败 —— 所以这里必须是池，不能写死一个。
@@ -96,6 +105,7 @@ export function resolveConfig(config: Partial<DailyConfig> = {}): DailyConfig {
 		concurrency: config.concurrency ?? 6,
 		maxItemsPerSource: config.maxItemsPerSource ?? 8,
 		dailyQuota: config.dailyQuota ?? 120,
+		dedupeWindowDays: config.dedupeWindowDays ?? 3,
 		rsshubMirrors: config.rsshubMirrors ?? [
 			'https://rsshub.ktachibana.party',
 			'https://rsshub.rssforever.com',
