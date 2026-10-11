@@ -50,7 +50,7 @@
     "build:site": "node build.mjs",
     "build:plugin": "tsc -p tsconfig.json && cp src/plugin/client.js lib/client.js",
     "dev": "node serve.mjs",
-    "test": "node --test test/",
+    "test": "npm run build:plugin && node --test test/",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "vault": "node scripts/vault.mjs",
     "prepublishOnly": "npm run build"

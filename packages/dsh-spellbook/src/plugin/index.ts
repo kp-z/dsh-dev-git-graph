@@ -20,6 +20,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { registerSpellbookTool } from './tool.js'
 
 export const name = 'dsh-spellbook'
 export const inject = ['webServer']
@@ -101,6 +102,11 @@ interface WebServerLike {
 }
 
 export function apply(ctx: Context): void {
+	// 先挂工具再挂路由：这条只在宿主半边，与站点那条路互不影响 ——
+	// 注册失败（没有 tools 服务、契约变了）只会让「引用即用」不生效，
+	// 侧边栏里那本书照样能看。tool.ts 里 hand-write 定义的理由也在这条线上。
+	registerSpellbookTool(ctx, DIST)
+
 	ctx.inject(['webServer'], (host) => {
 		const webServer = (host as unknown as { webServer: WebServerLike }).webServer
 

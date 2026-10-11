@@ -20,10 +20,10 @@
 | A | ✅ 已成立 | 无 |
 | B | 大半（条目页在侧边栏里已能正常呈现：embed 跨页记住了） | 深链 `?spell=<slug>`（M3-2） |
 | C | ✅ 已实现，站点侧真浏览器验通 | 宿主侧插进输入框那一下，待真 GUI 验 |
-| D | ❌ 没有 | M3-1 宿主 Tool 起 |
+| D | 大半（`spellbook_lookup` 已实现、10 条测试全绿） | 真机验「模型会不会主动用」；深链 / `/spell` / `@` 是另外三条路 |
 
 A 已经成立。C 在 2026-10-12 那轮做完了（站点侧已在真浏览器里验通）。
-B 只差深链，D 一条没有 —— 这是后面所有工作的落点。
+D 的宿主 Tool 也做完了（`spellbook_lookup`）。B 只差深链。
 
 ---
 
@@ -189,7 +189,7 @@ inputActions = {
 
 - [x] **M1 架桥：站点 → 宿主**（postMessage 协议 + 回执 + 测试）—— 2026-10-12 完成，与 M2 一并做的
 - [x] **M2 应用：接进 composer**（跨注册通道 + 插入/直接发送）—— 同上
-- [ ] M3-1 宿主 Tool：`spellbook_lookup` / `spellbook_list`
+- [x] **M3-1 宿主 Tool：`spellbook_lookup`** —— 2026-10-12 完成（宿主侧在真 GUI 里接入仍待验）
 - [ ] M3-2 站点深链 `?spell=<slug>`
 - [ ] M3-3 `/spell <slug>`
 - [ ] M3-4 `@` 引用 chip
@@ -224,7 +224,54 @@ inputActions = {
 **宿主那半边（真的插进输入框）仍未在真 GUI 里验过** —— 需要重载 App，留给下一轮。
 
 **注意 `dist/` 与 `lib/` 都是 gitignore 的**：改完 `src/` 必须 `npm run build`，
-否则 GUI 里读到的还是旧产物（它读的就是这两个目录）。
+否则 GUI 里读到的还是旧产物（它读的就是这两个目录）。`npm test` 现在会先跑
+`build:plugin`（编译 + 拷 client.js）—— 因为测试读的是 `lib/`，不重建就会拿旧代码
+测出一片**假绿**。改到站点（`src/site.js` / `src/render/` / `src/styles/`）时，
+`npm run build` 全量构建仍然要自己跑，`npm test` 不含这一步。
+
+---
+
+### M3-1 宿主 Tool（2026-10-12）
+
+新增 `src/plugin/tool.ts` + `test/tool.test.mjs`（10 条）。要点：
+
+- **检索复用站点那一套**：`dist/rank.mjs` 的 `buildIndex` + `rank`，配
+  `dist/search-index.json`。不另写打分 —— 「你在侧边栏搜到的是这条、模型拿到的
+  却是另一条」是没人会发现的一类不一致。测试里独立跑一遍 rank 作对照。
+- **slug 全等要短路**：`RANK_COLUMNS` 是
+  `['title','when_text','tags','mechanisms','code_text','description']` —— **没有 slug 那一列**。
+  所以「用咒语 neon-glow」这种最典型的引用形式走检索是搜不到的。测试钉住了前提本身
+  （断言 rank 搜不到 slug），哪天 RANK_COLUMNS 变了会有人被叫醒。
+- **正文取 `dist/spell/<slug>/prompt.txt`**，与站点「抄咒语」抄走的是同一份文件。
+- **手写 ToolDefinition，不 import `@deepseek-ai/dsh-tools`**。理由写在 tool.ts 顶部：
+  `defineTool` 只是便利封装（注册表收的就是裸 JSON Schema），而它是**静态 import** ——
+  解析不到就会让宿主半边整个挂掉，连 `dist/` 那条路由一起没。同仓库的
+  `dsh-mermaid-comm` 确实静态 import，但它装在 desktop profile 的 `dependencies` 里、
+  却**不在 `dsh.profile.bundles` 里，从没被加载过**，证明不了这条路走得通。
+  代价是参数校验自己写了十几行，换来的是：那个 import 成不成立，书都照样能看。
+- `tools` 按**可选服务**取（`ctx.get('tools')`），取不到时 `console.warn` —— 不静默。
+
+#### 一个反直觉的发现：分数高低说明不了相关性
+
+实测（这是设计依据，别丢）：
+
+| 查询 | 最高分 | 命中依据 |
+|---|---|---|
+| `一个绝对不存在的效果词牌` | **58.5**（hamburger-morph） | 机制：「三条线共用同一个**绝对**定位原点…」 |
+| `发光` | **4.2**（neon-glow，正确的那个） | 标签：「发光」 |
+
+罕见词「绝对」撞上「绝对定位」，让一条毫不相干的咒语拿了 13 倍的分。
+所以**任何分数阈值都是错的解法**。现在的做法是把 `rank` 的 `why` 交给模型：
+候选行末尾带「命中：标签「发光」」/「命中：机制「…绝对定位…」」。
+`render` 出的是前者，`hamburger-morph` 那条一眼就能看出不对。
+
+后续若有人想「优化相关性」，先回来看这张表。
+
+#### 还没做的
+
+- **system prompt 注入**：`dsh-mermaid-comm` 用 `inject = ['tools','systemPrompt']`
+  让模型知道有这条工具。现在只靠工具描述，应该够（工具列表本来就在模型眼前），
+  但如果真机验下来模型不主动用，这就是下一条路。那需要 `@deepseek-ai/dsh-system-prompt`。
 
 ---
 
