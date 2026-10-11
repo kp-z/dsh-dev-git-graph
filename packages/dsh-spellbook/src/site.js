@@ -651,6 +651,7 @@ const APPLY_FAIL_TEXT = {
   rejected: '插入被拒',
   'bad-request': '请求被拒',
   fetch: '取咒语失败',
+  'no-url': '没配地址',
 }
 
 let applySeq = 0
@@ -711,12 +712,18 @@ function initApply() {
     button.classList.remove('is-done', 'is-failed')
 
     let result
-    try {
-      const response = await fetch(button.dataset.applyUrl, { cache: 'force-cache' })
-      if (!response.ok) throw new Error(String(response.status))
-      result = await requestApply(await response.text(), mode)
-    } catch {
-      result = { ok: false, reason: 'fetch' }
+    if (!button.dataset.applyUrl) {
+      // 取址空着就别 fetch：`fetch('')` 会把**当前这一页**（HTML）当成咒语送出去，
+      // 而且那是 200、不报错 —— 一个安静送错东西的陷阱，一行挡住。
+      result = { ok: false, reason: 'no-url' }
+    } else {
+      try {
+        const response = await fetch(button.dataset.applyUrl, { cache: 'force-cache' })
+        if (!response.ok) throw new Error(String(response.status))
+        result = await requestApply(await response.text(), mode)
+      } catch {
+        result = { ok: false, reason: 'fetch' }
+      }
     }
 
     button.textContent = result.ok
@@ -774,6 +781,18 @@ function initPeek() {
     title.textContent = name
     why.textContent = matched ? `搜索命中：${matched.replace(/^[^：]*：/, '')}` : ''
     more.href = `spell/${encodeURIComponent(slug)}/`
+
+    // 应用按钮也要换成这一条的。
+    // 这个对话框全书共用一份，所以每次打开都得重设 —— 而且要把上一次留下的
+    // 「已进输入框 / 插入被拒」那点状态清掉，否则下一条会顶着上一条的结果开场。
+    const apply = dialog.querySelector('[data-apply]')
+    if (apply) {
+      apply.dataset.apply = slug
+      apply.dataset.applyUrl = `spell/${encodeURIComponent(slug)}/prompt.txt`
+      apply.disabled = false
+      apply.classList.remove('is-done', 'is-failed')
+      apply.textContent = apply.dataset.applyIdle || '应用到对话'
+    }
 
     const frame = document.createElement('iframe')
     frame.className = 'peek-doc'

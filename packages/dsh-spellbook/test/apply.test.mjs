@@ -389,9 +389,15 @@ test('每个「抄咒语 / 应用」按钮都必须带上它自己的取址属�
     path.join(ROOT, 'dist', 'spell', 'liquid-glass', 'index.html'),
   ]
   const pairs = [
-    ['data-prompt=', 'data-prompt-url='],
-    ['data-apply=', 'data-apply-url='],
+    ['data-prompt', 'data-prompt-url'],
+    ['data-apply', 'data-apply-url'],
   ]
+
+  // 按**属性名**判存在，不能按 `name=` 判：对话框里那个按钮写的是裸 `data-apply`
+  // （没有等号，值由 initPeek 在打开时填），按 `data-apply=` 判会直接跳过它 ——
+  // 而它恰好是最需要被守着的那个（取址是运行时才有的）。
+  // 结尾必须是 = / 空白 / >，否则 data-apply 会把 data-apply-url 也算命中。
+  const hasAttr = (tag, name) => new RegExp(`(^|\\s)${name}(=|\\s|>)`).test(tag)
 
   const problems = []
   let checked = 0
@@ -399,9 +405,9 @@ test('每个「抄咒语 / 应用」按钮都必须带上它自己的取址属�
     const text = readFileSync(file, 'utf8')
     for (const tag of text.match(/<button\b[^>]*>/g) ?? []) {
       for (const [attr, urlAttr] of pairs) {
-        if (!tag.includes(attr)) continue
+        if (!hasAttr(tag, attr)) continue
         checked += 1
-        if (!tag.includes(urlAttr)) {
+        if (!hasAttr(tag, urlAttr)) {
           problems.push(`${path.relative(ROOT, file)} 缺 ${urlAttr}：${tag.slice(0, 100)}`)
         }
       }
@@ -448,6 +454,9 @@ test('产物：embed 跨页记住，应用按钮默认藏着', () => {
   // 检索结果里的那个也一样：自己开标签页看站时没有对话可应用
   assert.match(css, /\.hit-apply\s*\{\s*display:\s*none/, '检索结果的应用按钮默认没有藏起来')
   assert.match(css, /:root\[data-embed\]\s+\.hit-apply\s*\{\s*display:\s*inline-flex/, '嵌入模式下检索结果的应用按钮没显示')
+  // 放大预览对话框里的那个也一样（那个按钮全书共用一份）
+  assert.match(css, /\.peek-apply\s*\{\s*display:\s*none/, '对话框的应用按钮默认没有藏起来')
+  assert.match(css, /:root\[data-embed\]\s+\.peek-apply\s*\{\s*display:\s*inline-flex/, '嵌入模式下对话框的应用按钮没显示')
 
   // 4. 目录页的「抄咒语」也改用模板给的地址
   assert.match(index, /data-prompt-url="spell\/[^"]+\/prompt\.txt"/, '抄咒语没有带咒语地址')

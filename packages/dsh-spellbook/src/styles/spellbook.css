@@ -2035,6 +2035,56 @@ mark {
   color: var(--gilt-bright);
 }
 
+/* 脚部里的两个动作收进一格：.peek-foot 是 space-between 的两个子元素，
+   直接塞第三个进去会把「命中原因」那段挤扁。 */
+.peek-actions {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+
+/* 「应用到对话」只在被侧边栏嵌进来时出现 —— 与 .apply-bar / .hit-apply
+   同一条判据 :root[data-embed]。三处，一条判据。 */
+.peek-apply {
+  display: none;
+  padding: 5px 12px;
+  border: 1px solid var(--gilt);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--gilt-bright);
+  font: 400 0.76rem/1 var(--font-label);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+
+:root[data-embed] .peek-apply {
+  display: inline-flex;
+}
+
+.peek-apply:hover,
+.peek-apply:focus-visible {
+  border-color: var(--gilt-bright);
+}
+
+.peek-apply.is-done {
+  color: var(--gilt-bright);
+  border-color: currentColor;
+}
+
+.peek-apply.is-failed {
+  color: var(--rubric);
+  border-color: var(--rubric);
+  text-decoration: line-through;
+}
+
+.peek-apply:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 /* ---------------------------------------------------------- 窄屏 */
 
 @media (max-width: 700px) {

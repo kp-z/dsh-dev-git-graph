@@ -311,7 +311,13 @@ ${COLOPHON}
     <div class="peek-stage" data-peek-stage></div>
     <div class="peek-foot">
       <p class="peek-why" data-peek-why></p>
-      <a class="peek-more" data-peek-more href="#">看这一条的全文</a>
+      <span class="peek-actions">
+        <!-- 这一份对话框是全书共用的一个元素，所以 slug 与取址都由 initPeek
+             在打开那一刻填（见 site.js）。属性先占着位、按钮先禁用 ——
+             空着取址还能被点的话，fetch('') 会把当前这一页当咒语送出去。 -->
+        <button class="peek-apply" type="button" data-apply data-apply-url="" data-apply-mode="insert" disabled>应用到对话</button>
+        <a class="peek-more" data-peek-more href="#">看这一条的全文</a>
+      </span>
     </div>
   </div>
 </dialog>`
