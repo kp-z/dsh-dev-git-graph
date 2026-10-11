@@ -89,8 +89,10 @@ export function renderDigest(options: DigestOptions): string {
 				.filter(Boolean)
 				.join(' · ')
 			const heat = statsText(item)
+			// HN 这类源：正文是外链，讨论才是价值所在，所以两个链接都给
+			const discuss = item.discussUrl ? ` · [讨论](${item.discussUrl})` : ''
 			lines.push(
-				`- [${escapeMarkdown(item.title)}](${item.url})${item.read ? ' ~~已读~~' : ''}`,
+				`- [${escapeMarkdown(item.title)}](${item.url})${discuss}${item.read ? ' ~~已读~~' : ''}`,
 			)
 			lines.push(`  ${badges}${heat ? ` · ${heat}` : ''}${item.duration ? ` · ⏱ ${item.duration}` : ''}`)
 			if (item.summary) lines.push(`  ${item.summary.slice(0, 160)}`)

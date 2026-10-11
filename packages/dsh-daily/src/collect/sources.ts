@@ -21,6 +21,7 @@ export type SourceRunner = (env: CollectEnv) => Promise<SourceResult>
 const HN_ARTICLE_RE = /Article URL:\s*(\S+)/i
 const HN_POINTS_RE = /Points:\s*(\d+)/i
 const HN_COMMENTS_RE = /#\s*Comments:\s*(\d+)/i
+const HN_DISCUSS_RE = /Comments URL:\s*(\S+)/i
 
 /**
  * Hacker News。
@@ -46,6 +47,7 @@ export async function collectHackerNews(env: CollectEnv): Promise<SourceResult> 
 		if (!url || !entry.title) continue
 		const points = Number(HN_POINTS_RE.exec(rawSummary)?.[1] ?? NaN)
 		const comments = Number(HN_COMMENTS_RE.exec(rawSummary)?.[1] ?? NaN)
+		const discussUrl = HN_DISCUSS_RE.exec(rawSummary)?.[1]
 		const stats: Record<string, number> = {}
 		if (Number.isFinite(points)) stats.points = points
 		if (Number.isFinite(comments)) stats.comments = comments
@@ -60,6 +62,7 @@ export async function collectHackerNews(env: CollectEnv): Promise<SourceResult> 
 			author: entry.author,
 			publishedAt: entry.publishedAt,
 			stats,
+			discussUrl: discussUrl ? absoluteUrl(discussUrl, 'https://news.ycombinator.com') : undefined,
 			topic: '技术',
 		})
 	}
@@ -182,6 +185,36 @@ export function formatDuration(seconds: number | undefined): string | undefined 
 	return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }
 
+const pad2 = (n: number) => `${n}`.padStart(2, '0')
+
+/**
+ * 把 feed 里五花八门的时长写法统一成 `mm:ss` / `h:mm:ss`。
+ *
+ * 为什么要归一化：`itunes:duration` 在不同 feed 里可能是
+ * `754`（秒）、`12:34`、`1:02:03`，而 Atom 的 `media:content duration` 常用 ISO 8601 的
+ * `PT12M34S`。前端的角标只认 `mm:ss` 形式，混着显示会出现 "PT12M34S" 这种噪音。
+ * 认不出来就返回 undefined（宁可不显示，也不要显示错的）。
+ */
+export function normalizeDuration(input: string | undefined): string | undefined {
+	if (!input) return undefined
+	const raw = input.trim()
+	if (!raw) return undefined
+	// 已经是 mm:ss / h:mm:ss
+	if (/^\d{1,3}:\d{1,2}(:\d{1,2})?$/.test(raw)) return raw
+	// ISO 8601：PT1H2M3S / PT12M34S / PT45S
+	const iso = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/i.exec(raw)
+	if (iso) {
+		const h = Number(iso[1] ?? 0)
+		const m = Number(iso[2] ?? 0)
+		const s = Number(iso[3] ?? 0)
+		if (h + m + s === 0) return undefined
+		return h > 0 ? `${h}:${pad2(m)}:${pad2(s)}` : `${m}:${pad2(s)}`
+	}
+	// 纯秒数
+	if (/^\d+$/.test(raw)) return formatDuration(Number(raw))
+	return undefined
+}
+
 function bilibiliThumb(pic: string | undefined): string | undefined {
 	if (!pic) return undefined
 	// 封面是 http 直链，页面在 https 的宿主里会被混合内容策略拦掉
@@ -268,6 +301,10 @@ export async function collectYoutube(env: CollectEnv): Promise<SourceResult> {
 		.filter((c): c is ChannelSpec => c !== null)
 	if (channels.length === 0) return { items: [], note: '未配置任何 YouTube 频道' }
 
+	// 先花一次**并行**探测把"哪个镜像活着"确定下来，再逐频道取 feed。
+	// 不预热的话每个频道都要自己串行试遍所有镜像：5 个频道 × 3 个镜像 × 12s 超时 ≈ 3 分钟（实测 50 秒）。
+	await env.pool.warmUp(env.signal ? { signal: env.signal } : {})
+
 	const items: RawItem[] = []
 	const failures: string[] = []
 	let usedMirror = ''
@@ -298,7 +335,7 @@ export async function collectYoutube(env: CollectEnv): Promise<SourceResult> {
 					publishedAt: entry.publishedAt,
 					summary: entry.summary ? clamp(cleanText(entry.summary), 200) : undefined,
 					thumb: entry.image ?? (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : undefined),
-					duration: entry.duration,
+					duration: normalizeDuration(entry.duration),
 					topic: channel.topic,
 				})
 			}

@@ -19,7 +19,11 @@ const targets = resolveSourceIds(config, explicit.length > 0 ? explicit : undefi
 console.log(`探针启动：${targets.length} 个源 —— ${targets.join(', ')}\n`)
 
 const started = Date.now()
-const outcome = await runCollection({ config })
+// 显式传了源名就只跑那些源（否则 `probe youtube` 会假装只跑 youtube、实际跑全部）
+const outcome = await runCollection({
+	config,
+	...(explicit.length > 0 ? { sourceIds: explicit } : {}),
+})
 const elapsed = Date.now() - started
 
 console.log(`采集完成：${outcome.items.length} 条原始条目 / ${elapsed}ms\n`)

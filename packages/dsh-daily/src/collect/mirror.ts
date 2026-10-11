@@ -37,8 +37,16 @@ export class MirrorPool {
 	private readonly configured: string[]
 	private readonly timeoutMs: number
 	private health: Record<string, MirrorHealthRecord>
+	/** 预热得到的"可达且延迟最优"顺序；空 = 还没预热过。 */
+	private warmOrder: string[] = []
+	private readonly logger?: (message: string) => void
 
-	constructor(configured: readonly string[], timeoutMs: number, seed?: MirrorSnapshot | null) {
+	constructor(
+		configured: readonly string[],
+		timeoutMs: number,
+		seed?: MirrorSnapshot | null,
+		logger?: (message: string) => void,
+	) {
 		// 去重 + 去掉尾部斜杠，避免 `/a//b` 这种拼接
 		const seen = new Set<string>()
 		this.configured = []
@@ -50,6 +58,7 @@ export class MirrorPool {
 		}
 		this.timeoutMs = timeoutMs
 		this.health = { ...(seed?.mirrorHealth ?? {}) }
+		this.logger = logger
 	}
 
 	get mirrors(): readonly string[] {
@@ -76,6 +85,68 @@ export class MirrorPool {
 		return [...okList.map((x) => x.url), ...never, ...failList.map((x) => x.url)]
 	}
 
+	/**
+	 * 预热：**并行**探一遍所有镜像，按探测延迟排出优先序。
+	 *
+	 * 为什么需要它：YouTube 有 5 个频道，每个频道一次镜像请求。若每个频道都串行试 3 个镜像、
+	 * 每个镜像等满超时，最坏情况是 5×3×12s = 3 分钟（实测第一版就要 50 秒）。
+	 * 预热把"发现哪些镜像活着"的成本从**每频道一份**降到**整轮一份**，
+	 * 而且并行的 6 秒远小于串行的 36 秒。
+	 *
+	 * 探测用站点根路径：我们只需要"这个镜像网络可达"，不需要它真的返回 feed ——
+	 * 具体路由能不能出内容，交给随后的 fetchRoute 判断。
+	 */
+	async warmUp(options: { signal?: AbortSignal } = {}): Promise<string[]> {
+		const probeTimeout = Math.min(6000, this.timeoutMs)
+		const probes = this.configured.map(async (mirror) => {
+			const started = Date.now()
+			try {
+				const response = await fetch(mirror, {
+					signal: options.signal
+						? AbortSignal.any([AbortSignal.timeout(probeTimeout), options.signal])
+						: AbortSignal.timeout(probeTimeout),
+					redirect: 'follow',
+				})
+				const latencyMs = Date.now() - started
+				if (!response.ok) {
+					this.record(mirror, false, `HTTP ${response.status}`, latencyMs)
+					return null
+				}
+				// 预热成功只说明可达；ok 仍标记为 true，让"上次成功"的排序也能受益
+				this.record(mirror, true, null, latencyMs)
+				return { mirror, latencyMs }
+			} catch (error) {
+				this.record(
+					mirror,
+					false,
+					error instanceof Error ? error.message : String(error),
+					Date.now() - started,
+				)
+				return null
+			}
+		})
+		const results = await Promise.all(probes)
+		const alive = results
+			.filter((r): r is { mirror: string; latencyMs: number } => r !== null)
+			.sort((a, b) => a.latencyMs - b.latencyMs)
+			.map((r) => r.mirror)
+		this.warmOrder = alive
+		if (alive.length > 0) {
+			this.logger?.(`镜像预热：${alive.length}/${this.configured.length} 可达，首选 ${alive[0]}`)
+		} else {
+			this.logger?.('镜像预热：全部不可达')
+		}
+		return alive
+	}
+
+	/** 预热结果排在最前，其余按历史健康度排。 */
+	private effectiveOrder(): string[] {
+		if (this.warmOrder.length === 0) return this.ordered()
+		const head = this.warmOrder
+		const rest = this.ordered().filter((url) => !head.includes(url))
+		return [...head, ...rest]
+	}
+
 	snapshot(): MirrorSnapshot {
 		return { mirrorHealth: { ...this.health } }
 	}
@@ -98,7 +169,7 @@ export class MirrorPool {
 		const path = route.startsWith('/') ? route : `/${route}`
 		const failures: string[] = []
 
-		for (const mirror of this.ordered()) {
+		for (const mirror of this.effectiveOrder()) {
 			if (options.signal?.aborted) throw new Error('aborted')
 			const started = Date.now()
 			try {

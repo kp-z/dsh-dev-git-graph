@@ -36,6 +36,8 @@ export interface RawItem {
 	thumb?: string
 	/** 视频时长，形如 "12:34"。 */
 	duration?: string
+	/** 讨论页（Hacker News 的 item 页、Reddit 帖等）。和正文链接不是一回事，值得单独留一格。 */
+	discussUrl?: string
 	/** 热度信号。语义随平台不同：HN 是 points，B 站是 views，GitHub 是 stars。 */
 	stats?: Record<string, number>
 	/** 采集器已知的主题（比自动分类更可信，例如 arXiv 的 cat 直接映射）。 */

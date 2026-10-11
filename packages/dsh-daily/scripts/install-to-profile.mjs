@@ -24,7 +24,7 @@
  * 所以这里手工落盘 + 手工维护 profile 用户层 patch 里的那一行 insert（幂等）。
  */
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -42,7 +42,33 @@ if (!existsSync(profileDir)) {
 	process.exit(1)
 }
 
-const target = path.join(profileDir, 'node_modules', PACKAGE_NAME)
+const patchFile = path.join(profileDir, 'cordis.patch.yml')
+
+/**
+ * 装到哪个目录名 = patch 里现在写着哪个名字。
+ *
+ * 这个"跟随"很重要：Node 会按**模块 URL** 缓存实例化结果，而 URL 由目录名决定。
+ * 一旦某个名字被用过（尤其是失败过），继续用它就不会真正重新加载。
+ * 所以调试期可能被迫换个名字（如 `dsh-daily-v2`），而重启之后我们希望**沿用**这个名字，
+ * 否则会同时存在两份代码、profile 加载的还是旧的那份。
+ * 需要主动换名时用 `--dir-name=xxx`。
+ */
+function currentDirName() {
+	const override = process.argv.find((a) => a.startsWith('--dir-name='))
+	if (override) return override.slice('--dir-name='.length)
+	try {
+		const patch = readFileSync(patchFile, 'utf8')
+		// 取我们那一段 insert：`- insert:` 与 `- id: daily` / `name: X` 相邻
+		const block = patch.match(/- insert:\s*\n\s*- id:\s*daily\s*\n\s*name:\s*([^\s#]+)/)
+		if (block?.[1]) return block[1].trim()
+	} catch {
+		/* 没有 patch 文件就走默认名 */
+	}
+	return PACKAGE_NAME
+}
+
+const dirName = currentDirName()
+const target = path.join(profileDir, 'node_modules', dirName)
 
 // 旧的符号链接（若存在）必须删掉：Node 会跟着它回到工作区，等于没装
 if (existsSync(target)) {
@@ -69,17 +95,26 @@ for (const file of ['package.json', 'cordis.patch.yml', 'README.md', 'README.zh.
 console.log(`已安装到 ${target}`)
 
 // ---- profile 用户层 patch：幂等地确保有一行 insert ----
-const patchFile = path.join(profileDir, 'cordis.patch.yml')
 let patch = existsSync(patchFile) ? await readFile(patchFile, 'utf8') : ''
-const already = new RegExp(`name:\\s*${PACKAGE_NAME}\\b`).test(patch)
+const already = new RegExp(`id:\\s*${ENTRY_ID}\\s*\\n\\s*name:\\s*${dirName}\\b`).test(patch)
 if (already) {
-	console.log(`patch 里已有 ${PACKAGE_NAME}，跳过`)
+	console.log(`patch 里已有 id=${ENTRY_ID} name=${dirName}，跳过`)
+} else if (new RegExp(`id:\\s*${ENTRY_ID}\\s*\\n\\s*name:`).test(patch)) {
+	// 有这一行但名字不同（换过目录名）：就地改名，别插第二行
+	patch = patch.replace(
+		new RegExp(`(id:\\s*${ENTRY_ID}\\s*\\n\\s*name:\\s*)[^\\s#]+`),
+		`$1${dirName}`,
+	)
+	await writeFile(patchFile, patch, 'utf8')
+	console.log(`已把 patch 里的 name 改成 ${dirName}`)
 } else {
 	patch +=
 		`\n# --- ${PACKAGE_NAME} ---\n` +
-		`- insert:\n    - id: ${ENTRY_ID}\n      name: ${PACKAGE_NAME}\n`
+		`- insert:\n    - id: ${ENTRY_ID}\n      name: ${dirName}\n`
 	await writeFile(patchFile, patch, 'utf8')
 	console.log(`已在 ${patchFile} 追加 insert 行`)
 }
 
-console.log(`\n下一步：重启 dsh（或让插件管理器重建该 entry）后生效。`)
+console.log(`\n下一步：**重启 dsh** 才会生效。`)
+console.log(`注意：host 侧的代码改动对**已经运行**的进程无效 —— Node 会缓存已成功导入的 ESM 模块，`)
+console.log(`      plugin_manager 的 enable 切换不会重新加载它。这也是本项目"改完必须重启验证"的原因。`)

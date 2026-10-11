@@ -114,7 +114,16 @@ export class DailyService {
 		await this.store.init()
 		const meta = await this.store.readMeta()
 		// 跨轮复用镜像健康度：上一次成功的镜像直接排到队首，省一轮探测
-		this.pool = new MirrorPool(this.config.rsshubMirrors, this.config.requestTimeoutMs, meta)
+		this.pool = this.makePool(meta)
+	}
+
+	private makePool(seed?: Awaited<ReturnType<DailyStore['readMeta']>>): MirrorPool {
+		return new MirrorPool(
+			this.config.rsshubMirrors,
+			this.config.requestTimeoutMs,
+			seed ?? null,
+			(message) => this.logger.info(message),
+		)
 	}
 
 	subscribe(listener: () => void): () => void {

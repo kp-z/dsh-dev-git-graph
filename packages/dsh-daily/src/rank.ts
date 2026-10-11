@@ -23,7 +23,7 @@ const TRACKING_PARAMS = [
 	'ref', 'ref_src', 'ref_url', 'share_medium', 'share_plat', 'share_tag', 'timestamp',
 ]
 
-/** URL 规范化：去 fragment、去跟踪参数、去尾斜杠。用于去重与稳定 id。 */
+/** URL 规范化：去 fragment、去跟踪参数、去路径尾斜杠。用于去重与稳定 id。 */
 export function normalizeUrl(input: string): string {
 	try {
 		const url = new URL(input)
@@ -32,9 +32,13 @@ export function normalizeUrl(input: string): string {
 		}
 		url.hash = ''
 		url.hostname = url.hostname.toLowerCase().replace(/^www\./, '')
-		let out = url.toString()
-		if (out.endsWith('/') && url.pathname !== '/') out = out.slice(0, -1)
-		return out
+		// 尾斜杠要去在 **pathname** 上，不能去在整串末尾 ——
+		// `/x/` 与 `/x` 是同一个资源，但 `/x/?id=7` 的最后一个字符是 `7`，
+		// 只看整串末尾会让带查询参数的同一篇文章漏掉去重（踩过）。
+		if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
+			url.pathname = url.pathname.replace(/\/+$/, '')
+		}
+		return url.toString()
 	} catch {
 		return input.trim()
 	}
@@ -49,24 +53,43 @@ export function titleKey(title: string): string {
 		.trim()
 }
 
-function shingles(text: string): Set<string> {
-	const clean = titleKey(text).replace(/\s/g, '')
-	const out = new Set<string>()
-	const size = clean.length >= 12 ? 3 : 2
-	for (let i = 0; i + size <= clean.length; i++) out.add(clean.slice(i, i + size))
-	if (out.size === 0 && clean) out.add(clean)
-	return out
+function tokenSet(title: string): Set<string> {
+	return new Set(
+		titleKey(title)
+			.split(' ')
+			.filter((word) => word.length > 0),
+	)
 }
 
-/** 标题相似度（字符 shingle 的 Jaccard）。用来抓"同一件事被多个源报道"。 */
+/**
+ * 标题相似度 —— 用来抓"同一件事被多个源报道"。
+ *
+ * 曾经用字符 3-gram 的 Jaccard，**不够用**：标题之间最常见的差异是插入/删除一两个词，
+ * 这会让插入点之后的**所有** trigram 错位，于是
+ * 「OpenAI releases a new reasoning model」与「OpenAI releases new reasoning model」
+ * 只算出 0.31 —— 真正该合并的一对反而合不了。
+ *
+ * 现在改成词级，取两个指标的最大值：
+ * - **Jaccard**：两边词集的交并比。对称，适合"改写过的同一件事"。
+ * - **containment**：交集 / 较小的那一侧。专治"一个标题是另一个的子集"。
+ *   containment 天生激进，所以只在**较短一侧至少 4 个词**时才启用 ——
+ *   否则「Apple」这种短标题会被「Apple releases X」吃掉。
+ */
 export function titleSimilarity(a: string, b: string): number {
-	const sa = shingles(a)
-	const sb = shingles(b)
+	const sa = tokenSet(a)
+	const sb = tokenSet(b)
 	if (sa.size === 0 || sb.size === 0) return 0
 	let inter = 0
-	for (const s of sa) if (sb.has(s)) inter++
-	return inter / (sa.size + sb.size - inter)
+	for (const token of sa) if (sb.has(token)) inter++
+	const union = sa.size + sb.size - inter
+	const jaccard = inter / union
+	const containment = inter / Math.min(sa.size, sb.size)
+	const shortSide = Math.min(sa.size, sb.size)
+	return Math.max(jaccard, shortSide >= 4 ? containment : 0)
 }
+
+/** 判定"同一件事"的阈值。取 0.8：宁可漏合，也不要错合掉两条不同的新闻。 */
+export const TITLE_MERGE_THRESHOLD = 0.8
 
 const ASCII_WORD_RE = /^[a-z0-9+#. -]+$/i
 
@@ -218,23 +241,33 @@ export function scoreItem(
 	return { score: Math.max(0, Math.round(score * 10) / 10), reasons: reasons.slice(0, 4) }
 }
 
-function mergeDuplicate(keep: Item, extra: Item): Item {
-	// 同一件事被多个源报道：保留信息更全的那条，把来源合并进理由
+/**
+ * 合并两条指向同一件事的条目。保留信息更全的那条，把"还有别的源报道"记进 `notes`。
+ *
+ * 注意 notes 是**带外**传出去的，不能直接写 `keep.reasons`：
+ * 合并发生在评分之前，而评分会整体覆盖 `reasons`（踩过这个坑，导致合并提示凭空消失）。
+ */
+function mergeDuplicate(keep: Item, extra: Item, notes: string[]): Item {
 	const stats = { ...(keep.stats ?? {}), ...(extra.stats ?? {}) }
-	const reasons = [...keep.reasons]
-	const otherSource = `${extra.sourceName}`
-	if (otherSource !== keep.sourceName) reasons.push(`另有 ${otherSource} 报道`)
+	if (extra.sourceName && extra.sourceName !== keep.sourceName) {
+		notes.push(`另有 ${extra.sourceName} 报道`)
+	}
 	return {
 		...keep,
 		stats,
-		reasons: reasons.slice(0, 5),
 		// 视频形态优先：视频信息量更低、更容易被忽略，让它保留缩略图
 		...(keep.kind === 'web' && extra.kind === 'video'
-			? { kind: 'video' as ItemKind, platform: extra.platform, thumb: extra.thumb ?? keep.thumb, duration: extra.duration ?? keep.duration }
+			? {
+					kind: 'video' as ItemKind,
+					platform: extra.platform,
+					thumb: extra.thumb ?? keep.thumb,
+					duration: extra.duration ?? keep.duration,
+				}
 			: {}),
 		summary: keep.summary ?? extra.summary,
 		thumb: keep.thumb ?? extra.thumb,
 		duration: keep.duration ?? extra.duration,
+		discussUrl: keep.discussUrl ?? extra.discussUrl,
 		publishedAt: keep.publishedAt ?? extra.publishedAt,
 	}
 }
@@ -271,6 +304,16 @@ export function rankItems(rawItems: readonly RawItem[], options: RankOptions): I
 	const quota = options.quota ?? prefs.dailyQuota ?? 120
 
 	// ---- 1. 规范化 + 用户态 ----
+	// 合并说明（"另有 X 报道"）挂在 url 上：评分阶段会整体覆盖 reasons，所以必须带外传。
+	const mergeNotes = new Map<string, string[]>()
+	const noteFor = (url: string): string[] => {
+		const existing = mergeNotes.get(url)
+		if (existing) return existing
+		const created: string[] = []
+		mergeNotes.set(url, created)
+		return created
+	}
+
 	const byUrl = new Map<string, Item>()
 	for (const raw of rawItems) {
 		if (!raw.title?.trim() || !raw.url?.trim()) continue
@@ -295,7 +338,7 @@ export function rankItems(rawItems: readonly RawItem[], options: RankOptions): I
 			firstSeenAt: options.firstSeen?.[url] ?? now.toISOString(),
 		}
 		const existing = byUrl.get(url)
-		byUrl.set(url, existing ? mergeDuplicate(existing, candidate) : candidate)
+		byUrl.set(url, existing ? mergeDuplicate(existing, candidate, noteFor(url)) : candidate)
 	}
 
 	// ---- 2. 标题相似度合并 ----
@@ -304,14 +347,14 @@ export function rankItems(rawItems: readonly RawItem[], options: RankOptions): I
 		let target: Item | undefined
 		for (const candidate of merged) {
 			if (candidate.topic !== item.topic && candidate.platform !== item.platform) continue
-			if (titleSimilarity(candidate.title, item.title) >= 0.72) {
+			if (titleSimilarity(candidate.title, item.title) >= TITLE_MERGE_THRESHOLD) {
 				target = candidate
 				break
 			}
 		}
 		if (target) {
 			const index = merged.indexOf(target)
-			merged[index] = mergeDuplicate(target, item)
+			merged[index] = mergeDuplicate(target, item, noteFor(target.url))
 		} else {
 			merged.push(item)
 		}
@@ -320,8 +363,10 @@ export function rankItems(rawItems: readonly RawItem[], options: RankOptions): I
 	// ---- 3. 评分 ----
 	for (const item of merged) {
 		const breakdown = scoreItem(item, prefs, now)
+		const notes = mergeNotes.get(item.url) ?? []
 		item.score = breakdown.score
-		item.reasons = breakdown.reasons
+		// 合并说明放最前：它是"这条为什么值得看"里最具体的一条
+		item.reasons = [...notes, ...breakdown.reasons].slice(0, 5)
 	}
 
 	// ---- 4. 每源配额：同一源最多 maxPerSource 条进最终列表 ----

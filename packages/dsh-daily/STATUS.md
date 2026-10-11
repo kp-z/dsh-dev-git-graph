@@ -4,11 +4,18 @@
 
 ## 当前状态
 
-- **阶段**：H1 完成并**已在运行中的宿主验证通过**；下一步按 PLAN 进 H2 收尾 → H3
-- **负责人**：主 Agent（用户授予完全权限，自治推进）
+- **阶段**：H1 完成并在运行中的宿主验证通过；**H2 已收尾、H3 已交付**；下一步 H4（验证主动推荐真的被模型提起）→ H5 → H6
+- **负责人**：主 Agent（用户授予完全权限，自治推进；用户明确要求**不要反复确认、不要提问**）
 - **自动化**：`schedule-ce16b3fe-2262-4f86-9a93-023e8de5aee7`（每小时一轮开发）
-- **时间锚点**：2026-10-12 01:06 (+08:00)
+- **时间锚点**：2026-10-12 02:10 (+08:00)
 - **目标 id**：goal-1980db41-f9fa-4117-9295-1cd41ac285cc
+
+### ⚠️ 运维事实（每个轮次都要记住）
+
+**host 侧的代码改动对已经运行的 dsh 进程无效。** Node 会缓存**已成功导入**的 ESM 模块，
+`plugin_manager set_plugin` 的 enable 切换只是重建 fiber，不会重新读盘。
+所以：改完 host 代码 → 必须重启 dsh 才能看到效果；`npm test` 与探针脚本不受影响（它们是新进程）。
+另外客户端半体（右侧栏 tab）本来就要重启才会被 `clientModules` 扫进图里。
 
 ## 轮次记录
 
@@ -61,3 +68,39 @@
 **阻塞**：无（`bilibili-ranking` 偶发 B 站 `-352` 风控、YouTube 镜像 429/503 —— 均已被单源失败隔离兜住，不阻塞）
 
 **下轮起点**：H2 收尾（YouTube 时长归一化 / HN 讨论链接 / 封面降级）→ H3（rank 与 tune 的单测 + 调教前后 Top10 对比证据）
+
+### R2 · 2026-10-12 01:10–02:10 — H2 收尾 + H3（测试与效果证据）
+
+**做了什么**
+1. **YouTube 时长归一化**（`normalizeDuration`）：`PT12M34S` / 纯秒数 `754` / `12:34` 三种写法统一成 `mm:ss`，认不出来就返回 undefined（宁可不显示也不要显示错的）
+2. **HN 讨论链接**：新增 `RawItem.discussUrl`，从 hnrss 的 `Comments URL` 抠出 HN 讨论页，日报里以 `· [讨论](url)` 呈现
+3. **镜像池预热**（`MirrorPool.warmUp`）：**并行**探一遍所有镜像、按延迟排序，把"发现哪些镜像活着"的成本从**每频道一份**降到**整轮一份**
+4. **rank / tune 单元测试**：`test/rank.test.js`（14 组）+ `test/tune.test.js`（11 组），从 `lib/` 导入（测的就是发布产物）；`package.json` 的 `test` 改为先 tsc 再断言
+5. **调教效果对照器** `scripts/tune-demo.mjs`：真实数据上的调教前/后 Top10 对比 + 升降摘要 + Top10 重合度
+6. **装机脚本跟随 patch 名**：`install-to-profile.mjs` 现在会读 patch 里已有的 `name`，避免调试换名后重启时装到另一份目录
+
+**H3 修掉的三个真问题（都是测试逼出来的）**
+| 问题 | 症状 | 修法 |
+|---|---|---|
+| `normalizeUrl` 只看整串末尾去尾斜杠 | `/x/?id=7` 与 `/x?id=7` 不会去重（带查询参数时去重直接失效） | 尾斜杠去在 **pathname** 上 |
+| 合并提示被评分覆盖 | 同一件事被多源报道合并后，`理由` 数组被评分整段重写，"另有 X 报道"凭空消失 | 合并说明带外收集（`mergeNotes`），评分后再拼到 reasons 最前 |
+| 标题相似度用字符 3-gram | 「OpenAI releases a new reasoning model」vs「…new reasoning model」（插入/删除一个词）只算 **0.31**，真正该合并的一对合不了 | 改成词级 `max(Jaccard, containment)`，containment 仅在一侧 ≥4 词时启用（防短标题被吞）；阈值 0.8 |
+
+**证据（真实输出）**
+- 全量测试：`node --test test/` → **tests 52 / pass 52 / fail 0**
+  （其中 rss 28 组来自子代理，rank 14 组 + tune 11 组本轮新增）
+- **镜像预热提速（实测）**：`node scripts/probe-sources.mjs youtube`
+  —— 预热前整轮 39.8~50s、YouTube 单源 39.8s；预热后 **YouTube 单源 24 条 / 7732ms**
+- **调教真的改排序（实测）**：`node scripts/tune-demo.mjs`，67 条真实数据，
+  调教句「以后每天多推 AI Agent 相关的，少推币圈」→ 主题 AI + 关键词 Agent + 屏蔽币圈
+  - 调教前 Top3：HN 气候报道(技术) / Terence Tao Math 2.0(技术) / README 实验(技术)
+  - 调教后 Top3：**DeepSeek's Insane Technique(YouTube·AI)** / 苹果 HomeView(IT之家·AI) / HN 气候报道
+  - 升幅最大：`DeepSeek's Insane Technique` 14→**1**、`苹果 HomeView` 21→**2**、`AI 削弱意志力` 32→10
+  - 跌出前十：B 站两个热点视频 9→13、10→14；`Valen's Memory Safety` 8→11
+  - **Top10 重合度 7/10**
+- 类型检查：`tsc -p tsconfig.json --noEmit` → **0 error**
+- 装机：`node scripts/install-to-profile.mjs desktop` → `…/node_modules/dsh-daily-v2`（跟随 patch 名）
+
+**阻塞**：无
+
+**下轮起点**：H4 —— 验证 systemPrompt 的主动推荐真的会让模型在**新会话**里主动提起今日日报；核对 `computeNextRun('08:00')` 的下一次触发时刻；然后 H5 的 UI 复验
