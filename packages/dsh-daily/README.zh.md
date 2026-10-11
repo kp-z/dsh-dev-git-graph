@@ -80,6 +80,12 @@ Cannot find package '@deepseek-ai/dsh-tools'
 | `youtubeChannels` | 5 个 AI/技术频道 | 格式 `名称\|频道ID或@handle\|主题` |
 | `extraFeeds` | `[]` | 额外 RSS，格式 `名称\|URL\|主题` |
 | `enabledSources` | `[]`（全部） | 只启用哪些内置源 |
+| `aiSummaryEnabled` | `false` | **可选 AI 摘要**（默认关）。打开后给当天前 N 条生成一句中文摘要，侧边栏与日报都显示 |
+| `aiSummaryProvider` / `aiSummaryModel` | 空 | 模型路由。**两者必须成对**；都留空则跟随宿主默认模型；只填一个视为未配置（不猜） |
+| `aiSummaryMaxItems` / `aiSummaryConcurrency` | `20` / `3` | 摘要几条 / 并发几路 |
+| `aiSummaryMaxTokens` | `1024` | 单次上限。**别调太小** —— 推理 token 与正文共享它 |
+| `aiSummaryTimeoutMs` | `20000` | 单条超时 |
+| `aiSummaryCacheTtlDays` / `aiSummaryCacheMax` | `30` / `500` | 摘要缓存有效期与条数上限（同一新闻跨天重复时不重复付钱） |
 
 **用户偏好**（主题 / 关键词权重 / 屏蔽词 / 源权重 / 每日上限）落在 `~/.dsh/daily/prefs.json`，
 由右侧栏页面和 `daily_tune` 工具改写 —— 不走插件配置，因为改配置会触发 profile 重载。
@@ -95,6 +101,30 @@ Cannot find package '@deepseek-ai/dsh-tools'
 | `daily_tune` | **写盘 + 重排** | 自然语言调教 |
 | `daily_feedback` | **写盘** | like / dislike / read / hide |
 | `daily_refresh` | **联网 + 写盘** | 立刻抓一轮（5~20 秒） |
+
+## 可选 AI 摘要（默认关闭）
+
+只有标题的列表要一条条点进去才知道值不值得看；打开摘要后每条带一句中文概要，扫一眼就能筛。
+侧边栏右上角会出现 **✨ 按钮**，随时给**已抓到的**当天条目补摘要，不必等第二天。
+
+打开方式（profile 的插件配置）：
+
+```yaml
+aiSummaryEnabled: true
+aiSummaryProvider: ''   # 留空则跟随宿主默认模型；要固定就两者都填
+aiSummaryModel: ''
+```
+
+三条从实测里来的经验（都写进了代码注释与测试）：
+
+- **`aiSummaryMaxTokens` 别调小**。推理 token 与正文**共享**这个上限：设 200 时 20 条里只有 7 条成功，
+  1024 时 12 条，4096 时 20 条全成功。撞上限的条目不会静默变空摘要 —— 失败原因里会写明
+  「模型没写出正文就用完了 maxTokens=…（终止原因 max-tokens）」。
+- **单条失败必须隔离**。20 条挂 1 条，另外 19 条照常出；失败条数与原因会出现在提示条里。
+- **按条目缓存**。跨天重复的新闻命中缓存直接复用，不重复花钱。
+
+失败面都被测试钉住了：超时、空输出、`max-tokens`、`error`/`aborted`、流中途抛错、
+没有 `finish` 事件、宿主没有 `llm` 服务、只填了一半的路由、缓存过期与超量淘汰。
 
 ## 数据与文件
 

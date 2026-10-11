@@ -27,6 +27,9 @@
 
 **日报与主动推荐**
 - 按主题分组的 Markdown 日报 → `~/.dsh/daily/digest/YYYY-MM-DD.md`
+- **可选 AI 摘要**（`aiSummaryEnabled`，默认关）：给当天前 N 条生成一句中文摘要，
+  侧边栏与日报都显示（带 ✨ 标记区分于原文摘要）；侧边栏有按钮可随时给**已抓到**的条目补摘要；
+  按条目缓存 30 天 / 500 条；单条失败隔离，失败原因（含 max-tokens）显式报告
 - 紧凑摘要注入 `systemPrompt`（默认 6 条、实测 405 tokens），让模型**自己**提起今天值得看的
 - `pickDiverse` 保证「推荐**不同**类型」：主题轮转 + 每源上限 2（修复前 6/6 全是 HN 技术新闻）
 - 每日 `08:00` 定时 + 启动补抓；`computeNextRun` 用自串链 setTimeout，天然纠正漂移
@@ -56,6 +59,9 @@
 - `/api/digest` 默认日期用了 `toISOString()`（UTC），凌晨 0–8 点会串到昨天
 - `probe-sources.mjs` 显式传源名不生效，实际会跑全部源
 - 封面超时 6000ms → 3000ms（本机 YouTube 缩略图 100% 不可达，不该白等 6 秒）
+- **页面的字段白名单漏了 `aiSummary`**：后端正确返回了 AI 摘要，但 `normalizeItem` 没映射它，
+  数据在这一层被静默丢掉 —— 表现是"功能跑通了、界面上什么都没有"。
+  已在 `normalizeItem` 处留下注释：**新增条目字段必须同步这里**
 
 ### Known limitations
 

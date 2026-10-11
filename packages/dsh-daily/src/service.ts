@@ -1,4 +1,12 @@
 import type { DailyConfig } from './config.js'
+import {
+	emptyCache,
+	mergeCache,
+	readCache,
+	summarizeItems,
+	type StreamFn,
+	type SummarySource,
+} from './ai.js'
 import { SOURCE_CATALOG } from './catalog.js'
 import { runCollection } from './collect/index.js'
 import { MirrorPool } from './collect/mirror.js'
@@ -28,6 +36,23 @@ export interface DailyLogger {
 	error(message: string): void
 }
 
+export interface AiRoute {
+	provider: string
+	model: string
+}
+
+/** 最近一次 AI 摘要的统计，暴露给 /api/state，让用户能看出"到底跑没跑、失败了几条"。 */
+export interface AiRunStats {
+	at: string
+	model: string
+	enabled: boolean
+	fromCache: number
+	generated: number
+	failed: number
+	/** 失败原因样例（最多 3 条），便于判断是撞了 max-tokens 还是限流。 */
+	reasons: string[]
+}
+
 export interface ServiceStatePayload {
 	ok: true
 	date: string
@@ -38,6 +63,8 @@ export interface ServiceStatePayload {
 	sources: SourceState[]
 	prefs: Prefs
 	digest: { available: boolean; path: string; updatedAt: string | null }
+	/** 最近一次 AI 摘要的运行统计；功能关闭时 last 为 null 但 enabled 仍如实反映配置。 */
+	ai: { enabled: boolean; last: AiRunStats | null }
 }
 
 export interface ItemsPayload {
@@ -102,6 +129,10 @@ export class DailyService {
 	private pool: MirrorPool
 	private inflight: Promise<RefreshSummary> | null = null
 	private readonly listeners = new Set<() => void>()
+	/** 由 index.ts 在拿到 ctx.llm 后注入；null = 宿主没提供 llm 或功能关闭。 */
+	private llmStream: StreamFn | null = null
+	private defaultRoute: (() => AiRoute | null) | null = null
+	private lastAiRun: AiRunStats | null = null
 
 	constructor(config: DailyConfig, logger: DailyLogger) {
 		this.config = config
@@ -129,6 +160,18 @@ export class DailyService {
 	subscribe(listener: () => void): () => void {
 		this.listeners.add(listener)
 		return () => this.listeners.delete(listener)
+	}
+
+	/**
+	 * 注入模型调用能力。
+	 *
+	 * 为什么不在构造函数里要：`apply()` 是同步的，而 `ctx.llm` 与默认模型选择要到
+	 * 依赖注入完成之后才拿得到。所以这里用"先建服务、后接线"的形状，
+	 * 也让 service 在单测里可以完全不接模型（不传就退化成"没有 AI 摘要"）。
+	 */
+	setLlm(stream: StreamFn | null, defaultRoute?: () => AiRoute | null): void {
+		this.llmStream = stream
+		this.defaultRoute = defaultRoute ?? null
 	}
 
 	private emit(): void {
@@ -184,7 +227,7 @@ export class DailyService {
 
 		const quota = Math.max(prefs.dailyQuota || 0, this.config.dailyQuota)
 		const recentlySeen = await this.loadRecentlySeen(date, this.config.dedupeWindowDays)
-		const items = rankItems(outcome.items, {
+		let items = rankItems(outcome.items, {
 			prefs,
 			feedback,
 			maxItemsPerSource: Math.max(prefs.maxItemsPerSource || 0, this.config.maxItemsPerSource),
@@ -193,6 +236,9 @@ export class DailyService {
 			recentlySeen,
 			today: date,
 		})
+
+		// AI 摘要放在排序之后：只给真正进了列表的前 N 条生成，不浪费在会被配额裁掉的条目上
+		items = await this.applyAiSummaries(items)
 
 		const okSources = outcome.sources.filter((s) => s.ok).length
 		const previousUrls = new Set(previous.items.map((i) => i.url))
@@ -226,6 +272,168 @@ export class DailyService {
 		)
 		this.emit()
 		return summary
+	}
+
+	/**
+	 * 给**已经抓到的**当天条目补 AI 摘要，不重新抓取。
+	 *
+	 * 为什么需要它：用户很可能先用几天、觉得不错，再去打开 AI 摘要 ——
+	 * 那时当天数据已经在了，让他等第二天才看到摘要是不合理的。
+	 * 也让这条链路可以在集成测试里被真实执行（refresh 需要联网，这条不需要）。
+	 */
+	async regenerateAiSummaries(date?: string): Promise<AiRunStats | null> {
+		const target = date ?? localDate()
+		const day = await this.store.readDay(target)
+		if (day.items.length === 0) return null
+		day.items = await this.applyAiSummaries(day.items)
+		await this.store.writeDay(day)
+		await this.rebuildDigest(target)
+		this.emit()
+		return this.lastAiRun
+	}
+
+	/**
+	 * 给当天的前 N 条补一句话 AI 摘要（默认关闭）。
+	 *
+	 * 三件事必须做到，否则这个功能只会给用户添麻烦：
+	 * 1. **命中缓存不重复调**：跨天重复的新闻不该重复付钱。
+	 * 2. **单条失败隔离**：20 条挂 1 条，另外 19 条照常出；失败原因进日志与 state。
+	 * 3. **任何异常都不影响主流程**：摘要失败绝不能让"日报没生成"。
+	 */
+	private async applyAiSummaries(items: Item[]): Promise<Item[]> {
+		const cfg = this.config
+		if (!cfg.aiSummaryEnabled) return items
+
+		if (!this.llmStream) {
+			this.logger.warn('AI 摘要已开启，但宿主没有提供 llm 服务，本轮跳过。')
+			this.lastAiRun = {
+				at: new Date().toISOString(),
+				model: '',
+				enabled: true,
+				fromCache: 0,
+				generated: 0,
+				failed: 0,
+				reasons: ['宿主未提供 llm 服务'],
+			}
+			return items
+		}
+
+		// 路由：显式配置优先；两者都空则跟随宿主默认模型（两者只填一个视为未配置）
+		const configuredProvider = cfg.aiSummaryProvider.trim()
+		const configuredModel = cfg.aiSummaryModel.trim()
+		let route: AiRoute | null = null
+		if (configuredProvider && configuredModel) {
+			route = { provider: configuredProvider, model: configuredModel }
+		} else if (!configuredProvider && !configuredModel) {
+			try {
+				route = this.defaultRoute?.() ?? null
+			} catch {
+				route = null
+			}
+		}
+		if (!route) {
+			this.logger.warn(
+				'AI 摘要已开启但没有可用的模型路由：请同时配置 aiSummaryProvider 与 aiSummaryModel，或确保宿主有默认模型。',
+			)
+			this.lastAiRun = {
+				at: new Date().toISOString(),
+				model: '',
+				enabled: true,
+				fromCache: 0,
+				generated: 0,
+				failed: 0,
+				reasons: ['没有可用的模型路由（provider/model 需成对配置）'],
+			}
+			return items
+		}
+
+		const now = new Date()
+		const cache = readCache(
+			await this.store.readJsonFile('ai-cache.json').catch(() => null),
+			now,
+			cfg.aiSummaryCacheTtlDays,
+			cfg.aiSummaryCacheMax,
+		)
+
+		const targets = items.slice(0, Math.max(0, cfg.aiSummaryMaxItems))
+		let fromCache = 0
+		const missing: Item[] = []
+		for (const item of targets) {
+			const cached = cache.entries[item.id]
+			if (cached) {
+				item.aiSummary = cached.text
+				fromCache++
+			} else {
+				missing.push(item)
+			}
+		}
+
+		if (missing.length === 0) {
+			this.lastAiRun = {
+				at: now.toISOString(),
+				model: route.model,
+				enabled: true,
+				fromCache,
+				generated: 0,
+				failed: 0,
+				reasons: [],
+			}
+			this.logger.info(`AI 摘要：全部命中缓存（${fromCache} 条），未调用模型。`)
+			return items
+		}
+
+		let result
+		try {
+			result = await summarizeItems(missing, {
+				provider: route.provider,
+				model: route.model,
+				maxItems: missing.length,
+				concurrency: Math.max(1, cfg.aiSummaryConcurrency),
+				timeoutMs: Math.max(1000, cfg.aiSummaryTimeoutMs),
+				maxTokens: Math.max(64, cfg.aiSummaryMaxTokens),
+				stream: this.llmStream,
+				now: () => Date.now(),
+			})
+		} catch (error) {
+			this.logger.warn(
+				`AI 摘要整体失败（已忽略，不影响日报）：${error instanceof Error ? error.message : String(error)}`,
+			)
+			return items
+		}
+
+		for (const item of missing) {
+			const outcome = result.summaries.get(item.id)
+			if (outcome) item.aiSummary = outcome.text
+		}
+
+		if (result.summaries.size > 0) {
+			try {
+				await this.store.writeJsonFile(
+					'ai-cache.json',
+					mergeCache(cache, result.summaries, now),
+				)
+			} catch (error) {
+				this.logger.warn(
+					`AI 摘要缓存写入失败：${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		}
+
+		const reasons = [...new Set([...result.failures.values()])].slice(0, 3)
+		this.lastAiRun = {
+			at: now.toISOString(),
+			model: route.model,
+			enabled: true,
+			fromCache,
+			generated: result.summaries.size,
+			failed: result.failures.size,
+			reasons,
+		}
+		this.logger.info(
+			`AI 摘要：缓存命中 ${fromCache} · 新生成 ${result.summaries.size} · 失败 ${result.failures.size}` +
+				(reasons.length > 0 ? ` · 失败原因：${reasons.join('；')}` : ''),
+		)
+		return items
 	}
 
 	async rebuildDigest(date?: string): Promise<string> {
@@ -354,6 +562,7 @@ export class DailyService {
 				path: `~/.dsh/daily/digest/${digestDate}.md`,
 				updatedAt: meta.lastDigestDate ? day.lastRefresh?.at ?? null : null,
 			},
+			ai: { enabled: this.config.aiSummaryEnabled, last: this.lastAiRun },
 		}
 	}
 

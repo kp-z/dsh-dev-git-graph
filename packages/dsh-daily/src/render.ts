@@ -95,7 +95,10 @@ export function renderDigest(options: DigestOptions): string {
 				`- [${escapeMarkdown(item.title)}](${item.url})${discuss}${item.read ? ' ~~已读~~' : ''}`,
 			)
 			lines.push(`  ${badges}${heat ? ` · ${heat}` : ''}${item.duration ? ` · ⏱ ${item.duration}` : ''}`)
-			if (item.summary) lines.push(`  ${item.summary.slice(0, 160)}`)
+			if (item.summary || item.aiSummary) {
+				// AI 摘要优先：它是中文一句话，比原文摘要更适合"扫一眼决定要不要点"
+				lines.push(`  ${(item.aiSummary ?? item.summary ?? '').slice(0, 160)}`)
+			}
 			if (item.reasons.length > 0) lines.push(`  _为什么推荐：${item.reasons.join(' · ')}_`)
 			lines.push('')
 		}
@@ -222,6 +225,9 @@ export function renderBrief(options: BriefOptions): string {
 				.filter(Boolean)
 				.join(' · ')
 			lines.push(`- ${item.title}（${meta}）${item.url}`)
+			// 有 AI 摘要就带上一句。这是注入段里唯一可能"变长"的地方，所以只对 Top N 生效，
+			// 且强制压到 40 字 —— 每轮都要付的 token，宁短勿长。
+			if (item.aiSummary) lines.push(`  ${item.aiSummary.slice(0, 40)}`)
 		}
 	} else {
 		lines.push('（今天还没有采集到条目 —— 可以调用 daily_refresh 立刻抓一轮。）')

@@ -29,7 +29,8 @@
     feedback: './api/feedback',
     tune: './api/tune',
     refresh: './api/refresh',
-    digest: './api/digest'
+    digest: './api/digest',
+    ai: './api/ai'
   };
 
   var FETCH_TIMEOUT_MS = 20000;   // refresh 走后台，不需要长超时
@@ -346,6 +347,8 @@
     tuneBusy: false,
     tuneNote: null,            // { title, lines[] }
     refreshBusy: false,
+    aiBusy: false,
+    ai: { enabled: false, last: null },
     digestBusy: false
   };
 
@@ -464,6 +467,8 @@
     return (
       String(it.title || '').toLowerCase().indexOf(q) !== -1 ||
       String(it.summary || '').toLowerCase().indexOf(q) !== -1 ||
+      // AI 摘要也要参与搜索：用户记住的往往是那句中文一句话
+      String(it.aiSummary || '').toLowerCase().indexOf(q) !== -1 ||
       String(it.sourceName || '').toLowerCase().indexOf(q) !== -1 ||
       String(it.author || '').toLowerCase().indexOf(q) !== -1
     );
@@ -527,8 +532,12 @@
       el.stats.appendChild(document.createTextNode(' · 已加载 ' + state.items.length));
     }
 
-    el.refreshBtn.disabled = state.refreshBusy;
+    el.refreshBtn.disabled = state.refreshBusy || state.aiBusy;
     el.refreshBtn.classList.toggle('dd-spin', state.refreshBusy);
+    if (el.aiBtn) {
+      el.aiBtn.disabled = state.refreshBusy || state.aiBusy;
+      el.aiBtn.classList.toggle('dd-spin', state.aiBusy);
+    }
     el.digestBtn.disabled = state.digestBusy;
   }
 
@@ -661,10 +670,20 @@
     body.appendChild(text('div', 'dd-item-title', String(it.title || '(无标题)')));
 
     // 摘要（最多 2 行，可折叠）
-    var summaryText = String(it.summary || '');
+    // AI 摘要优先：它是中文一句话，比原文摘要更适合"扫一眼决定要不要点"。
+    // 用一个 ✨ 标记把两者区分开 —— 用户有权知道这句是人写的还是模型写的，
+    // 尤其在模型可能出错的前提下。
+    var aiText = typeof it.aiSummary === 'string' ? it.aiSummary : '';
+    var rawText = String(it.summary || '');
+    var summaryText = aiText || rawText;
     if (summaryText) {
       var isOpen = !!state.expanded[it.id];
       var sum = text('p', classNames('dd-item-summary', isOpen && 'is-open'), summaryText);
+      if (aiText) {
+        sum.classList.add('is-ai');
+        sum.title = 'AI 生成的一句话摘要';
+        sum.insertBefore(text('span', 'dd-ai-mark', '✨'), sum.firstChild);
+      }
       body.appendChild(sum);
       // 只有长到可能被截断时才给折叠按钮；用字符数粗判，省一次 layout 查询
       if (summaryText.length > 60) {
@@ -879,7 +898,10 @@
   /* ---------- 4.6 刷新中的绝对定位指示（不推版） ---------- */
 
   function renderProgress() {
-    var on = state.refreshBusy;
+    // 两种"耗时操作"共用同一条绝对定位进度条与胶囊：刷新、生成 AI 摘要。
+    // 复用而不是各画一套 —— 用户不需要知道这俩在实现上有什么区别，
+    // 他只需要知道"现在有东西在跑、大概跑了多久"。
+    var on = state.refreshBusy || state.aiBusy;
     el.progress.classList.toggle('is-on', on);
     el.progress.setAttribute('aria-hidden', on ? 'false' : 'true');
     el.capsule.hidden = !on;
@@ -888,6 +910,7 @@
 
   function capsuleMessage() {
     var extra = el.capsuleExtra || '';
+    if (state.aiBusy) return '正在生成 AI 摘要' + extra;
     return '正在刷新订阅源 · 当前数据生成于 ' + (formatClock(state.generatedAt) || '—') + extra;
   }
 
@@ -927,6 +950,9 @@
     state.generatedAt = s.generatedAt || null;
     state.lastRefresh = s.lastRefresh || null;
     state.refreshing = !!s.refreshing;
+    // AI 摘要入口只在配置里打开时出现（默认关闭 —— 它会真的调模型、花 token）
+    state.ai = s.ai || { enabled: false, last: null };
+    if (el.aiBtn) el.aiBtn.hidden = !state.ai.enabled;
     state.counts = s.counts || { total: 0, unread: 0, byTopic: {} };
     state.sources = Array.isArray(s.sources) ? s.sources : [];
     state.prefs = s.prefs || null;
@@ -1027,6 +1053,10 @@
       sourceName: raw.sourceName,
       topic: raw.topic || '未分类',
       summary: raw.summary,
+      // 页面用的是"字段白名单"映射：后端加了字段而这里忘了加，数据就会在
+      // 这一层被静默丢掉（AI 摘要第一次就是这么丢的 —— 后端返回了、页面上什么都没有）。
+      // 新增条目字段时**必须**同步这里。
+      aiSummary: typeof raw.aiSummary === 'string' ? raw.aiSummary : undefined,
       publishedAt: raw.publishedAt,
       author: raw.author,
       thumb: raw.thumb,
@@ -1225,6 +1255,50 @@
       window.clearInterval(capsuleTimer);
       capsuleTimer = null;
     }
+  }
+
+  /**
+   * 对**已抓到的**条目补 AI 摘要（不重新抓取）。
+   *
+   * 存在的意义：用户很可能先用几天、觉得不错再去打开 AI 摘要 ——
+   * 那时当天数据已经在了，让他等第二天才看到摘要不合理。
+   */
+  function startAiSummaries() {
+    if (state.aiBusy || state.refreshBusy || state.demo) return;
+
+    state.aiBusy = true;
+    el.capsuleExtra = '';
+    capsuleStartedAt = Date.now();
+    render();
+
+    if (capsuleTimer) window.clearInterval(capsuleTimer);
+    capsuleTimer = window.setInterval(function () {
+      if (!state.aiBusy) return;
+      var secs = Math.round((Date.now() - capsuleStartedAt) / 1000);
+      el.capsuleExtra = ' · 已用时 ' + secs + 's';
+      el.capsuleText.textContent = capsuleMessage();
+    }, CAPSULE_TICK_MS);
+
+    apiPost(API.ai, { date: state.date }).then(function (r) {
+      stopRefreshTimer();
+      state.aiBusy = false;
+
+      if (r.error) {
+        state.stateError = 'AI 摘要失败：' + r.error;
+        render();
+        return;
+      }
+      var st = (r.data && r.data.stats) || {};
+      var lines = [
+        '新生成 ' + (st.generated || 0) + ' 条 · 缓存命中 ' + (st.fromCache || 0) + ' 条 · 失败 ' + (st.failed || 0) + ' 条',
+      ];
+      if (st.model) lines.push('模型：' + st.model);
+      if (st.reasons && st.reasons.length) lines.push('失败原因：' + st.reasons.join('；'));
+      showTuneNote('AI 摘要', lines);
+      state.stateError = null;
+      if (state.ai) state.ai.last = st;
+      loadItems();
+    });
   }
 
   /* ---------- 5.5 日报预览 ---------- */
@@ -1428,6 +1502,7 @@
     el.stats = $('dd-stats');
     el.refreshBtn = $('dd-refresh');
     el.digestBtn = $('dd-digest');
+    el.aiBtn = $('dd-ai');
     el.progress = $('dd-progress');
     el.capsule = $('dd-capsule');
     el.capsuleText = $('dd-capsule-text');
@@ -1464,6 +1539,7 @@
   function bindEvents() {
     // 刷新
     el.refreshBtn.addEventListener('click', startRefresh);
+    if (el.aiBtn) el.aiBtn.addEventListener('click', startAiSummaries);
 
     // 日报预览
     el.digestBtn.addEventListener('click', openDigest);

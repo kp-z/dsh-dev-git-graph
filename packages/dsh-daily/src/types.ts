@@ -59,6 +59,12 @@ export interface Item extends RawItem {
 	hidden: boolean
 	/** 首次见到它的时间，用于排序兜底与"新增"判定。 */
 	firstSeenAt: string
+	/**
+	 * 可选的 AI 一句话摘要（默认关闭该功能）。
+	 * 与采集器自带的 `summary` 分开存：后者是原文摘要，前者是模型生成的中文一句话，
+	 * 前端优先显示它、并在缺失时回落 —— 混成一个字段会让"这条到底是不是 AI 写的"无从判断。
+	 */
+	aiSummary?: string
 }
 
 /** 用户反馈。与 Item 分开存：条目每天重建，反馈要跨天累积用于学习。 */

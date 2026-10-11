@@ -9,6 +9,7 @@
  * 表现会是"整个 profile 卡住"。所以：初始化尽早在后台跑，失败只记日志、不抛。
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { StreamChunkLike, StreamRequest } from './ai.js'
 import { DailyConfig, resolveConfig } from './config.js'
 import { mountRoutes } from './api.js'
 import { installPromptSection } from './prompt.js'
@@ -33,6 +34,16 @@ interface WebServerLike {
 		path: string
 		handler: (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => void
 	}): () => void
+}
+
+/**
+ * 宿主 llm 服务的窄视图。
+ *
+ * 只声明我们真正会调的那一个方法：插件与 `@deepseek-ai/dsh-llm` 的完整类型解耦，
+ * 也不至于因为宿主版本的签名细节差异而编译不过 —— 我们只往这个缝里塞一个 GenerateOptions 子集。
+ */
+interface LlmLike {
+	stream(options: StreamRequest): AsyncIterable<StreamChunkLike>
 }
 
 export function apply(ctx: Context, config: Partial<DailyConfig> = {}): void {
@@ -102,6 +113,44 @@ async function bootstrap(
 		logger,
 	})
 	host.effect(() => stopSchedule)
+
+	// ---- AI 摘要接线（可选功能，默认关闭）----
+	// 放在依赖注入完成之后：service 先建好，这里再把 ctx.llm 与默认模型选择递进去。
+	// 拿不到就递 null —— service 会退化成"没有 AI 摘要"，而不是让插件加载失败。
+	try {
+		const scoped = host as unknown as {
+			llm?: LlmLike
+			agentDefaultModel?: { currentSelection?: () => { provider?: string; model?: string } }
+			get?: (name: string) => unknown
+		}
+		const llm = scoped.llm ?? (typeof scoped.get === 'function' ? (scoped.get('llm') as LlmLike) : undefined)
+		const defaults =
+			scoped.agentDefaultModel ??
+			(typeof scoped.get === 'function'
+				? (scoped.get('agentDefaultModel') as { currentSelection?: () => { provider?: string; model?: string } })
+				: undefined)
+		service.setLlm(
+			llm && typeof llm.stream === 'function' ? (options) => llm.stream(options) : null,
+			() => {
+				try {
+					const selection = defaults?.currentSelection?.()
+					if (selection?.provider && selection?.model) {
+						return { provider: selection.provider, model: selection.model }
+					}
+				} catch {
+					/* 默认模型读不到就当作没有 */
+				}
+				return null
+			},
+		)
+		if (settings.aiSummaryEnabled) {
+			logger.info(
+				llm ? 'AI 摘要已开启：模型能力已接入。' : 'AI 摘要已开启，但宿主没有 llm 服务，本轮不会生成摘要。',
+			)
+		}
+	} catch (error) {
+		logger.warn(`AI 摘要接线失败（功能降级为关闭）：${error instanceof Error ? error.message : String(error)}`)
+	}
 
 	// ---- 启动补抓 ----
 	if (settings.autoRefreshOnStart) {

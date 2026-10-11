@@ -148,6 +148,20 @@ export class DailyStore {
 		}
 	}
 
+	// ---------- 通用 JSON 文件（AI 摘要缓存等）----------
+
+	/** 读一个数据目录下的 JSON 文件；缺失或损坏都返回 null（调用方决定回落）。 */
+	async readJsonFile(name: string): Promise<unknown> {
+		return this.readJson(path.join(this.dir, name))
+	}
+
+	async writeJsonFile(name: string, value: unknown): Promise<void> {
+		const file = path.join(this.dir, name)
+		await this.enqueue(file, () =>
+			this.writeFileAtomic(file, `${JSON.stringify(value, null, 2)}\n`),
+		)
+	}
+
 	// ---------- prefs ----------
 
 	async readPrefs(): Promise<Prefs> {

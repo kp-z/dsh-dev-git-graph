@@ -507,6 +507,15 @@ button { font-family: inherit; }
   line-clamp: unset;
   overflow: visible;
 }
+/* AI 摘要：用 ✨ 与一点点强调色把它和原文摘要区分开（用户有权知道这句是模型写的） */
+.dd-item-summary.is-ai { color: var(--dd-text-secondary); }
+.dd-ai-mark {
+  margin-right: 3px;
+  font-size: 10px;
+  opacity: .85;
+  /* 让 ✨ 跟着第一行文字基线，不要撑高行高 */
+  line-height: inherit;
+}
 .dd-summary-toggle {
   margin-top: 2px;
   padding: 0;

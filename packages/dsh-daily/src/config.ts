@@ -87,6 +87,40 @@ export const DailyConfig = z.object({
 
 	/** 屏蔽词（安装级；用户级屏蔽词在 prefs 里，两者取并集）。 */
 	blocked: z.array(z.string()).default([]),
+
+	// ---------- 可选 AI 摘要（默认关闭）----------
+	// 默认关闭是刻意的：它会真的花 token，也可能失败。用户明确打开才启用。
+
+	/** 是否给当天的条目生成一句话中文摘要。 */
+	aiSummaryEnabled: z.boolean().default(false),
+
+	/** 模型路由。两个都留空 = 跟随宿主默认模型。 */
+	aiSummaryProvider: z.string().default(''),
+	aiSummaryModel: z.string().default(''),
+
+	/** 当天最多摘要几条（列表前 N 条）。 */
+	aiSummaryMaxItems: z.number().default(20),
+
+	/** 并发数。推理模型并发太高只会集体撞限流。 */
+	aiSummaryConcurrency: z.number().default(3),
+
+	/**
+	 * 单次调用的 maxTokens。
+	 *
+	 * **别调太小**：推理 token 与正文共享这个上限。实测经验（来自 dsh-rss）：
+	 * 200 时 20 条里只有 7 条成功，1024 时 12 条，4096 时 20 条全成功。
+	 * 撞上限的条目会以"终止原因 max-tokens"的形式明确报告出来，而不是静默变空摘要。
+	 */
+	aiSummaryMaxTokens: z.number().default(1024),
+
+	/** 单条超时（毫秒）。 */
+	aiSummaryTimeoutMs: z.number().default(20000),
+
+	/** 摘要缓存有效期（天）。同一条新闻跨天重复时不该重复付钱。 */
+	aiSummaryCacheTtlDays: z.number().default(30),
+
+	/** 缓存条数上限（超出按写入时间淘汰最旧）。 */
+	aiSummaryCacheMax: z.number().default(500),
 })
 
 export type DailyConfig = Schemastery.TypeT<typeof DailyConfig>
@@ -121,5 +155,14 @@ export function resolveConfig(config: Partial<DailyConfig> = {}): DailyConfig {
 		extraFeeds: config.extraFeeds ?? [],
 		enabledSources: config.enabledSources ?? [],
 		blocked: config.blocked ?? [],
+		aiSummaryEnabled: config.aiSummaryEnabled ?? false,
+		aiSummaryProvider: config.aiSummaryProvider ?? '',
+		aiSummaryModel: config.aiSummaryModel ?? '',
+		aiSummaryMaxItems: config.aiSummaryMaxItems ?? 20,
+		aiSummaryConcurrency: config.aiSummaryConcurrency ?? 3,
+		aiSummaryMaxTokens: config.aiSummaryMaxTokens ?? 1024,
+		aiSummaryTimeoutMs: config.aiSummaryTimeoutMs ?? 20000,
+		aiSummaryCacheTtlDays: config.aiSummaryCacheTtlDays ?? 30,
+		aiSummaryCacheMax: config.aiSummaryCacheMax ?? 500,
 	}
 }

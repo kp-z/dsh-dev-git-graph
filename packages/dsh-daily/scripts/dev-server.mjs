@@ -20,8 +20,26 @@ const args = process.argv.slice(2)
 const noRefresh = args.includes('--no-refresh')
 const portArg = args.indexOf('--port')
 const port = portArg >= 0 ? Number(args[portArg + 1]) : 8799
+/**
+ * `--ai-fake`：打开 AI 摘要并注入一个**假 stream**。
+ *
+ * 为什么需要它：真实模型调用要花 token、还依赖密钥，而 UI 上"✨ 按钮能不能出现、
+ * 摘要渲染成什么样、失败提示长什么样"这些是要天天看的。假 stream 让这条链路可以
+ * 零成本反复验证，且输出可控（能刻意造出"部分失败"来看提示条）。
+ */
+const aiFake = args.includes('--ai-fake')
 
-const config = resolveConfig({})
+const config = resolveConfig({
+	...(aiFake
+		? {
+				aiSummaryEnabled: true,
+				aiSummaryProvider: 'fake',
+				aiSummaryModel: 'fake-dev-model',
+				aiSummaryMaxItems: 6,
+				aiSummaryConcurrency: 2,
+			}
+		: {}),
+})
 const log = (level) => (message) => console.log(`[${level}] ${message}`)
 const service = new DailyService(config, {
 	info: log('info'),
@@ -30,6 +48,26 @@ const service = new DailyService(config, {
 })
 
 await service.init()
+
+if (aiFake) {
+	let n = 0
+	service.setLlm(
+		() => ({
+			async *[Symbol.asyncIterator]() {
+				n += 1
+				// 第 3 条刻意失败：用来验证"部分失败"的提示条长什么样
+				if (n === 3) {
+					yield { type: 'finish', reason: { kind: 'max-tokens' } }
+					return
+				}
+				yield { type: 'text-delta', text: `（假摘要 #${n}）一条用于联调的中文一句话摘要。` }
+				yield { type: 'finish', reason: { kind: 'stop' } }
+			},
+		}),
+		() => null,
+	)
+	console.log('[info] AI 摘要：已启用假 stream（--ai-fake），不会调用真实模型')
+}
 
 const today = localDate()
 let day = await service.getDay()

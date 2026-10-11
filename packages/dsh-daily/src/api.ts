@@ -149,6 +149,15 @@ async function handleApi(
 					prefs: result.prefs,
 				})
 			}
+			case 'ai': {
+				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 POST' })
+				const body = await readJsonBody(req)
+				const date = typeof body.date === 'string' && body.date ? body.date : undefined
+				// 会真的调模型（可能花 token），所以要求显式 POST；失败不影响已抓到的数据
+				const stats = await service.regenerateAiSummaries(date)
+				if (!stats) return sendJson(res, 200, { ok: false, error: '这一天还没有条目' })
+				return sendJson(res, 200, { ok: true, stats })
+			}
 			case 'refresh': {
 				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 POST' })
 				const summary = await service.refresh()

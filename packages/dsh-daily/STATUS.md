@@ -230,3 +230,46 @@
 
 **下轮起点**：第二波下一项 —— 可选 AI 摘要（需要先摸清 `ctx.llm` 的路由契约与 provider/model 取法），
 或者先做 OPML 导入导出（纯逻辑、风险低、能立刻提升"自定义"体验）。
+
+### R7 · 2026-10-12 04:06–04:25 — H8：可选 AI 摘要（第二波第 2 项）
+
+**为什么做它**：只有标题的列表要一条条点进去才知道值不值得看。一句中文概要把"高价值索引"
+从"能看"推到"扫一眼就能筛"。默认关闭 —— 它会真的花 token，用户明确打开才启用。
+
+**做了什么**
+1. `src/ai.ts`：`buildSummaryPrompt` / `cleanSummary` / `summarizeOne` / `summarizeItems` / 缓存三件套，
+   全部**可注入 stream**（假 stream 就能覆盖全部失败路径，不花 token 也不依赖密钥）
+2. `config.ts` 新增 9 个字段（开关、路由、条数、并发、maxTokens、超时、缓存 TTL 与上限）
+3. `service.ts` 新增 `setLlm()` 接线、`applyAiSummaries()`（缓存优先 / 单条隔离 / 异常不影响主流程）、
+   `regenerateAiSummaries()`（给**已抓到**的条目补摘要，不重新抓取），并把 `ai` 统计放进 `/api/state`
+4. `api.ts` 新增 `POST /api/ai`；`render.ts` 在日报与注入段优先用 AI 摘要
+5. 侧边栏：`✨` 按钮（仅在开启时出现）+ 卡片上的 ✨ 标记 + 按 AI 摘要文本可搜；进度条与胶囊两种耗时操作复用
+6. `scripts/dev-server.mjs` 新增 `--ai-fake`：**零成本**验证整条 UI 链路（假 stream 还会刻意让第 3 条失败，用来验"部分失败"的提示）
+7. 测试：`test/ai.test.js`（21 组）+ `test/ai-integration.test.js`（5 组，真实 DailyService + 真实落盘）
+
+**本轮的关键教训（一个非常隐蔽的 bug 类型）**
+后端正确返回了 `aiSummary`、`/api/ai` 也报告"新生成 5 条"，**但界面上一条摘要都没有**。
+根因：页面用的是**字段白名单**映射（`normalizeItem` 只挑它认识的字段），
+新字段没同步进去就被静默丢掉。修好后卡片出现 5 个 ✨、按摘要文本能搜到 5 条。
+已在 `normalizeItem` 处留注释：**新增条目字段必须同步这里**。
+—— 这类 bug 的特点是"每一层单独看都对，数据在中间被丢掉了"，只有端到端看界面才发现。
+
+**证据（真实输出）**
+- 全量测试：`node --test test/` → **tests 108 / pass 108 / fail 0**（R6 基线 82 → 本轮 +26 组）
+- 类型检查：`tsc --noEmit` → **0 error**；`node --check web/app.js` → 通过
+- 装机：副本可独立 `import` → `DailyConfig,apply,inject,name`
+- **UI 端到端（`--ai-fake`，真实浏览器）**：
+  - 提示条原文：「AI 摘要｜新生成 5 条 · 缓存命中 0 条 · 失败 1 条｜模型：fake-dev-model｜
+    失败原因：模型没写出正文就用完了 maxTokens=1024（终止原因 max-tokens）」
+  - 卡片：`5` 个 `.dd-item-summary.is-ai`、`5` 个 `.dd-ai-mark`（✨）
+  - 搜索「假摘要」→ 命中 `5` 条（AI 摘要参与搜索）
+  - `/api/state` 的 `ai.last` 如实反映 `generated:5 / failed:1 / reasons:[…max-tokens…]`
+  - 收尾：进度条与胶囊正确复位
+- **默认关闭有守**：`aiSummaryEnabled=false` 时集成测试断言"绝不调用模型"（`state.calls === 0`）
+- **测试数据已清理**：假摘要把 5 条真实条目污染过，已逐条剥离 `aiSummary`、删除 `ai-cache.json`、
+  重建日报并验证日报里不再含「假摘要」
+
+**阻塞**：无
+
+**下轮起点**：第二波下一项 —— OPML 导入导出（纯逻辑，能立刻提升"自定义源"的体验），
+然后跨天归档/周报/桌面通知。另外仍欠一次 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + 7 个工具）。
