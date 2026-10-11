@@ -275,6 +275,30 @@ inputActions = {
 
 ---
 
+### 侧边栏尺寸下的实测（2026-10-12，为下一步铺路）
+
+用 dev server + 同源 iframe 复现侧边栏宽度（400–420px）量的：
+
+- **条目页在 400px 下正常**：`scrollWidth == innerWidth`（无横向滚动），刊头 / 应用条 /
+  标题 / 描述 / 图版 / 代码块都在 356px 内，唯一「越界」的是 `.skip` 链接
+  （故意的，无障碍用的，在 -9999px）。**B 在真侧边栏宽度下是成立的。**
+- **嵌入模式默认是卡片视图**（`pages.mjs`：`else if(embed) dataset.view='card'`）。
+  卡片下 `.row` 是**竖排 flex**（`spellbook.css:847`）：缩略图(order 1) → 链接(order 2)
+  → 抄咒语(order 3，`margin-top:auto` 钉在牌底)。每张牌 208×257。
+- **条列视图下 `.row` 是另一套**：`grid-template-columns: minmax(0,1fr) auto auto`。
+  两套排法都是调过的。
+
+**所以「目录里每行加一个应用按钮」这件事先按住**：要同时改这两套排法，
+而 `.row-copy` 的 `margin-top:auto` / `order` 正是那两套排法的关键。
+收益（省一次点击）与风险（把作者调好的牌面弄歪）不对等。
+真要做，先量清楚两套，再动。
+
+**一条现成的旁证**：`?embed=1` 的 sessionStorage 是**按 origin 隔离**的 ——
+换一个端口起 dev server，sessionStorage 就没了、应用按钮随之消失。
+验的时候先确认 origin 一致，否则会把「没记住」误判成「坏了」。
+
+---
+
 ## 九、卡点
 
 （空）

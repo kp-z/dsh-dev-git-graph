@@ -205,6 +205,50 @@ test('声明给模型看的输出契约，必须和实际返回的值对得上',
   )
 })
 
+test('手写的两份 JSON Schema 必须合法 —— 畸形会连累整个会话的工具清单', async () => {
+  // 这条护的不是本插件，是**整个会话**。
+  //
+  // tool.ts 里那两份 schema 是手写的（没用 defineTool 的投影），而它们会被原样
+  // 送进模型的工具清单。一份畸形的 parameters 不是「这条工具不好用」，
+  // 而是可能让整次请求的工具声明被 API 拒掉 —— 那时坏的就不只是咒语书了。
+  // 所以用真的 JSON Schema 校验器过一遍，不靠肉眼看。
+  const Ajv = (await import('ajv')).default
+  const ajv = new Ajv({ allErrors: true, strict: false })
+
+  let registered = null
+  registerSpellbookTool(
+    { get: () => ({ register: (d) => { registered = d; return () => {} } }), effect: (fn) => fn() },
+    DIST,
+  )
+  assert.ok(registered, '没有注册成功，后面没得验')
+
+  for (const [label, schema] of [
+    ['parameters', registered.parameters],
+    ['output.schema', registered.output.schema],
+  ]) {
+    assert.equal(
+      ajv.validateSchema(schema),
+      true,
+      `${label} 不是合法的 JSON Schema：${JSON.stringify(ajv.errors)}`,
+    )
+  }
+
+  // 参数契约：好参数过，坏参数必须被挡
+  const checkArgs = ajv.compile(registered.parameters)
+  assert.equal(checkArgs({ query: 'neon-glow' }), true, JSON.stringify(checkArgs.errors))
+  assert.equal(checkArgs({ query: 'x', category: '材质' }), true)
+  assert.equal(checkArgs({}), false, 'query 是必填，却没被挡住')
+  assert.equal(checkArgs({ query: 'x', 多余的字段: 1 }), false, 'additionalProperties:false 没生效')
+
+  // 输出契约：真实返回值必须过得去（声明与实现漂移在这里现形）
+  const checkOutput = ajv.compile(registered.output.schema)
+  const good = await registered.execute({ query: 'neon-glow' })
+  assert.equal(checkOutput(good), true, `返回值与 schema 对不上：${JSON.stringify(checkOutput.errors)}`)
+
+  const miss = await registered.execute({ query: '量子隧穿霍尔效应' })
+  assert.equal(checkOutput(miss), true, `未命中的返回值与 schema 对不上：${JSON.stringify(checkOutput.errors)}`)
+})
+
 test('没有 tools 服务时留一声，且不抛', () => {
   const warnings = []
   const original = console.warn
