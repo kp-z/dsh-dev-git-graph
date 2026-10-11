@@ -164,3 +164,31 @@
 **阻塞**：无
 
 **下轮起点**：H6 —— README 补「重启才生效」的运维说明、CHANGELOG、完整回归清单（探针 + 测试 + dev-server + 装机幂等 + profile patch 校验）
+
+### R5 · 2026-10-12 02:18–02:25 — H6：文档收口 + 完整回归清单
+
+**做了什么**
+1. **`CHANGELOG.md`**：0.1.0 的 Added / Fixed / Known limitations 全量记录（含全部 7 个已修 bug 的成因）
+2. **README.zh.md 新增「改完怎么验证」矩阵**：区分"纯逻辑 / 页面 / host 运行时 / 客户端半体"四类改动，
+   逐类写明验证手段与**是否需要重启**；并把"host 改动必须重启"的**机制原因**（Node 缓存已成功导入的 ESM 模块）
+   与那个更具欺骗性的变体（**失败也会被缓存**）写清楚
+3. **README.zh.md 新增「完整回归清单」**：可直接复制执行的 5 步命令（类型 / 单测 / 探针 / 装机 / 副本一致性与独立导入）
+4. `package.json` 的 `files` 与装机脚本的拷贝清单补上 `CHANGELOG.md`
+
+**证据：回归 5/5 全绿（第 5 项是本轮新增的关键项）**
+```
+回归 1/5 装机幂等        ✅ 连跑两次，patch 里仍只有 1 行 insert + 1 行 disabled，无重复
+回归 2/5 类型检查        ✅ tsc -p tsconfig.json --noEmit → 0 error
+回归 3/5 单元测试        ✅ tests 69 / pass 69 / fail 0
+回归 4/5 副本与源码一致   ✅ lib/index.js lib/client.js web/app.js web/style.css web/index.html
+                           package.json cordis.patch.yml —— 7/7 个 sha256 完全相同
+回归 5/5 副本可独立导入   ✅ import('…/dsh-daily-v2/lib/index.js') → DailyConfig,apply,inject,name
+```
+第 4、5 项是刻意设计的：**"源码改对了"与"装进去的那份是对的、而且能被 dsh 加载"是两件事**，
+而且这两个正是本项目踩过坑的地方（符号链接解析、失败模块缓存），所以必须用哈希与真实 import 来守。
+
+**阻塞**：无
+
+**下轮起点**：H7+（第二波）—— 可选 AI 摘要（借鉴 dsh-rss 的经验：`maxTokens` 要留足推理预算，
+推理 token 与正文共享上限，太小会让"还没写正文就耗尽预算"）、OPML 导入导出、跨天去重与归档、周报、桌面通知。
+另外：**重启一次 DSH** 后需要复验右侧栏「日报」tab 与 7 个工具在真实 GUI 里的表现（这是唯一还没在真实 GUI 里看过的部分）。

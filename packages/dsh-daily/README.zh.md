@@ -112,11 +112,45 @@ Cannot find package '@deepseek-ai/dsh-tools'
 node scripts/probe-sources.mjs          # 真实采集探针（不落盘）
 node scripts/probe-sources.mjs hn youtube
 node scripts/dev-server.mjs --port 8799 # 不开 DSH 联调页面与接口
-node --test test/                       # 单元测试
-./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit
+node scripts/tune-demo.mjs "以后多推开源" # 调教前/后 Top10 对照
+npm test                                # tsc 构建 + node --test（基线 69 组全绿）
 ```
 
 `scripts/dev-server.mjs` 把**同一个** `mountRoutes` 挂到裸 http server 上，所以 UI 迭代不需要装进 profile。
+
+### 改完怎么验证（**重要**，这条决定你多久能看见效果）
+
+| 你改了什么 | 怎么验证 | 要重启 DSH 吗 |
+|---|---|---|
+| `src/collect/*`、`src/rank.ts`、`src/tune.ts`、`src/render.ts` 等纯逻辑 | `npm test` + `node scripts/probe-sources.mjs` / `tune-demo.mjs` | 不需要（新进程） |
+| `web/*`（页面） | `dev-server.mjs` 起页面，浏览器刷新 | 不需要（路由直出静态文件，`no-store`） |
+| `src/api.ts`、`src/tools.ts`、`src/prompt.ts`、`src/schedule.ts`（host 运行时行为） | 只能 `dev-server.mjs` 验接口；工具与注入要看真实会话 | **需要** |
+| `src/client.js`（右侧栏 tab） | 只能在真实 GUI 里看 | **需要**（客户端半体启动时组装） |
+
+**为什么 host 改动必须重启**：Node 会缓存**已成功导入**的 ESM 模块，
+`plugin_manager set_plugin` 的 enable 切换只是重建 fiber、不会重新读盘。
+（顺带一个更具欺骗性的现象：如果某个模块 URL 第一次导入**失败**过，
+那个失败也会被缓存，修好之后同名目录仍一直报 `failed to import` —— 换目录名或重启才能解开。）
+
+### 完整回归清单（每次收口跑一遍）
+
+```bash
+cd packages/dsh-daily
+./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit   # 类型
+npm test                                                       # 单测（当前 69 组）
+node scripts/probe-sources.mjs                                 # 真实采集（联网，约 8~40s）
+node scripts/install-to-profile.mjs desktop                    # 装机（幂等，可重复跑）
+# 装机副本与源码逐文件比对 + 副本可独立导入（模拟 dsh 加载）
+for f in lib/index.js web/app.js package.json cordis.patch.yml; do
+  diff <(shasum -a 256 "$f") <(shasum -a 256 "/Users/kp/.dsh/profiles/desktop/node_modules/dsh-daily-v2/$f") >/dev/null \
+    && echo "✅ $f" || echo "❌ $f"
+done
+node -e "import('/Users/kp/.dsh/profiles/desktop/node_modules/dsh-daily-v2/lib/index.js').then(m=>console.log('✅ import ok',Object.keys(m)))"
+```
+
+小贴士：**验证脚本自身也会失效**。H5 复验时我一度以为"点分类 chip 后列表永久卡住"，
+其实是我的脚本把 chip 节点存进了变量，而 `renderChips` 每次筛选都会重建节点 ——
+点的是已脱离 DOM 的旧节点。**先排除验证方法本身的错，再断言产品有 bug。**
 
 ## 已知限制
 

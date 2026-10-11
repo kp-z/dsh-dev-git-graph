@@ -88,7 +88,7 @@ for (const item of ['lib', 'web']) {
 	}
 	await cp(from, path.join(target, item), { recursive: true, force: true })
 }
-for (const file of ['package.json', 'cordis.patch.yml', 'README.md', 'README.zh.md', 'LICENSE']) {
+for (const file of ['package.json', 'cordis.patch.yml', 'README.md', 'README.zh.md', 'CHANGELOG.md', 'LICENSE']) {
 	const from = path.join(packageRoot, file)
 	if (existsSync(from)) await cp(from, path.join(target, file), { force: true })
 }
