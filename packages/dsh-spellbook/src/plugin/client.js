@@ -59,9 +59,21 @@ window.__ModuleLoader__.load({
     // 两者注册在树上两个互不相干的位置，却跑在同一个模块实例里。
     // 这是本功能唯一一处隐式耦合，所以单独写清楚：
     //   spellbookFrame  侧边栏那个 iframe 的 window（用来认消息来源）
-    //   composerSink    由 composer 槽位挂上来的「把文本放进输入框」的能力
+    //   composerSinks   由 composer 槽位挂上来的「把文本放进输入框」的能力，**是个栈**
     var spellbookFrame = null;
-    var composerSink = null;
+    var composerSinks = [];
+
+    /**
+     * 为什么是栈不是单个变量：这个槽位是 session 作用域的，分屏或同时开着两个
+     * 会话时会各挂一个实例。用栈就是「谁在最后谁说话」—— 而切会话时 actions
+     * 变了、effect 重跑，那一个会被重新推到栈顶，正好就是当前该说话的那个。
+     *
+     * 单个变量试过，坏在卸载上：两个实例都在时，任何一个卸载都会把 sink 置空，
+     * 而另一个明明还活着 —— 表现是「点应用回『没有会话』，可会话就开着」。
+     */
+    function currentSink() {
+      return composerSinks.length ? composerSinks[composerSinks.length - 1] : null;
+    }
 
     var APPLY_MSG = "spellbook:apply";
     var APPLY_RESULT_MSG = "spellbook:apply-result";
@@ -99,7 +111,8 @@ window.__ModuleLoader__.load({
         return;
       }
 
-      if (!composerSink) {
+      var sink = currentSink();
+      if (!sink) {
         // 没有会话，或者输入框还没挂载。这是正常情况，不是错误 ——
         // 照实回话，别静默，也别假装成功。
         replyToFrame({
@@ -110,7 +123,7 @@ window.__ModuleLoader__.load({
 
       var ok = false;
       try {
-        ok = !!composerSink(data.prompt, mode);
+        ok = !!sink(data.prompt, mode);
       } catch (e) {
         ok = false;
       }
@@ -137,7 +150,7 @@ window.__ModuleLoader__.load({
       React.useEffect(function () {
         if (!actions) return undefined;
 
-        composerSink = function (text, mode) {
+        var mine = function (text, mode) {
           // insertText 是「一次可撤销的纯文本编辑」，但**只在草稿版本没变、
           // 且编辑器允许编辑时**才生效，否则返回 false。捕获与插入之间理论上
           // 没有别人动草稿的机会，但这是理论：用户可能正在用输入法，
@@ -152,9 +165,16 @@ window.__ModuleLoader__.load({
           }
           return false;
         };
+        composerSinks.push(mine);
 
         return function () {
-          composerSink = null;
+          // 只摘掉**自己的**那一个。
+          //
+          // 两个实例都在时，先挂的那个一旦被卸载，若无条件清空就会把另一个
+          // 还活着的实例一并抹掉 —— 表现是「侧边栏点应用，回没有会话」，
+          // 而那个会话明明开着。spellbookFrame 那边有同一条判据，别只写一半。
+          var at = composerSinks.indexOf(mine);
+          if (at !== -1) composerSinks.splice(at, 1);
         };
       }, [actions]);
 
@@ -301,7 +321,7 @@ window.__ModuleLoader__.load({
           return function () {
             window.removeEventListener("message", handleApplyMessage);
             spellbookFrame = null;
-            composerSink = null;
+            composerSinks = [];
           };
         });
       }

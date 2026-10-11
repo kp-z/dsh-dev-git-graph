@@ -134,22 +134,19 @@ function fakeInputActions({ insertSucceeds = true } = {}) {
   }
 }
 
-/**
- * 把桥立起来：composer 槽位与侧边栏 tab 各挂一次，再把排队的 effect 跑掉。
- * 跑完 composerSink 与 spellbookFrame 就都设上了，与真宿主里的先后一致。
- */
-function mountBridge(env, { withComposer = true, insertSucceeds = true } = {}) {
-  const { tabs, panes, effects, listeners } = env
-  const actions = fakeInputActions({ insertSucceeds })
-
-  if (withComposer) {
-    const seat = panes.find((p) => p.id === 'spellbook-apply-seat')
-    assert.ok(seat, '没有注册 composer 槽位')
-    assert.equal(typeof seat.component, 'function', 'composer 槽位没有组件')
-    seat.component({ inputActions: actions })
-    effects.splice(0).forEach((fn) => fn())
+/** 跑掉排队中的 effect，并把清理函数收起来 —— 测卸载时要手动调它们。 */
+function drainEffects(env) {
+  const cleanups = []
+  for (const fn of env.effects.splice(0)) {
+    const cleanup = fn()
+    if (typeof cleanup === 'function') cleanups.push(cleanup)
   }
+  return cleanups
+}
 
+/** 挂上侧边栏 tab 那一半，拿到 message 监听器与那个 iframe。 */
+function mountTab(env) {
+  const { tabs, listeners } = env
   const element = tabs[0].component({ scope: {} })
   const tree = element.type({})
   const iframe = tree.children[0]
@@ -159,7 +156,7 @@ function mountBridge(env, { withComposer = true, insertSucceeds = true } = {}) {
     contentDocument: { readyState: 'complete' },
     addEventListener() {}, removeEventListener() {},
   }
-  effects.splice(0).forEach((fn) => fn())
+  drainEffects(env)
 
   const listener = [...(listeners.get('message') ?? [])][0]
   assert.ok(listener, '没有挂 message 监听器')
@@ -174,7 +171,26 @@ function mountBridge(env, { withComposer = true, insertSucceeds = true } = {}) {
     ...overrides,
   })
 
-  return { listener, replies, frameWindow, actions, ask }
+  return { listener, replies, frameWindow, ask }
+}
+
+/**
+ * 把桥立起来：composer 槽位与侧边栏 tab 各挂一次，再把排队的 effect 跑掉。
+ * 跑完通道与 spellbookFrame 就都设上了，与真宿主里的先后一致。
+ */
+function mountBridge(env, { withComposer = true, insertSucceeds = true } = {}) {
+  const { panes } = env
+  const actions = fakeInputActions({ insertSucceeds })
+
+  if (withComposer) {
+    const seat = panes.find((p) => p.id === 'spellbook-apply-seat')
+    assert.ok(seat, '没有注册 composer 槽位')
+    assert.equal(typeof seat.component, 'function', 'composer 槽位没有组件')
+    seat.component({ inputActions: actions })
+    drainEffects(env)
+  }
+
+  return { ...mountTab(env), actions }
 }
 
 test('host 侧：注册了 composer 槽位，且位置让开 prompt-library', () => {
@@ -297,6 +313,61 @@ test('host 侧：形状不对回 bad-request，并原样带回 requestId', () =>
     assert.equal(replies[0].requestId, 'b1')
     assert.equal(replies[1].requestId, 'b2')
     assert.equal(actions.calls.insert.length, 0, '坏请求不该碰到输入框')
+  } finally {
+    env.restore()
+  }
+})
+
+test('两个 composer 实例同时在时，卸载先挂的那个不能把通道整条抹掉', () => {
+  // 这个槽位是 session 作用域的：分屏或同时开着两个会话就会有两个实例。
+  // 用单个变量存 sink 时，任何一个卸载都会把它置空 —— 另一个明明还活着，
+  // 表现却是「点应用回『没有会话』，可会话就开着」。所以 sink 是个栈。
+  const env = bootClient()
+  try {
+    const seat = env.panes.find((p) => p.id === 'spellbook-apply-seat')
+    assert.ok(seat && typeof seat.component === 'function')
+
+    // 先挂的
+    const first = fakeInputActions()
+    seat.component({ inputActions: first })
+    const [firstCleanup] = drainEffects(env)
+    assert.equal(typeof firstCleanup, 'function', 'effect 没有返回清理函数，卸载时摘不掉')
+
+    // 后挂的 = 栈顶，该它说话
+    const second = fakeInputActions()
+    seat.component({ inputActions: second })
+    drainEffects(env)
+
+    const { ask, replies } = mountTab(env)
+
+    // 把先挂的那个卸载掉 —— 它已不在栈顶
+    firstCleanup()
+
+    ask({ requestId: 'x1', prompt: '咒语正文', mode: 'insert' })
+
+    assert.equal(second.calls.insert.length, 1, '没落到栈顶那个实例上')
+    assert.equal(first.calls.insert.length, 0, '落到了已卸载的实例上')
+    assert.equal(replies.length, 1)
+    assert.equal(replies[0].ok, true, '先挂的实例一卸载，通道就整条断了')
+  } finally {
+    env.restore()
+  }
+})
+
+test('只有一个实例时，它卸载后必须回落成 no-sink', () => {
+  const env = bootClient()
+  try {
+    const seat = env.panes.find((p) => p.id === 'spellbook-apply-seat')
+    seat.component({ inputActions: fakeInputActions() })
+    const [cleanup] = drainEffects(env)
+
+    const { ask, replies } = mountTab(env)
+    cleanup()
+    ask({ requestId: 'y1', prompt: '咒语正文', mode: 'insert' })
+
+    assert.equal(replies.length, 1)
+    assert.equal(replies[0].ok, false)
+    assert.equal(replies[0].reason, 'no-sink')
   } finally {
     env.restore()
   }

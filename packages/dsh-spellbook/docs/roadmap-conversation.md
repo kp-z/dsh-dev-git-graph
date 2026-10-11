@@ -205,9 +205,13 @@ inputActions = {
   失败比成功多留一秒（2.6s vs 1.6s），因为它更需要被看见。
 - 宿主入口：`src/plugin/client.js` 的 `handleApplyMessage()`。三重校验 —— 来源必须是侧边栏那个
   iframe（宿主页面上还有 300 多个同源的预览文档）、原点必须是本站、载荷形状必须对。
-- 那条**跨注册通道**：`spellbookFrame` 与 `composerSink` 两个模块级变量。侧边栏 tab 与
+- 那条**跨注册通道**：`spellbookFrame` 与 `composerSinks` 两个模块级变量。侧边栏 tab 与
   composer 槽位注册在树上两个互不相干的位置，却跑在同一个模块实例里 —— 原先以为这里要
   写一条外部总线，实际上不需要。这是本功能唯一一处隐式耦合，已写在代码注释里。
+  **`composerSinks` 是栈不是单个变量**：那个槽位是 session 作用域的，分屏或同时开着
+  两个会话就有两个实例；用单个变量时，任何一个卸载都会把 sink 置空，另一个明明还活着 ——
+  表现是「点应用回『没有会话』，可会话就开着」。栈是「谁在最后谁说话」，而切会话时
+  `actions` 变了、effect 重跑，当前那个会被重新推到栈顶，正好就该它说话。
 - composer 槽位 `spellbook-apply-seat` **不画任何东西**：它的全部价值是 props 里的 `inputActions`。
   在输入框旁边再摆一个按钮等于把同一件事做成两个入口，而那个入口只能列 slug、看不了东西。
 - 插入被拒会**重取一次 span 再试**（`captureInsertion()` → `insertText()` ×2），
