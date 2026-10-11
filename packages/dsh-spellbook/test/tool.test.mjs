@@ -158,6 +158,53 @@ test('注册到 tools 服务：名字、必填参数、以及能真的跑一遍'
   assert.equal(bad.found, false)
 })
 
+test('声明给模型看的输出契约，必须和实际返回的值对得上', async () => {
+  // 这条护的是一种不会报错的坏：schema 说有三个字段、实际返回四个（或反之）。
+  // 模型读的是 render 出的文本，但 DSH 侧还会按这份 schema 校验/投影结果 ——
+  // 对不上时不会有任何异常，只是模型拿到的和声明的不是一回事。
+  let registered = null
+  registerSpellbookTool(
+    { get: () => ({ register: (d) => { registered = d; return () => {} } }), effect: (fn) => fn() },
+    DIST,
+  )
+  assert.ok(registered)
+
+  const schema = registered.output.schema
+  const declared = Object.keys(schema.properties).sort()
+  const required = [...schema.required].sort()
+  assert.deepEqual(required, declared, 'schema.required 与 properties 对不上')
+
+  const value = await registered.execute({ query: 'neon-glow' })
+  assert.deepEqual(
+    Object.keys(value).sort(),
+    declared,
+    '返回值与 output.schema 声明的字段对不上（多一个或少一个都不会报错）',
+  )
+
+  const types = {
+    boolean: (v) => typeof v === 'boolean',
+    number: (v) => typeof v === 'number',
+    string: (v) => typeof v === 'string',
+    array: (v) => Array.isArray(v),
+  }
+  for (const key of declared) {
+    const kind = schema.properties[key].type
+    assert.equal(
+      types[kind](value[key]),
+      true,
+      `${key} 声明是 ${kind}，实际是 ${typeof value[key]}`,
+    )
+  }
+
+  // 参数契约同样要对得上：模型会按这个填参数
+  assert.equal(registered.parameters.type, 'object')
+  assert.deepEqual(registered.parameters.required, ['query'])
+  assert.deepEqual(
+    Object.keys(registered.parameters.properties).sort(),
+    ['category', 'query'],
+  )
+})
+
 test('没有 tools 服务时留一声，且不抛', () => {
   const warnings = []
   const original = console.warn
