@@ -42,12 +42,19 @@ function layout({ title, description, body, root, isSpell = false }) {
      被 DSH 侧边栏嵌进来时会多带两个参数：
        ?theme=dark|light  让书跟宿主明暗同步（优先于 localStorage，宿主说了算）
        ?embed=1           收起「书的封面」那截刊头 —— 在侧边栏里它是多余的壳，
-                          查词口与卡片开关留着（那是在任何地方都要用的东西） -->
+                          查词口与卡片开关留着（那是在任何地方都要用的东西）
+      embed 会记进 sessionStorage：站内跳转丢查询串，但嵌入这件事不该在第二页失效。 -->
 <script>try{
 var p=new URLSearchParams(location.search);
 var t=p.get('theme')||localStorage.getItem('spellbook:theme');
 if(t)document.documentElement.dataset.theme=t;
+/* embed 必须跨页记住：站内跳转（目录 → 条目页）是普通导航，查询串会被丢掉，
+   而丢掉 embed 就等于「书的封面」那截刊头在侧边栏里重新冒出来、明暗也不再跟宿主走——
+   那截刊头正是 embed 存在的理由。sessionStorage 按标签页/iframe 隔离，
+   所以另开一个标签页独立看站，不会被这里记住的 embed 污染。 */
 var embed=p.get('embed');
+if(embed){try{sessionStorage.setItem('spellbook:embed','1')}catch(e){}}
+else{try{embed=sessionStorage.getItem('spellbook:embed')}catch(e){}}
 var v=localStorage.getItem('spellbook:view');
 if(v)document.documentElement.dataset.view=v;
 else if(embed)document.documentElement.dataset.view='card';
@@ -134,7 +141,7 @@ function renderTabulaRow(entry, ordinal) {
     <span class="row-leader" aria-hidden="true"></span>
     <span class="row-when">${escapeHtml(entry.meta.when)}</span>
   </a>
-  <button class="row-copy" type="button" data-prompt="${escapeHtml(slug)}" aria-label="复制咒语：${title}">抄咒语</button>
+  <button class="row-copy" type="button" data-prompt="${escapeHtml(slug)}" data-prompt-url="spell/${encodeURIComponent(slug)}/prompt.txt" aria-label="复制咒语：${title}">抄咒语</button>
   <button class="row-peek" type="button" data-peek="${escapeHtml(slug)}" aria-label="放大预览：${title}">
     <iframe class="row-preview-doc" src="${href}demo.html" loading="lazy" sandbox="allow-scripts" tabindex="-1" title=""></iframe>
     <span class="row-peek-zoom" aria-hidden="true"></span>
@@ -444,6 +451,14 @@ export function renderSpell(entry, { ordinal, total, chapter }) {
     <div class="column">
       <h1 class="title">${escapeHtml(meta.title)}</h1>
       <p class="when"><span class="when-label">用于</span>${escapeHtml(meta.when)}</p>
+
+      <!-- 只在被侧边栏嵌进来时出现：自己开标签页看站时没有对话可应用，
+           按钮留着只会骗人。显隐交给 CSS 的 :root[data-embed]，与其余
+           嵌入态样式同一套判据，JS 这边不必再分叉。 -->
+      <div class="apply-bar">
+        <button class="apply" type="button" data-apply="${escapeHtml(meta.slug)}" data-apply-url="prompt.txt" data-apply-mode="insert">应用到对话</button>
+        <button class="apply apply-send" type="button" data-apply="${escapeHtml(meta.slug)}" data-apply-url="prompt.txt" data-apply-mode="send">应用并发送</button>
+      </div>
 
       <div class="desc">
 ${renderParagraphs(description)}

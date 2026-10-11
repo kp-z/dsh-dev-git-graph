@@ -1362,6 +1362,64 @@ html {
   border-color: currentColor;
 }
 
+/* 「应用到对话」。默认藏着：这按钮只在被侧边栏嵌进来时才有意义
+   （判据与其余嵌入态样式同一条 :root[data-embed]），自己开标签页看站时
+   没有对话可应用，露出来只会骗人。 */
+.apply-bar {
+  display: none;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+:root[data-embed] .apply-bar {
+  display: flex;
+}
+
+.apply {
+  padding: 7px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font: 400 0.78rem/1 var(--font-label);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.16s, border-color 0.16s;
+}
+
+.apply:hover,
+.apply:focus-visible {
+  border-color: var(--gilt);
+  color: var(--gilt-bright);
+}
+
+/* 「应用并发送」比「应用」重一档：发送不可撤销，而插入还能改。
+   但不做成实心 —— 这本书里没有一个实心按钮，忽然来一个会像是别人的界面。 */
+.apply-send {
+  border-color: var(--gilt);
+  color: var(--gilt-bright);
+}
+
+.apply.is-done {
+  color: var(--gilt-bright);
+  border-color: currentColor;
+}
+
+/* 失败必须看得见。这一路最常见的错就是「以为送过去了，输入框里却是空的」，
+   所以失败给红、给删除线，且比成功那句留得更久（见 site.js 的两档超时）。 */
+.apply.is-failed {
+  color: var(--rubric);
+  border-color: var(--rubric);
+  text-decoration: line-through;
+}
+
+.apply:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .code-body {
   margin: 0;
   padding: 16px 0;

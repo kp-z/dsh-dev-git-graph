@@ -44,6 +44,123 @@ window.__ModuleLoader__.load({
       } catch (e) { /* 未加载完时忽略 */ }
     }
 
+    // ============ 应用到对话 ============
+    //
+    // 站点（iframe 里那半边）够不着对话的输入框 —— 能碰到它的只有这里，
+    // 因为 composer 槽位的 props 里才有 inputActions。所以这条路上有两个端点：
+    //
+    //   站点 → 这里   {type:'spellbook:apply', requestId, prompt, mode}
+    //   这里 → 站点   {type:'spellbook:apply-result', requestId, ok, reason?}
+    //
+    // 回执是必须的：插入被拒在这个系统里是**常规**分支（草稿版本变了、正在提交、
+    // 压根没有会话），而这些都不该让站点那侧的按钮假装成功。
+    //
+    // 下面这两个模块级变量，就是侧边栏 tab 与 composer 槽位之间的那条通道 ——
+    // 两者注册在树上两个互不相干的位置，却跑在同一个模块实例里。
+    // 这是本功能唯一一处隐式耦合，所以单独写清楚：
+    //   spellbookFrame  侧边栏那个 iframe 的 window（用来认消息来源）
+    //   composerSink    由 composer 槽位挂上来的「把文本放进输入框」的能力
+    var spellbookFrame = null;
+    var composerSink = null;
+
+    var APPLY_MSG = "spellbook:apply";
+    var APPLY_RESULT_MSG = "spellbook:apply-result";
+
+    function replyToFrame(payload) {
+      if (!spellbookFrame) return;
+      try {
+        spellbookFrame.postMessage(payload, window.location.origin);
+      } catch (e) {
+        // 窗口没了就算了：站点那边每条请求都有超时兜底，
+        // 不会因为这一条回执丢了就一直转圈。
+      }
+    }
+
+    function handleApplyMessage(event) {
+      var data = event && event.data;
+      if (!data || data.type !== APPLY_MSG) return;
+
+      // 三重校验，缺一不可：
+      //   1. 来源必须是侧边栏那个 iframe。宿主页面上还嵌着 300 多个预览文档，
+      //      它们同样同源、同样能 postMessage，不能听错人。
+      //   2. 原点必须是本站。
+      //   3. 载荷形状必须对。「同源」不等于「可信」—— 站点里一个坏掉的脚本
+      //      照样能发出形状不对的消息；形状不对就直接拒，不猜、不兜底。
+      if (!spellbookFrame || event.source !== spellbookFrame) return;
+      if (event.origin !== window.location.origin) return;
+
+      var requestId = typeof data.requestId === "string" ? data.requestId : "";
+      var mode = data.mode === "send" ? "send" : "insert";
+
+      if (!requestId || typeof data.prompt !== "string" || !data.prompt) {
+        replyToFrame({
+          type: APPLY_RESULT_MSG, requestId: requestId, ok: false, reason: "bad-request"
+        });
+        return;
+      }
+
+      if (!composerSink) {
+        // 没有会话，或者输入框还没挂载。这是正常情况，不是错误 ——
+        // 照实回话，别静默，也别假装成功。
+        replyToFrame({
+          type: APPLY_RESULT_MSG, requestId: requestId, ok: false, reason: "no-sink"
+        });
+        return;
+      }
+
+      var ok = false;
+      try {
+        ok = !!composerSink(data.prompt, mode);
+      } catch (e) {
+        ok = false;
+      }
+      replyToFrame({
+        type: APPLY_RESULT_MSG,
+        requestId: requestId,
+        ok: ok,
+        reason: ok ? undefined : "rejected"
+      });
+    }
+
+    /**
+     * composer 左侧槽位。它**不画任何东西**，存在的唯一理由是：
+     * 这个槽位的 standard props 里有 inputActions，而那是唯一能把文本
+     * 放进输入框的门。
+     *
+     * 为什么不在这里画个按钮：真正的入口在侧边栏里 —— 那里能翻、能搜、
+     * 能看活预览。在输入框旁边再摆一个，等于把同一件事做成两个入口，
+     * 而那个入口只能列出一串 slug，看不了东西。
+     */
+    function SpellbookComposerSeat(props) {
+      var actions = props && props.inputActions;
+
+      React.useEffect(function () {
+        if (!actions) return undefined;
+
+        composerSink = function (text, mode) {
+          // insertText 是「一次可撤销的纯文本编辑」，但**只在草稿版本没变、
+          // 且编辑器允许编辑时**才生效，否则返回 false。捕获与插入之间理论上
+          // 没有别人动草稿的机会，但这是理论：用户可能正在用输入法，
+          // 上一次提交也可能还在飞。所以失败就重取一次新鲜的 span 再试，
+          // 仍失败才算真被拒 —— 一次就放弃会让「点了没反应」变成常态。
+          for (var attempt = 0; attempt < 2; attempt++) {
+            var span = actions.captureInsertion();
+            if (actions.insertText(text, span)) {
+              if (mode === "send") actions.submit();
+              return true;
+            }
+          }
+          return false;
+        };
+
+        return function () {
+          composerSink = null;
+        };
+      }, [actions]);
+
+      return null;
+    }
+
     function SpellbookView() {
       var frameRef = React.useRef(null);
       // URL 只在挂载时算一次：主题变化走 postMessage，不重载 iframe。
@@ -63,6 +180,10 @@ window.__ModuleLoader__.load({
         if (document.body) obs.observe(document.body, { attributes: true });
 
         if (frame) {
+          // 记下这个 iframe 的 window：「应用到对话」那条路靠它认消息来源。
+          // 同一个 iframe 里再跳页（目录 → 条目页）也是同一个 WindowProxy，
+          // 所以这个引用不会因为站内导航而失效。
+          spellbookFrame = frame.contentWindow;
           frame.addEventListener("load", push);
           // 已经载好了（缓存命中）就不会再有 load，补推一次
           try {
@@ -71,7 +192,10 @@ window.__ModuleLoader__.load({
         }
         return function () {
           obs.disconnect();
-          if (frame) frame.removeEventListener("load", push);
+          if (frame) {
+            frame.removeEventListener("load", push);
+            if (spellbookFrame === frame.contentWindow) spellbookFrame = null;
+          }
         };
       }, []);
 
@@ -150,6 +274,35 @@ window.__ModuleLoader__.load({
             { name: "tabsplit.pane", id: "spellbook-pane", order: 21, label: function () { return "咒语书"; } },
             function () { return React.createElement(SpellbookView, null); }
           );
+        });
+      }
+
+      // composer 左侧那个不画东西的槽位：只为拿到 inputActions。
+      // 它注册失败是**有可见后果**的（「应用」会一直回「没有会话」），
+      // 所以这里不照搬上面那个静默 catch —— 至少留一条 warn 给人查。
+      if (slots && slots.inject && slots.register) {
+        try {
+          slots.inject("conversation.input.left", function () {
+            return slots.register(
+              { name: "conversation.input.left", id: "spellbook-apply-seat", order: 30 },
+              SpellbookComposerSeat
+            );
+          });
+        } catch (e) {
+          console.warn("[dsh-spellbook] composer 槽位没挂上，「应用到对话」会一直回「没有会话」", e);
+        }
+      }
+
+      // 站点发来的应用请求。监听器只有这一个，所以放在 apply 里注册一次，
+      // 随插件一起 dispose —— 装在组件里会随挂载次数越挂越多。
+      window.addEventListener("message", handleApplyMessage);
+      if (ctx.effect) {
+        ctx.effect(function () {
+          return function () {
+            window.removeEventListener("message", handleApplyMessage);
+            spellbookFrame = null;
+            composerSink = null;
+          };
         });
       }
     }

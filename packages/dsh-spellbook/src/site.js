@@ -1,12 +1,13 @@
 /**
  * 咒语书 —— 页面行为
  *
- * 五件事，每件都尽量小：
+ * 六件事，每件都尽量小：
  *   1. 明暗切换（记住选择）
  *   2. 章目导航：滚动时高亮当前章
  *   3. 图版：参数 → iframe，重播
  *   4. 机制联动：描述里的机制短语 ↔ 代码里的机制行
  *   5. 抄录代码
+ *   6. 应用到 DSH 对话（只在这页被侧边栏嵌进来时才有）
  */
 
 const html = document.documentElement
@@ -588,19 +589,22 @@ function initSearch() {
 /**
  * 复制的是构建期生成的 prompt.txt，与「看这一条的全文」用的是同一份内容，
  * 所以复制到的不可能和页面上的不一致。
+ *
+ * 取哪个地址由模板写在 data-prompt-url 上，不在这里按 slug 拼：目录页与条目页
+ * 的相对深度不一样（`spell/<slug>/prompt.txt` 对 `prompt.txt`），在这儿拼就迟早
+ * 会在另一层深度上拼错一个前缀 —— 而拼错只表现为 404，不会有人当场发现。
  */
 function initPromptCopy() {
   document.addEventListener('click', async (event) => {
     const button = event.target.closest('[data-prompt]')
     if (!button) return
 
-    const slug = button.dataset.prompt
     const original = button.textContent
     button.disabled = true
     button.textContent = '取…'
 
     try {
-      const response = await fetch(`spell/${encodeURIComponent(slug)}/prompt.txt`, {
+      const response = await fetch(button.dataset.promptUrl, {
         cache: 'force-cache',
       })
       if (!response.ok) throw new Error(String(response.status))
@@ -617,6 +621,119 @@ function initPromptCopy() {
       button.disabled = false
       button.classList.remove('is-done')
     }, 1600)
+  })
+}
+
+/* ------------------------------------------------------- 应用到对话 */
+
+/**
+ * 把一条咒语送进 DSH 的输入框。
+ *
+ * 这一页嵌在侧边栏 iframe 里，自己够不着对话的输入框 —— 能碰到它的只有外层宿主
+ * （宿主那半边拿得到 composer 的 inputActions）。所以「应用」必须过一次 postMessage：
+ *
+ *   站点 → 宿主   {type:'spellbook:apply', requestId, prompt, mode}
+ *   宿主 → 站点   {type:'spellbook:apply-result', requestId, ok, reason?}
+ *
+ * 回执不是客气话，而是这条路上的**正常分支**：宿主拒绝插入很常见（草稿版本变了、
+ * 正在提交、这个会话压根没挂载输入框）。少了回执，按钮只能假装成功 ——
+ * 而「假装成功」正是这一类桥接最容易犯、也最难查的错：用户以为送过去了，
+ * 输入框里却是空的。所以每条请求带 requestId、回执按 id 对上，超时也算失败。
+ */
+
+const APPLY_TIMEOUT_MS = 4000
+
+/** 宿主拒绝的原因 → 按钮上那句话。查不到的原样透出来，别吞成一句笼统的失败。 */
+const APPLY_FAIL_TEXT = {
+  timeout: '宿主没应',
+  'no-sink': '没有会话',
+  rejected: '插入被拒',
+  'bad-request': '请求被拒',
+  fetch: '取咒语失败',
+}
+
+let applySeq = 0
+const pendingApplies = new Map()
+
+function requestApply(prompt, mode) {
+  return new Promise((resolve) => {
+    applySeq += 1
+    const requestId = `sp-${Date.now().toString(36)}-${applySeq}`
+
+    const timer = window.setTimeout(() => {
+      pendingApplies.delete(requestId)
+      resolve({ ok: false, reason: 'timeout' })
+    }, APPLY_TIMEOUT_MS)
+
+    pendingApplies.set(requestId, (result) => {
+      window.clearTimeout(timer)
+      pendingApplies.delete(requestId)
+      resolve(result)
+    })
+
+    // targetOrigin 写明确的原点，不用 '*'：宿主与这页同源，
+    // 用 '*' 等于把咒语正文广播给任何嵌了这一页的人。
+    window.parent.postMessage(
+      { type: 'spellbook:apply', requestId, prompt, mode },
+      window.location.origin
+    )
+  })
+}
+
+function initApply() {
+  // 自己开一个标签页看站时，没有对话可应用 —— 按钮留着只会骗人。
+  // 判 embed 而不是判按钮在不在：按钮是构建期写死的，这里才是运行期的真相。
+  if (!document.documentElement.dataset.embed) return
+  if (window.parent === window) return
+
+  window.addEventListener('message', (event) => {
+    const data = event.data
+    if (!data || data.type !== 'spellbook:apply-result') return
+    const settle = pendingApplies.get(data.requestId)
+    if (!settle) return
+    settle({
+      ok: data.ok === true,
+      reason: typeof data.reason === 'string' ? data.reason : undefined,
+    })
+  })
+
+  document.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-apply]')
+    if (!button || button.disabled) return
+
+    const mode = button.dataset.applyMode === 'send' ? 'send' : 'insert'
+    // 静止时那两个字由模板给（两处按钮文案不同），记下来是为了回得去
+    const idle = button.dataset.applyIdle || (button.dataset.applyIdle = button.textContent)
+
+    button.disabled = true
+    button.textContent = '送…'
+    button.classList.remove('is-done', 'is-failed')
+
+    let result
+    try {
+      const response = await fetch(button.dataset.applyUrl, { cache: 'force-cache' })
+      if (!response.ok) throw new Error(String(response.status))
+      result = await requestApply(await response.text(), mode)
+    } catch {
+      result = { ok: false, reason: 'fetch' }
+    }
+
+    button.textContent = result.ok
+      ? mode === 'send'
+        ? '已发送'
+        : '已进输入框'
+      : APPLY_FAIL_TEXT[result.reason] || '没送成'
+    button.classList.toggle('is-done', result.ok)
+    button.classList.toggle('is-failed', !result.ok)
+    button.disabled = false
+
+    window.setTimeout(
+      () => {
+        button.textContent = idle
+        button.classList.remove('is-done', 'is-failed')
+      },
+      result.ok ? 1600 : 2600
+    )
   })
 }
 
@@ -706,4 +823,5 @@ initSearch()
 initTagFilter()
 initEmbed()
 initPromptCopy()
+initApply()
 initPeek()
