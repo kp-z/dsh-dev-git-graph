@@ -1415,3 +1415,48 @@ img 必须有 `error` 监听器且处理器要真的移除节点、封面地址�
 **已发布**：`@kpeace/dsh-daily@0.3.4`
 
 **仍未验证**：真实宿主里的自动识别本身（那台需升级到 0.3.4 并重启）
+
+### R34 · 2026-10-12 22:49–23:40 — 真实宿主识别失败：修 + 加可观测
+
+**用户**：「http://10.21.103.15:19387/ 一直未识别项目识别失败」（该机已升级到 0.3.4）
+
+**从接口读到的事实**
+```
+project: {name: daily, dir: /root/.dsh/daily, isDefault: true, source: auto}
+projects: ▶ daily（默认）| isAuto: True
+```
+→ 版本已新（`source` 字段在），但**候选一个都没找到**（否则会切到会话 cwd）
+
+**主要嫌疑（已修）**
+`extractProjectDir` 原先只走 `Object.entries()` 泛走遍历 —— **它只看得见自有可枚举属性**。
+而 DSH 的 `Session` / `Workspace` 是类实例：`cwd` 很可能由私有字段（`#header`）+ 原型 getter 暴露，
+于是泛走**什么都看不到，而且不报错** → 候选恒为空 → 静默停在默认项目。
+**这与 0.3.3 那个 bug 是同一个主题的两个面：看不见（静默）比报错更难查。**
+
+**改动**
+1. `detect.ts` 新增 **16 条显式访问路径**（`cwd` / `header.cwd` / `meta.cwd` / `options.cwd` /
+   `session.header.cwd` / `workspacePath` / `workspace.path` / `path` / `root` …），
+   按 `a.b.c` **直接取值**（可穿透 getter，函数值还会调用），泛走降为兜底
+2. 泛走预算放宽：深度 3→4、节点 60→200（真实 session 对象可能很大）
+3. **诊断快照**：`currentProject().detect = { at, reason, changed, hosts, candidates, sample, sources }`
+   - `hosts` = 附着了几个宿主作用域（**0 就说明 inject 作用域压根没接上** —— 最该先看的一项）
+   - `sources` = 每个服务读到了几条
+   - `sample` = 候选目录 + **是从哪个路径探到的**（`/root ← sessions.header.cwd`）
+   暴露在 `/api/state` 里 → 我无需 shell 也能远程定位
+
+**证据**
+- `npm test` → **tests 310 / pass 310 / fail 0**（R33 基线 308 → 本轮 +2）
+- 新增关键测试（此修复的核心）：类实例用**私有字段 + 原型 getter** →
+  断言 `Object.entries(instance)` **返回空数组**（前提成立），而 `extractProjectDir` 仍能探到
+  （`/tmp/real-session`）；另覆盖非枚举 getter 对象
+- 新增诊断测试：三种失败/成功场景都要留下可读的 `detect`
+  （无宿主作用域 / 有作用域但读不到服务 / 读到会话但无可用户目录）
+- 一处旧断言因深度上限变化而更新：保留原意（**深层嵌套不该被探到**），边界值从 3 改为 5 层
+
+**已发布**：`@kpeace/dsh-daily@0.3.5`
+
+**下轮起点**：用户升级到 0.3.5 + 重启后，我读 `/api/state` 里的 `project.detect`：
+- `hosts: 0` → inject 作用域没接上（改接线）
+- `sources[].ok: false` → 服务读不到（换获取方式）
+- `candidates: 0` → 服务读到了但取不出 cwd（补访问路径）
+- `candidates > 0` 但 `changed: false` → 目录不可用（checkDir 拦掉了）

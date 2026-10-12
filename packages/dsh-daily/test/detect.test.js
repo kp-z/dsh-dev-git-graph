@@ -51,6 +51,33 @@ test('extractProjectDir：按键名权重取最可信的（cwd > path）', () =>
 	assert.equal(hit?.dir, '/tmp/more', 'cwd 比 path 可信')
 })
 
+test('extractProjectDir：**类实例上的 getter 也要能探到**（Object.entries 看不见原型属性）', () => {
+	// 这是"真实宿主里识别失败"最可能的原因：DSH 的 Session/Workspace 是类实例，
+	// 数据在私有字段 + 原型 getter 上 —— `Object.entries()` 返回空数组，
+	// 于是泛走遍历什么都看不到，而且不报错。必须靠按路径直接取值穿透。
+	class FakeSession {
+		// **私有字段**：这才是"泛走遍历看不见"的真实形态
+		// （用 this._header 是不行的 —— 那是自有可枚举属性，Object.entries 看得见）
+		#header
+		constructor(cwd) {
+			this.#header = { cwd }
+		}
+		get header() {
+			return this.#header
+		}
+		get id() {
+			return 'session-1'
+		}
+	}
+	assert.deepEqual(Object.entries(new FakeSession('/tmp/x')), [], '前提：私有字段 + 原型 getter 对 Object.entries 完全不可见')
+	assert.equal(extractProjectDir(new FakeSession('/tmp/real-session'))?.dir, '/tmp/real-session')
+
+	// 直接挂 getter 的对象（非枚举）同样要能拿到
+	const withGetter = {}
+	Object.defineProperty(withGetter, 'cwd', { get: () => '/tmp/getter-cwd', enumerable: false })
+	assert.equal(extractProjectDir(withGetter)?.dir, '/tmp/getter-cwd')
+})
+
 test('extractProjectDir：**不把消息正文里的路径当项目**（最常见的误报来源）', () => {
 	const likeRealSession = {
 		id: 'session-1',
@@ -68,8 +95,10 @@ test('extractProjectDir：坏输入、循环引用、超深嵌套都不会卡住
 	const cyc = { name: 'a' }
 	cyc.self = cyc
 	assert.doesNotThrow(() => extractProjectDir(cyc))
-	// 深度超限：4 层嵌套不该被探到（默认 3 层）
-	assert.equal(extractProjectDir({ a: { b: { c: { cwd: '/tmp/too-deep' } } } }), null)
+	// 深度有界：默认上限是 4 层，再深就**不该**被探到（否则一个深层字符串就能把项目带偏）
+	// 注：上限从 3 放宽到 4 是为了覆盖真实的会话嵌套（session.header.cwd 之类）
+	assert.equal(extractProjectDir({ a: { b: { c: { cwd: '/tmp/ok-deep' } } } })?.dir, '/tmp/ok-deep')
+	assert.equal(extractProjectDir({ a: { b: { c: { d: { e: { cwd: '/tmp/too-deep' } } } } } }), null)
 	// 节点预算：构造一个超宽的树，不能无限遍历
 	const wide = {}
 	for (let i = 0; i < 500; i++) wide['k' + i] = { x: i }
@@ -289,6 +318,41 @@ test('集成：多个宿主作用域会依次尝试（第一个拿不到就用�
 	const result = await service.autoDetect()
 	assert.equal(result.changed, true)
 	assert.match(result.from ?? '', /workspaceRegistry/)
+})
+
+test('集成：识别失败要留下**可远程读的诊断**（否则故障不可定位）', async (t) => {
+	const { service } = await makeService(t)
+	const before = service.currentProject().detect
+	assert.equal(before, null, '还没识别过时不该有诊断')
+
+	// 场景一：没有任何宿主作用域（inject 没附着上）—— 这是最需要能看出来的情况
+	await service.autoDetect()
+	const noHost = service.currentProject().detect
+	assert.ok(noHost, '失败也必须留下诊断')
+	assert.equal(noHost.hosts, 0)
+	assert.equal(noHost.candidates, 0)
+	assert.equal(noHost.changed, false)
+	assert.match(JSON.stringify(noHost.sources), /没有任何宿主作用域附着/)
+
+	// 场景二：有作用域但读不到服务
+	service.attachHost({})
+	await service.autoDetect()
+	const noService = service.currentProject().detect
+	assert.equal(noService.hosts, 1)
+	assert.equal(noService.candidates, 0)
+	assert.ok(noService.sources.some((x) => x.name === 'sessions' && x.ok === false))
+
+	// 场景三：读到了会话但没有可用目录
+	const proj2 = await mkdtemp(path.join(os.tmpdir(), 'dsh-detect-diag-'))
+	t.after(() => rm(proj2, { recursive: true, force: true }))
+	const withSession = new DailyService(resolveConfig({ dataDir: path.dirname(proj2) }), SILENT)
+	await withSession.init()
+	withSession.attachHost({ sessions: { list: () => [{ header: { cwd: proj2 } }] } })
+	await withSession.autoDetect()
+	const ok = withSession.currentProject().detect
+	assert.equal(ok.candidates, 1, '候选数要能看见')
+	assert.equal(ok.changed, true)
+	assert.match(ok.sample.join(' '), /header\.cwd/, '样本要说明候选是从哪个路径探到的')
 })
 
 test('集成：项目清单里标出 isAuto（界面据此显示"自动"）', async (t) => {

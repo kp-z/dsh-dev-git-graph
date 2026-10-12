@@ -49,6 +49,48 @@ function weightOf(key: string): number | null {
 	return null
 }
 
+/**
+ * **显式访问路径**（含 getter / 原型属性）。
+ *
+ * 为什么必须补这一层：`Object.entries()` 只看得到**自有可枚举属性**。
+ * 而 DSH 的 `Session` / `Workspace` 很可能是类实例 —— `cwd` 挂在原型上的 getter，
+ * 或者干脆藏在私有字段里。那种情况下泛走遍历**什么都看不到**，而且不报错。
+ * 这里按键路径直接取值，getter 也能触发。
+ */
+const ACCESS_PATHS: readonly string[] = [
+	'cwd',
+	'header.cwd',
+	'meta.cwd',
+	'options.cwd',
+	'session.cwd',
+	'session.header.cwd',
+	'workspace.cwd',
+	'workspacePath',
+	'workspace.path',
+	'header.workspacePath',
+	'path',
+	'root',
+	'dir',
+	'directory',
+	'projectDir',
+	'projectPath',
+]
+
+/** 按 `a.b.c` 路径取值；任一段是函数就调用它（getter 走属性访问自然会触发）。 */
+function getByPath(node: unknown, path: string): unknown {
+	let current: unknown = node
+	for (const key of path.split('.')) {
+		if (current === null || current === undefined) return undefined
+		try {
+			current = (current as Record<string, unknown>)[key]
+			if (typeof current === 'function') current = (current as () => unknown).call(node)
+		} catch {
+			return undefined
+		}
+	}
+	return current
+}
+
 export interface ExtractOptions {
 	/** 最大深度（默认 3）。 */
 	maxDepth?: number
@@ -62,8 +104,8 @@ export interface ExtractOptions {
  * 从一个宿主对象里探出目录。返回**最可信**的那一个（按键名权重），探不到返回 null。
  */
 export function extractProjectDir(candidate: unknown, options: ExtractOptions = {}): DetectedDir | null {
-	const maxDepth = options.maxDepth ?? 3
-	const maxNodes = options.maxNodes ?? 60
+	const maxDepth = options.maxDepth ?? 4
+	const maxNodes = options.maxNodes ?? 200
 	const prefix = options.prefix ?? ''
 	const seen = new Set<unknown>()
 	const found: DetectedDir[] = []
@@ -95,6 +137,15 @@ export function extractProjectDir(candidate: unknown, options: ExtractOptions = 
 		}
 	}
 
+	// 第一轮：显式路径（能穿透 getter/原型；类实例只有这一条路走得通）
+	for (const path of ACCESS_PATHS) {
+		const value = getByPath(candidate, path)
+		if (looksLikeAbsoluteDir(value)) {
+			return { dir: value.trim(), from: `${prefix}${path}`, weight: weightOf(path.split('.').pop() ?? path) ?? 50 }
+		}
+	}
+
+	// 第二轮：泛走（自有可枚举属性；覆盖普通对象字面量）
 	visit(candidate, '', 1)
 	if (found.length === 0) return null
 	// 权重高的优先；同权重取先探到的（浅层优先，更可能是"本体"）

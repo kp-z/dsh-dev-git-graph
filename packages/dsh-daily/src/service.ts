@@ -218,6 +218,22 @@ export class DailyService {
 	private projectSource: 'manual' | 'auto' = 'auto'
 	/** 上次自动识别的时间（节流：每一轮 prompt 都会触发一次探测，没必要每次都读盘）。 */
 	private lastDetectAt = 0
+	/**
+	 * 上次自动识别的**诊断快照**。
+	 *
+	 * 为什么要有它：识别失败时是**静默**的（候选为空 → 保持默认项目，日志也没话说）。
+	 * 而我拿不到那台机器的 shell（受限跳板），只能从插件接口看 —— 所以把"试了哪些来源、
+	 * 各找到几个候选、为什么没切"记下来，暴露在 /api/state 里，故障才可定位。
+	 */
+	private lastDetect: {
+		at: string
+		reason: string
+		changed: boolean
+		hosts: number
+		candidates: number
+		sample: string[]
+		sources: Array<{ name: string; ok: boolean; count: number; note?: string }>
+	} | null = null
 
 	private llmStream: StreamFn | null = null
 	private defaultRoute: (() => AiRoute | null) | null = null
@@ -533,6 +549,16 @@ export class DailyService {
 		dataDir: string
 		/** 这个项目是自动识别来的，还是用户手动指定的 —— 界面要显示出来，用户才知道为什么看到这些内容。 */
 		source: 'manual' | 'auto'
+		/** 上次识别的诊断（远程排查用：识别为什么没生效，看这里） */
+		detect: {
+			at: string
+			reason: string
+			changed: boolean
+			hosts: number
+			candidates: number
+			sample: string[]
+			sources: Array<{ name: string; ok: boolean; count: number; note?: string }>
+		} | null
 	} {
 		return {
 			dir: this.projectDir,
@@ -540,6 +566,7 @@ export class DailyService {
 			isDefault: isDefaultProject(this.root, this.projectDir),
 			dataDir: projectDataDir(this.root, this.projectDir),
 			source: this.projectSource,
+			detect: this.lastDetect,
 		}
 	}
 
@@ -569,21 +596,38 @@ export class DailyService {
 			return { changed: false, reason: describeChoice(null, true) }
 		}
 
-		const all = [...candidates, ...this.hostCandidates()]
+		const hostRead = this.hostCandidates()
+		const all = [...candidates, ...hostRead.items]
 		const detected: DetectedDir[] = collectDirs(all)
+		const snapshot = {
+			at: new Date().toISOString(),
+			reason: '',
+			changed: false,
+			hosts: this.hosts.length,
+			candidates: detected.length,
+			sample: detected.slice(0, 5).map((d) => `${d.dir} ← ${d.from}`),
+			sources: hostRead.sources,
+		}
+		this.lastDetect = snapshot
 		const pick = chooseProject({
 			current: this.projectDir,
 			manual: false,
 			candidates: detected,
 			usable: (dir) => checkDir(dir).ok,
 		})
-		if (!pick) return { changed: false, reason: describeChoice(null, false) }
+		if (!pick) {
+			const reason = describeChoice(null, false)
+			snapshot.reason = reason
+			return { changed: false, reason }
+		}
 
 		const switched = await this.useProject(pick.dir, { source: 'auto' })
 		if (!switched.ok) {
 			return { changed: false, reason: `识别到 ${pick.dir} 但切换失败：${switched.reason ?? '未知原因'}` }
 		}
 		const reason = describeChoice(pick, false)
+		snapshot.reason = reason
+		snapshot.changed = true
 		this.logger.info(`项目自动识别：${pick.dir}（${pick.from}）`)
 		return { changed: true, dir: pick.dir, from: pick.from, reason }
 	}
@@ -610,9 +654,16 @@ export class DailyService {
 	}
 
 	/** 从宿主服务收集候选（每一项都单独兜底，缺服务就当没有）。 */
-	private hostCandidates(): Array<{ value: unknown; from: string }> {
+	private hostCandidates(): {
+		items: Array<{ value: unknown; from: string }>
+		sources: Array<{ name: string; ok: boolean; count: number; note?: string }>
+	} {
 		const out: Array<{ value: unknown; from: string }> = []
-		if (this.hosts.length === 0) return out
+		const sources: Array<{ name: string; ok: boolean; count: number; note?: string }> = []
+		if (this.hosts.length === 0) {
+			// 这一条最关键：hosts=0 说明 inject 作用域压根没附着上
+			return { items: out, sources: [{ name: '(host)', ok: false, count: 0, note: '没有任何宿主作用域附着' }] }
+		}
 		/** 依次在每个作用域里试着取该服务；抛（未声明）就当没有，换下一个作用域。 */
 		const read = (name: string, pick: (svc: Record<string, unknown>) => unknown): void => {
 			for (const host of this.hosts) {
@@ -645,7 +696,12 @@ export class DailyService {
 			const list = typeof svc.list === 'function' ? (svc.list as () => unknown[])() : null
 			return Array.isArray(list) ? list.slice(-5).reverse() : null
 		})
-		return out
+		// 来源明细：把"哪个服务读到了几个"记下来
+		for (const name of ['sessions', 'workspaceRegistry']) {
+			const hit = out.find((item) => item.from === name)
+			sources.push({ name, ok: !!hit, count: Array.isArray(hit?.value) ? (hit.value as unknown[]).length : 0 })
+		}
+		return { items: out, sources }
 	}
 
 	/**
