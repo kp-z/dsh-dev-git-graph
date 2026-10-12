@@ -75,6 +75,19 @@
 - 顺带查明：宿主 `inject = ['tools','webServer']` 的 fail-loud 设计**是安全的** ——
   inject 不满足时条目是 `pending` 而不是 `failed`，而 `pending` 不会拖垮 boot
 
+**定向检索（调研链第④环）**
+- `POST /api/findings` / `daily_research({action:'run'})`：拿③生成的检索词**真去搜**，
+  结果落盘 `<项目>/findings.json`；每条结果都记住**是哪条检索词找到的**（可解释）
+- 两个通道：**HN Algolia** 与 **GitHub 搜索**（都是关键词驱动；YouTube/Google News 在多地不可达，不进关键路径）
+- 失败隔离：N 条词 × 2 通道的每一格失败只记进 `errors`，**绝不抛**；单请求超时用 AbortController
+- 三个实测出来的坑（都是"HTTP 200 但没有结果"这种安静失败）：
+  1. **中文检索词打英文语料** → 12 次请求全 200 却 0 条。现在显式过滤（记录 `skipped`）+
+     提示词里明确要求英文
+  2. **包名带 `@scope/` 与自然语言后缀** → GitHub 直接 422、HN 0 条。
+     `@ant-design/icons changelog release notes` 换成 `ant design icons` 后 HN 3 / GitHub 102
+  3. **预算算错**：早先 `maxQueries` 是先切片再过滤，预算被注定跳过的中文词吃掉 →
+     一个请求都不发。现在只把"通道认的词"计入预算
+
 **项目自动识别（默认开启）**
 - 插件会自己认出"你正在哪个项目"：**当前会话的 cwd**（每轮 prompt 装配时拿到，最准）→
   最近活跃的会话 → 工作区清单，逐级回退

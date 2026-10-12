@@ -346,7 +346,8 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 				'**默认复用上次结果**（画像没变就不重复花模型调用）；' +
 				'模型不可用或输出跑偏时**自动降级为确定性种子检索词**并在 notes 里说明原因，不会失败。',
 			parameters: {
-				force: { type: 'boolean', description: 'true 时忽略缓存重新生成（画像没变也会重算）。' },
+				action: { type: 'string', description: 'plan（默认，只生成检索词）| run（真去定向检索一轮）。' },
+				force: { type: 'boolean', description: 'true 时忽略缓存重新生成/重跑。' },
 				dir: { type: 'string', description: '针对指定目录生成；缺省用当前项目。' },
 			},
 			output: {
@@ -354,6 +355,25 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 				render: (_args, value) => [{ type: 'text', text: value }],
 			},
 			async execute(args) {
+				if ((args.action || '').trim() === 'run') {
+					const result = await service.runFindings({ force: args.force === true })
+					const lines = [
+						`定向检索完成：${result.findings.length} 条结果（发出 ${result.stats.requests} 次请求，成功 ${result.stats.ok}，失败 ${result.stats.failed}）`,
+						`检索词：${result.plan.queries.map((q) => q.query).join(' / ')}`,
+						'',
+					]
+					for (const f of result.findings.slice(0, 15)) {
+						const heat = f.stats ? Object.entries(f.stats).map(([k, v]) => `${k}=${v}`).join(' ') : ''
+						lines.push(`- ${f.title}`)
+						lines.push(`    ${f.url}`)
+						lines.push(`    来源 ${f.provider} · 由检索词「${f.query}」找到${heat ? ' · ' + heat : ''}`)
+					}
+					if (result.errors.length > 0) {
+						lines.push('', `失败 ${result.errors.length} 处（前 3 条）：`)
+						for (const e of result.errors.slice(0, 3)) lines.push(`- ${e}`)
+					}
+					return lines.join('\n')
+				}
 				const plan = await service.planResearch({
 					force: args.force === true,
 					dir: args.dir?.trim() ? args.dir.trim() : undefined,

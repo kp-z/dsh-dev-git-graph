@@ -21,6 +21,7 @@ import {
 	profileHash,
 	QUERY_MAX_CHARS,
 	diversifyByFamily,
+	depKeywords,
 	domainKeywords,
 	isDomainKeyword,
 } from '../lib/research.js'
@@ -153,6 +154,19 @@ test('diversifyByFamily：先每族 1 个，不够再放宽到每族 2 个', () 
 	assert.deepEqual(diversifyByFamily([], 3), [])
 })
 
+test('depKeywords：包名要变成能搜的关键词（实测 @scope/ 会让 GitHub 422、HN 0 条）', () => {
+	assert.equal(depKeywords('@ant-design/icons'), 'ant design icons')
+	assert.equal(depKeywords('react-dom'), 'react dom')
+	assert.equal(depKeywords('three'), 'three')
+	// 生成的依赖类检索词里不该再出现 @ 或 /
+	const queries = deterministicQueries(profile({ dependencies: ['@ant-design/icons', 'react-dom'] }))
+	const deps = queries.filter((q) => q.kind === 'dep').map((q) => q.query)
+	assert.ok(deps.length > 0)
+	for (const d of deps) {
+		assert.ok(!d.includes('@') && !d.includes('/'), `依赖检索词不该带 @ 或 /：${d}`)
+	}
+})
+
 test('isDomainKeyword：代码结构词/文件形态要被挡掉（真实联调里它们污染了检索词）', () => {
 	// 真实画像里抽出来的词（mvizlite）
 	for (const bad of ['src', 'pages', 'context', 'tech', 'test', 'build', 'scripts', 'lib', 'app', 'node', 'task.md', 'docs/readme', 'the', 'x']) {
@@ -172,7 +186,7 @@ test('deterministicQueries：真实画像的关键词不再产出"context 最新
 		profile({ keywords: ['context', 'pages', 'src', 'tech', '可视化', '回放'] }),
 	)
 	const kw = queries.filter((q) => q.kind === 'keyword').map((q) => q.query)
-	assert.deepEqual(kw, ['可视化 最新进展', '回放 最新进展'])
+	assert.deepEqual(kw, ['可视化', '回放'], '不要给领域词加中文后缀（英文通道会 0 条）')
 })
 
 test('deterministicQueries：limit 生效；极端空画像也不抛异常', () => {

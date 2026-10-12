@@ -124,6 +124,22 @@ const NON_DOMAIN_KEYWORDS = new Set([
 	'the', 'and', 'for', 'with', 'use', 'used', 'using', 'new', 'old', 'more', 'most', 'other',
 ])
 
+/**
+ * 把包名变成**检索关键词**：`@ant-design/icons` → `ant design icons`。
+ *
+ * 为什么要这层：检索通道是关键词匹配（HN Algolia / GitHub 搜索），
+ * 而包名带 `@scope/`、连字符、斜杠 —— 实测 `@ant-design/icons changelog release notes`
+ * 在 HN 是 0 条、在 GitHub 直接 422（非法字符）。去掉符号并展开连字符后命中率完全不同。
+ */
+export function depKeywords(name: string): string {
+	return name
+		.replace(/^@/, '')
+		.replace(/[/\\]+/g, ' ')
+		.replace(/[-_.]+/g, ' ')
+		.replace(/\s{2,}/g, ' ')
+		.trim()
+}
+
 /** 这个关键词值不值得拿去搜？（过滤结构词、文件形态、纯数字/符号） */
 export function isDomainKeyword(word: string): boolean {
 	const text = word.trim().toLowerCase()
@@ -202,7 +218,10 @@ export function deterministicQueries(
 	// **必须先过滤结构词**：画像抽到的高频词里混着 `src` / `pages` / `context` 这类
 	// 任何项目都会高频出现的词，拿它们拼检索词等于污染整条链的第一环。
 	for (const word of domainKeywords(profile.keywords, 4)) {
-		push(`${word} 最新进展`, 'keyword', `项目里的领域词「${word}」`)
+		// **不加中文后缀**：`experiment 最新进展` 这种混血词在英文通道（HN/GitHub）上
+		// 照样返回 0 条 —— 而且因为 ASCII 占比够高，还会绕过"中文词"过滤白白发出去。
+		// 纯词本身反而能命中（`typescript best practices` 实测 HN 3 / GitHub 2402）。
+		push(word, 'keyword', `项目里的领域词「${word}」`)
 	}
 	// 2) 依赖：查它们的版本动态。必须**按族去重** —— 真实项目里
 	// @ant-design/icons、@ant-design/plots、@ant-design/pro-components 连着排在前几位，
@@ -211,7 +230,10 @@ export function deterministicQueries(
 		(d) => !/^(@types\/|eslint|prettier|jest|vitest|mocha|typescript$)/.test(d),
 	)
 	for (const dep of diversifyByFamily(runtimeDeps, 3)) {
-		push(`${dep} changelog release notes`, 'dep', `项目依赖 ${dep}，查它的版本动态`)
+		// **短关键词，不要自然语言**：实测 `@ant-design/icons changelog release notes`
+		// 在 HN 返回 0 条、在 GitHub 直接 422（`@`/`/` 非法）；换成 `ant design icons`
+		// 则 HN 3 条、GitHub 102 条。检索通道吃的是关键词，不是句子。
+		push(depKeywords(dep), 'dep', `项目依赖 ${dep}，查它的项目与版本动态`)
 	}
 	// 3) 技术栈：最泛，兜底用
 	for (const lang of profile.languages.slice(0, 2)) {
@@ -236,6 +258,10 @@ export function buildResearchPrompt(
 		'3. 目标是"这个项目接下来会遇到的新知识"：依赖的版本变更、技术栈的官方实践、领域内的新方案。',
 		'4. 不要输出项目自己的名字；不要把项目里已有的实现当作待查问题。',
 		'5. 与项目相关，避免"人工智能最新进展"这类泛泛之词。',
+		// 实测教训：第一版没写这条，模型给的全是中文词，而检索通道（HN/GitHub）是英文语料
+		// —— 12 次请求全 200 却 0 条结果，且不报错。所以语言要求必须显式写进提示词。
+		'6. **用英文写检索词**（技术名词保持原样即可）：检索目标是 Hacker News 与 GitHub，都是英文语料；',
+		'   中文检索词在这两个通道上只会返回 0 条，且不会报错。',
 	].join('\n')
 
 	const deps = profile.dependencies.slice(0, 25).join(', ') || '（未发现）'

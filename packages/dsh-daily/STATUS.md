@@ -1227,3 +1227,50 @@ current: /root/.dsh/daily          ← 默认项目
   （当前读到的是旧版：`source` 字段还不存在，项目仍是 `daily`，条目 8）
 - 另：git 推送通道时好时坏 —— HTTPS 这次报 `HTTP2 framing layer` / `Recv failure`，
   最后用 SSH `git@github.com:...` 成功。以后推送按 HTTPS → ssh.github.com:443 → git@github.com 依次试。
+
+### R29 · 2026-10-12 20:06–21:00 — 第三波⑤：定向检索（**未安装**）
+
+**约束**：用户仍要求不本地安装 → 全程零安装，验证走单测 + dev-server（/tmp 数据目录）。
+
+**实现**：`src/retrieve.ts`（纯逻辑 + 可注入 fetch）
+- 两个通道：HN Algolia（`hn.algolia.com`）与 GitHub 搜索（`api.github.com/search/repositories`），
+  两者都是**关键词驱动**，实测可达。YouTube / Google News 在多地不可达，**不进关键路径**。
+- 每条结果带 `query` 字段（**是哪条检索词找到的**）—— 否则就退化成又一个新闻流
+- 失败隔离：N 条词 × 2 通道，任何一格失败只进 `errors`，**绝不抛**；单请求超时用 AbortController
+- 并发闸门手写（只有这一处用得上，不引依赖）
+- `service.runFindings/readFindings` + `GET|POST /api/findings` + `daily_research({action:'run'})`
+
+**本轮由真实检索驱动的三个修正（全是"HTTP 200 却 0 条"的安静失败）**
+| # | 现象 | 修正 |
+|---|---|---|
+| 1 | 12 次请求全 200、**0 条结果** | AI 给的是**中文检索词**，而 HN/GitHub 是英文语料。加 `acceptsQuery`（非 ASCII 占比 >0.4 就不打）并把 `skipped` 报给用户；提示词里明确要求英文 |
+| 2 | 换成英文后仍 0 条 | 种子词是**自然语言**：`@ant-design/icons changelog release notes` → HN **0** 条、GitHub **422**（`@`/`/` 非法）。改 `depKeywords`：包名 → 关键词（`ant design icons` → HN 3 / GitHub 102），`shapeQuery` 清掉 `@`、`/`、括号注释 |
+| 3 | 修完 2 后仍是 0 条 | **预算算错**：`maxQueries` 先切片再过滤，6 条预算被 3 条中文词吃掉，英文词排在后面根本没轮到。改为"只把通道认的词计入预算" |
+
+**证据（真实输出）**
+- 全量测试：`npm test` → **tests 298 / pass 298 / fail 0**（R28 基线 279 → 本轮 +19）
+- `tsc --noEmit` → 0 error
+- **真实端到端**（dev-server + 真实网络，项目 = mvizlite）：
+  ```
+  第一轮  结果 0 条 | 请求 12 成功 10 失败 2   ← 中文词的安静失败
+  第二轮  结果 0 条 | 请求  6 成功  6 失败 0 跳过 3
+  第三轮  结果 0 条 | 请求  6 成功  6 失败 0 跳过 3
+  第四轮  结果 46 条 | 请求 12 成功 12 失败 0 跳过 2   ← 通了
+  ```
+  第四轮样例（均为真实条目，且标注了命中的检索词）：
+  `[hn-algolia] Relicensing React, Jest, Flow… ← 「react」`、
+  `[hn-algolia] Node.js adds experimental support for TypeScript ← 「experiment」`
+- 单测覆盖（19 组）：解析容错（坏输入 → 空数组）、缺外链回落讨论页、URL 去重并合并命中词、
+  热度排序、**失败隔离**（GitHub 全挂时 HN 结果仍在）、网络异常/超时/无 fetch/空检索词、
+  并发受控但**不丢格**、语言过滤与预算只算可用词
+
+**诚实结论：机制通了，质量还不够（下轮起点）**
+第四轮 46 条里混着 `Honda conducts successful launch…`、`Pause Giant AI Experiments` 这类
+**明显不相干**的结果 —— 因为命中的检索词是 `react` / `experiment` 这种**过泛**的词：
+`experiment` 是结构词（没被 `NON_DOMAIN_KEYWORDS` 覆盖），`react` 是技术栈词但单独搜太泛。
+
+**下轮起点（按优先级）**：
+1. **检索词具体化**：领域词不要单独搜，要与项目/领域组合（如 `react` → 不搜；`state management` 才搜）；
+   继续扩充结构词黑名单（`experiment`/`portal`/`batch` 这类）
+2. 结果侧加一层**相关性筛**：命中词过于泛（单词、<4 字符、技术栈名）的条目降权
+3. 之后才是第三波⑥（回流项目 `docs/research/*.md`）与⑦（调研侧边栏视图）
