@@ -75,6 +75,17 @@
 - 顺带查明：宿主 `inject = ['tools','webServer']` 的 fail-loud 设计**是安全的** ——
   inject 不满足时条目是 `pending` 而不是 `failed`，而 `pending` 不会拖垮 boot
 
+**结果卡片：头图 + 中文介绍（用户：「结果卡片需要写清楚，最好配上头图和中文介绍」）**
+- 新增展示层 `src/present.ts`（纯函数，可测）：
+  - **头图** `thumbForFinding`：GitHub 仓库 → **owner 头像**（稳定、无第三方、无 token）；
+    其它来源 → **站点自己的 favicon**。刻意不用 Google/DDG 的 favicon 服务 ——
+    多一个第三方就多一个不可达的失败点（YouTube 封面的教训）。取不到就返回 `undefined`，
+    交给界面走**已钉住的占位块契约**，绝不给一个会变成破图的地址
+  - **中文介绍**：AI 写（`buildIntroPrompt` 要求严格 JSON 数组、一句中文、不许编造）；
+    拿不到 AI 或输出坏掉时走**确定性兜底**（用 ★star / 分数 / 讨论数等结构化事实拼一句中文），
+    并且用 `introSource: 'ai' | 'fallback'` **如实标明**，不冒充模型写的
+  - **来源中文名** `sourceLabel` + 命中检索词一并展示（保留可解释性）
+
 **调研章法：检索从"一堆词"变成"分维度的调研大纲"**
 - 用户意见：「链接到项目后需要根据项目搜索，**要有章法**」
 - 新增**维度模型**（`RESEARCH_DIMENSIONS`）：每个维度 = 一类问题 + **自己的预算**

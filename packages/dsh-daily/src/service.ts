@@ -53,6 +53,7 @@ import { collectProjectProfile, describeProfile, type ProjectProfile } from './p
 import { chooseProject, collectDirs, describeChoice, parseWorkspacePaths, type DetectedDir } from './detect.js'
 import { canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
 import { describeRetrieval, runRetrieval, type Finding, type RetrieveResult } from './retrieve.js'
+import { applyIntros, type PresentedFinding } from './present.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
 import type {
@@ -846,29 +847,35 @@ export class DailyService {
 	 * 没有检索词就先生成（工具/接口是幂等的：没计划也能直接跑）。
 	 * 整条路径不抛异常 —— 检索失败最多是"这轮没搜到"，不该让调研功能整体不可用。
 	 */
-	async runFindings(options: { force?: boolean } = {}): Promise<RetrieveResult & { plan: ResearchPlan }> {
+	async runFindings(options: { force?: boolean } = {}): Promise<Omit<RetrieveResult, 'findings'> & { findings: PresentedFinding[]; plan: ResearchPlan }> {
 		const plan = await this.planResearch({ force: options.force === true })
 		const result = await runRetrieval(plan.queries, {
 			// 宿主是 Node：直接用全局 fetch。将来若要走宿主的 web 服务，只需换这一处
 			fetch: typeof globalThis.fetch === 'function' ? (globalThis.fetch as never) : null,
 		})
+		// **展示层**：每条结果补上头图与中文介绍（用户要求"卡片要写清楚"）。
+		// AI 介绍这一步先不做（下一轮），现在全部走确定性兜底 —— 但卡片不会空着，
+		// 而且 `introSource` 会如实标出"这句是拼出来的"，不冒充模型写的。
+		const presented: PresentedFinding[] = applyIntros(result.findings, null)
+		const withPresentation = { ...result, findings: presented }
+
 		await this.store.writeJsonFile('findings.json', {
 			generatedAt: new Date().toISOString(),
 			planHash: plan.profileHash,
 			queries: plan.queries.map((q) => q.query),
-			...result,
+			...withPresentation,
 		})
 		this.logger.info(
 			`定向检索：${describeRetrieval(result)}${result.errors.length > 0 ? `（首个失败：${result.errors[0]}）` : ''}`,
 		)
-		return { ...result, plan }
+		return { ...withPresentation, plan }
 	}
 
 	/** 读取上次的检索结果（不自动重跑）。 */
-	async readFindings(): Promise<{ generatedAt: string; queries: string[]; findings: Finding[]; stats: RetrieveResult['stats']; errors: string[] } | null> {
+	async readFindings(): Promise<{ generatedAt: string; queries: string[]; findings: PresentedFinding[]; stats: RetrieveResult['stats']; errors: string[] } | null> {
 		const raw = await this.store.readJsonFile('findings.json')
 		if (!raw || typeof raw !== 'object') return null
-		return raw as { generatedAt: string; queries: string[]; findings: Finding[]; stats: RetrieveResult['stats']; errors: string[] }
+		return raw as { generatedAt: string; queries: string[]; findings: PresentedFinding[]; stats: RetrieveResult['stats']; errors: string[] }
 	}
 
 	/** 读取上次生成的检索词计划（不自动重建）。 */
