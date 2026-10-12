@@ -1168,3 +1168,51 @@ current: /root/.dsh/daily          ← 默认项目
 **本轮未做**：自动识别的实现（上下文预算不足，宁可下轮做完整，也不做一个未验证的半成品）。
 **下轮起点**：实现项目自动识别（按上表接 `agents` / `workspaceRegistry`），用
 `http://10.21.103.15:19387/` 做真实验证。
+
+### R28 · 2026-10-12 19:22–20:10 — 第三波④前置：**项目自动识别**（用户点名要的）
+
+**用户问题**：「为什么日报没有自动识别到项目」
+**诊断（R27）**：不是识别错了，而是该功能从未实现 —— 项目模型只有"默认 + 手动 + 记住上次"。
+**本轮**：把它实现完整。
+
+**实现（不依赖任何未知宿主类型）**
+1. `src/detect.ts`（纯函数，可单测）：`looksLikeAbsoluteDir` / `extractProjectDir` /
+   `collectDirs` / `chooseProject` / `describeChoice`
+   - **防御式探测**：宿主 `Session`/`Agent`/`Workspace` 拿不到编译期类型（那些包只发 JS），
+     硬写 `session.header.cwd` 换版本就**静默**变 undefined。改为按已知键名集合探，
+     并有边界：深度 ≤3、≤60 节点、只认绝对路径、
+     **不下探 `messages`/`content`/`text`**（路径出现在对话正文里是最常见的误报来源）
+2. 三个来源，逐级回退：**当前会话（每轮 prompt 装配的上下文，最准）** →
+   `sessions.list()` 最近活跃会话 → `workspaceRegistry.list()`
+3. **显式优先于推断**：注册表新增 `source: 'manual' | 'auto'`；`useProject` 默认记 manual，
+   自动识别那条路显式传 auto；`manual` 时 `autoDetect` 直接不动（含跨重启）
+4. **可见**：`currentProject()` / `/api/state` / `daily_project current` 都带 `source`；
+   清单带 `isAuto`；界面下拉标「（自动）」+ 悬停显示来源
+5. 出口：`daily_project({action:'follow'})` / `POST /api/projects {auto:true}` 交回自动
+6. 配置：`autoDetectProject`（默认 true，关掉即回到旧行为）
+7. 节流：prompt 每轮都会响，`notePromptContext` 5 秒内只探一次；切换是异步 fire-and-forget，
+   **绝不阻塞 prompt 装配**；整条链路每一处都各自兜底（探测失败不影响对话）
+
+**证据（真实输出）**
+- 全量测试：`npm test` → **tests 279 / pass 279 / fail 0**（R27 基线 258 → 本轮 +21）
+- `tsc --noEmit` → 0 error；`node --check web/app.js` → 通过
+- **API 闭环端到端**（dev-server，/tmp 数据目录）：
+  ```
+  1) 初始            root | source=auto | isDefault=True
+  2) 手动指定        ok=True | projA | source=manual
+     /api/state      projA | source=manual
+  3) 清单标记        ▶ projA  isAuto=False
+  4) {auto:true}     ok=True | source=auto | 识别结论: 没有找到可用的项目目录，保持当前项目
+  ```
+  第 4 步的"没有找到候选"是**正确行为**：dev-server 不提供 sessions/workspaceRegistry，
+  而"拿不到就不猜"正是设计。
+- 单测覆盖的边界（21 组）：相对路径/URL/超长值不算目录；消息正文里的路径**不**被当项目；
+  循环引用、超深嵌套、超宽对象、getter 抛异常都不崩；`cwd` 权重高于 `path`；
+  manual 时 autoDetect 不动（含**跨重启**）；配置关闭后不动；
+  目录不存在不切；`notePromptContext` 有节流且绝不抛；注册表 source 坏值回落 auto
+
+**未验证**：真实宿主里的识别效果（需要部署到用户指定的测试机
+`http://10.21.103.15:19387/` 并重启 —— 已确认该机 `10.21.103.15` 可达、SSH 22 开放、
+`~/.ssh/config` 里有 `devops.momenta.works` → `User root` 条目）
+
+**下轮起点**：部署到测试机验证真实识别 → 再做第三波⑤定向检索。

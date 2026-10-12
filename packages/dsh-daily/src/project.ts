@@ -40,10 +40,17 @@ export interface ProjectRegistry {
 	current: string | null
 	/** 已知项目（默认项目不在其中，它由数据根隐含）。 */
 	known: Array<{ dir: string; name: string; lastUsedAt: string }>
+	/**
+	 * 当前项目是**怎么来的**：`manual` = 用户手动选的，`auto` = 自动识别/默认。
+	 *
+	 * 这个字段是"显式优先于推断"的落点：`manual` 时自动识别不会覆盖，
+	 * 否则用户会遇到"我明明切过，又被它自己换回去了"。
+	 */
+	source?: 'manual' | 'auto'
 }
 
 export function defaultRegistry(): ProjectRegistry {
-	return { version: 1, current: null, known: [] }
+	return { version: 1, current: null, known: [], source: 'auto' }
 }
 
 /** 把 `~`、相对路径、结尾斜杠、`..` 统一成一个绝对路径。 */
@@ -131,6 +138,7 @@ export function touchProject(
 	root: string,
 	dir: string,
 	now: Date = new Date(),
+	source?: 'manual' | 'auto',
 ): ProjectRegistry {
 	const normalizedDir = normalizeDir(dir)
 	const iso = now.toISOString()
@@ -147,7 +155,7 @@ export function touchProject(
 	}
 	known.sort((a, b) => (a.lastUsedAt < b.lastUsedAt ? 1 : a.lastUsedAt > b.lastUsedAt ? -1 : 0))
 
-	return { version: registry.version, current: normalizedDir, known }
+	return { version: registry.version, current: normalizedDir, known, source: source ?? registry.source ?? 'auto' }
 }
 
 /** 读注册表时的容错：字段缺失/类型不对都回落默认，坏数据不能让插件起不来。 */
@@ -168,6 +176,8 @@ export function readRegistry(raw: unknown): ProjectRegistry {
 	}
 	return {
 		version: typeof source.version === 'number' ? source.version : 1,
+		// 只认这两个值：坏数据（比如手改成了 'foo'）一律按 auto，避免"永远不自动识别"
+		source: source.source === 'manual' ? 'manual' : 'auto',
 		current: typeof source.current === 'string' && source.current.trim() ? source.current : null,
 		known,
 	}

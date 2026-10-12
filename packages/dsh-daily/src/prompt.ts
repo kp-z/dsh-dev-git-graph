@@ -37,6 +37,14 @@ interface SystemPromptLike {
 export interface PromptSectionOptions {
 	maxItems: number
 	logger?: { warn(message: string): void }
+	/**
+	 * 每次渲染 section 时被调用，带上**宿主给的装配上下文**。
+	 *
+	 * 这个回调是项目自动识别的主入口：它每一轮都会响，而上下文里带的是
+	 * **当前会话**（含 cwd）—— 比"启动时读一次工作区列表"准确得多。
+	 * 实现里必须同步、极轻、且绝不抛（渲染失败会让整段 prompt 出问题）。
+	 */
+	onRender?: (context: unknown) => void
 }
 
 export function installPromptSection(
@@ -73,7 +81,15 @@ export function installPromptSection(
 			disposeSection = systemPrompt.section({
 				name: SECTION_NAME,
 				order: SECTION_ORDER,
-				text: () => state.text,
+				text: (context: unknown) => {
+					// 顺手把宿主上下文交给自动识别；**包起来**是因为这里抛异常会污染 prompt 装配
+					try {
+						options.onRender?.(context)
+					} catch {
+						/* 识别失败与"日报注入"无关，绝不影响 */
+					}
+					return state.text
+				},
 			})
 		} else {
 			options.logger?.warn('宿主没有提供 systemPrompt.section，日报不会主动注入到对话里。')

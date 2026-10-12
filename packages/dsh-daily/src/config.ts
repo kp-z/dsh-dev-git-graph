@@ -102,6 +102,14 @@ export const DailyConfig = z.object({
 	aiSummaryMaxItems: z.number().default(20),
 
 	/** 并发数。推理模型并发太高只会集体撞限流。 */
+	/**
+	 * 自动识别当前项目（默认开启）。
+	 *
+	 * 开启后：插件会从宿主上下文（当前会话的 cwd / 工作区）推断项目目录并自动切换；
+	 * **用户手动选过的项目不会被覆盖**，除非他去点"回到自动跟随"。
+	 * 关掉它就完全按手动来，行为与旧版一致。
+	 */
+	autoDetectProject: z.boolean().default(true),
 	aiSummaryConcurrency: z.number().default(3),
 
 	/**
@@ -201,6 +209,7 @@ export function resolveConfig(config: Partial<DailyConfig> = {}): DailyConfig {
 		aiSummaryProvider: config.aiSummaryProvider ?? '',
 		aiSummaryModel: config.aiSummaryModel ?? '',
 		aiSummaryMaxItems: config.aiSummaryMaxItems ?? 20,
+		autoDetectProject: config.autoDetectProject ?? true,
 		aiSummaryConcurrency: config.aiSummaryConcurrency ?? 3,
 		aiSummaryMaxTokens: config.aiSummaryMaxTokens ?? 1024,
 		aiSummaryTimeoutMs: config.aiSummaryTimeoutMs ?? 20000,

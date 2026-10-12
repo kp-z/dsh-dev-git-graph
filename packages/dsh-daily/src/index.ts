@@ -82,6 +82,14 @@ function applyInner(ctx: Context, config: Partial<DailyConfig>): void {
 	const service = new DailyService(settings, logger)
 
 	ctx.inject(['tools', 'webServer'], (host) => {
+		// 自动识别要读"当前会话/工作区"，先把宿主 ctx 交给 service（拿不到就保持默认项目）
+		try {
+			service.attachHost(host)
+		} catch (error) {
+			logger.warn(
+				`把宿主上下文交给自动识别失败（其降级为关闭）：${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
 		void bootstrap(host, service, settings, logger)
 	})
 }
@@ -123,6 +131,15 @@ async function bootstrapInner(
 		return
 	}
 
+	// ---- 项目自动识别（先来一次，让侧边栏首屏就是"当前项目"的数据）----
+	try {
+		const detected = await service.autoDetect()
+		if (detected.changed) logger.info(`项目自动识别：已切到 ${detected.dir}（来源 ${detected.from}）`)
+		else logger.info(`项目自动识别：${detected.reason}`)
+	} catch (error) {
+		logger.warn(`项目自动识别失败（保持当前项目）：${error instanceof Error ? error.message : String(error)}`)
+	}
+
 	// ---- HTTP 路由：侧边栏网页 + 接口 ----
 	try {
 		const webServer = (host as unknown as { webServer: WebServerLike }).webServer
@@ -150,6 +167,8 @@ async function bootstrapInner(
 			const disposePrompt = installPromptSection(host, service, {
 				maxItems: settings.announceMaxItems,
 				logger,
+				// 每轮装配都带上"当前会话"的上下文 —— 这是自动识别最准的来源
+				onRender: (context) => service.notePromptContext(context),
 			})
 			host.effect(() => disposePrompt)
 		} catch (error) {

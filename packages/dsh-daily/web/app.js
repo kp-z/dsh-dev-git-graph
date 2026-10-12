@@ -1126,13 +1126,17 @@
     state.projects.forEach(function (p) {
       var opt = document.createElement('option');
       opt.value = p.dir;
-      opt.textContent = p.name + (p.isDefault ? '' : ' · ' + p.dir.split('/').slice(-2).join('/'));
+      // 自动识别来的项目要标出来：否则用户不知道"为什么它自己换了"
+      var autoMark = p.isAuto ? '（自动）' : '';
+      opt.textContent = p.name + autoMark + (p.isDefault ? '' : ' · ' + p.dir.split('/').slice(-2).join('/'));
       if (state.project && state.project.dir === p.dir) opt.selected = true;
       select.appendChild(opt);
     });
     el.projectbar.classList.toggle('is-scoped', !!(state.project && !state.project.isDefault));
     el.projectbar.title = state.project
-      ? '当前项目：' + state.project.dir + '\n数据目录：' + state.project.dataDir
+      ? '当前项目：' + state.project.dir +
+        '\n来源：' + (state.project.source === 'manual' ? '手动指定（自动识别不会覆盖）' : '自动识别') +
+        '\n数据目录：' + state.project.dataDir
       : '';
   }
 

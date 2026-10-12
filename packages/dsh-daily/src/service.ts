@@ -48,6 +48,7 @@ import { builtinFeedSpecs } from './collect/sources.js'
 import { pickDiverse, renderBrief, renderDigest } from './render.js'
 import { mergeDayItems, mergeSourceStates } from './merge.js'
 import { collectProjectProfile, describeProfile, type ProjectProfile } from './profile.js'
+import { chooseProject, collectDirs, describeChoice, type DetectedDir } from './detect.js'
 import { canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
@@ -203,6 +204,13 @@ export class DailyService {
 	private inflight: Promise<RefreshSummary> | null = null
 	private readonly listeners = new Set<() => void>()
 	/** 由 index.ts 在拿到 ctx.llm 后注入；null = 宿主没提供 llm 或功能关闭。 */
+	/** 宿主 ctx（用于读会话/工作区做项目自动识别）；拿不到就保持 null。 */
+	private host: unknown = null
+	/** 当前项目的来源：manual = 用户手动选的，auto = 自动识别/默认。 */
+	private projectSource: 'manual' | 'auto' = 'auto'
+	/** 上次自动识别的时间（节流：每一轮 prompt 都会触发一次探测，没必要每次都读盘）。 */
+	private lastDetectAt = 0
+
 	private llmStream: StreamFn | null = null
 	private defaultRoute: (() => AiRoute | null) | null = null
 	private lastAiRun: AiRunStats | null = null
@@ -228,6 +236,8 @@ export class DailyService {
 		// 否则一个失效路径会让插件再也打不开。
 		const restored = registry.current && checkDir(registry.current).ok ? normalizeDir(registry.current) : this.root
 		this.projectDir = restored
+		// 恢复"来源"：manual 时自动识别不覆盖（显式优先于推断）
+		this.projectSource = registry.source === 'manual' ? 'manual' : 'auto'
 		this.store = new DailyStore(projectDataDir(this.root, restored))
 		await this.store.init()
 		if (restored !== normalizeDir(registry.current ?? '')) {
@@ -508,13 +518,133 @@ export class DailyService {
 	}
 
 	/** 当前项目。 */
-	currentProject(): { dir: string; name: string; isDefault: boolean; dataDir: string } {
+	currentProject(): {
+		dir: string
+		name: string
+		isDefault: boolean
+		dataDir: string
+		/** 这个项目是自动识别来的，还是用户手动指定的 —— 界面要显示出来，用户才知道为什么看到这些内容。 */
+		source: 'manual' | 'auto'
+	} {
 		return {
 			dir: this.projectDir,
 			name: projectName(this.projectDir),
 			isDefault: isDefaultProject(this.root, this.projectDir),
 			dataDir: projectDataDir(this.root, this.projectDir),
+			source: this.projectSource,
 		}
+	}
+
+	/** 宿主 ctx 到手后告诉 service —— 自动识别需要它去读会话/工作区。 */
+	attachHost(host: unknown): void {
+		this.host = host
+	}
+
+	/**
+	 * 自动识别当前项目。
+	 *
+	 * 候选来源（按可信度排序，全部"探不到就当没有"，任何一步失败都不影响主流程）：
+	 * 1. 调用方直接给的上下文（最准：**当前会话**的 cwd）
+	 * 2. 宿主 `sessions.list()`：最近活跃的会话
+	 * 3. 宿主 `workspaceRegistry.list()`：工作区清单
+	 *
+	 * **显式优先**：用户手动选过的项目不会被覆盖（结论见 detect.chooseProject）。
+	 */
+	async autoDetect(
+		candidates: Array<{ value: unknown; from: string }> = [],
+	): Promise<{ changed: boolean; dir?: string; from?: string; reason: string }> {
+		if (!this.config.autoDetectProject) {
+			return { changed: false, reason: '自动识别已在配置里关闭（autoDetectProject=false）' }
+		}
+		if (this.projectSource === 'manual') {
+			return { changed: false, reason: describeChoice(null, true) }
+		}
+
+		const all = [...candidates, ...this.hostCandidates()]
+		const detected: DetectedDir[] = collectDirs(all)
+		const pick = chooseProject({
+			current: this.projectDir,
+			manual: false,
+			candidates: detected,
+			usable: (dir) => checkDir(dir).ok,
+		})
+		if (!pick) return { changed: false, reason: describeChoice(null, false) }
+
+		const switched = await this.useProject(pick.dir, { source: 'auto' })
+		if (!switched.ok) {
+			return { changed: false, reason: `识别到 ${pick.dir} 但切换失败：${switched.reason ?? '未知原因'}` }
+		}
+		const reason = describeChoice(pick, false)
+		this.logger.info(`项目自动识别：${pick.dir}（${pick.from}）`)
+		return { changed: true, dir: pick.dir, from: pick.from, reason }
+	}
+
+	/**
+	 * 回到"自动跟随"模式，并立刻识别一次。
+	 *
+	 * 用户手动选过项目后，只有显式调它才会把控制权交回自动识别 ——
+	 * 这就是"显式优先于推断"的出口，避免自动识别把用户的选择悄悄顶掉。
+	 */
+	async followAuto(): Promise<{
+		project: ReturnType<DailyService['currentProject']>
+		detected: { changed: boolean; dir?: string; from?: string; reason: string }
+	}> {
+		const registry = await this.readRegistryFile()
+		if (registry.source !== 'auto') {
+			await this.writeRegistryFile({ ...registry, source: 'auto' })
+		}
+		this.projectSource = 'auto'
+		this.lastDetectAt = 0
+		const detected = await this.autoDetect()
+		this.emit()
+		return { project: this.currentProject(), detected }
+	}
+
+	/** 从宿主服务收集候选（每一项都单独兜底，缺服务就当没有）。 */
+	private hostCandidates(): Array<{ value: unknown; from: string }> {
+		const out: Array<{ value: unknown; from: string }> = []
+		const host = this.host as { get?: (name: string) => unknown } | null
+		if (!host || typeof host.get !== 'function') return out
+		const read = (name: string, pick: (svc: Record<string, unknown>) => unknown): void => {
+			try {
+				const svc = host.get?.(name)
+				if (!svc || typeof svc !== 'object') return
+				const value = pick(svc as Record<string, unknown>)
+				if (value) out.push({ value, from: name })
+			} catch {
+				/* 服务不存在/不可用都当作没有 */
+			}
+		}
+		// 会话：list() 返回的数组顺序即"活跃度"，只探最近几个，别整表遍历
+		read('sessions', (svc) => {
+			const list = typeof svc.list === 'function' ? (svc.list as () => unknown[])() : null
+			return Array.isArray(list) ? list.slice(-5).reverse() : null
+		})
+		read('workspaceRegistry', (svc) => {
+			const list = typeof svc.list === 'function' ? (svc.list as () => unknown[])() : null
+			return Array.isArray(list) ? list.slice(-5).reverse() : null
+		})
+		return out
+	}
+
+	/**
+	 * 每轮 prompt 装配时被调用（同步、极轻）：把**当前会话的上下文**喂给自动识别。
+	 *
+	 * 用节流是因为这个钩子每一轮都会响，而会话目录不会每轮都变；
+	 * 真正的切换是异步的（要写注册表），这里 fire-and-forget，绝不阻塞 prompt 装配。
+	 */
+	notePromptContext(context: unknown): Promise<void> {
+		if (!this.config.autoDetectProject || this.projectSource === 'manual') return Promise.resolve()
+		const now = Date.now()
+		if (now - this.lastDetectAt < 5000) return Promise.resolve()
+		this.lastDetectAt = now
+		// 返回值只是给测试/排查用的：调用方（prompt 渲染）可以直接忽略，
+		// 它 fire-and-forget 的语义不变 —— 但"有没有还在跑的识别"从此可观察
+		return this.autoDetect([{ value: context, from: 'prompt' }])
+			.then(() => undefined)
+			.catch(() => {
+				/* 探测失败绝不影响对话 */
+			})
 	}
 
 	/**
@@ -603,6 +733,8 @@ export class DailyService {
 			...entry,
 			// 标记当前项目，界面直接用
 			isCurrent: normalizeDir(entry.dir) === this.projectDir,
+			// 当前项目是否"自动识别来的" —— 界面要显示，用户才知道为什么看到这些内容
+			isAuto: normalizeDir(entry.dir) === this.projectDir && this.projectSource === 'auto',
 		}))
 		return { current: this.projectDir, projects: projects as ProjectEntry[] }
 	}
@@ -613,15 +745,21 @@ export class DailyService {
 	 * 只切"数据放在哪"，**不切换别的东西**：镜像池照旧复用，
 	 * 每个项目自己的 prefs/meta/轮转状态都在它自己的数据目录里，互不影响。
 	 */
-	async useProject(dir: string): Promise<{ ok: boolean; reason?: string; project?: ReturnType<DailyService['currentProject']> }> {
+	async useProject(
+		dir: string,
+		options: { source?: 'manual' | 'auto' } = {},
+	): Promise<{ ok: boolean; reason?: string; project?: ReturnType<DailyService['currentProject']> }> {
 		const check = checkDir(dir)
 		if (!check.ok) return { ok: false, reason: check.reason }
 		const normalized = normalizeDir(dir)
+		// 直接调用（工具/界面/API）默认视为**用户手动指定** —— 只有自动识别那条路会显式传 auto
+		const source = options.source ?? 'manual'
 
 		const registry = await this.readRegistryFile()
-		const next = touchProject(registry, this.root, normalized)
+		const next = touchProject(registry, this.root, normalized, new Date(), source)
 		await this.writeRegistryFile(next)
 
+		this.projectSource = source
 		this.projectDir = normalized
 		this.store = new DailyStore(projectDataDir(this.root, normalized))
 		await this.store.init()

@@ -425,10 +425,12 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 			description:
 				'管理「项目」（**一个项目 = 一个工作目录**）。每个项目有独立的主题偏好、索引与反馈 —— ' +
 				'给 A 项目调的"多推 Rust"不会污染 B 项目。' +
-				'action=list 看已知项目；action=current 看当前；action=use 切换（传 dir）。' +
-				'做与某个代码库相关的调研前，先用 action=use 切到它的目录。**切换会写注册表**。',
+				'action=list 看已知项目；action=current 看当前；action=use 切换（传 dir）；' +
+				'action=follow 交回自动跟随。' +
+				'**默认是自动识别的**：插件会从当前会话/工作区推断项目并自动切换；' +
+				'一旦你用 action=use 手动指定，自动识别就不再覆盖它（想恢复用 action=follow）。',
 			parameters: {
-				action: { type: 'string', required: true, description: 'list | current | use' },
+				action: { type: 'string', required: true, description: 'list | current | use | follow' },
 				dir: { type: 'string', description: 'action=use 时的项目工作目录（支持 ~/，必须是已存在的目录）。' },
 			},
 			output: {
@@ -443,6 +445,16 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 						`当前项目：${p.name}`,
 						`- 工作目录：${p.dir}`,
 						`- 数据目录：${p.dataDir}${p.isDefault ? '（默认项目 = 数据根）' : ''}`,
+						`- 来源：${p.source === 'manual' ? '用户手动指定（自动识别不会覆盖）' : '自动识别'}`,
+					].join('\n')
+				}
+				if (action === 'follow') {
+					const followed = await service.followAuto()
+					const p = followed.project
+					return [
+						`已交回自动跟随，当前项目：${p.name}`,
+						`- 工作目录：${p.dir}`,
+						`- 本次识别：${followed.detected.reason}`,
 					].join('\n')
 				}
 				if (action === 'list') {
@@ -462,7 +474,7 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 					if (!result.ok) throw new Error(`切换失败：${result.reason}`)
 					const p = result.project!
 					return [
-						`已切换到项目「${p.name}」`,
+						`已切换到项目「${p.name}」（已记为**手动指定**，自动识别不会再覆盖它）`,
 						`- 工作目录：${p.dir}`,
 						`- 数据目录：${p.dataDir}`,
 						'',

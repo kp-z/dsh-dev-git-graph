@@ -75,6 +75,18 @@
 - 顺带查明：宿主 `inject = ['tools','webServer']` 的 fail-loud 设计**是安全的** ——
   inject 不满足时条目是 `pending` 而不是 `failed`，而 `pending` 不会拖垮 boot
 
+**项目自动识别（默认开启）**
+- 插件会自己认出"你正在哪个项目"：**当前会话的 cwd**（每轮 prompt 装配时拿到，最准）→
+  最近活跃的会话 → 工作区清单，逐级回退
+- **显式优先于推断**：手动选过项目后自动识别不再覆盖（`daily_project({action:'follow'})`
+  或 `POST /api/projects {auto:true}` 可交回自动）
+- **可见**：项目下拉标出「（自动）」，悬停显示来源与数据目录；`/api/state` 与工具输出都带 `source`
+- **拿不到就不猜**：探不到目录 / 目录不存在 → 保持当前项目
+- 关闭开关：配置 `autoDetectProject: false`
+- 实现上用**防御式探测**而不是硬编码字段路径：宿主内部对象没有编译期类型，
+  硬写 `session.header.cwd` 换版本就静默变 `undefined`；探测有严格边界
+  （深度 ≤3、≤60 节点、只认绝对路径、**不下探消息正文**以免把对话里的路径当项目）
+
 **调研：检索词（调研链的入口）**
 - `daily_research` 工具 / `GET|POST /dsh-daily/api/research`：从项目画像推出"该去搜什么"，
   落盘 `<项目>/research-plan.json`；**画像指纹没变就复用**（不重复花模型调用）

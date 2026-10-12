@@ -208,8 +208,13 @@ async function handleApi(
 				}
 				if (req.method === 'POST') {
 					const body = await readJsonBody(req)
+					// POST { auto: true } = 交回自动识别（并立刻识别一次）
+					if (body.auto === true) {
+						const followed = await service.followAuto()
+						return sendJson(res, 200, { ok: true, project: followed.project, detected: followed.detected })
+					}
 					if (typeof body.dir !== 'string' || !body.dir.trim()) {
-						return sendJson(res, 400, { ok: false, error: '需要 dir（项目工作目录的绝对路径）' })
+						return sendJson(res, 400, { ok: false, error: '需要 dir（项目工作目录的绝对路径）或 auto' })
 					}
 					const result = await service.useProject(body.dir)
 					if (!result.ok) return sendJson(res, 200, { ok: false, error: result.reason })
