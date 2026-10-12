@@ -206,7 +206,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply;
-    exports.inject = ["slots", "betterSidebar"];
+    exports.inject = ['@deepseek-ai/dsh-client-ui-slots', 'dsh-better-sidebar'];
     return module.exports;
   },
 });

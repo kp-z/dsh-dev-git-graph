@@ -60,11 +60,41 @@ function currentDirName() {
 		const patch = readFileSync(patchFile, 'utf8')
 		// 取我们那一段 insert：`- insert:` 与 `- id: daily` / `name: X` 相邻
 		const block = patch.match(/- insert:\s*\n\s*- id:\s*daily\s*\n\s*name:\s*([^\s#]+)/)
-		if (block?.[1]) return block[1].trim()
+		// YAML 里以 @ 开头的包名必须带引号（否则解析失败）—— 读回来时要把引号去掉，
+		// 否则会建出一个名字literally带引号的目录（实测踩过）
+		if (block?.[1]) return block[1].trim().replace(/^["']|["']$/g, '')
 	} catch {
 		/* 没有 patch 文件就走默认名 */
 	}
+	// 没有 patch 可跟随 → 用**包名**（必须与 DSH 客户端模块清单的 id 对齐）
+	try {
+		const pkg = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+		if (typeof pkg.name === 'string' && pkg.name.trim()) return pkg.name.trim()
+	} catch {
+		/* 落到最底下的兜底 */
+	}
 	return PACKAGE_NAME
+}
+
+/**
+ * 安装目录名 = 包名（作用域包落到 `node_modules/@scope/name`）。
+ *
+ * 踩过的大坑（真实 GUI 复验才暴露）：早先目录名固定用 `dsh-daily` 这种短名，
+ * 而 `package.json` 的 `name` 是 `@kpeace/dsh-daily`。host 半体照常加载（它按目录解析），
+ * 但 **DSH 组装客户端模块清单时用的是包名** —— `window.__DSH_BOOT__.entries[].id` 就是包名
+ * （例如 `@linxin666/dsh-client-ui-git-graph`）。两边对不上时，客户端模块被**静默跳过**：
+ * 右侧栏 tab 永远不出现，而 host 侧一切正常（`/dsh-daily/` 依然 200）。
+ * 所以目录名与 patch 里的 name 都必须等于包名。
+ */
+/**
+ * 写进 YAML 的标量。**以 `@` 开头的包名必须加引号** ——
+ * YAML 里 `@` 是保留指示符，裸标量不能以它开头；`name: @scope/pkg` 会直接解析失败，
+ * 于是整个 profile 的 patch 加载不了（实测：dsh 起不来，报 `bad indentation of a mapping entry`）。
+ * 这个坑在真实 GUI 复验时才暴露，而不是在单测里 —— 因为坏的是 YAML，不是代码。
+ */
+function yamlScalar(value) {
+	const needsQuote = /^[@`\-?:,[\]{}#&*!|>'"%]/.test(value) || /[:#]\s|\s$/.test(value)
+	return needsQuote ? `"${value.replace(/"/g, '\\"')}"` : value
 }
 
 const dirName = currentDirName()
@@ -110,7 +140,7 @@ if (already) {
 } else {
 	patch +=
 		`\n# --- ${PACKAGE_NAME} ---\n` +
-		`- insert:\n    - id: ${ENTRY_ID}\n      name: ${dirName}\n`
+		`- insert:\n    - id: ${ENTRY_ID}\n      name: ${yamlScalar(dirName)}\n`
 	await writeFile(patchFile, patch, 'utf8')
 	console.log(`已在 ${patchFile} 追加 insert 行`)
 }
