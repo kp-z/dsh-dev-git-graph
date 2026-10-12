@@ -158,6 +158,19 @@ if (existsSync(path.join(target, 'web/index.html'))) {
 
 // package.json 的入口与客户端声明
 const pkg = JSON.parse(readFileSync(path.join(target, 'package.json'), 'utf8'))
+
+// 安装副本的包名与版本必须与工作区一致。
+// 踩过的坑：早先只比对 lib/ 与 web/，于是"代码装上了但 package.json 还停在旧版本"
+// 这种情况检查不出来 —— 而版本号对不上会让排查（"我装的是哪个版本"）直接失准。
+const workspacePkg = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+if (pkg.name === workspacePkg.name && pkg.version === workspacePkg.version) {
+	pass('安装副本的包名与版本与工作区一致', `${pkg.name}@${pkg.version}`)
+} else {
+	fail(
+		'安装副本的包名与版本与工作区一致',
+		`工作区 ${workspacePkg.name}@${workspacePkg.version} vs 已安装 ${pkg.name}@${pkg.version}`,
+	)
+}
 if (pkg.main && existsSync(path.join(target, pkg.main))) pass('package.json 的 main 指向存在的文件', pkg.main)
 else fail('package.json 的 main 指向存在的文件', String(pkg.main))
 
