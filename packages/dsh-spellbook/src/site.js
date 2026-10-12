@@ -711,6 +711,7 @@ function initApply() {
     button.textContent = '送…'
     button.classList.remove('is-done', 'is-failed')
 
+    let prompt = ''
     let result
     if (!button.dataset.applyUrl) {
       // 取址空着就别 fetch：`fetch('')` 会把**当前这一页**（HTML）当成咒语送出去，
@@ -720,17 +721,34 @@ function initApply() {
       try {
         const response = await fetch(button.dataset.applyUrl, { cache: 'force-cache' })
         if (!response.ok) throw new Error(String(response.status))
-        result = await requestApply(await response.text(), mode)
+        prompt = await response.text()
+        result = await requestApply(prompt, mode)
       } catch {
         result = { ok: false, reason: 'fetch' }
       }
     }
 
-    button.textContent = result.ok
-      ? mode === 'send'
-        ? '已发送'
-        : '已进输入框'
-      : APPLY_FAIL_TEXT[result.reason] || '没送成'
+    let label
+    if (result.ok) {
+      label = mode === 'send' ? '已发送' : '已进输入框'
+    } else {
+      const why = APPLY_FAIL_TEXT[result.reason] || '没送成'
+      /*
+       * 失败时把正文交到剪贴板，而不是让它消失。
+       *
+       * 这一路最坏的结果不是「没插进去」——那是可见的、能重试的；最坏的是
+       * 「正文没了」：用户只看到一句「插入被拒」，而那段咒语还在几屏之外的
+       * 某个条目页上，得回去重新找一遍。而正文此刻**就在手里**（`prompt`），
+       * 白扔掉没有道理。
+       *
+       * 剪贴板也可能被拒（没手势、权限策略），那就只报原因 —— 别把
+       * 「已复制」写成一句没兑现的承诺，那比不写更糟。
+       */
+      const rescued = prompt !== '' && (await copyText(prompt))
+      label = rescued ? `${why}·已复制` : why
+    }
+
+    button.textContent = label
     button.classList.toggle('is-done', result.ok)
     button.classList.toggle('is-failed', !result.ok)
     button.disabled = false

@@ -460,4 +460,16 @@ test('产物：embed 跨页记住，应用按钮默认藏着', () => {
 
   // 4. 目录页的「抄咒语」也改用模板给的地址
   assert.match(index, /data-prompt-url="spell\/[^"]+\/prompt\.txt"/, '抄咒语没有带咒语地址')
+
+  // 5. 应用失败时要把正文交到剪贴板 —— 别让用户为了一句「插入被拒」回去重找那段咒语。
+  //    这里只验「这段代码还在」；行为在真浏览器里验过（被拒 / 宿主不回应两条路）。
+  const site = readFileSync(path.join(ROOT, 'dist', 'site.js'), 'utf8')
+  assert.match(site, /await copyText\(prompt\)/, '失败时没有把正文交到剪贴板')
+  assert.match(site, /已复制/, '失败文案里没有「已复制」')
+  // 而且不许假承诺：剪贴板失败时必须不带那个后缀 —— 写法上得是条件式的
+  assert.match(
+    site,
+    /rescued \? `\$\{why\}·已复制` : why/,
+    '「已复制」不是条件文案 —— 剪贴板被拒时会假承诺',
+  )
 })
