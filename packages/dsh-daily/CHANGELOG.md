@@ -75,6 +75,17 @@
 - 顺带查明：宿主 `inject = ['tools','webServer']` 的 fail-loud 设计**是安全的** ——
   inject 不满足时条目是 `pending` 而不是 `failed`，而 `pending` 不会拖垮 boot
 
+**修复：项目自动识别在真实宿主里不生效**
+- **根因**：宿主半体只声明了 `inject = ['tools','webServer']`，却用 `ctx.get('sessions')`
+  读没声明的服务 —— cordis 里这**会抛**（`cannot get property "X" without inject`），
+  被我的兜底 try/catch 吞掉 → **候选永远是空** → 自动识别静默失效。
+  这与当初把客户端半体打成错误页的是**同一类问题**。
+- **修法**：可选服务改在**各自的 `ctx.inject([name], cb)` 作用域**里声明式获取
+  （`sessions` / `workspaceRegistry`），service 累积多个作用域、读取时依次尝试；
+  拿到哪个用哪个，都没有就保持默认项目（不猜）
+- **加固**：新增宿主契约测试「可选服务必须用各自 inject 作用域获取」+ 两条集成测试
+  （模拟 cordis 抛异常、多个作用域依次回退）
+
 **定向检索质量优化（发布后真实对比驱动）**
 - **检索词具体化**：新增 `isSpecificQuery` —— 多词/中文/够长的单词才算具体。
   单独一个通用技术名不再成词（实测 `react` 单独搜回来的是「Honda conducts successful

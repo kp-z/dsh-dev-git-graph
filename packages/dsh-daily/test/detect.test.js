@@ -263,6 +263,34 @@ test('集成：notePromptContext 有节流，且绝不抛', async (t) => {
 	assert.equal(service.currentProject().dir, proj)
 })
 
+test('集成：宿主服务必须在合法作用域里取（未声明会抛 —— 客户端半体就是这么炸的）', async (t) => {
+	const { service, proj } = await makeService(t)
+
+	// 1) 模拟 cordis：访问未声明的服务直接抛。此时拿不到候选，但**绝不能崩**
+	service.attachHost({
+		get() {
+			throw new Error('cannot get property "sessions" without inject')
+		},
+	})
+	const blocked = await service.autoDetect()
+	assert.equal(blocked.changed, false, '拿不到就不猜')
+
+	// 2) 再加一个"合法作用域"（inject 声明过 → 能直接读到属性），识别应当立刻可用
+	service.attachHost({ sessions: { list: () => [{ header: { cwd: proj } }] } })
+	const detected = await service.autoDetect()
+	assert.equal(detected.changed, true, '合法作用域里的服务必须被用上')
+	assert.equal(service.currentProject().dir, proj)
+})
+
+test('集成：多个宿主作用域会依次尝试（第一个拿不到就用下一个）', async (t) => {
+	const { service, proj } = await makeService(t)
+	service.attachHost({ get: () => null })                                   // 拿不到
+	service.attachHost({ workspaceRegistry: { list: () => [{ path: proj }] } }) // 这个可以
+	const result = await service.autoDetect()
+	assert.equal(result.changed, true)
+	assert.match(result.from ?? '', /workspaceRegistry/)
+})
+
 test('集成：项目清单里标出 isAuto（界面据此显示"自动"）', async (t) => {
 	const { service, proj } = await makeService(t)
 	const autoList = await service.listKnownProjects()

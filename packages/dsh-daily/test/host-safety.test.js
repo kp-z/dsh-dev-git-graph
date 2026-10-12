@@ -110,6 +110,15 @@ test('宿主契约 3：每个接线步骤都要在 try 块内（一段失败不�
 	assert.deepEqual(unguarded, [], `这些接线动作没有 try 兜底：${unguarded.join(', ')}`)
 })
 
+test('宿主契约 5：可选服务必须用各自 inject 作用域获取（未声明访问会抛）', () => {
+	// cordis 里 `ctx.get('sessions')` 在未声明时会抛 —— 客户端半体正是因此把界面打成错误页。
+	// 宿主半体读 sessions/workspaceRegistry 做项目自动识别，必须走声明式作用域。
+	assert.match(src, /ctx\.inject\(\[serviceName\]/, '可选服务要在自己的 inject 作用域里拿')
+	for (const name of ['sessions', 'workspaceRegistry']) {
+		assert.ok(src.includes(`'${name}'`), `应当声明并使用 ${name}`)
+	}
+})
+
 test('宿主契约 4：apply 是同步的，异步初始化必须 fire-and-forget（不能让 loader 卡住）', () => {
 	assert.match(src, /export function apply\([\s\S]{0,200}?\): void/, 'apply 的返回类型应是 void')
 	assert.ok(!/export function apply[\s\S]{0,400}?await /.test(src), 'apply 里不该 await（会卡住 profile 加载）')

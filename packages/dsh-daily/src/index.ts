@@ -81,6 +81,21 @@ function applyInner(ctx: Context, config: Partial<DailyConfig>): void {
 	}
 	const service = new DailyService(settings, logger)
 
+	// 可选服务用**各自的作用域**声明式获取：cordis 里没声明的服务访问会抛，
+	// 所以不能靠在主作用域里 get()。各自 inject 的好处是"有就有、没有就跳过"，
+	// 不会把主装配拖成 pending。
+	for (const serviceName of ['sessions', 'workspaceRegistry'] as const) {
+		try {
+			ctx.inject([serviceName], (scoped) => {
+				service.attachHost(scoped)
+			})
+		} catch (error) {
+			logger.warn(
+				`订阅宿主服务 ${serviceName} 失败（自动识别少一个来源）：${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+	}
+
 	ctx.inject(['tools', 'webServer'], (host) => {
 		// 自动识别要读"当前会话/工作区"，先把宿主 ctx 交给 service（拿不到就保持默认项目）
 		try {

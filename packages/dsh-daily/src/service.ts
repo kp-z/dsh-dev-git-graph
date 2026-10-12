@@ -205,8 +205,15 @@ export class DailyService {
 	private inflight: Promise<RefreshSummary> | null = null
 	private readonly listeners = new Set<() => void>()
 	/** 由 index.ts 在拿到 ctx.llm 后注入；null = 宿主没提供 llm 或功能关闭。 */
-	/** 宿主 ctx（用于读会话/工作区做项目自动识别）；拿不到就保持 null。 */
-	private host: unknown = null
+	/**
+	 * 宿主上下文（可能多个）。
+	 *
+	 * **为什么是数组**：cordis 里"访问未在 inject 里声明的服务"会直接抛
+	 * （`cannot get property "X" without inject`）—— 客户端半体就是这么把界面打成错误页的。
+	 * 所以每个服务要在它自己的 `ctx.inject([...], cb)` 作用域里拿；
+	 * 每个作用域能合法访问的服务不同，于是这里累积所有作用域，读的时候依次尝试。
+	 */
+	private hosts: unknown[] = []
 	/** 当前项目的来源：manual = 用户手动选的，auto = 自动识别/默认。 */
 	private projectSource: 'manual' | 'auto' = 'auto'
 	/** 上次自动识别的时间（节流：每一轮 prompt 都会触发一次探测，没必要每次都读盘）。 */
@@ -536,9 +543,10 @@ export class DailyService {
 		}
 	}
 
-	/** 宿主 ctx 到手后告诉 service —— 自动识别需要它去读会话/工作区。 */
+	/** 宿主上下文到手（可能有多个作用域）—— 自动识别用它去读会话/工作区。 */
 	attachHost(host: unknown): void {
-		this.host = host
+		if (!host) return
+		if (!this.hosts.includes(host)) this.hosts.push(host)
 	}
 
 	/**
@@ -604,16 +612,28 @@ export class DailyService {
 	/** 从宿主服务收集候选（每一项都单独兜底，缺服务就当没有）。 */
 	private hostCandidates(): Array<{ value: unknown; from: string }> {
 		const out: Array<{ value: unknown; from: string }> = []
-		const host = this.host as { get?: (name: string) => unknown } | null
-		if (!host || typeof host.get !== 'function') return out
+		if (this.hosts.length === 0) return out
+		/** 依次在每个作用域里试着取该服务；抛（未声明）就当没有，换下一个作用域。 */
 		const read = (name: string, pick: (svc: Record<string, unknown>) => unknown): void => {
-			try {
-				const svc = host.get?.(name)
-				if (!svc || typeof svc !== 'object') return
-				const value = pick(svc as Record<string, unknown>)
-				if (value) out.push({ value, from: name })
-			} catch {
-				/* 服务不存在/不可用都当作没有 */
+			for (const host of this.hosts) {
+				try {
+					const scoped = host as { get?: (n: string) => unknown; [k: string]: unknown }
+					// 先试属性（inject 声明过就能直接访问），再试 get()
+					const svc =
+						typeof scoped[name] === 'object' && scoped[name] !== null
+							? scoped[name]
+							: typeof scoped.get === 'function'
+								? scoped.get(name)
+								: null
+					if (!svc || typeof svc !== 'object') continue
+					const value = pick(svc as Record<string, unknown>)
+					if (value) {
+						out.push({ value, from: name })
+						return
+					}
+				} catch {
+					/* 该作用域拿不到 → 试下一个 */
+				}
 			}
 		}
 		// 会话：list() 返回的数组顺序即"活跃度"，只探最近几个，别整表遍历
