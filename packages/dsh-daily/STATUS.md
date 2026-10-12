@@ -1788,3 +1788,39 @@ candidates: 0 · changed: false
 **下轮起点**
 1. 那台测试机（`10.21.103.15`）升到 0.5.1 后读 `project.detect` 确认自动识别
 2. `ai` 维度配真模型后才会真正起作用（当前假模型给的是中文词，被语言过滤跳过）
+
+### R43 · 2026-10-13 05:06–05:40 — **真实宿主验证通过**（自动识别，悬了 10 轮的那件事）
+
+**这是本项目悬得最久的一个未验证项（R17 起就在 STATUS 里挂着）。今天结掉了。**
+
+**真实宿主 `10.21.103.15:19387`（Linux，headless `dsh web`）**
+```
+项目: msim-qviz-service | dir=/mnt/data/msp/kp/dev/msim-qviz-service | source=auto
+project.detect:
+  hosts=2 · candidates=1 · changed=True
+  sources=[{sessions, ok=true, count=0},
+           {workspaceRegistry, ok=false, count=0},
+           {storages/workspace.json, ok=true, count=3}]
+  sample=["/mnt/data/msp/kp/dev/msim-qviz-service ← storages/workspace.json.0.path"]
+  reason=自动识别到项目目录（来源：storages/workspace.json.0.path）
+```
+
+**这条证据同时确认了三件事**
+1. **识别真的生效了**：`changed=True`，项目从默认切成了真实工作区
+   `/mnt/data/msp/kp/dev/msim-qviz-service`，且 `source=auto`
+2. **我 R34/R35 的诊断推断全对**：那台上 `sessions` 是内存存储且**空**（`count=0`）、
+   `workspaceRegistry` **不可用** —— 与我从诊断读出的判断完全一致
+3. **救回识别的是 R35 加的那个磁盘来源**（`storages/workspace.json count=3`）——
+   也就是"诊断 → 定位 → 修"这条路径**唯一真正有效的修法**，不是我先猜的 inject 声明、
+   也不是 getter 穿透。**诊断的价值在这次得到了实证。**
+- 顺带确定版本下限：`detect` 字段是 0.3.5 加的、磁盘来源是 0.3.6 加的 →
+  那台现在跑的是 **≥0.3.6** 的版本，且行为符合预期
+
+**那台上未验证/未使用的部分（如实记录，不是问题）**
+- **调研从未在那边跑过**：`GET /api/findings` → 0 条 0 分组（这是**设计如此**：调研要用户主动触发）
+- **今日（2026-10-13）日报数据为空**：0 条 0 源 —— 那台今天还没刷新过，**不是损坏**
+  （10-12 的 8 条还在）
+- **我这次没有在那台上触发任何写入**（不跑刷新、不跑调研）：刚出过误装事故，
+  对用户环境的写操作一律先征得同意。要看那边的调研效果，界面上点「开始调研」即可
+
+**本轮无产品代码改动 → 不发版。** `npm test` → **337 / pass 337 / fail 0**
