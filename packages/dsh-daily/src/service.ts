@@ -46,6 +46,7 @@ import {
 } from './opml.js'
 import { builtinFeedSpecs } from './collect/sources.js'
 import { pickDiverse, renderBrief, renderDigest } from './render.js'
+import { mergeDayItems, mergeSourceStates } from './merge.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
 import type {
@@ -323,7 +324,17 @@ export class DailyService {
 
 		const quota = Math.max(prefs.dailyQuota || 0, this.config.dailyQuota)
 		const recentlySeen = await this.loadRecentlySeen(date, this.config.dedupeWindowDays)
-		let items = rankItems(outcome.items, {
+		// **合并**而不是覆盖：当天已有的条目 + 本轮新抓的，一起去重排序。
+		// 覆盖的后果是"定向刷新冲掉其它源""某个源失败后上午的条目消失"，
+		// 也就是用户看到的"刷新了一下，条目反而变少了"。
+		const merged = mergeDayItems(previous.items, outcome.items)
+		if (merged.carriedOver > 0) {
+			this.logger.info(
+				`当天已有 ${previous.items.length} 条：本轮新增 ${merged.added} · 更新 ${merged.refreshed} · 保留 ${merged.carriedOver}`,
+			)
+		}
+
+		let items = rankItems(merged.items, {
 			prefs,
 			feedback,
 			maxItemsPerSource: Math.max(prefs.maxItemsPerSource || 0, this.config.maxItemsPerSource),
@@ -336,8 +347,11 @@ export class DailyService {
 		// AI 摘要放在排序之后：只给真正进了列表的前 N 条生成，不浪费在会被配额裁掉的条目上
 		items = await this.applyAiSummaries(items)
 
-		const okSources = outcome.sources.filter((s) => s.ok).length
-		const previousUrls = new Set(previous.items.map((i) => i.url))
+		// 源状态也合并：本轮跑过的用新状态，没跑的沿用上一次 ——
+		// 否则一次只跑 YouTube 的刷新会让日报里其它 10 个源"消失"
+		const sources = mergeSourceStates(previous.sources, outcome.sources)
+		const okSources = sources.filter((s) => s.ok).length
+		const previousUrls = new Set(previous.items.map((i) => normalizeUrl(i.url)))
 		const summary: RefreshSummary = {
 			at: new Date().toISOString(),
 			durationMs: outcome.durationMs,
@@ -348,7 +362,7 @@ export class DailyService {
 			added: items.filter((i) => !previousUrls.has(i.url)).length,
 		}
 
-		const day: DayState = { date, items, sources: outcome.sources, lastRefresh: summary }
+		const day: DayState = { date, items, sources, lastRefresh: summary }
 		await this.store.writeDay(day)
 		// 轮转状态也落盘：跨轮/跨进程的"最久没抓的优先"与失败退避都依赖它
 		const channelKeys = this.config.youtubeChannels
@@ -793,14 +807,21 @@ export class DailyService {
 		const targets = items.slice(0, Math.max(0, cfg.aiSummaryMaxItems))
 		let fromCache = 0
 		const missing: Item[] = []
+		let alreadyHad = 0
 		for (const item of targets) {
 			const cached = cache.entries[item.id]
 			if (cached) {
 				item.aiSummary = cached.text
 				fromCache++
-			} else {
-				missing.push(item)
+				continue
 			}
+			// 合并当天数据时会继承已有的 aiSummary；那就不必再花一次钱。
+			// （缓存只覆盖"跨天重复"，覆盖不了"同一天刷新两次"。）
+			if (typeof item.aiSummary === 'string' && item.aiSummary.trim()) {
+				alreadyHad++
+				continue
+			}
+			missing.push(item)
 		}
 
 		if (missing.length === 0) {
