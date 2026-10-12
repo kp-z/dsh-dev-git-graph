@@ -29,7 +29,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsc -p tsconfig.json && node --test test/",
     "probe": "node scripts/probe-sources.mjs",
-    "dev": "tsc -p tsconfig.json --watch"
+    "dev": "tsc -p tsconfig.json --watch",
+    "verify:install": "node scripts/verify-install.mjs desktop --idempotent",
+    "regression": "npm run build && node --test test/ && node scripts/install-to-profile.mjs desktop && node scripts/verify-install.mjs desktop"
   },
   "dsh": {
     "bundle": {

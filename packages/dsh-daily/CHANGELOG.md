@@ -58,6 +58,15 @@
 - `daily_prune` 工具 / `GET|POST /dsh-daily/api/storage`：容量统计 + 预览 + 执行；
   **默认只预览不写盘**（破坏性操作必须先能看见会发生什么）
 - 首次使用：空态里的「开始抓取」按钮（不必去找右上角的图标）
+
+**运维与验证**
+- `scripts/verify-install.mjs`：**安装校验**（15 项，退出码可当 CI 用）。`install-to-profile` 只负责
+  "拷文件 + 维护 patch 一行"、不做任何校验，而这里有几类错是"装完看起来没事、跑起来才炸"的：
+  装成了符号链接（解析绕回工作区）、**改了代码忘了重装**（最难发现）、`lib/client.js` 缺失
+  （tab 消失但 host 侧正常）、patch 行丢失或重名、`index.html` 引用的资源缺失。
+  解析失败时会区分「符号链接绕回工作区」与「共享 node_modules 缺失」——两者修法完全不同
+- `npm run regression`：构建 → 单测 → 装机 → 安装校验，一条命令跑完本地回归
+- `npm run verify:install`：安装校验 + **重复装机幂等**（对比 patch 与全部文件的逐字节哈希）
 - HTTP：`/dsh-daily/` 直出网页 + `/dsh-daily/api/*`（state / items / feedback / tune / refresh / digest）
 - 7 个模型工具：`daily_brief` `daily_digest` `daily_search` `daily_sources`（只读）、
   `daily_tune` `daily_feedback` `daily_refresh`（写盘/联网）
@@ -116,6 +125,10 @@
 - **演示数据没在统计行标注**：接口挂掉时页面会切到内置演示数据，
   但「10 条 · 8 未读 · 7/8 源正常」看着和真实数字一模一样（标题与页脚虽然也标了，但容易被略过）。
   改为统计行以醒目的「演示数据」徽标开头
+- 修掉 README 里两处**与实现不符**的说明：回归清单还写着 69 组单测与手工 diff 循环；
+  「已知限制」还写着封面"走 6 秒超时降级"，而 R12 已经把计时器整个删掉了
+- 修掉探针输出里会**被误读成用户偏好**的文案（它用的是合成偏好 `topics: ['AI']` 来演示主题加权，
+  却在输出里写成"偏好主题 AI"，看起来像读了用户的真实配置；实际探针既不读也不写用户数据）
 - **页面的字段白名单漏了 `aiSummary`**：后端正确返回了 AI 摘要，但 `normalizeItem` 没映射它，
   数据在这一层被静默丢掉 —— 表现是"功能跑通了、界面上什么都没有"。
   已在 `normalizeItem` 处留下注释：**新增条目字段必须同步这里**

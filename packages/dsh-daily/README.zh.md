@@ -252,17 +252,26 @@ npm test                                # tsc 构建 + node --test（基线 69 �
 
 ```bash
 cd packages/dsh-daily
-./node_modules/typescript/bin/tsc -p tsconfig.json --noEmit   # 类型
-npm test                                                       # 单测（当前 69 组）
-node scripts/probe-sources.mjs                                 # 真实采集（联网，约 8~40s）
-node scripts/install-to-profile.mjs desktop                    # 装机（幂等，可重复跑）
-# 装机副本与源码逐文件比对 + 副本可独立导入（模拟 dsh 加载）
-for f in lib/index.js web/app.js package.json cordis.patch.yml; do
-  diff <(shasum -a 256 "$f") <(shasum -a 256 "/Users/kp/.dsh/profiles/desktop/node_modules/dsh-daily-v2/$f") >/dev/null \
-    && echo "✅ $f" || echo "❌ $f"
-done
-node -e "import('/Users/kp/.dsh/profiles/desktop/node_modules/dsh-daily-v2/lib/index.js').then(m=>console.log('✅ import ok',Object.keys(m)))"
+npm run regression     # 构建 → 单测（当前 156 组）→ 装机 → 逐文件校验安装（15 项）
+npm run verify:install # 只跑安装校验；额外验证重复装机幂等（--idempotent）
+npm run probe          # 真实采集（联网，约 8~70s；不读也不写你的数据）
 ```
+
+`npm run regression` 里的安装校验（`scripts/verify-install.mjs`）检查的是几类
+**"装完看起来没事、跑起来才炸"**的错：
+
+| 检查 | 不检查会怎样 |
+|---|---|
+| 装的是**真实目录**、目录内无符号链接 | 符号链接让真实路径落回工作区 → `@deepseek-ai/*` 解析不到 → 插件导入直接失败 |
+| `$DSH_HOME/profiles/node_modules/@deepseek-ai/*` 存在 | 同上，解析链的根 |
+| profile 里的代码与工作区构建产物**逐文件一致** | **改了代码忘了重装** —— 你会对着新代码查半天，而跑的一直是旧的（最容易犯、最难发现） |
+| `lib/client.js` 存在且含 `__ModuleLoader__.load` | 右侧栏 tab 消失，而 host 侧一切正常 |
+| patch 里 `insert` 行存在、名字与目录匹配、不重复 | 文件都在，但 profile 根本不加载它 |
+| `index.html` 引用的本地资源都在 | 页面白屏或样式丢失 |
+| 安装副本能被 Node 独立导入 | 最贴近"dsh 真的会加载它"的验证 |
+
+脚本会对每个场景分别报原因（例如解析失败时会说清是「符号链接绕回工作区」还是「共享 node_modules 缺失」，
+因为这两者的修法完全不同）。
 
 小贴士：**验证脚本自身也会失效**。H5 复验时我一度以为"点分类 chip 后列表永久卡住"，
 其实是我的脚本把 chip 节点存进了变量，而 `renderChips` 每次筛选都会重建节点 ——
@@ -270,8 +279,11 @@ node -e "import('/Users/kp/.dsh/profiles/desktop/node_modules/dsh-daily-v2/lib/i
 
 ## 已知限制
 
-- **YouTube 封面在本机网络下不可达**（`i.ytimg.com` 被墙）：条目仍然正确（标题/链接/频道/时间），封面会走页面内置的 6 秒超时降级成纯色占位块。
-- YouTube 依赖第三方 RSSHub 镜像，镜像会 429/503；失败时该源在日报里**显式标注**，不影响其它源。
+- **YouTube 封面在本机网络下不可达**（`i.ytimg.com` 被墙）：条目仍然正确（标题/链接/频道/时间），
+  封面显示为纯色占位块。实现上是「**占位块常驻底层 + 图片进入视口才插入并盖在上面**」，
+  所以不存在"超时误杀"——挂住的请求只是永远盖不上来而已（详见 CHANGELOG 里 R12 那一条）。
+- YouTube 依赖第三方 RSSHub 镜像，镜像会 429/503，**实测有一次整源 0 条**；
+  失败时该源在日报与页脚里**显式标注**，不影响其它源。B站的视频索引不受影响。
 - 哔哩哔哩排行榜偶发 `-352` 风控（已退避重试，仍可能失败）。
 - 侧边栏 tab 需要 DSH 重启后才会出现：客户端半体在启动时组装，不像 host 路由可以实时挂载。
 

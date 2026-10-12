@@ -44,9 +44,14 @@ for (const item of outcome.items) {
 console.log(`\n平台分布：${[...platforms.entries()].map(([k, v]) => `${k}=${v}`).join(' · ')}`)
 console.log(`视频条目：${videos.length} 条（YouTube ${videos.filter((v) => v.platform === 'youtube').length} / B站 ${videos.filter((v) => v.platform === 'bilibili').length}）`)
 
-const prefs = { ...defaultPrefs(), topics: ['AI'] }
+// 合成偏好：探针不读你的 prefs、也绝不写盘。这里用一个假偏好来演示"主题加权"这条链路
+// 确实在工作（否则探针跑出来的排序无法反映真实使用时的行为）。
+const syntheticTopics = ['AI']
+const prefs = { ...defaultPrefs(), topics: syntheticTopics }
 const ranked = rankItems(outcome.items, { prefs, feedback: {} })
-console.log(`\n排序后：${ranked.length} 条（偏好主题 AI）。Top 10：`)
+console.log(
+	`\n排序后：${ranked.length} 条（**本次探针用合成偏好 topics=${JSON.stringify(syntheticTopics)} 演示主题加权，与你的真实 prefs 无关**）。Top 10：`,
+)
 for (const [index, item] of ranked.slice(0, 10).entries()) {
 	console.log(
 		`  ${String(index + 1).padStart(2)}. [${item.score.toFixed(1)}] [${item.topic}] [${item.platform}] ${item.title.slice(0, 62)}`,
