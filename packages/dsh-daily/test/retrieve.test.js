@@ -18,6 +18,7 @@ import {
 	parseHnResponse,
 	runRetrieval,
 	shapeQuery,
+	querySpecificity,
 	acceptsQuery,
 	nonAsciiRatio,
 	skippedQueries,
@@ -140,6 +141,18 @@ test('dedupeFindings：按规范化 URL 去重，并把命中的多条检索词�
 	assert.equal(merged.length, 2)
 	assert.match(merged[0].query, /q1/)
 	assert.match(merged[0].query, /q2/, '被两条检索词命中是"更相关"的信号')
+})
+
+test('querySpecificity：词越多/越长越具体', () => {
+	assert.ok(querySpecificity('ant design icons') > querySpecificity('react'))
+	assert.ok(querySpecificity('state management patterns') >= querySpecificity('icons'))
+	assert.equal(querySpecificity(''), 0)
+})
+
+test('heatOf：具体词的结果要压过过泛词的结果（同热度时）', () => {
+	const generic = { title: 'a', url: 'u', provider: 'github', query: 'react', stats: { stars: 100 } }
+	const specific = { title: 'b', url: 'v', provider: 'github', query: 'ant design icons', stats: { stars: 100 } }
+	assert.ok(heatOf(specific) > heatOf(generic), '同 star 数时，具体词的条目该排前面')
 })
 
 test('heatOf：HN 点数与 GitHub star 都能抬高热度', () => {

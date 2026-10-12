@@ -1274,3 +1274,31 @@ current: /root/.dsh/daily          ← 默认项目
    继续扩充结构词黑名单（`experiment`/`portal`/`batch` 这类）
 2. 结果侧加一层**相关性筛**：命中词过于泛（单词、<4 字符、技术栈名）的条目降权
 3. 之后才是第三波⑥（回流项目 `docs/research/*.md`）与⑦（调研侧边栏视图）
+
+### R30 · 2026-10-12 20:27–21:20 — 定向检索质量优化（用户：「优化完再发一版，我要使用了」）
+
+**优化内容**（针对 R29 结尾定位的质量问题：检索词过泛 → 拉回不相干结果）
+1. **`isSpecificQuery`**：多词 / 中文（≥2 字）/ 够长的单词才算具体。
+   单独一个通用技术名（`react`/`vite`/`node`/`three`/`css`… 约 60 个）**不再单独成词**；
+   技术栈名一律与限定词组合（`react` → `react best practices` 而非裸词）
+2. **结构词黑名单扩充**：`experiment(s)/experimental`、`portal`、`batch(es)`、`data/dataset`、
+   `result(s)`、`detail(s)`、`demo/sample/example`、`entry/items/list/table`、`base/default/custom`…
+   （全是真实联调里从画像漏出来的）
+3. **结果侧相关性先验**：`querySpecificity` + `heatOf` —— 一条结果必然来自某条检索词，
+   "这条词有多具体"就是现成的相关性信号，过泛词的结果自然沉底
+
+**证据（真实输出）**
+- 全量测试：`npm test` → **tests 302 / pass 302 / fail 0**（R29 基线 298 → 本轮 +4）
+- **真实前后对比**（同一项目 = mvizlite，真实网络，dev-server + /tmp 数据目录）：
+  ```
+  优化前（R29 第四轮）46 条，混着 Honda conducts… / Pause Giant AI Experiments
+  优化后（R30 第五轮）19 条 | 请求 8 成功 6 失败 2 跳过 4
+    命中分布: antv g2 → 9 条 · ant design icons → 5 条 · dashboard → 5 条
+    前 6 条全是相关生态: 07akioni/xicons(★1499) · ant-design/ant-design-web3(★1148)
+                        ant-design/ant-design-icons(★1095) · antvis/G2Plot(★2654) …
+    上轮那些不相干结果：**已消失**
+  ```
+- 因行为变化而更新了 5 处旧断言（它们写的是优化前的预期），**保留了每个测试的原意**
+
+**已发布**：`@kpeace/dsh-daily@0.3.2`（用户表示要开始使用）
+**仍未安装到本地**（用户此前要求；由用户自行安装）

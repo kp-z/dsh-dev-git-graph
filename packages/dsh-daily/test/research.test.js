@@ -22,6 +22,7 @@ import {
 	QUERY_MAX_CHARS,
 	diversifyByFamily,
 	depKeywords,
+	isSpecificQuery,
 	domainKeywords,
 	isDomainKeyword,
 } from '../lib/research.js'
@@ -35,7 +36,9 @@ const profile = (over = {}) => ({
 	skipped: [],
 	topLevel: [],
 	languages: [{ name: 'TypeScript', evidence: 'tsconfig.json' }],
-	dependencies: ['react', 'zustand'],
+	// 依赖刻意用"能生成具体检索词"的真实形态：`react` 这种单个通用词现在会被
+	// isSpecificQuery 挡掉（实测它单独搜回来的是毫不相干的结果）
+	dependencies: ['@ant-design/icons', 'monaco-editor'],
 	keywords: ['可视化', '回放'],
 	bytes: 1000,
 	summary: '项目：app\n技术栈：TypeScript\n关键词：可视化、回放',
@@ -93,7 +96,7 @@ test('deterministicQueries：贴项目（依赖/技术栈/关键词），且每�
 		assert.ok(['tech', 'dep', 'keyword'].includes(q.kind))
 	}
 	const joined = queries.map((q) => q.query).join(' | ')
-	assert.match(joined, /react/, '应围绕依赖生成')
+	assert.match(joined, /ant design icons/, '应围绕依赖生成（且已从包名整形为关键词）')
 	assert.match(joined, /TypeScript/, '应包含技术栈')
 	// 去重
 	assert.equal(new Set(queries.map((q) => q.query.toLowerCase())).size, queries.length)
@@ -101,11 +104,11 @@ test('deterministicQueries：贴项目（依赖/技术栈/关键词），且每�
 
 test('deterministicQueries：跳过 @types / lint / 测试这类"查了也没用"的开发依赖', () => {
 	const queries = deterministicQueries(
-		profile({ dependencies: ['@types/node', 'eslint', 'prettier', 'vitest', 'typescript', 'react'] }),
+		profile({ dependencies: ['@types/node', 'eslint', 'prettier', 'vitest', 'typescript', '@ant-design/icons'] }),
 	)
 	const joined = queries.map((q) => q.query).join(' | ')
-	assert.match(joined, /react/)
-	assert.ok(!/@types\/node/.test(joined), `不该为 @types 生成检索词：${joined}`)
+	assert.match(joined, /ant design icons/, `应保留真正的依赖：${joined}`)
+	assert.ok(!/@types/.test(joined), `不该为 @types 生成检索词：${joined}`)
 	assert.ok(!/eslint/.test(joined))
 })
 
@@ -137,7 +140,7 @@ test('deterministicQueries：同一 scope 的依赖不会占满名额（真实�
 				'@ant-design/plots',
 				'@ant-design/pro-components',
 				'@antv/g2',
-				'three',
+				'monaco-editor',
 			],
 		}),
 	)
@@ -152,6 +155,36 @@ test('diversifyByFamily：先每族 1 个，不够再放宽到每族 2 个', () 
 	assert.deepEqual(diversifyByFamily(['@a/x', '@a/y', '@b/z'], 3), ['@a/x', '@b/z', '@a/y'])
 	assert.deepEqual(diversifyByFamily(['react', 'react-dom', 'vue'], 2), ['react', 'vue'])
 	assert.deepEqual(diversifyByFamily([], 3), [])
+})
+
+test('isSpecificQuery：过泛的词不该单独去搜（实测 react 拉回不相干结果）', () => {
+	// 多词/中文/够长的单词 = 具体
+	for (const good of ['ant design icons', 'TypeScript best practices', '可视化', 'visualization', 'state management']) {
+		assert.equal(isSpecificQuery(good), true, `${good} 应算具体`)
+	}
+	// 单独一个通用技术名 = 太泛（`react` 单独搜回的是 Honda 那条）
+	for (const bad of ['react', 'vue', 'vite', 'node', 'three', 'css', 'redux', 'go', 'api']) {
+		assert.equal(isSpecificQuery(bad), false, `${bad} 太泛，不该单独搜`)
+	}
+	assert.equal(isSpecificQuery(''), false)
+})
+
+test('deterministicQueries：过泛的领域词/技术栈名不会变成检索词', () => {
+	const queries = deterministicQueries(
+		profile({
+			// 依赖刻意用"能生成具体检索词"的真实形态：`react` 这种单个通用词现在会被
+	// isSpecificQuery 挡掉（实测它单独搜回来的是毫不相干的结果）
+	dependencies: ['@ant-design/icons', 'monaco-editor'],
+			keywords: ['experiment', 'portal', 'react', 'visualization'],
+			languages: [{ name: 'react', evidence: 'package.json' }],
+		}),
+	)
+	const all = queries.map((q) => q.query)
+	assert.ok(!all.includes('react'), `不该单独搜 react：${all.join(' | ')}`)
+	assert.ok(!all.includes('experiment'), 'experiment 是结构词')
+	assert.ok(!all.includes('portal'), 'portal 是结构词')
+	assert.ok(all.some((q) => q.includes('visualization')), '真正的领域词要留下')
+	assert.ok(all.every((q) => !q.includes('@') && !q.includes('/')), '检索词不该带 @ 或 /')
 })
 
 test('depKeywords：包名要变成能搜的关键词（实测 @scope/ 会让 GitHub 422、HN 0 条）', () => {
@@ -224,7 +257,7 @@ test('buildResearchPrompt：带上项目信息，且明确要求 JSON 数组', (
 	const { system, user } = buildResearchPrompt(profile())
 	assert.match(system, /JSON/)
 	assert.match(user, /app/)
-	assert.match(user, /react/)
+	assert.match(user, /ant-design/, '提示词里要带上项目依赖')
 	assert.ok(user.length < 4000, '提示词要有界')
 })
 
@@ -264,7 +297,10 @@ test('planResearch：AI 成功时用 AI 的词打头，种子补足', async () =
 	assert.equal(plan.queries[0].query, 'react 19 迁移指南')
 	assert.equal(plan.queries[0].kind, 'ai')
 	assert.ok(plan.queries.length > 2, '不足的部分应由确定性种子补足')
-	assert.ok(plan.queries.some((q) => q.kind === 'dep'), '种子也在里面（保证兜底有内容）')
+	assert.ok(
+		plan.queries.some((q) => q.kind === 'dep' || q.kind === 'tech' || q.kind === 'keyword'),
+		'种子也在里面（保证兜底有内容）',
+	)
 })
 
 test('planResearch：模型输出跑偏 → 降级且不抛异常', async () => {

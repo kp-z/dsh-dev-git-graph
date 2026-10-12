@@ -276,12 +276,29 @@ export function dedupeFindings(findings: Finding[]): Finding[] {
 	return [...seen.values()]
 }
 
-/** 热度权重：用于把"搜到的"排一排（HN 点数 / GitHub star）。 */
+/**
+ * 检索词的具体度（0~1）：词越多、越长越具体。
+ *
+ * 用来给结果排序加权 —— 实测 `react` 这种过泛词会拉回毫不相干的东西
+ * （「Honda conducts successful launch…」），而 `ant design icons` 这种具体词命中很准。
+ * 既然一条结果**必然**来自某条检索词，那"这条词有多具体"就是现成的相关性先验。
+ */
+export function querySpecificity(query: string): number {
+	const tokens = query.trim().split(/\s+/).filter(Boolean)
+	if (tokens.length === 0) return 0
+	const lengthScore = Math.min(1, (tokens.join('').length || 0) / 24)
+	const tokenScore = Math.min(1, tokens.length / 3)
+	return Math.max(lengthScore, tokenScore)
+}
+
+/** 热度权重：用于把"搜到的"排一排（HN 点数 / GitHub star），并乘上检索词的具体度。 */
 export function heatOf(finding: Finding): number {
 	const stats = finding.stats ?? {}
 	const points = stats.points ?? 0
 	const stars = stats.stars ?? 0
-	return points * 3 + Math.log10(Math.max(1, stars)) * 10
+	const base = points * 3 + Math.log10(Math.max(1, stars)) * 10
+	// 具体词的权重上不封顶地抬高，让过泛词的结果沉下去
+	return base + querySpecificity(finding.query) * 60
 }
 
 /**

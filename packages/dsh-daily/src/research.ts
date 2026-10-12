@@ -117,6 +117,12 @@ const NON_DOMAIN_KEYWORDS = new Set([
 	'lint', 'commit', 'hook', 'hooks', 'ci', 'cd', 'pipeline', 'pipelines', 'docker', 'dockerfile',
 	'git', 'github', 'gitlab', 'branch', 'repo', 'version', 'versioning', 'release', 'releases',
 	'tech', 'stack', 'framework', 'framework', 'library', 'libs', 'tool', 'tools', 'tooling',
+	// 真实联调里从画像抽出来、又被拿去搜的词（`experiment` 单独搜回来的是
+	// 「Pause Giant AI Experiments」「An Experimental Course on Operating Systems」这种毫不相干的东西）
+	'experiment', 'experiments', 'experimental', 'demo', 'demos', 'sample', 'samples', 'example',
+	'examples', 'portal', 'batch', 'batches', 'chunk', 'chunks', 'temp', 'tmp', 'tmpdir',
+	'result', 'results', 'data', 'dataset', 'datasets', 'entry', 'entries', 'item', 'items',
+	'list', 'lists', 'table', 'tables', 'detail', 'details', 'base', 'basic', 'default', 'custom',
 	'context', 'ctx', 'state', 'store', 'stores', 'hook', 'hooks', 'props', 'render', 'rendering',
 	'client', 'server', 'frontend', 'backend', 'fullstack', 'web', 'http', 'https', 'url', 'uri',
 	'api', 'apis', 'rest', 'graphql', 'rpc', 'socket', 'ws', 'sdk', 'cli', 'ui', 'ux', 'dom',
@@ -151,6 +157,43 @@ export function isDomainKeyword(word: string): boolean {
 	// 纯 ASCII 的短词（1 个音节级、2-3 字母）信息量太低；CJK 不受此限
 	if (/^[a-z]{1,3}$/.test(text)) return false
 	return true
+}
+
+/**
+ * 单独一个词就太泛、搜回来必然不相干的词。
+ *
+ * 实测：`react` 单独搜回的是「Relicensing React, Jest, Flow…」「Honda conducts successful
+ * launch and landing of…」（后者大概是因为页面里有 react 一词）。技术栈名单独当检索词
+ * 等于把整个互联网拉回来 —— 它必须**与别的词组合**（如 `typescript best practices`）才有意义。
+ */
+const TOO_GENERIC_SINGLE: ReadonlySet<string> = new Set([
+	'react', 'vue', 'angular', 'svelte', 'solid', 'preact', 'jquery', 'next', 'nuxt', 'remix',
+	'vite', 'webpack', 'rollup', 'esbuild', 'babel', 'parcel', 'gulp', 'grunt',
+	'node', 'deno', 'bun', 'npm', 'yarn', 'pnpm', 'python', 'java', 'kotlin', 'swift', 'rust',
+	'go', 'golang', 'ruby', 'php', 'perl', 'scala', 'elixir', 'dart', 'lua',
+	'three', 'd3', 'echarts', 'chart', 'charts', 'grafana', 'canvas', 'webgl', 'opengl',
+	'css', 'html', 'scss', 'less', 'tailwind', 'bootstrap', 'antd',
+	'docker', 'kubernetes', 'git', 'linux', 'macos', 'windows', 'android', 'ios', 'ubuntu',
+	'redux', 'zustand', 'mobx', 'xstate', 'mobx', 'query', 'swr', 'axios', 'fetch',
+])
+
+/**
+ * 这条检索词**够不够具体**？
+ *
+ * 判据刻意简单可解释：多词（≥2 段）算具体；单词只在"够长且不是通用技术名"时算具体；
+ * 纯中文（≥2 字）算具体 —— 中文两字词在这个项目的语境里通常已经是领域词。
+ * 过泛的词**不生成**，而不是生成了再去后悔（后者会白打请求、还会污染结果）。
+ */
+export function isSpecificQuery(query: string): boolean {
+	const text = query.trim()
+	if (!text) return false
+	if (/^[\u4e00-\u9fa5]{2,}$/.test(text)) return true
+	const tokens = text.split(/\s+/).filter(Boolean)
+	if (tokens.length >= 2) return true
+	const single = tokens[0]?.toLowerCase() ?? ''
+	if (!single) return false
+	if (TOO_GENERIC_SINGLE.has(single)) return false
+	return single.length >= 6
 }
 
 /** 从画像关键词里挑出真正的领域词（保序、限数）。 */
@@ -221,7 +264,7 @@ export function deterministicQueries(
 		// **不加中文后缀**：`experiment 最新进展` 这种混血词在英文通道（HN/GitHub）上
 		// 照样返回 0 条 —— 而且因为 ASCII 占比够高，还会绕过"中文词"过滤白白发出去。
 		// 纯词本身反而能命中（`typescript best practices` 实测 HN 3 / GitHub 2402）。
-		push(word, 'keyword', `项目里的领域词「${word}」`)
+		if (isSpecificQuery(word)) push(word, 'keyword', `项目里的领域词「${word}」`)
 	}
 	// 2) 依赖：查它们的版本动态。必须**按族去重** —— 真实项目里
 	// @ant-design/icons、@ant-design/plots、@ant-design/pro-components 连着排在前几位，
@@ -233,11 +276,14 @@ export function deterministicQueries(
 		// **短关键词，不要自然语言**：实测 `@ant-design/icons changelog release notes`
 		// 在 HN 返回 0 条、在 GitHub 直接 422（`@`/`/` 非法）；换成 `ant design icons`
 		// 则 HN 3 条、GitHub 102 条。检索通道吃的是关键词，不是句子。
-		push(depKeywords(dep), 'dep', `项目依赖 ${dep}，查它的项目与版本动态`)
+		const depQuery = depKeywords(dep)
+		if (isSpecificQuery(depQuery)) push(depQuery, 'dep', `项目依赖 ${dep}，查它的项目与版本动态`)
 	}
 	// 3) 技术栈：最泛，兜底用
 	for (const lang of profile.languages.slice(0, 2)) {
-		push(`${lang.name} best practices`, 'tech', `项目技术栈是 ${lang.name}`)
+		// 与限定词组合才有意义：`react` 单独搜等于把整个互联网拉回来
+		const techQuery = `${depKeywords(lang.name)} best practices`
+		if (isSpecificQuery(techQuery)) push(techQuery, 'tech', `项目技术栈是 ${lang.name}`)
 	}
 
 	return dedupeQueries(out.map((q) => q.query))

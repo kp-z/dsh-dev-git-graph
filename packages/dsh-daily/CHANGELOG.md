@@ -75,6 +75,20 @@
 - 顺带查明：宿主 `inject = ['tools','webServer']` 的 fail-loud 设计**是安全的** ——
   inject 不满足时条目是 `pending` 而不是 `failed`，而 `pending` 不会拖垮 boot
 
+**定向检索质量优化（发布后真实对比驱动）**
+- **检索词具体化**：新增 `isSpecificQuery` —— 多词/中文/够长的单词才算具体。
+  单独一个通用技术名不再成词（实测 `react` 单独搜回来的是「Honda conducts successful
+  launch and landing of…」），技术栈名一律与限定词组合（`TypeScript best practices`）
+- **结构词黑名单扩充**：`experiment` / `portal` / `batch` / `data` / `result` / `detail` 等
+  从画像里漏出来的词（实测 `experiment` 搜回「Pause Giant AI Experiments」这类毫不相干的内容）
+- **结果侧按检索词具体度加权**：一条结果必然来自某条检索词，那"这条词有多具体"就是现成的
+  相关性先验 —— `heatOf` 现在把它算进去，过泛词的结果自然沉下去
+- **真实前后对比**（同一项目 mvizlite，真实网络）：
+  ```
+  优化前  46 条（混着 Honda / Pause Giant AI Experiments 这类不相干结果）
+  优化后  19 条，命中词全部具体（ant design icons / antv g2 / dashboard），不相干结果已消失
+  ```
+
 **定向检索（调研链第④环）**
 - `POST /api/findings` / `daily_research({action:'run'})`：拿③生成的检索词**真去搜**，
   结果落盘 `<项目>/findings.json`；每条结果都记住**是哪条检索词找到的**（可解释）
