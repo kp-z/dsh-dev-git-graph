@@ -2,7 +2,7 @@
 title: 亚克力侧光
 slug: acrylic-edge-lit
 category: 材质
-tags: [background-clip, gradient, 浮雕, 描边]
+tags: [background-clip, gradient, 浮雕, 描边, 液态玻璃]
 since: 2026-10
 source: 机制来自 CSS 内阴影与 background-clip 描边，自行实现
 when: 一块亚克力板要有厚度：上沿亮、下沿暗，切边还能看到一道亮线

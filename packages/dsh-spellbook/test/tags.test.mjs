@@ -157,3 +157,33 @@ test('轴的值集合与 TAG_INDEX 一致', () => {
     for (const value of axis.values) assert.equal(TAG_INDEX.get(value), axis.key)
   }
 })
+
+test('风格就是观感轴上的一个值 —— 但得真成一套', () => {
+  /*
+   * 「风格」没有自己的实体，它就是观感轴上的一个值（「看起来像什么」那一问）。
+   * 所以它要满足同一套规矩：值在受控词表里，且真有 ≥2 条挂着它。
+   *
+   * 只挂一条的「风格」不是风格，是那条咒语的别名 —— 而那种值会安静地在筛选列里
+   * 永远只筛出一条，看着像坏了，其实是没配到人。
+   */
+  const STYLE = '液态玻璃'
+  assert.equal(TAG_INDEX.get(STYLE), 'look', `${STYLE} 必须落在观感轴`)
+
+  const all = entries()
+  const members = all.filter(({ entry }) => (entry.meta.tags ?? []).includes(STYLE))
+  assert.ok(
+    members.length >= 2,
+    `挂着「${STYLE}」的只有 ${members.length} 条 —— 只对应一条的值不是风格`,
+  )
+
+  /*
+   * 而且要比「玻璃」窄：玻璃是**材质观感**，液态玻璃是**一套命名的风格**
+   * （一像素白描边 + 顶边内高光 + 模糊必须配饱和度）。
+   * 两者一样宽的话这个细分就没有意义 —— 那说明要么加错了地方，要么该把「玻璃」换掉。
+   */
+  const glass = all.filter(({ entry }) => (entry.meta.tags ?? []).includes('玻璃'))
+  assert.ok(
+    glass.length > members.length,
+    `「玻璃」${glass.length} 条、「${STYLE}」${members.length} 条 —— 细分没有变窄，就没有意义`,
+  )
+})
