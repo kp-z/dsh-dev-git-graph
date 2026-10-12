@@ -195,6 +195,22 @@ aiSummaryModel: ''
 > 「看看日报数据占了多少地方」→ `daily_prune`（默认只预览、不写盘）
 > 「把旧归档压缩一下」→ `daily_prune({ apply: true })`
 
+### 联调脚本（`scripts/dev-server.mjs`）
+
+不进 dsh 也能把界面跑起来，且**不会碰你的真实数据**：
+
+```bash
+node scripts/dev-server.mjs \
+  --data-dir=/tmp/dsh-demo \   # 用临时数据目录（默认 ~/.dsh/daily）
+  --seed-history=4 \           # 把今天的数据复制成过去 4 天，用来验跨天界面
+  --ai-fake \                  # 打开 AI 摘要并注入假 stream（不花 token）
+  --fail-api=state \           # 让指定接口返回 503，用来验错误态
+  --no-refresh                 # 启动时不抓取
+```
+
+`--fail-api` 这类**故障注入**开关是有意做的：错误态（红条文案、能否重试、会不会卡死）
+是用户真会碰到的状态，但正常开发流程里几乎无法自然触发 —— 不注入就只能靠"看代码觉得没问题"。
+
 ## 数据与文件
 
 ```

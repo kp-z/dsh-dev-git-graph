@@ -283,6 +283,15 @@ button { font-family: inherit; }
 /* 历史态：统计行里那句"刷新只抓今天"用强调色，和普通统计区分开 */
 .dd-stat-history { color: var(--dd-accent-text); }
 
+/* 演示态的标记：必须一眼看出这行数字不是真的 */
+.dd-stat-demo {
+  padding: 0 5px;
+  border: 1px solid var(--dd-danger);
+  border-radius: 999px;
+  color: var(--dd-danger);
+  font-size: 10px;
+}
+
 /* ---------- 5. 调教 ---------- */
 .dd-input {
   width: 100%;
@@ -618,6 +627,9 @@ button { font-family: inherit; }
   height: 100%;
   object-fit: cover;
   border: none;
+  /* 必须 relative：占位块是 absolute 的，同处"定位层"时按 DOM 顺序绘制。
+     图片在占位块之后，加 relative 才确保它盖在占位块上面（否则占位块永远可见）。 */
+  position: relative;
 }
 .dd-thumb-duration {
   position: absolute;

@@ -11,7 +11,7 @@
  * 直接联调，改一行 CSS 刷新就能看到。装进 profile 前的所有 UI 迭代都走这条路。
  */
 import http from 'node:http'
-import { mountRoutes } from '../lib/api.js'
+import { MOUNT, mountRoutes } from '../lib/api.js'
 import { resolveConfig } from '../lib/config.js'
 import { DailyService } from '../lib/service.js'
 import { localDate } from '../lib/store.js'
@@ -133,11 +133,30 @@ const webServer = {
 
 mountRoutes(webServer, service)
 
+/**
+ * `--fail-api=state,items`：让指定的 API 返回 503。
+ *
+ * 为什么要有故障注入：页面的**错误态**（红条文案、是否可重试、会不会把页面卡死）
+ * 是用户真正会遇到的状态之一，但正常开发流程里几乎无法自然触发 ——
+ * 不注入故障就只能靠"看代码觉得没问题"。这是唯一能真的把它验一遍的办法。
+ */
+const failArg = args.find((a) => a.startsWith('--fail-api='))
+const failApis = (failArg ? failArg.slice('--fail-api='.length) : '')
+	.split(',')
+	.map((s) => s.trim())
+	.filter(Boolean)
+
 const server = http.createServer((req, res) => {
 	for (const route of webServer.routes) {
 		const url = new URL(req.url ?? '/', 'http://localhost')
 		const matches = route.kind === 'prefix' ? url.pathname.startsWith(route.path) : url.pathname === route.path
 		if (matches) {
+			const apiName = url.pathname.startsWith(MOUNT + '/api/') ? url.pathname.slice((MOUNT + '/api/').length) : ''
+			if (apiName && failApis.includes(apiName)) {
+				res.writeHead(503, { 'content-type': 'application/json; charset=utf-8' })
+				res.end(JSON.stringify({ ok: false, error: '注入的故障（--fail-api）' }))
+				return
+			}
 			route.handler(req, res)
 			return
 		}

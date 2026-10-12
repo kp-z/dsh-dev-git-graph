@@ -534,6 +534,12 @@
     var health = sourceHealth();
 
     clear(el.stats);
+    // 演示数据必须在这一行就能看出来 —— 否则"10 条 · 8 未读 · 7/8 源正常"
+    // 会被当成真实数字（标题与页脚虽然也标了，但那两处更容易被略过）。
+    if (state.demo) {
+      el.stats.appendChild(text('span', 'dd-stat-demo', '演示数据'));
+      el.stats.appendChild(document.createTextNode(' · '));
+    }
     el.stats.appendChild(document.createTextNode(total + ' 条 · ' + unread + ' 未读'));
     if (health.total > 0) {
       el.stats.appendChild(document.createTextNode(' · '));
@@ -772,44 +778,73 @@
   }
 
   /**
-   * 封面加载上限。
+   * 封面渲染。
    *
-   * 原本是 6000。H5 复验实测：本机网络下 **YouTube 缩略图（i.ytimg.com）100% 不可达**，
-   * 而这类"请求挂着、既不 error 也不 load"只能靠超时兜住 ——
-   * 6 秒意味着 8 张 YouTube 卡要白等 6 秒才变占位块，观感就是"一片空白停在那儿"。
-   * 3 秒是权衡：正常网络下足够（缩略图普遍几十 KB），坏源也能很快出占位。
+   * 结构是"占位块常驻底层 + 图片进入视口才插入并盖在上面"，
+   * 这样**完全不需要超时计时器**：请求挂住的源（实测 YouTube 缩略图 i.ytimg.com
+   * 100% 不可达，既不 error 也不 load）就只是永远盖不上来，占位块自然还在。
+   *
+   * 为什么不是"先插图片、失败/超时再换占位块"（上一版就是那样，实测踩了两个坑）：
+   *  1. 图片是 lazy 的，屏幕外的卡片浏览器还没开始下载，计时器就已到期 →
+   *     **可用封面被永久换成占位块**。实测：16 张视频封面（bilibili 明明 200/image-jpeg
+   *     能拿到）在一次渲染后全部变成占位块。
+   *  2. 页面处于隐藏态时（侧边栏被切走就是这个状态）Chrome 会**完全推迟** lazy 加载，
+   *     计时器必然到期，于是把本来能加载的封面也换掉了。
+   * 改"占位块打底"之后，这两个坑都不存在：没有"误杀"这回事，因为占位块本来就该在。
    */
-  var THUMB_TIMEOUT_MS = 3000;
 
   function renderThumb(it) {
     var wrap = text('div', 'dd-thumb');
     var url = safeUrl(it.thumb);
     if (url) {
+      // 底层：占位块。它**永远在**，也永远不需要被移除 —— 图片加载成功会盖住它。
+      var fallback = thumbFallback();
+      wrap.appendChild(fallback);
+
       var img = document.createElement('img');
-      img.src = url;
+      img.className = 'dd-thumb-img';
       img.alt = '';
-      img.loading = 'lazy';
       img.decoding = 'async';
       img.referrerPolicy = 'no-referrer';
-
-      var settled = false;
-      var swap = function () {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        // 封面挂了 → 换成纯色占位块，不显示破图图标
-        if (img.parentNode) img.parentNode.removeChild(img);
-        wrap.appendChild(thumbFallback());
+      var observer = null;
+      var disconnectObserver = function () {
+        if (observer) {
+          observer.disconnect();
+          observer = null;
+        }
       };
-      // 有些源（实测 YouTube 缩略图）请求会一直挂着：既不 error 也不 load，
-      // 光靠 onerror 会永远留一块空白。给一个上限，超时就当失败处理。
-      var timer = window.setTimeout(swap, THUMB_TIMEOUT_MS);
-      img.addEventListener('error', swap);
-      img.addEventListener('load', function () {
-        settled = true;
-        window.clearTimeout(timer);
+
+      img.addEventListener('error', function () {
+        // 真失败了就把 img 撤掉（占位块自然露出来），不留破图图标
+        disconnectObserver();
+        if (img.parentNode) img.parentNode.removeChild(img);
       });
-      wrap.appendChild(img);
+
+      var insert = function () {
+        disconnectObserver();
+        if (img.parentNode) return;
+        img.src = url;
+        // 插在占位块之后、时长徽标之前：DOM 顺序保证图片盖住占位块、
+        // 而时长徽标（absolute）仍显示在最上层
+        wrap.insertBefore(img, fallback.nextSibling);
+      };
+
+      if (typeof window.IntersectionObserver === 'function') {
+        // 进入视口才开始下载：既避免一次性拉几十张大图，
+        // 也不依赖浏览器对 lazy 的启发式（页面隐藏时它会把加载无限期推迟）
+        observer = new window.IntersectionObserver(function (entries) {
+          for (var i = 0; i < entries.length; i++) {
+            if (entries[i].isIntersecting) {
+              insert();
+              return;
+            }
+          }
+        });
+        observer.observe(wrap);
+      } else {
+        // 老浏览器：没有观察器就直接加载（退化为"没有懒加载"，不影响正确性）
+        insert();
+      }
     } else {
       wrap.appendChild(thumbFallback());
     }
@@ -1099,8 +1134,19 @@
   function enterDemo(reason) {
     var mock = mockPayload();
     state.demo = true;
-    state.demoNotice = '真实接口不可用（' + reason + '），当前展示内置演示数据。' +
-      '把页面放在 /dsh-daily/ 下由宿主路由打开即可看到真实内容。';
+    /**
+     * 兜底提示要按**真实原因**分流。
+     *
+     * 原来的文案不区分情况，一律说"把页面放在 /dsh-daily/ 下由宿主路由打开" ——
+     * 可当页面**已经**在 /dsh-daily/ 下、只是接口 503 时，这句话等于让用户去做一件
+     * 他已经做过的事，方向完全跑偏（实测：注入 /api/state 故障后就是这个表现）。
+     */
+    var servedByHost = /^\/[^/]*dsh-daily\//.test(window.location.pathname) || window.location.pathname.indexOf('/dsh-daily') === 0;
+    state.demoNotice = servedByHost
+      ? '真实接口不可用（' + reason + '），当前展示内置演示数据。' +
+        '点「重试」再试一次；若一直失败，说明插件没能正常提供服务。'
+      : '真实接口不可用（' + reason + '），当前展示内置演示数据。' +
+        '当前不是由宿主路由打开的，把页面放在 /dsh-daily/ 下即可看到真实内容。';
     state.loading = false;
     state.itemsError = null;
     state.stateError = null;
