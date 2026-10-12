@@ -158,7 +158,7 @@ async function bootstrap(
 			const day = await service.getDay()
 			if (day.items.length === 0) {
 				logger.info('今天还没有数据，启动补抓一轮……')
-				void service.refresh().catch((error: unknown) => {
+				void service.refresh({ trigger: 'startup' }).catch((error: unknown) => {
 					logger.warn(
 						`启动补抓失败：${error instanceof Error ? error.message : String(error)}`,
 					)

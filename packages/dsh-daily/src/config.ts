@@ -151,6 +151,18 @@ export const DailyConfig = z.object({
 
 	/** 频道连续失败后的退避基准分钟（按 2 的幂递增，封顶 8 倍）。0 = 不退避。 */
 	youtubeFailureCooldownMinutes: z.number().default(20),
+
+	// ---------- 桌面通知（macOS，默认关闭）----------
+
+	/**
+	 * 是否在**定时/启动**采集完成后弹一条系统通知。默认 **false**。
+	 * 通知会打断用户正在做的事，这个默认值不该由插件替他决定。
+	 * 手动刷新（点按钮/调工具）不弹 —— 那时用户本来就在看着。
+	 */
+	notifyEnabled: z.boolean().default(false),
+
+	/** 通知正文里列几条标题（最多）。 */
+	notifyMaxTitles: z.number().default(3),
 })
 
 export type DailyConfig = Schemastery.TypeT<typeof DailyConfig>
@@ -199,5 +211,7 @@ export function resolveConfig(config: Partial<DailyConfig> = {}): DailyConfig {
 		youtubeRotateChannels: config.youtubeRotateChannels ?? true,
 		youtubeChannelsPerRefresh: config.youtubeChannelsPerRefresh ?? 3,
 		youtubeFailureCooldownMinutes: config.youtubeFailureCooldownMinutes ?? 20,
+		notifyEnabled: config.notifyEnabled ?? false,
+		notifyMaxTitles: config.notifyMaxTitles ?? 3,
 	}
 }

@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import { summarizeDay, renderWeeklyReview, weekFileName, type ArchiveDay } from './archive.js'
 import { pruneRotation, type RotationState } from './rotation.js'
+import { buildDailyNotification, sendNotification, type SpawnFn } from './notify.js'
 import {
 	compactItem,
 	formatBytes,
@@ -31,7 +32,7 @@ import {
 	type OpmlFeed,
 } from './opml.js'
 import { builtinFeedSpecs } from './collect/sources.js'
-import { renderBrief, renderDigest } from './render.js'
+import { pickDiverse, renderBrief, renderDigest } from './render.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
 import type {
@@ -49,6 +50,20 @@ import type {
  * 插件的业务核心。api / tools / schedule / prompt 都只跟它打交道，
  * 各自不碰 store、不碰采集器 —— 这样"刷新"永远只有一条路径。
  */
+
+/** 本次刷新是谁触发的 —— 决定要不要弹桌面通知（手动刷新不弹）。 */
+export type RefreshTrigger = 'schedule' | 'startup' | 'manual'
+
+/**
+ * 可注入的外部依赖。
+ *
+ * `spawn` 存在的唯一理由是**测试**：`maybeNotify` 内部要调 osascript，
+ * 而"开着通知的集成测试"绝不能真的往用户屏幕上弹东西 —— 那是测试污染真实环境。
+ * 注入一个假的 spawn 就能干净地断言"该弹的时候弹了、不该弹的时候没弹"。
+ */
+export interface ServiceDeps {
+	spawn?: SpawnFn
+}
 
 export interface DailyLogger {
 	info(message: string): void
@@ -159,6 +174,7 @@ export class DailyService {
 	/** YouTube 频道的轮转/退避状态（从 meta 恢复，刷新后写回）。 */
 	private rotation: RotationState = {}
 
+	private deps: ServiceDeps
 	private pool: MirrorPool
 	private inflight: Promise<RefreshSummary> | null = null
 	private readonly listeners = new Set<() => void>()
@@ -167,9 +183,10 @@ export class DailyService {
 	private defaultRoute: (() => AiRoute | null) | null = null
 	private lastAiRun: AiRunStats | null = null
 
-	constructor(config: DailyConfig, logger: DailyLogger) {
+	constructor(config: DailyConfig, logger: DailyLogger, deps: ServiceDeps = {}) {
 		this.config = config
 		this.logger = logger
+		this.deps = deps
 		this.store = new DailyStore(DailyStore.resolveDir(config.dataDir))
 		this.pool = new MirrorPool(config.rsshubMirrors, config.requestTimeoutMs)
 	}
@@ -233,7 +250,9 @@ export class DailyService {
 	}
 
 	/** 跑一轮采集。**并发调用会合流到同一次刷新**，不会重复抓。 */
-	async refresh(options: { sourceIds?: string[]; signal?: AbortSignal } = {}): Promise<RefreshSummary> {
+	async refresh(
+		options: { sourceIds?: string[]; signal?: AbortSignal; trigger?: RefreshTrigger } = {},
+	): Promise<RefreshSummary> {
 		if (this.inflight) return this.inflight
 		this.inflight = this.runRefresh(options).finally(() => {
 			this.inflight = null
@@ -242,7 +261,7 @@ export class DailyService {
 	}
 
 	private async runRefresh(
-		options: { sourceIds?: string[]; signal?: AbortSignal },
+		options: { sourceIds?: string[]; signal?: AbortSignal; trigger?: RefreshTrigger },
 	): Promise<RefreshSummary> {
 		const date = localDate()
 		const previous = await this.store.readDay(date)
@@ -312,6 +331,10 @@ export class DailyService {
 		} catch (error) {
 			this.logger.warn(`日报生成失败：${error instanceof Error ? error.message : String(error)}`)
 		}
+
+		// 桌面通知：只在**定时/启动**这两种"用户没在看"的时机弹。
+		// 手动刷新时用户本来就在看界面，再弹一条只是噪音。
+		await this.maybeNotify(options.trigger ?? 'manual', date, items)
 
 		// 归档整理挂在采集之后：用户不需要知道它的存在，但长期跑下去必须有人做。
 		// 失败不影响刷新结果，所以单独 try/catch。
@@ -551,6 +574,32 @@ export class DailyService {
 			changes,
 			stats: await this.storageStats(),
 		}
+	}
+
+	/**
+	 * 按需发送桌面通知。
+	 *
+	 * 用 `pickDiverse` 挑代表条目，好让通知也体现用户最初的诉求「推荐**不同**类型的新闻」——
+	 * 否则通知里三条标题很可能全来自同一个源。
+	 */
+	private async maybeNotify(trigger: RefreshTrigger, date: string, items: readonly Item[]): Promise<void> {
+		if (!this.config.notifyEnabled) return
+		// 手动刷新不弹：用户此刻就在看界面，再弹一条纯属噪音（也是"通知很烦"最常见的来源）
+		if (trigger === 'manual') return
+		const unread = items.filter((item) => !item.read).length
+		const payload = buildDailyNotification({
+			date,
+			total: items.length,
+			unread,
+			items: pickDiverse(items, Math.max(1, this.config.notifyMaxTitles)),
+			maxTitles: this.config.notifyMaxTitles,
+		})
+		const result = await sendNotification(payload, {
+			enabled: true,
+			...(this.deps.spawn ? { spawn: this.deps.spawn } : {}),
+		})
+		if (result.sent) this.logger.info(`已发送桌面通知：${payload.body}`)
+		else this.logger.warn(`桌面通知未发送：${result.reason ?? '未知原因'}`)
 	}
 
 	/** 每天最多自动整理一次（挂在采集完成后，不需要用户操心）。 */

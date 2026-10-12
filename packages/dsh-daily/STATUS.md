@@ -623,3 +623,67 @@ B站的视频索引不受影响——用户要的"视频索引"目前由 B站稳
 **下轮起点**：① 桌面通知；② 条目详情/阅读态；③ 「周报/订阅入口」的第二轮打磨。
 仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + 10 个工具 + ✨ 按钮 + 日期导航 + 页脚入口 +
 本轮新增的轮转说明）。
+
+### R15 · 2026-10-12 12:06–12:50 — 桌面通知（第二波最后一项）
+
+**为什么做它**：用户最初的需求第一条就是「每日**主动**给我推荐不同类型的新闻」。
+此前"主动"只在两处：日报文件 + 注入 systemPrompt（模型在对话里提起）—— 两者都要求用户**正在看**。
+桌面通知才是真的"不用看也知道"。这也是第二波清单上的最后一项。
+
+**做了什么**
+1. **先确认宿主能力**：`@deepseek-ai/` 下**没有**任何 notifier/toast 包，也没有对应 service 可 inject
+   → 只能落到系统层（macOS `osascript`）。这一步先做，避免了照着不存在的 API 写代码。
+2. `src/notify.ts`：
+   - `buildDailyNotification`：标题带日期，正文单行（macOS 横幅对换行支持很差）含条数 + 代表标题，
+     超长截断到 180 字符
+   - `sendNotification`：**开关 / 平台 / 空正文**三重守卫，**永不抛异常**，失败返回可诊断原因
+   - **文本走 argv**：`osascript -e 'on run argv' … body title`，而不是拼进 AppleScript 源码
+3. 配置：`notifyEnabled`(false) / `notifyMaxTitles`(3)
+4. 服务：`refresh()` 增加 `trigger: 'schedule' | 'startup' | 'manual'`；
+   `maybeNotify` 只在 schedule/startup 触发，标题用 `pickDiverse` 挑（让通知也体现"不同类型"）
+5. `ServiceDeps.spawn` 注入点：**开着通知的集成测试绝不能真的往用户屏幕上弹东西**
+   （见下面"踩坑"一节，这个注入点是被一次真实事故逼出来的）
+
+**本轮踩的坑（很典型，记下来）**
+集成测试第一次跑就失败了，且失败信息是"正文应含代表条目"。排查中发现：**`lib/` 是旧的** ——
+我只跑了 `tsc --noEmit`（不产出文件），而测试 import 的是 `lib/*.js`。
+于是那次测试用的还是"没有注入点"的旧代码 → **真的调用 osascript 发了一条系统通知**。
+两个教训：
+1. `--noEmit` 不重建，改完源码跑测试前必须先 `npm run build`（或 `npm test`，它自带构建）
+2. 注入点不是"为了测试好看"，而是**防止测试污染真实环境** —— 这次的代价是用户屏幕上多了一条通知
+
+**顺带发现一个真问题（已记录，未在本轮修）**
+写通知的集成测试时发现：**刷新会用新采集的条目覆盖当天，而不是合并**。
+`runRefresh` 里 `items = rankItems(outcome.items, …)` 只含本轮抓到的条目，然后整份 `writeDay` 覆盖。
+后果（对用户可见）：
+- 定向刷新（`sourceIds`）会把当天其它源的内容**冲掉**
+- 同一天第二次刷新时若某个源失败，**那个源上午抓到的条目会从今天的列表里消失**
+  （表现为"刷新了一下，条目反而变少了"）
+- 这是 R1 就存在的行为，不在本轮范围内（本轮只做通知），所以**留到下轮优先修**，
+  修法方向：`writeDay` 前把 `previous.items` 与 `outcome.items` 按规范化 URL 合并后再统一排序
+
+**证据（真实输出）**
+- 全量测试：`npm test` → **tests 186 / pass 186 / fail 0**（R14 基线 172 → 本轮 +14 组）
+- 类型检查：`tsc --noEmit` → 0 error
+- **真实 osascript 通路**（受控跑一次）：
+  ```
+  标题: 日报 · 2026-10-12
+  正文: 67 条索引 · 60 未读：DeepSeek Solved AI's Memory Problem · Passkeys are a trap · 派早报：… (97 字符)
+  真实 osascript 结果: {"sent":true}
+  关闭时: {"sent":false,"reason":"未开启（notifyEnabled=false）"}
+  非 macOS: {"sent":false,"reason":"当前平台（linux）暂不支持桌面通知"}
+  ```
+- **默认关闭是硬保证**：单测断言 `enabled:false` 时**连命令都不拼**（spawn 调用数 0）；
+  集成测试断言 `notifyEnabled:false` 时即使定时刷新也不调 spawn
+- **注入防护**：单测用带 `"引号"`、`\` 反斜杠、`$变量`、反引号的标题，
+  断言脚本片段与用户数据**完全分离**、正文只出现在 argv 里
+- **触发时机**：集成测试断言 `trigger:'manual'` → spawn 0 次；`trigger:'schedule'` → spawn 1 次且命令是 osascript
+- 诚实边界：`{"sent":true}` 只证明**调用有效**（退出码 0）。横幅是否真的显示取决于 macOS 通知权限，
+  代码侧无法确认 —— 已写进 README（让用户去「系统设置 → 通知」找 Script Editor）
+
+**阻塞**：无
+
+**下轮起点**：**刷新覆盖当天导致条目丢失（上条已记录，最高优先）**；
+然后 ② 条目详情/阅读态；③ 第二波收口（把 OPML/周报入口再打磨）。
+仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + 10 个工具 + ✨ 按钮 + 日期导航 + 页脚入口 +
+轮转说明 + 通知开关）。

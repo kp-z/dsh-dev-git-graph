@@ -50,7 +50,7 @@ export function installSchedule(
 		if (disposed) return
 		const started = Date.now()
 		try {
-			const summary = await service.refresh()
+			const summary = await service.refresh({ trigger: 'schedule' })
 			options.logger.info(
 				`${reason}：抓到 ${summary.total} 条，${summary.okSources} 源正常，耗时 ${Date.now() - started}ms`,
 			)

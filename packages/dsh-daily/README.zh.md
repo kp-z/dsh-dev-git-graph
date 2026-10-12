@@ -91,6 +91,8 @@ Cannot find package '@deepseek-ai/dsh-tools'
 | `youtubeRotateChannels` | `true` | 是否按 LRU 轮转抓 YouTube 频道（对抗免费镜像的 429） |
 | `youtubeChannelsPerRefresh` | `3` | 每轮抓几个频道。>= 频道总数等价于全抓 |
 | `youtubeFailureCooldownMinutes` | `20` | 频道连续失败后的退避基准分钟（按 2 的幂递增，封顶 8 倍） |
+| `notifyEnabled` | `false` | 是否在**定时/启动**采集完成后弹一条 macOS 系统通知（手动刷新不弹）。默认关 |
+| `notifyMaxTitles` | `3` | 通知正文里列几条标题 |
 
 **用户偏好**（主题 / 关键词权重 / 屏蔽词 / 源权重 / 每日上限）落在 `~/.dsh/daily/prefs.json`，
 由右侧栏页面和 `daily_tune` 工具改写 —— 不走插件配置，因为改配置会触发 profile 重载。
@@ -152,6 +154,37 @@ aiSummaryModel: ''
 
 反向也支持：`daily_opml({ action: 'export' })` 把**内置源 + 自定义源**导出成 OPML，
 可以带回你自己的阅读器。
+
+## 桌面通知（macOS，默认关闭）
+
+「每日**主动**推荐」最字面的形态：采集完成后弹一条系统通知，不用打开任何东西也能知道今天有什么。
+
+```yaml
+notifyEnabled: true
+notifyMaxTitles: 3
+```
+
+通知长这样：
+
+```
+日报 · 2026-10-12
+67 条索引 · 60 未读：DeepSeek Solved AI's Memory Problem · Passkeys are a trap · 派早报：…
+```
+
+三条设计原则：
+
+- **默认关闭，且只在"定时/启动"时弹**。手动刷新（点按钮、调工具）不弹 ——
+  那时你本来就在看着界面，再弹一条纯属噪音。这是"通知很烦"最常见的来源。
+- **标题用 `pickDiverse` 挑**（主题轮转 + 每源上限），否则三条标题很可能全来自同一个源 ——
+  而"推荐**不同**类型"正是你最初的诉求。
+- **文本走 argv，不拼进 AppleScript 源码**。新闻标题里出现引号/反斜杠/换行是常态，
+  拼接字符串总会有漏网的（而那种 bug 的表现是"脚本报错、通知不出现"，很难查）。
+
+**已知边界**：宿主**没有**任何通知服务（`@deepseek-ai/` 下没有 notifier/toast 包），
+所以只能落到系统层（`osascript`）。实测 `osascript` 返回 0（调用有效），
+但**横幅是否真的显示取决于 macOS 的通知权限**——这我无法从代码侧确认。
+如果你开了开关却没看到通知，去「系统设置 → 通知」里找一个叫 **Script Editor** 的条目并允许通知。
+非 macOS 平台会安全跳过（日志里写明原因）。
 
 ## 往回翻：归档与周报
 
