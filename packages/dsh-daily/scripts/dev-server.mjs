@@ -11,15 +11,37 @@
  * 直接联调，改一行 CSS 刷新就能看到。装进 profile 前的所有 UI 迭代都走这条路。
  */
 import http from 'node:http'
+import { parseArgs, toNumber } from './args.mjs'
 import { MOUNT, mountRoutes } from '../lib/api.js'
 import { resolveConfig } from '../lib/config.js'
 import { DailyService } from '../lib/service.js'
 import { localDate } from '../lib/store.js'
 
 const args = process.argv.slice(2)
-const noRefresh = args.includes('--no-refresh')
-const portArg = args.indexOf('--port')
-const port = portArg >= 0 ? Number(args[portArg + 1]) : 8799
+// 参数解析走 scripts/args.mjs：**两种写法都认**（`--port 8799` 与 `--port=8799`），
+// 且**不认识的参数直接报错**。改这个的起因是一个真实事故：
+// 我用 `--port=8971` 起服务时它被静默忽略、回落到 8799，而脚本一直轮询 8971 →
+// 冒烟必然失败，日志里却明明写着 8799。宁可起不来，也不要"起来了但配置没生效"。
+const HAS_FAIL_API = args.some((a) => a.startsWith('--fail-api'))
+const parsed = parseArgs(args, {
+	flags: ['no-refresh', 'ai-fake', ...(HAS_FAIL_API ? ['fail-api'] : [])],
+	values: ['port', 'data-dir', 'seed-history'],
+})
+const noRefresh = parsed.values['no-refresh'] === true
+const aiFakeFlag = parsed.values['ai-fake'] === true
+const port = toNumber(parsed.values.port, 'port', parsed.errors, { min: 1, max: 65535 }) ?? 8799
+const dataDirValue = typeof parsed.values['data-dir'] === 'string' ? parsed.values['data-dir'] : ''
+const seedDaysValue =
+	toNumber(parsed.values['seed-history'], 'seed-history', parsed.errors, { min: 0, max: 365 }) ?? 0
+if (parsed.errors.length > 0) {
+	console.error('参数有问题（不会静默忽略）：')
+	for (const message of parsed.errors) console.error(`  - ${message}`)
+	console.error('')
+	console.error(
+		'用法：node scripts/dev-server.mjs [--port 8799 | --port=8799] [--data-dir=DIR] [--seed-history=N] [--ai-fake] [--no-refresh]',
+	)
+	process.exit(2)
+}
 /**
  * `--ai-fake`：打开 AI 摘要并注入一个**假 stream**。
  *
@@ -27,7 +49,7 @@ const port = portArg >= 0 ? Number(args[portArg + 1]) : 8799
  * 摘要渲染成什么样、失败提示长什么样"这些是要天天看的。假 stream 让这条链路可以
  * 零成本反复验证，且输出可控（能刻意造出"部分失败"来看提示条）。
  */
-const aiFake = args.includes('--ai-fake')
+const aiFake = aiFakeFlag
 
 /**
  * `--data-dir=<path>`：指向一个临时数据目录。
@@ -37,10 +59,8 @@ const aiFake = args.includes('--ai-fake')
  * 而且不会污染 `~/.dsh/daily` —— 归档相关的界面状态（日期条、回到今天、
  * 历史态禁用刷新）只有多天数据时才看得到。
  */
-const dataDirArg = args.find((a) => a.startsWith('--data-dir='))
-const dataDir = dataDirArg ? dataDirArg.slice('--data-dir='.length) : ''
-const seedArg = args.find((a) => a.startsWith('--seed-history='))
-const seedDays = seedArg ? Number(seedArg.slice('--seed-history='.length)) : 0
+const dataDir = dataDirValue
+const seedDays = seedDaysValue
 
 const config = resolveConfig({
 	dataDir,

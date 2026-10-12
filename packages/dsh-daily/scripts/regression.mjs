@@ -73,9 +73,10 @@ const port = 8971
 // 输出落盘：冒烟失败时**必须能看出为什么**（第一版设成 ignore，失败却看不到原因）
 const serverLog = path.join(dataDir, 'dev-server.log')
 const logFd = openSync(serverLog, 'a')
-// 端口参数必须用**空格写法**：dev-server 不认 `--port=8971`，
-// 会静默回落到默认端口 8799（实测：日志里写着 8799，而脚本一直连 8971 → 冒烟必失败）
-const server = spawn('node', ['scripts/dev-server.mjs', `--data-dir=${dataDir}`, '--no-refresh', '--port', String(port)], {
+// 这里**故意用等号写法** `--port=N`：它曾经被 dev-server 静默忽略（回落到 8799），
+// 导致冒烟必然失败。现在参数解析两种写法都认、且不认识的参数会报错，
+// 所以这行同时也是那个 bug 的回归哨兵 —— 哪天等号写法又失效，冒烟会立刻红。
+const server = spawn('node', ['scripts/dev-server.mjs', `--data-dir=${dataDir}`, '--no-refresh', `--port=${port}`], {
 	cwd: root,
 	detached: true,
 	stdio: ['ignore', logFd, logFd],
