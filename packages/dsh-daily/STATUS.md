@@ -975,3 +975,48 @@ cd /Users/kp/DEV/dsh-plugins/packages/dsh-daily && node scripts/install-to-profi
 
 **阻塞**：无。**下轮起点**：等用户发话再装；在此之前可继续做第三波③（AI 检索词），
 它不依赖本地是否安装（用 dev-server + 单测验证）。
+
+### R24 · 2026-10-12 17:06–17:55 — 第三波③：AI 调研检索词
+
+**注意（重要）**：用户在本轮前 35 分钟明确说过「**先不安装这个插件了可能会报错**」。
+**用户的直接指示优先于自动化提醒的装机步骤**，所以本轮**没有执行任何 profile 安装**，
+全部验证走 dev-server + 单测（`--data-dir=/tmp/...`，不碰 `~/.dsh/daily`）。
+
+**做了什么**
+1. `src/research.ts`：`planResearch`（AI 优先、失败降级）、`deterministicQueries`（确定性种子）、
+   `parseQueries`（吃脏输出）、`profileHash`（缓存键）、`diversifyByFamily`、`domainKeywords`
+2. `service.planResearch()` / `readResearchPlan()`（落盘 `research-plan.json`，画像指纹没变就复用）
+3. `GET|POST /api/research` + `daily_research` 工具（工具数 → **13**）
+4. **顺手重构**：把 AI 路由解析抽成 `resolveAiRoute()` —— 原本这段逻辑只写在摘要路径里，
+   检索词要用同一套规则，各写一份必然漂移
+5. 测试 `test/research.test.js`（25 组）
+
+**本轮由"真实输出"驱动的三次质量修正**（都是单测想不到、只有看真实结果才发现）
+| # | 现象 | 修正 |
+|---|---|---|
+| 1 | 前 3 条种子全是 `@ant-design/*` —— 三次搜索问同一件事 | 依赖按**族**去重（scope 为族），先每族 1 个、不够再放宽到 2 个 |
+| 2 | 8 条里 `keyword` **一条不剩** | 种子顺序改为 关键词→依赖→技术栈（合并会截断，排最后的先被砍）。断言：AI 的词仍排最前（它是主源），但**种子里的第一个必须是关键词** |
+| 3 | 关键词是 `context / pages / src / tech` —— 结构词，搜出来与项目无关 | 加 `NON_DOMAIN_KEYWORDS` + `isDomainKeyword`（挡结构词/工具链/文件形态/1-3 字母 ASCII） |
+
+**证据（真实输出）**
+- 全量测试：`npm test` → **tests 249 / pass 249 / fail 0**（R23 基线 224 → 本轮 +25）
+- 类型检查：`tsc --noEmit` → 0 error
+- **AI 路径端到端**（dev-server `--ai-fake`，项目 = 真实 mvizlite）：
+  `by=ai · 8 条`；AI 3 条打头，种子补足 5 条；`notes: ['模型给出 3 条，其余 5 条由确定性种子补足']`
+- **缓存复用**：第二次 POST 的服务日志为 `调研检索词：复用上次结果（…）`，`generatedAt` 未变
+- **降级路径**（无模型服务的实例）：`by=deterministic`，
+  `notes: ['宿主未提供模型服务，本条使用确定性种子检索词']`
+- dev-server 的假 stream 改为**按提示词分流**（检索词请求返回 JSON 数组，摘要请求返回一句话）——
+  否则联调时检索词永远走不到 AI 路径
+- 用户真实数据未被触碰：`~/.dsh/daily` 下没有 `research-plan.json`（测试全写在 /tmp）
+
+**诚实结论：瓶颈已经转移**
+检索词逻辑修完后，真实项目抽出来的**领域词仍然偏弱**（mvizlite: `experiment/portal/batch`；
+本插件自己: `项目/目录/插件`）。这不是检索词的问题，而是**画像的关键词提取质量**问题 ——
+现在 `extractKeywords` 把 README 正文、manifest 字段、目录名**一视同仁地按词频排**，
+于是 `src/pages/scripts/package` 这类结构词挤掉了真正的领域词。
+
+**下轮起点**：改进画像的关键词提取 —— **README 正文词汇的权重高于 manifest 与目录名**
+（README 才携带领域词表），并为它补测试（用真实 README 片段断言领域词排在结构词之前）。
+
+**阻塞**：无（本地安装被用户叫停，不影响开发与验证路径）

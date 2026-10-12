@@ -48,6 +48,7 @@ import { builtinFeedSpecs } from './collect/sources.js'
 import { pickDiverse, renderBrief, renderDigest } from './render.js'
 import { mergeDayItems, mergeSourceStates } from './merge.js'
 import { collectProjectProfile, describeProfile, type ProjectProfile } from './profile.js'
+import { canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
 import type {
@@ -539,6 +540,62 @@ export class DailyService {
 		return raw as ProjectProfile
 	}
 
+	/**
+	 * 解析 AI 路由：显式配置优先（provider 与 model 必须成对），两者都空则跟随宿主默认模型。
+	 * 抽成方法是因为**摘要与调研检索词都要用它** —— 两处各写一份必然会漂移。
+	 */
+	private resolveAiRoute(): AiRoute | null {
+		const provider = this.config.aiSummaryProvider.trim()
+		const model = this.config.aiSummaryModel.trim()
+		if (provider && model) return { provider, model }
+		if (!provider && !model) {
+			try {
+				return this.defaultRoute?.() ?? null
+			} catch {
+				return null
+			}
+		}
+		return null   // 只填一个视为未配置
+	}
+
+	/**
+	 * 生成（或复用）当前项目的调研检索词计划。
+	 *
+	 * 复用规则：**画像指纹没变就不重新生成**（重新画像是读文件、重新生成是调模型，都不该白做）。
+	 * `force` 用于用户显式要求重算。整条路径不抛异常 —— 检索词是调研的入口，
+	 * 入口失败等于功能不可用（失败会降级成确定性种子并写进 notes）。
+	 */
+	async planResearch(options: { force?: boolean; dir?: string } = {}): Promise<ResearchPlan> {
+		const profile = options.dir
+			? await this.buildProfile({ dir: options.dir, save: false })
+			: (await this.readProfile()) ?? (await this.buildProfile())
+
+		if (!options.force) {
+			const cached = await this.readResearchPlan()
+			if (cached && canReusePlan(cached, profile)) {
+				this.logger.info(`调研检索词：复用上次结果（${describePlan(cached)}）`)
+				return cached
+			}
+		}
+
+		const route = this.resolveAiRoute()
+		const plan = await planResearch(profile, {
+			stream: this.llmStream,
+			provider: route?.provider ?? '',
+			model: route?.model ?? '',
+		})
+		await this.store.writeJsonFile('research-plan.json', plan)
+		this.logger.info(`调研检索词：${describePlan(plan)}${plan.notes.length > 0 ? `（${plan.notes[0]}）` : ''}`)
+		return plan
+	}
+
+	/** 读取上次生成的检索词计划（不自动重建）。 */
+	async readResearchPlan(): Promise<ResearchPlan | null> {
+		const raw = await this.store.readJsonFile('research-plan.json')
+		if (!raw || typeof raw !== 'object') return null
+		return raw as ResearchPlan
+	}
+
 	/** 已知项目（默认项目排最前）。 */
 	async listKnownProjects(): Promise<{ current: string; projects: ProjectEntry[] }> {
 		const registry = await this.readRegistryFile()
@@ -792,18 +849,7 @@ export class DailyService {
 		}
 
 		// 路由：显式配置优先；两者都空则跟随宿主默认模型（两者只填一个视为未配置）
-		const configuredProvider = cfg.aiSummaryProvider.trim()
-		const configuredModel = cfg.aiSummaryModel.trim()
-		let route: AiRoute | null = null
-		if (configuredProvider && configuredModel) {
-			route = { provider: configuredProvider, model: configuredModel }
-		} else if (!configuredProvider && !configuredModel) {
-			try {
-				route = this.defaultRoute?.() ?? null
-			} catch {
-				route = null
-			}
-		}
+		const route = this.resolveAiRoute()
 		if (!route) {
 			this.logger.warn(
 				'AI 摘要已开启但没有可用的模型路由：请同时配置 aiSummaryProvider 与 aiSummaryModel，或确保宿主有默认模型。',

@@ -90,8 +90,21 @@ if (seedDays > 0) {
 if (aiFake) {
 	let n = 0
 	service.setLlm(
-		() => ({
+		(request) => ({
 			async *[Symbol.asyncIterator]() {
+				// **按提示词分流**：调研检索词要的是 JSON 数组，摘要要的是一句话。
+				// 不分开的话，联调时检索词永远走不到 AI 路径（假 stream 只会返回摘要文本 → 解析失败 → 降级）
+				const asksForQueries = /检索词/.test(String(request?.system ?? ''))
+				if (asksForQueries) {
+					const payload = [
+						'（假）react 19 迁移注意事项',
+						'（假）zustand v5 破坏性变更',
+						'（假）vite 6 环境变量约定',
+					]
+					yield { type: 'text-delta', text: JSON.stringify(payload) }
+					yield { type: 'finish', reason: { kind: 'stop' } }
+					return
+				}
 				n += 1
 				// 第 3 条刻意失败：用来验证"部分失败"的提示条长什么样
 				if (n === 3) {

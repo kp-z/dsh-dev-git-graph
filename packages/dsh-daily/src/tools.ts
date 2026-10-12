@@ -339,6 +339,43 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 
 	ctx.tools.register(
 		defineTool({
+			name: 'daily_research',
+			description:
+				'生成**当前项目**的调研检索词：从项目画像（技术栈/依赖/关键词）推出"该去搜什么"。' +
+				'这是「调研插件」的核心入口 —— 先有检索词，下一步才能定向检索。' +
+				'**默认复用上次结果**（画像没变就不重复花模型调用）；' +
+				'模型不可用或输出跑偏时**自动降级为确定性种子检索词**并在 notes 里说明原因，不会失败。',
+			parameters: {
+				force: { type: 'boolean', description: 'true 时忽略缓存重新生成（画像没变也会重算）。' },
+				dir: { type: 'string', description: '针对指定目录生成；缺省用当前项目。' },
+			},
+			output: {
+				schema: { type: 'string' },
+				render: (_args, value) => [{ type: 'text', text: value }],
+			},
+			async execute(args) {
+				const plan = await service.planResearch({
+					force: args.force === true,
+					dir: args.dir?.trim() ? args.dir.trim() : undefined,
+				})
+				const lines = [
+					`调研检索词（${plan.by === 'ai' ? 'AI 依据项目画像生成' : '确定性种子（模型不可用/未配置）'}）：`,
+				]
+				for (const q of plan.queries) {
+					lines.push(`- ${q.query}    ← ${q.reason}`)
+				}
+				if (plan.notes.length > 0) {
+					lines.push('', '说明：')
+					for (const note of plan.notes) lines.push(`- ${note}`)
+				}
+				lines.push('', `（共 ${plan.queries.length} 条 · 生成于 ${plan.generatedAt}）`)
+				return lines.join('\n')
+			},
+		}),
+	)
+
+	ctx.tools.register(
+		defineTool({
 			name: 'daily_profile',
 			description:
 				'采集**当前项目**的画像：技术栈、主要依赖、关键词、顶层结构与 README 摘录 —— ' +

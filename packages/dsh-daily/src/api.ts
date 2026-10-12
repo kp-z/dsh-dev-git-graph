@@ -176,6 +176,18 @@ async function handleApi(
 				}
 				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
 			}
+			case 'research': {
+				const fresh = new URL(url, 'http://x').searchParams.get('force') === '1'
+				if (req.method === 'GET' && !fresh) {
+					const cached = await service.readResearchPlan()
+					return sendJson(res, 200, { ok: true, plan: cached, project: service.currentProject() })
+				}
+				if (req.method === 'POST' || (req.method === 'GET' && fresh)) {
+					const plan = await service.planResearch({ force: fresh })
+					return sendJson(res, 200, { ok: true, plan })
+				}
+				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
 			case 'profile': {
 				// GET = 读上次生成的画像；POST = 重新采集（会写盘到该项目的 profile.json）
 				if (req.method === 'GET') {
