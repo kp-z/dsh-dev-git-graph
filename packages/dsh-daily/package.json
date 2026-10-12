@@ -32,8 +32,9 @@
     "probe": "node scripts/probe-sources.mjs",
     "dev": "tsc -p tsconfig.json --watch",
     "verify:install": "node scripts/verify-install.mjs desktop --idempotent",
-    "regression": "npm run build && node --test test/",
-    "regression:install": "npm run build && node --test test/ && node scripts/install-to-profile.mjs desktop && node scripts/verify-install.mjs desktop"
+    "regression": "node scripts/regression.mjs",
+    "regression:install": "npm run build && node --test test/ && node scripts/install-to-profile.mjs desktop && node scripts/verify-install.mjs desktop",
+    "regression:quick": "node scripts/regression.mjs --skip-build"
   },
   "dsh": {
     "bundle": {
