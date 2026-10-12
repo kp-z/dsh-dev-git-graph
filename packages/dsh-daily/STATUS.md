@@ -1020,3 +1020,61 @@ cd /Users/kp/DEV/dsh-plugins/packages/dsh-daily && node scripts/install-to-profi
 （README 才携带领域词表），并为它补测试（用真实 README 片段断言领域词排在结构词之前）。
 
 **阻塞**：无（本地安装被用户叫停，不影响开发与验证路径）
+
+### R25 · 2026-10-12 18:06–18:45 — 客户端加载契约审计（**不改代码**）
+
+**前置约束（用户指示优先于自动化提醒）**
+1. 「先不安装这个插件了可能会报错」→ 本轮**未安装任何东西**
+2. 「daily 有问题需要报给我不要自己修」→ 本轮**只审计与报告，不改代码**
+3. 用户最近的提问是「0.2.2 已经修好了才对，还有哪些问题」→ 本轮回答它
+
+**审计一：把加载器的失败契约读出来（不是猜的）**
+`DSH Desktop.app/.../@deepseek-ai/dsh-client-modules/lib/client.js` 里只有两种失败：
+- `transport-failed`：bundle 取不到 / 执行抛错（会重试 2 次再试 fallback url）
+- `not-registered`：bundle 执行了，但**没有用期望的 id 注册**（`loaded without registering "<id>" via __ModuleLoader__.load`）
+- 两者都会走到 `throw new Error('client-modules: could not load "<id>"')` → 若是 required 启动项，boot 失败
+
+→ 0.2.2 已消除这两种：id 由构建从包名注入（86/86 插件满足"注册 id == 包名"）、bundle 实测 200 且执行。
+
+**审计二：id == 包名 这条规律，验证规模从 5 扩到全量**
+本机 3 个 node_modules 根下**带客户端半体的插件 86 个，86/86 满足注册 id == 包名**。
+（首轮扫描把 `@changfenhuang/dsh-genui` 误报为 `None` —— 它是压缩过的
+`id:\`@changfenhuang/dsh-genui\`` 模板字符串，正则没认；实际也符合。）
+
+**审计三（本轮最重要的产出）：我上一轮的一个诊断被推翻**
+读运行时权威模块图（`window.__DSH_BOOT__.entries`，85 条）逐条比对 inject：
+**10 个条目的 inject 里有不存在的模块**，其中包含**核心模块** ——
+`@deepseek-ai/dsh-client-ui-subagent` 缺 `@deepseek-ai/dsh-client-ui-primitives`、
+`@deepseek-ai/dsh-client-ui-jobs` 缺同一个。核心 UI 明显正常工作。
+
+→ **结论：`inject` 不是硬性门控**（不存在的模块被当作"有就加载、没有就算了"）。
+→ 因此我 R22 写的"inject 指向客户端图里不存在的模块 → 模块永远等待 → 永不执行"**站不住**，
+   `dsh-better-sidebar` 缺 `@deepseek-ai/dsh-client-ui-slots` 也**不能**据此断言它不激活。
+   我当时那次 `inject: ['dsh-better-sidebar']` 测试得 style=false，**真实原因未查明**，不能当作证据用。
+
+**仍然成立的事实（未被推翻）**
+- 0.2.0 / 0.2.1 注册 id 为 `dsh-daily`、包名为 `@kpeace/dsh-daily` → **not-registered → boot 失败**（用户实际遇到）
+- 0.2.2 注册 id 正确（从 npm 拉 tarball 逐字核对过）
+- `@deepseek-ai/dsh-client-ui-slots` 的 `dsh` 字段是 `null`（**没有客户端半体**），
+  该事实本身成立；`dsh-better-sidebar` 0.24.1 与 0.25.0 **都** inject 了它（两个版本都有）
+
+**未解决 / 待验证**
+1. **0.2.2 在真实 DSH 里能否干净启动**：id 与 bundle 都实测过，但**没在装好 0.2.2 的实例上重启验证过**
+   （我所在的桌面实例重启会终止本会话；scratch 实例被用户叫停未再装）
+2. **右侧栏 tab 在你的桌面 app 里到底出不出得来**：取决于 `betterSidebar` 服务是否真的被提供。
+   判别方法（用户侧一条命令即可）：看别的、同样靠 `ctx.betterSidebar` 注册 tab 的插件
+   （`dsh-dev-git-graph` / `dsh-spellbook` / `dsh-tab-split`）**有没有 tab 出现**。
+   有 → better-sidebar 正常，我的 tab 机制也能用；没有 → 是 better-sidebar 的问题，不是我的
+3. 画像关键词质量偏弱（R24 结论），导致检索词偏泛
+4. 第三波④定向检索 / ⑤回流项目 / ⑥调研侧边栏视图 未做
+5. 本机 `dsh plugin add` 受 pnpm store 版本冲突所限（环境问题，非插件问题）
+
+**证据**
+- 加载器契约：`grep -rl "without registering"` → `dsh-client-modules/lib/client.js`，抽出 `attempt()` 全逻辑
+- 86/86：脚本遍历 `desktop/node_modules`、`web/node_modules`、`node_modules` 三根，解析每个包的
+  `dsh.client` + `lib/client.js` 里的 `__ModuleLoader__.load({id:...})` 与 `package.json` 的 `name` 比对
+- 10 个缺 inject：`__DSH_BOOT__.entries`（85 条）在运行中的 :19388 实例上逐条比对（服务端权威图）
+- `dsh-better-sidebar` 两个版本的 inject：直接读各自 package.json 的 `dsh.client.inject`
+
+**阻塞**：无。**下轮起点**：按用户发话决定 —— 要么先在 scratch 实例上验证 0.2.2 能干净启动，
+要么继续第三波④；**不会在用户未点头前安装到他的日常环境**。
