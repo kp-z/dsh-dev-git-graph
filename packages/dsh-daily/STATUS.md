@@ -893,3 +893,49 @@ B站的视频索引不受影响——用户要的"视频索引"目前由 B站稳
 
 **下轮起点**：**第三波②：项目画像**（调研方向的下一个增量）。
 仍欠 **DSH 重启后的真实 GUI 复验**（现在多了一项：从 npm 装的版本要在重启后确认 tab 与工具都在）。
+
+### R20 · 2026-10-12 15:06–15:50 — 第三波②：项目画像
+
+**为什么做它**：调研链条的第二环（① 项目模型 → ② **项目画像** → ③ AI 检索词 → ④ 定向检索 → ⑤ 回流项目）。
+"与项目有关"这句话，只有看了项目本身才知道指什么 —— 所以先得有一份"这个项目是什么"的输入。
+
+**做了什么**
+1. `src/profile.ts`：`collectProjectProfile`（读顶层少量已知文件：README / manifest / CI 配置）、
+   `extractKeywords`（确定性：ASCII 词去停用词 + CJK 双字组，顺序稳定可复现）、
+   `depsFromPackageJson`（只取依赖名，不带版本号）、语言识别（文件标记 + 谨慎的目录兜底）
+2. **三条硬约束**（都来自"这份数据会被送进模型"）：
+   - **绝不读敏感文件**：`.env*` / `*.pem` / `id_rsa*` / `credentials*` / `.npmrc` / `.git-credentials`…
+     按**文件名先挡**。不读才是真的安全 —— "读了再过滤"迟早会漏
+   - **有界**：单文件 64KB / 总计 256KB / 最多 24 个文件；**只读顶层，不递归**（不碰 node_modules/dist）
+   - **可审计**：返回里列出读了哪些文件、跳过什么、为什么；`daily_profile({verbose:true})` 全量打印
+3. `service.buildProfile()` / `readProfile()`（落盘 `<项目>/profile.json`）+
+   `GET|POST /api/profile` + `daily_profile` 工具（工具数 → **12**）
+4. 测试 `test/profile.test.js`（12 组：敏感文件名、跳过规则、关键词、依赖解析、真实文件系统采集、
+   **真实自检本插件自己的目录**）
+
+**本轮抓到的两个问题**
+| # | 问题 | 说明 |
+|---|---|---|
+| 1 | **敏感文件检查被绕过**（自测当场抓到） | `shouldSkipDir` 把"点开头的条目"一律当目录跳过 → `.env` / `.env.local` 走了**目录分支**，敏感检查没跑到。内容确实**没被读**（无泄漏），但**审计记录里没有它们** —— 用户看不到"跳过了哪些敏感文件"，而可审计正是这条约束能被检验的前提。改为 `readdir(withFileTypes)` 先分清文件/目录再各套规则；敏感文件名同时从 `topLevel`（会进摘要）里排除 |
+| 2 | **`src/` 被当成 Python 的证据**（真实画像复验时发现） | 本插件自己是 TypeScript 项目、顶层同样有 `src/`。这段文本要送进模型，**报错比不报更糟**（模型会顺着错误前提去搜）。删掉该启发式，只留 `cmd/`+`internal/` 成对出现才判 Go |
+
+**证据（真实输出）**
+- 全量测试：`npm test` → **tests 224 / pass 224 / fail 0**（R19 基线 210 → 本轮 +14 组）
+- 类型检查：`tsc --noEmit` → 0 error；`npm run regression` → 装机 + 安装校验 **15/15**
+- **真实画像**（对本插件自己的源码目录，真实 service 调用）：
+  ```
+  [info] 项目画像：dsh-daily：TypeScript/Node.js · 读了 4 个文件（30.3KB）· 关键词 24 个
+  技术栈：TypeScript（tsconfig.json）、Node.js（package.json）      ← 修掉误报后不再出现 Python
+  主要依赖：@deepseek-ai/cordis, @deepseek-ai/dsh-tools, @deepseek-ai/schemastery, dsh-better-sidebar, typescript
+  关键词：dsh、node、项目、scripts、目录、youtube、日报、插件、默认、deepseek-ai、数据、摘要、索引、频道…
+  顶层结构：CHANGELOG.md, PLAN.md, README.md, cordis.patch.yml, lib, package.json, scripts, src, test, tsconfig.json, web
+  ```
+  读取审计：`README.md 3637B` / `README.zh.md 24334B` / `package.json 2709B` / `tsconfig.json 332B`；
+  跳过 0 项（该目录顶层没有敏感文件与锁文件）；`profile.json` 已落盘
+- **敏感文件的硬保证**（单测）：造 `.env` / `.env.local` / `id_rsa` / `certs/server.pem` / `credentials.json`
+  都含同一个假密钥，断言 ① 一个都没进"已读" ② **密钥字符串不出现在画像的任何输出里** ③ 但用户能看到"跳过了什么"
+
+**阻塞**：无
+
+**下轮起点**：**第三波③：AI 从项目画像生成检索词**（可注入假 stream 测全部失败路径，沿用 R7 的做法）。
+仍欠 **DSH 重启后的真实 GUI 复验**（多了一项：从 npm 装的 0.2.0 要在重启后确认 tab、12 个工具都在）。

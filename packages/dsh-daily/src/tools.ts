@@ -339,6 +339,51 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 
 	ctx.tools.register(
 		defineTool({
+			name: 'daily_profile',
+			description:
+				'采集**当前项目**的画像：技术栈、主要依赖、关键词、顶层结构与 README 摘录 —— ' +
+				'这是"AI 生成调研检索词"的输入（先画像，才知道"与项目有关"指什么）。' +
+				'**只读顶层少量文件**（单文件 64KB / 共 256KB 上限），' +
+				'并且**绝不读敏感文件**（.env / *.pem / id_rsa / credentials 等一律跳过）。' +
+				'结果落盘到该项目的 profile.json。',
+			parameters: {
+				dir: { type: 'string', description: '要画像的目录；缺省用当前项目的工作目录。' },
+				verbose: { type: 'boolean', description: 'true 时附上完整的"读了什么/跳过了什么"清单。' },
+			},
+			output: {
+				schema: { type: 'string' },
+				render: (_args, value) => [{ type: 'text', text: value }],
+			},
+			async execute(args) {
+				const profile = await service.buildProfile(args.dir?.trim() ? { dir: args.dir.trim() } : {})
+				const lines = [
+					`项目画像：${profile.name}`,
+					`- 工作目录：${profile.dir}`,
+					`- 技术栈：${profile.languages.map((l) => `${l.name}（${l.evidence}）`).join('、') || '（未识别）'}`,
+					`- 主要依赖：${profile.dependencies.slice(0, 15).join(', ') || '（未发现）'}`,
+					`- 关键词：${profile.keywords.join('、') || '（未提取到）'}`,
+					`- 依据：读了 ${profile.files.length} 个文件（${(profile.bytes / 1024).toFixed(1)}KB）`,
+				]
+				const sensitive = profile.skipped.filter((s) => s.reason.includes('敏感'))
+				if (sensitive.length > 0) {
+					lines.push(`- **已跳过 ${sensitive.length} 个敏感文件**：${sensitive.map((s) => s.path).join(', ')}`)
+				}
+				if (args.verbose === true) {
+					lines.push('', '读了的文件：')
+					for (const file of profile.files) {
+						lines.push(`  - ${file.path}（${file.bytes}B${file.truncated ? '，已截断' : ''}）`)
+					}
+					lines.push('', '跳过的：')
+					for (const item of profile.skipped) lines.push(`  - ${item.path}：${item.reason}`)
+				}
+				lines.push('', '画像内容（送进模型的原文）：', '```', profile.summary.slice(0, 1800), '```')
+				return lines.join('\n')
+			},
+		}),
+	)
+
+	ctx.tools.register(
+		defineTool({
 			name: 'daily_project',
 			description:
 				'管理「项目」（**一个项目 = 一个工作目录**）。每个项目有独立的主题偏好、索引与反馈 —— ' +

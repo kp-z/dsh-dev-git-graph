@@ -126,6 +126,7 @@ Cannot find package '@deepseek-ai/dsh-tools'
 | `daily_weekly` | **写盘** | 生成周报（跨天汇总：最值得看 / 主题分布 / 每天条数 / 源健康） |
 | `daily_prune` | 默认**只读**（`apply:true` 才写盘） | 看归档占用；压缩/清理旧归档 |
 | `daily_project` | **写注册表**（use 时） | 列出 / 查看 / 切换项目（一个项目 = 一个工作目录） |
+| `daily_profile` | **写盘**（profile.json） | 采集项目画像：技术栈 / 依赖 / 关键词 / README 摘录（绝不读敏感文件） |
 | `daily_feedback` | **写盘** | like / dislike / read / hide |
 | `daily_refresh` | **联网 + 写盘** | 立刻抓一轮（5~20 秒） |
 
@@ -212,6 +213,39 @@ aiSummaryModel: ''
 **为什么要按目录隔离而不是一个全局配置**：调研的关键词高度依赖项目 ——
 在写前端的仓库里想看到的是 UI 相关的进展，在写插件的仓库里想看到的是宿主 API 的变更。
 一个全局配置只会在两个项目之间来回打架。
+
+## 项目画像（调研的输入）
+
+调研要回答"**这个项目**缺的那块知识在哪"，所以先得知道"这个项目是什么"。
+`daily_profile` 从项目目录里抽出一小段画像 —— 它是「AI 生成检索词」的输入：
+
+```bash
+「给当前项目做个画像」→ daily_profile()            # 也可以用 verbose:true 看读了什么/跳过了什么
+```
+
+画像内容（真实输出，本插件自己的目录）：
+
+```
+项目：dsh-daily
+工作目录：/Users/kp/DEV/dsh-plugins/packages/dsh-daily
+技术栈：TypeScript（tsconfig.json）、Node.js（package.json）
+主要依赖：@deepseek-ai/cordis, @deepseek-ai/dsh-tools, @deepseek-ai/schemastery, dsh-better-sidebar, typescript
+关键词：dsh、node、项目、scripts、目录、youtube、日报、失败、插件、默认、deepseek-ai、数据、摘要、索引、频道…
+顶层结构：CHANGELOG.md, PLAN.md, README.md, cordis.patch.yml, lib, package.json, scripts, src, test, tsconfig.json, web
+README 摘录：…
+（画像依据：读了 4 个文件 / 30.3KB；跳过 0 项，其中敏感文件 0 个）
+```
+
+### 三条硬约束（都来自「这份数据会被送进模型」这个事实）
+
+| 约束 | 做法 |
+|---|---|
+| **绝不读敏感文件** | `.env*`、`*.pem`、`id_rsa*`、`credentials*`、`.npmrc`、`.git-credentials`… 按**文件名先挡**。不读才是真的安全——「读了再过滤」迟早会漏 |
+| **有界** | 单文件 64KB / 总计 256KB / 最多 24 个文件；只读**顶层**的少量已知文件（README、manifest、CI 配置），不做递归遍历 |
+| **可审计** | 返回里明确列出**读了哪些文件、跳过什么、为什么**。用户有权知道插件为了「了解项目」到底看了什么 |
+
+`daily_profile({ verbose: true })` 会把完整清单打出来。画像落盘在
+`<项目数据目录>/profile.json`（只读顶层、不递归，也不会因为目录里有几 G 的构建产物而变慢）。
 
 ## 桌面通知（macOS，默认关闭）
 

@@ -1,6 +1,6 @@
 {
   "name": "@kpeace/dsh-daily",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "DSH 日报插件：每日主动推荐多类型新闻，可用自然语言调教推荐偏好，提供含网页 / YouTube / 哔哩哔哩视频的高价值索引，并在右侧栏以常驻网页呈现、点击即达。",
   "type": "module",
   "main": "./lib/index.js",

@@ -176,6 +176,18 @@ async function handleApi(
 				}
 				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
 			}
+			case 'profile': {
+				// GET = 读上次生成的画像；POST = 重新采集（会写盘到该项目的 profile.json）
+				if (req.method === 'GET') {
+					const cached = await service.readProfile()
+					return sendJson(res, 200, { ok: true, profile: cached, project: service.currentProject() })
+				}
+				if (req.method === 'POST') {
+					const profile = await service.buildProfile()
+					return sendJson(res, 200, { ok: true, profile })
+				}
+				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
 			case 'projects': {
 				// 项目 = 工作目录。GET 看清单与当前，POST 切换（会影响后续所有读写）
 				if (req.method === 'GET') {

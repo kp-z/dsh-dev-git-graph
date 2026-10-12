@@ -47,6 +47,7 @@ import {
 import { builtinFeedSpecs } from './collect/sources.js'
 import { pickDiverse, renderBrief, renderDigest } from './render.js'
 import { mergeDayItems, mergeSourceStates } from './merge.js'
+import { collectProjectProfile, describeProfile, type ProjectProfile } from './profile.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
 import type {
@@ -513,6 +514,29 @@ export class DailyService {
 			isDefault: isDefaultProject(this.root, this.projectDir),
 			dataDir: projectDataDir(this.root, this.projectDir),
 		}
+	}
+
+	/**
+	 * 采集当前项目的画像（调研链条的第二环）。
+	 *
+	 * 结果落盘到该项目的 `profile.json`：③ 生成检索词时要用它，
+	 * 用户也该能看见"插件为了了解项目读了哪些文件"（敏感文件永远不读）。
+	 */
+	async buildProfile(options: { dir?: string; save?: boolean } = {}): Promise<ProjectProfile> {
+		const dir = options.dir ? normalizeDir(options.dir) : this.projectDir
+		const profile = await collectProjectProfile(dir)
+		if (options.save !== false) {
+			await this.store.writeJsonFile('profile.json', profile)
+		}
+		this.logger.info(`项目画像：${describeProfile(profile)}`)
+		return profile
+	}
+
+	/** 读取上次生成的画像（没有就返回 null，不自动重建）。 */
+	async readProfile(): Promise<ProjectProfile | null> {
+		const raw = await this.store.readJsonFile('profile.json')
+		if (!raw || typeof raw !== 'object') return null
+		return raw as ProjectProfile
 	}
 
 	/** 已知项目（默认项目排最前）。 */
