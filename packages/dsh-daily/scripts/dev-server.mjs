@@ -94,7 +94,19 @@ if (aiFake) {
 			async *[Symbol.asyncIterator]() {
 				// **按提示词分流**：调研检索词要的是 JSON 数组，摘要要的是一句话。
 				// 不分开的话，联调时检索词永远走不到 AI 路径（假 stream 只会返回摘要文本 → 解析失败 → 降级）
-				const asksForQueries = /检索词/.test(String(request?.system ?? ''))
+				const system = String(request?.system ?? '')
+				// 介绍类请求：要求"一句中文介绍" → 回一个 JSON 字符串数组（与检索词请求同形但内容不同）
+				const asksForIntros = /中文介绍|结果卡片/.test(system)
+				if (asksForIntros) {
+					const lines = String(request?.messages?.[0]?.content ?? '')
+						.split('\n')
+						.filter((line) => /^\d+\. 标题：/.test(line.trim()))
+					const payload = lines.map((line, i) => `（假）第 ${i + 1} 条的中文介绍：${line.replace(/^\s*\d+\. 标题：/, '').slice(0, 24)}`)
+					yield { type: 'text-delta', text: JSON.stringify(payload) }
+					yield { type: 'finish', reason: { kind: 'stop' } }
+					return
+				}
+				const asksForQueries = /检索词/.test(system)
 				if (asksForQueries) {
 					const payload = [
 						'（假）react 19 迁移注意事项',

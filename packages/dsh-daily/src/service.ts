@@ -53,7 +53,7 @@ import { collectProjectProfile, describeProfile, type ProjectProfile } from './p
 import { chooseProject, collectDirs, describeChoice, parseWorkspacePaths, type DetectedDir } from './detect.js'
 import { canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
 import { describeRetrieval, runRetrieval, type Finding, type RetrieveResult } from './retrieve.js'
-import { applyIntros, type PresentedFinding } from './present.js'
+import { applyIntros, generateIntros, type PresentedFinding } from './present.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
 import type {
@@ -853,10 +853,24 @@ export class DailyService {
 			// 宿主是 Node：直接用全局 fetch。将来若要走宿主的 web 服务，只需换这一处
 			fetch: typeof globalThis.fetch === 'function' ? (globalThis.fetch as never) : null,
 		})
-		// **展示层**：每条结果补上头图与中文介绍（用户要求"卡片要写清楚"）。
-		// AI 介绍这一步先不做（下一轮），现在全部走确定性兜底 —— 但卡片不会空着，
-		// 而且 `introSource` 会如实标出"这句是拼出来的"，不冒充模型写的。
-		const presented: PresentedFinding[] = applyIntros(result.findings, null)
+		// **展示层**：头图 + 中文介绍（用户要求"卡片要写清楚"）。
+		// 有模型路由就让 AI 写介绍；没有/超时/输出坏掉，全都退回确定性兜底 ——
+		// 卡片不会空着，`introSource` 也会如实标明这句是谁写的。
+		let intros: string[] | null = null
+		try {
+			const route = this.resolveAiRoute()
+			if (route && this.llmStream) {
+				intros = await generateIntros(result.findings, {
+					stream: this.llmStream,
+					provider: route.provider,
+					model: route.model,
+				})
+				if (!intros) this.logger.warn('AI 中文介绍未生成（超时/输出无法解析），本轮改用兜底说明。')
+			}
+		} catch (error) {
+			this.logger.warn(`AI 中文介绍失败（改用兜底）：${error instanceof Error ? error.message : String(error)}`)
+		}
+		const presented: PresentedFinding[] = applyIntros(result.findings, intros)
 		const withPresentation = { ...result, findings: presented }
 
 		await this.store.writeJsonFile('findings.json', {

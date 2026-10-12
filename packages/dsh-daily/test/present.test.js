@@ -12,6 +12,7 @@ import {
 	applyIntros,
 	buildIntroPrompt,
 	fallbackIntro,
+	generateIntros,
 	parseIntros,
 	sourceLabelOf,
 	thumbForFinding,
@@ -147,4 +148,86 @@ test('applyIntros：头图与介绍一起补齐，且不破坏原始字段', () 
 	assert.equal(first.query, 'ant design icons', '命中的检索词要保留（可解释性）')
 	assert.equal(sourceLabelOf(gh()), 'GitHub 项目')
 	assert.equal(sourceLabelOf(hn()), 'Hacker News')
+})
+
+
+// ---------- AI 生成（**这里的事件类型必须是真实的 `text-delta`**）----------
+
+/** 假 stream：按给定的 chunk 序列产出。 */
+function fakeStream(chunks) {
+	return () => ({
+		async *[Symbol.asyncIterator]() {
+			for (const chunk of chunks) yield chunk
+		},
+	})
+}
+const okStream = (payload) => fakeStream([
+	{ type: 'text-delta', text: JSON.stringify(payload) },
+	{ type: 'finish', reason: { kind: 'stop' } },
+])
+
+test('generateIntros：收集 text-delta 并解析出中文介绍', async () => {
+	const intros = await generateIntros([gh(), hn()], {
+		stream: okStream(['图标库的中文说明。', 'Node 最佳实践合集。']),
+		provider: 'p',
+		model: 'm',
+	})
+	assert.deepEqual(intros, ['图标库的中文说明。', 'Node 最佳实践合集。'])
+})
+
+test('generateIntros：流被**拆成多段**也要拼起来（真实流是逐 token 的）', async () => {
+	const intros = await generateIntros([gh()], {
+		stream: fakeStream([
+			{ type: 'text-delta', text: '["图' },
+			{ type: 'text-delta', text: '标库' },
+			{ type: 'text-delta', text: '说明。"]' },
+			{ type: 'finish', reason: { kind: 'stop' } },
+		]),
+		provider: 'p',
+		model: 'm',
+	})
+	assert.deepEqual(intros, ['图标库说明。'])
+})
+
+test('generateIntros：任何失败都返回 null（调用方退回兜底，不让卡片空着）', async () => {
+	const cases = {
+		无正文: fakeStream([{ type: 'finish', reason: { kind: 'stop' } }]),
+		推理烧光预算: fakeStream([{ type: 'reasoning-delta', text: '想了很久' }, { type: 'finish', reason: { kind: 'max-tokens' } }]),
+		输出不是JSON: fakeStream([{ type: 'text-delta', text: '好的，我认为…' }, { type: 'finish', reason: { kind: 'stop' } }]),
+		流抛错: () => ({ async *[Symbol.asyncIterator]() { throw new Error('boom') } }),
+	}
+	for (const [name, stream] of Object.entries(cases)) {
+		const out = await generateIntros([gh()], { stream, provider: 'p', model: 'm' })
+		assert.equal(out, null, `${name} 应返回 null`)
+	}
+	assert.equal(await generateIntros([], { stream: okStream(['x']), provider: 'p', model: 'm' }), null, '没有条目就别调模型')
+})
+
+test('generateIntros：超时要中止并返回 null（不能把整轮检索挂住）', async () => {
+	const neverEnding = (request) => ({
+		async *[Symbol.asyncIterator]() {
+			await new Promise((resolve, reject) => {
+				const timer = setTimeout(resolve, 5000)
+				request?.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(new Error('aborted')) })
+			})
+		},
+	})
+	const started = Date.now()
+	const out = await generateIntros([gh()], { stream: neverEnding, provider: 'p', model: 'm', timeoutMs: 1000 })
+	assert.equal(out, null)
+	assert.ok(Date.now() - started < 4000, '超时应当及时返回')
+})
+
+test('generateIntros：maxTokens 要给推理留余量（与条数成正比）', async () => {
+	let seen = null
+	const spy = (request) => ({
+		async *[Symbol.asyncIterator]() {
+			seen = request
+			yield { type: 'text-delta', text: '["甲"]' }
+		},
+	})
+	await generateIntros(Array.from({ length: 12 }, () => gh()), { stream: spy, provider: 'p', model: 'm' })
+	assert.ok(seen.maxTokens >= 2000, `token 预算太小会写不出正文：${seen.maxTokens}`)
+	assert.equal(seen.provider, 'p')
+	assert.equal(seen.messages.length, 1)
 })

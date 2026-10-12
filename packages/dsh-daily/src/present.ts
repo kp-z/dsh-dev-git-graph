@@ -161,3 +161,79 @@ export function applyIntros(findings: Finding[], intros: string[] | null): Prese
 		}
 	})
 }
+
+/** 生成中文介绍所需的依赖（与 ai.ts 的 StreamFn 同形，但不引入耦合）。 */
+export interface IntroGeneratorOptions {
+	stream: (options: {
+		provider: string
+		model: string
+		system?: string
+		messages: Array<{ role: 'user'; content: string }>
+		maxTokens?: number
+		signal?: AbortSignal
+	}) => AsyncIterable<{ type: string; text?: string; reason?: { kind?: string; failure?: { message?: string } } }>
+	provider: string
+	model: string
+	/** 一次写多少条（上限，别把整页都塞进一次调用）。 */
+	limit?: number
+	/**
+	 * token 上限。**要给推理留足** —— 推理 token 与正文共享这个上限
+	 * （dsh-rss 踩过的坑：正文还没开始写就把预算烧完了）。
+	 */
+	maxTokens?: number
+	timeoutMs?: number
+}
+
+/** 默认一条介绍大约需要的 token（含推理摊分），乘条数再留一倍余量。 */
+const INTRO_TOKENS_PER_ITEM = 220
+
+/**
+ * 用模型给结果写中文介绍。
+ *
+ * **任何失败都返回 `null`**（超时、模型报错、输出解析不出来）—— 调用方会退回确定性兜底，
+ * 于是"模型抽风"最多让介绍没那么好，不会让卡片空着，更不会让整轮检索失败。
+ */
+export async function generateIntros(
+	findings: Finding[],
+	options: IntroGeneratorOptions,
+): Promise<string[] | null> {
+	const limit = Math.max(1, options.limit ?? 12)
+	const picked = findings.slice(0, limit)
+	if (picked.length === 0) return null
+
+	const prompt = buildIntroPrompt(picked, { limit })
+	const maxTokens = Math.max(512, options.maxTokens ?? picked.length * INTRO_TOKENS_PER_ITEM * 2)
+	const controller = new AbortController()
+	const timer = setTimeout(() => controller.abort(), Math.max(2000, options.timeoutMs ?? 60_000))
+
+	try {
+		let text = ''
+		let failure = ''
+		for await (const chunk of options.stream({
+			provider: options.provider,
+			model: options.model,
+			system: prompt.system,
+			messages: [{ role: 'user', content: prompt.user }],
+			maxTokens,
+			signal: controller.signal,
+		})) {
+			// **真实事件类型是 `text-delta`**（我第一版写成 `text`，会永远收不到正文 → 静默退回兜底）。
+			// 两种都认，免得将来 DSH 改个名又静默失效。
+			if ((chunk.type === 'text-delta' || chunk.type === 'text') && typeof chunk.text === 'string') {
+				text += chunk.text
+			}
+			if (chunk.reason?.failure?.message) failure = chunk.reason.failure.message
+			// 推理 token 把预算烧光、正文没写出来 → 当作失败，退回兜底（别把空数组当成功）
+			if (chunk.reason?.kind === 'max-tokens' && !text.trim()) failure = '模型没写出正文就用完了 maxTokens'
+		}
+		if (!text.trim()) return null
+		const intros = parseIntros(text, picked.length)
+		if (intros.every((item) => item === '')) return null
+		if (failure) return null
+		return intros
+	} catch {
+		return null
+	} finally {
+		clearTimeout(timer)
+	}
+}
