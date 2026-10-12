@@ -339,6 +339,61 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 
 	ctx.tools.register(
 		defineTool({
+			name: 'daily_project',
+			description:
+				'管理「项目」（**一个项目 = 一个工作目录**）。每个项目有独立的主题偏好、索引与反馈 —— ' +
+				'给 A 项目调的"多推 Rust"不会污染 B 项目。' +
+				'action=list 看已知项目；action=current 看当前；action=use 切换（传 dir）。' +
+				'做与某个代码库相关的调研前，先用 action=use 切到它的目录。**切换会写注册表**。',
+			parameters: {
+				action: { type: 'string', required: true, description: 'list | current | use' },
+				dir: { type: 'string', description: 'action=use 时的项目工作目录（支持 ~/，必须是已存在的目录）。' },
+			},
+			output: {
+				schema: { type: 'string' },
+				render: (_args, value) => [{ type: 'text', text: value }],
+			},
+			async execute(args) {
+				const action = (args.action || '').trim()
+				if (action === 'current') {
+					const p = service.currentProject()
+					return [
+						`当前项目：${p.name}`,
+						`- 工作目录：${p.dir}`,
+						`- 数据目录：${p.dataDir}${p.isDefault ? '（默认项目 = 数据根）' : ''}`,
+					].join('\n')
+				}
+				if (action === 'list') {
+					const { current, projects } = await service.listKnownProjects()
+					const lines = [`共 ${projects.length} 个项目，当前：${current}`, '']
+					for (const project of projects) {
+						const mark = (project as { isCurrent?: boolean }).isCurrent ? '▶' : ' '
+						lines.push(`${mark} ${project.name}${project.isDefault ? '（默认）' : ''}`)
+						lines.push(`    ${project.dir}`)
+					}
+					lines.push('', '用 daily_project({ action: "use", dir: "…" }) 切换。')
+					return lines.join('\n')
+				}
+				if (action === 'use') {
+					if (!args.dir || !args.dir.trim()) throw new Error('action=use 需要 dir')
+					const result = await service.useProject(args.dir.trim())
+					if (!result.ok) throw new Error(`切换失败：${result.reason}`)
+					const p = result.project!
+					return [
+						`已切换到项目「${p.name}」`,
+						`- 工作目录：${p.dir}`,
+						`- 数据目录：${p.dataDir}`,
+						'',
+						'这个项目的偏好与索引是独立的：先 daily_tune 调教它关心什么，再 daily_refresh 抓一轮。',
+					].join('\n')
+				}
+				throw new Error(`未知的 action：${args.action}（可用：list | current | use）`)
+			},
+		}),
+	)
+
+	ctx.tools.register(
+		defineTool({
 			name: 'daily_prune',
 			description:
 				'查看日报归档的磁盘占用，并（可选）把旧归档压缩成索引。**默认只预览、不写盘**；' +

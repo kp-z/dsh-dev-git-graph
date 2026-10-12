@@ -3,6 +3,19 @@ import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import { summarizeDay, renderWeeklyReview, weekFileName, type ArchiveDay } from './archive.js'
 import { pruneRotation, type RotationState } from './rotation.js'
+import {
+	checkDir,
+	defaultRegistry,
+	isDefaultProject,
+	listProjects,
+	normalizeDir,
+	projectDataDir,
+	projectName,
+	readRegistry,
+	touchProject,
+	type ProjectEntry,
+	type ProjectRegistry,
+} from './project.js'
 import { buildDailyNotification, sendNotification, type SpawnFn } from './notify.js'
 import {
 	compactItem,
@@ -99,6 +112,8 @@ export interface ServiceStatePayload {
 	prefs: Prefs
 	/** 自定义源数量（内置源不计），给界面上的入口显示用。 */
 	feeds: number
+	/** 当前项目（调研插件的地基：一个项目 = 一个工作目录）。 */
+	project: { dir: string; name: string; isDefault: boolean; dataDir: string }
 	digest: { available: boolean; path: string; updatedAt: string | null }
 	/** 最近一次 AI 摘要的运行统计；功能关闭时 last 为 null 但 enabled 仍如实反映配置。 */
 	ai: { enabled: boolean; last: AiRunStats | null }
@@ -169,12 +184,18 @@ export function displayPath(absolute: string): string {
 
 export class DailyService {
 	readonly config: DailyConfig
-	readonly store: DailyStore
+	store: DailyStore
 	private readonly logger: DailyLogger
 	/** YouTube 频道的轮转/退避状态（从 meta 恢复，刷新后写回）。 */
 	private rotation: RotationState = {}
 
 	private deps: ServiceDeps
+	/** 数据根（不随项目切换而变）。 */
+	private root: string
+	/** 数据根的 store —— 只用来读写 projects.json 注册表。 */
+	private rootStore: DailyStore
+	/** 当前项目的工作目录（身份）。 */
+	private projectDir: string
 	private pool: MirrorPool
 	private inflight: Promise<RefreshSummary> | null = null
 	private readonly listeners = new Set<() => void>()
@@ -187,12 +208,28 @@ export class DailyService {
 		this.config = config
 		this.logger = logger
 		this.deps = deps
-		this.store = new DailyStore(DailyStore.resolveDir(config.dataDir))
+		// **数据根**：注册表与"额外项目"的父目录。默认项目就是它本身。
+		this.root = DailyStore.resolveDir(config.dataDir)
+		this.rootStore = new DailyStore(this.root)
+		// 当前项目目录（绝对路径）。构造时先按默认项目，init() 再按注册表恢复。
+		this.projectDir = this.root
+		this.store = new DailyStore(this.root)
 		this.pool = new MirrorPool(config.rsshubMirrors, config.requestTimeoutMs)
 	}
 
 	async init(): Promise<void> {
+		// 注册表放在数据根，不随项目切换而变
+		await this.rootStore.init()
+		const registry = await this.readRegistryFile()
+		// 恢复上次的项目；目录若已不存在（被删/改名）就安全回落默认项目，
+		// 否则一个失效路径会让插件再也打不开。
+		const restored = registry.current && checkDir(registry.current).ok ? normalizeDir(registry.current) : this.root
+		this.projectDir = restored
+		this.store = new DailyStore(projectDataDir(this.root, restored))
 		await this.store.init()
+		if (restored !== normalizeDir(registry.current ?? '')) {
+			await this.writeRegistryFile(touchProject(registry, this.root, restored))
+		}
 		const meta = await this.store.readMeta()
 		// 跨轮复用镜像健康度：上一次成功的镜像直接排到队首，省一轮探测
 		this.pool = this.makePool(meta)
@@ -441,6 +478,61 @@ export class DailyService {
 		await this.store.writeDigestNamed(name, markdown)
 		this.logger.info(`周报已生成：${name}（${days.length} 天 / ${items.length} 条）`)
 		return { markdown, name, days: days.length, items: items.length, start, end }
+	}
+
+	/* ---------- 项目 ---------- */
+
+	private async readRegistryFile(): Promise<ProjectRegistry> {
+		const raw = await this.rootStore.readJsonFile('projects.json')
+		return readRegistry(raw ?? defaultRegistry())
+	}
+
+	private async writeRegistryFile(registry: ProjectRegistry): Promise<void> {
+		await this.rootStore.writeJsonFile('projects.json', registry)
+	}
+
+	/** 当前项目。 */
+	currentProject(): { dir: string; name: string; isDefault: boolean; dataDir: string } {
+		return {
+			dir: this.projectDir,
+			name: projectName(this.projectDir),
+			isDefault: isDefaultProject(this.root, this.projectDir),
+			dataDir: projectDataDir(this.root, this.projectDir),
+		}
+	}
+
+	/** 已知项目（默认项目排最前）。 */
+	async listKnownProjects(): Promise<{ current: string; projects: ProjectEntry[] }> {
+		const registry = await this.readRegistryFile()
+		const projects = listProjects(registry, this.root).map((entry) => ({
+			...entry,
+			// 标记当前项目，界面直接用
+			isCurrent: normalizeDir(entry.dir) === this.projectDir,
+		}))
+		return { current: this.projectDir, projects: projects as ProjectEntry[] }
+	}
+
+	/**
+	 * 切换到某个项目目录。
+	 *
+	 * 只切"数据放在哪"，**不切换别的东西**：镜像池照旧复用，
+	 * 每个项目自己的 prefs/meta/轮转状态都在它自己的数据目录里，互不影响。
+	 */
+	async useProject(dir: string): Promise<{ ok: boolean; reason?: string; project?: ReturnType<DailyService['currentProject']> }> {
+		const check = checkDir(dir)
+		if (!check.ok) return { ok: false, reason: check.reason }
+		const normalized = normalizeDir(dir)
+
+		const registry = await this.readRegistryFile()
+		const next = touchProject(registry, this.root, normalized)
+		await this.writeRegistryFile(next)
+
+		this.projectDir = normalized
+		this.store = new DailyStore(projectDataDir(this.root, normalized))
+		await this.store.init()
+		this.logger.info(`已切换项目：${normalized}`)
+		this.emit()
+		return { ok: true, project: this.currentProject() }
 	}
 
 	/**
@@ -984,6 +1076,7 @@ export class DailyService {
 			sources: day.sources,
 			prefs,
 			feeds: prefs.extraFeeds.length,
+			project: this.currentProject(),
 			digest: {
 				available: meta.lastDigestDate !== null,
 				// 用**真实**路径（可自定义数据目录），并在 home 之下时缩写成 ~/…

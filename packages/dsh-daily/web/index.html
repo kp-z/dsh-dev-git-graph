@@ -35,6 +35,16 @@
       </div>
       <p class="dd-stats" id="dd-stats">正在载入…</p>
     </div>
+    <!-- 项目切换器：一个项目 = 一个工作目录，每个项目有独立的偏好与索引 -->
+    <div class="dd-projectbar" id="dd-projectbar" hidden>
+      <span class="dd-project-label">项目</span>
+      <select class="dd-project-select" id="dd-project-select" aria-label="切换项目"></select>
+      <button type="button" class="dd-project-add" id="dd-project-add" title="用目录新增一个项目">＋</button>
+      <div class="dd-project-new" id="dd-project-new" hidden>
+        <input type="text" class="dd-project-input" id="dd-project-input" placeholder="项目目录，如 ~/DEV/my-app" aria-label="项目目录">
+        <button type="button" class="dd-btn" id="dd-project-confirm">切换</button>
+      </div>
+    </div>
     <!-- 按天翻阅：只有存在多天归档时才显示（默认隐藏，别给只有一天数据的用户添噪音） -->
     <div class="dd-datebar" id="dd-datebar" hidden>
       <button type="button" class="dd-date-step" id="dd-date-prev" aria-label="前一天" title="前一天">‹</button>

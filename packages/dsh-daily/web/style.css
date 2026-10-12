@@ -228,6 +228,68 @@ button { font-family: inherit; }
 }
 .dd-capsule-spin { display: inline-block; animation: dd-spin 1.1s linear infinite; }
 
+/* ---------- 4.6 项目切换器 ---------- */
+.dd-projectbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px 0;
+  flex-wrap: wrap;
+}
+/* 非默认项目时给一条强调色左边框：一眼看出"现在看的不是默认项目" */
+.dd-projectbar.is-scoped {
+  border-left: 2px solid var(--dd-accent);
+  padding-left: 8px;
+}
+.dd-project-label {
+  flex: 0 0 auto;
+  color: var(--dd-text-tertiary);
+  font-size: 10.5px;
+}
+.dd-project-select {
+  flex: 1 1 120px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1px 4px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-elevated);
+  color: var(--dd-text);
+  font: inherit;
+  font-size: 11px;
+}
+.dd-project-add {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-sm);
+  background: transparent;
+  color: var(--dd-text-secondary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dd-project-add:hover { background: var(--dd-bg-hover); color: var(--dd-text); }
+.dd-project-new {
+  flex: 1 1 100%;
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.dd-project-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--dd-border);
+  border-radius: var(--dd-radius-sm);
+  background: var(--dd-bg-elevated);
+  color: var(--dd-text);
+  font: inherit;
+  font-size: 11px;
+}
+
 /* ---------- 4.7 按天翻阅（归档） ---------- */
 .dd-datebar {
   display: flex;

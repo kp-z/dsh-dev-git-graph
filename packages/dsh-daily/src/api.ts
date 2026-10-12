@@ -176,6 +176,23 @@ async function handleApi(
 				}
 				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
 			}
+			case 'projects': {
+				// 项目 = 工作目录。GET 看清单与当前，POST 切换（会影响后续所有读写）
+				if (req.method === 'GET') {
+					const { current, projects } = await service.listKnownProjects()
+					return sendJson(res, 200, { ok: true, current, projects })
+				}
+				if (req.method === 'POST') {
+					const body = await readJsonBody(req)
+					if (typeof body.dir !== 'string' || !body.dir.trim()) {
+						return sendJson(res, 400, { ok: false, error: '需要 dir（项目工作目录的绝对路径）' })
+					}
+					const result = await service.useProject(body.dir)
+					if (!result.ok) return sendJson(res, 200, { ok: false, error: result.reason })
+					return sendJson(res, 200, { ok: true, project: result.project })
+				}
+				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
 			case 'feeds': {
 				if (req.method === 'GET') {
 					return sendJson(res, 200, { ok: true, feeds: await service.listCustomFeeds() })

@@ -753,3 +753,56 @@ B站的视频索引不受影响——用户要的"视频索引"目前由 B站稳
 3. 桌面通知的开关需要进配置文档供用户开启
 仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + 10 个工具 + ✨ 按钮 + 日期导航 + 页脚入口 +
 **卡片跳转** + 轮转说明 + 通知开关）。
+
+### R17 · 2026-10-12 13:06–13:50 — 第三波①：项目模型（一个项目 = 一个工作目录）
+
+**为什么先做它**：用户要求把插件从「日报」变成「调研插件」——按项目切换目录、用 AI 搜索与
+**当前项目**有关的知识。调研是**定向**的，所以"项目"必须是所有状态的第一维度；
+后面的五轮（项目画像 / AI 检索词 / 定向检索 / 回流项目 / 调研视图）全都建立在它之上。
+
+**做了什么**
+1. `src/project.ts`（纯函数、零依赖）：
+   - `normalizeDir`（`~` / 相对路径 / 结尾斜杠 / `..` 全部归一 —— **路径就是项目身份**）
+   - `projectFolder`（`<slug>-<hash8>`：slug 给人看，hash 保证不同父目录下的同名项目不撞）
+   - `projectDataDir`（**默认项目 = 数据根本身**，其它项目进 `projects/` 子目录 → 老数据零迁移）
+   - `touchProject` / `readRegistry`（坏数据容错）/ `listProjects` / `checkDir`
+2. 服务：`root`（数据根，不随项目变）与 `projectDir`（当前项目）分离；
+   `init()` 从注册表恢复（**目录失效则安全回落默认项目**，否则一个被删的目录会让插件再也打不开）；
+   `useProject()` / `listKnownProjects()` / `currentProject()`
+3. `daily_project` 工具（list / current / use）+ `GET|POST /api/projects`
+4. 侧边栏**项目切换器**（下拉 + `＋` 用目录新增；非默认项目时加一条强调色左边框，
+   一眼看出"现在看的不是默认项目"）；`/api/state` 带上 `project`
+5. 测试 `test/project.test.js`（13 组：8 组纯函数 + 5 组真实 service 集成）
+
+**隔离范围（都按项目独立）**：偏好 / 反馈 / 每日索引 / 归档 / 轮转状态（各自的 `meta.json`）。
+
+**本轮抓到的 bug（由测试当场顶出来）**
+`normalizeDir` 早先对**绝对路径直接用原值**（没走 `resolve()`），于是 `/tmp/a/../a/b` 与
+`/tmp/a/b` 被当成两个项目 —— **同一目录两个身份，数据会被劈成两份**。
+这正是「路径必须先归一化再当身份」这条设计原则的反例，测试里那句
+「同一目录的两种写法必须完全相等」把它钉住了。
+
+**证据（真实输出）**
+- 全量测试：`npm test` → **tests 201 / pass 201 / fail 0**（R16 基线 188 → 本轮 +13 组）
+- 类型检查：`tsc --noEmit` → 0 error；`node --check web/app.js` → 通过
+- **HTTP 端到端**（数据根 /tmp/dsh-proj/root）：
+  - 初始清单只有默认项目：`[('root（默认）', True)]`
+  - 默认项目调教「多推 Rust」→ `notes: ['多推 Rust']`
+  - 切到 `/tmp/dsh-proj/appA` → `dataDir: /tmp/dsh-proj/root/projects/appa-c8d17d25`，
+    **appA 的 topics 为空、条目 0 条**（没继承 = 隔离生效）
+  - 磁盘布局：`root/projects/appa-c8d17d25/`；`projects.json` 落盘
+    （`current: /tmp/dsh-proj/appA` + `known` 一条）
+- **浏览器端到端**（真实渲染 + 真实 change 事件）：
+  - 项目条出现，选项 `['root（默认）', 'appA · dsh-proj/appA']`，appA 选中时 `is-scoped=true`
+  - 真实切回默认项目 → 选中项变回 `root（默认）`、**67 条卡片回来**、`is-scoped=false`、
+    且 `prefs.tuningNotes = ['多推 Rust']` **原样还在**
+- 集成测试另外覆盖：跨进程恢复（新建 service 仍在 alpha）、失效目录回落、
+  不存在的目录/不是目录被拒绝且不改动当前项目、轮转状态也按项目隔离
+
+**阻塞**：无
+
+**下轮起点**：
+1. **第三波②：项目画像**（从项目目录抽 README/package.json/关键源文件 → 语言、依赖、领域词）
+2. **刷新覆盖当天导致条目丢失**（R15 发现，仍未修 —— 我会在紧接着的一轮处理）
+仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + **11 个**工具 + ✨ 按钮 + 日期导航 + 页脚入口 +
+卡片跳转 + 轮转说明 + 通知开关 + **项目切换器**）。

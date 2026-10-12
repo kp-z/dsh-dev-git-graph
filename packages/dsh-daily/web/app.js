@@ -38,7 +38,8 @@
     // 界面上表现为"转一下就没了"，非常难查（本轮就踩了一次：
     // 所以 test/client-contract.test.js 会静态核对"用到的键都在表里"）。
     opml: './api/opml',
-    feeds: './api/feeds'
+    feeds: './api/feeds',
+    projects: './api/projects'
   };
 
   var FETCH_TIMEOUT_MS = 20000;   // refresh 走后台，不需要长超时
@@ -361,6 +362,8 @@
     today: null,            // 服务端认为的"今天"
     datePinned: false,      // 用户是否手动翻到了某一天
     feedsCount: 0,          // 自定义源数量（页脚入口显示用）
+    project: null,          // 当前项目 {dir,name,isDefault,dataDir}
+    projects: [],           // 已知项目清单
     digestBusy: false
   };
 
@@ -1098,6 +1101,69 @@
    * 5. events
    * ==================================================================== */
 
+  /* ---------- 4.6 项目（一个项目 = 一个工作目录） ---------- */
+
+  /**
+   * 项目切换器。
+   *
+   * 为什么它在这个插件里是一等公民：调研是**定向**的 —— 「这个项目缺的那块知识在哪」。
+   * 同一台机器上给 A 项目调的「多推 Rust」绝不能污染 B 项目，所以偏好/索引/反馈都按目录隔离。
+   */
+  function loadProjects() {
+    return apiGet(API.projects).then(function (r) {
+      if (r.error || !r.data || !Array.isArray(r.data.projects)) return;
+      state.projects = r.data.projects;
+      renderProjectBar();
+    });
+  }
+
+  function renderProjectBar() {
+    if (!el.projectbar) return;
+    el.projectbar.hidden = state.projects.length === 0;
+    if (state.projects.length === 0) return;
+    var select = el.projectSelect;
+    clear(select);
+    state.projects.forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p.dir;
+      opt.textContent = p.name + (p.isDefault ? '' : ' · ' + p.dir.split('/').slice(-2).join('/'));
+      if (state.project && state.project.dir === p.dir) opt.selected = true;
+      select.appendChild(opt);
+    });
+    el.projectbar.classList.toggle('is-scoped', !!(state.project && !state.project.isDefault));
+    el.projectbar.title = state.project
+      ? '当前项目：' + state.project.dir + '\n数据目录：' + state.project.dataDir
+      : '';
+  }
+
+  /** 切换项目：数据全换（偏好/索引/反馈都跟着走），所以要整页重载而不是只改一行。 */
+  function switchProject(dir) {
+    if (!dir || (state.project && state.project.dir === dir)) return;
+    apiPost(API.projects, { dir: dir }).then(function (r) {
+      if (r.error || (r.data && r.data.ok === false)) {
+        state.stateError = '切换项目失败：' + (r.error || (r.data && r.data.error) || '未知原因');
+        renderError();
+        return;
+      }
+      // 数据全变了：清掉所有只对旧项目有效的界面状态
+      state.topic = '全部';
+      state.query = '';
+      state.unreadOnly = false;
+      state.expanded = {};
+      state.hiddenIds = {};
+      state.datePinned = false;
+      state.archive = [];
+      state.items = [];
+      state.counts = { total: 0, unread: 0, byTopic: {} };
+      state.stateError = null;
+      syncSearchInputs();
+      loadState();
+      loadProjects();
+      loadArchive();
+      loadItems();
+    });
+  }
+
   /* ---------- 4.7 按天翻阅（归档） ---------- */
 
   /**
@@ -1201,6 +1267,8 @@
     state.ai = s.ai || { enabled: false, last: null };
     if (el.aiBtn) el.aiBtn.hidden = !state.ai.enabled;
     state.feedsCount = typeof s.feeds === 'number' ? s.feeds : 0;
+    if (s.project && typeof s.project === 'object') state.project = s.project;
+    renderProjectBar();
     state.counts = s.counts || { total: 0, unread: 0, byTopic: {} };
     state.sources = Array.isArray(s.sources) ? s.sources : [];
     state.prefs = s.prefs || null;
@@ -1956,6 +2024,12 @@
     el.refreshBtn = $('dd-refresh');
     el.digestBtn = $('dd-digest');
     el.aiBtn = $('dd-ai');
+    el.projectbar = $('dd-projectbar');
+    el.projectSelect = $('dd-project-select');
+    el.projectAdd = $('dd-project-add');
+    el.projectNew = $('dd-project-new');
+    el.projectInput = $('dd-project-input');
+    el.projectConfirm = $('dd-project-confirm');
     el.datebar = $('dd-datebar');
     el.datePrev = $('dd-date-prev');
     el.dateNext = $('dd-date-next');
@@ -2071,6 +2145,17 @@
 
     // 列表交互（委托：动作 / 打开 / 折叠 / 空态重试）
     el.list.addEventListener('click', onListClick);
+
+    // 项目切换
+    el.projectSelect.addEventListener('change', function () { switchProject(el.projectSelect.value); });
+    el.projectAdd.addEventListener('click', function () {
+      el.projectNew.hidden = !el.projectNew.hidden;
+      if (!el.projectNew.hidden) el.projectInput.focus();
+    });
+    el.projectConfirm.addEventListener('click', function () { switchProject(el.projectInput.value.trim()); });
+    el.projectInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); switchProject(el.projectInput.value.trim()); }
+    });
 
     // 按天翻阅（归档）
     el.datePrev.addEventListener('click', function () { stepDate(1); });
@@ -2201,6 +2286,7 @@
     loadState();
     // 归档索引与首屏数据并行拉，谁先到都不影响另一边
     loadArchive();
+    loadProjects();
   }
 
   if (document.readyState === 'loading') {
