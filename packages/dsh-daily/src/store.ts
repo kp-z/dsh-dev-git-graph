@@ -26,6 +26,14 @@ export interface Meta {
 	mirrorHealth: Record<string, { ok: boolean; at: string; error: string | null }>
 	/** 最近一次归档压缩/清理的日期，用于"每天最多跑一次"的节流。 */
 	lastPruneDate: string | null
+	/**
+	 * YouTube 频道的**尝试记录**（LRU 轮转 + 失败退避），跨轮持久化。
+	 * 注意别与 `config.youtubeChannels`（频道**清单**）搞混 —— 那个是配置，这个是运行状态。
+	 */
+	youtubeRotation: Record<
+		string,
+		{ lastAttemptAt: string | null; lastSuccessAt?: string | null; consecutiveFailures: number }
+	>
 }
 
 export function defaultPrefs(): Prefs {
@@ -50,6 +58,7 @@ export function defaultMeta(): Meta {
 		lastDigestDate: null,
 		mirrorHealth: {},
 		lastPruneDate: null,
+		youtubeRotation: {},
 	}
 }
 

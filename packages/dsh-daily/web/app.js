@@ -544,6 +544,12 @@
     if (health.total > 0) {
       el.stats.appendChild(document.createTextNode(' · '));
       var src = text('span', health.bad.length ? 'dd-stat-warn' : '', health.ok + '/' + health.total + ' 源正常');
+      // 把"正常源的补充说明"挂进 tooltip：轮转会让 YouTube 只抓 3/5 个频道，
+      // 这不是故障 —— 但用户看到条数变少时会以为是故障，所以原因必须够得着。
+      var noted = state.sources.filter(function (s) { return s.ok && s.error; });
+      if (noted.length) {
+        src.title = noted.map(function (s) { return s.name + '：' + s.error; }).join('\n');
+      }
       el.stats.appendChild(src);
     }
     if (state.items.length) {

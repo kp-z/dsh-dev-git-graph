@@ -137,6 +137,20 @@ export const DailyConfig = z.object({
 	 * 想开就设成比 archiveCompactAfterDays 更大的值（比如 180）。
 	 */
 	archiveDeleteAfterDays: z.number().default(0),
+
+	// ---------- YouTube 轮转（对抗免费镜像的 429）----------
+
+	/**
+	 * 是否按 LRU 轮转抓 YouTube 频道（而不是每轮全抓）。
+	 * 关闭后回到"每轮全抓"的老行为 —— 在镜像不稳定时会频繁整源失败。
+	 */
+	youtubeRotateChannels: z.boolean().default(true),
+
+	/** 每轮抓几个频道。>= 频道总数等价于全抓。默认 3（5 个频道 ≈ 两轮覆盖一轮）。 */
+	youtubeChannelsPerRefresh: z.number().default(3),
+
+	/** 频道连续失败后的退避基准分钟（按 2 的幂递增，封顶 8 倍）。0 = 不退避。 */
+	youtubeFailureCooldownMinutes: z.number().default(20),
 })
 
 export type DailyConfig = Schemastery.TypeT<typeof DailyConfig>
@@ -182,5 +196,8 @@ export function resolveConfig(config: Partial<DailyConfig> = {}): DailyConfig {
 		aiSummaryCacheMax: config.aiSummaryCacheMax ?? 500,
 		archiveCompactAfterDays: config.archiveCompactAfterDays ?? 60,
 		archiveDeleteAfterDays: config.archiveDeleteAfterDays ?? 0,
+		youtubeRotateChannels: config.youtubeRotateChannels ?? true,
+		youtubeChannelsPerRefresh: config.youtubeChannelsPerRefresh ?? 3,
+		youtubeFailureCooldownMinutes: config.youtubeFailureCooldownMinutes ?? 20,
 	}
 }

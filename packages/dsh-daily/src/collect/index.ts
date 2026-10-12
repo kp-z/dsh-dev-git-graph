@@ -1,9 +1,10 @@
 import { SOURCE_CATALOG } from '../catalog.js'
 import type { DailyConfig } from '../config.js'
+import { pruneRotation, recordAttempts, type RotationState } from '../rotation.js'
 import type { RawItem, SourceState } from '../types.js'
 import { mapLimit } from './http.js'
 import { MirrorPool } from './mirror.js'
-import {
+import { SourceFailure,
 	collectArxiv,
 	collectBilibiliPopular,
 	collectBilibiliRanking,
@@ -57,6 +58,8 @@ export interface CollectOptions {
 	 * 用户导入 OPML 后不需要改配置、不需要重载 profile 就能生效。
 	 */
 	extraFeeds?: readonly string[]
+	/** YouTube 频道的轮转/退避状态（输入）。缺省视为"都没抓过"，即全部可抓。 */
+	rotation?: RotationState
 }
 
 export interface CollectOutcome {
@@ -64,6 +67,8 @@ export interface CollectOutcome {
 	sources: SourceState[]
 	pool: MirrorPool
 	durationMs: number
+	/** 汇总后的轮转状态（含本轮尝试结果），由 service 落进 meta。 */
+	rotation: RotationState
 }
 
 /** 决定这一轮跑哪些源。config.enabledSources 为空 = 全部启用。 */
@@ -99,10 +104,12 @@ export async function runCollection(options: CollectOptions): Promise<CollectOut
 			: options.config
 	const pool =
 		options.pool ?? new MirrorPool(config.rsshubMirrors, config.requestTimeoutMs)
+	const rotationIn = options.rotation ?? {}
 	const env: CollectEnv = {
 		config,
 		pool,
 		...(options.signal ? { signal: options.signal } : {}),
+		rotation: rotationIn,
 	}
 
 	const ids = resolveSourceIds(config, options.sourceIds)
@@ -136,7 +143,13 @@ export async function runCollection(options: CollectOptions): Promise<CollectOut
 				durationMs: Date.now() - t0,
 				at,
 			}
-			return { items: outcome.items, state }
+			// `rotationUpdates` 必须一起带出来 —— 漏掉它的话成功路径就不更新轮转状态，
+			// LRU 会永远选中同一批频道（实测被集成测试直接抓到）
+			return {
+				items: outcome.items,
+				state,
+				...(outcome.rotationUpdates ? { rotationUpdates: outcome.rotationUpdates } : {}),
+			}
 		} catch (error) {
 			const state: SourceState = {
 				id,
@@ -148,7 +161,9 @@ export async function runCollection(options: CollectOptions): Promise<CollectOut
 				durationMs: Date.now() - t0,
 				at,
 			}
-			return { items: [] as RawItem[], state }
+			// 失败也要把尝试记录带出来，否则失败计数不增长、退避不生效
+			const rotationUpdates = error instanceof SourceFailure ? error.rotationUpdates : undefined
+			return { items: [] as RawItem[], state, ...(rotationUpdates ? { rotationUpdates } : {}) }
 		}
 	})
 
@@ -161,10 +176,18 @@ export async function runCollection(options: CollectOptions): Promise<CollectOut
 		}
 	})
 
+	// 汇总各源的"尝试结果"（目前只有 YouTube 会产出）→ 得到新的轮转状态。
+	// 采集器不落盘：产出状态、由 service 写进 meta，保持这一层纯粹可测。
+	const attempts = results.flatMap((result) =>
+		result.status === 'fulfilled' ? (result.value.rotationUpdates ?? []) : [],
+	)
+	const rotation = attempts.length > 0 ? recordAttempts(rotationIn, attempts, new Date()) : rotationIn
+
 	return {
 		items,
 		sources,
 		pool,
 		durationMs: Date.now() - started,
+		rotation,
 	}
 }

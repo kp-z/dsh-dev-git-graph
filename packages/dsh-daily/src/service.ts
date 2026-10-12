@@ -2,6 +2,7 @@ import type { DailyConfig } from './config.js'
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
 import { summarizeDay, renderWeeklyReview, weekFileName, type ArchiveDay } from './archive.js'
+import { pruneRotation, type RotationState } from './rotation.js'
 import {
 	compactItem,
 	formatBytes,
@@ -155,6 +156,9 @@ export class DailyService {
 	readonly config: DailyConfig
 	readonly store: DailyStore
 	private readonly logger: DailyLogger
+	/** YouTube 频道的轮转/退避状态（从 meta 恢复，刷新后写回）。 */
+	private rotation: RotationState = {}
+
 	private pool: MirrorPool
 	private inflight: Promise<RefreshSummary> | null = null
 	private readonly listeners = new Set<() => void>()
@@ -175,6 +179,9 @@ export class DailyService {
 		const meta = await this.store.readMeta()
 		// 跨轮复用镜像健康度：上一次成功的镜像直接排到队首，省一轮探测
 		this.pool = this.makePool(meta)
+		// 跨进程恢复 YouTube 轮转状态：否则每次重启都当作"都没抓过"，
+		// 每轮都从同一批频道开始，LRU 形同虚设。
+		this.rotation = meta.youtubeRotation ?? {}
 	}
 
 	private makePool(seed?: Awaited<ReturnType<DailyStore['readMeta']>>): MirrorPool {
@@ -249,6 +256,8 @@ export class DailyService {
 			...(options.signal ? { signal: options.signal } : {}),
 			// 运行期追加的源（OPML 导入进来的）在这里并入，不需要改配置、不需要重载
 			extraFeeds: prefs.extraFeeds,
+			// YouTube 轮转状态：从 meta 恢复、本轮更新后再写回
+			rotation: this.rotation,
 		})
 		this.pool = outcome.pool
 
@@ -285,10 +294,16 @@ export class DailyService {
 
 		const day: DayState = { date, items, sources: outcome.sources, lastRefresh: summary }
 		await this.store.writeDay(day)
+		// 轮转状态也落盘：跨轮/跨进程的"最久没抓的优先"与失败退避都依赖它
+		const channelKeys = this.config.youtubeChannels
+			.map((spec) => spec.split('|')[1]?.trim() ?? '')
+			.filter(Boolean)
+		this.rotation = pruneRotation(outcome.rotation, channelKeys)
 		await this.store.updateMeta((meta) => ({
 			...meta,
 			lastRefresh: summary,
 			mirrorHealth: this.pool.snapshot().mirrorHealth,
+			youtubeRotation: this.rotation,
 		}))
 
 		// 日报随刷新一起更新：用户点"刷新"就是想要一份新的日报，不该还要再点一次

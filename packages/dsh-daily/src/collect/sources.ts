@@ -1,4 +1,5 @@
 import type { DailyConfig } from '../config.js'
+import { describeRotation, pickChannels, type RotationState } from '../rotation.js'
 import type { Platform, RawItem } from '../types.js'
 import { fetchJson, fetchText } from './http.js'
 import type { MirrorPool } from './mirror.js'
@@ -8,15 +9,42 @@ export interface CollectEnv {
 	config: DailyConfig
 	pool: MirrorPool
 	signal?: AbortSignal
+	/**
+	 * YouTube 频道的轮转/退避状态（输入）。由 service 从 meta 里取出来传进来 ——
+	 * 采集器本身不落盘，保持"给定输入 → 产出结果"的可测试性。
+	 */
+	rotation?: RotationState
 }
 
 export interface SourceResult {
 	items: RawItem[]
 	/** 该源的补充说明（部分成功、降级路径等），会进日报的"源状态"里给人看。 */
 	note?: string
+	/**
+	 * 本轮的**尝试结果**（只用于需要轮转的源，目前是 YouTube）。
+	 * 由 runCollection 汇总后交给 service 落进 meta —— 采集器不直接写盘。
+	 */
+	rotationUpdates?: Array<{ key: string; ok: boolean }>
 }
 
 export type SourceRunner = (env: CollectEnv) => Promise<SourceResult>
+
+/**
+ * 采集失败，但**带着本轮的轮转尝试记录**。
+ *
+ * 为什么需要它：源全部失败时 runner 要抛错（好让源状态显示 ❌），
+ * 但抛错会把 `rotationUpdates` 一起丢掉 —— 于是"失败计数"永远停在 0、
+ * 退避永不生效、一个挂掉的频道每轮都被重新选中。踩过一次，所以让它跟着异常走。
+ */
+export class SourceFailure extends Error {
+	readonly rotationUpdates?: Array<{ key: string; ok: boolean }>
+
+	constructor(message: string, rotationUpdates?: Array<{ key: string; ok: boolean }>) {
+		super(message)
+		this.name = 'SourceFailure'
+		this.rotationUpdates = rotationUpdates
+	}
+}
 
 const HN_ARTICLE_RE = /Article URL:\s*(\S+)/i
 const HN_POINTS_RE = /Points:\s*(\d+)/i
@@ -305,11 +333,20 @@ export async function collectYoutube(env: CollectEnv): Promise<SourceResult> {
 	// 不预热的话每个频道都要自己串行试遍所有镜像：5 个频道 × 3 个镜像 × 12s 超时 ≈ 3 分钟（实测 50 秒）。
 	await env.pool.warmUp(env.signal ? { signal: env.signal } : {})
 
+	// 轮转：每轮只抓少数几个（按"最久没抓的优先"），降低免费镜像 429 的概率。
+	// 抓满一轮的时间由请求数决定，所以这也顺带把刷新耗时压了下来。
+	const rotation = pickChannels(channels, env.rotation ?? {}, {
+		perRefresh: env.config.youtubeRotateChannels ? env.config.youtubeChannelsPerRefresh : 0,
+		now: Date.now(),
+		cooldownMinutes: env.config.youtubeFailureCooldownMinutes,
+	})
+
 	const items: RawItem[] = []
 	const failures: string[] = []
+	const rotationUpdates: Array<{ key: string; ok: boolean }> = []
 	let usedMirror = ''
 
-	for (const channel of channels) {
+	for (const channel of rotation.selected) {
 		if (env.signal?.aborted) break
 		const route = channel.channelId.startsWith('@')
 			? `/youtube/user/${channel.channelId}`
@@ -317,6 +354,7 @@ export async function collectYoutube(env: CollectEnv): Promise<SourceResult> {
 		try {
 			const { text, mirror } = await env.pool.fetchRoute(route, { signal: env.signal })
 			usedMirror = mirror
+			rotationUpdates.push({ key: channel.channelId, ok: true })
 			const feed = parseFeed(text, 'https://www.youtube.com')
 			for (const entry of feed.items.slice(0, env.config.maxItemsPerSource)) {
 				const videoId = extractYoutubeId(entry.guid ?? entry.link ?? '')
@@ -340,19 +378,28 @@ export async function collectYoutube(env: CollectEnv): Promise<SourceResult> {
 				})
 			}
 		} catch (error) {
+			rotationUpdates.push({ key: channel.channelId, ok: false })
 			failures.push(`${channel.name}: ${error instanceof Error ? error.message : String(error)}`)
 		}
 	}
 
-	if (items.length === 0 && failures.length > 0) {
-		throw new Error(`全部频道抓取失败（${failures.slice(0, 2).join('；')}）`)
+	if (items.length === 0 && failures.length > 0 && rotationUpdates.length === rotation.selected.length) {
+		throw new SourceFailure(
+			`本轮选中的 ${rotation.selected.length} 个频道全部失败（${failures.slice(0, 2).join('；')}）` +
+				(rotation.deferred.length > 0 ? `；另有 ${rotation.deferred.length} 个频道本轮未抓到` : ''),
+			rotationUpdates,
+		)
 	}
-	return {
-		items,
-		note: failures.length
-			? `部分频道失败（${failures.length}/${channels.length}）：${failures[0]}`
-			: `镜像 ${usedMirror.replace(/^https?:\/\//, '')}`,
-	}
+
+	// 说明里必须带上"本轮抓了几个" —— 否则用户看到 YouTube 只剩 8 条会以为源坏了，
+	// 而实际是轮转（这是有意的降载，不是故障）。
+	const parts: string[] = []
+	const rotationNote = describeRotation(rotation, channels.length)
+	if (rotationNote) parts.push(rotationNote)
+	if (failures.length) parts.push(`${failures.length}/${rotation.selected.length} 个频道失败：${failures[0]}`)
+	if (parts.length === 0) parts.push(`镜像 ${usedMirror.replace(/^https?:\/\//, '')}`)
+
+	return { items, note: parts.join(' · '), rotationUpdates }
 }
 
 interface ChannelSpec {
