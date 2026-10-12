@@ -939,3 +939,39 @@ B站的视频索引不受影响——用户要的"视频索引"目前由 B站稳
 
 **下轮起点**：**第三波③：AI 从项目画像生成检索词**（可注入假 stream 测全部失败路径，沿用 R7 的做法）。
 仍欠 **DSH 重启后的真实 GUI 复验**（多了一项：从 npm 装的 0.2.0 要在重启后确认 tab、12 个工具都在）。
+
+### R23 · 2026-10-12 16:30 — 按用户要求**卸载本地安装**
+
+**用户指示**：「先不安装这个插件了可能会报错」。用户在本轮之前刚从 R21 的事故里看到一个真实风险：
+**profile patch 只要有一处 YAML 写坏，dsh 就完全起不来**（`bad indentation`）。
+在这个前提下，"先别装"是合理的保守选择，我照做并把它做成**干净且可逆**的状态。
+
+**做了什么（只删不加，且逐项核对）**
+1. `desktop` profile 的 patch：移除 `# --- dsh-daily（日报插件）---` 整段 —— 
+   包括 `- insert:`（id=daily, name=dsh-daily-v2）与 `- id: daily / disabled: false`，共 13 行（286 → 273）
+2. `web` profile 的 patch：移除**我当初为它加的两段**（better-sidebar 能力段 + dsh-daily 插入段），
+   共 13 行（23 → 10）—— 让该 profile 回到我介入之前的样子
+3. 删除安装目录：`profiles/desktop/node_modules/dsh-daily-v2`、
+   `profiles/web/node_modules/@kpeace/dsh-daily`（并清掉空的 `@kpeace/`）
+
+**证据（真实输出）**
+- YAML 用解析器实跑，两个 profile 都合法：`desktop: ✅ 8 个顶层条目`、`web: ✅ 2 个顶层条目`，
+  且 `还有 daily 残留: 否`
+- `diff` 卸载前备份 → 现在：**只有删除行，且全部指向 dsh-daily 相关**（desktop 13 行、web 12 行含空行）
+- 残留检查：两个 profile 无 dsh-daily 安装目录 ✅ / 两个 patch 无 daily ✅ /
+  连已解析的 `cordis.yml` 里都没有 dsh-daily ✅
+- 运行中的实例不受影响（卸载磁盘文件不影响已加载到内存的进程）：`:19387` 与 `:19388` 均返回 200
+- 退路：卸载前的两个 patch 备份在 `/tmp/dsh-daily-removed-<ts>/`（路径记录在 `/tmp/dsh-removed-path`）
+
+**当前状态**：本地**未安装**（用户要求）。npm 上 `@kpeace/dsh-daily@0.2.2` 与 git
+（`origin/feat/dsh-daily`）都仍然在，随时可一条命令装回：
+
+```bash
+cd /Users/kp/DEV/dsh-plugins/packages/dsh-daily && node scripts/install-to-profile.mjs desktop
+# 然后重启 DSH（客户端半体在启动时才被扫进模块图）
+```
+脚本已具备：目录名 = 包名（作用域包落 `node_modules/@scope/name`）、YAML 标量按需加引号、
+重复运行幂等、并且 patch 里会写明"回退：删掉本段 + rm -rf node_modules/dsh-daily*"。
+
+**阻塞**：无。**下轮起点**：等用户发话再装；在此之前可继续做第三波③（AI 检索词），
+它不依赖本地是否安装（用 dev-server + 单测验证）。
