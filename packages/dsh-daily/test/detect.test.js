@@ -9,7 +9,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {
@@ -17,6 +17,7 @@ import {
 	collectDirs,
 	describeChoice,
 	extractProjectDir,
+	parseWorkspacePaths,
 	looksLikeAbsoluteDir,
 } from '../lib/detect.js'
 import { DailyService } from '../lib/service.js'
@@ -201,6 +202,17 @@ test('注册表：source 字段可持久化、坏值回落 auto', () => {
 
 async function makeService(t) {
 	const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-detect-root-'))
+	// **让测试环境密闭**：DSH 会给子进程设 DSH_HOME（指向开发机真实的 ~/.dsh），
+	// 而磁盘来源（storages/workspace.json）会优先用它 —— 那样单测就会读到开发机
+	// 真实的工作区列表，断言"没有候选"直接失败。显式指向空目录，只影响本测试进程。
+	const isolatedHome = await mkdtemp(path.join(os.tmpdir(), 'dsh-detect-home-'))
+	const savedHome = process.env.DSH_HOME
+	process.env.DSH_HOME = isolatedHome
+	t.after(async () => {
+		if (savedHome === undefined) delete process.env.DSH_HOME
+		else process.env.DSH_HOME = savedHome
+		await rm(isolatedHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+	})
 	const proj = await mkdtemp(path.join(os.tmpdir(), 'dsh-detect-proj-'))
 	const proj2 = await mkdtemp(path.join(os.tmpdir(), 'dsh-detect-proj2-'))
 	// maxRetries：异步识别可能仍在写盘，递归删目录偶发 ENOTEMPTY
@@ -290,6 +302,49 @@ test('集成：notePromptContext 有节流，且绝不抛', async (t) => {
 	await service.notePromptContext({ cwd: proj })
 	await service.notePromptContext(null)
 	assert.equal(service.currentProject().dir, proj)
+})
+
+test('parseWorkspacePaths：从存盘注册表取**精确路径**（内存会话为空时的唯一来源）', () => {
+	// 真实形状：global.workspaceIds 是排序，tables.workspaces.<id>.path 是精确路径
+	const raw = {
+		unit: { name: 'workspace', version: 2 },
+		global: { workspaceIds: ['b', 'a', 'missing'] },
+		tables: { workspaces: { a: { path: '/tmp/a' }, b: { path: '/tmp/b' }, c: { path: '/tmp/c' } } },
+	}
+	assert.deepEqual(parseWorkspacePaths(raw), ['/tmp/b', '/tmp/a', '/tmp/c'], '按 workspaceIds 排序，未列出的补在后面')
+	for (const bad of [null, 'x', 42, {}, { tables: {} }, { tables: { workspaces: 'no' } }]) {
+		assert.deepEqual(parseWorkspacePaths(bad), [], `${JSON.stringify(bad)} 应返回空数组`)
+	}
+	// 相对路径/垃圾值要被丢掉（只认绝对目录）
+	assert.deepEqual(parseWorkspacePaths({ tables: { workspaces: { x: { path: 'relative/no' }, y: { path: null } } } }), [])
+})
+
+test('集成：**没有活动会话时**，靠存盘的工作区注册表也能识别（真实故障的形状）', async (t) => {
+	const { service, proj } = await makeService(t)
+	// 模拟真实故障：内存 sessions 服务读得到但**是空的**，workspaceRegistry 不可用
+	service.attachHost({ sessions: { list: () => [] } })
+
+	// 造一个 DSH 主目录，里面只有存盘的工作区注册表
+	const home = await mkdtemp(path.join(os.tmpdir(), 'dsh-home-'))
+	const oldHome = process.env.DSH_HOME
+	process.env.DSH_HOME = home
+	t.after(async () => {
+		if (oldHome === undefined) delete process.env.DSH_HOME
+		else process.env.DSH_HOME = oldHome
+		await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+	})
+	await mkdir(path.join(home, 'storages'), { recursive: true })
+	await writeFile(
+		path.join(home, 'storages', 'workspace.json'),
+		JSON.stringify({ global: { workspaceIds: ['w1'] }, tables: { workspaces: { w1: { path: proj } } } }),
+	)
+
+	const result = await service.autoDetect()
+	assert.equal(result.changed, true, '内存会话为空时，存盘工作区应当能把识别救回来')
+	assert.equal(service.currentProject().dir, proj)
+	assert.match(result.from ?? '', /workspace\.json/, '诊断里要写明来自存盘注册表')
+	const diag = service.currentProject().detect
+	assert.ok(diag.sources.some((x) => x.name === 'storages/workspace.json' && x.ok === true), JSON.stringify(diag.sources))
 })
 
 test('集成：宿主服务必须在合法作用域里取（未声明会抛 —— 客户端半体就是这么炸的）', async (t) => {

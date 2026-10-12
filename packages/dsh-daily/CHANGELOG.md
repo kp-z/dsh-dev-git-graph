@@ -75,6 +75,20 @@
 - 顺带查明：宿主 `inject = ['tools','webServer']` 的 fail-loud 设计**是安全的** ——
   inject 不满足时条目是 `pending` 而不是 `failed`，而 `pending` 不会拖垮 boot
 
+**根因定位并修复：没有活动会话时识别不到项目（诊断功能首次发挥作用）**
+- 从 0.3.5 的**诊断**直接读出根因：
+  `hosts: 2` · `sessions: ok=true, **count=0**` · `workspaceRegistry: ok=false` · `candidates: 0`
+  —— `ctx.sessions` 是**内存**会话存储（服务描述原文 *In-memory session store*），
+  headless 服务上没人对话时它就是**空的**；`workspaceRegistry` 在那台不可用。
+  **两个服务来源都拿不到东西 → 候选恒为空 → 静默停在默认项目**。
+  这次不是"取不出 cwd"，而是**来源本身是空的**
+- **新增磁盘来源**：DSH 的工作区注册表存盘 `<DSH_HOME>/storages/workspace.json`
+  —— 里面是**精确路径**（不像会话目录名那样把路径 encode 成有损的连字符、
+  也不像会话数据那样是 zstd 压缩），按目录 mtime 排序（最近动过的项目更可能是当前项目）
+- **DSH 主目录改为从插件自己的数据根推导**（`dirname(dataDir)`，环境变量优先）：
+  ① 用户自定义 dataDir 时能跟上真实的 DSH 主目录
+  ② 单测里数据根是临时目录 → 天然读不到开发机的真实工作区（**密闭**）
+
 **修复 + 可观测：真实宿主里识别不到项目（用户实测反馈驱动）**
 - **主要嫌疑已修**：`extractProjectDir` 原先只走 `Object.entries()` 泛走遍历 ——
   它**只看得见自有可枚举属性**。而 DSH 的 `Session`/`Workspace` 是类实例，

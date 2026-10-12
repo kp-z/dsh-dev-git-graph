@@ -1460,3 +1460,51 @@ projects: ▶ daily（默认）| isAuto: True
 - `sources[].ok: false` → 服务读不到（换获取方式）
 - `candidates: 0` → 服务读到了但取不出 cwd（补访问路径）
 - `candidates > 0` 但 `changed: false` → 目录不可用（checkDir 拦掉了）
+
+### R35 · 2026-10-12 23:06–24:00 — 诊断读出根因并修复（发布 0.3.6）
+
+**用户**：那台升到了 0.3.5（「是否需要重启 dsh」「升级到 0.3.5」）
+
+**诊断（0.3.5 加的 `project.detect`）第一次就直接读出根因**
+```
+hosts: 2                        ← inject 作用域接上了（不是接线问题）
+sessions: ok=true, count=0      ← 服务读到了，但 list() **返回 0 条**
+workspaceRegistry: ok=false     ← 那台上该服务不可用
+candidates: 0 · changed: false
+```
+- `ctx.sessions` 是**内存**会话存储（服务描述原文：*In-memory session store (`ctx.sessions`)*）
+  → headless 服务上没人对话时它就是空的
+- `workspaceRegistry` 在那台上不可用
+- → **两个来源都拿不到东西 → 候选恒为空 → 静默停在默认项目**
+- 重要区分：这**不是**"取不出 cwd"（0.3.5 修的是那个），而是**来源本身是空的** ——
+  如果没有诊断，我会继续在"解析"上做无用功
+
+**尝试过但放弃的两条磁盘线索（记下来省得再试）**
+1. 会话目录名（`--Users-kp-DEV-msim-front-react--`）：**有损编码**（`/` 与 `-` 都变 `-`），
+   实测把 `msim-front-react` 解成 `msim/front/react` → 解不出真实路径
+2. 会话数据文件（`session.v4.jsonl.**zstd**`）：zstd 压缩 + DSH 内部格式，不适合当稳定接口
+
+**采用的来源**：`<DSH_HOME>/storages/workspace.json` —— **精确路径**、明文 JSON、按目录 mtime 排序
+（最近动过的项目更可能是"当前项目"）
+
+**改动**
+1. `detect.parseWorkspacePaths()`（纯函数）：按 `global.workspaceIds` 排序取 `tables.workspaces.<id>.path`，
+   只认绝对路径，坏数据返回空数组
+2. `service.storedWorkspaceDirs()` + `rankByMtime()`：读存盘注册表 → 校验存在 → 按 mtime 排序 → 候选
+3. **DSH 主目录改为从插件自己的数据根推导**（`dirname(dataDir)`，`DSH_HOME` 优先）：
+   自定义 dataDir 时跟随真实主目录；单测里数据根是临时目录 → **天然密闭**
+
+**证据**
+- `npm test` → **tests 312 / pass 312 / fail 0**（R34 基线 310 → 本轮 +2）
+- 新增测试：`parseWorkspacePaths`（真实形状 + 6 种坏数据）；集成测试模拟**真实故障的形状**
+  —— 内存 sessions **空** + workspaceRegistry 不可用 + 只有存盘注册表 → 识别被救回来，
+  且诊断里 `storages/workspace.json ok=true`
+- 修掉一个**测试非密闭**问题：`DSH_HOME` 在 DSH 子进程里是设好的（实测 `/Users/kp/.dsh`），
+  于是单测读到了开发机真实的 8 个工作区、断言"没有候选"失败 —— 在测试助手里把 `DSH_HOME`
+  指向空目录（只影响该测试进程）
+- 已发布 `@kpeace/dsh-daily@0.3.6`
+
+**下轮起点**：用户升到 0.3.6 + 重启后，我读 `project.detect`：
+期望看到 `storages/workspace.json ok=true, count>0` 且 `changed: true`、
+`project.dir` 变成那台的工作区路径。若仍为 0，则说明那台的 `storages/workspace.json` 也不存在
+（比如从未添加过工作区）—— 那属于"用户环境里确实没有项目可识别"，不是代码问题。

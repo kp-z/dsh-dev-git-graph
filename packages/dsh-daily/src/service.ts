@@ -1,6 +1,8 @@
 import type { DailyConfig } from './config.js'
+import { existsSync, readFileSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, sep } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { summarizeDay, renderWeeklyReview, weekFileName, type ArchiveDay } from './archive.js'
 import { pruneRotation, type RotationState } from './rotation.js'
 import {
@@ -48,7 +50,7 @@ import { builtinFeedSpecs } from './collect/sources.js'
 import { pickDiverse, renderBrief, renderDigest } from './render.js'
 import { mergeDayItems, mergeSourceStates } from './merge.js'
 import { collectProjectProfile, describeProfile, type ProjectProfile } from './profile.js'
-import { chooseProject, collectDirs, describeChoice, type DetectedDir } from './detect.js'
+import { chooseProject, collectDirs, describeChoice, parseWorkspacePaths, type DetectedDir } from './detect.js'
 import { canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
 import { describeRetrieval, runRetrieval, type Finding, type RetrieveResult } from './retrieve.js'
 import { DailyStore, localDate } from './store.js'
@@ -596,7 +598,7 @@ export class DailyService {
 			return { changed: false, reason: describeChoice(null, true) }
 		}
 
-		const hostRead = this.hostCandidates()
+		const hostRead = await this.hostCandidates()
 		const all = [...candidates, ...hostRead.items]
 		const detected: DetectedDir[] = collectDirs(all)
 		const snapshot = {
@@ -653,11 +655,45 @@ export class DailyService {
 		return { project: this.currentProject(), detected }
 	}
 
+	/** 读 DSH 的工作区注册表存盘（拿不到就返回空数组，绝不抛）。 */
+	private storedWorkspaceDirs(): string[] {
+		try {
+			// DSH 主目录：环境变量优先；否则**从插件自己的数据根推导**（其父目录）。
+			// 用 dirname(root) 而不是 homedir()/'.dsh' 有两个好处：
+			// ① 用户把 dataDir 配到别处时，我们跟随的是**真实的 DSH 主目录**
+			// ② 单测里 root 是临时目录 → 天然读不到开发机的真实工作区（密闭，不会串环境）
+			const home = process.env.DSH_HOME?.trim() || dirname(this.root)
+			const file = join(home, 'storages', 'workspace.json')
+			if (!existsSync(file)) return []
+			const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown
+			return parseWorkspacePaths(raw).filter((dir) => checkDir(dir).ok)
+		} catch {
+			return []
+		}
+	}
+
+	/** 按目录 mtime 降序（失败保持原序）。数组里的路径会被 collectDirs 逐个探测。 */
+	private async rankByMtime(dirs: string[]): Promise<Array<Record<string, string>>> {
+		const withTime = await Promise.all(
+			dirs.map(async (dir) => {
+				try {
+					const info = await stat(dir)
+					return { path: dir, mtime: String(info.mtimeMs) }
+				} catch {
+					return { path: dir, mtime: '0' }
+				}
+			}),
+		)
+		withTime.sort((a, b) => Number(b.mtime) - Number(a.mtime))
+		// 形状用 `path` —— collectDirs 的显式访问路径里有它
+		return withTime.map((item) => ({ path: item.path }))
+	}
+
 	/** 从宿主服务收集候选（每一项都单独兜底，缺服务就当没有）。 */
-	private hostCandidates(): {
+	private async hostCandidates(): Promise<{
 		items: Array<{ value: unknown; from: string }>
 		sources: Array<{ name: string; ok: boolean; count: number; note?: string }>
-	} {
+	}> {
 		const out: Array<{ value: unknown; from: string }> = []
 		const sources: Array<{ name: string; ok: boolean; count: number; note?: string }> = []
 		if (this.hosts.length === 0) {
@@ -696,8 +732,16 @@ export class DailyService {
 			const list = typeof svc.list === 'function' ? (svc.list as () => unknown[])() : null
 			return Array.isArray(list) ? list.slice(-5).reverse() : null
 		})
+		// ---- 磁盘来源：DSH 的工作区注册表存盘（没有活动会话时唯一的精确来源）----
+		const stored = this.storedWorkspaceDirs()
+		if (stored.length > 0) {
+			// 按目录修改时间排序：最近动过的项目更可能是"当前项目"（排序失败就保持原序）
+			const ranked = await this.rankByMtime(stored)
+			out.push({ value: ranked, from: 'storages/workspace.json' })
+		}
+
 		// 来源明细：把"哪个服务读到了几个"记下来
-		for (const name of ['sessions', 'workspaceRegistry']) {
+		for (const name of ['sessions', 'workspaceRegistry', 'storages/workspace.json']) {
 			const hit = out.find((item) => item.from === name)
 			sources.push({ name, ok: !!hit, count: Array.isArray(hit?.value) ? (hit.value as unknown[]).length : 0 })
 		}

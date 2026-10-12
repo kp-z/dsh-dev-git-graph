@@ -76,6 +76,48 @@ const ACCESS_PATHS: readonly string[] = [
 	'projectPath',
 ]
 
+/**
+ * 从 DSH 的工作区注册表存盘内容里取出**精确路径**。
+ *
+ * 为什么需要这个磁盘来源（真实故障驱动）：那台测试机上报
+ * `sessions: ok=true, count=0` —— `ctx.sessions` 是**内存**会话存储
+ * （服务描述原文：*In-memory session store*），无人对话时就是空的；
+ * 而 `workspaceRegistry` 在那台上不可用。两个服务来源都拿不到东西，
+ * 于是候选恒为空、静默停在默认项目。
+ *
+ * 这个存盘文件里是**精确路径**（不像会话目录名那样把路径 encode 成有损的连字符），
+ * 所以它是"没有活动会话时"最可靠的来源。取不到就当没有，绝不猜。
+ */
+export function parseWorkspacePaths(raw: unknown): string[] {
+	if (!raw || typeof raw !== 'object') return []
+	const root = raw as Record<string, unknown>
+	const tables = root.tables
+	if (!tables || typeof tables !== 'object') return []
+	const workspaces = (tables as Record<string, unknown>).workspaces
+	if (!workspaces || typeof workspaces !== 'object') return []
+
+	const byId = new Map<string, string>()
+	for (const [id, value] of Object.entries(workspaces as Record<string, unknown>)) {
+		if (!value || typeof value !== 'object') continue
+		const path = (value as Record<string, unknown>).path
+		if (looksLikeAbsoluteDir(path)) byId.set(id, path.trim())
+	}
+
+	// global.workspaceIds 是工作区的排序；按它排，缺失的补在后面
+	const global = root.global
+	const order: unknown[] =
+		global && typeof global === 'object' && Array.isArray((global as Record<string, unknown>).workspaceIds)
+			? ((global as Record<string, unknown>).workspaceIds as unknown[])
+			: []
+	const out: string[] = []
+	for (const id of order) {
+		const path = typeof id === 'string' ? byId.get(id) : undefined
+		if (path && !out.includes(path)) out.push(path)
+	}
+	for (const path of byId.values()) if (!out.includes(path)) out.push(path)
+	return out
+}
+
 /** 按 `a.b.c` 路径取值；任一段是函数就调用它（getter 走属性访问自然会触发）。 */
 function getByPath(node: unknown, path: string): unknown {
 	let current: unknown = node
