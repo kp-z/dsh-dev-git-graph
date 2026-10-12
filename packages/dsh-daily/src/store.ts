@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, readdir, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
 import type { DayState, FeedbackMap, Prefs, RefreshSummary } from './types.js'
@@ -24,6 +24,8 @@ export interface Meta {
 	lastDigestDate: string | null
 	/** RSSHub 镜像健康度：下一次采集可以直接从健康的那个开始，省一轮探测。 */
 	mirrorHealth: Record<string, { ok: boolean; at: string; error: string | null }>
+	/** 最近一次归档压缩/清理的日期，用于"每天最多跑一次"的节流。 */
+	lastPruneDate: string | null
 }
 
 export function defaultPrefs(): Prefs {
@@ -47,6 +49,7 @@ export function defaultMeta(): Meta {
 		lastRefresh: null,
 		lastDigestDate: null,
 		mirrorHealth: {},
+		lastPruneDate: null,
 	}
 }
 
@@ -250,6 +253,34 @@ export class DailyStore {
 		} catch {
 			return []
 		}
+	}
+
+	/** digest 目录下的文件名（含日报与周报），用于统计与清理。 */
+	async listDigests(): Promise<string[]> {
+		try {
+			const names = await readdir(this.digestDir)
+			return names.filter((n) => n.endsWith('.md')).sort()
+		} catch {
+			return []
+		}
+	}
+
+	/** 删掉某天的数据文件与对应的日报（不可恢复；调用方负责确认）。 */
+	async removeDay(date: string): Promise<{ dayBytes: number; digestBytes: number }> {
+		let dayBytes = 0
+		let digestBytes = 0
+		const dayFile = this.dayFile(date)
+		dayBytes = await stat(dayFile).then((s) => s.size).catch(() => 0)
+		await rm(dayFile, { force: true })
+		const digestFile = this.digestFile(date)
+		digestBytes = await stat(digestFile).then((s) => s.size).catch(() => 0)
+		await rm(digestFile, { force: true })
+		return { dayBytes, digestBytes }
+	}
+
+	/** 单文件大小（不存在算 0）。用于容量统计。 */
+	async fileSize(file: string): Promise<number> {
+		return stat(file).then((s) => s.size).catch(() => 0)
 	}
 
 	// ---------- meta ----------

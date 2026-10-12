@@ -339,6 +339,54 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 
 	ctx.tools.register(
 		defineTool({
+			name: 'daily_prune',
+			description:
+				'查看日报归档的磁盘占用，并（可选）把旧归档压缩成索引。**默认只预览、不写盘**；' +
+				'只有显式传 apply=true 才真的动文件。' +
+				'超过 archiveCompactAfterDays（默认 60）天的归档会被压成索引（丢摘要/热度，保留标题/链接/主题/分数）；' +
+				'若配置了 archiveDeleteAfterDays（默认 0=永不删），更早的整天文件会被删除。',
+			parameters: {
+				apply: {
+					type: 'boolean',
+					description: 'true 才真的执行压缩/删除；省略或 false 只返回"会做什么"的预览。',
+				},
+			},
+			output: {
+				schema: { type: 'string' },
+				render: (_args, value) => [{ type: 'text', text: value }],
+			},
+			async execute(args) {
+				const apply = args.apply === true
+				const report = await service.pruneArchive({ apply })
+				const s = report.stats
+				const lines = [
+					`归档现状：${s.days} 天 · ${s.items} 条索引 · 最老 ${s.oldest ?? '—'} · 最新 ${s.newest ?? '—'}`,
+					`磁盘占用：${s.totalLabel}（数据 ${Math.round(s.dayBytes / 1024)}KB + 日报/周报 ${s.digests} 份 ${Math.round(s.digestBytes / 1024)}KB）` +
+						(s.compactedDays > 0 ? ` · 已有 ${s.compactedDays} 天被压缩过` : ''),
+					'',
+					apply ? '已执行整理：' : '预览（未写盘）：',
+					`- 保留 ${report.keep} 天 · 压缩 ${report.compacted} 天 · 删除 ${report.deleted} 天 · 预计释放 ${Math.round(report.freedBytes / 1024)}KB`,
+				]
+				if (report.changes.length > 0) {
+					const shown = report.changes.slice(0, 8)
+					lines.push(
+						`- 涉及日期：${shown.map((c) => `${c.date}(${c.action === 'delete' ? '删' : '压'})`).join(' ')}` +
+							(report.changes.length > shown.length ? ` …共 ${report.changes.length} 天` : ''),
+					)
+				}
+				if (!apply && (report.compacted > 0 || report.deleted > 0)) {
+					lines.push('', '要真的执行，请用 daily_prune({ apply: true })。')
+				}
+				if (!apply && report.compacted === 0 && report.deleted === 0) {
+					lines.push('', '当前没有需要整理的归档。')
+				}
+				return lines.join('\n')
+			},
+		}),
+	)
+
+	ctx.tools.register(
+		defineTool({
 			name: 'daily_refresh',
 			description:
 				'立刻抓一轮所有采集源并重排（**会联网**，通常 5~20 秒，偶发源会失败但不会中断）。' +

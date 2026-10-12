@@ -213,6 +213,23 @@ async function handleApi(
 				)
 				return sendJson(res, 200, { ok: true, ...review })
 			}
+			case 'storage': {
+				// GET = 只看容量与"会做什么"（dry run，不写盘）；POST = 真的执行整理
+				if (req.method === 'GET') {
+					const stats = await service.storageStats()
+					const plan = await service.pruneArchive({ apply: false })
+					return sendJson(res, 200, {
+						ok: true,
+						stats,
+						plan: { keep: plan.keep, compacted: plan.compacted, deleted: plan.deleted, changes: plan.changes },
+					})
+				}
+				if (req.method === 'POST') {
+					const report = await service.pruneArchive({ apply: true })
+					return sendJson(res, 200, { ok: true, ...report })
+				}
+				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
 			case 'refresh': {
 				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 POST' })
 				const summary = await service.refresh()

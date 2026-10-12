@@ -48,6 +48,16 @@
 - **页脚两个入口**：「订阅管理」（选 OPML 文件导入、看/移除自定义源、复制或下载 OPML）与
   「本周回顾」（弹层里看周报）—— 不用再对模型说或敲 curl
 - 条目 meta 里的「讨论」入口（HN 这类源的价值一半在评论区）
+
+**长期运行**
+- **归档分级保留**：`days/*.json` 一天约 50KB，一年 ~18MB。超过 `archiveCompactAfterDays`
+  （默认 60 天）自动**压缩成索引**（丢摘要/热度/理由，保留标题/链接/主题/分数/已读态），
+  实测 49.6KB/天 → 26.8KB/天（**−46%**，全年外推 17.7MB → 9.6MB）；
+  `archiveDeleteAfterDays`（默认 **0 = 永不删除**）才真删
+- 整理**每天最多自动跑一次**，挂在采集完成之后（用户不需要知道它存在，但长期跑必须有人做）
+- `daily_prune` 工具 / `GET|POST /dsh-daily/api/storage`：容量统计 + 预览 + 执行；
+  **默认只预览不写盘**（破坏性操作必须先能看见会发生什么）
+- 首次使用：空态里的「开始抓取」按钮（不必去找右上角的图标）
 - HTTP：`/dsh-daily/` 直出网页 + `/dsh-daily/api/*`（state / items / feedback / tune / refresh / digest）
 - 7 个模型工具：`daily_brief` `daily_digest` `daily_search` `daily_sources`（只读）、
   `daily_tune` `daily_feedback` `daily_refresh`（写盘/联网）
@@ -91,6 +101,9 @@
   于是 fetch 了一个 `undefined` —— 不报错、无日志，界面表现是"点一下转完就没反应"。
   已修，并新增 `test/client-contract.test.js` 静态核对：
   用到的键都在表里、表里每个 URL 后端都有路由分支、字段白名单覆盖后端字段、弹层 id 都存在于 HTML
+- **预览与数字自相矛盾**：归档整理的 dry run 报告写着「压缩 0 天 · 删除 0 天」，
+  却同时列出了待处理日期（计数只在 apply 分支累加）。而这份报告正是用户决定要不要执行的全部依据。
+  改为两种模式都如实计数
 - **页面的字段白名单漏了 `aiSummary`**：后端正确返回了 AI 摘要，但 `normalizeItem` 没映射它，
   数据在这一层被静默丢掉 —— 表现是"功能跑通了、界面上什么都没有"。
   已在 `normalizeItem` 处留下注释：**新增条目字段必须同步这里**

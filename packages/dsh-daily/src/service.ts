@@ -1,7 +1,15 @@
 import type { DailyConfig } from './config.js'
 import { homedir } from 'node:os'
-import { sep } from 'node:path'
+import { join, sep } from 'node:path'
 import { summarizeDay, renderWeeklyReview, weekFileName, type ArchiveDay } from './archive.js'
+import {
+	compactItem,
+	formatBytes,
+	isCompacted,
+	planArchive,
+	type DayPlan,
+	type PruneReport,
+} from './storage.js'
 import {
 	emptyCache,
 	mergeCache,
@@ -290,6 +298,16 @@ export class DailyService {
 			this.logger.warn(`日报生成失败：${error instanceof Error ? error.message : String(error)}`)
 		}
 
+		// 归档整理挂在采集之后：用户不需要知道它的存在，但长期跑下去必须有人做。
+		// 失败不影响刷新结果，所以单独 try/catch。
+		try {
+			await this.maybeAutoCompact(date)
+		} catch (error) {
+			this.logger.warn(
+				`归档自动整理失败（不影响本次刷新）：${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
+
 		this.logger.info(
 			`刷新完成：${items.length} 条 / ${okSources}~${outcome.sources.length} 源正常 / ${outcome.durationMs}ms`,
 		)
@@ -385,6 +403,154 @@ export class DailyService {
 		await this.store.writeDigestNamed(name, markdown)
 		this.logger.info(`周报已生成：${name}（${days.length} 天 / ${items.length} 条）`)
 		return { markdown, name, days: days.length, items: items.length, start, end }
+	}
+
+	/**
+	 * 归档容量统计。
+	 *
+	 * 这个插件是要**每天跑、长期跑**的：`days/*.json` 一天约 50KB，一年 ~19MB。
+	 * 用户有权知道它在占多少地方、最老的数据是哪天、有没有哪天已经丢过细节。
+	 */
+	async storageStats(): Promise<{
+		days: number
+		items: number
+		oldest: string | null
+		newest: string | null
+		dayBytes: number
+		digestBytes: number
+		totalBytes: number
+		totalLabel: string
+		digests: number
+		compactedDays: number
+	}> {
+		const dates = await this.store.listDays()
+		let dayBytes = 0
+		let items = 0
+		let compactedDays = 0
+		for (const date of dates) {
+			dayBytes += await this.store.fileSize(this.store.dayFile(date))
+			const day = await this.store.readDay(date)
+			items += day.items.length
+			// 一天里过半条目已是索引态，就算这天已被压缩过
+			if (day.items.length > 0 && day.items.filter(isCompacted).length >= day.items.length / 2) {
+				compactedDays++
+			}
+		}
+		const digestNames = await this.store.listDigests()
+		let digestBytes = 0
+		for (const name of digestNames) digestBytes += await this.store.fileSize(join(this.store.digestDir, name))
+
+		const totalBytes = dayBytes + digestBytes
+		return {
+			days: dates.length,
+			items,
+			oldest: dates[0] ?? null,
+			newest: dates[dates.length - 1] ?? null,
+			dayBytes,
+			digestBytes,
+			totalBytes,
+			totalLabel: formatBytes(totalBytes),
+			digests: digestNames.length,
+			compactedDays,
+		}
+	}
+
+	/**
+	 * 按计划压缩 / 删除旧归档。
+	 *
+	 * `apply=false`（默认）只**报告会做什么**，不写盘 —— 破坏性操作必须先能预览。
+	 */
+	async pruneArchive(options: { apply?: boolean } = {}): Promise<PruneReport & { stats: Awaited<ReturnType<DailyService['storageStats']>> }> {
+		const apply = options.apply === true
+		const today = localDate()
+		const dates = await this.store.listDays()
+
+		const sizes: Array<{ date: string; items: number; bytes: number }> = []
+		for (const date of dates) {
+			const bytes = await this.store.fileSize(this.store.dayFile(date))
+			const day = await this.store.readDay(date)
+			sizes.push({ date, items: day.items.length, bytes })
+		}
+
+		const plan = planArchive(sizes, today, {
+			compactAfterDays: this.config.archiveCompactAfterDays,
+			deleteAfterDays: this.config.archiveDeleteAfterDays,
+		})
+
+		let compacted = 0
+		let deleted = 0
+		let freedBytes = 0
+		const changes: DayPlan[] = []
+
+		for (const entry of plan) {
+			if (entry.action === 'keep') continue
+			changes.push(entry)
+			const isDelete = entry.action === 'delete'
+
+			if (!apply) {
+				// 预览也要把"几天会被压缩/删除"算准。
+				// 踩过的坑：早先这里直接 continue，于是预览的报告写着
+				// 「压缩 0 天 · 删除 0 天」却同时列出了待处理日期 —— 数字与清单自相矛盾，
+				// 用户会以为"没事可做"。而这类报告正是用户决定要不要执行的全部依据。
+				freedBytes += isDelete
+					? entry.bytes
+					: Math.max(0, entry.bytes - (entry.estimatedBytes ?? entry.bytes))
+				if (isDelete) deleted++
+				else compacted++
+				continue
+			}
+
+			try {
+				if (isDelete) {
+					const removed = await this.store.removeDay(entry.date)
+					freedBytes += removed.dayBytes + removed.digestBytes
+					deleted++
+				} else {
+					const day = await this.store.readDay(entry.date)
+					const before = Buffer.byteLength(JSON.stringify(day))
+					day.items = day.items.map(compactItem)
+					const after = Buffer.byteLength(JSON.stringify(day))
+					await this.store.writeDay(day)
+					freedBytes += Math.max(0, before - after)
+					compacted++
+				}
+			} catch (error) {
+				this.logger.warn(
+					`归档处理失败（${entry.date} · ${entry.action}）：${error instanceof Error ? error.message : String(error)}`,
+				)
+			}
+		}
+
+		if (apply && (compacted > 0 || deleted > 0)) {
+			this.logger.info(
+				`归档整理：压缩 ${compacted} 天 · 删除 ${deleted} 天 · 释放 ${formatBytes(freedBytes)}`,
+			)
+		}
+
+		return {
+			dryRun: !apply,
+			keep: plan.filter((p) => p.action === 'keep').length,
+			compacted,
+			deleted,
+			freedBytes,
+			changes,
+			stats: await this.storageStats(),
+		}
+	}
+
+	/** 每天最多自动整理一次（挂在采集完成后，不需要用户操心）。 */
+	private async maybeAutoCompact(today: string): Promise<void> {
+		if (this.config.archiveCompactAfterDays <= 0 && this.config.archiveDeleteAfterDays <= 0) return
+		const meta = await this.store.readMeta()
+		if (meta.lastPruneDate === today) return
+		const report = await this.pruneArchive({ apply: true })
+		await this.store.updateMeta((current) => ({ ...current, lastPruneDate: today }))
+		// 只有真做了事才值得记一条日志
+		if (report.compacted > 0 || report.deleted > 0) {
+			this.logger.info(
+				`归档自动整理完成：压缩 ${report.compacted} 天 · 删除 ${report.deleted} 天`,
+			)
+		}
 	}
 
 	/**

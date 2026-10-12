@@ -623,7 +623,13 @@
       if (total > 0) {
         return emptyBlock('📭', '本地没有这一天的条目', '后端记录 ' + total + ' 条，可能日期不匹配。点刷新重新抓取。');
       }
-      return emptyBlock('🌱', '今天还没抓取过', '点右上角刷新按钮开始第一次抓取，抓完条目会自动出现在这里。');
+      return emptyBlock(
+        '🌱',
+        '今天还没抓取过',
+        '点下面的按钮开始第一次抓取（大约 30–60 秒），抓完条目会自动出现在这里。',
+        '开始抓取',
+        'start-refresh'
+      );
     }
     var parts = [];
     if (state.query) parts.push('关键词「' + state.query + '」');
@@ -1970,6 +1976,12 @@
     if (action === 'retry-items') {
       e.preventDefault();
       loadItems();
+      return;
+    }
+    // 空态里的"开始第一次抓取"：与其让用户去找右上角那个图标，不如就在他正看着的地方给个按钮
+    if (action === 'start-refresh') {
+      e.preventDefault();
+      startRefresh();
       return;
     }
 

@@ -121,6 +121,22 @@ export const DailyConfig = z.object({
 
 	/** 缓存条数上限（超出按写入时间淘汰最旧）。 */
 	aiSummaryCacheMax: z.number().default(500),
+
+	// ---------- 归档容量（长期运行）----------
+
+	/**
+	 * 超过这些天的归档被**压缩**成索引（丢摘要/热度/理由，保留标题/链接/主题/分数）。
+	 * 0 = 不压缩。默认 60 天。
+	 */
+	archiveCompactAfterDays: z.number().default(60),
+
+	/**
+	 * 超过这些天的归档被**删除**。0 = 永不删除（默认）。
+	 *
+	 * 默认不删：数据不可再生，一个"自动清理"的默认值不该由插件替用户决定。
+	 * 想开就设成比 archiveCompactAfterDays 更大的值（比如 180）。
+	 */
+	archiveDeleteAfterDays: z.number().default(0),
 })
 
 export type DailyConfig = Schemastery.TypeT<typeof DailyConfig>
@@ -164,5 +180,7 @@ export function resolveConfig(config: Partial<DailyConfig> = {}): DailyConfig {
 		aiSummaryTimeoutMs: config.aiSummaryTimeoutMs ?? 20000,
 		aiSummaryCacheTtlDays: config.aiSummaryCacheTtlDays ?? 30,
 		aiSummaryCacheMax: config.aiSummaryCacheMax ?? 500,
+		archiveCompactAfterDays: config.archiveCompactAfterDays ?? 60,
+		archiveDeleteAfterDays: config.archiveDeleteAfterDays ?? 0,
 	}
 }
