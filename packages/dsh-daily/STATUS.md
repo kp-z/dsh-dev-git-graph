@@ -1376,3 +1376,42 @@ img 必须有 `error` 监听器且处理器要真的移除节点、封面地址�
 
 **下轮起点**：第三波⑥ 回流项目（`docs/research/*.md`）与⑦ 调研侧边栏视图；
 或等用户在那台测试机上装 0.3.3 后由我远程确认真实识别效果。
+
+### R33 · 2026-10-12 22:34–23:20 — 项目状态改为只读（用户指出这是设计问题）
+
+**用户**：「为什么插件的右上角还是项目是 daily 而不是自动关联当前项目，**这里应该是不可选的**」
+
+**先回答"为什么还是 daily"（查现场，不是猜）**
+- 远端测试机 `10.21.103.15:19387`：`project.source` **字段不存在** → 那台跑的是 **0.3.0 之前的版本**
+  → 那份代码里**根本没有**自动识别功能，所以显示 daily 是必然的（不是识别失败）
+- 本地 profile：未安装（用户要求）；npm latest = 0.3.3
+
+**再说设计：用户是对的，而且我原来的做法有个陷阱**
+原先把项目做成**下拉切换器 + ＋新增**，配合我的"显式优先于推断"规则 →
+**用户一旦点过下拉框，自动识别就被永久关掉，而界面上完全看不出来**。
+一个"自动"的功能配一个手动入口、且手动的副作用不可见 —— 这是设计错误，不是配色问题。
+
+**改动（界面）**
+1. `index.html`：下拉框 + `＋` + 目录输入框 → 一行只读 `项目 <名字> <来源徽标>`
+2. `app.js`：`renderProjectBar` 改为只读渲染；**移除** `switchProject` 与其全部监听、
+   残留元素引用（`projectSelect/projectAdd/projectNew/projectInput/projectConfirm`）——
+   留着这些引用会在加载时 `addEventListener of null` 把页面打死
+3. **未识别时明说**：`未识别到项目` + `.is-unresolved` 提示色 + 悬停给出下一步做法
+4. `style.css`：新增 `.dd-project-name/.dd-project-source/.is-unresolved/.is-warn`
+5. README 同步（删掉"侧边栏有项目切换器"的过时描述）
+
+**证据（真实页面测量）**
+- `npm test` → **tests 308 / pass 308 / fail 0**（无产品逻辑改动，测试数不变）
+- dev-server 实测（真实 67 条数据）：
+  ```
+  barExists: true · hasSelect: false · hasAddButton: false   ← 手动入口确实没了
+  text: "项目 root 未识别到项目"                              ← 未识别时明说
+  isUnresolved: true · sourceWarn: true                       ← 状态与配色正确
+  tooltip: "当前项目：/tmp/dsh-ui/root | 来源：自动识别（跟随当前会话 / 工作区） |
+            未能自动识别项目，正在用默认数据 —— 在项目目录里开一个会话即可跟随 | 数据目录：…"
+  items: 67 · pageErrors: 0                                   ← 页面没被打死，数据正常
+  ```
+
+**已发布**：`@kpeace/dsh-daily@0.3.4`
+
+**仍未验证**：真实宿主里的自动识别本身（那台需升级到 0.3.4 并重启）

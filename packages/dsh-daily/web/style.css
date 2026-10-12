@@ -241,6 +241,32 @@ button { font-family: inherit; }
   border-left: 2px solid var(--dd-accent);
   padding-left: 8px;
 }
+.dd-projectbar.is-unresolved {
+  /* 没识别到项目是"需要用户知道"的状态：给一条提示色，但别做成报错（它仍能正常工作） */
+  border-left: 2px solid var(--dd-warn, #d08700);
+  padding-left: 8px;
+}
+.dd-project-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--dd-text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dd-project-source {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  color: var(--dd-text-tertiary);
+  background: var(--dd-bg-hover, rgba(127, 127, 127, 0.12));
+}
+.dd-project-source.is-warn {
+  color: var(--dd-warn, #b26a00);
+}
 .dd-project-label {
   flex: 0 0 auto;
   color: var(--dd-text-tertiary);

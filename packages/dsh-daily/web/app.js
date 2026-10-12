@@ -1117,56 +1117,37 @@
     });
   }
 
+  /**
+   * 项目状态：**只读**。
+   * 项目跟着当前会话/工作区自动走，这里只说清"用的是哪个、怎么定的"。
+   * 拿不到项目（识别失败）时**明说**，而不是假装在用某个项目 —— 否则用户会以为
+   * "它在按我的项目搜"，其实搜的是默认数据。
+   */
   function renderProjectBar() {
     if (!el.projectbar) return;
-    el.projectbar.hidden = state.projects.length === 0;
-    if (state.projects.length === 0) return;
-    var select = el.projectSelect;
-    clear(select);
-    state.projects.forEach(function (p) {
-      var opt = document.createElement('option');
-      opt.value = p.dir;
-      // 自动识别来的项目要标出来：否则用户不知道"为什么它自己换了"
-      var autoMark = p.isAuto ? '（自动）' : '';
-      opt.textContent = p.name + autoMark + (p.isDefault ? '' : ' · ' + p.dir.split('/').slice(-2).join('/'));
-      if (state.project && state.project.dir === p.dir) opt.selected = true;
-      select.appendChild(opt);
-    });
-    el.projectbar.classList.toggle('is-scoped', !!(state.project && !state.project.isDefault));
-    el.projectbar.title = state.project
-      ? '当前项目：' + state.project.dir +
-        '\n来源：' + (state.project.source === 'manual' ? '手动指定（自动识别不会覆盖）' : '自动识别') +
-        '\n数据目录：' + state.project.dataDir
-      : '';
+    var p = state.project;
+    if (!p) {
+      el.projectbar.hidden = true;
+      return;
+    }
+    el.projectbar.hidden = false;
+    var isAuto = p.source !== 'manual';
+    var unresolved = !!(p.isDefault && isAuto);
+
+    el.projectName.textContent = p.name + (p.isDefault ? '' : ' · ' + String(p.dir).split('/').slice(-2).join('/'));
+    el.projectSource.textContent = unresolved ? '未识别到项目' : isAuto ? '自动识别' : '手动指定';
+    el.projectSource.classList.toggle('is-warn', unresolved);
+
+    el.projectbar.classList.toggle('is-scoped', !p.isDefault);
+    el.projectbar.classList.toggle('is-unresolved', unresolved);
+    el.projectbar.title =
+      '当前项目：' + p.dir +
+      '\n来源：' + (isAuto ? '自动识别（跟随当前会话 / 工作区）' : '手动指定') +
+      (unresolved ? '\n未能自动识别项目，正在用默认数据 —— 在项目目录里开一个会话即可跟随' : '') +
+      '\n数据目录：' + p.dataDir;
   }
 
   /** 切换项目：数据全换（偏好/索引/反馈都跟着走），所以要整页重载而不是只改一行。 */
-  function switchProject(dir) {
-    if (!dir || (state.project && state.project.dir === dir)) return;
-    apiPost(API.projects, { dir: dir }).then(function (r) {
-      if (r.error || (r.data && r.data.ok === false)) {
-        state.stateError = '切换项目失败：' + (r.error || (r.data && r.data.error) || '未知原因');
-        renderError();
-        return;
-      }
-      // 数据全变了：清掉所有只对旧项目有效的界面状态
-      state.topic = '全部';
-      state.query = '';
-      state.unreadOnly = false;
-      state.expanded = {};
-      state.hiddenIds = {};
-      state.datePinned = false;
-      state.archive = [];
-      state.items = [];
-      state.counts = { total: 0, unread: 0, byTopic: {} };
-      state.stateError = null;
-      syncSearchInputs();
-      loadState();
-      loadProjects();
-      loadArchive();
-      loadItems();
-    });
-  }
 
   /* ---------- 4.7 按天翻阅（归档） ---------- */
 
@@ -2029,11 +2010,8 @@
     el.digestBtn = $('dd-digest');
     el.aiBtn = $('dd-ai');
     el.projectbar = $('dd-projectbar');
-    el.projectSelect = $('dd-project-select');
-    el.projectAdd = $('dd-project-add');
-    el.projectNew = $('dd-project-new');
-    el.projectInput = $('dd-project-input');
-    el.projectConfirm = $('dd-project-confirm');
+    el.projectName = $('dd-project-name');
+    el.projectSource = $('dd-project-source');
     el.datebar = $('dd-datebar');
     el.datePrev = $('dd-date-prev');
     el.dateNext = $('dd-date-next');
@@ -2149,17 +2127,6 @@
 
     // 列表交互（委托：动作 / 打开 / 折叠 / 空态重试）
     el.list.addEventListener('click', onListClick);
-
-    // 项目切换
-    el.projectSelect.addEventListener('change', function () { switchProject(el.projectSelect.value); });
-    el.projectAdd.addEventListener('click', function () {
-      el.projectNew.hidden = !el.projectNew.hidden;
-      if (!el.projectNew.hidden) el.projectInput.focus();
-    });
-    el.projectConfirm.addEventListener('click', function () { switchProject(el.projectInput.value.trim()); });
-    el.projectInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') { e.preventDefault(); switchProject(el.projectInput.value.trim()); }
-    });
 
     // 按天翻阅（归档）
     el.datePrev.addEventListener('click', function () { stepDate(1); });

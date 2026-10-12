@@ -35,15 +35,17 @@
       </div>
       <p class="dd-stats" id="dd-stats">正在载入…</p>
     </div>
-    <!-- 项目切换器：一个项目 = 一个工作目录，每个项目有独立的偏好与索引 -->
+    <!--
+      项目状态（**只读**）。
+      项目跟着当前会话/工作区自动走 —— 所以这里只显示"现在用的是哪个、怎么定的"，
+      不提供选择。理由：做成下拉框会诱导手动指定，而一次手动指定就会**永久关掉**自动识别
+      （我原先的"手动优先"规则），而界面上完全看不出来 —— 那是个陷阱。
+      需要显式指定时走 `daily_project` 工具（高级用法，不在界面上暴露）。
+    -->
     <div class="dd-projectbar" id="dd-projectbar" hidden>
       <span class="dd-project-label">项目</span>
-      <select class="dd-project-select" id="dd-project-select" aria-label="切换项目"></select>
-      <button type="button" class="dd-project-add" id="dd-project-add" title="用目录新增一个项目">＋</button>
-      <div class="dd-project-new" id="dd-project-new" hidden>
-        <input type="text" class="dd-project-input" id="dd-project-input" placeholder="项目目录，如 ~/DEV/my-app" aria-label="项目目录">
-        <button type="button" class="dd-btn" id="dd-project-confirm">切换</button>
-      </div>
+      <span class="dd-project-name" id="dd-project-name"></span>
+      <span class="dd-project-source" id="dd-project-source"></span>
     </div>
     <!-- 按天翻阅：只有存在多天归档时才显示（默认隐藏，别给只有一天数据的用户添噪音） -->
     <div class="dd-datebar" id="dd-datebar" hidden>
