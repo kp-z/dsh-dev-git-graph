@@ -5,5 +5,5 @@
 # client 半体：在右侧栏注册「日报」tab（依赖 dsh-better-sidebar）
 - insert:
     - id: daily
-      name: dsh-daily
+      name: @kpeace/dsh-daily
       config: {}

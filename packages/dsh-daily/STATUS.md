@@ -849,3 +849,47 @@ B站的视频索引不受影响——用户要的"视频索引"目前由 B站稳
 作为「AI 生成检索词」的输入）。
 仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + **11 个**工具 + ✨ 按钮 + 日期导航 + 页脚入口 +
 卡片跳转 + 轮转说明 + 通知开关 + 项目切换器）。
+
+### R19 · 2026-10-12 14:40–15:00 — 发布到 npm 与 git
+
+**用户要求**：「跑通后请及时发布到 npm 和 git，方便我安装使用」。
+
+**先查清前置条件（而不是直接跑 publish）**
+- npm 凭据：已认证为 **`kpeace`**（registry.npmjs.org）✓
+- git 远端：`git@github.com:kp-z/dsh-dev-git-graph.git`；`HEAD` = `origin/feat/dsh-daily` = `origin/main`
+  **= `45e00ec`，没有未推送的提交** —— git 侧本来就是最新的（另一个 agent 已推过）
+- **`dsh-daily` 这个包名已被占用**：`npm view dsh-daily` → 存在，version `0.0.1`，
+  description `"Daily - the daily brief - name reserved; first release in development."`，
+  maintainer 是 **`dushaobindoudou <dushaobindoudou@gmail.com>`** ——
+  **与当前登录的 `kpeace` 不是同一个账号**。所以我无法（也不该）往那个名字下发布。
+
+**做了什么**
+1. 包内补 `LICENSE`（与仓库根一致，MIT）+ `repository` / `homepage` / `bugs` /
+   `publishConfig.access=public`，`files` 里显式加上 `LICENSE`
+2. 发布名改为 **`@kpeace/dsh-daily`**（当前账号唯一能发的名字），
+   并把 `cordis.patch.yml` 的插入名同步成 `@kpeace/dsh-daily` —— **两处必须一致**，
+   否则装出来的 bundle patch 会指向一个不存在的模块名
+3. **发布前硬验收**：`npm pack` → 在全新空目录 `npm install <tarball>` 装成功
+   （可选 peer 不阻塞、0 vulnerabilities、关键文件齐全、patch 插入名正确）
+4. `npm publish` → **`+ @kpeace/dsh-daily@0.1.0`**（exit 0）
+5. 包内加 `.gitignore` 忽略 `*.tgz`（pack 产物不该入库）
+
+**证据（真实输出）**
+- 发布：`+ @kpeace/dsh-daily@0.1.0`；npm 提示「正在处理」→ 轮询 **约 80 秒后**
+  `npm view @kpeace/dsh-daily version` → `0.1.0` 生效
+- **从 registry 真实安装**（另一个干净目录）：
+  `npm install @kpeace/dsh-daily` → `added 1 package, and audited 2 packages in 4s`，
+  装到 `0.1.0`；文件 `CHANGELOG.md LICENSE README.md README.zh.md cordis.patch.yml lib package.json web`
+- 改名后**本地一切照旧**：`npm test` → 210/210；`npm run regression` → 装机 + 安装校验 **15/15 通过**；
+  本地 profile 的目录名仍是 `dsh-daily-v2`（它跟随 patch，不受包名影响）
+
+**待用户决定的一件事（我没替你决定）**
+`dsh-daily` 这个不带前缀的名字被 `dushaobindoudou` 占着，描述是"name reserved"。
+如果那是你的另一个账号：用那个账号在仓库里跑一次 `npm publish` 就能发到 `dsh-daily`；
+本包只需把 `package.json` 的 `name` 与 `cordis.patch.yml` 的插入名一起改回去。
+我没有擅自改名到你无法安装的第三个名字，也没有去碰别人的包。
+
+**阻塞**：无（npm 与 git 两条路都已可用）
+
+**下轮起点**：**第三波②：项目画像**（调研方向的下一个增量）。
+仍欠 **DSH 重启后的真实 GUI 复验**（现在多了一项：从 npm 装的版本要在重启后确认 tab 与工具都在）。

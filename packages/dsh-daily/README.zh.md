@@ -29,6 +29,22 @@
 
 ## 安装
 
+### 从 npm（推荐）
+
+```bash
+npm install @kpeace/dsh-daily
+# 或在 DSH 里：dsh plugin add @kpeace/dsh-daily
+```
+
+已发布：`@kpeace/dsh-daily@0.1.0`（https://www.npmjs.com/package/@kpeace/dsh-daily）
+—— 装完仍需**重启 DSH**（原因见下面「改完怎么验证」一节：客户端半体在启动时组装）。
+
+> **关于名字**：包名为什么带 `@kpeace/` 前缀 —— 不带前缀的 `dsh-daily` 已被另一个 npm 账号
+> （`dushaobindoudou`，描述写着 *name reserved; first release in development*）预留。
+> 如果那是你自己的账号，用那个账号在仓库里跑 `npm publish` 就能发到 `dsh-daily` 这个名字上；
+> 本包已把 `package.json` 的 `name` 与 `cordis.patch.yml` 的插入名保持一致，改回不带前缀只需同步改这两个地方。
+
+
 ```bash
 # 1. 编译（本包依赖已在本工作区备好，直接编译即可）
 cd packages/dsh-daily
