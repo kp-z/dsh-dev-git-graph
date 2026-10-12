@@ -25,6 +25,7 @@
 
   var API = {
     state: './api/state',
+    findings: './api/findings',
     items: './api/items',
     feedback: './api/feedback',
     tune: './api/tune',
@@ -2009,6 +2010,10 @@
     el.refreshBtn = $('dd-refresh');
     el.digestBtn = $('dd-digest');
     el.aiBtn = $('dd-ai');
+    el.app = $('dd-app') || document.querySelector('.dd-app');
+    el.viewDaily = $('dd-view-daily');
+    el.viewResearch = $('dd-view-research');
+    el.research = $('dd-research');
     el.projectbar = $('dd-projectbar');
     el.projectName = $('dd-project-name');
     el.projectSource = $('dd-project-source');
@@ -2128,6 +2133,10 @@
     // 列表交互（委托：动作 / 打开 / 折叠 / 空态重试）
     el.list.addEventListener('click', onListClick);
 
+    // 视图切换：日报 / 调研
+    if (el.viewDaily) el.viewDaily.addEventListener('click', function () { setView('daily'); });
+    if (el.viewResearch) el.viewResearch.addEventListener('click', function () { setView('research'); });
+
     // 按天翻阅（归档）
     el.datePrev.addEventListener('click', function () { stepDate(1); });
     el.dateNext.addEventListener('click', function () { stepDate(-1); });
@@ -2234,6 +2243,148 @@
   /* ======================================================================
    * 6. boot
    * ==================================================================== */
+
+  /**
+   * 视图切换。
+   * 调研视图第一次打开时才去取数据（不白白多一次请求）。
+   */
+  function setView(view) {
+    state.view = view;
+    if (el.app) el.app.classList.toggle('is-research', view === 'research');
+    if (el.viewDaily) {
+      el.viewDaily.classList.toggle('is-active', view === 'daily');
+      el.viewDaily.setAttribute('aria-selected', String(view === 'daily'));
+    }
+    if (el.viewResearch) {
+      el.viewResearch.classList.toggle('is-active', view === 'research');
+      el.viewResearch.setAttribute('aria-selected', String(view === 'research'));
+    }
+    if (el.research) el.research.hidden = view !== 'research';
+    if (view === 'research') loadResearch();
+  }
+
+  /** 取上次的调研结果并渲染（不自动重跑：重跑要花请求与 token）。 */
+  function loadResearch() {
+    if (!el.research) return;
+    el.research.setAttribute('aria-busy', 'true');
+    apiGet(API.findings)
+      .then(function (r) {
+        var data = r && r.data ? r.data : r;
+        renderResearch(data);
+      })
+      .catch(function () { renderResearch(null); })
+      .then(function () { el.research.setAttribute('aria-busy', 'false'); });
+  }
+
+  /**
+   * 渲染调研卡片：**按维度分组**，每条卡片有头图 + 中文介绍 + 来源 + 命中的检索词。
+   * 头图沿用日报封面的同一套契约：占位块常驻，图片失败就被撤掉（不留破图）。
+   */
+  function renderResearch(data) {
+    if (!el.research) return;
+    clear(el.research);
+    var findings = (data && data.findings) || [];
+    var groups = (data && data.groups) || [];
+
+    if (findings.length === 0) {
+      var empty = text('div', 'dd-empty');
+      empty.appendChild(text('p', null, '还没有调研结果。'));
+      empty.appendChild(text('p', 'dd-empty-hint', '调研会按维度（领域关键词 / 依赖动态 / 技术栈实践 / 同类项目 / 风险与坑）去 HN 与 GitHub 上搜一轮。'));
+      var run = text('button', 'dd-btn', '开始调研');
+      run.type = 'button';
+      run.addEventListener('click', function () {
+        run.disabled = true;
+        run.textContent = '调研中…';
+        apiPost(API.findings, {}).then(function () { loadResearch(); });
+      });
+      empty.appendChild(run);
+      el.research.appendChild(empty);
+      return;
+    }
+
+    var meta = data.meta || {};
+    var head = text('div', 'dd-research-head');
+    head.appendChild(text('span', 'dd-research-count', findings.length + ' 条'));
+    if (meta.stats) {
+      head.appendChild(text('span', 'dd-research-stat', '请求 ' + meta.stats.requests + ' · 成功 ' + meta.stats.ok));
+    }
+    var again = text('button', 'dd-btn dd-btn-ghost', '重新调研');
+    again.type = 'button';
+    again.addEventListener('click', function () {
+      again.disabled = true;
+      again.textContent = '调研中…';
+      apiPost(API.findings, {}).then(function () { loadResearch(); });
+    });
+    head.appendChild(again);
+    el.research.appendChild(head);
+
+    if (meta.errors && meta.errors.length > 0) {
+      var warn = text('div', 'dd-note', meta.errors[0]);
+      el.research.appendChild(warn);
+    }
+
+    // 没有分组信息时兜底成一组，保证内容照样能看到
+    var list = groups.length > 0 ? groups : [{ label: '调研结果', question: '', findings: findings }];
+    list.forEach(function (group) {
+      var section = text('section', 'dd-dim');
+      section.appendChild(text('h3', 'dd-dim-title', group.label + '（' + (group.count || (group.findings || []).length) + '）'));
+      if (group.question) section.appendChild(text('p', 'dd-dim-question', group.question));
+      (group.findings || []).forEach(function (finding) {
+        section.appendChild(buildFindingCard(finding));
+      });
+      el.research.appendChild(section);
+    });
+  }
+
+  /** 一张调研卡片。 */
+  function buildFindingCard(finding) {
+    var card = text('article', 'dd-finding');
+
+    // 头图：占位块常驻；图片懒加载 + 失败即撤（与日报封面同一套契约）
+    var slot = text('div', 'dd-thumb');
+    slot.appendChild(thumbFallback());
+    var url = safeUrl(finding.thumb);
+    if (url) {
+      var img = document.createElement('img');
+      img.className = 'dd-thumb-img';
+      img.alt = '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.addEventListener('error', function () {
+        if (img.parentNode) img.parentNode.removeChild(img);
+      });
+      img.src = url;
+      slot.appendChild(img);
+    }
+    card.appendChild(slot);
+
+    var body = text('div', 'dd-finding-body');
+    var title = document.createElement('a');
+    title.className = 'dd-finding-title';
+    title.textContent = finding.title || '(无标题)';
+    var link = safeUrl(finding.url);
+    if (link) {
+      title.href = link;
+      title.target = '_blank';
+      title.rel = 'noreferrer noopener';
+    }
+    body.appendChild(title);
+
+    var intro = text('p', 'dd-finding-intro', finding.intro || '');
+    body.appendChild(intro);
+
+    var meta = text('div', 'dd-finding-meta');
+    meta.appendChild(text('span', 'dd-finding-source', finding.sourceLabel || finding.provider || ''));
+    if (finding.query) meta.appendChild(text('span', 'dd-finding-query', '← 「' + finding.query + '」'));
+    // 介绍不是模型写的就明说，别让用户以为那是 AI 的概括
+    if (finding.introSource && finding.introSource !== 'ai') {
+      meta.appendChild(text('span', 'dd-finding-fallback', '机器汇总'));
+    }
+    body.appendChild(meta);
+    card.appendChild(body);
+    return card;
+  }
 
   function boot() {
     cacheEls();

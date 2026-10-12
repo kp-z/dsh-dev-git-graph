@@ -193,7 +193,24 @@ async function handleApi(
 				// GET = 上次的检索结果；POST = 立刻跑一轮（真去搜）
 				if (req.method === 'GET') {
 					const cached = await service.readFindings()
-					return sendJson(res, 200, { ok: true, findings: cached?.findings ?? [], meta: cached ? { generatedAt: cached.generatedAt, queries: cached.queries, stats: cached.stats, errors: cached.errors } : null, project: service.currentProject() })
+					const findings = cached?.findings ?? []
+					// **groups 必须和 POST 一样返回**：否则界面拿不到维度分组，
+					// 会退回"单组兜底"——50 条挤成一组，按维度归位就白做了（实测踩到）
+					return sendJson(res, 200, {
+						ok: true,
+						findings,
+						groups: groupFindings(findings).map((g) => ({
+							id: g.id,
+							label: g.label,
+							question: g.question,
+							count: g.findings.length,
+							findings: g.findings,
+						})),
+						meta: cached
+							? { generatedAt: cached.generatedAt, queries: cached.queries, stats: cached.stats, errors: cached.errors }
+							: null,
+						project: service.currentProject(),
+					})
 				}
 				if (req.method === 'POST') {
 					const result = await service.runFindings({ force: true })

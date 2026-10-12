@@ -24,7 +24,7 @@
 </script>
 </head>
 <body>
-<div class="dd-app">
+<div class="dd-app" id="dd-app">
 
   <!-- 顶部：标题 / 日期 / 统计 / 两个图标按钮 -->
   <header class="dd-header">
@@ -106,6 +106,14 @@
   </div>
 
   <!-- 筛选行：主题 chips + 搜索 -->
+  <!-- 视图切换：日报 / 调研。用 .dd-app.is-research 这个类来切（纯 CSS，不动既有 DOM 结构） -->
+  <div class="dd-views" role="tablist" aria-label="视图">
+    <button type="button" class="dd-view-btn is-active" id="dd-view-daily" role="tab" aria-selected="true">日报</button>
+    <button type="button" class="dd-view-btn" id="dd-view-research" role="tab" aria-selected="false">调研</button>
+  </div>
+
+  <main class="dd-research" id="dd-research" hidden aria-live="polite"></main>
+
   <div class="dd-filters">
     <div class="dd-chips" id="dd-chips" role="tablist" aria-label="按主题筛选"></div>
     <div class="dd-search-wrap" id="dd-search-wrap">
