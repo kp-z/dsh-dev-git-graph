@@ -1216,3 +1216,14 @@ current: /root/.dsh/daily          ← 默认项目
 `~/.ssh/config` 里有 `devops.momenta.works` → `User root` 条目）
 
 **下轮起点**：部署到测试机验证真实识别 → 再做第三波⑤定向检索。
+
+**R28 补充：测试机的部署通道查清了（重要运维事实）**
+- `10.21.103.15` 可达、22 端口开放；`~/.ssh/config` 里是 `devops.momenta.works`（`User root`）
+- 但那是**受限跳板**：连上后执行任意命令会被拒（`remote: Command ... is not in expected format`）
+  → **我无法自己部署/重启那台上的 dsh**
+- 因此本轮的真实宿主验证只能由用户侧完成一次部署 + 重启；
+  **部署后我可以直接远程验证**，因为插件的 HTTP 接口不需要 token：
+  `curl http://10.21.103.15:19387/dsh-daily/api/state` → 看 `project.source` 与 `project.dir`
+  （当前读到的是旧版：`source` 字段还不存在，项目仍是 `daily`，条目 8）
+- 另：git 推送通道时好时坏 —— HTTPS 这次报 `HTTP2 framing layer` / `Recv failure`，
+  最后用 SSH `git@github.com:...` 成功。以后推送按 HTTPS → ssh.github.com:443 → git@github.com 依次试。
