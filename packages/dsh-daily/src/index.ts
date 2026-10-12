@@ -47,7 +47,30 @@ interface LlmLike {
 }
 
 export function apply(ctx: Context, config: Partial<DailyConfig> = {}): void {
-	const settings = resolveConfig(config ?? {})
+	/**
+	 * `apply` **整体兜底**：本插件在加载期抛异常，后果不是"功能少了"，
+	 * 而是**插件条目加载失败**（客户端半体已经因此把用户的界面打成错误页一次）。
+	 *
+	 * 宿主半体的同步体本身很薄（配置默认值 + 建 service + 注册 inject 回调），
+	 * `resolveConfig` 是纯默认值填充、不会抛 —— 但"薄"和"不会抛"都不是结构保证。
+	 * 这里要的是一条**结构保证**：无论将来加了什么，本插件的加载期失败都只降级、不炸宿主。
+	 */
+	try {
+		applyInner(ctx, config ?? {})
+	} catch (error) {
+		// 拿不到 logger 也要留痕：console 是最后可用的通道
+		const detail = error instanceof Error ? error.stack ?? error.message : String(error)
+		try {
+			ctx.logger('daily').error(`日报插件初始化失败（已忽略，不影响 dsh 启动）：${detail}`)
+		} catch {
+			// eslint-disable-next-line no-console
+			console.error('[dsh-daily] 初始化失败（已忽略，不影响 dsh 启动）：', detail)
+		}
+	}
+}
+
+function applyInner(ctx: Context, config: Partial<DailyConfig>): void {
+	const settings = resolveConfig(config)
 	if (!settings.enabled) return
 
 	const raw = ctx.logger('daily')
@@ -63,7 +86,29 @@ export function apply(ctx: Context, config: Partial<DailyConfig> = {}): void {
 	})
 }
 
+/**
+ * 异步装配。**整体再包一层 try/catch**（最后防线）。
+ *
+ * 里面每一段接线都已各自兜底，这一层的价值在于：将来新增一段忘了兜底时，
+ * 最坏结果是"后面几段没接上"，而不会变成一个 unhandled rejection ——
+ * 那种情况在日志里只有一行警告，排查时根本不知道插件少接了什么。
+ */
 async function bootstrap(
+	host: Context,
+	service: DailyService,
+	settings: DailyConfig,
+	logger: DailyLogger,
+): Promise<void> {
+	try {
+		await bootstrapInner(host, service, settings, logger)
+	} catch (error) {
+		logger.error(
+			`装配过程中出现未预期错误（插件部分功能可能未接上）：${error instanceof Error ? error.stack ?? error.message : String(error)}`,
+		)
+	}
+}
+
+async function bootstrapInner(
 	host: Context,
 	service: DailyService,
 	settings: DailyConfig,
@@ -98,21 +143,35 @@ async function bootstrap(
 	}
 
 	// ---- systemPrompt 主动推荐 ----
+	// 各自兜底：一段接线失败不该让**后面几段**跟着不接（早先这两段就是裸的，
+	// 一抛就会把 AI 接线与启动补抓一起跳过，而日志里只看到一次 unhandled rejection）
 	if (settings.announceToAgent) {
-		const disposePrompt = installPromptSection(host, service, {
-			maxItems: settings.announceMaxItems,
-			logger,
-		})
-		host.effect(() => disposePrompt)
+		try {
+			const disposePrompt = installPromptSection(host, service, {
+				maxItems: settings.announceMaxItems,
+				logger,
+			})
+			host.effect(() => disposePrompt)
+		} catch (error) {
+			logger.warn(
+				`注入 systemPrompt 失败（主动推荐降级为关闭）：${error instanceof Error ? error.message : String(error)}`,
+			)
+		}
 	}
 
 	// ---- 定时 ----
-	const stopSchedule = installSchedule(host, service, {
-		dailyTime: settings.dailyTime,
-		intervalMinutes: settings.refreshIntervalMinutes,
-		logger,
-	})
-	host.effect(() => stopSchedule)
+	try {
+		const stopSchedule = installSchedule(host, service, {
+			dailyTime: settings.dailyTime,
+			intervalMinutes: settings.refreshIntervalMinutes,
+			logger,
+		})
+		host.effect(() => stopSchedule)
+	} catch (error) {
+		logger.warn(
+			`注册定时任务失败（定时刷新降级为关闭）：${error instanceof Error ? error.message : String(error)}`,
+		)
+	}
 
 	// ---- AI 摘要接线（可选功能，默认关闭）----
 	// 放在依赖注入完成之后：service 先建好，这里再把 ctx.llm 与默认模型选择递进去。

@@ -20,6 +20,13 @@ import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
+
+/** 去掉注释与多余空白：注释不该影响"第一件事是不是 try"的判断。 */
+function stripComments(text) {
+	return text
+		.replace(/\/\*[\s\S]*?\*\//g, '')
+		.replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+}
 const src = readFileSync(path.join(root, 'src/client.js'), 'utf8')
 const pkg = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
 
@@ -80,10 +87,10 @@ test('契约 2：`exports.inject` 必须声明所有被访问的服务（未声�
 })
 
 test('契约 3：`apply` 必须整体包一层 try/catch（任何可选能力失败都不能拖垮宿主）', () => {
-	const body = applyBody()
+	const body = stripComments(applyBody())
 	assert.match(body, /try\s*\{/, 'apply 的函数体里必须有顶层 try/catch')
-	// 顶层 try：函数体去空白后应以 try 开头
-	assert.match(body.replace(/^\{\s*/, ''), /^try\s*\{/, 'apply 的第一件事就该是 try，不允许有没保护的语句跑在前面')
+	// 顶层 try：去掉注释后，函数体应当以 try 开头
+	assert.match(body.replace(/^\{\s*/, ''), /^try\s*\{/, 'apply 的第一件事就该是 try（注释不算），不允许有没保护的语句跑在前面')
 })
 
 test('契约 4：服务取值必须走 safeService（便于逐处兜底 + 统一行为）', () => {

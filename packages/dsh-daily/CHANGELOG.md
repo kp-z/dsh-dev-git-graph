@@ -63,6 +63,18 @@
   **默认只预览不写盘**（破坏性操作必须先能看见会发生什么）
 - 首次使用：空态里的「开始抓取」按钮（不必去找右上角的图标）
 
+**加载期安全（宿主半体加固）**
+- `apply` 整体包 try/catch + 装配拆到 `applyInner`：**加载期失败只降级，不炸宿主**
+  （客户端半体已经因此把用户界面打成错误页一次，宿主半体不该还有同类缺口）
+- `bootstrap` 同样整体兜底（拆到 `bootstrapInner`）：否则一段接线抛异常只会变成
+  一行 unhandled rejection —— 日志里看不出"少接了什么"
+- `installPromptSection` 与 `installSchedule` 各自兜底：**一段失败不该让后面几段跟着不接**
+  （这两段早先是裸的，一抛会静默跳过 AI 接线与启动补抓）
+- 新增 `test/host-safety.test.js`（4 组契约测试，静态检查 `src/index.ts`），
+  并**反向验证**过：同一套检查跑在加固前的 0.2.3 产物上，契约 1、3 均报错
+- 顺带查明：宿主 `inject = ['tools','webServer']` 的 fail-loud 设计**是安全的** ——
+  inject 不满足时条目是 `pending` 而不是 `failed`，而 `pending` 不会拖垮 boot
+
 **调研：检索词（调研链的入口）**
 - `daily_research` 工具 / `GET|POST /dsh-daily/api/research`：从项目画像推出"该去搜什么"，
   落盘 `<项目>/research-plan.json`；**画像指纹没变就复用**（不重复花模型调用）

@@ -1078,3 +1078,51 @@ cd /Users/kp/DEV/dsh-plugins/packages/dsh-daily && node scripts/install-to-profi
 
 **阻塞**：无。**下轮起点**：按用户发话决定 —— 要么先在 scratch 实例上验证 0.2.2 能干净启动，
 要么继续第三波④；**不会在用户未点头前安装到他的日常环境**。
+
+### R26 · 2026-10-12 19:06–19:50 — 宿主半体加载期加固（**未安装**）
+
+**前置约束**：用户仍要求「先不安装」。上轮我因 `npm run regression` 隐式装机踩过坑（已修脚本），
+所以本轮**全程零安装**，验证走静态契约测试 + dev-server（`--data-dir=/tmp/...`）。
+
+**为什么做这个**：最近两次事故（R21 的模块 id、R25 的 `apply()` 抛异常）**都是加载期抛异常**，
+后果都不是"功能少了"而是"宿主起不来 / 界面变错误页"。客户端半体已封死；
+**宿主半体从来没人查过** —— 本轮补上，目标是同一条：**结构上不可能炸宿主**。
+
+**审计结论（先查再改）**
+- `resolveConfig` 是**纯默认值填充**（无 `throw` / 无解析 / 无 `JSON.parse`）→ 顶部那处风险是理论性的
+- `service.init()` / `mountRoutes` / `registerDailyTools` / AI 接线 / 启动补抓 **都已各自兜底**
+- **两处裸的**：`installPromptSection`（systemPrompt 主动推荐）与 `installSchedule`（定时）——
+  抛了会让**后面几段接线静默跳过**（AI 接线、启动补抓），且只留一行 unhandled rejection
+- `apply` 与 `bootstrap` 都**没有整体兜底**
+- 另查明：宿主 `inject = ['tools','webServer']` 的 fail-loud **是安全的** ——
+  inject 不满足时条目是 `pending` 而非 `failed`，`pending` 不拖垮 boot
+
+**做了什么**
+1. `apply` 整体 try/catch（装配拆到 `applyInner`）；catch 里先试 `ctx.logger`，拿不到就退到 `console`
+2. `bootstrap` 整体 try/catch（装配拆到 `bootstrapInner`）
+3. `installPromptSection` / `installSchedule` 各自 try/catch，失败各自降级并说明
+4. 新增 `test/host-safety.test.js`（4 组契约测试，静态检查 `src/index.ts`）：
+   ① apply 顶层必须 try ② bootstrap 顶层必须 try ③ **每个接线步骤必须在 try 块内**
+   ④ apply 必须同步且异步初始化 fire-and-forget（不能让 loader 卡住）
+
+**证据（真实输出）**
+- `npm test` → **tests 258 / pass 258 / fail 0**（0.2.3 基线 254 → 本轮 +4）
+- `tsc --noEmit` → 0 error
+- **守卫反向验证**（关键：不会失败的守卫等于没写）：同一套检查跑在**加固前的 0.2.3 产物**
+  （`/tmp/v023/package/lib/index.js`）上：
+  ```
+  契约3 接线兜底: 抓住（未兜底: installPromptSection(, installSchedule(）
+  契约1 apply 顶层 try: 抓住（apply 无顶层 try）
+  ```
+- **功能零回归**（dev-server 真实起服务，`--data-dir=/tmp/dsh-hard/root`）：
+  `/dsh-daily/` → 200 · `/api/state` → ok:True（项目 root）· `/api/sources` → 200 ·
+  `/api/profile` → 200 · 工具数仍 **13** · 构建产物里 `applyInner`/`bootstrapInner` 就位
+- **零安装**：两个 profile 仍无 `dsh-daily` / `@kpeace` 目录
+- 本轮修了一个**测试自身的** bug：`bodyOf` 从函数签名里第一个 `{` 开始取体，
+  而 `config: Partial<DailyConfig> = {}` 的 `{}` 被当成了函数体（取到 `"{}"`）。
+  改为先跳过参数表的右括号 —— 这属于"验证方法错了会让产品看起来有问题"
+
+**仍未验证**：0.2.3 / 本轮加固后的产物在**真实 DSH 里的启动**（需要一次重启，用户未授权安装）
+
+**下轮起点**：等用户发话是否允许在 scratch 实例(:19388)上装+重启验证 0.2.4；
+在此之前继续第三波④（定向检索）——它不依赖安装。
