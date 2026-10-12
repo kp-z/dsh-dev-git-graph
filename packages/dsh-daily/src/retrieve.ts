@@ -22,7 +22,7 @@
 
 import { RESEARCH_DIMENSIONS, dimensionOf, type QueryKind, type ResearchQuery } from './research.js'
 
-export type ProviderId = 'hn-algolia' | 'github'
+export type ProviderId = 'hn-algolia' | 'github' | 'github-issues'
 
 export interface ProviderSpec {
 	id: ProviderId
@@ -65,7 +65,11 @@ export function nonAsciiRatio(query: string): number {
 
 /** 这个通道是否认这条检索词。英文语料的通道遇到中文词就别打了。 */
 export function acceptsQuery(provider: ProviderId, query: string): boolean {
-	if (provider === 'hn-algolia' || provider === 'github') return nonAsciiRatio(query) <= 0.4
+	// 三个通道都是英文语料 —— 新增通道时**必须**在这里登记，
+	// 否则它会默默接受中文检索词（打过去也是 200 + 0 条）。测试就是靠这条守住新通道的。
+	if (provider === 'hn-algolia' || provider === 'github' || provider === 'github-issues') {
+		return nonAsciiRatio(query) <= 0.4
+	}
 	return true
 }
 
@@ -108,7 +112,16 @@ export interface RetrieveOptions {
 
 const DEFAULTS = {
 	perQueryLimit: 5,
-	maxQueries: 6,
+	/**
+	 * 全局上限（默认 8）。
+	 *
+	 * **不能太小**：早先默认 6，而被选中的顺序是维度优先 → keyword(3) + dep(3) 正好吃满，
+	 * `tech` / `peers` / `risks` / `ai` 一个都没轮到（实测：12 次请求全是 keyword+dep，
+	 * 新加的 issues 通道压根没用上）。现在改成**按维度轮流取**，8 条足以让 6 个维度
+	 * 每个至少拿到 1 条，另外 2 条给靠前的维度。
+	 * 上限还兼顾了 GitHub 搜索的限流（未认证 10 次/分钟）。
+	 */
+	maxQueries: 8,
 	timeoutMs: 12_000,
 	concurrency: 4,
 }
@@ -183,6 +196,32 @@ export function parseGitHubResponse(raw: unknown, query: string): Finding[] {
 	return out
 }
 
+/** GitHub issues/PR 的解析（与仓库搜索同一个 API 家族，但字段不同）。 */
+export function parseGitHubIssues(raw: unknown, query: string): Finding[] {
+	const items = (raw as { items?: unknown[] } | null)?.items
+	if (!Array.isArray(items)) return []
+	const out: Finding[] = []
+	for (const item of items) {
+		if (!item || typeof item !== 'object') continue
+		const node = item as Record<string, unknown>
+		const url = asString(node.html_url)
+		const title = asString(node.title)
+		if (!url || !title) continue
+		const comments = asNumber(node.comments)
+		out.push({
+			title,
+			url,
+			provider: 'github-issues',
+			query,
+			// 描述里带上下文（issues 的 body 可能很长，截断）
+			summary: asString(node.body)?.replace(/\s+/g, ' ').slice(0, 200),
+			stats: comments !== undefined ? { comments } : {},
+			publishedAt: asString(node.updated_at) ?? asString(node.created_at),
+		})
+	}
+	return out
+}
+
 export const DEFAULT_PROVIDERS: ProviderSpec[] = [
 	{
 		id: 'hn-algolia',
@@ -190,6 +229,16 @@ export const DEFAULT_PROVIDERS: ProviderSpec[] = [
 		build: (query, limit) =>
 			`https://hn.algolia.com/api/v1/search?query=${encodeQuery(query)}&tags=story&hitsPerPage=${limit}`,
 		parse: parseHnResponse,
+	},
+	{
+		id: 'github-issues',
+		label: 'GitHub issues/PR 检索',
+		// **风险/坑类信息在 issues 里，不在仓库描述里**：实测 `antv g2 breaking changes`
+		// 走仓库搜索 total=0，走 issues 搜索 repo:antvis/G2 有 20 条。通道选错了再怎么写词都白搭。
+		build: (query, limit) =>
+			`https://api.github.com/search/issues?q=${encodeQuery(query)}&sort=updated&order=desc&per_page=${limit}`,
+		headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'dsh-daily' },
+		parse: parseGitHubIssues,
 	},
 	{
 		id: 'github',
@@ -222,22 +271,35 @@ export function buildSearchRequests(
 	const accepted: string[] = []
 	const used = new Map<string, number>()
 
-	// **按维度分配预算**：每个维度只在自己的 budget 内取词，任何维度都抢不走别人的份。
-	// （早先是一个扁平列表 + 全局截断：排前面的"依赖"类词经常把预算吃光，
-	//  "风险与坑""同类项目"这类最需要主动去查的维度一条都轮不到。）
+	// 每个维度的候选词（已整形、已过通道语言检查），按维度归拢
+	const candidates = new Map<QueryKind, string[]>()
 	for (const dimension of RESEARCH_DIMENSIONS) {
+		const list: string[] = []
 		for (const item of queries) {
-			if (accepted.length >= maxQueries) break
 			if (!item || item.kind !== dimension.id) continue
-			if ((used.get(dimension.id) ?? 0) >= dimension.budget) break
 			if (typeof item.query !== 'string' || !item.query.trim()) continue
 			const shaped = shapeQuery(item.query)
-			if (!shaped) continue
+			if (!shaped || accepted.includes(shaped) || list.includes(shaped)) continue
 			if (!providers.some((p) => acceptsQuery(p.id, shaped))) continue
-			if (accepted.includes(shaped)) continue
+			list.push(shaped)
+			if (list.length >= dimension.budget) break
+		}
+		candidates.set(dimension.id, list)
+	}
+
+	// **按维度轮流取（round-robin）**：第一轮每个维度各拿 1 条，第二轮再各拿 1 条……
+	// 这样在总上限很紧的时候，**每个维度都至少有一份**，而不是"排前面的维度吃满、
+	// 后面的维度一条都轮不到"。维度预算是每人每轮的上限，总上限才是全局约束。
+	const maxPerDimension = Math.max(1, ...RESEARCH_DIMENSIONS.map((d) => d.budget))
+	for (let round = 0; round < maxPerDimension; round += 1) {
+		for (const dimension of RESEARCH_DIMENSIONS) {
+			if (accepted.length >= maxQueries) return out
+			const list = candidates.get(dimension.id) ?? []
+			const shaped = list[round]
+			if (!shaped) continue
 			accepted.push(shaped)
 			used.set(dimension.id, (used.get(dimension.id) ?? 0) + 1)
-			for (const provider of providers) {
+			for (const provider of providersForDimension(dimension.id, providers)) {
 				// 语言不匹配的词直接不打：打过去也是 200 + 0 条，既浪费配额又让人误以为"搜过了"
 				if (!acceptsQuery(provider.id, shaped)) continue
 				out.push({
@@ -251,6 +313,32 @@ export function buildSearchRequests(
 		}
 	}
 	return out
+}
+
+/**
+ * **按维度选通道**：问的问题不同，答案所在的地方也不同。
+ *
+ * 实测教训：`antv g2 breaking changes` 在 **GitHub 仓库搜索**上 total=0，
+ * 而在 **issues 搜索**（`repo:antvis/G2 breaking changes`）上有 20 条 ——
+ * "破坏性变更/坑"这类信息**长在 issue 与 PR 里**，不长在仓库简介里。
+ * 通道选错时，再怎么改检索词都是白费（这也是"要有章法"的一层：
+ * 不只安排问什么，还要安排**去哪儿问**）。
+ */
+export function providersForDimension(
+	dimension: QueryKind,
+	providers: ProviderSpec[],
+): ProviderSpec[] {
+	const byId = (id: ProviderId): ProviderSpec | undefined => providers.find((p) => p.id === id)
+	if (dimension === 'risks') {
+		// 只走 issues + HN（HN 上也有"某版本炸了"这类讨论）
+		return [byId('github-issues'), byId('hn-algolia')].filter((p): p is ProviderSpec => !!p)
+	}
+	if (dimension === 'peers') {
+		// 同类项目要的是**仓库**，不是 issue
+		return [byId('github'), byId('hn-algolia')].filter((p): p is ProviderSpec => !!p)
+	}
+	// 其它维度：仓库 + HN（issues 只对风险类有价值，别的维度走它会引入噪声）
+	return [byId('hn-algolia'), byId('github')].filter((p): p is ProviderSpec => !!p)
 }
 
 /** 按维度归位（顺序 = 章法里的顺序，空维度不出现）。 */

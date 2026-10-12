@@ -333,19 +333,21 @@ export function deterministicQueries(
 	}
 	// 3) 技术栈：最泛，兜底用
 	// 同类项目：别人怎么做的（换工具/抄做法时最有用的那类信息）
+	// 同类项目：走**仓库**通道，所以用 GitHub 认的限定词（限定字段 + 质量门槛），
+	// 而不是 `react alternatives` 这种自然语言（实测在仓库搜索上命中很差）
 	for (const word of domainKeywords(profile.keywords, 2)) {
-		const peers = `${word} alternatives`
-		if (isSpecificQuery(peers)) push(peers, 'peers', `找 ${word} 方向上的同类做法与替代方案`)
+		const peers = `${word} in:name,description stars:>50`
+		if (isSpecificQuery(peers)) push(peers, 'peers', `找 ${word} 方向上 star 较多的同类项目`)
 	}
 	for (const dep of diversifyByFamily(runtimeDeps, 1)) {
 		const kw = depKeywords(dep)
-		if (isSpecificQuery(kw)) push(`${kw} vs`, 'peers', `看别人在 ${dep} 这块用了什么替代品`)
+		if (isSpecificQuery(kw)) push(`${kw} in:name,description`, 'peers', `看别人在 ${dep} 这块做了什么`)
 	}
 
-	// 风险与坑：破坏性变更 / 安全公告 / 弃用（**主动去查**，而不是等它爆出来）
+	// 风险与坑：走 **issues/PR** 通道（那里的信息实际存在），措辞也要对着 issue 文本
 	for (const dep of diversifyByFamily(runtimeDeps, 2)) {
 		const kw = depKeywords(dep)
-		if (isSpecificQuery(kw)) push(`${kw} breaking changes`, 'risks', `查 ${dep} 有无破坏性变更/弃用`)
+		if (isSpecificQuery(kw)) push(`${kw} breaking change`, 'risks', `查 ${dep} 有无破坏性变更/弃用`)
 	}
 
 	for (const lang of profile.languages.slice(0, 2)) {

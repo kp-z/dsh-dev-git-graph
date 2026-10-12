@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import {
 	buildSearchRequests,
 	dedupeFindings,
+	DEFAULT_PROVIDERS,
 	describeRetrieval,
 	encodeQuery,
 	heatOf,
@@ -19,6 +20,8 @@ import {
 	runRetrieval,
 	shapeQuery,
 	querySpecificity,
+	providersForDimension,
+	parseGitHubIssues,
 	acceptsQuery,
 	nonAsciiRatio,
 	skippedQueries,
@@ -141,6 +144,37 @@ test('dedupeFindings：按规范化 URL 去重，并把命中的多条检索词�
 	assert.equal(merged.length, 2)
 	assert.match(merged[0].query, /q1/)
 	assert.match(merged[0].query, /q2/, '被两条检索词命中是"更相关"的信号')
+})
+
+test('providersForDimension：**问的问题不同，去哪儿问也不同**（实测驱动）', () => {
+	const ids = (kind) => providersForDimension(kind, DEFAULT_PROVIDERS).map((p) => p.id)
+	// 风险/坑长在 issue 里，不长在仓库简介里
+	assert.deepEqual(ids('risks'), ['github-issues', 'hn-algolia'])
+	// 同类项目要的是仓库，不是 issue
+	assert.deepEqual(ids('peers'), ['github', 'hn-algolia'])
+	// 其它维度走仓库 + HN（issues 只对风险类有价值，别的维度走它会引入噪声）
+	assert.deepEqual(ids('dep'), ['hn-algolia', 'github'])
+	assert.deepEqual(ids('tech'), ['hn-algolia', 'github'])
+})
+
+test('parseGitHubIssues：issue 转结果（与仓库搜索是同一 API 家族，字段不同）', () => {
+	const findings = parseGitHubIssues(
+		{ items: [{ title: 'Breaking change in v5', html_url: 'https://github.com/a/b/issues/1', body: 'long\n\nbody', comments: 7, updated_at: '2026-10-01T00:00:00Z' }, { title: 'no url' }, null] },
+		'antv g2 breaking change',
+	)
+	assert.equal(findings.length, 1)
+	assert.equal(findings[0].provider, 'github-issues')
+	assert.equal(findings[0].stats.comments, 7)
+	assert.ok(!findings[0].summary.includes('\n'), '正文要压成一行')
+	for (const bad of [null, 'x', {}, { items: 'no' }]) assert.deepEqual(parseGitHubIssues(bad, 'q'), [])
+})
+
+test('新通道必须在 acceptsQuery 里登记（否则会静默接受中文词、白打请求）', () => {
+	// 这条是回归守卫：加 github-issues 时我漏登记，测试就是靠 skippedQueries 抓到的
+	for (const provider of DEFAULT_PROVIDERS.map((p) => p.id)) {
+		assert.equal(acceptsQuery(provider, 'react 19 migration'), true, `${provider} 该接受英文词`)
+		assert.equal(acceptsQuery(provider, 'react 19 迁移注意事项'), false, `${provider} 不该接受中文词`)
+	}
 })
 
 test('querySpecificity：词越多/越长越具体', () => {

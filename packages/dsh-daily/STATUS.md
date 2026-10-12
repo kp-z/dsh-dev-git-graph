@@ -1671,3 +1671,53 @@ candidates: 0 · changed: false
 2. AI 介绍只覆盖前 12 条（可按需/滚动生成）
 3. 头部 `scrollWidth` 281 仍略大于宽度（被 `.dd-app` 的 `overflow-x: hidden` 兜住）——
    严格说还是个小瑕疵，可继续收
+
+### R40 · 2026-10-13 02:06–03:00 — 按通道改写提问（发布 0.5.0）
+
+**R39 点名的下轮第一件事**：peers/risks 命中率太低（要按通道改写提问）。
+
+**先实测，再改（不猜）**
+| 问法 | 通道 | 结果 |
+|---|---|---|
+| `antv g2 breaking changes` | GitHub **仓库**搜索 | **total=0** |
+| `repo:antvis/G2 breaking changes` | GitHub **issues** 搜索 | **total=20** |
+| `ant-design icons breaking change` | GitHub issues | total=6122 |
+
+结论：**"破坏性变更/坑"长在 issue 与 PR 里，不长在仓库简介里** —— 通道选错，再怎么改词都白费。
+
+**改动**
+1. **新增第三个通道 `github-issues`**（issues/PR 搜索）+ `parseGitHubIssues`
+2. **维度 → 通道**（`providersForDimension`）：`risks` → issues + HN；`peers` → 仓库 + HN；
+   其它维度 → 仓库 + HN（issues 只对风险类有价值，别的维度走它会引入噪声）
+3. **peers/risks 的检索词改成通道认的写法**：`<领域词> in:name,description stars:>50`、
+   `<依赖> breaking change`（不再是 `react alternatives` 这种自然语言）
+
+**修掉"章法被全局上限架空"的根因（本轮第二个真问题）**
+全局 `maxQueries` 默认 6，而维度选取是**维度优先** → keyword(3)+dep(3) 正好吃满，
+`tech`/`peers`/`risks`/`ai` **一条都没轮到**。第一次实测：16 次请求全是 keyword+dep，
+**新加的 issues 通道压根没用上**。改成**按维度轮流取（round-robin）**、上限 8 ——
+上限再紧，每个维度都至少有一份。
+
+**另一个被测试抓到的真 bug**
+新通道 `github-issues` **漏登记在 `acceptsQuery` 里** → 它会**接受中文检索词**
+（又回到"打过去 200 但 0 条"的静默浪费）。测试就是靠 `skippedQueries` 抓到的；
+已修，并加了一条**回归守卫**：遍历所有通道断言"英文词接受、中文词拒绝" ——
+**以后加通道忘了登记，测试会红**。
+
+**证据**
+- `npm test` → **tests 333 / pass 333 / fail 0**（R39 基线 330 → 本轮 +3）
+- **真实端到端**（dev-server + 真实网络，项目 = mvizlite）：
+  ```
+  44 条 · 请求 16 · 成功 13 · 失败 3
+  维度覆盖: 领域关键词（10）· 依赖动态（10）· 技术栈实践（13）· 同类项目（6）· 风险与坑（5）
+  通道分布: {'hn-algolia': 19, 'github': 20, 'github-issues': 5}
+  风险与坑样例（来自 issues 通道）: [github-issues] MVP definition and remaining list…
+  同类项目样例: [github] react/react · vercel/next.js
+  ```
+  对比上一轮：`peers`/`risks` **完全没有结果**、`github-issues` **从未被使用** → 现已覆盖
+- 已发布 `@kpeace/dsh-daily@0.5.0`
+
+**下轮起点**
+1. AI 介绍只覆盖前 12 条（可按需/滚动生成）
+2. `ai` 维度（模型给的词）在上限紧张时排最后，可能一条都轮不到 —— 需要单独给它留份
+3. 头部 `scrollWidth` 281 仍略大于宽度（被 `.dd-app { overflow-x: hidden }` 兜住）
