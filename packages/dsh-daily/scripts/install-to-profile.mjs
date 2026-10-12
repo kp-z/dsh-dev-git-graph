@@ -126,14 +126,16 @@ console.log(`已安装到 ${target}`)
 
 // ---- profile 用户层 patch：幂等地确保有一行 insert ----
 let patch = existsSync(patchFile) ? await readFile(patchFile, 'utf8') : ''
-const already = new RegExp(`id:\\s*${ENTRY_ID}\\s*\\n\\s*name:\\s*${dirName}\\b`).test(patch)
+const already = new RegExp(
+	`id:\\s*${ENTRY_ID}\\s*\\n\\s*name:\\s*["']?${dirName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']?\\s*(\\n|$)`,
+).test(patch)
 if (already) {
 	console.log(`patch 里已有 id=${ENTRY_ID} name=${dirName}，跳过`)
 } else if (new RegExp(`id:\\s*${ENTRY_ID}\\s*\\n\\s*name:`).test(patch)) {
 	// 有这一行但名字不同（换过目录名）：就地改名，别插第二行
 	patch = patch.replace(
 		new RegExp(`(id:\\s*${ENTRY_ID}\\s*\\n\\s*name:\\s*)[^\\s#]+`),
-		`$1${dirName}`,
+		`$1${yamlScalar(dirName)}`,   // 必须加引号：@ 开头的包名裸写会让 YAML 解析失败
 	)
 	await writeFile(patchFile, patch, 'utf8')
 	console.log(`已把 patch 里的 name 改成 ${dirName}`)

@@ -94,7 +94,10 @@ const dupInserts = patch.match(/name:\s*dsh-daily[\w-]*/g) ?? []
 if (dupInserts.length <= 1) pass('没有重复的 dsh-daily insert 行', `${dupInserts.length} 条`)
 else fail('没有重复的 dsh-daily insert 行', `发现 ${dupInserts.length} 条：${dupInserts.join(', ')}`)
 
-const target = path.join(profileDir, 'node_modules', installedName)
+// patch 里的名字可能是带引号的（`@` 开头的包名必须加引号，否则 YAML 解析失败）——
+// 找目录前要把引号去掉，否则会去查一个名字带引号的目录（实测误报过）
+const installedDirName = installedName.replace(/^["']|["']$/g, '')
+const target = path.join(profileDir, 'node_modules', installedDirName)
 if (!existsSync(target)) {
 	fail('patch 里写的名字对应一个真实目录', `${installedName} → ${target} 不存在`)
 	report()
@@ -163,6 +166,25 @@ const pkg = JSON.parse(readFileSync(path.join(target, 'package.json'), 'utf8'))
 // 踩过的坑：早先只比对 lib/ 与 web/，于是"代码装上了但 package.json 还停在旧版本"
 // 这种情况检查不出来 —— 而版本号对不上会让排查（"我装的是哪个版本"）直接失准。
 const workspacePkg = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'))
+
+// 浏览器半体注册的**模块 id 必须等于包名**。
+// DSH 的客户端模块清单按包名索引（`window.__DSH_BOOT__.entries[].id`）；id 对不上时
+// bundle 会被正常请求（200）却**永不激活** —— 右侧栏 tab 不出现，而 host 半体一切正常。
+// 这类"加载契约"问题单测抓不到，所以在这里兜一道。
+try {
+	const clientSrc = readFileSync(path.join(target, 'lib/client.js'), 'utf8')
+	const declared = clientSrc.match(/__ModuleLoader__\.load\(\s*\{[\s\S]{0,200}?id:\s*["']([^"']+)["']/)
+	if (declared && declared[1] === workspacePkg.name) {
+		pass('客户端半体的模块 id 与包名一致', declared[1])
+	} else {
+		fail(
+			'客户端半体的模块 id 与包名一致',
+			`包名 ${workspacePkg.name} vs 客户端声明 ${declared ? declared[1] : '（没找到 __ModuleLoader__.load）'}`,
+		)
+	}
+} catch (error) {
+	fail('客户端半体的模块 id 与包名一致', `读取 lib/client.js 失败：${String(error)}`)
+}
 if (pkg.name === workspacePkg.name && pkg.version === workspacePkg.version) {
 	pass('安装副本的包名与版本与工作区一致', `${pkg.name}@${pkg.version}`)
 } else {

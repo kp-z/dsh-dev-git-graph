@@ -1,5 +1,16 @@
+/**
+ * 模块 id **必须等于 package.json 的 `name`**（构建时由 copy-assets.mjs 注入）。
+ *
+ * 这个坑极隐蔽，值得写下来：DSH 组装客户端模块清单时用的是**包名**
+ * （`window.__DSH_BOOT__.entries[].id` 实测为 `@kpeace/dsh-daily`），
+ * 而这里若硬编码成 `dsh-daily`（包还没改名时写下的值），会出现：
+ *   客户端 bundle **被正常请求、返回 200**，但 Loader 等的 id 永远等不到它 →
+ *   **模块加载了却永不激活**，右侧栏 tab 不出现，而 host 半体一切正常（`/dsh-daily/` 照旧 200）。
+ * 因为症状全在"加载契约"上而不在代码里，单测抓不到，只有重启真实 GUI 才暴露。
+ * 所以这里不写死：占位符在构建时替换成真实包名，另有一条安装校验兜底。
+ */
 window.__ModuleLoader__.load({
-  id: "dsh-daily",
+  id: "__DSH_PACKAGE_NAME__",
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
@@ -167,17 +178,36 @@ window.__ModuleLoader__.load({
       );
     }
 
+    /**
+     * 取 `betterSidebar` 服务；没就绪时**自己重试**一段时间再放弃。
+     *
+     * 为什么不靠 `exports.inject` 保证顺序：实测 `dsh-better-sidebar@0.25.0` 自身的 inject 里列了
+     * `@deepseek-ai/dsh-client-ui-slots`，而那个模块**根本不在 dsh 0.2.0-rc.2 的客户端模块图里**
+     * —— 于是 better-sidebar 自己永不激活、服务永不提供。谁若 `inject: ['dsh-better-sidebar']`，
+     * 就会跟着一起永远等下去（症状极具迷惑性：bundle 正常 200，模块却完全不执行）。
+     * 所以 inject 留空、改由这里轮询：服务什么时候来，tab 就什么时候出现；
+     * 宿主没装 better-sidebar 时也只是安静地不注册 tab，页面本职功能不受影响。
+     */
+    function waitForSidebar(ctx, done) {
+      var tries = 0;
+      function attempt() {
+        var service;
+        try {
+          service = ctx.betterSidebar || (ctx.get ? ctx.get("betterSidebar") : undefined);
+        } catch (e) {
+          service = undefined;
+        }
+        if (service && service.registerTab) { done(service); return; }
+        if (++tries >= 40) return;            // 约 10 秒后放弃：不打扰宿主，也不刷日志
+        setTimeout(attempt, 250);
+      }
+      attempt();
+    }
+
     function apply(ctx) {
       ensureStyle();
 
-      var betterSidebar;
-      try {
-        betterSidebar = ctx.betterSidebar || (ctx.get ? ctx.get("betterSidebar") : undefined);
-      } catch (e) {
-        betterSidebar = undefined;
-      }
-
-      if (betterSidebar && betterSidebar.registerTab) {
+      waitForSidebar(ctx, function (betterSidebar) {
         try {
           var disposeTab = betterSidebar.registerTab({
             id: "daily",
@@ -191,7 +221,7 @@ window.__ModuleLoader__.load({
           });
           if (ctx.effect) ctx.effect(function () { return disposeTab; });
         } catch (e) { /* 注册失败静默：本插件没有别的入口 */ }
-      }
+      });
 
       // 也让日报能进分屏窗格（分屏比侧边栏宽得多，看视频卡更舒服）
       var slots = ctx.slots || (ctx.get ? ctx.get("slots") : undefined);
@@ -206,7 +236,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.apply = apply;
-    exports.inject = ['@deepseek-ai/dsh-client-ui-slots', 'dsh-better-sidebar'];
+    exports.inject = [];
     return module.exports;
   },
 });
