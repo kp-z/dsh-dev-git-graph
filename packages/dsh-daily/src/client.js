@@ -191,12 +191,7 @@ window.__ModuleLoader__.load({
     function waitForSidebar(ctx, done) {
       var tries = 0;
       function attempt() {
-        var service;
-        try {
-          service = ctx.betterSidebar || (ctx.get ? ctx.get("betterSidebar") : undefined);
-        } catch (e) {
-          service = undefined;
-        }
+        var service = safeService(ctx, "betterSidebar");
         if (service && service.registerTab) { done(service); return; }
         if (++tries >= 40) return;            // 约 10 秒后放弃：不打扰宿主，也不刷日志
         setTimeout(attempt, 250);
@@ -204,7 +199,48 @@ window.__ModuleLoader__.load({
       attempt();
     }
 
+    /**
+     * 安全取客户端服务。
+     *
+     * **必须用 try/catch 包住**：cordis 里访问一个**未在 `exports.inject` 里声明**的服务会
+     * 直接抛（`cannot get property "X" without inject`）。而 `apply()` 里抛异常不是"功能坏了"，
+     * 是**整条 boot 挂掉**（条目 fiber 变成 failed，宿主 GUI 被错误页替掉）。
+     *
+     * 这个坑我踩得很实：本文件里 `betterSidebar` 的取值一直有 try/catch，
+     * 而 `slots` 那处漏了 —— 就这一处漏，把用户的界面打成了错误页。
+     */
+    function safeService(ctx, name) {
+      try {
+        if (ctx && ctx[name]) return ctx[name];
+        return ctx && ctx.get ? ctx.get(name) : undefined;
+      } catch (e) {
+        return undefined;
+      }
+    }
+
+    /**
+     * `apply()` **整体再包一层** try/catch。
+     *
+     * 这是最后一道防线，也是本插件最重要的一条结构约定：
+     * 本插件的任何可选能力（右侧栏 tab、分屏窗格）失败，都**绝不允许**拖垮宿主启动。
+     * 单独给每个服务取值加保护仍然可能漏掉（上一版就漏了一处）；
+     * 有了这一层，即使将来再加代码忘了保护，最坏结果也只是"日报入口不出现"，
+     * 而不是"用户打不开 DSH"。
+     */
     function apply(ctx) {
+      try {
+        applyInner(ctx);
+      } catch (e) {
+        try {
+          // 不复用 logger（它本身也可能不可用），只在 console 留一行便于排查
+          if (typeof console !== "undefined" && console.warn) {
+            console.warn("[dsh-daily] 客户端半体初始化失败，已忽略（不影响宿主启动）：", e);
+          }
+        } catch (_) { /* 连 console 都没有就只能静默 */ }
+      }
+    }
+
+    function applyInner(ctx) {
       ensureStyle();
 
       waitForSidebar(ctx, function (betterSidebar) {
@@ -224,19 +260,23 @@ window.__ModuleLoader__.load({
       });
 
       // 也让日报能进分屏窗格（分屏比侧边栏宽得多，看视频卡更舒服）
-      var slots = ctx.slots || (ctx.get ? ctx.get("slots") : undefined);
+      var slots = safeService(ctx, "slots");
       if (slots && slots.inject && slots.register) {
-        slots.inject("tabsplit.pane", function () {
-          return slots.register(
-            { name: "tabsplit.pane", id: "daily-pane", order: 22, label: function () { return "日报"; } },
-            function () { return React.createElement(DailyView, null); }
-          );
-        });
+        try {
+          slots.inject("tabsplit.pane", function () {
+            return slots.register(
+              { name: "tabsplit.pane", id: "daily-pane", order: 22, label: function () { return "日报"; } },
+              function () { return React.createElement(DailyView, null); }
+            );
+          });
+        } catch (e) { /* 分屏入口失败静默：侧边栏 tab 仍可用 */ }
       }
     }
 
     exports.apply = apply;
-    exports.inject = [];
+    // **必须声明用到的服务**，否则访问它们就是非法的（会抛，见 safeService 注释）。
+    // 服务名用短名（与 dsh-dev-git-graph 的 ['sessions','slots','betterSidebar'] 一致）。
+    exports.inject = ["slots", "betterSidebar"];
     return module.exports;
   },
 });

@@ -174,6 +174,18 @@ aiSummaryModel: ''
 反向也支持：`daily_opml({ action: 'export' })` 把**内置源 + 自定义源**导出成 OPML，
 可以带回你自己的阅读器。
 
+## 开发脚本的一个安全约定
+
+```bash
+npm run regression          # 构建 + 全部单测 —— **不写盘、不装机**
+npm run regression:install  # 上面这些 + 装机 + 安装校验（会改 profile，显式才做）
+```
+
+**为什么把装机从 `regression` 里拆出来**：它曾经隐式包含 `install-to-profile`。
+在"用户明确要求暂不安装"的时期，我跑一次 `npm run regression` 就把插件装回了他的 profile
+—— 一个**名为"回归测试"的命令不应该有安装这种副作用**。所以默认那条做成纯只读，
+装机必须显式写出来。
+
 ## 刷新语义：合并，不是覆盖
 
 同一天多次刷新时，当天数据是**合并**的（按规范化 URL 去重后取并集再统一排序），不是覆盖。
