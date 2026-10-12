@@ -237,3 +237,52 @@ export async function generateIntros(
 		clearTimeout(timer)
 	}
 }
+
+/** 分批生成时的选项。 */
+export interface BatchIntroOptions extends Omit<IntroGeneratorOptions, 'limit'> {
+	/** 每批多少条（批太小费请求，批太大容易一口气写坏）。 */
+	batchSize?: number
+	/** 最多生成多少批（**成本闸门**：调研可能上百条，不能无上限调用模型）。 */
+	maxBatches?: number
+}
+
+/**
+ * 分批给**全部**结果生成中文介绍。
+ *
+ * 为什么需要分批（而不是一次全塞）：
+ * 1. **一次调用写 50 条容易写坏**（尤其是小模型）—— 输出坏了就是整批退回兜底
+ * 2. 单次 token 预算不可能同时容纳很多条的"推理 + 正文"（推理 token 与正文**共享**上限）
+ * 3. 分批还能做**失败隔离**：第 3 批坏了，前两批照样是模型写的
+ *
+ * 返回值与 `findings` **位置一一对应**（没写出来的位置是空串 → 调用方走兜底），
+ * 所以永远不会"串位"。
+ */
+export async function generateAllIntros(
+	findings: Finding[],
+	options: BatchIntroOptions,
+): Promise<string[] | null> {
+	const batchSize = Math.max(1, options.batchSize ?? 10)
+	const maxBatches = Math.max(1, options.maxBatches ?? 5)
+	const out: string[] = []
+	let anySuccess = false
+
+	for (let start = 0; start < findings.length && out.length / batchSize < maxBatches; start += batchSize) {
+		const batch = findings.slice(start, start + batchSize)
+		let intros: string[] | null = null
+		try {
+			intros = await generateIntros(batch, { ...options, limit: batch.length })
+		} catch {
+			intros = null // 单批失败不影响其它批
+		}
+		if (intros) {
+			anySuccess = true
+			for (let i = 0; i < batch.length; i += 1) out.push(intros[i] ?? '')
+		} else {
+			for (let i = 0; i < batch.length; i += 1) out.push('')
+		}
+	}
+
+	// 超出 maxBatches 的部分留空（调用方走兜底）—— 位置仍要对齐，不能少元素
+	while (out.length < findings.length) out.push('')
+	return anySuccess ? out : null
+}

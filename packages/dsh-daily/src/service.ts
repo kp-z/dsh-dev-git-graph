@@ -53,7 +53,7 @@ import { collectProjectProfile, describeProfile, type ProjectProfile } from './p
 import { chooseProject, collectDirs, describeChoice, parseWorkspacePaths, type DetectedDir } from './detect.js'
 import { canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
 import { describeRetrieval, runRetrieval, type Finding, type RetrieveResult } from './retrieve.js'
-import { applyIntros, generateIntros, type PresentedFinding } from './present.js'
+import { applyIntros, generateAllIntros, type PresentedFinding } from './present.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
 import type {
@@ -860,10 +860,13 @@ export class DailyService {
 		try {
 			const route = this.resolveAiRoute()
 			if (route && this.llmStream) {
-				intros = await generateIntros(result.findings, {
+				// **分批**生成：单批坏掉不影响其它批，且总批数有上限（成本闸门）
+				intros = await generateAllIntros(result.findings, {
 					stream: this.llmStream,
 					provider: route.provider,
 					model: route.model,
+					batchSize: 10,
+					maxBatches: 5,
 				})
 				if (!intros) this.logger.warn('AI 中文介绍未生成（超时/输出无法解析），本轮改用兜底说明。')
 			}

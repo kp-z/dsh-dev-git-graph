@@ -13,6 +13,7 @@ import {
 	buildIntroPrompt,
 	fallbackIntro,
 	generateIntros,
+	generateAllIntros,
 	parseIntros,
 	sourceLabelOf,
 	thumbForFinding,
@@ -230,4 +231,67 @@ test('generateIntros：maxTokens 要给推理留余量（与条数成正比）',
 	assert.ok(seen.maxTokens >= 2000, `token 预算太小会写不出正文：${seen.maxTokens}`)
 	assert.equal(seen.provider, 'p')
 	assert.equal(seen.messages.length, 1)
+})
+
+
+// ---------- 分批生成（覆盖全部结果） ----------
+
+test('generateAllIntros：分批覆盖**全部**条目（前 12 条有 AI 介绍 ≠ 只给 12 条写）', async () => {
+	const findings = Array.from({ length: 25 }, (_, i) => gh({ title: `t${i}` }))
+	let calls = 0
+	const stream = (request) => ({
+		async *[Symbol.asyncIterator]() {
+			calls += 1
+			// 每条按提示词里的编号回一句，便于验证位置对齐
+			const n = (String(request.messages[0].content).match(/\d+\. 标题：/g) || []).length
+			yield { type: 'text-delta', text: JSON.stringify(Array.from({ length: n }, (_, i) => `介绍${i}`)) }
+			yield { type: 'finish', reason: { kind: 'stop' } }
+		},
+	})
+	const intros = await generateAllIntros(findings, { stream, provider: 'p', model: 'm', batchSize: 10 })
+	assert.equal(calls, 3, '25 条按每批 10 条应当是 3 批')
+	assert.equal(intros.length, 25, '返回值必须与条目一一对应（不能少元素，否则会串位）')
+	assert.ok(intros.every((x) => x.length > 0), '每一批都要写出内容')
+})
+
+test('generateAllIntros：**单批失败不影响其它批**（第 2 批坏，1 和 3 照样是模型写的）', async () => {
+	const findings = Array.from({ length: 30 }, (_, i) => gh({ title: `t${i}` }))
+	let call = 0
+	const stream = () => ({
+		async *[Symbol.asyncIterator]() {
+			call += 1
+			if (call === 2) throw new Error('mid batch boom')
+			yield { type: 'text-delta', text: JSON.stringify(['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']) }
+			yield { type: 'finish', reason: { kind: 'stop' } }
+		},
+	})
+	const intros = await generateAllIntros(findings, { stream, provider: 'p', model: 'm', batchSize: 10 })
+	assert.equal(intros.length, 30)
+	assert.ok(intros.slice(0, 10).every((x) => x.length > 0), '第 1 批应当成功')
+	assert.ok(intros.slice(10, 20).every((x) => x === ''), '第 2 批应当留空（调用方走兜底）')
+	assert.ok(intros.slice(20, 30).every((x) => x.length > 0), '第 3 批应当成功')
+})
+
+test('generateAllIntros：批数有上限（成本闸门），但**位置仍要对齐**', async () => {
+	const findings = Array.from({ length: 100 }, () => gh())
+	let calls = 0
+	const stream = () => ({
+		async *[Symbol.asyncIterator]() {
+			calls += 1
+			// 每批 10 条 → 假输出也必须是 10 个元素（少给会被按位置对齐成 'x','','',…）
+			yield { type: 'text-delta', text: JSON.stringify(Array.from({ length: 10 }, () => 'x')) }
+		},
+	})
+	const intros = await generateAllIntros(findings, { stream, provider: 'p', model: 'm', batchSize: 10, maxBatches: 2 })
+	assert.equal(calls, 2, '最多只调 2 批')
+	assert.equal(intros.length, 100, '长度必须与条目数一致')
+	assert.equal(intros.slice(0, 20).filter((x) => x.length > 0).length, 20)
+	assert.equal(intros.slice(20).filter((x) => x === '').length, 80, '超出的部分留空 → 走兜底')
+})
+
+test('generateAllIntros：**所有批都失败**要返回 null（调用方整体退回兜底）', async () => {
+	const findings = Array.from({ length: 5 }, () => gh())
+	const stream = () => ({ async *[Symbol.asyncIterator]() { throw new Error('all boom') } })
+	assert.equal(await generateAllIntros(findings, { stream, provider: 'p', model: 'm' }), null)
+	assert.equal(await generateAllIntros([], { stream, provider: 'p', model: 'm' }), null, '没有条目时不该说“成功”')
 })
