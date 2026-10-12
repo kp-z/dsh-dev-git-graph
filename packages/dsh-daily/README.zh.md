@@ -509,3 +509,32 @@ npm run probe          # 真实采集（联网，约 8~70s；不读也不写你�
 - 开发计划：`PLAN.md`（按小时的第一波 6 小时节奏）
 - 进度台账：`STATUS.md`（每轮必更新）
 - 竞品侦察：`../../docs/DAILY-PLUGIN-RECON.md`
+
+## 运维：改完为什么必须重启
+
+DSH 的宿主半体是 Node ESM 模块，**加载成功后会被缓存**。所以：
+
+- 改 `src/`（宿主半体）后，`plugin_manager` 的 enable 开关**不会**重新读盘 → 必须重启 dsh
+- `client.js`（客户端半体，右侧栏那个 tab）本来就在**启动时**被扫进模块图 → 也必须重启
+
+**验证改动的正确姿势**（不重启也能验）：
+1. `npm test` —— tsc 构建 + 全量单测（当前 337 组）
+2. `node scripts/dev-server.mjs --data-dir=/tmp/x --no-refresh --port 8851` —— 起一个独立的假宿主，
+   页面在 `http://127.0.0.1:8851/dsh-daily/`，可对照真实页面行为
+3. 跑着的实例可以直接读接口（**不需要 token**）：
+   - `GET /dsh-daily/api/state` —— 状态、项目、**识别诊断**（`project.detect`）
+   - `GET /dsh-daily/api/findings` / `POST` —— 调研结果 / 立刻跑一轮
+
+## 装机与幂等
+
+```bash
+node scripts/install-to-profile.mjs desktop   # 装进 desktop profile（真实目录，非符号链接）
+node scripts/verify-install.mjs desktop      # 装机校验（17 项）
+bash scripts/verify-idempotent.sh desktop    # 幂等性验证（沙箱里跑两次，断言产物一致）
+```
+
+> ⚠️ **自己写脚本装到沙箱时，必须显式设 `DSH_HOME`，只改 `HOME` 挡不住。**
+> 装机脚本解析主目录的顺序是 `process.env.DSH_HOME ?? homedir()/.dsh`，
+> 而 DSH 会给子进程**设好 `DSH_HOME`** —— 只改 `HOME` 仍会写进真实 profile。
+> （这个坑我是用真实事故换来的：一次"沙箱"试跑把 0.5.1 装进了真实 profile，
+> 发现后已撤销。`verify-idempotent.sh` 因此一上来就强制覆盖 `DSH_HOME`。）

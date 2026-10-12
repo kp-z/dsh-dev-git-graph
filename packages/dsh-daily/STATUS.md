@@ -1744,3 +1744,47 @@ candidates: 0 · changed: false
   头图 49/50
   ```
 - 已发布 `@kpeace/dsh-daily@0.5.1`
+
+### R42 · 2026-10-13 04:06–05:00 — H6 装机幂等 + **一次误装事故（已撤销）**
+
+**本轮最重要的事不是完成了什么，而是我犯了一个必须记录的错误。**
+
+**事故：一次"沙箱"试跑把插件装进了用户真实 profile**
+- 我在 `/tmp` 下造了个假 profile，用 `HOME=/tmp/... node scripts/install-to-profile.mjs desktop`
+  想验证幂等 —— **以为这样就是隔离的**
+- 实际结果：`@kpeace/dsh-daily@0.5.1` 被装进了 `/Users/kp/.dsh/profiles/desktop/node_modules/`
+  （mtime `04:06:31` = 我的运行时间）。**用户明确说过不要本地安装。**
+- **根因**：装机脚本解析 DSH 主目录的顺序是 `process.env.DSH_HOME ?? homedir()/.dsh`，
+  而 **DSH 会给它的子进程设好 `DSH_HOME`**（实测 `DSH_HOME=/Users/kp/.dsh`）。
+  所以 `DSH_HOME` 优先级更高，**只改 `HOME` 完全挡不住**。
+- **发现过程**：我原本在查"patch 里那条引用是不是我这次加的"，
+  于是按脚本的真实安装路径（`<profile>/node_modules/`，**不是**共享的 `profiles/node_modules/`）重查 ——
+  才看到包真的被装上了。
+- **顺带纠正一个我说错了很多轮的事**：我前几轮反复用
+  `ls -d ~/.dsh/profiles/*/node_modules/@kpeace` 判断"未安装" —— **路径查错了**（少了 profile 一层）。
+  结论虽然碰巧是对的（包确实不在），但**依据是无效的**，等于没查。
+
+**已撤销（撤销前后均核验）**
+- 删除前核实 resolved 真实路径、确认在预期父目录内、确认 `@kpeace` 下只有 `dsh-daily`（创建时间 04:06）
+- 删除 `/Users/kp/.dsh/profiles/desktop/node_modules/@kpeace` → 复查已不存在
+- **用户数据目录全程未被触碰**：`/Users/kp/.dsh/daily/prefs.json` 仍是 `Oct 12 05:09:49`、
+  `days/2026-10-12.json` 仍是 `Oct 12 08:00:56`（事故前后一致）
+- `web` profile 本来就干净，未受影响
+- patch 里那条 `@kpeace/dsh-daily` 引用**在我这次运行之前就存在**（10-12 00:59 那轮留下），我没动它；
+  它现在是一条**悬空引用**（指向未安装的包，DSH 会当作 pending，用户 GUI 一直正常）
+
+**本轮真正的交付：把教训变成可复现的脚本**
+- 新增 `scripts/verify-idempotent.sh`：在**显式覆盖 `DSH_HOME`** 的沙箱里跑两次装机，
+  断言产物 `diff -r` 逐字节一致、patch 里 `dsh-daily` 块恰好 1 个、包目录已生成
+- **证据（退出码 0）**：
+  ```
+  ✅ 幂等：两次产物逐字节一致；patch 只有 1 个 dsh-daily 块；包目录已生成
+  ✅ 隔离生效：全部写入 /var/folders/.../tmp.xxx（已清理）
+  ```
+- README 补「改完为什么必须重启」+「验证改动的正确姿势」+ **沙箱必须显式设 `DSH_HOME`** 的警告
+
+**测试**：`npm test` → **337 / pass 337 / fail 0**（本轮无产品代码改动，不发版）
+
+**下轮起点**
+1. 那台测试机（`10.21.103.15`）升到 0.5.1 后读 `project.detect` 确认自动识别
+2. `ai` 维度配真模型后才会真正起作用（当前假模型给的是中文词，被语言过滤跳过）
