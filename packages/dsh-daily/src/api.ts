@@ -1,4 +1,5 @@
 import type http from 'node:http'
+import { groupFindings } from './retrieve.js'
 import { readFile, stat } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
@@ -196,7 +197,19 @@ async function handleApi(
 				}
 				if (req.method === 'POST') {
 					const result = await service.runFindings({ force: true })
-					return sendJson(res, 200, { ok: true, findings: result.findings, meta: { stats: result.stats, errors: result.errors, queries: result.plan.queries.map((q) => q.query) } })
+					return sendJson(res, 200, {
+						ok: true,
+						findings: result.findings,
+						// 按维度归位：界面/工具都据此分组展示
+						groups: groupFindings(result.findings).map((g) => ({
+							id: g.id,
+							label: g.label,
+							question: g.question,
+							count: g.findings.length,
+							findings: g.findings,
+						})),
+						meta: { stats: result.stats, errors: result.errors, queries: result.plan.queries.map((q) => q.query) },
+					})
 				}
 				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
 			}

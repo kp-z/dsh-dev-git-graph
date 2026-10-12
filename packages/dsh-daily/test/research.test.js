@@ -22,6 +22,7 @@ import {
 	QUERY_MAX_CHARS,
 	diversifyByFamily,
 	depKeywords,
+	RESEARCH_DIMENSIONS,
 	isSpecificQuery,
 	domainKeywords,
 	isDomainKeyword,
@@ -93,7 +94,11 @@ test('deterministicQueries：贴项目（依赖/技术栈/关键词），且每�
 	for (const q of queries) {
 		assert.ok(q.query.length > 0)
 		assert.ok(q.reason.length > 0, `每条都该说明为什么：${JSON.stringify(q)}`)
-		assert.ok(['tech', 'dep', 'keyword'].includes(q.kind))
+		// 对照**维度声明**而不是硬编码列表：以后加维度不会再让这条假红
+		assert.ok(
+			RESEARCH_DIMENSIONS.some((d) => d.id === q.kind),
+			`每条检索词都要属于一个已声明的维度：${q.kind}`,
+		)
 	}
 	const joined = queries.map((q) => q.query).join(' | ')
 	assert.match(joined, /ant design icons/, '应围绕依赖生成（且已从包名整形为关键词）')

@@ -1508,3 +1508,54 @@ candidates: 0 · changed: false
 期望看到 `storages/workspace.json ok=true, count>0` 且 `changed: true`、
 `project.dir` 变成那台的工作区路径。若仍为 0，则说明那台的 `storages/workspace.json` 也不存在
 （比如从未添加过工作区）—— 那属于"用户环境里确实没有项目可识别"，不是代码问题。
+
+### R36 · 2026-10-12 23:28–次日 — 调研章法：分维度的检索大纲（发布 0.3.7）
+
+**用户**：「链接到项目后需要根据项目搜索，**要有章法**」
+
+**原有问题（用户意见成立）**：检索词是一个**扁平列表** + 按顺序截断 ——
+谁排前面谁被搜。实测后果：`dep`（依赖）类词经常吃光预算，
+而**"风险与坑""同类项目做法"这类最该主动去查的东西一条都轮不到**。
+用户看到的是"一堆链接"，不知道每个是用来回答什么问题的。
+
+**改动：把 `kind` 升格为「维度」**
+1. `RESEARCH_DIMENSIONS`：6 个维度，每个带 `label` / `budget` / `question`
+   （keyword 3 · dep 3 · tech 2 · **peers 2** · **risks 2** · ai 3）
+2. **新增两个维度**：`peers`（同类项目：`<领域词> alternatives`、`<依赖> vs`）与
+   `risks`（主动查破坏性变更/弃用：`<依赖> breaking changes`）
+3. **预算两侧生效**：生成侧在唯一的 `push` 漏斗里卡预算；检索侧
+   `buildSearchRequests` 按维度分配（任何维度抢不走别人的份）
+4. **计划规模 = 各维度预算之和**（`PLAN_QUERY_BUDGET`，不再是拍出来的 8）
+5. **结果按维度归位**：`groupFindings()`；接口返回 `groups`；工具输出分节
+   （带维度标题与"这个维度在问什么"）
+
+**本轮被测试逮到的一个真回归（值得记）**
+我把 `peers`/`risks` 插在 `tech` 之前 → 计划按顺序截断 → **`tech` 维度整个消失**。
+我第一反应是"调顺序"，但那正是"没章法"的老路子。真正的修法是**让预算决定计划**
+（生成侧卡预算 + 规模取预算之和），顺序只影响展示。修完后 `tech` 回来了。
+
+**证据**
+- `npm test` → **tests 312 / pass 312 / fail 0**
+- 一处旧断言（硬编码 `['tech','dep','keyword']`）改为**对照维度声明**
+  `RESEARCH_DIMENSIONS.some(d => d.id === q.kind)` —— 意图不变，以后加维度不再假红
+- **真实端到端**（dev-server，项目 = mvizlite，真实网络）：
+  ```
+  计划（分维度）：
+    ai      (3) （假）react 19 迁移注意事项 | （假）zustand v5 破坏性变更 | （假）vite 6 环境变量约定
+    keyword (3) 状态 | 管理 | dashboard
+    dep     (3) ant design icons | antv g2 | bufbuild protobuf
+    peers   (2) react alternatives | 状态 alternatives
+    risks   (2) ant design icons breaking changes | antv g2 breaking changes
+    tech    (2) TypeScript best practices | Node js best practices
+
+  检索（50 条 · 12 次请求全成功 · 跳过 4 条中文词）按维度归位：
+    ## 领域关键词（10 条）— 这个项目的领域里最近有什么新东西？
+    ## 依赖动态（22 条）— 我用到的这些依赖最近有什么变化、升级要注意什么？
+    ## 技术栈实践（18 条）— 我这套技术栈最近有什么值得采纳的做法？
+  ```
+- 已发布 `@kpeace/dsh-daily@0.3.7`
+
+**下轮起点**
+1. `peers` / `risks` 两个维度目前**几乎搜不到东西**（`react alternatives` 在 HN/GitHub 命中很差）
+   —— 需要按通道改写提问方式（例如 GitHub 搜 `topic:` / `awesome list`，HN 搜具体版本号）
+2. 界面还没有维度的展示（现在只在工具/接口输出里）——调研侧边栏视图（第三波⑦）应当按维度分组

@@ -20,7 +20,7 @@
  * **绝不抛异常**。一次网络抖动不该让整轮调研没有结果。
  */
 
-import type { ResearchQuery } from './research.js'
+import { RESEARCH_DIMENSIONS, dimensionOf, type QueryKind, type ResearchQuery } from './research.js'
 
 export type ProviderId = 'hn-algolia' | 'github'
 
@@ -75,6 +75,8 @@ export interface Finding {
 	provider: ProviderId
 	/** **哪条检索词找到的** —— 可解释性的关键。 */
 	query: string
+	/** 属于哪个调研维度（找出来之后按维度归位，用户看到的是有条理的调研） */
+	dimension?: QueryKind
 	summary?: string
 	/** 热度信号：HN 是 points，GitHub 是 stars。 */
 	stats?: Record<string, number>
@@ -204,6 +206,7 @@ export interface SearchRequest {
 	provider: ProviderId
 	query: string
 	url: string
+	dimension: QueryKind
 	headers?: Record<string, string>
 }
 
@@ -217,22 +220,54 @@ export function buildSearchRequests(
 	const maxQueries = Math.max(1, options.maxQueries ?? DEFAULTS.maxQueries)
 	const out: SearchRequest[] = []
 	const accepted: string[] = []
-	// **先在候选里挑出"这个通道认的"词，再受 maxQueries 约束**。
-	// 早先是先 slice 再过滤 —— 预算会被注定跳过的中文词吃掉，结果一个请求都不发（实测踩到）
-	for (const item of queries) {
-		if (accepted.length >= maxQueries) break
-		if (!item || typeof item.query !== 'string' || !item.query.trim()) continue
-		const shaped = shapeQuery(item.query)
-		if (!shaped) continue
-		if (!providers.some((p) => acceptsQuery(p.id, shaped))) continue
-		accepted.push(shaped)
-		for (const provider of providers) {
-			// 语言不匹配的词直接不打：打过去也是 200 + 0 条，既浪费配额又让人误以为"搜过了"
-			if (!acceptsQuery(provider.id, shaped)) continue
-			out.push({ provider: provider.id, query: shaped, url: provider.build(shaped, limit), headers: provider.headers })
+	const used = new Map<string, number>()
+
+	// **按维度分配预算**：每个维度只在自己的 budget 内取词，任何维度都抢不走别人的份。
+	// （早先是一个扁平列表 + 全局截断：排前面的"依赖"类词经常把预算吃光，
+	//  "风险与坑""同类项目"这类最需要主动去查的维度一条都轮不到。）
+	for (const dimension of RESEARCH_DIMENSIONS) {
+		for (const item of queries) {
+			if (accepted.length >= maxQueries) break
+			if (!item || item.kind !== dimension.id) continue
+			if ((used.get(dimension.id) ?? 0) >= dimension.budget) break
+			if (typeof item.query !== 'string' || !item.query.trim()) continue
+			const shaped = shapeQuery(item.query)
+			if (!shaped) continue
+			if (!providers.some((p) => acceptsQuery(p.id, shaped))) continue
+			if (accepted.includes(shaped)) continue
+			accepted.push(shaped)
+			used.set(dimension.id, (used.get(dimension.id) ?? 0) + 1)
+			for (const provider of providers) {
+				// 语言不匹配的词直接不打：打过去也是 200 + 0 条，既浪费配额又让人误以为"搜过了"
+				if (!acceptsQuery(provider.id, shaped)) continue
+				out.push({
+					provider: provider.id,
+					query: shaped,
+					dimension: dimension.id,
+					url: provider.build(shaped, limit),
+					headers: provider.headers,
+				})
+			}
 		}
 	}
 	return out
+}
+
+/** 按维度归位（顺序 = 章法里的顺序，空维度不出现）。 */
+export function groupFindings(findings: Finding[]): Array<{ id: QueryKind; label: string; question: string; findings: Finding[] }> {
+	const buckets = new Map<QueryKind, Finding[]>()
+	for (const finding of findings) {
+		const id = finding.dimension ?? 'keyword'
+		const bucket = buckets.get(id) ?? []
+		bucket.push(finding)
+		buckets.set(id, bucket)
+	}
+	return RESEARCH_DIMENSIONS.filter((d) => (buckets.get(d.id)?.length ?? 0) > 0).map((d) => ({
+		id: d.id,
+		label: d.label,
+		question: d.question,
+		findings: buckets.get(d.id) ?? [],
+	}))
 }
 
 /** 因语言不匹配而被跳过的检索词（给用户看，别让"没搜"变成"静默没搜"）。 */
@@ -358,6 +393,7 @@ export async function runRetrieval(
 				return
 			}
 			const parsed = provider.parse(await response.json(), request.query)
+			for (const finding of parsed) finding.dimension = request.dimension
 			ok++
 			const bucket = byProvider.get(provider.id) ?? []
 			bucket.push(...parsed)

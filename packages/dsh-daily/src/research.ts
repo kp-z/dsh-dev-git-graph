@@ -20,7 +20,43 @@ import { createHash } from 'node:crypto'
 import type { ProjectProfile } from './profile.js'
 import type { StreamChunkLike, StreamFn } from './ai.js'
 
-export type QueryKind = 'tech' | 'dep' | 'keyword' | 'ai'
+export type QueryKind = 'tech' | 'dep' | 'keyword' | 'ai' | 'peers' | 'risks'
+
+/**
+ * **调研章法**：每个维度是"一类问题 + 自己的预算"。
+ *
+ * 为什么要有维度（用户的意见："链接到项目后需要根据项目搜索，要有章法"）：
+ * 早先是**一个扁平列表**（最多 8 条词），谁排前面谁被搜 —— 结果是"依赖"类词经常
+ * 把预算吃光，而"风险/坑""同类项目做法"这类**最需要主动去查**的东西一条都没轮到。
+ * 有了维度，覆盖就变得**有保证且可解释**：
+ * - `budget` 是"最多用几条词"（同时也是最多能占多少请求），任何维度都抢不走别人的份
+ * - `label` 是给人看的：结果按维度归位，用户看到的是一份**有条理的调研**，不是一堆链接
+ */
+export interface ResearchDimension {
+	id: QueryKind
+	label: string
+	/** 这个维度最多用几条检索词（＝预算；防止某个维度把名额吃光）。 */
+	budget: number
+	/** 这个维度在问什么问题（给用户看，也写进提示词）。 */
+	question: string
+}
+
+/** 维度顺序 = 展示顺序，也代表优先级（越靠前越贴项目本身）。 */
+export const RESEARCH_DIMENSIONS: readonly ResearchDimension[] = [
+	{ id: 'keyword', label: '领域关键词', budget: 3, question: '这个项目的领域里最近有什么新东西？' },
+	{ id: 'dep', label: '依赖动态', budget: 3, question: '我用到的这些依赖最近有什么变化、升级要注意什么？' },
+	{ id: 'tech', label: '技术栈实践', budget: 2, question: '我这套技术栈最近有什么值得采纳的做法？' },
+	{ id: 'peers', label: '同类项目', budget: 2, question: '别人在做类似的东西时是怎么做的？' },
+	{ id: 'risks', label: '风险与坑', budget: 2, question: '有什么已知的破坏性变更、安全公告、弃用？' },
+	{ id: 'ai', label: 'AI 补充', budget: 3, question: '（模型看了项目画像后补充的角度）' },
+]
+
+/** 查某个维度的定义（找不到时给一个安全的默认预算）。 */
+export function dimensionOf(kind: QueryKind): ResearchDimension {
+	return (
+		RESEARCH_DIMENSIONS.find((d) => d.id === kind) ?? { id: kind, label: kind, budget: 2, question: '' }
+	)
+}
 
 export interface ResearchQuery {
 	/** 实际拿去搜的字符串。 */
@@ -43,7 +79,15 @@ export interface ResearchPlan {
 }
 
 export const QUERY_MAX_CHARS = 60
-export const DEFAULT_QUERY_COUNT = 8
+/**
+ * 计划规模 = **各维度预算之和**（当前 12），而不是拍一个数字。
+ *
+ * 为什么：早先固定 8，于是"按顺序截断"决定了谁被保留 —— 我把 peers/risks 两个维度
+ * 加进去之后，tech 维度（排在后面）直接被砍没了（真实回归，被测试逮到）。
+ * 规模既然是维度预算的和，**每个维度的份就有保证**，顺序只影响展示。
+ */
+export const PLAN_QUERY_BUDGET = RESEARCH_DIMENSIONS.reduce((total, d) => total + d.budget, 0)
+export const DEFAULT_QUERY_COUNT = PLAN_QUERY_BUDGET
 
 /** 画像指纹：只取会影响检索词的字段，保证"无关变化不触发重新生成"。 */
 export function profileHash(profile: ProjectProfile): string {
@@ -244,9 +288,17 @@ export function deterministicQueries(
 	limit = DEFAULT_QUERY_COUNT,
 ): ResearchQuery[] {
 	const out: ResearchQuery[] = []
+	// **预算在唯一漏斗处生效**：每个维度最多进它的 budget 条。
+	// 这样"谁排前面谁被搜"就不存在了 —— 早先是按顺序截断，我加 peers/risks 时
+	// 直接把 tech 挤没了（真实回归）。维度预算才是章法，顺序只影响展示。
+	const counts = new Map<QueryKind, number>()
 	const push = (query: string, kind: QueryKind, reason: string): void => {
+		const budget = dimensionOf(kind).budget
+		if ((counts.get(kind) ?? 0) >= budget) return
 		const cleaned = cleanQuery(query)
-		if (cleaned) out.push({ query: cleaned, kind, reason })
+		if (!cleaned) return
+		counts.set(kind, (counts.get(kind) ?? 0) + 1)
+		out.push({ query: cleaned, kind, reason })
 	}
 
 	/**
@@ -280,6 +332,22 @@ export function deterministicQueries(
 		if (isSpecificQuery(depQuery)) push(depQuery, 'dep', `项目依赖 ${dep}，查它的项目与版本动态`)
 	}
 	// 3) 技术栈：最泛，兜底用
+	// 同类项目：别人怎么做的（换工具/抄做法时最有用的那类信息）
+	for (const word of domainKeywords(profile.keywords, 2)) {
+		const peers = `${word} alternatives`
+		if (isSpecificQuery(peers)) push(peers, 'peers', `找 ${word} 方向上的同类做法与替代方案`)
+	}
+	for (const dep of diversifyByFamily(runtimeDeps, 1)) {
+		const kw = depKeywords(dep)
+		if (isSpecificQuery(kw)) push(`${kw} vs`, 'peers', `看别人在 ${dep} 这块用了什么替代品`)
+	}
+
+	// 风险与坑：破坏性变更 / 安全公告 / 弃用（**主动去查**，而不是等它爆出来）
+	for (const dep of diversifyByFamily(runtimeDeps, 2)) {
+		const kw = depKeywords(dep)
+		if (isSpecificQuery(kw)) push(`${kw} breaking changes`, 'risks', `查 ${dep} 有无破坏性变更/弃用`)
+	}
+
 	for (const lang of profile.languages.slice(0, 2)) {
 		// 与限定词组合才有意义：`react` 单独搜等于把整个互联网拉回来
 		const techQuery = `${depKeywords(lang.name)} best practices`

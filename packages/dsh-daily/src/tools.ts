@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PLATFORM_LABEL } from './catalog.js'
+import { groupFindings } from './retrieve.js'
 import type { DailyService } from './service.js'
 import { humanAge, statsText } from './render.js'
 import { expandHome, localDate } from './store.js'
@@ -362,11 +363,17 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 						`检索词：${result.plan.queries.map((q) => q.query).join(' / ')}`,
 						'',
 					]
-					for (const f of result.findings.slice(0, 15)) {
-						const heat = f.stats ? Object.entries(f.stats).map(([k, v]) => `${k}=${v}`).join(' ') : ''
-						lines.push(`- ${f.title}`)
-						lines.push(`    ${f.url}`)
-						lines.push(`    来源 ${f.provider} · 由检索词「${f.query}」找到${heat ? ' · ' + heat : ''}`)
+					// **按维度归位**：用户看到的是一份有条理的调研，而不是一堆链接
+					for (const group of groupFindings(result.findings).slice(0, 6)) {
+						lines.push(`## ${group.label}（${group.findings.length} 条）`)
+						lines.push(`   ${group.question}`)
+						for (const f of group.findings.slice(0, 4)) {
+							const heat = f.stats ? Object.entries(f.stats).map(([k, v]) => `${k}=${v}`).join(' ') : ''
+							lines.push(`- ${f.title}`)
+							lines.push(`    ${f.url}`)
+							lines.push(`    来源 ${f.provider} · 由检索词「${f.query}」找到${heat ? ' · ' + heat : ''}`)
+						}
+						lines.push('')
 					}
 					if (result.errors.length > 0) {
 						lines.push('', `失败 ${result.errors.length} 处（前 3 条）：`)
