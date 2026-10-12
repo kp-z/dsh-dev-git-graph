@@ -670,6 +670,77 @@
     return box;
   }
 
+  /* ---------- 4.5 打开外链（带完整的降级链） ---------- */
+
+  /**
+   * 打开外部链接。返回是否"已有人接手"。
+   *
+   * 为什么不能只写 `window.open(...)`：它的返回值**必须检查**。
+   * 被拦时返回 null 且不抛异常 —— 表现就是用户报的"点卡片没反应"，而且没有任何痕迹。
+   * 这是本项目真实踩过的坑（叠加了另一个 bug：整卡覆盖链接其实是 position:static，
+   * 用户点到的根本不是链接。两个问题叠在一起，症状一模一样）。
+   *
+   * 降级顺序：
+   *   1. window.open（本页上下文；有用户激活时通常可用）
+   *   2. postMessage 给父级 —— 插件页面跑在 DSH 侧边栏的 iframe 里，
+   *      父级（客户端半体）位于应用主窗口，它那里的 window.open 更可能被宿主接受
+   *   3. 都不行 → 自动复制链接 + 给一条明确的提示（绝不留下一次"死点击"）
+   */
+  function openExternal(url) {
+    var win = null;
+    try {
+      win = window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      win = null;
+    }
+    if (win) return true;
+
+    if (window.parent && window.parent !== window) {
+      // 父级会回执：成功静默，失败再走兜底提示（见 message 监听）
+      pendingOpens[url] = true;
+      try {
+        window.parent.postMessage({ type: 'dsh-daily-open', url: url }, '*');
+        return true;
+      } catch (err) {
+        /* 跨域等异常 → 落到兜底 */
+      }
+    }
+    return false;
+  }
+
+  /** 最后一道兜底：把链接复制进剪贴板并说清楚，避免"点了没反应"。 */
+  function showOpenFallback(url) {
+    var copied = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url);
+        copied = true;
+      }
+    } catch (err) {
+      copied = false;
+    }
+    showTuneNote('没能自动打开', [
+      copied ? '链接已复制到剪贴板，可以粘贴到浏览器打开。' : '请手动复制下面的链接。',
+      url,
+    ]);
+  }
+
+  var pendingOpens = {};
+
+  /** 监听父级的回执（客户端半体打开失败时会告诉我们）。 */
+  function onOpenAck(event) {
+    var data = event && event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'dsh-daily-open-failed' && typeof data.url === 'string') {
+      if (pendingOpens[data.url]) {
+        delete pendingOpens[data.url];
+        showOpenFallback(data.url);
+      }
+    } else if (data.type === 'dsh-daily-open-ok' && typeof data.url === 'string') {
+      delete pendingOpens[data.url];
+    }
+  }
+
   function renderItem(it) {
     var item = document.createElement('article');
     item.className = classNames('dd-item', it.read && 'is-read');
@@ -2020,9 +2091,12 @@
     if (action === 'open') {
       var url = safeUrl(actionNode.dataset.url);
       if (!url) { e.preventDefault(); return; }
-      e.preventDefault();
-      e.stopPropagation();
-      window.open(url, '_blank', 'noopener');
+      var handled = openExternal(url);
+      // 只有确实有人接手时才阻止默认行为；否则让 <a target="_blank"> 走浏览器/宿主的原生路径
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       return;
     }
     if (action === 'retry-items') {
@@ -2116,6 +2190,7 @@
     } catch (err) { /* 忽略 */ }
 
     window.addEventListener('message', onMessage);
+    window.addEventListener('message', onOpenAck);
     document.addEventListener('keydown', onKeydown);
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('beforeunload', stopRefreshTimer);

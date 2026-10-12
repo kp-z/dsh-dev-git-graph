@@ -482,6 +482,9 @@ button { font-family: inherit; }
 }
 
 .dd-item {
+  /* 必须 relative：整卡覆盖式的链接是 absolute 的（见 .dd-item-link）。
+     少了这一行，覆盖层会相对更外层的定位祖先定位，可能盖住整页。 */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -497,12 +500,34 @@ button { font-family: inherit; }
 .dd-item.is-hidden-item { display: none; }
 .dd-item.is-busy { opacity: .6; }
 
-/* 条目主链接：真实 <a href>，保证键盘 / 中键 / 右键复制链接可用 */
+/**
+ * 条目主链接：真实 <a href>，**铺满整张卡片**，保证"点卡片任意位置 = 打开条目"。
+ *
+ * 踩过的坑（用户报的"点卡片不跳转"就是这个）：注释里一直写着"整卡覆盖式"，
+ * 但 CSS 里从来没有 position:absolute —— 于是它是一个高度接近 0 的静态块，
+ * 真正被点到的是下面的标题 div（命中测试：elementFromPoint 中心 = DIV.dd-item-title，
+ * 且它没有任何链接祖先）。直接点 a.dd-item-link 能开，是因为那绕过了命中测试。
+ *
+ * z-index 的分配是这里唯一需要小心的地方：
+ *   覆盖层 1 > 静态内容（auto）→ 卡片任意位置可点
+ *   交互控件 2 > 覆盖层 → 👍/展开/讨论 仍然可点
+ */
 .dd-item-link {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   display: block;
   color: inherit;
   text-decoration: none;
   min-width: 0;
+}
+
+/* 覆盖层之上的交互控件：必须显式抬到 z-index 2，否则会被覆盖层吃掉点击 */
+.dd-act,
+.dd-summary-toggle,
+.dd-meta-discuss {
+  position: relative;
+  z-index: 2;
 }
 .dd-item-main {
   display: flex;

@@ -83,3 +83,46 @@ test('客户端契约：弹层里的元素 id 都真实存在于 index.html', as
 	const missing = ids.filter((id) => !html.includes(`id="${id}"`))
 	assert.deepEqual(missing, [], `这些 id 在 index.html 里不存在：${missing.join(', ')}`)
 })
+
+test('客户端契约：打开外链的消息协议两侧一致（页面发起 + 客户端半体回执）', async () => {
+	const page = await readClient()
+	const half = await readFile(path.join(root, 'src', 'client.js'), 'utf8')
+
+	// 页面发起
+	assert.ok(page.includes("type: 'dsh-daily-open'"), '页面应发出 dsh-daily-open')
+	// 客户端半体监听并回执
+	assert.ok(half.includes('"dsh-daily-open"'), '客户端半体应监听 dsh-daily-open')
+	assert.ok(half.includes('dsh-daily-open-ok'), '客户端半体应回执成功')
+	assert.ok(half.includes('dsh-daily-open-failed'), '客户端半体应回执失败')
+	// 页面处理回执（失败时必须给用户兜底提示，不能是"死点击"）
+	assert.ok(page.includes("dsh-daily-open-failed"), '页面应处理失败回执')
+	assert.ok(page.includes('showOpenFallback'), '页面必须有兜底提示')
+	// 协议类型写死成字面量，改名就会有一侧失效 —— 用交叉断言钉住
+	const pageTypes = [...page.matchAll(/dsh-daily-open[a-z-]*/g)].map((m) => m[0])
+	const halfTypes = [...half.matchAll(/dsh-daily-open[a-z-]*/g)].map((m) => m[0])
+	assert.deepEqual(
+		[...new Set(pageTypes)].sort(),
+		[...new Set(halfTypes)].sort(),
+		'两侧用到的消息类型必须完全一致',
+	)
+})
+
+test('客户端契约：整卡覆盖链接必须真的绝对定位（否则"点卡片不跳转"）', async () => {
+	const css = await readFile(path.join(root, 'web', 'style.css'), 'utf8')
+	const block = /\.dd-item-link\s*\{([^}]*)\}/.exec(css)
+	assert.ok(block, '找不到 .dd-item-link 规则')
+	assert.match(block[1], /position:\s*absolute/, '.dd-item-link 必须 absolute（覆盖整卡）')
+	assert.match(block[1], /inset:\s*0/, '.dd-item-link 必须 inset:0（铺满卡片）')
+	assert.match(block[1], /z-index:\s*1/, '覆盖层需要 z-index:1')
+
+	// 覆盖层之上的交互控件必须显式抬层，否则 👍/展开 会被覆盖层吃掉点击
+	const layered = /\.dd-act,[\s\S]{0,120}\.dd-summary-toggle,[\s\S]{0,120}\.dd-meta-discuss\s*\{([^}]*)\}/.exec(css)
+	assert.ok(layered, '找不到"交互控件抬层"的规则')
+	assert.match(layered[1], /position:\s*relative/, '交互控件需要 position:relative')
+	assert.match(layered[1], /z-index:\s*2/, '交互控件需要 z-index:2（高于覆盖层）')
+
+	// 卡片自身必须建立定位上下文，否则覆盖层会相对外层定位（可能盖住整页）
+	const item = /\.dd-item\s*\{([^}]*)\}/.exec(css)
+	assert.ok(item, '找不到 .dd-item 规则')
+	assert.match(item[1], /position:\s*relative/, '.dd-item 必须 relative（给覆盖层当定位父级）')
+})

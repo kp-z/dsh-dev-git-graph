@@ -49,9 +49,61 @@ window.__ModuleLoader__.load({
       var urlRef = React.useRef(null);
       if (urlRef.current === null) urlRef.current = entryUrl();
 
+      /**
+       * 打开外部链接的**回执方**。
+       *
+       * 插件页面跑在侧边栏的 iframe 里，它的 `window.open` 可能被宿主拦下（返回 null）。
+       * 而这一半跑在 DSH 应用主窗口，在这里发起打开更可能被接受 ——
+       * 所以页面那边失败后会 postMessage 过来，由这里再试一次，并把结果回执回去。
+       * 回执很关键：页面据此决定是否展示"没能自动打开"的兜底提示，
+       * 而不是让用户面对一次毫无反馈的死点击。
+       */
+      function handleOpenRequest(event) {
+        var data = event && event.data;
+        if (!data || typeof data !== "object" || data.type !== "dsh-daily-open") return;
+        var url = typeof data.url === "string" ? data.url : "";
+        // 只接受 http(s)，别成了任意协议的执行入口
+        if (!/^https?:\/\//i.test(url)) return;
+
+        var reply = function (type) {
+          try {
+            if (event.source && event.source.postMessage) {
+              event.source.postMessage({ type: type, url: url }, "*");
+            }
+          } catch (e) {
+            /* 忽略 */
+          }
+        };
+
+        var win = null;
+        try {
+          win = window.open(url, "_blank", "noopener,noreferrer");
+        } catch (e) {
+          win = null;
+        }
+        if (win) {
+          reply("dsh-daily-open-ok");
+          return;
+        }
+        // 再退一步：原生 <a target="_blank"> 的激活路径与 window.open 不完全等价
+        try {
+          var a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          reply("dsh-daily-open-ok");
+        } catch (e) {
+          reply("dsh-daily-open-failed");
+        }
+      }
+
       React.useEffect(function () {
         var frame = frameRef.current;
         var push = function () { postTheme(frame); };
+        window.addEventListener("message", handleOpenRequest);
 
         var obs = new MutationObserver(function (muts) {
           for (var i = 0; i < muts.length; i++) {
@@ -69,6 +121,7 @@ window.__ModuleLoader__.load({
         }
         return function () {
           obs.disconnect();
+          window.removeEventListener("message", handleOpenRequest);
           if (frame) frame.removeEventListener("load", push);
         };
       }, []);

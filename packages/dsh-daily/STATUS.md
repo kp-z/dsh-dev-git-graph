@@ -687,3 +687,69 @@ B站的视频索引不受影响——用户要的"视频索引"目前由 B站稳
 然后 ② 条目详情/阅读态；③ 第二波收口（把 OPML/周报入口再打磨）。
 仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + 10 个工具 + ✨ 按钮 + 日期导航 + 页脚入口 +
 轮转说明 + 通知开关）。
+
+### R16 · 2026-10-12 12:30–13:05 — 修「点击卡片不跳转」+ 路线图转向调研插件
+
+**用户报的 bug：点击某一个卡片时没有跳转到对应的页面。**
+这是最严重的一类问题 —— 它直接违背了最初需求里的「点击即可直接跳转过去」。
+
+**根因（两个问题叠在一起，症状一模一样）**
+
+| # | 问题 | 证据 |
+|---|---|---|
+| 1 | **整卡覆盖链接根本没有覆盖**：代码注释一直写着"整卡覆盖式的 `<a>`"，但 CSS 里只有 `display:block`，**没有 `position:absolute`** —— 它是个高度接近 0 的静态块，真正被点到的是它下面的标题 div | 命中测试：`elementFromPoint(卡片中心)` = `DIV.dd-item-title`，且它**没有任何链接祖先**（`nearestLinkHref: "NO"`）；那个 `<a>` 的 computed style 是 `position: static` |
+| 2 | **从不检查 `window.open` 的返回值**：被环境拦下时返回 `null` 且不抛异常 —— 没有任何痕迹 | 拦截记录：5 次调用全部 `blocked: true`，代码里当时没有任何兜底 |
+
+**为什么之前没发现**：我验证跳转时是用 CSS 选择器 **直接点 `a.dd-item-link`**（以及 dispatch 到该元素上）——
+两者都**绕过了命中测试**，所以链接"能点开"，而真实用户点卡片时命中的是另一个元素。
+**验证方法本身错了，产品就"看起来没问题"。**
+
+**做了什么**
+1. CSS：`.dd-item { position: relative }`（给覆盖层当定位父级）+ `.dd-item-link { position:absolute; inset:0; z-index:1 }`；
+   把三个**交互控件**（`.dd-act` / `.dd-summary-toggle` / `.dd-meta-discuss`）显式抬到 `z-index:2`，
+   否则它们会被覆盖层吃掉点击（z-index 的分层是这里唯一需要小心的地方：1 > 静态内容、2 > 1）
+2. **完整的打开降级链**（`openExternal`）：`window.open` → 检查返回值 → 失败则 `postMessage` 给父级
+   （客户端半体在 DSH 应用主窗口，那里的 `window.open` 更可能被宿主接受）→ 父级回执失败则
+   **自动复制链接 + 明确提示**，绝不留下一次"死点击"
+3. 客户端半体新增回执方（顺带做了协议白名单：只接受 http(s)，别成了任意协议的执行入口）
+4. 新增 2 组**契约测试**把这两件事钉死：
+   - 打开外链的消息类型**两侧必须完全一致**（改名就会有一侧静默失效）
+   - `.dd-item-link` 必须 `absolute` + `inset:0` + `z-index:1`，交互控件必须 `relative` + `z-index:2`，
+     `.dd-item` 必须 `relative`（**这条测试如果在修 bug 之前就存在，这个 bug 根本进不来**）
+
+**证据（真实输出）**
+- 全量测试：`npm test` → **tests 188 / pass 188 / fail 0**（R15 基线 186 → 本轮 +2 组契约测试）
+- **命中测试（修复前 → 修复后）**：
+  - 修复前：卡片中心 → `DIV.dd-item-title`，`insideOverlay: false`，`nearestLinkHref: NO`
+  - 修复后：卡片中心 / 标题行 / 右下角 **全部** → `A.dd-item-link(覆盖层)`；
+    同时确认 👍 命中 `SPAN.dd-act-label`（`clickable: true`，`eatenByOverlayLink: false`）、
+    「展开」命中 `BUTTON.dd-summary-toggle`（35 个，可点）
+- **真实点击**（CDP 真实鼠标事件）：点 `a.dd-item-link` → 新标签页真的打开
+  （`inc.com` / `theonion.com` / `cartographers-nk.wonyoung.so`）
+- **降级链（同源 iframe 模拟侧边栏 + 拦掉 window.open）**：
+  ```
+  {"askedParent":1,
+   "askedUrl":"https://nonfunctional.substack.com/p/passkeys-are-",
+   "notice":"没能自动打开 链接已复制到剪贴板，可以粘贴到浏览器打开。https://nonfunctional.substack.com/p/passkeys-are-a-trap-do-not-use-them ×",
+   "noticeHasUrl":true,"messages":["dsh-daily-open"]}
+  ```
+- 顺带说明：这台机器的隐藏窗口下 **CDP 点击不稳定**（同源 iframe 共享渲染线程，多次 evaluate 超时），
+  所以最终用了"临时探测页自己跑完流程、把结果写进 `document.title`"的办法 —— 探测页用完即删
+
+**路线图调整（用户新要求，已写进 PLAN.md §2.5）**
+插件要从「日报」变成**调研插件**：按项目切换目录，用 AI 搜索与**当前项目**有关的新闻与知识来补充项目。
+新计划要点：
+- **项目 = 工作目录**（与 DSH 的 workspace 天然对齐），每个项目一套独立状态
+  （`~/.dsh/daily/projects/<slug>-<hash8>/`），现有数据视为「默认项目」保持兼容
+- 六轮增量：① 项目模型与切换器 → ② 项目画像抽取 → ③ AI 生成检索词 → ④ 定向检索 →
+  ⑤ 回流项目（写 `docs/research/*.md` + 注入 prompt）→ ⑥ 侧边栏调研视图
+- **明确不做**：代码索引/向量库（那是另一个产品）；不自动改用户代码、不自动提交
+
+**阻塞**：无
+
+**下轮起点**（优先级已按用户新要求重排）：
+1. **项目模型**（第三波①）：按目录命名空间隔离 prefs/数据 + `daily_project` 工具 + 侧边栏切换器
+2. **刷新覆盖当天导致条目丢失**（R15 发现，仍未修）
+3. 桌面通知的开关需要进配置文档供用户开启
+仍欠 **DSH 重启后的真实 GUI 复验**（右侧栏 tab + 10 个工具 + ✨ 按钮 + 日期导航 + 页脚入口 +
+**卡片跳转** + 轮转说明 + 通知开关）。
