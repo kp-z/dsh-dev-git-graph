@@ -82,16 +82,6 @@ test('说人话的查询能命中该命中的那条', () => {
   const data = loadIndexFile()
   const index = buildIndex(data.docs)
   const cases = [
-    /*
-     * 「玻璃」曾经只有 liquid-glass 一条能命中，所以这条断言当年写的是它。
-     * 现在玻璃成了一族（double-glaze / clear-glass-pane / liquid-glass / …），
-     * 谁排第一交给 bm25：double-glaze 的描述通篇在讲玻璃本身
-     * （「两块玻璃叠着放」「上面那块玻璃」「两片 5px 的玻璃」），
-     * 词面上压过只把玻璃当材料名的 liquid-glass —— 这是排序的诚实结果，不是回归。
-     * 站点与库对这一条的答案一致（见下一条测试），所以不是两个真相。
-     * 想精确拿到 iOS 那层面板，查「液态玻璃」—— 那一条钉在下面。
-     */
-    ['玻璃', 'double-glaze'],
     ['液态玻璃', 'liquid-glass'],
     ['文字绕图排', 'shape-outside-wrap'],
     ['跟着鼠标动的按钮', 'cursor-glow-follow'],
@@ -100,6 +90,27 @@ test('说人话的查询能命中该命中的那条', () => {
     const hits = rank(index, query, { limit: 5 })
     assert.equal(hits[0]?.slug, expected, `查「${query}」的 Top-1 应当是 ${expected}`)
   }
+
+  /*
+   * 「玻璃」**不钉具体哪一条** —— 这个问法在一族九条里本来就没有唯一正解。
+   *
+   * 这条断言的历史值得留一笔：当年玻璃只有 liquid-glass 一条能命中，所以钉的是它；
+   * 后来玻璃成了一族，断言改成 double-glaze（它的描述通篇在讲玻璃，词面上赢）。
+   * 再后来 `description` 权重从 1.5 压到 0.4（治跨词对那个病根，见
+   * test/relevance.test.mjs），double-glaze 的这点优势随之消失，液态玻璃面板回到第一。
+   * 三次都「红过」—— 因为**钉一个含糊问法的具体赢家，本身就是个变更探测器**。
+   *
+   * 所以改成断它真正承诺的东西：这是个玻璃问法，前四名就得都是玻璃族的条目。
+   * 这比钉 slug 更强（它管住了「别把无关条目排上来」），也不会因为并列项换了个顺序就红。
+   */
+  const glass = rank(index, '玻璃', { limit: 4 }).map((h) => data.docs.find((d) => d.slug === h.slug))
+  const strangers = glass.filter((doc) => !(doc?.tag_list ?? []).includes('玻璃'))
+  assert.deepEqual(
+    strangers.map((d) => d?.slug),
+    [],
+    `查「玻璃」时前四名里混进了不带玻璃标签的条目：${strangers.map((d) => d?.slug).join('、')}`,
+  )
+  assert.equal(glass[0]?.tag_list?.includes('玻璃'), true, '查「玻璃」的 Top-1 连玻璃标签都没有')
 })
 
 test('纯噪音查询返回空 —— 精度来自双字短语', () => {
