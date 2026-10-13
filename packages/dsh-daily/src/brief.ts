@@ -324,3 +324,57 @@ export function describeBrief(brief: ProjectBrief): string {
 export function briefItemKey(item: Item): string {
 	return item.id || normalizeUrl(item.url ?? '') || (item.title ?? '')
 }
+
+/** 生成简报所需的依赖（与 ai.ts 的 StreamFn 同形；不引入耦合，便于测试注入）。 */
+export interface BriefGeneratorOptions {
+	stream: (options: {
+		provider: string
+		model: string
+		system?: string
+		messages: Array<{ role: 'user'; content: string }>
+		maxTokens?: number
+		signal?: AbortSignal
+	}) => AsyncIterable<{ type: string; text?: string; reason?: { kind?: string; failure?: { message?: string } } }>
+	provider: string
+	model: string
+	profile: ProjectProfile
+	related: readonly RelatedItem[]
+	/** token 预算：**推理 token 与正文共享上限**，按条目数给足（这条教训踩过两次了）。 */
+	maxTokens?: number
+	timeoutMs?: number
+}
+
+/**
+ * 让模型写简报的原始文本（**不解析**，解析交给 `parseBrief` —— 分开才好测）。
+ *
+ * 任何失败返回 `null`：超时 / 抛错 / 推理烧光预算没写出正文。
+ * 调用方据此走确定性兜底，并把原因写进 `degraded`。
+ */
+export async function generateBriefText(options: BriefGeneratorOptions): Promise<string | null> {
+	const prompt = buildBriefPrompt(options.profile, options.related)
+	const maxTokens = Math.max(1024, options.maxTokens ?? 1500 + options.related.length * 120)
+	const controller = new AbortController()
+	const timer = setTimeout(() => controller.abort(), Math.max(3000, options.timeoutMs ?? 90_000))
+
+	try {
+		let text = ''
+		for await (const chunk of options.stream({
+			provider: options.provider,
+			model: options.model,
+			system: prompt.system,
+			messages: [{ role: 'user', content: prompt.user }],
+			maxTokens,
+			signal: controller.signal,
+		})) {
+			// 真实事件类型是 `text-delta`（写成 `text` 会永远收不到正文 —— 这条踩过一次）
+			if ((chunk.type === 'text-delta' || chunk.type === 'text') && typeof chunk.text === 'string') {
+				text += chunk.text
+			}
+		}
+		return text.trim() ? text : null
+	} catch {
+		return null
+	} finally {
+		clearTimeout(timer)
+	}
+}

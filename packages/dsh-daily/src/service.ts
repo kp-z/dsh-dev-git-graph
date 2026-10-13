@@ -51,9 +51,17 @@ import { pickDiverse, renderBrief, renderDigest } from './render.js'
 import { mergeDayItems, mergeSourceStates } from './merge.js'
 import { collectProjectProfile, describeProfile, type ProjectProfile } from './profile.js'
 import { chooseProject, collectDirs, describeChoice, parseWorkspacePaths, type DetectedDir } from './detect.js'
-import { canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
+import { profileHash, canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
 import { describeRetrieval, runRetrieval, type Finding, type RetrieveResult } from './retrieve.js'
 import { applyIntros, generateAllIntros, type PresentedFinding } from './present.js'
+import {
+	assembleBrief,
+	generateBriefText,
+	parseBrief,
+	selectRelatedItems,
+	describeBrief,
+	type ProjectBrief,
+} from './brief.js'
 import { DailyStore, localDate } from './store.js'
 import { applyTuning } from './tune.js'
 import type {
@@ -890,6 +898,68 @@ export class DailyService {
 			`定向检索：${describeRetrieval(result)}${result.errors.length > 0 ? `（首个失败：${result.errors[0]}）` : ''}`,
 		)
 		return { ...withPresentation, plan }
+	}
+
+	/**
+	 * 生成**项目简报**（第三阶段）：概念 / 资讯 / 建议。
+	 *
+	 * 三道保证（与设计一致）：
+	 * 1. **没有模型也有东西看**：`news` 由确定性相关性兜底
+	 * 2. **不编造**：模型没给或坏掉 → 写进 `degraded` 并说明原因
+	 * 3. **不花冤枉钱**：画像没变且已有简报时直接复用（`force` 才重算）
+	 */
+	async buildBrief(options: { force?: boolean } = {}): Promise<ProjectBrief> {
+		const profile = await this.buildProfile({ save: false })
+		const existing = await this.readBrief()
+
+		if (!options.force && existing && existing.projectHash === profileHash(profile)) {
+			return existing
+		}
+
+		const day = await this.store.readDay(localDate())
+		const related = selectRelatedItems(profile, day?.items ?? [])
+
+		let parsed: ReturnType<typeof parseBrief> | null = null
+		let model = ''
+		let aiError = ''
+		const route = this.resolveAiRoute()
+		if (route && this.llmStream) {
+			model = route.model
+			try {
+				const text = await generateBriefText({
+					stream: this.llmStream,
+					provider: route.provider,
+					model: route.model,
+					profile,
+					related,
+				})
+				parsed = text ? parseBrief(text, related) : null
+				if (!parsed) aiError = '模型没有给出可用输出（超时或格式不可解析）'
+			} catch (error) {
+				parsed = null
+				aiError = error instanceof Error ? error.message : String(error)
+			}
+		} else {
+			aiError = route ? '宿主未提供模型服务' : '没有可用的模型路由'
+		}
+
+		const brief = assembleBrief({
+			date: localDate(),
+			projectHash: profileHash(profile),
+			related,
+			model: parsed ? model : '',
+			parsed,
+			aiError,
+		})
+		await this.store.writeJsonFile('briefs/latest-brief.json', brief)
+		this.logger.info(`项目简报：${describeBrief(brief)}`)
+		return brief
+	}
+
+	/** 读取上次生成的简报（不自动重算）。 */
+	async readBrief(): Promise<ProjectBrief | null> {
+		const raw = await this.store.readJsonFile('briefs/latest-brief.json').catch(() => null)
+		return raw && typeof raw === 'object' ? (raw as ProjectBrief) : null
 	}
 
 	/** 读取上次的检索结果（不自动重跑）。 */

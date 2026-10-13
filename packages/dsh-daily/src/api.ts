@@ -189,6 +189,17 @@ async function handleApi(
 				}
 				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
 			}
+			case 'brief': {
+				if (req.method === 'GET') {
+					const cached = await service.readBrief()
+					return sendJson(res, 200, { ok: true, brief: cached, project: service.currentProject() })
+				}
+				if (req.method === 'POST') {
+					const brief = await service.buildBrief({ force: true })
+					return sendJson(res, 200, { ok: true, brief })
+				}
+				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
 			case 'findings': {
 				// GET = 上次的检索结果；POST = 立刻跑一轮（真去搜）
 				if (req.method === 'GET') {

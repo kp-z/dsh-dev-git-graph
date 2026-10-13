@@ -2269,3 +2269,46 @@ project.detect:
 **本轮无运行时接线 → 不发版**（`brief.ts` 会随包构建，但还没被任何接口/工具调用）
 
 **下轮起点**：第②期 —— `GET/POST /api/brief` + `daily_brief` 工具（仍不动 UI）
+
+### R57 · 2026-10-13 19:06–20:00 — 第三阶段第②期：简报接口（发布 0.6.0）
+
+**按 R55 设计分期**，本轮做第②期（**仍不动 UI**）。
+
+**接线**
+- `service.buildBrief({force})`：项目画像 → 当日条目 → 确定性相关性筛选 →（有模型则）AI 生成
+  → `assembleBrief` 落盘 `briefs/latest-brief.json`；**画像没变且有缓存就直接复用**（不重复花钱）
+- `GET /api/brief`（读缓存）/ `POST /api/brief`（立刻生成）
+- 真实调用验证（dev-server + 假模型）：
+  ```
+  POST /api/brief →
+    date: 2026-10-13 | model: 'fake-dev-model'
+    concepts: 0 | news: 10 | advice: 0
+    degraded: {"concepts":"模型未产出概念","advice":"模型未产出建议"}
+    news 样例：browser-use/jev-ultrafast | 命中项目关键词：test、web
+  GET /api/brief → ok:true · 有缓存:true
+  ```
+  **降级按设计工作**：`news` 由确定性相关性产出（10 条），`concepts`/`advice` 空但**写明原因**
+
+**本轮两件没做成的事（如实记）**
+1. **`daily_brief` 工具没加成**：插入后 TypeScript 报
+   `Expected 1 arguments, but got 2` —— 这个文件里工具对象依赖**数组声明的上下文类型**
+   来推断 `render/execute` 的参数，我的对象缺 `output: {schema, render}` 时把整段推断带崩；
+   补了 `output` 仍报错（说明还有别的契约细节）。**我没有硬凑**：
+   `git checkout -- src/tools.ts` 回到已提交版本（构建与测试保持绿），工具留到下一轮，
+   先把这个数组的类型契约读懂再动
+2. **假模型不认识简报提示词**：它只分流"检索词"与"中文介绍"两类，
+   简报请求落进摘要分支 → 解析不出 JSON → 走降级。
+   所以**AI 生成简报这条路只在单测里被验证过**，真实宿主上的效果还没看到
+
+**本轮发现的真问题（下轮第一件事）**
+命中的项目词里有 `test` / `web` / `数据` 这种**过泛词** → 把无关条目（比如游戏测评里的"数据"）
+拉进了简报。**研究侧早就解决过同类问题**（`NON_DOMAIN_KEYWORDS` + `isDomainKeyword` 过滤结构词），
+简报复用那套即可 —— 我做简报时没复用它，是个疏漏。
+
+**证据**：`npm test` → **358 / pass 358 / fail 0**（无新增测试；本期主要是接线 + 真实验证）
+已发布 `@kpeace/dsh-daily@0.6.0`
+
+**下轮起点（按序）**
+1. `projectTerms` 复用 `isDomainKeyword` 过滤过泛词（简报质量的关键）
+2. 假模型补上简报分支（否则 AI 路永远只在单测里验证）
+3. `daily_brief` 工具（先读懂 tools.ts 的数组类型契约）
