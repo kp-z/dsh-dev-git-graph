@@ -119,7 +119,20 @@ export const BM25_WEIGHTS = {
   title: 2,
   when_text: 3,
   tags: 2.5,
-  mechanisms: 6,
+  /*
+   * 机制列 4，不是 6。
+   *
+   * 这一列装的是**整句机制描述**（「用 @media (hover: hover) and (pointer: fine) 把整段
+   * 悬停样式包起来」），不是一个词表。6 意味着**一次机制命中就压过标题加当用**，
+   * 于是句子里偶然出现的常用二元组就能翻盘。实测：「虚线框」的两条候选都命中 `虚线`，
+   * 一条在 mechanisms（6×1），一条在 title + when_text（2 + 3）—— 前者赢，而它是
+   * 讲环形进度描边偏移的，跟虚线框没关系。
+   *
+   * 降到 4 之后它仍是**最重的单列**（4 > when_text 3 > tags 2.5 > title 2），
+   * 只是不再以一敌二。扫 4/3/2 三档结果一致 —— 不是刀尖上的最优，
+   * 机制查询（backdrop-filter / clip-path / shape-outside / mix-blend-mode）每档都照常。
+   */
+  mechanisms: 4,
   /*
    * 代码与描述压得很低，是有实测依据的。
    *

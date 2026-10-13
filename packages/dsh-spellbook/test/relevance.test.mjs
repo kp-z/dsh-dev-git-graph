@@ -65,6 +65,34 @@ const CASES = [
     // 否则「第一名不再是它」可以靠随便换一个错的来满足
     someOf: ['svg-glow-filter', 'inner-glow', 'neon-glow'], // 给任意形状加辉光 / 内发光 / 霓虹灯管
   },
+
+  /*
+   * 第二批（2026-10-13 08:00 窗口加）—— 换一批完全不同的问法再量一遍，
+   * 免得第一版 9 条太窄、改啥都「没回归」。这批 20 条里 17 条一次就过。
+   */
+  { q: '输入框自动补全', want: 'autocomplete-combobox' },
+  { q: '图片加载时先占位', want: 'aspect-ratio-box' },
+  { q: '表格列宽怎么定', want: 'table-layout-fixed-columns' },
+  { q: '滚动到某处才播放动画', want: 'view-timeline' },
+  { q: '鼠标悬停时卡片倾斜', want: 'tilt-3d-hover' },
+  { q: '按钮点了有波纹', want: 'press-ripple' },
+  { q: '抽屉打开时锁住背景', want: 'scroll-lock-compensate' },
+  { q: '渐变边框', want: 'conic-border' },
+  { q: '文字描边空心', want: 'text-stroke-outline' },
+  { q: '数字等宽对齐', want: 'tabular-numbers' },
+  { q: '中文标点挤压', want: 'cjk-punctuation-compress' },
+  { q: '行高不写单位', want: 'line-height-unitless' },
+  {
+    /*
+     * 这条是这一批里**唯一靠改参数治好的**，值得留名。
+     *
+     * 两条候选都命中 `虚线`：一条在 `mechanisms`，一条在 `title + when_text`。
+     * 机制列权重当时是 6，于是 6×1 压过 2+3 —— 赢的是讲**环形进度描边偏移**的那篇，
+     * 跟虚线框毫无关系。把机制列降到 4（它仍是单列最重，只是不再以一敌二）之后即正。
+     */
+    q: '虚线框',
+    want: 'gradient-dashed-edge', // 渐变画的虚线边
+  },
 ]
 
 function loadIndex() {
@@ -138,7 +166,21 @@ test('真实问法的第一名要站得住', () => {
  * 这里只**看着**它：记下当前第一名，并且只在变差时红。治好了不会红 ——
  * 一条会因为「变好了」而失败的测试，只会让人把它删掉。
  */
-const KNOWN_GAP = [{ q: '暗黑模式下发光', first: 'forced-colors-system-keywords' }]
+const KNOWN_GAP = [
+  { q: '暗黑模式下发光', first: 'forced-colors-system-keywords' },
+  /*
+   * 同一类：「暗色模式下的玻璃」也被同一篇抢走 —— 它标题里有「强制颜色**模式下**还能看」。
+   * 两条合起来说明这不是个案，而是**查询里带「…模式下」就会被那篇标题钓走**。
+   * 那一篇的「当用」里既没有玻璃、也没有暗黑、也没有发光，所以确实是错的。
+   */
+  { q: '暗色模式下的玻璃', first: 'forced-colors-system-keywords' },
+  /*
+   * 「长列表只渲染看得见的」的第一名「只在键盘操作时显焦点环」，
+   * 它的「当用」讲的是焦点环，命中的只是 `看得/得见` 这个通用短语；
+   * 正解是「跳过屏幕外的渲染」（当用：「页面很长，滚动时明显发涩，但内容是静态的」）。
+   */
+  { q: '长列表只渲染看得见的', first: 'focus-visible-only' },
+]
 
 test('有几条还在病根里 —— 记着，但不许变差', () => {
   const index = loadIndex()

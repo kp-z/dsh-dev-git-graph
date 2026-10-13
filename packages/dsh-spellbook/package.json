@@ -1,6 +1,6 @@
 {
   "name": "dsh-spellbook",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "type": "module",
   "description": "DSH 插件：咒语书 —— 前端效果库，右侧栏一个「咒语书」tab（332 条，预览是真实运行的）。点一下就把那条咒语送进对话的输入框；模型也能自己调 spellbook_lookup 查回来。",
   "license": "MIT",
