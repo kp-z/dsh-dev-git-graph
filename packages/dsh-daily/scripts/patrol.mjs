@@ -60,6 +60,8 @@ const externalNotes = []
 /** 按源耗时（在 try 里填充，报告段要用 —— 所以必须在**同一作用域**声明） */
 let perSource = []
 let slowestSource = null
+/** 定点复测结果（对上一轮最慢的源单独跑一次，验证单源预算） */
+let probeResult = null
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -213,12 +215,44 @@ try {
 		functionalNotes.push({ item: '抓取与检索', ok: true, detail: '（quick 模式跳过）' })
 	}
 
+	// **定点复测**：轮转会让"哪个源被抓"每轮不同，所以不能指望这一轮刚好抓到慢源。
+	// 直接按上一轮最慢的那个源跑一次采集，才能确定地回答"单源预算生效了吗"。
+	const probeTarget = (previous?.sources ?? [])[0]
+	if (probeTarget?.id) {
+		try {
+			const { runCollection } = await import('../lib/collect/index.js')
+			const { resolveConfig } = await import('../lib/config.js')
+			const probeDir = mkdtempSync(path.join(tmpdir(), 'dsh-patrol-probe-'))
+			const t3 = Date.now()
+			const out = await runCollection({ config: resolveConfig({ dataDir: probeDir }), sourceIds: [probeTarget.id] })
+			const wall = Date.now() - t3
+			const state = out.sources[0]
+			stage(
+				`定点复测：${state?.name ?? probeTarget.id}`,
+				wall,
+				state ? `${state.ok ? `${state.count} 条` : `失败：${state.error ?? ''}`} · 源内计时 ${state.durationMs} ms` : '没有源状态',
+			)
+			probeResult = {
+				id: probeTarget.id,
+				name: state?.name ?? probeTarget.name,
+				ok: state?.ok === true,
+				count: state?.count ?? 0,
+				error: state?.error ?? null,
+				durationMs: state?.durationMs ?? 0,
+				wallMs: wall,
+			}
+			rmSync(probeDir, { recursive: true, force: true, maxRetries: 5 })
+		} catch (error) {
+			stage(`定点复测失败：${probeTarget.name}`, 0, error instanceof Error ? error.message : String(error))
+		}
+	}
+
 	const finalState = await hit('状态（末次）', '/api/state')
 	const sources = finalState.body?.sources ?? []
 	// 按源耗时：`SourceState` 本来就带 `durationMs`，只是之前的报告没列出来 ——
 	// 而"总耗时 50s"这种数字**无法指导优化**，必须知道是哪个源慢。
 	perSource = sources
-		.map((s) => ({ name: s.name ?? s.id ?? '?', ok: s.ok !== false, count: s.count ?? 0, ms: s.durationMs ?? 0 }))
+		.map((s) => ({ id: s.id ?? '', name: s.name ?? s.id ?? '?', ok: s.ok !== false, count: s.count ?? 0, ms: s.durationMs ?? 0 }))
 		.sort((a, b) => b.ms - a.ms)
 	slowestSource = perSource[0] ?? null
 	if (slowestSource) stage('最慢的源', slowestSource.ms, `${slowestSource.name}（${slowestSource.count} 条）`)
@@ -347,6 +381,21 @@ if (perSource.length === 0) {
 lines.push('')
 
 // 与上一轮对比：同一口径下的趋势。没有上一轮就说明为什么
+if (probeResult) {
+	lines.push('### 定点复测（单源预算是否生效）')
+	lines.push('')
+	lines.push(
+		`上一轮最慢的源是 **${probeResult.name}**（${probeTarget?.ms ?? '?'} ms）。这一轮对它单独跑了一次采集：`,
+	)
+	lines.push('')
+	lines.push('| 结果 | 条数 | 源内计时 | 墙钟 | 说明 |')
+	lines.push('|---|---|---|---|---|')
+	lines.push(
+		`| ${probeResult.ok ? '✅ 成功' : '⛔ 被中止'} | ${probeResult.count} | ${probeResult.durationMs} ms | ${probeResult.wallMs} ms | ${probeResult.error ?? '—'} |`,
+	)
+	lines.push('')
+}
+
 lines.push('### 与上一轮对比')
 lines.push('')
 if (!previous) {
@@ -402,6 +451,22 @@ writeFileSync(
 
 console.log('\n' + markdown.split('\n').slice(0, 40).join('\n'))
 console.log(`\n  已写入 ${path.relative(root, outFile)} 与 reports/latest.md`)
+
+// **失败时必须留下日志**：上一轮巡检失败（dev-server 没起来），而日志写在临时目录里、
+// 脚本结束时连目录一起删掉 → 只能靠猜。现在先把日志存到 reports/ 再清理。
+try {
+	if (existsSync(logFile)) {
+		const logText = readFileSync(logFile, 'utf8')
+		writeFileSync(path.join(root, 'reports', 'last-dev-server.log'), logText)
+		if (failedFunctional.length > 0) {
+			writeFileSync(path.join(root, 'reports', `dev-server-failed-${stamp}.log`), logText)
+			console.log('\n  --- dev-server 日志（最后 12 行，已存进 reports/）---')
+			for (const line of logText.trim().split('\n').slice(-12)) console.log(`    ${line}`)
+		}
+	}
+} catch {
+	/* 日志留存失败不影响报告 */
+}
 
 rmSync(dataDir, { recursive: true, force: true, maxRetries: 5 })
 // 退出码只反映**自身功能**（外部源抖动不该让巡检"失败"）
