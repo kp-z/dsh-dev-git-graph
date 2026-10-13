@@ -2194,3 +2194,28 @@ project.detect:
 **下轮起点**
 1. 定点复测应**主动越过预算**（传一个更小的 `sourceBudgetMs`），让"被中止"这条路径有真实数据证据
 2. 调大 AI 摘要默认 token 预算（R51 日志里实测：5 条里 1 条因 `maxTokens=1024` 用尽而失败）
+
+### R54 · 2026-10-13 17:06–17:30 — 回答"最新版本是哪个"（并纠正一个验证陷阱）
+
+**用户问**：「最新版本是哪个？」
+
+**答案**：`@kpeace/dsh-daily@0.5.4`（我刚发布的那个）
+
+**过程中踩到的坑（值得记，因为它和 R52 是同一类错误）**
+1. `npm view @kpeace/dsh-daily version` 显示 **0.5.3**，等 2 分钟仍是 0.5.3；
+   `npm view @kpeace/dsh-daily@0.5.4` 甚至 **E404** → 我一度判断"发布没成功"
+2. 重新 `npm publish` 报 `You cannot publish over the previously published versions: 0.5.4`
+   → **反证 0.5.4 早就发布成功了**，是**本地 npm 的元数据缓存**在骗我
+3. 直连 registry（绕过缓存）确认：
+   ```
+   curl https://registry.npmjs.org/@kpeace%2Fdsh-daily
+   → dist-tags: {"latest": "0.5.4"} · 版本列表尾: … 0.5.1 0.5.2 0.5.3 0.5.4
+   ```
+   `npm view --prefer-online` 也随之显示 0.5.4
+
+**教训（与 R52 同一主题）**：R52 我拿**上一轮的报告**当本轮证据；这次我拿**缓存的元数据**
+当当前事实。两次都是"**读了一个看起来权威、但已经过期的来源**"。
+**判据**：验证"外部的状态"要绕过本地缓存（直连或 `--prefer-online`）；
+验证"本轮的产物"要先看它自己的时间戳。
+
+**流程修正**：发布后的版本核对改用 `--prefer-online`，不再依赖默认缓存。
