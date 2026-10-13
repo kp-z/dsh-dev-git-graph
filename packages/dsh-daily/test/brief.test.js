@@ -16,6 +16,7 @@ import {
 	projectTerms,
 	selectRelatedItems,
 	isMatchableTerm,
+	projectTermList,
 	ADVICE_ACTIONS,
 } from '../lib/brief.js'
 
@@ -183,4 +184,33 @@ test('selectRelatedItems：过泛词命中**不算相关**（否则简报会混�
 	]
 	const related = selectRelatedItems(noisy, items)
 	assert.deepEqual(related.map((r) => r.item.id), ['good'], `只该留下真正相关的：${related.map((r) => r.item.id)}`)
+})
+
+test('强弱两级：强词命中即相关；只有弱词要 ≥2 个（精度与召回的平衡）', () => {
+	const p = { ...profile, keywords: ['react', '可视化', 'dashboard'], dependencies: ['zustand'] }
+	const items = [
+		item('strong', 'Zustand v5 发布'), // 强词（依赖名）→ 相关
+		item('weak1', 'React 生态周报'), // 只有弱词 react → 不相关
+		item('weak2', 'React 与可视化实践'), // react(弱) + 可视化(弱) = 2 个 → 相关
+		item('noise', '币圈行情速览'),
+	]
+	const ids = selectRelatedItems(p, items).map((r) => r.item.id)
+	assert.ok(ids.includes('strong'), `强词命中就该相关：${ids}`)
+	assert.ok(!ids.includes('weak1'), `单个弱词不足以判定相关：${ids}`)
+	assert.ok(ids.includes('weak2'), `两个弱词可以判定相关：${ids}`)
+	assert.ok(!ids.includes('noise'), '无关条目仍要挡掉')
+	// 强词得分要高于同等数量的弱词
+	const strongScore = selectRelatedItems(p, [item('s', 'Zustand v5')])[0].score
+	const weakScore = selectRelatedItems(p, [item('w', 'React 与可视化')])[0].score
+	assert.ok(strongScore > weakScore, `强词权重应当更高：${strongScore} vs ${weakScore}`)
+})
+
+test('projectTermList：依赖名一律强、领域词按长度分强弱', () => {
+	const list = projectTermList({ ...profile, keywords: ['react', '可视化', 'dashboard'] })
+	const find = (t) => list.find((e) => e.term === t)?.strength
+	assert.equal(find('zustand'), 'strong', '依赖名是项目独有的 → 强')
+	assert.equal(find('icons'), 'strong', '作用域包名 → 强')
+	assert.equal(find('dashboard'), 'strong', '够长的领域词 → 强')
+	assert.equal(find('react'), 'weak', '生态词单独命中说明不了什么 → 弱')
+	assert.equal(find('可视化'), 'weak', '三字中文词 → 弱')
 })

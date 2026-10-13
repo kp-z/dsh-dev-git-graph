@@ -78,6 +78,39 @@ export interface RelatedItem {
 	score: number
 }
 
+/**
+ * 把项目画像摊平成**带强度的匹配词表**：领域词 + 依赖名（作用域词）。
+ * 依赖名一律强（项目独有）；领域词按长度分强弱。
+ */
+export function projectTermList(profile: ProjectProfile): ProjectTerm[] {
+	const out = new Map<string, ProjectTerm>()
+	const add = (term: string, strength: TermStrength): void => {
+		const existing = out.get(term)
+		// 同一个词既是依赖又是领域词时，取更强的那个
+		if (existing && existing.strength === 'strong') return
+		out.set(term, { term, strength })
+	}
+	for (const word of profile.keywords ?? []) {
+		const text = String(word).trim().toLowerCase()
+		if (isMatchableTerm(text)) add(text, strengthOfKeyword(text))
+	}
+	for (const dep of profile.dependencies ?? []) {
+		const raw = String(dep).replace(/^@/, '')
+		const segments = raw.split('/').filter(Boolean)
+		const pkg = (segments.pop() ?? '').replace(/[-_.]/g, ' ').trim().toLowerCase()
+		const scope = (segments.pop() ?? '').replace(/[-_.]/g, ' ').trim().toLowerCase()
+		if (pkg && isMatchableTerm(pkg)) add(pkg, 'strong')
+		if (scope && scope.length >= 3 && isDomainKeyword(scope)) {
+			add(scope, 'strong')
+			const firstOfScope = scope.split(' ')[0]
+			if (firstOfScope && firstOfScope.length >= 4 && firstOfScope !== scope && isMatchableTerm(firstOfScope)) {
+				add(firstOfScope, 'strong')
+			}
+		}
+	}
+	return [...out.values()]
+}
+
 /** 把项目画像里的"可匹配词"摊平：领域词 + 依赖名（去掉作用域/符号）。 */
 /**
  * **匹配停用词**：对"判断新闻是否与本项目相关"这件事没有区分力的词。
@@ -113,30 +146,32 @@ export function isMatchableTerm(term: string): boolean {
 	return text.length >= 4
 }
 
+/**
+ * 词的**强度**。
+ *
+ * 为什么必须分强弱（R58 的教训）：上一版用一层"匹配停用词"把噪声挡掉了，
+ * 结果 `news` 从 10 条掉到 1 条 —— **假阳性治好了，召回也快没了**。
+ * 原因是把两类完全不同的词当成了一类：
+ * - `zustand` / `monaco editor` 这种**具体词**：命中就基本可以确定相关
+ * - `react` 这种**生态词**：命中很常见，单独出现说明不了什么，**但要一起看就不该丢**
+ * 所以：强词命中即相关；弱词**要看数量**（≥2 个弱词才算相关）。
+ */
+export type TermStrength = 'strong' | 'weak'
+
+export interface ProjectTerm {
+	term: string
+	strength: TermStrength
+}
+
+/** 依赖名与作用域词按"强词"处理（它们是项目自己独有的）。 */
+function strengthOfKeyword(term: string): TermStrength {
+	const text = term.trim().toLowerCase()
+	if (/^[\u4e00-\u9fa5]+$/.test(text)) return text.length >= 4 ? 'strong' : 'weak'
+	return text.length >= 7 ? 'strong' : 'weak'
+}
+
 export function projectTerms(profile: ProjectProfile): string[] {
-	const terms = new Set<string>()
-	for (const word of profile.keywords ?? []) {
-		const text = String(word).trim().toLowerCase()
-		// **过泛词不进匹配集**：它们是"看起来相关、实际无关"的主要来源（实测过）
-		if (isMatchableTerm(text)) terms.add(text)
-	}
-	for (const dep of profile.dependencies ?? []) {
-		const raw = String(dep).replace(/^@/, '')
-		const segments = raw.split('/').filter(Boolean)
-		const pkg = (segments.pop() ?? '').replace(/[-_.]/g, ' ').trim().toLowerCase()
-		// 作用域（`@ant-design/icons` 的 `ant-design`）也要收进来：
-		// 只取包名末段（`icons`）太泛，而"ant design"才是真正有辨识度的词
-		const scope = (segments.pop() ?? '').replace(/[-_.]/g, ' ').trim().toLowerCase()
-		if (pkg && isMatchableTerm(pkg)) terms.add(pkg)
-		if (scope && scope.length >= 3 && isDomainKeyword(scope)) {
-			terms.add(scope)
-			const firstOfScope = scope.split(' ')[0]
-			if (firstOfScope && firstOfScope.length >= 4 && firstOfScope !== scope && isMatchableTerm(firstOfScope)) {
-				terms.add(firstOfScope)
-			}
-		}
-	}
-	return [...terms]
+	return projectTermList(profile).map((entry) => entry.term)
 }
 
 /**
@@ -146,14 +181,22 @@ export function projectTerms(profile: ProjectProfile): string[] {
  * 并把**命中的词**记下来当"为什么与我相关"。命中越多分越高。
  */
 export function selectRelatedItems(profile: ProjectProfile, items: readonly Item[], limit = BRIEF_MAX_ITEMS): RelatedItem[] {
-	const terms = projectTerms(profile)
+	const terms = projectTermList(profile)
 	const out: RelatedItem[] = []
 	for (const item of items) {
 		const haystack = `${item.title ?? ''} ${item.summary ?? ''}`.toLowerCase()
 		if (!haystack.trim()) continue
-		const hits = terms.filter((term) => haystack.includes(term))
-		if (hits.length === 0) continue
-		out.push({ item, hits, score: hits.length })
+		const matched = terms.filter((entry) => haystack.includes(entry.term))
+		if (matched.length === 0) continue
+		const strongHits = matched.filter((entry) => entry.strength === 'strong')
+		const weakHits = matched.filter((entry) => entry.strength === 'weak')
+		// **强词命中即相关；只有弱词时要 ≥2 个** —— 这条规则就是 R58"精度上去了、召回没了"的解法
+		if (strongHits.length === 0 && weakHits.length < 2) continue
+		out.push({
+			item,
+			hits: matched.map((entry) => entry.term),
+			score: strongHits.length * 3 + weakHits.length,
+		})
 	}
 	// 命中的词越多越靠前；同分时保留原有顺序（rank 已经排过一轮热度）
 	return out.sort((a, b) => b.score - a.score).slice(0, Math.max(0, limit))
