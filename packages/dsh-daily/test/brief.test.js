@@ -16,6 +16,8 @@ import {
 	projectTerms,
 	selectRelatedItems,
 	isMatchableTerm,
+	findingsToNews,
+	mergeNews,
 	projectTermList,
 	ADVICE_ACTIONS,
 } from '../lib/brief.js'
@@ -213,4 +215,30 @@ test('projectTermList：依赖名一律强、领域词按长度分强弱', () =>
 	assert.equal(find('dashboard'), 'strong', '够长的领域词 → 强')
 	assert.equal(find('react'), 'weak', '生态词单独命中说明不了什么 → 弱')
 	assert.equal(find('可视化'), 'weak', '三字中文词 → 弱')
+})
+
+test('findingsToNews：调研结果转资讯，并**写明是主动搜到的**（可追溯）', () => {
+	const news = findingsToNews([
+		{ title: 'Maintaining a Stable Protobuf API', url: 'https://e.com/pb', query: 'bufbuild protobuf', provider: 'hn-algolia', dimension: 'dep' },
+		{ title: 'no url' },
+	])
+	assert.equal(news.length, 1, '缺 URL 的丢掉')
+	assert.equal(news[0].source, 'research')
+	assert.match(news[0].why, /由检索词「bufbuild protobuf」搜到/)
+	assert.match(news[0].why, /hn-algolia/)
+})
+
+test('mergeNews：调研优先、同 URL 去重（日报与调研很可能撞同一条）', () => {
+	const daily = [
+		{ id: 'd1', title: '日报里的一条', url: 'https://e.com/a?utm=1', why: '命中 react', source: 'daily' },
+		{ id: 'd2', title: '只存在于日报', url: 'https://e.com/b', why: '命中 dashboard', source: 'daily' },
+	]
+	const research = [
+		{ id: 'r1', title: '搜到的同一条', url: 'https://e.com/a/', why: '由检索词「x」搜到', source: 'research' },
+	]
+	const merged = mergeNews(daily, research)
+	assert.equal(merged.length, 2, '同 URL（仅 utm/尾斜杠不同）要合并成一条')
+	assert.equal(merged[0].source, 'research', '调研结果优先（它是主动搜来的）')
+	assert.equal(merged[0].title, '搜到的同一条')
+	assert.ok(merged.some((n) => n.source === 'daily'), '日报里独有的那条要保留')
 })

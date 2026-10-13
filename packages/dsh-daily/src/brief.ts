@@ -37,6 +37,14 @@ export interface BriefNews {
 	url: string
 	/** 为什么与我相关（模型给的更细；没有模型时用确定性匹配理由）。 */
 	why: string
+	/**
+	 * 这条是从哪来的。
+	 * `daily` = 日报条目里筛出来的；`research` = **用项目关键词主动搜到的**。
+	 *
+	 * 为什么要标：R59 的结论是"通用新闻流里筛项目相关有天花板"，
+	 * 所以资讯必须**两条腿走路**；不标来源的话，用户看不出哪条是"我主动去搜来的"。
+	 */
+	source?: 'daily' | 'research'
 }
 
 export interface BriefAdvice {
@@ -339,6 +347,59 @@ export function parseBrief(
 	return { concepts, news, advice }
 }
 
+/**
+ * 把**调研结果**（`runFindings` 的产出）转成简报的资讯条目。
+ *
+ * 这是 R59 结论的落地：简报的召回不能只靠"在通用流里筛"，
+ * 必须像调研一样**用项目关键词主动去搜**（HN / GitHub），再把搜到的合并进来。
+ */
+export function findingsToNews(
+	findings: readonly { title?: string; url?: string; query?: string; provider?: string; summary?: string; dimension?: string }[],
+	limit = BRIEF_MAX_NEWS,
+): BriefNews[] {
+	const out: BriefNews[] = []
+	for (const finding of findings) {
+		const url = (finding.url ?? '').trim()
+		const title = (finding.title ?? '').trim()
+		if (!url || !title) continue
+		const bits: string[] = []
+		if (finding.query) bits.push(`由检索词「${finding.query}」搜到`)
+		if (finding.provider) bits.push(`来源 ${finding.provider}`)
+		if (finding.dimension) bits.push(`维度 ${finding.dimension}`)
+		out.push({
+			id: url,
+			title,
+			url,
+			why: bits.join(' · ') || '主动检索结果',
+			source: 'research',
+		})
+		if (out.length >= limit) break
+	}
+	return out
+}
+
+/** 按 URL 归一化去重（日报条目与调研结果可能撞同一条）。 */
+function newsKey(url: string): string {
+	return url.replace(/[#?].*$/, '').replace(/\/$/, '').toLowerCase()
+}
+
+/**
+ * 合并两种来源的资讯：**调研结果优先**（它是"主动搜来的"，针对性更强），
+ * 日报筛出来的补在后面；同 URL 只留一条（保留先出现的那条的 why）。
+ */
+export function mergeNews(daily: readonly BriefNews[], research: readonly BriefNews[], limit = BRIEF_MAX_NEWS): BriefNews[] {
+	const seen = new Set<string>()
+	const out: BriefNews[] = []
+	for (const entry of [...research, ...daily]) {
+		const key = newsKey(entry.url || entry.id)
+		if (!key || seen.has(key)) continue
+		seen.add(key)
+		out.push(entry)
+		if (out.length >= limit) break
+	}
+	return out
+}
+
 /** 确定性兜底的 news（没有模型 / 模型没给 news 时用）。 */
 export function newsFromRelated(related: readonly RelatedItem[], limit = BRIEF_MAX_NEWS): BriefNews[] {
 	return related.slice(0, Math.max(0, limit)).map((entry) => ({
@@ -346,6 +407,7 @@ export function newsFromRelated(related: readonly RelatedItem[], limit = BRIEF_M
 		title: entry.item.title ?? '',
 		url: entry.item.url ?? '',
 		why: entriesWhy(entry),
+		source: 'daily' as const,
 	}))
 }
 
@@ -365,13 +427,16 @@ export function assembleBrief(input: {
 	model: string
 	parsed?: { concepts: BriefConcept[]; news: BriefNews[]; advice: BriefAdvice[] } | null
 	aiError?: string
+	/** 调研结果转来的资讯（**主动搜到的**），与日报筛出的合并。 */
+	researchNews?: readonly BriefNews[]
 	now?: () => Date
 }): ProjectBrief {
 	const parsed = input.parsed ?? null
 	const degraded: Record<string, string> = {}
 	const hasModel = !!input.model && !!parsed
 
-	const news = parsed && parsed.news.length > 0 ? parsed.news : newsFromRelated(input.related)
+	const fromDaily = parsed && parsed.news.length > 0 ? parsed.news : newsFromRelated(input.related)
+	const news = mergeNews(fromDaily, input.researchNews ?? [])
 	if (!hasModel) {
 		const reason = input.aiError ? `模型不可用：${input.aiError}` : '未配置模型'
 		degraded.concepts = reason

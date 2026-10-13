@@ -56,6 +56,7 @@ import { describeRetrieval, runRetrieval, type Finding, type RetrieveResult } fr
 import { applyIntros, generateAllIntros, type PresentedFinding } from './present.js'
 import {
 	assembleBrief,
+	findingsToNews,
 	generateBriefText,
 	parseBrief,
 	selectRelatedItems,
@@ -919,6 +920,12 @@ export class DailyService {
 		const day = await this.store.readDay(localDate())
 		const related = selectRelatedItems(profile, day?.items ?? [])
 
+		// **把调研结果接进来**（R59 的结论）：通用新闻流里筛"与项目相关"有天花板，
+		// 所以资讯要两条腿走路 —— 主动搜到的（调研）+ 日报里筛出来的。
+		// 用**已缓存的**调研结果（不在这里触发网络请求：简报不该偷偷花钱/耗时）
+		const cachedFindings = await this.readFindings().catch(() => null)
+		const researchNews = findingsToNews(cachedFindings?.findings ?? [])
+
 		let parsed: ReturnType<typeof parseBrief> | null = null
 		let model = ''
 		let aiError = ''
@@ -950,6 +957,7 @@ export class DailyService {
 			model: parsed ? model : '',
 			parsed,
 			aiError,
+			researchNews,
 		})
 		await this.store.writeJsonFile('briefs/latest-brief.json', brief)
 		this.logger.info(`项目简报：${describeBrief(brief)}`)
