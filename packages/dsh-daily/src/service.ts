@@ -697,9 +697,21 @@ export class DailyService {
 	}> {
 		const out: Array<{ value: unknown; from: string }> = []
 		const sources: Array<{ name: string; ok: boolean; count: number; note?: string }> = []
+		// **磁盘来源不需要任何宿主**，所以必须在"没有宿主就提前返回"之前先收。
+		// （早先放在后面 → dev-server 这类没有 cordis 宿主的环境里，磁盘来源永远跑不到；
+		//   真实宿主有 host 所以掩盖了这个设计错误。巡检脚本把它暴露出来了。）
+		const stored = this.storedWorkspaceDirs()
+		if (stored.length > 0) {
+			// 按目录修改时间排序：最近动过的项目更可能是"当前项目"（排序失败就保持原序）
+			const ranked = await this.rankByMtime(stored)
+			out.push({ value: ranked, from: 'storages/workspace.json' })
+		}
+
 		if (this.hosts.length === 0) {
 			// 这一条最关键：hosts=0 说明 inject 作用域压根没附着上
-			return { items: out, sources: [{ name: '(host)', ok: false, count: 0, note: '没有任何宿主作用域附着' }] }
+			sources.push({ name: '(host)', ok: false, count: 0, note: '没有任何宿主作用域附着' })
+			sources.push({ name: 'storages/workspace.json', ok: stored.length > 0, count: stored.length })
+			return { items: out, sources }
 		}
 		/** 依次在每个作用域里试着取该服务；抛（未声明）就当没有，换下一个作用域。 */
 		const read = (name: string, pick: (svc: Record<string, unknown>) => unknown): void => {
@@ -733,14 +745,6 @@ export class DailyService {
 			const list = typeof svc.list === 'function' ? (svc.list as () => unknown[])() : null
 			return Array.isArray(list) ? list.slice(-5).reverse() : null
 		})
-		// ---- 磁盘来源：DSH 的工作区注册表存盘（没有活动会话时唯一的精确来源）----
-		const stored = this.storedWorkspaceDirs()
-		if (stored.length > 0) {
-			// 按目录修改时间排序：最近动过的项目更可能是"当前项目"（排序失败就保持原序）
-			const ranked = await this.rankByMtime(stored)
-			out.push({ value: ranked, from: 'storages/workspace.json' })
-		}
-
 		// 来源明细：把"哪个服务读到了几个"记下来
 		for (const name of ['sessions', 'workspaceRegistry', 'storages/workspace.json']) {
 			const hit = out.find((item) => item.from === name)

@@ -2,6 +2,22 @@
 
 本文件记录 dsh-daily 的每个可交付版本。开发期的**逐轮记录**在 [STATUS.md](STATUS.md)（每轮必带真实命令与输出）。
 
+## 0.5.2 — 巡检工具 + 它抓到的两个真问题
+
+- **新增 `scripts/patrol.mjs`（`npm run patrol`）**：一次跑出**两份报告** ——
+  ① 功能检查（逐项带证据）② 运行效率 / API 请求效率（分阶段墙钟、**外部请求数**、接口延迟与体积），
+  落盘 `reports/patrol-<时间>.md` 与 `reports/latest.md`
+- **修：磁盘来源被"宿主是否存在"卡住**（巡检发现的真 bug）
+  `hostCandidates()` 在"没有任何宿主作用域"时**提前返回**，而磁盘来源（`storages/workspace.json`）
+  的收集写在那之后 → dev-server 这类没有 cordis 宿主的环境里**那条路永远跑不到**；
+  真实宿主有 host，所以掩盖了这个设计错误。磁盘来源本来就不需要宿主 —— 已提到提前返回之前，
+  并断言"诊断里 `hosts: 0` 时也照样能用磁盘来源"
+- **dev-server 现在也跑一次 `autoDetect()`**：真实入口（`bootstrap`）会做这件事，
+  dev-server 之前不做 → `/api/state` 里永远没有 `project.detect`，
+  联调环境与真实宿主**行为不一致**（巡检因此报"诊断字段缺失"）。现在两边一致
+- **巡检脚本自己也犯过错并已修**：探了不存在的 `/api/prefs`（偏好数据在 `/api/state` 里）、
+  报告文件名用了 UTC 时间（本地 11:08 会写成 `0308`，看着像坏了）
+
 ## 0.5.0 — 按通道改写提问：风险与坑改走 issues/PR
 
 - **新增第三个通道 `github-issues`**（issues/PR 搜索）。实测依据：

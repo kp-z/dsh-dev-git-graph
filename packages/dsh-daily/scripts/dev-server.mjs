@@ -82,6 +82,15 @@ const service = new DailyService(config, {
 })
 
 await service.init()
+// 跑一次项目自动识别：真实入口（index.ts 的 bootstrap）会做这件事，而 dev-server 之前不做，
+// 于是 `/api/state` 里永远没有 `project.detect` —— 巡检脚本因此报"诊断字段缺失"。
+// 让 dev-server 走同一条路径，联调环境才和真实宿主**行为一致**（这也是巡检能发现的问题）。
+try {
+	const detected = await service.autoDetect()
+	console.log(`项目识别：${detected.changed ? `已切到 ${detected.dir}` : detected.reason}`)
+} catch (error) {
+	console.log(`项目识别失败（不影响联调）：${error instanceof Error ? error.message : String(error)}`)
+}
 
 if (seedDays > 0) {
 	const { writeFile, readFile } = await import('node:fs/promises')

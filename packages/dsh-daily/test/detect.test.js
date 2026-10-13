@@ -347,6 +347,34 @@ test('集成：**没有活动会话时**，靠存盘的工作区注册表也能�
 	assert.ok(diag.sources.some((x) => x.name === 'storages/workspace.json' && x.ok === true), JSON.stringify(diag.sources))
 })
 
+test('集成：**没有任何宿主作用域时**，磁盘来源仍要工作（巡检发现的真 bug）', async (t) => {
+	// 曾经 hostCandidates() 在"没有宿主"时提前返回，而磁盘来源的收集写在它后面
+	// → dev-server 这类没有 cordis 宿主的环境里那条路**永远跑不到**
+	// （真实宿主有 host 所以掩盖了这个设计错误）。磁盘来源本来就不需要宿主。
+	const { service, proj } = await makeService(t)
+	const home = await mkdtemp(path.join(os.tmpdir(), 'dsh-home-nohost-'))
+	const saved = process.env.DSH_HOME
+	process.env.DSH_HOME = home
+	t.after(async () => {
+		if (saved === undefined) delete process.env.DSH_HOME
+		else process.env.DSH_HOME = saved
+		await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
+	})
+	await mkdir(path.join(home, 'storages'), { recursive: true })
+	await writeFile(
+		path.join(home, 'storages', 'workspace.json'),
+		JSON.stringify({ global: { workspaceIds: ['w1'] }, tables: { workspaces: { w1: { path: proj } } } }),
+	)
+
+	// 一个宿主都不附着
+	const result = await service.autoDetect()
+	assert.equal(result.changed, true, '没有宿主时也必须能靠磁盘来源识别')
+	assert.equal(service.currentProject().dir, proj)
+	const diag = service.currentProject().detect
+	assert.equal(diag.hosts, 0, '诊断要如实说明没有宿主')
+	assert.ok(diag.sources.some((x) => x.name === 'storages/workspace.json' && x.ok === true), JSON.stringify(diag.sources))
+})
+
 test('集成：宿主服务必须在合法作用域里取（未声明会抛 —— 客户端半体就是这么炸的）', async (t) => {
 	const { service, proj } = await makeService(t)
 
