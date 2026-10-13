@@ -23,6 +23,14 @@ import { SourceFailure,
  * 单独留一个 `extra` 虚拟源：用户在配置里加的任意 RSS 源会被它一次收完。
  * 这样"多一个自定义源"不会变成"多一个并发槽位"，也不会让源列表随配置无限膨胀。
  */
+/**
+ * 单个源的**总预算**（毫秒）。
+ *
+ * 与 `fetchText` 的"每次尝试 12s"是两件事：那边默认重试 2 次 → 最坏 ≈ 40s，
+ * 一个慢源就能独占整轮刷新（实测 YouTube 43–47s）。这里给的是**源这一层**的天花板。
+ */
+export const SOURCE_BUDGET_MS = 20_000
+
 export const SOURCE_RUNNERS: Record<string, SourceRunner> = {
 	hn: collectHackerNews,
 	arxiv: collectArxiv,
@@ -60,6 +68,8 @@ export interface CollectOptions {
 	extraFeeds?: readonly string[]
 	/** YouTube 频道的轮转/退避状态（输入）。缺省视为"都没抓过"，即全部可抓。 */
 	rotation?: RotationState
+	/** 单个源的**总预算**（毫秒）；缺省 `SOURCE_BUDGET_MS`。测试与"想更保守"的用户可用。 */
+	sourceBudgetMs?: number
 }
 
 export interface CollectOutcome {
@@ -106,6 +116,7 @@ export async function runCollection(options: CollectOptions): Promise<CollectOut
 		options.pool ?? new MirrorPool(config.rsshubMirrors, config.requestTimeoutMs)
 	const rotationIn = options.rotation ?? {}
 	const env: CollectEnv = {
+		sourceBudgetMs: options.sourceBudgetMs,
 		config,
 		pool,
 		...(options.signal ? { signal: options.signal } : {}),
@@ -131,8 +142,18 @@ export async function runCollection(options: CollectOptions): Promise<CollectOut
 			}
 			return { items: [] as RawItem[], state }
 		}
+		// **单源总预算**：`fetchText` 每次尝试有 12s 超时、但默认重试 2 次 →
+		// 最坏 12×3 + 退避 ≈ 40s（实测 YouTube 43–47s 就是这么来的）。
+		// 一个源不该独占整轮刷新，所以在**源这一层**再设一个总预算：
+		// 到点就中止（信号会顺着 env.signal 传到 fetch），并按失败记录 —— 该源随后进入退避。
+		const budgetMs = env.sourceBudgetMs ?? SOURCE_BUDGET_MS
+		const controller = new AbortController()
+		// 这个定时器**不必清**：controller 是每个源新建的，源跑完后没有任何东西再用它的 signal；
+		// 未触发的定时器到点会 abort 一个已经没人引用的 controller —— 无副作用。
+		const budgetTimer = setTimeout(() => controller.abort(), budgetMs)
+		const signal = env.signal ? AbortSignal.any([env.signal, controller.signal]) : controller.signal
 		try {
-			const outcome = await runner(env)
+			const outcome = await runner({ ...env, signal })
 			const state: SourceState = {
 				id,
 				name: meta.name,
@@ -151,13 +172,21 @@ export async function runCollection(options: CollectOptions): Promise<CollectOut
 				...(outcome.rotationUpdates ? { rotationUpdates: outcome.rotationUpdates } : {}),
 			}
 		} catch (error) {
+			// 预算到点导致的失败要说清楚是**超预算**，而不是把底层报错原样丢出来
+			// （"aborted" 这种消息看报告的人无法判断是我中止的还是网络断的）
+			const abortedByBudget = controller.signal.aborted
+			const message = abortedByBudget
+				? `单源超时：超过 ${Math.round(budgetMs / 1000)}s 预算已中止`
+				: error instanceof Error
+					? error.message
+					: String(error)
 			const state: SourceState = {
 				id,
 				name: meta.name,
 				kind: meta.kind,
 				ok: false,
 				count: 0,
-				error: error instanceof Error ? error.message : String(error),
+				error: message,
 				durationMs: Date.now() - t0,
 				at,
 			}

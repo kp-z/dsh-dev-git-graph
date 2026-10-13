@@ -14,6 +14,12 @@ export interface CollectEnv {
 	 * 采集器本身不落盘，保持"给定输入 → 产出结果"的可测试性。
 	 */
 	rotation?: RotationState
+	/**
+	 * **单源总预算**（毫秒）。缺省用 `SOURCE_BUDGET_MS`（20s）。
+	 * 为什么需要它：`fetchText` 的 12s 是**每次尝试**的超时，默认还会重试 2 次 →
+	 * 最坏 ≈ 40s，一个慢源能独占整轮刷新（实测 YouTube 43–47s）。
+	 */
+	sourceBudgetMs?: number
 }
 
 export interface SourceResult {

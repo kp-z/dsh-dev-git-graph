@@ -1,275 +1,191 @@
 {
-  "at": "2026-10-13T05:06:32.611Z",
-  "port": 8999,
+  "at": "2026-10-13T06:09:00.723Z",
+  "port": 9001,
   "quick": false,
   "api": [
     {
       "label": "状态",
       "endpoint": "/api/state",
       "method": "GET",
-      "status": 200,
+      "status": -1,
       "ms": 3,
-      "kb": 1.169921875
+      "kb": 0
     },
     {
       "label": "项目清单",
       "endpoint": "/api/projects",
       "method": "GET",
-      "status": 200,
-      "ms": 3,
-      "kb": 0.458984375
+      "status": -1,
+      "ms": 2,
+      "kb": 0
     },
     {
       "label": "条目",
       "endpoint": "/api/items",
       "method": "GET",
-      "status": 200,
+      "status": -1,
       "ms": 2,
-      "kb": 0.0634765625
+      "kb": 0
     },
     {
       "label": "订阅源",
       "endpoint": "/api/sources",
       "method": "GET",
-      "status": 200,
-      "ms": 3,
-      "kb": 0.91796875
+      "status": -1,
+      "ms": 4,
+      "kb": 0
     },
     {
       "label": "日报 Markdown",
       "endpoint": "/api/digest",
       "method": "GET",
-      "status": 200,
-      "ms": 2,
-      "kb": 0.0634765625
+      "status": -1,
+      "ms": 4,
+      "kb": 0
     },
     {
       "label": "订阅列表",
       "endpoint": "/api/feeds",
       "method": "GET",
-      "status": 200,
-      "ms": 1,
-      "kb": 0.021484375
+      "status": -1,
+      "ms": 3,
+      "kb": 0
     },
     {
       "label": "归档",
       "endpoint": "/api/archive",
       "method": "GET",
-      "status": 200,
+      "status": -1,
       "ms": 2,
-      "kb": 0.0205078125
+      "kb": 0
     },
     {
       "label": "周报",
       "endpoint": "/api/weekly",
       "method": "GET",
-      "status": 200,
-      "ms": 3,
-      "kb": 0.291015625
+      "status": -1,
+      "ms": 2,
+      "kb": 0
     },
     {
       "label": "容量",
       "endpoint": "/api/storage",
       "method": "GET",
-      "status": 200,
-      "ms": 3,
-      "kb": 0.21875
+      "status": -1,
+      "ms": 1,
+      "kb": 0
     },
     {
       "label": "调研结果",
       "endpoint": "/api/findings",
       "method": "GET",
-      "status": 200,
-      "ms": 2,
-      "kb": 0.6455078125
+      "status": -1,
+      "ms": 1,
+      "kb": 0
     },
     {
       "label": "切换项目",
       "endpoint": "/api/projects",
       "method": "POST",
-      "status": 200,
-      "ms": 7,
-      "kb": 0.6162109375
+      "status": -1,
+      "ms": 5,
+      "kb": 0
     },
     {
       "label": "状态（复核项目）",
       "endpoint": "/api/state",
       "method": "GET",
-      "status": 200,
+      "status": -1,
       "ms": 1,
-      "kb": 1.1796875
+      "kb": 0
     },
     {
       "label": "刷新（触发抓取）",
       "endpoint": "/api/refresh",
       "method": "POST",
-      "status": 200,
-      "ms": 46936,
-      "kb": 0.0927734375
+      "status": -1,
+      "ms": 1,
+      "kb": 0
     },
     {
       "label": "检索词计划",
       "endpoint": "/api/research",
       "method": "POST",
-      "status": 200,
-      "ms": 22,
-      "kb": 1.724609375
+      "status": -1,
+      "ms": 5,
+      "kb": 0
     },
     {
       "label": "定向检索",
       "endpoint": "/api/findings",
       "method": "POST",
-      "status": 200,
-      "ms": 2151,
-      "kb": 56.91796875
+      "status": -1,
+      "ms": 3,
+      "kb": 0
     },
     {
       "label": "状态（末次）",
       "endpoint": "/api/state",
       "method": "GET",
-      "status": 200,
+      "status": -1,
       "ms": 4,
-      "kb": 3.1845703125
+      "kb": 0
     }
   ],
   "stages": [
     {
       "label": "抓取订阅源",
-      "ms": 46936,
+      "ms": 1,
       "detail": "? 条 / ? 源正常"
     },
     {
       "label": "生成检索词",
-      "ms": 22,
-      "detail": "15 条词"
+      "ms": 5,
+      "detail": ""
     },
     {
       "label": "定向检索",
-      "ms": 2151,
-      "detail": "请求 16 成功 16 失败 0 跳过 4"
-    },
-    {
-      "label": "最慢的源",
-      "ms": 46813,
-      "detail": "YouTube（24 条）"
+      "ms": 3,
+      "detail": ""
     }
   ],
   "outbound": [
     {
-      "kind": "检索（HN + GitHub 搜索）",
-      "requests": 16,
-      "ok": 16,
-      "failed": 0,
-      "skipped": 4
-    },
-    {
       "kind": "抓取订阅源",
-      "requests": 11,
-      "ok": 11,
+      "requests": 0,
+      "ok": 0,
       "failed": 0,
-      "skipped": 1
+      "skipped": 0
     }
   ],
-  "sources": [
-    {
-      "name": "YouTube",
-      "ok": true,
-      "count": 24,
-      "ms": 46813
-    },
-    {
-      "name": "Hacker News",
-      "ok": true,
-      "count": 16,
-      "ms": 1815
-    },
-    {
-      "name": "arXiv",
-      "ok": true,
-      "count": 8,
-      "ms": 1682
-    },
-    {
-      "name": "GitHub 新晋热门",
-      "ok": true,
-      "count": 8,
-      "ms": 828
-    },
-    {
-      "name": "哔哩哔哩·排行榜",
-      "ok": true,
-      "count": 8,
-      "ms": 630
-    },
-    {
-      "name": "哔哩哔哩·热门",
-      "ok": true,
-      "count": 8,
-      "ms": 602
-    },
-    {
-      "name": "阮一峰的网络日志",
-      "ok": true,
-      "count": 3,
-      "ms": 453
-    },
-    {
-      "name": "少数派",
-      "ok": true,
-      "count": 8,
-      "ms": 339
-    },
-    {
-      "name": "IT之家",
-      "ok": true,
-      "count": 8,
-      "ms": 335
-    },
-    {
-      "name": "Solidot",
-      "ok": true,
-      "count": 8,
-      "ms": 257
-    },
-    {
-      "name": "自定义 RSS 源",
-      "ok": true,
-      "count": 0,
-      "ms": 0
-    }
-  ],
+  "sources": [],
   "functional": [
     {
       "item": "页面可访问 /dsh-daily/",
-      "ok": true,
-      "detail": "200"
+      "ok": false,
+      "detail": "连不上"
     },
     {
       "item": "项目已切换",
-      "ok": true,
-      "detail": "/Users/kp/DEV/msim-front-react"
+      "ok": false,
+      "detail": "（没有 project）"
     },
     {
       "item": "识别诊断字段在位",
-      "ok": true,
-      "detail": "hosts=0 candidates=1"
+      "ok": false,
+      "detail": "缺 project.detect"
     },
     {
       "item": "调研返回结果",
-      "ok": true,
-      "detail": "56 条 · 维度 5 个"
-    },
-    {
-      "item": "卡片字段（头图/中文介绍/来源）",
-      "ok": true,
-      "detail": "头图 55/56 · AI 介绍 50 · 兜底 6"
+      "ok": false,
+      "detail": "0 条 · 维度 0 个"
     }
   ],
   "external": [
     {
       "item": "源健康",
       "ok": true,
-      "detail": "11 个源，失败 0 个"
+      "detail": "0 个源，失败 0 个"
     }
   ]
 }
