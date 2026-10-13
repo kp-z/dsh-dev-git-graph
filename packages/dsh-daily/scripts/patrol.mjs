@@ -62,6 +62,8 @@ let perSource = []
 let slowestSource = null
 /** 定点复测结果（对上一轮最慢的源单独跑一次，验证单源预算） */
 let probeResult = null
+/** 小预算探针：验证"被预算中止"这条路径真的会触发 */
+let probeAbort = null
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -248,6 +250,23 @@ try {
 				durationMs: state?.durationMs ?? 0,
 				wallMs: wall,
 			}
+			// **第二段：故意用很小的预算再跑一次** —— 否则"被预算中止"这条路径
+			// 在真实数据上永远观察不到（正常预算下它只是"没超"）。这是 R51 部署的教训。
+			try {
+				const tiny = await runCollection({
+					config: resolveConfig({ dataDir: probeDir }),
+					sourceIds: [probeTarget.id],
+					sourceBudgetMs: 1,
+				})
+				const tinyState = tiny.sources[0]
+				probeAbort = {
+					ok: tinyState?.ok === true,
+					error: tinyState?.error ?? null,
+					durationMs: tinyState?.durationMs ?? 0,
+				}
+			} catch (error) {
+				probeAbort = { ok: null, error: error instanceof Error ? error.message : String(error), durationMs: 0 }
+			}
 			rmSync(probeDir, { recursive: true, force: true, maxRetries: 5 })
 		} catch (error) {
 			stage(`定点复测失败：${probeTarget.name}`, 0, error instanceof Error ? error.message : String(error))
@@ -404,6 +423,16 @@ if (probeResult) {
 		`| ${probeResult.ok ? '✅ 成功' : '⛔ 被中止'} | ${probeResult.count} | ${probeResult.durationMs} ms | ${probeResult.wallMs} ms | ${probeResult.error ?? '—'} |`,
 	)
 	lines.push('')
+	if (probeAbort) {
+		lines.push(`再用 **1 ms 预算**跑同一个源，验证"被预算中止"这条路径：`)
+		lines.push('')
+		lines.push('| 结果 | 耗时 | 说明 |')
+		lines.push('|---|---|---|')
+		lines.push(
+			`| ${probeAbort.ok === false ? '⛔ 被中止' : probeAbort.ok === true ? '✅ 竟然成功了' : '❓ 异常'} | ${probeAbort.durationMs} ms | ${probeAbort.error ?? '—'} |`,
+		)
+		lines.push('')
+	}
 }
 
 lines.push('### 与上一轮对比')

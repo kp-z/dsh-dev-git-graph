@@ -292,3 +292,16 @@ test('mergeCache：新写入的条目带当前时间，已有条目不丢', () =
 	assert.equal(merged.entries.new.text, '新增')
 	assert.equal(merged.entries.new.at, now.toISOString())
 })
+
+test('摘要 token 预算：默认必须**留足推理空间**（实测 1024 会把预算烧在思考上）', async () => {
+	const { resolveConfig } = await import('../lib/config.js')
+	const cfg = resolveConfig({})
+	// 实测证据：日志里出现过「模型没写出正文就用完了 maxTokens=1024（终止原因 max-tokens）」
+	assert.ok(
+		cfg.aiSummaryMaxTokens >= 2048,
+		`默认预算太小会让带推理的模型写不出正文（实测 1024 失败过）：${cfg.aiSummaryMaxTokens}`,
+	)
+	// 但用户显式配置仍然优先（不越权改用户的值）
+	const custom = resolveConfig({ aiSummaryMaxTokens: 800 })
+	assert.equal(custom.aiSummaryMaxTokens, 800)
+})

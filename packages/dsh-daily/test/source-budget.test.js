@@ -53,7 +53,7 @@ test('单源预算：慢源会被**中止并按失败记录**，且不拖累同�
 	assert.equal(outcome.sources.length, 1, `只该跑自定义源：${outcome.sources.map((s) => `${s.id}/${s.name}`).join(', ')}`)
 	const slow = outcome.sources[0]
 	assert.equal(slow.ok, false, '慢源应当被判为失败')
-	assert.match(String(slow.error), /单源超时|超过/, `失败原因要说清是超预算：${slow.error}`)
+	assert.match(String(slow.error), /单源超时：超过 600ms 预算已中止/, `失败原因要说清是超预算、且单位正确：${slow.error}`)
 	assert.ok(slow.durationMs >= 500, `耗时应接近预算：${slow.durationMs}`)
 	assert.ok(elapsed < 8_000, `整轮应当被预算截断，而不是等 fetchText 的 12s×3 重试：${elapsed}ms`)
 })

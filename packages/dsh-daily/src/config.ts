@@ -119,7 +119,16 @@ export const DailyConfig = z.object({
 	 * 200 时 20 条里只有 7 条成功，1024 时 12 条，4096 时 20 条全成功。
 	 * 撞上限的条目会以"终止原因 max-tokens"的形式明确报告出来，而不是静默变空摘要。
 	 */
-	aiSummaryMaxTokens: z.number().default(1024),
+	/**
+	 * 单次摘要调用的 maxTokens。
+	 *
+	 * **默认从 1024 抬到 3072**：实测日志里出现过
+	 * `失败 1 · 模型没写出正文就用完了 maxTokens=1024（终止原因 max-tokens）` ——
+	 * 这就是"推理 token 与正文**共享**上限"那条教训：一次调用是**一条摘要**，
+	 * 正文只需几十个字，但带推理的模型会先把预算烧在思考上。
+	 * 1024 对推理模型是**明显不够**的，而失败代价是这条摘要永久没有。
+	 */
+	aiSummaryMaxTokens: z.number().min(256).default(3072),
 
 	/** 单条超时（毫秒）。 */
 	aiSummaryTimeoutMs: z.number().default(20000),
@@ -211,7 +220,7 @@ export function resolveConfig(config: Partial<DailyConfig> = {}): DailyConfig {
 		aiSummaryMaxItems: config.aiSummaryMaxItems ?? 20,
 		autoDetectProject: config.autoDetectProject ?? true,
 		aiSummaryConcurrency: config.aiSummaryConcurrency ?? 3,
-		aiSummaryMaxTokens: config.aiSummaryMaxTokens ?? 1024,
+		aiSummaryMaxTokens: config.aiSummaryMaxTokens ?? 3072,
 		aiSummaryTimeoutMs: config.aiSummaryTimeoutMs ?? 20000,
 		aiSummaryCacheTtlDays: config.aiSummaryCacheTtlDays ?? 30,
 		aiSummaryCacheMax: config.aiSummaryCacheMax ?? 500,

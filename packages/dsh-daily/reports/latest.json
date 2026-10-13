@@ -1,6 +1,6 @@
 {
-  "at": "2026-10-13T08:07:56.836Z",
-  "port": 9008,
+  "at": "2026-10-13T09:07:15.949Z",
+  "port": 9009,
   "quick": false,
   "api": [
     {
@@ -16,7 +16,7 @@
       "endpoint": "/api/projects",
       "method": "GET",
       "status": 200,
-      "ms": 3,
+      "ms": 4,
       "kb": 0.521484375
     },
     {
@@ -32,7 +32,7 @@
       "endpoint": "/api/sources",
       "method": "GET",
       "status": 200,
-      "ms": 3,
+      "ms": 2,
       "kb": 0.91796875
     },
     {
@@ -40,7 +40,7 @@
       "endpoint": "/api/digest",
       "method": "GET",
       "status": 200,
-      "ms": 2,
+      "ms": 4,
       "kb": 0.0634765625
     },
     {
@@ -56,7 +56,7 @@
       "endpoint": "/api/archive",
       "method": "GET",
       "status": 200,
-      "ms": 7,
+      "ms": 2,
       "kb": 0.0205078125
     },
     {
@@ -64,7 +64,7 @@
       "endpoint": "/api/weekly",
       "method": "GET",
       "status": 200,
-      "ms": 5,
+      "ms": 6,
       "kb": 0.291015625
     },
     {
@@ -72,7 +72,7 @@
       "endpoint": "/api/storage",
       "method": "GET",
       "status": 200,
-      "ms": 6,
+      "ms": 4,
       "kb": 0.21875
     },
     {
@@ -88,7 +88,7 @@
       "endpoint": "/api/projects",
       "method": "POST",
       "status": 200,
-      "ms": 7,
+      "ms": 8,
       "kb": 0.650390625
     },
     {
@@ -96,7 +96,7 @@
       "endpoint": "/api/state",
       "method": "GET",
       "status": 200,
-      "ms": 3,
+      "ms": 2,
       "kb": 1.2138671875
     },
     {
@@ -104,15 +104,15 @@
       "endpoint": "/api/refresh",
       "method": "POST",
       "status": 200,
-      "ms": 6525,
-      "kb": 0.091796875
+      "ms": 12602,
+      "kb": 0.0927734375
     },
     {
       "label": "检索词计划",
       "endpoint": "/api/research",
       "method": "POST",
       "status": 200,
-      "ms": 15,
+      "ms": 14,
       "kb": 1.724609375
     },
     {
@@ -120,8 +120,8 @@
       "endpoint": "/api/findings",
       "method": "POST",
       "status": 200,
-      "ms": 3103,
-      "kb": 56.912109375
+      "ms": 3079,
+      "kb": 56.822265625
     },
     {
       "label": "状态（末次）",
@@ -129,34 +129,34 @@
       "method": "GET",
       "status": 200,
       "ms": 3,
-      "kb": 3.2587890625
+      "kb": 3.2626953125
     }
   ],
   "stages": [
     {
       "label": "抓取订阅源",
-      "ms": 6525,
+      "ms": 12602,
       "detail": "? 条 / ? 源正常"
     },
     {
       "label": "生成检索词",
-      "ms": 15,
+      "ms": 14,
       "detail": "15 条词"
     },
     {
       "label": "定向检索",
-      "ms": 3103,
+      "ms": 3079,
       "detail": "请求 16 成功 16 失败 0 跳过 4"
     },
     {
-      "label": "定点复测：YouTube",
-      "ms": 2298,
-      "detail": "24 条 · 源内计时 2297 ms"
+      "label": "定点复测：GitHub 新晋热门",
+      "ms": 391,
+      "detail": "8 条 · 源内计时 390 ms"
     },
     {
       "label": "最慢的源",
-      "ms": 6445,
-      "detail": "GitHub 新晋热门（8 条）"
+      "ms": 12550,
+      "detail": "Hacker News（16 条）"
     }
   ],
   "outbound": [
@@ -177,74 +177,74 @@
   ],
   "sources": [
     {
-      "id": "github",
-      "name": "GitHub 新晋热门",
+      "id": "hn",
+      "name": "Hacker News",
       "ok": true,
-      "count": 8,
-      "ms": 6445
+      "count": 16,
+      "ms": 12550
     },
     {
       "id": "youtube",
       "name": "YouTube",
       "ok": true,
       "count": 24,
-      "ms": 2363
-    },
-    {
-      "id": "hn",
-      "name": "Hacker News",
-      "ok": true,
-      "count": 16,
-      "ms": 1987
+      "ms": 8818
     },
     {
       "id": "arxiv",
       "name": "arXiv",
       "ok": true,
       "count": 8,
-      "ms": 532
+      "ms": 1873
+    },
+    {
+      "id": "github",
+      "name": "GitHub 新晋热门",
+      "ok": true,
+      "count": 8,
+      "ms": 1080
     },
     {
       "id": "ruanyifeng",
       "name": "阮一峰的网络日志",
       "ok": true,
       "count": 3,
-      "ms": 445
-    },
-    {
-      "id": "bilibili-ranking",
-      "name": "哔哩哔哩·排行榜",
-      "ok": false,
-      "count": 0,
-      "ms": 376
+      "ms": 547
     },
     {
       "id": "bilibili-popular",
       "name": "哔哩哔哩·热门",
       "ok": true,
       "count": 8,
-      "ms": 351
+      "ms": 499
     },
     {
-      "id": "ithome",
-      "name": "IT之家",
-      "ok": true,
-      "count": 8,
-      "ms": 282
-    },
-    {
-      "id": "solidot",
-      "name": "Solidot",
-      "ok": true,
-      "count": 8,
-      "ms": 209
+      "id": "bilibili-ranking",
+      "name": "哔哩哔哩·排行榜",
+      "ok": false,
+      "count": 0,
+      "ms": 484
     },
     {
       "id": "sspai",
       "name": "少数派",
       "ok": true,
       "count": 8,
-      "ms": 206
+      "ms": 290
+    },
+    {
+      "id": "solidot",
+      "name": "Solidot",
+      "ok": true,
+      "count": 8,
+      "ms": 280
+    },
+    {
+      "id": "ithome",
+      "name": "IT之家",
+      "ok": true,
+      "count": 8,
+      "ms": 249
     },
     {
       "id": "extra",
@@ -290,7 +290,7 @@
     {
       "item": "源失败：哔哩哔哩·排行榜",
       "ok": false,
-      "detail": "B 站排行榜接口返回 code=-352（-352） · 376 ms"
+      "detail": "B 站排行榜接口返回 code=-352（-352） · 484 ms"
     }
   ]
 }

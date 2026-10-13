@@ -175,8 +175,10 @@ export async function runCollection(options: CollectOptions): Promise<CollectOut
 			// 预算到点导致的失败要说清楚是**超预算**，而不是把底层报错原样丢出来
 			// （"aborted" 这种消息看报告的人无法判断是我中止的还是网络断的）
 			const abortedByBudget = controller.signal.aborted
+			// 展示要按量级选单位：1 ms 预算写成"超过 0s"看着像 bug（实测出现过）
+			const budgetText = budgetMs >= 1000 ? `${Math.round(budgetMs / 1000)}s` : `${budgetMs}ms`
 			const message = abortedByBudget
-				? `单源超时：超过 ${Math.round(budgetMs / 1000)}s 预算已中止`
+				? `单源超时：超过 ${budgetText} 预算已中止`
 				: error instanceof Error
 					? error.message
 					: String(error)
