@@ -187,10 +187,13 @@ test('集成：buildWeeklyReview 覆盖正确的日期窗口、含头含尾、�
 	assert.equal(review.end, end)
 	assert.equal(review.days, 3, '只有窗口内那 3 天有数据')
 	assert.equal(review.items, 3)
-	assert.ok(!review.markdown.includes('2026-10-05'), '窗口外（更早）不该出现')
-	assert.ok(!review.markdown.includes('2026-10-13'), '窗口外（更晚）不该出现')
-	assert.ok(review.markdown.includes('2026-10-06'))
-	assert.ok(review.markdown.includes(end))
+	// **断言条目标题，而不是裸日期字符串**：markdown 里本来就带有"生成日期"（=今天），
+	// 所以只要今天恰好等于窗口外那个日期，裸日期断言就会假红 —— 实测 2026-10-13 过午夜后
+	// 就踩到了（同一份代码前一天还是绿的）。测内容，不要测"某个日期串有没有出现过"。
+	assert.ok(!review.markdown.includes('Story 2026-10-05'), '窗口外（更早）的**条目**不该出现')
+	assert.ok(!review.markdown.includes('Story 2026-10-13'), '窗口外（更晚）的**条目**不该出现')
+	assert.ok(review.markdown.includes('Story 2026-10-06'), '窗口内条目要出现')
+	assert.ok(review.markdown.includes(`Story ${end}`), '含尾那一端也要出现')
 
 	// 落盘
 	const file = path.join(dir, 'digest', weekFileName('2026-10-06', end))
