@@ -103,7 +103,13 @@ async function waitFor(url, timeoutMs = 20_000) {
 		} catch {
 			/* not up yet */
 		}
-		await sleep(300)
+		// 等它**真的**退出（最多 2s）：句柄没释放就去删目录是上一轮退出码 1 的直接原因
+		await new Promise((resolve) => {
+			let settled = false
+			const finish = () => { if (!settled) { settled = true; resolve() } }
+			server.once('exit', finish)
+			setTimeout(finish, 2000)
+		})
 	}
 	return false
 }
@@ -234,6 +240,7 @@ try {
 			)
 			probeResult = {
 				id: probeTarget.id,
+				previousMs: probeTarget.ms ?? 0,
 				name: state?.name ?? probeTarget.name,
 				ok: state?.ok === true,
 				count: state?.count ?? 0,
@@ -299,6 +306,9 @@ const pad = (n) => String(n).padStart(2, '0')
 const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`
 const lines = []
 lines.push(`# 巡检报告 ${stamp}`)
+lines.push('')
+lines.push('> ⚠️ 判断"报告与退出码是否一致"时先看这个时间戳 —— 脚本崩在写报告之前的话，')
+lines.push('> `reports/latest.md` **还是上一轮的**（我为此白查了一轮：报告没变，其实是本轮压根没写成）')
 lines.push('')
 lines.push(`- 端口：${port} · 模式：${quick ? 'quick（跳过联网）' : '完整'} · 项目目录：\`${projectDir}\``)
 lines.push('')
@@ -385,7 +395,7 @@ if (probeResult) {
 	lines.push('### 定点复测（单源预算是否生效）')
 	lines.push('')
 	lines.push(
-		`上一轮最慢的源是 **${probeResult.name}**（${probeTarget?.ms ?? '?'} ms）。这一轮对它单独跑了一次采集：`,
+		`上一轮最慢的源是 **${probeResult.name}**（${probeResult.previousMs} ms）。这一轮对它单独跑了一次采集：`,
 	)
 	lines.push('')
 	lines.push('| 结果 | 条数 | 源内计时 | 墙钟 | 说明 |')
@@ -468,6 +478,16 @@ try {
 	/* 日志留存失败不影响报告 */
 }
 
-rmSync(dataDir, { recursive: true, force: true, maxRetries: 5 })
+// **清理写在报告之后，但它曾经把退出码带成 1**：rmSync 没被包住，而 dev-server 刚被
+// SIGTERM 时日志文件句柄可能还没释放 → 抛异常 → 未捕获 → 退出码 1，
+// **而报告早就写好了（全绿）**。于是"退出码 1"看起来像功能失败，其实只是清理失败 ——
+// 退出码就此失去可信度。修法：清理失败**不允许**影响退出码，并打出残留路径便于人工清。
+let cleanupNote = ''
+try {
+	rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+} catch (error) {
+	cleanupNote = `清理临时目录失败（不影响结论）：${error instanceof Error ? error.message : String(error)} · 残留 ${dataDir}`
+}
+if (cleanupNote) console.log(`\n  ⚠️ ${cleanupNote}`)
 // 退出码只反映**自身功能**（外部源抖动不该让巡检"失败"）
-process.exit(failedFunctional.length === 0 ? 0 : 1)
+process.exitCode = failedFunctional.length === 0 ? 0 : 1
