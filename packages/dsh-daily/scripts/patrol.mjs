@@ -32,6 +32,15 @@ if (errors.length > 0) {
 }
 
 const base = `http://127.0.0.1:${port}/dsh-daily`
+const snapshotPath = path.join(root, 'reports', 'latest.json')
+/** 上一轮的原始指标（存 JSON 而不是解析 Markdown —— 报告是给人看的，机器读快照） */
+const previous = (() => {
+	try {
+		return JSON.parse(readFileSync(snapshotPath, 'utf8'))
+	} catch {
+		return null
+	}
+})()
 const dataDir = mkdtempSync(path.join(tmpdir(), 'dsh-patrol-'))
 const logFile = path.join(dataDir, 'server.log')
 
@@ -39,6 +48,9 @@ const apiRows = []
 const stageRows = []
 const outbound = []
 const functionalNotes = []
+/** 按源耗时（在 try 里填充，报告段要用 —— 所以必须在**同一作用域**声明） */
+let perSource = []
+let slowestSource = null
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -194,6 +206,13 @@ try {
 
 	const finalState = await hit('状态（末次）', '/api/state')
 	const sources = finalState.body?.sources ?? []
+	// 按源耗时：`SourceState` 本来就带 `durationMs`，只是之前的报告没列出来 ——
+	// 而"总耗时 50s"这种数字**无法指导优化**，必须知道是哪个源慢。
+	perSource = sources
+		.map((s) => ({ name: s.name ?? s.id ?? '?', ok: s.ok !== false, count: s.count ?? 0, ms: s.durationMs ?? 0 }))
+		.sort((a, b) => b.ms - a.ms)
+	slowestSource = perSource[0] ?? null
+	if (slowestSource) stage('最慢的源', slowestSource.ms, `${slowestSource.name}（${slowestSource.count} 条）`)
 	const rotated = sources.filter((s) => s.count === 0 && s.ok).length
 	outbound.push({
 		kind: '抓取订阅源',
@@ -283,12 +302,66 @@ lines.push('> 说明：抓取侧有**频道轮转**（每轮只抓选中的一�
 lines.push('> 检索侧按**维度轮流取**并且跳过语言不匹配的词，所以"跳过"也是设计行为。')
 lines.push('')
 
+lines.push('### 按源耗时（哪个源慢，才谈得上优化）')
+lines.push('')
+if (perSource.length === 0) {
+	lines.push('（没有源状态）')
+} else {
+	lines.push('| 源 | 结果 | 条数 | 耗时 |')
+	lines.push('|---|---|---|---|')
+	for (const row of perSource) lines.push(`| ${row.name} | ${row.ok ? '✅' : '❌'} | ${row.count} | ${row.ms} ms |`)
+	const slowTotal = perSource.reduce((sum, row) => sum + row.ms, 0)
+	lines.push(`| **合计** | | | **${slowTotal} ms** |`)
+}
+lines.push('')
+
+// 与上一轮对比：同一口径下的趋势。没有上一轮就说明为什么
+lines.push('### 与上一轮对比')
+lines.push('')
+if (!previous) {
+	lines.push('（没有上一轮快照，这是第一次带快照的巡检 —— 下次就能对比了）')
+} else {
+	const nowFetch = outbound.find((o) => o.kind === '抓取订阅源')?.requests ?? 0
+	const prevFetch = (previous.outbound ?? []).find((o) => o.kind === '抓取订阅源')?.requests ?? 0
+	const nowOut = outbound.reduce((sum, o) => sum + (o.requests ?? 0), 0)
+	const prevOut = (previous.outbound ?? []).reduce((sum, o) => sum + (o.requests ?? 0), 0)
+	const nowStage = stageRows.reduce((sum, r) => sum + r.ms, 0)
+	const prevStage = (previous.stages ?? []).reduce((sum, r) => sum + r.ms, 0)
+	const delta = (now, prev) => {
+		const diff = now - prev
+		if (prev === 0) return diff === 0 ? '—' : `+${diff}`
+		return `${diff >= 0 ? '+' : ''}${diff}（${((diff / prev) * 100).toFixed(0)}%）`
+	}
+	lines.push(`上一轮：${previous.at ?? '?'}（${(previous.stages ?? []).length} 个阶段）`)
+	lines.push('')
+	lines.push('| 指标 | 上一轮 | 本轮 | 变化 |')
+	lines.push('|---|---|---|---|')
+	lines.push(`| 外部请求总数 | ${prevOut} | ${nowOut} | ${delta(nowOut, prevOut)} |`)
+	lines.push(`| 抓取源数 | ${prevFetch} | ${nowFetch} | ${delta(nowFetch, prevFetch)} |`)
+	lines.push(`| 联网阶段总耗时 | ${(prevStage / 1000).toFixed(1)} s | ${(nowStage / 1000).toFixed(1)} s | ${delta(Math.round(nowStage / 1000), Math.round(prevStage / 1000))} s |`)
+	const nowFailed = outbound.reduce((sum, o) => sum + (o.failed ?? 0), 0)
+	const prevFailed = (previous.outbound ?? []).reduce((sum, o) => sum + (o.failed ?? 0), 0)
+	lines.push(`| 失败请求 | ${prevFailed} | ${nowFailed} | ${delta(nowFailed, prevFailed)} |`)
+	const prevSlow = (previous.sources ?? [])[0]
+	if (prevSlow) {
+		lines.push(
+			`| 最慢的源 | ${prevSlow.name} ${prevSlow.ms} ms | ${slowestSource ? `${slowestSource.name} ${slowestSource.ms} ms` : '—'} | ${slowestSource ? `${delta(slowestSource.ms, prevSlow.ms)} ms` : '—'} |`,
+		)
+	}
+}
+lines.push('')
+
 const markdown = lines.join('\n')
 const outDir = path.join(root, 'reports')
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true })
 const outFile = path.join(outDir, `patrol-${stamp}.md`)
 writeFileSync(outFile, `${markdown}\n`)
 writeFileSync(path.join(root, 'reports', 'latest.md'), `${markdown}\n`)
+// 机器读的快照：报告是给人看的，趋势对比要靠结构化数据（解析 Markdown 太脆）
+writeFileSync(
+	snapshotPath,
+	`${JSON.stringify({ at: report.at, port, quick, api: apiRows, stages: stageRows, outbound, sources: perSource, functional: functionalNotes }, null, 2)}\n`,
+)
 
 console.log('\n' + markdown.split('\n').slice(0, 40).join('\n'))
 console.log(`\n  已写入 ${path.relative(root, outFile)} 与 reports/latest.md`)
