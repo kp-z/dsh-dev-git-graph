@@ -15,6 +15,7 @@
 
 import { normalizeUrl } from './rank.js'
 import type { ProjectProfile } from './profile.js'
+import { isDomainKeyword } from './research.js'
 import type { Item } from './types.js'
 
 export type AdviceAction = '升级' | '采纳' | '规避' | '了解'
@@ -78,11 +79,46 @@ export interface RelatedItem {
 }
 
 /** 把项目画像里的"可匹配词"摊平：领域词 + 依赖名（去掉作用域/符号）。 */
+/**
+ * **匹配停用词**：对"判断新闻是否与本项目相关"这件事没有区分力的词。
+ *
+ * 实测教训：第一版简报把 `test` / `web` / `数据` 当成了项目词，于是
+ * "browser-use/jev-ultrafast（test、web）"、"游戏测评里的『数据』"这类**完全无关**的条目
+ * 被算作"与项目相关"。研究侧早就解决过同类问题（`isDomainKeyword` 挡结构词），
+ * 但**对"太常见所以无法区分"的词它挡不住**（`数据`、`管理`、`web` 都算合法领域词）。
+ * 所以这里再叠一层针对**匹配场景**的停用词。
+ */
+const MATCH_STOPWORDS: ReadonlySet<string> = new Set([
+	// 中文：在技术新闻里出现频率极高，命中它们等于没命中
+	'数据', '管理', '状态', '系统', '平台', '方案', '功能', '技术', '工具', '框架', '组件',
+	'模块', '接口', '服务', '配置', '性能', '优化', '设计', '开发', '测试', '代码', '项目',
+	// 英文：单看无法区分项目
+	'web', 'data', 'app', 'apps', 'test', 'tests', 'testing', 'demo', 'sample', 'example',
+	'core', 'common', 'utils', 'util', 'helper', 'main', 'index', 'lib', 'libs', 'sdk',
+	'ui', 'ux', 'api', 'cli', 'tool', 'tools', 'kit', 'base', 'basic', 'new', 'next',
+	'use', 'get', 'set', 'run', 'build', 'dev', 'prod', 'docs', 'guide', 'blog', 'news',
+])
+
+/**
+ * 这个词能不能用来**判断相关性**？
+ * - 英文要够长（≥4）且不在停用词里（`web`/`api` 这类两三个字母的词区分力太低）
+ * - 中文至少 3 字（两字的中文技术词太泛：`数据`/`状态`/`管理` 已进停用词，三字以上更可信）
+ */
+export function isMatchableTerm(term: string): boolean {
+	const text = term.trim().toLowerCase()
+	if (text.length === 0) return false
+	if (MATCH_STOPWORDS.has(text)) return false
+	if (!isDomainKeyword(text)) return false
+	if (/^[\u4e00-\u9fa5]+$/.test(text)) return text.length >= 3
+	return text.length >= 4
+}
+
 export function projectTerms(profile: ProjectProfile): string[] {
 	const terms = new Set<string>()
 	for (const word of profile.keywords ?? []) {
 		const text = String(word).trim().toLowerCase()
-		if (text.length >= 2) terms.add(text)
+		// **过泛词不进匹配集**：它们是"看起来相关、实际无关"的主要来源（实测过）
+		if (isMatchableTerm(text)) terms.add(text)
 	}
 	for (const dep of profile.dependencies ?? []) {
 		const raw = String(dep).replace(/^@/, '')
@@ -91,11 +127,13 @@ export function projectTerms(profile: ProjectProfile): string[] {
 		// 作用域（`@ant-design/icons` 的 `ant-design`）也要收进来：
 		// 只取包名末段（`icons`）太泛，而"ant design"才是真正有辨识度的词
 		const scope = (segments.pop() ?? '').replace(/[-_.]/g, ' ').trim().toLowerCase()
-		if (pkg && pkg.length >= 3) terms.add(pkg)
-		if (scope && scope.length >= 3) {
+		if (pkg && isMatchableTerm(pkg)) terms.add(pkg)
+		if (scope && scope.length >= 3 && isDomainKeyword(scope)) {
 			terms.add(scope)
 			const firstOfScope = scope.split(' ')[0]
-			if (firstOfScope && firstOfScope.length >= 4 && firstOfScope !== scope) terms.add(firstOfScope)
+			if (firstOfScope && firstOfScope.length >= 4 && firstOfScope !== scope && isMatchableTerm(firstOfScope)) {
+				terms.add(firstOfScope)
+			}
 		}
 	}
 	return [...terms]

@@ -15,6 +15,7 @@ import {
 	parseBrief,
 	projectTerms,
 	selectRelatedItems,
+	isMatchableTerm,
 	ADVICE_ACTIONS,
 } from '../lib/brief.js'
 
@@ -153,4 +154,33 @@ test('describeBrief：一句话能说清三段各有多少、哪段降级了', (
 	assert.match(text, /概念 0/)
 	assert.match(text, /资讯 1/)
 	assert.match(text, /降级：concepts\/advice/)
+})
+
+test('过泛词不进匹配集（实测踩过：test/web/数据 把无关条目拉进简报）', () => {
+	// 实测证据：第一版简报里出现过「browser-use/jev-ultrafast ← 命中 test、web」
+	// 与「游戏测评 ← 命中 数据」这种完全无关的匹配
+	for (const generic of ['test', 'web', 'data', 'api', 'ui', 'utils', 'main', '数据', '管理', '状态', '系统', '平台']) {
+		assert.equal(isMatchableTerm(generic), false, `${generic} 不该用于判断相关性`)
+	}
+	for (const useful of ['dashboard', 'visualization', 'zustand', '可视化', '状态管理', 'ant design']) {
+		assert.equal(isMatchableTerm(useful), true, `${useful} 应当可以用于判断相关性`)
+	}
+	// 结构词仍然被 isDomainKeyword 挡掉（复用研究侧的既有规则）
+	assert.equal(isMatchableTerm('context'), false)
+	assert.equal(isMatchableTerm('experiment'), false)
+})
+
+test('selectRelatedItems：过泛词命中**不算相关**（否则简报会混进无关内容）', () => {
+	const noisy = {
+		...profile,
+		keywords: ['数据', 'dashboard'],
+		dependencies: ['react'],
+	}
+	const items = [
+		item('game', '游戏测评：这张卡的数据很强'), // 只命中"数据" → 不该算相关
+		item('web', 'A web app built with test framework'), // 只命中 web/test → 不该算相关
+		item('good', 'A dashboard for visualization'), // 命中 dashboard → 算相关
+	]
+	const related = selectRelatedItems(noisy, items)
+	assert.deepEqual(related.map((r) => r.item.id), ['good'], `只该留下真正相关的：${related.map((r) => r.item.id)}`)
 })
