@@ -48,6 +48,15 @@ const apiRows = []
 const stageRows = []
 const outbound = []
 const functionalNotes = []
+/**
+ * 外部依赖类检查。
+ *
+ * **为什么要分开**：源抓取失败是**外部抖动**（网站超时/限流），不是插件坏了。
+ * 早先它和"页面打不开""诊断字段缺失"一起被算作失败 → 每轮退出码都是 1 →
+ * **退出码失去意义**（分不清"产品坏了"与"外面抖了"）。
+ * 现在：自身功能决定退出码；外部依赖**如实记录**，趋势交给"与上一轮对比"去看。
+ */
+const externalNotes = []
 /** 按源耗时（在 try 里填充，报告段要用 —— 所以必须在**同一作用域**声明） */
 let perSource = []
 let slowestSource = null
@@ -221,11 +230,20 @@ try {
 		failed: sources.filter((s) => s.ok === false).length,
 		skipped: rotated,
 	})
-	functionalNotes.push({
+	const failedSources = sources.filter((s) => s.ok === false)
+	externalNotes.push({
 		item: '源健康',
-		ok: sources.every((s) => s.ok !== false),
-		detail: `${sources.length} 个源，失败 ${sources.filter((s) => s.ok === false).length} 个`,
+		ok: failedSources.length === 0,
+		detail: `${sources.length} 个源，失败 ${failedSources.length} 个${failedSources.length > 0 ? '：' + failedSources.map((s) => s.name ?? s.id).join('、') : ''}`,
 	})
+	// 失败明细：只知道"失败 1 个"没用，要知道**是哪个、为什么**
+	for (const row of failedSources) {
+		externalNotes.push({
+			item: `源失败：${row.name ?? row.id}`,
+			ok: false,
+			detail: `${row.error ? String(row.error).slice(0, 90) : '（没有错误说明）'} · ${row.durationMs ?? 0} ms`,
+		})
+	}
 } finally {
 	if (server.pid) {
 		try {
@@ -260,8 +278,21 @@ for (const item of functionalNotes) {
 	lines.push(`| ${item.item} | ${item.ok ? '✅' : '❌'} | ${item.detail} |`)
 }
 const failedFunctional = functionalNotes.filter((i) => !i.ok)
+const failedExternal = externalNotes.filter((i) => !i.ok)
 lines.push('')
-lines.push(`**结论**：${failedFunctional.length === 0 ? '全部通过' : `${failedFunctional.length} 项未通过：${failedFunctional.map((i) => i.item).join('、')}`}`)
+lines.push(
+	`**自身功能结论**：${failedFunctional.length === 0 ? '✅ 全部通过' : `❌ ${failedFunctional.length} 项未通过：${failedFunctional.map((i) => i.item).join('、')}`}`,
+)
+lines.push('')
+lines.push('**外部依赖（不计入退出码 —— 外部抖动不代表插件坏了）**')
+lines.push('')
+lines.push('| 检查项 | 结果 | 证据 |')
+lines.push('|---|---|---|')
+for (const item of externalNotes) lines.push(`| ${item.item} | ${item.ok ? '✅' : '⚠️'} | ${item.detail} |`)
+lines.push(
+	`
+**外部依赖结论**：${failedExternal.length === 0 ? '✅ 全部正常' : `⚠️ ${failedExternal.length} 项异常（外部原因，记录在案）`}`,
+)
 lines.push('')
 lines.push('### 接口延迟与体积')
 lines.push('')
@@ -342,6 +373,12 @@ if (!previous) {
 	const nowFailed = outbound.reduce((sum, o) => sum + (o.failed ?? 0), 0)
 	const prevFailed = (previous.outbound ?? []).reduce((sum, o) => sum + (o.failed ?? 0), 0)
 	lines.push(`| 失败请求 | ${prevFailed} | ${nowFailed} | ${delta(nowFailed, prevFailed)} |`)
+	// **哪个源在变差**：只报"失败 8 个"无法行动，要知道是哪些源失败、比上轮多了谁
+	const prevFailedNames = (previous.sources ?? []).filter((s) => s.ok === false).map((s) => s.name)
+	const nowFailedNames = perSource.filter((s) => s.ok === false).map((s) => s.name)
+	const newlyFailed = nowFailedNames.filter((name) => !prevFailedNames.includes(name))
+	const recovered = prevFailedNames.filter((name) => !nowFailedNames.includes(name))
+	lines.push(`| 失败的源 | ${prevFailedNames.join('、') || '（无）'} | ${nowFailedNames.join('、') || '（无）'} | ${newlyFailed.length > 0 ? `新失败：${newlyFailed.join('、')}` : recovered.length > 0 ? `已恢复：${recovered.join('、')}` : '无变化'} |`)
 	const prevSlow = (previous.sources ?? [])[0]
 	if (prevSlow) {
 		lines.push(
@@ -360,11 +397,12 @@ writeFileSync(path.join(root, 'reports', 'latest.md'), `${markdown}\n`)
 // 机器读的快照：报告是给人看的，趋势对比要靠结构化数据（解析 Markdown 太脆）
 writeFileSync(
 	snapshotPath,
-	`${JSON.stringify({ at: report.at, port, quick, api: apiRows, stages: stageRows, outbound, sources: perSource, functional: functionalNotes }, null, 2)}\n`,
+	`${JSON.stringify({ at: report.at, port, quick, api: apiRows, stages: stageRows, outbound, sources: perSource, functional: functionalNotes, external: externalNotes }, null, 2)}\n`,
 )
 
 console.log('\n' + markdown.split('\n').slice(0, 40).join('\n'))
 console.log(`\n  已写入 ${path.relative(root, outFile)} 与 reports/latest.md`)
 
 rmSync(dataDir, { recursive: true, force: true, maxRetries: 5 })
+// 退出码只反映**自身功能**（外部源抖动不该让巡检"失败"）
 process.exit(failedFunctional.length === 0 ? 0 : 1)

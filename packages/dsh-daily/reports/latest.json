@@ -1,6 +1,6 @@
 {
-  "at": "2026-10-13T04:08:16.199Z",
-  "port": 8998,
+  "at": "2026-10-13T05:06:32.611Z",
+  "port": 8999,
   "quick": false,
   "api": [
     {
@@ -8,8 +8,8 @@
       "endpoint": "/api/state",
       "method": "GET",
       "status": 200,
-      "ms": 4,
-      "kb": 1.2294921875
+      "ms": 3,
+      "kb": 1.169921875
     },
     {
       "label": "项目清单",
@@ -17,7 +17,7 @@
       "method": "GET",
       "status": 200,
       "ms": 3,
-      "kb": 0.521484375
+      "kb": 0.458984375
     },
     {
       "label": "条目",
@@ -32,7 +32,7 @@
       "endpoint": "/api/sources",
       "method": "GET",
       "status": 200,
-      "ms": 2,
+      "ms": 3,
       "kb": 0.91796875
     },
     {
@@ -40,7 +40,7 @@
       "endpoint": "/api/digest",
       "method": "GET",
       "status": 200,
-      "ms": 3,
+      "ms": 2,
       "kb": 0.0634765625
     },
     {
@@ -48,7 +48,7 @@
       "endpoint": "/api/feeds",
       "method": "GET",
       "status": 200,
-      "ms": 0,
+      "ms": 1,
       "kb": 0.021484375
     },
     {
@@ -56,7 +56,7 @@
       "endpoint": "/api/archive",
       "method": "GET",
       "status": 200,
-      "ms": 3,
+      "ms": 2,
       "kb": 0.0205078125
     },
     {
@@ -64,7 +64,7 @@
       "endpoint": "/api/weekly",
       "method": "GET",
       "status": 200,
-      "ms": 7,
+      "ms": 3,
       "kb": 0.291015625
     },
     {
@@ -80,39 +80,39 @@
       "endpoint": "/api/findings",
       "method": "GET",
       "status": 200,
-      "ms": 3,
-      "kb": 0.7080078125
+      "ms": 2,
+      "kb": 0.6455078125
     },
     {
       "label": "切换项目",
       "endpoint": "/api/projects",
       "method": "POST",
       "status": 200,
-      "ms": 5,
-      "kb": 0.650390625
+      "ms": 7,
+      "kb": 0.6162109375
     },
     {
       "label": "状态（复核项目）",
       "endpoint": "/api/state",
       "method": "GET",
       "status": 200,
-      "ms": 2,
-      "kb": 1.2138671875
+      "ms": 1,
+      "kb": 1.1796875
     },
     {
       "label": "刷新（触发抓取）",
       "endpoint": "/api/refresh",
       "method": "POST",
       "status": 200,
-      "ms": 3963,
-      "kb": 0.0908203125
+      "ms": 46936,
+      "kb": 0.0927734375
     },
     {
       "label": "检索词计划",
       "endpoint": "/api/research",
       "method": "POST",
       "status": 200,
-      "ms": 11,
+      "ms": 22,
       "kb": 1.724609375
     },
     {
@@ -120,8 +120,8 @@
       "endpoint": "/api/findings",
       "method": "POST",
       "status": 200,
-      "ms": 1747,
-      "kb": 33.3095703125
+      "ms": 2151,
+      "kb": 56.91796875
     },
     {
       "label": "状态（末次）",
@@ -129,107 +129,107 @@
       "method": "GET",
       "status": 200,
       "ms": 4,
-      "kb": 3.9765625
+      "kb": 3.1845703125
     }
   ],
   "stages": [
     {
       "label": "抓取订阅源",
-      "ms": 3963,
+      "ms": 46936,
       "detail": "? 条 / ? 源正常"
     },
     {
       "label": "生成检索词",
-      "ms": 11,
+      "ms": 22,
       "detail": "15 条词"
     },
     {
       "label": "定向检索",
-      "ms": 1747,
-      "detail": "请求 16 成功 10 失败 6 跳过 4"
+      "ms": 2151,
+      "detail": "请求 16 成功 16 失败 0 跳过 4"
     },
     {
       "label": "最慢的源",
-      "ms": 3887,
-      "detail": "YouTube（0 条）"
+      "ms": 46813,
+      "detail": "YouTube（24 条）"
     }
   ],
   "outbound": [
     {
       "kind": "检索（HN + GitHub 搜索）",
       "requests": 16,
-      "ok": 10,
-      "failed": 6,
+      "ok": 16,
+      "failed": 0,
       "skipped": 4
     },
     {
       "kind": "抓取订阅源",
       "requests": 11,
-      "ok": 9,
-      "failed": 2,
+      "ok": 11,
+      "failed": 0,
       "skipped": 1
     }
   ],
   "sources": [
     {
       "name": "YouTube",
-      "ok": false,
-      "count": 0,
-      "ms": 3887
+      "ok": true,
+      "count": 24,
+      "ms": 46813
     },
     {
       "name": "Hacker News",
       "ok": true,
       "count": 16,
-      "ms": 1230
+      "ms": 1815
     },
     {
       "name": "arXiv",
       "ok": true,
       "count": 8,
-      "ms": 813
+      "ms": 1682
     },
     {
       "name": "GitHub 新晋热门",
       "ok": true,
       "count": 8,
-      "ms": 649
+      "ms": 828
     },
     {
-      "name": "阮一峰的网络日志",
-      "ok": true,
-      "count": 3,
-      "ms": 598
-    },
-    {
-      "name": "Solidot",
+      "name": "哔哩哔哩·排行榜",
       "ok": true,
       "count": 8,
-      "ms": 430
-    },
-    {
-      "name": "少数派",
-      "ok": true,
-      "count": 8,
-      "ms": 345
+      "ms": 630
     },
     {
       "name": "哔哩哔哩·热门",
       "ok": true,
       "count": 8,
-      "ms": 321
+      "ms": 602
     },
     {
-      "name": "哔哩哔哩·排行榜",
-      "ok": false,
-      "count": 0,
-      "ms": 300
+      "name": "阮一峰的网络日志",
+      "ok": true,
+      "count": 3,
+      "ms": 453
+    },
+    {
+      "name": "少数派",
+      "ok": true,
+      "count": 8,
+      "ms": 339
     },
     {
       "name": "IT之家",
       "ok": true,
       "count": 8,
-      "ms": 246
+      "ms": 335
+    },
+    {
+      "name": "Solidot",
+      "ok": true,
+      "count": 8,
+      "ms": 257
     },
     {
       "name": "自定义 RSS 源",
@@ -257,17 +257,19 @@
     {
       "item": "调研返回结果",
       "ok": true,
-      "detail": "31 条 · 维度 5 个"
+      "detail": "56 条 · 维度 5 个"
     },
     {
       "item": "卡片字段（头图/中文介绍/来源）",
       "ok": true,
-      "detail": "头图 30/31 · AI 介绍 31 · 兜底 0"
-    },
+      "detail": "头图 55/56 · AI 介绍 50 · 兜底 6"
+    }
+  ],
+  "external": [
     {
       "item": "源健康",
-      "ok": false,
-      "detail": "11 个源，失败 2 个"
+      "ok": true,
+      "detail": "11 个源，失败 0 个"
     }
   ]
 }
