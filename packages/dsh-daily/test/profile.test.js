@@ -67,19 +67,24 @@ test('shouldSkipDir / shouldSkipFile：依赖与大目录不进去，锁文件�
 
 // ---------- 关键词 ----------
 
-test('extractKeywords：英文词去掉停用词、中文取双字组、顺序稳定', () => {
-	const keywords = extractKeywords(
-		'RSS 解析器 parser parser the and with 日报 日报 主动 推荐 推荐 RSS',
-		10,
+test('extractKeywords：英文词去掉停用词、CJK 取三字以上、且抽取期就用"会用到的"标准', () => {
+	// **契约变过，这里记原因**：原先 CJK 取双字组，实测产出的全是泛词
+	// （状态/管理/数据/测试/组件）—— 两字中文技术词太常见，拿去搜索只会带回噪声。
+	// 代价：`向量`/`图谱` 这类双字领域词会被丢掉，改由"用户手动加 tag"补（显式意图）。
+	const text = 'react React dashboard 数据 状态管理 可视化 组件 task.md version_test'
+	const words = extractKeywords(text, 30)
+	assert.ok(words.includes('react'), '英文词要留下（且按出现次数排序）')
+	assert.ok(words.includes('dashboard'))
+	assert.ok(!words.includes('task.md'), '带点的文件名不该成为关键词')
+	assert.ok(!words.includes('task') && !words.includes('version_test'), '文件名/变量名拆开后若是泛词也要掉')
+	assert.ok(!words.includes('数据'), '两字中文泛词不该出现（三字以上才要）')
+	assert.ok(!words.includes('组件'), '同上')
+	assert.ok(
+		words.some((w) => w === '状态管理' || w === '可视化'),
+		`三字以上的中文短语要能提取出来：${words.join('、')}`,
 	)
-	assert.ok(keywords.includes('parser'), `应保留实体词：${keywords.join(',')}`)
-	assert.ok(keywords.includes('rss'))
-	assert.ok(!keywords.includes('the') && !keywords.includes('and'), '停用词该被滤掉')
-	assert.ok(keywords.includes('日报') || keywords.includes('推荐'), `应含中文双字组：${keywords.join(',')}`)
-	// 高频优先（rss 与 parser 都出现 2 次 → 同频按字典序 → parser 在前）
-	assert.deepEqual(keywords.slice(0, 2).sort(), ['parser', 'rss'], `前两名应是最高频的两个：${keywords.join(',')}`)
-	// 同样的输入两次结果一致（可复现）
-	assert.deepEqual(extractKeywords('abc abc def', 5), extractKeywords('abc abc def', 5))
+	// 顺序稳定：同分按字典序（同一输入多次调用结果一致）
+	assert.deepEqual(extractKeywords(text, 30), words)
 })
 
 test('extractKeywords：limit 生效；空输入不炸', () => {

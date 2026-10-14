@@ -2583,3 +2583,40 @@ guideline / version_test / typescript`），但**抽取器本身还没清理**�
 
 **证据**：`npm test` → **368 / pass 368 / fail 0**（R64 基线 367 → 本轮 +1）
 已发布 `@kpeace/dsh-daily@0.9.0`
+
+### R66 · 2026-10-14 14:06 — 清理关键词抽取器（发布 0.9.1）
+
+**R65 点名的下轮第一件事**：tag 把抽取器的原样输出暴露出来，噪声藏不住了。
+
+**两个真正的病根**
+1. **ASCII 正则把 `._-` 留在词里** → 产出 `task.md`、`version_test` 这种
+   "看着像词、其实是文件名/变量名"的东西。**拿去搜索也没有意义**（搜 `task.md` 能搜到什么？）
+   → 改为**先按 `._-` 拆开**再逐个判定
+2. **CJK 取双字组** → 产出的全是泛词（`状态`/`管理`/`数据`/`测试`/`组件`）
+   → 改为**三字及以上的滑动窗口**
+3. 另外：**抽取期就用与"真正会被使用"同一套标准**（`isMatchableTerm`）。
+   此前只在展示/匹配时过滤，于是**抽取器可以一直产出永远不会被用到的词**，
+   还把噪声留在产物里 —— 这是"两套标准"的又一次（R58 过泛词、R62 includes vs matchKeyword，这是第三次）
+
+**证据（同一个项目，前后对比）**
+```
+R65 原样：context / pages / src / tech / experiment / portal / test / batch / 状态 / 管理 /
+          数据 / 测试 / 组件 / build / 必须 / task.md / version_test
+R66 清理：react / mvizlite / qviz / architecture / typescript / extension / dashboard /
+          guideline / search / sentry / model / annota / design / lodash / vitest / xstate /
+          flow / protocol / sources / three / tracking / immer / redux / request
+含文件名或路径痕迹的：**无** ✅
+```
+
+**代价（如实记）**：`向量`/`图谱` 这类**双字领域词会被丢掉**。
+取舍理由：**双字词拿去搜索只会带回噪声**；而它们仍可通过"用户手动添加 tag"补回来
+（那是显式意图，不过我的过滤）。
+
+**契约变更**：`test/profile.test.js` 里那条断言"中文取双字组"的测试按新契约重写，
+并在测试里写明了变更原因与代价（测试要能解释自己为什么改）。
+
+**证据**：`npm test` → **368 / pass 368 / fail 0**
+已发布 `@kpeace/dsh-daily@0.9.1`
+
+**下轮起点**：① 第④期刷新联动（抓完自动生成简报 + 提示条）② 美化下一层
+③ 抽取器还剩 `annota`（疑似截断）、`guideline`/`design` 偏泛 —— 可再加一道"词形完整性"检查

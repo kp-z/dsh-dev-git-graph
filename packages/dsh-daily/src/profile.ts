@@ -21,6 +21,7 @@
  */
 
 import { readFile, readdir } from 'node:fs/promises'
+import { isMatchableTerm } from './brief.js'
 import { basename, join } from 'node:path'
 import { normalizeDir } from './project.js'
 
@@ -206,20 +207,37 @@ export function extractKeywords(text: string, limit = 24): string[] {
 	}
 
 	// ASCII 词
+	//
+	// **先按 `._-` 拆开**：这两种分隔符留在词里会产出"看着像词、其实是路径或变量名"的东西
+	// （`task.md`、`version_test`）—— 它们在界面上被 tag 暴露出来后非常刺眼，
+	// 而且拿去搜索也没有意义（搜 `task.md` 能搜到什么？）。
 	for (const match of text.toLowerCase().matchAll(/[a-z][a-z0-9+#._-]{2,}/g)) {
-		const token = match[0].replace(/[._-]+$/, '')
-		if (token.length < 3 || STOPWORDS.has(token)) continue
-		if (/^\d+$/.test(token)) continue
-		bump(token)
+		for (const raw of match[0].split(/[._-]+/)) {
+			const token = raw.replace(/[+#]+$/, '')
+			if (token.length < 3 || STOPWORDS.has(token)) continue
+			if (/^\d+$/.test(token)) continue
+			// **抽取期就用与"真正会被使用"同一套标准**（此前只在展示/匹配时过滤，
+			// 于是抽取器可以一直产出永远不会被用到的词，还把噪声留在产物里）
+			if (!isMatchableTerm(token)) continue
+			bump(token)
+		}
 	}
 
-	// CJK：取连续汉字段里的双字组（粗略分词，但对"领域词"够用）
+	// CJK：取**三字及以上**的滑动窗口
+	//
+	// 原先取双字组，实测产出的全是泛词（`状态`/`管理`/`数据`/`测试`/`组件`）——
+	// 两字中文技术词太常见，`isMatchableTerm` 也要求中文 ≥3 字。
+	// 代价：`向量`/`图谱` 这类双字领域词会被丢掉。取舍理由：**双字词拿去搜索只会带回噪声**，
+	// 而它们仍可通过"用户手动添加 tag"补回来（那是显式意图）。
 	for (const match of text.matchAll(/[\u4e00-\u9fa5]{2,}/g)) {
 		const run = match[0]
-		for (let i = 0; i + 2 <= run.length; i++) {
-			const gram = run.slice(i, i + 2)
-			if (STOPWORDS.has(gram)) continue
-			bump(gram)
+		for (let size = 3; size <= Math.min(6, run.length); size++) {
+			for (let i = 0; i + size <= run.length; i++) {
+				const gram = run.slice(i, i + size)
+				if (STOPWORDS.has(gram)) continue
+				if (!isMatchableTerm(gram)) continue
+				bump(gram)
+			}
 		}
 	}
 
