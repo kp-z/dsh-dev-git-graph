@@ -1,0 +1,162 @@
+/**
+ * 调度器（BACKLOG M2-4）。
+ *
+ * 给每个空闲角色原子地 claim 一张可领取的工单，并按 `requires` 的能力挑一个**有空位**的站点。
+ *
+ * ## 为什么是"原子 claim"
+ *
+ * 一条 tick 内，一张工单最多被一个角色拿到。这不是靠"先查再改"的时序小心来保证的，
+ * 而是**结构上保证**：本模块在一趟遍历里完成"挑单 + 挑人 + 挑站点 + 写状态"，
+ * 中途没有任何 await、也没有第二次遍历去重复挑同一张单。
+ * 一旦这里出现异步或两次遍历，"两个人抢到同一张单"就会变成偶发问题。
+ *
+ * ## 容量与座位
+ *
+ * 站点容量是硬约束。占用者包括**已经在那里的**和**正在走过去的**——
+ * 只看前者会让三个人同时被派到一张单人工位上，然后到达时才发现挤不下。
+ * 座位号也在 claim 时定好，写进路径；到达时不用再算（到达时再算会拿到不确定的序号）。
+ *
+ * ## 不在这里发事件
+ *
+ * 返回"谁领了什么"，事件由 `step.ts` 统一产出。
+ */
+import { stationSlot } from '../domain/geometry.js'
+import type { Agent, Station, Task, World } from '../domain/types.js'
+
+/** 一次派工。 */
+export interface Claim {
+  agentId: string
+  taskId: string
+  stationId: string
+  /** 本轮尝试 id。重新派工时换新，旧 attempt 的汇报会被拒（M7 用）。 */
+  attemptId: string
+}
+
+/** 派不出去的原因。 */
+export interface Stalled {
+  taskId: string
+  reason: 'no-station' | 'no-worker'
+  /** 给人看的说明（诊断与测试直接读它）。 */
+  detail: string
+}
+
+/** 一次调度的结果。 */
+export interface SchedulerOutcome {
+  claims: Claim[]
+  stalled: Stalled[]
+}
+
+/**
+ * 站点当前被占用多少。
+ *
+ * **已经在那里的**与**正在过去的**都算——理由见文件头。
+ */
+export function occupancyOf(world: World, stationId: string): number {
+  let n = 0
+  for (const agent of world.agents) {
+    if (agent.station === stationId) n += 1
+    else if (agent.targetStation === stationId) n += 1
+  }
+  return n
+}
+
+/**
+ * 挑一个能承载这张工单、且还有空位的站点。
+ *
+ * 判据是**能力包含**（`requires` ⊆ `station.capabilities`），不是"有交集"：
+ * 一张要求「评审 + 讨论」的单，放在只有「评审」的桌上是不对的。
+ *
+ * 遍历顺序按 `world.stations` 原序（由内容库场景的站点列表决定，稳定），
+ * 不排序也不随机——**同一个世界的同一 tick 必须挑到同一个站点**。
+ *
+ * @returns 站点与座位号；挑不到返回 null。
+ */
+export function pickStation(world: World, task: Task): { station: Station; slotIndex: number } | null {
+  for (const station of world.stations) {
+    const covers = task.requires.every((need) => station.capabilities.includes(need))
+    if (!covers) continue
+    const used = occupancyOf(world, station.id)
+    if (used >= station.capacity) continue
+    return { station, slotIndex: used }
+  }
+  return null
+}
+
+/** 空闲角色：状态 `idle` 且手上没有工单。 */
+function idleAgents(world: World): Agent[] {
+  return world.agents.filter((a) => a.state === 'idle' && a.carrying === null)
+}
+
+/**
+ * 推进一 tick 的派工。
+ *
+ * **会就地修改 `world.tasks` 与 `world.agents`。**
+ *
+ * @param world - 世界（就地修改）。
+ */
+export function claimTasks(world: World): SchedulerOutcome {
+  const claims: Claim[] = []
+  const stalled: Stalled[] = []
+
+  // 可领取的工单，按（创建 tick, 创建序号）排序——**不用 id 字符串排序**：
+  // `task-10` 的字符串序在 `task-2` 前面，那会让优先级在两位数时静默改变。
+  const ready = world.tasks
+    .filter((t) => t.status === 'ready')
+    .sort((a, b) => a.createdAtTick - b.createdAtTick || a.ordinal - b.ordinal)
+
+  if (ready.length === 0) return { claims, stalled }
+
+  // 本次调度里已经被占用的角色，避免一张单派给同一个人两次。
+  const taken = new Set<string>()
+  const available = idleAgents(world)
+
+  for (const task of ready) {
+    const free = available.filter((a) => !taken.has(a.id))
+    if (free.length === 0) {
+      stalled.push({
+        taskId: task.id,
+        reason: 'no-worker',
+        detail: '没有空闲角色了。等有人干完手上的活，或招募更多角色。',
+      })
+      continue
+    }
+
+    const chosen = pickStation(world, task)
+    if (chosen === null) {
+      stalled.push({
+        taskId: task.id,
+        reason: 'no-station',
+        detail:
+          `没有任何站点能承载能力 [${task.requires.join(', ')}] 且还有空位。` +
+          `可以加一个带这些能力的站点，或等占着的人干完。`,
+      })
+      continue
+    }
+
+    // 优先同职业；没有就把这张单给任何空闲的人——**不要因为职业不匹配就不派**，
+    // 否则一个小队里只要缺某个职业，整条流水线就停在那里。
+    const matching = free.find((a) => task.suggestedRole !== null && a.role === task.suggestedRole)
+    const agent = matching ?? free[0]
+    if (agent === undefined) continue
+
+    const slot = stationSlot(chosen.station, chosen.slotIndex)
+    const attemptId = `attempt-${world.tick}-${task.id}`
+
+    task.status = 'in_progress'
+    task.owner = agent.id
+    task.station = chosen.station.id
+    task.attemptId = attemptId
+    task.progress = 0
+
+    agent.carrying = task.id
+    agent.targetStation = chosen.station.id
+    agent.station = null
+    agent.path = [{ ...slot }]
+    agent.state = 'walking'
+
+    taken.add(agent.id)
+    claims.push({ agentId: agent.id, taskId: task.id, stationId: chosen.station.id, attemptId })
+  }
+
+  return { claims, stalled }
+}

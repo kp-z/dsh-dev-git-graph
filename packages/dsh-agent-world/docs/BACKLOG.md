@@ -73,17 +73,21 @@
 
 ## M2 — 模拟内核（**技术上最硬的一块**）
 
+> **构建顺序修正（R5）**：原表把 `step.ts` 排在叶子模块前面，但 `step` 只是把叶子串起来。
+> 正确的顺序是**先做叶子、再做编排**——每做完一个叶子就能单独测，最后 `step` 只是接线。
+
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M2-1 | ready | 依赖求值：`blockedBy` 全 done ⇒ `pending→ready`（**唯一实现点**） | `src/sim/ready.ts` + 测试 | M1-5 |
+| M2-1 | done | 依赖求值：`blockedBy` 全 done ⇒ `pending→ready`（**唯一实现点**） | `src/sim/ready.ts` + 测试 | M1-5 |
 | M2-2 | done | 命令类型（`pause`/`resume`/`reset`/`dispatch`/`hire`/`setSpeed`）——**已在 M1.6-4 落到协议层**，不再单独造一份 | `src/protocol/wire/commands.ts` | M1.6-4 |
-| M2-3 | ready | `step(world, dt, commands)` 纯函数：ingest→scheduler→movement→interaction→mailbox→emit | `src/sim/step.ts` | M2-1 M2-2 |
-| M2-4 | blocked | 调度器：idle agent 原子 claim 一个 ready task，按 `requires` 的 capability 选站 | `src/sim/scheduler.ts` + 测试 | M2-3 |
-| M2-5 | blocked | 移动：沿路径走向站点，到站切 working（用 `stationSlot` 吸附） | `src/sim/movement.ts` + 测试 | M2-3 |
-| M2-6 | blocked | 邮箱：消息投递 + 事件产出 | `src/sim/mailbox.ts` + 测试 | M2-3 |
-| M2-7 | blocked | 事件产出：本 tick 的变化压成 delta event，`seq` 单调 | `src/sim/emit.ts` | M2-3 |
+| M2-4 | done | 调度器：idle agent 原子 claim 一个 ready task，按 `requires` 的 capability 选站（能力**包含**而非有交集），容量把"正在过去的"也算上 | `src/sim/scheduler.ts` + 测试 | M2-1 |
+| M2-5 | done | 移动：沿调度器给的路径走向站点，到站切 working；自称 walking 却无目标要**就地修好并报出**（不留静默卡死） | `src/sim/movement.ts` + 测试 | M2-4 |
+| M2-5b | done | 干活推进：进度按内容库的 `estimateTicks` 走；完工**释放站点**（否则高峰期死锁）；状态自相矛盾时放回 idle | `src/sim/interaction.ts` + 测试 | M2-5 |
+| M2-6 | ready | 邮箱：消息投递 + 投递状态（驱动"纸条飞行"动画） | `src/sim/mailbox.ts` + 测试 | M2-5b |
+| M2-7 | ready | 事件产出：把各段返回的 outcome 压成 delta event，`seq` 单调，环形缓冲截断 | `src/sim/journal.ts` `src/sim/emit.ts` + 测试 | M2-5b |
+| M2-3 | ready | `step(world, dt, commands)` 纯函数：ingest→scheduler→movement→interaction→mailbox→emit，把上面几段串起来 | `src/sim/step.ts` + 测试 | M2-6 M2-7 |
 | M2-8 | blocked | **确定性验收**：同 seed 跑 1000 tick，两次结果逐字节一致 | `test/determinism.test.js` | M2-3 |
-| M2-9 | blocked | `agent_world_dispatch`：用**任务库**派一条工作流进世界（第一次真正消费任务库） | `src/tools/dispatch.ts` + 测试 | M2-4 |
+| M2-9 | blocked | `agent_world_dispatch`：用**任务库**派一条工作流进世界（第一次真正消费任务库） | `src/tools/dispatch.ts` + 测试 | M2-3 |
 
 ## M3 — 落盘与 HTTP/SSE
 

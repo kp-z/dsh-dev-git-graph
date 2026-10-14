@@ -128,6 +128,13 @@ export interface Task {
   key: string
   /** 来源任务集 id（内容库里的 `tasks` 条目）。 */
   set: string
+  /**
+   * 创建序号（1 起）。**排序一律用它，不要排序 id 字符串**——
+   * `task-10` 的字符串序在 `task-2` 前面，那会让调度优先级在两位数时静默改变。
+   */
+  ordinal: number
+  /** 内容库里建议的职业。调度器优先派给同职业的人（没人匹配就谁都行）。 */
+  suggestedRole: AgentRole | null
   title: string
   description: string
   status: TaskStatus

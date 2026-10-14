@@ -22,8 +22,16 @@ export const EVENT_RING_SIZE = 500
 /** 角色一条 tick 的移动速度（世界单位 / tick）。走一个地块约 1 秒。 */
 export const WALK_SPEED = 0.06
 
-/** 到一个站点后，一条 tick 推进多少进度。1 / 这个值 = 需要多少 tick。 */
+/**
+ * 到一个站点后，一条 tick 推进多少进度。1 / 这个值 = 需要多少 tick。
+ *
+ * 这是**兜底**：任务在内容库里声明了 `estimateTicks` 时用那个值（让"预估"真的有含义），
+ * 没声明才用它。
+ */
 export const WORK_SPEED = 0.004
+
+/** 没声明 `estimateTicks` 的任务，默认要多少 tick 完成。 */
+export const DEFAULT_TASK_TICKS = Math.round(1 / WORK_SPEED)
 
 /** 同屏角色上限。超过就排队等待招募（性能预算，见 docs/ARCHITECTURE.md §5.3）。 */
 export const MAX_AGENTS = 24

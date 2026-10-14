@@ -27,7 +27,125 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R3 末）：`typecheck` 绿 · `test` 49/49 绿。
+当前验证状态（R5 末）：`typecheck` 绿 · `test` 91/91 绿。
+
+---
+
+## R5 — 2026-10-14 · 模拟内核的四个叶子：依赖求值 / 调度 / 移动 / 干活
+
+**本轮目标**（M2-1 / M2-4 / M2-5 / M2-5b）：把"世界会动"这件事做出来。
+四个阶段函数都是**纯的**（不碰 IO、不用未注入的随机与时间），各自可单独测。
+
+### 做了什么
+
+1. **`src/sim/ready.ts`（M2-1）** —— `ready` 状态的**唯一**实现点。
+   强调"唯一"是因为：如果调度器、HUD、工具各自判断一次"依赖满没满足"，
+   三处总有一天对同一张工单给出不同答案，而每处单独看都对——那种不一致最难查。
+   两条刻意的语义：
+   - **依赖指向不存在的任务 ⇒ 返回 false**（不是"当成没依赖"）。
+     基于一个"消失了的前置"判断可以开工，比不开工更坏。
+   - **`ready → pending` 的退回也有实现**：依赖被重新打开时，不让世界卡在
+     "依赖没了但单还是可领取"这种自相矛盾的状态上。
+2. **`src/sim/scheduler.ts`（M2-4）** —— 原子 claim。几条设计：
+   - **"原子"靠结构保证，不靠时序小心**：一趟遍历里完成"挑单 + 挑人 + 挑站 + 写状态"，
+     中途没有 await、也没有第二次遍历。一旦有，"两个人抢到同一张单"就会变偶发问题。
+   - **容量把"正在过去的"也算上**：只看"已经在那里的"会让三个人同时被派到一张
+     单人工位，到了才发现挤不下。
+   - **座位在 claim 时定好并写进路径**：到达时再算会拿到不确定的序号。
+   - 排序用 `ordinal` 而**不是 id 字符串**——`task-10` 的字符串序在 `task-2` 前面，
+     那会让优先级在两位数时静默改变。
+   - 职业匹配是**优先而不是门槛**：没有同职业的人就把单给任何空闲的人。
+     否则一个小队只要缺某个职业，整条流水线就停在那里。
+3. **`src/sim/movement.ts`（M2-5）** —— 只做位置推进，**不负责找路**（路径由调度器给）。
+   好处：以后换网格 A\* 或 navmesh，改的是"路径怎么算出来"，"怎么沿路走"一行不动。
+   一条防御：自称 `walking` 却没有（有效）目标 → **就地修好并报出来**。
+   不修的话角色会永远卡在"走路"状态上不动——**静默卡死**是最难查的一类问题。
+4. **`src/sim/interaction.ts`（M2-5b，本轮新增的任务）** —— 干活推进。三个决定：
+   - **进度按内容库声明的 `estimateTicks` 走**：既然内容里写了"预估 600 tick"，
+     就让它真的有意义。否则它只是个装饰数字，而"显示 3 分钟、实际 25 秒"比不显示还糟。
+   - **完工即释放站点**：站点容量是稀缺资源（只有 4 张能写代码的工位）。
+     如果干完活的人赖在工位上，高峰期会死锁——工位被"已经干完的人"占着，新工单永远派不出去。
+   - **不做庆祝状态**：`celebrating` 留给渲染层对完工事件做反应。
+     模拟内核不必多维护一个计时器，而"看起来在庆祝"本来就是表现层的事。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 91 / pass 91 / fail 0
+```
+
+70 → **91**。新增 21 个，每条都对应一个真实会踩的坑：
+
+- 依赖指向不存在的任务 → **不开工**（而不是当成没依赖）
+- 依赖被重新打开 → 已 ready 的单**退回 pending**
+- 一张单在同一 tick 内只被派一次；同一个人不会被派两张
+- **容量超了要 stalled 而不是硬塞**，且 stalled 的说明要指出缺的是什么能力
+- **占位把"正在过去的"也算上**（这是最容易漏的一条）
+- `pickStation` 要求**能力包含**而不是有交集（要求「评审+讨论」的单不能放到只有「评审」的桌上）
+- 优先级按 ordinal：造 12 张单、3 个工位座位，断言拿到的是 `task-1/2/3`
+  而不是字符串序的 `task-1/10/11`
+- 位置**精确落位**（差一点点在渲染层看起来就是没坐下）
+- 自称 walking 却无目标 / 目标站点不存在 → 修好
+- 完工**释放站点**（断言 `occupancyOf` 回到 0）
+- 四段串起来能跑通一条流水线（triage 完工后 patch 被接上）
+
+两处测试写错、**实现是对的**，改的是测试（记在这里免得下次又写一遍）：
+① 我给 12 张单都写了 `research` 能力，而实验台只有 1 个座位，所以只能派出去 1 张、
+观察不到顺序——改成 `code`（3 个座位）才看得到有序前缀；
+② `pickStation({ requires: [] })` 我写了个自相矛盾的断言（`null ?? 自己`），
+实际行为是"落到第一个有空位的站点"（`every` 对空数组为真）——这是确定的、可接受的，
+因为内容校验本来就**禁止**任务模板不声明能力。
+
+### 下一轮从哪继续
+
+**M2-7：`src/sim/journal.ts` + `src/sim/emit.ts`（事件产出）**，然后 M2-6（邮箱）、M2-3（`step`）、M2-8（确定性）。具体：
+
+1. `src/sim/journal.ts`：`emitEvent(world, type, payload): WorldEvent` —— 取 `world.seq` 当序号、
+   自增、push 进 `world.events`、超过 `EVENT_RING_SIZE` 从头部截断。**只有它能改 `world.seq`**。
+2. `src/sim/emit.ts`：把四段返回的 outcome 翻成事件。类型用 `WorldEventType`
+   （`agent.state` / `agent.moved` / `task.changed` / `message.sent`）。
+   **注意别每 tick 发一堆 `agent.moved`**：位置每 tick 都变，那是高频事件（≤24 条/tick ≈ 240 条/秒），
+   会给 SSE 与"环形缓冲只有 500 条"带来压力。**先定采样策略再写代码**
+   （按位移阈值采样，或只在一个批里给最终位置），否则会在 M2-8 的对比里以"输出太大"暴露。
+3. 四段函数**刻意都不发事件**（返回 outcome），事件只在 `emit.ts` 一处产出。
+   别在 `ready.ts` / `scheduler.ts` 里顺手加 emit——那会让"事件从哪来"变成四个答案。
+4. 然后 `src/sim/mailbox.ts`（M2-6）→ `src/sim/step.ts`（M2-3，六段顺序：
+   `ingest → scheduler → movement → interaction → mailbox → emit`）→ `test/determinism.test.js`（M2-8）。
+5. `step` 的签名与语义：`step(world, dt, commands) -> { world, events }`，**就地修改传入的 world
+   并返回它**（"纯"指的是不碰 IO、不用未注入的随机/时间，不是不可变）。调用方要么拥有它，
+   要么先克隆。这点要写在文件头，否则下一个人会以为它不修改入参。
+
+### 假设
+
+- **`sim/` 的路径目前是直线（一个座位点）**。小镇还没有障碍物，所以正确；
+  真正的绕障在 M5-3（网格 A\*）。换的时候改的是"路径怎么算出来"，
+  `movement.ts` 的推进逻辑不用动——这正是把找路与走路分开的收益。
+- **`progress` 是增量累加**（每 tick `+1/estimateTicks`），不是由 tick 反推。
+  浮点累加有误差，但同一个世界跑同样的步数得到同样的浮点结果，所以**确定性不受影响**。
+  如果以后要"从任意 tick 直接算出 progress"，得改成按 `startedAtTick` 反推
+  （那需要给 `Task` 加字段）——现在没这个需求。
+- **完工的角色就地站住**（位置不动、`station` 清空）。"走回休息区"与"庆祝"都是表现层的事。
+
+### 卡住 / 风险
+
+- **事件量还是未知数**（见「下一轮」第 2 点）。这是本轮留下的最大不确定性：
+  必须先定 `agent.moved` 的采样策略，否则 M2-8 的逐字节对比会因为输出太庞大而没法用。
+- **`Task.ordinal` 是跨任务集连续的**（`instantiateTasks` 传的是全局 `tasks.length + 1`）。
+  好处是全世界一个稳定序；代价是它**不表达**"在所属流水线里是第几步"。
+  HUD 要画流水线内部顺序时得用 `set` + 集合内下标，不能直接用 `ordinal`。记在这里免得误用。
+- 边界检查器对 `src/sim/` 的规则已生效（只许 import `protocol` 与 `domain`），
+  所以 `journal.ts` / `emit.ts` **不许** import `runtime` 或 `content`——
+  事件出口是 `EventSinkPort`（`protocol/ports/events.ts`）。
+
+### 本轮产出
+
+- 新增：`src/sim/{ready,scheduler,movement,interaction,index}.ts`、`test/sim.test.js`
+- 修改：`src/domain/types.ts`（`Task` 加 `ordinal` / `suggestedRole`）、
+  `src/content/instantiate.ts`、`src/domain/constants.ts`（`DEFAULT_TASK_TICKS`）、
+  `docs/BACKLOG.md`（M2 构建顺序修正）
+- 测试从 70 → 91
 
 ---
 

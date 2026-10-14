@@ -118,6 +118,8 @@ export function instantiateTasks(
     id: `task-${startIndex + i}`,
     key: t.key,
     set: set.id,
+    ordinal: startIndex + i,
+    suggestedRole: t.role,
     title: t.title,
     description: t.description,
     status: 'pending' as const,
