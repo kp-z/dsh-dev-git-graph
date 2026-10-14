@@ -27,7 +27,156 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R9 末）：`typecheck` 绿 · `test` 162/162 绿。
+当前验证状态（R10 末）：`typecheck` 绿 · `test` 182/182 绿。
+
+---
+
+## R10 — 2026-10-15 · 把 R7 预览里看到的两处模拟缺口补掉（M2.5-1 / M2.5-2）
+
+**先说网络**：用户选了「路 A」（联网搜现成场景），但我当场重测——**仍然全断**
+（`api.github.com` / `registry.npmjs.org` / `example.com` 全是 `000`）。
+所以路 A 现在还没法起步，这是环境问题不是选择问题。按纪律不停下来等，
+本轮做的是**不受网络影响、也不需要谁拍板**的那两件：R7 从真实输出里发现的缺口。
+
+### M2.5-1 · 空闲角色全叠在出生点
+
+现象：8 个人里 6 个待命时，坐标**全是 (0,0)**。俯视图里只看得到一个字符
+（其余被完全盖住），3D 场景里就是 6 个人穿在同一格。
+
+根因不是"渲染错了"，是**设计没覆盖到这里**：角色只在被派活时才移动，
+所以从没被派过活的人一步都不会走。
+
+做法：给 `Agent` 加 `hangout`（歇脚点），新增 `src/sim/idle.ts` 的 `advanceIdle()`
+让待命的角色朝它走、到了就停。落点用 `domain/geometry.ts` 新增的 `latticeIn()`
+在**广场地块**里铺一层确定性栅格，由 `world/create.ts` 分配。
+
+两个刻意的取舍：
+- **不给新的 `AgentState`**。加一个状态就要连带加一条 `actions` 内容（校验器要求
+  每个状态都有动作，否则角色会僵在上一帧），而这里要做的事很轻。
+  代价说清楚了：`idle` 的语义变成"没活干（可能正在走去歇脚点）"。
+- **用栅格不用随机**。模拟内核禁 `Math.random()`；而且随机点会让"同 seed 同结果"破掉——
+  那条性质不该为了让人站得好看而牺牲。
+
+### M2.5-2 · 邮箱建好了但没有任何发送方
+
+现象：跑 700 步 `world.messages` 是 0 条。延迟投递、飞行中判定、纸条动画的数据源
+R6 就建好并且有测试，**但模拟里没有任何一处会发消息**——一条从不被使用的链路
+等于"设计上支持"，不是"能用"。
+
+新增 `src/sim/comms.ts`，只发两处，都是真实的交接：
+
+| 时机 | 消息 | 收件人 |
+|---|---|---|
+| 领到一张**有前置**的单 | `handoff` | 完成前置的那个人 |
+| 某张单完工 | `report` | `lead` |
+
+只加两处是为了守住事件量策略（消息是离散量）。顺手补了上界：
+`MESSAGE_RING_SIZE = 200`，**只裁已送达的**（还在飞的纸条丢了就是渲染层凭空少一张纸）。
+为此消息发号改用新的 `world.messageSeq` —— 原来用 `messages.length`，
+一旦开始裁剪就会重复发号。
+
+### 顺手修掉的两个真实缺陷（都是"改动之后才暴露"的）
+
+1. **`message.sent` 发错了时机**。原先只在**送达**时 emit，于是渲染层要等 10 tick
+   才知道有纸条要飞——那时它已经在两端了，"从 A 飞向 B"这段过程**根本没数据可画**。
+   改成入队时发，并把 `deliverAtTick` 一起带上；送达因此不需要单独事件（时刻算得出来）。
+   投递延迟通过 `RuntimePort.messageDeliveryTicks` 透给路由，渲染层不用自己抄常量。
+2. **`runtime.diagnostics.ticks` 统计错了东西**。它数的是"循环转了几圈"，
+   暂停时仍持续上涨，表现为「HUD 说跑了 600 步、可 tick 才 388」。
+   改成只在 `world.tick` 真的前进时计数。
+
+### 动手时踩到的三处，全部被自己的检查器/探针抓住
+
+1. **反向依赖（又一次）**：`routes/api.ts` 为了拿 `MESSAGE_DELIVERY_TICKS` 去 import
+   `domain/constants` → `[value-import] routes → domain`，边界检查器当场报错。
+   修法不是放宽规则，而是把它挂到 `RuntimePort` 上——**运行时正是路由能看到模拟的唯一出口**。
+2. **红线违规：代码里写字面色值**。我在 `app.js` 里写了
+   `m.kind === 'handoff' ? '#F0B429' : '#7FD1E8'`——直接违反"代码里禁止字面量配色值"。
+   已挪进 `skins` 库（`message.*` 五个 token），`ScenePlan.noteColors` 解析后下发。
+   顺带发现那两色里有一个**与 `role.lead` 撞色**（纸条和角色圆点会同时出现在画面上）。
+   校验器也补了一条：皮肤包缺 `message.*` 时给 **warning**（缺的只是纸条颜色，
+   用 error 会让世界建不出来，代价不成比例），并列出缺了哪些。
+3. **纸条互相盖住**。同一 tick 发出的多条纸条（一个人刚完工汇报、同时把活交接出去）
+   起点完全相同，后画的把先画的整个盖住。**这是用像素计数发现的**：
+   报告色的像素数是 0，而肉眼扫截图只会觉得"只有一张纸"。已按序错开。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 182 / pass 182 / fail 0
+```
+
+162 → **182**。有几条测试是**改断言而不是改实现**，每一处都核过是"期望该变"：
+
+- **事件量那条我原来的断言是错的**。它写的是 `world.seq < EVENT_RING_SIZE`
+  （2000 tick 的总数小于缓冲上限），当时能过只是因为**世界半静止**。
+  待命的人开始走动之后它就红了，而红得对——**它把「速率」和「历史深度」混成了一件事**。
+  现在分开断言：速率 `< 1.5/tick`（实测 0.33），且环形缓冲至少装得下 300 tick 的历史。
+  还加了一条"速率不为 0"防止死世界假通过。
+- **「没人动就不发帧」**：待命的人现在会自己走去歇脚点，所以"把 state 设成 idle"
+  不再等于"没人动"。测试改成把歇脚点放在他们现在站的地方。
+- **一个测试的前提不严**：我原本断言"所有初始待命的人最终都到歇脚点"，
+  结果红在一个被反复派活的角色上——有活干的世界里那不是一个确定成立的性质。
+  改成用**没有工单**的世界单测这个机制。
+
+浏览器实测（真实 HTTP + 真实暂停命令）：等到**3 张纸条同时飞行**的那一刻按暂停，再数像素——
+`tick 647 · 已暂停 · 飞行中纸条 3`，纸条像素 `handoff 133 / report 63`，**两种颜色都在**。
+状态栏的 `事件 647 步` 与 `tick` 完全一致（上面第 2 个缺陷的验证）。
+
+### 下一轮从哪继续
+
+**路 A 依然被网络卡住**，所以仍然两条路：
+
+**路 A（网络恢复）**：按 BACKLOG「M4 前置」那节的两条硬标准搜现成场景。
+判据一句话：**它是不是「给什么数据就摆什么」？** 是 → 能用；不是 → 只能借风格与资产。
+许可证只接受 MIT / Apache-2.0 / CC0。搜到填 `docs/ASSETS.md`，**不要重新调研**已有结论。
+
+**路 B（仍然断网）**：用本机那份 `three@0.167.1` 走 vendoring 起 3D。具体步骤见 R9 的台账。
+
+**不受网络影响、随时可做的（按我的优先序）**：
+
+1. **M3-1 落盘**（`src/store/worldStore.ts`）：`world.json` 原子写 + `events.jsonl` 追加。
+   现在世界只活在内存里，进程重启归零。注意 `world.messages` 现在**真的会有内容**了
+   （R10 之前它永远是空的），所以落盘时**必须**把它一起写进去，否则重启后飞行中的纸条全没了。
+2. **M3-4 SSE**：`GET /api/events` + 面板从轮询改成 `EventSource`。
+   `protocol/wire/messages.ts` 的 `hasSeqGap` 已经写好并有测试，接上即可。
+3. **M1.6-7 JSON 路径安全**：`ModelEntry.source.url` 现在可以是任意字符串。
+   **M4 真正加载 GLB 之前必须落地**——无论走 A 还是 B，M4 都会读模型 URL。
+
+### 假设
+
+- **用户选「路 A」指的是"优先去搜现成场景"，而不是"现在就可以搜到"**。
+  我没把它理解成"不用管网络"，所以先重测了三次网络才下结论。
+- **`hangout` 放在 `Agent` 上而不是新开一个"待命点"内容库**。理由：广场地块本身已经是内容
+  （有人想改的是"广场在哪、多大"，而那已经可配）。真要精确控制每个点，再抽库不迟——
+  已记成 M2.6 之外的待定项。
+- **消息正文暂时由内容标题拼**，连接符留在代码里。这条**可能触碰红线**
+  （用户可见文案本该可替换），已明确记成 M2.6-1 待定，没有假装它没问题。
+
+### 卡住 / 风险
+
+- **M4 硬卡在网络**（第三次确认）。这不是"再试一次"能解决的。
+  要推进 M4，需要用户二选一：恢复网络，或同意 vendoring `three@0.167.1`（先不做 bloom）。
+- **`world.messages` 现在会增长**：已有上界（200，只裁已送达），但它进不进 `world.json`
+  是 M3-1 必须一起定的——**否则重启后一张纸条都不剩**，而画面上"纸条飞过"这件事
+  是用户能看见的少数几个协作信号之一。
+- **`web/app.js` 仍然是手写 JS、没有类型**，`ScenePlan` 的形状有两份手工对应
+  （TS 类型 + `app.js` 的字段读取）。这一轮又加了一层（`noteColors`、`messageDeliveryTicks`），
+  **再加就该动手把它改成 TS + 构建**，否则迟早对不上。
+
+### 本轮产出
+
+- 新增：`src/sim/{idle,comms}.ts`、`test/idle-comms.test.js`
+- 修改：`src/domain/{types,geometry,constants,index}.ts`（`hangout` / `messageSeq` /
+  `MESSAGE_KINDS` / `latticeIn` / `MESSAGE_RING_SIZE`）、`src/sim/{mailbox,emit,step,index}.ts`、
+  `src/world/create.ts`、`src/content/{registry,instantiate,packs/default}.ts`（纸条配色进内容 +
+  `message.*` 校验）、`src/protocol/{scene,ports/runtime,wire/messages}.ts`、
+  `src/runtime/index.ts`、`src/routes/api.ts`、`web/app.js`（纸条绘制 + 错开 + 超时 +
+  过期提示）、`test/{step,scene-plan,http,dispatch-runtime}.test.js`
+- 文档：`BACKLOG.md`（M2.5-1/2 done、新增 M2.6 四条、网络仍断）、`PROGRESS.md`
+- 测试从 162 → 182
 
 ---
 

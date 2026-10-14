@@ -95,6 +95,16 @@ export const defaultPack: ContentPack = {
           'ground.meeting': '#8A7A5C',
           'ground.commons': '#7D6F5A',
 
+          // 消息纸条（M2.5-2 让纸条真的会出现）。手头这张纸上最重要的一件事是
+          // **一眼分清"交接"还是"汇报"**，所以两类给冷暖对比鲜明的两色。
+          // 刻意避开全部 role.* 色：纸条会和角色圆点同时出现在画面上，
+          // 撞色会让人以为"那个角色在发光"。
+          'message.handoff': '#FFD166',
+          'message.report': '#9AE6FF',
+          'message.question': '#FFB4A2',
+          'message.answer': '#A0E7A0',
+          'message.dispatch': '#E0C3FC',
+
           // 分区强调色
           'accent.engineering': '#4FA3D1',
           'accent.infra': '#7FE3D4',

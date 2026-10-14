@@ -40,6 +40,10 @@ import type { AgentRole, World, WorldEvent } from '../domain/types.js'
 import type { WorldCommand } from '../protocol/wire/commands.js'
 import { advanceMovement } from './movement.js'
 import { advanceWork } from './interaction.js'
+import { advanceIdle } from './idle.js'
+import { dispatchComms } from './comms.js'
+import type { CommsOutcome } from './comms.js'
+import type { DeliverOutcome } from './mailbox.js'
 import { deliverMessages } from './mailbox.js'
 import { emitPhaseEvents } from './emit.js'
 import { emitEvent } from './journal.js'
@@ -75,6 +79,10 @@ export interface StepResult {
   stalled: Stalled[]
   /** 转交给编排层的动作。 */
   requests: StepRequests
+  /** 本 tick 新开始飞行的协作消息（M2.5-2）。 */
+  messages: CommsOutcome['queued']
+  /** 本 tick 送达的消息（诊断用；**不发事件**——送达时刻由 `deliverAtTick` 算得出来）。 */
+  delivered: DeliverOutcome['delivered']
 }
 
 function emptyRequests(): StepRequests {
@@ -148,7 +156,7 @@ export function step(world: World, commands: readonly WorldCommand[] = []): Step
   // 暂停时世界不推进。**注意 `world.tick` 也不加**——tick 是"世界前进了多少"，
   // 暂停期间它不该动，否则 HUD 上会出现"暂停了但时间还在走"。
   if (world.paused) {
-    return { world, events, claims: [], stalled: [], requests }
+    return { world, events, claims: [], stalled: [], requests, messages: [], delivered: [] }
   }
 
   // ── 2. scheduler ──
@@ -159,18 +167,37 @@ export function step(world: World, commands: readonly WorldCommand[] = []): Step
   // ── 3. movement ──
   const movement = advanceMovement(world)
 
+  // ── 3.5 idle ──
+  // 待命角色走向歇脚点（M2.5-1）。**放在 movement 之后**：movement 只处理 `walking`，
+  // 而这一步只处理 `idle`，两者互不重叠；但刚被派工的人这一 tick 已经是 `walking` 了，
+  // 所以不会被这里再挪一次。
+  const idle = advanceIdle(world)
+
   // ── 4. interaction ──
   const work = advanceWork(world)
+
+  // ── 4.5 comms ──
+  // 产生协作消息（M2.5-2）。放在 interaction 之后，才能把"本 tick 刚完工的单"报出去。
+  // 注意：这里只是**入队**，真正的送达由下面的 mailbox 段按延迟推进。
+  const comms = dispatchComms(world, scheduled.claims, work.completed)
 
   // ── 5. mailbox ──
   const mailbox = deliverMessages(world)
 
   // ── 6. emit ──
-  events.push(...emitPhaseEvents(world, { ready, scheduler: scheduled, movement, work, mailbox }))
+  events.push(...emitPhaseEvents(world, { ready, scheduler: scheduled, movement, idle, work, comms }))
 
   // tick 在最后自增：上面所有阶段的 `world.tick` 读到的都是"这一步的编号"，
   // 事件的时间戳也因此一致。放在开头加会让事件落在下一个 tick 上，差一帧。
   world.tick += 1
 
-  return { world, events, claims: scheduled.claims, stalled: scheduled.stalled, requests }
+  return {
+    world,
+    events,
+    claims: scheduled.claims,
+    stalled: scheduled.stalled,
+    requests,
+    messages: comms.queued,
+    delivered: mailbox.delivered,
+  }
 }

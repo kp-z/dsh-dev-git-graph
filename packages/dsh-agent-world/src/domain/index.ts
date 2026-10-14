@@ -34,6 +34,7 @@ export type {
   WorldOrigin,
   WorldSummary,
 } from './types.js'
+export { MESSAGE_KINDS } from './types.js'
 
 export type { Rng } from './rng.js'
 
@@ -47,5 +48,5 @@ export {
 } from './constants.js'
 
 export { createRng, seedFromString } from './rng.js'
-export { angleTo, boundsCenter, distance, normalizeAngle, stationSlot, stepToward, withinBounds } from './geometry.js'
+export { angleTo, boundsCenter, distance, latticeIn, normalizeAngle, stationSlot, stepToward, withinBounds } from './geometry.js'
 export { summarize } from './summary.js'

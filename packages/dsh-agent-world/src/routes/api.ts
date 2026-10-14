@@ -63,6 +63,7 @@ export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
       running: deps.runtime.running,
       pending: deps.runtime.pending,
       tickMs: deps.tickMs,
+      messageDeliveryTicks: deps.runtime.messageDeliveryTicks,
       diagnostics: { ...deps.runtime.diagnostics },
     },
     content: {

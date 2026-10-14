@@ -137,6 +137,62 @@ test('ScenePlan：extent 会跟着角色位置扩大（走出地块也不至于�
   assert.equal(widened.extent.half, 30, '半径要能容下跑到外面去的角色')
 })
 
+test('ScenePlan：纸条配色来自 skins 库（代码里不许写字面色值）', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const port = portOf(content)
+  const plan = buildScenePlan(makeWorld(), port.colors(), null)
+
+  // 五种 kind 全都要有：少一个就会在渲染层退化成兜底色，
+  // 而"某类纸条颜色不对"很难归因。
+  for (const kind of ['handoff', 'report', 'question', 'answer', 'dispatch']) {
+    assert.match(plan.noteColors[kind] ?? '', /^#[0-9A-Fa-f]{6}$/, `${kind} 的纸条配色没解析出来`)
+  }
+  // 纸条会和角色圆点同时出现在画面上，撞色会让人以为"那个角色在发光"。
+  const roleColors = [plan.actors[0].color, ...plan.actors.map((a) => a.color)]
+  for (const [kind, color] of Object.entries(plan.noteColors)) {
+    assert.ok(
+      !roleColors.some((c) => c.toUpperCase() === color.toUpperCase()),
+      `纸条色 ${color}（${kind}）与某个角色色撞了`,
+    )
+  }
+})
+
+test('内容校验：皮肤库缺 message.* token 时给 warning，且列出缺了哪些', () => {
+  const content = new ContentRegistry()
+  // `load`/`loadAll` 是**返回**问题清单的，不是挂在属性上。
+  content.loadAll(builtinPacks())
+  // **跨条目的引用校验是 `validate()` 这个单独方法**，`load` 只做单包校验。
+  // 一开始我在 `load()` 的返回值里找，结果什么都找不到——这不是 bug，
+  // 是"单包校验"与"跨包引用校验"本来就该分开（前者在装载时就要拦，后者要等全部装完）。
+  assert.deepEqual(
+    content.validate().filter((i) => i.where === 'skins/message'),
+    [],
+    '内置包应当把五种纸条配色都带上',
+  )
+
+  // 造一个只提供「只有 role.token、没有 message.*」的皮肤包，顶掉默认皮肤。
+  content.load({
+    manifest: {
+      id: 'pack.bare-skin',
+      name: '缺纸条配色的皮肤',
+      version: '1.0.0',
+      schemaVersion: 1,
+      requires: [],
+      provides: ['skins'],
+      // 覆盖别人的条目必须显式声明，格式是 `kind/id` 字符串（不是对象）。
+      overrides: ['skins/skin.default'],
+    },
+    entries: { skins: [{ id: 'skin.default', name: '裸皮肤', colors: { 'role.lead': '#F0B429' } }] },
+  })
+
+  const warn = content.validate().filter((i) => i.where === 'skins/message')
+  assert.equal(warn.length, 1)
+  assert.equal(warn[0].level, 'warning', '缺纸条颜色不该让世界建不出来')
+  assert.match(warn[0].message, /message\.handoff/, '要列出缺了哪些 token')
+  assert.match(warn[0].message, /洋红/, '要说清后果')
+})
+
 // ── 主题 ────────────────────────────────────────────────────────────────────
 
 test('themeFor：把内容里的主题映射成渲染就绪的形状（色值解析完、缺省补齐）', () => {

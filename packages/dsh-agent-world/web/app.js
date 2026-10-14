@@ -28,6 +28,12 @@ const $tasks = document.getElementById('tasks')
 const $content = document.getElementById('content')
 
 let latest = null
+/** 上一次成功取到快照的时刻（ms）。面板靠它显示"多久没更新了"。 */
+let lastOkAt = 0
+/** 请求超时（ms）。 */
+const FETCH_TIMEOUT_MS = 4000
+/** 超过这么久没更新，就在状态栏上明确说出来。 */
+const STALE_AFTER_MS = 3000
 
 /** 把设计尺寸写进 canvas 属性，避免高分屏下模糊。 */
 function fitCanvas() {
@@ -134,6 +140,64 @@ function draw(scene) {
   }
 }
 
+/**
+ * 画飞行中的纸条（M2.5-2 让这件事终于有数据了）。
+ *
+ * 位置按 `tick` 在"发出"与"送达"之间线性插值——**投递延迟是服务端告诉我们的**
+ * （`runtime.messageDeliveryTicks`），不在这里写死。所以以后改延迟不会出现
+ * "纸条早到了/晚到了"这种对不上的现象。
+ */
+function drawNotes(scene, world, deliveryTicks) {
+  if (!deliveryTicks || deliveryTicks <= 0) return
+  const byId = new Map(scene.actors.map((a) => [a.id, a]))
+  const half = scene.extent.half
+  const W = canvas.clientWidth
+  const H = canvas.clientHeight
+  const scale = Math.min(W, H) / (half * 2 * 1.06)
+  const toX = (x) => W / 2 + x * scale
+  const toY = (z) => H / 2 + z * scale
+
+  // 同一 tick 发出的多条纸条会**完全重叠**（比如一个人刚完工汇报、同时把活交接出去，
+  // 两张纸都从同一个人手上出发）。不错开的话，后画的那张会把先前那张整个盖住——
+  // 而画面上看起来只是"只有一张纸"，不会有人想到是渲染问题。
+  // 这是用像素计数发现的（report 色的像素数是 0），肉眼扫截图看不出来。
+  let drawn = 0
+  for (const m of world.messages) {
+    if (m.deliveredAtTick !== null) continue          // 已送达
+    const t = (world.tick - m.atTick) / deliveryTicks
+    if (t < 0 || t > 1) continue                       // 还没发出 / 已经超出飞行窗口
+    const from = byId.get(m.from)
+    const to = byId.get(m.to)
+    if (!from || !to) continue
+
+    const ox = (drawn % 3) * 5 - 5
+    const oy = Math.floor(drawn / 3) * 5 - 2
+    drawn += 1
+
+    const x = toX(from.x + (to.x - from.x) * t) + ox
+    const y = toY(from.z + (to.z - from.z) * t) + oy
+
+    // 一条淡虚线表示飞行路线，让人看懂"从谁到谁"。
+    ctx.save()
+    ctx.setLineDash([3, 5])
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(toX(from.x), toY(from.z))
+    ctx.lineTo(toX(to.x), toY(to.z))
+    ctx.stroke()
+    ctx.restore()
+
+    // 纸条本体：小方块。颜色**来自内容的 skins 库**（`scene.noteColors`），
+    // 不在代码里写字面色值——那样"换个纸条颜色"就得改代码，直接违反第一条红线。
+    ctx.fillStyle = scene.noteColors?.[m.kind] ?? '#FF00FF'
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'
+    ctx.lineWidth = 1
+    ctx.fillRect(x - 3, y - 2.5, 6, 5)
+    ctx.strokeRect(x - 3, y - 2.5, 6, 5)
+  }
+}
+
 function renderSide(snapshot) {
   const world = snapshot.world
 
@@ -176,15 +240,33 @@ function renderSide(snapshot) {
     `seq ${snapshot.seq}`,
     `事件 ${snapshot.runtime.diagnostics.ticks} 步`,
     snapshot.runtime.pending > 0 ? `待处理命令 ${snapshot.runtime.pending}` : '',
+    (() => {
+      const flying = world.messages.filter((m) => m.deliveredAtTick === null).length
+      return flying > 0 ? `飞行中纸条 ${flying}` : ''
+    })(),
+    // 画布上的一切都来自上一帧成功取到的快照。数据旧了就必须说出来——
+    // 否则"画面不动"会被理解成"世界停了"，而这两件事完全不同。
+    Date.now() - lastOkAt > STALE_AFTER_MS
+      ? `<b class="warn">数据已过期 ${Math.round((Date.now() - lastOkAt) / 1000)} 秒</b>`
+      : '',
     stateText,
   ]
     .filter(Boolean)
     .join(' · ')
 }
 
+/**
+ * 取一次快照。
+ *
+ * **必须带超时**。没有超时的话，一个挂住的连接会让面板永远停在最后一帧，
+ * 而画面上看不出任何异常——看起来就像"世界不跑了"。这是真的踩到的：
+ * 我把验证服务器重启了一次，页面就静静地冻在一个旧 tick 上，状态栏还写着"运行中"。
+ */
 async function poll() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
   try {
-    const res = await fetch(`${API}?t=${Date.now()}`, { cache: 'no-store' })
+    const res = await fetch(`${API}?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       $status.innerHTML = `<b class="warn">读不到世界（HTTP ${res.status}）</b> ${body.error ?? ''}`
@@ -192,10 +274,16 @@ async function poll() {
     }
     const snapshot = await res.json()
     latest = snapshot
+    lastOkAt = Date.now()
     draw(snapshot.scene)
+    drawNotes(snapshot.scene, snapshot.world, snapshot.runtime.messageDeliveryTicks)
     renderSide(snapshot)
   } catch (error) {
-    $status.innerHTML = `<b class="warn">连接失败</b> ${error}`
+    const why = controller.signal.aborted ? `超时（${FETCH_TIMEOUT_MS}ms 没响应）` : error
+    const ago = lastOkAt === 0 ? '从未成功过' : `画面停留在 ${Math.round((Date.now() - lastOkAt) / 1000)} 秒前的状态`
+    $status.innerHTML = `<b class="warn">读不到世界</b> ${why} · ${ago}`
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -219,7 +307,10 @@ document.querySelectorAll('button[data-command]').forEach((button) => {
 
 window.addEventListener('resize', () => {
   fitCanvas()
-  if (latest) draw(latest.scene)
+  if (latest) {
+    draw(latest.scene)
+    drawNotes(latest.scene, latest.world, latest.runtime.messageDeliveryTicks)
+  }
 })
 
 fitCanvas()

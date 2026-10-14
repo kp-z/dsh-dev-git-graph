@@ -43,6 +43,43 @@ export function stationSlot(station: Station, index: number): Vec2 {
 }
 
 /**
+ * 在一个矩形里排布 `count` 个尽量分散的点（确定性栅格）。
+ *
+ * 用途是"待命的角色站在哪"（BACKLOG M2.5-1）。选栅格而不是随机：
+ * 模拟内核不许用 `Math.random()`，而且随机点在重开一局后位置会变——
+ * "同 seed 同结果"这条性质不该为了让人站得好看而破掉。
+ */
+export function latticeIn(bounds: { min: Vec2; max: Vec2 }, count: number): Vec2[] {
+  if (count <= 0) return []
+
+  const cols = Math.max(1, Math.ceil(Math.sqrt(count)))
+  const rows = Math.max(1, Math.ceil(count / cols))
+
+  const minX = Math.min(bounds.min.x, bounds.max.x)
+  const maxX = Math.max(bounds.min.x, bounds.max.x)
+  const minZ = Math.min(bounds.min.z, bounds.max.z)
+  const maxZ = Math.max(bounds.min.z, bounds.max.z)
+
+  // 内缩 20%：贴着地块边缘站，看起来像随时要走出去。
+  const x0 = minX + (maxX - minX) * 0.2
+  const x1 = maxX - (maxX - minX) * 0.2
+  const z0 = minZ + (maxZ - minZ) * 0.2
+  const z1 = maxZ - (maxZ - minZ) * 0.2
+
+  const out: Vec2[] = []
+  for (let i = 0; i < count; i++) {
+    const c = i % cols
+    const r = Math.floor(i / cols)
+    out.push({
+      // 只有一列/一行时就取中点，否则按比例铺开（避免除以 0）。
+      x: cols === 1 ? (x0 + x1) / 2 : x0 + ((x1 - x0) * c) / (cols - 1),
+      z: rows === 1 ? (z0 + z1) / 2 : z0 + ((z1 - z0) * r) / (rows - 1),
+    })
+  }
+  return out
+}
+
+/**
  * 矩形的中心点。
  *
  * 住在几何层而不是内容层：它是纯粹的形状运算，内容层只是它的一个调用方。

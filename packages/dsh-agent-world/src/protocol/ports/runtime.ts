@@ -17,7 +17,13 @@ import type { WorldCommand } from '../wire/commands.js'
  * 之前它只能看日志，那对排查没有用。
  */
 export interface RuntimeDiagnostics {
-  /** 已推进的 tick 数。 */
+  /**
+   * 已推进的 tick 数。
+   *
+   * **暂停期间不增加**：它统计的是"世界前进了几次"，不是"循环转了几圈"。
+   * 两者在暂停时会分叉，而分叉的症状是"HUD 说已经跑了 600 步、可 tick 才 388"
+   * ——看的人只会以为哪里坏了。（R10 之前它就是这么错的。）
+   */
   ticks: number
   /** 处理过的重开请求。 */
   resets: number
@@ -35,6 +41,16 @@ export interface RuntimePort {
   readonly diagnostics: RuntimeDiagnostics
   /** 还没被下一步取走的命令条数（诊断用）。 */
   readonly pending: number
+  /**
+   * 一条消息从发出到送达要多少 tick。
+   *
+   * **为什么放在端口上而不是让路由去 import `domain/constants`**：
+   * 路由是传输层，它不该认识模拟内核的常量——边界检查器会（也确实）拦下那种 import。
+   * 这条延迟属于**模拟的时间语义**，而运行时就是路由能看到模拟的唯一出口。
+   * 顺带它也解决了一个更实际的问题：渲染层拿到它才能算"纸条飞到哪了"，
+   * 否则就得自己抄一遍这个数字，改一处就会让纸条落点与"已送达"对不上。
+   */
+  readonly messageDeliveryTicks: number
   /**
    * 把一条命令排进"下一步要处理"的队列。
    *

@@ -27,7 +27,8 @@ import type { ReadyOutcome } from './ready.js'
 import type { SchedulerOutcome } from './scheduler.js'
 import type { MovementOutcome } from './movement.js'
 import type { WorkOutcome } from './interaction.js'
-import type { DeliverOutcome } from './mailbox.js'
+import type { IdleOutcome } from './idle.js'
+import type { CommsOutcome } from './comms.js'
 import { emitEvent } from './journal.js'
 
 /** 本 tick 各阶段的产出（`emit.ts` 的输入）。 */
@@ -35,8 +36,11 @@ export interface PhaseOutcomes {
   ready: ReadyOutcome
   scheduler: SchedulerOutcome
   movement: MovementOutcome
+  /** 待命角色的走动（M2.5-1）。它与 movement 一样产出位移，要一起并进帧事件。 */
+  idle: IdleOutcome
   work: WorkOutcome
-  mailbox: DeliverOutcome
+  /** 本 tick 新产生的协作消息（M2.5-2）。 */
+  comms: CommsOutcome
 }
 
 /** 进度已跨过的里程碑编号（0..PROGRESS_MILESTONES）。 */
@@ -111,9 +115,15 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
     push('agent.state', { id: done.agentId, state: 'idle', reason: 'task-done' })
   }
 
-  // 5) 邮箱：只发"送达"。飞行中不逐 tick 发——渲染层自己在两端插值。
-  for (const msg of outcomes.mailbox.delivered) {
-    push('message.sent', { id: msg.messageId, from: msg.from, to: msg.to })
+  // 5) 消息：**在"开始飞"的那一刻发，而不是送达时发。**
+  //
+  // 这是 R6 留下的一个真实缺陷：原先只在送达时 emit，于是渲染层要等到 10 tick 之后
+  // 才知道有纸条要飞——那时候它已经在两端了，"从 A 飞到 B"这段过程根本没数据可画。
+  // 改成入队时发，并把 `deliverAtTick` 一起带上：渲染层据此知道飞行的起止时刻，
+  // **不需要自己去抄一遍投递延迟常量**（两处真相，改一处就会让落点与"已送达"不一致）。
+  // 送达因此不需要单独的事件——它的时刻是可以算出来的。
+  for (const msg of outcomes.comms.queued) {
+    push('message.sent', { id: msg.id, from: msg.from, to: msg.to, deliverAtTick: msg.deliverAtTick })
   }
 
   // 6) 帧：有位移才发。**这是唯一承载连续量的事件。**
@@ -121,8 +131,9 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
   // 用 movement 返回的 `advanced` 而**不是**过滤 `state === 'walking'`：
   // 本 tick 到站的人已经切成 `working` 了，按状态过滤会把他漏掉，
   // 于是渲染层拿不到他的落位坐标，表现为"走到一半突然被吸过去"。
-  if (outcomes.movement.advanced.length > 0) {
-    const moved = new Set(outcomes.movement.advanced)
+  const advancedIds = [...outcomes.movement.advanced, ...outcomes.idle.advanced]
+  if (advancedIds.length > 0) {
+    const moved = new Set(advancedIds)
     push('world.tick', {
       agents: world.agents
         .filter((a) => moved.has(a.id))

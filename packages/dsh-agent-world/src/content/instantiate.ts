@@ -96,6 +96,9 @@ export function instantiateAgents(
     targetStation: null,
     path: [],
     carrying: null,
+    // 歇脚点在 `world/create.ts` 里按广场地块的几何分配——**内容层不认识布局**，
+    // 它只负责"有哪些角色"。这里给 null，装配层再填。
+    hangout: null,
     llm: seat.model ?? { provider: '', model: '', reasoningEffort: null },
     boundAgentId: null,
   }))

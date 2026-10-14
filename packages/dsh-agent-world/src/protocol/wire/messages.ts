@@ -50,6 +50,14 @@ export interface SnapshotPayload {
     running: boolean
     pending: number
     tickMs: number
+    /**
+     * 一条消息从发出到送达要多少 tick。
+     *
+     * 渲染层靠它算"纸条飞到哪了"。不发给它的话，渲染层就得自己去抄一遍
+     * `MESSAGE_DELIVERY_TICKS`——两处真相，改一处就会让纸条的落点
+     * 与"已送达"对不上（纸条到了人还没到，或者反过来）。
+     */
+    messageDeliveryTicks: number
     diagnostics: RuntimeDiagnostics
   }
   /** 内容概况（装了哪些包、各库多少条）。面板的状态条用它。 */

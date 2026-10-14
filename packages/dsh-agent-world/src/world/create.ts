@@ -16,8 +16,9 @@ import {
 } from '../content/instantiate.js'
 import type { ContentRegistry } from '../content/registry.js'
 import { MAX_AGENTS } from '../domain/constants.js'
+import { latticeIn } from '../domain/geometry.js'
 import { createRng, seedFromString } from '../domain/rng.js'
-import type { Task, World } from '../domain/types.js'
+import type { District, Task, Vec2, World } from '../domain/types.js'
 
 /** 建世界的选项。 */
 export interface CreateWorldOptions {
@@ -67,6 +68,14 @@ export function createWorld(options: CreateWorldOptions): World {
   const roster = content.require('rosters', scene.roster, `场景 ${scene.id} 引用的花名册`)
   const agents = instantiateAgents(roster, scene.spawn, maxAgents, rng)
 
+  // 待命的人站哪（BACKLOG M2.5-1）。**不给的话他们会永远叠在出生点上**——
+  // 因为角色只在被派活时才移动，从没被派过活的人一步都不会走。
+  // 落点按广场地块的几何推，所以"把广场改大"就能让人散得更开：内容驱动。
+  const hangouts = hangoutsFor(districts, agents.length)
+  agents.forEach((agent, i) => {
+    agent.hangout = hangouts[i % hangouts.length] ?? null
+  })
+
   // 任务集按顺序实例化。`startIndex` 接着上一批的号往下排，保证跨集合也不撞 id。
   const taskSets = [...(options.taskSets ?? [])]
   const tasks: Task[] = []
@@ -91,5 +100,28 @@ export function createWorld(options: CreateWorldOptions): World {
     messages: [],
     events: [],
     seq: 1,
+    messageSeq: 1,
   }
+}
+
+/**
+ * 待命角色的歇脚点。
+ *
+ * 优先用 `commons`（广场）——它本来就是"没活在干的人待的地方"这个语义；
+ * 没有广场就退到最大的地块，再没有就退回原点附近的一小块。
+ *
+ * 退回而不是报错，是因为"这个场景没有广场"是合法的（一个纯机房的场景）。
+ */
+function hangoutsFor(districts: readonly District[], count: number): Vec2[] {
+  const commons = districts.find((d) => d.kind === 'commons')
+  const biggest = [...districts].sort((a, b) => {
+    const area = (d: District) => Math.abs(d.bounds.max.x - d.bounds.min.x) * Math.abs(d.bounds.max.z - d.bounds.min.z)
+    return area(b) - area(a)
+  })[0]
+
+  const area = commons ?? biggest
+  if (area === undefined) {
+    return latticeIn({ min: { x: -2, z: -2 }, max: { x: 2, z: 2 } }, count)
+  }
+  return latticeIn(area.bounds, count)
 }

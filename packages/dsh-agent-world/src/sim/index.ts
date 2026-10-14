@@ -17,6 +17,12 @@ export { isTaskReady, recomputeReady } from './ready.js'
 export type { WorkOutcome } from './interaction.js'
 export { advanceWork } from './interaction.js'
 
+export type { IdleOutcome } from './idle.js'
+export { advanceIdle } from './idle.js'
+
+export type { CommsOutcome } from './comms.js'
+export { dispatchComms } from './comms.js'
+
 export type { Claim, SchedulerOutcome, Stalled } from './scheduler.js'
 export { claimTasks, occupancyOf, pickStation } from './scheduler.js'
 

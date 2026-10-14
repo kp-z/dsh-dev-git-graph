@@ -27,6 +27,7 @@
  *    不需要起浏览器。这也是它为什么能在断网时先做完。
  */
 import type { World } from '../domain/types.js'
+import { MESSAGE_KINDS } from '../domain/types.js'
 import { boundsCenter } from '../domain/geometry.js'
 import type { SceneActor, SceneGround, ScenePlan, SceneProp } from '../protocol/scene.js'
 import { resolveColor } from '../protocol/scene.js'
@@ -108,11 +109,19 @@ export function buildScenePlan(
     carryingTaskId: a.carrying,
   }))
 
+  // 纸条配色也从内容来。遍历 domain 里的 MESSAGE_KINDS 而不是在这里手写一份清单：
+  // 少一个就会在渲染层退化成兜底色，而"某类纸条颜色不对"很难归因。
+  const noteColors: Record<string, string> = {}
+  for (const kind of MESSAGE_KINDS) {
+    noteColors[kind] = resolveColor(`skin.message.${kind}`, palette)
+  }
+
   return {
     extent: { half: extentOf(world) },
     theme,
     ground,
     props,
     actors,
+    noteColors,
   }
 }

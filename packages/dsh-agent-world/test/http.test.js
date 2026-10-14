@@ -147,6 +147,9 @@ test('GET /api/world：快照里没有事件环形缓冲，但有调色板与运
     assert.equal(snap.runtime.running, false)
     assert.equal(snap.runtime.tickMs, 100)
     assert.equal(snap.runtime.diagnostics.ticks, 12)
+    // 渲染层靠它算"纸条飞到哪了"。不发给它，面板就得自己抄一遍这个数字，
+    // 改一处就会让纸条落点与"已送达"对不上。
+    assert.equal(snap.runtime.messageDeliveryTicks, 10)
 
     assert.deepEqual(snap.content.packs.map((p) => p.id), ['pack.default'])
     assert.ok(snap.content.libraries.some((l) => l.kind === 'stations' && l.count === 10))

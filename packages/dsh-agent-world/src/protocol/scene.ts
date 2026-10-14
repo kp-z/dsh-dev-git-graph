@@ -110,4 +110,12 @@ export interface ScenePlan {
   ground: SceneGround[]
   props: SceneProp[]
   actors: SceneActor[]
+  /**
+   * 消息纸条的配色（按 `Message.kind` 索引），**已解析成色值**。
+   *
+   * 与地块/角色同理：渲染层不认识 token，也不该在代码里写字面色值
+   * （那会直接违反"改内容不用改代码"）。所以要给纸条换个色，
+   * 改的是 `skins` 库里 `message.*` 那几个 token。
+   */
+  noteColors: Record<string, string>
 }

@@ -21,6 +21,7 @@
  * "改一次代码多一个世界在跑"，而症状是 CPU 慢慢爬高——很难归因到某个插件。
  * 所以 `index.ts` 里用 `ctx.effect()` 挂清理，别依赖进程退出。
  */
+import { MESSAGE_DELIVERY_TICKS } from '../domain/constants.js'
 import type { EventSinkPort, RuntimeDiagnostics, RuntimePort, WorldCommand, WorldServicePort } from '../protocol/index.js'
 import { nullEventSink } from '../protocol/index.js'
 import type { StepResult } from '../sim/index.js'
@@ -127,6 +128,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
     // 取走本步要处理的命令（取空，避免下一步重复处理）。
     const commands = queue.splice(0, queue.length)
+    const tickBefore = world.tick
 
     let result: StepResult
     try {
@@ -145,7 +147,8 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     }
 
     sink.publish(result.events)
-    diagnostics.ticks += 1
+    // 只在世界真的前进时计数：暂停时 step 会早退，tick 不动，那一步不该算进来。
+    if (world.tick > tickBefore) diagnostics.ticks += 1
     return result
   }
 
@@ -157,6 +160,11 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
     get pending() {
       return queue.length
+    },
+
+    // 模拟的时间语义从运行时透出去，路由就不用（也不许）去 import domain 的常量。
+    get messageDeliveryTicks() {
+      return MESSAGE_DELIVERY_TICKS
     },
 
     enqueue(command: WorldCommand): void {

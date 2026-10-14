@@ -12,7 +12,7 @@ import { test } from 'node:test'
 
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { createWorld } from '../lib/world/create.js'
-import { EVENT_RING_SIZE } from '../lib/domain/constants.js'
+import { EVENT_RING_SIZE, MESSAGE_DELIVERY_TICKS } from '../lib/domain/constants.js'
 import { step } from '../lib/sim/step.js'
 import { sendMessages, deliverMessages, isInFlight } from '../lib/sim/mailbox.js'
 import { emitEvent } from '../lib/sim/journal.js'
@@ -147,13 +147,35 @@ test('事件：环形缓冲截断到 EVENT_RING_SIZE，且保留的是最近的'
   assert.equal(seqs[seqs.length - 1], world.seq - 1, '保留的是最近的')
 })
 
-test('事件：真实长跑的事件量是**有界**的（这是 R5 留下的最大不确定性）', () => {
+test('事件：真实长跑的**速率**是有界的（而不是"总数小于缓冲上限"）', () => {
   const world = makeWorld()
-  for (let i = 0; i < 2000; i++) step(world)
+  const TICKS = 2000
+  for (let i = 0; i < TICKS; i++) step(world)
 
-  // 2000 tick 约 100 秒模拟时间。如果位置事件按人头逐条发，这里会远超缓冲上限。
-  assert.ok(world.seq < EVENT_RING_SIZE, `2000 tick 的事件数应当远小于缓冲上限，实际 seq=${world.seq}`)
-  assert.ok(world.events.length === world.seq - 1, '没被截断过（所以上面的上限才说明问题）')
+  const perTick = world.seq / TICKS
+
+  // R6 时我写的断言是 `world.seq < EVENT_RING_SIZE`，它当时能过只是因为**世界半静止**
+  // （只有两三个在干活的人会移动）。M2.5-1 让待命的人也走动之后它就红了——
+  // 而红得对：那条断言把**速率**和**历史深度**混成了一件事。
+  //
+  // 真正要守的是这两条，分开断言：
+  //   ① 速率有界：事件数随 tick 线性增长，斜率必须小（这里是 0.33/tick，
+  //      即 10 tick/秒下约 3.3 条/秒）。按人头逐条发位置事件的话，8 个角色就是 8/tick。
+  //   ② 深度够用：环形缓冲要能装下足够长的历史，客户端才有时间重连补洞。
+  assert.ok(perTick < 1.5, `每 tick 事件数应当有界，实际 ${perTick.toFixed(3)}/tick（seq=${world.seq}）`)
+  assert.ok(perTick > 0.02, `世界应当在动，实际 ${perTick.toFixed(3)}/tick——静止的世界会让上面那条假通过`)
+
+  const depth = Math.floor(world.events.length / perTick)
+  assert.ok(depth >= 300, `环形缓冲至少要装下 300 tick 的历史（约 30 秒），实际约 ${depth} tick`)
+})
+
+test('事件：3000 tick 里 world.tick 帧事件不会每 tick 都发（连续量的采样策略仍在）', () => {
+  const world = makeWorld()
+  let frames = 0
+  for (let i = 0; i < 3000; i++) frames += step(world).events.filter((e) => e.type === 'world.tick').length
+
+  assert.ok(frames > 0, '世界应当在动')
+  assert.ok(frames < 3000, `帧事件不该每 tick 都发，实际 ${frames}/3000`)
 })
 
 test('事件：帧事件每 tick 最多一条，且只在真的有位移时发', () => {
@@ -172,10 +194,14 @@ test('事件：帧事件每 tick 最多一条，且只在真的有位移时发',
   assert.ok(frames <= ticksWithMovement + 1, `帧事件不该比"有人走动"的 tick 还多：frames=${frames} walkingTicks=${ticksWithMovement}`)
 
   // 所有人都停下来以后，不该再有帧事件。
+  //
+  // 注意：M2.5-1 之后，待命的人会**自己走向歇脚点**，所以"把 state 设成 idle"并不等于
+  // "没人动"。要造出真正静止的世界，得把歇脚点放在他们**现在站的地方**。
   for (const a of world.agents) {
     a.state = 'idle'
     a.path = []
     a.targetStation = null
+    a.hangout = { x: a.position.x, z: a.position.z }
   }
   const quiet = step(world)
   assert.equal(quiet.events.filter((e) => e.type === 'world.tick').length, 0, '没人动就不该发帧')
@@ -286,18 +312,40 @@ test('邮箱：投递有延迟，飞行中可判定', () => {
   assert.equal(isInFlight(message, world.tick + 100), false, '送达后不再是飞行中')
 })
 
-test('邮箱：消息经 step 送达时会产生 message.sent 事件', () => {
+test('邮箱：message.sent 在**开始飞的那一刻**发，并带上送达时刻（R6 的一个真实缺陷）', () => {
   const world = makeWorld()
-  sendMessages(world, [{ from: 'agent-1', to: 'agent-3', kind: 'report', body: '好了' }])
+  // 走真实路径：派一条工单 → 有人 claim → 往前走 → 完工 → 产生 report。
+  world.tasks.forEach((t) => {
+    t.estimateTicks = 20
+  })
 
   let sent = null
-  for (let i = 0; i < 30 && sent === null; i++) {
+  let tickOfSend = -1
+  for (let i = 0; i < 600 && sent === null; i++) {
     const result = step(world)
-    sent = result.events.find((e) => e.type === 'message.sent') ?? null
+    const found = result.events.find((e) => e.type === 'message.sent')
+    if (found) {
+      sent = found
+      tickOfSend = world.tick - 1 // step 末尾才自增，所以事件属于上一步
+    }
   }
-  assert.ok(sent, '30 tick 内应当送达并产生事件')
-  assert.equal(sent.payload.from, 'agent-1')
-  assert.equal(sent.payload.to, 'agent-3')
+  assert.ok(sent, '600 tick 内应当产生协作消息（否则邮箱还是没有数据源）')
+
+  // 原先只在**送达**时 emit，于是渲染层要等 10 tick 才知道有纸条要飞——
+  // 那时它已经在两端了，"从 A 飞到 B"这段过程根本没数据可画。
+  assert.equal(sent.payload.deliverAtTick, tickOfSend + MESSAGE_DELIVERY_TICKS, '要带上预计送达 tick')
+  assert.ok(sent.payload.from.length > 0 && sent.payload.to.length > 0)
+
+  // 送达不需要单独事件：时刻已经能算出来了。再走 20 tick 不该冒出第二条。
+  const before = world.seq
+  const extra = []
+  for (let i = 0; i < MESSAGE_DELIVERY_TICKS + 5; i++) {
+    for (const e of step(world).events) {
+      if (e.type === 'message.sent' && e.payload.id === sent.payload.id) extra.push(e)
+    }
+  }
+  assert.deepEqual(extra, [], '同一条消息只该发一次')
+  assert.ok(world.seq > before)
 })
 
 test('邮箱：消息 id 不从事件 seq 派生（混用会破坏"序号不跳号"）', () => {

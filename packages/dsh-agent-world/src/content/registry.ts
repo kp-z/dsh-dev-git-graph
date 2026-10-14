@@ -21,6 +21,7 @@
  * 包之间用 `requires` 声明依赖，`loadAll` 按拓扑序装载：被依赖的先装，
  * 于是"覆盖"这种事有确定的先后（后面的包可以顶掉前面的）。
  */
+import { MESSAGE_KINDS } from '../domain/types.js'
 import { LIBRARY_SPECS } from './kinds.js'
 import type { ContentPack, EntryOf, LibraryKind } from './kinds.js'
 import type { Issue } from './validate.js'
@@ -326,6 +327,23 @@ export class ContentRegistry {
           })
         }
       }
+      // 纸条配色：这几个 token 是**代码侧**需要的（渲染层按 kind 上色），
+      // 内容里没有条目会引用它们，所以校验器要主动查一遍——否则缺了只会表现为
+      // "某类纸条是洋红色"，而没人会想到那是内容缺 token。
+      // 用 warning 而不是 error：缺的只是纸条颜色，世界本身照常能跑；
+      // 而 error 会让世界建不出来，那个代价明显不成比例。
+      const missingNotes = MESSAGE_KINDS.filter((k) => !tokens.has(`message.${k}`))
+      if (missingNotes.length > 0) {
+        issues.push({
+          level: 'warning',
+          pack: null,
+          where: 'skins/message',
+          message:
+            `皮肤库缺了消息纸条的配色 token：${missingNotes.map((k) => `message.${k}`).join(' / ')}。` +
+            `缺的那些纸条会画成洋红色。可用的 message.* token：${[...tokens].filter((t) => t.startsWith('message.')).sort().join(' / ') || '（一个都没有）'}`,
+        })
+      }
+
       for (const d of this.list('districts')) checkToken(`districts/${d.id}.ground`, d.data.ground, `地块 ${d.id}`)
       for (const r of this.list('rosters')) {
         r.data.seats.forEach((seat, i) =>

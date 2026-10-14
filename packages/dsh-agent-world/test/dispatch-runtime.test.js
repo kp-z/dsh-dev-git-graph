@@ -235,8 +235,12 @@ test('运行时：暂停时 advance 不推进世界', () => {
   const before = state.world.tick
 
   state.world.paused = true
+  const ticksBefore = runtime.diagnostics.ticks
   runtime.advance(10)
   assert.equal(state.world.tick, before, '暂停期间时间不该走')
+  // 诊断计数统计的是"世界前进了几次"，不是"循环转了几圈"。
+  // 两者在暂停时会分叉，症状是"HUD 说跑了 600 步、可 tick 才 388"。
+  assert.equal(runtime.diagnostics.ticks, ticksBefore, '暂停期间步数也不该涨')
 })
 
 test('运行时：先重开再派单（顺序反了会把单派进马上丢掉的世界）', () => {

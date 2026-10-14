@@ -116,6 +116,16 @@ export interface Agent {
   path: Vec2[]
   /** 手里拿着的任务 id；空闲时为 null。 */
   carrying: string | null
+  /**
+   * 歇脚点：没活干时待的地方（BACKLOG M2.5-1）。
+   *
+   * 为什么需要它：角色只在被派活时才移动，所以**从没被派过活的人会一直站在出生点**。
+   * 8 个人里有 6 个待命时，画面上就是 6 个角色穿在同一格里——看起来像 bug。
+   *
+   * 由 `world/create.ts` 按**广场地块的几何**推出来（内容决定地块在哪，几何决定点怎么排），
+   * 所以它同样是内容驱动的：把广场改大，人自然就散得更开。
+   */
+  hangout: Vec2 | null
   llm: AgentLlmRoute
   /** 与真实 subagent 的绑定。模拟模式下为 null。 */
   boundAgentId: string | null
@@ -159,11 +169,22 @@ export interface Task {
 }
 
 /** 邮箱消息。它的存在是为了**投递动画**：小镇里一张纸条从 A 飞到 B。 */
+/**
+ * 消息种类。
+ *
+ * **类型与可枚举数组放在一起**：纸条配色要按 kind 索引、校验器要遍历它们，
+ * 而只写一个字面量联合类型是枚举不出来的。分成两处（一处类型、一处数组）迟早会漏一个。
+ */
+export const MESSAGE_KINDS = ['handoff', 'report', 'question', 'answer', 'dispatch'] as const
+
+/** 消息种类。 */
+export type MessageKind = (typeof MESSAGE_KINDS)[number]
+
 export interface Message {
   id: string
   from: string
   to: string
-  kind: 'handoff' | 'report' | 'question' | 'answer' | 'dispatch'
+  kind: MessageKind
   body: string
   atTick: number
   /** 已送达的 tick；未送达为 null（此时会渲染成飞行中的纸条）。 */
@@ -243,6 +264,14 @@ export interface World {
   events: WorldEvent[]
   /** 下一个事件序号。与 events 一起维护，不复用。 */
   seq: number
+  /**
+   * 下一个消息序号。**独立于 `seq`，也独立于 `messages.length`。**
+   *
+   * 与 `seq` 分开：消息不是事件，混用会让"事件序号不跳号"这条保证失效（有测试钉着）。
+   * 与 `messages.length` 分开：邮箱会**裁剪**已送达的旧消息（见 `MESSAGE_RING_SIZE`），
+   * 用长度当序号就会在裁剪后重复发号。
+   */
+  messageSeq: number
 }
 
 /** 世界的一句话摘要（工具输出与 HUD 都用它，保证口径一致）。 */
