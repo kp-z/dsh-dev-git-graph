@@ -25,11 +25,11 @@
     "docs"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-web.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsc -p tsconfig.json --watch",
-    "test": "tsc -p tsconfig.json && node --test test/",
-    "build:web": "echo 'web/ 尚未搭建（BACKLOG M3-1）' && exit 0"
+    "test": "tsc -p tsconfig.json && node scripts/copy-web.mjs && node --test test/",
+    "build:web": "node scripts/copy-web.mjs"
   },
   "keywords": [
     "deepseek",

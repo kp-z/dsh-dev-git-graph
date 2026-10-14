@@ -13,6 +13,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
+import { createHandler } from './routes/index.js'
 import { createRuntime } from './runtime/index.js'
 import { createPluginState } from './state.js'
 import { registerDispatchTool } from './tools/dispatch.js'
@@ -96,6 +97,33 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   }, 'agent-world: runtime')
 
   if (resolved.autoStart) runtime.start()
+
+  // ── HTTP：面板 + API ─────────────────────────────────────────────────────
+  //
+  // `webServer` 是**软依赖**：没有它时世界照跑，只是没有界面。用 `ctx.inject` 而不是写进
+  // 顶层 `inject` ——写进去会让这个插件在 headless profile 里直接加载失败，
+  // 而"世界能不能跑"和"有没有人看"本来就不该绑在一起（架构 §2 的第一原则）。
+  ctx.inject(['webServer'], (host) => {
+    const webServer = (host as unknown as {
+      webServer: { register(route: { kind: 'prefix'; path: string; handler: unknown }): () => void }
+    }).webServer
+
+    const handler = createHandler(
+      resolved.routePrefix,
+      { service: state, runtime, tickMs: state.tickMs },
+      (error, request) => {
+        const detail = error instanceof Error ? error.message : String(error)
+        logger.warn(`HTTP ${request.method} ${request.pathname} 出错：${detail}`)
+      },
+    )
+
+    // 整个插件只占**一个**路由座位（一个前缀），所以与别的插件不可能撞——
+    // 而 `webServer.register` 撞了是会抛的，且 fallback 座位已被官方 SPA 占用，不能抢。
+    const dispose = webServer.register({ kind: 'prefix', path: resolved.routePrefix, handler })
+    host.effect(() => dispose, 'agent-world: http routes')
+
+    logger.info(`面板与 API 挂在 ${resolved.routePrefix}/（同宿主地址）· API：${resolved.routePrefix}/api/world`)
+  })
 
   logger.info(
     `已就绪：${state.describeContent()} · 世界${

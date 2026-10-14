@@ -15,7 +15,41 @@
  * 就必须**丢掉本地状态重新拉快照**，而不是继续增量应用——后者会造成静默的状态漂移。
  */
 import type { World, WorldEvent } from '../../domain/types.js'
+import type { LibraryDescriptor } from '../library-kinds.js'
+import type { RuntimeDiagnostics } from '../ports/runtime.js'
 import type { WorldCommand } from './commands.js'
+
+/**
+ * 快照里的世界：**去掉事件环形缓冲**。
+ *
+ * 理由很实际：面板要轮询它。带上最近 500 条事件，一个快照能到几百 KB，
+ * 而面板根本不需要历史——历史由 `events` 增量推。
+ */
+export type WorldSnapshot = Omit<World, 'events'>
+
+/** 快照载荷。面板靠它一个人就能把画面对起来。 */
+export interface SnapshotPayload {
+  world: WorldSnapshot
+  /**
+   * 表现层 token 解析表（来自 `skins` 库，已在服务端合并成扁平表）。
+   *
+   * **面板不许自己去读内容库**（它只许 import 协议层），所以颜色必须随快照一起发。
+   * 值形如 `{ 'ground.engineering': '#6F7D5A', 'role.lead': '#F0B429' }`。
+   */
+  palette: Record<string, string>
+  /** 运行时的诊断计数——这是回答"它到底在跑吗"的唯一出口。 */
+  runtime: {
+    running: boolean
+    pending: number
+    tickMs: number
+    diagnostics: RuntimeDiagnostics
+  }
+  /** 内容概况（装了哪些包、各库多少条）。面板的状态条用它。 */
+  content: {
+    packs: { id: string; name: string; version: string }[]
+    libraries: LibraryDescriptor[]
+  }
+}
 
 /** 消息类型。 */
 export type WireMessageType = 'hello' | 'snapshot' | 'events' | 'command' | 'ack' | 'error'
@@ -39,12 +73,11 @@ export interface HelloMessage {
 }
 
 /** 全量快照。客户端建立连接、或发现 seq 断裂时拉它。 */
-export interface SnapshotMessage {
+export interface SnapshotMessage extends SnapshotPayload {
   v: number
   type: 'snapshot'
   /** 这个快照对应的世界 seq。之后的 events 必须从它往后连续。 */
   seq: number
-  world: World
 }
 
 /** 增量事件批。 */

@@ -101,9 +101,10 @@
 |---|---|---|---|---|
 | M3-1 | ready | 磁盘真相：`world.json` + 事件追加 `events.jsonl`，原子写 | `src/store/worldStore.ts` | M2-3 |
 | M3-2 | done | 世界运行时：tick 循环 + 处理 `StepResult.requests` + 事件出口。**依赖写错了**：原表写它依赖 M3-1（落盘），实际不需要——运行时纯内存就能跑，先把世界驱动起来比先落盘有价值得多（R7 修正） | `src/runtime/index.ts` + 测试 | M2-3 |
-| M3-3 | blocked | HTTP：`GET /api/world` 快照 + `POST /api/command` | `src/routes/api.ts` | M3-2 |
-| M3-4 | blocked | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈 | `src/routes/events.ts` | M3-2 |
-| M3-5 | blocked | 面板静态服务 `/agent-world/*`（MIME 白名单 + 路径穿越防护） | `src/panel.ts` | M3-2 |
+| M3-3 | done | HTTP：`GET /api/world` 快照 + `POST /api/command` | `src/routes/api.ts` | M3-2 |
+| M3-4 | ready | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈。**替换掉面板现在的轮询** | `src/routes/events.ts` + 面板改成 `EventSource` | M3-3 |
+| M3-6 | ready | **面板的轮询改成 SSE 之后，删掉轮询分支**；并给面板加一条"连不上时显示上次快照时间"——否则断线看起来像世界卡住 | `web/app.js` | M3-4 |
+| M3-5 | done | 面板静态服务 `/agent-world/*`（MIME 白名单 + 路径穿越防护） | `src/panel.ts` | M3-2 |
 
 ## M4 — 3D 场景（three.js）
 

@@ -44,6 +44,7 @@ export type {
   ProviderChain,
 } from './ports/content.js'
 export type { EventSinkPort, EventSourcePort } from './ports/events.js'
+export type { RuntimeDiagnostics, RuntimePort } from './ports/runtime.js'
 export { nullEventSink } from './ports/events.js'
 export type { DispatchOutcome, WorldServicePort } from './ports/world-service.js'
 
@@ -58,8 +59,10 @@ export type {
   HelloMessage,
   SnapshotMessage,
   WireErrorCode,
+  SnapshotPayload,
   WireMessage,
   WireMessageType,
+  WorldSnapshot,
 } from './wire/messages.js'
 export { WIRE_MESSAGE_TYPES, hasSeqGap, hello, wireError } from './wire/messages.js'
 

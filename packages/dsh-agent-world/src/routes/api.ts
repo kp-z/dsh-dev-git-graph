@@ -1,0 +1,114 @@
+/**
+ * 世界 API（BACKLOG M3-3）。
+ *
+ * 两个端点：
+ * - `GET  /api/world`   全量快照（面板建连、或发现 seq 断裂时拉它）
+ * - `POST /api/command` 把一条世界命令排进下一步
+ *
+ * ## 传输层不做业务判断
+ *
+ * 这里只做三件事：从端口取状态、把命令形状校验一遍、排进队列。
+ * "该不该暂停""谁去做哪张单"都是模拟内核的事——传输层多一句判断，
+ * 以后经工具走的那条路就会和它漂移。
+ */
+import type { RouteEntry } from './router.js'
+import { HttpError } from './router.js'
+import type {
+  RuntimePort,
+  SnapshotMessage,
+  WorldCommand,
+  WorldServicePort,
+} from '../protocol/index.js'
+import {
+  PROTOCOL_VERSION,
+  WORLD_COMMAND_KINDS,
+  describeCommand,
+  isWorldCommand,
+} from '../protocol/index.js'
+
+/** 建 API 路由需要的依赖。 */
+export interface ApiDeps {
+  service: WorldServicePort
+  runtime: RuntimePort
+  tickMs: number
+}
+
+/**
+ * 造一份快照载荷。
+ *
+ * **刻意丢掉 `world.events`**：面板要轮询它，带上最近 500 条事件会让一个快照到几百 KB，
+ * 而面板根本不需要历史——历史由 `events` 增量推（M3-4）。
+ */
+export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
+  const world = deps.service.currentWorld()
+  if (world === null) {
+    throw new HttpError(503, '世界还没建出来。这通常是内容层有错误——见 agent_world_content 的输出。')
+  }
+  const { events: _events, ...slim } = world
+  const content = deps.service.content()
+  const view = content.view()
+
+  return {
+    v: PROTOCOL_VERSION,
+    type: 'snapshot',
+    seq: world.seq,
+    world: slim,
+    // 面板只许 import 协议层、读不到内容库，所以调色板必须在这儿解析好发出去。
+    palette: { ...content.colors() },
+    runtime: {
+      running: deps.runtime.running,
+      pending: deps.runtime.pending,
+      tickMs: deps.tickMs,
+      diagnostics: { ...deps.runtime.diagnostics },
+    },
+    content: {
+      packs: view.packs.map((p) => ({ id: p.id, name: p.name, version: p.version })),
+      libraries: [...view.libraries],
+    },
+  }
+}
+
+/** 处理一条世界命令。 */
+export function applyCommand(deps: ApiDeps, body: unknown): Record<string, unknown> {
+  // 没有世界时必须**立刻**拒绝：命令要等 `step()` 的 ingest 段才生效，
+  // 而没有世界就没有下一步——排进队列等于石沉大海，而用户只会看到"点了没反应"。
+  if (deps.service.currentWorld() === null) {
+    throw new HttpError(503, '世界还没建出来，命令无处可施。这通常是内容层有错误。')
+  }
+  if (typeof body !== 'object' || body === null) {
+    throw new HttpError(400, '请求体要形如 {"command":{"kind":"pause"}} 的对象。')
+  }
+  const command = (body as { command?: unknown }).command
+  if (command === undefined) {
+    throw new HttpError(400, '请求体缺少 `command` 字段。形如 {"command":{"kind":"pause"}}。')
+  }
+  if (!isWorldCommand(command)) {
+    throw new HttpError(
+      400,
+      `无法识别的命令 ${JSON.stringify(command ?? null)}。可用 kind：${WORLD_COMMAND_KINDS.join(' / ')}。`,
+    )
+  }
+  // 入队而不是立刻执行——见 RuntimePort.enqueue 的说明（命令要经 ingest 段才不破坏确定性）。
+  deps.runtime.enqueue(command as WorldCommand)
+  return {
+    accepted: true,
+    command: describeCommand(command as WorldCommand),
+    pending: deps.runtime.pending,
+  }
+}
+
+/** 造 API 路由表。 */
+export function apiRoutes(deps: ApiDeps): RouteEntry[] {
+  return [
+    {
+      method: 'GET',
+      pattern: '/api/world',
+      handler: () => buildSnapshot(deps),
+    },
+    {
+      method: 'POST',
+      pattern: '/api/command',
+      handler: (request) => applyCommand(deps, request.body),
+    },
+  ]
+}

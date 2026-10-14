@@ -27,7 +27,119 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R7 末）：`typecheck` 绿 · `test` 132/132 绿（`pnpm test` 约 0.3s）。
+当前验证状态（R8 末）：`typecheck` 绿 · `test` 152/152 绿。
+
+---
+
+## R8 — 2026-10-15 · HTTP 面板：**终于有一个能看的页面了**
+
+**本轮目标**：把"能不能看见"这件事解决掉。上一轮我给了用户两条路并建议先出可见版本；
+用户没有回，按纪律"缺信息不要停下来等人"，就按自己给出的建议推进（理由见下面「假设」）。
+
+### 做了什么
+
+1. **`src/routes/router.ts`** —— 极小的 HTTP 路由表（`:name` 段匹配、JSON 体解析带
+   64KB 上限、异常翻状态码）。没引框架：需求只有三条，而这几条不到 150 行。
+2. **`src/routes/api.ts`** —— `GET /api/world` 快照 + `POST /api/command`。
+   两个刻意的决定：
+   - **快照里没有 `world.events`**。面板要轮询它，带上最近 500 条事件会让一个快照到几百 KB，
+     而面板根本不需要历史（历史走 SSE 增量）。
+   - **命令入队，不立刻执行**。它要经下一步 `step()` 的 ingest 段才生效；否则世界的表现
+     会取决于 HTTP 请求到达的瞬间，直接破坏确定性。有一条测试专门断言"POST 之后世界没动"。
+3. **`src/routes/panel.ts`** —— 静态服务。三条必须自己做的事：**按规范化后的绝对路径判越界**
+   （不是字符串里找 `..`——那样 `%2e%2e%2f` 会漏）、**MIME 白名单**（不猜类型，
+   没想到的扩展名默认拒绝）、**不做 SPA 回退**（宿主的 fallback 座位已被官方 SPA 占用）。
+4. **`web/`** —— canvas 俯视图 + 右侧花名册/工单板 + 暂停/继续按钮。**轮询**而非 SSE
+   （SSE 是 M3-4，还没做）。
+5. **只占一个路由座位**：整个插件在宿主 `webServer` 上注册**一个** `/agent-world` 前缀路由，
+   所以与别的插件不可能撞（而 `register` 撞了是会抛的）。
+   **前缀按整段匹配**：`/agent-world-x` 不属于本插件——只做 `startsWith` 会吞掉相邻插件的路径。
+6. **`webServer` 是软依赖**：用 `ctx.inject` 而非顶层 `inject`。写进顶层会让插件在 headless
+   profile 里直接加载失败，而"世界能不能跑"和"有没有人看"本来就不该绑在一起。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 152 / pass 152 / fail 0
+```
+
+132 → **152**。HTTP 那组用**真服务器**（端口 0）而不是假 req/res：这一层的活儿就是
+"把 Node 的请求对象变成响应"，用假的等于把要测的东西替换掉了。最该看的几条：
+
+- **路径穿越必须被挡住**：`/../secret.txt`、`/sub/../../secret.txt`、以及**编码过的**
+  `/%2e%2e/secret.txt`——最后这条是"用 `includes('..')` 实现"会漏掉的。
+- **只服务白名单类型**：`.env` / `.sqlite` / 无扩展名一律 404，且报错要**列出允许的扩展名**。
+- **`/agent-world-x` 不被吞掉**。
+- **POST 命令之后世界没动**，推进一步才生效。
+- **`apply` 真的注册了一个前缀路由**，且清理链能走到它的 disposer（热重载不泄漏）。
+- **没有 `webServer` 时不注册也不报错**（软依赖的真实语义）。
+- **端到端**：把 `apply` 注册的那个处理器挂到真服务器上，页面与 API 都取得到。
+
+然后**真的在浏览器里看了一遍**（临时服务器 18437，截图见本轮交付）。视觉后端本轮不可用，
+所以改用**程序化核验**，比看截图更严格：
+
+```
+画布 2112×1403 · 218 种颜色
+四个地块色各占 14.4%：#6F7D5A / #5C6B78 / #8A7A5C / #7D6F5A  ← 与调色板逐字对得上
+状态栏：tick 1186 · 运行中 · seq 653 · 事件 1186 步 · 待命 6 干活 2
+花名册 8 行 · 工单板 10 行 · 内容：pack.default@1.0.0 — 十个库都在
+```
+
+### 下一轮从哪继续
+
+**M3-1：落盘（`src/store/worldStore.ts`）。** 现在世界只活在内存里，进程重启归零。具体：
+
+1. `world.json`：**原子写**（写临时文件 + `rename`；直接覆盖的话，写到一半断电会留下半截 JSON，
+   而下次启动会解析失败）。
+2. `events.jsonl`：**追加**。注意 `world.events` 是环形缓冲（只留 500 条），
+   所以落盘不能"把缓冲写出去"——那样历史会在第 501 条事件时开始丢。
+3. 两条欠账在落盘时一起定：`world.messages` 只增不减；`origin.packs` 要把**版本**也存下来，
+   让"这局用的是哪个版本的内容"可查。
+4. `store/` 的边界：只许 import `protocol` 与 `domain`，允许 `node:`。
+
+之后 **M3-4（SSE）**：`GET /api/events` + 面板从轮询改成 `EventSource`，
+并处理 `hasSeqGap` 的重新拉快照。`protocol/wire/messages.ts` 里的 `hasSeqGap` 已经写好并有测试，
+接上即可。
+
+### 假设
+
+- **用户没回上一个问题，我按自己给出的建议推进**（先出可见页面，再补落盘）。
+  理由是那条建议本来就写明了"不浪费"：HTTP 快照、SSE、静态服务、MIME 白名单、穿越防护
+  ——M4 一条也少不了。**如果用户其实想先要落盘（重启不丢世界），那只是把 M3-1 往后挪一轮，
+  没有返工。** 这是本轮最该被复核的一个决定。
+- **面板先用轮询**。SSE 是 M3-4，没做之前轮询是唯一选择；而且轮询版能立刻验证
+  "快照 + 命令"两条链路。代价是 400ms 一次全量快照——世界小，够用。
+- **静态面板服务的是 `lib/web/`**（由 `scripts/copy-web.mjs` 从 `web/` 同步），不是 `web/` 本身。
+  因为 profile 安装是硬链接副本、`files` 白名单只含 `lib/`——服务 `web/` 会踩
+  "新增文件没被同步进 profile"的坑（DEVELOPMENT.md §7）。M4 换成 Vite 构建时这一步自然演化成打包。
+
+### 卡住 / 风险
+
+- **用户现在看到的页面是我起的临时服务器**（PID 34809，端口 18437），**不是真装进 profile 的插件**。
+  它跑的是一个脚本构造的世界，而且进程一停页面就没了。要真的在 GUI 里看到，得先
+  `dsh plugin --profile web add`（而根 `pnpm install` 目前是坏的，这条路径**还没验证过**）。
+  这是"能不能看"与"装好了没有"之间的差距，必须说清楚，别让临时服务器造成"已经装好了"的错觉。
+- **轮询会打满一个核吗**：400ms × 一个完整快照。世界小的时候无所谓，角色到 24 人、
+  任务上百时值得重新量。M3-4 换 SSE 之后就没了。
+- **面板没有"断线"的表现**：轮询失败只改状态栏文字，画布保持最后一帧。看起来会像世界卡住。
+  已排成 M3-6。
+- **`web/app.js` 是手写 JS，没有类型**。它引用的形状（快照字段、事件载荷、元组数组）
+  现在写在 `docs/PROTOCOL.md` §4.4——**那份文档是它唯一的契约**。M4 若改成 TS + Vite，
+  应当直接从 `protocol/` import 类型，把这份手抄的契约消掉。
+
+### 本轮产出
+
+- 新增：`src/routes/{router,api,panel,index}.ts`、`src/protocol/ports/runtime.ts`、
+  `web/{index.html,app.js,style.css}`、`scripts/copy-web.mjs`、`test/http.test.js`
+- 修改：`src/protocol/{index.ts,wire/messages.ts,ports/content.ts}`（快照载荷、`RuntimePort`、
+  `ContentPort.colors`）、`src/content/port.ts`、`src/runtime/index.ts`（实现 `RuntimePort` +
+  命令队列）、`src/index.ts`（挂 HTTP）、`package.json`（`build` 含 `build:web`）、
+  `test/{smoke,external-pack,dispatch-runtime}.test.js`（假 ctx 补 `inject`）
+- 文档：`PROTOCOL.md`（§4.4 载荷形状 + §4.5 HTTP 端点）、`ARCHITECTURE.md`（§10 + D21/D22）、
+  `BACKLOG.md`
+- 测试从 132 → 152
 
 ---
 

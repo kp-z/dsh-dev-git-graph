@@ -21,29 +21,14 @@
  * "改一次代码多一个世界在跑"，而症状是 CPU 慢慢爬高——很难归因到某个插件。
  * 所以 `index.ts` 里用 `ctx.effect()` 挂清理，别依赖进程退出。
  */
-import type { EventSinkPort, WorldServicePort } from '../protocol/index.js'
+import type { EventSinkPort, RuntimeDiagnostics, RuntimePort, WorldCommand, WorldServicePort } from '../protocol/index.js'
 import { nullEventSink } from '../protocol/index.js'
 import type { StepResult } from '../sim/index.js'
 import { step } from '../sim/index.js'
 
-/** 运行时的诊断计数。挂在工具/日志里，用来回答"它到底在跑吗"。 */
-export interface RuntimeDiagnostics {
-  /** 已推进的 tick 数（由本运行时推进的，不含手动 advance 之外的来源）。 */
-  ticks: number
-  /** 处理过的重开请求。 */
-  resets: number
-  /** 处理过的派单请求。 */
-  dispatches: number
-  /**
-   * 收到但**没人能处理**的招募请求数。
-   *
-   * 招募要把角色映射到真实 subagent（M7 的 bridge），现在还没有那个能力。
-   * 刻意计数而不是静默丢弃：静默丢弃会让"我让招募一个人，它什么都没发生"无从解释。
-   */
-  unhandledHires: number
-  /** `step()` 抛异常的累计次数。 */
-  errors: number
-}
+// 诊断计数的形状定义在协议层（`protocol/ports/runtime.ts`）——路由要把它们发给面板，
+// 而 routes 按边界规则不许 import 本模块。这里只转出。
+export type { RuntimeDiagnostics }
 
 /** 建运行时需要的依赖。 */
 export interface RuntimeOptions {
@@ -61,8 +46,8 @@ export interface RuntimeOptions {
   onError?: (error: unknown) => void
 }
 
-/** 世界运行时。 */
-export interface Runtime {
+/** 世界运行时。实现协议层的 `RuntimePort`（路由只认那个接口）。 */
+export interface Runtime extends RuntimePort {
   readonly running: boolean
   /** 开始按节拍推进。重复调用是幂等的。 */
   start(): void
@@ -100,6 +85,17 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
   let timer: ReturnType<typeof setInterval> | null = null
 
+  /**
+   * 待处理命令队列。
+   *
+   * 命令**不立刻执行**，而是排到下一步由 `step()` 的 ingest 段统一处理——
+   * 这样它影响的是"命令到达的那一 tick"，而不是"HTTP 请求到达的那个瞬间"。
+   * 后者会让世界的行为取决于网络时序，直接破坏确定性。
+   */
+  const queue: WorldCommand[] = []
+  /** 队列上限：10Hz 的循环配 1000 条积压已经很离谱了，再多说明循环卡死了。 */
+  const MAX_QUEUE = 1000
+
   /** 处理 `step()` 转交出来的、需要内容的动作。 */
   const handleRequests = (result: StepResult): void => {
     const { reset, dispatch, hire } = result.requests
@@ -129,9 +125,12 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     const world = service.currentWorld()
     if (world === null) return null
 
+    // 取走本步要处理的命令（取空，避免下一步重复处理）。
+    const commands = queue.splice(0, queue.length)
+
     let result: StepResult
     try {
-      result = step(world)
+      result = step(world, commands)
     } catch (error) {
       diagnostics.errors += 1
       options.onError?.(error)
@@ -155,6 +154,20 @@ export function createRuntime(options: RuntimeOptions): Runtime {
       return timer !== null
     },
     diagnostics,
+
+    get pending() {
+      return queue.length
+    },
+
+    enqueue(command: WorldCommand): void {
+      if (queue.length >= MAX_QUEUE) {
+        throw new Error(
+          `命令队列已积压 ${queue.length} 条（上限 ${MAX_QUEUE}）——模拟循环大概卡住了。` +
+            '请先查 runtime.diagnostics.errors 与日志。静默丢弃会让"我点了暂停它没停"无从解释，所以这里直接报错。',
+        )
+      }
+      queue.push(command)
+    },
 
     start(): void {
       if (timer !== null) return // 幂等：重复 start 不该起第二个定时器

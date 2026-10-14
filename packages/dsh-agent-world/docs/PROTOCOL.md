@@ -117,7 +117,54 @@
 
 判据在 `hasSeqGap(previousSeq, nextSeq)`：**倒退与同号都算断裂**（同号 = 重复投递，重放会叠加）。
 
-### 4.4 编解码接缝
+### 4.4 载荷形状（**R6 记下的欠账，R8 补上**）
+
+之前只写了"事件带 seq"，没说载荷长什么样——面板只能靠读源码猜。现在定死：
+
+**快照** `GET /agent-world/api/world`：
+
+| 字段 | 说明 |
+|---|---|
+| `v` / `type: 'snapshot'` / `seq` | 协议版本、类型、这个快照对应的世界序号 |
+| `world` | **去掉 `events` 的世界**（`WorldSnapshot`）。面板要轮询它，带上最近 500 条事件会让一个快照到几百 KB，而面板不需要历史 |
+| `palette` | **调色板 token → 色值**（服务端从 `skins` 库合并好） |
+| `runtime` | `{ running, pending, tickMs, diagnostics }` —— 回答"它到底在跑吗"的唯一出口 |
+| `content` | `{ packs, libraries }` —— 装了哪些包、各库多少条 |
+
+> **调色板为什么必须随快照发**：面板只许 import 协议层（决策 D16/D19），读不到内容库。
+> 地块的 `ground` 字段是 token（形如 `skin.ground.engineering`），面板剥掉 `skin.` 前缀
+> 再去 `palette` 里查——这个约定两边都要守，改了要同时改。
+
+**事件载荷**（`world.events` 里每条的 `payload`）：
+
+| type | payload |
+|---|---|
+| `world.tick` | `{ agents: [id, x, z, facing][] }` —— **元组数组**，过 JSON 会变成普通数组，按位置解包 |
+| `agent.state` | `{ id, state, ... }`，可能带 `station` / `task` / `from` / `reason` |
+| `task.changed` | `{ id, ... }`，可能带 `status` / `owner` / `station` / `progress` / `milestone` / `reason` / `attemptId` |
+| `message.sent` | `{ id, from, to }` |
+| `world.paused` | `{ paused }` |
+
+`world.tick` 的元组数组是个**隐式契约**（位置上没有名字），所以写在这里；
+要给它加字段就得同时改这里与 `web/app.js` 的解包代码。
+
+### 4.5 HTTP 端点
+
+整个插件只占**一个路由座位**（一个前缀，默认 `/agent-world`），所以与别的插件不可能撞。
+
+| 端点 | 方法 | 说明 |
+|---|---|---|
+| `/agent-world/` | GET | 面板页面（静态文件，MIME 白名单，未命中一律 404） |
+| `/agent-world/api/world` | GET | 快照（见上）。响应带 `Cache-Control: no-store` |
+| `/agent-world/api/command` | POST | 体形如 `{"command":{"kind":"pause"}}` |
+
+**命令是入队、不是立刻执行**：它要经下一步 `step()` 的 ingest 段才生效。
+否则世界的行为会取决于 HTTP 请求到达的瞬间，直接破坏确定性。
+
+**前缀按整段匹配**：`/agent-world-x` 不属于本插件——只做字符串 `startsWith` 会吞掉
+相邻插件的路径，而那种问题极难查。
+
+### 4.6 编解码接缝
 
 业务代码**从不直接碰 JSON**——只调 `jsonCodec.encode/decode`，只认 `WireMessage`。
 要换 protobuf，改的是 `wire/codec.ts` 一个文件加一份 `.proto`；**调用点一处不动**。
@@ -188,3 +235,4 @@
 | 协议版本 | 日期 | 变更 |
 |---|---|---|
 | v1 | 2026-10-14 | 首版：六种消息、六种命令、端口三件套、边界规则与强制检查 |
+| v1 | 2026-10-14 | R8 补充：载荷形状（§4.4）与 HTTP 端点（§4.5）。**没有 bump 版本**——只加字段、不改语义 |

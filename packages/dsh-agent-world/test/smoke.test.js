@@ -28,8 +28,17 @@ after(() => {
   for (const dispose of collectedDisposers.splice(0)) dispose()
 })
 
-/** 造一个假 ctx：工具注册表 + logger（apply 会记日志，缺 logger 会 TypeError）+ effect。 */
-function fakeCtx() {
+/**
+ * 造一个假 ctx。
+ *
+ * **假 ctx 必须镜像真实 cordis 的 API 面**（tools / logger / effect / inject）：
+ * 少一个方法，`apply` 就在那一步 TypeError，而报错看起来像"插件写错了"——
+ * 这类假故障已经踩过两次（先是 `effect`，再是 `inject`）。
+ *
+ * @param services - 要提供给 `inject` 的服务（例如 `{ webServer }`）。不提供时
+ *   `inject` 的回调**永不执行**，这正是"软依赖缺席"的真实行为。
+ */
+function fakeCtx(services = {}) {
   const registered = []
   const logs = { info: [], warn: [], error: [] }
   const ctx = {
@@ -42,6 +51,13 @@ function fakeCtx() {
     effect: (fn) => {
       const dispose = fn()
       if (typeof dispose === 'function') collectedDisposers.push(dispose)
+    },
+    // 真实 cordis 的 `inject`：依赖可用时才回调；不可用就**永不回调**——
+    // 这正是"软依赖"的语义（没有 webServer 时世界照跑，只是没有界面）。
+    // 假 ctx 少这个方法会让 apply 直接 TypeError，而这个错误看起来像"插件写错了"。
+    inject: (names, cb) => {
+      const host = { ...services, effect: ctx.effect }
+      if (names.every((n) => host[n] !== undefined)) cb(host)
     },
   }
   return { ctx, registered, logs }

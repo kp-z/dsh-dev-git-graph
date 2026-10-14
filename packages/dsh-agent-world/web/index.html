@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent World · 俯视图</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Agent World</h1>
+      <div id="status" class="status">连接中…</div>
+      <div class="controls">
+        <button data-command="pause">暂停</button>
+        <button data-command="resume">继续</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="map">
+        <canvas id="town"></canvas>
+        <div class="legend">
+          <span><i class="swatch ground"></i>地块</span>
+          <span><i class="swatch station"></i>站点</span>
+          <span><i class="swatch agent"></i>角色（实心=在站上，空心=在路上）</span>
+        </div>
+      </section>
+
+      <aside>
+        <h2>花名册</h2>
+        <ul id="roster" class="roster"></ul>
+        <h2>工单板</h2>
+        <ul id="tasks" class="tasks"></ul>
+        <h2>内容</h2>
+        <div id="content" class="content"></div>
+      </aside>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

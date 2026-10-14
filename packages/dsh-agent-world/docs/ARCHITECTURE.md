@@ -405,13 +405,18 @@ packages/dsh-agent-world/
 │   ├── world/               装配：createWorld（内容 → World）+ 后续的 sim/
 │   ├── sim/                 tick / scheduler / movement / mailbox（M2）
 │   ├── store/               落盘（world.json + events.jsonl）（M3）
+│   ├── runtime/             运行时：tick 循环 + 处理转交的请求 + 事件出口
 │   ├── tools/               agent_world_*（defineTool）
-│   ├── routes/              HTTP + SSE（M3）
-│   └── panel.ts             静态面板服务（M3）
-├── web/                     3D 面板（Vite + three.js）
+│   └── routes/              HTTP 传输层
+│       ├── router.ts        极小路由表 + JSON 体 + 异常翻状态码
+│       ├── api.ts           快照与命令（GET /api/world · POST /api/command）
+│       └── panel.ts         静态面板：MIME 白名单 + 路径穿越防护
+├── web/                     面板（R8 起是 2D 俯视图；M4 换成 three.js 场景）
 │   ├── index.html
-│   ├── src/{net,model,scene,actors,ui,style}
-│   └── public/assets/       模型贴图 + VENDOR.md
+│   ├── app.js               canvas 俯视图 + 轮询 /api/world
+│   ├── style.css
+│   └── public/assets/       M4 的模型贴图 + VENDOR.md
+├── scripts/copy-web.mjs     web/ → lib/web/（服务的是 lib 里那份，避开硬链接副本的坑）
 ├── docs/
 │   ├── ARCHITECTURE.md      本文
 │   ├── CONTENT.md           内容库规范（十个库 / 包 / 校验 / 三种操作）
@@ -467,4 +472,6 @@ packages/dsh-agent-world/
 | D17 | **现在不做 protobuf**，但把接缝留在 `wire/codec.ts`（业务代码只调 `encode/decode`，不碰 JSON） | ① 进程内模块间是同进程函数调用，套 protobuf 白付编解码开销还**丢掉 tsc 类型检查**，而类型检查才是进程内解耦真正依赖的东西——"禁止耦合"靠边界规则，不靠序列化；② 跨进程 10Hz / ≤24 角色，JSON 的带宽代价测不出来，而 devtools 里能直接读；③ protobuf 要多一套 `.proto` + codegen + 产物入库，而本仓库对"新增文件进 profile"本来就有坑。**换的判据**：单条消息常态 >64KB、事件频率 >100Hz、或出现非 JS 客户端 | R4 |
 | D18 | 边界规则**区分类型导入与值导入**（`mayImport` / `mayImportTypes`） | `import type` 编译期完全擦除，不产生运行时依赖。一刀切禁止 `protocol → domain` 会导致连"世界长什么样"都写不进协议——这是写完第一版规则后自己踩到的坑 | R4 |
 | D19 | `protocol/` 是浏览器侧**唯一**的 import 入口，它转出渲染需要的 domain 类型 | 多一条缝就多一处会漂移的地方。类型是编译期的，转出它不会让 web 在运行时依赖 domain 的代码 | R4 |
+| D21 | **先出 2D 俯视图，再换 three.js**；该视图**永久保留**为调试模式 | 世界从 R6 起就是活的，但"看不见"让每一次判断都只能靠读测试输出。而通往可见的零件——HTTP 快照、SSE、静态面板服务、MIME 白名单、穿越防护——**M4 一条也少不了**，所以先做它们不是弯路。俯视图还额外有长期价值：3D 调不出来时，它是唯一能看清模拟对不对的窗口 | R8 |
+| D22 | **调色板随快照下发**（`palette` 字段），面板不读内容库 | 面板只许 import 协议层（D16/D19），拿不到 `skins` 库；而地块的 `ground` 是 token 不是色值。两个选择：让面板去读内容库（破坏那条缝），或把 token 解析放在服务端（多一个字段）。后者对——**缝只有一条，token 解析属于服务端的活** | R8 |
 | D20 | `step(world, commands)` **不收 `dt`**；需要内容的命令（`reset`/`dispatch`/`hire`）以 `requests` **转交**给编排层 | ① 这是定步长模拟，一次调用 = 前进一 tick，`dt` 永远等于 `tickMs`；收了却不用它，只会让人以为"传别的值会改变结果"——步长属于编排层。② `sim/` 按 D16 的边界规则不许 import `content/`，而这三个命令都需要内容（场景/任务集/花名册），所以只能转交。这不是权宜之计，是边界规则在起作用；顺带的好处是 `step()` 可以在**没有任何内容注册表**的情况下被测试 | R6 |

@@ -50,5 +50,13 @@ export function contentPortOf(
     view,
     providersOf: (kind, id) => registry.providersOf(kind, id),
     entryIds: (kind) => registry.list(kind).map((e) => e.id),
+    colors: () => {
+      // 按 list 的顺序叠加（list 已按 id 排序，稳定）；后出现的覆盖先出现的。
+      const merged: Record<string, string> = {}
+      for (const skin of registry.list('skins')) {
+        for (const [token, value] of Object.entries(skin.data.colors)) merged[token] = value
+      }
+      return merged
+    },
   }
 }

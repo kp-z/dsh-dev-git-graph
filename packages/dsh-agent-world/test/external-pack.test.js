@@ -343,6 +343,8 @@ test('端到端：apply 接上 contentDir → 工具看到的世界就是外部�
         const dispose = fn()
         if (typeof dispose === 'function') collectedDisposers.push(dispose)
       },
+      // 真实 cordis 一定有 `inject`；没有 webServer 时它的回调永不执行（软依赖语义）。
+      inject: () => {},
     }
 
     // 绝对路径：相对路径会按 process.cwd() 解析，测试里不依赖那个。
@@ -378,6 +380,8 @@ test('端到端：contentDir 指向不存在的目录 → 只警告，插件照�
         const dispose = fn()
         if (typeof dispose === 'function') collectedDisposers.push(dispose)
       },
+      // 真实 cordis 一定有 `inject`；没有 webServer 时它的回调永不执行（软依赖语义）。
+      inject: () => {},
     }
 
     apply(ctx, { contentDir: join(dir, '没这个目录') })

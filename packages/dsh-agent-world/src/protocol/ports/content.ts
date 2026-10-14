@@ -68,4 +68,14 @@ export interface ContentPort {
    * 报错必须**列出可用的任务集**——"没有这个 id"帮不了任何人。
    */
   entryIds(kind: LibraryKind): readonly string[]
+  /**
+   * 合并后的调色板：token → 色值。
+   *
+   * 面板要按地块/职业上色，而它只许 import 协议层、读不到内容库，
+   * 所以调色板必须由服务端算好随快照发出去（见 `SnapshotPayload.palette`）。
+   *
+   * 合并规则：按注册表里的提供方链顺序叠加，**后面的覆盖前面的**——
+   * 于是"换一套皮肤包"就是加一个包，不用改任何代码。
+   */
+  colors(): Readonly<Record<string, string>>
 }

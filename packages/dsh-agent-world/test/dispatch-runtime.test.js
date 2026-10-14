@@ -22,8 +22,13 @@ after(() => {
   for (const dispose of leakedDisposers.splice(0)) dispose()
 })
 
-/** 假 ctx：工具注册表 + logger + effect 收集器。 */
-function fakeCtx() {
+/**
+ * 假 ctx。**必须镜像真实 cordis 的 API 面**（tools / logger / effect / inject）——
+ * 少一个方法，`apply` 就在那一步 TypeError，而报错看起来像"插件写错了"。
+ *
+ * @param services - 提供给 `inject` 的服务；不提供时回调永不执行（软依赖缺席的真实行为）。
+ */
+function fakeCtx(services = {}) {
   const registered = []
   const logs = { info: [], warn: [], error: [] }
   const disposers = []
@@ -40,6 +45,10 @@ function fakeCtx() {
         disposers.push(disposer)
         leakedDisposers.push(disposer) // 兜底：没被测试手动清掉的话，文件跑完统一清
       }
+    },
+    inject: (names, cb) => {
+      const host = { ...services, effect: ctx.effect }
+      if (names.every((n) => host[n] !== undefined)) cb(host)
     },
   }
   return { ctx, registered, logs, disposers }
