@@ -1,0 +1,20 @@
+# dsh-agent-world：把 Agent World 插进 profile 的层栈。
+#
+# 依赖已由 base / web-app bundle 备好，本插件只消费、不重复挂载：
+#   - @deepseek-ai/dsh-tools          模型可见工具注册表（dsh-base 已挂）
+#   - @deepseek-ai/dsh-host-webserver HTTP 路由与 SSE（web 组合已挂）—— M2 之后按需 inject
+#   - @deepseek-ai/dsh-workspace      world.json 的落位根（dsh-web-app 已挂）
+#
+# 当前（R1）只 inject `tools`：没有 webServer 时世界照跑，只是没有界面。
+- insert:
+    - id: agent-world
+      name: dsh-agent-world
+      config:
+        # 世界状态落盘目录：<session workspace>/<stateDir>/
+        stateDir: .agent-world
+        # 逻辑 tick 间隔（ms）。渲染层对它做插值，所以 100ms（10Hz）足够。
+        tickMs: 100
+        # 世界启动后是否自动开始推进模拟。
+        autoStart: true
+        # 同屏角色上限（性能预算的一部分，见 docs/ARCHITECTURE.md §5.3）。
+        maxAgents: 24
