@@ -6,7 +6,10 @@
  */
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { test } from 'node:test'
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { after, test } from 'node:test'
 
 import { resolveConfig } from '../lib/config.js'
 import { createPluginState } from '../lib/state.js'
@@ -17,6 +20,12 @@ import { resolveStaticPath } from '../lib/routes/panel.js'
 import { buildSnapshot, applyCommand } from '../lib/routes/api.js'
 
 const PREFIX = '/agent-world'
+
+/** 测试建的临时目录，跑完清掉。 */
+const tempDirs = []
+after(async () => {
+  for (const dir of tempDirs) await rm(dir, { recursive: true, force: true })
+})
 
 /** 起一个真服务器，跑完关掉。 */
 async function withServer(handler, fn) {
@@ -52,6 +61,20 @@ test('matchPath：精确段、命名段、以及不匹配', () => {
   assert.equal(matchPath('/api/world', '/api/world/extra'), null, '段数不同就不该匹配')
   assert.equal(matchPath('/:file', '/'), null, '空段不该被命名段吃掉')
   assert.deepEqual(matchPath('/api/:id', '/api/%E4%B8%AD%E6%96%87'), { id: '中文' }, '命名段要解码')
+})
+
+test('matchPath：末尾的 `*` 匹配剩余全部段（R15 补的，否则静态资源放不进子目录）', () => {
+  assert.deepEqual(matchPath('/*', '/app.js'), { rest: 'app.js' })
+  assert.deepEqual(matchPath('/*', '/vendor/three/x.js'), { rest: 'vendor/three/x.js' })
+  assert.deepEqual(matchPath('/*', '/a/b/c/d.txt'), { rest: 'a/b/c/d.txt' }, '层数不写死')
+  assert.deepEqual(matchPath('/assets/*', '/assets/img/a.png'), { rest: 'img/a.png' })
+  assert.equal(matchPath('/assets/*', '/other/a.png'), null, '`*` 前面的固定段仍要匹配')
+
+  // **关键**：逐段解码，不整段解码——整段解码会把 `%2F` 变成真的斜杠，
+  // 于是一个编码过的分隔符就能伪造出目录层级（路径穿越的经典手法）。
+  const params = matchPath('/*', '/a%2F..%2Fb.txt')
+  assert.equal(params.rest, 'a/../b.txt', '解出来要保留一个"看起来像上跳"的段，交给下游按段处理')
+  assert.ok(!params.rest.includes('\u0000'))
 })
 
 // ── 静态路径安全 ────────────────────────────────────────────────────────────
@@ -117,8 +140,11 @@ test('未知路由的 404 要列出已注册的路由（可下手）', async () 
     const res = await fetch(`${base}${PREFIX}/api/根本没有`)
     assert.equal(res.status, 404)
     const body = await res.json()
-    assert.match(body.error, /没有匹配的路由/)
-    assert.match(body.error, /\/api\/world/, '要列出已注册的路由')
+    // 走到的是 `/api/*` 的兜底（不是静态面板的"文件类型不对"）——
+    // 打错端点的人需要看到的是**已注册的 API 列表**，而不是一句关于 MIME 的话。
+    assert.match(body.error, /没有这个 API 端点/)
+    assert.match(body.error, /\/api\/world/, '要列出已注册的 API')
+    assert.match(body.error, /\/api\/events/)
   })
 })
 
@@ -280,6 +306,30 @@ test('静态服务：穿越与非白名单类型在真实服务器上也要被�
     // GET /:file 只匹配单段，所以多段的路径是"没有匹配的路由"（404）。
     const deep = await fetch(`${base}${PREFIX}/a/b/c.txt`)
     assert.equal(deep.status, 404)
+  })
+})
+
+test('静态服务：**嵌套目录**里的资源能取到（R15 修的真缺陷：原来只匹配单段路径）', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'agent-world-web-'))
+  tempDirs.push(dir)
+  await mkdir(join(dir, 'sub', 'deep'), { recursive: true })
+  await writeFile(join(dir, 'index.html'), '<canvas id="town"></canvas>', 'utf8')
+  await writeFile(join(dir, 'sub', 'deep', 'x.css'), 'body{}', 'utf8')
+
+  const deps = makeDeps()
+  const handler = createHandler(PREFIX, { ...deps, webRoot: dir })
+
+  await withServer(handler, async (base) => {
+    const nested = await fetch(`${base}${PREFIX}/sub/deep/x.css`)
+    assert.equal(nested.status, 200, '嵌套资源必须能取到——vendor 进来的 three 就在子目录里')
+    assert.match(nested.headers.get('content-type'), /text\/css/)
+
+    // 白名单与穿越防护在嵌套路径上**照样生效**（通配不该开后门）。
+    await writeFile(join(dir, 'secret.env'), 'KEY=1', 'utf8')
+    assert.equal((await fetch(`${base}${PREFIX}/secret.env`)).status, 404, 'MIME 白名单不能因为进了子目录就失效')
+    const escape = await fetch(`${base}${PREFIX}/sub/deep/%2e%2e%2f%2e%2e%2f..%2fpackage.json`)
+    // 403（越界）或 404（找不到）都算挡住——两者都不给文件内容。
+    assert.ok([403, 404].includes(escape.status), `编码过的上跳必须被挡，实际 ${escape.status}`)
   })
 })
 

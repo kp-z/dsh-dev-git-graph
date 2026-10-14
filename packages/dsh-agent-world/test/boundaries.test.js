@@ -436,15 +436,6 @@ test('目录覆盖：`src/` 下每个一级目录都必须在规则表里登记�
     .map((d) => d.name)
 
   const registered = BOUNDARY_RULES.map((r) => r.module)
-  const unregistered = dirs.filter((d) => !registered.includes(d))
-
-  assert.deepEqual(
-    unregistered,
-    [],
-    `这些目录没有登记在 BOUNDARY_RULES 里，检查器会把它们整个跳过：${unregistered.join(' / ')}。` +
-      `要么给它加一条规则（谁能 import 它 / 它能 import 谁），要么明确写进忽略清单。`,
-  )
-
   // 反过来也要成立：规则表里的模块名如果不是目录（也不是 app 这种特殊名），
   // 那多半是个拼写错误——同样会让检查形同虚设。
   // 反向：规则表里**有规则但还没有目录**的模块。这一项不能一概禁止——
@@ -455,6 +446,18 @@ test('目录覆盖：`src/` 下每个一级目录都必须在规则表里登记�
     ['bridge', 'M7 计划：与真实 subagent 的桥，目录还没建'],
     ['web', '不在 src/ 下：浏览器侧的独立构建'],
   ])
+  // **非本插件代码**的目录：`src/vendor/` 放的是第三方资源（three 等），
+  // 没有 TS、不参与模块图，所以"登记模块规则"对它没有意义。
+  // 但也不能默默放过——列在这里就等于写明"这些文件不是我们写的"。
+  const notOurCode = new Map([['vendor', '第三方 vendored 资源，不参与本插件的模块图（见 src/vendor/README.md）']])
+
+  const unregistered = dirs.filter((d) => !registered.includes(d) && !notOurCode.has(d))
+  assert.deepEqual(
+    unregistered,
+    [],
+    `这些目录既没登记进 BOUNDARY_RULES，也没写进忽略清单：${unregistered.join(' / ')}`,
+  )
+
   const ghost = registered.filter((m) => m !== 'app' && !dirs.includes(m) && !planned.has(m))
   assert.deepEqual(
     ghost,

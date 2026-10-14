@@ -113,7 +113,9 @@ export function panelRoutes(rootDir: string): RouteEntry[] {
     },
     {
       method: 'GET',
-      pattern: '/:file',
+      // `*` 而不是 `/:file`：静态资源要能放进子目录（vendor 的 three 就在
+      // `vendor/three/` 下）。单段模式会让那些文件全都 404，而报错只是"没有匹配的路由"。
+      pattern: '/*',
       handler: ({ pathname, res }) => serve(pathname, res),
     },
   ]

@@ -17,3 +17,13 @@ const dest = fileURLToPath(new URL('../lib/web/', import.meta.url))
 await rm(dest, { recursive: true, force: true })
 await cp(src, dest, { recursive: true })
 console.log(`web → lib/web （${src}）`)
+
+// vendored 第三方资源：源在 `src/vendor/`（入库），运行期读 `lib/vendor/`。
+// 分开放是仓库约定（docs/DIRECTORY.md）：面板自己的资源与"别人写的代码"不该混在一起，
+// 后者要走白名单路由，前者可以走通配。
+const vendorSrc = fileURLToPath(new URL('../src/vendor/', import.meta.url))
+const vendorDest = fileURLToPath(new URL('../lib/vendor/', import.meta.url))
+
+await rm(vendorDest, { recursive: true, force: true })
+await cp(vendorSrc, vendorDest, { recursive: true })
+console.log(`src/vendor → lib/vendor （${vendorSrc}）`)

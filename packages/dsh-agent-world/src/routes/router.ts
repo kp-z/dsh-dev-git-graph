@@ -47,7 +47,17 @@ export interface RouteRequest {
 /** 处理器返回的值会被序列化成 JSON；抛 `HttpError` 决定状态码。 */
 export type RouteHandler = (request: RouteRequest) => unknown | Promise<unknown>
 
-/** 路由表里的一项。`pattern` 支持 `:name` 形式的单段参数。 */
+/**
+ * 路由表里的一项。
+ *
+ * `pattern` 支持两种占位：
+ * - `:name` —— 匹配**一段**，值进 `params`；
+ * - 末尾的 `*` —— 匹配**剩余全部段**（含零段之后的任意嵌套），整体进 `params.rest`。
+ *
+ * `*` 是 R15 补的：原先只有单段占位，于是**静态面板服务不了嵌套目录**
+ * （`/vendor/three/x.js` 匹配不上 `/:file`），而那时所有面板资源都是平铺的，
+ * 所以这个缺陷一直没暴露——直到 vendor 进来的 three 放进子目录。
+ */
 export interface RouteEntry {
   method: string
   pattern: string
@@ -58,11 +68,16 @@ export interface RouteEntry {
 export function matchPath(pattern: string, pathname: string): Record<string, string> | null {
   const p = pattern.split('/').filter((s) => s !== '')
   const a = pathname.split('/').filter((s) => s !== '')
-  if (p.length !== a.length) return null
+
+  // 末尾的 `*`：匹配剩余全部段。**必须在长度比较之前处理**，
+  // 否则 `/vendor/three/x.js` 会被 `/:file` 的长度检查直接拒掉。
+  const wildcard = p[p.length - 1] === '*'
+  const fixed = wildcard ? p.slice(0, -1) : p
+  if (wildcard ? a.length < fixed.length : a.length !== fixed.length) return null
 
   const params: Record<string, string> = {}
-  for (let i = 0; i < p.length; i++) {
-    const seg = p[i] ?? ''
+  for (let i = 0; i < fixed.length; i++) {
+    const seg = fixed[i] ?? ''
     const actual = a[i] ?? ''
     if (seg.startsWith(':')) {
       if (actual === '') return null
@@ -70,6 +85,14 @@ export function matchPath(pattern: string, pathname: string): Record<string, str
     } else if (seg !== actual) {
       return null
     }
+  }
+  if (wildcard) {
+    // 逐段解码后拼回：**不要**整段 decodeURIComponent，那会把 `%2F` 变成真的斜杠，
+    // 于是一个编码过的分隔符就能伪造出目录层级（路径穿越的经典手法）。
+    params.rest = a
+      .slice(fixed.length)
+      .map((seg) => decodeURIComponent(seg))
+      .join('/')
   }
   return params
 }

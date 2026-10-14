@@ -160,14 +160,15 @@
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M4-1 | blocked | `web/` Vite + **纯 three.js** 脚手架（决策 D7），能渲染空场景 | `web/` + `build:web` 脚本 | M0-1 |
-| M4-2 | blocked | 相机：等距正交 + orbit/缩放/平移（配方见 ASSETS.md §6） | `web/src/scene/camera.ts` | M4-1 |
-| M4-3 | blocked | 光照与雾：落地 ASSETS.md §6 的配方 + ACES 色调映射 | `web/src/scene/lighting.ts` | M4-1 |
-| M4-4 | blocked | **消费 `themes` 库**：相机/光照/雾/后处理全从主题条目读，不许硬编码 | `web/src/scene/theme.ts` | M4-3 |
-| M4-5 | blocked | **消费 `skins` 库**：所有颜色走 token 解析（含 `skin.` 前缀） | `web/src/scene/palette.ts` | M4-1 |
-| M4-6 | blocked | **消费 `districts` + `stations` 库**：地面与站点几何按内容生成 | `web/src/scene/town.ts` | M4-4 M4-5 |
-| M4-7 | blocked | 程序化几何构建器注册表（`avatar`/`desk`/`server`…，对应 `models` 库的 `builder` 字段） | `web/src/scene/builders.ts` | M4-6 |
-| M4-8 | blocked | 资源台账：`VENDOR.md` + `THIRD_PARTY_NOTICES.md` + CI 哈希比对脚本 | `web/public/assets/VENDOR.md` `scripts/verify-assets.mjs` | M4-1 |
+| M4-1 | done | `web/` **原生 ESM 脚手架**，能渲染空场景。**实际没上 Vite**：three 用 vendored 的那份 + 一张 import map 直接引，少一层构建就少一处"源码与产物不一致"（见决策 D30，理由与代价都写在那里） | `web/scene3d.js` · `web/index.html` | 
+| M4-1b | done | **3D 视图的第一帧**：等距正交相机 + 光照/雾 + 地块/站点/角色 + 视图切换（`web/scene3d.js`）。输入只有 `ScenePlan` + 实时 `world`，所以它**完全不吃内容库知识**——这正是 D23 那层缝的用处。**注意**：站点是方块、角色是胶囊，都是**占位几何**；真正的形状由 `models` 库驱动，那是 M4-7 | `web/scene3d.js` | M4-0 |
+| M4-2 | done | 相机：等距正交 + orbit/缩放/平移（配方见 ASSETS.md §6） | `web/src/scene/camera.ts` | M4-1 |
+| M4-3 | done | 光照与雾：落地 ASSETS.md §6 的配方 + ACES 色调映射 | `web/src/scene/lighting.ts` | M4-1 |
+| M4-4 | done | **消费 `themes` 库**：相机/光照/雾/后处理全从主题条目读，不许硬编码 | `web/src/scene/theme.ts` | M4-3 |
+| M4-5 | done | **消费 `skins` 库**：所有颜色走 token 解析（含 `skin.` 前缀） | `web/src/scene/palette.ts` | M4-1 |
+| M4-6 | done | **消费 `districts` + `stations` 库**：地面与站点几何按内容生成 | `web/src/scene/town.ts` | M4-4 M4-5 |
+| M4-7 | ready | 程序化几何构建器注册表（`avatar`/`desk`/`server`…，对应 `models` 库的 `builder` 字段） | `web/src/scene/builders.ts` | M4-6 |
+| M4-8 | done | 资源台账：**按仓库实际约定**落在 `src/vendor/README.md`（版本 / 来源 / sha256 / 许可 / 换版本步骤 / 为什么钉 0.167.1），加穷举白名单路由 + `test/vendor.test.js` 双向核对（目录↔白名单、import map↔白名单）。**更正**：这条原计划写 `VENDOR.md` + `THIRD_PARTY_NOTICES.md`，但本仓库没有这两个文件，`docs/DIRECTORY.md` 的约定就是 `src/vendor/README.md`——按既有约定走，不自己发明一套 | `src/vendor/README.md` · `src/routes/vendor.ts` · `test/vendor.test.js` | 
 
 ## M5 — 角色与动画（**内容层可替换性的第一次真实验证**）
 

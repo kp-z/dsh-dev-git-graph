@@ -61,3 +61,13 @@ li { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
 .t-done .badge { background: #2b4630; color: #cfe8d2; }
 .t-ready .badge { background: #4a3f2b; color: #f0dcb8; }
 .content { color: var(--dim); font-size: 12px; }
+
+/* ── 视图切换（俯视 / 3D）─────────────────────────────────────────────────── */
+button.active { background: #33507a; border-color: #4a6ea8; }
+
+/* 3D 画布与俯视图占同一块地方：靠 hidden 切换，避免布局跳动。 */
+#town3d { flex: 1; width: 100%; min-height: 0; border-radius: 10px; background: #0b0d12; border: 1px solid var(--line); }
+.view-hint {
+  margin-top: 8px; padding: 6px 10px; border-radius: 6px;
+  background: #3a2b1a; color: var(--warn); font-size: 12px;
+}

@@ -5,12 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agent World · 俯视图</title>
     <link rel="stylesheet" href="./style.css" />
+
+    <!--
+      import map：把裸说明符 `three` 指到本目录 vendor 的那份。
+      为什么需要它：three 的 addons（OrbitControls 等）里写的是 `from 'three'`，
+      而浏览器不认识裸说明符——没有这张表，addon 一加载就 404。
+      版本与来源见 src/vendor/README.md（白名单路由在 src/routes/vendor.ts）。
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three.module.min.js",
+          "three/addons/OrbitControls.js": "./vendor/three.OrbitControls.js"
+        }
+      }
+    </script>
   </head>
   <body>
     <header>
       <h1>Agent World</h1>
       <div id="status" class="status">连接中…</div>
       <div class="controls">
+        <button id="view-top" class="active">俯视</button>
+        <button id="view-3d">3D</button>
         <button data-command="pause">暂停</button>
         <button data-command="resume">继续</button>
       </div>
@@ -19,10 +36,14 @@
     <main>
       <section class="map">
         <canvas id="town"></canvas>
+        <!-- 3D 画布与俯视图叠在同一区域，靠 CSS 切换；两者吃同一份数据。 -->
+        <canvas id="town3d" hidden></canvas>
+        <div id="view-hint" class="view-hint" hidden></div>
         <div class="legend">
           <span><i class="swatch ground"></i>地块</span>
           <span><i class="swatch station"></i>站点</span>
           <span><i class="swatch agent"></i>角色（实心=在站上，空心=在路上）</span>
+          <span class="dim" id="view-note">3D 视图吃的是同一份 ScenePlan</span>
         </div>
       </section>
 

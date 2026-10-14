@@ -42,6 +42,13 @@ let lastMessageMs = 0
 let connected = false
 /** 事件里已经用掉的最后一个 seq。 */
 let lastSeq = 0
+/** 当前视图：`top`（2D 俯视）或 `3d`。 */
+let mode = 'top'
+/** 3D 渲染器；没启用或加载失败时是 null。 */
+let scene3d = null
+/** 3D 加载失败的原因（显示给用户，别再让用户猜）。 */
+let scene3dError = null
+
 /** 上一次真正渲染的时刻（节流用）。 */
 let lastRenderMs = -1
 /** 节流间隔：约 60fps。 */
@@ -260,14 +267,74 @@ function renderSide(scene, tick) {
  * 时间戳节流在隐藏标签页里也照常工作（定时器会被浏览器降频，但不会完全不触发），
  * 而这里每次渲染的代价只是十来个 `<li>` 与一次 canvas 重绘。
  */
+/**
+ * 切到 3D。
+ *
+ * **动态 `import()` 而不是顶层 import**：three 是 vendor 进来的大文件，
+ * 它加载失败（文件缺失、浏览器不支持 import map、没有 WebGL）时，
+ * 顶层 import 会把**整个面板**带崩——包括那个"唯一能看清模拟对不对"的俯视图。
+ * 动态导入让失败退化成"3D 不可用 + 一句原因"，2D 照常。
+ */
+async function enable3d() {
+  if (scene3d !== null) return true
+  if (scene3dError !== null) return false
+  try {
+    const module = await import('./scene3d.js')
+    scene3d = module.createScene3d(document.getElementById('town3d'), {
+      onError: (error) => {
+        scene3dError = String(error)
+        showHint(`3D 渲染出错：${scene3dError}`)
+      },
+    })
+    return true
+  } catch (error) {
+    // 原因要显示出来：只写"3D 不可用"的话，用户没法判断是少了文件还是浏览器不支持。
+    scene3dError = error instanceof Error ? error.message : String(error)
+    showHint(`3D 不可用：${scene3dError}（俯视图不受影响）`)
+    return false
+  }
+}
+
+/** 显示一行提示（3D 的问题都在这里说）。 */
+function showHint(text) {
+  const hint = document.getElementById('view-hint')
+  if (hint === null) return
+  hint.textContent = text
+  hint.hidden = text === ''
+}
+
+/** 切换视图。 */
+async function setMode(next) {
+  if (next === '3d' && !(await enable3d())) next = 'top' // 起不来就留在俯视图，不装作切过去了
+  mode = next
+
+  document.getElementById('town').hidden = next !== 'top'
+  document.getElementById('town3d').hidden = next !== '3d'
+  document.getElementById('view-top').classList.toggle('active', next === 'top')
+  document.getElementById('view-3d').classList.toggle('active', next === '3d')
+
+  if (next === '3d' && scene3d !== null) {
+    if (meta !== null) scene3d.setPlan(meta.scene)
+    scene3d.resize()
+  } else if (next === 'top') {
+    fitCanvas()
+  }
+  render(true)
+}
+
 function render(force = false) {
   if (world === null || meta === null) return
   const now = performance.now()
   if (!force && now - lastRenderMs < RENDER_MIN_GAP_MS) return
   lastRenderMs = now
   const tick = currentTick()
-  draw(meta.scene)
-  drawNotes(meta.scene, tick)
+  if (mode === '3d' && scene3d !== null) {
+    scene3d.render(world)
+  } else {
+    draw(meta.scene)
+    drawNotes(meta.scene, tick)
+  }
+  // 侧栏（花名册/工单）两种视图共用：它是文本，与场景无关。
   renderSide(meta.scene, tick)
 }
 
@@ -296,6 +363,12 @@ async function loadSnapshot() {
     lastSeq = snap.seq
     syncBaseMs = performance.now()
     lastMessageMs = performance.now()
+    // 3D 用**快照里的** ScenePlan 重建静态部分（地面/站点/光照/相机），位姿由 `world` 每帧提供。
+    // 换快照就重建——那是布局可能真的变了的时候。
+    if (mode === '3d' && scene3d !== null) {
+      scene3d.setPlan(snap.scene)
+      scene3d.resize()
+    }
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   } catch (error) {
     $status.innerHTML = `<b class="warn">读不到世界</b> ${error}`
@@ -400,8 +473,12 @@ document.querySelectorAll('button[data-command]').forEach((button) => {
 
 window.addEventListener('resize', () => {
   fitCanvas()
-  render()
+  if (scene3d !== null) scene3d.resize()
+  render(true)
 })
+
+document.getElementById('view-top').addEventListener('click', () => void setMode('top'))
+document.getElementById('view-3d').addEventListener('click', () => void setMode('3d'))
 
 // 本地时钟的可见部分：每 250ms 重画一次，让"没事件但时间在走"看得见，
 // 也让纸条在两次事件之间平滑飞行。

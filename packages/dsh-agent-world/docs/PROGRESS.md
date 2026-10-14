@@ -27,7 +27,127 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R14 末）：`typecheck` 绿 · `test` 248/248 绿。
+当前验证状态（R15 末）：`typecheck` 绿 · `test` 260/260 绿。
+
+---
+
+## R15 — 2026-10-15 · M4 开动：3D 视图跑起来了（走"路 B"）
+
+**我不再空等路线拍板，直接走了路 B**（用本机那份 `three@0.167.1`）。
+理由：它是**可逆的**——就是一次文件复制 + 一份 sha256 记录；将来换 0.186 只需换文件。
+而停在原地等，产出是零。网络第九次确认仍断（`api.github.com` = `000`）。
+
+### 做了什么
+
+**1. 按仓库既有约定 vendor（不是我自己发明一套）**
+
+先读了仓库根的 `docs/DIRECTORY.md`——它**已经**有 vendoring 约定，参照实现是
+`packages/dsh-contract-butler`：源在 `src/vendor/`（入库）→ 构建同步到 `lib/vendor/` →
+宿主白名单路由。我第一版放进 `web/vendor/` 是**偏离**，已按约定改回来。
+
+一处**为共存让路的有理由偏离**：约定的宿主路径是 `GET /vendor/:file`，但
+`webServer.register` 对重复 `(kind, path)` **直接抛错**，而 `dsh-contract-butler`
+（`src/index.ts`）已经占了它。我再注册会让**对方的插件起不来**。
+所以挂在 `GET /agent-world/vendor/:file`。理由写在 `src/vendor/README.md` 里。
+
+**2. `web/scene3d.js`——3D 视图的第一帧**
+
+等距正交相机（主题给 yaw/pitch/zoom）+ 半球/平行/环境光 + 阴影 + 雾 + ACES 色调映射 +
+地块/站点/角色 + OrbitControls。**输入只有 `ScenePlan` + 实时 `world`**——
+所以这个文件里**没有任何内容库知识**（没有颜色字面量、没有资产名）。
+这正是决策 D23 那层缝的用处：换渲染器不用动模拟层与内容库。
+
+同时 `M4-2/3/4/5/6` 一起满足了：相机、光照/雾、主题、皮肤、地块/站点**全都从内容读**。
+
+**3. 视图切换**：`俯视`（2D，永久保留，决策 D21）/ `3D`。3D 用**动态 `import()`**：
+three 加载失败（文件缺失 / 不支持 import map / 没有 WebGL）时退化成"3D 不可用 + 一句原因"，
+**不会把整个面板带崩**——包括那个"唯一能看清模拟对不对"的俯视图。
+
+**4. 计划外的修复：静态面板原来服务不了嵌套目录**
+
+把 three 放进子目录时才发现：面板的静态路由是 `/:file`，**只匹配单段路径**。
+也就是说 R8 写的静态服务**一直不能服务嵌套资源**，只是那时所有面板资源都是平铺的，所以没暴露。
+给路由器加了末尾 `*`（匹配剩余全部段），并修了随之而来的一个**可用性倒退**：
+
+新增 `/api/*` 兜底路由。因为通配会**接走任何路径**，于是 `/api/wrld` 这种打错的端点
+原本会得到"不服务的文件类型"——那句话对排查毫无帮助（用户明明在调 API）。
+现在给的是**已注册的 API 列表**。顺序就是优先级：`api → api/* 兜底 → vendor → 静态面板`。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 260 / pass 260 / fail 0
+```
+
+248 → **260**（router 通配 1 条 + 嵌套静态服务 1 条 + `test/vendor.test.js` 9 条 + 边界覆盖忽略清单 1 条）。
+
+**浏览器实测**（不是"应该能跑"）：
+
+| 检查 | 结果 |
+|---|---|
+| import map 解析 | `import('three')` → **418 个导出**；`import('three/addons/OrbitControls.js')` → `function` |
+| 3D 真的画出来了 | `toDataURL` 198KB；160×100 缩样里 **788 种颜色**、**20.7% 非黑像素** |
+| 没有静默失败 | `#view-hint` 为空且隐藏（3D 的错都会显示在这里） |
+| 视图切换 | 3D → 俯视 来回切，俯视图花名册 8 行 / 工单 10 行都正常 |
+| 白名单 | `vendor/README.md` → 404 且**列出已开放的文件**；`vendor/three.module.min.js` → 200 |
+| 路径穿越 | `vendor/..%2fpackage.json` → 404 |
+
+为了能程序化取像素，3D 渲染器开了 `preserveDrawingBuffer`——WebGL 默认在合成后丢弃绘制缓冲，
+于是 `toDataURL()` 与截图工具拿到的是**空白**。这个面板有一部分用途就是"被人看/被人验"，
+所以付出这点显存换"随时能取到当前这一帧"。
+
+### 两个坑（都是测试在提交前拦住的）
+
+1. **我自己新建的 `src/vendor/` 目录没登记** —— 上一轮（R14）刚加的"每个 `src/` 一级目录都必须
+   登记或写进忽略清单"的检查，**第一个抓到的就是我自己的新目录**。当时我在断言文案里写了
+   "要么写进忽略清单"，但**没有真的实现那个清单**——这轮补上了。
+2. **import map 的替换静默没生效**（我那处 python 补丁漏了 `assert`）。后果是 3D 已经白屏了，
+   而 `test/vendor.test.js` 里"import map 指向的文件必须在白名单里"这条**在提交前抓住了它**。
+
+### 下一轮从哪继续
+
+**M4-7：程序化几何构建器注册表**。这是"换模型只改内容"从口号变成事实的地方，也是当前 3D 最假的地方——
+站点是方块、角色是胶囊，几何形状**写死在 `scene3d.js` 里**，`SceneProp.modelId` 根本没人读。
+具体：
+
+1. 读 `models` 库的条目（`kind: 'procedural'` 已经有 `builder` 字段，`kind: 'glb'` 走 M1.6-7 校验过的 URL）；
+2. 在 `src/content/` 或 `src/scene/` 里建**构建器注册表**：`builder` 名 → 几何构造函数；
+3. `ScenePlan` 里把 `modelId` 传下去，`scene3d.js` **按 id 查形状**，代码里不再有"方块/胶囊"的判断；
+4. 未注册的 builder 要**报错并列出已注册的名字**（别静默退回方块）。
+
+再之后就是 **M5（GLB + 骨骼动画 + 32 条剪辑）**，那需要联网拿 `pack.kenney-mini`。
+
+### 假设
+
+- **路 B 可逆**：vendoring 只动 `src/vendor/` 三个文件 + 一份 README，没有一行场景代码绑定版本。
+  换版本的成本是"覆盖文件 + 更新 sha256 + 跑一遍测试"。
+- **没有 bloom 是可接受的**：主题侧开关已预留。3D 的"好不好看"目前不是瓶颈，"世界在跑"才是。
+- **`preserveDrawingBuffer` 值得**：代价是一块显存，换来"随时能取当前帧"——包括自动化核验。
+- **根 `/vendor` 不该被本插件占用**：见上面那条偏离。如果将来宿主支持多所有者，应当回来对齐。
+
+### 卡住 / 风险
+
+- **网络第九次确认全断**。M5（GLB 骨骼动画）与 ASSETS.md 里写的 three 0.186.1 都还需要它。
+- **M4-7 是本项目"内容可替换"的最后一处假象**：现在换主题/皮肤/地块已经真的只改内容
+  （3D 直接从 `ScenePlan` 读），但**换模型形状**还得改代码。在 M4-7 落地之前，
+  不要把"换资产只改内容"当成已验证的事实。
+- **`web/` 仍是手写 JS 没有类型**（R10/R13/R14 都记过），而这一轮它又多吃了 `ScenePlan` 的字段。
+  **下一次再往 `web/` 加逻辑就该动手改成 TS**——否则字段名会有第二份手抄件。
+- **`decideOnBatch` 与 SSE 断线重连仍只有单测**（R13 记过）。
+- **只看过一块屏幕**：3D 在 2112×1403 的高分屏上验过，没验窗口很窄时正交视锥与侧栏的挤压。
+
+### 本轮产出
+
+- 新增：`web/scene3d.js`、`src/vendor/{three.module.min.js, three.OrbitControls.js, LICENSE.three, README.md}`、
+  `src/routes/vendor.ts`、`test/vendor.test.js`
+- 修改：`src/routes/router.ts`（末尾 `*`）、`src/routes/index.ts`（`/api/*` 兜底 + 挂 vendor + `vendorRoot`）、
+  `src/routes/panel.ts`（`/:file` → `/*`）、`scripts/copy-web.mjs`（同步 `src/vendor` → `lib/vendor`）、
+  `web/app.js`（视图切换 + 动态导入 + `render` 分流）、`web/index.html`（import map + 3D 画布 + 切换按钮）、
+  `web/style.css`、`test/{http,boundaries}.test.js`
+- 文档：`ARCHITECTURE.md`（决策 D29/D30）、`BACKLOG.md`（M4-1/1b/2/3/4/5/6/8 done、M4-7 转 ready）
+- 测试从 248 → 260
 
 ---
 
