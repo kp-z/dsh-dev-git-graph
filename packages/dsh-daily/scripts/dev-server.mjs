@@ -124,6 +124,37 @@ if (aiFake) {
 				// **按提示词分流**：调研检索词要的是 JSON 数组，摘要要的是一句话。
 				// 不分开的话，联调时检索词永远走不到 AI 路径（假 stream 只会返回摘要文本 → 解析失败 → 降级）
 				const system = String(request?.system ?? '')
+				// 简报类请求：要求"一个 JSON 对象"（concepts/news/advice）→ 回一个像样的对象。
+				// 没有这个分支，简报的 AI 路（概念/建议）就**永远只在单测里验证过** ——
+				// 联调环境必须能走通真实的解析路径，否则界面上的那两段永远是空的。
+				const asksForBrief = /做简报|concepts/.test(system)
+				if (asksForBrief) {
+					const rows = String(request?.messages?.[0]?.content ?? '')
+						.split('\n')
+						.filter((line) => /^\d+\. 标题:/.test(line.trim()))
+					const payload = {
+						concepts: rows.slice(0, 2).map((line, i) => ({
+							term: i === 0 ? 'Protobuf' : 'Monorepo',
+							explain: i === 0 ? '一种二进制序列化格式（假模型给的说明）' : '多包共仓的开发方式（假模型给的说明）',
+							relation: '项目依赖里出现了它，理解它对读懂这次的依赖动态有帮助',
+							from: [line.replace(/^\s*\d+\. 标题:/, '').slice(0, 40)],
+						})),
+						news: rows.slice(0, 3).map((_, i) => ({ index: i + 1, why: `（假）第 ${i + 1} 条与项目依赖相关` })),
+						advice: [
+							{
+								action: '升级',
+								title: '（假）把 bufbuild/protobuf 升到最新小版本',
+								detail: '按官方迁移指引先跑单测，再合并',
+								evidence: ['项目依赖 bufbuild/protobuf', '条目：Maintaining a Stable Protobuf API'],
+								confidence: 'medium',
+							},
+							{ action: '了解', title: '（假）关注 monorepo 的构建缓存实践', detail: '', evidence: [], confidence: 'low' },
+						],
+					}
+					yield { type: 'text-delta', text: JSON.stringify(payload) }
+					yield { type: 'finish', reason: { kind: 'stop' } }
+					return
+				}
 				// 介绍类请求：要求"一句中文介绍" → 回一个 JSON 字符串数组（与检索词请求同形但内容不同）
 				const asksForIntros = /中文介绍|结果卡片/.test(system)
 				if (asksForIntros) {
