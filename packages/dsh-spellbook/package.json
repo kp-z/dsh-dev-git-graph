@@ -2,7 +2,7 @@
   "name": "dsh-spellbook",
   "version": "0.2.4",
   "type": "module",
-  "description": "DSH 插件：咒语书 —— 前端效果库，右侧栏一个「咒语书」tab（332 条，预览是真实运行的）。点一下就把那条咒语送进对话的输入框；模型也能自己调 spellbook_lookup 查回来。",
+  "description": "DSH 插件：咒语书 —— 前端效果库，右侧栏一个「咒语书」tab（333 条，预览是真实运行的）。点一下就把那条咒语送进对话的输入框；模型也能自己调 spellbook_lookup 查回来。",
   "license": "MIT",
   "author": "kp-z",
   "keywords": [
@@ -50,7 +50,7 @@
     "build:site": "node build.mjs",
     "build:plugin": "tsc -p tsconfig.json && cp src/plugin/client.js lib/client.js",
     "dev": "node serve.mjs",
-    "test": "npm run build:plugin && node --test test/",
+    "test": "npm run build:plugin && node --test --test-concurrency=1 test/",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "vault": "node scripts/vault.mjs",
     "prepublishOnly": "npm run build"

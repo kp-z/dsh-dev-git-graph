@@ -26,6 +26,22 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
 const DIST = path.join(ROOT, 'dist')
 
+/*
+ * 这个文件会**真的跑一次构建**（要验锁，只能跑真的）。而构建会重建 `dist/` ——
+ * 另一个测试文件读 `dist/` 时撞上就红。
+ *
+ * 这不是理论风险，实测过：构建换目录是「先把旧 dist 挪走、再把新目录换进来」两步，
+ * 中间有一个**真实的窗口** `dist` 根本不存在。紧盯着数了一下：构建一次，
+ * 27937 次检查里有 **3 次** 读到 dist 不在。
+ *
+ * 症状是**间歇性的假红**：同一套测试，单独跑过、再跑也过，只有全量跑偶尔挂一条 ——
+ * 而且挂的是读 dist 的那几条（先见过 MIME 那条，后见过召回下限那条），
+ * 于是很容易被当成「偶发」放过。而夜间窗口的验收门就是 `npm test`，
+ * 一次假红浪费一整个窗口。
+ *
+ * 所以 `npm test` 带 `--test-concurrency=1`：文件之间串行，谁也不会在别人读 dist 时重建它。
+ * **改动那一行的时候别忘了这件事** —— 去掉并发限制，假红就回来了。
+ */
 const runBuild = () =>
   new Promise((resolve) => {
     const child = spawn(process.execPath, ['build.mjs'], { cwd: ROOT, stdio: 'ignore' })
