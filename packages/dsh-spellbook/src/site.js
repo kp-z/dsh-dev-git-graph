@@ -863,3 +863,71 @@ initEmbed()
 initPromptCopy()
 initApply()
 initPeek()
+initPreviewRecycle()
+
+/* ------------------------------------------------------- 回收看不见的预览 */
+/**
+ * 索引页每一行里都嵌着一个**真在跑**的预览文档，一行一个 —— 333 行就是 333 个。
+ *
+ * 浏览器只会把看得见的那些加载起来（`loading="lazy"`），但**加载完就不放手**：
+ * 实测在 400px 宽的侧边栏里往下滚，到八成处已经累计加载了 **217 个活文档**，
+ * 而且只增不减。每个活文档都占着一份内存，在 Electron 里就是实打实的占用 ——
+ * 而且越往下翻越沉。
+ *
+ * 所以把**离视口很远的**换回 about:blank 放掉，滚回来再重新挂上。
+ * 余量留两屏：加载发生在它还没露头的时候，滚到它跟前早就画好了，
+ * 因此这个回收对用户是看不见的。
+ *
+ * 两个坑写在这里，免得下次再踩：
+ *   1. 放掉要用 `about:blank`，**不能写 `src = ''`** —— 空串会被解析成当前页面的地址，
+ *      于是每一行都会把整个站点再加载一遍。
+ *   2. 原地址得先记在 `data-doc` 上，否则放掉之后挂不回去。
+ *   3. **不要用 IntersectionObserver。** 它的两种取根方式在这里都是错的，而且都实测过：
+ *      留空（隐式根）算的是**顶层浏览上下文**的视口 —— 侧边栏是 iframe，于是它量的是
+ *      宿主 App 的窗口，不是侧边栏那块 400×800 的滚动区，结果只剩贴着视口的三四行有预览；
+ *      显式给 `document.documentElement` 则根元素的内容盒是**整个可滚动区域**（九万多像素），
+ *      于是每一行都算相交，回收等于没做（333 个全活）。
+ *      所以这里自己按 `window.innerHeight` 算 —— 简单、精确、不依赖那套语义。
+ */
+function initPreviewRecycle() {
+  const frames = [...document.querySelectorAll('iframe.row-preview-doc[src]')]
+  if (!frames.length) return
+
+  for (const frame of frames) frame.dataset.doc = frame.getAttribute('src')
+
+  /** 视口上下各留两屏：加载发生在它还没露头的时候，滚到跟前早就画好了。 */
+  const MARGIN = 2
+
+  const sync = () => {
+    const h = window.innerHeight || 1
+    const top = -h * MARGIN
+    const bottom = h * (1 + MARGIN)
+
+    for (const frame of frames) {
+      const rect = frame.getBoundingClientRect()
+      const near = rect.bottom > top && rect.top < bottom
+      const current = frame.getAttribute('src')
+
+      if (near) {
+        if (current === 'about:blank') frame.setAttribute('src', frame.dataset.doc)
+      } else if (current !== 'about:blank') {
+        frame.setAttribute('src', 'about:blank')
+      }
+    }
+  }
+
+  let scheduled = false
+  const schedule = () => {
+    if (scheduled) return
+    scheduled = true
+    requestAnimationFrame(() => {
+      scheduled = false
+      sync()
+    })
+  }
+
+  // 一帧内最多扫一次；滚动与改尺寸都要重算
+  addEventListener('scroll', schedule, { passive: true })
+  addEventListener('resize', schedule, { passive: true })
+  sync()
+}
