@@ -2,6 +2,16 @@
 
 本文件记录 dsh-daily 的每个可交付版本。开发期的**逐轮记录**在 [STATUS.md](STATUS.md)（每轮必带真实命令与输出）。
 
+## 0.10.4 — 修复「简报没进调研视图」+ 客户端自诊断
+
+- **修复真实故障**：简报的渲染被插在 `clear(el.research)` **之前** → 刚 append 就被清掉，
+  表现为"函数跑完、日志正常、DOM 里却什么都没有"（这个 bug 我连猜三轮）
+- 新增**客户端自诊断缓冲区** `window.__ddDebug`（始终记录，不靠开关）：埋点
+  `loadResearch:raw` / `state.brief` / `renderResearch` / `appendBriefSummary:in|SKIP`
+- 实测：`hasBriefInDom=true` · 概念 2 · 建议 2 · 段落顺序为
+  **概念理解 → 进化建议 → 5 个调研维度 → 50 条结果**
+- 经验：连猜三轮不如把那一层打开 —— **6 行 dbg() 把三轮的猜测变成一次读数**
+
 ## 0.10.3 — 调研视图与简报改为「同时就位再渲染」
 
 - 修复一处真实竞态：`loadResearch()` 与 `loadBrief()` 各自异步返回，后到的那次会用

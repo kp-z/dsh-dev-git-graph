@@ -2269,6 +2269,23 @@
     if (view === 'research') { loadBrief(); loadResearch(); }
   }
 
+  /**
+   * 客户端自诊断：把关键步骤记进一个环形缓冲区（`window.__ddDebug`）。
+   *
+   * **为什么要有它**：简报没渲染进调研视图这个问题，我连续两轮靠"想一个机制 → 去改 → 被推翻"，
+   * 因为客户端里**看不出它停在哪一步**（不报错、界面又不显示）。同一个套路我已经用来解决过
+   * 自动识别、会话来源、AI 接线三个宿主侧盲区 —— 客户端这次不该例外。
+   * 始终记录（不靠开关）：出问题时能直接读，而不是"下次记得开 debug"。
+   */
+  var debugLog = [];
+  window.__ddDebug = debugLog;
+  function dbg(step, detail) {
+    try {
+      debugLog.push(step + (detail === undefined ? '' : ' ' + JSON.stringify(detail)));
+      if (debugLog.length > 80) debugLog.shift();
+    } catch (err) { /* 诊断本身绝不能影响主流程 */ }
+  }
+
   /** 关键词状态（自动抽取 vs 当前生效）。 */
   var keywordState = null;
 
@@ -2415,7 +2432,11 @@
    * （R60 起合并调研结果），再列一遍是重复。**概念与建议才是调研结果给不出的东西。**
    */
   function appendBriefSummary(host, brief) {
-    if (!brief || !brief.date) return;
+    dbg('appendBriefSummary:in', { hasHost: !!host, hasBrief: !!brief, date: brief ? brief.date : null });
+    if (!brief || !brief.date) {
+      dbg('appendBriefSummary:SKIP', !host ? '没有宿主元素' : !brief ? 'brief 为空' : 'brief 没有 date');
+      return;
+    }
     var box = text('div', 'dd-brief');
     var head = text('div', 'dd-brief-head');
     head.appendChild(text('span', 'dd-brief-title', '项目简报'));
@@ -2482,7 +2503,15 @@
       .then(function (results) {
         var findingsData = results[0] && results[0].data ? results[0].data : results[0];
         var briefData = results[1] && results[1].data ? results[1].data : results[1];
+        dbg('loadResearch:raw', {
+          hasFindings: !!(findingsData && findingsData.findings),
+          findingsCount: ((findingsData && findingsData.findings) || []).length,
+          hasBriefResp: !!briefData,
+          briefKeys: briefData ? Object.keys(briefData) : null,
+          briefDate: briefData && briefData.brief ? briefData.brief.date : null,
+        });
         if (briefData) state.brief = briefData.brief || null;
+        dbg('loadResearch:state.brief', state.brief ? { date: state.brief.date, concepts: (state.brief.concepts || []).length } : null);
         renderResearch(findingsData);
       })
       .then(function () { el.research.setAttribute('aria-busy', 'false'); });
@@ -2495,8 +2524,16 @@
   function renderResearch(data) {
     if (!el.research) return;
     state.researchData = data;
-    appendBriefSummary(el.research, state.brief);
+    dbg('renderResearch', {
+      hasData: !!data,
+      hasBrief: !!state.brief,
+      briefDate: state.brief ? state.brief.date : null,
+      hostFound: !!el.research,
+    });
+    // **先 clear 再 append**：R68 起这里顺序反了 —— 简报刚 append 就被下一行 clear 掉，
+    // 于是"函数跑完、日志正常、DOM 里却什么都没有"，我为此连猜三轮才靠自诊断看出来。
     clear(el.research);
+    appendBriefSummary(el.research, state.brief);
     var findings = (data && data.findings) || [];
     var groups = (data && data.groups) || [];
 
