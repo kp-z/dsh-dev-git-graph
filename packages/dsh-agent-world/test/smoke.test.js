@@ -1,5 +1,5 @@
 /**
- * M0-3 冒烟测试：确认这个包**能被宿主加载**（导出契约正确），且世界模型可用。
+ * M0-3 / M1 冒烟测试：确认这个包**能被宿主加载**（导出契约正确），且世界模型可用。
  *
  * 为什么必须有它：本仓库最贵的一类事故是「插件树加载失败 ⇒ dsh 整体不启动」
  * （见 docs/DEVELOPMENT.md §7）。一个检查 `name/inject/apply` 三件套的冒烟测试
@@ -11,7 +11,24 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { apply, inject, name } from '../lib/index.js'
-import { createRng, createWorld, seedFromString, summarize } from '../lib/domain/index.js'
+import { createRng, seedFromString, summarize } from '../lib/domain/index.js'
+import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
+import { createWorld } from '../lib/world/create.js'
+
+/** 造一个假 ctx：工具注册表 + logger（apply 现在会记日志，缺 logger 会 TypeError）。 */
+function fakeCtx() {
+  const registered = []
+  const logs = { info: [], warn: [], error: [] }
+  const ctx = {
+    tools: { register: (tool) => registered.push(tool) },
+    logger: () => ({
+      info: (m) => logs.info.push(m),
+      warn: (m) => logs.warn.push(m),
+      error: (m) => logs.error.push(m),
+    }),
+  }
+  return { ctx, registered, logs }
+}
 
 test('插件导出契约：name / inject / apply 三件套齐全', () => {
   assert.equal(typeof name, 'string')
@@ -22,8 +39,7 @@ test('插件导出契约：name / inject / apply 三件套齐全', () => {
 })
 
 test('apply 能被调用，缺配置时不会因 config 为 undefined 崩掉', () => {
-  const registered = []
-  const ctx = { tools: { register: (tool) => registered.push(tool) } }
+  const { ctx, registered } = fakeCtx()
 
   // 关键：不传 config。Loader 在 patch 没写 config 时就是给 undefined，
   // 而 schema 的 default 不会被自动填充——这正是最容易崩的一条路径。
@@ -35,8 +51,7 @@ test('apply 能被调用，缺配置时不会因 config 为 undefined 崩掉', (
 })
 
 test('apply 传空对象也不崩，且工具可用', async () => {
-  const registered = []
-  const ctx = { tools: { register: (tool) => registered.push(tool) } }
+  const { ctx, registered, logs } = fakeCtx()
   apply(ctx, {})
 
   const status = registered.find((t) => t.name === 'agent_world_status')
@@ -44,54 +59,164 @@ test('apply 传空对象也不崩，且工具可用', async () => {
 
   // autoStart 默认 true ⇒ 世界已建好，status 应能读到内容而不是"尚未创建"。
   const text = await status.execute({})
-  assert.match(text, /世界「/, `status 输出不像世界摘要：${text.slice(0, 120)}`)
+  assert.match(text, /世界「/, `status 输出不像世界摘要：${text.slice(0, 160)}`)
   assert.match(text, /花名册：/)
   assert.match(text, /工单板：/)
+  assert.match(text, /内容来源：/, 'status 应当报出内容来源，否则内容出问题时无从下手')
+
+  assert.equal(logs.error.length, 0, `不该有错误日志：${logs.error.join(' | ')}`)
+  assert.equal(logs.warn.length, 0, `不该有警告日志：${logs.warn.join(' | ')}`)
+})
+
+test('内置内容包：零 error、零 warning', () => {
+  const content = new ContentRegistry()
+  const issues = content.loadAll(builtinPacks())
+  const bad = issues.filter((i) => i.level !== 'info')
+  assert.deepEqual(bad, [], `内置内容不该有任何问题：\n${bad.map((i) => `[${i.level}][${i.where}] ${i.message}`).join('\n')}`)
+
+  // 跨包引用校验也要干净。
+  const cross = content.validate()
+  assert.deepEqual(cross, [], `跨包引用校验不该有问题：\n${cross.map((i) => `[${i.level}][${i.where}] ${i.message}`).join('\n')}`)
+
+  // 各库都真的有东西，且没有空库（provides 声明了 9 个库）。
+  for (const kind of ['districts', 'stations', 'scenes', 'rosters', 'tasks', 'models', 'actions', 'skins', 'themes']) {
+    assert.ok(content.size(kind) > 0, `${kind} 库应当是空的`)
+  }
 })
 
 test('createWorld：同一 seed 得到同一个世界（确定性第一道闸）', () => {
-  const opts = { name: '测试小镇', createdAt: '2026-01-01T00:00:00.000Z' }
-  const a = createWorld(opts)
-  const b = createWorld(opts)
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const base = { content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' }
+
+  const a = createWorld({ ...base, name: '测试小镇' })
+  const b = createWorld({ ...base, name: '测试小镇' })
   assert.deepEqual(a, b, '同 seed 同选项的世界必须逐字段一致')
 })
 
 test('createWorld：不同 seed 会分叉（否则"确定性"是假的）', () => {
-  const a = createWorld({ name: '小镇甲', createdAt: '2026-01-01T00:00:00.000Z' })
-  const b = createWorld({ name: '小镇乙', createdAt: '2026-01-01T00:00:00.000Z' })
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const base = { content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' }
+
+  const a = createWorld({ ...base, name: '小镇甲' })
+  const b = createWorld({ ...base, name: '小镇乙' })
   assert.notEqual(a.seed, b.seed)
-  const facingA = a.agents.map((x) => x.facing).join(',')
-  const facingB = b.agents.map((x) => x.facing).join(',')
-  assert.notEqual(facingA, facingB, '不同 seed 应得到不同的初始朝向')
+  assert.notEqual(
+    a.agents.map((x) => x.facing).join(','),
+    b.agents.map((x) => x.facing).join(','),
+    '不同 seed 应得到不同的初始朝向',
+  )
 })
 
-test('createWorld：默认小镇结构完整（4 地段 / 10 站点 / 8 角色）', () => {
-  const w = createWorld({ name: '结构检查', createdAt: '2026-01-01T00:00:00.000Z' })
+test('createWorld：默认小镇结构完整（4 地块 / 10 站点 / 8 角色）', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const w = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
+
   assert.equal(w.districts.length, 4)
   assert.equal(w.stations.length, 10)
   assert.equal(w.agents.length, 8)
   assert.equal(w.agents[0].role, 'lead', '第一个角色必须是 lead')
   assert.equal(w.tick, 0)
   assert.equal(w.paused, false)
+  assert.deepEqual(w.origin.packs, ['pack.default'])
+  assert.equal(w.origin.scene, 'scene.default-town')
+  assert.deepEqual(w.origin.taskSets, [])
+  assert.deepEqual(w.tasks, [], '开局工单板应当是空的，等 lead 派单')
 
-  // 每个站点都必须能在地段里找到、且有座位定义；站点缺 slot 会让寻路拿到 undefined。
   for (const s of w.stations) {
     assert.ok(
       w.districts.some((d) => d.id === s.district),
-      `站点 ${s.id} 的地段 ${s.district} 不存在`,
+      `站点 ${s.id} 的地块 ${s.district} 不存在`,
     )
     assert.ok(s.slots.length > 0, `站点 ${s.id} 没有 slot`)
     assert.equal(s.slots.length, s.capacity)
   }
 })
 
+test('createWorld：relativeTo 的坐标解析正确（相对地块中心）', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const w = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
+
+  // 工程区 bounds 是 [-8,-8]..[0,0]，中心 (-4,-4)；工位 A 偏移 (-1,-1) ⇒ (-5,-5)。
+  const deskA = w.stations.find((s) => s.id === 'station.desk-a')
+  assert.ok(deskA)
+  assert.deepEqual(deskA.anchor, { x: -5, z: -5 })
+
+  // 机房 bounds 是 [0,-8]..[8,0]，中心 (4,-4)；机柜偏移 (-2,-1) ⇒ (2,-5)。
+  const rack = w.stations.find((s) => s.id === 'station.server-rack')
+  assert.ok(rack)
+  assert.deepEqual(rack.anchor, { x: 2, z: -5 })
+
+  // 所有站点都该落在小镇范围内（±8）。坐标解析错了最典型的症状就是跑到地图外面。
+  for (const s of w.stations) {
+    assert.ok(Math.abs(s.anchor.x) <= 8 && Math.abs(s.anchor.z) <= 8, `站点 ${s.id} 跑到小镇外面了：${JSON.stringify(s.anchor)}`)
+  }
+})
+
 test('createWorld：maxAgents 是硬上限（性能预算不能被配置绕过）', () => {
-  const w = createWorld({ name: '上限检查', createdAt: '2026-01-01T00:00:00.000Z', agents: 999, maxAgents: 12 })
-  assert.equal(w.agents.length, 12)
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const w = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z', maxAgents: 3 })
+  assert.equal(w.agents.length, 3)
+})
+
+test('createWorld：派任务集会正确建立 key → 实例 id 的映射', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const w = createWorld({
+    content,
+    scene: 'scene.default-town',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    taskSets: ['task.quick-fix'],
+  })
+
+  assert.equal(w.tasks.length, 3)
+  const triage = w.tasks.find((t) => t.key === 'triage')
+  const patch = w.tasks.find((t) => t.key === 'patch')
+  const verify = w.tasks.find((t) => t.key === 'verify')
+  assert.ok(triage && patch && verify)
+
+  assert.deepEqual(triage.blockedBy, [], 'triage 没有前置')
+  assert.deepEqual(patch.blockedBy, [triage.id], 'patch 依赖 triage 的**实例 id**，不是 key')
+  assert.deepEqual(verify.blockedBy, [patch.id])
+  assert.equal(triage.set, 'task.quick-fix')
+  assert.ok(
+    w.tasks.every((t) => t.status === 'pending'),
+    '建世界时一律 pending——只有 sim/ready.ts 能派生 ready',
+  )
+  // id 必须全局唯一（跨集合也不能撞）。
+  assert.equal(new Set(w.tasks.map((t) => t.id)).size, w.tasks.length)
+})
+
+test('createWorld：连派两个任务集，id 不撞且依赖不串', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const w = createWorld({
+    content,
+    scene: 'scene.default-town',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    taskSets: ['task.quick-fix', 'task.software-feature'],
+  })
+  assert.equal(w.tasks.length, 10, '3 + 7')
+  assert.equal(new Set(w.tasks.map((t) => t.id)).size, 10, '跨集合 id 不能撞')
+
+  // 后一个集合的依赖只能指向它自己内部，不能指向前一个集合。
+  const feature = w.tasks.filter((t) => t.set === 'task.software-feature')
+  const featureIds = new Set(feature.map((t) => t.id))
+  for (const t of feature) {
+    for (const dep of t.blockedBy) {
+      assert.ok(featureIds.has(dep), `工单 ${t.id} 的依赖 ${dep} 跨了任务集`)
+    }
+  }
 })
 
 test('summarize：口径与数组真实内容一致', () => {
-  const w = createWorld({ name: '摘要检查', createdAt: '2026-01-01T00:00:00.000Z' })
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const w = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
   const s = summarize(w)
   assert.equal(s.agents.total, w.agents.length)
   assert.equal(s.tasks.total, w.tasks.length)

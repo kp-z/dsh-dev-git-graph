@@ -124,6 +124,10 @@ export interface Agent {
 /** 工单。 */
 export interface Task {
   id: string
+  /** 在来源任务集内的 key。回指内容库用（HUD 分组、诊断"这张单出自哪条流水线"）。 */
+  key: string
+  /** 来源任务集 id（内容库里的 `tasks` 条目）。 */
+  set: string
   title: string
   description: string
   status: TaskStatus
@@ -141,6 +145,8 @@ export interface Task {
   attemptId: string | null
   /** 验收条件（给模型看的可判定的那句话）。 */
   acceptance: string
+  /** 预估要多少 tick 完成；内容库没给就是 null。渲染层用它画预估进度。 */
+  estimateTicks: number | null
   createdAtTick: number
   finishedAtTick: number | null
 }
@@ -182,6 +188,16 @@ export interface WorldEvent {
 /** 世界运行模式。`simulated` = 假数据驱动（M1–M5）；`live` = 接真实 subagent（M6）。 */
 export type WorldMode = 'simulated' | 'live'
 
+/** 世界的来源（由哪些内容装配出来）。落盘后据此复现同一座小镇。 */
+export interface WorldOrigin {
+  /** 场景条目 id。 */
+  scene: string
+  /** 装配时装载的内容包 id（按装载顺序）。 */
+  packs: string[]
+  /** 派进世界的任务集 id。 */
+  taskSets: string[]
+}
+
 /** 一个世界实例。这是唯一的权威真相，落盘为 world.json。 */
 export interface World {
   id: string
@@ -194,6 +210,8 @@ export interface World {
   /** 是否暂停。暂停时 step() 不推进世界，但仍可接受命令。 */
   paused: boolean
   mode: WorldMode
+  /** 这个世界的来源。没有它就没法"用同样的内容重开一局"。 */
+  origin: WorldOrigin
   districts: District[]
   stations: Station[]
   agents: Agent[]

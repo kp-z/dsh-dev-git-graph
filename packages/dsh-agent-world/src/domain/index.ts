@@ -1,11 +1,16 @@
 /**
  * 领域层出口（BACKLOG M1-1）。
  *
- * 只导出**稳定契约**：类型、常量、纯函数。内部实现文件（`create.ts` 的私有辅助等）
- * 不在此暴露，避免以后重构时被外部误以为是公共 API。
+ * **这一层只是一套类型与纯函数，不认识"内容"，也不认识"内容包"。**
+ * 分层（决策 D10）：
  *
- * `web/` 的 3D 面板直接 import 这个入口来拿类型与常量——不复制一份。
- * 这是刻意的：同一份世界契约复制成两份，就是接线漂移的开始。
+ *   domain/   世界模型：类型、数值调参、几何、摘要、随机源   ← 你在这里
+ *   content/  内容库：类型、校验、注册表、内置包、实例化
+ *   world/    装配：createWorld / （后续的 sim）
+ *   web/      渲染：直接 import domain 拿类型，不复制
+ *
+ * 依赖**单向向上**。`domain` 不许 import `content` 或 `world`——一旦反过来，
+ * 就再也没法单独测"世界模型"这一层了。
  */
 export type {
   Agent,
@@ -26,32 +31,21 @@ export type {
   WorldEvent,
   WorldEventType,
   WorldMode,
+  WorldOrigin,
   WorldSummary,
 } from './types.js'
 
-export type { StationTemplate } from './constants.js'
-export type { CreateWorldOptions, TaskSeed } from './create.js'
 export type { Rng } from './rng.js'
 
 export {
-  AGENT_PALETTE,
-  DEFAULT_DISTRICTS,
-  DEFAULT_STATIONS,
   DEFAULT_TICK_MS,
-  DISTRICT_GROUND,
   EVENT_RING_SIZE,
   MAX_AGENTS,
-  ROLE_COLOR,
-  STATION_KIND_COLOR,
-  TOWN_HALF,
   WALK_SPEED,
   WORK_SPEED,
-  districtCenter,
-  instantiateStation,
   slotsFor,
 } from './constants.js'
 
-export { createWorld, makeTask } from './create.js'
 export { createRng, seedFromString } from './rng.js'
 export { angleTo, distance, normalizeAngle, stationSlot, stepToward, withinBounds } from './geometry.js'
 export { formatRoster, formatSummary, formatTaskBoard, roleLabel, stateLabel, summarize, taskLabel } from './summary.js'

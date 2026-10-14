@@ -27,6 +27,23 @@ export const AgentWorldConfig = z.object({
   /** 默认世界名（也是 seed 的来源，除非另给 seed）。 */
   worldName: z.string().default('Agent World'),
 
+  /** 默认用哪个场景（`scenes` 库的 id）。换它 = 换一座小镇，代码不动。 */
+  scene: z.string().default('scene.default-town'),
+
+  /**
+   * 外部内容包目录（相对 workspace）。留空 = 只用内置内容。
+   *
+   * 计划在 M1-6 实现：目录下每个子目录是一个内容包（含 `pack.json`），
+   * 按 `id` 与内置包合并，可用 `overrides` 顶掉内置条目。
+   */
+  contentDir: z.string().default(''),
+
+  /**
+   * 是否允许外部内容包隐式覆盖同 id 条目（不在 `overrides` 里声明）。
+   * 默认 **false** —— "覆盖必须显式"是决策 D11 的护栏，打开它就是主动放弃它。
+   */
+  allowImplicitOverride: z.boolean().default(false),
+
   /**
    * 面板路径前缀。宿主 webServer 上挂的静态面板与 API 都在它下面。
    * 改它要同时确认与其它插件的路由不冲突。
@@ -44,6 +61,9 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     autoStart: config.autoStart ?? true,
     maxAgents: config.maxAgents && config.maxAgents > 0 ? config.maxAgents : 24,
     worldName: config.worldName ?? 'Agent World',
+    scene: config.scene ?? 'scene.default-town',
+    contentDir: config.contentDir ?? '',
+    allowImplicitOverride: config.allowImplicitOverride ?? false,
     routePrefix: normalizePrefix(config.routePrefix ?? '/agent-world'),
   }
 }

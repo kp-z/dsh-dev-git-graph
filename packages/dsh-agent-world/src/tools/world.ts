@@ -1,5 +1,5 @@
 /**
- * 世界工具集（BACKLOG M0-2）。
+ * 世界工具集（BACKLOG M0-2 / M1-5）。
  *
  * 设计原则沿用本仓库的约定（见 packages/dsh-daily/src/tools.ts 的注释）：
  * 1. **每个工具都说明副作用**——模型才知道什么时候敢调。
@@ -7,7 +7,7 @@
  * 3. 输出是真给人/给模型读的中文文本，不吐枚举名。
  *
  * 命名空间 `agent_world_*`：与宿主其它工具不撞名，也让模型一眼看出这是一组。
- * 后续（BACKLOG M2）会加 `agent_world_dispatch` / `agent_world_hire` / `agent_world_report`。
+ * 后续会加 `agent_world_dispatch`（用任务库派单）/ `agent_world_hire` / `agent_world_report`。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -31,9 +31,22 @@ export function registerWorldTools(ctx: Context, state: PluginState): void {
       async execute() {
         const world = state.world
         if (!world) {
-          return '世界尚未创建。调用 agent_world_open 建一个（会创建一座默认小镇并放入初始角色）。'
+          const problems = state.contentIssues.filter((i) => i.level === 'error')
+          const tail = problems.length > 0 ? `\n内容层有 ${problems.length} 个错误，先修它们：\n${problems.slice(0, 3).map((p) => `· [${p.where}] ${p.message}`).join('\n')}` : ''
+          return `世界尚未创建。调用 agent_world_open 建一个。${tail}`
         }
-        return [formatSummary(world), '', '花名册：', formatRoster(world), '', '工单板：', formatTaskBoard(world)].join('\n')
+        return [
+          formatSummary(world),
+          '',
+          `内容来源：${state.describeContent()}`,
+          `场景：${world.origin.scene}｜内容包：${world.origin.packs.join('、') || '（无）'}`,
+          '',
+          '花名册：',
+          formatRoster(world),
+          '',
+          '工单板：',
+          formatTaskBoard(world),
+        ].join('\n')
       },
     }),
   )
@@ -47,8 +60,7 @@ export function registerWorldTools(ctx: Context, state: PluginState): void {
         '用户说「开始 / 建一个 agent 世界 / 重开一局」时用它。' +
         '只想看状态就别调它，用 agent_world_status。',
       parameters: {
-        name: { type: 'string', description: '世界名，也是随机种子的来源（同名 → 同一个小镇布局）。留空用配置里的默认名。' },
-        agents: { type: 'number', description: '初始角色数，默认 8，受 maxAgents（默认 24）约束。' },
+        name: { type: 'string', description: '世界名，也是随机种子的来源（同名同场景 → 同一座小镇）。留空用配置里的默认名。' },
       },
       output: {
         schema: { type: 'string' },
@@ -59,15 +71,17 @@ export function registerWorldTools(ctx: Context, state: PluginState): void {
           throw new Error('世界名不能是空字符串（那会让 seed 来源变得不确定）。留空请直接不传这个参数。')
         }
         const world = state.resetWorld(args.name)
-        const head =
-          args.agents === undefined
-            ? `已创建世界「${world.name}」，seed=${world.seed}。`
-            : `已创建世界「${world.name}」，seed=${world.seed}，请求角色数 ${args.agents}（实际 ${world.agents.length}，受 maxAgents=${state.config.maxAgents} 约束）。`
-        const note = [
+        return [
+          `已创建世界「${world.name}」，seed=${world.seed}。`,
+          `场景：${world.origin.scene}｜花名册角色 ${world.agents.length} 人｜工单 ${world.tasks.length} 张（等 lead 派单）`,
           '',
-          '当前只有世界模型，模拟循环（tick）与 3D 面板尚未接入——见 docs/BACKLOG.md 的 M1 与 M3。',
-        ]
-        return [head, ...note, '', formatSummary(world), '', '花名册：', formatRoster(world)].join('\n')
+          '当前只有世界模型与内容库，模拟循环（tick）与 3D 面板尚未接入——见 docs/BACKLOG.md 的 M2 与 M4。',
+          '',
+          formatSummary(world),
+          '',
+          '花名册：',
+          formatRoster(world),
+        ].join('\n')
       },
     }),
   )

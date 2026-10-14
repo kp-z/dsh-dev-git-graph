@@ -2,100 +2,140 @@
 
 > **每小时的自动化轮次从这里取任务。**
 > 规则：
-> 1. 只取**最上面**的 `ready` 任务；一次轮次取 1–2 个，做完为止，不要贪。
-> 2. 有依赖（`blocked by`）的任务不许提前做，把依赖做完再动。
-> 3. 做完把任务移到 `docs/PROGRESS.md`，并把状态写清（完成 / 部分完成 / 卡住 + 卡在哪）。
+> 1. 只取最上面依赖已满足的 `ready` 任务；一次轮次取 1–2 个，做完为止，不要贪。
+> 2. 有依赖（`depends`）的任务不许提前做，把依赖做完再动。
+> 3. 做完把状态改 `done`，并在 `docs/PROGRESS.md` 写清（完成 / 部分完成 / 卡住 + 卡在哪）。
 > 4. 每轮**必须**留下可验证的产出：要么代码 + 测试，要么文档 + 决策记录。**不接受"只讨论不落地"**。
 > 5. 缺信息不要停下来等人：按最合理的假设推进，把假设写进 PROGRESS 的「假设」一栏。
 
-状态图例：`ready` 可开工 · `blocked` 等依赖 · `done` 已完成
+状态：`ready` 可开工 · `blocked` 等依赖 · `done` 已完成
 
-> M3/M4/M7 的资产、库版本与美术配方**已经调研完毕**（一手来源核验，2026-10-14），见 [`ASSETS.md`](ASSETS.md)。做 M3-1/M3-3/M4-2/M7-3 前先读它，不要重新调研。
+> **动手前先读对应文档**，不要重新调研：
+> - 内容模型 / 怎么加内容 / 怎么换资产 → [`CONTENT.md`](CONTENT.md)
+> - 架构与决策记录 → [`ARCHITECTURE.md`](ARCHITECTURE.md)
+> - 资产 / 库版本 / 美术配方 → [`ASSETS.md`](ASSETS.md)
 
 ---
 
-## M0 — 骨架
+## M0 — 骨架 ✅
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
 | M0-1 | done | 包骨架 + 分支隔离 + 架构文档 | `package.json` `tsconfig.json` `cordis.patch.yml` `docs/ARCHITECTURE.md` | — |
-| M0-2 | done | `src/` 最小可编译闭环：config schema + 入口 + 1 个只读工具 | `src/index.ts` `src/config.ts` `src/tools/status.ts`；`pnpm typecheck` 绿 | M0-1 |
-| M0-3 | done | `test/` 跑起来：`node --test` + 一个冒烟测试 | `test/smoke.test.js`；`pnpm test` 绿 | M0-2 |
+| M0-2 | done | `src/` 最小可编译闭环：config + 入口 + 工具 | `src/index.ts` `src/config.ts` `src/tools/world.ts` | M0-1 |
+| M0-3 | done | `test/` 跑起来 + 冒烟测试 | `test/smoke.test.js` | M0-2 |
+| M0-4 | done | 资产/库调研落地成 `ASSETS.md` + 决策 D7/D8/D9 | `docs/ASSETS.md` | M0-3 |
 
-## M1 — 世界模型与模拟内核（**本项目的技术核心**）
+## M1 — 内容库层 ✅
 
-| # | 状态 | 任务 | 产出 | 依赖 |
-|---|---|---|---|---|
-| M1-1 | done | 定义世界模型类型：World/District/Station/Agent/Task/Message/WorldEvent + 状态机常量 | `src/domain/types.ts` `src/domain/constants.ts` | M0-1 |
-| M1-2 | done | 纯函数世界构造：`createWorld(seed, opts)`，含默认小镇布局（4 地段 / ~10 站点） | `src/domain/create.ts` + 测试 | M1-1 |
-| M1-3 | done | seeded PRNG + 确定性工具 | `src/domain/rng.ts` + 测试（同 seed 同序列） | M1-1 |
-| M1-4 | ready | `step(world, dt, commands)` 纯函数 + 固定 tick 顺序（ingest→scheduler→movement→interaction→mailbox→emit） | `src/sim/step.ts` | M1-2 M1-3 |
-| M1-5 | ready | 依赖求值：`blockedBy` 全 done ⇒ `pending→ready`（唯一实现点） | `src/sim/ready.ts` + 测试 | M1-1 |
-| M1-6 | ready | 调度器：idle agent 原子 claim 一个 ready task，按 capability 选站 | `src/sim/scheduler.ts` + 测试 | M1-4 M1-5 |
-| M1-7 | ready | 移动：agent 沿路径走向站点，到站切换 working | `src/sim/movement.ts` + 测试 | M1-4 |
-| M1-8 | ready | 邮箱：消息投递 + 事件产出 | `src/sim/mailbox.ts` + 测试 | M1-4 |
-| M1-9 | ready | **确定性验收测试**：同 seed 跑 1000 tick，两次结果逐字节一致 | `test/determinism.test.js` | M1-4 |
-
-## M2 — 落盘与 HTTP/SSE
+> 这一层是"机制与内容分离"的落地：十个内容库、注册表（提供方链 + 显式覆盖）、内置内容包。
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M2-1 | blocked | 磁盘真相：`world.json` + 事件追加 `events.jsonl`，原子写 | `src/store/worldStore.ts` | M1-1 |
-| M2-2 | blocked | 世界运行时：tick 循环 + 订阅广播 + pause/resume | `src/runtime.ts` | M1-4 M2-1 |
-| M2-3 | blocked | HTTP：`GET /api/world` 快照 + `POST /api/command` | `src/routes/api.ts` | M2-2 |
-| M2-4 | blocked | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈 | `src/routes/events.ts` | M2-2 |
-| M2-5 | blocked | 面板静态服务 `/agent-world/*`（含 MIME 白名单 + 路径穿越防护） | `src/panel.ts` | M2-2 |
+| M1-1 | done | 十个内容库的类型定义 + 库目录 | `src/content/kinds.ts` | M0-1 |
+| M1-2 | done | 单包校验：条目形状、枚举、依赖环、lead 数量 | `src/content/validate.ts` + 测试 | M1-1 |
+| M1-3 | done | 注册表：提供方链、显式覆盖、拓扑装载、跨包引用校验 | `src/content/registry.ts` + 测试 | M1-2 |
+| M1-4 | done | 内置内容包 `pack.default`：4 地块 / 10 站点 / 8 角色 / 2 条工作流 / 皮肤 / 动作 / 主题 | `src/content/packs/default.ts` | M1-3 |
+| M1-5 | done | `createWorld` 改成消费内容包；`domain/create.ts` 拆成 `content/instantiate.ts` + `world/create.ts` | 分层：`domain` ← `content` ← `world` | M1-4 |
+| M1-6 | done | `CONTENT.md`：十个库规范、包的写法、三种操作、校验规则、常见错误 | `docs/CONTENT.md` | M1-5 |
 
-## M3 — 3D 场景（three.js）
-
-| # | 状态 | 任务 | 产出 | 依赖 |
-|---|---|---|---|---|
-| M3-1 | blocked | `web/` Vite + **纯 three.js** 脚手架（不引 R3F，决策 D7），能渲染一个空场景 | `web/` + `pnpm --filter dsh-agent-world build:web` | M0-1 |
-| M3-2 | blocked | 相机：斜俯视 isometric + orbit/缩放/平移 | `web/src/scene/camera.ts` | M3-1 |
-| M3-3 | blocked | 落地 `ASSETS.md` §6 的光照配方（半球光/方向光/雾/ACES + 只开 bloom）与 10 色调色板，**含色彩纪律：每分区一个强调色、所有角色留中间调** | `web/src/scene/lighting.ts` `palette.ts` | M3-1 |
-| M3-4 | blocked | 小镇布局渲染：地段地面 + 站点几何（先用程序化几何体，不依赖外部模型） | `web/src/scene/town.ts` | M3-3 |
-| M3-5 | blocked | 资源管线 + **`VENDOR.md` 台账**（模板见 `ASSETS.md` §5：一行一个压缩包，URL+许可+zip 内许可文件+下载日期+sha256）+ `THIRD_PARTY_NOTICES.md` + CI 哈希比对步骤 | `web/public/assets/VENDOR.md` `THIRD_PARTY_NOTICES.md` `scripts/verify-assets.mjs` | M3-1 |
-
-## M4 — 角色与动画
+## M1.5 — 外部内容包
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M4-1 | blocked | 角色实体：程序化低模角色（胶囊/方块人），带配色 | `web/src/actors/avatar.ts` | M3-4 |
-| M4-2 | blocked | 网格寻路 A*（小镇网格由站点布局生成）。**先零依赖手写**，路径质量或规模不够再评估 `three-pathfinding@1.3.0`(MIT/3.7kB，实质停维护) 或 `@recast-navigation@0.43.1`(MIT/19.4kB+1.9MB wasm，活跃) | `web/src/actors/navmesh.ts` + 测试 | M3-4 |
-| M4-3 | blocked | 动画状态机：idle/walk/work/talk/celebrate 的纯程序化动画 | `web/src/actors/animator.ts` | M4-1 |
-| M4-4 | blocked | 每帧同步：`model/` 的插值状态 → 场景对象 | `web/src/model/worldModel.ts` | M4-1 M2-4 |
+| M1.5-1 | ready | 外部内容包加载器：读 `<workspace>/<contentDir>/<packId>/*.json`，解析成 `ContentPack` | `src/content/load-files.ts` + 测试（用临时目录） | M1-5 |
+| M1.5-2 | ready | 接进 `state.ts`：内置包 + 外部包一起 `loadAll`，问题进 `contentIssues`；`allowImplicitOverride` 接配置 | `src/state.ts` 改造 + 测试 | M1.5-1 |
+| M1.5-3 | ready | 报错路径友好化：外部包写错时 Issue.where 要带**文件路径**（否则用户不知道去哪个文件改） | `load-files.ts` | M1.5-2 |
+| M1.5-4 | ready | 工具 `agent_world_content`：列出已装载的包与各库条目、能看某个 id 的提供方链 | `src/tools/content.ts` + 测试 | M1.5-2 |
+| M1.5-5 | ready | 端到端验证：临时 workspace 放一个外部包顶掉小镇布局，`createWorld` 出来的世界确实变了 | `test/external-pack.test.js` | M1.5-2 |
 
-## M5 — HUD
-
-| # | 状态 | 任务 | 产出 | 依赖 |
-|---|---|---|---|---|
-| M5-1 | blocked | 任务板：工单列表 + 状态色 + 依赖连线 | `web/src/ui/taskBoard.ts` | M2-4 |
-| M5-2 | blocked | 花名册：谁在哪、在干什么、用什么模型 | `web/src/ui/roster.ts` | M2-4 |
-| M5-3 | blocked | 事件时间线 | `web/src/ui/timeline.ts` | M2-4 |
-| M5-4 | blocked | 控制条：pause/resume/reset/speed | `web/src/ui/controls.ts` | M2-3 |
-
-## M6 — 接真实 subagent
+## M2 — 模拟内核（**技术上最硬的一块**）
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M6-1 | blocked | Bridge：单一映射表落地（§8） | `src/bridge/mapping.ts` `src/bridge/observe.ts` | M2-2 |
-| M6-2 | blocked | `agent_world_hire` / `agent_world_report` 工具 | `src/tools/*.ts` | M6-1 |
-| M6-3 | blocked | 端到端：真派一个成员 → 场景里出现角色并干活 | 演示脚本 | M6-2 M4-4 |
+| M2-1 | blocked | 依赖求值：`blockedBy` 全 done ⇒ `pending→ready`（**唯一实现点**） | `src/sim/ready.ts` + 测试 | M1-5 |
+| M2-2 | blocked | 命令类型：`pause`/`resume`/`reset`/`dispatch`/`hire`（`step()` 的第三个参数） | `src/domain/commands.ts` | M1-5 |
+| M2-3 | blocked | `step(world, dt, commands)` 纯函数：ingest→scheduler→movement→interaction→mailbox→emit | `src/sim/step.ts` | M2-1 M2-2 |
+| M2-4 | blocked | 调度器：idle agent 原子 claim 一个 ready task，按 `requires` 的 capability 选站 | `src/sim/scheduler.ts` + 测试 | M2-3 |
+| M2-5 | blocked | 移动：沿路径走向站点，到站切 working（用 `stationSlot` 吸附） | `src/sim/movement.ts` + 测试 | M2-3 |
+| M2-6 | blocked | 邮箱：消息投递 + 事件产出 | `src/sim/mailbox.ts` + 测试 | M2-3 |
+| M2-7 | blocked | 事件产出：本 tick 的变化压成 delta event，`seq` 单调 | `src/sim/emit.ts` | M2-3 |
+| M2-8 | blocked | **确定性验收**：同 seed 跑 1000 tick，两次结果逐字节一致 | `test/determinism.test.js` | M2-3 |
+| M2-9 | blocked | `agent_world_dispatch`：用**任务库**派一条工作流进世界（第一次真正消费任务库） | `src/tools/dispatch.ts` + 测试 | M2-4 |
 
-## M7 — 打磨与发布
+## M3 — 落盘与 HTTP/SSE
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M7-1 | blocked | 性能降级四级（§5.3） | `web/src/scene/perf.ts` | M4-4 |
-| M7-2 | blocked | 音效（CC0）+ bloom 后处理（可选开） | `web/` | M7-1 |
-| M7-3 | blocked | 用 **Kenney CC0** 资产替换程序化几何：Mini Characters（角色 + 32 内嵌动画，单角色 247 kB）/ Furniture Kit（140 模型）/ City Kit / Nature Kit。**只有一个 CC0 来源可进 git**（决策 D9） | `web/public/assets/` + VENDOR.md | M3-5 |
-| M7-4 | blocked | README / 安装脚本 / 发布到 profile | `README.md` `scripts/` | M6-3 |
+| M3-1 | blocked | 磁盘真相：`world.json` + 事件追加 `events.jsonl`，原子写 | `src/store/worldStore.ts` | M2-3 |
+| M3-2 | blocked | 世界运行时：tick 循环 + 订阅广播 + pause/resume | `src/runtime.ts` | M2-3 M3-1 |
+| M3-3 | blocked | HTTP：`GET /api/world` 快照 + `POST /api/command` | `src/routes/api.ts` | M3-2 |
+| M3-4 | blocked | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈 | `src/routes/events.ts` | M3-2 |
+| M3-5 | blocked | 面板静态服务 `/agent-world/*`（MIME 白名单 + 路径穿越防护） | `src/panel.ts` | M3-2 |
+
+## M4 — 3D 场景（three.js）
+
+| # | 状态 | 任务 | 产出 | 依赖 |
+|---|---|---|---|---|
+| M4-1 | blocked | `web/` Vite + **纯 three.js** 脚手架（决策 D7），能渲染空场景 | `web/` + `build:web` 脚本 | M0-1 |
+| M4-2 | blocked | 相机：等距正交 + orbit/缩放/平移（配方见 ASSETS.md §6） | `web/src/scene/camera.ts` | M4-1 |
+| M4-3 | blocked | 光照与雾：落地 ASSETS.md §6 的配方 + ACES 色调映射 | `web/src/scene/lighting.ts` | M4-1 |
+| M4-4 | blocked | **消费 `themes` 库**：相机/光照/雾/后处理全从主题条目读，不许硬编码 | `web/src/scene/theme.ts` | M4-3 |
+| M4-5 | blocked | **消费 `skins` 库**：所有颜色走 token 解析（含 `skin.` 前缀） | `web/src/scene/palette.ts` | M4-1 |
+| M4-6 | blocked | **消费 `districts` + `stations` 库**：地面与站点几何按内容生成 | `web/src/scene/town.ts` | M4-4 M4-5 |
+| M4-7 | blocked | 程序化几何构建器注册表（`avatar`/`desk`/`server`…，对应 `models` 库的 `builder` 字段） | `web/src/scene/builders.ts` | M4-6 |
+| M4-8 | blocked | 资源台账：`VENDOR.md` + `THIRD_PARTY_NOTICES.md` + CI 哈希比对脚本 | `web/public/assets/VENDOR.md` `scripts/verify-assets.mjs` | M4-1 |
+
+## M5 — 角色与动画（**内容层可替换性的第一次真实验证**）
+
+| # | 状态 | 任务 | 产出 | 依赖 |
+|---|---|---|---|---|
+| M5-1 | blocked | 角色实体：从 `models` 库取模型（`glb` 或 `procedural`），`SkeletonUtils.clone` | `web/src/actors/avatar.ts` | M4-7 |
+| M5-2 | blocked | **消费 `actions` 库**：`AgentState` → 动作条目 → `AnimationMixer` / 程序化动画 | `web/src/actors/animator.ts` | M5-1 |
+| M5-3 | blocked | 网格寻路 A*（网格由站点布局生成）。先零依赖手写；不够再评估 `three-pathfinding@1.3.0` / `@recast-navigation@0.43.1` | `web/src/actors/navmesh.ts` + 测试 | M4-6 |
+| M5-4 | blocked | 每帧同步：`model/` 的插值状态 → 场景对象（采样 + 插值，不推理业务） | `web/src/model/worldModel.ts` | M5-1 M3-4 |
+| M5-5 | blocked | 新增 `pack.kenney-mini`：显式 `overrides` 掉 `models` 与 `actions`，换成 Kenney CC0 资产 | `src/content/packs/kenney-mini.ts` + 资产入库 | M5-2 M4-8 |
+| M5-6 | blocked | **验收：加这个包之后 `pnpm test` 仍全绿，且模拟内核零改动** | 在 PROGRESS 里贴出改动范围作证 | M5-5 |
+
+## M6 — HUD
+
+| # | 状态 | 任务 | 产出 | 依赖 |
+|---|---|---|---|---|
+| M6-1 | blocked | 任务板：工单列表 + 状态色 + **依赖连线**（按 `set` 分组） | `web/src/ui/taskBoard.ts` | M3-4 |
+| M6-2 | blocked | 花名册：谁在哪、在干什么、用什么模型 | `web/src/ui/roster.ts` | M3-4 |
+| M6-3 | blocked | 事件时间线 | `web/src/ui/timeline.ts` | M3-4 |
+| M6-4 | blocked | 控制条：pause / resume / reset / speed | `web/src/ui/controls.ts` | M3-3 |
+| M6-5 | blocked | 面板入口落位（右侧栏常驻 vs 新 view tab）—— 待决问题 1，此轮决定并记录 | 决策记录 + 实现 | M6-1 |
+
+## M7 — Bridge：接真实 subagent
+
+| # | 状态 | 任务 | 产出 | 依赖 |
+|---|---|---|---|---|
+| M7-1 | blocked | Bridge 单一映射表落地（ARCHITECTURE §8） | `src/bridge/mapping.ts` `src/bridge/observe.ts` | M2-3 |
+| M7-2 | blocked | `agent_world_hire` / `agent_world_report` 工具 | `src/tools/*.ts` | M7-1 |
+| M7-3 | blocked | 端到端：真派一个成员 → 场景里出现角色并干活 | 演示脚本 | M7-2 M5-4 |
+
+## M8 — 打磨
+
+| # | 状态 | 任务 | 产出 | 依赖 |
+|---|---|---|---|---|
+| M8-1 | blocked | 性能降级四级（ARCHITECTURE §5.3） | `web/src/scene/perf.ts` | M5-4 |
+| M8-2 | blocked | 音效（CC0）+ bloom 后处理（可关）；**消费 `sounds` 库** | `web/src/audio/` + `sounds` 条目 | M8-1 |
+| M8-3 | blocked | 环境/道具资产（Kenney Furniture Kit / City Kit / Nature Kit）并登记台账 | `web/public/assets/` + VENDOR.md | M5-5 |
+| M8-4 | blocked | 第二个主题包（换个美术方向，验证 `themes` 库真的可切） | `src/content/packs/theme-*.ts` | M4-4 |
+
+## M9 — 发布
+
+| # | 状态 | 任务 | 产出 | 依赖 |
+|---|---|---|---|---|
+| M9-1 | blocked | README / 安装脚本 / 装进 web profile 并验证 | `README.md` `scripts/` | M7-3 |
 
 ---
 
 ## 待决问题（轮到再说，不要现在卡住）
 
-1. 面板入口放哪：右侧栏常驻（`betterSidebar`）还是新开一个 view tab？（M5 决定）
-2. 一个 workspace 是否允许多个世界并存？（当前假设：一个 workspace 一个活跃世界 + 历史归档）
-3. 角色数上限是多少才既好看又不掉帧？（M4 实测后定，当前假设 24）
-4. 是否要音效？（默认做，但可关）
+1. 面板入口放哪：右侧栏常驻（`betterSidebar`）还是新开一个 view tab？→ **M6-5 决定**
+2. 一个 workspace 是否允许多个世界并存？（当前假设：一个活跃世界 + 历史归档）
+3. 角色数上限多少才既好看又不掉帧？（当前假设 24，M5 实测后定）
+4. 是否要音效？（默认做，但可关）→ **M8-2**
+5. 外部内容包要不要支持"只覆盖一条而不整包"？（当前假设：包是替换单位，不拆条）

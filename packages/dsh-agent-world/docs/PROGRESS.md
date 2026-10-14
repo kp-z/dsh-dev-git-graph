@@ -31,6 +31,124 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 
 ---
 
+## R2 — 2026-10-14 · 内容库层：机制与内容分离
+
+**本轮目标**（用户反馈驱动）："应该按照一个游戏的模式设计，模型库、动作库、任务库、场景库等等都要整理好解耦好，方便替换升级和切换。"
+
+R1 的架构里"内容"和"代码"是**混着**的——地段坐标、站点布局、配色全硬编码在 `src/domain/constants.ts` 里。
+本轮把这层拆出来，并把"方便替换"从一句愿望变成**有强制力的机制**。
+
+### 做了什么
+
+1. **十个内容库**（`src/content/kinds.ts`）分两层：
+   - **语义库**（host 权威）：`districts` 地块 / `stations` 站点 / `scenes` 场景 / `rosters` 角色 / `tasks` 任务
+   - **表现库**（web 权威）：`models` 模型 / `actions` 动作 / `skins` 皮肤 / `sounds` 音效 / `themes` 主题
+   两层共享同一套 id 契约与同一个注册表实现（决策 D13）——拆成两套机制就会开始漂移。
+
+2. **"方便替换"的机制化**（这是本轮真正的产出，也是三条新决策）：
+   - **稳定 id**：代码引用 `action.walk`，永远不引用 `walk.fbx`（D10）。
+   - **提供方链 + 回退**：同一个 id 可被多个包提供，链首生效，其余留作回退；
+     `resolve(kind, id, prefer)` 只**排序**不裁剪，所以"优先"永不导致条目丢失（D12）。
+   - **覆盖必须显式**：撞 id 但没在清单 `overrides` 里声明 → 报错，且**原条目保持不变**（D11）。
+     理由："悄悄换掉内容"是最难查的一类问题——世界看起来一切正常，只是某个站点变成了别的东西。
+
+3. **校验器**（`src/content/validate.ts` + `registry.validate()`）：抓的是 **tsc 抓不到、
+   运行时又难定位**的错误。单包查条目形状/枚举/依赖环/lead 数量；跨包查引用完整性
+   （站点→地块、场景→站点/花名册/主题、配色→皮肤 token）与**动作覆盖度**
+   （某个 `AgentState` 没动作 ⇒ 角色会僵在上一帧）。报错文案一律给"可用取值有哪些"（D15）。
+
+4. **内置内容包** `pack.default`（`src/content/packs/default.ts`）：4 地块 / 10 站点 /
+   8 人花名册 / 2 条工作流（`task.software-feature` 7 步 DAG、`task.quick-fix` 3 步）/
+   皮肤（10 色调色板 + 职业色 + 站点色）/ 7 个动作 / 1 个主题。**表现层全是程序化几何**，
+   所以现在零外部资产、零许可风险、零加载时间。
+
+5. **重构分层**（决策 D10 的落地）：
+   ```
+   domain/   世界模型（类型、数值调参、几何、摘要、随机源）——不认识"内容"
+      ↑
+   content/  类型、校验、注册表、内置包、实例化
+      ↑
+   world/    createWorld（内容 → World）
+   ```
+   - `src/domain/create.ts` 删除，拆成 `src/content/instantiate.ts`（内容 → 对象，两层之间**唯一**的翻译层）
+     + `src/world/create.ts`（装配）。
+   - `src/domain/constants.ts` 只剩**数值调参**；`DEFAULT_DISTRICTS` / `DEFAULT_STATIONS` /
+     `AGENT_PALETTE` / `ROLE_COLOR` 全部搬到内容包。
+   - `Task` 新增 `key` / `set` / `estimateTicks`；`World` 新增 `origin`（场景 + 内容包 + 任务集），
+     没有它就没法"用同样的内容重开一局"。
+
+6. **`docs/CONTENT.md`**：十个库规范、包的写法、**三种操作**（新增内容 / 替换升级 / 切换提供方）、
+   校验规则表、命名规范、一个完整的 Kenney 替换示例、常见错误对照表。
+
+7. `src/index.ts` 加了内容问题的**软失败**：内容有 error 时不让它拖垮插件加载
+   （插件树加载失败会让整个 dsh 起不来，代价远大于"世界暂时建不出来"），
+   改为打日志 + `agent_world_status` 里列出细节。照 dsh-daily 的既有做法。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 32 / pass 32 / fail 0
+```
+
+从 10 个测试涨到 **32 个**。新增的 22 个里，**18 个专门钉住内容层机制**，每条都对应一个真实会踩的坑：
+
+- 撞 id 没声明 overrides → 报错**且原条目不变**；声明了就生效**且旧提供方留在链上可回退**
+- `resolve(prefer)` 只排序不裁剪（prefer 里写个不相干的包，条目不能丢）
+- `allowImplicitOverride` 打开时只警告
+- 站点引用不存在的地块 / 场景引用不存在的站点 / 皮肤 token 不存在 → 都在加载时报错
+- **某个 AgentState 没有动作 → 报错**（这条最值钱：换动作库时漏一个状态，会在测试里红，而不是在画面上看到角色僵住）
+- 任务依赖成环 → 报错并打印完整环路；依赖指向集合外 → 报错并列出可用 key
+- `schemaVersion` 不匹配 → 明确拒绝；包依赖缺失/成环 → 报错
+- 拓扑序：故意把依赖方放在前面传入，装载顺序仍正确
+- `relativeTo` 坐标解析正确（**所有站点都必须落在小镇范围内**——坐标解析错了最典型的症状就是跑到地图外）
+- 连派两个任务集，跨集合 id 不撞且依赖不串
+
+### 下一轮从哪继续
+
+**M1.5-1：外部内容包加载器**（`src/content/load-files.ts`）。具体：
+
+1. 读 `<workspace>/<contentDir>/<packId>/` 下的 `pack.json` + 各库 `.json`（缺哪个文件 = 不提供那个库，不是错误）。
+2. **错误信息里必须带文件路径**（M1.5-3）——否则用户不知道去哪个文件改。这是外部内容与内置内容最大的体验差别。
+3. 接进 `src/state.ts`：内置包 + 外部包一起 `loadAll`，`allowImplicitOverride` 接上配置（配置项已就位）。
+4. M1.5-5 是验收：临时 workspace 里放一个外部包顶掉小镇布局，`createWorld` 出来的世界确实变了。
+
+之后就是 M2 模拟内核（`src/sim/ready.ts` 起步），那是整个项目技术上最硬的一块。
+
+### 假设
+
+- **内置内容编译进代码、外部内容走文件系统**（决策 D14）。这是被本仓库的硬链接副本坑逼出来的：
+  `file:` 依赖装进 profile 时新增文件**不会**被同步（`docs/DEVELOPMENT.md` §7），
+  而插件树加载失败会让整个 dsh 起不来。所以内置走 TS 常量（不新增文件），外部走文件系统（用户自己放的）。
+- **包是替换与升级的单位**，不支持"只覆盖一条而不整包"（BACKLOG 待决问题 5）。想要细粒度就新建一个包。
+- 表现库在 host 侧可能完全不存在（面板没打开、只跑 headless），所以跨包校验里
+  "场景引用的主题""皮肤 token"这类检查**只在对应库非空时才跑**。
+
+### 卡住 / 风险
+
+- **M5 是这个设计唯一的真实验证点**：到目前为止"换一套角色只改模型库+动作库"还是**推理**，
+  没被跑过。到 M5-6 必须拿出证据：加了 `pack.kenney-mini` 之后 `pnpm test` 仍全绿、模拟内核零改动。
+  在那之前不要把这条当成已验证的事实。
+- 外部内容包的**安全边界**没定义：JSON 里将来若出现 `url` 字段（模型/音效），
+  要不要限制只能读包内相对路径、禁 `http://` 与 `../`？→ 留到 M1.5-1 一并处理，倾向于**默认禁网络**。
+- 注册表的提供方链目前**没有持久化**：世界落盘（M3-1）时只存 `origin.packs`，
+  恢复时靠"用同样的包按同样顺序装载"重建链。如果用户换了包集合，旧存档的渲染表现会变——
+  这是可接受的（内容升级本来就该改变表现），但要在 M3-1 里把 `origin.packs` 的版本一并存下来，
+  好让"这局是用哪个版本的内容玩的"可查。
+
+### 本轮产出
+
+- 新增：`src/content/{kinds,validate,registry,instantiate,index}.ts`、`src/content/packs/default.ts`、
+  `src/world/create.ts`、`test/content.test.js`、`docs/CONTENT.md`
+- 删除：`src/domain/create.ts`（拆成上面两个）
+- 重写：`src/domain/constants.ts`（只剩数值）、`src/domain/index.ts`、`src/state.ts`、
+  `src/tools/world.ts`、`src/index.ts`、`src/config.ts`、`test/smoke.test.js`
+- 文档：`ARCHITECTURE.md`（§2.1/§2.2 新增、§3 实体表、§9 里程碑重排、§10 目录、§12 加 D10–D15）、
+  `BACKLOG.md`（全量重排）、`README.md`
+
+---
+
 ## R1 — 2026-10-14 · 立项、选型、骨架、世界模型
 
 **本轮目标**：把项目立起来，并把「架构」这块最难的地方先定死（用户点名说架构是难点）。

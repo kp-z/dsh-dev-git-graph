@@ -41,11 +41,19 @@
 │  DSH Host (Node ≥ 22)                                              │
 │  ┌──────────────────────────────────────────────────────────────┐  │
 │  │ dsh-agent-world host plugin   (src/)                         │  │
-│  │  · domain  世界模型（纯数据 + 纯函数，无 IO）                  │  │
+│  │  · content 内容库：装载 / 校验 / 注册表 / 内置包 / 实例化      │  │
+│  │  · domain  世界模型（纯数据 + 纯函数，无 IO，不认识内容）      │  │
+│  │  · world   装配：createWorld（内容 → World）                  │  │
 │  │  · sim     tick / scheduler / movement / mailbox（确定性）     │  │
 │  │  · bridge  DSH subagent ⟷ world agent（唯一映射表）            │  │
 │  │  · tools   agent_world_*（defineTool，模型可见）               │  │
 │  │  · routes  /api/world · /api/events(SSE) · /agent-world/*      │  │
+│  └──────────────────────────────────────────────────────────────┘  │
+│            ▲ 消费稳定 id（model.* / action.* / skin.* / theme.*）    │
+│  ┌─────────┴────────────────────────────────────────────────────┐  │
+│  │ 内容包（机制之外的一切，可整包替换/升级/切换）                 │  │
+│  │  内置：src/content/packs/*.ts（编译进 lib/，不新增文件）        │  │
+│  │  外部：<workspace>/.agent-world/content/<packId>/*.json        │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 └───────────────────────────┬────────────────────────────────────────┘
                             │ JSON over HTTP + SSE
@@ -63,23 +71,73 @@
 渲染层不持有任何业务真相，不推理任何业务规则。它只做两件事：把状态画出来、把用户意图发回去。
 推论：面板可以关掉（世界照跑）、可以开多个（看到同一个世界）、可以整个换掉（换引擎不换业务）。
 
+### 2.1 内容库层：机制与内容分离
+
+**代码是机制，内容是数据。** 这条在游戏架构里是常识，但工程上最容易失效——
+因为往代码里硬编码一个站点坐标总是"更快"。所以这里把它变成有强制力的规则：
+
+| | 代码（机制） | 内容（数据） |
+|---|---|---|
+| 例子 | "走路要向目标移动"；"工单要等前置完成" | "走路播哪个剪辑"；"这条流水线有哪几张工单" |
+| 落位 | `src/domain/` `src/content/registry.ts` `src/world/` `web/src/` | `src/content/packs/` · `<workspace>/.agent-world/content/` |
+| 换它要做什么 | 改代码、跑测试 | 换一个内容包，**代码一行不动** |
+
+**十个库**分两层：**语义库**（地块/站点/场景/花名册/任务，权威在 host）与
+**表现库**（模型/动作/皮肤/音效/主题，权威在 web）。两层共享同一套 id 契约与同一个注册表实现——
+拆成两套机制就会开始漂移。
+
+**解耦的关键一跳是动作库**：模拟层只会说 `AgentState = 'walking'`，至于"walking 播哪个剪辑、
+多快、要不要循环"全在动作库里。所以换一套角色包**只改模型库 + 动作库**，模拟内核一行不动。
+
+**"方便替换升级和切换"落到机制上是三件事**（详见 §12 的 D10–D14）：
+
+1. **稳定 id**：代码永远引用 `action.walk`，不引用 `walk.fbx`。
+2. **提供方链**：同一个 id 可以有多个包提供实现，当前生效的排在链首。切换 = 改链序，不改调用点。
+3. **显式覆盖**：想顶掉别人的条目必须在清单 `overrides` 里写明，否则报冲突。
+   理由——"悄悄换掉内容"是最难查的一类问题：世界看起来一切正常，只是某个站点变成了别的东西。
+
+完整规范（十个库的条目形态、包的写法、校验规则、三种操作、常见错误）见
+[`CONTENT.md`](CONTENT.md)。
+
+### 2.2 分层依赖方向
+
+```
+domain/   世界模型：类型、数值调参、几何、摘要、随机源     ← 不认识"内容"
+   ↑
+content/  内容库：类型、校验、注册表、内置包、实例化
+   ↑
+world/    装配：createWorld（内容 → World）+ 后续的 sim/
+   ↑
+web/      渲染：直接 import domain 拿类型，不复制
+```
+
+**依赖单向向上，没有环。** `domain` 不许 import `content`——一旦反过来，
+就再也没法单独测"世界模型"这一层了。加新东西时按这个方向放。
+
 ---
 
 ## 3. 世界模型（Domain Model）
 
-> 落位 `src/domain/`，全部是纯数据结构 + 纯函数；**不许出现 `fs` / `http` / `three`**。
+> 落位 `src/domain/`，全部是纯数据结构 + 纯函数；**不许出现 `fs` / `http` / `three`**，
+> 也**不许 import `content/`**——这一层不认识"内容包"是什么东西，只认识一座已经摆好的小镇。
+> 内容 → 世界的翻译只在 `src/content/instantiate.ts` 一处发生（见 §2.2 的分层方向）。
 
 ### 3.1 实体
 
 | 实体 | 说明 | 关键字段 |
 |---|---|---|
-| `World` | 一个世界实例，绑定一个 workspace | `id name seed tick createdAt districts stations agents tasks messages` |
-| `District` | 地段（工程区 / 会议室 / 机房 / 收发室 / 休息区） | `id name kind bounds palette` |
-| `Station` | 工位或设施，是任务的落脚点 | `id kind district slot(x,z) capacity capability` |
-| `Agent` | 角色 = 真实 subagent 的投影 | `id name role palette state station pos facing carrying llm bound` |
-| `Task` | 工单 | `id title status owner station blockedBy progress attemptId acceptance` |
-| `Message` | 邮箱消息（投递动画的来源） | `id from to kind body at deliveredAt` |
-| `WorldEvent` | 事件日志（驱动动画 + 时间线），单调 `seq` | `seq at type payload` |
+| `World` | 一个世界实例，绑定一个 workspace | `id name seed tick createdAt paused mode origin districts stations agents tasks messages events seq` |
+| `WorldOrigin` | **这个世界是由哪些内容装出来的**（场景 id + 内容包 id + 任务集 id） | `scene packs taskSets` —— 没有它就没法"用同样的内容重开一局" |
+| `District` | 地段（工程区 / 机房 / 会议区 / 公共区） | `id name kind bounds ground` |
+| `Station` | 工位或设施，是任务的落脚点 | `id name kind district anchor capacity capabilities slots` |
+| `Agent` | 角色 = 真实 subagent 的投影 | `id name role palette state position facing station targetStation path carrying llm boundAgentId` |
+| `Task` | 工单 | `id key set title status owner station requires blockedBy progress attemptId acceptance estimateTicks` |
+| `Message` | 邮箱消息（投递动画的来源） | `id from to kind body atTick deliveredAtTick` |
+| `WorldEvent` | 事件日志（驱动动画 + 时间线），单调 `seq` | `seq tick type payload` |
+
+> `Task.key` / `Task.set` 是**回指内容库**用的：`set` 说出自哪条工作流，`key` 说在这条流水线里是哪一步。
+> 实例化时 `key` 被映射成全局唯一的 `task-<n>`，`dependsOn` 被映射成实例化的 `blockedBy`。
+> 这个两段映射只在 `instantiate.ts` 一处做——分开做必然出错。
 
 ### 3.2 状态机（必须显式，不许布尔堆叠）
 
@@ -272,17 +330,22 @@ Scene
 
 ## 9. 里程碑
 
+> R2 重排过：**内容库层插到了模拟内核之前**，因为它正是模拟的输入。
+> 先有可替换的内容，才谈得上"换一座小镇不用改代码"。
+
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **M0** | 骨架：包结构、patch、typecheck 通过 | `pnpm typecheck` 绿 |
-| **M1** | 世界模型 + 纯函数 tick + `node --test` | 1000 tick 确定性测试通过 |
-| **M2** | HTTP API + SSE + 落盘 | curl 能拿到快照与事件流 |
-| **M3** | three.js 场景：静态小镇 + 站点 + 相机 | 浏览器里能看到小镇 |
-| **M4** | 角色出现 / 走路 / 寻路 / 动画状态机 | 角色从 A 走到 B |
-| **M5** | HUD：任务板 + 依赖可视 + 时间线 | 能看出"谁在干什么、卡在哪" |
-| **M6** | Bridge：接真实 subagent | 真派一个成员，场景里出现角色 |
-| **M7** | 打磨：美术 / 音效 / 后处理 / 性能降级 | 60fps 稳定 |
-| **M8** | 打包 / 文档 / 发布 | 安装到 web profile 可用 |
+| **M0** ✅ | 骨架：包结构、patch、世界模型类型、工具、`node --test` | `pnpm typecheck` 绿 + 测试全绿 |
+| **M1** ✅ | **内容库层**：十个库的类型与校验、注册表（提供方链/显式覆盖）、内置内容包 | 覆盖与切换的机制有测试证明；`CONTENT.md` 定稿 |
+| **M1.5** | 外部内容包：`<workspace>/.agent-world/content/` 加载 | 用户放一个 JSON 目录就能换小镇 |
+| **M2** | 模拟内核：纯函数 tick / 依赖求值 / 调度器 / 移动 / 邮箱 | 同 seed 跑 1000 tick 两次结果逐字节一致 |
+| **M3** | 落盘（`world.json`）+ HTTP 快照 + SSE 事件流 | curl 能拿到快照与事件流；gap 能自愈 |
+| **M4** | three.js 场景：小镇、站点、相机、光照 | 浏览器里能看到小镇 |
+| **M5** | 角色与动画：模型库/动作库开始被真正消费（Kenney CC0 资产） | 角色从 A 走到 B，且**模拟内核零改动** |
+| **M6** | HUD：任务板 + 依赖可视 + 花名册 + 时间线 | 能看出"谁在干什么、卡在哪" |
+| **M7** | Bridge：接真实 subagent | 真派一个成员，场景里出现角色 |
+| **M8** | 打磨：美术 / 音效 / 后处理 / 性能降级 | 60fps 稳定 |
+| **M9** | 打包 / 文档 / 发布 | 安装到 web profile 可用 |
 
 ---
 
@@ -293,18 +356,27 @@ packages/dsh-agent-world/
 ├── src/                     host 插件（TS）
 │   ├── index.ts             入口：name / inject / apply
 │   ├── config.ts            schemastery 配置
-│   ├── domain/              世界模型（纯逻辑，无 IO）
-│   ├── sim/                 tick / scheduler / movement / mailbox
-│   ├── store/               落盘（world.json + events.jsonl）
+│   ├── content/             ★ 内容库层（机制之外的一切）
+│   │   ├── kinds.ts         十个库的类型定义 + 库目录
+│   │   ├── validate.ts      单包自洽校验 + 依赖环检测
+│   │   ├── registry.ts      注册表：提供方链 / 显式覆盖 / 跨包引用校验
+│   │   ├── instantiate.ts   内容条目 → 世界对象（两层之间唯一的翻译层）
+│   │   └── packs/           内置内容包（TS 常量，编译进 lib/）
+│   ├── domain/              世界模型（纯逻辑，无 IO，不认识"内容"）
+│   ├── world/               装配：createWorld（内容 → World）+ 后续的 sim/
+│   ├── sim/                 tick / scheduler / movement / mailbox（M2）
+│   ├── store/               落盘（world.json + events.jsonl）（M3）
 │   ├── tools/               agent_world_*（defineTool）
-│   ├── routes/              HTTP + SSE
-│   └── panel.ts             静态面板服务
+│   ├── routes/              HTTP + SSE（M3）
+│   └── panel.ts             静态面板服务（M3）
 ├── web/                     3D 面板（Vite + three.js）
 │   ├── index.html
 │   ├── src/{net,model,scene,actors,ui,style}
 │   └── public/assets/       模型贴图 + VENDOR.md
 ├── docs/
 │   ├── ARCHITECTURE.md      本文
+│   ├── CONTENT.md           内容库规范（十个库 / 包 / 校验 / 三种操作）
+│   ├── ASSETS.md            资产、库版本与美术配方
 │   ├── BACKLOG.md           轮次任务队列
 │   └── PROGRESS.md          轮次台账
 ├── test/                    node --test
@@ -345,3 +417,9 @@ packages/dsh-agent-world/
 | D7 | 面板用**纯 three.js**（不引 `@react-three/fiber` / drei） | ① R3F 系库全部**只支持 React 19**（fiber 9.x: `>=19 <19.4`），引它等于把面板绑死在某个 React 大版本上；② §5.2 的分层本来就是「`model/` 出插值状态 → `scene/` 每帧命令式同步」，React 的 diff 在这一层不是价值而是开销；③ 依赖越少，越不容易撞 `postprocessing` 对 three 的 peer 上限（`>=0.168 <0.187`）。HUD 也走原生 DOM | R1 |
 | D8 | 角色资产用 **Kenney Mini Characters**（CC0），不用 KayKit | 单角色 247 kB vs KayKit 3.5 MB（后者把 1024 图集与全部剪辑塞进每个 GLB，5 个角色 17.2 MB）—— 我们 ≤24 个同屏，差 14 倍。KayKit 留作"要更好看"时的升级路径 | R1 |
 | D9 | **只有 CC0/public domain 的字节可以进 git**；禁止 Mixamo 派生文件、CC-BY 资产、Sketchfab 素材、Quaternius 资产 | Mixamo：Adobe FAQ 只授权"在项目里使用"，**未授权再分发剪辑文件本身**，且中国区/企业账号不可用 ⇒ 不可复现、溯源不可证。CC-BY：不能被 MIT 再许可，需逐文件署名。Quaternius：2026-08-28 起为 QAL v1.0，§3(a) 禁止再分发资产本身（包页仍挂 CC0 徽章，是个陷阱）。依据见 `docs/ASSETS.md` §2/§4 | R1 |
+| D10 | **代码是机制，内容是数据**：凡可替换的东西一律进内容库（十个库），代码里禁止字面量的资产名/剪辑名/任务文案/配色值 | 游戏架构的常识，但最容易失效——硬编码一个坐标总是"更快"。判据：问自己"这东西会不会有人想换掉" | R2 |
+| D11 | 覆盖必须**显式**：想顶掉别人的条目必须在清单 `overrides` 里写明 `kind/id`，否则报冲突且原条目不变 | "悄悄换掉内容"是最难查的一类问题——世界看起来一切正常，只是某个站点变成了别的东西 | R2 |
+| D12 | 每个逻辑 id 可有多提供方，形成**回退链**；`resolve(prefer)` 只排序不裁剪 | 资产加载失败要降级而不是崩（GLB 挂了退回程序化几何）。`prefer` 里没提到的提供方跟在后面，保证"优先"永不导致条目丢失 | R2 |
+| D13 | 内容分**语义库**（host 权威）与**表现库**（web 权威），但共享同一套 id 契约与同一个注册表实现 | 拆成两套机制就会开始漂移。表现库在 host 侧缺失时相关校验自动跳过（host 可能没装表现库） | R2 |
+| D14 | **内置内容包编译进代码**（TS 常量），**外部内容包走文件系统** | 本仓库 `file:` 依赖是硬链接副本，**新增文件不会被同步进 profile**（DEVELOPMENT.md §7）；而插件树加载失败会让整个 dsh 起不来。内置走编译避免踩坑，外部走文件系统保证用户可替换 | R2 |
+| D15 | 内容校验只做**引用完整性与声明一致性**，不做类型校验；报错必须给出可用取值 | 类型是 tsc 的活。校验要抓的是 tsc 抓不到、运行时又难定位的错误（站点引用不存在的地块、某状态没有动作、任务依赖成环）。文案是给内容作者看的，"引用无效"四个字帮不了任何人 | R2 |
