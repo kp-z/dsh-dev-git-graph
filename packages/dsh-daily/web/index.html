@@ -79,13 +79,9 @@
     <span id="dd-capsule-text">正在刷新订阅源</span>
   </div>
 
-  <!-- 调教输入框 -->
-  <form class="dd-tune" id="dd-tune-form" autocomplete="off">
-    <input type="text" class="dd-input dd-tune-input" id="dd-tune-input"
-           placeholder="例如：以后每天多推 AI Agent 相关"
-           aria-label="调教推荐偏好" maxlength="300">
-    <button type="submit" class="dd-btn dd-btn-primary" id="dd-tune-submit">调教</button>
-  </form>
+  <!-- 项目关键词 tags：**替换掉原来的「调教」输入行**。
+       不需要偏好条件 —— 设置关键词就够了，关键词作用到下面的日报与调研 -->
+  <div class="dd-keywords" id="dd-keywords"></div>
 
   <!-- 调教结果提示条（可关闭） -->
   <div class="dd-note" id="dd-note" role="status" aria-live="polite" hidden>
@@ -110,13 +106,9 @@
   <div class="dd-views" role="tablist" aria-label="视图">
     <button type="button" class="dd-view-btn is-active" id="dd-view-daily" role="tab" aria-selected="true">日报</button>
     <button type="button" class="dd-view-btn" id="dd-view-research" role="tab" aria-selected="false">调研</button>
-    <button type="button" class="dd-view-btn" id="dd-view-brief" role="tab" aria-selected="false">简报</button>
   </div>
 
   <main class="dd-research" id="dd-research" hidden aria-live="polite"></main>
-
-  <!-- 项目简报（第三阶段）：概念 / 资讯 / 建议。降级时**如实写明**哪里没有模型，不编造 -->
-  <main class="dd-brief" id="dd-brief" hidden aria-live="polite"></main>
 
   <div class="dd-filters">
     <div class="dd-chips" id="dd-chips" role="tablist" aria-label="按主题筛选"></div>

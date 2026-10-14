@@ -2016,8 +2016,6 @@
     el.viewDaily = $('dd-view-daily');
     el.viewResearch = $('dd-view-research');
     el.research = $('dd-research');
-    el.viewBrief = $('dd-view-brief');
-    el.brief = $('dd-brief');
     el.projectbar = $('dd-projectbar');
     el.projectName = $('dd-project-name');
     el.projectSource = $('dd-project-source');
@@ -2029,9 +2027,6 @@
     el.progress = $('dd-progress');
     el.capsule = $('dd-capsule');
     el.capsuleText = $('dd-capsule-text');
-    el.tuneForm = $('dd-tune-form');
-    el.tuneInput = $('dd-tune-input');
-    el.tuneSubmit = $('dd-tune-submit');
     el.note = $('dd-note');
     el.noteTitle = $('dd-note-title');
     el.noteList = $('dd-note-list');
@@ -2061,32 +2056,35 @@
   var searchTimer = null;
 
   function bindEvents() {
+    // （「调教」输入行已被项目关键词 tags 取代：其元素查找与提交绑定都不再需要）
     // 刷新
-    el.refreshBtn.addEventListener('click', startRefresh);
+    if (el.refreshBtn) el.refreshBtn.addEventListener('click', startRefresh);
     if (el.aiBtn) el.aiBtn.addEventListener('click', startAiSummaries);
 
     // 日报预览
-    el.digestBtn.addEventListener('click', openDigest);
-    el.modalClose.addEventListener('click', closeDigest);
-    el.modalBackdrop.addEventListener('click', closeDigest);
-    el.modal.addEventListener('keydown', function (e) {
+    if (el.digestBtn) el.digestBtn.addEventListener('click', openDigest);
+    if (el.modalClose) el.modalClose.addEventListener('click', closeDigest);
+    if (el.modalBackdrop) el.modalBackdrop.addEventListener('click', closeDigest);
+    if (el.modal) el.modal.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') { e.stopPropagation(); closeDigest(); }
     });
 
     // 调教
-    el.tuneForm.addEventListener('submit', function (e) {
+    // **必须守卫**：HTML 里的调教行已被关键词 tags 取代 → 没有守卫时这行会抛，
+    // 从而中断 bindEvents()，后面所有绑定（含视图切换）全部失效 —— R67 就是栽在这里。
+    if (el.tuneForm) el.tuneForm.addEventListener('submit', function (e) {
       e.preventDefault();
       submitTune();
     });
 
     // 提示条关闭
-    el.noteClose.addEventListener('click', function () {
+    if (el.noteClose) el.noteClose.addEventListener('click', function () {
       state.tuneNote = null;
       renderNote();
     });
 
     // 错误条重试
-    el.errorRetry.addEventListener('click', function () {
+    if (el.errorRetry) el.errorRetry.addEventListener('click', function () {
       state.stateError = null;
       state.itemsError = null;
       state.demoNotice = '';
@@ -2097,7 +2095,7 @@
     });
 
     // 主题 chip（委托）
-    el.chips.addEventListener('click', function (e) {
+    if (el.chips) el.chips.addEventListener('click', function (e) {
       var chip = e.target.closest ? e.target.closest('.dd-chip') : null;
       if (!chip) return;
       state.topic = chip.dataset.topic || '全部';
@@ -2107,7 +2105,7 @@
     });
 
     // 搜索：本地即时过滤（保证即时），并带 q 去后端做一次权威刷新
-    el.search.addEventListener('input', function () {
+    if (el.search) el.search.addEventListener('input', function () {
       state.query = el.search.value;
       el.searchClear.hidden = !state.query;
       renderList();
@@ -2119,7 +2117,7 @@
       }, SEARCH_DEBOUNCE_MS + 280);
     });
 
-    el.searchClear.addEventListener('click', function () {
+    if (el.searchClear) el.searchClear.addEventListener('click', function () {
       state.query = '';
       el.search.value = '';
       el.searchClear.hidden = true;
@@ -2128,24 +2126,23 @@
       el.search.focus();
     });
 
-    el.unreadOnly.addEventListener('change', function () {
+    if (el.unreadOnly) el.unreadOnly.addEventListener('change', function () {
       state.unreadOnly = !!el.unreadOnly.checked;
       renderList();
       renderHeader();
     });
 
     // 列表交互（委托：动作 / 打开 / 折叠 / 空态重试）
-    el.list.addEventListener('click', onListClick);
+    if (el.list) el.list.addEventListener('click', onListClick);
 
     // 视图切换：日报 / 调研
     if (el.viewDaily) el.viewDaily.addEventListener('click', function () { setView('daily'); });
     if (el.viewResearch) el.viewResearch.addEventListener('click', function () { setView('research'); });
-    if (el.viewBrief) el.viewBrief.addEventListener('click', function () { setView('brief'); });
 
     // 按天翻阅（归档）
-    el.datePrev.addEventListener('click', function () { stepDate(1); });
-    el.dateNext.addEventListener('click', function () { stepDate(-1); });
-    el.dateToday.addEventListener('click', function () {
+    if (el.datePrev) el.datePrev.addEventListener('click', function () { stepDate(1); });
+    if (el.dateNext) el.dateNext.addEventListener('click', function () { stepDate(-1); });
+    if (el.dateToday) el.dateToday.addEventListener('click', function () {
       if (state.today) selectDate(state.today);
     });
   }
@@ -2257,12 +2254,10 @@
     state.view = view;
     if (el.app) {
       el.app.classList.toggle('is-research', view === 'research');
-      el.app.classList.toggle('is-brief', view === 'brief');
     }
     var buttons = [
       [el.viewDaily, 'daily'],
       [el.viewResearch, 'research'],
-      [el.viewBrief, 'brief'],
     ];
     buttons.forEach(function (pair) {
       var button = pair[0];
@@ -2271,9 +2266,7 @@
       button.setAttribute('aria-selected', String(view === pair[1]));
     });
     if (el.research) el.research.hidden = view !== 'research';
-    if (el.brief) el.brief.hidden = view !== 'brief';
-    if (view === 'research') loadResearch();
-    if (view === 'brief') { loadKeywords(); loadBrief(); }
+    if (view === 'research') { loadBrief(); loadResearch(); }
   }
 
   /** 关键词状态（自动抽取 vs 当前生效）。 */
@@ -2401,129 +2394,74 @@
     input.addEventListener('blur', function () { commit(true); });
   }
 
-  /** 取上次的简报并渲染（不自动重跑：重跑要花模型调用）。 */
+  /** 取上次的简报（缓存，由调研视图渲染在最上面；不再单独成页）。 */
   function loadBrief() {
-    if (!el.brief) return;
-    el.brief.setAttribute('aria-busy', 'true');
-    apiGet(API.brief)
+    return apiGet(API.brief)
       .then(function (r) {
         var data = r && r.data ? r.data : r;
-        renderBrief(data && data.brief);
+        state.brief = (data && data.brief) || null;
+        if (state.view === 'research') renderResearch(state.researchData);
       })
-      .catch(function () { renderBrief(null); })
-      .then(function () { el.brief.setAttribute('aria-busy', 'false'); });
+      .catch(function () {
+        state.brief = null;
+        if (state.view === 'research') renderResearch(state.researchData);
+      });
   }
 
   /**
-   * 渲染项目简报：概念 / 资讯 / 建议。
+   * 把简报（概念 + 建议）渲染到调研视图**最上面**。
    *
-   * **降级要显式**：`degraded` 里写明哪一段需要模型 —— 卡片不能空着让人以为"没内容"，
-   * 更不能拿模板拼一段看起来像建议的话（这是这个项目一贯的规矩）。
+   * 为什么不渲染"相关资讯"：下面就是调研结果本身 —— 简报的资讯**就是从那来的**
+   * （R60 起合并调研结果），再列一遍是重复。**概念与建议才是调研结果给不出的东西。**
    */
-  function renderBrief(brief) {
-    if (!el.brief) return;
-    clear(el.brief);
-
-    // 关键词 tags 放最上面：它是"这份简报是怎么算出来的"的可见依据
-    var kw = $('dd-keywords');
-    if (!kw) {
-      kw = text('div', 'dd-keywords');
-      kw.id = 'dd-keywords';
-      el.brief.appendChild(kw);
-    } else {
-      el.brief.appendChild(kw);
-    }
-    renderKeywords();
-
-    if (!brief || !brief.date) {
-      var empty = text('div', 'dd-brief-empty dd-empty');
-      empty.appendChild(text('p', null, '还没有简报。'));
-      empty.appendChild(
-        text('p', 'dd-empty-hint', '简报会针对**当前项目**给概念解释、相关资讯与进化建议；没有配置模型时，资讯仍会产出（其余两段会说明原因）。'),
-      );
-      var run = text('button', 'dd-btn', '生成简报');
-      run.type = 'button';
-      run.addEventListener('click', function () {
-        run.disabled = true;
-        run.textContent = '生成中…';
-        apiPost(API.brief, {}).then(function () { loadBrief(); });
-      });
-      empty.appendChild(run);
-      el.brief.appendChild(empty);
-      return;
-    }
-
+  function appendBriefSummary(host, brief) {
+    if (!brief || !brief.date) return;
+    var box = text('div', 'dd-brief');
     var head = text('div', 'dd-brief-head');
-    head.appendChild(text('span', 'dd-brief-title', state.project && state.project.name ? state.project.name : '当前项目'));
+    head.appendChild(text('span', 'dd-brief-title', '项目简报'));
     head.appendChild(text('span', 'dd-brief-meta', brief.model ? '模型：' + brief.model : '未使用模型'));
     var again = text('button', 'dd-btn dd-btn-ghost', '重新生成');
     again.type = 'button';
     again.addEventListener('click', function () {
-      again.disabled = true;
-      again.textContent = '生成中…';
+      again.disabled = true; again.textContent = '生成中…';
       apiPost(API.brief, {}).then(function () { loadBrief(); });
     });
     head.appendChild(again);
-    el.brief.appendChild(head);
-
+    box.appendChild(head);
     // 降级说明放最上面：先让用户知道"哪段为什么没有"，再往下看内容
-    var degraded = brief.degraded || {};
-    Object.keys(degraded).forEach(function (key) {
-      var label = key === 'concepts' ? '概念' : key === 'advice' ? '建议' : key === 'news' ? '资讯' : key;
+    Object.keys(brief.degraded || {}).forEach(function (key) {
+      if (key === 'news') return;
+      var label = key === 'concepts' ? '概念' : key === 'advice' ? '建议' : key;
       var note = text('div', 'dd-brief-note');
       note.appendChild(text('b', null, label + '：'));
-      note.appendChild(document.createTextNode(degraded[key] || '未生成'));
-      el.brief.appendChild(note);
+      note.appendChild(document.createTextNode((brief.degraded || {})[key] || '未生成'));
+      box.appendChild(note);
     });
-
     if ((brief.concepts || []).length > 0) {
-      el.brief.appendChild(text('h3', 'dd-dim-title', '概念理解（' + brief.concepts.length + '）'));
+      box.appendChild(text('h3', 'dd-dim-title', '概念理解（' + brief.concepts.length + '）'));
       brief.concepts.forEach(function (concept) {
         var card = text('div', 'dd-concept');
         card.appendChild(text('div', 'dd-concept-term', concept.term || ''));
         if (concept.explain) card.appendChild(text('p', 'dd-concept-explain', concept.explain));
         if (concept.relation) card.appendChild(text('p', 'dd-concept-relation', '与项目的关系：' + concept.relation));
-        el.brief.appendChild(card);
+        box.appendChild(card);
       });
     }
-
-    if ((brief.news || []).length > 0) {
-      el.brief.appendChild(text('h3', 'dd-dim-title', '相关资讯（' + brief.news.length + '）'));
-      brief.news.forEach(function (item) {
-        el.brief.appendChild(buildFindingCard({
-          title: item.title,
-          url: item.url,
-          intro: item.why,
-          sourceLabel: item.source === 'research' ? '主动检索' : '日报',
-          query: '',
-          thumb: undefined,
-        }));
-      });
-    }
-
     if ((brief.advice || []).length > 0) {
-      el.brief.appendChild(text('h3', 'dd-dim-title', '进化建议（' + brief.advice.length + '）'));
+      box.appendChild(text('h3', 'dd-dim-title', '进化建议（' + brief.advice.length + '）'));
       brief.advice.forEach(function (advice) {
         var card = text('div', 'dd-advice');
         var row = text('div', 'dd-advice-head');
         var action = advice.action || '了解';
-        var badge = text('span', 'dd-advice-action' + (action === '规避' ? ' is-avoid' : action === '了解' ? ' is-learn' : ''), action);
-        row.appendChild(badge);
+        row.appendChild(text('span', 'dd-advice-action' + (action === '规避' ? ' is-avoid' : action === '了解' ? ' is-learn' : ''), action));
         row.appendChild(text('span', 'dd-advice-title', advice.title || ''));
-        if (advice.confidence) row.appendChild(text('span', 'dd-finding-fallback', advice.confidence));
         card.appendChild(row);
         if (advice.detail) card.appendChild(text('p', 'dd-advice-detail', advice.detail));
-        if ((advice.evidence || []).length > 0) {
-          card.appendChild(text('p', 'dd-advice-evidence', '依据：' + advice.evidence.join(' / ')));
-        }
-        el.brief.appendChild(card);
+        if ((advice.evidence || []).length > 0) card.appendChild(text('p', 'dd-advice-evidence', '依据：' + advice.evidence.join(' / ')));
+        box.appendChild(card);
       });
     }
-
-    if ((brief.concepts || []).length === 0 && (brief.news || []).length === 0 && (brief.advice || []).length === 0) {
-      var none = text('div', 'dd-brief-note', '这一段暂时没有内容：可能是今天没有与项目相关的条目，或尚未配置模型。');
-      el.brief.appendChild(none);
-    }
+    host.appendChild(box);
   }
 
   /** 取上次的调研结果并渲染（不自动重跑：重跑要花请求与 token）。 */
@@ -2545,6 +2483,8 @@
    */
   function renderResearch(data) {
     if (!el.research) return;
+    state.researchData = data;
+    appendBriefSummary(el.research, state.brief);
     clear(el.research);
     var findings = (data && data.findings) || [];
     var groups = (data && data.groups) || [];
@@ -2652,6 +2592,10 @@
   function boot() {
     cacheEls();
     bindEvents();
+    // 关键词 tags 在页面顶部（不在任何视图之内）→ **进来就要加载**，不能等切视图
+    loadKeywords();
+    // 简报也先取一次：调研视图打开时要立刻能渲染出"概念/建议"，不该等第二次往返
+    loadBrief();
 
     // 首屏主题兜底再做一次（?theme= 已在 <head> 内联脚本处理）
     try {

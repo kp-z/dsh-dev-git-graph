@@ -126,3 +126,29 @@ test('客户端契约：整卡覆盖链接必须真的绝对定位（否则"点�
 	assert.ok(item, '找不到 .dd-item 规则')
 	assert.match(item[1], /position:\s*relative/, '.dd-item 必须 relative（给覆盖层当定位父级）')
 })
+
+test('客户端契约：每个 el.X.addEventListener 绑定都必须有守卫（R67 的真实故障）', async () => {
+	// R67 实况：HTML 里删掉了「调教」表单，而 JS 里那行绑定没有守卫 →
+	// 它在 bindEvents() 中途抛出 → 后面所有绑定（含视图切换）全部失效 →
+	// 症状是"页面能打开、tab 也在，但点调研没反应、tag 不加载"，且不报任何错。
+	// 这类问题靠"id 是否存在"的检查抓不到（那只覆盖查找），所以单独加一条。
+	const lines = (await readClient()).split('\n')
+	const unguarded = []
+	lines.forEach((line, index) => {
+		const dot = line.indexOf('.addEventListener')
+		if (dot < 0) return
+		const elAt = line.lastIndexOf('el.', dot)
+		if (elAt < 0) return
+		const rest = line.slice(elAt + 3, dot)
+		if (!/^[A-Za-z_$][\w$]*$/.test(rest)) return
+		const name = 'el.' + rest
+		const nearby = lines.slice(Math.max(0, index - 5), index + 1).join('\n')
+		const guarded = nearby.includes('if (' + name + ')') || line.includes(name + ' &&')
+		if (!guarded) unguarded.push((index + 1) + ': ' + line.trim().slice(0, 70))
+	})
+	assert.deepEqual(
+		unguarded,
+		[],
+		'这些绑定没有守卫：元素不存在时会中断 bindEvents()，导致后续所有绑定静默失效\n' + unguarded.join('\n'),
+	)
+})
