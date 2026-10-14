@@ -460,3 +460,27 @@ export function rankItems(rawItems: readonly RawItem[], options: RankOptions): I
 	void overflow
 	return finalList
 }
+
+/**
+ * 按**项目关键词**给条目加权（关键词要"作用到下面的日报"，不是只影响调研）。
+ *
+ * 语义刻意保守：**只把命中的条目提前，不改顺序之外的任何东西** ——
+ * 命中的按"命中几个关键词"排，其余保持原有相对顺序（稳定排序）。
+ * 这样关键词是**放大器**而不是过滤器：不加关键词时列表完全不变（不会让用户
+ * "设了一个词就丢了一堆内容"），而命中项一定浮到最上面。
+ */
+export function boostByKeywords<T extends { title?: string; summary?: string }>(
+	items: readonly T[],
+	keywords: readonly string[],
+): T[] {
+	const words = keywords.map((w) => w.trim()).filter(Boolean)
+	if (words.length === 0) return [...items]
+	const scored = items.map((item, index) => {
+		const haystack = `${item.title ?? ''} ${item.summary ?? ''}`
+		const hits = words.filter((word) => matchKeyword(haystack, word)).length
+		return { item, index, hits }
+	})
+	return scored
+		.sort((a, b) => (b.hits - a.hits) || (a.index - b.index))
+		.map((entry) => entry.item)
+}

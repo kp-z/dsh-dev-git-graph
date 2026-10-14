@@ -38,7 +38,7 @@ import {
 import { SOURCE_CATALOG } from './catalog.js'
 import { runCollection } from './collect/index.js'
 import { MirrorPool } from './collect/mirror.js'
-import { buildRecentlySeen, normalizeUrl, rankItems, shiftDate } from './rank.js'
+import { boostByKeywords, buildRecentlySeen, normalizeUrl, rankItems, shiftDate } from './rank.js'
 import {
 	mergeFeedSpecs,
 	parseOpml,
@@ -399,6 +399,12 @@ export class DailyService {
 			recentlySeen,
 			today: date,
 		})
+
+		// **关键词作用到日报**（不只是调研）：命中关键词的条目提前。
+		// 语义是"放大器"而不是"过滤器" —— 不设关键词时列表完全不变，
+		// 设了之后命中项浮上来，**不会让用户丢内容**。
+		const keywordList = (await this.keywordState()).effective
+		if (keywordList.length > 0) items = boostByKeywords(items, keywordList)
 
 		// AI 摘要放在排序之后：只给真正进了列表的前 N 条生成，不浪费在会被配额裁掉的条目上
 		items = await this.applyAiSummaries(items)

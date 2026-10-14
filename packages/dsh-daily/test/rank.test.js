@@ -8,7 +8,7 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import {
+import { boostByKeywords,
 	classifyTopic,
 	freshnessFactor,
 	itemId,
@@ -272,4 +272,24 @@ test('rankItems：用户态（已读/隐藏）来自 feedback；隐藏的不进�
 	})
 	assert.equal(items[0].hidden, true)
 	assert.equal(items[0].read, false)
+})
+
+test('boostByKeywords：关键词是**放大器**不是过滤器（不设词时列表不变、命中项浮上来）', () => {
+	const items = [
+		{ title: 'A general news', summary: '' },
+		{ title: 'Zustand v5 migration', summary: '配置' },
+		{ title: 'Another story', summary: 'mention zustand here' },
+		{ title: 'Unrelated', summary: '' },
+	]
+	// 不设关键词 → 顺序完全不变（不能因为"功能开着"就改变默认行为）
+	assert.deepEqual(boostByKeywords(items, []), items)
+	assert.deepEqual(boostByKeywords(items, ['   ']), items)
+	// 设关键词 → 命中项浮到最前，其余保持原有相对顺序（稳定）
+	const boosted = boostByKeywords(items, ['zustand'])
+	assert.equal(boosted[0].title, 'Zustand v5 migration', '命中 2 次的排最前')
+	assert.equal(boosted[1].title, 'Another story')
+	assert.deepEqual(boosted.slice(2).map((i) => i.title), ['A general news', 'Unrelated'], '未命中的保持原顺序')
+	// 大小写与词边界（复用 matchKeyword：不会把 zustand 命中到 zustanding）
+	assert.equal(boostByKeywords([{ title: 'ZUSTAND news', summary: '' }, { title: 'x', summary: '' }], ['zustand'])[0].title, 'ZUSTAND news')
+	assert.equal(boostByKeywords([{ title: 'zustanding', summary: '' }], ['zustand'])[0].title, 'zustanding', '不命中时位置不变')
 })
