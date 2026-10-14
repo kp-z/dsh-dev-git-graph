@@ -42,6 +42,17 @@ export function stationSlot(station: Station, index: number): Vec2 {
   return { x: station.anchor.x + slot.x, z: station.anchor.z + slot.z }
 }
 
+/**
+ * 矩形的中心点。
+ *
+ * 住在几何层而不是内容层：它是纯粹的形状运算，内容层只是它的一个调用方。
+ * （R8 之前它在 `content/instantiate.ts` 里叫 `districtCenter`，导致场景描述层
+ * 为了算一个中心点就得 import 整个内容层。）
+ */
+export function boundsCenter(bounds: { min: Vec2; max: Vec2 }): Vec2 {
+  return { x: (bounds.min.x + bounds.max.x) / 2, z: (bounds.min.z + bounds.max.z) / 2 }
+}
+
 /** 点是否落在地段的矩形内（用于"角色走出边界"的自检）。 */
 export function withinBounds(
   point: Vec2,

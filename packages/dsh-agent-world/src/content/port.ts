@@ -11,6 +11,99 @@ import { LIBRARY_SPECS } from './kinds.js'
 import type { ContentRegistry } from './registry.js'
 import type { ContentIssue, ContentPort, ContentView, PackDescriptor } from '../protocol/ports/content.js'
 import type { LibraryDescriptor } from '../protocol/library-kinds.js'
+import type { ThemePlan } from '../protocol/theme.js'
+import { resolveColor } from '../protocol/scene.js'
+
+/**
+ * 把内容里的主题映射成渲染就绪的 `ThemePlan`。
+ *
+ * ## 为什么这里必须做窄化（而不是强转）
+ *
+ * `ThemeEntry.lighting` 与 `.post` 在内容类型里是**刻意的自由结构**
+ * （`Record<string, unknown>`，避免"每加一个光照效果就要改类型"）。
+ * 代价正好落在这里：渲染器要的是确定结构，所以映射函数必须**一边读一边校验**。
+ *
+ * 用强转（`as`）也能过编译，但那只是把"字段写错了"从编译期推到运行期——
+ * 而那时的表现是画面诡异，不是报错。所以这里逐个字段窄化，且缺省值集中在一处：
+ * 渲染器里不该再散落 `?? 0.5` 这种兜底，否则真正的默认值没人说得清。
+ */
+function buildThemePlan(registry: ContentRegistry, sceneId: string): ThemePlan | null {
+  const merged: Record<string, string> = {}
+  for (const skin of registry.list('skins')) {
+    for (const [token, value] of Object.entries(skin.data.colors)) merged[token] = value
+  }
+
+  // 复用协议层的解析器：`skin.` 这个约定本身就是跨边界的，两个实现一定会漂移，
+  // 而漂移的症状是"某处少了一个颜色"，很难归因。
+  const color = (value: unknown, fallback: string): string =>
+    resolveColor(typeof value === 'string' ? value : null, merged, fallback)
+
+  // `registry.get` 找不到时返回 undefined（不是 null）——这里统一成"没有就退出"。
+  const sceneEntry = registry.get('scenes', sceneId)
+  if (sceneEntry === undefined) return null
+  const themeId = typeof sceneEntry.data.theme === 'string' ? sceneEntry.data.theme : null
+  if (themeId === null) return null
+  const entry = registry.get('themes', themeId)
+  if (entry === undefined) return null
+
+  // ── 窄化小工具 ──
+  const obj = (v: unknown): Record<string, unknown> =>
+    typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
+  const has = (o: Record<string, unknown>): boolean => Object.keys(o).length > 0
+  const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+  const str = (v: unknown, fallback: string): string => (typeof v === 'string' && v !== '' ? v : fallback)
+  const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback)
+
+  const d = entry.data
+  const lighting = obj(d.lighting)
+  const hemi = obj(lighting.hemisphere)
+  const dir = obj(lighting.directional)
+  const dirPos = obj(dir.position)
+  const amb = obj(lighting.ambient)
+  const post = obj(d.post)
+  const bloom = obj(post.bloom)
+  const fog = d.fog
+
+  return {
+    id: entry.id,
+    name: entry.data.name,
+    camera: {
+      projection: d.camera.projection === 'perspective' ? 'perspective' : 'orthographic',
+      yawDeg: num(d.camera.yawDeg, 45),
+      pitchDeg: num(d.camera.pitchDeg, 35.264),
+      fov: typeof d.camera.fov === 'number' ? d.camera.fov : null,
+      zoom: num(d.camera.zoom, 1),
+    },
+    fog:
+      fog === null || fog === undefined
+        ? null
+        : { color: color(fog.color, '#DCE3EA'), density: num(fog.density, 0.01) },
+    lighting: {
+      hemisphere: has(hemi)
+        ? { sky: color(hemi.sky, '#FFFFFF'), ground: color(hemi.ground, '#666666'), intensity: num(hemi.intensity, 0.5) }
+        : null,
+      directional: has(dir)
+        ? {
+            color: color(dir.color, '#FFFFFF'),
+            intensity: num(dir.intensity, 1),
+            position: { x: num(dirPos.x, 10), y: num(dirPos.y, 18), z: num(dirPos.z, 8) },
+            castShadow: bool(dir.castShadow, true),
+            shadowMapSize: num(dir.shadowMapSize, 2048),
+          }
+        : null,
+      ambient: has(amb) ? { color: color(amb.color, '#FFFFFF'), intensity: num(amb.intensity, 0.2) } : null,
+    },
+    post: {
+      toneMapping: str(post.toneMapping, 'ACESFilmic'),
+      exposure: num(post.exposure, 1),
+      bloom: {
+        enabled: bool(bloom.enabled, false),
+        threshold: num(bloom.threshold, 0.9),
+        strength: num(bloom.strength, 0.35),
+      },
+    },
+  }
+}
 
 /**
  * 把注册表与装载期问题包成一个只读端口。
@@ -58,5 +151,6 @@ export function contentPortOf(
       }
       return merged
     },
+    themeFor: (sceneId) => buildThemePlan(registry, sceneId),
   }
 }

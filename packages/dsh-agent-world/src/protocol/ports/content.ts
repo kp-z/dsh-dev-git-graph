@@ -6,6 +6,7 @@
  * 消费方一行不用改。
  */
 import type { LibraryDescriptor, LibraryKind } from '../library-kinds.js'
+import type { ThemePlan } from '../theme.js'
 
 /** 校验级别。 */
 export type IssueLevel = 'error' | 'warning'
@@ -78,4 +79,12 @@ export interface ContentPort {
    * 于是"换一套皮肤包"就是加一个包，不用改任何代码。
    */
   colors(): Readonly<Record<string, string>>
+  /**
+   * 取某个场景用到的主题，映射成**渲染就绪**的 `ThemePlan`（色值已解析）。
+   *
+   * 由内容层做这件事，因为只有它知道主题条目的原始形状。
+   * 场景不存在、场景没指定主题、或指定了不存在的主题时返回 null——
+   * 渲染器应当退回一组内置缺省，而不是黑屏。
+   */
+  themeFor(sceneId: string): ThemePlan | null
 }

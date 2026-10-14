@@ -47,5 +47,5 @@ export {
 } from './constants.js'
 
 export { createRng, seedFromString } from './rng.js'
-export { angleTo, distance, normalizeAngle, stationSlot, stepToward, withinBounds } from './geometry.js'
+export { angleTo, boundsCenter, distance, normalizeAngle, stationSlot, stepToward, withinBounds } from './geometry.js'
 export { summarize } from './summary.js'

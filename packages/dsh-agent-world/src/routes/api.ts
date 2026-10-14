@@ -19,6 +19,7 @@ import type {
   WorldCommand,
   WorldServicePort,
 } from '../protocol/index.js'
+import { buildScenePlan } from '../scene/plan.js'
 import {
   PROTOCOL_VERSION,
   WORLD_COMMAND_KINDS,
@@ -55,6 +56,9 @@ export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
     world: slim,
     // 面板只许 import 协议层、读不到内容库，所以调色板必须在这儿解析好发出去。
     palette: { ...content.colors() },
+    // 渲染就绪的"要摆什么"。**这是渲染层的唯一输入**：2D canvas 画它，
+    // 将来的 three.js（不管是我们写的还是现成场景）也画它。
+    scene: buildScenePlan(world, content.colors(), content.themeFor(world.origin.scene)),
     runtime: {
       running: deps.runtime.running,
       pending: deps.runtime.pending,

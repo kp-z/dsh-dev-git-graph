@@ -45,6 +45,9 @@ export type {
 } from './ports/content.js'
 export type { EventSinkPort, EventSourcePort } from './ports/events.js'
 export type { RuntimeDiagnostics, RuntimePort } from './ports/runtime.js'
+export type { ThemeCamera, ThemeFog, ThemeLighting, ThemePlan, ThemePost } from './theme.js'
+export type { SceneActor, SceneGround, ScenePlan, SceneProp } from './scene.js'
+export { resolveColor } from './scene.js'
 export { nullEventSink } from './ports/events.js'
 export type { DispatchOutcome, WorldServicePort } from './ports/world-service.js'
 

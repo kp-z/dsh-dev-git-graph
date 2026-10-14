@@ -27,7 +27,144 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R8 末）：`typecheck` 绿 · `test` 152/152 绿。
+当前验证状态（R9 末）：`typecheck` 绿 · `test` 162/162 绿。
+
+---
+
+## R9 — 2026-10-15 · 场景描述层（为"用现成场景"铺前提）+ 断网这件事
+
+**本轮请求**：用户说"如果能用 github 现成的游戏场景就直接用，可以搜一下"。
+
+**先说结论：搜不了。** 本机**完全没有外网**，证据如下（全都试过）：
+
+| 通道 | 结果 |
+|---|---|
+| `web_search` 工具 | 401，端点配错（`api.deepseek.com/anthropic/v1/messages`）。**这是用户设置里的项**（Settings > Plugins > Plugin configuration > Web search），不该我改 |
+| shell 直连 `api.github.com` | `curl: (35) SSL_ERROR_SYSCALL`——DNS 解析得出 IP，TLS 握手就断 |
+| shell 直连 `registry.npmjs.org` | `HTTP 000`（R1 时它是通的，现在不通了） |
+| 浏览器 `github.com` | `net::ERR_CONNECTION_CLOSED` |
+| `curl http://example.com` | `000` |
+| 视觉后端 | 也全是 `fetch failed` |
+
+所以 **M4 卡在网络**上：`three` 装不上（pnpm store 里连它的 metadata 都没有，
+`--offline` 直接报 `ERR_PNPM_NO_OFFLINE_META`），现成场景也搜不到。
+
+### 但本轮没白过：找到了一个本机可用的 three.js，并做掉了 M4 的前置
+
+1. **本机已有 `three@0.167.1`（MIT）**：`/Users/kp/DEV/msim-front-react-workspace-2/node_modules/three`，
+   含 `three.module.min.js`（684KB）与 `examples/jsm/controls/`（OrbitControls 等）。
+   **一个真实的版本坑**：`ASSETS.md` 记的 `postprocessing` peer 范围是 `three >=0.168 <0.187`，
+   而这份是 **0.167.1，差一个 minor 进不去**。所以要离线走 M4，得在
+   "用 0.167.1 且先不做 bloom" 与 "等联网装 0.186" 之间选一个。**这个选择留给用户**，
+   因为它影响画面（bloom 是"好看"的一部分）。
+2. **M4-0：场景描述层**（`src/scene/plan.ts` + `src/protocol/{scene,theme}.ts`）。
+
+### 为什么先做场景描述层，而不是硬啃 three
+
+用户要的是"**直接**用现成场景"。但现成场景都自带烘死的布局，而我们的布局来自内容库。
+硬接的后果是"改一次内容要改一次代码"——**直接踩中本研究的第一条红线**。
+
+所以先把渲染器的输入定成一份中立描述 `ScenePlan`（"要摆什么"：地块/站点/角色，
+颜色与主题**已经解析完**）。于是：
+
+- 换成现成的 three.js 场景 = 让它消费 `ScenePlan`，**模拟层与内容库一行不用改**；
+- 我们自己写程序化场景 = 也消费它；
+- 将来的 Godot 客户端 = 还是消费它（决策 D2 那句"渲染层可整个替换"到这里才真的成立）。
+
+**而且它是个纯函数**——不依赖 three.js、不碰 IO，所以**断网也能做完、能验**，
+且不管用户最后选中哪个场景都不会返工。这是本轮刻意挑它的全部理由。
+
+顺带把 `themes` 库真正接通了：`ContentPort.themeFor(sceneId)` 把自由形状的主题条目
+映射成渲染就绪的 `ThemePlan`（相机/雾/三光源/后处理，**色值全部解析完**）。
+
+### 动手时踩到、并且被自己的检查器抓住的两件事（都值得记）
+
+1. **反向依赖**：我一开始把 `ScenePlan` 的类型写在 `scene/plan.ts` 里，
+   于是协议层为了声明快照的 `scene` 字段不得不 import 场景层——
+   `[type-import] protocol/wire/messages.ts → ../../scene/plan.js`，
+   **边界检查器当场报错**。修法是把类型搬进 `protocol/scene.ts`（它是跨进程契约），
+   只留派生逻辑在 `scene/`。判据很好用：**谁被跨进程引用，类型就归谁**。
+2. **`skin.` token 的解析器差点有两个实现**（场景层一个、内容层映射主题时一个）。
+   两个实现一定会漂移，而漂移的症状是"某处少了一个颜色"，很难归因。
+   已经统一到 `protocol/scene.ts` 的 `resolveColor`。
+3. 顺带归位：`boundsCenter` 从 `content/instantiate.ts` 移到 `domain/geometry.ts`——
+   它是纯几何，不该让场景层"为了算一个中心点去 import 整个内容层"。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 162 / pass 162 / fail 0
+```
+
+152 → **162**。新测试里有两条是刻意的"防退化"：
+
+- **颜色不许有 token 泄漏**：遍历 `ScenePlan` 里所有颜色，逐条断言匹配 `#rrggbb`，且
+  **不许出现洋红**（洋红 = 解析失败）。漏解析任何一处都会红。
+- **纯函数**：同输入两次结果一致，且 `JSON.stringify(world)` 在调用前后不变。
+
+面板也改成消费 `ScenePlan` 了——**这是那层缝是不是真的的证据**：2D canvas 与将来的
+three.js 吃同一份描述，而 `web/app.js` 里的 token 解析代码**已经全部删掉**。
+浏览器里实测：画布 2112×1403、182 种颜色、四个地块色各占 14.4%、
+状态栏 `tick 564 · 运行中 · seq 275`，内容行现在会显示主题
+（`舒适等距沙盘（orthographic 45°/35.264°）`）。
+
+### 下一轮从哪继续
+
+**取决于一件事：联网能不能恢复。** 两条路都写清楚，谁先满足就走谁。
+
+**路 A（联网恢复）—— 按 BACKLOG 的 M4 前置那节的两条硬标准去搜现成场景。**
+判据一句话：**它是不是"给什么数据就摆什么"？** 是 → 能用；不是 → 只能借风格与资产（方式 A/B）。
+许可证只接受 MIT / Apache-2.0 / CC0。搜到之后填 `docs/ASSETS.md`，**不要重新调研**已有结论。
+
+**路 B（仍然断网）—— 用本机那份 `three@0.167.1` 往前走**，具体：
+
+1. `pnpm add three@0.167.1 --offline` 不行（store 里没 metadata），所以走
+   **vendoring**：按本仓库既有约定把 `three.module.min.js` 放到 `src/vendor/three/`，
+   连同 `LICENSE` 与 `README.md`（记版本、来源、sha256、许可证）。`docs/DIRECTORY.md`
+   里"面板第三方资源（vendored）"一节就是为这种事写的。
+2. **先不做 bloom**（0.167.1 进不去 `postprocessing` 的 peer 范围）。主题里的
+   `post.bloom.enabled` 保持 false —— 内容里已经有这个开关，所以之后接上不用改代码。
+3. 然后 M4-1：`web/scene/` 里写渲染器，输入就是 `snapshot.scene`（`ScenePlan`）。
+   **不要直接读 `snapshot.world` 的几何字段**——那等于绕过了刚建好的那层缝。
+
+**与上面无关、随时可做的（优先做，因为不受网络影响）**：M3-1 落盘、M3-4 SSE、
+M2.5-1（空闲角色叠在广场）、M2.5-2（邮箱没有发送方）。
+
+### 假设
+
+- **断网是环境问题，不是配置问题**（DNS 通、TLS 断、npm 与 GitHub 同时不通）。
+  所以我按"离线优先"安排本轮：挑了一件不依赖网络、且无论联网与否都不会返工的事。
+- **`ScenePlan` 的形状是对的**：它是渲染器的**唯一**输入，`world` 只留给 HUD 的文本内容。
+  这个划分如果错了，代价是 M4 写起来别扭——但不会破坏任何已验的逻辑。
+- **`three@0.167.1` 够用**：我们需要的是 WebGLRenderer / OrthographicCamera /
+  InstancedMesh / GLTFLoader / SkeletonUtils / AnimationMixer / OrbitControls，这些在 0.167 都有。
+  唯一受影响的是 `postprocessing`（bloom），而那本来就标着"可选"。
+
+### 卡住 / 风险
+
+- **M4 硬卡在网络**。这不是"再试一次"能解决的：store 里没有 `three` 的 metadata，
+  离线装不了；也没有任何现成场景可用。**要么联网，要么走 vendoring**（上面路 B），
+  而 vendoring 需要用户在"0.167.1 且暂无 bloom"与"等联网装 0.186"之间拍一下板。
+- **`web_search` 是坏的，且只有用户能修**（端点配成了 DeepSeek 的 Messages API）。
+  在修好之前，任何"搜一下"的请求我都只能用 shell/浏览器直连，
+  而它们现在同样不通。**这三件事是同一个病根：这台机器现在没有可用外网。**
+- **临时验证服务器还在跑**（PID 变了，端口仍 18437）。它跑的是一个脚本构造的世界，
+  **不是装进 profile 的真插件**——用户现在看到的页面不等于"插件能用了"。
+- **`web/app.js` 仍是手写 JS、没有类型**。`ScenePlan` 的形状现在有两份手工对应：
+  TS 类型与 `app.js` 里的字段读取。M4 若改成 TS + Vite，应当直接从 `protocol/` import 类型，
+  把这份手抄的契约消掉——也顺便解决 `world.tick` 帧事件的元组数组那个隐式契约。
+
+### 本轮产出
+
+- 新增：`src/protocol/{scene,theme}.ts`、`src/scene/{plan,index}.ts`、`test/scene-plan.test.js`
+- 修改：`src/protocol/{index.ts,wire/messages.ts,ports/content.ts,boundaries.ts}`（新模块 `scene` 登记进规则表）、
+  `src/content/port.ts`（`themeFor` + 复用 `resolveColor`）、`src/domain/geometry.ts`（`boundsCenter` 归位）、
+  `src/routes/api.ts`（快照带 `scene`）、`web/app.js`（改为消费 `ScenePlan`，删掉全部 token 解析）
+- 文档：`ARCHITECTURE.md`（§10 + 决策 D23/D24、决策表按编号重排）、`BACKLOG.md`
+  （M4-0 完成 + "现成场景"的两条硬标准与三种可行方式 + 断网约束）
+- 测试从 152 → 162
 
 ---
 

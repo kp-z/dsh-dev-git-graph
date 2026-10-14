@@ -20,12 +20,17 @@
 import type { Agent, District, Station, Task, Vec2 } from '../domain/types.js'
 import type { Rng } from '../domain/rng.js'
 import { slotsFor } from '../domain/constants.js'
+import { boundsCenter } from '../domain/geometry.js'
 import type { DistrictEntry, RosterEntry, StationEntry, TaskSetEntry } from './kinds.js'
 
-/** 矩形中心。 */
-export function districtCenter(bounds: { min: Vec2; max: Vec2 }): Vec2 {
-  return { x: (bounds.min.x + bounds.max.x) / 2, z: (bounds.min.z + bounds.max.z) / 2 }
-}
+/**
+ * 矩形中心。
+ *
+ * 实现已归位到 `domain/geometry.ts` 的 `boundsCenter`——那里才是它的家
+ * （纯几何，不该让调用方为了一个中心点去 import 内容层）。这里保留名字，
+ * 因为内容层内部读起来"地块中心"比"边界中心"更顺。
+ */
+export const districtCenter = boundsCenter
 
 /** 内容条目 → District。基本是直通，只是把 bounds 深拷贝一份，避免实例之间共享引用。 */
 export function instantiateDistrict(entry: DistrictEntry): District {

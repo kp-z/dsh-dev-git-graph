@@ -16,6 +16,7 @@
  */
 import type { World, WorldEvent } from '../../domain/types.js'
 import type { LibraryDescriptor } from '../library-kinds.js'
+import type { ScenePlan } from '../scene.js'
 import type { RuntimeDiagnostics } from '../ports/runtime.js'
 import type { WorldCommand } from './commands.js'
 
@@ -37,6 +38,13 @@ export interface SnapshotPayload {
    * 值形如 `{ 'ground.engineering': '#6F7D5A', 'role.lead': '#F0B429' }`。
    */
   palette: Record<string, string>
+  /**
+   * 渲染就绪的场景描述（地块/站点/角色/主题，颜色都已解析）。
+   *
+   * 这是"要摆什么"，与渲染器无关：2D canvas 画它，将来 three.js 也画它，
+   * 换成现成的 three.js 场景同样消费它——**模拟层与内容库一行不用改**。
+   */
+  scene: ScenePlan
   /** 运行时的诊断计数——这是回答"它到底在跑吗"的唯一出口。 */
   runtime: {
     running: boolean

@@ -27,6 +27,7 @@ export type ModuleName =
   | 'domain'
   | 'content'
   | 'world'
+  | 'scene'
   | 'sim'
   | 'store'
   | 'runtime'
@@ -106,6 +107,15 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
     rationale: '装配层：把内容装成 World。它必须认识内容，否则没法装；但也仅止于此。',
   },
   {
+    module: 'scene',
+    mayImport: ['protocol', 'domain'],
+    mayImportTypes: ['protocol', 'domain'],
+    forbidden: ['node:', 'three', '@deepseek-ai/'],
+    rationale:
+      '场景描述层把世界翻译成"要摆什么"，是渲染器的输入。它**不许认识 three**（否则就成了某一个渲染器的实现细节），' +
+      '也不许认识内容库（配色由调用方解析好传进来）；它必须是纯函数，才能在 node --test 里直接验。',
+  },
+  {
     module: 'sim',
     mayImport: ['protocol', 'domain'],
     mayImportTypes: ['protocol', 'domain'],
@@ -147,8 +157,8 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
   },
   {
     module: 'routes',
-    mayImport: ['protocol', 'runtime'],
-    mayImportTypes: ['protocol', 'runtime'],
+    mayImport: ['protocol', 'runtime', 'scene'],
+    mayImportTypes: ['protocol', 'runtime', 'scene'],
     forbidden: ['three'],
     rationale: 'HTTP/SSE 是传输层：只做解析、调用、序列化。业务判断不在这里。',
   },
@@ -175,6 +185,7 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
       'domain',
       'content',
       'world',
+      'scene',
       'sim',
       'store',
       'runtime',
@@ -188,6 +199,7 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
       'domain',
       'content',
       'world',
+      'scene',
       'sim',
       'store',
       'runtime',
