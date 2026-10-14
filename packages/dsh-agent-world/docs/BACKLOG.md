@@ -68,9 +68,11 @@
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M1.6-7 | ready | JSON 里的路径安全边界：`ModelEntry.source.url` 现在可以是任意字符串。限制成**包内相对路径**并禁 `http://` 与 `../`。**M4 真正加载 GLB 之前必须落地**，否则就是一个"内容包能指向任意 URL"的口子 | `src/content/validate.ts` 的路径校验 + 测试 | M4-8 之前 |
-| M1.6-9 | ready | 边界检查器的**第二个盲区：import 的位置**。R11 我把两条 `import type` 写在了接口声明**之间**（合法 ESM，因为 import 会提升），检查器把 `import type { World } from '../../domain/types.js'` 报成了 **`value-import`** —— 也就是说它对"非顶部 import"的分类是不可靠的。修法：解析时先看整条语句是不是 `import type`，别依赖它出现在文件头 | `src/protocol/boundaries.ts` + 测试 | M1.6-8 |
-| M1.6-8 | ready | 边界检查器的**反向盲区**：`moduleOfPath()` 返回 null 的目录被静默跳过，所以"新建模块目录但忘了在规则表登记"不会被发现。加一条检查：`src/` 下每个一级目录都必须在 `BOUNDARY_RULES` 里（或登记为允许忽略） | `test/boundaries.test.js` | M1.6-2 |
+| M1.6-7b | ready | **`ActionEntry.clip` 完全没被校验**（任意字符串），而它是引用 GLB 里剪辑名字的字段。**没法静态查**（剪辑名在 GLB 内部），所以只能等 M4 真加载模型时查：加载后发现引用的剪辑不存在 → 报错并**列出该模型实际有的剪辑名**。在那之前它就是个"配错了也不知道"的字段 | M4 加载器 + 校验 | M4 |
+| M1.6-7 | done | JSON 里的路径安全边界：`ModelEntry.source.url` 现在可以是任意字符串。限制成**包内相对路径**并禁 `http://` 与 `../`。**M4 真正加载 GLB 之前必须落地**，否则就是一个"内容包能指向任意 URL"的口子 | `src/content/validate.ts` 的路径校验 + 测试 | M4-8 之前 |
+| M1.6-9 | done | 边界检查器的**第二个盲区：import 的位置（**根因比"位置"更严重**）**。R11 我把两条 `import type` 写在了接口声明**之间**（合法 ESM，因为 import 会提升），检查器把 `import type { World } from '../../domain/types.js'` 报成了 **`value-import`** —— 也就是说它对"非顶部 import"的分类是不可靠的。修法：解析时先看整条语句是不是 `import type`，别依赖它出现在文件头 | `src/protocol/boundaries.ts` + 测试 | M1.6-8 |
+| M1.6-10 | done | 边界表里的**幽灵模块**：R14 加"每个 `src/` 一级目录都必须登记"的反向检查时，立刻查出 `panel` 是**过期条目**（面板早并进 `routes/panel.ts`，规则还留着，app 的 `mayImport` 里也还列着它）。已删除；计划中的 `bridge` 与不在 `src/` 下的 `web` 写进测试的 `planned` 表并注明理由 | `src/protocol/boundaries.ts` + `test/boundaries.test.js` | M1.6-8 |
+| M1.6-8 | done | 边界检查器的**反向盲区**：`moduleOfPath()` 返回 null 的目录被静默跳过，所以"新建模块目录但忘了在规则表登记"不会被发现。加一条检查：`src/` 下每个一级目录都必须在 `BOUNDARY_RULES` 里（或登记为允许忽略） | `test/boundaries.test.js` | M1.6-2 |
 
 ## M2 — 模拟内核（**技术上最硬的一块**）
 

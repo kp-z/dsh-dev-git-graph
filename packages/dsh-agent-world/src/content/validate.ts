@@ -9,6 +9,7 @@
  * 依赖；更重要的是**报错文案要给内容作者看**（"任务库 X 的工单 Y 引用了不存在的能力 'cod'，
  * 可用值：code / review / …"），手写比 schema 库的默认输出省事得多。
  */
+import { assetPathProblem } from './asset-path.js'
 import type {
   Capability,
   DistrictKind,
@@ -312,7 +313,10 @@ function validateEntryShape(
       if (!isObject(src) || (src.kind !== 'glb' && src.kind !== 'procedural')) {
         sink.error(`${where}.source`, 'source.kind 必须是 "glb" 或 "procedural"', pack)
       } else if (src.kind === 'glb') {
-        checkId(sink, src.url, `${where}.source.url`, 'GLB 地址', pack)
+        // **不是 `checkId`**：它只检查"非空字符串"，而复用到路径字段上
+        // 等于"任意字符串都能过"——那个洞就是这么来的（见 asset-path.ts 的头注释）。
+        const urlProblem = assetPathProblem(src.url, 'GLB 地址')
+        if (urlProblem !== null) sink.error(`${where}.source.url`, urlProblem, pack)
       } else {
         checkId(sink, src.builder, `${where}.source.builder`, '构建器名', pack)
       }
@@ -338,7 +342,8 @@ function validateEntryShape(
     }
     case 'sounds': {
       checkId(sink, entry.name, `${where}.name`, '音效名', pack)
-      checkId(sink, entry.url, `${where}.url`, '音效地址', pack)
+      const urlProblem = assetPathProblem(entry.url, '音效地址')
+      if (urlProblem !== null) sink.error(`${where}.url`, urlProblem, pack)
       return
     }
     case 'themes': {

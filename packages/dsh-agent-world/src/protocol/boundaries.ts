@@ -34,7 +34,6 @@ export type ModuleName =
   | 'bridge'
   | 'tools'
   | 'routes'
-  | 'panel'
   | 'app'
   | 'web'
 
@@ -163,13 +162,6 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
     rationale: 'HTTP/SSE 是传输层：只做解析、调用、序列化。业务判断不在这里。',
   },
   {
-    module: 'panel',
-    mayImport: ['protocol'],
-    mayImportTypes: ['protocol'],
-    forbidden: ['three', '@deepseek-ai/'],
-    rationale: '静态面板服务只管把文件吐出去，不含任何业务。',
-  },
-  {
     module: 'web',
     mayImport: ['protocol'],
     mayImportTypes: ['protocol'],
@@ -192,7 +184,6 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
       'bridge',
       'tools',
       'routes',
-      'panel',
     ],
     mayImportTypes: [
       'protocol',
@@ -206,7 +197,6 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
       'bridge',
       'tools',
       'routes',
-      'panel',
     ],
     forbidden: ['three'],
     rationale: '根文件（index/config/state）是组合根：它负责把一切接起来，理所当然认识所有人。',

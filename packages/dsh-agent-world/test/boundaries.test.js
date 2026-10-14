@@ -40,31 +40,83 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 // ── import 提取 ─────────────────────────────────────────────────────────────
 
-/** 匹配 `import ... from 'x'` / `export ... from 'x'`。非贪婪且限长，避免跨整个文件乱抓。 */
-const FROM_RE = /(^|\n)[ \t]*(import|export)\b([^;]{0,400}?)from[ \t]*['"]([^'"]+)['"]/g
+/** 一条语句的起点：`import ...` 或 `export ...`。 */
+const STATEMENT_START = /^[ \t]*(import|export)\b/
 
-/** 匹配副作用导入 `import 'x'`（不会命中带 from 的形式）。 */
-const SIDE_EFFECT_RE = /(^|\n)[ \t]*import[ \t]*['"]([^'"]+)['"]/g
+/** `... from 'x'`（同一段文本里找目标）。 */
+const FROM_IN_TEXT = /from[ \t]*['"]([^'"]+)['"]/
 
 /**
- * 抽出一个源文件里的全部 import。
+ * 抽出一个源文件里的全部 import / re-export。
+ *
+ * ## 为什么是"逐语句扫描"而不是一条大正则（这是 R14 修的一个真实缺陷）
+ *
+ * 原来用的是一条跨行长正则：`(import|export)\b([^;]{0,400}?)from *['"]([^'"]+)['"]`。
+ * `[^;]{0,400}?` 遇到**没有分号**的声明就一路吃过去，于是
+ *
+ * ```ts
+ * export interface PackVersion {   // ← 从这里开始匹配
+ *   ...
+ * }
+ *
+ * import type { World } from '../../domain/types.js'   // ← 被吃进来当成"from"
+ * ```
+ *
+ * 这条语句被当成**一条 `export`**，`type` 也就不在开头 → 分类成**值导入**，
+ * 于是检查器对着一条完全合法的 `import type` 报 `[value-import]`。
+ *
+ * 危害不只是误报：反向的误判是**把真的值导入当成类型导入而放过**——
+ * 一个会漏报的检查器比没有检查器更糟（它给人虚假的安全感）。
+ *
+ * 现在的做法：按行找语句起点，只在这条语句**自己的范围**内找 `from`；
+ * 一旦遇到新的语句起点就停手——那条语句没有 `from`（是声明，不是导入）。
  *
  * @param source - 源码文本。
  * @returns 每条含 `specifier` / `typeOnly`。
  */
 export function extractImports(source) {
+  const lines = source.split('\n')
   const out = []
-  for (const m of source.matchAll(FROM_RE)) {
-    const clause = m[3] ?? ''
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    const start = STATEMENT_START.exec(line)
+    if (start === null) continue
+
+    // 副作用导入：`import 'x'`（没有 from）。
+    const sideEffect = /^[ \t]*import[ \t]*['"]([^'"]+)['"]/.exec(line)
+    if (sideEffect !== null) {
+      out.push({ specifier: sideEffect[1], typeOnly: false })
+      continue
+    }
+
+    // 在**这一条语句内部**找 from：先看本行，再看后续几行，遇到新语句起点就放弃。
+    let buffer = line
+    let end = i
+    let target = FROM_IN_TEXT.exec(buffer)?.[1] ?? null
+    if (target === null) {
+      for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+        const next = lines[j] ?? ''
+        if (STATEMENT_START.test(next)) break // 新语句 ⇒ 上面那条没有 from
+        buffer += '\n' + next
+        end = j
+        const found = FROM_IN_TEXT.exec(buffer)
+        if (found !== null) {
+          target = found[1]
+          break
+        }
+        if (next.includes(';')) break // 声明结束，没有 from
+      }
+    }
+    if (target === null) continue
+
+    // `import type` / `export type`：`type` 必须是**独立词**，
+    // 否则 `import typewriter from` 会被误判。
     out.push({
-      specifier: m[4],
-      // `import type {` / `export type {` —— 注意要判 "type" 是**独立词**，
-      // 否则 `import typewriter from` 会被误判。
-      typeOnly: /^\s*type\s/.test(clause) || /^\s*type$/.test(clause.trim()),
+      specifier: target,
+      typeOnly: /^[ \t]*(import|export)[ \t]+type\b/.test(buffer),
     })
-  }
-  for (const m of source.matchAll(SIDE_EFFECT_RE)) {
-    out.push({ specifier: m[2], typeOnly: false })
+    i = end
   }
   return out
 }
@@ -303,4 +355,111 @@ test('相对路径不含反斜杠（跨平台路径拼接的常见坑）', () =>
     assert.ok(!relPath.includes('\\'), `${relPath} 含反斜杠`)
   }
   assert.ok(relative(join(ROOT, 'src'), join(ROOT, 'src')).length === 0)
+})
+
+// ── 检查器本身也要被检查（R14 补的两个盲区）────────────────────────────────
+
+test('提取器：`export interface` 后面紧跟 `import type` 时**不能把两者当成一条语句**（R14 修的真缺陷）', () => {
+  // 这就是我踩到的那个形状：声明里没有分号，而后面那条 import 离得很近。
+  // 旧实现（跨行长正则 `(import|export)\b([^;]{0,400}?)from`）会把
+  // `export interface ... { ... }` 一路吃到下一行的 `from`，于是
+  // 那条完全合法的 `import type` 被分类成 **value-import** 而误报。
+  const source = [
+    'export interface PackVersion {',
+    '  id: string',
+    '  version: string',
+    '}',
+    '',
+    "import type { World } from '../../domain/types.js'",
+    '',
+    'export const X = 1',
+  ].join('\n')
+
+  const found = extractImports(source)
+
+  assert.equal(found.length, 1, `应当只抽出一条 import，实际：${JSON.stringify(found)}`)
+  assert.equal(found[0].specifier, '../../domain/types.js')
+  assert.equal(found[0].typeOnly, true, '`import type` 必须被认成类型导入——误判成值导入会让检查器误报')
+})
+
+test('提取器：反向也要对——真正的值导入不能被放过（漏报比误报更糟）', () => {
+  const source = [
+    'export interface Thing {',
+    '  a: number',
+    '}',
+    '',
+    "import { step } from '../sim/step.js'", // 值导入
+  ].join('\n')
+
+  const found = extractImports(source)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].typeOnly, false, '没有 type 的就是值导入，绝不能因为前一行是声明就变样')
+})
+
+test('提取器：多行 import、re-export、副作用导入都要认得', () => {
+  const source = [
+    "import {",
+    '  a,',
+    '  b,',
+    "} from './multi.js'",
+    '',
+    "export { c } from './re-export.js'",
+    "export type { D } from './re-type.js'",
+    '',
+    "import './side-effect.js'",
+  ].join('\n')
+
+  const found = extractImports(source)
+  const by = Object.fromEntries(found.map((f) => [f.specifier, f.typeOnly]))
+
+  assert.deepEqual(by, {
+    './multi.js': false,
+    './re-export.js': false,
+    './re-type.js': true,
+    './side-effect.js': false,
+  })
+})
+
+test('提取器：`import typewriter from` 不该被当成类型导入（判 "type" 要判独立词）', () => {
+  const found = extractImports("import typewriter from './tw.js'")
+  assert.equal(found.length, 1)
+  assert.equal(found[0].typeOnly, false)
+})
+
+test('目录覆盖：`src/` 下每个一级目录都必须在规则表里登记（否则检查器会**静默跳过**整个目录）', () => {
+  // 这是 M1.6-8 那个反向盲区：`moduleOfPath()` 对没登记的目录返回 null，
+  // 而 `checkSource()` 对 null 直接返回"无违规"——于是新建一个目录、忘了登记，
+  // 那个目录下的**所有**跨模块 import 都不再被检查，而报告是全绿。
+  const srcDir = join(ROOT, 'src')
+  const dirs = readdirSync(srcDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+
+  const registered = BOUNDARY_RULES.map((r) => r.module)
+  const unregistered = dirs.filter((d) => !registered.includes(d))
+
+  assert.deepEqual(
+    unregistered,
+    [],
+    `这些目录没有登记在 BOUNDARY_RULES 里，检查器会把它们整个跳过：${unregistered.join(' / ')}。` +
+      `要么给它加一条规则（谁能 import 它 / 它能 import 谁），要么明确写进忽略清单。`,
+  )
+
+  // 反过来也要成立：规则表里的模块名如果不是目录（也不是 app 这种特殊名），
+  // 那多半是个拼写错误——同样会让检查形同虚设。
+  // 反向：规则表里**有规则但还没有目录**的模块。这一项不能一概禁止——
+  // 有些是**计划中的**（写规则是为了先定契约），有些是**不在 src/ 下的**。
+  // 但必须逐个写明理由，不能默默放过：R14 就是靠这条查出 `panel` 是**过期条目**
+  // （面板早就并进 `routes/panel.ts` 了，规则还留着，app 的 mayImport 里也还列着它）。
+  const planned = new Map([
+    ['bridge', 'M7 计划：与真实 subagent 的桥，目录还没建'],
+    ['web', '不在 src/ 下：浏览器侧的独立构建'],
+  ])
+  const ghost = registered.filter((m) => m !== 'app' && !dirs.includes(m) && !planned.has(m))
+  assert.deepEqual(
+    ghost,
+    [],
+    `规则表里有不存在的模块（是过期条目还是漏建目录？）：${ghost.join(' / ')}。` +
+      `如果是有意计划中的，请加进本测试的 planned 表并写明理由。`,
+  )
 })
