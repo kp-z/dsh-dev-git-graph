@@ -49,11 +49,19 @@ import {
 import { builtinFeedSpecs } from './collect/sources.js'
 import { pickDiverse, renderBrief, renderDigest } from './render.js'
 import { mergeDayItems, mergeSourceStates } from './merge.js'
-import { collectProjectProfile, describeProfile, type ProjectProfile } from './profile.js'
+import {
+	applyKeywordOverride,
+	collectProjectProfile,
+	describeProfile,
+	normalizeKeywordList,
+	type KeywordOverride,
+	type ProjectProfile,
+} from './profile.js'
 import { chooseProject, collectDirs, describeChoice, parseWorkspacePaths, type DetectedDir } from './detect.js'
 import { profileHash, canReusePlan, describePlan, planResearch, type ResearchPlan } from './research.js'
 import { describeRetrieval, runRetrieval, type Finding, type RetrieveResult } from './retrieve.js'
 import { applyIntros, generateAllIntros, type PresentedFinding } from './present.js'
+import { isMatchableTerm } from './brief.js'
 import {
 	assembleBrief,
 	findingsToNews,
@@ -831,9 +839,9 @@ export class DailyService {
 	 * 入口失败等于功能不可用（失败会降级成确定性种子并写进 notes）。
 	 */
 	async planResearch(options: { force?: boolean; dir?: string } = {}): Promise<ResearchPlan> {
-		const profile = options.dir
-			? await this.buildProfile({ dir: options.dir, save: false })
-			: (await this.readProfile()) ?? (await this.buildProfile())
+		// **走 effectiveProfile**：用户在界面上编辑过的关键词必须驱动检索词，
+		// 否则"编辑关键词"就只是装饰品（界面上变了、搜出来的东西没变）。
+		const profile = await this.effectiveProfile({ dir: options.dir })
 
 		if (!options.force) {
 			const cached = await this.readResearchPlan()
@@ -910,7 +918,7 @@ export class DailyService {
 	 * 3. **不花冤枉钱**：画像没变且已有简报时直接复用（`force` 才重算）
 	 */
 	async buildBrief(options: { force?: boolean } = {}): Promise<ProjectBrief> {
-		const profile = await this.buildProfile({ save: false })
+		const profile = await this.effectiveProfile()
 		const existing = await this.readBrief()
 
 		if (!options.force && existing && existing.projectHash === profileHash(profile)) {
@@ -962,6 +970,69 @@ export class DailyService {
 		await this.store.writeJsonFile('briefs/latest-brief.json', brief)
 		this.logger.info(`项目简报：${describeBrief(brief)}`)
 		return brief
+	}
+
+	/**
+	 * 关键词状态：自动抽取的 vs 当前生效的（用户编辑优先）。
+	 *
+	 * `edited` 让界面能显示"这是你改过的"，并提供"恢复自动"。
+	 */
+	async keywordState(): Promise<{ auto: string[]; effective: string[]; edited: boolean }> {
+		const profile = await this.buildProfile({ save: false })
+		const override = await this.readKeywordOverride()
+		// **展示的"自动"必须是系统真正会用的那一份**：原样抽出的词里有大量结构词与文件名
+		// （`src`/`pages`/`task.md`/`version_test`/`必须`…），它们在匹配与检索时本来就会被过滤掉。
+		// 展示未过滤的版本会让人以为"这些词在起作用"——那是假的。
+		const auto = (profile.keywords ?? []).filter((word) => isMatchableTerm(String(word)))
+		return {
+			auto,
+			effective: applyKeywordOverride(auto, override),
+			edited: !!override,
+		}
+	}
+
+	/** 读取关键词的用户编辑（没有就返回 null）。 */
+	private async readKeywordOverride(): Promise<KeywordOverride | null> {
+		const raw = await this.store.readJsonFile('keywords.json').catch(() => null)
+		if (!raw || typeof raw !== 'object') return null
+		if ((raw as { reset?: unknown }).reset === true) return null
+		const list = normalizeKeywordList((raw as { keywords?: unknown }).keywords)
+		if (!list) return null
+		return { keywords: list, editedAt: String((raw as { editedAt?: unknown }).editedAt ?? '') }
+	}
+
+	/** 保存用户编辑的关键词列表（整体覆盖）。 */
+	async setKeywords(raw: unknown): Promise<{ effective: string[]; edited: boolean }> {
+		const list = normalizeKeywordList(raw)
+		if (!list) throw new Error('关键词列表格式不对（需要字符串数组）')
+		const override: KeywordOverride = { keywords: list, editedAt: new Date().toISOString() }
+		await this.store.writeJsonFile('keywords.json', override)
+		this.logger.info(`项目关键词已更新：${list.length} 个（用户编辑优先于自动抽取）`)
+		return { effective: list, edited: true }
+	}
+
+	/** 恢复自动抽取（删掉用户编辑）。 */
+	async resetKeywords(): Promise<{ effective: string[]; edited: boolean }> {
+		await this.store.writeJsonFile('keywords.json', { keywords: [], editedAt: '' })
+		// 写空表等于"没有编辑" —— readKeywordOverride 会把空数组当成有效覆盖，
+		// 所以这里明确写一个标记位，让读取端能区分"用户清空了所有关键词"与"恢复自动"
+		await this.store.writeJsonFile('keywords.json', { reset: true, at: new Date().toISOString() })
+		const state = await this.keywordState()
+		return { effective: state.effective, edited: state.edited }
+	}
+
+	/**
+	 * 带**用户关键词编辑**的画像。
+	 *
+	 * 关键词驱动两件事：定向检索的检索词、简报的相关性筛选。
+	 * 如果只在界面上显示编辑结果、却不让这两条链路用上，那编辑就是装饰品 ——
+	 * 所以这里统一出口，**所有"用关键词"的地方都走它**。
+	 */
+	async effectiveProfile(options: { dir?: string } = {}): Promise<ProjectProfile> {
+		const profile = await this.buildProfile({ ...options, save: false })
+		const override = await this.readKeywordOverride()
+		const keywords = applyKeywordOverride(profile.keywords ?? [], override)
+		return keywords === profile.keywords ? profile : { ...profile, keywords }
 	}
 
 	/** 读取上次生成的简报（不自动重算）。 */

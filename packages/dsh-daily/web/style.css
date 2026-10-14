@@ -1253,3 +1253,38 @@ button { font-family: inherit; }
   background: var(--dd-bg-hover, rgba(127,127,127,0.10));
 }
 .dd-brief-note b { font-weight: 600; }
+
+/* ---------- 项目关键词 tags（可编辑） ---------- */
+.dd-keywords {
+  padding: 2px 0 8px; margin-bottom: 8px;
+  border-bottom: 1px solid var(--dd-border, rgba(127,127,127,0.16));
+}
+.dd-kw-head { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dd-text-tertiary); }
+.dd-kw-title { font-weight: 600; color: var(--dd-text); font-size: 12px; flex: 0 0 auto; }
+.dd-kw-meta { flex: 1 1 auto; min-width: 0; }
+.dd-kw-reset { flex: 0 0 auto; }
+.dd-kw-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.dd-kw-tag {
+  display: inline-flex; align-items: center; gap: 1px;
+  padding: 1px 2px 1px 8px; border-radius: 10px;
+  font-size: 11px; line-height: 16px; color: var(--dd-text);
+  background: var(--dd-bg-hover, rgba(127,127,127,0.13));
+  max-width: 100%;
+}
+.dd-kw-text { cursor: text; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-kw-del {
+  flex: 0 0 auto; border: 0; background: transparent; cursor: pointer;
+  color: inherit; opacity: 0.55; font-size: 13px; line-height: 1; padding: 0 3px;
+}
+.dd-kw-del:hover { opacity: 1; }
+.dd-kw-input {
+  border: 1px dashed var(--dd-border, rgba(127,127,127,0.35));
+  border-radius: 10px; background: transparent; color: inherit;
+  font-size: 11px; line-height: 16px; padding: 1px 6px; min-width: 84px; max-width: 140px;
+}
+.dd-kw-input:focus { outline: 1px solid var(--dd-accent); border-style: solid; }
+.dd-kw-add {
+  border: 0; background: transparent; cursor: pointer; color: var(--dd-text-tertiary);
+  font-size: 14px; line-height: 1; padding: 0 4px;
+}
+.dd-kw-add:hover { color: var(--dd-accent); }

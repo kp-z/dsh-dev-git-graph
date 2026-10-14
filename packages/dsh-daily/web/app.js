@@ -27,6 +27,7 @@
     state: './api/state',
     findings: './api/findings',
     brief: './api/brief',
+    keywords: './api/keywords',
     items: './api/items',
     feedback: './api/feedback',
     tune: './api/tune',
@@ -2272,7 +2273,132 @@
     if (el.research) el.research.hidden = view !== 'research';
     if (el.brief) el.brief.hidden = view !== 'brief';
     if (view === 'research') loadResearch();
-    if (view === 'brief') loadBrief();
+    if (view === 'brief') { loadKeywords(); loadBrief(); }
+  }
+
+  /** 关键词状态（自动抽取 vs 当前生效）。 */
+  var keywordState = null;
+
+  function loadKeywords() {
+    return apiGet(API.keywords)
+      .then(function (r) {
+        var data = r && r.data ? r.data : r;
+        keywordState = data || null;
+        renderKeywords();
+      })
+      .catch(function () { keywordState = null; renderKeywords(); });
+  }
+
+  /** 保存关键词列表（整体覆盖）。删除/添加/修改都走它。 */
+  function saveKeywords(list, opts) {
+    var body = opts && opts.reset ? { reset: true } : { keywords: list };
+    return apiPost(API.keywords, body)
+      .then(function (r) {
+        var data = r && r.data ? r.data : r;
+        if (data && data.effective) {
+          keywordState = { auto: data.auto || (keywordState && keywordState.auto) || [], effective: data.effective, edited: !!data.edited };
+        }
+        renderKeywords();
+        // 关键词变了 → 简报的相关性会变，提示用户重新生成（不自动跑：那要花模型调用）
+        if (brief && brief.date) markBriefStale();
+      })
+      .catch(function () { renderKeywords(); });
+  }
+
+  function markBriefStale() {
+    if (el.brief && !el.brief.querySelector('.dd-kw-stale')) {
+      var note = text('div', 'dd-brief-note dd-kw-stale', '关键词改过了 —— 点上面的「重新生成」让简报按新关键词重算。');
+      el.brief.insertBefore(note, el.brief.firstChild);
+    }
+  }
+
+  /**
+   * 关键词 tags：显示 / 删除 / 添加 / 修改。
+   *
+   * **用户编辑整体覆盖自动抽取**（不是打补丁），所以每个操作都是"提交一份新列表"；
+   * 编辑过就显示「恢复自动」。
+   */
+  function renderKeywords() {
+    var host = $('dd-keywords');
+    if (!host) return;
+    clear(host);
+    if (!keywordState) return;
+
+    var head = text('div', 'dd-kw-head');
+    head.appendChild(text('span', 'dd-kw-title', '项目关键词'));
+    head.appendChild(text('span', 'dd-kw-meta', keywordState.edited ? '已手动编辑' : '扫描项目自动抽取'));
+    if (keywordState.edited) {
+      var reset = text('button', 'dd-btn dd-btn-ghost dd-kw-reset', '恢复自动');
+      reset.type = 'button';
+      reset.addEventListener('click', function () { saveKeywords(null, { reset: true }); });
+      head.appendChild(reset);
+    }
+    host.appendChild(head);
+
+    var wrap = text('div', 'dd-kw-tags');
+    (keywordState.effective || []).forEach(function (word) {
+      var tag = text('span', 'dd-kw-tag');
+      var label = text('span', 'dd-kw-text', word);
+      label.title = '点击修改';
+      label.addEventListener('click', function () { editKeyword(tag, word); });
+      tag.appendChild(label);
+      var del = text('button', 'dd-kw-del', '×');
+      del.type = 'button';
+      del.title = '删除';
+      del.setAttribute('aria-label', '删除关键词 ' + word);
+      del.addEventListener('click', function () {
+        saveKeywords(
+          (keywordState.effective || []).filter(function (w) { return w !== word; }),
+        );
+      });
+      tag.appendChild(del);
+      wrap.appendChild(tag);
+    });
+
+    // 添加
+    var input = text('input', 'dd-kw-input');
+    input.type = 'text';
+    input.placeholder = '添加关键词…';
+    input.setAttribute('aria-label', '添加项目关键词');
+    var add = text('button', 'dd-kw-add', '＋');
+    add.type = 'button';
+    add.title = '添加';
+    var submit = function () {
+      var value = (input.value || '').trim();
+      if (!value) return;
+      input.value = '';
+      saveKeywords((keywordState.effective || []).concat([value]));
+    };
+    add.addEventListener('click', submit);
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); submit(); }
+    });
+    wrap.appendChild(input);
+    wrap.appendChild(add);
+    host.appendChild(wrap);
+  }
+
+  /** 就地修改一个 tag（回车保存，Esc 取消）。 */
+  function editKeyword(tag, word) {
+    var input = text('input', 'dd-kw-input dd-kw-edit');
+    input.type = 'text';
+    input.value = word;
+    input.setAttribute('aria-label', '修改关键词');
+    clear(tag);
+    tag.appendChild(input);
+    input.focus();
+    input.select();
+    var commit = function (save) {
+      var value = (input.value || '').trim();
+      if (!save || !value || value === word) { renderKeywords(); return; }
+      var list = (keywordState.effective || []).map(function (w) { return w === word ? value : w; });
+      saveKeywords(list);
+    };
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); commit(true); }
+      if (event.key === 'Escape') { event.preventDefault(); commit(false); }
+    });
+    input.addEventListener('blur', function () { commit(true); });
   }
 
   /** 取上次的简报并渲染（不自动重跑：重跑要花模型调用）。 */
@@ -2297,6 +2423,17 @@
   function renderBrief(brief) {
     if (!el.brief) return;
     clear(el.brief);
+
+    // 关键词 tags 放最上面：它是"这份简报是怎么算出来的"的可见依据
+    var kw = $('dd-keywords');
+    if (!kw) {
+      kw = text('div', 'dd-keywords');
+      kw.id = 'dd-keywords';
+      el.brief.appendChild(kw);
+    } else {
+      el.brief.appendChild(kw);
+    }
+    renderKeywords();
 
     if (!brief || !brief.date) {
       var empty = text('div', 'dd-brief-empty dd-empty');

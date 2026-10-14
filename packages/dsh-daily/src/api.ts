@@ -189,6 +189,25 @@ async function handleApi(
 				}
 				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
 			}
+			case 'keywords': {
+				if (req.method === 'GET') {
+					return sendJson(res, 200, { ok: true, ...(await service.keywordState()) })
+				}
+				if (req.method === 'POST') {
+					const body = await readJsonBody(req)
+					if (body && body.reset === true) {
+						const state = await service.resetKeywords()
+						return sendJson(res, 200, { ok: true, ...state, ...(await service.keywordState()) })
+					}
+					try {
+						const saved = await service.setKeywords(body?.keywords)
+						return sendJson(res, 200, { ok: true, ...saved, ...(await service.keywordState()) })
+					} catch (error) {
+						return sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+					}
+				}
+				return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
+			}
 			case 'brief': {
 				if (req.method === 'GET') {
 					const cached = await service.readBrief()

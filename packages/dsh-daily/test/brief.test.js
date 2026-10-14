@@ -242,3 +242,22 @@ test('mergeNews：调研优先、同 URL 去重（日报与调研很可能撞同
 	assert.equal(merged[0].title, '搜到的同一条')
 	assert.ok(merged.some((n) => n.source === 'daily'), '日报里独有的那条要保留')
 })
+
+import { applyKeywordOverride, normalizeKeywordList } from '../lib/profile.js'
+
+test('关键词编辑：用户编辑**整体覆盖**自动抽取，且不过我的过滤（显式优先于推断）', () => {
+	// 归一化：去空白 / 去重（忽略大小写）/ 丢弃过短过长 / 上限 40
+	assert.deepEqual(normalizeKeywordList(['  react  ', 'React', '可视化', 'a', '', 'x'.repeat(41)]), ['react', '可视化'])
+	assert.deepEqual(normalizeKeywordList('不是数组'), null, '格式不对要能被识别出来（接口据此报 400）')
+	const many = Array.from({ length: 60 }, (_, i) => 'kw' + i)
+	assert.equal(normalizeKeywordList(many).length, 40, '上限 40')
+
+	// 覆盖：编辑后**只有**用户给的那些词
+	const auto = ['react', 'dashboard', '可视化']
+	assert.deepEqual(applyKeywordOverride(auto, null), auto, '没有编辑时用自动结果')
+	assert.deepEqual(
+		applyKeywordOverride(auto, { keywords: ['我的词', '数据'], editedAt: 'x' }),
+		['我的词', '数据'],
+		'编辑后完全以用户的列表为准（包括"数据"这种我平时会过滤掉的词 —— 用户的显式意图优先）',
+	)
+})

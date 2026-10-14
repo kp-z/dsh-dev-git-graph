@@ -475,3 +475,46 @@ export function describeProfile(profile: ProjectProfile): string {
 		`关键词 ${profile.keywords.length} 个${sensitive > 0 ? ` · 已跳过 ${sensitive} 个敏感文件` : ''}`
 	)
 }
+
+/**
+ * 关键词的**用户编辑**（tag 化的数据层）。
+ *
+ * 设计取舍：用户编辑是**整体覆盖**而不是"在自动结果上打补丁"。
+ * 因为"删除 + 添加 + 修改"三种操作在覆盖模型下都是同一件事（给出最终列表），
+ * 而补丁模型要维护 removed/added/renamed 三份状态，迟早会不一致。
+ * 想回到自动结果就调 `reset` —— 这是本项目"显式优先于推断"的一贯做法。
+ */
+export interface KeywordOverride {
+	keywords: string[]
+	editedAt: string
+}
+
+/** 归一化用户给的关键词列表：去空白、去重（不区分大小写）、限长限量。 */
+export function normalizeKeywordList(raw: unknown): string[] | null {
+	if (!Array.isArray(raw)) return null
+	const out: string[] = []
+	const seen = new Set<string>()
+	for (const entry of raw) {
+		if (typeof entry !== 'string') continue
+		const text = entry.trim().replace(/\s+/g, ' ')
+		if (text.length < 2 || text.length > 40) continue
+		const key = text.toLowerCase()
+		if (seen.has(key)) continue
+		seen.add(key)
+		out.push(text)
+		if (out.length >= 40) break
+	}
+	return out
+}
+
+/**
+ * 把用户编辑应用到自动抽取的关键词上。
+ *
+ * **用户的关键词不再过 `isMatchableTerm`**：那条过滤是"我替你判断这个词没用"，
+ * 而用户明确写下来的词就是**显式意图** —— 显式优先于推断（否则会出现
+ * "我加了 `数据` 但它没生效"这种无法解释的行为）。
+ */
+export function applyKeywordOverride(auto: readonly string[], override: KeywordOverride | null): string[] {
+	if (!override) return [...auto]
+	return [...override.keywords]
+}
