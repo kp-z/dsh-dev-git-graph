@@ -22,6 +22,8 @@
  * 所以 `index.ts` 里用 `ctx.effect()` 挂清理，别依赖进程退出。
  */
 import { MESSAGE_DELIVERY_TICKS } from '../domain/constants.js'
+import type { WorldEvent } from '../domain/types.js'
+import type { WorldStore } from '../store/index.js'
 import type { EventSinkPort, RuntimeDiagnostics, RuntimePort, WorldCommand, WorldServicePort } from '../protocol/index.js'
 import { nullEventSink } from '../protocol/index.js'
 import type { StepResult } from '../sim/index.js'
@@ -30,6 +32,21 @@ import { step } from '../sim/index.js'
 // 诊断计数的形状定义在协议层（`protocol/ports/runtime.ts`）——路由要把它们发给面板，
 // 而 routes 按边界规则不许 import 本模块。这里只转出。
 export type { RuntimeDiagnostics }
+
+/** 落盘选项。不给就不落盘（世界只活在内存里）。 */
+export interface PersistOptions {
+  /** 世界存档。 */
+  store: WorldStore
+  /**
+   * 每多少 tick 存一次快照并刷一次事件。
+   *
+   * 事件是**攒着一起写**的：每 tick 一次 append 就是每秒 10 次磁盘写入，
+   * 而它们加起来还没一次快照大。代价是崩溃时最多丢这么多 tick 的事件——
+   * 而 `world.json` 的快照也是同一个粒度，所以两者对得上，不会出现
+   * "世界是第 700 tick 的、事件却只到 650"这种对不上的存档。
+   */
+  checkpointEveryTicks: number
+}
 
 /** 建运行时需要的依赖。 */
 export interface RuntimeOptions {
@@ -45,6 +62,8 @@ export interface RuntimeOptions {
   sink?: EventSinkPort
   /** `step()` 出错时的回调（记日志用）。默认吞掉，但 `diagnostics.errors` 会累加。 */
   onError?: (error: unknown) => void
+  /** 落盘。不传则世界只活在内存里。 */
+  persist?: PersistOptions
 }
 
 /** 世界运行时。实现协议层的 `RuntimePort`（路由只认那个接口）。 */
@@ -66,6 +85,13 @@ export interface Runtime extends RuntimePort {
   tickOnce(): StepResult | null
   /** 诊断计数（实时对象，读它即可）。 */
   readonly diagnostics: RuntimeDiagnostics
+  /**
+   * 立刻把攒着的事件与当前快照写下去。
+   *
+   * `stop()` 会调用它（**不能丢**：进程退出前那一段是最后的机会），
+   * 测试与"手动存档"也用它。没配落盘时是空转。
+   */
+  flush(): Promise<void>
 }
 
 /**
@@ -74,7 +100,7 @@ export interface Runtime extends RuntimePort {
  * @param options - 依赖与选项。
  */
 export function createRuntime(options: RuntimeOptions): Runtime {
-  const { service, tickMs } = options
+  const { service, tickMs, persist } = options
   const sink = options.sink ?? nullEventSink
   const diagnostics: RuntimeDiagnostics = {
     ticks: 0,
@@ -82,6 +108,61 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     dispatches: 0,
     unhandledHires: 0,
     errors: 0,
+    persistErrors: 0,
+  }
+
+  /** 攒着还没写下去的事件。 */
+  let pendingEvents: WorldEvent[] = []
+  /** 最近一次成功落盘到哪个 seq（诊断用：一眼看出"存档落后多少"）。 */
+  let persistedSeq = 0
+
+  /**
+   * 把当前世界与攒着的事件写下去。
+   *
+   * 顺序是**先事件后快照**：反过来的话，快照会声称"世界到了第 700 tick"，
+   * 而事件日志才写到 650——万一这时崩了，读档的人会看到一个比历史更靠前的世界。
+   * 先写事件，最坏情况是"事件多了几条、快照旧一点"，那是**可解释**的。
+   */
+  const packVersions = () => service.content().view().packs.map((p) => ({ id: p.id, version: p.version }))
+
+  const flush = async (): Promise<void> => {
+    if (persist === undefined) return
+
+    const batch = pendingEvents
+    pendingEvents = []
+    try {
+      if (batch.length > 0) await persist.store.appendEvents(batch)
+      const world = service.currentWorld()
+      if (world !== null) await persist.store.saveWorld(world, packVersions())
+      persistedSeq = world?.seq ?? persistedSeq
+    } catch (error) {
+      diagnostics.persistErrors += 1
+      // 写失败的事件**放回去**：下次 checkpoint 再试。丢掉才是真的丢历史。
+      pendingEvents = [...batch, ...pendingEvents]
+      options.onError?.(error)
+    }
+  }
+
+  /**
+   * 同步落盘。**只在关停路径上用。**
+   *
+   * `stop()` 之后进程可能立刻退出，而 `await` 出去的写根本没机会跑完——
+   * 那正是"最后一段历史丢了"的成因。所以在关停路径上宁可用阻塞式的 fsync。
+   */
+  const flushSync = (): void => {
+    if (persist === undefined) return
+    const batch = pendingEvents
+    pendingEvents = []
+    try {
+      if (batch.length > 0) persist.store.appendEventsSync(batch)
+      const world = service.currentWorld()
+      if (world !== null) persist.store.saveWorldSync(world, packVersions())
+      persistedSeq = world?.seq ?? persistedSeq
+    } catch (error) {
+      diagnostics.persistErrors += 1
+      pendingEvents = [...batch, ...pendingEvents]
+      options.onError?.(error)
+    }
   }
 
   let timer: ReturnType<typeof setInterval> | null = null
@@ -147,8 +228,20 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     }
 
     sink.publish(result.events)
+
     // 只在世界真的前进时计数：暂停时 step 会早退，tick 不动，那一步不该算进来。
-    if (world.tick > tickBefore) diagnostics.ticks += 1
+    if (world.tick > tickBefore) {
+      diagnostics.ticks += 1
+
+      if (persist !== undefined) {
+        pendingEvents.push(...result.events)
+        const every = persist.checkpointEveryTicks
+        if (every > 0 && world.tick % every === 0) {
+          // 不 await：checkpoint 不能拖慢模拟循环。失败会被记进 persistErrors 并留待下次重试。
+          void flush()
+        }
+      }
+    }
     return result
   }
 
@@ -183,10 +276,15 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     },
 
     stop(): void {
+      // **同步刷**：这一步之后进程可能立刻退出，异步写不保证跑得完。
+      // 即使定时器已经停了也要刷：可能还有上一轮攒着的事件没写下去。
+      flushSync()
       if (timer === null) return
       clearInterval(timer)
       timer = null
     },
+
+    flush,
 
     tickOnce,
 

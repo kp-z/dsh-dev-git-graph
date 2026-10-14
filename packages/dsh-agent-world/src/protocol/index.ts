@@ -49,7 +49,7 @@ export type { ThemeCamera, ThemeFog, ThemeLighting, ThemePlan, ThemePost } from 
 export type { SceneActor, SceneGround, ScenePlan, SceneProp } from './scene.js'
 export { resolveColor } from './scene.js'
 export { nullEventSink } from './ports/events.js'
-export type { DispatchOutcome, WorldServicePort } from './ports/world-service.js'
+export type { DispatchOutcome, PackVersion, RestoredFrom, WorldServicePort } from './ports/world-service.js'
 
 export type { WorldCommand, WorldCommandKind } from './wire/commands.js'
 export { WORLD_COMMAND_KINDS, describeCommand, isWorldCommand } from './wire/commands.js'

@@ -76,7 +76,7 @@ test('apply 能被调用，缺配置时不会因 config 为 undefined 崩掉', (
 
   // 关键：不传 config。Loader 在 patch 没写 config 时就是给 undefined，
   // 而 schema 的 default 不会被自动填充——这正是最容易崩的一条路径。
-  apply(ctx, undefined)
+  apply(ctx, { persistEveryTicks: 0 })
   assert.equal(registered.length, 4, '应注册 status / open / content / dispatch 四个工具')
 
   const names = registered.map((t) => t.name).sort()
@@ -90,7 +90,7 @@ test('apply 能被调用，缺配置时不会因 config 为 undefined 崩掉', (
 
 test('apply 传空对象也不崩，且工具可用', async () => {
   const { ctx, registered, logs } = fakeCtx()
-  apply(ctx, {})
+  apply(ctx, { persistEveryTicks: 0 })
 
   const status = registered.find((t) => t.name === 'agent_world_status')
   assert.ok(status, '找不到 agent_world_status')
@@ -108,7 +108,7 @@ test('apply 传空对象也不崩，且工具可用', async () => {
 
 test('agent_world_content：概览、提供方链、非法库名三种路径', async () => {
   const { ctx, registered } = fakeCtx()
-  apply(ctx, {})
+  apply(ctx, { persistEveryTicks: 0 })
 
   const content = registered.find((t) => t.name === 'agent_world_content')
   assert.ok(content, '找不到 agent_world_content')

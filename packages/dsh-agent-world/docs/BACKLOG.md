@@ -69,6 +69,7 @@
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
 | M1.6-7 | ready | JSON 里的路径安全边界：`ModelEntry.source.url` 现在可以是任意字符串。限制成**包内相对路径**并禁 `http://` 与 `../`。**M4 真正加载 GLB 之前必须落地**，否则就是一个"内容包能指向任意 URL"的口子 | `src/content/validate.ts` 的路径校验 + 测试 | M4-8 之前 |
+| M1.6-9 | ready | 边界检查器的**第二个盲区：import 的位置**。R11 我把两条 `import type` 写在了接口声明**之间**（合法 ESM，因为 import 会提升），检查器把 `import type { World } from '../../domain/types.js'` 报成了 **`value-import`** —— 也就是说它对"非顶部 import"的分类是不可靠的。修法：解析时先看整条语句是不是 `import type`，别依赖它出现在文件头 | `src/protocol/boundaries.ts` + 测试 | M1.6-8 |
 | M1.6-8 | ready | 边界检查器的**反向盲区**：`moduleOfPath()` 返回 null 的目录被静默跳过，所以"新建模块目录但忘了在规则表登记"不会被发现。加一条检查：`src/` 下每个一级目录都必须在 `BOUNDARY_RULES` 里（或登记为允许忽略） | `test/boundaries.test.js` | M1.6-2 |
 
 ## M2 — 模拟内核（**技术上最硬的一块**）
@@ -140,9 +141,12 @@
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M3-1 | ready | 磁盘真相：`world.json` + 事件追加 `events.jsonl`，原子写 | `src/store/worldStore.ts` | M2-3 |
+| M3-1 | done | 磁盘真相：`world.json` + 事件追加 `events.jsonl`，原子写 | `src/store/worldStore.ts` | M2-3 |
 | M3-2 | done | 世界运行时：tick 循环 + 处理 `StepResult.requests` + 事件出口。**依赖写错了**：原表写它依赖 M3-1（落盘），实际不需要——运行时纯内存就能跑，先把世界驱动起来比先落盘有价值得多（R7 修正） | `src/runtime/index.ts` + 测试 | M2-3 |
 | M3-3 | done | HTTP：`GET /api/world` 快照 + `POST /api/command` | `src/routes/api.ts` | M3-2 |
+| M3-1b | ready | **`events.jsonl` 无上限增长**。现在只增不删：跑一整天就是几万行（每行一个事件）。需要一个轮转/压缩策略（按大小切分 + 保留 N 份，或定期把旧事件压成"里程碑摘要"）。**先记着不动**：还没有长跑的真实场景，而错误的分片策略比不分片更难改 | `src/store/worldStore.ts` + 决策记录 | M3-1 |
+| M3-1c | done | 关停路径的**同步刷盘**：`stop()` 里 `await` 出去的写在进程退出时可能跑不完，改用 `saveWorldSync`/`appendEventsSync`（fd + fsyncSync + renameSync） | `src/store/worldStore.ts`、`src/runtime/index.ts` | M3-1 |
+| M3-1d | ready | **`stateDir` 的相对基准**：目前按 `process.cwd()` 解析（与 `contentDir` 同源问题，见 M1.5-6）。配置注释写的是 `<session workspace>/<stateDir>/`，但 workspace 拿不到。**多工作区时任何自动挑选都是猜，猜错的症状是"存档写到别的项目里去了"** | 与 M1.5-6 合并处理 | M1.5-6 |
 | M3-4 | ready | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈。**替换掉面板现在的轮询** | `src/routes/events.ts` + 面板改成 `EventSource` | M3-3 |
 | M3-6 | ready | **面板的轮询改成 SSE 之后，删掉轮询分支**（R10 已补上 fetch 超时与「数据已过期 N 秒」提示，断线不再表现为「世界卡住」）；并给面板加一条"连不上时显示上次快照时间"——否则断线看起来像世界卡住 | `web/app.js` | M3-4 |
 | M3-5 | done | 面板静态服务 `/agent-world/*`（MIME 白名单 + 路径穿越防护） | `src/panel.ts` | M3-2 |

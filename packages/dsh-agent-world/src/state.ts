@@ -10,8 +10,15 @@
  * 不是这个类。于是"换一套状态管理"不需要动工具，"给工具写单测"塞个假端口就行。
  * `test/boundaries.test.js` 保证这条不会被后人悄悄破坏。
  *
- * 当前世界只活在内存里，能建、能读、能重置。
- * M3-1 会接上落盘（`store/worldStore.ts`），M3-2 会接上 tick 循环与订阅广播。
+ * R11 起接上了落盘（`store/worldStore.ts`）：`ensureWorld()` 会**先试着把上次的世界接回来**，
+ * 接不回来才新开一局。这一步是**同步**的——`apply()` 不能是 async，所以只有这一处同步读文件
+ * （内容层同样是同步装载的，不是新发明）。
+ *
+ * **恢复绝不能是静默的**：接回一个用另一批内容包版本装出来的旧世界，用户必须看得见，
+ * 否则症状是"我明明重开了，怎么还是上次的样子"。所以：
+ * · 成功恢复 → 记进 `restoredFrom()`，`agent_world_status` 会打出来；
+ * · 存档坏了/场景没了/版本不一致 → 写成一条 issue（`agent_world_content` 与状态工具都会显示）；
+ * · 场景在当前内容里不存在 → **拒绝采用**，宁可新开一局也不要一个渲染不出场景的世界。
  *
  * 刻意**不**把它做成一个 cordis Service：世界是这个插件自己的东西，
  * 没有第二个插件需要注入它；做成 Service 只会多一层间接。
@@ -23,7 +30,14 @@ import { instantiateTasks } from './content/instantiate.js'
 import { loadContentPacks } from './content/load-files.js'
 import { DEFAULT_TICK_MS } from './domain/constants.js'
 import type { World } from './domain/types.js'
-import type { ContentIssue, ContentPort, DispatchOutcome, WorldServicePort } from './protocol/index.js'
+import type {
+  ContentIssue,
+  ContentPort,
+  DispatchOutcome,
+  RestoredFrom,
+  WorldServicePort,
+} from './protocol/index.js'
+import { loadWorldSync } from './store/index.js'
 import { createWorld } from './world/create.js'
 
 /** 建插件状态的选项。 */
@@ -35,6 +49,13 @@ export interface PluginStateOptions {
    * 这样 `state.ts` 能被测试直接喂一个临时目录，不用去 mock 文件系统之外的东西。
    */
   externalRoot?: string | null
+  /**
+   * 世界存档目录（**绝对路径**）。null / 不传 = 不落盘也不恢复。
+   *
+   * 与 `externalRoot` 同理：解析放在 `index.ts`，这里只接受一个定好的目录，
+   * 于是单测可以直接喂临时目录。
+   */
+  storeDir?: string | null
 }
 
 /**
@@ -50,6 +71,8 @@ export interface PluginState extends WorldServicePort {
   world: World | null
   /** 没有世界就建一个（幂等）。内容有问题时抛错，错误信息可直接给用户看。 */
   ensureWorld(): World
+  /** 世界存档目录；没配就是 null。 */
+  readonly storeDir: string | null
 }
 
 /**
@@ -61,6 +84,9 @@ export interface PluginState extends WorldServicePort {
 export function createPluginState(config: AgentWorldConfig, options: PluginStateOptions = {}): PluginState {
   const tickMs = config.tickMs > 0 ? config.tickMs : DEFAULT_TICK_MS
   const externalRoot = options.externalRoot ?? null
+  const storeDir = options.storeDir ?? null
+  /** 已恢复的世界来源；新开一局时是 null。 */
+  let restored: RestoredFrom | null = null
 
   const registry = new ContentRegistry()
 
@@ -106,11 +132,82 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
     })
   }
 
+  /**
+   * 试着把上次的世界接回来。接不回来返回 null（**不抛**——一个坏存档不该让插件起不来）。
+   *
+   * 三道关，顺序有讲究：
+   * 1. 文件能不能读、格式对不对；
+   * 2. **场景还在不在**当前内容里（不在就拒绝：一个没有场景的世界渲染不出来，
+   *    接回来只会得到一块空画布加一堆问号）；
+   * 3. 内容包版本变没变（变了**照常采纳**，但要说出来——见下面的注释）。
+   */
+  const tryRestore = (): World | null => {
+    if (storeDir === null) return null
+
+    let loaded: ReturnType<typeof loadWorldSync>
+    try {
+      loaded = loadWorldSync(storeDir)
+    } catch (error) {
+      issueList.push({
+        level: 'error',
+        pack: null,
+        where: 'store/world.json',
+        message: `读存档失败：${error instanceof Error ? error.message : String(error)}。已改为新开一局。`,
+      })
+      return null
+    }
+
+    if (loaded === null) return null // 没有存档，正常情况
+    if ('failure' in loaded) {
+      issueList.push({
+        level: 'warning',
+        pack: null,
+        where: 'store/world.json',
+        message: `存档没被采用：${loaded.failure.reason}`,
+      })
+      return null
+    }
+
+    const { world, content, savedAtTick } = loaded.ok
+
+    if (registry.get('scenes', world.origin.scene) === undefined) {
+      const available = registry.list('scenes').map((e) => e.id)
+      issueList.push({
+        level: 'warning',
+        pack: null,
+        where: 'store/world.json',
+        message:
+          `存档用的场景 "${world.origin.scene}" 在当前内容里不存在，已改为新开一局。` +
+          `可用场景：${available.length > 0 ? available.join(' / ') : '（没有）'}`,
+      })
+      return null
+    }
+
+    // 内容包版本对不上：**照常采纳**。内容升级本来就该改变表现（这正是"内容可替换"的意义），
+    // 但要把差异写出来——不然"旧存档为什么变样了"只能靠猜。
+    const current = registry.packs.map((p) => ({ id: p.id, version: p.version }))
+    const before = content.map((p) => `${p.id}@${p.version}`).sort().join('、')
+    const now = current.map((p) => `${p.id}@${p.version}`).sort().join('、')
+    if (before !== now) {
+      issueList.push({
+        level: 'warning',
+        pack: null,
+        where: 'store/world.json',
+        message:
+          `存档是用 ${before} 装的，现在是 ${now}——世界已按新内容继续（这是可接受的：内容升级本来就该改变表现）。`,
+      })
+    }
+
+    restored = { savedAtTick, packVersions: content }
+    return world
+  }
+
   const state: PluginState = {
     config,
     tickMs,
     registry,
     externalRoot,
+    storeDir,
     world: null,
 
     // ── WorldServicePort ──
@@ -160,9 +257,11 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
     // ── 组合根用的额外能力 ──
     ensureWorld(): World {
       if (state.world) return state.world
-      state.world = build(config.worldName)
+      state.world = tryRestore() ?? build(config.worldName)
       return state.world
     },
+
+    restoredFrom: () => restored,
   }
 
   return state

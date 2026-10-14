@@ -348,7 +348,7 @@ test('端到端：apply 接上 contentDir → 工具看到的世界就是外部�
     }
 
     // 绝对路径：相对路径会按 process.cwd() 解析，测试里不依赖那个。
-    apply(ctx, { contentDir: dir })
+    apply(ctx, { contentDir: dir, persistEveryTicks: 0 })
 
     assert.deepEqual(logs.error, [], `不该有错误：${logs.error.join(' | ')}`)
     // 解析出的目录要打出来，否则用户配了 contentDir 没生效时无从下手。
@@ -384,7 +384,7 @@ test('端到端：contentDir 指向不存在的目录 → 只警告，插件照�
       inject: () => {},
     }
 
-    apply(ctx, { contentDir: join(dir, '没这个目录') })
+    apply(ctx, { contentDir: join(dir, '没这个目录'), persistEveryTicks: 0 })
 
     assert.deepEqual(logs.error, [], '目录不存在是警告级，不该当成错误')
     assert.ok(logs.warn.some((m) => /内容目录不存在/.test(m)), `应当有警告：${logs.warn.join(' | ')}`)

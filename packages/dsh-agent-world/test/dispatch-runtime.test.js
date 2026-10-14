@@ -135,7 +135,7 @@ test('dispatch：还没有世界时给一句能照做的话，不是 TypeError',
 
 test('agent_world_dispatch：正常路径给 id、张数、工单板', async () => {
   const { ctx, registered, logs } = fakeCtx()
-  apply(ctx, { autoStart: false })
+  apply(ctx, { autoStart: false, persistEveryTicks: 0 })
 
   const dispatch = registered.find((t) => t.name === 'agent_world_dispatch')
   assert.ok(dispatch, '找不到 agent_world_dispatch')
@@ -151,7 +151,7 @@ test('agent_world_dispatch：正常路径给 id、张数、工单板', async () 
 
 test('agent_world_dispatch：空参数与坏 id 都给出可照做的报错', async () => {
   const { ctx, registered } = fakeCtx()
-  apply(ctx, { autoStart: false })
+  apply(ctx, { autoStart: false, persistEveryTicks: 0 })
   const dispatch = registered.find((t) => t.name === 'agent_world_dispatch')
 
   // `{}` 缺必填参数，会被 defineTool 自己的 schema 拦下——这是对的行为，
@@ -167,7 +167,7 @@ test('agent_world_dispatch：空参数与坏 id 都给出可照做的报错', as
 
 test('agent_world_content：kind=tasks 时能列出可用任务集（派单报错里指的就是它）', async () => {
   const { ctx, registered } = fakeCtx()
-  apply(ctx, { autoStart: false })
+  apply(ctx, { autoStart: false, persistEveryTicks: 0 })
   const content = registered.find((t) => t.name === 'agent_world_content')
 
   const text = await content.execute({ kind: 'tasks' })
@@ -319,7 +319,7 @@ test('运行时：hire 到 M7 之前没人能做，但**必须计数**而不是�
 
 test('apply：挂上了运行时清理（热重载不泄漏定时器）', () => {
   const { ctx, disposers } = fakeCtx()
-  apply(ctx, { autoStart: true, tickMs: 60_000 })
+  apply(ctx, { autoStart: true, tickMs: 60_000, persistEveryTicks: 0 })
 
   assert.equal(disposers.length, 1, '必须挂一个清理函数，否则热重载会多一个世界在跑')
   disposers[0]() // 清理必须可调用且不抛
@@ -327,7 +327,7 @@ test('apply：挂上了运行时清理（热重载不泄漏定时器）', () => 
 
 test('apply：autoStart=false 时世界建好但不推进', async () => {
   const { ctx, registered, logs } = fakeCtx()
-  apply(ctx, { autoStart: false })
+  apply(ctx, { autoStart: false, persistEveryTicks: 0 })
 
   const status = registered.find((t) => t.name === 'agent_world_status')
   const text = await status.execute({})

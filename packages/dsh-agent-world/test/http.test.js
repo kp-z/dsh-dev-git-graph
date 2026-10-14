@@ -319,7 +319,7 @@ test('apply：有 webServer 时注册**一个**前缀路由，且清理可调用
     },
   }
 
-  apply(ctx, { autoStart: false })
+  apply(ctx, { autoStart: false, persistEveryTicks: 0 })
 
   assert.equal(registered.length, 1, '整个插件只该占一个路由座位——多占就有撞车的风险')
   assert.equal(registered[0].kind, 'prefix')
@@ -351,7 +351,7 @@ test('apply：没有 webServer 时**不注册也不报错**（软依赖的真实
     inject: () => {}, // 依赖缺席 ⇒ 永不回调
   }
 
-  apply(ctx, { autoStart: false })
+  apply(ctx, { autoStart: false, persistEveryTicks: 0 })
 
   assert.deepEqual(logs.error, [], 'headless 环境下没有 webServer 是正常的，不该报错')
   assert.ok(
@@ -376,7 +376,7 @@ test('端到端：apply 注册的处理器挂到真服务器上，页面与 API 
     },
   }
 
-  apply(ctx, { autoStart: false })
+  apply(ctx, { autoStart: false, persistEveryTicks: 0 })
   assert.ok(route)
 
   await withServer(route.handler, async (base) => {

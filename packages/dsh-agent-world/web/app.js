@@ -249,6 +249,10 @@ function renderSide(snapshot) {
     Date.now() - lastOkAt > STALE_AFTER_MS
       ? `<b class="warn">数据已过期 ${Math.round((Date.now() - lastOkAt) / 1000)} 秒</b>`
       : '',
+    // 落盘失败是"世界照常跑、但存档其实是坏的"那种故障，必须一眼看到。
+    (snapshot.runtime.diagnostics.persistErrors ?? 0) > 0
+      ? `<b class="warn">落盘失败 ${snapshot.runtime.diagnostics.persistErrors} 次</b>`
+      : '',
     stateText,
   ]
     .filter(Boolean)

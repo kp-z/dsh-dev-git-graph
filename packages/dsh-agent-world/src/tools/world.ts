@@ -52,8 +52,19 @@ export function registerWorldTools(ctx: Context, world: WorldServicePort): void 
         if (!current) {
           return `世界尚未创建。调用 agent_world_open 建一个。${contentErrorTail(world)}`
         }
+        // **恢复不能是静默的**：从磁盘接回一个旧世界、而且它可能是用另一批内容包版本
+        // 装出来的——用户必须看得见，否则症状是"我明明重开了，怎么还是上次的样子"。
+        const restored = world.restoredFrom()
+        const restoredLine =
+          restored === null
+            ? null
+            : `⚠ 这一局是**从存档接回**的：存档停在 tick ${restored.savedAtTick}，` +
+              `当时用的内容包是 ${restored.packVersions.map((p) => `${p.id}@${p.version}`).join('、') || '（无）'}。` +
+              '想要全新的一局就用 agent_world_open。'
+
         return [
           formatSummary(current),
+          ...(restoredLine === null ? [] : [restoredLine]),
           '',
           `内容来源：${world.describeContent()}`,
           `场景：${current.origin.scene}｜内容包：${current.origin.packs.join('、') || '（无）'}`,

@@ -21,6 +21,14 @@ export const AgentWorldConfig = z.object({
   /** 插件加载后是否自动推进模拟。关掉时世界静止，便于调试布局。 */
   autoStart: z.boolean().default(true),
 
+  /**
+   * 每多少 tick 落一次盘（快照 + 事件）。`0` = 不落盘，世界只活在内存里。
+   *
+   * 默认 100（10 tick/秒下约 10 秒一次）。这是**崩溃时最多丢多少**的粒度，
+   * 而 10 秒的世界在磁盘上只有几十 KB——挑大它省不了多少 IO，挑小它会变成每秒写盘。
+   */
+  persistEveryTicks: z.number().default(100),
+
   /** 同屏角色上限。性能预算的一部分，见 docs/ARCHITECTURE.md §5.3。 */
   maxAgents: z.number().default(24),
 
@@ -59,6 +67,7 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     stateDir: config.stateDir ?? '.agent-world',
     tickMs: config.tickMs && config.tickMs > 0 ? config.tickMs : 100,
     autoStart: config.autoStart ?? true,
+    persistEveryTicks: config.persistEveryTicks ?? 100,
     maxAgents: config.maxAgents && config.maxAgents > 0 ? config.maxAgents : 24,
     worldName: config.worldName ?? 'Agent World',
     scene: config.scene ?? 'scene.default-town',

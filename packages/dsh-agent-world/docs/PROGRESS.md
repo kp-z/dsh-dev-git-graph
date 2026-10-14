@@ -27,7 +27,151 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R10 末）：`typecheck` 绿 · `test` 182/182 绿。
+当前验证状态（R11 末）：`typecheck` 绿 · `test` 205/205 绿。
+
+---
+
+## R11 — 2026-10-15 · 落盘（M3-1）：世界不再一重启就归零
+
+网络第五次确认仍断（`api.github.com` / `registry.npmjs.org` 都是 `000`），所以继续做
+不受网络影响的活。取 BACKLOG 最上面的 `ready`：**M3-1 磁盘真相**。
+
+### 做了什么
+
+**`src/store/worldStore.ts`** —— 两个文件，两种语义，**刻意不合并**：
+
+| 文件 | 语义 | 写法 |
+|---|---|---|
+| `world.json` | 整世界的快照（"现在是怎样"） | 原子覆盖：写 `world.json.tmp-<pid>` → `fsync` → `rename` |
+| `events.jsonl` | 只增的事件历史（"怎么变成这样的"） | 追加，一行一条、换行结尾 |
+
+四条决定，每条都有具体理由：
+
+1. **快照里不带 `world.events`**。那是**环形缓冲**（只留 500 条），是活客户端的补洞窗口、
+   不是历史。把它当历史写进快照，历史会在第 501 条事件时开始**静默**丢失——
+   而"历史丢了一段"只在需要它的时候才会发现。
+2. **原子写的顺序不能省 fsync**。不 sync 的话 `rename` 可能先于数据落盘完成，
+   掉电后得到"名字对、内容空"的文件——**那比没有存档更糟**。
+3. **文件里不写墙上时间**，只用 `tick`。于是"同一个世界存两次得到逐字节相同的文件"
+   可以被直接断言（有测试）。这让"存档可复现"变成可验的，而不是靠肉眼比。
+4. **内容包版本放在外壳里**（`content: [{id, version}]`），不塞进 `World`。
+   `World` 是模拟内核的模型，不该知道"装了什么版本的内容"这种装配层事实。
+
+**接进运行时（这部分才是"做完"）**：`PersistOptions` 让运行时每 `checkpointEveryTicks`
+存一次快照并**攒着**刷一次事件。三条细节：
+
+- 事件是**攒着一起写**的：每 tick 一次 append 就是每秒 10 次磁盘写入，而它们加起来还没
+  一次快照大。代价是崩溃时最多丢这么多 tick 的事件——而快照也是同一粒度，
+  **两者对得上**，不会出现"世界是第 700 tick、事件只到 650"这种自相矛盾的存档。
+- **先写事件、后写快照**。反过来的话快照会声称"世界到了 700"而日志才到 650；
+  先写事件，最坏是"事件多了几条、快照旧一点"——那是**可解释**的。
+- 写失败时把那一批事件**放回队列**等下次重试，并累加 `diagnostics.persistErrors`
+  （这个计数会经 HTTP 快照到面板，非 0 时状态条直接报警——避免又造一个"建好没人读"的计数）。
+
+**恢复（这才是 M3-1 的意义）**：`createPluginState(...).ensureWorld()` 现在**先试着把上次
+的世界接回来**，接不回来才新开一局。三道关：
+
+1. 文件能不能读、格式对不对（`fileVersion` 不匹配就拒绝，并说清期望哪个版本）；
+2. **场景还在不在**当前内容里——不在就**拒绝采用**，宁可新开一局也不要一个渲染不出场景的世界；
+3. 内容包版本变没变——**变了照常采纳**，但写一条 ——内容升级本来就该改变表现，
+   这正是"内容可替换"的意义；但"旧存档为什么变样了"必须能查，不能靠猜。
+
+**恢复绝不能是静默的**：成功时 `restoredFrom()` 会把它说出来，`agent_world_status`
+直接打一行"⚠ 这一局是从存档接回的：存档停在 tick N，当时用的内容包是 …"。
+否则症状是"我明明重开了，怎么还是上次的样子"。
+
+**关停路径用同步刷盘**：`stop()` 之后进程可能立刻退出，`await` 出去的写不保证跑得完——
+那正是"最后一段历史丢了"的成因。所以加了 `saveWorldSync` / `appendEventsSync`
+（`fd + fsyncSync + renameSync`），`stop()` 走同步路径。有一条测试**在 stop 之后不 await、
+不等事件循环**直接同步读档，断言文件已经完整。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 205 / pass 205 / fail 0
+```
+
+182 → **205**（新增 `test/store.test.js` 23 条）。测试集中在这一层真正的风险上——
+**不是"算错"，而是在错误的时候毁掉数据**：
+
+- **逐字节可复现**：同一世界存两次文件完全相同。
+- **原子性**：写完不留 `.tmp-*`；`info().strayTempFiles` 为空。
+- **坏存档不让插件起不来**：半截 JSON → `warning` + 新开一局（**不抛**）；
+  `fileVersion` 不匹配 → 拒绝并说出期望版本；`world` 缺字段 → **报出缺的是哪个、
+  并列出实际有的字段**（"存档损坏"四个字帮不了任何人）。
+- **长跑端到端**：跑 400 tick → 落盘 → **新起一个插件状态** → tick 是 400、工单还在、
+  `restoredFrom()` 有值 → **接着跑还能跑**（不是一份只读快照）。
+- **写失败不丢历史**：注入一个会抛的 store，断言 `persistErrors` +1 且**那一批事件
+  在修好之后被重试写下去**。
+
+### 顺手处理的两件真事
+
+1. **测试开始往包目录里写存档**。`persistEveryTicks` 默认 100，而 `stateDir`
+   按 `process.cwd()` 解析——测试的 cwd 就是包目录，于是第一次跑完就在仓库里留下了
+   `packages/dsh-agent-world/.agent-world/world.json`，**第二次跑就"恢复"了上一轮的世界**，
+   表现为"世界应当用外部花名册"那条测试拿到的是内置花名册。
+   修法不是关掉落盘，而是**让测试变干净**：所有 `apply(...)` 显式传 `persistEveryTicks: 0`，
+   落盘相关的测试一律用临时目录。另加一个**包级 `.gitignore`**（`/.agent-world/`、`/lib/`）
+   作为兜底——存档是运行时数据，不该进版本库。
+2. **边界检查器的一个新盲区**：我把两条 `import type` 写在了接口声明**之间**
+   （合法 ESM，因为 import 会提升），检查器把 `import type { World } from '../../domain/types.js'`
+   报成了 **`value-import`**。也就是说它对"非顶部 import"的分类不可靠。
+   已记成 M1.6-9（原来只有 M1.6-8 那条"目录不在规则表里就被跳过"的盲区）。
+
+### 下一轮从哪继续
+
+**M3-4：SSE（`GET /api/events`，带单调 `seq`，客户端 gap 自愈）**，然后把面板从轮询
+改成 `EventSource`（M3-6）。具体：
+
+1. 新建 `src/routes/events.ts`：`RouteEntry`，`handler` 返回 `undefined` 并自己接管响应
+   （`router.ts` 已经支持这条路径——静态面板就是这么做的）。
+2. **必须挂清理**：连接断开时要摘掉订阅（`res.on('close', ...)`），否则热重载会泄漏监听器
+   ——和 R7 那个 `setInterval` 泄漏是同一类问题。
+3. 事件来源用现成的 `EventSinkPort`（`createRuntime` 的 `sink` 选项已经预留，默认 `nullEventSink`）。
+   需要一个多播适配器：运行时推一批 → 广播给所有活跃连接。
+4. **gap 自愈**：`protocol/wire/messages.ts` 的 `hasSeqGap` 已经写好并有测试，
+   接上即可——断线重连后客户端发现 `seq` 不连续就重新拉一次快照。
+5. 落盘那条线**已经不用再管**：`events.jsonl` 与 SSE 各写各的，互不依赖。
+
+**两条欠账仍然挂着**（都不是本轮该顺手做的）：
+`events.jsonl` 无上限增长（M3-1b，需要分片策略，**错误的分片比不分片更难改**）；
+`stateDir` 的相对基准（M3-1d，与 M1.5-6 同源）。
+
+### 假设
+
+- **默认落盘（`persistEveryTicks: 100`）是值得的**，尽管 `stateDir` 目前只能按 cwd 解析。
+  理由是"重启不丢世界"是这个插件的基本预期，而写盘位置已经被日志大声打出来了。
+  如果用户认为默认往 cwd 写文件太激进，把它改成 0 即可（一行配置）。
+- **恢复时保留存档里的 `paused`**。用户上次暂停了，这次接回来就是暂停的——
+  面板会显示"已暂停"，点一下继续即可。刻意不擅自改成运行中：那才是真正的"静默改变用户状态"。
+- **`fileVersion` 不匹配一律拒绝，不做迁移**。现在只有版本 1，写迁移代码是凭空造需求；
+  等真有旧存档要救的时候再按实际形状写。
+
+### 卡住 / 风险
+
+- **网络第五次确认全断**。M4（3D）依然只能走"路 A 等网络"或"路 B vendoring `three@0.167.1`"，
+  而两者都需要用户拍一下板。**在等这个决定的同时，不受网络影响的活已经不多了**：
+  M3-4 SSE → M1.6-7 JSON 路径安全 → M2.6 系列。做完这些，M4 就是唯一的下一步。
+- **`events.jsonl` 只增不减**：现在有了真实的长跑场景（世界会一直跑），这个账**开始计息**了。
+  一整天约几万行。还不是问题，但它是那种"等到是问题就来不及优雅解决"的东西——
+  已记 M3-1b 并写明"倾向：等有真实长跑数据再定"。
+- **同步与异步两套写接口**是刻意的冗余（关停路径必须同步），代价是两处实现要一起改。
+  解析与外壳构造已经抽成纯函数共用，但"写"本身仍是两份——加新文件时**两处都要改**，
+  这是我在实现里留的风险。
+
+### 本轮产出
+
+- 新增：`src/store/{worldStore,index}.ts`（快照 + 事件历史 + 原子/同步写 + 读档校验）、
+  `test/store.test.js`（23 条）、`packages/dsh-agent-world/.gitignore`
+- 修改：`src/runtime/index.ts`（checkpoint / 事件缓冲 / `flush` / `flushSync` / `persistErrors`）、
+  `src/state.ts`（恢复 + 三道关 + 原因写进 issues）、`src/index.ts`（装配 store + 日志）、
+  `src/config.ts`（`persistEveryTicks`）、`src/protocol/{ports/{runtime,world-service},index}.ts`
+  （`PackVersion` / `RestoredFrom` / `persistErrors`）、`src/tools/world.ts`（状态里打出恢复来源）、
+  `web/app.js`（落盘失败报警）、`test/{smoke,external-pack,dispatch-runtime,http}.test.js`（测试变干净）
+- 文档：`ARCHITECTURE.md`（决策 D25）、`BACKLOG.md`（M3-1 含 1b/1c/1d、M1.6-9）
+- 测试从 182 → 205
 
 ---
 

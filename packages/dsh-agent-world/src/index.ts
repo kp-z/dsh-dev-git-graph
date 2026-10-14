@@ -10,11 +10,13 @@
  * 落盘与 HTTP/SSE 见 BACKLOG M3，3D 面板见 M4。
  * 架构见 docs/ARCHITECTURE.md，内容模型见 docs/CONTENT.md，协议见 docs/PROTOCOL.md。
  */
+import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
 import { createHandler } from './routes/index.js'
 import { createRuntime } from './runtime/index.js'
+import { createWorldStore } from './store/index.js'
 import { createPluginState } from './state.js'
 import { registerDispatchTool } from './tools/dispatch.js'
 import { registerWorldTools } from './tools/world.js'
@@ -45,7 +47,14 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     logger.info(`外部内容目录：${contentRoot.root}（${contentRoot.reason}）`)
   }
 
-  const state = createPluginState(resolved, { externalRoot: contentRoot.root })
+  // 存档目录：`stateDir` 目前按 `process.cwd()` 解析（与 contentDir 同一个基准，
+  // 而"相对哪个 workspace"这件事是 M1.5-6 的待定项——多工作区时任何自动挑选都是猜）。
+  // 把解析结果**原样打出来**：写盘位置是用户第一个会问的问题。
+  const storeDir =
+    resolved.persistEveryTicks > 0 ? resolve(process.cwd(), resolved.stateDir) : null
+  if (storeDir !== null) logger.info(`世界存档目录：${storeDir}`)
+
+  const state = createPluginState(resolved, { externalRoot: contentRoot.root, storeDir })
 
   registerWorldTools(ctx, state)
   registerDispatchTool(ctx, state)
@@ -72,6 +81,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   }
 
   // 世界先建出来（这样 agent_world_status 立刻有东西可看）。
+  // **注意 `ensureWorld()` 会先试着接回上次的存档**——所以下面这句日志之前世界可能已经不是新的了。
   // `autoStart` 只决定**要不要开始推进**——配置的语义是"是否推进"，不是"是否存在"。
   try {
     state.ensureWorld()
@@ -83,6 +93,14 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   const runtime = createRuntime({
     service: state,
     tickMs: state.tickMs,
+    ...(storeDir === null
+      ? {}
+      : {
+          persist: {
+            store: createWorldStore(storeDir),
+            checkpointEveryTicks: resolved.persistEveryTicks,
+          },
+        }),
     onError: (error) =>
       logger.error(`模拟循环出错（已继续，诊断计数见 errors）：${error instanceof Error ? error.message : String(error)}`),
   })
@@ -124,6 +142,15 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
 
     logger.info(`面板与 API 挂在 ${resolved.routePrefix}/（同宿主地址）· API：${resolved.routePrefix}/api/world`)
   })
+
+  const restored = state.restoredFrom()
+  if (restored !== null) {
+    logger.info(
+      `已从存档接回世界（存档在 tick ${restored.savedAtTick}，用 ${restored.packVersions
+        .map((p) => `${p.id}@${p.version}`)
+        .join('、')} 装）——不是新开的一局。`,
+    )
+  }
 
   logger.info(
     `已就绪：${state.describeContent()} · 世界${

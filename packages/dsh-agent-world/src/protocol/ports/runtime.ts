@@ -33,6 +33,13 @@ export interface RuntimeDiagnostics {
   unhandledHires: number
   /** `step()` 抛异常的累计次数。 */
   errors: number
+  /**
+   * 落盘失败次数。
+   *
+   * **必须有出口**：写盘失败是那种"世界照常在跑、但存档其实是坏的"的故障，
+   * 没有计数就只能靠翻日志。面板读到非 0 会直接在状态条上报警。
+   */
+  persistErrors: number
 }
 
 /** 运行时端口。 */
