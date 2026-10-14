@@ -152,3 +152,31 @@ test('客户端契约：每个 el.X.addEventListener 绑定都必须有守卫（
 		'这些绑定没有守卫：元素不存在时会中断 bindEvents()，导致后续所有绑定静默失效\n' + unguarded.join('\n'),
 	)
 })
+
+test('客户端契约：renderResearch 必须**先 clear 再 appendBriefSummary**（R73 的回归）', async () => {
+	// R73 实况：我把简报的渲染插在 clear(el.research) 之前 → 刚 append 就被清掉 →
+	// 表现是"函数跑完、日志正常、DOM 里什么都没有"。我为此连猜三轮（缓存 → 竞态 → …）。
+	// 这类**顺序**错误静态检查一秒就能抓到，所以固化成测试。
+	const source = await readClient()
+	const start = source.indexOf('function renderResearch(data)')
+	assert.ok(start > 0, '找不到 renderResearch（改名要同步改这条测试）')
+	const body = source.slice(start, source.indexOf('\n  }', start))
+	const clearAt = body.indexOf('clear(el.research)')
+	const briefAt = body.indexOf('appendBriefSummary(el.research')
+	assert.ok(clearAt >= 0, 'renderResearch 里应当有 clear(el.research)')
+	assert.ok(briefAt >= 0, 'renderResearch 里应当调用 appendBriefSummary')
+	assert.ok(
+		clearAt < briefAt,
+		`顺序必须是「先 clear 再 append」：clear@${clearAt} · append@${briefAt} —— 反过来会把简报立刻清掉`,
+	)
+})
+
+test('客户端契约：自诊断埋点不能消失（window.__ddDebug）', async () => {
+	// 客户端此前"不报错、界面也不显示"，出问题时只能靠猜（R73 连猜三轮）。
+	// 这个缓冲区是那一层的唯一入口，所以守一条：它必须还在，且关键点仍然埋着。
+	const source = await readClient()
+	assert.ok(source.includes('window.__ddDebug'), '自诊断缓冲区必须存在（出问题时唯一的读数入口）')
+	for (const step of ['loadResearch:raw', 'loadResearch:state.brief', 'renderResearch', 'appendBriefSummary']) {
+		assert.ok(source.includes(step), `自诊断埋点「${step}」不见了 —— 这一层一旦关掉，客户端问题又只能靠猜`)
+	}
+})
