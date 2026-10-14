@@ -2,6 +2,14 @@
 
 本文件记录 dsh-daily 的每个可交付版本。开发期的**逐轮记录**在 [STATUS.md](STATUS.md)（每轮必带真实命令与输出）。
 
+## 0.8.0 — `daily_project_brief` 工具
+
+- 新增工具 **`daily_project_brief`**：给 Agent 用，返回当前项目的简报（概念 / 资讯 / 建议）
+  与降级说明。名字带 `project` —— **`daily_brief` 早被"取今日日报"占用**（R57 我撞了名还不知道）
+- 修复 R57 的真实错误：新工具曾被我插进上一个 `defineTool(...)` 调用里（报
+  `Expected 1 arguments, but got 2`）；正确做法是**两次 `ctx.tools.register(...)` 之间**
+- 新增**守卫测试**：工具名必须唯一，且 `daily_brief` 与 `daily_project_brief` 同时存在
+
 ## 0.7.0 — 第三阶段第③期：简报进界面
 
 - 侧边栏新增「**简报**」视图（三个 tab：日报 / 调研 / 简报）：概念理解 / 相关资讯 / 进化建议

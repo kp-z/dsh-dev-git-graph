@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { describeBrief } from './brief.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { PLATFORM_LABEL } from './catalog.js'
 import { groupFindings } from './retrieve.js'
@@ -67,6 +68,61 @@ export function registerDailyTools(ctx: Context, service: DailyService): void {
 				const head = `今日日报 ${payload.date}：共 ${payload.total} 条，下面是最值得看的 ${payload.items.length} 条。`
 				const body = payload.items.map((item, i) => formatItem(item, i, now())).join('\n\n')
 				return `${head}\n\n${body}`
+			},
+		}),
+	)
+
+	// **名字不能叫 `daily_brief`** —— 那个名字已经被"取今日日报"占用了（R57 我撞了名还不知道，
+	// 只看到类型报错就去查类型，其实第一层问题是我把新工具插进了上一个 `defineTool(...)` 调用里）。
+	// 这次的插入点是**两次 register 之间**，并且名字带 `project` 以区分"日报"与"项目简报"。
+	ctx.tools.register(
+		defineTool({
+			name: 'daily_project_brief',
+			description:
+				'生成**当前项目的简报**：概念解释（帮我理解项目相关术语）+ 相关资讯（含主动检索到的）' +
+				'+ 进化建议（升级/采纳/规避）。**没有模型也有内容**：资讯由确定性相关性产出，' +
+				'概念与建议会写明"需要模型"，不会编造。默认复用缓存（项目画像没变就不重复花钱）。',
+			parameters: {
+				force: { type: 'boolean', description: 'true 时忽略缓存重新生成（会调用模型）。' },
+			},
+			output: {
+				schema: { type: 'string' },
+				render: (_args, value) => [{ type: 'text', text: value }],
+			},
+			async execute(args) {
+				const brief = await service.buildBrief({ force: args.force === true })
+				const lines = [`项目简报（${brief.date}）：${describeBrief(brief)}`, brief.model ? `模型：${brief.model}` : '模型：（未使用）', '']
+				if (brief.concepts.length > 0) {
+					lines.push('## 概念理解')
+					for (const c of brief.concepts) {
+						lines.push(`- **${c.term}**：${c.explain}`)
+						if (c.relation) lines.push(`    与项目的关系：${c.relation}`)
+					}
+					lines.push('')
+				}
+				if (brief.news.length > 0) {
+					lines.push('## 相关资讯')
+					for (const n of brief.news.slice(0, 10)) {
+						lines.push(`- [${n.source === 'research' ? '主动检索' : '日报'}] ${n.title}`)
+						lines.push(`    ${n.url}`)
+						if (n.why) lines.push(`    ${n.why}`)
+					}
+					lines.push('')
+				}
+				if (brief.advice.length > 0) {
+					lines.push('## 进化建议')
+					for (const a of brief.advice) {
+						lines.push(`- [${a.action}·${a.confidence}] ${a.title}`)
+						if (a.detail) lines.push(`    ${a.detail}`)
+						if (a.evidence.length > 0) lines.push(`    依据：${a.evidence.join(' / ')}`)
+					}
+					lines.push('')
+				}
+				for (const [key, reason] of Object.entries(brief.degraded)) {
+					const label = key === 'concepts' ? '概念' : key === 'advice' ? '建议' : key === 'news' ? '资讯' : key
+					lines.push(`⚠️ ${label}：${reason}`)
+				}
+				return lines.join('\n')
 			},
 		}),
 	)

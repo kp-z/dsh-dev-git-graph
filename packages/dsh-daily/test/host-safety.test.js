@@ -124,3 +124,16 @@ test('宿主契约 4：apply 是同步的，异步初始化必须 fire-and-forge
 	assert.ok(!/export function apply[\s\S]{0,400}?await /.test(src), 'apply 里不该 await（会卡住 profile 加载）')
 	assert.match(src, /void bootstrap\(/, '异步初始化应当用 void 明确 fire-and-forget')
 })
+
+test('宿主契约 6：工具名必须**唯一**（我为"项目简报"撞过名：daily_brief 已被"取今日日报"占用）', () => {
+	// 撞名不会让构建失败，但会让两个工具互相覆盖/行为不可预期。
+	// R57 我就是撞了名，却只盯着类型报错去查类型 —— 第一层问题其实是名字。
+	const toolsSource = readFileSync(path.join(root, 'src/tools.ts'), 'utf8')
+	const names = [...toolsSource.matchAll(/name:\s*'(daily_[a-z_]+)'/g)].map((m) => m[1])
+	assert.ok(names.length >= 14, `工具数看起来不对：${names.length}`)
+	const duplicates = names.filter((name, index) => names.indexOf(name) !== index)
+	assert.deepEqual(duplicates, [], `工具名重复：${duplicates.join('、')}`)
+	// 项目简报必须叫 daily_project_brief（与"取今日日报"的 daily_brief 区分开）
+	assert.ok(names.includes('daily_project_brief'), `项目简报工具应当存在：${names.join('、')}`)
+	assert.ok(names.includes('daily_brief'), '取今日日报的 daily_brief 不能被改名或删除')
+})
