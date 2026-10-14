@@ -1117,6 +1117,12 @@ button { font-family: inherit; }
 }
 
 /* 切到调研视图时藏起日报那几块（纯 CSS，不动既有 DOM） */
+.dd-app.is-brief .dd-filters,
+.dd-app.is-brief .dd-chips,
+.dd-app.is-brief .dd-search-wrap,
+.dd-app.is-brief .dd-unread-toggle,
+.dd-app.is-brief .dd-list,
+.dd-app.is-brief .dd-datebar { display: none; }
 .dd-app.is-research .dd-filters,
 .dd-app.is-research .dd-chips,
 .dd-app.is-research .dd-search-wrap,
@@ -1207,3 +1213,43 @@ button { font-family: inherit; }
   color: var(--dd-text-secondary, var(--dd-text));
   background: var(--dd-bg-hover, rgba(127,127,127,0.10));
 }
+
+/* ---------- 项目简报（第三阶段） ---------- */
+.dd-brief { padding: 0 10px 16px; }
+.dd-brief-head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 0; font-size: 12px; color: var(--dd-text-tertiary);
+}
+.dd-brief-title { font-weight: 600; color: var(--dd-text); flex: 1 1 auto; min-width: 0; }
+.dd-brief-meta { font-size: 11px; }
+.dd-brief-empty p { margin: 4px 0; font-size: 12px; line-height: 17px; }
+
+/* 概念：词卡 */
+.dd-concept {
+  padding: 7px 8px; margin-bottom: 6px;
+  border-left: 2px solid var(--dd-accent);
+  border-radius: 6px;
+  background: var(--dd-bg-hover, rgba(127,127,127,0.07));
+}
+.dd-concept-term { font-size: 13px; font-weight: 600; color: var(--dd-text); }
+.dd-concept-explain { margin: 2px 0 0; font-size: 12px; line-height: 17px; color: var(--dd-text); }
+.dd-concept-relation { margin: 3px 0 0; font-size: 11px; line-height: 15px; color: var(--dd-text-tertiary); }
+
+/* 建议：行动标签 + 依据 */
+.dd-advice { padding: 8px; margin-bottom: 6px; border: 1px solid var(--dd-border, rgba(127,127,127,0.18)); border-radius: 8px; }
+.dd-advice-head { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; }
+.dd-advice-action {
+  flex: 0 0 auto; font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 8px;
+  font-weight: 600; color: var(--dd-on-accent, #fff); background: var(--dd-accent);
+}
+.dd-advice-action.is-avoid { background: var(--dd-warn, #b26a00); }
+.dd-advice-action.is-learn { background: var(--dd-text-tertiary); }
+.dd-advice-title { font-size: 13px; font-weight: 600; color: var(--dd-text); flex: 1 1 auto; min-width: 0; }
+.dd-advice-detail { margin: 2px 0 0; font-size: 12px; line-height: 17px; }
+.dd-advice-evidence { margin: 3px 0 0; font-size: 11px; line-height: 15px; color: var(--dd-text-tertiary); }
+.dd-brief-note {
+  padding: 6px 8px; margin: 6px 0; border-radius: 6px; font-size: 11px; line-height: 15px;
+  color: var(--dd-text-secondary, var(--dd-text));
+  background: var(--dd-bg-hover, rgba(127,127,127,0.10));
+}
+.dd-brief-note b { font-weight: 600; }

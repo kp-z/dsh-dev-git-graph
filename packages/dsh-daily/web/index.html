@@ -110,9 +110,13 @@
   <div class="dd-views" role="tablist" aria-label="视图">
     <button type="button" class="dd-view-btn is-active" id="dd-view-daily" role="tab" aria-selected="true">日报</button>
     <button type="button" class="dd-view-btn" id="dd-view-research" role="tab" aria-selected="false">调研</button>
+    <button type="button" class="dd-view-btn" id="dd-view-brief" role="tab" aria-selected="false">简报</button>
   </div>
 
   <main class="dd-research" id="dd-research" hidden aria-live="polite"></main>
+
+  <!-- 项目简报（第三阶段）：概念 / 资讯 / 建议。降级时**如实写明**哪里没有模型，不编造 -->
+  <main class="dd-brief" id="dd-brief" hidden aria-live="polite"></main>
 
   <div class="dd-filters">
     <div class="dd-chips" id="dd-chips" role="tablist" aria-label="按主题筛选"></div>

@@ -26,6 +26,7 @@
   var API = {
     state: './api/state',
     findings: './api/findings',
+    brief: './api/brief',
     items: './api/items',
     feedback: './api/feedback',
     tune: './api/tune',
@@ -2014,6 +2015,8 @@
     el.viewDaily = $('dd-view-daily');
     el.viewResearch = $('dd-view-research');
     el.research = $('dd-research');
+    el.viewBrief = $('dd-view-brief');
+    el.brief = $('dd-brief');
     el.projectbar = $('dd-projectbar');
     el.projectName = $('dd-project-name');
     el.projectSource = $('dd-project-source');
@@ -2136,6 +2139,7 @@
     // 视图切换：日报 / 调研
     if (el.viewDaily) el.viewDaily.addEventListener('click', function () { setView('daily'); });
     if (el.viewResearch) el.viewResearch.addEventListener('click', function () { setView('research'); });
+    if (el.viewBrief) el.viewBrief.addEventListener('click', function () { setView('brief'); });
 
     // 按天翻阅（归档）
     el.datePrev.addEventListener('click', function () { stepDate(1); });
@@ -2250,17 +2254,139 @@
    */
   function setView(view) {
     state.view = view;
-    if (el.app) el.app.classList.toggle('is-research', view === 'research');
-    if (el.viewDaily) {
-      el.viewDaily.classList.toggle('is-active', view === 'daily');
-      el.viewDaily.setAttribute('aria-selected', String(view === 'daily'));
+    if (el.app) {
+      el.app.classList.toggle('is-research', view === 'research');
+      el.app.classList.toggle('is-brief', view === 'brief');
     }
-    if (el.viewResearch) {
-      el.viewResearch.classList.toggle('is-active', view === 'research');
-      el.viewResearch.setAttribute('aria-selected', String(view === 'research'));
-    }
+    var buttons = [
+      [el.viewDaily, 'daily'],
+      [el.viewResearch, 'research'],
+      [el.viewBrief, 'brief'],
+    ];
+    buttons.forEach(function (pair) {
+      var button = pair[0];
+      if (!button) return;
+      button.classList.toggle('is-active', view === pair[1]);
+      button.setAttribute('aria-selected', String(view === pair[1]));
+    });
     if (el.research) el.research.hidden = view !== 'research';
+    if (el.brief) el.brief.hidden = view !== 'brief';
     if (view === 'research') loadResearch();
+    if (view === 'brief') loadBrief();
+  }
+
+  /** 取上次的简报并渲染（不自动重跑：重跑要花模型调用）。 */
+  function loadBrief() {
+    if (!el.brief) return;
+    el.brief.setAttribute('aria-busy', 'true');
+    apiGet(API.brief)
+      .then(function (r) {
+        var data = r && r.data ? r.data : r;
+        renderBrief(data && data.brief);
+      })
+      .catch(function () { renderBrief(null); })
+      .then(function () { el.brief.setAttribute('aria-busy', 'false'); });
+  }
+
+  /**
+   * 渲染项目简报：概念 / 资讯 / 建议。
+   *
+   * **降级要显式**：`degraded` 里写明哪一段需要模型 —— 卡片不能空着让人以为"没内容"，
+   * 更不能拿模板拼一段看起来像建议的话（这是这个项目一贯的规矩）。
+   */
+  function renderBrief(brief) {
+    if (!el.brief) return;
+    clear(el.brief);
+
+    if (!brief || !brief.date) {
+      var empty = text('div', 'dd-brief-empty dd-empty');
+      empty.appendChild(text('p', null, '还没有简报。'));
+      empty.appendChild(
+        text('p', 'dd-empty-hint', '简报会针对**当前项目**给概念解释、相关资讯与进化建议；没有配置模型时，资讯仍会产出（其余两段会说明原因）。'),
+      );
+      var run = text('button', 'dd-btn', '生成简报');
+      run.type = 'button';
+      run.addEventListener('click', function () {
+        run.disabled = true;
+        run.textContent = '生成中…';
+        apiPost(API.brief, {}).then(function () { loadBrief(); });
+      });
+      empty.appendChild(run);
+      el.brief.appendChild(empty);
+      return;
+    }
+
+    var head = text('div', 'dd-brief-head');
+    head.appendChild(text('span', 'dd-brief-title', state.project && state.project.name ? state.project.name : '当前项目'));
+    head.appendChild(text('span', 'dd-brief-meta', brief.model ? '模型：' + brief.model : '未使用模型'));
+    var again = text('button', 'dd-btn dd-btn-ghost', '重新生成');
+    again.type = 'button';
+    again.addEventListener('click', function () {
+      again.disabled = true;
+      again.textContent = '生成中…';
+      apiPost(API.brief, {}).then(function () { loadBrief(); });
+    });
+    head.appendChild(again);
+    el.brief.appendChild(head);
+
+    // 降级说明放最上面：先让用户知道"哪段为什么没有"，再往下看内容
+    var degraded = brief.degraded || {};
+    Object.keys(degraded).forEach(function (key) {
+      var label = key === 'concepts' ? '概念' : key === 'advice' ? '建议' : key === 'news' ? '资讯' : key;
+      var note = text('div', 'dd-brief-note');
+      note.appendChild(text('b', null, label + '：'));
+      note.appendChild(document.createTextNode(degraded[key] || '未生成'));
+      el.brief.appendChild(note);
+    });
+
+    if ((brief.concepts || []).length > 0) {
+      el.brief.appendChild(text('h3', 'dd-dim-title', '概念理解（' + brief.concepts.length + '）'));
+      brief.concepts.forEach(function (concept) {
+        var card = text('div', 'dd-concept');
+        card.appendChild(text('div', 'dd-concept-term', concept.term || ''));
+        if (concept.explain) card.appendChild(text('p', 'dd-concept-explain', concept.explain));
+        if (concept.relation) card.appendChild(text('p', 'dd-concept-relation', '与项目的关系：' + concept.relation));
+        el.brief.appendChild(card);
+      });
+    }
+
+    if ((brief.news || []).length > 0) {
+      el.brief.appendChild(text('h3', 'dd-dim-title', '相关资讯（' + brief.news.length + '）'));
+      brief.news.forEach(function (item) {
+        el.brief.appendChild(buildFindingCard({
+          title: item.title,
+          url: item.url,
+          intro: item.why,
+          sourceLabel: item.source === 'research' ? '主动检索' : '日报',
+          query: '',
+          thumb: undefined,
+        }));
+      });
+    }
+
+    if ((brief.advice || []).length > 0) {
+      el.brief.appendChild(text('h3', 'dd-dim-title', '进化建议（' + brief.advice.length + '）'));
+      brief.advice.forEach(function (advice) {
+        var card = text('div', 'dd-advice');
+        var row = text('div', 'dd-advice-head');
+        var action = advice.action || '了解';
+        var badge = text('span', 'dd-advice-action' + (action === '规避' ? ' is-avoid' : action === '了解' ? ' is-learn' : ''), action);
+        row.appendChild(badge);
+        row.appendChild(text('span', 'dd-advice-title', advice.title || ''));
+        if (advice.confidence) row.appendChild(text('span', 'dd-finding-fallback', advice.confidence));
+        card.appendChild(row);
+        if (advice.detail) card.appendChild(text('p', 'dd-advice-detail', advice.detail));
+        if ((advice.evidence || []).length > 0) {
+          card.appendChild(text('p', 'dd-advice-evidence', '依据：' + advice.evidence.join(' / ')));
+        }
+        el.brief.appendChild(card);
+      });
+    }
+
+    if ((brief.concepts || []).length === 0 && (brief.news || []).length === 0 && (brief.advice || []).length === 0) {
+      var none = text('div', 'dd-brief-note', '这一段暂时没有内容：可能是今天没有与项目相关的条目，或尚未配置模型。');
+      el.brief.appendChild(none);
+    }
   }
 
   /** 取上次的调研结果并渲染（不自动重跑：重跑要花请求与 token）。 */
