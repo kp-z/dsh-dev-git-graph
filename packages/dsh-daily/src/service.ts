@@ -316,6 +316,40 @@ export class DailyService {
 	 * 依赖注入完成之后才拿得到。所以这里用"先建服务、后接线"的形状，
 	 * 也让 service 在单测里可以完全不接模型（不传就退化成"没有 AI 摘要"）。
 	 */
+	/** 宿主侧接线诊断（由宿主半体填）：llm 有没有、默认模型可读不可读、拿到了哪些服务。 */
+	private hostDiag: Record<string, unknown> = {}
+
+	setHostDiag(info: Record<string, unknown>): void {
+		this.hostDiag = info
+	}
+
+	/**
+	 * AI 诊断：**不调模型、不要求当天有条目**。
+	 *
+	 * 为什么必须存在：此前我想问"AI 到底能不能用"，只能去 `POST /api/ai`——
+	 * 那个接口会真的调模型重生成摘要，而且没有当天条目就直接拒绝回答。
+	 * 于是**在最需要诊断的时候（没数据、AI 不可用）它恰好什么都不说**。
+	 * 一个好的诊断不该依赖被诊断对象的健康状况。
+	 */
+	aiDiagnostics(): Record<string, unknown> {
+		const route = this.resolveAiRoute()
+		return {
+			configEnabled: this.config.aiSummaryEnabled,
+			hasStream: !!this.llmStream,
+			route: route ? `${route.provider}/${route.model}` : null,
+			// 一眼看出卡在哪一环：宿主没给 llm / 没给默认模型 / 都给了
+			verdict: !this.llmStream
+				? this.hostDiag.llmAvailable === false
+					? '宿主未提供 llm 服务'
+					: '未接线（宿主半体没有把 llm 递进来）'
+				: !route
+					? '宿主未提供默认模型（可在配置里显式指定 provider+model）'
+					: '可用',
+			host: this.hostDiag,
+			lastRun: this.lastAiRun,
+		}
+	}
+
 	setLlm(stream: StreamFn | null, defaultRoute?: () => AiRoute | null): void {
 		this.llmStream = stream
 		this.defaultRoute = defaultRoute ?? null

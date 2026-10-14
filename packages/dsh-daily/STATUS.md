@@ -2783,3 +2783,38 @@ POST /api/brief    → ok:true · model:'' · concepts:0 · advice:0 · news:10
 - 在此之前，界面应把 `degraded` 的这条原因**显示给用户**（我不该让人以为"介绍是假的"）。
 
 **本轮无产品代码改动 → 不发版**；`npm test` → **370 / pass 370 / fail 0**
+
+### R71 · 2026-10-14 15:06 — 让"宿主给了哪些服务"可见（发布 0.10.2）
+
+**R70 定下的下轮第一件事**：找出该宿主上 DSH 允许插件调用模型的正确途径。
+
+**先试了不需要部署的路（失败，但结论明确）**
+宿主上 `POST /api/refresh` 之后重新问 `POST /api/ai {action:'diag'}`，仍返回
+`{"ok":false,"error":"这一天还没有条目"}` —— 因为：
+1. 那台机器 **11 个源里 9 个 `fetch failed`**（网络受限）→ 今天**永远没有条目**
+2. 而我以为的"诊断接口" **根本不是诊断**：`/api/ai` 会真的调模型重生成摘要，
+   "没有条目"是它的**正确行为**，不是缺陷
+→ **两条叠加：在最需要诊断的时候（没数据、AI 不可用），它恰好什么都不说。**
+
+**改动**
+- `service.aiDiagnostics()`：**不调模型、不要求当天有条目**，直接回答：
+  `hasStream` / `route` / `configEnabled` / **`verdict`**（三种情况一句话说清卡在哪）
+- `POST/GET /api/ai`：`GET` 或 `POST {action:'diag'}` 走诊断（不调模型）；原来的"重生成摘要"语义不变
+- 宿主半体**列举能拿到的服务**（14 个候选名逐一 inject 探测）写进诊断 →
+  下次在宿主上就能看到 `host.availableServices`
+
+**证据（本地实测，数据目录是空的 —— 正是不该被数据挡住的那种场景）**
+```
+GET /api/ai  →
+{ "ok": true,
+  "diag": { "configEnabled": true, "hasStream": true,
+            "route": "fake-host/dev-host-model", "verdict": "可用",
+            "host": {}, "lastRun": null } }
+```
+（`host` 为空是预期的：dev-server 直接构造 service，没有 ctx。真实宿主上这里会有服务清单。）
+- `npm test` → **370 / pass 370 / fail 0** · typecheck 干净
+- 已发布 `@kpeace/dsh-daily@0.10.2`
+
+**宿主验证需要一次安装 + 重启**（host 侧代码改了对已运行进程无效）：
+`10.21.103.15` 上装 0.10.2 后重启 dsh，然后 `curl .../api/ai` 就会直接告诉我们
+**那台机器的 dsh 到底给插件哪些服务** —— 这是唯一还没拿到的一块拼图。

@@ -154,8 +154,11 @@ async function handleApi(
 				})
 			}
 			case 'ai': {
-				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 POST' })
+				// **诊断优先**：不调模型、不要求当天有条目（否则最需要诊断时它什么都不说）
+				if (req.method === 'GET') return sendJson(res, 200, { ok: true, diag: service.aiDiagnostics() })
+				if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: '只支持 GET / POST' })
 				const body = await readJsonBody(req)
+				if (body.action === 'diag') return sendJson(res, 200, { ok: true, diag: service.aiDiagnostics() })
 				const date = typeof body.date === 'string' && body.date ? body.date : undefined
 				// 会真的调模型（可能花 token），所以要求显式 POST；失败不影响已抓到的数据
 				const stats = await service.regenerateAiSummaries(date)

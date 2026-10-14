@@ -2,6 +2,15 @@
 
 本文件记录 dsh-daily 的每个可交付版本。开发期的**逐轮记录**在 [STATUS.md](STATUS.md)（每轮必带真实命令与输出）。
 
+## 0.10.2 — AI 诊断：让「宿主给了哪些服务」可见
+
+- 新增 `service.aiDiagnostics()` 与 `GET /api/ai`（或 `POST {action:'diag'}`）：
+  **不调模型、不要求当天有条目**，直接回答 `hasStream` / `route` / `verdict`（三种状态一句话说清卡在哪）
+- 宿主半体**列举能拿到的服务名**（14 个候选逐一探测）写进诊断 → 可在真实宿主上看到
+  `host.availableServices`，用于定位"宿主未提供 llm 服务"到底该换哪条途径
+- 起因：真实宿主上 route 拿到了但 llm 没有；而 `/api/ai` 并非诊断接口（它会真的调模型），
+  没数据时直接拒绝回答 —— **最需要诊断时它什么都不说**
+
 ## 0.10.1 — 修复 AI 接线（并让"宿主默认模型"这条路径可测）
 
 - **修复 AI 从未接上的真实原因**：接线代码用 `scoped.get('llm')` / `scoped.get('agentDefaultModel')`

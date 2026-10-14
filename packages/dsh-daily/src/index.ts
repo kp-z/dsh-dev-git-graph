@@ -259,6 +259,28 @@ async function bootstrapInner(
 		logger.info(
 			`AI 接线：llm=${llm ? '✅ 有' : '❌ 无'} · 默认模型=${probe ? `✅ ${probe.provider}/${probe.model}` : selectionGetter ? '⚠️ 服务在但当前没有选中模型' : '❌ 服务不可用'}`,
 		)
+		// **把"宿主上能拿到哪些服务"记下来**，随 /api/ai 诊断一起暴露。
+		// 起因：真实宿主上 route 拿到了、llm 却没有 —— 我需要知道那台机器到底给了什么，
+		// 而 DSH 侧是打包 asar、外面查不到。**先让它可见，再谈修**（本项目一贯做法）。
+		const candidates = [
+			'llm', 'agentDefaultModel', 'agentLoop', 'agents', 'models', 'model', 'ai',
+			'chat', 'completion', 'stream', 'tools', 'webServer', 'sessions', 'workspaceRegistry',
+		]
+		const availableServices: string[] = []
+		for (const name of candidates) {
+			try {
+				host.inject([name], () => {
+					availableServices.push(name)
+				})
+			} catch {
+				/* 拿不到就不列出来 */
+			}
+		}
+		service.setHostDiag({
+			llmAvailable: availableServices.includes('llm'),
+			routeAvailable: !!selectionGetter,
+			availableServices,
+		})
 	} catch (error) {
 		logger.warn(`AI 接线失败（AI 功能降级）：${error instanceof Error ? error.message : String(error)}`)
 	}
