@@ -11,10 +11,17 @@ import { createHttpHandler } from './router.js'
 import type { RouteEntry } from './router.js'
 import { apiRoutes } from './api.js'
 import type { ApiDeps } from './api.js'
+import { eventsRoutes } from './events.js'
 import { panelRoutes } from './panel.js'
+
+import type { EventSourcePort } from '../protocol/index.js'
 
 /** 建传输层需要的依赖。 */
 export interface HttpDeps extends ApiDeps {
+  /** 事件来源（SSE 从它订阅）。 */
+  source: EventSourcePort
+  /** SSE 心跳间隔（ms）。默认 15 秒；测试会调短。 */
+  heartbeatMs?: number
   /** 面板静态文件的根目录；默认取 `lib/web`（由 `scripts/copy-web.mjs` 从 `web/` 同步）。 */
   webRoot?: string
 }
@@ -24,9 +31,22 @@ function defaultWebRoot(): string {
   return fileURLToPath(new URL('../web/', import.meta.url))
 }
 
-/** 造完整路由表。顺序有意义：API 在前，面板兜后。 */
+/**
+ * 造完整路由表。
+ *
+ * 顺序有意义：SSE 与 API 在前（它们是精确路径），静态面板兜后（`/:file` 会吞掉单段路径）。
+ * 把面板放前面的话 `/api/events` 会被 `/:file` 先匹配走。
+ */
 export function buildRoutes(deps: HttpDeps): RouteEntry[] {
-  return [...apiRoutes(deps), ...panelRoutes(deps.webRoot ?? defaultWebRoot())]
+  return [
+    ...eventsRoutes({
+      source: deps.source,
+      service: deps.service,
+      ...(deps.heartbeatMs === undefined ? {} : { heartbeatMs: deps.heartbeatMs }),
+    }),
+    ...apiRoutes(deps),
+    ...panelRoutes(deps.webRoot ?? defaultWebRoot()),
+  ]
 }
 
 /**

@@ -147,8 +147,9 @@
 | M3-1b | ready | **`events.jsonl` 无上限增长**。现在只增不删：跑一整天就是几万行（每行一个事件）。需要一个轮转/压缩策略（按大小切分 + 保留 N 份，或定期把旧事件压成"里程碑摘要"）。**先记着不动**：还没有长跑的真实场景，而错误的分片策略比不分片更难改 | `src/store/worldStore.ts` + 决策记录 | M3-1 |
 | M3-1c | done | 关停路径的**同步刷盘**：`stop()` 里 `await` 出去的写在进程退出时可能跑不完，改用 `saveWorldSync`/`appendEventsSync`（fd + fsyncSync + renameSync） | `src/store/worldStore.ts`、`src/runtime/index.ts` | M3-1 |
 | M3-1d | ready | **`stateDir` 的相对基准**：目前按 `process.cwd()` 解析（与 `contentDir` 同源问题，见 M1.5-6）。配置注释写的是 `<session workspace>/<stateDir>/`，但 workspace 拿不到。**多工作区时任何自动挑选都是猜，猜错的症状是"存档写到别的项目里去了"** | 与 M1.5-6 合并处理 | M1.5-6 |
-| M3-4 | ready | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈。**替换掉面板现在的轮询** | `src/routes/events.ts` + 面板改成 `EventSource` | M3-3 |
-| M3-6 | ready | **面板的轮询改成 SSE 之后，删掉轮询分支**（R10 已补上 fetch 超时与「数据已过期 N 秒」提示，断线不再表现为「世界卡住」）；并给面板加一条"连不上时显示上次快照时间"——否则断线看起来像世界卡住 | `web/app.js` | M3-4 |
+| M3-4 | done | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈。**替换掉面板现在的轮询** | `src/routes/events.ts` + 面板改成 `EventSource` | M3-3 |
+| M3-4b | ready | **真实 socket 上的背压路径没有端到端测试**。慢客户端分支（`res.write` 返回 false → 断开）现在是用假 res 打进分支的——逻辑验到了，但"真的把 socket 灌满之后确实返回 false"这条没验。要端到端得让服务器 socket 的 `highWaterMark` 很小，或用不读的客户端灌数据；已记着，别当成已验 | `test/sse.test.js` | M3-4 |
+| M3-6 | ready | **面板的轮询改成 SSE（服务端已就绪）**（R10 已补上 fetch 超时与「数据已过期 N 秒」提示，断线不再表现为「世界卡住」）；并给面板加一条"连不上时显示上次快照时间"——否则断线看起来像世界卡住 | `web/app.js` | M3-4 |
 | M3-5 | done | 面板静态服务 `/agent-world/*`（MIME 白名单 + 路径穿越防护） | `src/panel.ts` | M3-2 |
 
 ## M4 — 3D 场景（three.js）（**R9 起卡在断网**：装不上 `three`，也搜不了现成场景）

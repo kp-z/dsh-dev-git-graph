@@ -10,7 +10,7 @@ import { test } from 'node:test'
 
 import { resolveConfig } from '../lib/config.js'
 import { createPluginState } from '../lib/state.js'
-import { createRuntime } from '../lib/runtime/index.js'
+import { createEventHub, createRuntime } from '../lib/runtime/index.js'
 import { createHandler } from '../lib/routes/index.js'
 import { HttpError, createHttpHandler, matchPath, readJsonBody } from '../lib/routes/router.js'
 import { resolveStaticPath } from '../lib/routes/panel.js'
@@ -37,8 +37,9 @@ function makeDeps() {
   service.ensureWorld()
   service.dispatch('task.quick-fix')
   const runtime = createRuntime({ service, tickMs: 100 })
-  const handler = createHandler(PREFIX, { service, runtime, tickMs: 100 })
-  return { service, runtime, handler }
+  const hub = createEventHub()
+  const handler = createHandler(PREFIX, { service, runtime, source: hub, tickMs: 100 })
+  return { service, runtime, hub, handler }
 }
 
 // ── 路径匹配 ────────────────────────────────────────────────────────────────

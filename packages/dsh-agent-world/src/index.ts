@@ -15,7 +15,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
 import { createHandler } from './routes/index.js'
-import { createRuntime } from './runtime/index.js'
+import { createEventHub, createRuntime } from './runtime/index.js'
 import { createWorldStore } from './store/index.js'
 import { createPluginState } from './state.js'
 import { registerDispatchTool } from './tools/dispatch.js'
@@ -90,9 +90,13 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     return
   }
 
+  // 事件广播：运行时往里**推**，SSE 订阅者往里**取**。同一个对象两副面孔。
+  const hub = createEventHub()
+
   const runtime = createRuntime({
     service: state,
     tickMs: state.tickMs,
+    sink: hub,
     ...(storeDir === null
       ? {}
       : {
@@ -128,7 +132,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
 
     const handler = createHandler(
       resolved.routePrefix,
-      { service: state, runtime, tickMs: state.tickMs },
+      { service: state, runtime, source: hub, tickMs: state.tickMs },
       (error, request) => {
         const detail = error instanceof Error ? error.message : String(error)
         logger.warn(`HTTP ${request.method} ${request.pathname} 出错：${detail}`)
@@ -140,7 +144,9 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     const dispose = webServer.register({ kind: 'prefix', path: resolved.routePrefix, handler })
     host.effect(() => dispose, 'agent-world: http routes')
 
-    logger.info(`面板与 API 挂在 ${resolved.routePrefix}/（同宿主地址）· API：${resolved.routePrefix}/api/world`)
+    logger.info(
+      `面板与 API 挂在 ${resolved.routePrefix}/（同宿主地址）· 快照 ${resolved.routePrefix}/api/world · 事件流 ${resolved.routePrefix}/api/events`,
+    )
   })
 
   const restored = state.restoredFrom()

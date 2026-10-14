@@ -21,6 +21,9 @@
  * "改一次代码多一个世界在跑"，而症状是 CPU 慢慢爬高——很难归因到某个插件。
  * 所以 `index.ts` 里用 `ctx.effect()` 挂清理，别依赖进程退出。
  */
+export type { EventHub } from './hub.js'
+export { createEventHub } from './hub.js'
+
 import { MESSAGE_DELIVERY_TICKS } from '../domain/constants.js'
 import type { WorldEvent } from '../domain/types.js'
 import type { WorldStore } from '../store/index.js'

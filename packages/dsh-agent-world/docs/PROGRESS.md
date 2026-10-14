@@ -27,7 +27,127 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R11 末）：`typecheck` 绿 · `test` 205/205 绿。
+当前验证状态（R12 末）：`typecheck` 绿 · `test` 218/218 绿。
+
+---
+
+## R12 — 2026-10-15 · SSE 事件流（M3-4，服务端）
+
+网络第六次确认仍断（`api.github.com` 仍是 `000`）。继续做不受网络影响的活，取 M3-4。
+
+**本轮只做服务端**：面板从轮询改成 `EventSource` 是 M3-6，留给下一轮。
+一次别贪——SSE 的服务端有三处容易错的地方（续传、泄漏、背压），值得单独一轮做透。
+
+### 做了什么
+
+**`src/runtime/hub.ts`** —— 事件广播。它同时是出口（模拟内核往里丢）与入口（订阅者从它取）。
+
+关键约束：**`publish` 是同步的，而且它跑在模拟循环里**。所以：
+
+- 每个订阅者单独 try/catch——一个坏订阅者不能让别人收不到事件，更不能把模拟循环带崩；
+  但**刻意不假装没发生**：`listenerErrors` 计数留着。
+- 遍历前把订阅者**快照成数组**：订阅者可能在回调里取消订阅（连接刚好断开），
+  直接遍历 `Set` 会在迭代中途改变集合——那是最难复现的一类 bug。有测试专门打这条。
+
+**`src/routes/events.ts`** —— `GET /api/events`。三件必须自己做的事：
+
+1. **`id:` 带 `seq`**。浏览器断线重连会自动带 `Last-Event-ID`，服务端据此补发——
+   这就是"gap 自愈"的服务端一半（客户端那一半 `hasSeqGap` 早就写好并有测试）。
+   **补得了就补，补不了就明说**：客户端给的 seq 已经滚出环形缓冲时，发一条 `reset`
+   让它重新拉快照。假装能补的后果是客户端**静默**丢一段历史。
+2. **慢客户端断开，不缓冲**。`res.write` 返回 false 说明内核缓冲满了，继续写就是让内存
+   随一个卡住的浏览器无限增长。断开更好——重连会带来一次续传。
+   这也正是广播层的 `publish` 能保持同步的前提。
+3. **心跳注释**。世界暂停时没有事件，长连接会被中间层掐掉，所以定期发 `: ping`。
+
+**清理是硬要求**：`req`/`res` 的 `close`/`error` 都挂 `finish`，摘订阅 + 清心跳。
+不摘的话热重载会泄漏订阅者，症状是"每改一次代码，模拟循环要推的客户端多一个"——
+和 R7 那个定时器泄漏同类。有测试断言**断开后 `subscriberCount` 回到 0**。
+
+**装配**：`index.ts` 建一个 hub，同一个对象既当运行时的 `sink` 又当路由的 `source`。
+路由表顺序也调了：SSE 与 API 在前、静态面板兜后——不然 `/api/events` 会被 `/:file` 先吞掉。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 218 / pass 218 / fail 0
+```
+
+205 → **218**（新增 `test/sse.test.js`）。除了单测，还**用真实 HTTP 服务器 + curl 走了一遍真链路**：
+
+```
+: agent-world v1                                    ← 握手注释
+data: {"v":1,"type":"hello","seq":133}              ← 当前 seq
+retry: 3000
+id: 133
+data: {"v":1,"type":"events","events":[{"seq":133,...}]}
+```
+
+带 `Last-Event-ID: 2` 再连一次，服务端**真的补发了 seq 3 起的全部事件**——
+续传不是"写了没验"的代码。
+
+测试盯的三处（都是这一层真正容易错的地方）：
+
+- **续传三态**：还在缓冲里 → 补得正好（多补会重复应用、少补会静默丢历史）；
+  太旧 → `reset` 且**不假装补得齐**；比服务端还新 → 什么都不补也不报错。
+- **泄漏**：连接断开后订阅数回到 0（两条测试，一条专测）。
+- **背压**：`res.write` 返回 false 之后必须摘订阅、说明原因、`end()`。
+
+**三处是我自己写错、被测试逼回来的**（值得记，因为都发生在测试侧）：
+
+1. 解析 SSE 帧时只认注释与 `data:`，于是 `retry: 3000` 被解析成一个空帧混进 `frames[0]`，
+   让几条断言对着错的东西发火。教训：**测试也要按帧类型挑，不能数帧数**。
+2. 断言"连接关掉之后订阅必须摘干净"时没有等服务端处理断开（那是异步的）——
+   测试太急，不是实现没摘。改成轮询到期限内。
+3. 用中文当 `Last-Event-ID` 的值，被 undici 直接拒掉（HTTP header 只允许 ISO-8859-1）。
+   红在 `fetch` 而不是在实现上。
+
+### 下一轮从哪继续
+
+**M3-6：把面板从轮询改成 `EventSource`**（服务端已经就绪）。具体：
+
+1. `web/app.js` 的 `poll()` 拆成两半：**初始拉一次快照**（`GET /api/world`），
+   之后只靠 `EventSource('/agent-world/api/events')` 推增量。
+2. 增量要**真的应用**到本地世界：`world.tick`（位置，元组数组 `[id,x,z,facing]`）、
+   `agent.state`、`task.changed`、`message.sent`。载荷形状见 `docs/PROTOCOL.md` §4.4。
+3. **gap 自愈的客户端一半**：收到 `reset`、或者 `EventSource` 重连成功时，
+   重新拉一次快照（`hasSeqGap` 可用来判断本地的累积是否还连续）。
+4. 保留 R10 加的 **fetch 超时**与**"数据已过期 N 秒"**提示——换成 SSE 之后
+   "多久没收到事件"仍然要显示，只是判据从"多久没拉到快照"变成"多久没收到心跳/事件"。
+5. 轮询分支要**删掉**，不要留着当后备——两条路都活着就会有两个真相。
+
+再之后：**M1.6-7**（JSON 路径安全，M4 加载 GLB 之前必须落地）。
+
+### 假设
+
+- **`hasSeqGap` 的语义是"只判倒退与完全相同"**（跨度过大不算断裂）。所以服务端补发时
+  只要发出的 seq 单调递增，客户端就不会误判。这条假设写在 `protocol/wire/messages.ts`
+  的注释里，本轮没有改它。
+- **心跳 15 秒**是经验值：比大多数反代的空闲超时短，又不至于占带宽。
+  已经做成可配（`eventsRoutes({ heartbeatMs })`），测试用 40ms。
+- **`retry: 3000`** 由服务端给：重连间隔属于服务端的部署属性，不该由浏览器默认值决定。
+
+### 卡住 / 风险
+
+- **网络第六次确认全断**。M4 依然只能等用户拍板（路 A 修网络 / 路 B vendoring `three@0.167.1`）。
+  剩余不受网络影响的活：M3-6（面板换 SSE）→ M1.6-7 → M2.6 系列。**做完这些，除 M4 之外
+  就没有可做的了**。
+- **真实 socket 上的背压路径没有端到端测试**（M3-4b）。慢客户端分支是用假 res 打进分支的——
+  逻辑验到了，但"真的把 socket 灌满之后 `write` 确实返回 false"这条没验。
+  已明确记着，**不当作已验**。
+- **面板此刻同时有两条可能的路**：轮询（现在在用）与 SSE（已就绪但没人连）。
+  在 M3-6 落地之前，`/api/events` 是"建好但没人用"的状态——这正是我在 M2.5-2 批评过的形态，
+  所以它**必须**在下一轮接上，不能停在这里。
+
+### 本轮产出
+
+- 新增：`src/runtime/hub.ts`、`src/routes/events.ts`、`test/sse.test.js`
+- 修改：`src/routes/index.ts`（挂 SSE + 路由顺序 + `heartbeatMs`）、`src/runtime/index.ts`（转出 hub）、
+  `src/index.ts`（装配 hub，同一个对象两副面孔）、`test/http.test.js`（补 `source`）
+- 文档：`ARCHITECTURE.md`（决策 D26）、`BACKLOG.md`（M3-4 done、M3-4b 新增、M3-6 更新）
+- 测试从 205 → 218
 
 ---
 
