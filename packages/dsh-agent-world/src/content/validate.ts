@@ -18,19 +18,17 @@ import type {
 import { LIBRARY_SPECS } from './kinds.js'
 import type { ContentPack, LibraryKind, PackManifest } from './kinds.js'
 import { CONTENT_SCHEMA_VERSION } from './kinds.js'
+import type { ContentIssue, IssueLevel } from '../protocol/ports/content.js'
 
-/** 校验级别。`error` 会阻止加载；`warning` 只提示。 */
-export type IssueLevel = 'error' | 'warning'
-
-/** 一条校验结果。 */
-export interface Issue {
-  level: IssueLevel
-  /** 出问题的内容包 id；与具体包无关（比如包依赖缺失）时为 null。 */
-  pack: string | null
-  /** 位置，形如 `tasks/task.software-feature.tasks[2].dependsOn`。 */
-  where: string
-  message: string
-}
+/**
+ * 校验结果。**形状定义在协议层**（`protocol/ports/content.ts`），这里只转出——
+ * 因为工具与面板要读它，而它们不该 import 内容层（决策 D16）。
+ *
+ * 保留 `Issue` 这个名字是有意的：它在内容层读写起来更顺，而且它与 `ContentIssue`
+ * 是**同一个类型**（不是两份定义），所以不存在漂移风险。
+ */
+export type { IssueLevel }
+export type Issue = ContentIssue
 
 /** 可用取值表——报错时要列出来，光说"不合法"帮不上忙。 */
 const CAPABILITIES: readonly Capability[] = [

@@ -31,6 +31,123 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 
 ---
 
+## R4 — 2026-10-14 · 契约层：模块之间只通过协议通信，且由机器强制
+
+**本轮目标**（用户反馈驱动）："要各个模块解耦定好自己的协议或者 protobuf 通信，模块之间使用协议通信禁止耦合。"
+
+### 先给结论：为什么不是 protobuf
+
+用户说的是"定好自己的协议**或者** protobuf"。我的判断是**协议要，protobuf 现在不要**，理由不是省事：
+
+1. **进程内的模块之间不该序列化**。`domain`/`content`/`world`/`sim` 之间是同进程函数调用，
+   套一层 protobuf 只白付编解码开销，还会**丢掉 tsc 的类型检查**——而类型检查才是进程内解耦
+   真正依赖的东西。"禁止耦合"靠的是边界规则，不是序列化。
+2. **跨进程没有带宽压力**：10Hz tick、≤24 个角色，JSON 的代价测不出来；而 devtools 里能直接读。
+3. protobuf 要多一套 `.proto` + codegen + 产物入库，而本仓库对"新增文件进 profile"本来就有坑。
+
+**但把接缝留好了**：业务代码只调 `codec.encode/decode`，从不碰 JSON。换 protobuf = 改 `wire/codec.ts` 一个文件。
+**换的判据也写下来了**（不是拍脑袋）：单条消息常态 >64KB、事件频率 >100Hz、或出现非 JS 客户端。
+
+### 做了什么
+
+1. **边界检查器（本轮最有价值的东西）**。规则写成**数据**（`src/protocol/boundaries.ts`），
+   `test/boundaries.test.js` 去**读源码、解析每个文件的 import、逐条判定**，违规打印模块名 +
+   违规的 import + 当初写下的理由。三条规定被真正钉住：
+   - **`sim/` 不许 import `content/`** —— 模拟内核只认装配好的 `World`；
+   - **`tools/` 只许 import `protocol/`**；
+   - **`web/` 只许 import `protocol/`**。
+2. **当场抓到一处真耦合**：`src/tools/world.ts` 写着 `import type { PluginState } from '../state.js'`。
+   已改成只认 `WorldServicePort` 端口——现在塞一个手写的假端口就能给工具写单测。
+3. **端口**：`WorldServicePort`（工具↔状态）、`ContentPort`（工具↔内容，实现在 `content/port.ts`）、
+   `EventSinkPort`（sim↔外部，M2 接）。端口里**不许出现实现类型**——否则消费方又被迫认识具体实现，
+   端口就退化成多余的间接层。
+4. **线协议**：六种消息（hello/snapshot/events/command/ack/error）+ 六种命令 + JSON codec。
+   版本是**单整数、严格相等**，且**不匹配在形状检查之前就拒绝**（否则用户会以为是数据坏了）。
+5. **两条设计教训（都是本轮自己踩的）**：
+   - **规则自相矛盾**：第一版禁止 `protocol` import 任何模块，结果 `wire/messages.ts` 连
+     `World` 这个**类型**都 import 不了——而世界的形状本来就是契约一部分。
+     于是规则加了 `mayImportTypes` 维度，检查器区分 `import` 与 `import type`（擦除，无运行时依赖）。
+   - **契约层的类型必须自持**：`boundaries.ts` 一开始 import 了 `content/kinds.js` 的 `LibraryKind`
+     ——契约层 import 业务模块，缝就没了。把 `LibraryKind` 上提到 `protocol/library-kinds.ts`，
+     内容层反过来 import 它（content → protocol 是允许方向）。
+6. **排版与词汇表上提到契约层**（`protocol/format.ts` / `format-text.ts`）：
+   工具输出与 HUD 要用同一套文案与同一份中文标签。放在 domain 层则 web 够不着（web 只许 import protocol），
+   复制两份则必然出现"工具说『进行中』、HUD 说『运行中』"这种最难发现的同义异形。
+   世界模型现在只负责"数字是多少"。
+7. `docs/PROTOCOL.md`：三层协议、边界表、端口设计两条规矩、加模块/加消息的步骤、常见错误表。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 70 / pass 70 / fail 0
+```
+
+49 → **70**（含 M1.5-4 的 `agent_world_content` 工具测试）。新增 21 个里最该看的是这几条：
+
+- **检查器本身被检查**：先用 7 组**人造违规**验证它真的会红（`sim` 值 import `content`、
+  `tools` import `state`、`domain` import `node:fs`…），再去检查真实代码。
+  **一个"永远返回 0 违规"的检查器是有害的**——它给人虚假的安全感。
+- **豁免只对那一个文件有效**：`content/load-files.ts` 用 `node:` 允许，`content/registry.ts` 用 `node:` 报错。
+- **import 提取要分清类型与值**：多行 `import type {`、`export type { … } from`、
+  副作用导入 `import '../panel.js'`、以及 `import typewriter from './z.js'`（不能把 `type` 当关键字切）。
+- **协议层与内容层的库清单必须一一对应**（`LIBRARY_KINDS` vs `LIBRARY_SPECS`）——
+  不一致的症状是"面板按协议层遍历，静默地少显示一栏"。
+- **版本不匹配要在形状检查之前拒绝**：故意发一个"版本错且缺 world 字段"的 snapshot，
+  断言报的是 `protocol-mismatch` 而不是 `bad-shape`（报错的种类会决定排查方向）。
+- **每一条边界规则都指向真实存在或明确登记为 planned 的模块**，且 `rationale` 不能太短。
+  加新目录却忘了登记规则 → 检查器会**直接跳过它**（`moduleOfPath` 返回 null），违规不会被发现。
+
+一处实现被测试纠正的记录：`resolveImportTarget('./state.js', 'tools/world.ts')` 我原本断言是 `app`，
+实现给的是 `tools`。**实现是对的**（`./state.js` 从 `tools/` 出发就是 `tools/state.js`；
+指向组合根的是 `../state.js`）。改的是测试。
+
+### 下一轮从哪继续
+
+**M2-1：`src/sim/ready.ts` 的依赖求值**（唯一实现点：`blockedBy` 全 done ⇒ `pending → ready`）。
+按这个顺序推进 M2：
+
+1. `src/sim/ready.ts`（M2-1，先做它因为调度器依赖它）→ 立刻加测试。
+2. `src/sim/step.ts`（M2-3）严格按六段顺序：`ingest → scheduler → movement → interaction → mailbox → emit`。
+   命令类型**已经有了**（`protocol/wire/commands.ts`，M2-2 已完成，别再造一份）。
+   emit 段往 `EventSinkPort`（`protocol/ports/events.ts`）里丢，**不许直接调 runtime** —— 那会把
+   模拟内核焊死在"一定有个 HTTP 服务器"上，而它的一半价值恰恰是可以 headless 跑。
+3. 然后 scheduler / movement / mailbox（M2-4/5/6），每个模块写完立刻加测试。
+4. M2-8 收口：`test/determinism.test.js` 同 seed 跑 1000 tick 两次逐字节一致。
+5. `src/sim/` 是**新模块**：动手前先确认 `boundaries.ts` 里已有它的规则（已有），
+   并且它只许 import `protocol` 与 `domain`——**不许** import `content`/`world`/`store`/`runtime`。
+
+### 假设
+
+- **协议只有我们自己两端**，所以版本策略取严格的单整数相等，不做向后兼容层。
+  出现第三方客户端时这条要重新评估（见 PROTOCOL.md §4.2）。
+- **`web/` 还没建**，所以"web 只许 import protocol"那条测试目前是空转（目录不存在就跳过）。
+  它会在 M4 建 `web/` 的那一刻开始生效——**这是刻意的**：规则先生效于未来，而不是等违规出现再补。
+- 端口方法的判据是"能被手写假实现满足"。做不到就说明这个方法切错了位置。
+
+### 卡住 / 风险
+
+- **边界检查器有一个已知盲区**：`moduleOfPath` 返回 null 的目录会被**静默跳过**。
+  也就是说"新建一个模块目录但忘了在规则表登记"不会被发现。已有测试检查"规则表里的模块都真实存在"，
+  但**反方向没有检查**（真实存在的目录都在规则表里）。已排成 M1.6-8。
+- **路径安全边界仍未处理**（R2 就记过，R4 仍未动）：`ModelEntry.source.url` 可以是任意字符串。
+  M4 真正加载 GLB 之前必须限制成包内相对路径并禁 `http://` 与 `../`。已排成 M1.6-7。
+- 线协议的**编解码器只有 JSON 实现**，protobuf 只是"接缝留好了"，不是"已经能用"。
+  别把 PROTOCOL.md §4.4 读成"我们支持 protobuf"——它说的是"换起来是改一个文件"。
+
+### 本轮产出
+
+- 新增：`src/protocol/`（`version` `boundaries` `library-kinds` `format` `format-text`
+  `ports/{content,events,world-service}` `wire/{commands,messages,codec}` `index`）、
+  `src/content/port.ts`、`test/boundaries.test.js`、`test/protocol.test.js`、`docs/PROTOCOL.md`
+- 重构：`src/tools/world.ts`（只认端口 + 新增 `agent_world_content` 工具）、`src/state.ts`
+  （实现 `WorldServicePort`）、`src/domain/summary.ts`（只留取数，排版搬走）、
+  `src/content/{kinds,validate}.ts`（契约类型上提）
+- 测试从 49 → 70；顺带补完 M1.5-4（`agent_world_content` 工具）
+
+---
+
 ## R3 — 2026-10-14 · 外部内容包：用户改内容就能改世界
 
 **本轮目标**（M1.5-1/2/3/5）：让"内容可替换"从"改源码里的包"变成"往目录里放 JSON"。

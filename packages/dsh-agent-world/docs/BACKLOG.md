@@ -50,13 +50,34 @@
 | M1.5-5 | done | 端到端验证：临时 workspace 放一个外部包顶掉小镇布局，`createWorld` 出来的世界确实变了 | `test/external-pack.test.js` | M1.5-2 |
 | M1.5-6 | ready | **相对路径的解析基准**：目前相对 `contentDir` 按 `process.cwd()` 解析，不支持"相对当前 session 的 workspace"。`workspaceRegistry` 只有 `list()`/`resolveByPath()`，没有"当前是哪个"的概念，多工作区时任何自动挑选都是猜（猜错的症状是读到别的项目的包）。要做的话得先查清 session→workspace 的绑定从哪拿 | 先写调研结论再动手；建议先把它做成显式配置 `contentRoot` | M1.5-2 |
 
+## M1.6 — 契约层（模块协议）✅
+
+> "模块之间使用协议通信，禁止耦合。"这一层把"协议"落成三样东西：**端口**（进程内）、
+> **线协议**（跨进程）、**边界规则**（依赖方向），并用 `test/boundaries.test.js` 读源码强制。
+
+| # | 状态 | 任务 | 产出 | 依赖 |
+|---|---|---|---|---|
+| M1.6-1 | done | 协议版本与兼容判定（单整数、严格相等、破坏性改动必须 bump） | `src/protocol/version.ts` + 测试 | M1-5 |
+| M1.6-2 | done | 模块边界规则（数据）+ **强制检查器**：解析每个文件的 import，区分类型/值导入，违规即红 | `src/protocol/boundaries.ts` `test/boundaries.test.js` | M1-5 |
+| M1.6-3 | done | 端口：`WorldServicePort`（工具↔状态）、`ContentPort`（工具↔内容）、`EventSinkPort`（sim↔外部） | `src/protocol/ports/*.ts` `src/content/port.ts` | M1.6-2 |
+| M1.6-4 | done | 线协议：六种消息 + 命令联合 + JSON codec（换 protobuf 的接缝）+ seq gap 判据 | `src/protocol/wire/*.ts` + 测试 | M1.6-1 |
+| M1.6-5 | done | **把工具改成只认端口**：删掉 `tools → state.ts` 的耦合；排版与词汇表上提到契约层（工具与 HUD 共用一份） | `src/tools/world.ts` `src/protocol/format*.ts` | M1.6-3 |
+| M1.6-6 | done | `docs/PROTOCOL.md`：三层协议、边界表、加模块/加消息的步骤、为什么现在不做 protobuf | `docs/PROTOCOL.md` | M1.6-5 |
+
+遗留（不阻塞 M2，但别忘）：
+
+| # | 状态 | 任务 | 产出 | 依赖 |
+|---|---|---|---|---|
+| M1.6-7 | ready | JSON 里的路径安全边界：`ModelEntry.source.url` 现在可以是任意字符串。限制成**包内相对路径**并禁 `http://` 与 `../`。**M4 真正加载 GLB 之前必须落地**，否则就是一个"内容包能指向任意 URL"的口子 | `src/content/validate.ts` 的路径校验 + 测试 | M4-8 之前 |
+| M1.6-8 | ready | 边界检查器的**反向盲区**：`moduleOfPath()` 返回 null 的目录被静默跳过，所以"新建模块目录但忘了在规则表登记"不会被发现。加一条检查：`src/` 下每个一级目录都必须在 `BOUNDARY_RULES` 里（或登记为允许忽略） | `test/boundaries.test.js` | M1.6-2 |
+
 ## M2 — 模拟内核（**技术上最硬的一块**）
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M2-1 | blocked | 依赖求值：`blockedBy` 全 done ⇒ `pending→ready`（**唯一实现点**） | `src/sim/ready.ts` + 测试 | M1-5 |
-| M2-2 | blocked | 命令类型：`pause`/`resume`/`reset`/`dispatch`/`hire`（`step()` 的第三个参数） | `src/domain/commands.ts` | M1-5 |
-| M2-3 | blocked | `step(world, dt, commands)` 纯函数：ingest→scheduler→movement→interaction→mailbox→emit | `src/sim/step.ts` | M2-1 M2-2 |
+| M2-1 | ready | 依赖求值：`blockedBy` 全 done ⇒ `pending→ready`（**唯一实现点**） | `src/sim/ready.ts` + 测试 | M1-5 |
+| M2-2 | done | 命令类型（`pause`/`resume`/`reset`/`dispatch`/`hire`/`setSpeed`）——**已在 M1.6-4 落到协议层**，不再单独造一份 | `src/protocol/wire/commands.ts` | M1.6-4 |
+| M2-3 | ready | `step(world, dt, commands)` 纯函数：ingest→scheduler→movement→interaction→mailbox→emit | `src/sim/step.ts` | M2-1 M2-2 |
 | M2-4 | blocked | 调度器：idle agent 原子 claim 一个 ready task，按 `requires` 的 capability 选站 | `src/sim/scheduler.ts` + 测试 | M2-3 |
 | M2-5 | blocked | 移动：沿路径走向站点，到站切 working（用 `stationSlot` 吸附） | `src/sim/movement.ts` + 测试 | M2-3 |
 | M2-6 | blocked | 邮箱：消息投递 + 事件产出 | `src/sim/mailbox.ts` + 测试 | M2-3 |

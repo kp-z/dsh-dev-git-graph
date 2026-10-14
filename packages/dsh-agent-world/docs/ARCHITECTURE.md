@@ -114,6 +114,35 @@ web/      渲染：直接 import domain 拿类型，不复制
 **依赖单向向上，没有环。** `domain` 不许 import `content`——一旦反过来，
 就再也没法单独测"世界模型"这一层了。加新东西时按这个方向放。
 
+### 2.3 模块协议：**只通过契约通信，且由机器强制**
+
+上面那张依赖图只是"方向"，还不够——它没规定 `tools/` 能不能直接 import `state.ts`。
+所以在 R4 加了一层**契约层** `src/protocol/`，并把它变成有强制力的规则：
+
+| 层 | 治什么 | 谁强制 |
+|---|---|---|
+| **端口（port）** `protocol/ports/` | 同进程模块之间的调用面（接口 + 语义 + 类型） | tsc + 边界测试 |
+| **线协议（wire）** `protocol/wire/` | host ↔ 浏览器：消息、版本、编解码 | `WireDecodeError` + 测试 |
+| **边界规则** `protocol/boundaries.ts` | 谁能 import 谁、谁不许碰什么依赖 | `test/boundaries.test.js`**读源码判定** |
+
+**"禁止耦合"不被检查就只是口号。** 规则写成数据，测试真的去解析每个文件的 import
+并逐条判定；违规会打印出模块、违规的 import、以及当初写下的理由。
+完整规范见 [`PROTOCOL.md`](PROTOCOL.md)。
+
+三条最关键的禁令：
+
+1. **`sim/` 不许 import `content/`** —— 模拟内核只认**已经装配好的 `World`**。
+   一旦它 import 内容库，"换一套内容就得动模拟逻辑"，§2.1 那层就白拆了。
+2. **`tools/` 只许 import `protocol/`** —— 工具通过**端口**拿东西。
+   改这条之前 `tools/world.ts` 里写着 `import type { PluginState } from '../state.js'`，
+   那就是耦合：给工具写单测要伪造整个插件状态。
+3. **`web/` 只许 import `protocol/`** —— 宿主机与浏览器之间那道缝只留一条。
+
+**类型导入与值导入分开治理**：`import type` 编译期被完全擦除，不产生运行时依赖，
+所以它可以跨过值导入不许跨的线（`protocol/wire/messages.ts` 需要 `World` 这个**类型**，
+因为世界的形状本来就是契约的一部分）。这是写完第一版规则后自己踩到的坑——
+一刀切禁止会导致连"世界长什么样"都写不进协议。
+
 ---
 
 ## 3. 世界模型（Domain Model）
@@ -337,7 +366,8 @@ Scene
 |---|---|---|
 | **M0** ✅ | 骨架：包结构、patch、世界模型类型、工具、`node --test` | `pnpm typecheck` 绿 + 测试全绿 |
 | **M1** ✅ | **内容库层**：十个库的类型与校验、注册表（提供方链/显式覆盖）、内置内容包 | 覆盖与切换的机制有测试证明；`CONTENT.md` 定稿 |
-| **M1.5** | 外部内容包：`<workspace>/.agent-world/content/` 加载 | 用户放一个 JSON 目录就能换小镇 |
+| **M1.5** ✅ | 外部内容包：`contentDir` 指过去即生效 | 用户放一个 JSON 目录就能换世界 |
+| **M1.6** ✅ | **契约层**：端口 / 线协议 / 边界规则 + 强制检查 | `test/boundaries.test.js` 能抓到人造违规；真实源码零违规 |
 | **M2** | 模拟内核：纯函数 tick / 依赖求值 / 调度器 / 移动 / 邮箱 | 同 seed 跑 1000 tick 两次结果逐字节一致 |
 | **M3** | 落盘（`world.json`）+ HTTP 快照 + SSE 事件流 | curl 能拿到快照与事件流；gap 能自愈 |
 | **M4** | three.js 场景：小镇、站点、相机、光照 | 浏览器里能看到小镇 |
@@ -356,6 +386,13 @@ packages/dsh-agent-world/
 ├── src/                     host 插件（TS）
 │   ├── index.ts             入口：name / inject / apply
 │   ├── config.ts            schemastery 配置
+│   ├── protocol/            ★ 契约层：端口 / 线协议 / 边界规则（唯一的通信面）
+│   │   ├── boundaries.ts    模块边界规则（数据；由测试强制）
+│   │   ├── ports/           WorldServicePort / ContentPort / EventSinkPort
+│   │   ├── wire/            消息、命令、编解码（换 protobuf 的接缝）
+│   │   ├── format.ts        展示词汇表（工具与 HUD 共用，避免同义异形）
+│   │   ├── format-text.ts   世界状态的文本排版（工具与 HUD 共用）
+│   │   └── library-kinds.ts 库名联合类型（边界类型，不住在内容层）
 │   ├── content/             ★ 内容库层（机制之外的一切）
 │   │   ├── kinds.ts         十个库的类型定义 + 库目录
 │   │   ├── validate.ts      单包自洽校验 + 依赖环检测
@@ -376,6 +413,7 @@ packages/dsh-agent-world/
 ├── docs/
 │   ├── ARCHITECTURE.md      本文
 │   ├── CONTENT.md           内容库规范（十个库 / 包 / 校验 / 三种操作）
+│   ├── PROTOCOL.md          模块协议规范（端口 / 线协议 / 边界规则）
 │   ├── ASSETS.md            资产、库版本与美术配方
 │   ├── BACKLOG.md           轮次任务队列
 │   └── PROGRESS.md          轮次台账
@@ -423,3 +461,7 @@ packages/dsh-agent-world/
 | D13 | 内容分**语义库**（host 权威）与**表现库**（web 权威），但共享同一套 id 契约与同一个注册表实现 | 拆成两套机制就会开始漂移。表现库在 host 侧缺失时相关校验自动跳过（host 可能没装表现库） | R2 |
 | D14 | **内置内容包编译进代码**（TS 常量），**外部内容包走文件系统** | 本仓库 `file:` 依赖是硬链接副本，**新增文件不会被同步进 profile**（DEVELOPMENT.md §7）；而插件树加载失败会让整个 dsh 起不来。内置走编译避免踩坑，外部走文件系统保证用户可替换 | R2 |
 | D15 | 内容校验只做**引用完整性与声明一致性**，不做类型校验；报错必须给出可用取值 | 类型是 tsc 的活。校验要抓的是 tsc 抓不到、运行时又难定位的错误（站点引用不存在的地块、某状态没有动作、任务依赖成环）。文案是给内容作者看的，"引用无效"四个字帮不了任何人 | R2 |
+| D16 | **模块之间只通过 `protocol/` 通信**：端口（进程内）+ 线协议（跨进程）+ 边界规则；**边界由 `test/boundaries.test.js` 读源码强制**，违规即红 | "禁止耦合"不被检查就只是口号。规则写成数据、测试真的去解析 import 逐条判定，才能挡住后来的人（包括未来的我们）顺手 import 一下。三条最关键的：`sim/` 不许 import `content/`、`tools/` 只许 import `protocol/`、`web/` 只许 import `protocol/` | R4 |
+| D17 | **现在不做 protobuf**，但把接缝留在 `wire/codec.ts`（业务代码只调 `encode/decode`，不碰 JSON） | ① 进程内模块间是同进程函数调用，套 protobuf 白付编解码开销还**丢掉 tsc 类型检查**，而类型检查才是进程内解耦真正依赖的东西——"禁止耦合"靠边界规则，不靠序列化；② 跨进程 10Hz / ≤24 角色，JSON 的带宽代价测不出来，而 devtools 里能直接读；③ protobuf 要多一套 `.proto` + codegen + 产物入库，而本仓库对"新增文件进 profile"本来就有坑。**换的判据**：单条消息常态 >64KB、事件频率 >100Hz、或出现非 JS 客户端 | R4 |
+| D18 | 边界规则**区分类型导入与值导入**（`mayImport` / `mayImportTypes`） | `import type` 编译期完全擦除，不产生运行时依赖。一刀切禁止 `protocol → domain` 会导致连"世界长什么样"都写不进协议——这是写完第一版规则后自己踩到的坑 | R4 |
+| D19 | `protocol/` 是浏览器侧**唯一**的 import 入口，它转出渲染需要的 domain 类型 | 多一条缝就多一处会漂移的地方。类型是编译期的，转出它不会让 web 在运行时依赖 domain 的代码 | R4 |

@@ -41,13 +41,15 @@
   渲染层分层与性能预算、同步协议、与真实 subagent 的桥、里程碑、决策记录。
 * [`docs/CONTENT.md`](docs/CONTENT.md) —— **内容库规范**。十个库各装什么、条目长什么样、
   内容包怎么写、三种操作（新增 / 替换 / 切换）、校验规则、一个完整的资产替换示例、常见错误对照表。
+* [`docs/PROTOCOL.md`](docs/PROTOCOL.md) —— **模块协议规范**。三层协议（端口 / 线协议 / 边界规则）、
+  模块边界表、加模块与加消息的步骤、为什么现在不做 protobuf、常见错误对照表。
 * [`docs/ASSETS.md`](docs/ASSETS.md) —— **资产、库与美术方向**（一手来源核验，2026-10-14）。
   推荐的 CC0 资产包、角色动画三方案对比、three.js 生态库版本与许可、许可红线、
   `VENDOR.md` 台账模板、相机/光照/调色板配方与性能预算。
 * [`docs/BACKLOG.md`](docs/BACKLOG.md) —— 轮次任务队列（每小时的自动化轮次从这里取活）。
 * [`docs/PROGRESS.md`](docs/PROGRESS.md) —— 轮次台账（每轮必须更新）。
 
-四条不能违背的原则：
+五条不能违背的原则：
 
 1. **server-authoritative** —— 模拟跑在 host，渲染层只画状态、只发意图。面板关掉世界照跑。
 2. **代码是机制，内容是数据** —— 凡可替换的东西一律进内容库；代码里**禁止**字面量的资产名、
@@ -57,6 +59,9 @@
    模拟层**禁止** `Math.random()` 与 `Date.now()`。
 4. **capability 落位** —— 任务只声明"需要什么能力"（`code` / `review` / `compute`…），
    不硬绑工位 ⇒ 小镇布局与任务编排解耦。
+5. **模块之间只通过 `protocol/` 通信** —— 端口（进程内）/ 线协议（跨进程）/ 边界规则（依赖方向）。
+   **不是口号**：`test/boundaries.test.js` 读源码解析 import 逐条判定，违规即红。
+   三条最关键的：`sim/` 不许 import `content/`、`tools/` 只许 import `protocol/`、`web/` 只许 import `protocol/`。
 
 分层依赖**单向向上**，不许出现环：
 
@@ -70,7 +75,8 @@ domain/（世界模型，不认识内容） ← content/（内容库与注册表
 |---|---|
 | **M0** ✅ | 骨架 + 世界模型类型 + 工具 + 测试 |
 | **M1** ✅ | **内容库层**：十个库的类型与校验、注册表（提供方链 / 显式覆盖）、内置内容包 |
-| **M1.5** | 外部内容包 ✅（`contentDir` 指过去即生效）；剩下 `agent_world_content` 诊断工具 |
+| **M1.5** | 外部内容包 ✅（`contentDir` 指过去即生效） |
+| **M1.6** | **契约层** ✅：端口 / 线协议 / 边界规则 + 强制检查 |
 | M2 | 模拟内核：`step()` 纯函数 tick、依赖求值、调度器、移动、邮箱、确定性验收 |
 | M3 | 落盘（`world.json`）+ HTTP 快照 + SSE 事件流（带 `seq` gap 自愈） |
 | M4 | three.js 场景：小镇、站点、相机、光照（消费 `themes`/`skins`/`districts`/`stations` 库） |
@@ -113,7 +119,9 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ## 目录
 
 ```
-src/content/  内容库层：kinds（十个库的类型）/ validate / registry / instantiate / packs（内置包）
+src/protocol/ 契约层：boundaries（边界规则）/ ports（端口）/ wire（线协议 + codec）
+              format（词汇表）/ format-text（排版）/ library-kinds —— 模块间唯一的通信面
+src/content/  内容库层：kinds / validate / registry / instantiate / packs / port（端口实现）
 src/domain/   世界模型（纯逻辑：类型 / 数值调参 / rng / geometry / summary）——不认识"内容"
 src/world/    装配：createWorld（内容 → World）+ 后续的 sim/
 src/sim/      模拟内核（M2，还没写）
@@ -121,7 +129,7 @@ src/tools/    agent_world_* 工具
 src/config.ts 配置 + resolveConfig 兜底
 src/state.ts  插件态（内容注册表 + 当前世界）
 web/          3D 面板（M4，还没写）—— Vite + three.js，独立构建，产物进 lib/web/
-docs/         ARCHITECTURE / CONTENT / ASSETS / BACKLOG / PROGRESS
+docs/         ARCHITECTURE / CONTENT / PROTOCOL / ASSETS / BACKLOG / PROGRESS
 test/         node --test
 ```
 

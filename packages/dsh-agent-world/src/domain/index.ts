@@ -48,4 +48,4 @@ export {
 
 export { createRng, seedFromString } from './rng.js'
 export { angleTo, distance, normalizeAngle, stationSlot, stepToward, withinBounds } from './geometry.js'
-export { formatRoster, formatSummary, formatTaskBoard, roleLabel, stateLabel, summarize, taskLabel } from './summary.js'
+export { summarize } from './summary.js'

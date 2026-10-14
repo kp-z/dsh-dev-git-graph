@@ -28,26 +28,17 @@
  * 模拟内核一行不动。这就是"方便替换升级和切换"的落点。
  */
 import type { AgentRole, AgentState, Bounds, Capability, DistrictKind, StationKind, Vec2 } from '../domain/types.js'
+import type { LibraryKind, LibraryLayer } from '../protocol/library-kinds.js'
 
 // ── 库的种类 ────────────────────────────────────────────────────────────────
+//
+// `LibraryKind` / `LibraryLayer` 这两个联合类型住在**协议层**（`protocol/library-kinds.ts`），
+// 因为它们同时被工具、线协议、面板消费——它们是边界类型，不是内容层的实现细节。
+// 如果它们住在内容层，协议层与 web 就都得去 import 内容层，那条缝就没了。
+//
+// 本文件保留的是"库目录"：每个库的标题、说明、id 前缀约定。那是内容层自己的知识。
 
-/** 全部库的种类。 */
-export type LibraryKind =
-  // 语义库
-  | 'districts'
-  | 'stations'
-  | 'scenes'
-  | 'rosters'
-  | 'tasks'
-  // 表现库
-  | 'models'
-  | 'actions'
-  | 'skins'
-  | 'sounds'
-  | 'themes'
-
-/** 库属于哪一层。 */
-export type LibraryLayer = 'semantic' | 'presentation'
+export type { LibraryKind, LibraryLayer }
 
 /** 库的元信息。`idPrefix` 是给人和校验器看的命名约定，不是强制的运行时约束。 */
 export interface LibrarySpec {

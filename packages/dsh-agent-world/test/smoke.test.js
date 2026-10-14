@@ -44,10 +44,10 @@ test('apply 能被调用，缺配置时不会因 config 为 undefined 崩掉', (
   // 关键：不传 config。Loader 在 patch 没写 config 时就是给 undefined，
   // 而 schema 的 default 不会被自动填充——这正是最容易崩的一条路径。
   apply(ctx, undefined)
-  assert.equal(registered.length, 2, '应注册 agent_world_status 与 agent_world_open 两个工具')
+  assert.equal(registered.length, 3, '应注册 status / open / content 三个工具')
 
   const names = registered.map((t) => t.name).sort()
-  assert.deepEqual(names, ['agent_world_open', 'agent_world_status'])
+  assert.deepEqual(names, ['agent_world_content', 'agent_world_open', 'agent_world_status'])
 })
 
 test('apply 传空对象也不崩，且工具可用', async () => {
@@ -66,6 +66,38 @@ test('apply 传空对象也不崩，且工具可用', async () => {
 
   assert.equal(logs.error.length, 0, `不该有错误日志：${logs.error.join(' | ')}`)
   assert.equal(logs.warn.length, 0, `不该有警告日志：${logs.warn.join(' | ')}`)
+})
+
+test('agent_world_content：概览、提供方链、非法库名三种路径', async () => {
+  const { ctx, registered } = fakeCtx()
+  apply(ctx, {})
+
+  const content = registered.find((t) => t.name === 'agent_world_content')
+  assert.ok(content, '找不到 agent_world_content')
+
+  // 1) 概览：要能回答"装了哪些包、每个库多少条、外部目录是哪个"
+  const overview = await content.execute({})
+  assert.match(overview, /已装载 \d+ 个内容包/)
+  assert.match(overview, /pack\.default/)
+  assert.match(overview, /外部内容目录：/, '要报出外部目录，否则"配了没生效"无从下手')
+  assert.match(overview, /stations（站点库·语义库）：10 条/)
+  assert.match(overview, /内容层没有任何问题/)
+
+  // 2) 提供方链：内置内容每个 id 只有一个提供方
+  const chain = await content.execute({ kind: 'stations', id: 'station.desk-a' })
+  assert.match(chain, /提供方链/)
+  assert.match(chain, /pack\.default/)
+  assert.match(chain, /只有一个提供方/)
+
+  // 3) 不存在的 id：要说清"这个库有多少条"，而不是只说找不到
+  const missing = await content.execute({ kind: 'stations', id: 'station.没有这个' })
+  assert.match(missing, /没有/)
+  assert.match(missing, /10 个条目/)
+
+  // 4) 非法库名：给可用取值
+  await assert.rejects(() => content.execute({ kind: '不存在的库', id: 'x' }), /可用库名/)
+  // 5) 只给 id 不给 kind：明确报错，而不是猜
+  await assert.rejects(() => content.execute({ id: 'station.desk-a' }), /同时给 kind 与 id/)
 })
 
 test('内置内容包：零 error、零 warning', () => {

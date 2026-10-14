@@ -49,7 +49,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   // 内容层的问题不阻断插件加载——照 dsh-daily 的做法：
   // 插件树加载失败会让**整个 dsh 起不来**，那个代价远大于"世界暂时建不出来"。
   // 所以这里只把问题说出来，让人去 agent_world_status 看细节。
-  const errors = state.contentIssues.filter((i) => i.level === 'error')
+  const errors = state.issues().filter((i) => i.level === 'error')
   if (errors.length > 0) {
     const detail = errors
       .slice(0, 5)
@@ -61,7 +61,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     return
   }
 
-  const warnings = state.contentIssues.filter((i) => i.level === 'warning')
+  const warnings = state.issues().filter((i) => i.level === 'warning')
   if (warnings.length > 0) {
     logger.warn(`内容层有 ${warnings.length} 个警告：${warnings.slice(0, 3).map((w) => `[${w.where}] ${w.message}`).join('；')}`)
   }
