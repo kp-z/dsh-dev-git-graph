@@ -61,4 +61,11 @@ export interface ContentPort {
   view(): ContentView
   /** 查某个 id 的提供方链。 */
   providersOf(kind: LibraryKind, id: string): readonly string[]
+  /**
+   * 列某个库当前生效的全部条目 id（已排序）。
+   *
+   * 存在的理由很具体：派单时用户给了一个不存在的任务集 id，
+   * 报错必须**列出可用的任务集**——"没有这个 id"帮不了任何人。
+   */
+  entryIds(kind: LibraryKind): readonly string[]
 }

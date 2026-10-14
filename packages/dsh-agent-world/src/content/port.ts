@@ -49,5 +49,6 @@ export function contentPortOf(
   return {
     view,
     providersOf: (kind, id) => registry.providersOf(kind, id),
+    entryIds: (kind) => registry.list(kind).map((e) => e.id),
   }
 }

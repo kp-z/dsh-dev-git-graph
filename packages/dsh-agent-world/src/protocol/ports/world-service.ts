@@ -12,6 +12,18 @@
 import type { World } from '../../domain/types.js'
 import type { ContentIssue, ContentPort } from './content.js'
 
+/** 一次派单的结果。 */
+export interface DispatchOutcome {
+  /** 派的是哪个任务集。 */
+  taskSet: string
+  /** 新追加进世界的工单 id。 */
+  addedTaskIds: readonly string[]
+  /** 该工单所属任务集里的步骤数（用于核对"这一套应该派进来几张"）。 */
+  templateCount: number
+  /** 派完后世界的工单总数。 */
+  totalTasks: number
+}
+
 /** 世界服务：模型可见工具与世界交互的**唯一**通道。 */
 export interface WorldServicePort {
   /** 逻辑 tick 间隔（ms）。渲染与诊断都要读它。 */
@@ -29,6 +41,17 @@ export interface WorldServicePort {
 
   /** 内容装载的一行摘要（诊断用）。 */
   describeContent(): string
+
+  /**
+   * 把一条工作流（任务库里的任务集）派进当前世界。
+   *
+   * **有副作用**：会往 `world.tasks` 追加实例化的工单。同一套任务集可以派多次
+   * （做第二个功能），id 由实现保证不与既有工单冲突。
+   *
+   * @param taskSet - 任务集 id（`tasks` 库的条目 id）。
+   * @throws 还没有世界、或任务集不存在时（报错要列出可用的任务集）。
+   */
+  dispatch(taskSet: string): DispatchOutcome
 
   /** 内容层的只读端口。工具要用内容诊断时走它，而不是伸手进 `state.content`。 */
   content(): ContentPort

@@ -90,9 +90,11 @@ export function registerWorldTools(ctx: Context, world: WorldServicePort): void 
         const created = world.open(args.name)
         return [
           `已创建世界「${created.name}」，seed=${created.seed}。`,
-          `场景：${created.origin.scene}｜花名册角色 ${created.agents.length} 人｜工单 ${created.tasks.length} 张（等 lead 派单）`,
+          `场景：${created.origin.scene}｜花名册角色 ${created.agents.length} 人｜工单 ${created.tasks.length} 张`,
           '',
-          '当前只有世界模型与内容库，模拟循环（tick）与 3D 面板尚未接入——见 docs/BACKLOG.md 的 M2 与 M4。',
+          '开局工单板是空的：用 agent_world_dispatch 派一条工作流（先用 agent_world_content 看 tasks 库里有哪些）。',
+          '派完不必催——模拟循环会自动把可领取的工单派给空闲的人。',
+          '3D 面板尚未接入，见 docs/BACKLOG.md 的 M4。',
           '',
           formatSummary(created),
           '',

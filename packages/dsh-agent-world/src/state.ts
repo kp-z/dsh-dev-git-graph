@@ -19,10 +19,11 @@
 import type { AgentWorldConfig } from './config.js'
 import { ContentRegistry, builtinPacks } from './content/index.js'
 import { contentPortOf } from './content/port.js'
+import { instantiateTasks } from './content/instantiate.js'
 import { loadContentPacks } from './content/load-files.js'
 import { DEFAULT_TICK_MS } from './domain/constants.js'
 import type { World } from './domain/types.js'
-import type { ContentIssue, ContentPort, WorldServicePort } from './protocol/index.js'
+import type { ContentIssue, ContentPort, DispatchOutcome, WorldServicePort } from './protocol/index.js'
 import { createWorld } from './world/create.js'
 
 /** 建插件状态的选项。 */
@@ -129,6 +130,28 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       const extra = externalRoot === null ? '' : ` · 外部目录 ${externalRoot}`
       if (errors.length === 0 && warnings.length === 0) return `${head}${extra}`
       return `${head}${extra} · ${errors.length} 个错误 / ${warnings.length} 个警告`
+    },
+
+    dispatch(taskSet: string): DispatchOutcome {
+      const world = state.world
+      if (!world) {
+        throw new Error('还没有世界。先调 agent_world_open 建一个，再派单。')
+      }
+      // `require` 的报错里已经带了可用条目列表，所以这里不必再自己拼一遍。
+      const set = registry.require('tasks', taskSet, '派单时指定的任务集')
+
+      // 序号接在**既有工单的最大 ordinal** 之后，而不是 `tasks.length + 1`：
+      // 后者只在序号连续时等价，而将来一旦有归档/删除，它就会撞 id。
+      const nextIndex = world.tasks.reduce((max, t) => Math.max(max, t.ordinal), 0) + 1
+      const created = instantiateTasks(set, nextIndex, world.tick)
+      world.tasks.push(...created)
+
+      return {
+        taskSet,
+        addedTaskIds: created.map((t) => t.id),
+        templateCount: set.tasks.length,
+        totalTasks: world.tasks.length,
+      }
     },
 
     content: () => contentPort,

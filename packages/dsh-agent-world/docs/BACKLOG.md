@@ -46,7 +46,7 @@
 | M1.5-1 | done | 外部内容包加载器：读 `<workspace>/<contentDir>/<packId>/*.json`，解析成 `ContentPack` | `src/content/load-files.ts` + 测试（用临时目录） | M1-5 |
 | M1.5-2 | done | 接进 `state.ts`：内置包 + 外部包一起 `loadAll`，问题进 `contentIssues`；`allowImplicitOverride` 接配置 | `src/state.ts` 改造 + 测试 | M1.5-1 |
 | M1.5-3 | done | 报错路径友好化：外部包写错时 Issue.where 要带**文件路径**（否则用户不知道去哪个文件改） | `load-files.ts` | M1.5-2 |
-| M1.5-4 | ready | 工具 `agent_world_content`：列出已装载的包与各库条目、能看某个 id 的提供方链 | `src/tools/content.ts` + 测试 | M1.5-2 |
+| M1.5-4 | done | 工具 `agent_world_content`：列出已装载的包与各库条目、能看某个 id 的提供方链。（**R4 就实现了，R7 才发现这里没标 done**——记账漏了） | `src/tools/world.ts`（并入世界工具集）+ `test/smoke.test.js` | M1.5-2 |
 | M1.5-5 | done | 端到端验证：临时 workspace 放一个外部包顶掉小镇布局，`createWorld` 出来的世界确实变了 | `test/external-pack.test.js` | M1.5-2 |
 | M1.5-6 | ready | **相对路径的解析基准**：目前相对 `contentDir` 按 `process.cwd()` 解析，不支持"相对当前 session 的 workspace"。`workspaceRegistry` 只有 `list()`/`resolveByPath()`，没有"当前是哪个"的概念，多工作区时任何自动挑选都是猜（猜错的症状是读到别的项目的包）。要做的话得先查清 session→workspace 的绑定从哪拿 | 先写调研结论再动手；建议先把它做成显式配置 `contentRoot` | M1.5-2 |
 
@@ -87,19 +87,20 @@
 | M2-7 | done | 事件产出：把各段返回的 outcome 压成 delta event，`seq` 单调，环形缓冲截断 | `src/sim/journal.ts` `src/sim/emit.ts` + 测试 | M2-5b |
 | M2-3 | done | `step(world, commands)` 纯函数：ingest→scheduler→movement→interaction→mailbox→emit。**定了事件量策略**（帧事件每 tick 最多一条、进度只在 10% 里程碑、stalled 不发事件）；**不收 `dt`**（定步长，决策 D20）；需要内容的命令转交编排层 | `src/sim/step.ts` `src/sim/emit.ts` `src/sim/journal.ts` + 测试 | M2-6 M2-7 |
 | M2-8 | done | **确定性验收**：同 seed 跑 1000 tick，两次结果逐字节一致 | `test/determinism.test.js` | M2-3 |
-| M2-9 | ready | `agent_world_dispatch`：用**任务库**派一条工作流进世界（第一次真正消费任务库） | `src/tools/dispatch.ts` + 测试 | M2-3 |
+| M2-9 | done | `agent_world_dispatch`：用**任务库**派一条工作流进世界（第一次真正消费任务库） | `src/tools/dispatch.ts` + 测试 | M2-3 |
 
-> **R6 之后的一个事实，别误判进度**：`step()` 已经完成并且 1000 tick 确定性验收通过，
-> 但**目前没有任何东西在驱动它**——插件加载后世界是静止的（`world.tick` 一直是 0）。
-> 驱动它的是 M3-2 的 runtime（tick 循环 + 生命周期清理）。在那之前，
-> 工具看到的是一个"装好了但还没开始跑"的世界。
+> **R7 起世界会自己动了**：runtime 每 `tickMs`（默认 100ms）推一步，插件加载后自动开始
+> （`autoStart` 决定是否自动开始；世界总是先建出来）。热重载时由 `ctx.effect` 清理定时器。
+>
+> 剩下的 M3 是**落盘与对外接口**：`world.json` / `events.jsonl`、HTTP 快照、SSE 事件流。
+> 在那之前世界只活在内存里——进程重启就归零。
 
 ## M3 — 落盘与 HTTP/SSE
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M3-1 | blocked | 磁盘真相：`world.json` + 事件追加 `events.jsonl`，原子写 | `src/store/worldStore.ts` | M2-3 |
-| M3-2 | blocked | 世界运行时：tick 循环 + 订阅广播 + pause/resume | `src/runtime.ts` | M2-3 M3-1 |
+| M3-1 | ready | 磁盘真相：`world.json` + 事件追加 `events.jsonl`，原子写 | `src/store/worldStore.ts` | M2-3 |
+| M3-2 | done | 世界运行时：tick 循环 + 处理 `StepResult.requests` + 事件出口。**依赖写错了**：原表写它依赖 M3-1（落盘），实际不需要——运行时纯内存就能跑，先把世界驱动起来比先落盘有价值得多（R7 修正） | `src/runtime/index.ts` + 测试 | M2-3 |
 | M3-3 | blocked | HTTP：`GET /api/world` 快照 + `POST /api/command` | `src/routes/api.ts` | M3-2 |
 | M3-4 | blocked | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈 | `src/routes/events.ts` | M3-2 |
 | M3-5 | blocked | 面板静态服务 `/agent-world/*`（MIME 白名单 + 路径穿越防护） | `src/panel.ts` | M3-2 |

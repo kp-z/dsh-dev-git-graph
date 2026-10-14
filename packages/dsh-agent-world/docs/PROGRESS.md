@@ -27,7 +27,109 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R6 末）：`typecheck` 绿 · `test` 115/115 绿。
+当前验证状态（R7 末）：`typecheck` 绿 · `test` 132/132 绿（`pnpm test` 约 0.3s）。
+
+---
+
+## R7 — 2026-10-14 · 派单工具 + 运行时（**世界开始自己动了**）
+
+**本轮目标**（M2-9 / M3-2）：让任务库被真正消费，并补上从 R6 起就缺的那个环节——**驱动 `step()` 的人**。
+
+### 做了什么
+
+1. **`state.dispatch(taskSet)`（M2-9）** —— 从内容库取一条工作流，实例化成世界的工单。
+   - 序号接在**既有工单的最大 `ordinal`** 之后，而不是 `tasks.length + 1`：
+     后者只在序号连续时等价，将来一旦有归档/删除就会撞 id。
+   - 同一套工作流可以派多次（做第二个功能），id 不撞，有测试。
+   - 端口签名从计划里的"返回 World"改成返回 `DispatchOutcome`
+     （新增工单 id / 该工作流几步 / 派完总数）——工具要能把这些话**原样说给模型听**。
+2. **`ContentPort.entryIds(kind)`** —— 加它有一个很具体的理由：派单时用户给了不存在的任务集 id，
+   报错必须**列出可用的任务集**。"没有这个 id"帮不了任何人。顺便 `agent_world_content kind=tasks`
+   现在会列出条目数。
+3. **`src/tools/dispatch.ts`** —— `agent_world_dispatch`。只 import `protocol/`，
+   真正的实现在 `state.ts`（它 import `content`，符合边界规则）。
+   工具输出里有一句刻意的提示：**"派了不等于开工"**——否则模型会以为派完就做完了。
+4. **`src/runtime/index.ts`（M3-2）** —— 每 `tickMs` 推一步的节拍器。三件事：
+   - **处理 `StepResult.requests`**：`sim/` 按边界规则不许 import `content/`，
+     所以 `reset`/`dispatch`/`hire` 是它转交出来的。运行时是**唯一**允许同时认识
+     "模拟内核"与"内容服务"的地方，由它把它们接上。
+   - **顺序：先 `reset` 再 `dispatch`**。反了会把单派进马上要被丢掉的那个世界。
+   - **`hire` 在 M7 之前没人能做**，所以**计数**（`diagnostics.unhandledHires`）而不是静默丢弃——
+     静默丢弃会让"我让招募一个人，它什么都没发生"无从解释。
+5. **清理顺序是个真缺陷，测试抓到了**：我一开始写成"先 `start()` 再 `ctx.effect(清理)`"。
+   这在本仓库是危险的：dsh 支持热重载，泄漏的 `setInterval` 会让"改一次代码多一个世界在跑"，
+   而症状是 CPU 慢慢爬高——很难归因到某个插件。改成**先挂清理、再启动**。
+   （顺带暴露了测试侧的一个坏习惯，见下面「卡住」第一条。）
+6. **`agent_world_open` 的过期文案修掉了**：它还写着"模拟循环尚未接入"，现在是"用
+   `agent_world_dispatch` 派一条工作流，派完不必催——模拟循环会自动把可领取的工单派给空闲的人"。
+7. **顺手修掉一处记账错误**：`M1.5-4`（`agent_world_content` 工具）在 BACKLOG 里还是 `ready`，
+   但它 R4 就实现了。已标 `done` 并注明。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 132 / pass 132 / fail 0
+```
+
+115 → **132**。最该看的是这三条：
+
+- **"派单之后世界会自己把它做掉"**：派 quick-fix 进世界、缩短预估、`runtime.advance(3000)`，
+  断言 3 张单全部 `done`。**这条是"没人驱动 step"那个缺口的修复证明**——
+  R6 结束时同样的世界跑多久都是静止的。
+- **"先重开再派单"**：把顺序反了会把单派进马上丢掉的世界，测试直接钉住顺序。
+- **"step 抛异常不拖垮循环"**：造一个 `tasks: null` 的破世界，断言 `errors` 计数 +1、
+  `ticks` 不增加、回调被调用。循环活着比崩掉重要，但**不能静默活着**。
+
+### 下一轮从哪继续
+
+**M3-1：落盘（`src/store/worldStore.ts`）。** 在那之前世界只活在内存里，进程重启就归零。
+具体：
+
+1. `world.json`：整世界快照，**原子写**（写临时文件 + `rename`，不要直接覆盖——
+   写到一半断电会得到一个半截的 JSON，而下次启动会解析失败）。
+2. `events.jsonl`：事件追加。注意 `world.events` 是**环形缓冲（只留 500 条）**，
+   所以落盘必须是**追加**而不是"把缓冲写出去"——否则历史会在第 501 条事件时开始丢失。
+3. 之前记下的两条欠账，落盘时要一起定：
+   - **`world.messages` 只增不减**（不像 `events` 有环形缓冲）。要么截断、要么归档、要么只留未送达 + 最近 N 条。
+   - **`world.tick` 帧事件的载荷是元组数组**，过 JSON 会变普通数组。接 SSE 前必须把它写进
+     `docs/PROTOCOL.md` 的载荷说明，否则面板只能靠读源码猜形状。
+4. 恢复路径：`origin.packs` 记着"这局是用哪些包装的"。**内容变了、旧存档的表现就会变**，
+   这是可接受的（内容升级本来就该改变表现），但要把 pack 版本一起存下来，让"这局用的是哪个版本的内容"可查。
+5. 注意 `store/` 的边界规则：只许 import `protocol` 与 `domain`，允许 `node:`。
+
+### 假设
+
+- **`autoStart` 的语义终于定死**：世界**总是**先建出来（这样 `agent_world_status` 立刻有东西可看），
+  `autoStart` 只决定要不要开始推进。之前那条"不要实现成不建世界"的注释现在有了正式语义。
+- **运行时不做业务判断**：谁该做哪张单是调度器的事，它只管按节拍推、把转交的请求接上。
+- **`start()`/`stop()` 幂等**，且与 `advance()` 不冲突（手动快进不会改变自动推进的状态）。
+- **定时器不 `unref`**：dsh 是长驻服务进程，需要它保持事件循环。测试侧靠 `after()` 统一清理。
+
+### 卡住 / 风险
+
+- **本轮最大的教训在测试侧**：假 ctx 的 `effect` 一开始写成"立刻执行清理函数"，
+  而 `apply` 是"先挂清理、再启动"。两者一撞，清理跑在启动之前 → 定时器泄漏 →
+  **`node --test` 整个不退出**。而它表现为"测试跑了 5 分钟还没结束"，
+  报错却是 `Promise resolution is still pending but the event loop has already resolved`，
+  指向"某个测试的 promise 没 settle"——**完全指错方向**，我是靠逐个文件探测才定位到的。
+  已改成"假 ctx 收集清理函数、`after()` 统一执行"，并把这条写进了两个测试文件的注释里。
+  **结论：假的依赖必须镜像真实的生命周期语义**，否则它要么掩盖 bug、要么造出假 bug。
+- **`diagnostics` 目前没有出口**：运行时持有它，但没有任何工具/HTTP 能读到。
+  想回答"它到底在跑吗"只能看日志。M3-3 加 HTTP 时应当把它暴露成 `GET /api/world` 的一部分。
+- **`apply()` 里 `runtime` 只活在闭包里**，外部拿不到它。工具要触发"暂停/恢复"得走
+  `agent_world_*` → `StepResult.requests` 这条路（`pause`/`resume` 已经在 ingest 段实现了，
+  但没有对应的工具）。这是 M6-4 控制条要接的口子，先记着。
+
+### 本轮产出
+
+- 新增：`src/runtime/index.ts`、`src/tools/dispatch.ts`、`test/dispatch-runtime.test.js`
+- 修改：`src/protocol/ports/{content,world-service}.ts`（`entryIds` / `dispatch`）、
+  `src/content/port.ts`、`src/state.ts`、`src/index.ts`（运行时装配 + 清理顺序）、
+  `src/tools/world.ts`（过期文案）、`test/{smoke,external-pack}.test.js`（假 ctx 补 `effect`）、
+  `docs/BACKLOG.md`（M1.5-4 记账修正、M3-2 依赖写错的修正）
+- 测试从 115 → 132
 
 ---
 

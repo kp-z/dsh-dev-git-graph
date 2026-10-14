@@ -9,12 +9,21 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 
 import { apply } from '../lib/index.js'
 import { CONTENT_SCHEMA_VERSION, ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { loadContentPacks, resolveContentRoot } from '../lib/content/load-files.js'
 import { createWorld } from '../lib/world/create.js'
+
+/**
+ * 清理函数的收集器。假 ctx 的 `effect` 必须**像真的一样收集**——立刻执行会让
+ * `apply` 的"先挂清理、再启动运行时"变成"先清理、后启动"，定时器随后泄漏，进程不退出。
+ */
+const collectedDisposers = []
+after(() => {
+  for (const dispose of collectedDisposers.splice(0)) dispose()
+})
 
 /** 建一个临时目录，跑完自动删。 */
 function withTempDir(fn) {
@@ -330,6 +339,10 @@ test('端到端：apply 接上 contentDir → 工具看到的世界就是外部�
         warn: (m) => logs.warn.push(m),
         error: (m) => logs.error.push(m),
       }),
+      effect: (fn) => {
+        const dispose = fn()
+        if (typeof dispose === 'function') collectedDisposers.push(dispose)
+      },
     }
 
     // 绝对路径：相对路径会按 process.cwd() 解析，测试里不依赖那个。
@@ -361,6 +374,10 @@ test('端到端：contentDir 指向不存在的目录 → 只警告，插件照�
         warn: (m) => logs.warn.push(m),
         error: (m) => logs.error.push(m),
       }),
+      effect: (fn) => {
+        const dispose = fn()
+        if (typeof dispose === 'function') collectedDisposers.push(dispose)
+      },
     }
 
     apply(ctx, { contentDir: join(dir, '没这个目录') })

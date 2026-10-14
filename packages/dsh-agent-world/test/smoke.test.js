@@ -8,14 +8,27 @@
  * 运行：`pnpm test`（会先 tsc 出 lib/，再 node --test test/）
  */
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 
 import { apply, inject, name } from '../lib/index.js'
 import { createRng, seedFromString, summarize } from '../lib/domain/index.js'
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { createWorld } from '../lib/world/create.js'
 
-/** 造一个假 ctx：工具注册表 + logger（apply 现在会记日志，缺 logger 会 TypeError）。 */
+/**
+ * 清理函数的收集器。
+ *
+ * 假 ctx 的 `effect` 必须**像真的一样收集、而不是立刻执行**：
+ * `apply` 是"先挂清理、再启动运行时"（顺序刻意的，见 index.ts），
+ * 如果假 effect 立刻 dispose，清理就会跑在 start 之前——定时器随后启动、再没人停它，
+ * 测试进程直接不退出。这个坑踩过一次，写在这里。
+ */
+const collectedDisposers = []
+after(() => {
+  for (const dispose of collectedDisposers.splice(0)) dispose()
+})
+
+/** 造一个假 ctx：工具注册表 + logger（apply 会记日志，缺 logger 会 TypeError）+ effect。 */
 function fakeCtx() {
   const registered = []
   const logs = { info: [], warn: [], error: [] }
@@ -26,6 +39,10 @@ function fakeCtx() {
       warn: (m) => logs.warn.push(m),
       error: (m) => logs.error.push(m),
     }),
+    effect: (fn) => {
+      const dispose = fn()
+      if (typeof dispose === 'function') collectedDisposers.push(dispose)
+    },
   }
   return { ctx, registered, logs }
 }
@@ -44,10 +61,15 @@ test('apply 能被调用，缺配置时不会因 config 为 undefined 崩掉', (
   // 关键：不传 config。Loader 在 patch 没写 config 时就是给 undefined，
   // 而 schema 的 default 不会被自动填充——这正是最容易崩的一条路径。
   apply(ctx, undefined)
-  assert.equal(registered.length, 3, '应注册 status / open / content 三个工具')
+  assert.equal(registered.length, 4, '应注册 status / open / content / dispatch 四个工具')
 
   const names = registered.map((t) => t.name).sort()
-  assert.deepEqual(names, ['agent_world_content', 'agent_world_open', 'agent_world_status'])
+  assert.deepEqual(names, [
+    'agent_world_content',
+    'agent_world_dispatch',
+    'agent_world_open',
+    'agent_world_status',
+  ])
 })
 
 test('apply 传空对象也不崩，且工具可用', async () => {

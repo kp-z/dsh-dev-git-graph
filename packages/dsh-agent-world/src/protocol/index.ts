@@ -45,7 +45,7 @@ export type {
 } from './ports/content.js'
 export type { EventSinkPort, EventSourcePort } from './ports/events.js'
 export { nullEventSink } from './ports/events.js'
-export type { WorldServicePort } from './ports/world-service.js'
+export type { DispatchOutcome, WorldServicePort } from './ports/world-service.js'
 
 export type { WorldCommand, WorldCommandKind } from './wire/commands.js'
 export { WORLD_COMMAND_KINDS, describeCommand, isWorldCommand } from './wire/commands.js'
