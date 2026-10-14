@@ -83,11 +83,16 @@
 | M2-4 | done | 调度器：idle agent 原子 claim 一个 ready task，按 `requires` 的 capability 选站（能力**包含**而非有交集），容量把"正在过去的"也算上 | `src/sim/scheduler.ts` + 测试 | M2-1 |
 | M2-5 | done | 移动：沿调度器给的路径走向站点，到站切 working；自称 walking 却无目标要**就地修好并报出**（不留静默卡死） | `src/sim/movement.ts` + 测试 | M2-4 |
 | M2-5b | done | 干活推进：进度按内容库的 `estimateTicks` 走；完工**释放站点**（否则高峰期死锁）；状态自相矛盾时放回 idle | `src/sim/interaction.ts` + 测试 | M2-5 |
-| M2-6 | ready | 邮箱：消息投递 + 投递状态（驱动"纸条飞行"动画） | `src/sim/mailbox.ts` + 测试 | M2-5b |
-| M2-7 | ready | 事件产出：把各段返回的 outcome 压成 delta event，`seq` 单调，环形缓冲截断 | `src/sim/journal.ts` `src/sim/emit.ts` + 测试 | M2-5b |
-| M2-3 | ready | `step(world, dt, commands)` 纯函数：ingest→scheduler→movement→interaction→mailbox→emit，把上面几段串起来 | `src/sim/step.ts` + 测试 | M2-6 M2-7 |
-| M2-8 | blocked | **确定性验收**：同 seed 跑 1000 tick，两次结果逐字节一致 | `test/determinism.test.js` | M2-3 |
-| M2-9 | blocked | `agent_world_dispatch`：用**任务库**派一条工作流进世界（第一次真正消费任务库） | `src/tools/dispatch.ts` + 测试 | M2-3 |
+| M2-6 | done | 邮箱：消息投递 + 投递状态（驱动"纸条飞行"动画） | `src/sim/mailbox.ts` + 测试 | M2-5b |
+| M2-7 | done | 事件产出：把各段返回的 outcome 压成 delta event，`seq` 单调，环形缓冲截断 | `src/sim/journal.ts` `src/sim/emit.ts` + 测试 | M2-5b |
+| M2-3 | done | `step(world, commands)` 纯函数：ingest→scheduler→movement→interaction→mailbox→emit。**定了事件量策略**（帧事件每 tick 最多一条、进度只在 10% 里程碑、stalled 不发事件）；**不收 `dt`**（定步长，决策 D20）；需要内容的命令转交编排层 | `src/sim/step.ts` `src/sim/emit.ts` `src/sim/journal.ts` + 测试 | M2-6 M2-7 |
+| M2-8 | done | **确定性验收**：同 seed 跑 1000 tick，两次结果逐字节一致 | `test/determinism.test.js` | M2-3 |
+| M2-9 | ready | `agent_world_dispatch`：用**任务库**派一条工作流进世界（第一次真正消费任务库） | `src/tools/dispatch.ts` + 测试 | M2-3 |
+
+> **R6 之后的一个事实，别误判进度**：`step()` 已经完成并且 1000 tick 确定性验收通过，
+> 但**目前没有任何东西在驱动它**——插件加载后世界是静止的（`world.tick` 一直是 0）。
+> 驱动它的是 M3-2 的 runtime（tick 循环 + 生命周期清理）。在那之前，
+> 工具看到的是一个"装好了但还没开始跑"的世界。
 
 ## M3 — 落盘与 HTTP/SSE
 

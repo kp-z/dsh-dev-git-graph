@@ -1,0 +1,322 @@
+/**
+ * `step()` 与事件产出测试（BACKLOG M2-3 / M2-6 / M2-7）。
+ *
+ * 重点在两处：
+ * 1. **六段顺序是语义**，不是风格。所以直接断言顺序带来的可见后果
+ *    （刚派出去的人这一 tick 就开始走；到站当 tick 就开始干活）。
+ * 2. **事件量策略**是定过的，不是碰巧的。所以断言"帧事件只在有位移时发一条"、
+ *    "进度只在里程碑发"，以及 stalled 不发事件。
+ */
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
+import { createWorld } from '../lib/world/create.js'
+import { EVENT_RING_SIZE } from '../lib/domain/constants.js'
+import { step } from '../lib/sim/step.js'
+import { sendMessages, deliverMessages, isInFlight } from '../lib/sim/mailbox.js'
+import { emitEvent } from '../lib/sim/journal.js'
+
+function makeWorld({ taskSets = ['task.quick-fix'], maxAgents } = {}) {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  return createWorld({
+    content,
+    scene: 'scene.default-town',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    taskSets,
+    ...(maxAgents === undefined ? {} : { maxAgents }),
+  })
+}
+
+const byKey = (world, key) => {
+  const found = world.tasks.find((t) => t.key === key)
+  assert.ok(found, `找不到工单 ${key}`)
+  return found
+}
+
+// ── 六段顺序的可见后果 ──────────────────────────────────────────────────────
+
+test('step：第一 tick 就完成"求值 → 派工 → 上路"三件事', () => {
+  const world = makeWorld()
+  const result = step(world)
+
+  assert.equal(result.claims.length, 1)
+  assert.equal(byKey(world, 'triage').status, 'in_progress')
+
+  const worker = world.agents.find((a) => a.carrying !== null)
+  assert.ok(worker)
+  // scheduler 在 movement 之前 ⇒ 刚被派出去的人**这一 tick 就开始走**，不是等下 tick。
+  assert.equal(worker.state, 'walking')
+  assert.ok(worker.path[0] !== undefined, '路径应当在派工时就已经定好')
+  assert.equal(world.tick, 1)
+})
+
+test('step：到站当 tick 就开始干活（interaction 在 movement 之后）', () => {
+  const world = makeWorld()
+  // 先把人直接放到目的地旁边，让第一步就走完。
+  const task = byKey(world, 'triage')
+  step(world)
+  const worker = world.agents.find((a) => a.carrying === task.id)
+  assert.ok(worker)
+
+  let guard = 0
+  while (worker.state === 'walking' && guard++ < 500) step(world)
+
+  assert.equal(worker.state, 'working')
+  // 到达的那一 tick，interaction 就已经推过一次进度了（不是等下一 tick）。
+  assert.ok(task.progress > 0, `到站当 tick 就该开始干活，得到 progress=${task.progress}`)
+})
+
+test('step：暂停时世界不前进，但 resume 仍然收得到', () => {
+  const world = makeWorld()
+  step(world, [{ kind: 'pause' }])
+  assert.equal(world.paused, true)
+
+  const tickBefore = world.tick
+  const idle = step(world)
+  assert.equal(world.tick, tickBefore, '暂停期间 tick 不该走——否则 HUD 上"暂停了时间还在动"')
+  assert.deepEqual(idle.events, [])
+  assert.deepEqual(idle.claims, [])
+
+  // resume 在 ingest 段处理，处理完世界就不处于暂停了 ⇒ **这一步本身就会推进一 tick**。
+  // 这是刻意的：命令影响的是它到达的那一 tick，而不是下一 tick。
+  step(world, [{ kind: 'resume' }])
+  assert.equal(world.paused, false)
+  assert.equal(world.tick, tickBefore + 1, '恢复的那一步就应当推进世界')
+
+  step(world)
+  assert.equal(world.tick, tickBefore + 2, '之后每步推进一次')
+})
+
+test('step：重复 pause 不产生第二条事件（幂等，不刷屏）', () => {
+  const world = makeWorld()
+  const first = step(world, [{ kind: 'pause' }])
+  assert.equal(first.events.filter((e) => e.type === 'world.paused').length, 1)
+  const second = step(world, [{ kind: 'pause' }])
+  assert.equal(second.events.filter((e) => e.type === 'world.paused').length, 0)
+})
+
+// ── 需要内容的命令要转交出去（sim 不认识 content）────────────────────────────
+
+test('step：reset / dispatch / hire / setSpeed 被转交，不在内核里执行', () => {
+  const world = makeWorld()
+  const result = step(world, [
+    { kind: 'dispatch', taskSet: 'task.software-feature' },
+    { kind: 'hire', role: 'engineer', name: '新人' },
+    { kind: 'setSpeed', speed: 4 },
+    { kind: 'reset', name: '新的一局' },
+  ])
+
+  assert.deepEqual(result.requests.dispatch, ['task.software-feature'])
+  assert.deepEqual(result.requests.hire, [{ role: 'engineer', name: '新人' }])
+  assert.equal(result.requests.setSpeed, 4)
+  assert.deepEqual(result.requests.reset, { name: '新的一局' })
+
+  // 内核不认识内容库，所以它连一个任务都不该凭空造出来。
+  assert.equal(world.tasks.filter((t) => t.set === 'task.software-feature').length, 0)
+  assert.equal(world.agents.length, 8, 'hire 也不该在内核里发生')
+})
+
+// ── 事件量策略 ──────────────────────────────────────────────────────────────
+
+test('事件：seq 单调递增，且与环形缓冲里的顺序一致', () => {
+  const world = makeWorld()
+  const seen = []
+  for (let i = 0; i < 40; i++) seen.push(...step(world).events.map((e) => e.seq))
+
+  assert.ok(seen.length > 0)
+  for (let i = 1; i < seen.length; i++) {
+    assert.ok(seen[i] > seen[i - 1], `seq 必须严格递增：${seen[i - 1]} → ${seen[i]}`)
+  }
+  assert.equal(world.seq, seen[seen.length - 1] + 1)
+})
+
+test('事件：环形缓冲截断到 EVENT_RING_SIZE，且保留的是最近的', () => {
+  const world = makeWorld()
+  // 直接测 journal 的职责：走 400 tick 只有 130 多个事件（帧事件只在有人移动时发，
+  // 这正是事件量策略生效的证明），填不满缓冲，所以这里必须直接压事件。
+  for (let i = 0; i < EVENT_RING_SIZE * 2; i++) {
+    emitEvent(world, 'world.paused', { i })
+  }
+
+  assert.equal(world.events.length, EVENT_RING_SIZE)
+  const seqs = world.events.map((e) => e.seq)
+  assert.deepEqual(seqs, [...seqs].sort((a, b) => a - b), '缓冲里要保持有序')
+  assert.equal(seqs[0], world.seq - EVENT_RING_SIZE, '丢掉的是最旧的（保留 seq 最大的一段）')
+  assert.equal(seqs[seqs.length - 1], world.seq - 1, '保留的是最近的')
+})
+
+test('事件：真实长跑的事件量是**有界**的（这是 R5 留下的最大不确定性）', () => {
+  const world = makeWorld()
+  for (let i = 0; i < 2000; i++) step(world)
+
+  // 2000 tick 约 100 秒模拟时间。如果位置事件按人头逐条发，这里会远超缓冲上限。
+  assert.ok(world.seq < EVENT_RING_SIZE, `2000 tick 的事件数应当远小于缓冲上限，实际 seq=${world.seq}`)
+  assert.ok(world.events.length === world.seq - 1, '没被截断过（所以上面的上限才说明问题）')
+})
+
+test('事件：帧事件每 tick 最多一条，且只在真的有位移时发', () => {
+  const world = makeWorld()
+  let ticksWithMovement = 0
+  let frames = 0
+  for (let i = 0; i < 60; i++) {
+    const before = world.agents.filter((a) => a.state === 'walking').length
+    const result = step(world)
+    const frameEvents = result.events.filter((e) => e.type === 'world.tick')
+    assert.ok(frameEvents.length <= 1, `一 tick 最多一条帧事件，得到 ${frameEvents.length}`)
+    frames += frameEvents.length
+    if (before > 0) ticksWithMovement++
+  }
+  assert.ok(frames > 0, '这段时间里应当有人在走路')
+  assert.ok(frames <= ticksWithMovement + 1, `帧事件不该比"有人走动"的 tick 还多：frames=${frames} walkingTicks=${ticksWithMovement}`)
+
+  // 所有人都停下来以后，不该再有帧事件。
+  for (const a of world.agents) {
+    a.state = 'idle'
+    a.path = []
+    a.targetStation = null
+  }
+  const quiet = step(world)
+  assert.equal(quiet.events.filter((e) => e.type === 'world.tick').length, 0, '没人动就不该发帧')
+})
+
+test('事件：帧事件承载的是**本 tick 有位移的人**，含刚好到站的那位', () => {
+  const world = makeWorld()
+  step(world)
+  const task = byKey(world, 'triage')
+  const worker = world.agents.find((a) => a.carrying === task.id)
+  assert.ok(worker)
+
+  let arrivalTick = null
+  for (let i = 0; i < 500 && arrivalTick === null; i++) {
+    const result = step(world)
+    const arrived = result.events.some(
+      (e) => e.type === 'agent.state' && e.payload.id === worker.id && e.payload.state === 'working',
+    )
+    if (arrived) arrivalTick = result
+  }
+
+  assert.ok(arrivalTick, '应当能抓到到站那一 tick')
+  // 走到最后一个点的**当 tick 就到站**。如果按 `state === 'walking'` 过滤帧，
+  // 这一刻他已经切成 working，会被漏掉 —— 于是渲染层拿不到落位坐标。
+  const frame = arrivalTick.events.find((e) => e.type === 'world.tick')
+  assert.ok(frame, '到站那一 tick 必须带帧事件，否则渲染层拿不到他的落位坐标')
+  assert.ok(
+    frame.payload.agents.some((a) => a[0] === worker.id),
+    '刚到站的人必须在帧里（用位移集合，不是按状态过滤）',
+  )
+})
+
+test('事件：进度只在 10% 里程碑发，不是每 tick 都发', () => {
+  const world = makeWorld()
+  step(world)
+  const worker = world.agents.find((a) => a.carrying !== null)
+  while (worker.state === 'walking') step(world)
+
+  const task = byKey(world, 'triage')
+  task.estimateTicks = 20 // 20 tick 干完 → 每个里程碑刚好 2 tick
+
+  const milestones = []
+  let progressEvents = 0
+  for (let i = 0; i < 8; i++) {
+    const result = step(world)
+    for (const e of result.events) {
+      if (e.type === 'task.changed' && typeof e.payload.milestone === 'number' && e.payload.id === task.id) {
+        milestones.push(e.payload.milestone)
+        progressEvents++
+      }
+    }
+  }
+  assert.ok(progressEvents > 0, '应当有里程碑事件')
+  assert.ok(progressEvents <= 8, `8 tick 不该产生超过 8 条进度事件（每 tick 一条就已经太多），得到 ${progressEvents}`)
+  assert.deepEqual(milestones, [...new Set(milestones)], '同一个里程碑不该重复报')
+})
+
+test('事件：stalled 是诊断信息，**不发事件**（否则没空闲角色时每 tick 刷屏）', () => {
+  // 只有 1 个角色 + 2 条工作流 ⇒ 必然有派不出去的单。
+  const world = makeWorld({ taskSets: ['task.quick-fix', 'task.software-feature'], maxAgents: 1 })
+  const result = step(world)
+
+  assert.ok(result.stalled.length > 0, '这个构造下应当有 stalled')
+  assert.equal(
+    result.events.filter((e) => e.type === 'task.changed' && e.payload.reason === 'stalled').length,
+    0,
+  )
+})
+
+test('事件：状态矛盾被修好时要报出来（不留静默）', () => {
+  const world = makeWorld()
+  const agent = world.agents[0]
+  agent.state = 'walking'
+  agent.targetStation = null
+
+  const result = step(world)
+  const repaired = result.events.find(
+    (e) => e.type === 'agent.state' && e.payload.id === agent.id && e.payload.reason === 'repaired',
+  )
+  assert.ok(repaired, '修好矛盾却不报出来，就变成了静默修复')
+})
+
+// ── 邮箱 ────────────────────────────────────────────────────────────────────
+
+test('邮箱：投递有延迟，飞行中可判定', () => {
+  const world = makeWorld()
+  const { queued } = sendMessages(world, [{ from: 'agent-1', to: 'agent-2', kind: 'handoff', body: '交给你了' }])
+  assert.equal(queued.length, 1)
+
+  const message = world.messages[0]
+  assert.equal(message.deliveredAtTick, null)
+  assert.equal(isInFlight(message, world.tick), true)
+
+  // 还没到延迟时间：不送达。**必须推进 tick**——时间不走，消息当然不会送达。
+  for (let i = 0; i < 9; i++) {
+    world.tick += 1
+    const outcome = deliverMessages(world)
+    assert.equal(outcome.delivered.length, 0)
+    assert.deepEqual(outcome.inFlight, [message.id], '这段时间里它应当被算作"飞行中"')
+  }
+  assert.equal(message.deliveredAtTick, null)
+
+  // 到点送达：再走一 tick 才到 MESSAGE_DELIVERY_TICKS=10。
+  world.tick += 1
+  const delivered = deliverMessages(world)
+  assert.equal(delivered.delivered.length, 1)
+  assert.equal(delivered.delivered[0].messageId, message.id)
+  assert.equal(isInFlight(message, world.tick + 100), false, '送达后不再是飞行中')
+})
+
+test('邮箱：消息经 step 送达时会产生 message.sent 事件', () => {
+  const world = makeWorld()
+  sendMessages(world, [{ from: 'agent-1', to: 'agent-3', kind: 'report', body: '好了' }])
+
+  let sent = null
+  for (let i = 0; i < 30 && sent === null; i++) {
+    const result = step(world)
+    sent = result.events.find((e) => e.type === 'message.sent') ?? null
+  }
+  assert.ok(sent, '30 tick 内应当送达并产生事件')
+  assert.equal(sent.payload.from, 'agent-1')
+  assert.equal(sent.payload.to, 'agent-3')
+})
+
+test('邮箱：消息 id 不从事件 seq 派生（混用会破坏"序号不跳号"）', () => {
+  const world = makeWorld()
+  const before = world.seq
+  sendMessages(world, [{ from: 'a', to: 'b', kind: 'answer', body: 'x' }])
+  assert.equal(world.seq, before, '发消息不该动事件序号')
+  assert.equal(world.messages[0].id, 'msg-1')
+})
+
+// ── journal ─────────────────────────────────────────────────────────────────
+
+test('journal：emitEvent 是唯一改 seq 的地方，返回的事件就是写进去的那条', () => {
+  const world = makeWorld()
+  const before = world.seq
+  const event = emitEvent(world, 'world.paused', { paused: true })
+
+  assert.equal(event.seq, before)
+  assert.equal(world.seq, before + 1)
+  assert.equal(world.events[world.events.length - 1], event, '缓冲里存的应当是同一个对象')
+  assert.equal(event.tick, world.tick)
+})

@@ -1,0 +1,134 @@
+/**
+ * 事件产出（BACKLOG M2-7）。
+ *
+ * **整个模拟内核的事件只从这一处产出。** 四个阶段函数都只返回"变了什么"，
+ * 不发事件——如果它们各自顺手 emit，那"事件从哪来"就会变成四个答案，
+ * 而顺序、去重、采样策略都没人统一管。
+ *
+ * ## 事件量：先定策略，再写代码
+ *
+ * R5 留下的最大不确定性就是"位置每 tick 都变，事件会不会把缓冲冲爆"。
+ * 定的策略（写在这里，也写在 `domain/types.ts` 的事件类型注释里）：
+ *
+ * | 事件 | 频率 | 为什么 |
+ * |---|---|---|
+ * | `world.tick` | 每 tick 一条（**只在有位移时**） | 位置是连续量。一条"帧"事件带全部有位移的角色，而不是每人一条——后者 24 角色 ≈ 240 条/秒，环形缓冲只有 500 条 |
+ * | `task.changed` | 状态变化 + **每 10% 的里程碑** | 进度条自己插值；每 tick 推 24 条进度是纯浪费 |
+ * | `agent.state` | 离散（状态机转换时） | 本来就稀疏 |
+ * | `message.sent` | 离散（一封一条） | 本来就稀疏 |
+ *
+ * **`stalled` 刻意不发事件**：它是"为什么现在派不出去"的诊断信息，
+ * 没空闲角色时每 tick 都会成立，发出来只会刷屏。它由 `step()` 的返回值交给编排层，
+ * 工具要展示时去读。
+ */
+import { PROGRESS_MILESTONES } from '../domain/constants.js'
+import type { World, WorldEvent } from '../domain/types.js'
+import type { ReadyOutcome } from './ready.js'
+import type { SchedulerOutcome } from './scheduler.js'
+import type { MovementOutcome } from './movement.js'
+import type { WorkOutcome } from './interaction.js'
+import type { DeliverOutcome } from './mailbox.js'
+import { emitEvent } from './journal.js'
+
+/** 本 tick 各阶段的产出（`emit.ts` 的输入）。 */
+export interface PhaseOutcomes {
+  ready: ReadyOutcome
+  scheduler: SchedulerOutcome
+  movement: MovementOutcome
+  work: WorkOutcome
+  mailbox: DeliverOutcome
+}
+
+/** 进度已跨过的里程碑编号（0..PROGRESS_MILESTONES）。 */
+function milestoneOf(progress: number): number {
+  return Math.floor(progress * PROGRESS_MILESTONES)
+}
+
+/**
+ * 把各阶段的产出翻成事件，并写进 `world.events`。
+ *
+ * **会就地修改 `world.seq` 与 `world.events`。**
+ *
+ * @param world - 世界（就地修改）。
+ * @param outcomes - 各阶段产出。
+ * @returns 本 tick 产生的事件（按发生顺序，`seq` 单调）。
+ */
+export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEvent[] {
+  const events: WorldEvent[] = []
+  const push = (type: Parameters<typeof emitEvent>[1], payload: Record<string, unknown>): void => {
+    events.push(emitEvent(world, type, payload))
+  }
+
+  // 1) 依赖求值：可领取 / 退回可领取
+  for (const id of outcomes.ready.becameReady) {
+    push('task.changed', { id, status: 'ready', reason: 'deps-done' })
+  }
+  for (const id of outcomes.ready.becamePending) {
+    push('task.changed', { id, status: 'pending', reason: 'deps-reopened' })
+  }
+
+  // 2) 派工：任务易主 + 角色上路
+  for (const claim of outcomes.scheduler.claims) {
+    push('task.changed', {
+      id: claim.taskId,
+      status: 'in_progress',
+      owner: claim.agentId,
+      station: claim.stationId,
+      attemptId: claim.attemptId,
+    })
+    push('agent.state', { id: claim.agentId, state: 'walking', task: claim.taskId, to: claim.stationId })
+  }
+
+  // 3) 移动：修好的矛盾（要报出来，否则是静默卡死）+ 到站
+  for (const id of outcomes.movement.repaired) {
+    push('agent.state', { id, state: 'idle', reason: 'repaired' })
+  }
+  for (const arrival of outcomes.movement.arrived) {
+    push('agent.state', { id: arrival.agentId, state: 'working', station: arrival.stationId })
+  }
+
+  // 4) 干活：里程碑 + 完工
+  for (const item of outcomes.work.progressed) {
+    // 承上启下：`before` 由 after - delta 得出，所以这里不用再抄一遍 estimateTicks 的换算。
+    const before = milestoneOf(item.progress - item.delta)
+    const after = milestoneOf(item.progress)
+    if (after > before) {
+      push('task.changed', {
+        id: item.taskId,
+        progress: item.progress,
+        milestone: after,
+        owner: item.agentId,
+      })
+    }
+  }
+  for (const done of outcomes.work.completed) {
+    push('task.changed', {
+      id: done.taskId,
+      status: 'done',
+      owner: done.agentId,
+      station: done.stationId,
+    })
+    push('agent.state', { id: done.agentId, state: 'idle', reason: 'task-done' })
+  }
+
+  // 5) 邮箱：只发"送达"。飞行中不逐 tick 发——渲染层自己在两端插值。
+  for (const msg of outcomes.mailbox.delivered) {
+    push('message.sent', { id: msg.messageId, from: msg.from, to: msg.to })
+  }
+
+  // 6) 帧：有位移才发。**这是唯一承载连续量的事件。**
+  //
+  // 用 movement 返回的 `advanced` 而**不是**过滤 `state === 'walking'`：
+  // 本 tick 到站的人已经切成 `working` 了，按状态过滤会把他漏掉，
+  // 于是渲染层拿不到他的落位坐标，表现为"走到一半突然被吸过去"。
+  if (outcomes.movement.advanced.length > 0) {
+    const moved = new Set(outcomes.movement.advanced)
+    push('world.tick', {
+      agents: world.agents
+        .filter((a) => moved.has(a.id))
+        .map((a) => [a.id, a.position.x, a.position.z, a.facing] as const),
+    })
+  }
+
+  return events
+}

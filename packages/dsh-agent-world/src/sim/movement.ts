@@ -62,13 +62,19 @@ export function advanceMovement(world: World): MovementOutcome {
       continue
     }
 
-    const next = agent.path[0]
-    if (next === undefined) {
-      // 路径走完 = 到站。位置已经在到达最后一点时精确落位，这里只切状态。
+    /** 到站：落位、占站、转 working。 */
+    const arrive = (): void => {
       agent.station = station.id
       agent.targetStation = null
+      agent.path = []
       agent.state = 'working'
       arrived.push({ agentId: agent.id, stationId: station.id })
+    }
+
+    const next = agent.path[0]
+    if (next === undefined) {
+      // 兜底：调度器给了空路径。正常不会发生（claim 时至少写入一个座位点）。
+      arrive()
       continue
     }
 
@@ -78,6 +84,11 @@ export function advanceMovement(world: World): MovementOutcome {
     agent.position = moved.position
     advanced.push(agent.id)
     if (moved.arrived) agent.path.shift()
+
+    // **走到最后一个点的当 tick 就到站**，不是等下一 tick。
+    // 等下一 tick 的话，会出现一帧"状态还是 walking、位置已经到了"——
+    // 渲染层那一帧不知道该播走路还是坐下，而且看起来像慢了一拍。
+    if (agent.path.length === 0) arrive()
   }
 
   return { advanced, arrived, repaired }

@@ -24,8 +24,13 @@ import type { World } from '../domain/types.js'
 
 /** 一次干活推进的结果。 */
 export interface WorkOutcome {
-  /** 本 tick 有推进的（任务, 角色）。 */
-  progressed: { taskId: string; agentId: string; progress: number }[]
+  /**
+   * 本 tick 有推进的（任务, 角色）。
+   *
+   * `delta` 是本次推进量。带上它是为了让 `emit.ts` 能算出"跨过了哪个里程碑"
+   * 而**不用把 `estimateTicks` 的换算规则再抄一遍**——那种抄写是两处真相的开始。
+   */
+  progressed: { taskId: string; agentId: string; progress: number; delta: number }[]
   /** 本 tick 完工的（任务, 角色）。 */
   completed: { taskId: string; agentId: string; stationId: string | null }[]
 }
@@ -56,8 +61,10 @@ export function advanceWork(world: World): WorkOutcome {
     }
 
     const ticks = task.estimateTicks !== null && task.estimateTicks > 0 ? task.estimateTicks : DEFAULT_TASK_TICKS
-    task.progress = Math.min(1, task.progress + 1 / ticks)
-    progressed.push({ taskId, agentId: agent.id, progress: task.progress })
+    const next = Math.min(1, task.progress + 1 / ticks)
+    const delta = next - task.progress
+    task.progress = next
+    progressed.push({ taskId, agentId: agent.id, progress: task.progress, delta })
 
     if (task.progress >= 1) {
       const stationId = task.station

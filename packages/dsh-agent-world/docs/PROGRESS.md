@@ -27,7 +27,126 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R5 末）：`typecheck` 绿 · `test` 91/91 绿。
+当前验证状态（R6 末）：`typecheck` 绿 · `test` 115/115 绿。
+
+---
+
+## R6 — 2026-10-14 · 事件产出 / 邮箱 / step 编排 / 1000 tick 确定性验收
+
+**本轮目标**（M2-6 / M2-7 / M2-3 / M2-8）：把 M2 收口。**模拟内核到此完成。**
+
+### 做了什么
+
+1. **`src/sim/journal.ts`（M2-7）** —— `emitEvent(world, type, payload)`，**只有它能改
+   `world.seq` 与 `world.events`**。事件序号是客户端 gap 自愈的依据（PROTOCOL.md §4.3），
+   多处各自造序号会让序号重复或跳号，而症状是"面板偶尔重拉一次快照"——没人会去查。
+2. **`src/sim/emit.ts`（M2-7）** —— 把各段返回的 outcome 翻成事件。
+   **整个内核的事件只从这一处产出**；四个阶段函数刻意都不发事件。
+3. **事件量策略（R5 留下的最大不确定性，本轮定了）**：
+
+   | 事件 | 频率 | 为什么 |
+   |---|---|---|
+   | `world.tick` | 每 tick **最多一条**，且只在真有位移时 | 位置是连续量。一条"帧"事件带本 tick 有位移的角色 `[id,x,z,facing][]`，而不是每人一条——后者 24 角色 ≈ 240 条/秒，环形缓冲只有 500 条 |
+   | `task.changed` | 状态变化 + **每 10% 里程碑** | 进度条自己插值；每 tick 推 24 条进度是纯浪费 |
+   | `agent.state` / `message.sent` | 离散 | 本来就稀疏 |
+   | `agent.moved` | **保留但不再使用** | 位置走帧事件。留着一个"单个角色大跨度移动"的位置，也避免删枚举取值（那要 bump 协议版本） |
+
+   **`stalled` 刻意不发事件**：它是"为什么现在派不出去"的诊断，没空闲角色时每 tick 都成立，
+   发出来只会刷屏。由 `step()` 的返回值交给编排层。
+4. **`src/sim/mailbox.ts`（M2-6）** —— 消息有**定量投递延迟**（`MESSAGE_DELIVERY_TICKS = 10`，
+   ≈1 秒）。留在常量里而不是由内容决定：它是模拟的时间语义，不是可替换的美术。
+   消息 id **不从事件 seq 派生**——混用会让"事件序号不跳号"这条保证失效，有测试钉住。
+5. **`src/sim/step.ts`（M2-3）** —— 六段固定顺序。两处值得说：
+   - **签名去掉了 `dt`**（决策 D20）：这是定步长模拟，一次调用 = 前进一 tick，
+     `dt` 永远等于 `tickMs`。收了却不用它只会让人以为"传别的值会改变结果"。
+   - **`reset` / `dispatch` / `hire` 不在内核里执行，而是放进 `requests` 转交编排层**。
+     这三个都需要内容（场景/任务集/花名册），而 `sim/` 按边界规则不许 import `content/`。
+     这不是权宜之计，是 D16 那条规则在起作用；顺带的好处是 `step()` 可以在
+     **没有任何内容注册表**的情况下被测试。
+   - `world.tick` 在**最后**自增：上面所有阶段读到的都是"这一步的编号"，事件时间戳因此一致。
+     放开头加会让事件落在下一个 tick 上，差一帧。
+6. **修掉一个真实缺陷（测试抓到的）**：`movement.ts` 原本要**等下一 tick** 才判定到站，
+   于是会出现一帧"状态还是 walking、位置已经到了"——渲染层那一帧不知道该播走路还是坐下，
+   看起来像慢了一拍。改成**走到最后一个点的当 tick 就到站**。
+7. **`test/determinism.test.js`（M2-8）** —— 1000 tick 逐字节比对，外加三条"防止假通过"的检查。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 115 / pass 115 / fail 0
+```
+
+91 → **115**。M2-8 那组特别值得看，因为**确定性测试最容易假通过**：
+
+- **1000 tick 逐字节一致**（`JSON.stringify` 比对，同时覆盖"值不同"与"字段顺序不同"）。
+- **加一条"世界确实在动"**：如果世界是死的，上一条会因为"两边都是初始状态"而假通过。
+  所以断言 1000 tick 后有角色在工作、有工单完工、产生过事件。
+- **加一条静态检查**：直接读 `src/sim/*.ts` 源码（**去掉注释再查**），
+  出现 `Math.random` / `Date.now` / `new Date` 就红。注释里正当地写"禁止 Math.random"
+  不该被判成违规——这个细节不做，这条检查会立刻变成噪声被关掉。
+- **加一条 3000 tick 长跑**：事件缓冲有界、状态机取值合法、进度不越界、
+  **不许有角色卡在 walking 却没目标**（静默卡死）、进行中的工单必须有负责人与站点。
+- **加一条完整流水线**：quick-fix 三张单全部完成，且**完工后没人还占着工位**。
+
+另有两条关于"事件量策略真的生效"的检查：400 tick 只产生 133 个事件（帧事件只在有人移动时发）；
+2000 tick 的 `seq` 仍远小于缓冲上限 500。**如果按人头逐条发位置事件，这两条会当场红。**
+
+三处测试写错、**实现是对的**（记在这里免得下次重写）：
+① 我断言 `resume` 那一步不推进世界——实际它推进了，且**这是对的**（命令影响它到达的那一 tick）；
+② 环形缓冲断言差一（`world.seq` 从 1 起，不是 0）；
+③ 邮箱测试忘了推进 `world.tick`，时间不走消息当然不送达。
+
+### 下一轮从哪继续
+
+**M2-9：`agent_world_dispatch` 工具**，让任务库真正被消费。具体：
+
+1. `WorldServicePort` 加 `dispatch(taskSetId: string): World`（或返回新派进的工单 id 列表）。
+   **必须在 `state.ts` 里实现**（它 import `content`，符合边界规则），工具侧只调端口。
+2. 复用 `content/instantiate.ts` 的 `instantiateTasks(set, startIndex, tick)`——
+   `startIndex` 要接着现有 `world.tasks.length + 1`，否则跨任务集会撞 id。
+3. 新建 `src/tools/dispatch.ts`，注册 `agent_world_dispatch`。工具描述要写明副作用
+   （**会往世界加派工单**）。参数 `taskSet` 要校验：库里没有就报错并**列出可用任务集**。
+4. 测试：派 quick-fix 进世界 → 工单数 +3、首张 `ready`、id 不撞已存在的。
+5. 顺带把 `agent_world_open` 的说明改掉——它现在说"等 lead 派单"，但派单工具就是这一个。
+
+**然后 M3**。M3 的第一件事应该是 **M3-2 runtime**，而不是 M3-1 落盘：因为
+**现在没有任何东西驱动 `step()`**，插件加载后世界是静止的（`world.tick` 一直是 0）。
+先把 tick 循环接上，世界才真的会动：
+
+- `src/runtime.ts`：`setInterval(step, tickMs)` + `ctx.effect(() => () => clearInterval(...))` 清理
+  （**必须清理**，否则热重载会泄漏定时器，这是本仓库的既有踩坑）。
+- 处理 `StepResult.requests`：`dispatch` / `hire` 需要内容，`reset` 要么重建世界要么明确拒绝。
+- `autoStart` 配置项**终于有了真实语义**（之前只是"先把世界建出来"）。
+- 注意：runtime 属于 `runtime/` 模块，边界规则允许它 import 全部；但 `sim/` 不许反过来 import 它。
+
+### 假设
+
+- **`world.tick` 在暂停期间不前进**，且暂停时 `step()` 除了 ingest 段什么都不做。
+  这样 HUD 上不会出现"暂停了但时间还在走"。
+- **消息投递延迟 10 tick 是定数**，不随内容变化。真要改观感，改的是渲染层怎么插值这段飞行。
+- **进度事件只在里程碑发**，所以面板的进度条**必须自己插值**，不能指望收到每一帧的进度。
+  这条要写进 M4/M6 的实现说明里，否则做 HUD 的人会以为"进度事件丢了"。
+
+### 卡住 / 风险
+
+- **最该记住的一条：`step()` 现在没有驱动者。** 内核对、测试全绿，
+  但插件加载后世界静止（`world.tick` 一直是 0），工具看到的是一个"装好了但还没开始跑"的世界。
+  这不是 bug，是 M3-2 还没做——但**很容易被误读成"模拟已经能用了"**。已写进 BACKLOG 的 M3 抬头。
+- **`world.messages` 只增不减**（不像 `events` 有环形缓冲）。一个跑很久的世界里消息会无限堆积。
+  M3-1 落盘时必须定策略（截断 / 归档 / 只留未送达 + 最近 N 条）。现在没定，因为还没有长跑的真实场景。
+- **`emit.ts` 里 `world.tick` 帧事件的载荷是元组数组**，过 JSON 会变成普通数组，
+  反序列化方要按位置解包。这是个**隐式契约**，PROTOCOL.md 只写了"事件带 seq"没说载荷形状。
+  M3 接 SSE 时必须把它写进 PROTOCOL.md 的载荷说明，否则面板只能靠读源码猜。
+
+### 本轮产出
+
+- 新增：`src/sim/{journal,emit,mailbox,step}.ts`、`test/step.test.js`、`test/determinism.test.js`
+- 修改：`src/sim/{movement,interaction,index}.ts`（到站同 tick、progressed 带 delta）、
+  `src/domain/{types,constants}.ts`（事件量策略注释、投递延迟、里程碑粒度）、
+  `docs/ARCHITECTURE.md`（§4.1 签名 + 决策 D20）、`docs/BACKLOG.md`
+- 测试从 91 → 115
 
 ---
 

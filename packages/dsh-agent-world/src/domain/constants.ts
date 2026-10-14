@@ -33,6 +33,23 @@ export const WORK_SPEED = 0.004
 /** 没声明 `estimateTicks` 的任务，默认要多少 tick 完成。 */
 export const DEFAULT_TASK_TICKS = Math.round(1 / WORK_SPEED)
 
+/**
+ * 一条消息要飞多少个 tick 才送达。
+ *
+ * 写死在常量里而不是由内容决定：它是**模拟的时间语义**，不是可替换的美术。
+ * 立刻送达会让渲染层只能看到纸条瞬移；延迟太久又像卡住了。10 tick ≈ 1 秒。
+ */
+export const MESSAGE_DELIVERY_TICKS = 10
+
+/**
+ * 进度里程碑的粒度：每推进 10% 记一条事件。
+ *
+ * 为什么需要它：进度每 tick 都在变，如果每次都发事件，24 个角色 ≈ 每秒上百条，
+ * 会把"环形缓冲只留 500 条"冲爆，客户端也会被淹。里程碑让事件量与**任务数**相关，
+ * 而不是与**tick 数**相关。HUD 的进度条不需要每一帧都收到推送——它自己插值。
+ */
+export const PROGRESS_MILESTONES = 10
+
 /** 同屏角色上限。超过就排队等待招募（性能预算，见 docs/ARCHITECTURE.md §5.3）。 */
 export const MAX_AGENTS = 24
 

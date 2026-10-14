@@ -1,11 +1,12 @@
 /**
  * 模拟内核出口（BACKLOG M2）。
  *
- * 四个阶段函数都是**纯的（不碰 IO、不用未注入的随机/时间）**，且**不发事件**——
- * 它们返回"变了什么"，事件由 `step.ts` 的最后一段统一产出（M2-3/M2-7）。
- * 这样"事件从哪来"只有一个答案，单测各模块时也不带事件噪声。
+ * 设计：**阶段函数只返回"变了什么"，事件只从 `emit.ts` 一处产出。**
+ * 阶段函数都是纯的（不碰 IO、不用未注入的随机与时间），各自可单独测。
  *
- * 每个阶段都会**就地修改传入的 `World`**。调用方要么拥有它，要么先克隆一份。
+ * `step()` 把它们按固定顺序串起来，并**就地修改**传入的 `World`。
+ * 模拟内核不认识内容库，所以 `reset` / `dispatch` / `hire` 会被转交出去
+ * （见 `step.ts` 的 `StepRequests`）。
  */
 export type { MovementOutcome } from './movement.js'
 export { advanceMovement } from './movement.js'
@@ -18,3 +19,14 @@ export { advanceWork } from './interaction.js'
 
 export type { Claim, SchedulerOutcome, Stalled } from './scheduler.js'
 export { claimTasks, occupancyOf, pickStation } from './scheduler.js'
+
+export type { DeliverOutcome, MessageDraft, SendOutcome } from './mailbox.js'
+export { deliverMessages, isInFlight, sendMessages } from './mailbox.js'
+
+export { emitEvent } from './journal.js'
+
+export type { PhaseOutcomes } from './emit.js'
+export { emitPhaseEvents } from './emit.js'
+
+export type { StepRequests, StepResult } from './step.js'
+export { step } from './step.js'

@@ -170,7 +170,22 @@ export interface Message {
   deliveredAtTick: number | null
 }
 
-/** 世界事件类型。渲染层只认这些，不认 domain 的其余内部结构。 */
+/**
+ * 世界事件类型。渲染层只认这些，不认 domain 的其余内部结构。
+ *
+ * ## 事件量是设计过的（R6 定的策略）
+ *
+ * - `world.tick` —— **每 tick 一条**，载荷里带本 tick 有位移的角色
+ *   `[id, x, z, facing][]`。位置是连续量，**不给每个角色单独发事件**：
+ *   24 个角色 ≈ 每秒 240 条，会把环形缓冲（500 条）冲爆，客户端也会被淹。
+ *   一条"帧"事件既省又正好是渲染层要的东西。
+ * - `task.changed` —— 状态变化，以及**每 10% 的进度里程碑**（`PROGRESS_MILESTONES`）。
+ *   进度条自己插值，不需要每帧推送。
+ * - `agent.state` / `message.sent` —— 离散事件，本来就稀疏。
+ * - `agent.moved` —— **暂时保留但不再使用**（见上：位置走 `world.tick` 的帧事件）。
+ *   留着是为了不删协议里的取值（删枚举取值要 bump 版本），也留一个"单个角色的大跨度
+ *   移动"（比如将来瞬移/传送机制）的位置。
+ */
 export type WorldEventType =
   | 'world.reset'
   | 'world.tick'
