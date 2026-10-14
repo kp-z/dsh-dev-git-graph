@@ -211,6 +211,19 @@ export function isDomainKeyword(word: string): boolean {
  * 等于把整个互联网拉回来 —— 它必须**与别的词组合**（如 `typescript best practices`）才有意义。
  */
 const TOO_GENERIC_SINGLE: ReadonlySet<string> = new Set([
+	// **长度够、语义很泛**的词（R60 实测：`dashboard` 9 个字符，按长度会被判"具体"，
+	// 但它单独去搜回来的是"吉他仪表盘""家庭电子墨水仪表盘"这类与项目无关的内容）。
+	// **教训："够长"不等于"够具体"** —— 长度只是语义判断的代理，代替不了它。
+	// 注意：只能加在这一列（影响"要不要拿它去搜"），**不能**加到 NON_DOMAIN_KEYWORDS
+	// （那个列表会把词从画像里整个滤掉 —— 我第一次就加错了地方，11 个测试立刻红了）。
+	// 注意 `visualization` **不在**这里：它在项目里是能用的领域词（实测有时能命中正经内容），
+	'dashboard', 'dashboards', 'framework', 'frameworks',
+	'performance', 'security', 'database', 'databases', 'server', 'servers', 'client',
+	'clients', 'testing', 'monitoring', 'pipeline', 'pipelines', 'workflow', 'workflows',
+	'architecture', 'design', 'designs', 'pattern', 'patterns', 'tutorial', 'tutorials',
+	'guide', 'guides', 'library', 'libraries', 'plugin', 'plugins', 'extension', 'extensions',
+	'integration', 'integrations', 'deployment', 'migration', 'migrations', 'optimization',
+	'scalability', 'maintenance', 'refactor', 'refactoring', 'benchmark', 'benchmarks',
 	'react', 'vue', 'angular', 'svelte', 'solid', 'preact', 'jquery', 'next', 'nuxt', 'remix',
 	'vite', 'webpack', 'rollup', 'esbuild', 'babel', 'parcel', 'gulp', 'grunt',
 	'node', 'deno', 'bun', 'npm', 'yarn', 'pnpm', 'python', 'java', 'kotlin', 'swift', 'rust',
@@ -223,6 +236,10 @@ const TOO_GENERIC_SINGLE: ReadonlySet<string> = new Set([
 
 /**
  * 这条检索词**够不够具体**？
+ *
+ * ⚠️ 这里的判据只有**长度与词数**，所以它只是语义判断的**代理**：
+ * `dashboard` 有 9 个字符却语义很泛（R60 实测拉回无关内容），已进黑名单。
+ * **加新词时问自己一句：这个词单独去搜，能不能区分出"与本项目有关的"？**
  *
  * 判据刻意简单可解释：多词（≥2 段）算具体；单词只在"够长且不是通用技术名"时算具体；
  * 纯中文（≥2 字）算具体 —— 中文两字词在这个项目的语境里通常已经是领域词。

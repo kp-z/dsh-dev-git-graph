@@ -2414,3 +2414,32 @@ project.detect:
 或者要求这类词**与项目词组合**再搜（如 `dashboard react`）。
 
 **其余待办（沿用记录）**：`daily_brief` 工具、假模型的简报分支。
+
+### R61 · 2026-10-14 09:08 — 检索词侧：**"够长 ≠ 够具体"**（发布 0.6.4）
+
+**R60 点名的下轮第一件事**：`isSpecificQuery` 只按长度判断（`dashboard` 9 字符 → 算具体），
+于是语义很泛的词漏进检索，把"吉他仪表盘"这类无关内容带回简报。
+
+**改动**：把「长度够、语义很泛」的词从**可搜单词**里划掉（46 个：`dashboard`/`performance`/
+`security`/`database`/`architecture`/`workflow`/`tutorial`/`benchmark`…）。
+组合起来仍然可搜（`dashboard react` 有两个词 → 具体 ✓）—— **不是封杀，是要求上下文**。
+
+**过程中我先加错了地方（值得记）**
+我把这批词加进了 `NON_DOMAIN_KEYWORDS`（被 `isDomainKeyword` 用来**从画像里过滤词**）——
+于是它们被当成"结构词"整个滤掉，**11 个测试立刻红了**，而 `isSpecificQuery` 根本没变。
+两个列表语义不同：`NON_DOMAIN_KEYWORDS` = "这词不该进画像"；
+`TOO_GENERIC_SINGLE` = "这词可以进画像，但不该单独拿去搜"。已移到后者，
+并在代码注释里写清"**只能加在这一列**"。
+
+**另外我写的断言连续撞了三次车**：`kubernetes` / `echarts` / `zustand` 这些基础设施与
+框架名**本来就在原黑名单里**，我却把它们当成"应该可以单独搜"的例子。
+教训：**写这类断言前先查一遍名单**，别凭印象。
+
+**证据**
+- `npm test` → **366 / pass 366 / fail 0**（R60 基线 364 → 本轮 +2）
+- 新增 2 组测试：`isSpecificQuery` 够长≠够具体（8 个泛词被挡 + 3 个组合词通过）+
+  `deterministicQueries` 不再产出裸 `dashboard`
+- 真实数据：检索词计划里 keyword 维度不再出现裸 `dashboard`
+- 已发布 `@kpeace/dsh-daily@0.6.4`
+
+**下轮起点**：`peers`/`risks` 两个维度在简报里的贡献占比、以及简报进 UI（第③期：简报视图 + 美化）。

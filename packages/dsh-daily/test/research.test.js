@@ -375,3 +375,29 @@ test('describePlan：一句话说清用了哪条路与多少条', () => {
 	assert.match(text, /AI 生成/)
 	assert.match(text, /dep×1/)
 })
+
+test('isSpecificQuery：**够长 ≠ 够具体**（实测 dashboard 拉回无关内容）', () => {
+	// R60 实测：dashboard 9 个字符、按长度会被判"具体"，但单独去搜回来的是
+	// "Guitar Dashboard""family e-paper dashboard"这类与项目无关的内容
+	for (const generic of ['dashboard', 'performance', 'security', 'database', 'architecture', 'workflow', 'tutorial', 'benchmark']) {
+		assert.equal(isSpecificQuery(generic), false, `${generic} 够长但语义泛，不该单独去搜`)
+	}
+	// **组合起来就具体了**（这是给这类词的出路，不是一刀切封杀）
+	for (const combined of ['dashboard react', 'performance optimization', 'security audit']) {
+		assert.equal(isSpecificQuery(combined), true, `${combined} 有上下文，应当算具体`)
+	}
+	// 真正有辨识度的单词仍然可以单独搜（注意 `visualization` 已在泛词黑名单里）
+	// 基础设施名词（docker/kubernetes/git…）本来就在原黑名单里：它们对"搜索"而言太泛
+	// 只用**确定不在**原黑名单里的词（`kubernetes`/`echarts`/`zustand` 这些基础设施与
+	// 前端框架名本来就在名单里 —— 我写这条断言时连续撞了三次，才意识到该先查名单）
+	for (const useful of ['protobuf', 'bufbuild', 'monaco']) {
+		assert.equal(isSpecificQuery(useful), true, `${useful} 应当可以单独搜`)
+	}
+})
+
+test('deterministicQueries：语义泛词不会单独变成检索词', () => {
+	const queries = deterministicQueries(profile({ keywords: ['dashboard', '可视化', 'protobuf'] }))
+	const all = queries.map((q) => q.query)
+	assert.ok(!all.includes('dashboard'), `dashboard 不该单独成词：${all.join(' | ')}`)
+	assert.ok(all.every((q) => q.split(/\s+/).length >= 2 || q === '可视化' || q.length >= 7), '留下来的词要么有上下文、要么真有辨识度')
+})

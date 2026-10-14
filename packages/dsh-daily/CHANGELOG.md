@@ -2,6 +2,15 @@
 
 本文件记录 dsh-daily 的每个可交付版本。开发期的**逐轮记录**在 [STATUS.md](STATUS.md)（每轮必带真实命令与输出）。
 
+## 0.6.4 — 检索词侧：够长 ≠ 够具体
+
+- `TOO_GENERIC_SINGLE` 补入 46 个"长度够、语义很泛"的词（`dashboard`/`performance`/`security`/
+  `database`/`architecture`/`workflow`/`tutorial`/`benchmark`…）：**单独不搜，组合可搜**
+  （`dashboard react` 仍算具体）——不是封杀，是要求上下文
+- 实测依据：`dashboard` 单独去搜会把"吉他仪表盘""家庭电子墨水仪表盘"这类无关内容带回简报
+- 过程中把词先加进了 `NON_DOMAIN_KEYWORDS`（那是"不该进画像"的列表）→ 11 个测试立刻红；
+  已移到 `TOO_GENERIC_SINGLE`（"可以进画像但不该单独拿去搜"），并在注释里写明只能加这一列
+
 ## 0.6.3 — 简报资讯合并调研结果（把两条链路接起来）
 
 - `findingsToNews()`：调研结果 → 简报资讯，**每条写明来源与命中的检索词**（可追溯）
