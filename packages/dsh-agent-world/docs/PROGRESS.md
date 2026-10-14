@@ -27,7 +27,135 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R15 末）：`typecheck` 绿 · `test` 260/260 绿。
+当前验证状态（R16 末）：`typecheck` 绿 · `test` 270/270 绿。
+
+---
+
+## R16 — 2026-10-15 · 模型选择变成内容（M4-7）：构建器注册表
+
+网络第十次确认仍断。取 M4-7——R15 说它是"当前 3D 最假的地方"。
+
+### 查下去发现的问题比"加个注册表"严重
+
+R15 我记的是"站点是方块、角色是胶囊，形状写死在 `scene3d.js` 里"。动手时先看 `scene/plan.ts`，
+发现这一行：
+
+```ts
+modelId: `model.station.${s.kind}`   // ← 代码拼接出来的模型 id
+```
+
+**等于把模型清单写进了代码**，内容里的 `models` 库**根本没人读**。而且它坏得很安静：
+内容里把某个站点换成别的模型、或者某个 kind 的模型另有其名，代码就会指向一个**不存在的模型**，
+而 `models` 库看起来完全正常。这正是"代码是机制，内容是数据"那条红线被踩的样子。
+
+所以这一轮做的是**三件事**，不是一件：
+
+1. **模型选择变成内容**：`StationEntry.model`（每个站点声明）与 `SceneEntry.agentModel`（场景声明角色模型）
+   成为必填字段；`ScenePlan` 新增一张 `models` 表（**只含本场景用到的**），
+   `SceneProp.modelId` 与 `SceneActor.modelId` 都能在表里查到。
+   渲染器**不再去内容库里找模型**——它只需要 `ScenePlan`。
+2. **构建器注册表**（`web/builders.js`）：8 个程序化构建器（`avatar`/`desk`/`meeting`/`server`/
+   `mailroom`/`lab`/`breakroom`/`delivery`），每个返回一个**底面贴地**的 `Object3D`。
+   按 **builder 名**注册（而不是按 model id）——按 id 注册的话，新增一个模型条目仍要改代码来"认领"，等于没改。
+3. **缺失要说出来**：内容引用了一个没有实现的构建器时，画**品红占位块**并把名字交给面板，
+   **不静默退回方块**——退回的效果是"画面上有个东西但显然不对"，而真正的原因完全看不见。
+
+按领域契约的分工：`domain` 只把 `Station.model`／`World.agentModel` 当**不透明字符串**带着；
+`content` 负责把条目映射成 `SceneModel`（只有它知道 `ModelEntry` 的形状）；
+`scene` 负责组装计划；渲染器只认计划。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 270 / pass 270 / fail 0
+```
+
+260 → **270**（`test/builders.test.js` 7 条 + 场景规划的模型表 3 条）。
+
+其中**最重要的一条**是内容与渲染器之间的契约：
+
+> 内置内容里声明的**每一个** `builder` 名，注册表都得有；反过来注册表里也不该有没人用的孤儿。
+
+这条断言把"加一个模型条目完全不用改代码"从口号变成了**可验的事实**。
+反例也测了：用一个外部包把 `station.desk-a` 换成**完全不同命名**的 `model.custom.pod`，
+计划必须跟着变——如果代码还在拼 `model.station.${kind}`，这条就红。
+
+**构建器能在 node 里真测**（这是设计成注入 `THREE` 的原因）：three 的几何不需要 WebGL 上下文，
+所以直接 import vendored 的那份就能建出真的 `Object3D`，逐条检查
+**包围盒非空**、**底面贴地（y≈0）**、**颜色来自参数**（换颜色必须换出不同材质——
+这条专门抓"色值写死在构建器里"）、**多实例互不影响**。
+
+**浏览器实测**：
+
+| 检查 | 结果 |
+|---|---|
+| 有没有品红占位块 | **0 品红像素** → 所有构建器都解析出来了 |
+| 形状是否真的变多 | 颜色数 **788 → 1685**（同样的相机与光照，形状更复杂） |
+| 非黑像素 | 20.5% |
+| 错误提示 | `#view-hint` 为空 |
+| 两个视图 | 3D 与俯视来回切，花名册 8 行 / 工单 10 行正常 |
+| 接口 | `plan.models` 正好 **7 条**（6 种站点模型 + 1 个角色模型），构建器名都解析出来了 |
+
+**浏览器验证抓到了一个我自己的真 bug**：我删掉了 `ACTOR_Y` 常量（形状不再由代码定尺寸），
+但 `applyWorld` 里还在用它定位角色 → `ReferenceError` → **画布全黑（1 种颜色、0% 非黑）**。
+这个 bug 单测抓不到（`scene3d.js` 是浏览器模块），是"取一帧像素 + 看提示"抓到的。
+顺带修了一处语义错误：新写法**只改角色的 x/z，不动 y**——y 由构建器决定，
+而旧写法按写死的常量把人抬到半空。
+
+### 一处**破坏性的内容变更**（必须记）
+
+`StationEntry.model` 与 `SceneEntry.agentModel` 是**新增必填字段**。后果：
+
+- 内置包已补齐（10 个站点 + 1 个场景）；
+- `schemaVersion` 仍是 1，**没有加版本门**——也就是说一个按旧规范写的外部包会在校验时报
+  "站点模型 id 必须是非空字符串"，而它能照做的动作是**加一个 `model` 字段**，报错文案里应该能看出来。
+- 这也是"手上还没有任何外部内容包"这个事实带来的便利。**等真有第三方包了，这类变更必须走 schemaVersion 与迁移说明。**
+
+### 下一轮从哪继续
+
+**M4 的可做部分做完了**（M4-7 是最后一条不依赖联网的）。剩下的都卡在外部条件上：
+
+1. **M4-7b / M5**：GLB 加载与骨骼动画。**需要联网**拿 `pack.kenney-mini`（`docs/ASSETS.md` 已核验过那批资源）。
+   代码侧现在会诚实地报「（GLB）xxx」并画品红块，不会假装加载成功。
+2. **M3-1b**（`events.jsonl` 分片）：**我仍然不主动做**——"错误的分片比不分片更难改"。
+3. **M2.6-1**（消息文案进不进内容库）：要用户拍板。
+
+所以下一轮如果没有外部条件变化，我会**明确报告"没有可做的活了"**，
+而不是为了产出而产出。**网络恢复是唯一的解锁条件**（three 换 0.186 后 bloom 立刻可用，
+主题侧开关已留好）。
+
+### 假设
+
+- **按 builder 名而不是 model id 注册**：这是这轮的关键设计选择，理由写在 `builders.js` 的文件头。
+  代价是"内容里两个模型条目指向同一个 builder 时长得一样"——但那是**内容的意图**，不是缺陷。
+- **构建器返回底面贴地的 Object3D**：让摆放逻辑（x/z）与形状逻辑完全分开，
+  于是"这个桌子多大"也由内容的 `scale` 说了算。测试逐条验了 `y≈0`。
+- **GLB 分支现在就报错**：比"静默画方块"好。M5 落地前，品红块是正确行为。
+- **`SceneModel.url` 已过路径校验**（M1.6-7 那套），所以 M5 拿到它时不用再防穿越。
+
+### 卡住 / 风险
+
+- **网络第十次确认全断**。M5 与 three 0.186.1（bloom）都等它。
+- **破坏性内容变更没有版本门**：见上面那一节。有第三方包之前必须补上。
+- **`web/` 仍是手写 JS 没有类型**（R10/R13/R14/R15 记到第五次了）。
+  这一轮它又多吃了 `SceneModel` 与 `ScenePlan.models` 两个形状。**下一次动 `web/` 就该改成 TS**。
+- **3D 只在 2112×1403 的高分屏上验过**，没验窄窗口下的正交视锥。
+- **品红占位块只在浏览器里验过**（0 像素），**没有单测**——`onMissing` 那条路径没被自动化覆盖。
+
+### 本轮产出
+
+- 新增：`web/builders.js`、`test/builders.test.js`
+- 修改：`src/content/kinds.ts`（`StationEntry.model` / `SceneEntry.agentModel`）、
+  `src/domain/types.ts`（`Station.model` / `World.agentModel`）、`src/content/instantiate.ts`、
+  `src/content/port.ts`（`modelOf`）、`src/protocol/scene.ts`（`SceneModel` / `models` / 角色 `modelId`）、
+  `src/protocol/ports/content.ts`、`src/scene/plan.ts`（不再拼接 id）、`src/routes/api.ts`、
+  `src/world/create.ts`、`src/content/{validate,registry}.ts`（形状 + 交叉引用）、
+  `src/content/packs/default.ts`（11 处声明）、`web/{scene3d,app}.js`、
+  `test/{content,external-pack,scene-plan}.test.js`
+- 文档：`ARCHITECTURE.md`（决策 D31）、`BACKLOG.md`（M4-7 done、M4-7b 新增）
+- 测试从 260 → 270
 
 ---
 

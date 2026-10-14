@@ -152,5 +152,15 @@ export function contentPortOf(
       return merged
     },
     themeFor: (sceneId) => buildThemePlan(registry, sceneId),
+    modelOf: (id) => {
+      // `get` 返回的是 `{ id, pack, data }`（解析结果），条目本身在 `data` 里。
+      const resolved = registry.get('models', id)
+      if (resolved === undefined) return null
+      const { source, scale, rotationY, anchorY } = resolved.data
+      // 映射在这里做（而不是让渲染器读 `ModelEntry`）：只有内容层知道条目的原始形状。
+      return source.kind === 'procedural'
+        ? { id, builder: source.builder, url: null, scale, rotationY, anchorY }
+        : { id, builder: null, url: source.url, scale, rotationY, anchorY }
+    },
   }
 }

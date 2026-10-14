@@ -85,6 +85,13 @@ export interface Station {
   /** 同时能容纳几个角色。1 = 独占工位，4 = 会议桌。 */
   capacity: number
   capabilities: Capability[]
+  /**
+   * 这个站点用哪个模型条目（`models` 库的 id）。
+   *
+   * 对领域而言它是个**不透明字符串**——领域不认识内容库，只是把「内容说它长什么样」
+   * 带在身上，好让场景描述层原样交给渲染器。
+   */
+  model: string
   /** 角色坐下时的精确位置（相对 anchor 的偏移，已算好便于渲染层直接吸附）。 */
   slots: Vec2[]
 }
@@ -252,6 +259,8 @@ export interface World {
   createdAt: string
   /** 是否暂停。暂停时 step() 不推进世界，但仍可接受命令。 */
   paused: boolean
+  /** 角色用哪个模型条目（`models` 库的 id，由场景条目声明）。 */
+  agentModel: string
   mode: WorldMode
   /** 这个世界的来源。没有它就没法"用同样的内容重开一局"。 */
   origin: WorldOrigin

@@ -286,9 +286,16 @@ export class ContentRegistry {
       })
     }
 
+    // 站点/场景引用的模型：只在确实装了模型库时才查（host 侧可能没装表现库，
+    // 那时"引用不存在的模型"不该报错——你没给模型，不是内容写错了）。
+    const hasModels = this.size('models') > 0
+
     for (const st of this.list('stations')) {
       if (!this.get('districts', st.data.district)) {
         missing(`stations/${st.id}.district`, 'districts', st.data.district, `站点 ${st.id}`)
+      }
+      if (hasModels && !this.get('models', st.data.model)) {
+        missing(`stations/${st.id}.model`, 'models', st.data.model, `站点 ${st.id}`)
       }
       if (st.data.relativeTo && !this.get('districts', st.data.relativeTo)) {
         missing(`stations/${st.id}.relativeTo`, 'districts', st.data.relativeTo, `站点 ${st.id} 的 relativeTo`)
@@ -308,6 +315,9 @@ export class ContentRegistry {
       // theme 属于表现库：host 侧可能没装任何表现库，那就不该报错。
       if (this.size('themes') > 0 && !this.get('themes', sc.data.theme)) {
         missing(`scenes/${sc.id}.theme`, 'themes', sc.data.theme, `场景 ${sc.id}`)
+      }
+      if (hasModels && !this.get('models', sc.data.agentModel)) {
+        missing(`scenes/${sc.id}.agentModel`, 'models', sc.data.agentModel, `场景 ${sc.id}`)
       }
     }
 

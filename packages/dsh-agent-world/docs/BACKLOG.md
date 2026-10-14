@@ -167,7 +167,8 @@
 | M4-4 | done | **消费 `themes` 库**：相机/光照/雾/后处理全从主题条目读，不许硬编码 | `web/src/scene/theme.ts` | M4-3 |
 | M4-5 | done | **消费 `skins` 库**：所有颜色走 token 解析（含 `skin.` 前缀） | `web/src/scene/palette.ts` | M4-1 |
 | M4-6 | done | **消费 `districts` + `stations` 库**：地面与站点几何按内容生成 | `web/src/scene/town.ts` | M4-4 M4-5 |
-| M4-7 | ready | 程序化几何构建器注册表（`avatar`/`desk`/`server`…，对应 `models` 库的 `builder` 字段） | `web/src/scene/builders.ts` | M4-6 |
+| M4-7 | done | 程序化几何构建器注册表（`avatar`/`desk`/`server`…，对应 `models` 库的 `builder` 字段） | `web/src/scene/builders.ts` | M4-6 |
+| M4-7b | ready | **`SceneModel.url`（GLB 分支）没被消费**：内容里写 `kind: 'glb'` 的模型，渲染器现在会报「（GLB）xxx」并把位置画成品红块——**诚实**，但还没实现。依赖 M5（要联网拿 `pack.kenney-mini`）与 M1.6-7 已就绪的路径校验 | `web/scene3d.js` + `web/builders.js` | M5 |
 | M4-8 | done | 资源台账：**按仓库实际约定**落在 `src/vendor/README.md`（版本 / 来源 / sha256 / 许可 / 换版本步骤 / 为什么钉 0.167.1），加穷举白名单路由 + `test/vendor.test.js` 双向核对（目录↔白名单、import map↔白名单）。**更正**：这条原计划写 `VENDOR.md` + `THIRD_PARTY_NOTICES.md`，但本仓库没有这两个文件，`docs/DIRECTORY.md` 的约定就是 `src/vendor/README.md`——按既有约定走，不自己发明一套 | `src/vendor/README.md` · `src/routes/vendor.ts` · `test/vendor.test.js` | 
 
 ## M5 — 角色与动画（**内容层可替换性的第一次真实验证**）

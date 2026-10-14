@@ -7,6 +7,7 @@
  */
 import type { LibraryDescriptor, LibraryKind } from '../library-kinds.js'
 import type { ThemePlan } from '../theme.js'
+import type { SceneModel } from '../scene.js'
 
 /** 校验级别。 */
 export type IssueLevel = 'error' | 'warning'
@@ -87,4 +88,11 @@ export interface ContentPort {
    * 渲染器应当退回一组内置缺省，而不是黑屏。
    */
   themeFor(sceneId: string): ThemePlan | null
+  /**
+   * 取某个模型条目的**渲染就绪**描述（`ScenePlan.models` 里的那一种）。
+   *
+   * 不存在时返回 null（由调用方与交叉校验负责报错）。同理，映射在这里做，
+   * 因为只有内容层知道 `ModelEntry` 的原始形状。
+   */
+  modelOf(id: string): SceneModel | null
 }

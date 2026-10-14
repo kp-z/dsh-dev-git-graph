@@ -23,12 +23,22 @@
 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/OrbitControls.js' // 见 index.html 的 import map
+import { createBuilderRegistry } from './builders.js'
 
-/** 站点方块的边长（世界单位）。 */
-const PROP_SIZE = { single: 1.0, multi: 1.6 }
-/** 角色胶囊的尺寸。 */
-const ACTOR = { radius: 0.32, height: 1.15 }
-const ACTOR_Y = ACTOR.height / 2 + ACTOR.radius * 0.2
+/**
+ * 形状从哪来（R16 改）。
+ *
+ * 这里**不再有任何"桌子是方块、人是胶囊"的判断**——形状由内容的 `models` 条目
+ * 指向一个**构建器名**（`desk` / `avatar` / …），构建器实现在 `builders.js` 里。
+ *
+ * 之前是写死的：站点一律方块（按容量分大小）、角色一律胶囊。那样"换个模型"
+ * 就必须改这个文件——而模型选择是内容。
+ *
+ * **缺失要报出来，不要静默退回方块**：退回的效果是"画面上有个东西，但显然不对"，
+ * 而真正的原因（内容引用了一个渲染器没有的构建器）完全看不见。
+ * 缺的东西会画成品红占位块，并把名字交给 `onMissing`。
+ */
+const MISSING_COLOR = '#FF00FF'
 
 /**
  * 建一个 3D 场景。
@@ -47,6 +57,9 @@ export function createScene3d(canvas, options = {}) {
   })
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
+
+  /** 程序化几何注册表。尺寸与形状都在 `builders.js` 里，这里只管摆放。 */
+  const builders = createBuilderRegistry(THREE)
 
   const scene = new THREE.Scene()
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000)
@@ -171,34 +184,67 @@ export function createScene3d(canvas, options = {}) {
     }
   }
 
-  /** 用方块表示站点。**形状由能力/容量决定，不由代码里的资产名决定**（这里没有资产名）。 */
-  const buildProps = (props) => {
+  /** 缺东西的记录：`{ models: Set, builders: Set }`。换 plan 时清空。 */
+  let missing = { models: new Set(), builders: new Set() }
+
+  /** 品红占位块：缺失也要**看得见**，否则画面上只是"少了个东西"。 */
+  const placeholder = () => {
+    const mesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.8, 0.8, 0.8),
+      new THREE.MeshLambertMaterial({ color: new THREE.Color(MISSING_COLOR) }),
+    )
+    mesh.position.y = 0.4
+    mesh.castShadow = true
+    return mesh
+  }
+
+  /**
+   * 按 `modelId` 造一个模型实例。
+   *
+   * @returns {object} 摆好的 `Object3D`（缺失时是占位块）。
+   */
+  const instantiate = (modelId, modelById, spec) => {
+    const model = modelById.get(modelId)
+    if (model === undefined) {
+      missing.models.add(modelId)
+      return placeholder()
+    }
+    if (model.builder === null) {
+      // GLB 模型：M5 才会真正加载（需要联网拿资源）。**现在明确报出来**，
+      // 而不是画个方块让人以为加载成功了。
+      missing.builders.add(`（GLB）${model.id}`)
+      return placeholder()
+    }
+    const node = builders.build(model.builder, spec)
+    if (node === null) {
+      missing.builders.add(model.builder)
+      return placeholder()
+    }
+    node.scale.setScalar(model.scale)
+    node.rotation.y = model.rotationY
+    node.position.y += model.anchorY
+    return node
+  }
+
+  /** 摆站点。形状由内容声明的模型决定，这里没有形状判断。 */
+  const buildProps = (props, modelById) => {
     for (const p of props) {
-      const size = p.capacity > 1 ? PROP_SIZE.multi : PROP_SIZE.single
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(size, size * 0.8, size),
-        new THREE.MeshLambertMaterial({ color: new THREE.Color(p.color) }),
-      )
-      mesh.position.set(p.x, (size * 0.8) / 2, -p.z)
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      mesh.name = `prop:${p.id}`
-      staticGroup.add(mesh)
+      const node = instantiate(p.modelId, modelById, { color: p.color, capacity: p.capacity })
+      node.position.set(p.x, node.position.y, -p.z)
+      node.name = `prop:${p.id}`
+      staticGroup.add(node)
     }
   }
 
-  /** 用胶囊表示角色。真正的骨骼模型是 M5。 */
-  const buildActors = (actors) => {
+  /** 摆角色。同理，形状来自内容；真正的骨骼模型是 M5。 */
+  const buildActors = (actors, modelById) => {
     for (const a of actors) {
-      const mesh = new THREE.Mesh(
-        new THREE.CapsuleGeometry(ACTOR.radius, ACTOR.height, 4, 10),
-        new THREE.MeshLambertMaterial({ color: new THREE.Color(a.color) }),
-      )
-      mesh.position.set(a.x, ACTOR_Y, -a.z)
-      mesh.castShadow = true
-      mesh.name = `actor:${a.id}`
-      staticGroup.add(mesh)
-      actorById.set(a.id, mesh)
+      const node = instantiate(a.modelId, modelById, { color: a.color })
+      node.position.set(a.x, node.position.y, -a.z)
+      node.rotation.y = -a.facing
+      node.name = `actor:${a.id}`
+      staticGroup.add(node)
+      actorById.set(a.id, node)
     }
   }
 
@@ -211,13 +257,27 @@ export function createScene3d(canvas, options = {}) {
     plan = nextPlan
     half = plan.extent?.half ?? 8
 
+    missing = { models: new Set(), builders: new Set() }
+    // 计划自带模型表（只含本场景用到的），所以渲染器不用去内容库里找。
+    const modelById = new Map((plan.models ?? []).map((m) => [m.id, m]))
+
     clearStatic()
     applyPost(plan.theme)
     applyLighting(plan.theme)
     buildGround(plan.ground ?? [])
-    buildProps(plan.props ?? [])
-    buildActors(plan.actors ?? [])
+    buildProps(plan.props ?? [], modelById)
+    buildActors(plan.actors ?? [], modelById)
     applyCamera(plan.theme)
+
+    // **一次性报全**，不是每帧刷一条：缺失是内容/渲染器对不上的问题，
+    // 而每帧报一次会把控制台淹掉、也把"到底缺几个"这件事埋了。
+    if (missing.models.size > 0 || missing.builders.size > 0) {
+      options.onMissing?.({
+        models: [...missing.models].sort(),
+        builders: [...missing.builders].sort(),
+        registered: builders.names(),
+      })
+    }
   }
 
   /** 按实时世界更新位姿与状态（事件粒度）。 */
@@ -234,14 +294,20 @@ export function createScene3d(canvas, options = {}) {
       const mesh = staticGroup.getObjectByName(`prop:${p.id}`)
       if (mesh === undefined) continue
       const occupied = busy.has(p.id)
-      mesh.material.emissive = occupied ? new THREE.Color(0x333333) : new THREE.Color(0x000000)
-      mesh.scale.y = occupied ? 1.15 : 1
+      // 站点现在是 Group（形状由多个 mesh 组成），所以高亮要遍历子节点。
+      mesh.traverse((child) => {
+        if (child.isMesh !== true) return
+        child.material.emissive = occupied ? new THREE.Color(0x2a2a2a) : new THREE.Color(0x000000)
+      })
+      mesh.scale.y = occupied ? 1.12 : 1
     }
 
     for (const agent of world.agents ?? []) {
       const mesh = actorById.get(agent.id)
       if (mesh === undefined) continue
-      mesh.position.set(agent.position.x, ACTOR_Y, -agent.position.z)
+      // **只改 x/z，不动 y**：y 由构建器决定（人形模型的底面在 y=0，
+      // 而旧写法按一个写死的常量把人抬到半空）。这正是"形状交给构建器"带来的差别。
+      mesh.position.set(agent.position.x, mesh.position.y, -agent.position.z)
       mesh.rotation.y = -agent.facing
       // 在站上/走路/干活用一个矮一点的姿态区分，避免"所有人像在同一状态"。
       mesh.scale.y = agent.state === 'working' ? 0.82 : 1

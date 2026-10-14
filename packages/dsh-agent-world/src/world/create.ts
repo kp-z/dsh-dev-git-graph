@@ -91,6 +91,7 @@ export function createWorld(options: CreateWorldOptions): World {
     tick: 0,
     createdAt: options.createdAt,
     paused: false,
+    agentModel: scene.agentModel,
     mode: 'simulated',
     origin: { scene: scene.id, packs: content.packIds, taskSets },
     districts,

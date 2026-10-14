@@ -245,3 +245,86 @@ test('themeFor：自由的 lighting/post 结构要**一边读一边窄化**，�
   assert.equal(typeof theme.post.bloom.threshold, 'number')
   assert.equal(typeof theme.lighting.ambient.intensity, 'number')
 })
+
+// ── 模型表（R16：模型选择是内容，不是代码拼接）────────────────────────────────
+
+test('模型表：计划里带上了**本场景用到的**模型，且构建器名解析出来了', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const world = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
+  const port = portOf(content)
+
+  const plan = buildScenePlan(world, port.colors(), port.themeFor(world.origin.scene), (id) => port.modelOf(id))
+
+  assert.ok(plan.models.length > 0, '模型表不能是空的')
+  // 10 个站点只用到 6 种模型 + 1 个角色模型 = 7（不是整本库搬过来）。
+  assert.equal(plan.models.length, 7, `只该带用到的模型，实际 ${plan.models.map((m) => m.id).join(', ')}`)
+  for (const model of plan.models) {
+    assert.equal(model.builder !== null, true, `${model.id} 是程序化模型，应当有构建器名`)
+    assert.equal(typeof model.scale, 'number')
+  }
+  assert.ok(plan.models.some((m) => m.id === 'model.agent.base'), '角色模型也要在表里')
+
+  // 每个 prop/actor 的 modelId 都能在表里查到——查不到就是内容对不上，
+  // 而渲染器的表现是"一个品红方块"。
+  const ids = new Set(plan.models.map((m) => m.id))
+  for (const prop of plan.props) assert.ok(ids.has(prop.modelId), `站点 ${prop.id} 的模型 ${prop.modelId} 不在表里`)
+  for (const actor of plan.actors) assert.ok(ids.has(actor.modelId), `角色 ${actor.id} 的模型不在表里`)
+})
+
+test('模型 id 来自内容声明，**不是代码拼接出来的**（换一个模型，计划跟着变）', () => {
+  // 造一个外部包：只把 `station.desk-a` 换成一个**完全不同命名**的模型。
+  // 如果代码还在拼 `model.station.${kind}`，这条就会红——那正是 R16 修掉的毛病。
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  content.load(
+    {
+      manifest: {
+        id: 'pack.swap-model',
+        name: '换模型包',
+        version: '1.0.0',
+        schemaVersion: 1,
+        requires: [],
+        provides: ['stations', 'models'],
+        overrides: ['stations/station.desk-a'],
+      },
+      entries: {
+        models: [
+          { id: 'model.custom.pod', name: '自定义舱', source: { kind: 'procedural', builder: 'server' }, scale: 1.5, rotationY: 0, anchorY: 0 },
+        ],
+        stations: [
+          {
+            id: 'station.desk-a',
+            name: '工位 A',
+            kind: 'desk',
+            district: 'district.engineering',
+            relativeTo: 'district.engineering',
+            anchor: { x: -1, z: -1 },
+            capacity: 1,
+            capabilities: ['code'],
+            model: 'model.custom.pod',
+          },
+        ],
+      },
+    },
+    { allowImplicitOverride: true },
+  )
+
+  const world = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
+  const port = portOf(content)
+  const plan = buildScenePlan(world, port.colors(), port.themeFor(world.origin.scene), (id) => port.modelOf(id))
+
+  const swapped = plan.props.find((p) => p.id === 'station.desk-a')
+  assert.equal(swapped.modelId, 'model.custom.pod', '站点用的是内容声明的模型，不是拼接出来的 model.station.desk')
+
+  const model = plan.models.find((m) => m.id === 'model.custom.pod')
+  assert.ok(model, '换进去的模型要出现在模型表里')
+  assert.equal(model.builder, 'server', '构建器名要解析出来')
+  assert.equal(model.scale, 1.5, '缩放也是内容说了算')
+})
+
+test('模型表：宿主没装模型库时（拿不到解析器）也不炸，只是表为空', () => {
+  const world = makeWorld()
+  const plan = buildScenePlan(world, {}, null)
+  assert.deepEqual(plan.models, [], '没给解析器时表为空——渲染器会把缺的模型报出来，而不是静默画方块')
+})

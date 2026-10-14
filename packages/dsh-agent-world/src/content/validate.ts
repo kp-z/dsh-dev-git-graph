@@ -212,6 +212,9 @@ function validateEntryShape(
       checkId(sink, entry.name, `${where}.name`, '站点名', pack)
       checkEnum(sink, entry.kind, STATION_KINDS, `${where}.kind`, '站点种类', pack)
       checkId(sink, entry.district, `${where}.district`, '所属地块 id', pack)
+      // 站点**必须声明**自己长什么样。不声明的话渲染器只能猜（R16 之前代码就是靠
+      // `model.station.${kind}` 拼接猜的），而猜错时画面上的表现是"少了个东西"。
+      checkId(sink, entry.model, `${where}.model`, '站点模型 id（引用 models 库）', pack)
       if (!isObject(entry.anchor) || typeof entry.anchor.x !== 'number' || typeof entry.anchor.z !== 'number') {
         sink.error(`${where}.anchor`, '必须有 anchor.x 与 anchor.z（数字）', pack)
       }
@@ -232,6 +235,7 @@ function validateEntryShape(
     }
     case 'scenes': {
       checkId(sink, entry.name, `${where}.name`, '场景名', pack)
+      checkId(sink, entry.agentModel, `${where}.agentModel`, '角色模型 id（引用 models 库）', pack)
       for (const f of ['districts', 'stations'] as const) {
         if (!Array.isArray(entry[f])) sink.error(`${where}.${f}`, `${f} 必须是 id 数组`, pack)
       }

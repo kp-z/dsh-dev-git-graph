@@ -29,7 +29,7 @@
 import type { World } from '../domain/types.js'
 import { MESSAGE_KINDS } from '../domain/types.js'
 import { boundsCenter } from '../domain/geometry.js'
-import type { SceneActor, SceneGround, ScenePlan, SceneProp } from '../protocol/scene.js'
+import type { SceneActor, SceneGround, ScenePlan, SceneProp , SceneModel} from '../protocol/scene.js'
 import { resolveColor } from '../protocol/scene.js'
 import type { ThemePlan } from '../protocol/theme.js'
 
@@ -62,6 +62,11 @@ export function buildScenePlan(
   world: World,
   palette: Readonly<Record<string, string>>,
   theme: ThemePlan | null,
+  /**
+   * 按 id 取模型的渲染就绪描述。由 host 注入（内容层实现），
+   * 这样场景描述层**不用认识内容库**，只认识 `SceneModel` 这个契约。
+   */
+  resolveModel: (id: string) => SceneModel | null = () => null,
 ): ScenePlan {
   const ground: SceneGround[] = world.districts.map((d) => {
     const c = boundsCenter(d.bounds)
@@ -89,9 +94,13 @@ export function buildScenePlan(
     kind: s.kind,
     x: s.anchor.x,
     z: s.anchor.z,
-    // 站点的外观由 `models` 库的约定 id 指代——渲染器去模型库里取，
-    // **不在代码里写"桌子长什么样"**（决策 D10）。
-    modelId: `model.station.${s.kind}`,
+    // 站点的外观由**内容声明**的模型 id 指代（R16 改）。
+    //
+    // 这里原来是 `` `model.station.${s.kind}` `` ——**代码拼接出来的 id**。
+    // 那违反"模型选择是内容"这条红线，且坏得很安静：内容里把某个站点换成别的模型、
+    // 或者加了新的 kind 而模型另有其名，代码就会指向一个**不存在的模型**，
+    // 而 `models` 库看起来完全正常。
+    modelId: s.model,
     color: resolveColor(`skin.station.${s.kind}`, palette),
     capacity: s.capacity,
     occupied: occupied.has(s.id),
@@ -107,6 +116,7 @@ export function buildScenePlan(
     state: a.state,
     color: resolveColor(a.palette, palette),
     carryingTaskId: a.carrying,
+    modelId: world.agentModel,
   }))
 
   // 纸条配色也从内容来。遍历 domain 里的 MESSAGE_KINDS 而不是在这里手写一份清单：
@@ -116,12 +126,26 @@ export function buildScenePlan(
     noteColors[kind] = resolveColor(`skin.message.${kind}`, palette)
   }
 
+  // 只把**这一局用到的**模型放进计划：整本 `models` 库搬过去既浪费，
+  // 又会让"这局到底用了什么"看不清。顺序按首次引用，稳定且可读。
+  const usedIds: string[] = []
+  for (const prop of props) if (!usedIds.includes(prop.modelId)) usedIds.push(prop.modelId)
+  if (!usedIds.includes(world.agentModel)) usedIds.push(world.agentModel)
+  const models: SceneModel[] = []
+  for (const id of usedIds) {
+    const resolved = resolveModel(id)
+    // 解析不出来就**不放进去**，让渲染器按"计划里没有这个 id"报出来。
+    // 这里不编一个假的兜底模型——那会把一个内容错误变成一个说不清的画面。
+    if (resolved !== null) models.push(resolved)
+  }
+
   return {
     extent: { half: extentOf(world) },
     theme,
     ground,
     props,
     actors,
+    models,
     noteColors,
   }
 }

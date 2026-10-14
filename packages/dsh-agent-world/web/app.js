@@ -285,6 +285,16 @@ async function enable3d() {
         scene3dError = String(error)
         showHint(`3D 渲染出错：${scene3dError}`)
       },
+      // 内容引用了渲染器没有的构建器时**必须说出来**：那种情况下画面会多出
+      // 几个品红方块，而"为什么是品红"完全看不出来。
+      onMissing: ({ models, builders, registered }) => {
+        const parts = []
+        if (builders.length > 0) {
+          parts.push(`缺构建器 ${builders.join(' / ')}（已实现：${registered.join(' / ')}）`)
+        }
+        if (models.length > 0) parts.push(`缺模型 ${models.join(' / ')}`)
+        showHint(`内容引用了渲染器实现不了的模型：${parts.join('；')}。这些位置画的是品红占位块。`)
+      },
     })
     return true
   } catch (error) {

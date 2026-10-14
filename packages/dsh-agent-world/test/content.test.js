@@ -132,7 +132,7 @@ test('站点引用了不存在的地块 → 校验报错，且报错里列出可
     provides: ['stations'],
     entries: {
       stations: [
-        { id: 'station.orphan', name: '孤儿工位', kind: 'desk', district: 'district.不存在', relativeTo: null, anchor: { x: 0, z: 0 }, capacity: 1, capabilities: ['code'] },
+        { id: 'station.orphan', name: '孤儿工位', kind: 'desk', district: 'district.不存在', relativeTo: null, anchor: { x: 0, z: 0 }, capacity: 1, capabilities: ['code'], model: 'model.station.desk' },
       ],
     },
   }))
@@ -159,6 +159,7 @@ test('场景引用了不存在的站点 → 报错', () => {
             groundSize: 8,
             theme: 'theme.cozy-isometric',
             roster: 'roster.software-team',
+            agentModel: 'model.agent.base',
           },
         ],
       },

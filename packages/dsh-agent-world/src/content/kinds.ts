@@ -160,6 +160,15 @@ export interface StationEntry {
   relativeTo: string | null
   capacity: number
   capabilities: Capability[]
+  /**
+   * 这个站点长什么样——引用 `models` 库的条目 id。
+   *
+   * **必须显式声明，不能靠 id 拼接猜**（R16 之前 `scene/plan.ts` 里写的是
+   * `` `model.station.${kind}` ``）。拼接的坏处：内容里把某个站点换成别的模型、
+   * 或者某个 kind 用了不同命名的模型时，代码会**静默指向一个不存在的模型**，
+   * 而 `models` 库看起来还是「配好了」的。模型选择是内容，不是代码。
+   */
+  model: string
 }
 
 /** 场景条目：一局小镇的装配单。 */
@@ -178,6 +187,8 @@ export interface SceneEntry {
   theme: string
   /** 引用花名册 id。 */
   roster: string
+  /** 角色长什么样——引用 `models` 库的条目 id（同理，不在代码里写死）。 */
+  agentModel: string
 }
 
 /** 花名册里的一个席位。 */

@@ -70,6 +70,7 @@ export function instantiateStation(entry: StationEntry, districts: ReadonlyMap<s
     district: entry.district,
     anchor,
     capacity: entry.capacity,
+    model: entry.model,
     capabilities: [...entry.capabilities],
     slots: slotsFor(entry.capacity),
   }

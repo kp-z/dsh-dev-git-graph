@@ -74,6 +74,26 @@ export interface SceneProp {
 }
 
 /** 一个角色。 */
+/**
+ * 一个模型的**渲染就绪**描述（`models` 库条目的投影）。
+ *
+ * 为什么要把它放进 `ScenePlan`：渲染器要按 `SceneProp.modelId` 查出"它长什么样"，
+ * 而渲染器**不该去内容库里找**（那是 host 的事，且面板拿不到内容库）。
+ * 所以计划里带一张**只含本场景用到的**模型表——自足、且不重复携带。
+ *
+ * `builder` 与 `url` 恰好有一个非 null：程序化模型给构建器名，GLB 给包内相对路径。
+ */
+export interface SceneModel {
+  id: string
+  /** 程序化构建器的名字（渲染器按它查自己的构建器注册表）；GLB 模型为 null。 */
+  builder: string | null
+  /** GLB 的**包内相对路径**（已过路径校验）；程序化模型为 null。 */
+  url: string | null
+  scale: number
+  rotationY: number
+  anchorY: number
+}
+
 export interface SceneActor {
   id: string
   name: string
@@ -86,6 +106,8 @@ export interface SceneActor {
   color: string
   /** 手头的工单 id；空闲为 null。 */
   carryingTaskId: string | null
+  /** 角色用哪个模型条目（`models` 库的 id，由场景条目声明）。 */
+  modelId: string
 }
 
 /**
@@ -110,6 +132,14 @@ export interface ScenePlan {
   ground: SceneGround[]
   props: SceneProp[]
   actors: SceneActor[]
+  /**
+   * 本场景引用到的模型（`SceneProp.modelId` 与 `SceneActor.modelId` 在这张表里查）。
+   *
+   * **只含用到的**：整本 `models` 库搬过来既浪费又会让"这局到底用了什么"变得看不清。
+   * 表里查不到的 `modelId` 意味着内容与内容之间对不上（host 侧交叉校验会先报错），
+   * 渲染器遇到时应当**明确报出来**，而不是退回一个方块了事。
+   */
+  models: SceneModel[]
   /**
    * 消息纸条的配色（按 `Message.kind` 索引），**已解析成色值**。
    *

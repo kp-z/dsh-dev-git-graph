@@ -153,7 +153,7 @@ test('条目形状不对 → 报错里的 where 同时含文件路径与条目�
   withTempDir((dir) => {
     write(dir, 'p/pack.json', manifest('pack.p', { provides: ['stations'] }))
     write(dir, 'p/stations.json', [
-      { id: 'station.x', name: 'X', kind: '不存在这种站点', district: 'district.a', relativeTo: null, anchor: { x: 0, z: 0 }, capacity: 1, capabilities: ['code'] },
+      { id: 'station.x', name: 'X', kind: '不存在这种站点', district: 'district.a', relativeTo: null, anchor: { x: 0, z: 0 }, capacity: 1, capabilities: ['code'], model: 'model.a' },
     ])
     const result = loadContentPacks(dir)
     const err = result.issues.find((i) => i.level === 'error' && /站点种类/.test(i.message))
@@ -172,7 +172,7 @@ test('有一个错就整包跳过，不会加载半成品', () => {
     write(dir, 'p/skins.json', [{ id: 'skin.s', name: 'S', colors: { a: '#111111' } }])
     // stations 里有非法枚举 ⇒ 整包不应被采用
     write(dir, 'p/stations.json', [
-      { id: 'station.x', name: 'X', kind: '骗人的种类', district: 'district.a', relativeTo: null, anchor: { x: 0, z: 0 }, capacity: 1, capabilities: ['code'] },
+      { id: 'station.x', name: 'X', kind: '骗人的种类', district: 'district.a', relativeTo: null, anchor: { x: 0, z: 0 }, capacity: 1, capabilities: ['code'], model: 'model.a' },
     ])
 
     const result = loadContentPacks(dir)
@@ -219,6 +219,7 @@ test('单数 scene.json 与单对象写法都能读（少写一层方括号）',
       groundSize: 4,
       theme: 'theme.t',
       roster: 'roster.r',
+      agentModel: 'model.a',
     })
     const result = loadContentPacks(dir)
     assert.deepEqual(result.packs.map((p) => p.manifest.id), ['pack.p'])
