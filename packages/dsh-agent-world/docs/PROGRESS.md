@@ -121,6 +121,31 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
    资产落地在 M3-5 / M7-3，届时必须有 `web/public/assets/VENDOR.md`（URL + 许可 + sha256）。
 3. 面板入口位置（右侧栏常驻 vs 新 view tab）与音效是否要做，都留到 M5 再决（BACKLOG 待决问题）。
 
+### 补充（同日）：资产 / 库调研已落地成文档
+
+派了一个后台调研去把 M3/M7 的美术与依赖问题一次问清（一手来源核验，含真的把资产 zip 与 GLB
+拉下来解析），结果收到后**没有让它烂在对话里**，全部折进了文档：
+
+- 新增 [`docs/ASSETS.md`](ASSETS.md)：推荐的 CC0 资产包（含实测体积）、角色动画三方案对比、
+  three.js 生态库版本与许可、10 条许可红线、`VENDOR.md` 台账模板、美术配方（相机/光照/调色板/性能预算）。
+- `ARCHITECTURE.md`：§5.3 性能预算按调研**收紧**（300k 面 → ≤100k，150 draw call → ≤60，
+  新增贴图 ≤512² 与首屏载荷 ≤5 MB）；§5.4 重写成具体配方并指向 ASSETS.md；
+  §11 补两条风险（资产许可、peer 上限）；§12 新增 **D7/D8/D9** 三条决策。
+- `BACKLOG.md`：M3-1/M3-3/M3-5/M4-2/M7-3 全部改成**可执行的具体项**（原本只是"落地美术方向"这种空话）。
+
+三条本轮新定的决策（都已进 §12）：
+
+- **D7 面板用纯 three.js，不引 `@react-three/fiber`**：R3F 系库全部只支持 React 19，
+  引它等于把面板绑死在某个 React 大版本上；而 §5.2 的分层本来就是「model 出插值状态 →
+  scene 每帧命令式同步」，React 的 diff 在这层不是价值而是开销。HUD 也走原生 DOM。
+- **D8 角色用 Kenney Mini Characters**：单角色 247 kB vs KayKit 3.5 MB，我们 ≤24 个同屏差 14 倍。
+- **D9 只有 CC0/public domain 的字节可以进 git**：禁 Mixamo 派生文件、CC-BY 资产、Sketchfab、
+  Quaternius。**这条最值得记住**：Mixamo 的 Adobe FAQ 只授权"在项目里使用"，**没授权再分发
+  剪辑文件本身**（而且中国区和 Enterprise/Federated 账号根本用不了，外部贡献者无法复现）；
+  Quaternius 2026-08-28 起换成 QAL v1.0，§3(a) 禁止再分发资产本身，**但各包页面仍挂着 CC0 徽章**——
+  这是个真陷阱。官方条款页在本机被 IP 拦（403），Mixamo 再分发问题**仍标注为未核验**，
+  已写进 ASSETS.md §7 待复核。
+
 ### 本轮产出
 
 - 分支：`feat/dsh-agent-world`（从 `feat/dsh-daily` 的 HEAD 切出；**没有**动那个分支上的未提交改动）

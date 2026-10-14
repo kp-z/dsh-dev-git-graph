@@ -51,7 +51,7 @@
                             │ JSON over HTTP + SSE
 ┌───────────────────────────┴────────────────────────────────────────┐
 │  Browser —— Agent World 面板   (web/)                              │
-│  Vite + three.js (+ @react-three/fiber / drei)                     │
+│  Vite + three.js（纯 three，不用 @react-three/fiber —— 见决策 D7）   │
 │  · scene/  场景图、材质、光照、相机                                  │
 │  · actors/ 角色、寻路、动画状态机                                    │
 │  · ui/     HTML HUD 覆盖层（任务板 / 花名册 / 事件时间线）            │
@@ -175,26 +175,42 @@ Scene
 
 ### 5.3 性能预算（60fps @ 1080p，集显）
 
+> 数字已在 R1 按资产调研结果收紧（原稿是 300k 面 / 150 draw call，偏松；见 `docs/ASSETS.md` §6）。
+
 | 指标 | 预算 | 手段 |
 |---|---|---|
-| draw calls | < 150 | InstancedMesh + 材质合并 + 图集 |
-| 三角面 | < 300k | 低模 + LOD |
-| 实时光源 | 1 方向光 + 1 半球光 | 不开多光源阴影 |
-| 阴影 | 至多一张 1024² shadow map，默认关 | 用烘焙 AO / 假影 |
-| 后处理 | bloom 可选且低强度，默认关 | 低端机自动降级 |
+| draw calls | **≤ 60** | InstancedMesh + `BufferGeometryUtils.mergeGeometries` 合并静态簇 |
+| 可见三角面 | **≤ 100k** | 低模 + LOD |
+| 贴图 | **≤ 512²** | KayKit 的 1024 图集降到 128–256 |
+| 实时光源 | 1 方向光 + 1 半球光（+ 极低 ambient） | 最多 3 个光源，不开多光源阴影 |
+| 阴影 | 1 张 2048² shadow map，shadow camera 紧贴小镇 | 用烘焙 AO / 每站点一张接地阴影面替代全局 SSAO |
+| 后处理 | **只开 bloom**（阈值 0.9 / 强度 0.3–0.4），默认关 | 低端机自动降级 |
+| 首屏载荷 | **≤ 5 MB** | meshopt/Draco 压缩 GLB；HDRI 预滤波成一张小 `.ktx2` |
+| 蒙皮角色 | ≤ 20（`SkeletonUtils.clone`） | 超出走程序化简模 |
 
 降级策略：帧率连续低于 45fps 时自动 关阴影 → 关后处理 → 降角色动画帧率 → 减角色数。
 
 ### 5.4 美术方向（免费且好看）
 
-**CC0 低多边形 + 温暖斜俯视**，参考《Monument Valley》的配色克制、《Animal Crossing》的暖光、
-《Mini Motorways》的极简几何。
+**「舒适等距沙盘园区」**（cozy isometric diorama campus）：一块桌面尺度的办公小镇，平面着色低模，
+暖色柔光配柔而长的阴影，轻微深度雾。参考 *Monument Valley*（等距粉彩沙盘、一区一强调色）、
+*Townscaper*（低模舒适村落、柔方向光 + 轻雾）、*Untitled Goose Game*（平面低模 + 低饱和暖调 + 单一强强调色）。
+三者共性：近似正交的取景、最多 3 个光源、**零贴图细节、全靠颜色讲故事**。
 
-* 模型：Kenney / Quaternius / KayKit（均 CC0，glTF）
-* 贴图：ambientCG（CC0）
-* 字体：自托管开源字体（不引 CDN）
-* **所有资产必须登记 `web/public/assets/VENDOR.md`**：来源 URL + 许可 + sha256，许可原文一并入库。
-  运行期**禁止**任何 CDN 依赖。
+* **相机**：`OrthographicCamera`，标准等距（yaw 45°，tilt ≈ 35.264°），±10° 微转 + 两档缩放。
+* **光照/渲染器/后处理**：完整配方（含 hex 与参数）见 [`ASSETS.md`](ASSETS.md) §6。
+* **调色板**：10 色，见 `ASSETS.md` §6。**色彩纪律：饱和度分三层 —— 大面积低饱和表面 / 中间调家具 /
+  每个功能分区只有一个饱和强调色；所有角色服装留在中间调**，这样一群 agent 读起来像一个团队。
+* **模型**：**Kenney（CC0）为主** —— Mini Characters（角色 + 32 个内嵌动画，2.29 MB）、Furniture Kit、
+  City Kit、Nature Kit；KayKit（CC0）作升级路径。**不用 Quaternius**（2026 换 QAL 许可，禁止再分发资产本身）。
+* **贴图/HDRI**：ambientCG 与 Poly Haven（均 CC0），降到 512² / 预滤波 `.ktx2`。
+* **字体**：自托管开源字体（如 Inter，SIL OFL）—— **不引 CDN**。
+* **资产策略**：只有 **CC0 / public domain** 的字节可以进 git。**禁止** Mixamo 派生文件、CC-BY 资产、
+  Sketchfab 素材。完整许可红线清单见 `ASSETS.md` §4。
+* **台账**：`web/public/assets/VENDOR.md` 一行一个**下载下来的压缩包**（来源 URL + 许可 + zip 内许可
+  文件名 + 下载日期 + sha256），模板见 `ASSETS.md` §5；另有 `THIRD_PARTY_NOTICES.md` 划清
+  「代码 MIT / 美术 CC0」的边界；CI 重新哈希比对，漂移就红。
+* **动画策略**：预烘焙 GLB（主）+ 程序化（补充）。理由与 Mixamo 的排除依据见 `ASSETS.md` §2。
 
 ---
 
@@ -306,8 +322,9 @@ packages/dsh-agent-world/
 
 | 风险 | 影响 | 对策 |
 |---|---|---|
-| three.js 面板体积拖慢首屏 | 用户以为坏了 | 先出 HUD 骨架，3D 懒加载；显示加载进度 |
-| 资产许可污染 MIT 仓库 | 法律风险 | 只用 CC0；`VENDOR.md` 登记 URL+许可+sha256；许可原文入库 |
+| three.js 面板体积拖慢首屏 | 用户以为坏了 | 先出 HUD 骨架，3D 懒加载；显示加载进度；首屏载荷 ≤5 MB（§5.3） |
+| 资产许可污染 MIT 仓库 | 法律风险 | 决策 D9：只进 CC0 字节；`VENDOR.md` 一行一个压缩包登记 URL+许可+sha256；许可原文入库；`THIRD_PARTY_NOTICES.md` 划清代码/美术边界；CI 哈希比对。红线清单见 `docs/ASSETS.md` §4 |
+| 依赖的 peer 上限卡住升级 | 某天升 three 直接红 | `postprocessing` 的 peer 是 `three >=0.168 <0.187`，**每次升 three 都要复查**；不引 `three-stdlib`（直接 `three/addons/*`）避免与 drei 的 `three-mesh-bvh` 版本打架 |
 | 低端机掉帧 | 体验崩 | §5.3 的四级自动降级 |
 | 模拟与真实 subagent 语义漂移 | 世界在说谎 | §8 单一映射表；模拟模式与真实模式共用同一套 domain |
 | 面板与 host 状态不一致 | 静默错误 | §6 的 `seq` gap 自愈；权威永远在 host |
@@ -325,3 +342,6 @@ packages/dsh-agent-world/
 | D4 | `tick` 是纯函数 + seeded PRNG | 确定性回放、无 mock 测试 | R1 |
 | D5 | 任务按 capability 落位，不硬绑工位 | 布局与编排解耦 | R1 |
 | D6 | HUD 用 HTML 覆盖层，3D 只画世界 | 可访问性、可维护性、省事 | R1 |
+| D7 | 面板用**纯 three.js**（不引 `@react-three/fiber` / drei） | ① R3F 系库全部**只支持 React 19**（fiber 9.x: `>=19 <19.4`），引它等于把面板绑死在某个 React 大版本上；② §5.2 的分层本来就是「`model/` 出插值状态 → `scene/` 每帧命令式同步」，React 的 diff 在这一层不是价值而是开销；③ 依赖越少，越不容易撞 `postprocessing` 对 three 的 peer 上限（`>=0.168 <0.187`）。HUD 也走原生 DOM | R1 |
+| D8 | 角色资产用 **Kenney Mini Characters**（CC0），不用 KayKit | 单角色 247 kB vs KayKit 3.5 MB（后者把 1024 图集与全部剪辑塞进每个 GLB，5 个角色 17.2 MB）—— 我们 ≤24 个同屏，差 14 倍。KayKit 留作"要更好看"时的升级路径 | R1 |
+| D9 | **只有 CC0/public domain 的字节可以进 git**；禁止 Mixamo 派生文件、CC-BY 资产、Sketchfab 素材、Quaternius 资产 | Mixamo：Adobe FAQ 只授权"在项目里使用"，**未授权再分发剪辑文件本身**，且中国区/企业账号不可用 ⇒ 不可复现、溯源不可证。CC-BY：不能被 MIT 再许可，需逐文件署名。Quaternius：2026-08-28 起为 QAL v1.0，§3(a) 禁止再分发资产本身（包页仍挂 CC0 徽章，是个陷阱）。依据见 `docs/ASSETS.md` §2/§4 | R1 |

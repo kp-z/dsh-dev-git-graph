@@ -35,6 +35,9 @@
 * [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) —— **架构定稿**。
   技术选型（为什么是 three.js 不是 Godot）、三层架构、世界模型、模拟循环的确定性要求、
   渲染层分层与性能预算、同步协议、与真实 subagent 的桥、里程碑、决策记录。
+* [`docs/ASSETS.md`](docs/ASSETS.md) —— **资产、库与美术方向**（一手来源核验，2026-10-14）。
+  推荐的 CC0 资产包、角色动画三方案对比、three.js 生态库版本与许可、许可红线、
+  `VENDOR.md` 台账模板、相机/光照/调色板配方与性能预算。
 * [`docs/BACKLOG.md`](docs/BACKLOG.md) —— 轮次任务队列（每小时的自动化轮次从这里取活）。
 * [`docs/PROGRESS.md`](docs/PROGRESS.md) —— 轮次台账（每轮必须更新）。
 
@@ -95,7 +98,7 @@ src/tools/    agent_world_* 工具
 src/config.ts 配置 + resolveConfig 兜底
 src/state.ts  插件态
 web/          3D 面板（M3，还没写）—— Vite + three.js，独立构建，产物进 lib/web/
-docs/         ARCHITECTURE / BACKLOG / PROGRESS
+docs/         ARCHITECTURE / ASSETS / BACKLOG / PROGRESS
 test/         node --test
 ```
 

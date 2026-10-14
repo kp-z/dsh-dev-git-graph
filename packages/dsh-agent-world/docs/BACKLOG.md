@@ -10,6 +10,8 @@
 
 状态图例：`ready` 可开工 · `blocked` 等依赖 · `done` 已完成
 
+> M3/M4/M7 的资产、库版本与美术配方**已经调研完毕**（一手来源核验，2026-10-14），见 [`ASSETS.md`](ASSETS.md)。做 M3-1/M3-3/M4-2/M7-3 前先读它，不要重新调研。
+
 ---
 
 ## M0 — 骨架
@@ -48,18 +50,18 @@
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M3-1 | blocked | `web/` Vite + three.js 脚手架，能渲染一个空场景 | `web/` + `pnpm --filter dsh-agent-world build:web` | M0-1 |
+| M3-1 | blocked | `web/` Vite + **纯 three.js** 脚手架（不引 R3F，决策 D7），能渲染一个空场景 | `web/` + `pnpm --filter dsh-agent-world build:web` | M0-1 |
 | M3-2 | blocked | 相机：斜俯视 isometric + orbit/缩放/平移 | `web/src/scene/camera.ts` | M3-1 |
-| M3-3 | blocked | 光照与配色：1 方向光 + 半球光 + 雾；落地 §5.4 的美术方向 | `web/src/scene/lighting.ts` `palette.ts` | M3-1 |
+| M3-3 | blocked | 落地 `ASSETS.md` §6 的光照配方（半球光/方向光/雾/ACES + 只开 bloom）与 10 色调色板，**含色彩纪律：每分区一个强调色、所有角色留中间调** | `web/src/scene/lighting.ts` `palette.ts` | M3-1 |
 | M3-4 | blocked | 小镇布局渲染：地段地面 + 站点几何（先用程序化几何体，不依赖外部模型） | `web/src/scene/town.ts` | M3-3 |
-| M3-5 | blocked | 资源管线 + `VENDOR.md` 登记规范 | `web/public/assets/VENDOR.md` | M3-1 |
+| M3-5 | blocked | 资源管线 + **`VENDOR.md` 台账**（模板见 `ASSETS.md` §5：一行一个压缩包，URL+许可+zip 内许可文件+下载日期+sha256）+ `THIRD_PARTY_NOTICES.md` + CI 哈希比对步骤 | `web/public/assets/VENDOR.md` `THIRD_PARTY_NOTICES.md` `scripts/verify-assets.mjs` | M3-1 |
 
 ## M4 — 角色与动画
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
 | M4-1 | blocked | 角色实体：程序化低模角色（胶囊/方块人），带配色 | `web/src/actors/avatar.ts` | M3-4 |
-| M4-2 | blocked | 网格寻路 A*（小镇网格由站点布局生成） | `web/src/actors/navmesh.ts` + 测试 | M3-4 |
+| M4-2 | blocked | 网格寻路 A*（小镇网格由站点布局生成）。**先零依赖手写**，路径质量或规模不够再评估 `three-pathfinding@1.3.0`(MIT/3.7kB，实质停维护) 或 `@recast-navigation@0.43.1`(MIT/19.4kB+1.9MB wasm，活跃) | `web/src/actors/navmesh.ts` + 测试 | M3-4 |
 | M4-3 | blocked | 动画状态机：idle/walk/work/talk/celebrate 的纯程序化动画 | `web/src/actors/animator.ts` | M4-1 |
 | M4-4 | blocked | 每帧同步：`model/` 的插值状态 → 场景对象 | `web/src/model/worldModel.ts` | M4-1 M2-4 |
 
@@ -86,7 +88,7 @@
 |---|---|---|---|---|
 | M7-1 | blocked | 性能降级四级（§5.3） | `web/src/scene/perf.ts` | M4-4 |
 | M7-2 | blocked | 音效（CC0）+ bloom 后处理（可选开） | `web/` | M7-1 |
-| M7-3 | blocked | 真实免费资产替换程序化几何 | `web/public/assets/` + VENDOR.md | M3-5 |
+| M7-3 | blocked | 用 **Kenney CC0** 资产替换程序化几何：Mini Characters（角色 + 32 内嵌动画，单角色 247 kB）/ Furniture Kit（140 模型）/ City Kit / Nature Kit。**只有一个 CC0 来源可进 git**（决策 D9） | `web/public/assets/` + VENDOR.md | M3-5 |
 | M7-4 | blocked | README / 安装脚本 / 发布到 profile | `README.md` `scripts/` | M6-3 |
 
 ---
