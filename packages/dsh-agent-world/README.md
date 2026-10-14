@@ -70,7 +70,7 @@ domain/（世界模型，不认识内容） ← content/（内容库与注册表
 |---|---|
 | **M0** ✅ | 骨架 + 世界模型类型 + 工具 + 测试 |
 | **M1** ✅ | **内容库层**：十个库的类型与校验、注册表（提供方链 / 显式覆盖）、内置内容包 |
-| M1.5 | 外部内容包：`<workspace>/.agent-world/content/` 加载 |
+| **M1.5** | 外部内容包 ✅（`contentDir` 指过去即生效）；剩下 `agent_world_content` 诊断工具 |
 | M2 | 模拟内核：`step()` 纯函数 tick、依赖求值、调度器、移动、邮箱、确定性验收 |
 | M3 | 落盘（`world.json`）+ HTTP 快照 + SSE 事件流（带 `seq` gap 自愈） |
 | M4 | three.js 场景：小镇、站点、相机、光照（消费 `themes`/`skins`/`districts`/`stations` 库） |
@@ -102,7 +102,7 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 |---|---|---|
 | `worldName` | `Agent World` | 默认世界名（也是 seed 来源：同名同场景 ⇒ 同一座小镇） |
 | `scene` | `scene.default-town` | 默认用哪个场景（`scenes` 库的 id）。**换它 = 换一座小镇，代码不动** |
-| `contentDir` | 空 | 外部内容包目录（相对 workspace）。留空 = 只用内置内容。M1.5 实现 |
+| `contentDir` | 空 | 外部内容包目录。留空 = 只用内置内容；绝对路径原样用；相对路径按宿主工作目录解析。实际路径会打进日志 |
 | `allowImplicitOverride` | `false` | 是否允许外部包隐式覆盖同 id 条目。默认关——"覆盖必须显式"是护栏 |
 | `tickMs` | `100` | 逻辑 tick 间隔。渲染层做插值，所以 10Hz 足够 |
 | `autoStart` | `true` | 插件加载后是否自动推进模拟 |

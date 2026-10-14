@@ -27,7 +27,100 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R1 末）：`typecheck` 绿 · `test` 10/10 绿。
+当前验证状态（R3 末）：`typecheck` 绿 · `test` 49/49 绿。
+
+---
+
+## R3 — 2026-10-14 · 外部内容包：用户改内容就能改世界
+
+**本轮目标**（M1.5-1/2/3/5）：让"内容可替换"从"改源码里的包"变成"往目录里放 JSON"。
+这是 R2 那套机制的第一次真实兑现——**不写一行代码，换掉花名册**。
+
+### 做了什么
+
+1. **`src/content/load-files.ts`** —— 对**目录**的纯函数（不决定目录在哪，那由调用方定，
+   这样测试能直接喂临时目录）：
+   - `<rootDir>/<packId>/pack.json` 是清单，`<kind>.json` 是各库条目数组（缺文件 = 不提供该库，不是错误）。
+   - 允许单对象写法（`scene.json` 只有一条时少写一层方括号）。
+   - `scenes` 同时接受单数 `scene.json`。
+   - 子目录没有 `pack.json` → 跳过 + 警告（报的是**哪个目录**）。
+   - **有一个错就整包跳过**，不加载半成品，并明确说"已整体跳过"。
+2. **`resolveContentRoot(contentDir, cwd)`** —— 路径解析策略**明确、不猜**：
+   空 → 不用外部内容；绝对路径 → 原样；相对路径 → 相对 `process.cwd()`。
+   最终解析出的绝对路径 + 理由会**原样打进日志**。
+3. **报错定位到文件（M1.5-3）** —— 校验器给的 `where` 是按库分的（`stations/station.x.kind`），
+   它不知道文件叫什么。所以按 `where` 首段反查该库实际用的文件名，统一前缀成
+   `my-town/stations.json: stations/station.x.kind`。**定位到条目 id 而不是数组下标**——
+   手写 JSON 里搜 id 比数第几个元素快得多。
+4. **不认识的 `.json` 文件名一律警告并列出可用名**。`station.json`（单数）这种手滑，
+   症状是"站点一个都没有"而报错什么都不说——那种问题能耗掉一小时。
+5. **接进 `state.ts` + `index.ts`（M1.5-2）**：内置包在前、外部包在后（于是外部排到提供方链首），
+   但**链首 ≠ 可以乱覆盖**：没声明 `overrides` 的撞 id 仍是错误。`allowImplicitOverride` 接上配置。
+6. **`content/index.ts` 刻意不导出 `load-files.ts`**：它 import 了 `node:fs`，而 `content/index`
+   是给浏览器侧 `web/` 也能 import 的入口，混进去 Vite 打包会当场炸。这条写进了文件头注释。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 49 / pass 49 / fail 0
+```
+
+32 → **49** 个测试。新增 17 个全部围绕外部内容，含 3 条**走完整插件入口的端到端**：
+
+- **改内容就改世界**：临时目录放一个 `my-team` 包，显式覆盖 `rosters/roster.software-team`，
+  于是 `createWorld` 出来的是 2 个人（"队长本人" + "唯一的工程师"）而不是默认的 8 个；
+  `world.origin.packs` 记着 `['pack.default', 'pack.my-team']`。**没改一行代码。**
+- **偷偷换掉会被拦**：同样的包，去掉 `overrides` → 装载报错，且世界退回内置的 8 人、名字仍是"工头阿金"。
+- **走 `apply()` 的完整链路**：`apply(ctx, { contentDir: <绝对路径> })` → 工具读到的世界就是外部内容装出来的；
+  日志里能原样看到"实际读取的外部内容目录：/tmp/..."。
+- 目录不存在 → **只警告不报错**，插件照常可用，世界退回内置内容（不能因为用户还没建目录就崩）。
+
+一个测试写窄了被实现纠正的记录：我原本断言报错要含 `stations[0]`（数组下标），
+实现给的是 `stations/station.x.kind`（条目 id）。**实现是对的**——手写 JSON 里搜 id 比数下标有用得多，
+改的是测试。
+
+### 下一轮从哪继续
+
+**M1.5-4：`agent_world_content` 工具**（`src/tools/content.ts`）。具体：
+
+1. 用 `state.content` 列：已装载的包（`content.packIds` 与各包的 version）、每个库的条目数与条目 id。
+2. 支持按 id 查**提供方链**（`content.providersOf(kind, id)`）——这是排查"为什么我的覆盖没生效"的入口。
+3. 输出要能回答三个问题，这也是它的验收标准：
+   · 到底装了哪些包？· 某个 id 现在生效的是哪个包提供的？· 外部目录是哪个、有没有被跳过？
+4. 顺带把 `state.contentIssues` 全量列出（现在只有前 5 条进日志，工具里应当给全部）。
+5. **注意**：它只读，不许写盘、不许联网，工具描述里要写明。
+
+做完 M1.5-4 就可以进 **M2 模拟内核**（`src/sim/ready.ts` 起步）——那是整个项目技术上最硬的一块。
+M1.5-6（相对路径的解析基准）建议**先别做**：`workspaceRegistry` 没有"当前 workspace"的概念，
+需要先查清 session→workspace 的绑定从哪拿，否则就是猜；宁可先让它显式要绝对路径。
+
+### 假设
+
+- **相对 `contentDir` 按 `process.cwd()` 解析**（宿主进程的工作目录，通常就是 workspace）。
+  没去猜"当前 session 的 workspace"：`workspaceRegistry` 只提供 `list()` 与 `resolveByPath()`，
+  多工作区时任何自动挑选都是猜，而猜错的症状是"读到了另一个项目的包"，比"没读到"难查得多。
+  需要精确指向就写绝对路径。这条作为 M1.5-6 排进队列。
+- 一个目录 = 一个包；不支持一个目录放多个包。
+- 库文件名固定为 `<kind>.json`（`scenes` 兼容单数）。**拼错会被警告而不是静默忽略**。
+
+### 卡住 / 风险
+
+- **JSON 里的路径仍然没有安全边界**：`ModelEntry.source.url` 现在可以是任意字符串。
+  等 M4/M5 真的开始加载 GLB 时，必须限制成**包内相对路径**并禁 `http://` 与 `../`。
+  这条在 R2 就记过一次，**本轮仍未处理**——因为还没有消费者，现在定规则是空谈；
+  但 M4-8（资源台账）之前必须落地，否则就是一个"内容包能指向任意 URL"的口子。
+- 外部内容的**热重载**没有：改了 JSON 要重开世界才生效（`content` 在 `apply` 时装载一次）。
+  是否要 watch 到 M3-2（runtime）再定，现在不做。
+- M1.5-6 的调研成本未知，已单独拆成一条任务，避免它把别的事堵住。
+
+### 本轮产出
+
+- 新增：`src/content/load-files.ts`、`test/external-pack.test.js`
+- 修改：`src/state.ts`（接受 `externalRoot`）、`src/index.ts`（解析并记录内容目录）、
+  `docs/BACKLOG.md`、`docs/CONTENT.md`、`README.md`
+- 测试从 32 → 49
 
 ---
 

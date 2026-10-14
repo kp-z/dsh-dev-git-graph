@@ -43,11 +43,12 @@
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M1.5-1 | ready | 外部内容包加载器：读 `<workspace>/<contentDir>/<packId>/*.json`，解析成 `ContentPack` | `src/content/load-files.ts` + 测试（用临时目录） | M1-5 |
-| M1.5-2 | ready | 接进 `state.ts`：内置包 + 外部包一起 `loadAll`，问题进 `contentIssues`；`allowImplicitOverride` 接配置 | `src/state.ts` 改造 + 测试 | M1.5-1 |
-| M1.5-3 | ready | 报错路径友好化：外部包写错时 Issue.where 要带**文件路径**（否则用户不知道去哪个文件改） | `load-files.ts` | M1.5-2 |
+| M1.5-1 | done | 外部内容包加载器：读 `<workspace>/<contentDir>/<packId>/*.json`，解析成 `ContentPack` | `src/content/load-files.ts` + 测试（用临时目录） | M1-5 |
+| M1.5-2 | done | 接进 `state.ts`：内置包 + 外部包一起 `loadAll`，问题进 `contentIssues`；`allowImplicitOverride` 接配置 | `src/state.ts` 改造 + 测试 | M1.5-1 |
+| M1.5-3 | done | 报错路径友好化：外部包写错时 Issue.where 要带**文件路径**（否则用户不知道去哪个文件改） | `load-files.ts` | M1.5-2 |
 | M1.5-4 | ready | 工具 `agent_world_content`：列出已装载的包与各库条目、能看某个 id 的提供方链 | `src/tools/content.ts` + 测试 | M1.5-2 |
-| M1.5-5 | ready | 端到端验证：临时 workspace 放一个外部包顶掉小镇布局，`createWorld` 出来的世界确实变了 | `test/external-pack.test.js` | M1.5-2 |
+| M1.5-5 | done | 端到端验证：临时 workspace 放一个外部包顶掉小镇布局，`createWorld` 出来的世界确实变了 | `test/external-pack.test.js` | M1.5-2 |
+| M1.5-6 | ready | **相对路径的解析基准**：目前相对 `contentDir` 按 `process.cwd()` 解析，不支持"相对当前 session 的 workspace"。`workspaceRegistry` 只有 `list()`/`resolveByPath()`，没有"当前是哪个"的概念，多工作区时任何自动挑选都是猜（猜错的症状是读到别的项目的包）。要做的话得先查清 session→workspace 的绑定从哪拿 | 先写调研结论再动手；建议先把它做成显式配置 `contentRoot` | M1.5-2 |
 
 ## M2 — 模拟内核（**技术上最硬的一块**）
 

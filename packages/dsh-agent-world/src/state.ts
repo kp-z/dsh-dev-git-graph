@@ -13,9 +13,21 @@
 import type { AgentWorldConfig } from './config.js'
 import { ContentRegistry, builtinPacks } from './content/index.js'
 import type { Issue } from './content/index.js'
+import { loadContentPacks } from './content/load-files.js'
 import { DEFAULT_TICK_MS } from './domain/constants.js'
 import type { World } from './domain/types.js'
 import { createWorld } from './world/create.js'
+
+/** 建插件状态的选项。 */
+export interface PluginStateOptions {
+  /**
+   * 外部内容包根目录（**绝对路径**）。null / 不传 = 只加载内置内容。
+   *
+   * 路径解析刻意放在 `index.ts`（那里能拿到配置与宿主信息），这里只接受一个已经定好的目录——
+   * 这样 `state.ts` 能被测试直接喂一个临时目录，不用去 mock 文件系统之外的东西。
+   */
+  externalRoot?: string | null
+}
 
 /** 插件状态。一个插件实例一份。 */
 export interface PluginState {
@@ -24,8 +36,10 @@ export interface PluginState {
   readonly tickMs: number
   /** 内容注册表。装载一次，`agent_world_open` 之间共用（内容不该跟着世界一起重建）。 */
   readonly content: ContentRegistry
-  /** 装载内置内容时的问题。`error` 级的会导致建世界失败。 */
+  /** 装载内容时的问题（内置 + 外部）。`error` 级的会导致建世界失败。 */
   readonly contentIssues: Issue[]
+  /** 实际读取的外部内容目录；没配就是 null。诊断时要说清楚"到底读了哪个目录"。 */
+  readonly externalRoot: string | null
   /** 当前世界；`agent_world_open` 之前为 null。 */
   world: World | null
   /** 没有世界就建一个（幂等）。内容有问题时抛错，错误信息可直接给用户看。 */
@@ -40,18 +54,32 @@ export interface PluginState {
  * 建插件状态。
  *
  * @param config - 已 resolve 过的配置（default 已填好）。
+ * @param options - 外部内容根目录等。
  */
-export function createPluginState(config: AgentWorldConfig): PluginState {
+export function createPluginState(config: AgentWorldConfig, options: PluginStateOptions = {}): PluginState {
   const tickMs = config.tickMs > 0 ? config.tickMs : DEFAULT_TICK_MS
+  const externalRoot = options.externalRoot ?? null
 
   const content = new ContentRegistry()
-  const contentIssues = content.loadAll(builtinPacks())
+
+  // 外部内容先**解析**（拿包与解析期问题），再和内置包一起**装载**。
+  // 顺序很重要：内置在前、外部在后，于是外部包默认排在提供方链首 ——
+  // 但链首不等于可以乱覆盖：没在 overrides 里声明的撞 id 仍然是错误（决策 D11）。
+  const external = externalRoot === null ? { packs: [], issues: [] as Issue[] } : loadContentPacks(externalRoot)
+
+  const contentIssues: Issue[] = [
+    ...external.issues,
+    ...content.loadAll([...builtinPacks(), ...external.packs], {
+      allowImplicitOverride: config.allowImplicitOverride,
+    }),
+  ]
 
   const state: PluginState = {
     config,
     tickMs,
     content,
     contentIssues,
+    externalRoot,
     world: null,
 
     ensureWorld(): World {
@@ -71,8 +99,9 @@ export function createPluginState(config: AgentWorldConfig): PluginState {
       const errors = contentIssues.filter((i) => i.level === 'error')
       const warnings = contentIssues.filter((i) => i.level === 'warning')
       const head = content.describe()
-      if (errors.length === 0 && warnings.length === 0) return head
-      return `${head} · ${errors.length} 个错误 / ${warnings.length} 个警告`
+      const extra = externalRoot === null ? '' : ` · 外部目录 ${externalRoot}`
+      if (errors.length === 0 && warnings.length === 0) return `${head}${extra}`
+      return `${head}${extra} · ${errors.length} 个错误 / ${warnings.length} 个警告`
     },
   }
 

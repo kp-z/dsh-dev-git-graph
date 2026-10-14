@@ -12,6 +12,7 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
+import { resolveContentRoot } from './content/load-files.js'
 import { createPluginState } from './state.js'
 import { registerWorldTools } from './tools/world.js'
 
@@ -32,7 +33,16 @@ export const inject = ['tools']
  */
 export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): void {
   const resolved = resolveConfig(config)
-  const state = createPluginState(resolved)
+  const logger = ctx.logger('agent-world')
+
+  // 外部内容目录的解析结果要**原样打出来**：用户配了 contentDir 却没生效时，
+  // 第一个问题永远是"它到底去读哪个目录了"。
+  const contentRoot = resolveContentRoot(resolved.contentDir, process.cwd())
+  if (contentRoot.root !== null) {
+    logger.info(`外部内容目录：${contentRoot.root}（${contentRoot.reason}）`)
+  }
+
+  const state = createPluginState(resolved, { externalRoot: contentRoot.root })
 
   registerWorldTools(ctx, state)
 
@@ -45,7 +55,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       .slice(0, 5)
       .map((e) => `[${e.where}] ${e.message}`)
       .join('；')
-    ctx.logger('agent-world').error(
+    logger.error(
       `内容层有 ${errors.length} 个错误，世界不会被创建（插件仍可用，agent_world_status 会列出细节）：${detail}`,
     )
     return
@@ -53,7 +63,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
 
   const warnings = state.contentIssues.filter((i) => i.level === 'warning')
   if (warnings.length > 0) {
-    ctx.logger('agent-world').warn(`内容层有 ${warnings.length} 个警告：${warnings.slice(0, 3).map((w) => `[${w.where}] ${w.message}`).join('；')}`)
+    logger.warn(`内容层有 ${warnings.length} 个警告：${warnings.slice(0, 3).map((w) => `[${w.where}] ${w.message}`).join('；')}`)
   }
 
   // `autoStart` 目前只是把世界先建出来（模拟循环还没接）。
@@ -63,9 +73,9 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       state.ensureWorld()
     } catch (error) {
       // 建世界失败同样不该拖垮整个 profile。
-      ctx.logger('agent-world').error(`建世界失败（已忽略，不影响 dsh 启动）：${error instanceof Error ? error.message : String(error)}`)
+      logger.error(`建世界失败（已忽略，不影响 dsh 启动）：${error instanceof Error ? error.message : String(error)}`)
     }
   }
 
-  ctx.logger('agent-world').info(`已就绪：${state.describeContent()}`)
+  logger.info(`已就绪：${state.describeContent()}`)
 }

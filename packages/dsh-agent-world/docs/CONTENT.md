@@ -102,7 +102,7 @@
 |---|---|---|
 | 落位 | `src/content/packs/*.ts` | `<workspace>/.agent-world/content/<packId>/` |
 | 形态 | TS 常量，**编译进 `lib/`** | 目录 + `pack.json` + 各库的 `.json` |
-| 现状 | 已有 `pack.default` | **未实现（BACKLOG M1-6）** |
+| 现状 | 已有 `pack.default` | **已实现**（`src/content/load-files.ts`，见 §4.3） |
 
 **为什么内置内容必须编译进代码而不是随包发 JSON**：本仓库有一条很坑的约定
 （`docs/DEVELOPMENT.md` §7）——`file:` 依赖装进 profile 时是**硬链接副本**，已存在的文件会被原地重写
@@ -111,23 +111,99 @@
 
 所以内置内容是 TS 常量（不产生新文件），外部内容走文件系统（用户自己放的，不受副本影响）。
 
-### 4.3 外部包的计划形态
+### 4.3 外部包的形态（**已实现**）
 
 ```
-<workspace>/.agent-world/content/my-town/
-├── pack.json           ← manifest
+<内容目录>/my-town/          ← 一个目录 = 一个包
+├── pack.json                ← manifest（必需；没有就跳过这个目录并警告）
 ├── districts.json
 ├── stations.json
-├── scene.json
-├── roster.json
+├── scenes.json              ← 也接受单数 scene.json
+├── rosters.json
 ├── tasks.json
 ├── models.json
 ├── actions.json
 ├── skins.json
+├── sounds.json
 └── themes.json
 ```
 
-每个文件是该库的条目数组。缺哪个文件就是"这个包不提供那个库"，不是错误。
+规则：
+
+- 文件名的**主体就是库名**（复数）。**缺哪个文件 = 这个包不提供那个库**，不是错误。
+- 文件内容是条目数组。只有一条时可以省掉方括号，直接写一个对象（`scene.json` 常用）。
+- **文件名拼错会被警告**并列出可用名。`station.json`（单数）这种手滑如果静默忽略，
+  症状是"站点一个都没有"而报错什么都不说——那种问题能耗掉一小时。
+- **有一个错就整包跳过**，不加载半成品，并明确说"已整体跳过"。
+- 空数组文件会给一条警告（提示：不提供就删掉这个文件）。
+
+**报错会指到具体文件与具体条目**：
+
+```
+my-town/stations.json: stations/station.desk-a.kind
+  → 站点种类 "desk2" 不合法。可用值：desk / meeting / server / mailroom / lab / breakroom
+```
+
+定位用的是**条目 id** 而不是数组下标——手写 JSON 里搜 id 比数第几个元素快得多。
+
+### 4.4 内容目录在哪（路径解析策略，明确且不猜）
+
+配置项 `contentDir`：
+
+| 值 | 解析结果 |
+|---|---|
+| 空字符串（默认） | 只用内置内容 |
+| 绝对路径，如 `/srv/agent-world-content` | 原样使用 |
+| 相对路径，如 `agent-world-content` | 相对**宿主进程的工作目录**（通常就是 workspace） |
+
+最终解析出的**绝对路径与理由会打进日志**（`外部内容目录：/…（contentDir 是绝对路径）`），
+因为"我配了 contentDir 却没生效"的第一个问题永远是"它到底去读哪个目录了"。
+
+> 刻意**不**自动挑"当前 session 的 workspace"：宿主的 `workspaceRegistry` 只提供
+> `list()` 与 `resolveByPath()`，没有"当前是哪个"的概念。多工作区时任何自动挑选都是**猜**，
+> 而猜错的症状是"读到了另一个项目的包"，比"没读到"难查得多。需要精确指向就写绝对路径。
+> （想要 workspace 相对路径 → BACKLOG M1.5-6，需要先查清 session→workspace 的绑定从哪拿。）
+
+### 4.5 一个可以直接抄的外部包
+
+```
+agent-world-content/my-team/
+├── pack.json
+└── rosters.json
+```
+
+`pack.json`：
+
+```json
+{
+  "id": "pack.my-team",
+  "name": "我的两人小队",
+  "version": "1.0.0",
+  "schemaVersion": 1,
+  "description": "把默认的 8 人团队换成 2 人小队",
+  "requires": [],
+  "provides": ["rosters"],
+  "overrides": ["rosters/roster.software-team"]
+}
+```
+
+`rosters.json`：
+
+```json
+[
+  {
+    "id": "roster.software-team",
+    "name": "我的两人小队",
+    "seats": [
+      { "role": "lead",     "name": "队长本人",     "palette": "skin.role.lead",     "model": null },
+      { "role": "engineer", "name": "唯一的工程师", "palette": "skin.role.engineer", "model": null }
+    ]
+  }
+]
+```
+
+配 `contentDir` 指到这个目录，重开世界 → 小镇里就只有 2 个人。**没有改一行代码。**
+（`overrides` 那行是关键：删掉它，装载会报冲突，世界退回默认的 8 人——见 §5.2。）
 
 ---
 
@@ -303,3 +379,6 @@ export function builtinPacks(): ContentPack[] {
 | 世界建不出来 | 内容有 error | 调 `agent_world_status` 看内容层的错误详情 |
 | 改了内容包但没生效 | 包重复装载被忽略了 / 覆盖没声明 | 看装载时的 warning「已经装载过」 |
 | 改了内容文件但 profile 里没变化 | 新增文件没被硬链接同步进 profile | 跑 `pnpm sync:web`（见 `docs/DEVELOPMENT.md` §7） |
+| 报「不认识的库文件，已忽略」 | 文件名拼错（`station.json` 应为 `stations.json`） | 照报错里列出的可用文件名改 |
+| 配了 `contentDir` 但没生效 | 目录不存在 / 相对路径的基准不是你以为的那个 | 看日志里那行「外部内容目录：…」，它写明了实际路径与理由 |
+| 报「内容目录不存在或不是目录」 | 目录还没建（只是警告，插件照常可用） | 建出来，或去掉这个配置 |
