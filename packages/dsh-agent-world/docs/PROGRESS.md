@@ -31,6 +31,82 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 
 ---
 
+## R10.5 — 2026-10-15 · 参考实现地图（用户要"搜 GitHub 借鉴"，但网络不通）
+
+**请求**：用户澄清「我就是希望你能搜索到 github 拿到一些参考项目，借鉴比较难实现的东西」。
+
+**结论：搜不了。** 第四次重测，`api.github.com` / `raw.githubusercontent.com` /
+`registry.npmjs.org` **全部 `000`**；`web_search` 工具仍是 401（端点是用户在设置里配的，
+不该我改）。所以本轮**没有、也不可能**产出 GitHub 参考。
+
+**但没空手**：用户要的是「参考项目 + 借鉴难实现的东西」，而**本机就有**——
+而且比随手找的仓库更对口，因为它们是**同一批库**在真实项目里的用法（有类型、有测试）。
+
+产出 [`docs/REFERENCES.md`](REFERENCES.md)：
+
+- **可借鉴的本机项目**：`msim-front-react/src/pages/MvizLite/viz3d/`（~40 个源文件的
+  分层 3D 可视化引擎，与我们"引擎 + `ScenePlan` + 图层"几乎同构）、
+  `QuickVizPro/core/ThreeVizEngine.ts`（2386 行，天空/光照按录制时间驱动、双引擎共享相机）。
+- **难点 → 具体文件**（每条都 grep 核实过关键 API，**没有逐行读完**，文档里标注了这一点）：
+  - 等距↔透视切换 → `engine/CameraRig.ts`：同时持有两个相机、切模式要重建
+    （`OrbitControls` 绑在相机实例上）、按 `instanceof` 分支取 `zoom`/`fov`。
+  - 内容→样式收敛 → `layers/styleResolver.ts`：**与我们"token 在服务端解析完"是同一个套路**，
+    等于验证了那层设计。
+  - 大量实体 → `layers/builders/pointCloudBuilder.ts`：形状简单但数量多走 `InstancedMesh`。
+  - 事件不打架 → `LiteLabelerController` 与 `MeasureController` 各给了一种解法
+    （前者中/右键留给 OrbitControls，后者在 capture 阶段拦截）。
+  - 一个必须非零的坑 → `SceneContext.ts`：矩阵缩放不能是严格 0，否则不可逆世界矩阵
+    会让 `Mesh`/`InstancedMesh` 的 raycast 失效。
+  - **3D 代码怎么测**（本包最需要的）→ `viz3d/test/` 下注入假 `OrbitControls`、
+    用 `instanceof InstancedMesh` 断言几何与实例化——**渲染器不参与也能验**，
+    正好支撑我们把 `ScenePlan` 做成纯函数。
+- **诚实标出本地没有的三块**（三个前端项目里逐个 grep 过，**全是 0 个文件**）：
+  骨骼动画（`AnimationMixer`/`SkeletonUtils`/`SkinnedMesh`）、SDF 文字（装了 `troika` 但零使用）、
+  后处理（`EffectComposer` 零使用）。这三块才是真需要 GitHub 的，**已写明联网后搜什么、
+  以及两条筛选标准**。
+- **借鉴的边界**：那些项目是 React + R3F，我们按决策 D7 是纯 three.js——
+  借算法与结构，不搬组件外壳。
+
+顺手修掉一处**过期的 README**：它还写着"状态：R2"，而工具表只列了两个工具、
+说"3D 场景还没接上，所以现在看不到小镇"。实际已有四个工具、世界会自己动、
+而且**已经有一个能看的 HTTP 面板**。已更新，并明确写上
+**插件尚未装进任何 profile、安装路径未验证**——避免 README 造成"已经能用了"的错觉。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 182 / pass 182 / fail 0
+```
+
+本轮**只动文档**（`docs/REFERENCES.md` 新增，`README.md` / `BACKLOG.md` / `PROGRESS.md` 更新），
+**没有改一行代码**，所以测试数与上轮一致（182）。
+
+### 下一轮从哪继续
+
+不变：**路 A（联网后按两条硬标准搜现成场景）** 或 **路 B（用本机 `three@0.167.1` 走 vendoring 起 3D）**。
+无论走哪条，**动手前先读 `docs/REFERENCES.md`**——M4 里除了骨骼动画/SDF 文字/后处理，
+其余难点本机都有可借鉴的实现，不需要等网络。
+
+不受网络影响的活（优先序同 R10）：M3-1 落盘 → M3-4 SSE → M1.6-7 JSON 路径安全。
+
+### 假设
+
+- **"搜 GitHub"的真实目的是"少走弯路"，而不是"必须来自 GitHub"**。
+  所以我按这个目的交付：把本机已有的、且经过生产验证的同类实现整理成地图。
+  如果用户**坚持**要 GitHub 上的具体项目，那只能先修网络。
+- **本机那些项目是用户自己的代码**，借鉴不受许可证限制；将来从 GitHub 引入的才受
+  MIT/Apache-2.0/CC0 那条约束。已写在文档里。
+
+### 卡住 / 风险
+
+- **仍然没有 GitHub 参考**。这是第四次确认网络不通，不是"再试一次"的问题。
+- `REFERENCES.md` 里的判断**基于 grep 与结构清点，不是逐行阅读**。文档里逐条标了
+  「已核实」与「仅清点」，用之前要按标注对待——不要把我"看过文件名"当成"读过实现"。
+
+---
+
 ## R10 — 2026-10-15 · 把 R7 预览里看到的两处模拟缺口补掉（M2.5-1 / M2.5-2）
 
 **先说网络**：用户选了「路 A」（联网搜现成场景），但我当场重测——**仍然全断**
