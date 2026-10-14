@@ -2,6 +2,15 @@
 
 本文件记录 dsh-daily 的每个可交付版本。开发期的**逐轮记录**在 [STATUS.md](STATUS.md)（每轮必带真实命令与输出）。
 
+## 0.10.3 — 调研视图与简报改为「同时就位再渲染」
+
+- 修复一处真实竞态：`loadResearch()` 与 `loadBrief()` 各自异步返回，后到的那次会用
+  `undefined` 的数据把界面清掉。改为 `Promise.all`，两个请求都就位后再渲染
+- **未解决**：简报的"概念/建议"块仍未渲染进调研视图（实测 `briefBlock=false`）。
+  已排除：后端有数据（`/api/brief` 返回 concepts 2 / advice 2）、`apiGet` 通用能力
+  （findings 50 条正常渲染）、视图切换（`.is-research` 生效）。下轮加客户端 `?debug=1`
+  把"哪一环"变成可见的，再动手
+
 ## 0.10.2 — AI 诊断：让「宿主给了哪些服务」可见
 
 - 新增 `service.aiDiagnostics()` 与 `GET /api/ai`（或 `POST {action:'diag'}`）：

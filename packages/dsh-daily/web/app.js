@@ -2464,16 +2464,27 @@
     host.appendChild(box);
   }
 
-  /** 取上次的调研结果并渲染（不自动重跑：重跑要花请求与 token）。 */
+  /**
+   * 取上次的调研结果并渲染（不自动重跑：重跑要花请求与 token）。
+   *
+   * **两个请求都回来才渲染**：简报（概念/建议）与调研结果分别异步返回，
+   * 谁先到谁就先渲染一次 —— 于是简报常常在"第一次渲染时还没到"，
+   * 而第二次渲染又用 `undefined` 的调研数据把界面清掉（R68 的 `briefInsideResearch=false` 就是这么来的）。
+   * 修法不是加延时，而是**让两者在同一时刻就位**。
+   */
   function loadResearch() {
     if (!el.research) return;
     el.research.setAttribute('aria-busy', 'true');
-    apiGet(API.findings)
-      .then(function (r) {
-        var data = r && r.data ? r.data : r;
-        renderResearch(data);
+    Promise.all([
+      apiGet(API.findings).catch(function () { return null; }),
+      apiGet(API.brief).catch(function () { return null; }),
+    ])
+      .then(function (results) {
+        var findingsData = results[0] && results[0].data ? results[0].data : results[0];
+        var briefData = results[1] && results[1].data ? results[1].data : results[1];
+        if (briefData) state.brief = briefData.brief || null;
+        renderResearch(findingsData);
       })
-      .catch(function () { renderResearch(null); })
       .then(function () { el.research.setAttribute('aria-busy', 'false'); });
   }
 
