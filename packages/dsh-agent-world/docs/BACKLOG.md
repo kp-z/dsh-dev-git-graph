@@ -148,8 +148,10 @@
 | M3-1c | done | 关停路径的**同步刷盘**：`stop()` 里 `await` 出去的写在进程退出时可能跑不完，改用 `saveWorldSync`/`appendEventsSync`（fd + fsyncSync + renameSync） | `src/store/worldStore.ts`、`src/runtime/index.ts` | M3-1 |
 | M3-1d | ready | **`stateDir` 的相对基准**：目前按 `process.cwd()` 解析（与 `contentDir` 同源问题，见 M1.5-6）。配置注释写的是 `<session workspace>/<stateDir>/`，但 workspace 拿不到。**多工作区时任何自动挑选都是猜，猜错的症状是"存档写到别的项目里去了"** | 与 M1.5-6 合并处理 | M1.5-6 |
 | M3-4 | done | SSE：`GET /api/events`，带单调 `seq`，客户端 gap 自愈。**替换掉面板现在的轮询** | `src/routes/events.ts` + 面板改成 `EventSource` | M3-3 |
+| M3-6b | ready | **面板的渲染节流不能依赖 `requestAnimationFrame`**（R13 踩到并已改）。rAF 在**不可见的标签页里不触发**，而这个面板的典型场景就是"agent 在跑、人不一定在看"——第一版用 rAF 时页面在后台会一直停在"连接中…"，而手动 fetch 与 EventSource 都完全正常。已改成时间戳节流。**记着这条**：将来 3D 场景若用 rAF 主循环，要么接受"后台不渲染"，要么用 `document.visibilityState` 显式决定——别让它变成"看不出是设计还是 bug" | —— | M4 |
+| M3-7 | done | **面板的 `gap` 判定只用 seq 连续性**：`first.seq > lastSeq + 1` 就重拉快照。但服务端**重开一局**（reset）之后 seq 会从头开始，此时 `first.seq` 远小于 `lastSeq`，条件不成立，客户端会继续往旧世界上叠新事件。要在重连路径上补一条"seq 倒退也要重拉"。**R13 当场发现当场修了**：抽成纯函数 `decideOnBatch()` 并有测试 | `web/world-update.js` + `test/world-update.test.js` | M3-6 |
 | M3-4b | ready | **真实 socket 上的背压路径没有端到端测试**。慢客户端分支（`res.write` 返回 false → 断开）现在是用假 res 打进分支的——逻辑验到了，但"真的把 socket 灌满之后确实返回 false"这条没验。要端到端得让服务器 socket 的 `highWaterMark` 很小，或用不读的客户端灌数据；已记着，别当成已验 | `test/sse.test.js` | M3-4 |
-| M3-6 | ready | **面板的轮询改成 SSE（服务端已就绪）**（R10 已补上 fetch 超时与「数据已过期 N 秒」提示，断线不再表现为「世界卡住」）；并给面板加一条"连不上时显示上次快照时间"——否则断线看起来像世界卡住 | `web/app.js` | M3-4 |
+| M3-6 | done | **面板的轮询改成 SSE（服务端已就绪）**（R10 已补上 fetch 超时与「数据已过期 N 秒」提示，断线不再表现为「世界卡住」）；并给面板加一条"连不上时显示上次快照时间"——否则断线看起来像世界卡住 | `web/app.js` | M3-4 |
 | M3-5 | done | 面板静态服务 `/agent-world/*`（MIME 白名单 + 路径穿越防护） | `src/panel.ts` | M3-2 |
 
 ## M4 — 3D 场景（three.js）（**R9 起卡在断网**：装不上 `three`，也搜不了现成场景）

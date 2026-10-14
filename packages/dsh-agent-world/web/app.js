@@ -1,24 +1,27 @@
 /*
- * Agent World 面板 —— 2D 俯视图（M3-5 的最小可见版本）。
+ * Agent World 面板 —— 2D 俯视图（M3-5），数据走 **SSE 增量**（M3-6）。
  *
- * 它**不是**最终的 3D 场景（那是 M4）。它存在的理由是两件事：
- *   1. 让模拟立刻"看得见"——在那之前只能读工具输出的文本；
- *   2. 当 3D 调不出来的时候，它是唯一能看清模拟对不对的窗口。
- * 所以这个俯视图**值得永久保留**，M4 之后作为"调试视图"切换。
+ * ── 数据流 ────────────────────────────────────────────────────────────────────
  *
- * ── 它只吃两样东西 ───────────────────────────────────────────────────────────
+ *   1) 启动拉一次**全量快照**（`GET api/world`）；
+ *   2) 之后只收 `EventSource(api/events)` 推来的**增量**，就地应用到本地世界。
  *
- * - `snapshot.scene`（**ScenePlan**）：要摆什么。地块、站点、角色，颜色**已经解析好**。
- * - `snapshot.world`：花名册与工单板这类文本内容。
+ * **没有轮询分支**。两条路都活着就会有两个真相：一边轮询一边收增量，
+ * 出现不一致时根本判断不出是谁错的。断线由 `EventSource` 自己重连
+ * （服务端会按 `Last-Event-ID` 补发断线期间的事件），所以不需要兜底轮询。
  *
- * 关键在于：**这里没有任何 token 解析**。以前的版本要自己剥 `skin.` 前缀再查
- * `palette`，现在不用了——那份活归服务端（决策 D22）。所以将来换成 three.js，
- * 换掉的只是"怎么把 ScenePlan 画出来"，不会碰到上游任何一层。
+ * 增量应用逻辑在 `world-update.js` 里——**纯函数、可以被 node 测**。
+ * 留在这里的话，"事件够不够重建画面"就只能靠肉眼看了，而它出问题的表现
+ * （角色永远坐在工位上）看起来像渲染层没刷新。
  */
 
-const API = './api/world'
+import { applyEvents, decideOnBatch, pruneMessages } from './world-update.js'
+
+const SNAPSHOT_API = './api/world'
 const COMMAND_API = './api/command'
-const POLL_MS = 400
+const EVENTS_API = './api/events'
+/** 超过这么久没收到任何消息（含 sync 心跳），就在状态栏上明说。 */
+const STALE_AFTER_MS = 8000
 
 const canvas = document.getElementById('town')
 const ctx = canvas.getContext('2d')
@@ -27,13 +30,34 @@ const $roster = document.getElementById('roster')
 const $tasks = document.getElementById('tasks')
 const $content = document.getElementById('content')
 
-let latest = null
-/** 上一次成功取到快照的时刻（ms）。面板靠它显示"多久没更新了"。 */
-let lastOkAt = 0
-/** 请求超时（ms）。 */
-const FETCH_TIMEOUT_MS = 4000
-/** 超过这么久没更新，就在状态栏上明确说出来。 */
-const STALE_AFTER_MS = 3000
+/** 本地世界（快照起家，之后靠增量维护）。 */
+let world = null
+/** 快照里的静态部分（场景描述、内容概况、主题、时钟参数）。 */
+let meta = null
+/** 本地时钟的基准：最近一次收到权威时间的墙钟时刻。 */
+let syncBaseMs = 0
+/** 最近一次收到任何消息的墙钟时刻（判"过期"用）。 */
+let lastMessageMs = 0
+/** 连接状态。 */
+let connected = false
+/** 事件里已经用掉的最后一个 seq。 */
+let lastSeq = 0
+/** 上一次真正渲染的时刻（节流用）。 */
+let lastRenderMs = -1
+/** 节流间隔：约 60fps。 */
+const RENDER_MIN_GAP_MS = 16
+
+/**
+ * 当前的 tick。
+ *
+ * 没有变更事件的那些步**不会产生任何事件**（没人动就没有帧事件，没人在干活就没有进度事件），
+ * 所以本地要在两次权威时间之间自己往前走：每条事件与 `sync` 心跳都会校正基准。
+ */
+function currentTick() {
+  if (world === null) return 0
+  const slipped = Math.floor(Math.max(0, performance.now() - syncBaseMs) / (meta?.tickMs ?? 100))
+  return world.tick + slipped
+}
 
 /** 把设计尺寸写进 canvas 属性，避免高分屏下模糊。 */
 function fitCanvas() {
@@ -45,49 +69,26 @@ function fitCanvas() {
 }
 
 const STATE_LABEL = {
-  idle: '待命',
-  walking: '赶路',
-  working: '干活',
-  talking: '交谈',
-  blocked: '受阻',
-  celebrating: '庆祝',
-  sleeping: '休息',
+  idle: '待命', walking: '赶路', working: '干活', talking: '交谈',
+  blocked: '受阻', celebrating: '庆祝', sleeping: '休息',
 }
 const TASK_LABEL = {
-  pending: '待办',
-  ready: '可领取',
-  in_progress: '进行中',
-  blocked: '受阻',
-  done: '完成',
-  failed: '失败',
+  pending: '待办', ready: '可领取', in_progress: '进行中',
+  blocked: '受阻', done: '完成', failed: '失败',
 }
-const ROLE_LABEL = {
-  lead: 'lead',
-  engineer: '工程师',
-  reviewer: '评审',
-  researcher: '调研',
-  ops: '运维',
-  docs: '文档',
-}
+const ROLE_LABEL = { lead: 'lead', engineer: '工程师', reviewer: '评审', researcher: '调研', ops: '运维', docs: '文档' }
 
-/**
- * 画一帧。
- *
- * 只依赖 `scene`，不读 `world` 的几何字段——这就是"渲染层是哑客户端"的样子。
- */
+/** 画场景。只依赖 `scene`（ScenePlan），不读 `world` 的几何字段。 */
 function draw(scene) {
   const W = canvas.clientWidth
   const H = canvas.clientHeight
   ctx.clearRect(0, 0, W, H)
 
-  // 世界坐标 [-half, half] → 画布，留 6% 边距。半径来自内容（小镇多大是内容说了算）。
   const half = scene.extent.half
-  const pad = 0.06
-  const scale = Math.min(W, H) / (half * 2 * (1 + pad))
+  const scale = Math.min(W, H) / (half * 2 * 1.06)
   const toX = (x) => W / 2 + x * scale
   const toY = (z) => H / 2 + z * scale
 
-  // 1) 地面
   ctx.font = '11px system-ui, sans-serif'
   for (const g of scene.ground) {
     const x = toX(g.x - g.width / 2)
@@ -101,7 +102,6 @@ function draw(scene) {
     ctx.fillText(g.name, x + 8, y + 16)
   }
 
-  // 2) 站点
   for (const p of scene.props) {
     const size = p.capacity > 1 ? 16 : 12
     const x = toX(p.x) - size / 2
@@ -113,7 +113,6 @@ function draw(scene) {
     ctx.strokeRect(x, y, size, size)
   }
 
-  // 3) 角色
   for (const a of scene.actors) {
     const cx = toX(a.x)
     const cy = toY(a.z)
@@ -141,14 +140,14 @@ function draw(scene) {
 }
 
 /**
- * 画飞行中的纸条（M2.5-2 让这件事终于有数据了）。
+ * 画飞行中的纸条。
  *
- * 位置按 `tick` 在"发出"与"送达"之间线性插值——**投递延迟是服务端告诉我们的**
- * （`runtime.messageDeliveryTicks`），不在这里写死。所以以后改延迟不会出现
- * "纸条早到了/晚到了"这种对不上的现象。
+ * 送达时刻来自**消息自己带的 `deliverAtTick`**（服务端在"开始飞"的那一刻就给出来了），
+ * 所以这里不抄投递延迟常量——那是两处真相，改一处就会让纸条的落点与"已送达"对不上。
+ * 快照里带回来的老消息没这个字段，退回用 `messageDeliveryTicks` 推算。
  */
-function drawNotes(scene, world, deliveryTicks) {
-  if (!deliveryTicks || deliveryTicks <= 0) return
+function drawNotes(scene, tick) {
+  if (world === null) return
   const byId = new Map(scene.actors.map((a) => [a.id, a]))
   const half = scene.extent.half
   const W = canvas.clientWidth
@@ -156,16 +155,17 @@ function drawNotes(scene, world, deliveryTicks) {
   const scale = Math.min(W, H) / (half * 2 * 1.06)
   const toX = (x) => W / 2 + x * scale
   const toY = (z) => H / 2 + z * scale
+  const fallbackDelay = meta?.messageDeliveryTicks ?? 10
 
-  // 同一 tick 发出的多条纸条会**完全重叠**（比如一个人刚完工汇报、同时把活交接出去，
-  // 两张纸都从同一个人手上出发）。不错开的话，后画的那张会把先前那张整个盖住——
-  // 而画面上看起来只是"只有一张纸"，不会有人想到是渲染问题。
-  // 这是用像素计数发现的（report 色的像素数是 0），肉眼扫截图看不出来。
+  // 同一 tick 发出的多条纸条会完全重叠（一个人刚完工汇报、同时把活交接出去），
+  // 不错开的话后画的会把先画的整个盖住——而画面上看起来只是"只有一张纸"。
   let drawn = 0
   for (const m of world.messages) {
-    if (m.deliveredAtTick !== null) continue          // 已送达
-    const t = (world.tick - m.atTick) / deliveryTicks
-    if (t < 0 || t > 1) continue                       // 还没发出 / 已经超出飞行窗口
+    if (m.deliveredAtTick !== null) continue
+    const at = m.atTick ?? 0
+    const deliverAt = m.deliverAtTick ?? at + fallbackDelay
+    const t = (tick - at) / Math.max(1, deliverAt - at)
+    if (t < 0 || t > 1) continue
     const from = byId.get(m.from)
     const to = byId.get(m.to)
     if (!from || !to) continue
@@ -177,7 +177,6 @@ function drawNotes(scene, world, deliveryTicks) {
     const x = toX(from.x + (to.x - from.x) * t) + ox
     const y = toY(from.z + (to.z - from.z) * t) + oy
 
-    // 一条淡虚线表示飞行路线，让人看懂"从谁到谁"。
     ctx.save()
     ctx.setLineDash([3, 5])
     ctx.strokeStyle = 'rgba(255,255,255,0.18)'
@@ -188,8 +187,7 @@ function drawNotes(scene, world, deliveryTicks) {
     ctx.stroke()
     ctx.restore()
 
-    // 纸条本体：小方块。颜色**来自内容的 skins 库**（`scene.noteColors`），
-    // 不在代码里写字面色值——那样"换个纸条颜色"就得改代码，直接违反第一条红线。
+    // 颜色来自内容的 skins 库（快照里的 noteColors），不在代码里写字面色值。
     ctx.fillStyle = scene.noteColors?.[m.kind] ?? '#FF00FF'
     ctx.strokeStyle = 'rgba(0,0,0,0.5)'
     ctx.lineWidth = 1
@@ -198,9 +196,7 @@ function drawNotes(scene, world, deliveryTicks) {
   }
 }
 
-function renderSide(snapshot) {
-  const world = snapshot.world
-
+function renderSide(scene, tick) {
   $roster.innerHTML = world.agents
     .map((a) => {
       const where = a.station
@@ -215,7 +211,7 @@ function renderSide(snapshot) {
 
   const order = { in_progress: 0, ready: 1, pending: 2, blocked: 3, done: 4, failed: 5 }
   $tasks.innerHTML = [...world.tasks]
-    .sort((x, y) => (order[x.status] ?? 9) - (order[y.status] ?? 9) || x.ordinal - y.ordinal)
+    .sort((x, y) => (order[x.status] ?? 9) - (order[y.status] ?? 9) || (x.ordinal ?? 0) - (y.ordinal ?? 0))
     .map((t) => {
       const owner = t.owner ? (world.agents.find((a) => a.id === t.owner)?.name ?? t.owner) : '无人'
       const pct = t.status === 'in_progress' ? ` ${Math.round(t.progress * 100)}%` : ''
@@ -223,71 +219,164 @@ function renderSide(snapshot) {
     })
     .join('')
 
-  const libs = snapshot.content.libraries
-    .filter((l) => l.count > 0)
-    .map((l) => `${l.title} ${l.count}`)
-    .join(' · ')
-  const theme = snapshot.scene?.theme
-  $content.textContent = `${snapshot.content.packs.map((p) => `${p.id}@${p.version}`).join('、')} — ${libs}${theme ? ` · 主题：${theme.name}（${theme.camera.projection} ${theme.camera.yawDeg}°/${theme.camera.pitchDeg}°）` : ''}`
+  const libs = meta.libraries.filter((l) => l.count > 0).map((l) => `${l.title} ${l.count}`).join(' · ')
+  const theme = meta.theme
+  $content.textContent =
+    `${meta.packs.map((p) => `${p.id}@${p.version}`).join('、')} — ${libs}` +
+    (theme ? ` · 主题：${theme.name}（${theme.camera.projection} ${theme.camera.yawDeg}°/${theme.camera.pitchDeg}°）` : '')
 
   const states = world.agents.reduce((acc, a) => ({ ...acc, [a.state]: (acc[a.state] ?? 0) + 1 }), {})
-  const stateText = Object.entries(states)
-    .map(([k, v]) => `${STATE_LABEL[k] ?? k} ${v}`)
-    .join(' ')
+  const stateText = Object.entries(states).map(([k, v]) => `${STATE_LABEL[k] ?? k} ${v}`).join(' ')
+  const flying = world.messages.filter((m) => (m.deliverAtTick ?? 0) > tick).length
+  const silentFor = performance.now() - lastMessageMs
+
   $status.innerHTML = [
-    `tick <b>${world.tick}</b>`,
+    `tick <b>${tick}</b>`,
     world.paused ? '<b class="warn">已暂停</b>' : '<b class="ok">运行中</b>',
-    `seq ${snapshot.seq}`,
-    `事件 ${snapshot.runtime.diagnostics.ticks} 步`,
-    snapshot.runtime.pending > 0 ? `待处理命令 ${snapshot.runtime.pending}` : '',
-    (() => {
-      const flying = world.messages.filter((m) => m.deliveredAtTick === null).length
-      return flying > 0 ? `飞行中纸条 ${flying}` : ''
-    })(),
-    // 画布上的一切都来自上一帧成功取到的快照。数据旧了就必须说出来——
-    // 否则"画面不动"会被理解成"世界停了"，而这两件事完全不同。
-    Date.now() - lastOkAt > STALE_AFTER_MS
-      ? `<b class="warn">数据已过期 ${Math.round((Date.now() - lastOkAt) / 1000)} 秒</b>`
-      : '',
-    // 落盘失败是"世界照常跑、但存档其实是坏的"那种故障，必须一眼看到。
-    (snapshot.runtime.diagnostics.persistErrors ?? 0) > 0
-      ? `<b class="warn">落盘失败 ${snapshot.runtime.diagnostics.persistErrors} 次</b>`
-      : '',
+    connected ? '<span class="dim">事件流已连接</span>' : '<b class="warn">事件流重连中</b>',
+    `seq ${lastSeq}`,
+    flying > 0 ? `飞行中纸条 ${flying}` : '',
+    (meta.persistErrors ?? 0) > 0 ? `<b class="warn">落盘失败 ${meta.persistErrors} 次</b>` : '',
+    // 数据旧了必须说出来：否则"画面不动"会被理解成"世界停了"，而那是两件事。
+    silentFor > STALE_AFTER_MS ? `<b class="warn">${Math.round(silentFor / 1000)} 秒没收到事件</b>` : '',
     stateText,
   ]
     .filter(Boolean)
     .join(' · ')
+  void scene
 }
 
 /**
- * 取一次快照。
+ * 渲染一帧（按时间戳节流，约 60fps）。
  *
- * **必须带超时**。没有超时的话，一个挂住的连接会让面板永远停在最后一帧，
- * 而画面上看不出任何异常——看起来就像"世界不跑了"。这是真的踩到的：
- * 我把验证服务器重启了一次，页面就静静地冻在一个旧 tick 上，状态栏还写着"运行中"。
+ * **刻意不用 `requestAnimationFrame`**：rAF 在**不可见的标签页里根本不触发**。
+ * 而这个面板的典型场景恰恰是"agent 在跑、人不一定在看"——用 rAF 的话，
+ * 面板在我们盯着它之前一直是空的（DOM 与画布都停在初始状态），
+ * 而这会让"自动化核验"读到一份陈旧 DOM，看起来像面板坏了。
+ *
+ * 这是真的踩到的：第一版用 rAF 节流，页面在后台时状态栏一直停在"连接中…"，
+ * 而同一时刻手动 `fetch` + `EventSource` 都完全正常。
+ *
+ * 时间戳节流在隐藏标签页里也照常工作（定时器会被浏览器降频，但不会完全不触发），
+ * 而这里每次渲染的代价只是十来个 `<li>` 与一次 canvas 重绘。
  */
-async function poll() {
+function render(force = false) {
+  if (world === null || meta === null) return
+  const now = performance.now()
+  if (!force && now - lastRenderMs < RENDER_MIN_GAP_MS) return
+  lastRenderMs = now
+  const tick = currentTick()
+  draw(meta.scene)
+  drawNotes(meta.scene, tick)
+  renderSide(meta.scene, tick)
+}
+
+/** 拉一次全量快照。启动时、以及发现 gap/reset 时用。 */
+async function loadSnapshot() {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const timer = setTimeout(() => controller.abort(), 5000)
   try {
-    const res = await fetch(`${API}?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal })
+    const res = await fetch(`${SNAPSHOT_API}?t=${Date.now()}`, { cache: 'no-store', signal: controller.signal })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       $status.innerHTML = `<b class="warn">读不到世界（HTTP ${res.status}）</b> ${body.error ?? ''}`
       return
     }
-    const snapshot = await res.json()
-    latest = snapshot
-    lastOkAt = Date.now()
-    draw(snapshot.scene)
-    drawNotes(snapshot.scene, snapshot.world, snapshot.runtime.messageDeliveryTicks)
-    renderSide(snapshot)
+    const snap = await res.json()
+    world = snap.world
+    meta = {
+      scene: snap.scene,
+      libraries: snap.content.libraries,
+      packs: snap.content.packs,
+      theme: snap.scene?.theme ?? null,
+      tickMs: snap.runtime.tickMs,
+      messageDeliveryTicks: snap.runtime.messageDeliveryTicks,
+      persistErrors: snap.runtime.diagnostics.persistErrors,
+    }
+    lastSeq = snap.seq
+    syncBaseMs = performance.now()
+    lastMessageMs = performance.now()
+    render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   } catch (error) {
-    const why = controller.signal.aborted ? `超时（${FETCH_TIMEOUT_MS}ms 没响应）` : error
-    const ago = lastOkAt === 0 ? '从未成功过' : `画面停留在 ${Math.round((Date.now() - lastOkAt) / 1000)} 秒前的状态`
-    $status.innerHTML = `<b class="warn">读不到世界</b> ${why} · ${ago}`
+    $status.innerHTML = `<b class="warn">读不到世界</b> ${error}`
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/** 收到一批增量。 */
+function receive(events) {
+  if (world === null || events.length === 0) return
+  applyEvents(world, events)
+  const last = events[events.length - 1]
+  if (last !== undefined) lastSeq = Math.max(lastSeq, last.seq)
+  // 每条事件都是一次权威时间校准。
+  syncBaseMs = performance.now()
+  pruneMessages(world)
+  render()
+}
+
+/** 连事件流。断线由 EventSource 自己重连，服务端按 Last-Event-ID 补发。 */
+function connect() {
+  const source = new EventSource(EVENTS_API)
+
+  source.onopen = () => {
+    connected = true
+    lastMessageMs = performance.now()
+    render()
+  }
+
+  source.onerror = () => {
+    // 不在这里重连：EventSource 自己会，而且**它会带上 Last-Event-ID**，
+    // 服务端据此补发断线期间的事件。自己再写一套重连只会和它打架。
+    connected = false
+    render()
+  }
+
+  source.onmessage = (frame) => {
+    lastMessageMs = performance.now()
+    let message
+    try {
+      message = JSON.parse(frame.data)
+    } catch {
+      return
+    }
+
+    if (message.type === 'events') {
+      const first = message.events?.[0]
+      // **gap 自愈的客户端一半**：判定逻辑在 `decideOnBatch` 里（纯函数、有测试）。
+      // 重点是**倒退也算断裂**——重开一局时 seq 从头开始，
+      // 只看"是否跳过了一段"会漏掉这种情况，于是新世界的事件被叠到旧世界上，
+      // 而画面上只是一堆对不上的状态，不会报任何错。
+      if (first !== undefined && decideOnBatch(first.seq, lastSeq) === 'resync') {
+        void loadSnapshot()
+        return
+      }
+      receive(message.events ?? [])
+      return
+    }
+
+    if (message.type === 'sync') {
+      if (world === null) return
+      // 权威时间。刻意走 applyEvents（而不是在这里赋值），
+      // 让"sync 怎么处理"只有一处实现、也有测试。
+      applyEvents(world, [{ seq: message.seq, tick: message.tick, type: 'sync', payload: message }])
+      syncBaseMs = performance.now()
+      connected = true
+      render()
+      return
+    }
+
+    if (message.type === 'reset') {
+      // 服务端明说"补不齐"（那段历史已经滚出环形缓冲）。
+      void loadSnapshot()
+      return
+    }
+
+    if (message.type === 'hello') {
+      lastSeq = Math.max(lastSeq, message.seq ?? 0)
+      render()
+    }
   }
 }
 
@@ -302,7 +391,7 @@ document.querySelectorAll('button[data-command]').forEach((button) => {
       })
       const body = await res.json()
       if (!res.ok) $status.innerHTML = `<b class="warn">命令被拒</b> ${body.error ?? ''}`
-      else poll()
+      // 成功的话世界状态会经事件流回来（`world.paused` 事件），不需要手动刷新。
     } catch (error) {
       $status.innerHTML = `<b class="warn">命令失败</b> ${error}`
     }
@@ -311,12 +400,13 @@ document.querySelectorAll('button[data-command]').forEach((button) => {
 
 window.addEventListener('resize', () => {
   fitCanvas()
-  if (latest) {
-    draw(latest.scene)
-    drawNotes(latest.scene, latest.world, latest.runtime.messageDeliveryTicks)
-  }
+  render()
 })
 
+// 本地时钟的可见部分：每 250ms 重画一次，让"没事件但时间在走"看得见，
+// 也让纸条在两次事件之间平滑飞行。
+setInterval(render, 250)
+
 fitCanvas()
-poll()
-setInterval(poll, POLL_MS)
+void loadSnapshot()
+connect()

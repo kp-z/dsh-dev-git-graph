@@ -30,6 +30,7 @@ import type { WorkOutcome } from './interaction.js'
 import type { IdleOutcome } from './idle.js'
 import type { CommsOutcome } from './comms.js'
 import { emitEvent } from './journal.js'
+import { agentPatch, taskPatch } from './patches.js'
 
 /** 本 tick 各阶段的产出（`emit.ts` 的输入）。 */
 export interface PhaseOutcomes {
@@ -65,30 +66,33 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
 
   // 1) 依赖求值：可领取 / 退回可领取
   for (const id of outcomes.ready.becameReady) {
-    push('task.changed', { id, status: 'ready', reason: 'deps-done' })
+    push('task.changed', { id, ...taskPatch(world, id), reason: 'deps-done' })
   }
   for (const id of outcomes.ready.becamePending) {
-    push('task.changed', { id, status: 'pending', reason: 'deps-reopened' })
+    push('task.changed', { id, ...taskPatch(world, id), reason: 'deps-reopened' })
   }
 
   // 2) 派工：任务易主 + 角色上路
   for (const claim of outcomes.scheduler.claims) {
     push('task.changed', {
       id: claim.taskId,
-      status: 'in_progress',
-      owner: claim.agentId,
-      station: claim.stationId,
+      ...taskPatch(world, claim.taskId),
       attemptId: claim.attemptId,
     })
-    push('agent.state', { id: claim.agentId, state: 'walking', task: claim.taskId, to: claim.stationId })
+    push('agent.state', {
+      id: claim.agentId,
+      ...agentPatch(world, claim.agentId),
+      task: claim.taskId,
+      to: claim.stationId,
+    })
   }
 
   // 3) 移动：修好的矛盾（要报出来，否则是静默卡死）+ 到站
   for (const id of outcomes.movement.repaired) {
-    push('agent.state', { id, state: 'idle', reason: 'repaired' })
+    push('agent.state', { id, ...agentPatch(world, id), reason: 'repaired' })
   }
   for (const arrival of outcomes.movement.arrived) {
-    push('agent.state', { id: arrival.agentId, state: 'working', station: arrival.stationId })
+    push('agent.state', { id: arrival.agentId, ...agentPatch(world, arrival.agentId) })
   }
 
   // 4) 干活：里程碑 + 完工
@@ -99,20 +103,14 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
     if (after > before) {
       push('task.changed', {
         id: item.taskId,
-        progress: item.progress,
+        ...taskPatch(world, item.taskId),
         milestone: after,
-        owner: item.agentId,
       })
     }
   }
   for (const done of outcomes.work.completed) {
-    push('task.changed', {
-      id: done.taskId,
-      status: 'done',
-      owner: done.agentId,
-      station: done.stationId,
-    })
-    push('agent.state', { id: done.agentId, state: 'idle', reason: 'task-done' })
+    push('task.changed', { id: done.taskId, ...taskPatch(world, done.taskId) })
+    push('agent.state', { id: done.agentId, ...agentPatch(world, done.agentId), reason: 'task-done' })
   }
 
   // 5) 消息：**在"开始飞"的那一刻发，而不是送达时发。**
@@ -127,6 +125,9 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
   }
 
   // 6) 帧：有位移才发。**这是唯一承载连续量的事件。**
+  //
+  // 客户端拿到它之后只更新这几个人（不是整个花名册）——这是"增量"的关键：
+  // 一帧只带真的有位移的人，而不是 24 个角色的全量位置。
   //
   // 用 movement 返回的 `advanced` 而**不是**过滤 `state === 'walking'`：
   // 本 tick 到站的人已经切成 `working` 了，按状态过滤会把他漏掉，

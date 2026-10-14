@@ -132,9 +132,28 @@ export function eventsRoutes(deps: EventsDeps): RouteEntry[] {
           }
         })
 
+        // 心跳**不只是保活，还是时钟校准**。
+        //
+        // 为什么必须有：世界静止时没有任何变更事件（没有位移就没有帧事件、没人在干活就没有
+        // 进度事件），于是客户端的 `world.tick` 会停在原地——而它要用这个 tick 算"纸条飞到哪了"。
+        // 900 步的实测里客户端会落后 32%，UI 上就是"世界明明在跑，时间却不动"。
+        //
+        // 修法有两种：每 tick 都发一条帧事件（事件量从 0.33/步 涨到 1/步，一天多几十 MB 日志），
+        // 或者**让心跳顺带报一次权威时间**。选后者：代价是每次心跳一条，与世界的快慢无关。
         const heartbeat = setInterval(() => {
           if (closed) return
-          res.write(sseComment(`ping ${Date.now()}`))
+          res.write(sseComment('ping')) // 注释行给中间层看（有些反代只认"有字节流动"）
+          const current = deps.service.currentWorld()
+          if (current === null) return
+          res.write(
+            sseFrame({
+              v: PROTOCOL_VERSION,
+              type: 'sync',
+              tick: current.tick,
+              seq: current.seq,
+              paused: current.paused,
+            }),
+          )
         }, heartbeatMs)
 
         const finish = (): void => {

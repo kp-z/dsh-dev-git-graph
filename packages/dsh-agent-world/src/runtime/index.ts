@@ -114,6 +114,17 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     persistErrors: 0,
   }
 
+  /**
+   * 下一条"还没发布过"的事件序号。
+   *
+   * **为什么按 seq 水位线发布，而不是直接发布本步的 `result.events`**：
+   * 有些变更**不在任何一步里发生**——比如 `agent_world_dispatch` 在 tick 之外往世界加工单。
+   * 只发布 `result.events` 的话，那些事件会永远躺在环形缓冲里没人推给客户端。
+   * 按水位线取，则"只要进了日志就会被推出去"，无论它从哪来。
+   */
+  let nextSeqToPublish = 0
+  /** 上一次发布时的世界对象；换世界（重开一局）时水位线要跟着重置。 */
+  let publishWorld: unknown = null
   /** 攒着还没写下去的事件。 */
   let pendingEvents: WorldEvent[] = []
   /** 最近一次成功落盘到哪个 seq（诊断用：一眼看出"存档落后多少"）。 */
@@ -210,6 +221,12 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     const world = service.currentWorld()
     if (world === null) return null
 
+    // 重新与当前世界对齐：重开一局之后 seq 从头开始，旧水位线会把新事件全判成"已发布"。
+    if (publishWorld !== world) {
+      publishWorld = world
+      nextSeqToPublish = world.seq
+    }
+
     // 取走本步要处理的命令（取空，避免下一步重复处理）。
     const commands = queue.splice(0, queue.length)
     const tickBefore = world.tick
@@ -230,14 +247,20 @@ export function createRuntime(options: RuntimeOptions): Runtime {
       options.onError?.(error)
     }
 
-    sink.publish(result.events)
+    // 本步之后**日志里所有新东西**（含 tick 之外产生的变更）。
+    // 环形缓冲只有 500 条，一步之内不可能溢出，所以按 seq 切是安全的。
+    const fresh = world.events.filter((e) => e.seq >= nextSeqToPublish)
+    const lastFresh = fresh[fresh.length - 1]
+    if (lastFresh !== undefined) nextSeqToPublish = lastFresh.seq + 1
+
+    sink.publish(fresh)
 
     // 只在世界真的前进时计数：暂停时 step 会早退，tick 不动，那一步不该算进来。
     if (world.tick > tickBefore) {
       diagnostics.ticks += 1
 
       if (persist !== undefined) {
-        pendingEvents.push(...result.events)
+        pendingEvents.push(...fresh)
         const every = persist.checkpointEveryTicks
         if (every > 0 && world.tick % every === 0) {
           // 不 await：checkpoint 不能拖慢模拟循环。失败会被记进 persistErrors 并留待下次重试。

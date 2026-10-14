@@ -37,6 +37,7 @@ import type {
   RestoredFrom,
   WorldServicePort,
 } from './protocol/index.js'
+import { noteTasksAdded } from './sim/journal.js'
 import { loadWorldSync } from './store/index.js'
 import { createWorld } from './world/create.js'
 
@@ -242,6 +243,13 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       const nextIndex = world.tasks.reduce((max, t) => Math.max(max, t.ordinal), 0) + 1
       const created = instantiateTasks(set, nextIndex, world.tick)
       world.tasks.push(...created)
+      // **必须进日志**：派单发生在 tick 之外，而只收增量的客户端（SSE 的面板）
+      // 全靠事件才能知道有新工单。工具调用者自己看得到（拿的是同步返回值），
+      // 这种"我这里有、你那里没有"的分叉极难查。
+      noteTasksAdded(
+        world,
+        created.map((t) => t.id),
+      )
 
       return {
         taskSet,
