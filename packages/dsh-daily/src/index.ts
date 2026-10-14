@@ -207,42 +207,60 @@ async function bootstrapInner(
 		)
 	}
 
-	// ---- AI 摘要接线（可选功能，默认关闭）----
-	// 放在依赖注入完成之后：service 先建好，这里再把 ctx.llm 与默认模型选择递进去。
-	// 拿不到就递 null —— service 会退化成"没有 AI 摘要"，而不是让插件加载失败。
+	// ---- AI 接线（llm 服务 + 宿主当前默认模型）----
+	//
+	// **必须用 ctx.inject 声明服务**：在未声明的服务上调用 `ctx.get(name)` 会**抛异常**
+	// （我为此栽过两次：`ctx.get('sessions')`、`ctx.get('slots')`）。
+	// 而这里外面包着 try/catch → 抛出去就被当成"宿主没有 AI" → `setLlm` 从未被调用 →
+	// **AI 永久接不上，而且日志里看不出原因**。宿主上实测 `llm`/默认模型都拿不到，
+	// 症状就是所有 AI 环节（介绍/概念/建议）静默退回确定性兜底。
+	let llm: LlmLike | null = null
+	let selectionGetter: (() => { provider?: string; model?: string } | null) | null = null
 	try {
-		const scoped = host as unknown as {
-			llm?: LlmLike
-			agentDefaultModel?: { currentSelection?: () => { provider?: string; model?: string } }
-			get?: (name: string) => unknown
-		}
-		const llm = scoped.llm ?? (typeof scoped.get === 'function' ? (scoped.get('llm') as LlmLike) : undefined)
-		const defaults =
-			scoped.agentDefaultModel ??
-			(typeof scoped.get === 'function'
-				? (scoped.get('agentDefaultModel') as { currentSelection?: () => { provider?: string; model?: string } })
-				: undefined)
-		service.setLlm(
-			llm && typeof llm.stream === 'function' ? (options) => llm.stream(options) : null,
-			() => {
-				try {
-					const selection = defaults?.currentSelection?.()
-					if (selection?.provider && selection?.model) {
-						return { provider: selection.provider, model: selection.model }
-					}
-				} catch {
-					/* 默认模型读不到就当作没有 */
-				}
-				return null
-			},
-		)
-		if (settings.aiSummaryEnabled) {
-			logger.info(
-				llm ? 'AI 摘要已开启：模型能力已接入。' : 'AI 摘要已开启，但宿主没有 llm 服务，本轮不会生成摘要。',
-			)
-		}
+		host.inject(['llm'], (scoped) => {
+			const svc = (scoped as unknown as { llm?: LlmLike }).llm
+			if (svc && typeof svc.stream === 'function') llm = svc
+		})
 	} catch (error) {
-		logger.warn(`AI 摘要接线失败（功能降级为关闭）：${error instanceof Error ? error.message : String(error)}`)
+		logger.warn(`llm 服务不可用：${error instanceof Error ? error.message : String(error)}`)
+	}
+	try {
+		host.inject(['agentDefaultModel'], (scoped) => {
+			const svc = (scoped as unknown as {
+				agentDefaultModel?: { currentSelection?: () => { provider?: string; model?: string } }
+			}).agentDefaultModel
+			if (svc && typeof svc.currentSelection === 'function') {
+				selectionGetter = () => {
+					try {
+						const selection = svc.currentSelection?.()
+						return selection?.provider && selection?.model ? selection : null
+					} catch {
+						return null
+					}
+				}
+			}
+		})
+	} catch (error) {
+		logger.warn(`agentDefaultModel 服务不可用：${error instanceof Error ? error.message : String(error)}`)
+	}
+
+	try {
+		// TS 会把"只在闭包里赋值"的变量收窄成 null，所以这里显式取一次快照再用
+		const readRoute: () => { provider: string; model: string } | null = () => {
+			const getter = selectionGetter as (() => { provider?: string; model?: string } | null) | null
+			if (!getter) return null
+			const selection = getter()
+			return selection?.provider && selection?.model ? { provider: selection.provider, model: selection.model } : null
+		}
+		const llmSvc = llm as LlmLike | null
+		// 把"是哪一环没接上"写进日志（此前失败是静默的，只能靠猜）
+		const probe = readRoute()
+		service.setLlm(llmSvc ? (options) => llmSvc.stream(options) : null, readRoute)
+		logger.info(
+			`AI 接线：llm=${llm ? '✅ 有' : '❌ 无'} · 默认模型=${probe ? `✅ ${probe.provider}/${probe.model}` : selectionGetter ? '⚠️ 服务在但当前没有选中模型' : '❌ 服务不可用'}`,
+		)
+	} catch (error) {
+		logger.warn(`AI 接线失败（AI 功能降级）：${error instanceof Error ? error.message : String(error)}`)
 	}
 
 	// ---- 启动补抓 ----

@@ -2703,3 +2703,47 @@ tuneRowGone = true                        ← 调教行没了 ✓
 
 **证据**：`npm test` → **370 / pass 370 / fail 0**（R67 基线 369 → 本轮 +1 守卫测试）
 已发布 `@kpeace/dsh-daily@0.10.0`
+
+### R69 · 2026-10-14 15:30–16:30 — 查清"AI 为什么没接上"（发布 0.10.1）
+
+**用户两个问题**：① 为什么没接上 dsh AI？② 为什么不能在接通 dsh 之后测试？
+
+**① 没接上的原因（代码级）**
+```ts
+const llm = scoped.llm ?? scoped.get('llm')                      // ← 未 inject 就 get 会 THROW
+const defaults = scoped.agentDefaultModel ?? scoped.get('agentDefaultModel')
+```
+外面包着 `try/catch` → 抛了就被当成"宿主没有 AI" → **`setLlm()` 从未被调用** →
+`llmStream` 与 `defaultRoute` 都是 null → **所有 AI 环节（介绍/概念/建议）静默退回确定性兜底**。
+**这是同一类坑的第三次**：`ctx.get('sessions')`、`ctx.get('slots')`，现在是 `ctx.get('llm')`
+—— **在未声明服务上 `get()` 会抛，而 try/catch 把它变成了静默降级。**
+
+修法：改用 **`host.inject(['llm'])` / `host.inject(['agentDefaultModel'])`**（声明式获取），
+并把"是哪一环没接上"**写进启动日志**：
+```
+AI 接线：llm=❌ 无 · 默认模型=❌ 服务不可用
+AI 接线：llm=✅ 有 · 默认模型=✅ provider/model
+AI 接线：llm=✅ 有 · 默认模型=⚠️ 服务在但当前没有选中模型
+```
+以前失败是静默的，只能靠猜；现在三种情况一眼可辨。
+
+**② 为什么以前不能在本地测"接通 dsh 之后"的路径**
+`scripts/dev-server.mjs` 里写的是 `service.setLlm(假stream, () => null)` —— **路由恒为 null**；
+而 `--ai-fake` 又自己设了 `aiSummaryProvider/Model` → `resolveAiRoute()` 走**显式配置**分支 →
+**"读宿主默认模型"那条路径从来没被跑过**。接线错了也看不出来 —— **这正是宿主上出问题的路径。**
+
+修法：新增 `--ai-route` 开关（模拟 `agentDefaultModel.currentSelection()`），
+并且**开启它时不再设显式 provider/model**，否则那条路还是被遮住。
+实测三种模式现在**有区分力**：
+```
+[--ai-fake]            → model=fake-dev-model  concepts=2 advice=2 degraded=[]    ← 显式配置分支
+[--ai-fake --ai-route] → model=dev-host-model  concepts=2 advice=2 degraded=[]    ← **宿主默认模型分支** ✅
+[--ai-route]           → model=(无)            concepts=0 advice=0 degraded=[concepts,advice]  ← 无 stream，正确降级
+```
+**第一次在本地真正跑通"宿主给默认模型"这条路径。**
+
+**仍未验证的**：真实宿主上修复后的效果 —— 需要 dsh 侧**重启**（host 侧代码改了对已运行进程无效），
+而重启用户的宿主不在我的权限内。**这是本轮唯一无法自证的环节，如实记录。**
+
+**证据**：`npm test` → **370 / pass 370 / fail 0** · typecheck 干净
+已发布 `@kpeace/dsh-daily@0.10.1`

@@ -24,11 +24,15 @@ const args = process.argv.slice(2)
 // 冒烟必然失败，日志里却明明写着 8799。宁可起不来，也不要"起来了但配置没生效"。
 const HAS_FAIL_API = args.some((a) => a.startsWith('--fail-api'))
 const parsed = parseArgs(args, {
-	flags: ['no-refresh', 'ai-fake', ...(HAS_FAIL_API ? ['fail-api'] : [])],
+	flags: ['no-refresh', 'ai-fake', 'ai-route', ...(HAS_FAIL_API ? ['fail-api'] : [])],
 	values: ['port', 'data-dir', 'seed-history'],
 })
 const noRefresh = parsed.values['no-refresh'] === true
 const aiFakeFlag = parsed.values['ai-fake'] === true
+// `--ai-route`：**模拟宿主给出默认模型**（dsh 的 agentDefaultModel.currentSelection）。
+// 没有它时路由恒为 null —— 那样"宿主给了默认模型"这条路径在联调里**从来没被跑过**，
+// 于是接线错了也看不出来（真实宿主上正是如此：AI 一直没接上）。
+const aiRouteFlag = parsed.values['ai-route'] === true
 const port = toNumber(parsed.values.port, 'port', parsed.errors, { min: 1, max: 65535 }) ?? 8799
 const dataDirValue = typeof parsed.values['data-dir'] === 'string' ? parsed.values['data-dir'] : ''
 const seedDaysValue =
@@ -38,7 +42,7 @@ if (parsed.errors.length > 0) {
 	for (const message of parsed.errors) console.error(`  - ${message}`)
 	console.error('')
 	console.error(
-		'用法：node scripts/dev-server.mjs [--port 8799 | --port=8799] [--data-dir=DIR] [--seed-history=N] [--ai-fake] [--no-refresh]',
+		'用法：node scripts/dev-server.mjs [--port 8799 | --port=8799] [--data-dir=DIR] [--seed-history=N] [--ai-fake] [--ai-route] [--no-refresh]',
 	)
 	process.exit(2)
 }
@@ -67,8 +71,10 @@ const config = resolveConfig({
 	...(aiFake
 		? {
 				aiSummaryEnabled: true,
-				aiSummaryProvider: 'fake',
-				aiSummaryModel: 'fake-dev-model',
+				// **只有不给显式 provider/model，才能真正测到"宿主默认模型"那条路**：
+				// 给了显式配置，resolveAiRoute() 走的是配置分支，route 永远不被读 →
+				// 接线错了也看不出来（真实宿主上正是这样：AI 一直没接上）。
+				...(aiRouteFlag ? {} : { aiSummaryProvider: 'fake', aiSummaryModel: 'fake-dev-model' }),
 				aiSummaryMaxItems: 6,
 				aiSummaryConcurrency: 2,
 			}
@@ -187,9 +193,14 @@ if (aiFake) {
 				yield { type: 'finish', reason: { kind: 'stop' } }
 			},
 		}),
-		() => null,
+		// 模拟宿主的"当前默认模型"：没有 --ai-route 时恒为 null（= 宿主没给模型）
+		aiRouteFlag ? () => ({ provider: 'fake-host', model: 'dev-host-model' }) : () => null,
 	)
-	console.log('[info] AI 摘要：已启用假 stream（--ai-fake），不会调用真实模型')
+	console.log(
+		`[info] AI 摘要：已启用假 stream（--ai-fake），不会调用真实模型 · 默认模型=${
+			aiRouteFlag ? '模拟为 fake-host/dev-host-model（--ai-route）' : '未提供（= 宿主没给模型，会走降级）'
+		}`,
+	)
 }
 
 const today = localDate()
