@@ -16,12 +16,26 @@
  */
 
 import { applyEvents, decideOnBatch, pruneMessages } from './world-update.js'
+import { createDialogueUi } from './dialogue-ui.js'
+import { dialogueEventsFromFrame } from './dialogue-state.js'
 
 const SNAPSHOT_API = './api/world'
 const COMMAND_API = './api/command'
 const EVENTS_API = './api/events'
+/** 发话端点（M6-5 的发送侧；回复走 SSE 的 `dialogue` 帧，见 `src/protocol/dialogue.ts`）。 */
+const SAY_API = './api/say'
 /** 超过这么久没收到任何消息（含 sync 心跳），就在状态栏上明说。 */
 const STALE_AFTER_MS = 8000
+/**
+ * "他在想…"最多挂多少步。
+ *
+ * 契约要求宿主超时时发 `failed`，但**宿主自己挂了**那条事件就永远不会来——
+ * 那时面板会一直显示"他在想…"，也就是在装作没事（GOAL 红线 6）。
+ * 所以面板也有一条自己的兜底：同步心跳每次来都查一遍。
+ */
+const DIALOGUE_SILENT_TICKS = 300
+/** 点角色时的容差（像素）：点在小人旁边一点也算点到他了。 */
+const PICK_SLOP_PX = 16
 
 const canvas = document.getElementById('town')
 const ctx = canvas.getContext('2d')
@@ -29,6 +43,9 @@ const $status = document.getElementById('status')
 const $roster = document.getElementById('roster')
 const $tasks = document.getElementById('tasks')
 const $content = document.getElementById('content')
+const $bubbles = document.getElementById('bubbles')
+/** 3D 画布：拾取（点人）与气泡投影都用它。 */
+const canvas3d = document.getElementById('town3d')
 
 /** 本地世界（快照起家，之后靠增量维护）。 */
 let world = null
@@ -59,6 +76,10 @@ let mode = 'top'
 let scene3d = null
 /** 3D 加载失败的原因（显示给用户，别再让用户猜）。 */
 let scene3dError = null
+/** 对话面板（M6-5）。状态机在 `dialogue-state.js`，DOM 在 `dialogue-ui.js`。 */
+let dialogue = null
+/** 头顶气泡的 DOM 节点（按 agentId 复用，只改位置与文本，不每帧重建）。 */
+const bubbleNodes = new Map()
 
 /** 上一次真正渲染的时刻（节流用）。 */
 let lastRenderMs = -1
@@ -96,7 +117,31 @@ const TASK_LABEL = {
 }
 const ROLE_LABEL = { lead: 'lead', engineer: '工程师', reviewer: '评审', researcher: '调研', ops: '运维', docs: '文档' }
 
-/** 画场景。只依赖 `scene`（ScenePlan），不读 `world` 的几何字段。 */
+/**
+ * 俯视图要画的角色：**实时位姿**（`world.agents`）+ **内容里的颜色**（`scene.actors`）。
+ *
+ * 原来这里直接遍历 `scene.actors`——那是**快照那一帧**的静态布局，
+ * 于是俯视图里的人从来不动（"角色永远站在开局的位置"），而 3D 视图吃的是 `world.agents`：
+ * 两个视图会给出互相矛盾的两个真相，而看起来都"正常"。
+ * 颜色仍然只来自内容（ScenePlan），不在代码里写角色色（与 D31/D37 同源）。
+ */
+function liveActors(scene) {
+  const plan = scene.actors ?? []
+  if (world === null || world.agents === undefined) return plan
+  const byId = new Map(plan.map((a) => [a.id, a]))
+  // 快照还没回来、或角色是新加的时候退回一个中性色（与图例同色），而不是凭空编一个人设。
+  const fallback = '#4fa3d1'
+  return world.agents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    state: a.state,
+    x: a.position?.x ?? byId.get(a.id)?.x ?? 0,
+    z: a.position?.z ?? byId.get(a.id)?.z ?? 0,
+    color: byId.get(a.id)?.color ?? fallback,
+  }))
+}
+
+/** 画场景。只依赖 `scene`（ScenePlan）+ 实时位姿；不读内容的字面值。 */
 function draw(scene) {
   const W = canvas.clientWidth
   const H = canvas.clientHeight
@@ -131,7 +176,7 @@ function draw(scene) {
     ctx.strokeRect(x, y, size, size)
   }
 
-  for (const a of scene.actors) {
+  for (const a of liveActors(scene)) {
     const cx = toX(a.x)
     const cy = toY(a.z)
     const r = 7
@@ -166,7 +211,7 @@ function draw(scene) {
  */
 function drawNotes(scene, tick) {
   if (world === null) return
-  const byId = new Map(scene.actors.map((a) => [a.id, a]))
+  const byId = new Map(liveActors(scene).map((a) => [a.id, a]))
   const half = scene.extent.half
   const W = canvas.clientWidth
   const H = canvas.clientHeight
@@ -215,6 +260,9 @@ function drawNotes(scene, tick) {
 }
 
 function renderSide(scene, tick) {
+  // 花名册每一行都是"跟他说话"的入口（俯视与 3D 都点得到，因为它不在画布上）。
+  const thinking = new Set((dialogue?.thinkingTurns() ?? []).map((t) => t.agentId))
+  const talkingTo = dialogue?.agentId() ?? null
   $roster.innerHTML = world.agents
     .map((a) => {
       const where = a.station
@@ -223,7 +271,11 @@ function renderSide(scene, tick) {
           ? `→ ${world.stations.find((s) => s.id === a.targetStation)?.name ?? a.targetStation}`
           : '广场'
       const task = a.carrying ? (world.tasks.find((t) => t.id === a.carrying)?.title ?? a.carrying) : null
-      return `<li><b>${a.name}</b> <span class="dim">${ROLE_LABEL[a.role] ?? a.role}</span> · ${STATE_LABEL[a.state] ?? a.state} @ ${where}${task ? ` · <i>${task}</i>` : ''}</li>`
+      const cls = `roster-row${a.id === talkingTo ? ' active' : ''}`
+      // "他在想…"要落在**花名册这一行**上：面板可能已经关了（或你在看别人），
+      // 但"我发出去的那句话还没回"是用户最需要知道的状态。
+      const pending = thinking.has(a.id) ? ' <b class="warn">他在想…</b>' : ''
+      return `<li class="${cls}" data-agent="${a.id}" title="点这里跟他说话"><b>${a.name}</b> <span class="dim">${ROLE_LABEL[a.role] ?? a.role}</span> · ${STATE_LABEL[a.state] ?? a.state} @ ${where}${task ? ` · <i>${task}</i>` : ''}${pending}</li>`
     })
     .join('')
 
@@ -254,6 +306,7 @@ function renderSide(scene, tick) {
   const stateText = Object.entries(states).map(([k, v]) => `${STATE_LABEL[k] ?? k} ${v}`).join(' ')
   const flying = world.messages.filter((m) => (m.deliverAtTick ?? 0) > tick).length
   const silentFor = performance.now() - lastMessageMs
+  const waiting = dialogue?.thinkingTurns().length ?? 0
 
   $status.innerHTML = [
     `tick <b>${tick}</b>`,
@@ -262,6 +315,8 @@ function renderSide(scene, tick) {
     `下一个 seq ${nextSeq}`,
     perf,
     flying > 0 ? `飞行中纸条 ${flying}` : '',
+    // "有几句话还在等回复"要看得见：不然用户会以为面板没收到（然后重发一遍）。
+    waiting > 0 ? `<b class="warn">${waiting} 句话在等回复</b>` : '',
     (meta.persistErrors ?? 0) > 0 ? `<b class="warn">落盘失败 ${meta.persistErrors} 次</b>` : '',
     // 数据旧了必须说出来：否则"画面不动"会被理解成"世界停了"，而那是两件事。
     silentFor > STALE_AFTER_MS ? `<b class="warn">${Math.round(silentFor / 1000)} 秒没收到事件</b>` : '',
@@ -356,6 +411,76 @@ async function setMode(next) {
   render(true)
 }
 
+/**
+ * 头顶气泡（M6-5）。
+ *
+ * 位置每帧算：3D 走 `scene3d.projectToScreen`（正交相机投影 + 角色实测头顶高度），
+ * 俯视走**与 `draw()` 完全同一套比例**——抄第二份公式出来，气泡和人的位置就会慢半拍地不一致，
+ * 而那种错看起来像"气泡没跟着走"。节点按 agentId 复用：这个循环每秒要跑十几次，
+ * 每帧重建 DOM 就是一直在制造垃圾。
+ */
+function updateBubbles() {
+  if ($bubbles === null || meta === null) return
+  const list = dialogue === null ? [] : dialogue.bubblesFor(performance.now())
+  const scene = meta.scene
+  const W = canvas.clientWidth
+  const H = canvas.clientHeight
+  const half = scene.extent?.half ?? 8
+  const scale = Math.min(W, H) / (half * 2 * 1.06)
+  const seen = new Set()
+
+  for (const bubble of list) {
+    const agent = world?.agents.find((a) => a.id === bubble.agentId)
+    if (agent === undefined) continue
+
+    let x = 0
+    let y = 0
+    let visible = true
+    if (mode === '3d' && scene3d !== null && canvas3d.hidden === false) {
+      const p = scene3d.projectToScreen(agent.position.x, scene3d.topYOf(agent.id), -agent.position.z)
+      x = p.x
+      y = p.y - 4
+      visible = p.behind === false && p.width > 0
+    } else if (mode === 'top' && canvas.hidden === false) {
+      // 与 `draw()` 同样的换算（比例、中心），再往上抬过角色名那一行。
+      x = W / 2 + agent.position.x * scale
+      y = H / 2 + agent.position.z * scale - 26
+    } else {
+      visible = false
+    }
+    if (!visible) continue
+
+    seen.add(agent.id)
+    let entry = bubbleNodes.get(agent.id)
+    if (entry === undefined) {
+      const node = document.createElement('div')
+      const name = document.createElement('b')
+      const text = document.createElement('span')
+      node.append(name, text)
+      $bubbles.append(node)
+      entry = { node, name, text, sig: null }
+      bubbleNodes.set(agent.id, entry)
+    }
+    const sig = `${bubble.phase}\u0001${bubble.text}`
+    if (entry.sig !== sig) {
+      // 名字来自世界数据；文本用 textContent（回复正文是模型产出的内容，不是标记）。
+      entry.node.className = `bubble d-${bubble.phase}`
+      entry.name.textContent = agent.name
+      entry.text.textContent = bubble.text
+      entry.sig = sig
+    }
+    entry.node.style.left = `${Math.round(x)}px`
+    entry.node.style.top = `${Math.round(y)}px`
+  }
+
+  // 淡出/离场的气泡要**真的摘掉**，否则 DOM 会随着"聊过多少人"一直涨。
+  for (const [agentId, entry] of bubbleNodes) {
+    if (seen.has(agentId)) continue
+    entry.node.remove()
+    bubbleNodes.delete(agentId)
+  }
+}
+
 function render(force = false) {
   if (world === null || meta === null) return
   const now = performance.now()
@@ -370,6 +495,9 @@ function render(force = false) {
   }
   // 侧栏（花名册/工单）两种视图共用：它是文本，与场景无关。
   renderSide(meta.scene, tick)
+  updateBubbles()
+  // 面板只重画签名变了的东西；"他在想…（12s）"里的秒数靠这次调用更新。
+  dialogue?.render(now)
 }
 
 /** 拉一次全量快照。启动时、以及发现 gap/reset 时用。 */
@@ -396,6 +524,8 @@ async function loadSnapshot() {
     }
     // 快照的 `seq` 就是「下一个要分配的号」，所以直接赋值——这正是修掉那个 bug 的关键一步。
     nextSeq = snap.seq
+    // 角色的名字只从世界数据来（D37：人设是内容，代码里没有角色名）。
+    dialogue?.setAgents(world.agents)
     syncBaseMs = performance.now()
     lastMessageMs = performance.now()
     // 3D 用**快照里的** ScenePlan 重建静态部分（地面/站点/光照/相机），位姿由 `world` 每帧提供。
@@ -410,6 +540,115 @@ async function loadSnapshot() {
   } finally {
     clearTimeout(timer)
   }
+}
+
+// ── 对话（M6-5）───────────────────────────────────────────────────────────────
+//
+// 端点在契约里（`src/protocol/dialogue.ts`）：`POST ./api/say` 只表示"话收到了"，
+// 回复走 SSE 的 `DialogueEvent`。所以这里**不轮询、不在请求里等模型**——
+// R21 的教训是"前端卡顿常常来自在错误的层等了不该等的东西"。
+
+/**
+ * 发一次话。**宿主拥有端点，面板只负责把失败翻成能下手的人话**。
+ *
+ * 刻意**不重试**：契约说这条请求是同步收话，失败就是失败；
+ * 静默重试只会让同一句话在宿主那边出现两遍，而用户完全不知道。
+ *
+ * @param {{agentId: string, text: string}} request - `SayRequest`。
+ * @returns {Promise<{ok: true, turnId?: string} | {ok: false, status: number, reason?: string, text?: string, error?: unknown}>}
+ */
+async function sayToAgent({ agentId, text }) {
+  const controller = new AbortController()
+  // 收话应当**立刻**返回（模型在后台想）；等 10 秒还没回说明端点那边在等不该等的东西。
+  const timer = setTimeout(() => controller.abort(), 10000)
+  try {
+    const res = await fetch(SAY_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId, text }),
+      signal: controller.signal,
+    })
+    // 响应体可能是 HTML（404 页面、反向代理），所以解析失败也要能过去——
+    // 直接 `res.json()` 会让这种最常见的失败变成一个看不懂的 SyntaxError。
+    const rawText = await res.text().catch(() => null)
+    let body = null
+    if (rawText !== null && rawText !== '') {
+      try {
+        body = JSON.parse(rawText)
+      } catch {
+        body = null
+      }
+    }
+    if (!res.ok) return { ok: false, status: res.status, reason: body?.reason, text: rawText ?? undefined }
+    if (body === null || body.accepted !== true) {
+      return {
+        ok: false,
+        status: res.status,
+        reason: body?.reason ?? (body === null ? '响应不是 JSON' : undefined),
+        text: rawText ?? undefined,
+      }
+    }
+    return { ok: true, turnId: body.turnId }
+  } catch (error) {
+    return { ok: false, status: 0, error }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** 点到人之后：再点一次同一个人就关掉（toggle 比"必须找关闭按钮"少一步）。 */
+function openDialogueFor(agentId) {
+  if (agentId === null || agentId === undefined || dialogue === null) return
+  dialogue.toggle(agentId)
+  render(true)
+}
+
+/**
+ * 俯视图里点到谁了。
+ *
+ * 换算比例**与 `draw()` 一致**（同样的 `scale` 与中心），容差按**像素**算：
+ * 用世界单位当容差，在缩小视角下会变得几乎点不中。
+ */
+function pickTopActor(clientX, clientY) {
+  if (world === null || meta === null) return null
+  const rect = canvas.getBoundingClientRect()
+  const half = meta.scene.extent?.half ?? 8
+  const scale = Math.min(canvas.clientWidth, canvas.clientHeight) / (half * 2 * 1.06)
+  if (!(scale > 0)) return null
+  const wx = (clientX - rect.left - canvas.clientWidth / 2) / scale
+  const wz = (clientY - rect.top - canvas.clientHeight / 2) / scale
+  let best = null
+  let bestPx = PICK_SLOP_PX
+  for (const a of world.agents) {
+    const distance = Math.hypot((a.position.x - wx) * scale, (a.position.z - wz) * scale)
+    if (distance <= bestPx) {
+      best = a.id
+      bestPx = distance
+    }
+  }
+  return best
+}
+
+/**
+ * 画布上的点击：**按下与抬起在同一点、且时间不太长，才算点击**。
+ *
+ * 3D 的 `OrbitControls` 一直在监听拖拽——不判位移的话，"转个视角"会顺手弹出对话面板，
+ * 而那时用户根本不知道自己点到谁了。
+ */
+function bindPick(canvasEl, pick) {
+  let downX = 0
+  let downY = 0
+  let downAt = 0
+  canvasEl.addEventListener('pointerdown', (event) => {
+    downX = event.clientX
+    downY = event.clientY
+    downAt = event.timeStamp
+  })
+  canvasEl.addEventListener('pointerup', (event) => {
+    if (Math.abs(event.clientX - downX) > 5 || Math.abs(event.clientY - downY) > 5) return
+    if (event.timeStamp - downAt > 700) return
+    openDialogueFor(pick(event.clientX, event.clientY))
+  })
 }
 
 /** 收到一批增量。 */
@@ -451,6 +690,12 @@ function connect() {
       return
     }
 
+    // 对话帧（M6-5）。帧的确切形状**不在冻结的契约里**，所以形状由
+    // `dialogueEventsFromFrame` 认（`{type:'dialogue'}`、夹在世界事件批里、事件本体都认）；
+    // 认不出就当没这条——**一条未知的帧不能把事件流带停**。
+    const dialogueEvents = dialogueEventsFromFrame(message)
+    if (dialogueEvents.length > 0) dialogue?.ingest(dialogueEvents, performance.now())
+
     if (message.type === 'events') {
       const first = message.events?.[0]
       // **gap 自愈的客户端一半**：判定逻辑在 `decideOnBatch` 里（纯函数、有测试）。
@@ -478,12 +723,17 @@ function connect() {
       applyEvents(world, [{ seq: message.seq, tick: message.tick, type: 'sync', payload: message }])
       syncBaseMs = performance.now()
       connected = true
+      // 心跳顺带查一遍"有没有哪句话等太久了"：宿主挂了的话 `failed` 永远不会来，
+      // 而面板一直显示"他在想…"就是在装作没事（红线 6）。
+      dialogue?.expire(currentTick(), performance.now())
       render()
       return
     }
 
     if (message.type === 'reset') {
       // 服务端明说"补不齐"（那段历史已经滚出环形缓冲）。
+      // **刻意不清空对话历史**：对话是世界里的事件（D38），而 M6-6 要能回放上一局的对话——
+      // 在这里顺手清掉，会让"回放"那一半永远看不见东西。重开一局该由宿主发重置事件来说明。
       void loadSnapshot()
       return
     }
@@ -523,9 +773,46 @@ window.addEventListener('resize', () => {
 document.getElementById('view-top').addEventListener('click', () => void setMode('top'))
 document.getElementById('view-3d').addEventListener('click', () => void setMode('3d'))
 
+// ── 对话面板的装配（M6-5）─────────────────────────────────────────────────────
+//
+// 面板的 `send` 由这里提供：**端点只在这一个文件里**（UI 不碰网络，逻辑在纯模块里）。
+dialogue = createDialogueUi({
+  send: sayToAgent,
+  // 状态一变就强制重绘一次：花名册上的"他在想…"与当前正在说话的那一行要立刻跟着变。
+  onChanged: () => render(true),
+  // "等太久"的门槛放在这里（面板自己的兜底，见 dialogue-ui.js 的 expire）。
+  maxAgeTicks: DIALOGUE_SILENT_TICKS,
+})
+dialogue.setTickSource(() => currentTick())
+
+// 花名册那一行也是入口。**事件委托**：`renderSide` 每帧重建 `li`，
+// 挂在 `li` 上的监听器会随着重建一起消失（而那种 bug 看起来像"点了没反应"）。
+$roster.addEventListener('click', (event) => {
+  const row = event.target.closest?.('[data-agent]')
+  if (row !== null && row !== undefined) openDialogueFor(row.dataset.agent)
+})
+
+bindPick(canvas, pickTopActor)
+bindPick(canvas3d, (clientX, clientY) => (scene3d === null ? null : scene3d.pickActor(clientX, clientY)))
+
 // 本地时钟的可见部分：每 250ms 重画一次，让"没事件但时间在走"看得见，
 // 也让纸条在两次事件之间平滑飞行。
 setInterval(render, 250)
+
+// `?debug=1` 时才把对话状态机挂出去。
+//
+// 为什么需要**注入**这一条：M6-3 的宿主端点还没上线，所以"回复气泡"这一半
+// 在浏览器里没有真来源。挂了它就能注入一条 `DialogueEvent` 帧来验**渲染这一半**
+// （PROGRESS 里写明了这是注入、不是端到端）。跟 `__agentWorldScene3d` 同一个口径。
+if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
+  globalThis.__agentWorldDialogue = {
+    state: dialogue.state,
+    ingest: (events) => dialogue.ingest(events, performance.now()),
+    expire: (nowTick) => dialogue.expire(nowTick, performance.now()),
+    bubbles: () => dialogue.bubblesFor(performance.now()),
+    say: sayToAgent,
+  }
+}
 
 fitCanvas()
 void loadSnapshot()

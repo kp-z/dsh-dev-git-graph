@@ -40,16 +40,41 @@
         <canvas id="town"></canvas>
         <!-- 3D 画布与俯视图叠在同一区域，靠 CSS 切换；两者吃同一份数据。 -->
         <canvas id="town3d" hidden></canvas>
+        <!-- 头顶气泡（M6-5）：跟着角色走的一层 DOM，位置由 app.js 每帧算。
+             pointer-events:none，所以它不会挡住"点角色"这件事；
+             aria-hidden：同一段话在侧栏的对话面板里也有，读屏不必听两遍。 -->
+        <div id="bubbles" class="bubbles" aria-hidden="true"></div>
         <div id="view-hint" class="view-hint" hidden></div>
         <div class="legend">
           <span><i class="swatch ground"></i>地块</span>
           <span><i class="swatch station"></i>站点</span>
           <span><i class="swatch agent"></i>角色（实心=在站上，空心=在路上）</span>
-          <span class="dim" id="view-note">3D 视图吃的是同一份 ScenePlan</span>
+          <span class="dim" id="view-note">点角色（或点右侧花名册那一行）就能跟他说话</span>
         </div>
       </section>
 
       <aside>
+        <!--
+          对话面板（M6-5）。**放在侧栏里**而不是画布上：俯视与 3D 是两个渲染器，
+          而"跟谁说话"这件事与渲染器无关——放在侧栏，两个视图下它都在。
+        -->
+        <section id="dialogue" class="dialogue" hidden>
+          <div class="dialogue-head">
+            <h2>对话 <span id="dialogue-who" class="dim"></span></h2>
+            <button id="dialogue-close" class="ghost" type="button" title="关掉对话面板">×</button>
+          </div>
+          <ul id="dialogue-log" class="dialogue-log"></ul>
+          <div id="dialogue-hint" class="dialogue-hint" hidden></div>
+          <form id="dialogue-form" class="dialogue-form">
+            <textarea
+              id="dialogue-input"
+              rows="2"
+              placeholder="跟他说点什么（回车发送 · Shift+回车换行）"
+            ></textarea>
+            <button id="dialogue-send" type="submit">发送</button>
+          </form>
+        </section>
+
         <h2>花名册</h2>
         <ul id="roster" class="roster"></ul>
         <h2>工单板</h2>

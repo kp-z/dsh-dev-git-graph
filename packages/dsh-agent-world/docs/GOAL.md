@@ -100,9 +100,27 @@ interface Agent { readonly id: SessionId }
 - 其他相关服务：`agents`（`create`/`get`/`list`/`register`）、`subagents`
   （`start`/`startContinuable`/`sendMessage`/`prompt`）、`agentTeams`
 
-**还没查清的（下一轮第一件事，用同样的方法查）**：**怎么把一条用户消息送进已创建的 Agent
-并拿到回复**（`agent.prompt(...)`？`ctx.sessions` 的某个方法？`subagents.sendMessage`？），
-以及**怎么订阅它的 `assistant/message`**（事件还是回调）。
+### M6-0 已查明（R24，全部有原始证据；完整证据见 `docs/BRIDGE-RECON.md`）
+
+| 问题 | 答案 |
+|---|---|
+| 怎么把一条消息送进已创建的 Agent | **`ctx.sessionController.prompt({ requestId, sessionId, mode: 'queue' \| 'steer', content: [{type:'text', text}] }, signal)`** |
+| 怎么订阅它的回复 | **`ctx.on('session/event', (session, event) => …)`**，过滤 `event.type === 'assistant/message'` |
+| 一轮结束怎么知道 | 同上，过滤 `event.type === 'turn/end'` |
+| 回复文本在哪 | `event.data.message.content` 里的 `{type:'text', text}` 块。**不要去拼 `event.data.stream`** |
+
+三个顺手拿到、且**省下一轮试错**的事实：
+
+1. **没有 `agent.prompt()`**。Inspect 给出的 `Agent` 只有 `{ readonly id: SessionId }`；
+   运行时的 `agent.followup()`/`agent.steer()` 存在但**不是公开契约**。
+2. **`requestId` 是幂等键**——重发同一句不会说两遍。这对"面板重试"与"断线重连"是免费的保险。
+3. **`ctx.sessions` 不是发话的地方**：它只是内存存储（`create`/`get`/`list`/`fork`…），
+   **没有任何 `prompt`/`send`/`post`**。这条排除了一个很自然但错误的方向。
+4. DSH 的错误码（`session/not-found`、`session/agent-busy`、`gateway/bad-request`）
+   **就是"可下手的 reason"的来源**——不必自己造一套错误分类。
+
+需要的话还有 `'agent/assistant-stream'`（逐 token，**只在做打字机效果时才用**）、
+`'agent/status'`（`idle ⇄ running`，做"思考中"指示灯）、`'agent/error'`（错误退化）。
 
 ## 四、里程碑（每个都要能独立验收）
 

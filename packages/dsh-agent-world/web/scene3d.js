@@ -142,6 +142,12 @@ export function createScene3d(canvas, options = {}) {
   let staticGroup = new THREE.Group()
   scene.add(staticGroup)
   const actorById = new Map()
+  /**
+   * 角色头顶的世界高度（气泡锚点用，M6-5）。按 plan 缓存**一次**：
+   * 每帧对每个角色算一次 `Box3.setFromObject` 要走整棵子树（GLB 角色带骨架），
+   * 而头顶高度在两次换 plan 之间不会变。GLB 到货换模型时那个角色的缓存会被删掉重算。
+   */
+  const actorTopY = new Map()
   let plan = null
   let half = 8
   let zoomFactor = 1
@@ -163,6 +169,7 @@ export function createScene3d(canvas, options = {}) {
     scene.add(staticGroup)
     actorById.clear()
     propNodes.clear()
+    actorTopY.clear()
   }
 
   /** 记下这个站点下的所有 mesh（高亮时直接改，不用再遍历/查找）。 */
@@ -429,6 +436,9 @@ export function createScene3d(canvas, options = {}) {
         // 换过之后 `actorById` 必须指向新对象，否则**位置会停在原地不动**
         // （`applyWorld` 每帧从这张表里拿对象来更新位姿）。
         swapIn(real, old, (fresh) => actorById.set(a.id, fresh))
+        // 头顶高度也重新算：占位块（灰蓝盒子）与真模型不是一个高度，
+        // 不删缓存的话气泡会一直挂在占位块的高度上。
+        actorTopY.delete(a.id)
       })
       node.position.set(a.x, node.position.y, -a.z)
       node.rotation.y = -a.facing
@@ -558,10 +568,94 @@ export function createScene3d(canvas, options = {}) {
   /** 阴影图的节拍计数（见 `shadowMap.autoUpdate` 的说明）。 */
   let shadowTick = 0
 
+  // ── 交互（M6-5：在 3D 里点一个小人物）────────────────────────────────────────
+  //
+  // 只建一个 `Raycaster` 与一个 `Vector2`：它们每次点击都会 `set`，
+  // 没必要每次 `new`（"每帧新建对象"那种习惯，代价是纯 GC 压力）。
+  const pickRaycaster = new THREE.Raycaster()
+  const pickPointer = new THREE.Vector2()
+
+  /**
+   * 点到哪个角色了（点不到返回 null）。
+   *
+   * 从命中物体**往上走父节点**，靠 `actor:<id>` 这个命名找根——GLB 角色是一棵树
+   * （骨架 + 若干 mesh），只有根带着身份。名字是 `buildActors` 里写的，
+   * 而 `swapIn` 会把名字从占位块搬到真模型上，所以两种状态下都对。
+   *
+   * 只对**角色**求交（不遍历整棵场景树）：站点与大件道具不参与拾取，
+   * 而全树在 GLB 角色进来之后是几百个节点——点一下的代价本来应该接近 $0。
+   *
+   * @param {number} clientX - 视口坐标（`PointerEvent.clientX`）。
+   * @param {number} clientY - 视口坐标。
+   * @returns {string|null} 角色 id。
+   */
+  function pickActor(clientX, clientY) {
+    if (actorById.size === 0) return null
+    const rect = canvas.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return null
+    pickPointer.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -(((clientY - rect.top) / rect.height) * 2 - 1),
+    )
+    pickRaycaster.setFromCamera(pickPointer, camera)
+    const hits = pickRaycaster.intersectObjects([...actorById.values()], true)
+    for (const hit of hits) {
+      let node = hit.object
+      while (node !== null && node !== undefined) {
+        if (typeof node.name === 'string' && node.name.startsWith('actor:')) {
+          return node.name.slice('actor:'.length)
+        }
+        node = node.parent
+      }
+    }
+    return null
+  }
+
+  const projectVec = new THREE.Vector3()
+
+  /**
+   * 世界坐标 → 画布内的 CSS 像素（头顶气泡挂钩用）。
+   *
+   * 返回**画布相对**坐标而不是视口坐标：气泡是挂在 `.map` 里的一层 DOM，
+   * 用视口坐标的话滚动或改布局就会整体偏移。
+   */
+  function projectToScreen(x, y, z) {
+    const rect = canvas.getBoundingClientRect()
+    projectVec.set(x, y, z).project(camera)
+    return {
+      x: (projectVec.x * 0.5 + 0.5) * rect.width,
+      y: (-projectVec.y * 0.5 + 0.5) * rect.height,
+      /** 相机身后/视锥外：气泡不要画到画布外面去。 */
+      behind: projectVec.z > 1,
+      width: rect.width,
+      height: rect.height,
+    }
+  }
+
+  /**
+   * 某个角色头顶的世界高度（气泡的锚点）。按 plan 缓存，见 `actorTopY` 的说明。
+   * 角色不存在时给一个保守值，让气泡至少挂在人身上而不是脚下。
+   */
+  function topYOf(id) {
+    const cached = actorTopY.get(id)
+    if (cached !== undefined) return cached
+    const node = actorById.get(id)
+    if (node === undefined) return 1.7
+    const box = new THREE.Box3().setFromObject(node)
+    const top = Number.isFinite(box.max.y) && box.max.y > 0 ? box.max.y : 1.7
+    actorTopY.set(id, top)
+    return top
+  }
+
   const api = {
     setPlan,
     applyWorld,
     resize,
+    // ── 给对话 UI 用的两个（M6-5）──────────────────────────────────────────────
+    // `pickActor`：在 3D 里点人；`projectToScreen` + `topYOf`：把头顶气泡挂到人身上。
+    pickActor,
+    projectToScreen,
+    topYOf,
 
     /**
      * 取一份性能快照（诊断用）。

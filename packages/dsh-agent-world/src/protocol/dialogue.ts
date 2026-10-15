@@ -41,6 +41,9 @@ export type DialogueSpeaker = { kind: 'god' } | { kind: 'agent'; id: string } | 
  *
  * `thinking` 是**刻意的**：模型几秒才回，面板必须能显示"他在想"
  * （否则用户会以为卡住了，再点一次，于是同一句话发两遍）。
+ *
+ * 注意 `thinking` 帧的 `text` **不是空的**——它是提问者的原话（见 `DialogueEvent.text`）。
+ * 不变量：**`thinking` 帧必须能自证"在回答谁说的什么"**，否则第二个面板无法拼出完整对话。
  */
 export type DialoguePhase = 'thinking' | 'replied' | 'failed'
 
@@ -53,7 +56,19 @@ export interface DialogueEvent {
   readonly phase: DialoguePhase
   readonly from: DialogueSpeaker
   readonly to: DialogueSpeaker
-  /** `replied` 时是回复正文；`thinking` 时为空串。 */
+  /**
+   * `replied` 时是**回复正文**；`thinking` 时是**提问者原话**；`failed` 时为空串。
+   *
+   * ## R24 修正（原设计是错的）
+   *
+   * 我最初把 `thinking` 定成"text 为空串"。写 M6-3 时发现这与 **D38** 冲突：
+   * 对话既然是**世界里的事件**，那"玩家说了什么"就必须能被**第二个面板**看到。
+   * 空串会让第二个面板只看到一句没有前文的回复。
+   *
+   * 所以改成：`thinking` 带着提问者的原话。
+   * **一个诚实的边界**：在 `thinking` 帧之后才打开的面板仍然看不到那句话
+   * ——SSE 是增量的，而快照里没有对话。那要 **M6-6（对话落库与回放）** 才能真正解决。
+   */
   readonly text: string
   /**
    * `failed` 时的原因，**要能让人直接下手**（沿用内容校验那条规矩）：

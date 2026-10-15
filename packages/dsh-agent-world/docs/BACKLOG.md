@@ -186,13 +186,15 @@
 | M5-5 | done | 新增 `pack.kenney-mini`：显式 `overrides` 掉 `models` 与 `actions`，换成 Kenney CC0 资产 | `src/content/packs/kenney-mini.ts` + 资产入库 | M5-2 M4-8 | **R19 做完了 `models` 那一半**（`overrides: ['models/model.agent.base']` → Kenney GLB）。`actions` 那一半留给 M5-2（要等剪辑名 dump 出来）。
 | M5-6 | done | **验收：加这个包之后 `pnpm test` 仍全绿，且模拟内核零改动** | 在 PROGRESS 里贴出改动范围作证 | M5-5 | **R19 验收通过**：`test` 286/286 绿；diff 证明 `src/sim/`、`src/domain/`、`src/world/`、`src/scene/`、`src/protocol/`、`src/routes/` **全部零改动**（改的是 `web/` 三个文件 + 内容包 + 测试）。渲染器改了，但那是**新机制**（GLB 加载以前不存在），不是"因为换了资产所以改了"。
 | M5-7 | ready | **让 8 个 agent 长得不一样**：12 个 Kenney 角色都入库了，但现在全部用同一个 `model.agent.base`（看起来像复制粘贴）。需要一个「角色模型列表 + 按序分配」的内容概念（例如 `SceneEntry.agentModels: string[]`，host 按 agent 序号分配并写进 `SceneActor.modelId`）。**故意没混进 R19**：那一轮的目标是「GLB 能跑起来」，不是顺手加一个内容概念 | `src/content/kinds.ts` + `src/scene/plan.ts` + `packs/kenney-mini.ts` | R19 |
-| M6-0 | in_progress | **查清「怎么把用户消息送进 DSH Agent 并收回复」**（整条 M6 的阻塞点）。用 `cordis_inspect_query` 查，原始证据进 `docs/BRIDGE-RECON.md` | `docs/BRIDGE-RECON.md` + `docs/GOAL.md` 第三节 | —— | owner: `bridge`（task-1）
-| M6-1 | ready | 角色 ↔ DSH 会话绑定：懒创建（同角色复用）+ 并发上限 + dispose + `seed` 注入 system prompt | `src/bridge/` + node 测试 | M6-0 | owner: `bridge`（task-1）
+| M6-0 | **done** | **查清「怎么把用户消息送进 DSH Agent 并收回复」**（整条 M6 的阻塞点）。用 `cordis_inspect_query` 查，原始证据进 `docs/BRIDGE-RECON.md` | `docs/BRIDGE-RECON.md` + `docs/GOAL.md` 第三节 | —— | owner: `bridge`（task-1）
+| M6-1 | **done** | 角色 ↔ DSH 会话绑定：懒创建（同角色复用）+ 并发上限 + dispose + `seed` 注入 system prompt | `src/bridge/` + node 测试 | M6-0 | owner: `bridge`（task-1）
 | M6-2 | ready | 人设从 `rosters` 内容库生成 system prompt（内容 schema 加 `persona`/`speechStyle`，要校验 + 报错给可用取值） | `src/content/` + `src/bridge/` + 测试 | M6-1 | 内容变更按 R16 的规矩走
-| M6-3 | ready | 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**
+| M6-3 | in_progress | 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**
 | M6-4 | ready | **让角色干活**：Agent 调世界工具产生**可见变化**（任务板出现该单 + 角色走向工位）。这一整套设计的意义所在 | `src/tools/` + 集成测试 | M6-3 | 判据：「对话通过工具改变了世界」，不是「画面变了」
-| M6-5 | in_progress | 对话 UI（3D 头顶气泡 + 侧栏对话面板）+ 对话状态机（纯函数、可 node 测） | `web/` + `test/dialogue-state.test.js` | 契约已冻结 | owner: `panel`（task-2）
+| M6-5 | **done** | 对话 UI（3D 头顶气泡 + 侧栏对话面板）+ 对话状态机（纯函数、可 node 测） | `web/` + `test/dialogue-state.test.js` | 契约已冻结 | owner: `panel`（task-2）
 | M6-6 | ready | 对话落库与回放（进现有事件日志，重开一局能读到上一局的对话） | `src/store/` + 测试 | M6-3 | ——
+| M6-7 | ready | **对话面板打磨**（R24 视觉核对发现）：① **同一段错误显示了两遍**——既作为一条消息、又作为一个橙色提示块；应该只留一处（消息流里那条，橙色块只在"输入被拒"时出现）。② 错误文案直接暴露 `POST ./api/say`、`HTTP 404` 这类实现细节，对非开发者读者像 debug 日志；**改成"宿主还没有对话端点"这类人话，"技术细节"折叠在可展开里** | `web/dialogue-ui.js` + `styles` | M6-5 | 不是 bug，是"能不能给人用" |
+| M6-8 | ready | **验一次角色的动态位移**：2D 俯视图的角色位置原本从不更新（R24 由 panel 修成 `liveActors()`），但当前服务器上 8 人**全是"待命 @ 广场"没有位移**，所以只做了代码层面的一致性核对，**没有肉眼验过移动中的角色**。要造一个"有人在走"的局面再看一眼 | 验证记录 | M6-5 | 面板队友主动交出来的未验项 |
 | M7-0 | ready | **`web/` 迁到 TS**（看板要算最长前置链一类逻辑，手写 JS 无类型会持续付代价；这笔债记了 11 轮）。先只迁新代码 + 类型声明，不追求一次全迁 | `web/` + `tsconfig` | —— | P2 前置
 | M7-1 | ready | **看板骨架**：成员列 + 任务格 + 状态色（直接用已有 `TaskStatus` 六态） | `web/board.js` + 测试 | —— | 数据已有，不必等 M6
 | M7-2 | ready | **依赖图布局（纯函数）**：输入任务表 → 输出列号（=最长前置链）+ 连线端点；可单测 | `web/board-layout.js` + 测试 | M7-1 | **唯一有算法含量、且可并行**

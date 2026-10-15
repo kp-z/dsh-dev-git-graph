@@ -30,7 +30,130 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R23 末）：`typecheck` 绿 · `test` 287/287 绿。**产品 Roadmap 见 `docs/ROADMAP.md`，目标见 `docs/GOAL.md`。定时任务每小时。3 个队友在跑。**
+当前验证状态（R24 末）：`typecheck` 绿 · `test` **347 / pass 341 / fail 0 / todo 6**（todo = M6-3 未实现，按纪律标 todo 不污染基线）。**M6-0 已通（怎么驱动 DSH Agent，有原始证据）。M6-3 进行中。**
+
+---
+
+## R24 — 2026-10-15 · M6-0 通了（有证据）+ 对话 UI 落地 + 契约改错一处
+
+两个队友交了硬活。这一轮的**关键路径打通了**：我们已经知道怎么给一个 DSH Agent 发话、怎么收回复。
+
+### M6-0：怎么驱动一个 DSH Agent（**这不是猜的，每条都有原始证据**）
+
+完整证据在 `docs/BRIDGE-RECON.md`（322 行，带 Inspect 查询参数 + 返回片段 + DSH 实现行号）。
+结论已回填进 `docs/GOAL.md` 第三节：
+
+| 问题 | 答案 |
+|---|---|
+| 怎么把消息送进已创建的 Agent | **`ctx.sessionController.prompt({ requestId, sessionId, mode: 'queue' \| 'steer', content: [{type:'text',text}] }, signal)`** |
+| 怎么订阅回复 | **`ctx.on('session/event', …)`**，过滤 `event.type === 'assistant/message'` |
+| 一轮结束 | 同上，过滤 `turn/end` |
+| 回复文本在哪 | `event.data.message.content[].text`。**不要去拼 `event.data.stream`** |
+
+**三个顺手拿到、省下一轮试错的事实**：
+
+1. **没有 `agent.prompt()`**——Inspect 给出的 `Agent` 只有 `{ readonly id }`；
+   运行时的 `agent.followup()`/`agent.steer()` 存在但**不是公开契约**。
+2. **`requestId` 是幂等键**：重发同一句不会说两遍。这对"面板重试"和"断线重连"是免费的保险。
+3. **`ctx.sessions` 不是发话的地方**（只是内存存储，没有 `prompt`/`send`/`post`）——
+   **这条排除了一个很自然但错误的方向**，值得记下来：它省的不是时间，是走错路的可能。
+4. DSH 的错误码（`session/not-found` / `session/agent-busy` / `gateway/bad-request`）
+   **就是"可下手的 reason"的来源**，不必自己造一套错误分类。
+
+### M6-1：角色 ↔ 会话绑定（34 条测试全绿，**零模型调用**）
+
+`src/bridge/`（6 个文件）+ `test/bridge.test.js`（34 条）。`AgentFactory` 与 `SessionTransport`
+都是**注入的假对象**，所以测试里没有任何真实模型调用。关键用例：同一角色两次搭话只建一次会话
+（串行与并发各一条）、上限、`disposeAll`、`seed` 注入、四类失败原因各自可下手。
+
+**队友发现的一个真实架构约束，而且它拒绝绕过——这是本轮最值得肯定的一件事**：
+
+> `src/protocol/boundaries.ts:159` 规定 `routes` 只许 import `['protocol','runtime','scene']`，
+> **不许 import `bridge`**。所以 `/api/say` 要拿到 bridge，只能由 `createHandler` 的 deps
+> **注入一个 port 接口**，再由 `index.ts` 构造 bridge 传进去。
+
+它**没有**为了省事去改边界规则，而是把选择交回来。这正是一条边界规则该有的样子——
+**规则的价值在于它在你图方便的时候拦住你**。我的决定：port 定义在 `src/routes/` 本地
+（不进 protocol），`src/index.ts` 与 `src/config.ts`（加 `maxLiveSessions` 旋钮）
+**本轮临时扩到它的写盘范围**（面板队友已收工，`src/` 无别的写者）。
+
+### M6-5：对话 UI（面板侧，19 条测试全绿）
+
+`web/dialogue-state.js`（纯状态机，不碰 DOM、不吃时钟）+ `web/dialogue-ui.js` + `test/dialogue-state.test.js`（19 例）。
+覆盖：`turnId` 归组、`thinking`→`replied`/`failed` 合并成一条、`failed` 必带 reason、
+乱序/重复幂等、每角色条数上限 + 角色数 LRU、本地乐观占位与 SSE 的竞态合并、
+静默超时兜底、失败文案、帧形状识别。
+
+**我自己看了截图**（按我定的规矩：面板改动我必须亲眼看）：右侧对话面板标题「对话 工头阿金 · LEAD」，
+消息分"我 / 工头阿金"两种样式，**头顶气泡与面板内容一致**，深色风格与沙盘协调，无重叠与截断。
+**但我发现一个真问题**（已记 M6-7）：**同一段错误显示了两遍**——既作为消息流里的一条，
+又作为一个橙色提示块；而且文案直接暴露 `POST ./api/say`、`HTTP 404` 这类实现细节，
+**对非开发者读者像 debug 日志**。这不是 bug，是"能不能给人用"。
+
+**队友主动交出来的未验项**（这种诚实比多写一个功能有用）：真端点（M6-3）的回复气泡没验
+（宿主还没有端点，注入帧只证明"帧 → DOM"这一半）；另外它顺手修了一处既有 bug——
+**2D 俯视图的角色位置从来就不更新**（`draw()` 直接遍历快照的 `scene.actors`，
+于是 2D 与 3D 是两个互相矛盾的事实），改成 `liveActors()` 共用一处；
+但服务器上 8 人**全是"待命 @ 广场"没有位移**，所以只做了代码层面的一致性核对，
+**没有肉眼验过移动中的角色**（已记 M6-8）。
+
+### 我改错了一处契约，这一轮自己改回来
+
+我原来把 `thinking` 帧的 `text` 定成**空串**。写 M6-3 时发现这与 **D38** 冲突：
+对话既然是**世界里的事件**，那"玩家说了什么"就必须能被**第二个面板**看到；
+空串会让第二个面板只看到一句没有前文的回复。
+
+**改成：`thinking.text` = 提问者的原话**（`god` 说的那句，或 Agent↔Agent 时对方那句）。
+不变量写进契约：**`thinking` 帧必须能自证"在回答谁说的什么"**。
+面板队友的状态机**本来就兼容**这种用法，不需要改。
+
+**一个诚实的边界**：在 `thinking` 帧之后才打开的面板仍然看不到那句话
+——SSE 是增量的、快照里没有对话。那要 **M6-6（对话落库与回放）** 才能真正解决，**本轮不去动它**。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 347 / pass 341 / fail 0 / todo 6
+```
+
+**`fail 0`** —— 上轮定下的那条纪律生效了：`todo 6` 就是"为尚未实现的功能先写的验收测试"，
+它们**不污染基线**，而当 M6-3 落地时**去掉 `todo` 就转绿**，那就是「M6-3 完成」的定义。
+
+浏览器实测（队友做的）：**真链路** = 点花名册行 → 面板开 → 回车 → 立刻「他正在想…」
+→ POST 404 → **日志与提示条同时给出可下手的话**、输入框清空、`byTurn.size === 1`（无重复记录）；
+3D 拾取 **8/8** 正确（投影↔拾取一致 + 真实指针事件）；2D 拾取同样可用；
+3D `benchmark(120)` = **0.292ms/次**（R21 基线 0.35ms）、**重建 1**、有气泡时 5 秒 **0 条 longtask**。
+
+### 下一轮从哪继续
+
+**M6-3（`POST /api/say` → Agent → 回复进 SSE）已在进行中**，`bridge` 在做 routes 侧的 port + 端点，
+按上面的边界方案。做完之后的第一件事（面板队友留的交接）：
+
+> 看 `web/app.js` `connect()` 里 `dialogueEventsFromFrame` 分支与 `dialogue-ui.js` `ingest()`
+> 是否把**真帧**认出来；不认就调 `dialogue-state.js` 的 `dialogueEventsFromFrame()`
+> （递归深度/SKIP 键）；静默超时门槛在 `app.js` 的 `DIALOGUE_SILENT_TICKS`（=300 步）。
+
+然后按 Roadmap 的 P2：**M7-1 + M7-2 看板**（共享任务 `task-4`，未指派，数据已有不必等 M6）。
+
+### 运营事实（必须记下来，它决定团队能不能跑）
+
+这一轮多次撞上 **API 速率限制（50 次/小时）**，而且**重置时间一直往后滑**——
+因为配额是**全队共用**的：三个并发队友 + 我每次工具调用（自动 review 也占一次）。
+
+**结论：3 个队友并发 + 每小时一轮，在这个配额下不可持续。** 从下一轮起**串行化**：
+同一时刻只让一个队友在跑（关键路径优先），其余排队。
+**队友开着但一直撞限额，等于没有队友**——这条比"多开几个队友"重要得多。
+
+### 本轮产出
+
+- 新增：`docs/BRIDGE-RECON.md`（322 行证据）、`src/bridge/`（6 文件）、`test/bridge.test.js`（34 条）、
+  `web/dialogue-state.js`、`web/dialogue-ui.js`、`test/dialogue-state.test.js`（19 条）、
+  `test/acceptance-m6.test.js`（6 条，标 `todo`）、`docs/VERIFICATION.md`
+- 修改：`web/{app.js,scene3d.js,index.html,style.css}`、`src/protocol/dialogue.ts`（契约修正）、
+  `docs/{GOAL,PROGRESS,BACKLOG}.md`
+- 测试：286 → **347**（pass 341 / fail 0 / todo 6）
 
 ---
 

@@ -71,3 +71,54 @@ button.active { background: #33507a; border-color: #4a6ea8; }
   margin-top: 8px; padding: 6px 10px; border-radius: 6px;
   background: #3a2b1a; color: var(--warn); font-size: 12px;
 }
+
+/* ── 对话（M6-5）──────────────────────────────────────────────────────────────
+   面板在侧栏里，所以俯视与 3D 两个视图下它都在（对话不该被渲染器绑住）。
+   配色沿用 R19 那条口径：灰蓝=还在进行（"他在想…"），品红系=出错（"他说不出话"）。 */
+.map { position: relative; }
+.roster li[data-agent] { cursor: pointer; }
+.roster li[data-agent]:hover { background: rgba(255, 255, 255, .04); }
+.roster li.active { background: #26364d; box-shadow: inset 2px 0 0 #4a6ea8; }
+
+.dialogue {
+  border: 1px solid var(--line); border-radius: 8px; background: #191d25;
+  padding: 8px 10px; margin-bottom: 12px;
+}
+.dialogue-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.dialogue-head h2 { margin: 0; }
+button.ghost {
+  background: transparent; border: none; color: var(--dim);
+  font-size: 16px; line-height: 1; padding: 0 4px; cursor: pointer;
+}
+.dialogue-log {
+  max-height: 220px; overflow: auto; margin: 6px 0; font-size: 12px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.dialogue-log li { border: none; padding: 4px 7px; border-radius: 6px; }
+.d-said { background: #232b39; color: #cfe0f5; }
+.d-said b, .d-reply b { margin-right: 6px; }
+.d-reply { background: #1f242e; }
+.d-thinking { color: var(--warn); }
+.d-failed { background: #38222e; }
+.d-reason { color: #f2c0d6; }
+.d-tick { margin-left: 6px; font-style: normal; font-size: 11px; }
+.d-empty { color: var(--dim); }
+.dialogue-hint { font-size: 12px; padding: 6px 8px; border-radius: 6px; margin: 0 0 6px; }
+.dialogue-hint.info { background: #22303f; color: #bcd6ee; }
+.dialogue-hint.warn { background: #3a2b1a; color: var(--warn); }
+.dialogue-form { display: flex; gap: 6px; align-items: flex-end; }
+.dialogue-form textarea {
+  flex: 1; min-width: 0; resize: vertical; background: #0e1015; color: var(--fg);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 12px;
+}
+
+/* 头顶气泡：跟着角色走，但不吃鼠标事件（不然就点不到人了）。 */
+.bubbles { position: absolute; inset: 12px; pointer-events: none; overflow: hidden; }
+.bubble {
+  position: absolute; transform: translate(-50%, -100%);
+  max-width: 190px; padding: 4px 7px; border-radius: 8px; font-size: 11px; line-height: 1.35;
+  background: rgba(18, 21, 28, .92); border: 1px solid var(--line); color: var(--fg);
+}
+.bubble b { display: block; color: var(--dim); font-weight: 600; }
+.bubble.d-thinking { color: var(--warn); border-color: #4a3f2b; }
+.bubble.d-failed { color: #f2c0d6; border-color: #6b2b45; }
