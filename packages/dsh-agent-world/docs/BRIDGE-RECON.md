@@ -338,16 +338,15 @@ src/index.ts（组合根）            把 toDialoguePort(...) 的结果当 Dial
 传输层会开始认识"会话怎么建、模型怎么选"，而同一个能力将来还要经工具暴露给模型，
 两条路会开始漂移。代价只是两侧各写一份三方法的接口形状。
 
-### 一条契约决定（lead，R22）
+### 一条契约决定（lead，R24）
 
 `phase: 'thinking'` 的 `text` 带**提问者的原话**（不是空串）。理由同样是 D38：
 对话是世界里的事件，**第二个面板/刷新后的面板必须也能看到玩家说了什么**。
 `replied` 是回复正文，`failed` 时 `text` 为空且 `reason` 必填。
 
-> ⚠️ **验证者的 `test/acceptance-m6.test.js` 里还有一条旧断言与它冲突**：
-> `if (e.phase === 'thinking') assert.equal(e.text, '', 'thinking 时 text 必须是空串（契约第 56 行）')`。
-> 该断言来自旧契约，**必须由验证者按新契约更新**（本文件的作者无权改验证者的文件）。
-> 除此之外，那一条 SSE 验收用例的其余断言全部通过。
+> ✅ **已解决**：验证者原先那条 `assert.equal(e.text, '')` 旧断言已按新契约更新，
+> 并**摘掉了 `acceptance-m6.test.js` 的全部 `todo` 标签**——7/7 条 M6-3 验收用例真绿
+> （不是"标着 todo 所以不计失败"）。
 
 ## 9. 已知且已排期的缺口（**本轮刻意不做**）
 
@@ -357,4 +356,42 @@ src/index.ts（组合根）            把 toDialoguePort(...) 的结果当 Dial
 | G2 | 对话目前是 `type:'dialogue'` 的**独立 SSE 帧**，不是 `WorldEvent` | `WorldEventType` 里没有对话，而"对话怎么进世界日志"是 M6-6 的设计题 | **M6-6** |
 | G3 | 面板侧判据是**字段**（`turnId` + `phase`），与信封无关 | 所以 G2 的迁移不会破坏任何客户端（验证者的验收测试也是递归找字段的） | 无需动作 |
 | G4 | 上限名额由 `release`/`disposeAll` 释放，**不随"一句话说完"归还** | 对成本上限而言多算比少算安全（少算会超开模型会话＝真花钱）；超限的拒绝里写清了当前值/上限/怎么办 | 若 M6-5 面板要提供"让角色下线"，直接调 bridge 的 `release()` |
+
+## 10. M6-2 落地后补记：**世界角色 ↔ 花名册座位**的对应关系
+
+这条关系**不是契约层定义的**，它是 `src/content/instantiate.ts` 里的一行实现：
+
+```ts
+const seats = roster.seats.slice(0, Math.max(0, maxAgents))
+return seats.map((seat, i) => ({ id: `agent-${i + 1}`, name: seat.name, role: seat.role, ... }))
+```
+
+于是有两条可用的对应关系，**`bridge` 两条都用、但都不用 `role`**：
+
+| 路径 | 规则 | 什么时候用 |
+|---|---|---|
+| 序号（首选） | `agent-<n>` ↔ `roster.seats[n-1]`，且要求 `name` 也对得上 | 正常情况 |
+| 名字（兜底） | 唯一同名才认 | id 形状变了 / 花名册在运行期换过 |
+| **`role`** | **绝不用** | —— |
+
+### 为什么 `role` 是个陷阱（值得单独写下来）
+
+默认花名册里有**三个 `engineer`**。用
+`roster.seats.find(s => s.role === agent.role)` 反查，这三个角色会拿到
+**同一份人设**——而它**不会抛错、不会告警**，症状只是"这几个角色说话一模一样"。
+这类缺陷没有栈、没有日志，只能靠"盯着看"发现，所以：
+`seatForAgent()` 在**名字有歧义时返回 `undefined`**（宁可让上层报出可下手的原因），
+`test/bridge-persona.test.js` 里有一条用例**专门**证明同 role 的一组人设各不相同，
+另一条用例用"按 role 找会怎样"把这个 bug 的样子钉住。
+
+### 一个耦合风险（记在这里，改的时候要一起改）
+
+`agent-<n>` 这个 id 形状是**内容层实现细节**，却成了 prompt 与角色对应的依据。
+`test/bridge-persona.test.js` 里有一条用例直接断言
+`world.agents[i].name === roster.seats[i].name`——**那条测试就是这条耦合的哨兵**：
+哪天 id 生成规则变了（比如改成 `agent-<role>-<n>`），它会红，而不是让所有角色悄悄错位人设。
+
+真正干净的解法是让世界角色记下自己的座位（`Agent.seatIndex`），那是 `src/domain/` 的变更
+（lead 的范围，要走正常流程）。当前用序号+名字双校验顶着，代价是这条哨兵测试。
+
 

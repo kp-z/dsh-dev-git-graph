@@ -33,7 +33,15 @@
 export { createCharacterBridge, DEFAULT_MAX_LIVE_SESSIONS, DEFAULT_REPLY_TIMEOUT_MS, isBadRequest } from './character-bridge.js'
 export { buildSystemPromptSeed, SEED_SEQ, SEED_STEP, SEED_TURN } from './seed.js'
 export { decodeBridgeEvent, extractAssistantReply, extractTurnEnd } from './decode.js'
+export { toDialoguePort } from './dialogue-port.js'
+export type {
+  DialogueAck,
+  DialoguePortFace,
+  DialogueReply,
+  ToDialoguePortOptions,
+} from './dialogue-port.js'
 export type { BuildSystemSeedOptions } from './seed.js'
+export { buildCharacterSystemPrompt, ordinalFromAgentId, seatForAgent } from './persona-prompt.js'
 export type { DecodedEvent } from './decode.js'
 export {
   checkModelReadiness,
@@ -60,6 +68,7 @@ export type {
   CharacterBridge,
   CharacterBridgeOptions,
   DisposeAllResult,
+  PersonaSeat,
   ReleaseResult,
   SayOptions,
   SayResult,
@@ -68,4 +77,5 @@ export type {
   WaitForReplyOptions,
   WaitReplyResult,
   WakeResult,
+  WorldContextFacts,
 } from './types.js'

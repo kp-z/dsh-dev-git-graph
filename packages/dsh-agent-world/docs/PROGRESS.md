@@ -30,7 +30,83 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R27 末）：`typecheck` 绿 · `test` **367 / pass 367 / fail 0 / todo 0**。**M6-2 内容侧完成（8 个人设 + 校验）；宿主侧 `placeholderPersona()` 待接。**
+当前验证状态（R28 末）：`typecheck` 绿 · `test` **386 / pass 386 / fail 0 / todo 0**。**M6-2 完成（人设驱动 prompt）**。转 P2 看板（M7-1+M7-2）。**唯一等用户点头的事：是否装进 profile 验 U1/U2（G2 的门槛）。**
+
+---
+
+## R28 — 2026-10-15 · M6-2 完成：人设真的在驱动 prompt（G2 的最后一寸只剩真机验证）
+
+### 结果
+
+**386 / pass 386 / fail 0 / todo 0**（+19 条）。`placeholderPersona()` 删掉了，
+换成 `createPersonaResolver(state)`：`world.origin.scene → 场景 → scene.roster → 花名册 → 座位`——
+**内容 id 一个都没写死在代码里**（跟着世界的来源走，换内容包不用改代码）。
+
+### 三条我认为比"多写一个功能"更值得记的做法
+
+**① 把 bug 的**症状**写进测试，而不只是写一句"不要这么干"。**
+我提醒过"不要按 `role` 反查座位，三个工程师会拿到同一个人设"。它的做法是：
+除了在真实内容上断言"同 role 那一组的人设各不相同"（**并且先断言花名册里确实有重复 role，
+否则这条测试没有意义**——这个先决条件断言很关键），还**故意写一遍错实现**
+`seats.find(s => s.role === role)`，断言它会让那一组**只得到 1 份人设**。
+
+**② 装配测试从最外层进，而且期望值独立算出来。**
+纯函数测试证明不了**接线没断**。所以它写了一条从 `POST /api/say → 插件的路由 → bridge.wake →
+agentLoop.createAgent(seed)` 的测试，断言 `createAgent` 收到的 seed 文本里**是那份内容的人设**；
+而**期望值是另走一遍 `ContentRegistry + createWorld` 独立读出来的**，不复用实现路径。
+于是它证明的是「内容 → prompt → seed → createAgent」**整条链**，而不是「某个函数被调用了」。
+
+**③ 哨兵测试。** `agent-<n>` ↔ 第 n 个座位是**隐式耦合**（规则在 `content/instantiate.ts`：
+`roster.seats.slice(0,maxAgents).map((seat,i) => id: \`agent-${i+1}\`)`）。
+它加了一条断言 `world.agents[i].name === roster.seats[i].name`——
+**将来 id 规则一变，它会红，而不是让所有角色悄悄错位人设**。这类"防静默错位"的测试，
+比多写一个功能有用。
+
+### 两个我做的决定
+
+**① 不加 `Agent.seatIndex`。** `agent-<n>` ↔ 第 n 个座位**已经是** `instantiate.ts` 的规则；
+加字段等于**复制一个派生事实**，那比隐式耦合更糟（两个真相会漂移）。
+让耦合显式就够了，而哨兵测试做到了。取舍记进了 `BRIDGE-RECON.md §10`。
+
+**② U1/U2 不擅自去验。** `BRIDGE-RECON §6` 的 U1/U2（`MessageBase` 是否强制 `id`、
+seed 的 `seq` 是否要自洽）**只能在真宿主上验**，而那需要**把插件装进用户正在用的 profile**。
+那是**会改变用户环境的动作**（插件会注册路由与工具，万一有 bug 会影响他当前会话），
+所以这一件**留给用户点头**，我不擅自做。
+它是 **G2 的门槛**：如果 seed 在真宿主上被拒，"跟小人物说话"会在**最后一寸**失败。
+队友的装配测试**诚实地标明了**它证明的是"seed 内容对"，不是"真实 DSH 会接受这条 seed"——
+**它没有把假 agentLoop 的绿说成端到端通过**，这是这一轮最该保持的品质。
+
+### 红线自查（bridge 做的）
+
+- `src/` 里出现真实角色名的地方**只有 `src/content/packs/default.ts`**——那正是"人设是内容"；
+  `src/bridge/` **零角色文字**；
+- `src/sim|domain|content` 里没有真的 `Date.now()`/`Math.random()`（仅注释提到这两个名字）；
+- 新测试里**没有任何固定 sleep**（等 `createAgent` 用轮询 + 截止时间，照 R27 修的规矩）。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 386 / pass 386 / fail 0 / todo 0
+```
+
+### 下一轮从哪继续
+
+**转 Roadmap 的 P2：M7-1 + M7-2 执行看板**（`task-4`）。理由：
+- 数据**已经有**（`world.tasks` + `task.blockedBy` + `TaskStatus` 六态），不必等任何东西；
+- 它是 Roadmap 里**回报最快**的一件，而且**让 M6-4 可验证**——"对话让世界变了"这件事，
+  看板上一眼就能看出来；
+- 它**与用户环境的那个决策无关**，所以在等用户点头的同时可以推进。
+
+M6-2 剩余的（M6-6 落库/回放、M6-5 的"让角色下线"）排在后面。
+
+### 本轮产出
+
+- 新增：`src/bridge/persona-prompt.ts`（纯模板 + `seatForAgent()` + `ordinalFromAgentId()`）、
+  `test/bridge-persona.test.js`（17 条）、`test/bridge-persona-wiring.test.js`（2 条）
+- 修改：`src/index.ts`（`placeholderPersona()` → `createPersonaResolver(state)`）、`docs/BRIDGE-RECON.md`（§10）
+- 测试：367 → **386**
 
 ---
 

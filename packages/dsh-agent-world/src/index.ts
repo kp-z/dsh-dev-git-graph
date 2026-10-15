@@ -12,7 +12,7 @@
  */
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { createDshCharacterBridge, toDialoguePort } from './bridge/index.js'
+import { buildCharacterSystemPrompt, createDshCharacterBridge, seatForAgent, toDialoguePort } from './bridge/index.js'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
 import { createHandler } from './routes/index.js'
@@ -129,7 +129,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   // 拿不到会话服务时**不阻塞插件加载**：世界与面板照跑，`/api/say` 仍会登记对话，
   // 然后以一条写清了原因的 SSE `failed` 事件收场（红线第 6 条：失败要退化，不要卡住）。
   const wiring = createDshCharacterBridge(ctx, {
-    systemPromptFor: placeholderPersona,
+    systemPromptFor: createPersonaResolver(state),
     maxLiveSessions: resolved.maxLiveSessions,
     requestIdPrefix: 'agent-world-say',
     onError: (reason) => logger.warn(`对话桥：${reason}`),
@@ -203,17 +203,90 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
 }
 
 /**
- * 人设占位 —— **M6-2 会删掉这个函数**。
+ * 角色 → system prompt（M6-2）。
  *
- * 这里刻意**没有**任何角色名、性格、台词：红线第 2 条 / 决策 D37 是
- * "**人设是内容**"，换一个花名册就该换一套性格、不改一行代码。
+ * ## 这里做的是"取内容"，不是"造人设"
  *
- * 所以本函数只提供一句**结构性**说明，让 M6-3 的对话链路能端到端跑通；
- * M6-2 会把它换成"从 `rosters` 内容条目生成 system prompt"的那个函数
- * （内容侧要新增 `persona` / `speechStyle` / `goals` 字段）。
+ * 人设与说话方式**全部来自花名册**（决策 D37）：本函数只负责
+ * **把世界里的角色对上花名册的座位**，再把世界此刻的事实一起交给
+ * {@link buildCharacterSystemPrompt} 那个纯模板。所以"换一个花名册 = 换一套性格"。
  *
- * 换句话说：**它是一根脚手架，不是人设。** 看到它就该想到"内容还没接上"。
+ * ## ⚠️ 为什么不能按 `role` 找座位（这里踩过一次）
+ *
+ * 默认花名册里有**三个 `engineer`**。按 `role` 反查会让这三个角色拿到**同一份人设**，
+ * 而它**不会报错**——症状只是"这三个角色说话一模一样"，极难归因。
+ * 所以用 `seatForAgent()`：**序号优先**（域自己的规则 `roster.seats[i] → agent-<i+1>`，
+ * 见 `content/instantiate.ts`），名字兜底，名字有歧义时**宁可报错也不猜**。
+ *
+ * ## 失败要给出能直接下手的原因
+ *
+ * 拿不到人设就**抛**（而不是发一条空 prompt）：空人设的症状是"所有人都像同一个人"，
+ * 那种失败比"这个角色说不出话"更难查。抛出后 bridge 会把原因变成
+ * `会话创建失败：<原因>`（或者人设生成失败），一路带到面板上。
+ *
+ * @param state - 插件状态（读世界 + 读内容注册表）。
  */
-function placeholderPersona(characterId: string): string {
-  return `你是 Agent World 小镇里的一个角色（角色标识：${characterId}）。`
+function createPersonaResolver(state: ReturnType<typeof createPluginState>): (characterId: string) => string {
+  return (characterId: string): string => {
+    const world = state.currentWorld()
+    if (world === null) {
+      throw new Error('世界还没建出来，读不到这个角色是谁（人设来自内容库的花名册）。')
+    }
+
+    const agent = world.agents.find((candidate) => candidate.id === characterId)
+    if (agent === undefined) {
+      const ids = world.agents.map((candidate) => candidate.id)
+      throw new Error(
+        `世界里没有 "${characterId}" 这个角色，生成不了人设。` +
+          `可用角色：${ids.length > 0 ? ids.join(' / ') : '（一个都没有）'}`,
+      )
+    }
+
+    // 世界记录的是"用哪个场景装出来的"，场景引用花名册。跟着这条链走，
+    // 就不需要在这里写任何内容 id（写死的 id 会让换内容包变成改代码）。
+    const scene = state.registry.require(
+      'scenes',
+      world.origin.scene,
+      `给「${agent.name}」(${characterId}) 生成人设时读场景（它引用花名册）`,
+    )
+    const roster = state.registry.require(
+      'rosters',
+      scene.roster,
+      `给「${agent.name}」(${characterId}) 生成人设时读花名册`,
+    )
+
+    const seat = seatForAgent(roster.seats, agent)
+    if (seat === undefined) {
+      const seats = roster.seats.map((s) => `${s.name}(${s.role})`)
+      throw new Error(
+        `花名册「${roster.id}」里找不到「${agent.name}」(${characterId}) 对应的座位，所以生成不了人设。` +
+          `花名册里的座位：${seats.join(' / ')}。` +
+          '（座位与角色按 agent-N ↔ 第 N 个座位的顺序对应；名字必须唯一，否则无法判断是哪一位。）',
+      )
+    }
+
+    const carrying = agent.carrying
+    const taskTitle =
+      carrying === null ? null : (world.tasks.find((task) => task.id === carrying)?.title ?? null)
+
+    return buildCharacterSystemPrompt(seat, {
+      worldName: world.name,
+      tick: world.tick,
+      state: agent.state,
+      stationName: stationLabel(state, agent.station),
+      taskTitle,
+      walkingTo: stationLabel(state, agent.targetStation),
+    })
+  }
+}
+
+/**
+ * 站点 id → 站点名。
+ *
+ * 站点名是**内容**，所以走注册表取；取不到时退回 id 本身——
+ * 那也是事实（比编一个名字诚实），而且不会因为一个名字缺失就让人设生成失败。
+ */
+function stationLabel(state: ReturnType<typeof createPluginState>, stationId: string | null): string | null {
+  if (stationId === null) return null
+  return state.registry.get('stations', stationId)?.data.name ?? stationId
 }

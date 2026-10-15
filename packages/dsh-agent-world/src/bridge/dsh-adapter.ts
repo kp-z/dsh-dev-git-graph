@@ -214,7 +214,18 @@ export interface DshBridgeOptions {
 /** `createDshCharacterBridge()` 的结果：要么装好了，要么给出装不上的原因。 */
 export type DshBridgeResult =
   | { readonly ok: true; readonly bridge: CharacterBridge }
-  | { readonly ok: false; readonly reason: string }
+  | {
+      readonly ok: false
+      /**
+       * 失败的种类。**调用方要靠它决定这条消息该多严重**：
+       * - `no-agent-loop`：整个 profile 没有 agent 能力（headless）。**这是正常配置**，
+       *   所以组合根应当只记 info —— 把它写成 warn 会让正常部署一直有噪音，
+       *   而"warn 是常态"就等于没有 warn。
+       * - `no-session-service`：有 agentLoop 却拿不到会话服务，是**真的装错了**，值得 warn。
+       */
+      readonly code: 'no-agent-loop' | 'no-session-service'
+      readonly reason: string
+    }
 
 /**
  * 一步装好：`agentLoop` + `sessionController` + 事件总线 → {@link CharacterBridge}。
@@ -229,6 +240,7 @@ export function createDshCharacterBridge(ctx: unknown, options: DshBridgeOptions
   if (factory === undefined) {
     return {
       ok: false,
+      code: 'no-agent-loop',
       reason: 'DSH 的 agentLoop 服务不可用（读不到 ctx.agentLoop.createAgent）：这个插件建不了角色会话。',
     }
   }
@@ -237,6 +249,7 @@ export function createDshCharacterBridge(ctx: unknown, options: DshBridgeOptions
   if (transport === undefined) {
     return {
       ok: false,
+      code: 'no-session-service',
       reason:
         'DSH 的会话服务不可用（读不到 ctx.sessionController.prompt 或 ctx.on）：' +
         '角色会话能建但说不了话，所以没有启用对话。确认 profile 里挂了会话服务。',

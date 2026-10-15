@@ -234,6 +234,45 @@ export interface DisposeAllResult {
   readonly failures: readonly ReleaseResult[]
 }
 
+/**
+ * 生成 system prompt 需要的**座位形状** —— `RosterSeat`（内容层）的结构子集。
+ *
+ * 为什么在这里另声明一份而 import 内容层的类型：`bridge` 的边界规则里没有 `content`
+ * （见 `src/protocol/boundaries.ts`）。这与 `DialoguePort` 那处的取舍同源——
+ * 各层只声明自己真正用到的那几个字段，而 `RosterSeat` 恰好满足这个形状。
+ *
+ * **注意 `role` 的用途只有一个**：在 prompt 里如实报出他的岗位。
+ * **绝不能拿 `role` 反查座位**——一个花名册里有多个同 role 的座位，
+ * 那样会让他们共用一份人设（不报错，只是"说话一模一样"）。
+ */
+export interface PersonaSeat {
+  readonly name: string
+  readonly role: string
+  /** 这个人是谁（身份/性格/在意什么/怕什么）。**来自内容**（D37）。 */
+  readonly persona: string
+  /** 他怎么说话（语气/句长/口头禅/不说什么）。**来自内容**（D37）。 */
+  readonly speechStyle: string
+}
+
+/**
+ * 拼 prompt 用的**世界事实**。
+ *
+ * 这里刻意只有事实（名字、时钟、状态、站点、工单），**没有一个句子**——
+ * 措辞在 `persona-prompt.ts` 的模板里，所以"给模型的上下文"不会变成藏起来的台词。
+ */
+export interface WorldContextFacts {
+  readonly worldName: string
+  readonly tick: number
+  /** `AgentState` 的值（`idle` / `working` / …）。 */
+  readonly state: string
+  /** 所在站点的**名字**（解析不出来时可以是 id；null 表示不在站点上）。 */
+  readonly stationName: string | null
+  /** 手上的工单标题；空手时为 null。 */
+  readonly taskTitle: string | null
+  /** 正在前往的站点名；不在路上时为 null。 */
+  readonly walkingTo: string | null
+}
+
 /** `say()` 的可选项。 */
 export interface SayOptions {
   /** 默认 `'queue'`（排队到下一个 turn）。用 `'steer'` 才是"插进他正在做的事"。 */
