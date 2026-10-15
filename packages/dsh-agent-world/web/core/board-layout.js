@@ -285,7 +285,10 @@ export function fitGraphGeometry(layout, available, presets = GEOMETRY_PRESETS) 
   const geometry = graphGeometry(layout, tightest)
   // 缩放也是确定性的：只由"内容尺寸 / 可用尺寸"决定，与时间、随机无关。
   const raw = Math.min(1, width / Math.max(1, geometry.width), height / Math.max(1, geometry.height))
-  const scale = Math.max(0.4, Math.round(raw * 100) / 100)
+  // **向下取整**，不是四舍五入：向上取整会让"缩放后的图"比可用区大最多 0.5%
+  //（400px 高的图 → 2px），而那 2px 正好是 `clipped()` 要报的"超出了"。
+  // 这一条是 R46 用真机数据算出来的：22 张单在 800×700 下 raw=0.635 → round=0.64 → 溢出 2px。
+  const scale = Math.max(0.4, Math.floor(raw * 100) / 100)
   return { ...geometry, preset: tightest.name, scale }
 }
 
@@ -399,6 +402,9 @@ export function buildBoardModel(world) {
     requires: Array.isArray(task.requires) ? [...task.requires] : [],
     blockedBy: Array.isArray(task.blockedBy) ? [...task.blockedBy] : [],
     station: typeof task.station === 'string' ? task.station : null,
+    // R46 / M10-11：`set` 就是**流水线 id**（真机：task.quick-fix / task.software-feature /
+    // task.town-inspection）。原来这一列被丢掉了，于是界面只能把所有单摊在同一张图上。
+    set: typeof task.set === 'string' && task.set !== '' ? task.set : null,
     acceptance: typeof task.acceptance === 'string' ? task.acceptance : '',
     description: typeof task.description === 'string' ? task.description : '',
     // R45 / M10-9：工单的**产出**与失败原因（R44 起在小镇数据里，单张最长 2246 字）。
@@ -422,6 +428,8 @@ export function buildBoardModel(world) {
     byId: new Map(tasks.map((t) => [t.id, t])),
     unowned: tasks.filter((t) => t.owner === null).map((t) => t.id),
     counts: countStatuses(tasks),
+    /** 这一份模型里的流水线分组（传进来的 tasks 已经被视图过滤过，所以它就是"当前视图的分组"）。 */
+    groups: groupTasks(tasks),
   }
 }
 
@@ -453,6 +461,114 @@ export function describeTask(model, taskId) {
 }
 
 /**
+ * 没有 `set` 的单归到哪一组。
+ *
+ * 用哨兵而不是空串：空串会和"真的有 set 但内容是空"混淆，而分组键要是稳定的。
+ * 界面上这一组的显示名由 `labels.js` 提供（"未分组"），**不在这里写中文**。
+ */
+export const UNGROUPED = '__ungrouped__'
+
+/** 状态筛选的四档。`all` 之外都对应 `TaskStatus` 的一个子集。 */
+export const VIEW_FILTERS = ['all', 'unfinished', 'failed', 'done']
+
+/**
+ * 这张单在某个筛选下要不要显示。
+ *
+ * 认不出的 filter **不隐藏**（返回 true）：筛选错了顶多是"少了一层过滤"，
+ * 而把该看的单藏起来是危险的那一侧。
+ */
+export function matchesFilter(task, filter) {
+  const status = task?.status
+  if (filter === 'unfinished') return status !== 'done'
+  if (filter === 'failed') return status === 'failed'
+  if (filter === 'done') return status === 'done'
+  return true
+}
+
+/** 状态过滤（纯函数，返回新数组）。 */
+export function filterTasks(tasks, filter) {
+  const list = Array.isArray(tasks) ? tasks : []
+  if (filter === undefined || filter === null || filter === 'all') return [...list]
+  return list.filter((task) => matchesFilter(task, filter))
+}
+
+/**
+ * `task.quick-fix` → `quick-fix`。
+ *
+ * **只去前缀、不翻译**：流水线的中文名是**内容**（内容层才有权决定叫什么），
+ * 前端写死 `task.quick-fix → 快速修复` 是红线（上一轮就是把规矩写死在代码里吃的亏）。
+ * 认不出的形状原样返回，不猜。
+ */
+export function shortGroupName(setId) {
+  if (typeof setId !== 'string' || setId === '') return ''
+  const matched = /^task\.(.+)$/.exec(setId)
+  return matched === null ? setId : matched[1]
+}
+
+/** 一张单归到哪一组（`set` 为空 → `UNGROUPED`）。 */
+export function groupOf(task) {
+  return typeof task?.set === 'string' && task.set !== '' ? task.set : UNGROUPED
+}
+
+/**
+ * 按流水线分组（纯函数）。返回**按 id 排序**的数组（同一份输入永远同一个顺序），
+ * 每组带总数 / 未完成数 / 各状态计数——分组签上要显示"名字 + 数量 + 未完成数"。
+ */
+export function groupTasks(tasks, names = null) {
+  const byId = new Map()
+  for (const task of Array.isArray(tasks) ? tasks : []) {
+    const id = groupOf(task)
+    let group = byId.get(id)
+    if (group === undefined) {
+      // 分组名优先用**服务端下发的内容名字**（`snapshot.taskSets` 的 id → 中文名，R46）。
+      // 拿不到就退回去前缀的短 id——**前端不许自己翻译**（那是内容，红线）。
+      const fromContent = names !== null && typeof names === 'object' ? names[id] : undefined
+      const name = id === UNGROUPED ? '' : typeof fromContent === 'string' && fromContent !== '' ? fromContent : shortGroupName(id)
+      group = { id, name, total: 0, unfinished: 0, done: 0, failed: 0, byStatus: {} }
+      byId.set(id, group)
+    }
+    const status = TASK_STATUSES.includes(task?.status) ? task.status : 'pending'
+    group.byStatus[status] = (group.byStatus[status] ?? 0) + 1
+    group.total += 1
+    if (status === 'done') group.done += 1
+    else group.unfinished += 1
+    if (status === 'failed') group.failed += 1
+  }
+  // `UNGROUPED` 排最后（它不是一个流水线，是"没归到流水线的那几张"）。
+  return [...byId.values()].sort((a, b) => {
+    if (a.id === UNGROUPED) return 1
+    if (b.id === UNGROUPED) return -1
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
+}
+
+/** 选一条流水线（`all` = 不过滤）。 */
+export function selectGroup(tasks, groupId) {
+  const list = Array.isArray(tasks) ? tasks : []
+  if (groupId === undefined || groupId === null || groupId === 'all') return [...list]
+  return list.filter((task) => groupOf(task) === groupId)
+}
+
+/**
+ * 把"分组 + 状态过滤"一起作用到任务列表上（两者可叠加）。
+ *
+ * 顺序无所谓（两个都是筛子），但**显式写出来**是为了在测试里钉住"叠加"这件事。
+ */
+export function applyView(tasks, view = {}) {
+  return filterTasks(selectGroup(tasks, view?.group ?? 'all'), view?.filter ?? 'all')
+}
+
+/**
+ * 视图状态的稳定签名。
+ *
+ * 进 `boardSignature` 是必须的：不然用户在界面上换了分组/筛选之后，
+ * 世界下一次推送会让"结构签名没变"的早退分支把图表留成旧的（界面上看就是没反应）。
+ */
+export function viewSignature(view = {}) {
+  return `g:${view?.group ?? 'all'}|f:${view?.filter ?? 'all'}`
+}
+
+/**
  * 左栏 chip 上的**短 id**（R45）。
  *
  * 为什么要有它：真机世界有 28 张单，左栏一个成员手上就有 5~7 张；每张都写 `task-28`
@@ -478,8 +594,8 @@ export function shortTaskId(id) {
  * 而看板只关心任务与成员的可见状态。这也是 `board.js update()` 的第一道闸门：
  * 指纹没变就**连模型都不折**（省掉 buildBoardModel + 布局 + 几何那三步）。
  */
-export function boardSignature(world) {
-  const parts = []
+export function boardSignature(world, view = {}) {
+  const parts = [viewSignature(view)]
   for (const task of indexTasks(world?.tasks)) {
     const deps = Array.isArray(task.blockedBy) ? task.blockedBy.join(',') : ''
     const requires = Array.isArray(task.requires) ? task.requires.join(',') : ''

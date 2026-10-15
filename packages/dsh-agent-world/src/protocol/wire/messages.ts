@@ -65,6 +65,13 @@ export interface SnapshotPayload {
     packs: { id: string; name: string; version: string }[]
     libraries: LibraryDescriptor[]
   }
+  /**
+   * 任务集（流水线）目录：id → 中文名。
+   *
+   * 看板要按流水线分组，而 `world.tasks[].set` 只是 id（`task.quick-fix`）。
+   * 中文名是内容，前端读不到内容库，所以在这里下发——与 `palette` 同一条缝（D22）。
+   */
+  taskSets: { id: string; name: string | null }[]
 }
 
 /** 消息类型。 */

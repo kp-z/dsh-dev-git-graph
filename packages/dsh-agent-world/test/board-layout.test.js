@@ -32,9 +32,18 @@ import {
   graphGeometry,
   layoutDependencyGraph,
   missingBoardTokens,
+  UNGROUPED,
+  VIEW_FILTERS,
+  applyView,
+  filterTasks,
+  groupOf,
+  groupTasks,
   resolveBoardColor,
+  selectGroup,
+  shortGroupName,
   shortTaskId,
   unlocksIndex,
+  viewSignature,
 } from '../web/core/board-layout.js'
 
 /** 造一个任务：`deps` 是 `blockedBy`。 */
@@ -473,4 +482,218 @@ test('左栏短 id：只对 `task-<数字>` 去前缀，别的形状原样（不
   assert.equal(shortTaskId('t4'), 't4')
   assert.equal(shortTaskId(null), '')
   assert.equal(shortTaskId(undefined), '')
+})
+
+// ── R46 / M10-11：按流水线分组 + 状态过滤 ─────────────────────────────────────
+
+/**
+ * 真机形状的三条流水线（28 张）。
+ *
+ * 形状是照 3080 上真实快照抄的：quick-fix 是 **6 条并行的三连链**（列少行多——撑爆的是宽高两头），
+ * software-feature 是**菱形**（4 列、最多 2 行），town-inspection 是一条直链。
+ * 用它算出来的档位与真机一致，才能把"分组之后 scale 是不是 1"变成**能算的断言**。
+ */
+function realShapedWorld() {
+  const tasks = []
+  const push = (id, ordinal, set, key, status, deps = []) =>
+    tasks.push({
+      id, key, ordinal, set, title: `${key} ${id}`, status, owner: null, station: null,
+      requires: [], blockedBy: deps, progress: 0, acceptance: '',
+    })
+  // quick-fix：6 条 triage → patch → verify（真机 id 是 1/2/3、11~25）
+  const chains = [[1, 2, 3], [11, 12, 13], [14, 15, 16], [17, 18, 19], [20, 21, 22], [23, 24, 25]]
+  const chainStatus = [['done', 'done', 'done'], ['done', 'done', 'done'], ['done', 'done', 'done'], ['done', 'failed', 'pending'], ['done', 'failed', 'pending'], ['done', 'failed', 'pending']]
+  chains.forEach((ids, index) => {
+    push(`task-${ids[0]}`, ids[0], 'task.quick-fix', 'triage', chainStatus[index][0], [])
+    push(`task-${ids[1]}`, ids[1], 'task.quick-fix', 'patch', chainStatus[index][1], [`task-${ids[0]}`])
+    push(`task-${ids[2]}`, ids[2], 'task.quick-fix', 'verify', chainStatus[index][2], [`task-${ids[1]}`])
+  })
+  // software-feature：菱形（真机 4~10）
+  push('task-4', 4, 'task.software-feature', 'design', 'done', [])
+  push('task-5', 5, 'task.software-feature', 'impl-core', 'done', ['task-4'])
+  push('task-6', 6, 'task.software-feature', 'impl-api', 'done', ['task-4'])
+  push('task-7', 7, 'task.software-feature', 'test', 'done', ['task-5'])
+  push('task-8', 8, 'task.software-feature', 'review', 'done', ['task-6', 'task-7'])
+  push('task-9', 9, 'task.software-feature', 'docs', 'done', ['task-5'])
+  push('task-10', 10, 'task.software-feature', 'ship', 'done', ['task-8', 'task-9'])
+  // town-inspection：一条直链（真机 26~28）
+  push('task-26', 26, 'task.town-inspection', 'survey', 'done', [])
+  push('task-27', 27, 'task.town-inspection', 'check', 'done', ['task-26'])
+  push('task-28', 28, 'task.town-inspection', 'report', 'done', ['task-27'])
+  return { tasks, agents: [] }
+}
+
+/**
+ * 三档验收视口下"图能拿到的画布尺寸"。
+ *
+ * 这几个数是**在浏览器里量出来的**（1280×900 宽档成员栏在图左侧；1024/800 窄档成员栏可收起、
+ * 收起后图拿到整块高度；视图条与图头各占一行）。测试用它是为了把"装得下装不下"变成算术，
+ * 而不是每次开浏览器目测。
+ */
+const CANVAS_SIZES = {
+  // 真机 28 张单时在浏览器里**量出来的**画布尺寸（`__agentWorldBoard.stats().available`）：
+  // 1280 是宽档（成员栏在图左侧）；1024/800 是窄档（成员栏默认收起，图拿整块高度）。
+  '1280x900': { width: 909, height: 311 },
+  '1024x800': { width: 953, height: 312 },
+  '800x700': { width: 729, height: 221 },
+}
+
+/** 某个视图在某档下算出来的档位/缩放，以及"缩放后是否真的落在可用区里"。 */
+function fitFor(world, view, viewport) {
+  const size = CANVAS_SIZES[viewport]
+  const tasks = applyView(world.tasks, view)
+  const model = buildBoardModel({ ...world, tasks })
+  const layout = layoutDependencyGraph(model.tasks)
+  const fitted = fitGraphGeometry(layout, size)
+  return {
+    tasks: tasks.length,
+    fitted,
+    size,
+    /** 缩放后仍然超出可用区 → 真机上就是画布要滚动（= `clipped()` 会报东西）。 */
+    fitsInView: fitted.width * fitted.scale <= size.width + 1 && fitted.height * fitted.scale <= size.height + 1,
+  }
+}
+
+test('groupTasks：按 set 分组，数量/未完成数/顺序都确定', () => {
+  const groups = groupTasks(realShapedWorld().tasks)
+  assert.deepEqual(groups.map((g) => g.id), ['task.quick-fix', 'task.software-feature', 'task.town-inspection'])
+  const quick = groups[0]
+  assert.equal(quick.name, 'quick-fix', '名字只去 task. 前缀（中文名是内容，前端不许猜）')
+  assert.equal(quick.total, 18)
+  assert.equal(quick.done, 12)
+  assert.equal(quick.failed, 3)
+  assert.equal(quick.unfinished, 6, '未完成 = 非 done（失败也算没干完）')
+  assert.equal(groups[1].total, 7)
+  assert.equal(groups[1].unfinished, 0)
+  assert.equal(groups[2].total, 3)
+
+  // 没有 set 的单归到 UNGROUPED，且**排在最后**
+  const withStray = groupTasks([...realShapedWorld().tasks, task('task-99', 99, [], { set: undefined })])
+  assert.equal(withStray[withStray.length - 1].id, UNGROUPED)
+  assert.equal(withStray[withStray.length - 1].name, '', '没有名字可显示（界面用"未分组"这个 UI 文案）')
+  // 同一份输入 → 同一份输出
+  assert.deepEqual(groupTasks(realShapedWorld().tasks), groups)
+})
+
+test('shortGroupName / groupOf：只认 `task.` 前缀，别的形状不猜', () => {
+  assert.equal(shortGroupName('task.quick-fix'), 'quick-fix')
+  assert.equal(shortGroupName('hotfix-batch'), 'hotfix-batch')
+  assert.equal(shortGroupName(''), '')
+  assert.equal(shortGroupName(null), '')
+  assert.equal(groupOf({ set: 'task.a' }), 'task.a')
+  assert.equal(groupOf({ set: '' }), UNGROUPED)
+  assert.equal(groupOf({}), UNGROUPED)
+})
+
+test('filterTasks：四档都按状态算；**认不出的 filter 不隐藏**（危险的那一侧）', () => {
+  const tasks = realShapedWorld().tasks
+  assert.equal(filterTasks(tasks, 'all').length, 28)
+  assert.equal(filterTasks(tasks, 'unfinished').length, 6)
+  assert.equal(filterTasks(tasks, 'failed').length, 3)
+  assert.equal(filterTasks(tasks, 'done').length, 22)
+  assert.equal(filterTasks(tasks, '某个不认识的筛选').length, 28, '认不出就不隐藏')
+  assert.equal(filterTasks(tasks, undefined).length, 28)
+  assert.deepEqual(VIEW_FILTERS, ['all', 'unfinished', 'failed', 'done'])
+  // 不改原数组
+  const before = tasks.length
+  filterTasks(tasks, 'failed')
+  assert.equal(tasks.length, before)
+})
+
+test('applyView：分组与筛选**可叠加**', () => {
+  const world = realShapedWorld()
+  assert.equal(applyView(world.tasks, {}).length, 28)
+  assert.equal(applyView(world.tasks, { group: 'task.quick-fix' }).length, 18)
+  assert.equal(applyView(world.tasks, { group: 'task.quick-fix', filter: 'unfinished' }).length, 6)
+  assert.equal(applyView(world.tasks, { group: 'task.software-feature', filter: 'unfinished' }).length, 0)
+  assert.equal(applyView(world.tasks, { filter: 'failed' }).length, 3)
+  assert.equal(selectGroup(world.tasks, 'all').length, 28)
+})
+
+test('签名：视图状态必须进签名（不然用户换了分组，下一帧又把图留成旧的）', () => {
+  const world = realShapedWorld()
+  assert.equal(viewSignature({ group: 'all', filter: 'all' }), 'g:all|f:all')
+  assert.notEqual(viewSignature({ group: 'task.quick-fix' }), viewSignature({}))
+  assert.notEqual(boardSignature(world, { filter: 'done' }), boardSignature(world, { filter: 'all' }))
+  assert.notEqual(boardSignature(world, { group: 'task.quick-fix' }), boardSignature(world, {}))
+  assert.equal(boardSignature(world, { group: 'all', filter: 'all' }), boardSignature(world), '缺省视图 = 老行为')
+})
+
+test('★ 分组之后，**单条流水线的图回到 scale = 1**（本轮的目标，能算）', () => {
+  const world = realShapedWorld()
+  for (const group of groupTasks(world.tasks)) {
+    for (const viewport of ['1280x900', '1024x800']) {
+      const result = fitFor(world, { group: group.id }, viewport)
+      assert.equal(result.fitted.scale, 1, `${group.name} 在 ${viewport} 没有回到 scale 1（现在 ${result.fitted.scale}）`)
+      assert.ok(result.fitsInView, `${group.name} @ ${viewport} 缩放后仍超出可用区`)
+    }
+  }
+
+  // 800×700 这一档只给图 729×221，三条流水线里：
+  //  · town-inspection（3 张，直链）仍然 scale 1；
+  //  · software-feature（7 张，菱形）差 1px（tight 档宽 730 > 画布 729）→ 0.99；
+  //  · quick-fix（18 张 = 6 条并行链，行多）→ 0.72（tight 档高 304 > 221）。
+  // 三张都**装得下**（这就是 clipped() 归零的算术保证）；要 1 得给看板更高或加更小的档位，
+  // 而那两条我都不要：看板更高会盖掉场景，更小的档位字会小到读不了。
+  assert.equal(fitFor(world, { group: 'task.town-inspection' }, '800x700').fitted.scale, 1)
+  const swSmall = fitFor(world, { group: 'task.software-feature' }, '800x700')
+  assert.ok(swSmall.fitted.scale >= 0.99, `software-feature @800 掉太多了：${swSmall.fitted.scale}`)
+  assert.ok(swSmall.fitsInView)
+  const quickSmall = fitFor(world, { group: 'task.quick-fix' }, '800x700')
+  assert.ok(quickSmall.fitted.scale >= 0.7, `quick-fix @800 掉到 ${quickSmall.fitted.scale}`)
+  assert.ok(quickSmall.fitted.scale >= 0.4, `quick-fix @800 触到可读下限了：${quickSmall.fitted.scale}`)
+  assert.ok(quickSmall.fitsInView, 'quick-fix @800 缩放后必须仍然装得下（否则就是被切）')
+  // 这两条是"真机量出来的值"，写死在注释里：数字变了就是有人改了布局或档位，该看一眼。
+  assert.equal(quickSmall.fitted.scale, 0.72)
+
+  // 而"全部"在同一档下必须**装得下**（哪怕缩到 0.6）——这条才是 clipped() 归零的算术保证。
+  for (const viewport of Object.keys(CANVAS_SIZES)) {
+    const all = fitFor(world, {}, viewport)
+    assert.ok(all.fitsInView, `默认视图（全部 28 张）在 ${viewport} 装不下`)
+    assert.ok(all.fitted.scale >= 0.4, `全部 @${viewport} 触到可读下限：${all.fitted.scale}`)
+  }
+})
+
+test('★ 最坏组合（全部 + 完成 / 全部 + 全部）也要装得下——这是 clipped() 归零的算术版', () => {
+  const world = realShapedWorld()
+  const worst = [
+    { group: 'all', filter: 'done' }, // 22 张
+    { group: 'all', filter: 'all' }, // 28 张
+    { group: 'all', filter: 'unfinished' }, // 6 张
+  ]
+  for (const view of worst) {
+    for (const viewport of Object.keys(CANVAS_SIZES)) {
+      const result = fitFor(world, view, viewport)
+      assert.ok(
+        result.fitsInView,
+        `${view.group}/${view.filter}（${result.tasks} 张）@${viewport}：缩放 ${result.fitted.scale} 后 ${result.fitted.width}x${result.fitted.height} 仍超出 ${result.size.width}x${result.size.height}`,
+      )
+    }
+  }
+})
+
+// ── R46：分组名来自服务端下发的内容，前端不翻译 ──────────────────────────────
+
+test('R46：分组名优先用内容里的中文名；拿不到就退回短 id（**不许前端自己翻译**）', () => {
+  const tasks = [
+    { id: 'task-1', set: 'task.quick-fix', status: 'done', ordinal: 1 },
+    { id: 'task-2', set: 'task.town-inspection', status: 'pending', ordinal: 2 },
+  ]
+  // 服务端下发了目录：用内容里的名字。
+  const named = groupTasks(tasks, { 'task.quick-fix': '快速修一个 bug' })
+  assert.equal(named.find((g) => g.id === 'task.quick-fix').name, '快速修一个 bug')
+  // 没下发：退回短 id，**不是**一个猜出来的中文名。
+  const bare = groupTasks(tasks)
+  assert.equal(bare.find((g) => g.id === 'task.quick-fix').name, 'quick-fix')
+  assert.equal(bare.find((g) => g.id === 'task.town-inspection').name, 'town-inspection')
+})
+
+test('R46：main.js 必须把 **snapshot 的** taskSets 喂给看板（真机上抓到的错源）', async () => {
+  // 这条守的是一个**只在真机上暴露**的错法：`meta` 是显式挑字段的对象，
+  // `meta.taskSets` 恒为 undefined——写错源头不会报错，只是分组签一直显示英文短 id。
+  const source = await import('node:fs/promises').then((fs) =>
+    fs.readFile(new URL('../web/main.js', import.meta.url), 'utf8'),
+  )
+  assert.match(source, /board\.setTaskSets\?\.\(snap\.taskSets\)/, 'main.js 应从 snap.taskSets 取流水线目录')
+  assert.doesNotMatch(source, /setTaskSets\?\.\(meta\.taskSets\)/, 'meta 里没有 taskSets 字段，取它就是 undefined')
 })

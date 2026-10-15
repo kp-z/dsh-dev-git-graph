@@ -89,6 +89,15 @@ export interface ContentPort {
    */
   themeFor(sceneId: string): ThemePlan | null
   /**
+   * 列某个库的条目**摘要**（id + 名字），按 id 排序。
+   *
+   * 与 `entryIds` 分开的理由：面板要显示"这条工单出自哪条流水线"，而流水线的**中文名**
+   * 是内容（`task.quick-fix` → "快速修一个 bug"）。前端只许 import 协议层、读不到内容库，
+   * 所以名字必须由服务端解析好随快照下发——与调色板（D22）同一条缝。
+   * 条目没有 `name` 字段时 `name` 为 null（渲染方退回显示 id）。
+   */
+  entrySummaries(kind: LibraryKind): readonly { readonly id: string; readonly name: string | null }[]
+  /**
    * 取某个模型条目的**渲染就绪**描述（`ScenePlan.models` 里的那一种）。
    *
    * 不存在时返回 null（由调用方与交叉校验负责报错）。同理，映射在这里做，

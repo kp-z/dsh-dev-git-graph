@@ -143,6 +143,11 @@ export function contentPortOf(
     view,
     providersOf: (kind, id) => registry.providersOf(kind, id),
     entryIds: (kind) => registry.list(kind).map((e) => e.id),
+    entrySummaries: (kind) =>
+      registry.list(kind).map((e) => {
+        const raw = (e.data as { name?: unknown }).name
+        return { id: e.id, name: typeof raw === 'string' && raw.trim() !== '' ? raw : null }
+      }),
     colors: () => {
       // 按 list 的顺序叠加（list 已按 id 排序，稳定）；后出现的覆盖先出现的。
       const merged: Record<string, string> = {}

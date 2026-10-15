@@ -23,8 +23,13 @@
  * 而不是静默退回一个看起来"设计就这样"的灰。
  */
 
-import { taskStatusLabel } from './labels.js'
+import { MEMBERS_TOGGLE_LABEL, VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, groupViewLabel, taskStatusLabel } from './labels.js'
 import { summarizeTaskOutput } from '../core/task-output.js'
+import {
+  applyView,
+  groupTasks,
+  viewSignature,
+} from '../core/board-layout.js'
 import {
   BOARD_TOKENS,
   STATUS_TOKEN,
@@ -81,6 +86,13 @@ export function createBoard(options = {}) {
   /** 没有容器就退化成空实现：看板没了不该把面板带崩（俯视图还要看模拟）。 */
   const ready = root !== null && root !== undefined
   let palette = options.palette ?? {}
+  /**
+   * 流水线目录：`set` id → 内容里的中文名（`snapshot.taskSets`，R46）。
+   *
+   * 由服务端下发而不是前端写死：流水线叫什么名字是**内容**（红线）。
+   * 拿不到时分组签退回短 id（`quick-fix`），那是"暂时没有名字"，不是"猜了个名字"。
+   */
+  let taskSetNames = {}
   let model = null
   let layout = null
   let geometry = null
@@ -94,6 +106,19 @@ export function createBoard(options = {}) {
    * 会让人以为新单也已经是展开的（而它可能只有两行）。
    */
   let outputExpanded = false
+  /**
+   * 视图状态（R46）：分组 + 状态过滤。**默认都是「全部」**——
+   * 不隐藏任何东西是默认的安全选择（用户看得见"世界一共长什么样"），
+   * 需要读得清楚时再点分组签或"未完成"。
+   */
+  let viewGroup = 'all'
+  let viewFilter = 'all'
+  /** 全部流水线的分组统计（**不带过滤**：分组签上的数量是这条流水线一共多少张）。 */
+  let allGroups = []
+  /** 成员看板开着吗（窄视口默认收起，见 `applyNarrowDefault`）。 */
+  let membersOpen = true
+  /** 用户手动开合过成员栏吗（手动过之后，窗口跨断点就不再替他改）。 */
+  let membersUserSet = false
   let collapsed = false
   /** 重画统计（诊断用：能说清"看板到底重画了几次"）。 */
   const counters = { updates: 0, structureRebuilds: 0, stateRefreshes: 0, skipped: 0 }
@@ -130,10 +155,24 @@ export function createBoard(options = {}) {
     const missing = el(doc, 'div', 'board-missing-note')
     missing.hidden = true
 
+    // ── 视图条（R46）：分组签 + 状态过滤，两者可叠加 ─────────────────────────
+    const viewBar = el(doc, 'div', 'board-view')
+    const groupChips = el(doc, 'div', 'board-view-chips')
+    const filterChips = el(doc, 'div', 'board-view-chips')
+    viewBar.append(groupChips, filterChips)
+
     const body = el(doc, 'div', 'board-body')
     const members = el(doc, 'section', 'board-members')
     const membersList = el(doc, 'ul', 'board-member-list')
-    members.append(el(doc, 'h3', undefined, '成员看板'), membersList)
+    const membersHead = el(doc, 'h3', undefined, '成员看板')
+    const membersToggle = el(doc, 'button', 'board-members-toggle ghost')
+    membersToggle.type = 'button'
+    membersToggle.addEventListener('click', () => {
+      membersUserSet = true
+      setMembersOpen(!membersOpen)
+    })
+    membersHead.append(membersToggle)
+    members.append(membersHead, membersList)
 
     const graph = el(doc, 'section', 'board-graph')
     const graphHead = el(doc, 'h3', undefined, '任务依赖图')
@@ -162,13 +201,58 @@ export function createBoard(options = {}) {
     body.append(members, graph)
 
     const detail = el(doc, 'footer', 'board-detail')
-    root.append(head, missing, body, detail)
-    parts = { counts, bar, missing, members, membersList, body, edges, canvas, fit, content, cards, detail, collapse, graphHint }
+    root.append(head, missing, viewBar, body, detail)
+    parts = {
+      counts, bar, missing, viewBar, groupChips, filterChips,
+      members, membersList, membersToggle, body, edges, canvas, fit, content, cards, detail, collapse, graphHint,
+    }
     setPalette(palette)
+    applyNarrowDefault()
     observeSize()
   }
 
+  /**
+   * 窄视口默认**收起成员看板**（R46）。
+   *
+   * 为什么：窄档是"成员在上、图在下"的上下分空间，而真机 28 张单时成员区要 206px——
+   * 图只剩 88px，缩放撞到 0.4 下限就把节点切在画布下面（R45 报的那 11 个节点就是它）。
+   * 收起之后图拿回整块高度，**默认视图（全部）才装得下**。
+   * 用户想看成员就点「展开」，那是他自己的选择（那时图会变小甚至可滚动，图头会说）。
+   *
+   * JS 里再写一遍断点是因为"默认值"没法用 CSS 表达（CSS 只能改样式，不能改 JS 的初始状态）。
+   */
+  function applyNarrowDefault() {
+    if (!ready || membersUserSet) return
+    const narrow = globalThis.matchMedia?.('(max-width: 1200px)')?.matches ?? false
+    setMembersOpen(!narrow)
+    globalThis.matchMedia?.('(max-width: 1200px)')?.addEventListener?.('change', (event) => {
+      if (membersUserSet) return
+      setMembersOpen(!event.matches)
+    })
+  }
+
+  /** 成员看板开合（收起时列表 `display: none`，`clipped()` 会跳过没显示的行）。 */
+  function setMembersOpen(open) {
+    membersOpen = open === true
+    if (!ready) return
+    parts.members.classList.toggle('is-collapsed', !membersOpen)
+    parts.membersToggle.textContent = membersOpen ? MEMBERS_TOGGLE_LABEL.open : MEMBERS_TOGGLE_LABEL.closed
+    parts.membersToggle.setAttribute('aria-expanded', String(membersOpen))
+    // 开合会改"图能分到多少空间"：ResizeObserver 盯着画布与成员栏，会自己重量重挑档位。
+  }
+
   /** 把 token 写进 CSS 自定义属性（缺的不设，交给 `board-missing*` 看得见）。 */
+  /** 更新流水线目录（随快照来）。 */
+  function setTaskSets(next) {
+    const map = {}
+    for (const entry of Array.isArray(next) ? next : []) {
+      if (entry === null || typeof entry !== 'object') continue
+      if (typeof entry.id !== 'string' || entry.id === '') continue
+      if (typeof entry.name === 'string' && entry.name !== '') map[entry.id] = entry.name
+    }
+    taskSetNames = map
+  }
+
   function setPalette(next) {
     palette = next ?? {}
     if (!ready) return
@@ -279,6 +363,10 @@ export function createBoard(options = {}) {
         const chipDot = el(doc, 'i', 'board-dot')
         applyNodeColors(chipDot, task.status)
         chip.append(chipDot, el(doc, 'span', 'board-chip-id', shortTaskId(task.id)))
+        // **已完成的单只留一个短标记**（R46）：真机 28 张里 22 张是 done，每个成员手上 5~7 张，
+        // 全都画成"色点 + 号"会让左栏在 1227×804 这种尺寸下差 45px 装不下（clipped 报 2 行）。
+        // 压小而不是隐藏：这些单仍然可点（点开照样能读产出），只是不再抢左栏的宽度。
+        chip.classList.toggle('is-done', task.status === 'done')
         chip.addEventListener('click', (event) => {
           event.stopPropagation()
           select({ kind: 'task', id: task.id })
@@ -418,6 +506,7 @@ export function createBoard(options = {}) {
         // chip 上是"色点 + 短 id"，状态文字不在这里；完整描述挂在 `title`/`aria-label` 上。
         chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.status)}`
         chip.setAttribute('aria-label', chip.title)
+        chip.classList.toggle('is-done', task.status === 'done')
         // M7-3 双向高亮：点图里的方框 → 左栏成员那边同一张单也亮起来。
         chip.classList.toggle('is-selected', selected !== null && selected.kind === 'task' && selected.id === task.id)
       }
@@ -599,6 +688,9 @@ export function createBoard(options = {}) {
     }
     const membersBox = intersectWithViewport(parts.members.getBoundingClientRect())
     for (const [id, node] of memberRowNodes) {
+      // 成员栏收起时列表是 `display: none`，这些行的矩形全是 0——会被误判成"被切到左边去了"。
+      // **没显示出来的东西谈不上被切**（而且收起是用户点出来的，不是我们偷偷裁的）。
+      if (node.offsetParent === null) continue
       const hit = beyond(node.getBoundingClientRect(), membersBox)
       if (hit !== null) out.push({ kind: 'member', id, ...hit })
     }
@@ -645,6 +737,63 @@ export function createBoard(options = {}) {
     return observer
   }
 
+  /**
+   * 画视图条（R46）：一行分组签 + 一行状态过滤，**可叠加**。
+   *
+   * 数量用的是**全量**统计（不是过滤后的）：用户要看到"这条流水线一共 18 张、其中 6 张没干完"，
+   * 而不是"在当前筛选下还剩几张"——后者会让分组签随筛选一起变，自己把自己绕进去。
+   */
+  function renderView() {
+    if (!ready) return
+    const total = allGroups.reduce((sum, g) => sum + g.total, 0)
+    const unfinished = allGroups.reduce((sum, g) => sum + g.unfinished, 0)
+    const groups = [{ id: 'all', name: '', total, unfinished }, ...allGroups]
+
+    parts.groupChips.textContent = ''
+    for (const group of groups) {
+      const chip = el(doc, 'button', 'board-view-chip')
+      chip.type = 'button'
+      chip.textContent = groupViewLabel(group)
+      const active = group.id === viewGroup
+      chip.classList.toggle('is-active', active)
+      chip.setAttribute('aria-pressed', String(active))
+      chip.title = active ? '当前分组' : `只看 ${groupViewLabel(group)}`
+      chip.addEventListener('click', () => setView({ group: group.id }))
+      parts.groupChips.append(chip)
+    }
+
+    parts.filterChips.textContent = ''
+    for (const filter of VIEW_FILTERS_ORDER) {
+      const chip = el(doc, 'button', 'board-view-chip board-view-filter')
+      chip.type = 'button'
+      chip.textContent = VIEW_FILTER_LABEL[filter] ?? filter
+      const active = filter === viewFilter
+      chip.classList.toggle('is-active', active)
+      chip.setAttribute('aria-pressed', String(active))
+      chip.addEventListener('click', () => setView({ filter }))
+      parts.filterChips.append(chip)
+    }
+  }
+
+  /**
+   * 换视图（分组 / 筛选）。
+   *
+   * 两道签名一起清掉：`lastState` 里带了视图状态（`boardSignature(world, view)`），
+   * 而"结构"也必须重建（过滤之后模型本身变了）。清完再走一遍 `update`，
+   * 于是**同一份世界数据**会按新视图重新折一次模型——不需要等下一次推送。
+   */
+  function setView(next) {
+    const group = next?.group ?? viewGroup
+    const filter = next?.filter ?? viewFilter
+    if (group === viewGroup && filter === viewFilter) return false
+    viewGroup = group
+    viewFilter = filter
+    lastState = null
+    lastStructure = null
+    if (world !== null && world !== undefined) update(world)
+    return true
+  }
+
   function select(next) {
     selected = next
     outputExpanded = false
@@ -673,14 +822,18 @@ export function createBoard(options = {}) {
     // 第一道闸门：**指纹没变就什么都不做**（连模型都不折）。
     // 世界每秒推十几次事件，而"没人改变任务/成员状态"的那种帧是多数——
     // 这一行让那种帧的代价只剩一次字符串拼装。
-    const stateKey = boardSignature(world)
+    // 视图状态进签名：不然用户点了分组/筛选之后，世界下一帧会因为"签名没变"而把图留成旧的。
+    const stateKey = boardSignature(world, { group: viewGroup, filter: viewFilter })
     if (stateKey === lastState) {
       counters.skipped += 1
       return false
     }
 
     // 第二道闸门：折出数据（纯函数），比**结构**签名决定"重建"还是"就地改"。
-    model = buildBoardModel(world)
+    // 分组统计用**全量**（分组签上的数量与筛选无关），模型用**过滤后**的任务。
+    allGroups = groupTasks(world.tasks, taskSetNames)
+    const viewTasks = applyView(world.tasks, { group: viewGroup, filter: viewFilter })
+    model = buildBoardModel({ ...world, tasks: viewTasks })
     layout = layoutDependencyGraph(model.tasks)
     // 几何不在这里算：它要按**可见容器的实测尺寸**挑档位，所以由 `renderGraph()` 负责
     //（只有真重画时才需要，跳过/就地改的路径一次都不用量）。
@@ -698,6 +851,7 @@ export function createBoard(options = {}) {
       lastState = stateKey
       counters.stateRefreshes += 1
       renderCounts()
+      renderView()
       refreshState()
       renderDetail()
       return true
@@ -707,6 +861,7 @@ export function createBoard(options = {}) {
     lastState = stateKey
     counters.structureRebuilds += 1
     renderCounts()
+    renderView()
     renderMembers()
     renderGraph()
     refreshState()
@@ -739,8 +894,12 @@ export function createBoard(options = {}) {
 
   return {
     ready,
+    /** 换视图（分组/筛选）——给核验用，也是图里那两个 chip 走的同一条路。 */
+    setView,
+    setMembersOpen,
     update,
     setPalette,
+    setTaskSets,
     setCollapsed,
     select: (taskId) => select(taskId === null || taskId === undefined ? null : { kind: 'task', id: taskId }),
     selected: () => (selected === null ? null : selected.id ?? null),
@@ -761,7 +920,14 @@ export function createBoard(options = {}) {
       scale: fitInfo?.scale ?? null,
       available: fitInfo?.available ?? null,
       content: fitInfo?.content ?? null,
+      overflow: fitInfo?.overflow ?? null,
       clipped: clipped().length,
+      // 视图（R46）：当前分组/筛选、成员栏开合、一共几条流水线。
+      view: { group: viewGroup, filter: viewFilter },
+      viewSignature: viewSignature({ group: viewGroup, filter: viewFilter }),
+      membersOpen,
+      groups: allGroups.map((g) => ({ id: g.id, name: g.name, total: g.total, unfinished: g.unfinished })),
+      visibleTasks: model?.tasks.length ?? 0,
     }),
     /** 只给测试/诊断：看板的模型与布局（DOM 层不导出别的）。 */
     model: () => model,

@@ -524,6 +524,11 @@ const connection = createConnection({
     // 角色的名字只从世界数据来（D37：人设是内容，代码里没有角色名）。
     dialogue.setAgents(world.agents)
     board.setPalette(meta.palette)
+    // 流水线目录（id → 中文名）也由服务端下发：前端不许自己翻译内容（R46）。
+    // ⚠️ 读 `snap.taskSets` 而**不是** `meta.taskSets`：`meta` 是一个显式挑字段的对象，
+    // 没有的字段就是 `undefined`——第一版写成 meta.taskSets，于是每次都把目录清空成 {}，
+    // 分组签一直显示英文短 id（真机上抓到的）。
+    board.setTaskSets?.(snap.taskSets)
     board.update(world)
     legend.update({ scene: meta.scene })
     // 3D 用**快照里的** ScenePlan 重建静态部分；位姿由 `world` 每帧提供。
@@ -631,6 +636,9 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     geometry: () => board.geometry(),
     // `clipped()` 由 board.js 自己在同一个宏任务里挂（它先于 app 的门面创建）。
     expand: () => board.setCollapsed(false),
+    // R46：分组/状态过滤（= 界面上那两排 chip 的同一条路径，核验用）。
+    setView: (next) => board.setView(next),
+    setMembersOpen: (open) => board.setMembersOpen(open),
   }
 }
 

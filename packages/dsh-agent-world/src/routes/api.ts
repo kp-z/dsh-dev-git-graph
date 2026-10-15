@@ -72,6 +72,8 @@ export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
       packs: view.packs.map((p) => ({ id: p.id, name: p.name, version: p.version })),
       libraries: [...view.libraries],
     },
+    // 流水线目录：id → 中文名（内容，前端读不到内容库，所以在这里解析下发）。
+    taskSets: content.entrySummaries('tasks').map((e) => ({ id: e.id, name: e.name })),
   }
 }
 

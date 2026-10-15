@@ -510,3 +510,17 @@ test('applyCommand / buildSnapshot：没有世界时给 503 而不是崩', () =>
   assert.throws(() => buildSnapshot(deps), (e) => e.status === 503)
   assert.throws(() => applyCommand(deps, { command: { kind: 'pause' } }), (e) => e.status === 503)
 })
+
+// ── R46：流水线目录随快照下发（看板要按流水线分组，中文名是内容）────────────────
+
+test('R46：快照带 taskSets 目录（id → 中文名），前端不必猜中文', () => {
+  const service = createPluginState(resolveConfig({ autoStart: false }))
+  service.open('目录小镇')
+  service.dispatch('task.quick-fix')
+  const runtime = createRuntime({ service, tickMs: 100 })
+  const snap = buildSnapshot({ service, runtime, tickMs: 100 })
+  const quick = snap.taskSets.find((s) => s.id === 'task.quick-fix')
+  assert.ok(quick, 'taskSets 里必须有派过的那条流水线')
+  assert.equal(quick.name, '快速修一个 bug', '名字来自内容库，不在前端写死（红线）')
+  assert.ok(snap.taskSets.length >= 3, '三套内置流水线都该在目录里')
+})

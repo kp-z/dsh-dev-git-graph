@@ -728,6 +728,18 @@
   height: 7px;
   flex: 0 0 auto;
 }
+/* 已完成的单：不留色点、收紧内边距（左栏的宽度是稀缺的，而"完成的"是历史）。
+   仍然可点、仍然有 title——**压小不等于隐藏**。 */
+.board-chip.is-done {
+  padding: 1px 4px;
+  opacity: 0.7;
+}
+.board-chip.is-done > .board-dot {
+  display: none;
+}
+.board-chip.is-done .board-chip-id {
+  color: var(--fg-2);
+}
 /* "图比可见区大"的提示（R45）：可滚动是实话，但要写在图头上，别让用户以为图就这么多。 */
 .board-graph-hint {
   font-weight: 400;
@@ -936,8 +948,9 @@
 .board-section-failure .board-section-text {
   color: var(--st-failed);
 }
-/* 收起时看板是矮的，产出面板不浮出来（否则会飘到场景上）。 */
-.board.is-collapsed .board-read {
+/* 收起时看板是矮的：产出面板不浮出来，视图条也不占地方。 */
+.board.is-collapsed .board-read,
+.board.is-collapsed .board-view {
   display: none;
 }
 .board-detail-id {
@@ -946,6 +959,66 @@
 }
 .board-unlocks {
   color: var(--st-ready);
+}
+
+/* ── 视图条（R46 · M10-11）：分组签 + 状态过滤，两排 chip 可叠加 ──────────────
+   为什么放在看板里而不是抽屉里：分组/过滤改的是**图**画什么，控件就该挨着图。 */
+.board-view {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  flex-wrap: wrap;
+  /* 这一条是**图的可用高度**的直接来源：8px → 2px 就是让 quick-fix（tight 档 304px）
+     在 1280×900 下回到 scale 1 的那几像素。 */
+  padding: 0 var(--s-3) 2px;
+  border-bottom: 1px solid var(--stroke);
+}
+.board-view-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  flex-wrap: wrap;
+}
+.board-view-chip {
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--stroke);
+  background: transparent;
+  color: var(--fg-1);
+  font-size: var(--fs-micro);
+  font-family: var(--ui-font);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.board-view-chip:hover {
+  background: var(--surface-2);
+}
+/* 选中的那一档要一眼看得出（两排 chip 各自只能有一个 active） */
+.board-view-chip.is-active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: var(--accent);
+  color: var(--fg-0);
+}
+.board-view-filter {
+  font-family: var(--mono-font);
+}
+
+/* 成员看板开合（R46）：窄视口默认收起，把高度让给图。 */
+.board-members-toggle {
+  margin-left: var(--s-2);
+  font-size: var(--fs-micro);
+  padding: 0 6px;
+}
+.board-members.is-collapsed {
+  /* 收起时只留一行标题：这里的每一像素都是**图的高度**（1024×800 下 canvas 298px，
+     而 quick-fix 的 tight 几何要 304px——就差在这 18px 上）。 */
+  padding: 2px var(--s-2) 4px;
+}
+.board-members.is-collapsed h3 {
+  margin-bottom: 0;
+}
+.board-members.is-collapsed .board-member-list {
+  display: none;
 }
 
 /* ── 看板摘要条（收起时可见：段宽 = 状态占比）────────────────────────────── */

@@ -100,6 +100,28 @@ export const TOOL_LABEL = {
   agent_teams_resume: '恢复团队',
 }
 
+/*
+ * 视图（R46 · M10-11）：分组签与状态过滤的界面文案。
+ *
+ * ⚠️ **流水线自己的名字不在这里**：`task.quick-fix` 的中文名是**内容**，
+ * 前端只显示 `set` 去掉 `task.` 前缀的短名（见 `core/board-layout.js` 的 `shortGroupName`）。
+ * 想看中文流水线名，得由协议层下发——UI 层不猜。
+ */
+export const VIEW_GROUP_ALL = '全部'
+export const UNGROUPED_LABEL = '未分组'
+/** 状态过滤四档（顺序即界面顺序）。 */
+export const VIEW_FILTERS_ORDER = ['all', 'unfinished', 'failed', 'done']
+export const VIEW_FILTER_LABEL = { all: '全部', unfinished: '未完成', failed: '失败', done: '完成' }
+
+/** 分组签上的文字：`quick-fix · 18 张（6 未完成）`。 */
+export function groupViewLabel(group) {
+  const name = group.id === 'all' ? VIEW_GROUP_ALL : group.name === '' ? UNGROUPED_LABEL : group.name
+  return `${name} · ${group.total} 张${group.unfinished > 0 ? `（${group.unfinished} 未完成）` : ''}`
+}
+
+/** 成员看板的开合按钮文案。 */
+export const MEMBERS_TOGGLE_LABEL = { open: '收起', closed: '展开' }
+
 /** 工具的中文名（未知 → 原样返回）。 */
 export function toolLabel(name) {
   if (typeof name !== 'string' || name === '') return '未知工具'
