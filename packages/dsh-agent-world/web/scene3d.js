@@ -217,6 +217,32 @@ export function createScene3d(canvas, options = {}) {
   /** 缺东西的记录：`{ models: Set, builders: Set }`。换 plan 时清空。 */
   let missing = { models: new Set(), builders: new Set() }
 
+  /**
+   * 把一个外部模型**摆正**：x/z 居中、底面贴地（就地修改 `position`）。
+   *
+   * ## 为什么这是机制而不是内容
+   *
+   * Kenney 的家具模型**原点在角/边上，不在中心**（实测 `desk` 的包围盒是
+   * `x -0.01..+0.72 / z -0.38..+0.18`）。而站点的 `anchor` 是"中心"——直接摆，
+   * 家具会整体偏出去半间屋子。
+   *
+   * 修法有两条：在内容里给 30 个模型各写一个偏移量（数据会随模型数量膨胀，
+   * 而且换一个模型就要补一条），或者**在这里按包围盒自动摆正**。
+   * 后者是"怎么把任意外部模型放进来"的通用能力，所以它属于机制。
+   *
+   * 对已经居中的模型（Kenney 的角色）这是**无操作**——所以不需要开关。
+   */
+  const recenterOnGround = (node) => {
+    node.updateMatrixWorld(true)
+    const box = new THREE.Box3().setFromObject(node)
+    if (box.isEmpty()) return
+    const center = box.getCenter(new THREE.Vector3())
+    // 绕自身原点旋转不会移动原点，所以这里的位移与 `rotation.y` 无关，可以放心加。
+    node.position.x -= center.x
+    node.position.z -= center.z
+    node.position.y -= box.min.y
+  }
+
   /** 一个中性占位块（还在加载中）。 */
   const pending = () => {
     const node = new THREE.Mesh(
@@ -274,6 +300,8 @@ export function createScene3d(canvas, options = {}) {
           real.scale.setScalar(model.scale)
           real.rotation.y = model.rotationY
           real.position.y += model.anchorY
+          // 摆正：Kenney 的家具原点在角上，不摆正会整体偏出去半间屋子。
+          recenterOnGround(real)
           onLoaded?.(real, node)
         })
         .catch(() => {

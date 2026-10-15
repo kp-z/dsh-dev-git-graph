@@ -68,10 +68,19 @@ test('覆盖之后角色真的是 GLB，且原程序化模型仍可取回（回�
   assert.equal(agent.url, 'kenney-mini-characters/character-male-a.glb')
   assert.equal(agent.scale, 2, '模型自然高度 0.671，放大到约 1.34')
 
-  // 只覆盖这一个条目：站点模型仍是程序化的（混用是对的那一侧，不是缺陷）。
+  // 站点模型现在由**另一个包**（`pack.kenney-furniture`）覆盖成家具 GLB。
+  // 两个包各管一边（人 / 陈设），互不干扰——这正是"换资产 = 加一个包"该有的样子。
   const desk = port.modelOf('model.station.desk')
-  assert.equal(desk.builder, 'desk')
-  assert.equal(desk.url, null)
+  assert.equal(desk.builder, null, '站点现在也是 GLB')
+  assert.equal(desk.url, 'kenney-furniture/desk.glb')
+
+  // 但**没被任何人覆盖**的模型仍是程序化的——覆盖是逐条目的，不是"整库替换"。
+  const lab = port.modelOf('model.station.lab')
+  assert.equal(lab.builder, null, '实验台也被这个包覆盖了（见 kenney-furniture.ts 的表）')
+  // 找一个确实没被覆盖的：`models` 库里只有这两个包覆盖过的条目被换掉。
+  const all = builtinPacks().flatMap((p) => (p.entries.models ?? []).map((m) => ({ pack: p.manifest.id, m })))
+  const procedural = all.filter((x) => x.m.source.kind === 'procedural')
+  assert.ok(procedural.length > 0, '仍应当有程序化模型（它们是"没装表现包"时的回退）')
 })
 
 // ── 内容 ↔ 资产的钉死 ───────────────────────────────────────────────────────

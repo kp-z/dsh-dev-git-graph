@@ -69,3 +69,25 @@ three 的 addon 之间有相对 import（`loaders/GLTFLoader.js` → `../utils/B
 `GLTFLoader.js` 与 `SkeletonUtils.js` **已经 vendor 并白名单了，但还没有代码去用它们**。
 消费它们的是 M5-1/M5-5（加载 GLB + `SkeletonUtils.clone()` 克隆骨骼角色 + `pack.kenney-mini`）。
 在那之前，3D 视图里站点与角色**仍然是程序化几何**（`web/builders.js`），一个外部模型都没用。
+
+## Kenney "Furniture Kit" 2.0（**CC0**）
+
+办公室陈设。**只取了 31 个办公室用得上的**（整包 140 个 GLB 里还有卧室/卫浴/厨房 36 个用不到的件）。
+
+- 上游页面：<https://kenney.nl/assets/furniture-kit>
+- 下载直链：`https://kenney.nl/media/pages/assets/furniture-kit/440e0608a4-1677580847/kenney_furniture-kit.zip`
+- 整包 zip 的 sha256：`e67652d0932cee41683f74711c03d3e192a2af9979ef8e6b237711f5482d46b0`（5,130,729 B）
+- **无外部贴图依赖**（每个 GLB 自包含），所以不需要额外的 `Textures/` 目录。
+- 31 个 GLB 共 **355KB**（平均 12KB）。
+- 由 `pack.kenney-furniture` 引用；`sa 内容里引用的每个 url 都有测试核对"文件真的在 src/vendor/ 下"。
+
+### ⚠️ 其中 **25 个还没有消费者**
+
+`SceneProp.modelId` 是**单数**——一个站点只能声明一个模型，所以"书桌 + 椅子 + 显示器"摆不出来。
+现在只有 6 个文件被 `pack.kenney-furniture` 引用（desk / table / bookcaseClosedWide /
+cardboardBoxOpen / deskCorner / loungeSofa），其余 25 个（椅子×4、显示器/键鼠、笔记本、
+书架×3、台灯×3、衣帽架、门框×2、扶手椅、封口纸箱、垃圾桶、收音机、电视、植物×3）
+**已 vendor、已进白名单，但没有任何内容引用**。
+
+这就是"**链路建好了没有消费者**"，已记成 BACKLOG 的 **M4-11**。
+下一轮要么让它们被用上，要么就该裁掉——**不要让它一直挂在这里**。

@@ -105,7 +105,9 @@ test('白名单是穷举式的：没有通配、没有 `..`、没有绝对路径
   // 嵌套路径必须真的支持（three 的 addon 结构要求如此）。
   assert.ok(VENDOR_WHITELIST.includes('three/build/three.module.min.js'))
   assert.ok(VENDOR_WHITELIST.includes('three/examples/jsm/utils/SkeletonUtils.js'))
-  assert.equal(VENDOR_WHITELIST.filter((n) => n.endsWith('.glb')).length, 12, '应当有 12 个角色模型')
+  // 12 个角色（pack.kenney-mini）+ 31 个家具（pack.kenney-furniture）。
+  assert.equal(VENDOR_WHITELIST.filter((n) => n.endsWith('.glb')).length, 43, '角色 + 家具的 GLB 总数')
+  assert.ok(VENDOR_WHITELIST.includes('kenney-furniture/desk.glb'), '家具也要能服务')
 })
 
 // ── 走一遍真实服务器 ────────────────────────────────────────────────────────

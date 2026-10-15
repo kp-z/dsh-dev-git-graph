@@ -30,7 +30,157 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R19 末）：`typecheck` 绿 · `test` 286/286 绿。**外网已恢复。定时任务已取消（用户要求）。**
+当前验证状态（R20 末）：`typecheck` 绿 · `test` 286/286 绿。**外网已恢复。定时任务已取消（用户要求）。**
+
+---
+
+## R20 — 2026-10-15 · 办公室变成真家具：3D 路线定案（M4-7 的延伸）
+
+### 先回答用户的问题：有没有"同类项目的 3D 模型"
+
+**搜了，结论是：同类项目基本都是 2D——包括最出名的那个。**
+
+| 项目 | 渲染 | 证据 |
+|---|---|---|
+| `a16z-infra/ai-town`（最出名的 AI 小镇，MIT） | **2D** | 依赖是 `pixi.js` / `@pixi/react` / `pixi-viewport`；素材只有 `assets/ui/*.png`、`background.webp` |
+| `KsanaDock/Microverse`（用户给的） | **2D 顶视像素** | 视觉确认 + 698 张 `Modern_Office_Singles_32x32_*.png` |
+| GitHub 上搜"ai town / multi agent simulation" | 14 + 124 个候选 | 全是小项目、多数无许可、**没有一个是 3D 的** |
+
+原因很实在：这类项目的视觉是"俯视小镇/办公室"，**2D tileset 是成本最低的表达**，
+而项目的重心在 LLM 对话上，不在画面。
+
+**但"找不到同类项目的 3D 模型"不等于 3D 路线不可行**——恰恰相反：
+
+1. **我们已经在跑 3D 了**（R15–R19 建起来的三维管线 + GLB 加载），转 2D 是**丢掉刚建立的能力**；
+2. **3D 素材有干净且可执行的来源**（CC0），而那两个 2D 项目的素材**许可不明**（不能 vendor）；
+3. 2D 像素风要重做美术方向，而 3D 只差"一套家具模型"。
+
+所以按用户给的判据（"找不到 3D 就 2D 也行"），**条件不成立 → 继续 3D**。
+
+### 做了什么
+
+**1. vendor 了 Kenney Furniture Kit 的办公室子集（CC0）**
+
+- 直链 `https://kenney.nl/media/pages/assets/furniture-kit/440e0608a4-1677580847/kenney_furniture-kit.zip`
+- 整包 5,130,729B，sha256 `e67652d0932cee41683f74711c03d3e192a2af9979ef8e6b237711f5482d46b0`
+- 里面有 **140 个 GLB**，实测 **CC0**；**只取 31 个办公室用得上的**（不要卧室/卫浴/厨房 36 个件）
+- 31 个 GLB + License，**共 355KB**，**无外部贴图依赖**（都是自包含的）
+
+**2. `pack.kenney-furniture`：用内容覆盖 6 个站点模型**
+
+```
+model.station.desk       → kenney-furniture/desk.glb
+model.station.meeting    → kenney-furniture/table.glb
+model.station.server     → kenney-furniture/bookcaseClosedWide.glb
+model.station.mailroom   → kenney-furniture/cardboardBoxOpen.glb
+model.station.lab        → kenney-furniture/deskCorner.glb
+model.station.breakroom  → kenney-furniture/loungeSofa.glb
+```
+
+加上 R19 的 `pack.kenney-mini`（角色），现在**人与陈设都来自外部 GLB**，
+而 `src/sim/`、`src/domain/`、`src/scene/`、`src/protocol/`、`src/routes/` **仍然一个字都没改**。
+
+**3. 两处只能由机制解决的事（都不是内容能填的）**
+
+**① 比例**：Kenney 的模型与我们镇上的尺度不一致。实测
+`desk` 高 **0.38**、`bookcaseClosedWide` 高 **0.79**、`loungeSofa` 高 **0.46**；
+角色 `character-male-a` 自然高 **0.671**（乘 2 后 1.34）。
+现实里书桌 0.75m、人 1.7m，比例 **0.44** → 按 1.34 的人算，桌子该 0.59 高 → `0.59/0.38 ≈ 1.55`。
+取 **1.5**（桌子 0.57，是人的 43%）——与真实比例几乎一致。
+
+**② 原点在角上**（这个更隐蔽）：实测 `desk` 的包围盒是 `x -0.01..+0.72 / z -0.38..+0.18`
+——**Kenney 家具的原点在角/边上，不在中心**。而站点的 `anchor` 是"中心"，直接摆会整体偏出去半间屋子。
+
+修法有两条：在内容里给 31 个模型各写一个偏移量（数据随模型数量膨胀，换模型还要补），
+或者**在渲染器里按包围盒自动摆正**。选了后者——那是"怎么把任意外部模型放进来"的通用能力，
+所以它属于**机制**。新增 `scene3d.js` 的 `recenterOnGround()`：
+x/z 居中、底面贴 y=0。对已经居中的模型（Kenney 的角色）是**无操作**，所以不需要开关。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 286 / pass 286 / fail 0
+```
+
+测试数没变（286）——这一轮**没有新增测试**，而是**已有测试自己抓住了三处新情况**：
+
+- `内置内容声明的每个 GLB 地址，都必须在 src/vendor/ 下真的有那个文件`（R19 加的）
+  ——新加的 6 条家具映射被它自动覆盖；
+- `白名单与 src/vendor/ 的目录内容一一对应`（R18 加的）——31 个新文件必须逐个登记；
+- 三处 `packs` 列表断言 + 一处"站点模型仍是程序化的"断言 → 因为默认内容真的变了，
+  已按新事实更新（这本身说明那些断言是**有效的**，不是摆设）。
+
+**浏览器实测**：
+
+| 检查 | 结果 |
+|---|---|
+| GLB 请求数 | **7**（6 种家具 + 1 个角色）——10 个站点共用 6 个模型，**去重生效** |
+| 每个 GLB 的 MIME | `model/gltf-binary`，魔数 `glTF` |
+| 白名单外的家具（`bathtub.glb`） | **404** |
+| 占位残留 | **灰蓝 0 像素、品红 0 像素** |
+| 3D 画面 | 颜色数 **1377 → 2102**（同相机同光照，家具的细节更多） |
+| 视觉确认 | 书桌区 / 长桌 / 沙发 / 高柜 / 纸箱**各自出现在正确的地块内**，无穿模、无悬空错位 |
+
+**一处我自己加的检查当场抓到了错**：我先把 `model.station.meeting` 映射到 `tableCross.glb`，
+但**那个文件我没 vendor**；而且它 2.03 宽（放大后 3 米）会**压到隔壁站点**（两个会议站点只隔约 2.5）。
+换成 `table.glb` 并补进白名单。这条"内容引用的文件必须在 vendor 里"的检查
+（R19 加的）在这一轮第二次救场。
+
+### 诚实说缺口：31 个家具文件里**只有 6 个被引用**
+
+视觉核对明确指出来："**没有椅子**——人看起来像是直接坐在空气里"、"**没有植物**"。
+
+原因是结构性的：**一个站点目前只能声明一个模型**（`SceneProp.modelId` 是单数），
+所以"书桌 + 椅子 + 显示器"这种组合摆不出来。另外 25 个文件（椅子×4、显示器/键鼠、
+笔记本、书架×3、台灯×3、衣帽架、门框×2、扶手椅、封口纸箱、垃圾桶、收音机、电视、植物×3）
+**已经 vendor、已经在白名单里，但没有任何内容引用它们**。
+
+这正是我在 R12 批评过的"**链路建好了没有消费者**"，所以**必须写下来**：
+已记成 **M4-11（站点组合道具）**，见 BACKLOG。355KB 的体积可以接受，
+但**下一轮该让它们被用上，否则就该裁掉**。
+
+### 下一轮从哪继续
+
+**M4-11：让一个站点能摆一组模型（椅子 + 显示器 + 植物）。** 具体：
+
+1. `SceneProp` 加 `extraModelIds: string[]`（协议层），`scene/plan.ts` 从内容填；
+   或者更通用：`StationEntry.models: string[]`（内容声明一组）。
+   两者的取舍：前者是"渲染层的多模型"，后者是"内容的多模型"——**倾向后者**
+   （组合是内容决策：这张桌子上有没有显示器是内容说了算，不是渲染器）。
+2. 内容侧给 6 个站点各声明一组（例如书桌 = `desk` + `chairDesk` + `computerScreen` + `laptop`）。
+3. 渲染器按 `modelId` 逐个实例化并**错开摆放**（需要每个模型一个局部偏移 → 这又回到
+   "偏移量该进内容还是机制"的老问题：**单个模型的偏移是内容**（"显示器摆在桌面上"),
+   而"摆正/贴地"是机制）。
+4. 之后再接 **M5-2（动作库）**：32 条剪辑 → `AnimationMixer` + 按状态交叉淡入。
+   第一件事仍然是**把 GLB 里真实的 32 个剪辑名 dump 出来**，不凭印象写。
+
+### 假设
+
+- **办公室场景就照 Microverse 的"设计意图"来**（工位区 / 会议区 / 储物区 / 休息区），
+  但**不碰它的素材**（2D 像素、且许可不明）。我们的家具全部来自 Kenney CC0。
+- **`scale: 1.5` 对全部家具有效**：Kenney 的 kit 内部是统一单位约定（实测三个不同类型的高宽比一致）。
+- **自动摆正（`recenterOnGround`）对角色是无操作**：它们的包围盒本来就居中且脚底在 0——
+  所以这个函数不需要"要不要启用"的开关。**但这依赖 Kenney 的约定**；换一家素材时
+  如果模型原点在奇怪的地方，这个函数仍然会把它摆正（那正是它通用的一面）。
+
+### 卡住 / 风险
+
+- **31 个家具文件里 25 个还没有消费者**（见上）。这是本轮唯一的"半成品"，已记 M4-11。
+- **`vendor` 目录现在 4.1MB**（three 1.0MB + 角色 2.9MB + 家具 0.36MB）。再加包就要考虑按需下载。
+- **`web/` 仍是手写 JS 没有类型**（记到第九次）。这一轮又给它加了 `recenterOnGround`。
+- **站点仍然只有一个模型**，所以"坐"这个动作在视觉上是缺失的（人站在桌子后面对齐 slot）。
+- **定时任务仍然取消着**，下一轮什么时候做由用户说。
+
+### 本轮产出
+
+- 新增：`src/vendor/kenney-furniture/`（32 个文件）、`src/content/packs/kenney-furniture.ts`
+- 修改：`src/routes/vendor.ts`（白名单 +31）、`src/content/packs/default.ts`（注册表现包）、
+  `web/scene3d.js`（`recenterOnGround` + 调用）、
+  `test/{external-pack,http,smoke,vendor,kenney-pack}.test.js`
+- 文档：`BACKLOG.md`（M4-11 新增）
+- 测试仍 286/286；**没有新增测试**——这一轮靠已有测试抓新情况
 
 ---
 

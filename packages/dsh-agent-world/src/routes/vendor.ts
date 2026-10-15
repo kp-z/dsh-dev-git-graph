@@ -52,6 +52,19 @@ export const VENDOR_WHITELIST: readonly string[] = [
   'kenney-mini-characters/License.txt',
   'kenney-mini-characters/Textures/colormap.png',
   ...['male', 'female'].flatMap((sex) => ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => `kenney-mini-characters/character-${sex}-${k}.glb`)),
+
+  // Kenney "Furniture Kit"（CC0）——办公室陈设。**只取办公室用得上的 30 个**，
+  // 没要整包 140 个里的卧室/卫浴/厨房件（用不到；CC0 允许只取一部分）。
+  'kenney-furniture/License.txt',
+  ...[
+    'desk', 'deskCorner', 'table', 'chair', 'chairDesk', 'chairModernCushion', 'chairRounded',
+    'computerScreen', 'computerKeyboard', 'computerMouse', 'laptop',
+    'bookcaseClosed', 'bookcaseClosedWide', 'bookcaseOpen', 'bookcaseOpenLow',
+    'lampRoundTable', 'lampRoundFloor', 'lampSquareCeiling', 'coatRackStanding',
+    'doorwayOpen', 'doorwayFront', 'loungeSofa', 'loungeChair',
+    'cardboardBoxClosed', 'cardboardBoxOpen', 'trashcan', 'radio',
+    'televisionVintage', 'plantSmall1', 'plantSmall2', 'pottedPlant',
+  ].map((name) => `kenney-furniture/${name}.glb`),
 ]
 
 /**

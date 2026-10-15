@@ -264,7 +264,7 @@ test('端到端：外部包顶掉花名册 → createWorld 出来的世界真的
     assert.equal(world.agents[0].role, 'lead')
     assert.equal(world.agents[1].name, '唯一的工程师')
     // 世界记录了自己是由哪些内容装出来的——否则"这局是用哪个版本的内容玩的"没法回查。
-    assert.deepEqual(world.origin.packs, ['pack.default', 'pack.kenney-mini', 'pack.my-team'])
+    assert.deepEqual(world.origin.packs, ['pack.default', 'pack.kenney-mini', 'pack.kenney-furniture', 'pack.my-team'])
     // 站点没被碰过：改一个库不影响别的库。
     assert.equal(world.stations.length, 10)
   })
