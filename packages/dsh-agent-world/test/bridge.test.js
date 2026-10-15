@@ -136,6 +136,10 @@ function makeBridge(overrides = {}) {
     transport,
     systemPromptFor: (characterId) => `你是角色 ${characterId}。`,
     now: () => 1_700_000_000_000,
+    // **死会话检测默认关掉**（R36）：它会在 `say` 里等最多 8 秒来确认"这条会话有没有反应"，
+    // 而这里的假传输不产生任何事件，于是每条用例都要白等 8 秒。真实行为由三条专用用例
+    // 打开 `deadSessionMs` 来验（它们才是这个机制的守卫）。生产默认仍是 8000。
+    deadSessionMs: 0,
     ...overrides.options,
   })
   return { bridge, factory, transport }
@@ -1145,4 +1149,96 @@ test('G4：不配 characterTools 时保持旧行为（不限制）', async () =>
   const { bridge, factory } = makeBridge()
   await bridge.wake('c1')
   assert.deepEqual(runSetupWithTools(factory.calls[0], ['bash']), [])
+})
+
+// ── R36（M6-14）：死会话自愈 ─────────────────────────────────────────────────
+//
+// 真机：resume 回来的旧 seed 会话，宿主照样回 accepted:true，但**一条事件都不落**，
+// 于是用户干等 60 秒超时。健康会话发话后 4ms 就落第一条事件。
+
+/** 一个"已存在、只能 resume"的工厂：第一次 createAgent 一律报 already exists。 */
+function resumeOnlyFactory() {
+  const created = []
+  const resumed = []
+  return {
+    calls: created,
+    resumed,
+    async createAgent(options) {
+      // 原 id 已存在（落在磁盘上的旧会话）；换了代次的新 id 能建。
+      if (!options.sessionId.includes('~')) throw new Error(`session "${options.sessionId}" already exists`)
+      created.push(options)
+      return { agent: { id: options.sessionId }, async dispose() {} }
+    },
+    async resumeAgent(options) {
+      resumed.push(options)
+      return { agent: { id: options.resumeSessionId }, async dispose() {} }
+    },
+  }
+}
+
+test('M6-14：接回的会话发话后没有任何事件 → 判死、换新 id 重建、重发（旧会话不动）', async () => {
+  const errors = []
+  const factory = resumeOnlyFactory()
+  const { bridge, transport } = makeBridge({ factory, options: { deadSessionMs: 60, onError: (r) => errors.push(r) } })
+
+  const result = await bridge.say('c1', '在吗')
+
+  assert.equal(result.ok, true, `应当自愈成功：${result.reason ?? ''}`)
+  assert.equal(factory.resumed.length, 1, '先接回旧会话')
+  assert.equal(factory.calls.length, 1, '判死后建了一条新的')
+  assert.equal(result.sessionId, 'agent-world:c1~2', '新会话必须换 id，否则会撞回那条死的')
+  assert.equal(transport.prompts.length, 2, '两次投递：死会话一次、新会话一次')
+  assert.equal(transport.prompts[1].request.sessionId, 'agent-world:c1~2')
+  assert.match(errors.join('\n'), /不起新轮/, '自愈要说出来，不能静默')
+})
+
+test('M6-14：接回的会话**有**事件 → 不判死、不重建（健康角色行为不变）', async () => {
+  const factory = resumeOnlyFactory()
+  const { bridge, transport } = makeBridge({ factory, options: { deadSessionMs: 500 } })
+  // 投递一发生就回一条事件——模拟健康会话 4ms 落 inbox/spliced。
+  const prompt = transport.prompt.bind(transport)
+  transport.prompt = async (request, signal) => {
+    const r = await prompt(request, signal)
+    setTimeout(() => transport.emit(request.sessionId, { type: 'agent/inbox/spliced', seq: 1, time: 0, data: {} }), 5)
+    return r
+  }
+
+  const started = Date.now()
+  const result = await bridge.say('c1', '在吗')
+  assert.equal(result.ok, true)
+  assert.equal(result.sessionId, 'agent-world:c1', '健康会话不换 id')
+  assert.equal(factory.calls.length, 0, '不重建')
+  assert.equal(transport.prompts.length, 1, '只投递一次')
+  assert.ok(Date.now() - started < 400, '有事件就立刻放行，不等满检测窗口')
+})
+
+test('M6-14：新建的会话不做死会话检查（新会话不可能是"旧状态卡死"）', async () => {
+  const { bridge, transport } = makeBridge({ options: { deadSessionMs: 5000 } })
+  const started = Date.now()
+  const result = await bridge.say('c1', '在吗')
+  assert.equal(result.ok, true)
+  assert.equal(result.created, true)
+  assert.equal(transport.prompts.length, 1)
+  assert.ok(Date.now() - started < 1000, '新会话不应该等那 5 秒')
+})
+
+test('M6-14：本进程里早就活着的会话**不做**死会话检查（第二句话不应多等）', async () => {
+  const factory = resumeOnlyFactory()
+  const { bridge, transport } = makeBridge({ factory, options: { deadSessionMs: 3000 } })
+  // 第一句：接回 → 有事件 → 健康
+  const prompt = transport.prompt.bind(transport)
+  transport.prompt = async (request, signal) => {
+    const r = await prompt(request, signal)
+    if (transport.prompts.length === 1) {
+      setTimeout(() => transport.emit(request.sessionId, { type: 'agent/inbox/spliced', seq: 1, time: 0, data: {} }), 5)
+    }
+    return r
+  }
+  await bridge.say('c1', '第一句')
+  // 第二句：会话已经活着；这次**不发任何事件**，若还在检查就会等满 3 秒
+  const started = Date.now()
+  const second = await bridge.say('c1', '第二句')
+  assert.equal(second.ok, true)
+  assert.equal(second.sessionId, 'agent-world:c1', '复用同一条会话，不换 id')
+  assert.ok(Date.now() - started < 1000, `复用中的会话不该再等检测窗口（用了 ${Date.now() - started}ms）`)
 })

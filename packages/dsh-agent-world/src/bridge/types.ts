@@ -282,6 +282,14 @@ export type WakeResult =
       readonly sessionId: string
       /** `true` = 这一下真的建了会话；`false` = 复用了已有的。 */
       readonly created: boolean
+      /**
+       * `true` = **这一下**刚把磁盘上的旧会话接回来（R36）。
+       *
+       * 与 `created: false` 不同：后者也包括"这一轮早就活着、直接复用"。
+       * 死会话检测只该针对刚接回的——R30 时代的旧会话可能停在一个起不了新轮的状态；
+       * 而本进程里已经正常对过话的会话，没有理由怀疑它。
+       */
+      readonly resumed?: boolean
       readonly liveCount: number
     }
   | { readonly ok: false; readonly characterId: string; readonly code: BridgeFailureCode; readonly reason: string }
@@ -441,6 +449,11 @@ export interface CharacterBridgeOptions {
   readonly checkReady?: () => BridgeReadiness | Promise<BridgeReadiness>
   /** 角色 id → 会话 id。默认 `agent-world:<characterId>`。 */
   readonly sessionIdFor?: (characterId: string) => string
+  /**
+   * 发话后多久没有任何会话事件就判定会话已死、换新会话重发（R36）。默认 8000；`0` 关闭。
+   * 只对**接回来的**旧会话生效。
+   */
+  readonly deadSessionMs?: number
   /** 透传给 `createAgent` 的模型选择。 */
   readonly agentOptions?: BridgeAgentOptions
   /**

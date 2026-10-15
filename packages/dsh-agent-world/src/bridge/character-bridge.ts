@@ -61,6 +61,15 @@ export const DEFAULT_MAX_LIVE_SESSIONS = 4
 /** 等回复的默认超时。够慢模型说一句话，又不至于让面板一直转圈。 */
 export const DEFAULT_REPLY_TIMEOUT_MS = 60_000
 
+/**
+ * 发话后多久没有任何会话事件，就判定这条会话是死的（R36）。
+ *
+ * 真机数据：健康会话发话后 **4ms** 就落第一条 `agent/inbox/spliced`；
+ * 死会话（R30 时代停在 `session/end-seed` 的旧 seed 会话）**一条都不落**，
+ * 宿主照样回 `accepted: true`。所以留 8 秒的余量足够区分，又远小于 60 秒的回复超时。
+ */
+export const DEFAULT_DEAD_SESSION_MS = 8_000
+
 /** 一个角色的活动会话。 */
 interface LiveSession {
   readonly characterId: string
@@ -133,7 +142,23 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
   const maxLiveSessions = options.maxLiveSessions ?? DEFAULT_MAX_LIVE_SESSIONS
   const now = options.now ?? (() => Date.now())
   const requestIdPrefix = options.requestIdPrefix ?? 'agent-world-say'
-  const sessionIdFor = options.sessionIdFor ?? ((characterId: string) => `agent-world:${characterId}`)
+  const baseSessionIdFor = options.sessionIdFor ?? ((characterId: string) => `agent-world:${characterId}`)
+  /**
+   * 每个角色的会话"代次"（R36，死会话自愈）。
+   *
+   * 会话 id 由角色派生，所以**直接重建会撞回同一条死会话**（`createAgent` 报 already exists，
+   * 我们又走 resume 接回那条死的）。发现死会话后把代次 +1，下一次就用
+   * `agent-world:agent-5~2` 这样的新 id 建一条干净的。
+   * 代次 0 仍是原来的 id——**健康的角色行为完全不变**，用户磁盘上的旧会话也一个字不动。
+   */
+  const generation = new Map<string, number>()
+  const sessionIdFor = (characterId: string): string => {
+    const base = baseSessionIdFor(characterId)
+    const gen = generation.get(characterId) ?? 0
+    return gen === 0 ? base : `${base}~${gen + 1}`
+  }
+  /** 发话后多久一条事件都没有就判死（ms）。健康会话实测 4ms 就有第一条。 */
+  const deadSessionMs = options.deadSessionMs ?? DEFAULT_DEAD_SESSION_MS
 
   /** 已唤醒的角色。**这是"同一角色复用同一会话"的唯一真相来源。** */
   const sessions = new Map<string, LiveSession>()
@@ -153,6 +178,15 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
    * 那三次工具调用和最后的结论全丢了。现在结算点移到 `turn/end`：**一轮做完才算回答完**。
    */
   const turns = new Map<string, TurnProgress>()
+  /**
+   * 每个角色最近一次收到会话事件的时刻（R36，死会话自愈用）。
+   *
+   * 判据来自真机：**健康的会话在发话后毫秒级就会落一条 `agent/inbox/spliced`**
+   * （R36 实测 4ms），而 resume 回来的死会话**一条都不落**——
+   * 宿主照样回 `accepted: true`，于是桥只能干等 60 秒超时。
+   * 所以"发话后短时间内有没有事件"能干净地区分这两者。
+   */
+  const lastEventAt = new Map<string, number>()
 
   let unsubscribe: (() => void) | undefined
   let requestSeq = 0
@@ -192,6 +226,7 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
     unsubscribe = transport.subscribe((sessionId, event) => {
       const characterId = bySessionId.get(sessionId)
       if (characterId === undefined) return
+      lastEventAt.set(characterId, now())
 
       // ① 动作（与文字并列：同一条 assistant/message 可能既有文字又有工具调用）。
       const actions = decodeBridgeActions(event)
@@ -467,7 +502,7 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
     bySessionId.set(sessionId, characterId)
     ensureSubscribed()
     // `created: false` 表示这次是**接回**已有会话（角色记得上次说过的话）。
-    return { ok: true, characterId, sessionId, created: !resumed, liveCount: sessions.size }
+    return { ok: true, characterId, sessionId, created: !resumed, resumed, liveCount: sessions.size }
   }
 
   async function wake(characterId: string): Promise<WakeResult> {
@@ -514,26 +549,60 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
     requestSeq += 1
     const requestId = sayOptions.requestId ?? `${requestIdPrefix}:${characterId}:${requestSeq}`
 
-    try {
-      await channel.prompt(
-        {
-          requestId,
-          sessionId: woken.sessionId,
-          mode: sayOptions.mode ?? 'queue',
-          content: [{ type: 'text', text }],
-        },
-        sayOptions.signal ?? new AbortController().signal,
+    const deliver = async (sessionId: string, id: string): Promise<Failure | undefined> => {
+      try {
+        await channel.prompt(
+          { requestId: id, sessionId, mode: sayOptions.mode ?? 'queue', content: [{ type: 'text', text }] },
+          sayOptions.signal ?? new AbortController().signal,
+        )
+        return undefined
+      } catch (error) {
+        const code = codeOf(error)
+        return fail(characterId, 'prompt-failed', `消息投递失败${code === undefined ? '' : `（${code}）`}：${messageOf(error)}`)
+      }
+    }
+
+    const sentAt = now()
+    const failed = await deliver(woken.sessionId, requestId)
+    if (failed !== undefined) return failed
+
+    // ── 死会话自愈（R36）──────────────────────────────────────────────────────
+    //
+    // 只对**这一下刚从磁盘接回来的**会话做：新建的不可能是"旧状态卡死"；
+    // 本进程里早就活着、正常对过话的也不该怀疑它（否则每说一句都要多一次检查）。`deadSessionMs <= 0` 关掉这个机制（测试里按需打开）。
+    if (woken.resumed === true && deadSessionMs > 0 && (await looksDead(characterId, sentAt))) {
+      const deadId = woken.sessionId
+      options.onError?.(
+        `${characterId} 的会话 ${deadId} 接回后不起新轮（${deadSessionMs}ms 内没有任何事件）：` +
+          '换一条新会话重发。旧会话留在磁盘上没有动。',
       )
-    } catch (error) {
-      const code = codeOf(error)
-      return fail(
-        characterId,
-        'prompt-failed',
-        `消息投递失败${code === undefined ? '' : `（${code}）`}：${messageOf(error)}`,
-      )
+      await release(characterId)
+      generation.set(characterId, (generation.get(characterId) ?? 0) + 1)
+      const fresh = await wake(characterId)
+      if (!fresh.ok) return fresh
+      const retried = await deliver(fresh.sessionId, `${requestId}:retry`)
+      if (retried !== undefined) return retried
+      return { ok: true, characterId, sessionId: fresh.sessionId, requestId: `${requestId}:retry`, created: fresh.created }
     }
 
     return { ok: true, characterId, sessionId: woken.sessionId, requestId, created: woken.created }
+  }
+
+  /**
+   * 发话后 `deadSessionMs` 内这个角色有没有收到**任何**会话事件。
+   * 有一条就立刻返回 false（健康会话 4ms 就满足，几乎不增加延迟）。
+   */
+  function looksDead(characterId: string, sentAt: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const started = Date.now()
+      const tick = (): void => {
+        if ((lastEventAt.get(characterId) ?? -Infinity) >= sentAt) return resolve(false)
+        if (disposed) return resolve(false)
+        if (Date.now() - started >= deadSessionMs) return resolve(true)
+        setTimeout(tick, 25)
+      }
+      tick()
+    })
   }
 
   function waitForReply(characterId: string, waitOptions: WaitForReplyOptions = {}): Promise<WaitReplyResult> {
