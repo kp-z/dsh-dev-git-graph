@@ -13,17 +13,6 @@
  * 内容没变就一次 innerHTML 都不做。
  */
 
-/** 代理状态的中文标签（徽章语义在 `roster.js`：花名册才是显示它的地方）。 */
-const STATE_LABEL = {
-  idle: '待命',
-  walking: '赶路',
-  working: '干活',
-  talking: '交谈',
-  blocked: '受阻',
-  celebrating: '庆祝',
-  sleeping: '休息',
-}
-
 /**
  * 建顶栏。
  *
@@ -34,6 +23,8 @@ const STATE_LABEL = {
  * @param {() => void} [options.onToggleDrawer]
  * @param {Document} [options.document]
  */
+import { agentStateLabel } from './labels.js'
+
 export function createTopbar(options) {
   const doc = options.document ?? globalThis.document
   const root = options.root
@@ -76,7 +67,7 @@ export function createTopbar(options) {
     const { world, meta, tick, connected, nextSeq, silentForMs, waiting } = info
     const states = world.agents.reduce((acc, a) => ({ ...acc, [a.state]: (acc[a.state] ?? 0) + 1 }), {})
     const stateText = Object.entries(states)
-      .map(([k, v]) => `${STATE_LABEL[k] ?? k} ${v}`)
+      .map(([k, v]) => `${agentStateLabel(k)} ${v}`)
       .join(' · ')
     const flying = world.messages.filter((m) => (m.deliverAtTick ?? 0) > tick).length
     const stale = silentForMs > (info.staleAfterMs ?? 8000)

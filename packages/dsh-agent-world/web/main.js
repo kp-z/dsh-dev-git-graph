@@ -510,6 +510,14 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
   globalThis.__agentWorldDialogue = {
     state: dialogue.state,
     ingest: (events) => dialogue.ingest(events, performance.now()),
+    // `push(帧)`：**推一整条 SSE 帧**（`{type:'dialogue', events:[…]}` / 事件本体都行）。
+    // 存在的理由：临时服务器没有 DSH 会话服务，真模型帧拿不到，而"帧到了面板之后的表现"
+    // 必须能被验（M6-13 的 acting / 动作行就是这么验的，见 PROGRESS R35）。
+    push: (frame) => {
+      const events = dialogueEventsFromFrame(frame)
+      dialogue.ingest(events, performance.now())
+      return events.length
+    },
     expire: (nowTick) => dialogue.expire(nowTick, performance.now()),
     bubbles: () => dialogue.bubblesFor(performance.now()),
     say: sayToAgent,

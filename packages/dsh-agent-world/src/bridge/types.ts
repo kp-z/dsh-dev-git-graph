@@ -299,6 +299,15 @@ export type SayResult =
   | { readonly ok: false; readonly characterId: string; readonly code: BridgeFailureCode; readonly reason: string }
 
 /** 从 `assistant/message` 解出来的一条回复。 */
+/**
+ * 角色调用过一次工具（R35）。`callId` 用来配对 `tool/result` 判成败。
+ */
+export interface BridgeAction {
+  readonly name: string
+  readonly detail?: string
+  readonly ok: boolean
+}
+
 export interface BridgeReply {
   readonly characterId: string
   readonly sessionId: string
@@ -307,6 +316,8 @@ export interface BridgeReply {
   readonly step: number
   /** `assistant/message` 上的 `interrupted: true` —— 被打断的半句话。 */
   readonly interrupted: boolean
+  /** 这一轮里调用过的工具（按发生顺序）。没有就是空数组——**不是可选**，省得每个消费点都要判空。 */
+  readonly actions: readonly BridgeAction[]
 }
 
 /** 一轮的结束（`turn/end`）。 */
@@ -396,6 +407,12 @@ export interface WaitForReplyOptions {
   /** 默认 60s。`0` = 不超时（测试里用）。 */
   readonly timeoutMs?: number
   readonly signal?: AbortSignal
+  /**
+   * 这一轮的动作有变化时回调（R35）：面板据此显示"他在派单…"，而不是干等。
+   *
+   * 回调里给的列表是**到目前为止的累积快照**，不是增量——晚到的消费点只看一次也能拼出全貌。
+   */
+  readonly onProgress?: (actions: readonly BridgeAction[]) => void
 }
 
 /**

@@ -47,11 +47,12 @@ function fakePort(script = {}) {
       if (script.sayFails !== undefined) return { ok: false, reason: script.sayFails }
       return { ok: true }
     },
-    async waitForReply(characterId, timeoutMs) {
+    async waitForReply(characterId, timeoutMs, onProgress) {
       waits.push({ characterId, timeoutMs })
       if (script.throws === 'wait') throw new Error('等回复时炸了')
       if (script.replyFails !== undefined) return { ok: false, reason: script.replyFails }
-      return { ok: true, text: script.reply ?? '我这就去看看' }
+      for (const actions of script.progress ?? []) onProgress?.(actions)
+      return { ok: true, text: script.reply ?? '我这就去看看', actions: script.actions ?? [] }
     },
     liveCount: () => says.length,
   }

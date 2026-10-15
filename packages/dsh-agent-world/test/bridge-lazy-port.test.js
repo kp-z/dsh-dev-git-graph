@@ -21,7 +21,7 @@ function fakeBridge(reply = '你好') {
       },
       async waitForReply(characterId) {
         calls.push(['wait', characterId])
-        return { ok: true, reply: { text: reply } }
+        return { ok: true, reply: { text: reply, actions: [] } }
       },
       liveCount: () => 1,
       async disposeAll() {},
@@ -49,7 +49,8 @@ test('惰性端口：服务一开始不在、后来出现 —— 出现之后就
   const later = await port.say('agent-1', '你好')
   assert.equal(later.ok, true, '服务出现之后必须能说话 —— 原实现在这里仍然失败')
   const reply = await port.waitForReply('agent-1', 1000)
-  assert.deepEqual(reply, { ok: true, text: '我是工头阿金' })
+  // R35：回复现在带上这一轮的动作列表（空数组 = 他这次没动手）。
+  assert.deepEqual(reply, { ok: true, text: '我是工头阿金', actions: [] })
   assert.deepEqual(calls.map((c) => c[0]), ['say', 'wait'])
   assert.equal(attempts, 2, '成功一次之后就记住，不再重复建桥')
 })

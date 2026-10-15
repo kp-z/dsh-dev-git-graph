@@ -109,6 +109,8 @@ export function decodeBridgeEvent(sessionId: string, event: BridgeSessionEvent):
         turn: extracted.turn,
         step: extracted.step,
         interrupted: extracted.interrupted,
+        // 单条事件看不到整轮做过什么；bridge 结算时会换成这一轮累积的动作列表。
+        actions: [],
       },
     }
   }
@@ -128,4 +130,102 @@ export function decodeBridgeEvent(sessionId: string, event: BridgeSessionEvent):
   }
 
   return undefined
+}
+
+
+/**
+ * 从 `assistant/message` 的 `data` 里取出**工具调用**（R35）。
+ *
+ * 真机形状（R34 从小蓝的会话日志里读出来的）：
+ * `content: [{ type:'tool-call', id:'call_…', name:'agent_world_dispatch', arguments:'{"taskSet":"…"}' }]`
+ * —— `arguments` 是 **JSON 字符串**，不是对象，所以解析要包 try。
+ *
+ * @returns 每个调用一项；没有调用时返回空数组（不是 null——"没调工具"是正常情况）。
+ */
+export function extractToolCalls(
+  data: unknown,
+): { readonly callId: string; readonly name: string; readonly detail: string | undefined }[] {
+  if (!isRecord(data)) return []
+  const message = data.message
+  if (!isRecord(message)) return []
+  const content = Array.isArray(message.content) ? message.content : []
+
+  const out: { callId: string; name: string; detail: string | undefined }[] = []
+  for (const block of content) {
+    if (!isRecord(block)) continue
+    if (block.type !== 'tool-call') continue
+    if (typeof block.name !== 'string' || block.name === '') continue
+    const callId = typeof block.id === 'string' ? block.id : ''
+    out.push({ callId, name: block.name, detail: describeToolArgs(block.name, block.arguments) })
+  }
+  return out
+}
+
+/**
+ * 从一次工具调用的参数里挑出**一个**能让人看懂这次调用在干什么的值。
+ *
+ * 为什么只挑一个、而且按工具名挑：面板上要的是"🔧 派单 task.quick-fix"这种一眼能读的行。
+ * 把整个参数 JSON 摊上去会变成噪音，而且工具参数里可能有用户工作区的内容，
+ * 推到 SSE 上就会扩散到每个打开的面板。
+ *
+ * **这里的映射是"哪些参数值得给人看"，不是 UI 文案**——显示成什么词由面板决定。
+ * 未知工具一律不猜（返回 undefined），宁可只显示工具名。
+ */
+function describeToolArgs(name: string, rawArguments: unknown): string | undefined {
+  if (typeof rawArguments !== 'string' || rawArguments.trim() === '') return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawArguments)
+  } catch {
+    return undefined
+  }
+  if (!isRecord(parsed)) return undefined
+  const pick = (...keys: string[]): string | undefined => {
+    for (const key of keys) {
+      const value = parsed[key]
+      if (typeof value === 'string' && value.trim() !== '') return value
+    }
+    return undefined
+  }
+  switch (name) {
+    case 'agent_world_dispatch':
+      return pick('taskSet')
+    case 'agent_world_content':
+      return pick('kind')
+    default:
+      return undefined
+  }
+}
+
+/** 从 `tool/result` 的 `data` 里取出它回应的是哪次调用、成没成。 */
+export function extractToolResult(data: unknown): { readonly callId: string; readonly ok: boolean } | null {
+  if (!isRecord(data)) return null
+  const message = data.message
+  if (!isRecord(message)) return null
+  const callId = typeof message.toolCallId === 'string' ? message.toolCallId : ''
+  if (callId === '') return null
+  return { callId, ok: message.isError !== true }
+}
+
+
+/**
+ * 一条会话事件里的**动作**部分（R35）：工具调用，或工具结果。
+ *
+ * 为什么和 {@link decodeBridgeEvent} 分开：**同一条 `assistant/message` 可能既有文字又有工具调用**
+ * （R34 真机：「我先复现一下」+ 两次调用在同一条里）。一个只返回一种结果的解码器必然丢掉其中一半，
+ * 所以文字走 `decodeBridgeEvent`、动作走这里，订阅方两个都调。
+ */
+export type DecodedAction =
+  | { readonly kind: 'call'; readonly callId: string; readonly name: string; readonly detail: string | undefined }
+  | { readonly kind: 'result'; readonly callId: string; readonly ok: boolean }
+
+export function decodeBridgeActions(event: BridgeSessionEvent): DecodedAction[] {
+  if (event.type === 'assistant/message') {
+    return extractToolCalls(event.data).map((c) => ({ kind: 'call' as const, ...c }))
+  }
+  if (event.type === 'tool/result') {
+    const r = extractToolResult(event.data)
+    return r === null ? [] : [{ kind: 'result', callId: r.callId, ok: r.ok }]
+  }
+  return []
 }

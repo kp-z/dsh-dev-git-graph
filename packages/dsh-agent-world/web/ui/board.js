@@ -23,6 +23,7 @@
  * 而不是静默退回一个看起来"设计就这样"的灰。
  */
 
+import { taskStatusLabel } from './labels.js'
 import {
   BOARD_TOKENS,
   STATUS_TOKEN,
@@ -36,21 +37,6 @@ import {
   resolveBoardColor,
   unlocksIndex,
 } from '../core/board-layout.js'
-
-/**
- * 六态的中文标签。
- *
- * 与 `ui/tasks.js` 的 `STATUS_LABEL` 同源（两处都是既有实现）。
- * **两处并存是债**：合到一份共享模块里要动那两个文件，留给 M7-7（搬到 DSH 侧栏 tab 时顺手合并）。
- */
-const STATUS_LABEL = {
-  pending: '待办',
-  ready: '可领取',
-  in_progress: '进行中',
-  blocked: '受阻',
-  done: '完成',
-  failed: '失败',
-}
 
 /** token → CSS 自定义属性名（CSS 里只引用变量，不写色值）。 */
 const CSS_VARS = {
@@ -272,7 +258,7 @@ export function createBoard(options = {}) {
         const chip = el(doc, 'button', 'board-chip')
         chip.type = 'button'
         chip.title = `${task.id} · ${task.title}`
-        chip.append(el(doc, 'span', 'board-chip-id', task.id), el(doc, 'span', 'dim', STATUS_LABEL[task.status] ?? task.status))
+        chip.append(el(doc, 'span', 'board-chip-id', task.id), el(doc, 'span', 'dim', taskStatusLabel(task.status)))
         chip.addEventListener('click', (event) => {
           event.stopPropagation()
           select({ kind: 'task', id: task.id })
@@ -383,13 +369,13 @@ export function createBoard(options = {}) {
         card.classList.toggle('is-failed', task.status === 'failed')
         card.classList.toggle('is-selected', selected !== null && selected.kind === 'task' && selected.id === task.id)
         fill.style.width = `${Math.round(Math.min(1, Math.max(0, task.progress)) * 100)}%`
-        card.title = `${task.id} · ${task.title} · ${STATUS_LABEL[task.status] ?? task.status}`
+        card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.status)}`
       }
       if (chip !== undefined) {
         chip.dataset.status = task.status
         applyNodeColors(chip, task.status)
         const label = chip.lastElementChild
-        if (label !== null) label.textContent = STATUS_LABEL[task.status] ?? task.status
+        if (label !== null) label.textContent = taskStatusLabel(task.status)
       }
     }
   }
@@ -406,7 +392,7 @@ export function createBoard(options = {}) {
       const segment = el(doc, 'i')
       applyNodeColors(segment, status)
       segment.style.width = `${(count / total) * 100}%`
-      segment.title = `${STATUS_LABEL[status] ?? status} ${count} / ${model.counts.total}`
+      segment.title = `${taskStatusLabel(status)} ${count} / ${model.counts.total}`
       parts.bar.append(segment)
     }
     for (const status of TASK_STATUSES) {
@@ -416,7 +402,7 @@ export function createBoard(options = {}) {
       const dot = el(doc, 'i', 'board-dot')
       applyNodeColors(dot, status)
       dot.classList.add('board-count-dot')
-      chip.append(dot, el(doc, 'b', undefined, String(count)), el(doc, 'span', 'dim', STATUS_LABEL[status] ?? status))
+      chip.append(dot, el(doc, 'b', undefined, String(count)), el(doc, 'span', 'dim', taskStatusLabel(status)))
       parts.counts.append(chip)
     }
     // "共 N 张"在收起状态没有信息量（段数与计数已经说完了），所以给它一个类名让 CSS 收起时隐藏。
@@ -453,7 +439,7 @@ export function createBoard(options = {}) {
     applyNodeColors(dot, task.status)
     dot.classList.add('board-count-dot')
     detail.append(dot, el(doc, 'b', 'board-detail-id', task.id), el(doc, 'span', undefined, task.title))
-    detail.append(el(doc, 'span', 'dim', `状态 ${STATUS_LABEL[task.status] ?? task.status}`))
+    detail.append(el(doc, 'span', 'dim', `状态 ${taskStatusLabel(task.status)}`))
     detail.append(el(doc, 'span', 'dim', `执行者 ${task.ownerName ?? '未分配'}`))
     if (task.requires.length > 0) detail.append(el(doc, 'span', 'dim', `需要 ${task.requires.join('/')}`))
     // 参考图里那句 "Unlocks t2,t3"：**从 blockedBy 反向索引来**，不用新数据。

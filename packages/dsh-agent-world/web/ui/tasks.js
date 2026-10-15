@@ -8,17 +8,10 @@
  * `task-10` 的字符串序在 `task-2` 前面，那会让两处对任务的顺序判断悄悄分叉。
  */
 
-const STATUS_LABEL = {
-  pending: '待办',
-  ready: '可领取',
-  in_progress: '进行中',
-  blocked: '受阻',
-  done: '完成',
-  failed: '失败',
-}
-
 /** 显示的优先顺序：正在做的排最前，然后是能领的、待办的、卡住的，最后是收尾的。 */
 const ORDER = { in_progress: 0, ready: 1, blocked: 2, pending: 3, failed: 4, done: 5 }
+
+import { taskStatusLabel } from './labels.js'
 
 function esc(text) {
   return String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
@@ -70,7 +63,7 @@ export function createTasks(options) {
         return `
           <li class="task-row${task.id === selectedTaskId ? ' is-active' : ''}" data-task="${esc(task.id)}" data-status="${esc(task.status)}">
             <div class="task-head">
-              <span class="badge badge-${esc(task.status)}">${esc(STATUS_LABEL[task.status] ?? task.status)}</span>
+              <span class="badge badge-${esc(task.status)}">${esc(taskStatusLabel(task.status))}</span>
               <span class="task-title">${esc(task.title)}</span>
             </div>
             <div class="task-meta">

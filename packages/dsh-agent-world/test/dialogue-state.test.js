@@ -15,7 +15,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import { actionCountText, actionIcon, actionText, actingText, agentStateLabel, agentStateTone, roleLabel, taskStatusLabel, toolLabel } from '../web/ui/labels.js'
 import {
+  MAX_ACTIONS_PER_TURN,
   MISSING_REASON,
   PHASES,
   activeAgentIds,
@@ -64,6 +66,24 @@ const failed = (turnId, reason, { agentId = 'agent-1', tick = 2 } = {}) => ({
   to: GOD,
   text: '',
   ...(reason === undefined ? {} : { reason }),
+})
+
+/** 一条动作（契约 `DialogueAction`）。 */
+const action = (name, detail, ok = true) => ({ name, ...(detail === undefined ? {} : { detail }), ok })
+
+/**
+ * `acting` 帧（R35，M6-13）：角色**正在调工具**。
+ *
+ * 契约说 `actions` 是**到目前为止的累积列表**（不是增量），所以构造器默认照这个口径用。
+ */
+const acting = (turnId, actions, { agentId = 'agent-1', tick = 1, text = '' } = {}) => ({
+  turnId,
+  tick,
+  phase: 'acting',
+  from: GOD,
+  to: agent(agentId),
+  text,
+  actions,
 })
 
 /**
@@ -403,4 +423,225 @@ test('失败提示必须能直接下手（不是"失败"两个字）', () => {
   // 网络错误要在提示里带上 cause，否则用户只看到光秃秃的 "fetch failed"。
   const nested = explainSayFailure({ status: 0, error: new Error('fetch failed', { cause: 'ECONNREFUSED 127.0.0.1:18437' }) })
   assert.ok(nested.includes('ECONNREFUSED'), nested)
+})
+
+// ── R35 / M6-13：`acting` 帧与"他做了什么" ────────────────────────────────────
+
+test('acting 帧按 turnId 累积到同一条记录上（真机是 3 次工具调用）', () => {
+  const state = createDialogueState()
+  applyDialogueEvents(state, [
+    thinking('t1', { text: '帮我修登录 bug' }),
+    acting('t1', [action('agent_world_status')]),
+    acting('t1', [action('agent_world_status'), action('agent_world_content', 'task.quick-fix')]),
+    acting('t1', [
+      action('agent_world_status'),
+      action('agent_world_content', 'task.quick-fix'),
+      action('agent_world_dispatch', 'task.quick-fix'),
+    ]),
+  ])
+
+  const turns = turnsFor(state, 'agent-1')
+  assert.equal(turns.length, 1, '同一 turnId 永远只有一条记录')
+  assert.equal(turns[0].phase, 'acting')
+  assert.deepEqual(
+    turns[0].actions.map((a) => a.name),
+    ['agent_world_status', 'agent_world_content', 'agent_world_dispatch'],
+  )
+  assert.equal(turns[0].actions[1].detail, 'task.quick-fix', '参数要留着：那是"他拿什么调的"')
+  assert.equal(turns[0].text, '', '还没回复，正文是空的')
+  assertConsistent(state)
+})
+
+test('replied 到了也**不丢** actions：动作留在那条回复下面', () => {
+  const state = createDialogueState()
+  applyDialogueEvents(state, [
+    acting('t1', [action('agent_world_status')]),
+    acting('t1', [action('agent_world_status'), action('agent_world_dispatch', 'task.quick-fix')]),
+    { ...replied('t1', '修好了：登录那块是 token 过期没续上。', { tick: 9 }), actions: undefined },
+  ])
+
+  const turn = latestTurn(state, 'agent-1')
+  assert.equal(turn.phase, 'replied')
+  assert.equal(turn.text, '修好了：登录那块是 token 过期没续上。', '正文是**最后一段**（R35 的契约修正）')
+  assert.deepEqual(
+    turn.actions.map((a) => a.name),
+    ['agent_world_status', 'agent_world_dispatch'],
+    '回复到了不许把"他干过什么"清掉',
+  )
+  assert.equal(turnsFor(state, 'agent-1').length, 1)
+  assertConsistent(state)
+})
+
+test('同一个工具调两次要算两次（R34 真机就是 content ×2）——不许按内容去重', () => {
+  const state = createDialogueState()
+  applyDialogueEvents(state, [
+    acting('t1', [action('agent_world_content', 'tasks'), action('agent_world_content', 'tasks')]),
+  ])
+  assert.equal(latestTurn(state, 'agent-1').actions.length, 2, '"调了几次"是这一轮要看见的东西')
+
+  // 连 replied 帧一起给完整列表时也一样
+  applyDialogueEvents(state, [
+    { ...replied('t2', '好', { tick: 3 }), actions: [action('agent_world_content', 'tasks'), action('agent_world_content', 'tasks')] },
+  ])
+  assert.equal(latestTurn(state, 'agent-1').actions.length, 2)
+  assertConsistent(state)
+})
+
+test('乱序：replied 先到（带完整动作）、旧的 acting 后到——不降级、不缩水', () => {
+  const state = createDialogueState()
+  const full = [action('agent_world_status'), action('agent_world_content', 'task.quick-fix'), action('agent_world_dispatch', 'task.quick-fix')]
+  applyDialogueEvents(state, [
+    { ...replied('t1', '派好了', { tick: 20 }), actions: full },
+    acting('t1', [action('agent_world_status')], { tick: 5 }), // 迟到的一帧（旧快照）
+  ])
+
+  const turn = latestTurn(state, 'agent-1')
+  assert.equal(turn.phase, 'replied', '结果到了之后，acting 不许把它打回"在干活"')
+  assert.equal(turn.actions.length, 3, '旧的短帧不许把动作列表缩回去')
+  assert.equal(turnsFor(state, 'agent-1').length, 1)
+  assertConsistent(state)
+})
+
+test('乱序的另一半：结果已到，晚到的 acting 带来**新**动作时只补动作、不改阶段', () => {
+  const state = createDialogueState()
+  applyDialogueEvents(state, [
+    { ...replied('t1', '做完了', { tick: 20 }), actions: [action('agent_world_status')] },
+    acting('t1', [action('agent_world_status'), action('agent_world_dispatch', 'task.quick-fix')], { tick: 21 }),
+  ])
+  const turn = latestTurn(state, 'agent-1')
+  assert.equal(turn.phase, 'replied')
+  assert.deepEqual(turn.actions.map((a) => a.name), ['agent_world_status', 'agent_world_dispatch'])
+  assertConsistent(state)
+})
+
+test('重复的 acting 帧是幂等的（同一份累积列表发三次还是一条）', () => {
+  const state = createDialogueState()
+  const frame = acting('t1', [action('agent_world_status'), action('agent_world_dispatch', 'task.quick-fix')])
+  applyDialogueEvents(state, [frame, frame, frame])
+  assert.equal(latestTurn(state, 'agent-1').actions.length, 2)
+  assert.equal(turnsFor(state, 'agent-1').length, 1)
+  assertConsistent(state)
+})
+
+test('宿主若按**增量**发（前缀对不上）也能合并，且重放不产生重复', () => {
+  const state = createDialogueState()
+  applyDialogueEvents(state, [
+    acting('t1', [action('agent_world_status')]),
+    acting('t1', [action('agent_world_dispatch', 'task.quick-fix')]), // 只有新的一条
+    acting('t1', [action('agent_world_dispatch', 'task.quick-fix')]), // 重放
+  ])
+  const names = latestTurn(state, 'agent-1').actions.map((a) => a.name)
+  assert.deepEqual(names, ['agent_world_status', 'agent_world_dispatch'])
+  assertConsistent(state)
+})
+
+test('failed 也保留动作："他试过但没成"本身就是信息', () => {
+  const state = createDialogueState()
+  applyDialogueEvents(state, [
+    acting('t1', [action('agent_world_dispatch', 'task.quick-fix', false)]),
+    failed('t1', '工具调用被拒：任务集不存在'),
+  ])
+  const turn = latestTurn(state, 'agent-1')
+  assert.equal(turn.phase, 'failed')
+  assert.equal(turn.actions[0].ok, false, '失败的那次调用要留着（图标会变成 ⚠️）')
+  assert.ok(turn.reason.includes('任务集不存在'))
+  assertConsistent(state)
+})
+
+test('动作的容错：认不出的条目丢掉，缺 ok 当成功，非数组当没有', () => {
+  const state = createDialogueState()
+  applyDialogueEvents(state, [
+    acting('t1', [
+      action('agent_world_status'),
+      { detail: '没有名字', ok: true }, // 没有 name → 丢
+      null,
+      'not an object',
+      { name: 'agent_world_open', ok: undefined }, // ok 缺了 → 当成成功
+      { name: 123, ok: true }, // name 不是字符串 → 丢
+    ]),
+  ])
+  const actions = latestTurn(state, 'agent-1').actions
+  assert.deepEqual(actions.map((a) => a.name), ['agent_world_status', 'agent_world_open'])
+  assert.equal(actions[1].ok, true)
+  assert.equal(actions[0].detail, undefined)
+
+  applyDialogueEvents(state, [acting('t2', 'not an array'), acting('t3', undefined)])
+  assert.equal(latestTurn(state, 'agent-1').turnId, 't3')
+  assert.deepEqual(latestTurn(state, 'agent-1').actions, [], '非数组 → 空列表，不炸')
+  assertConsistent(state)
+})
+
+test('动作有条数上限（内存不能无限涨），丢的是最旧的', () => {
+  const state = createDialogueState()
+  const many = Array.from({ length: MAX_ACTIONS_PER_TURN + 10 }, (_, i) => action(`tool_${i}`))
+  applyDialogueEvents(state, [acting('t1', many)])
+  const actions = latestTurn(state, 'agent-1').actions
+  assert.equal(actions.length, MAX_ACTIONS_PER_TURN)
+  assert.equal(actions[0].name, 'tool_10', '丢最早的那几条')
+  assert.equal(actions[actions.length - 1].name, `tool_${MAX_ACTIONS_PER_TURN + 9}`)
+  assertConsistent(state)
+})
+
+test('在干活（acting）也会被"等太久"兜底收掉（宿主挂了不能一直转）', () => {
+  const state = createDialogueState()
+  applyDialogueEvents(state, [acting('t1', [action('agent_world_status')], { tick: 100 })])
+  const expired = expireThinking(state, { nowTick: 1000, maxAgeTicks: 300 })
+  assert.deepEqual(expired.map((t) => t.turnId), ['t1'])
+  const turn = state.byTurn.get('t1')
+  assert.equal(turn.phase, 'failed')
+  assert.equal(turn.actions.length, 1, '失败之后动作也还在')
+  assert.ok(turn.reason.includes('事件流'))
+  assertConsistent(state)
+})
+
+test('acting 帧在几种信封里都认得出（actions 跟着活下来）', () => {
+  const e = acting('t1', [action('agent_world_dispatch', 'task.quick-fix')])
+  const frames = [
+    [{ type: 'dialogue', events: [e] }, 1],
+    [{ type: 'dialogue', event: e }, 1],
+    [e, 1],
+    [{ type: 'events', events: [{ seq: 1, tick: 0, type: 'dialogue', payload: e }] }, 1],
+  ]
+  for (const [frame, expected] of frames) {
+    assert.equal(dialogueEventsFromFrame(frame).length, expected)
+  }
+  const state = createDialogueState()
+  for (const [frame] of frames) applyDialogueEvents(state, dialogueEventsFromFrame(frame))
+  const turn = latestTurn(state, 'agent-1')
+  assert.equal(turn.phase, 'acting')
+  assert.deepEqual(turn.actions.map((a) => a.name), ['agent_world_dispatch'])
+  assert.equal(turnsFor(state, 'agent-1').length, 1)
+  assertConsistent(state)
+})
+
+// ── UI 文案（ui/labels.js）：一处集中、未知原样 ───────────────────────────────
+
+test('工具名有中文标签，未知的原样显示（不猜、也不藏）', () => {
+  assert.equal(toolLabel('agent_world_dispatch'), '派单')
+  assert.equal(toolLabel('agent_world_content'), '查内容库')
+  assert.equal(toolLabel('agent_world_未来某工具'), 'agent_world_未来某工具', '未知名字要原样露出来，否则连线索都没了')
+  assert.equal(toolLabel(''), '未知工具')
+
+  assert.equal(actionText(action('agent_world_dispatch', 'task.quick-fix')), '派单 task.quick-fix')
+  assert.equal(actionText(action('agent_world_dispatch')), '派单', '没有参数就不留空格')
+  assert.equal(actionIcon(action('agent_world_dispatch')), '🔧')
+  assert.equal(actionIcon(action('agent_world_dispatch', 'x', false)), '⚠️', '失败的调用要看得出来')
+
+  assert.equal(actingText([action('agent_world_status')]), '正在看世界…', '取**最后一条**动作当"此刻在做的事"')
+  assert.equal(actingText([action('agent_world_status'), action('agent_world_dispatch', 'x')]), '正在派单…')
+  assert.equal(actingText([]), '他在干活…', '还没抓到具体工具时说人话，不显示空白')
+  assert.equal(actingText(undefined), '他在干活…')
+  assert.equal(actionCountText(3), '3 次调用')
+  assert.equal(actionCountText(1), '1 次调用')
+  assert.equal(actionCountText(0), '')
+})
+
+test('六态 / 代理状态 / 角色的文案只有一处定义，未知都有兜底', () => {
+  assert.equal(taskStatusLabel('in_progress'), '进行中')
+  assert.equal(taskStatusLabel('某个新状态'), '某个新状态', '未知状态原样显示，不显示空白')
+  assert.equal(agentStateLabel('working'), '干活')
+  assert.equal(agentStateTone('working'), 'in_progress')
+  assert.equal(agentStateTone('某个新状态'), 'pending', '未知状态给灰，不是 undefined')
+  assert.equal(roleLabel('engineer'), '工程师')
+  assert.equal(roleLabel(null), '')
 })

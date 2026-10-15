@@ -13,39 +13,7 @@
  * 2. 名字/职业/站位**全部来自世界数据**（D37：人设是内容，代码里没有角色名）。
  */
 
-/**
- * 代理状态 → 徽章色调。颜色表达**含义**而不是复刻任务状态：
- * 干活=蓝、赶路/交谈=琥珀、受阻=红（同"需要人管"）、庆祝=绿、休息/待命=灰。
- * 与 DESIGN.md 2.1 的状态色同一套变量，所以看板与花名册读起来是一套语言。
- */
-const STATE_TONE = {
-  working: 'in_progress',
-  walking: 'ready',
-  talking: 'ready',
-  blocked: 'blocked',
-  celebrating: 'done',
-  idle: 'pending',
-  sleeping: 'pending',
-}
-
-const STATE_LABEL = {
-  idle: '待命',
-  walking: '赶路',
-  working: '干活',
-  talking: '交谈',
-  blocked: '受阻',
-  celebrating: '庆祝',
-  sleeping: '休息',
-}
-
-const ROLE_LABEL = {
-  lead: '负责人',
-  engineer: '工程师',
-  reviewer: '评审',
-  researcher: '调研',
-  ops: '运维',
-  docs: '文档',
-}
+import { agentStateLabel, agentStateTone, roleLabel } from './labels.js'
 
 function esc(text) {
   return String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
@@ -98,18 +66,18 @@ export function createRoster(options) {
             ? `→ ${world.stations.find((s) => s.id === agent.targetStation)?.name ?? agent.targetStation}`
             : '广场'
         const carrying = agent.carrying ? world.tasks.find((t) => t.id === agent.carrying) : null
-        const tone = STATE_TONE[agent.state] ?? 'pending'
+        const tone = agentStateTone(agent.state)
         const color = colorById?.get(agent.id) ?? 'var(--fg-2)'
         const pending = thinking.has(agent.id)
           ? '<span class="badge badge-ready agent-pending">他在想…</span>'
-          : `<span class="badge badge-${tone}">${esc(STATE_LABEL[agent.state] ?? agent.state)}</span>`
+          : `<span class="badge badge-${tone}">${esc(agentStateLabel(agent.state))}</span>`
         return `
           <li class="agent-card${agent.id === activeId ? ' is-active' : ''}" data-agent="${esc(agent.id)}" title="点一下跟他说话">
             <span class="agent-dot" style="--dot:${esc(color)}"></span>
             <div class="agent-main">
               <div class="agent-line">
                 <b class="agent-name">${esc(agent.name)}</b>
-                <span class="agent-role">${esc(ROLE_LABEL[agent.role] ?? agent.role)}</span>
+                <span class="agent-role">${esc(roleLabel(agent.role))}</span>
               </div>
               <div class="agent-sub">
                 <span class="dim">${esc(stationName)}</span>

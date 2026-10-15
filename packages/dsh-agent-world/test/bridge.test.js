@@ -109,6 +109,17 @@ function assistantEvent(text, { turn = 1, step = 1, seq = 10, blocks, interrupte
   }
 }
 
+/**
+ * 发一条 assistant/message **再结束这一轮**（R35）。
+ *
+ * 结算点已从"第一条带文字的消息"移到"这一轮结束"：一轮做完才算回答完。
+ * 所以任何"等回复"的用例都必须把轮次关上——否则它等的是一个永远不会到的结算点。
+ */
+function speak(transport, sessionId, text, options) {
+  transport.emit(sessionId, assistantEvent(text, options))
+  transport.emit(sessionId, turnEndEvent({ kind: 'completed' }, { turn: options?.turn ?? 1 }))
+}
+
 /** 一条 `turn/end` 事件。 */
 function turnEndEvent(reason, { turn = 1 } = {}) {
   return { type: 'turn/end', seq: 20, time: 0, data: { turn, reason } }
@@ -505,7 +516,7 @@ test('bridge：waitForReply 拿到该角色说的那句话', async () => {
   await bridge.wake('c1')
 
   const pending = bridge.waitForReply('c1', { timeoutMs: 0 })
-  transport.emit('agent-world:c1', assistantEvent('我这就去看看'))
+  speak(transport, 'agent-world:c1', '我这就去看看')
 
   const result = await pending
 
@@ -537,20 +548,27 @@ test('bridge：多个 text 块用空行连接；只有工具调用时不算回�
   await bridge.wake('c1')
 
   const pending = bridge.waitForReply('c1', { timeoutMs: 0 })
+  // 一步里既有文字又有调用：工具调用不能被当成话混进正文。
   transport.emit(
     'agent-world:c1',
     assistantEvent('', {
       blocks: [
         { type: 'text', text: '第一段' },
-        { type: 'tool-call', id: 't1', name: 'agent_world_dispatch', arguments: '{}' },
+        { type: 'tool-call', id: 't1', name: 'agent_world_dispatch', arguments: '{"taskSet":"task.quick-fix"}' },
         { type: 'text', text: '第二段' },
       ],
     }),
   )
+  transport.emit('agent-world:c1', turnEndEvent({ kind: 'completed' }))
 
   const result = await pending
   assert.equal(result.ok, true)
   assert.equal(result.reply.text, '第一段\n\n第二段', '工具调用不能被当成话混进正文')
+  assert.deepEqual(
+    result.reply.actions,
+    [{ name: 'agent_world_dispatch', detail: 'task.quick-fix', ok: true }],
+    '同一条消息里的工具调用要进动作列表',
+  )
 })
 
 test('bridge：一轮 error 结束 → 等回复的人立刻拿到可下手的原因，不会一直挂着', async () => {

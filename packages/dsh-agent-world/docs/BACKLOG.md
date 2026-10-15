@@ -191,7 +191,8 @@
 | M6-10 | **done** | **U1/U2 真机验证**（G2 的门槛）：`MessageBase` 是否强制 `id`、seed 的 `seq` 是否要自洽——只能在**真宿主**上验，需要把插件装进一个 profile。**这是唯一需要用户点头的动作**（会注册路由与工具，影响他当前会话）。若 seed 被拒，「跟小人物说话」会在最后一寸失败 | 真机验证记录 | M6-2 | ⚠️ 等用户点头 |
 | M6-11 | **用户待办**（不再挡路） | **等用户环境**：① web profile 的 `@roarpeng/graphflow@1.20.0` 写退休 source 形状，所有新会话第一步失败 → 升到 2.x；② web profile 默认路由 `deepseek-official` 的 key 失效 → 重填或换路由。两件都做完再跑一次真机对话 | 用户 | M6-10 | 不在我们的代码里 |
 | M6-12 | ready | **`seed.ts` 去留**（R33）：人设已改走 agent 作用域的 section，生产代码不再调用 seed。R30 在 seed 形状上付的学费（消息 id / turn-step 闭合框 / seq）只对 M6-6「把上一局对话回放进新会话」有用。决定：删，或标明只服务 M6-6 | `src/bridge/seed.ts` + 测试 | —— | 别让它悄悄变成死代码 |
-| M6-13 | ready | **让面板看见角色做了什么**（R34 真机发现）：`replied` 只带第一步的文字。小蓝那一轮四步、三次工具调用、最后是完整工单板——面板上全看不见。(a) 回复取最后一条 assistant 文字或拼全部；(b) 工具调用在对话里显示成一行（如「🔧 派单：task.quick-fix」） | `src/bridge/` + `web/core/dialogue-state.js` + `web/ui/dialogue-ui.js` | M6-4 | 这是让 G4 **被用户看见**的最后一步 |
+| M6-13 | in_progress | **让面板看见角色做了什么**（R34 真机发现）：`replied` 只带第一步的文字。小蓝那一轮四步、三次工具调用、最后是完整工单板——面板上全看不见。(a) 回复取最后一条 assistant 文字或拼全部；(b) 工具调用在对话里显示成一行（如「🔧 派单：task.quick-fix」） | `src/bridge/` + `web/core/dialogue-state.js` + `web/ui/dialogue-ui.js` | M6-4 | 这是让 G4 **被用户看见**的最后一步 |
+| M6-14 | ready | **死会话**（R35 真机）：小紫的会话停在 `session/end-seed`（R30 带 seed 的旧会话），resume 后不起新轮，等 60 秒超时。resume 前要检查会话尾部，起不了新轮就丢弃重建，或者至少给出"会话卡住"的明确原因。另：内容不变的 `acting` 帧不推 | `src/bridge/character-bridge.ts` | M6-13 | 其余 7 个角色正常 |
 | M6-9 | ready | **flaky 测试普查**（R27 发现）：`test/store.test.js` 用固定 `setTimeout(20)` 当同步手段，在载荷下会假红。已修那一处，但**同类写法可能还有**（`grep -n 'setTimeout(' test/`）。flaky 比失败更糟：它让「绿」不可信，而绿是验收纪律的基础 | `test/**` | —— | 一行 grep 就能普查 |
 | M6-2 | **done** | 人设驱动 system prompt（R27 内容侧 + R28 宿主侧）。`seatForAgent` 按**序号优先 + 名字交叉校验**，同名歧义返回 undefined 让上层报原因。**哨兵测试**防 id 规则变动导致人设静默错位。**判据「改花名册 → prompt 跟着变、代码零改动」由真实内容的装配测试证明** | —— | ✅ R28 | —— |
 | M6-3 | **done**（传输段）| 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**

@@ -21,9 +21,10 @@
  * （默认 `Date.now`）给 seed 打时间戳。但仍然把 `now` 做成可注入的——
  * 测试里时间必须是确定的，否则"同一角色两次搭话只建一次会话"这类断言难以复现。
  */
-import { decodeBridgeEvent } from './decode.js'
+import { decodeBridgeActions, decodeBridgeEvent } from './decode.js'
 
 import type {
+  BridgeAction,
   AgentFactory,
   BridgeAgentOptions,
   BridgeFailureCode,
@@ -72,9 +73,27 @@ interface LiveSession {
 interface ReplyWaiter {
   readonly characterId: string
   readonly resolve: (result: WaitReplyResult) => void
+  /** 这一轮的动作有变化时叫一声（R35：面板要实时看见"他在干活"）。 */
+  readonly onProgress: ((actions: readonly BridgeAction[]) => void) | undefined
   timer: ReturnType<typeof setTimeout> | undefined
   onAbort: (() => void) | undefined
   readonly signal: AbortSignal | undefined
+}
+
+/** 一个角色当前这一轮攒下来的发言与动作（R35）。 */
+interface TurnProgress {
+  /** 按发生顺序的工具调用；`ok` 在 `tool/result` 到达时回填。 */
+  readonly actions: { readonly callId: string; readonly name: string; detail?: string; ok: boolean }[]
+  /** **最后一段**文字——模型的结论通常在最后，而不是开场那句"我先看看"。 */
+  text: string
+  turn: number
+  step: number
+  interrupted: boolean
+  sessionId: string
+}
+
+function emptyTurn(sessionId: string): TurnProgress {
+  return { actions: [], text: '', turn: 0, step: 0, interrupted: false, sessionId }
 }
 
 function messageOf(error: unknown): string {
@@ -126,6 +145,14 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
   const replyListeners = new Set<(reply: BridgeReply) => void>()
   const turnEndListeners = new Set<(turnEnd: BridgeTurnEnd) => void>()
   const waiters = new Set<ReplyWaiter>()
+  /**
+   * 每个角色**当前这一轮**攒下来的东西（R35）。
+   *
+   * 为什么要攒：R34 真机上小蓝走了四步——「我先复现一下」、两次查内容库、一次派单、最后一整块工单板。
+   * 原来的桥在**第一条**带文字的消息上就结算了，于是用户只看见第一句，
+   * 那三次工具调用和最后的结论全丢了。现在结算点移到 `turn/end`：**一轮做完才算回答完**。
+   */
+  const turns = new Map<string, TurnProgress>()
 
   let unsubscribe: (() => void) | undefined
   let requestSeq = 0
@@ -166,11 +193,46 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
       const characterId = bySessionId.get(sessionId)
       if (characterId === undefined) return
 
+      // ① 动作（与文字并列：同一条 assistant/message 可能既有文字又有工具调用）。
+      const actions = decodeBridgeActions(event)
+      if (actions.length > 0) {
+        const progress = turns.get(characterId) ?? emptyTurn(sessionId)
+        turns.set(characterId, progress)
+        for (const action of actions) {
+          if (action.kind === 'call') {
+            // 乐观记成功；`tool/result` 到了再回填真实结果。工具大多会成，
+            // 而面板需要在**调用的那一刻**就显示"他在派单"，不能等结果。
+            progress.actions.push({
+              callId: action.callId,
+              name: action.name,
+              ...(action.detail === undefined ? {} : { detail: action.detail }),
+              ok: true,
+            })
+          } else {
+            const found = progress.actions.find((a) => a.callId === action.callId)
+            if (found !== undefined) found.ok = action.ok
+          }
+        }
+        const snapshot = progress.actions.map(
+          (a): BridgeAction => ({ name: a.name, ...(a.detail === undefined ? {} : { detail: a.detail }), ok: a.ok }),
+        )
+        for (const waiter of [...waiters]) {
+          if (waiter.characterId !== characterId) continue
+          try {
+            waiter.onProgress?.(snapshot)
+          } catch (error) {
+            options.onError?.(`进度回调抛了（已忽略）：${messageOf(error)}`)
+          }
+        }
+      }
+
       const decoded = decodeBridgeEvent(sessionId, event)
       if (decoded === undefined) return
 
       if (decoded.kind === 'reply') {
         const reply: BridgeReply = { characterId, ...decoded.reply }
+        // `onReply` 仍然**逐条**回调（它是流式接口，面板可以边说边显示）；
+        // 变的只是 `waitForReply` 的结算点——见下面的 turn/end。
         for (const listener of [...replyListeners]) {
           try {
             listener(reply)
@@ -178,10 +240,13 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
             options.onError?.(`回复监听器抛了（已忽略，不影响其它监听器）：${messageOf(error)}`)
           }
         }
-        for (const waiter of [...waiters]) {
-          if (waiter.characterId !== characterId) continue
-          settleWaiter(waiter, { ok: true, reply })
-        }
+        const progress = turns.get(characterId) ?? emptyTurn(sessionId)
+        progress.text = decoded.reply.text
+        progress.turn = decoded.reply.turn
+        progress.step = decoded.reply.step
+        progress.interrupted = decoded.reply.interrupted
+        progress.sessionId = decoded.reply.sessionId
+        turns.set(characterId, progress)
         return
       }
 
@@ -193,6 +258,40 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
           options.onError?.(`turn/end 监听器抛了（已忽略）：${messageOf(error)}`)
         }
       }
+      // 一轮做完才算回答完（R35）：把这一轮的最后一段文字 + 全部动作交给等的人。
+      const progress = turns.get(characterId)
+      turns.delete(characterId)
+      if (decoded.turnEnd.kind !== 'error') {
+        const waiting = [...waiters].filter((w) => w.characterId === characterId)
+        if (waiting.length > 0) {
+          if (progress === undefined || progress.text === '') {
+            // 一轮结束却一个字没说：可能是模型只调了工具就收尾。
+            // 这时不能让面板停在"他在想"，给一条能下手的原因。
+            const tried = progress === undefined || progress.actions.length === 0
+              ? '这一轮他没有发言，也没有动手'
+              : `这一轮他只动了手（${progress.actions.map((a) => a.name).join('、')}），一句话也没说`
+            for (const waiter of waiting) {
+              settleWaiter(waiter, { ok: false, code: 'prompt-failed', reason: `${tried}。再问一次，或换个说法。` })
+            }
+          } else {
+            const reply: BridgeReply = {
+              characterId,
+              sessionId: progress.sessionId,
+              text: progress.text,
+              turn: progress.turn,
+              step: progress.step,
+              interrupted: progress.interrupted,
+              actions: progress.actions.map((a) => ({
+                name: a.name,
+                ...(a.detail === undefined ? {} : { detail: a.detail }),
+                ok: a.ok,
+              })),
+            }
+            for (const waiter of waiting) settleWaiter(waiter, { ok: true, reply })
+          }
+        }
+      }
+
       // `error` 结束的轮次不会再有 assistant/message —— 等回复的人不能一直挂着。
       if (decoded.turnEnd.kind === 'error') {
         const reason =
@@ -446,7 +545,14 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
     const signal = waitOptions.signal
 
     return new Promise<WaitReplyResult>((resolve) => {
-      const waiter: ReplyWaiter = { characterId, resolve, timer: undefined, onAbort: undefined, signal }
+      const waiter: ReplyWaiter = {
+        characterId,
+        resolve,
+        onProgress: waitOptions.onProgress,
+        timer: undefined,
+        onAbort: undefined,
+        signal,
+      }
 
       if (timeoutMs > 0) {
         waiter.timer = setTimeout(() => {
@@ -518,6 +624,7 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
       })
     }
     replyListeners.clear()
+    turns.clear()
     turnEndListeners.clear()
 
     const results = await Promise.all(

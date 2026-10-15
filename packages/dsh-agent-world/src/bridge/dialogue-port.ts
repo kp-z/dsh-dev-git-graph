@@ -28,7 +28,16 @@ import type { CharacterBridge } from './types.js'
 export type DialogueAck = { readonly ok: true } | { readonly ok: false; readonly reason: string }
 
 /** 一条回复 / 等不到的原因。 */
-export type DialogueReply = { readonly ok: true; readonly text: string } | { readonly ok: false; readonly reason: string }
+/** 一次工具调用（R35）。与 `protocol/dialogue.ts` 的 `DialogueAction` 同形。 */
+export interface DialogueAction {
+  readonly name: string
+  readonly detail?: string
+  readonly ok: boolean
+}
+
+export type DialogueReply =
+  | { readonly ok: true; readonly text: string; readonly actions: readonly DialogueAction[] }
+  | { readonly ok: false; readonly reason: string }
 
 /**
  * 对话端口（与 `src/routes/dialogue.ts` 的 `DialoguePort` **结构等价**）。
@@ -38,7 +47,11 @@ export type DialogueReply = { readonly ok: true; readonly text: string } | { rea
  */
 export interface DialoguePortFace {
   say(characterId: string, text: string): Promise<DialogueAck>
-  waitForReply(characterId: string, timeoutMs: number): Promise<DialogueReply>
+  waitForReply(
+    characterId: string,
+    timeoutMs: number,
+    onProgress?: (actions: readonly DialogueAction[]) => void,
+  ): Promise<DialogueReply>
   liveCount(): number
 }
 
@@ -65,11 +78,18 @@ export function toDialoguePort(
       return result.ok ? { ok: true } : { ok: false, reason: result.reason }
     },
 
-    async waitForReply(characterId: string, timeoutMs: number): Promise<DialogueReply> {
+    async waitForReply(
+      characterId: string,
+      timeoutMs: number,
+      onProgress?: (actions: readonly DialogueAction[]) => void,
+    ): Promise<DialogueReply> {
       const result = await bridge.waitForReply(characterId, {
         timeoutMs: timeoutMs > 0 ? timeoutMs : fallbackTimeoutMs,
+        ...(onProgress === undefined ? {} : { onProgress }),
       })
-      return result.ok ? { ok: true, text: result.reply.text } : { ok: false, reason: result.reason }
+      return result.ok
+        ? { ok: true, text: result.reply.text, actions: result.reply.actions }
+        : { ok: false, reason: result.reason }
     },
 
     liveCount: () => bridge.liveCount(),
@@ -133,13 +153,22 @@ export function toLazyDialoguePort(
       return result.ok ? { ok: true } : { ok: false, reason: result.reason }
     },
 
-    async waitForReply(characterId: string, timeoutMs: number): Promise<DialogueReply> {
+    async waitForReply(
+      characterId: string,
+      timeoutMs: number,
+      onProgress?: (actions: readonly DialogueAction[]) => void,
+    ): Promise<DialogueReply> {
       const got = acquire()
       if (!got.ok) return { ok: false, reason: got.reason }
       const result = await got.bridge.waitForReply(characterId, {
         timeoutMs: timeoutMs > 0 ? timeoutMs : fallbackTimeoutMs,
+        // 惰性端口才是生产路径（R30）。这里漏接 `onProgress`，真宿主上就永远没有 acting 帧，
+        // 而所有走直接端口的测试都会是绿的——两个端口必须同步改。
+        ...(onProgress === undefined ? {} : { onProgress }),
       })
-      return result.ok ? { ok: true, text: result.reply.text } : { ok: false, reason: result.reason }
+      return result.ok
+        ? { ok: true, text: result.reply.text, actions: result.reply.actions }
+        : { ok: false, reason: result.reason }
     },
 
     // 还没建起来时是 0，而不是抛 —— 诊断接口不该因为没装好就炸。

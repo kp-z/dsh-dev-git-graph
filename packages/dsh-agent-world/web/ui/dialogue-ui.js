@@ -22,6 +22,7 @@
  * 这是"对话不该被渲染器绑住"的直接体现。
  */
 
+import { actionCountText, actionIcon, actionText, actingText } from './labels.js'
 import {
   applyDialogueEvents,
   beginLocalTurn,
@@ -106,10 +107,36 @@ export function createDialogueUi(options = {}) {
   function signature(turns, nowMs) {
     return turns
       .map((t) => {
-        const secs = t.phase === 'thinking' ? Math.floor((nowMs - (t.uiChangedAt ?? nowMs)) / 1000) : -1
-        return `${t.turnId}\u0001${t.phase}\u0001${t.said}\u0001${t.text}\u0001${t.reason ?? ''}\u0001${secs}`
+        // 占位阶段（在想 / 在干活）才显示秒数；`acting` 也一样要跳秒。
+        const waiting = t.phase === 'thinking' || t.phase === 'acting'
+        const secs = waiting ? Math.floor((nowMs - (t.uiChangedAt ?? nowMs)) / 1000) : -1
+        // 动作进了签名：**新动作到达必须重画**，否则"正在派单…"这种实时感就是假的。
+        const actions = (t.actions ?? []).map((a) => `${a.name}:${a.detail ?? ''}:${a.ok ? 1 : 0}`).join(',')
+        return `${t.turnId}\u0001${t.phase}\u0001${t.said}\u0001${t.text}\u0001${t.reason ?? ''}\u0001${secs}\u0001${actions}`
       })
       .join('\u0002')
+  }
+
+  /**
+   * 动作列表：回复正文**下面**的小字行（每条一行，如"🔧 派单 task.quick-fix"）。
+   *
+   * 视觉权重刻意低（`--fg-1`/`--fg-2` + 更小字号）：正文才是结论，
+   * 动作是"我怎么走到这个结论的"——它必须**看得见**，但不能和正文抢。
+   */
+  function renderActions(turn) {
+    const actions = Array.isArray(turn.actions) ? turn.actions : []
+    if (actions.length === 0) return null
+    const box = el(doc, 'div', 'd-actions')
+    if (actions.length > 1) {
+      // "调了几次"要一眼看得出（R34 真机是 3 次：status、content ×2、dispatch）。
+      box.append(el(doc, 'span', 'd-actions-count', actionCountText(actions.length)))
+    }
+    for (const action of actions) {
+      const row = el(doc, 'div', action.ok === false ? 'd-action is-failed' : 'd-action')
+      row.append(el(doc, 'i', 'd-action-icon', actionIcon(action)), el(doc, 'span', undefined, actionText(action)))
+      box.append(row)
+    }
+    return box
   }
 
   function renderLog(nowMs, force = false) {
@@ -141,16 +168,24 @@ export function createDialogueUi(options = {}) {
 
       const line = el(doc, 'li', `d-reply d-${turn.phase}`)
       line.append(el(doc, 'b', undefined, nameOf(turn.agentId)))
-      if (turn.phase === 'thinking') {
-        const secs = Math.floor((nowMs - (turn.uiChangedAt ?? nowMs)) / 1000)
-        line.append(el(doc, 'span', 'd-thinking', `他正在想…（${Math.max(0, secs)}s）`))
+      if (turn.phase === 'thinking' || turn.phase === 'acting') {
+        const secs = Math.max(0, Math.floor((nowMs - (turn.uiChangedAt ?? nowMs)) / 1000))
+        // `acting` = "他在干活"（工具在跑）；`thinking` = "他在想"。
+        // 两者都是**占位**，所以都带秒数——用户要能看出"这件事还在动"。
+        const text = turn.phase === 'acting' ? `${actionIcon(null)} ${actingText(turn.actions)}` : '他正在想…'
+        line.append(el(doc, 'span', turn.phase === 'acting' ? 'd-acting' : 'd-thinking', `${text}（${secs}s）`))
       } else if (turn.phase === 'replied') {
         line.append(el(doc, 'span', undefined, turn.text))
       } else {
         // 失败**必须带原因**：状态机保证了 `reason` 永远是一句能下手的话。
         line.append(el(doc, 'span', 'd-reason', `他说不出话：${turn.reason}`))
       }
-      if (turn.phase !== 'thinking') line.append(el(doc, 'i', 'dim d-tick', `tick ${turn.atTick}`))
+      if (turn.phase !== 'thinking' && turn.phase !== 'acting') {
+        line.append(el(doc, 'i', 'dim d-tick', `tick ${turn.atTick}`))
+      }
+      // 动作挂在**这条**记录下面：干过的事是这条回复的一部分，分开看就都不完整。
+      const actionBox = renderActions(turn)
+      if (actionBox !== null) line.append(actionBox)
       $log.append(line)
     }
 
@@ -281,14 +316,17 @@ export function createDialogueUi(options = {}) {
       const turn = turns[turns.length - 1]
       if (turn === undefined) continue
       const atMs = turn.uiChangedAt ?? 0
-      // `thinking` 的轮无限期挂着：它就是"他还在想"的证据，淡出会让人以为没发出去。
-      if (turn.phase !== 'thinking' && nowMs - atMs > withinMs) continue
-      const raw =
-        turn.phase === 'thinking'
-          ? '他在想…'
-          : turn.phase === 'failed'
-            ? `他说不出话：${turn.reason ?? ''}`
-            : turn.text
+      // `thinking` / `acting` 的轮无限期挂着：它们就是"他还在想 / 他还在干活"的证据，
+      // 淡出会让人以为没发出去。有结果的那两种才按时淡出。
+      const waiting = turn.phase === 'thinking' || turn.phase === 'acting'
+      if (!waiting && nowMs - atMs > withinMs) continue
+      const raw = waiting
+        ? turn.phase === 'acting'
+          ? `${actionIcon(null)} ${actingText(turn.actions)}`
+          : '他在想…'
+        : turn.phase === 'failed'
+          ? `他说不出话：${turn.reason ?? ''}`
+          : turn.text
       const text = raw.length > maxText ? `${raw.slice(0, maxText)}…` : raw
       out.push({ agentId, phase: turn.phase, text, atMs })
     }

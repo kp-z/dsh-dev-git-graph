@@ -30,6 +30,7 @@
  */
 import type { RouteEntry } from './router.js'
 import type {
+  DialogueAction,
   DialogueEvent,
   DialogueSpeaker,
   SayRequest,
@@ -45,11 +46,20 @@ import type {
 export interface DialoguePort {
   /** 把一句话投给角色。`ok` 只表示"投出去了"，回复另走 `waitForReply`。 */
   say(characterId: string, text: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>
-  /** 等这个角色的下一条回复；超时/出错都返回可下手的 `reason`。 */
+  /**
+   * 等这个角色的下一条回复；超时/出错都返回可下手的 `reason`。
+   *
+   * R35：`onProgress` 在这一轮有新动作时被叫（面板据此显示"他在派单…"）。
+   * 它是**可选**的——老调用方不传也照常工作。
+   */
   waitForReply(
     characterId: string,
     timeoutMs: number,
-  ): Promise<{ readonly ok: true; readonly text: string } | { readonly ok: false; readonly reason: string }>
+    onProgress?: (actions: readonly DialogueAction[]) => void,
+  ): Promise<
+    | { readonly ok: true; readonly text: string; readonly actions: readonly DialogueAction[] }
+    | { readonly ok: false; readonly reason: string }
+  >
   /** 当前活着的会话数（诊断用）。 */
   liveCount(): number
 }
@@ -247,7 +257,21 @@ export function createDialogueChannel(deps: DialogueDeps): DialogueChannel {
         return
       }
 
-      const reply = await port.waitForReply(input.agentId, replyTimeoutMs)
+      // 角色每动一次手就推一帧 `acting`（R35）：面板显示"他在派单…"而不是干等。
+      // **带上提问者原话**（与 `thinking` 同一约定）——任何一帧单独拿出来都要能自证上下文。
+      const onProgress = (actions: readonly DialogueAction[]): void => {
+        emit({
+          turnId: input.turnId,
+          tick: worldTick(),
+          phase: 'acting',
+          from: input.to,
+          to: input.from,
+          text: input.text,
+          actions,
+        })
+      }
+
+      const reply = await port.waitForReply(input.agentId, replyTimeoutMs, onProgress)
       if (!reply.ok) {
         emitFailure(input.turnId, input.from, input.to, reply.reason)
         return
@@ -260,6 +284,7 @@ export function createDialogueChannel(deps: DialogueDeps): DialogueChannel {
         from: input.to,
         to: input.from,
         text: reply.text,
+        ...(reply.actions.length === 0 ? {} : { actions: reply.actions }),
       })
     } catch (error) {
       // 任何漏网的异常都要变成一条 `failed`（带原因），绝不能让面板永远停在"他在想"。

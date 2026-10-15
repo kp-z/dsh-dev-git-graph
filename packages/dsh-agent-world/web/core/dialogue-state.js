@@ -32,8 +32,88 @@
  * 于是这些测试才写得出来。
  */
 
-/** 契约里的三个阶段（`DialoguePhase`），按顺序列出来当白名单用。 */
-export const PHASES = ['thinking', 'replied', 'failed']
+/** 契约里的四个阶段（`DialoguePhase`），按顺序列出来当白名单用。 */
+export const PHASES = ['thinking', 'acting', 'replied', 'failed']
+
+/**
+ * 一轮最多记多少条动作。
+ *
+ * 内存上限（同"每角色最多几轮"那条理由）。真机一轮 3 次调用，40 留了足够余量；
+ * 超了就**丢最旧的**——看板/对话关心的是"他干了什么"，最新几步永远比最早几步重要。
+ */
+export const MAX_ACTIONS_PER_TURN = 40
+
+/** 一条动作的规范化键：名字 + 参数 + 成败。**只在"合并两份列表"时用来对齐**，不用于去重展示。 */
+function actionKey(action) {
+  return `${action.name}\u0001${action.detail ?? ''}\u0001${action.ok ? '1' : '0'}`
+}
+
+/** 把线上来的一条动作归一（认不出就 null）。**缺 name 的直接丢**：没有它这行没法读。 */
+function normalizeAction(raw) {
+  if (raw === null || typeof raw !== 'object') return null
+  const name = nonEmptyString(raw.name)
+  if (name === null) return null
+  // `ok` 在契约里是必填；帧里缺了就当"这次调用算成了"（显示上仍是 🔧，不会伪装成成功/失败）。
+  return { name, detail: nonEmptyString(raw.detail) ?? undefined, ok: raw.ok === false ? false : true }
+}
+
+/** 归一一份动作列表：丢掉认不出的、截到上限。**不去重**——同一次搭话里同一个工具调两次是正常事
+ *（R34 真机就是 `content` 调了两次），去重会让"调了几次"这个数字变小。 */
+function normalizeActions(raw) {
+  if (!Array.isArray(raw)) return []
+  const out = []
+  for (const item of raw) {
+    const action = normalizeAction(item)
+    if (action !== null) out.push(action)
+  }
+  // 超上限时丢**最早**的那几条：最新几步永远比最早几步重要（人读的是"他刚才干了什么"）。
+  return out.slice(-MAX_ACTIONS_PER_TURN)
+}
+
+/**
+ * 把一份动作列表并进这一轮。
+ *
+ * ## 契约说 acting 帧带的是"**到目前为止**的累积列表"，所以主路径是**替换**而不是累加
+ *
+ * · 三帧 `{A}` → `{A,B}` → `{A,B,C}`：逐帧变长，前缀一致 → 直接采用更长的那个 → A,B,C ✓
+ * · 前缀一致但**更短**（晚到的旧快照、或 replied 先到）：**不缩**，保留手里更完整的那份 ✓
+ * · 前缀对不上（宿主发的是增量、或乱序穿插）：按"出现次数"对齐后把新的补在后面 ✓
+ *
+ * 为什么不用"按内容全局去重"：`content` 连调两次时两条一模一样，去重会把 2 变成 1，
+ * 而"调了几次"正是这一轮要看见的东西。所以对齐只在**同一位置**上比。
+ */
+function mergeActions(turn, incoming) {
+  if (incoming.length === 0) return
+  const current = turn.actions
+  const shared = Math.min(current.length, incoming.length)
+  let samePrefix = true
+  for (let i = 0; i < shared; i += 1) {
+    if (actionKey(current[i]) !== actionKey(incoming[i])) {
+      samePrefix = false
+      break
+    }
+  }
+  if (samePrefix) {
+    if (incoming.length >= current.length) turn.actions = incoming.slice(-MAX_ACTIONS_PER_TURN)
+    return
+  }
+  // 前缀对不上：按出现次数扣减，把当前列表里没有的那几条补上。
+  const left = new Map()
+  for (const action of current) {
+    const key = actionKey(action)
+    left.set(key, (left.get(key) ?? 0) + 1)
+  }
+  for (const action of incoming) {
+    const key = actionKey(action)
+    const remaining = left.get(key) ?? 0
+    if (remaining > 0) {
+      left.set(key, remaining - 1)
+      continue
+    }
+    current.push(action)
+  }
+  if (current.length > MAX_ACTIONS_PER_TURN) current.splice(0, current.length - MAX_ACTIONS_PER_TURN)
+}
 
 /** 每个角色最多留几轮。**内存不能无限涨**：一场长局能聊几百轮。 */
 export const DEFAULT_MAX_TURNS_PER_AGENT = 30
@@ -134,6 +214,8 @@ export function normalizeDialogueEvent(raw) {
     to: candidate.to,
     text: typeof candidate.text === 'string' ? candidate.text : '',
     reason: nonEmptyString(candidate.reason) ?? undefined,
+    /** 角色做过的事（R35）。`acting` 帧是累积列表，`replied`/`failed` 帧是这一轮的完整列表。 */
+    actions: normalizeActions(candidate.actions),
     agentId: speakerAgentId(candidate),
     said: godTextOf(candidate),
   }
@@ -272,8 +354,17 @@ function mergeInto(turn, event) {
   turn.atTick = Math.max(turn.atTick ?? 0, event.tick)
   turn.updatedTick = event.tick
   if (event.said !== null) turn.said = event.said
+  // 动作先并进来：**任何阶段都可以带 actions**（`replied` 带的是这一轮的完整列表），
+  // 而且"结果"到了之后再晚到的 acting 帧也只会补动作、不会改阶段。
+  mergeActions(turn, event.actions)
 
   if (event.phase === 'thinking') return // 占位阶段：什么都不改（不降级）
+
+  if (event.phase === 'acting') {
+    // "他在干活"：和 thinking 一样是**占位**，所以只在不降级的前提下推进。
+    if (turn.phase === 'thinking' || turn.phase === 'acting') turn.phase = 'acting'
+    return
+  }
 
   if (event.phase === 'replied') {
     turn.phase = 'replied'
@@ -282,7 +373,7 @@ function mergeInto(turn, event) {
     return
   }
 
-  // failed
+  // failed：**动作留着**——"他试过但没成"本身就是信息（契约里 DialogueAction.ok 也是这个意思）。
   turn.reason = event.reason ?? MISSING_REASON
   if (turn.phase !== 'replied') turn.phase = 'failed'
 }
@@ -314,6 +405,13 @@ export function applyDialogueEvent(state, raw) {
       text: '',
       /** `failed` 时的原因（永远是一句能下手的话，见 `MISSING_REASON`）。 */
       reason: null,
+      /**
+       * 这一轮里**他做过的事**（R35 / M6-13）：`[{name, detail, ok}]`，旧 → 新。
+       *
+       * 为什么留在同一条记录上（而不是单开一条"动作"消息）：一次搭话 = 一条记录是 M6-5 定下的
+       * 不变量；动作是**这条回复的一部分**——"他说了什么"和"他干了什么"分开看就都不完整了。
+       */
+      actions: [],
       atTick: event.tick,
       updatedTick: event.tick,
       /** 本地乐观占位轮（还没拿到宿主的 turnId）。 */
@@ -361,6 +459,7 @@ export function beginLocalTurn(state, { agentId, text, tick = 0 }) {
     said: typeof text === 'string' ? text : '',
     text: '',
     reason: null,
+    actions: [],
     atTick: tick,
     updatedTick: tick,
     local: true,
@@ -445,7 +544,8 @@ export function expireThinking(state, { nowTick, maxAgeTicks = 300 } = {}) {
   const expired = []
   if (!Number.isFinite(nowTick)) return expired
   for (const turn of state.byTurn.values()) {
-    if (turn.phase !== 'thinking') continue
+    // `acting` 也是占位（工具在跑）：一样会因为宿主挂掉而永远等下去，所以一样要能过期。
+    if (turn.phase !== 'thinking' && turn.phase !== 'acting') continue
     const age = nowTick - (turn.updatedTick ?? 0)
     if (age < maxAgeTicks) continue
     turn.phase = 'failed'

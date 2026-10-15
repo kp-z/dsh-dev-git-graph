@@ -31,9 +31,34 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R34 末）：`typecheck` 绿 · `test` **437 / pass 437 / fail 0 / todo 0**。**G4 成立：对话让角色调用工具派单，世界从 0 张工单变成 3 张，调度器把第一张派给小青、她开始干活。GOAL 四条能力全部有真机证据。** 下一步：让面板看见角色做了什么（M6-13）。
+当前验证状态（R35 末）：`typecheck` 绿 · `test` **451 / 451 / 0 fail / 0 todo**。**M6-13：真机 SSE 推出了 `acting` 帧（6 次工具调用、派单成功），浏览器里真实渲染还没看到。** 部署 bug（面板自 R32 起在真机上是旧版）已修。
 
 ---
+
+## R35 · M6-13：让面板看见角色"做了什么" + 揪出一个潜伏 4 轮的部署 bug
+
+**做了什么**
+- 协议（`src/protocol/dialogue.ts`）：新增阶段 `acting`，`DialogueEvent.actions?: DialogueAction[]`（`{name, detail?, ok}`）。`acting` 帧带**到目前为止的累积列表**，`replied` 帧带整轮的完整列表。
+- 桥：结算点从"第一条带文字的消息"改到 **`turn/end`**——一轮做完才算回答完，`replied.text` 是**最后一段**（结论）。同一条 `assistant/message` 里文字和工具调用会同时出现，所以动作单独用 `decodeBridgeActions` 解码，再按 `tool/result` 回填成败。`acting` 帧在每次工具调用、每次结果到达时都推一次。惰性端口（生产路径）和直接端口同步改了。
+- 面板（panel）：`web/core/dialogue-state.js` 认识 `acting`；`web/ui/dialogue-ui.js` 在气泡上显示"🔧 正在派单…"，回复正文下方列出 `N 次调用` 和每条 `🔧 工具 参数`；新建 `web/ui/labels.js`，把六态、职业、工具名的中文标签收成一处，还掉了 R32 记下的重复。
+- **部署 bug**：`scripts/copy-web.mjs` 原来是先 `rm` 再 `cp`，每个文件都换了 inode，而 profile 里装的是指向旧 inode 的硬链接。`tsc` 是原地写的，所以桥的改动一直生效；**面板却从 R32 起一直是旧版**——R32 的现代化在真宿主上从来没出现过（当时只在临时服务器上验）。现在改成原地同步（已有文件就地写入，inode 不变）。目录结构变了仍要重装插件，这次已经删掉旧副本重装过。
+
+**数字**：`typecheck` 绿 · `pnpm test` **451 / 451 pass / 0 fail / 0 todo**（含 `dialogue-state` 33 例；`acceptance-m6` 现在走通 `thinking → acting → replied`）· 3D `benchmark(120)` 0.347ms、`重建 1` · `clipped()` 三个宽度都是 `[]`（panel 测的）。
+
+**真机验到哪**（web profile + R33 的临时叠加层）
+- ✅ SSE 层：对小铁说"加一个导出报表的功能，你安排一下团队开工吧"，37 秒，推出 1 帧 `thinking`、10 帧 `acting`、1 帧 `replied`。动作依次是 status、content、content(tasks)×3、dispatch(task.software-feature)。会话日志里正好 6 个不同的 callId，没有重复计数。`replied` 正文是最后那段结论（含依赖图），工单 3 → 10。
+- ❌ **浏览器里真实 `acting` 的渲染没看到**。那次测试时 profile 里还是旧面板；重装之后：
+  - 对小紫说话，60 秒超时。它的会话停在 `session/end-seed`（R30 带 seed 的旧会话），resume 后不起新轮；其余 7 个角色的会话都停在 `turn/end`。
+  - 换全新的小青，问的是"安排团队开工"，它判断这活该找小铁、不归自己，没调工具，回复里没有动作。
+  
+  所以面板上的动作行只在 panel 注入的假帧上看过（截图 `aw-m6-13-*.png`）。
+- 观察：同一份动作列表会连推两帧（调用一帧、结果一帧，`ok` 都是 true 时内容相同）。面板按"替换"合并，不影响显示，但白占带宽。
+
+**下一轮从哪继续**
+1. 在真宿主的浏览器里看一次真实的 `acting` → `replied`：用会派单的角色（小铁 / 小蓝），会话正常的（不用小紫），截图确认动作行。
+2. 处理停在 `session/end-seed` 的死会话：resume 前检查会话尾部，起不了新轮就丢弃重建；或者在 waitForReply 上给出"会话卡住"的明确原因，而不是 60 秒超时。
+3. 内容不变的 `acting` 帧不推。
+4. 积压：M7-3 双向高亮、M4-12 纹理泄漏、M6-12 `seed.ts` 去留、M8-0 台账归档。
 
 ## R34 — 2026-10-15 · **G4 成立：对话让角色真的去干活了**（四条能力全部有真机证据）
 

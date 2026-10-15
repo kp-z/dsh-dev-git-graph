@@ -486,8 +486,10 @@ test('M6-3 · 对话进 SSE（接上会回话的 port）：thinking → replied�
     async say() {
       return { ok: true }
     },
-    async waitForReply() {
-      return { ok: true, text: replyText }
+    async waitForReply(_characterId, _timeoutMs, onProgress) {
+      // R35：端口在这一轮有新动作时回调，路由据此推 `acting` 帧。
+      onProgress?.([{ name: 'agent_world_dispatch', detail: 'task.quick-fix', ok: true }])
+      return { ok: true, text: replyText, actions: [{ name: 'agent_world_dispatch', detail: 'task.quick-fix', ok: true }] }
     },
     liveCount: () => 1,
   }
@@ -512,13 +514,15 @@ test('M6-3 · 对话进 SSE（接上会回话的 port）：thinking → replied�
         .flatMap((f) => findDialogueEvents(f.data))
         .filter((e) => e.turnId === body.turnId)
 
+      // R35：桩 port 在这一轮报了一次动作，所以中间会多一条 `acting`。
+      // 这正好把"动作 → 路由 → SSE"这一整条也测了（不只是 replied）。
       assert.deepEqual(
         mine.map((e) => e.phase),
-        ['thinking', 'replied'],
-        `桩 port 会立刻回话，序列应当是 [thinking, replied]：${JSON.stringify(mine)}`,
+        ['thinking', 'acting', 'replied'],
+        `序列应当是 [thinking, acting, replied]：${JSON.stringify(mine)}`,
       )
 
-      const [thinking, replied] = mine
+      const [thinking, acting, replied] = mine
       assert.equal(thinking.text, question, 'thinking 带的是提问者原话')
       assert.equal(replied.text, replyText, 'replied 带的是回复正文')
       assert.deepEqual(thinking.from, { kind: 'god' }, 'thinking 是玩家在说')
@@ -526,6 +530,10 @@ test('M6-3 · 对话进 SSE（接上会回话的 port）：thinking → replied�
       assert.deepEqual(replied.from, { kind: 'agent', id: ids[0] }, 'replied 是角色在说')
       assert.deepEqual(replied.to, { kind: 'god' }, 'replied 是说给玩家')
       assert.equal(replied.tick, thinking.tick, '同一次搭话的两个事件应当在同一 tick（世界没推进）')
+      // `acting` 的契约：带提问者原话（任何一帧单独拿出来都要能自证上下文）+ 累积动作列表。
+      assert.equal(acting.text, question, 'acting 也要带提问者原话，否则第二个面板拼不出上下文')
+      assert.deepEqual(acting.actions, [{ name: 'agent_world_dispatch', detail: 'task.quick-fix', ok: true }])
+      assert.deepEqual(replied.actions, acting.actions, 'replied 要保留这一轮的动作（面板渲染在正文下方）')
     } finally {
       await sse.close()
     }

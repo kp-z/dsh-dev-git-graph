@@ -429,6 +429,10 @@
   color: var(--st-failed);
   border-color: color-mix(in srgb, var(--st-failed) 40%, transparent);
 }
+.bubble-acting {
+  color: var(--st-in_progress);
+  border-color: color-mix(in srgb, var(--st-in_progress) 38%, transparent);
+}
 
 /* ── 对话面板 ─────────────────────────────────────────────────────────────── */
 .dialogue {
@@ -479,6 +483,41 @@
 }
 .d-thinking {
   color: var(--st-ready);
+}
+/* `acting` = 他在干活（工具在跑）。颜色比"在想"更亮一点，因为它是**有进展**的信号。 */
+.d-acting {
+  color: var(--st-in_progress);
+}
+/* 动作行：回复正文**下面**的小字。刻意压低权重（正文才是结论），
+   但每条一行、带图标，所以"调了几次、调了什么"一眼数得出来。 */
+.d-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--s-1);
+  padding-top: var(--s-1);
+  border-top: 1px dashed var(--stroke);
+}
+.d-actions-count {
+  font-size: 10px;
+  color: var(--fg-2);
+  letter-spacing: 0.02em;
+}
+.d-action {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  font-size: var(--fs-micro);
+  color: var(--fg-1);
+  font-family: var(--mono-font);
+}
+.d-action-icon {
+  font-style: normal;
+  font-family: var(--ui-font);
+  opacity: 0.85;
+}
+.d-action.is-failed {
+  color: var(--st-failed);
 }
 .d-failed {
   background: var(--st-failed-bg);
@@ -811,9 +850,15 @@
     border-right: none;
     border-bottom: 1px solid var(--stroke);
   }
+  /*
+   * 列宽决定**行数**，行数决定留给依赖图的高度——这是这一档最容易踩的地方：
+   * 150px 时 800px 宽只排得下 4 列 → 9 个成员要 3 行 → 成员栏吃掉 212px，
+   * 依赖图只剩 98px，只能缩到 0.6（字就小了）。
+   * 140px 能排 5 列 → 2 行 → 成员栏 ~144px，依赖图拿回 100px+，tight 档不用缩放。
+   */
   .board-member-list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   }
   .board-member {
     padding: 2px 6px;

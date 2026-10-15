@@ -44,8 +44,12 @@ export type DialogueSpeaker = { kind: 'god' } | { kind: 'agent'; id: string } | 
  *
  * 注意 `thinking` 帧的 `text` **不是空的**——它是提问者的原话（见 `DialogueEvent.text`）。
  * 不变量：**`thinking` 帧必须能自证"在回答谁说的什么"**，否则第二个面板无法拼出完整对话。
+ *
+ * `acting`（R35）是"他在干活"：模型调工具时推一帧，`actions` 是到目前为止的累积列表。
+ * 它和 `thinking` 一样带着提问者原话——**理由相同**：任何一帧单独拿出来都要能自证上下文。
+ * 一次搭话可能推多帧 `acting`（R34 真机是 3 次工具调用），面板按 `turnId` 累到同一条记录上。
  */
-export type DialoguePhase = 'thinking' | 'replied' | 'failed'
+export type DialoguePhase = 'thinking' | 'acting' | 'replied' | 'failed'
 
 /** 经 SSE 推给面板的一条对话事件。 */
 export interface DialogueEvent {
@@ -76,6 +80,32 @@ export interface DialogueEvent {
    * 只写"失败"两个字的报错帮不了任何人。
    */
   readonly reason?: string
+  /**
+   * 角色在这一轮里**做过的事**（R35，M6-13）。
+   *
+   * `acting` 帧：到目前为止的**累积**列表（不是增量）——晚到的面板只看最新一帧也拼得出全貌。
+   * `replied` 帧：这一轮的完整列表，渲染在回复正文下面。
+   *
+   * 为什么要有它：R34 真机上小蓝被要求"修登录 bug"，走了四步、调了 3 次工具，
+   * 最后发了一整块工单板，而用户在面板上**只看得到第一句**"我先复现一下"。
+   * 世界确实变了（多了 3 张工单），但看起来像是角色只说了句话。**看不见的干活等于没干。**
+   */
+  readonly actions?: readonly DialogueAction[]
+}
+
+/**
+ * 角色调用过的一个工具（R35）。
+ *
+ * **只带够面板说清"他干了什么"的东西**，不带完整参数与返回值：
+ * 那些在会话日志里都有，推到 SSE 上既占带宽、又可能把用户工作区的内容扩散到每个打开的面板。
+ */
+export interface DialogueAction {
+  /** 工具名原样（如 `agent_world_dispatch`）。中文标签是面板的事（UI 文案）。 */
+  readonly name: string
+  /** 与本次调用最相关的**一个**参数（如任务集 id `task.quick-fix`）；没有就省略。 */
+  readonly detail?: string
+  /** 工具是否执行成功。失败的调用也要显示——"他试过但没成"本身就是信息。 */
+  readonly ok: boolean
 }
 
 /** `POST /api/say` 的请求体。 */
