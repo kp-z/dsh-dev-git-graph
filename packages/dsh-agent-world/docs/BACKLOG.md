@@ -193,6 +193,18 @@
 | M6-4 | ready | **让角色干活**：Agent 调世界工具产生**可见变化**（任务板出现该单 + 角色走向工位）。这一整套设计的意义所在 | `src/tools/` + 集成测试 | M6-3 | 判据：「对话通过工具改变了世界」，不是「画面变了」
 | M6-5 | in_progress | 对话 UI（3D 头顶气泡 + 侧栏对话面板）+ 对话状态机（纯函数、可 node 测） | `web/` + `test/dialogue-state.test.js` | 契约已冻结 | owner: `panel`（task-2）
 | M6-6 | ready | 对话落库与回放（进现有事件日志，重开一局能读到上一局的对话） | `src/store/` + 测试 | M6-3 | ——
+| M7-0 | ready | **`web/` 迁到 TS**（看板要算最长前置链一类逻辑，手写 JS 无类型会持续付代价；这笔债记了 11 轮）。先只迁新代码 + 类型声明，不追求一次全迁 | `web/` + `tsconfig` | —— | P2 前置
+| M7-1 | ready | **看板骨架**：成员列 + 任务格 + 状态色（直接用已有 `TaskStatus` 六态） | `web/board.js` + 测试 | —— | 数据已有，不必等 M6
+| M7-2 | ready | **依赖图布局（纯函数）**：输入任务表 → 输出列号（=最长前置链）+ 连线端点；可单测 | `web/board-layout.js` + 测试 | M7-1 | **唯一有算法含量、且可并行**
+| M7-3 | ready | 详情栏 + **与 3D 双向高亮**（点方框 → 场景里工位/角色发亮） | `web/board.js` + `web/scene3d.js` | M7-1 | 看板存在的最大理由
+| M7-4 | ready | 顶部进度条（`done/failed/ready/pending` 分段），数字与 `/api/world` 一致 | `web/board.js` | M7-1 | ——
+| M7-5 | ready | 实时：事件流驱动看板（**不许轮询**） | `web/board.js` | M7-2 | ——
+| M7-6 | ready | **`goal` 概念**：内容库 `goals` + `world.goalId` + 顶部显示；goal 是**派生视图**（进度=所辖任务汇总，不许自己一套状态机） | `src/content/` + `web/board.js` | M7-4 | 唯一的内容 schema 变更
+| M7-7 | ready | 看板挂到 **DSH 右侧栏 tab**（抄 `dsh-spellbook` 的挂法）；与页面内看板**共用同一份渲染代码** | 新 client 目录 | M7-3 | 第二步
+| M8-1 | ready | **同站对话**：规则决定谁/何时/几轮（`sim/` 触发），内容由两个 DSH Agent 轮流生成 | `src/sim/` + `src/bridge/` + 测试 | M6-3 | **谁跟谁说话由规则定，说什么由 LLM 定**
+| M8-2 | ready | 对话有界：轮数上限 + 成本上限（**只有已唤醒的角色参与自动对话**，否则会互相叫醒） | `src/bridge/` + 测试 | M8-1 | 开工前必须先量 Agent 成本
+| M8-3 | ready | 对话能产出后果（一方调世界工具 → 世界真的变） | `src/tools/` + 测试 | M8-1 + M6-4 | ——
+| M8-4 | ready | 主动发起对话（工具 `agent_world_talk_to(agentId)`） | `src/tools/` | M8-3 | ——
 
 ## M6 — HUD
 
