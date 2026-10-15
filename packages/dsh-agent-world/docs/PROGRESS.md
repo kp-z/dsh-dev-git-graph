@@ -30,7 +30,88 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R26 末）：`typecheck` 绿 · `test` **367 / pass 367 / fail 0 / todo 0**（M6-3 真正收口）。**G2 尚未成立：人设仍是脚手架，M6-2 待做。**
+当前验证状态（R27 末）：`typecheck` 绿 · `test` **367 / pass 367 / fail 0 / todo 0**。**M6-2 内容侧完成（8 个人设 + 校验）；宿主侧 `placeholderPersona()` 待接。**
+
+---
+
+## R27 — 2026-10-15 · M6-2 内容侧：人设定下来并写出 8 个人设（G2 的缺口开始补）
+
+### 做了什么
+
+verifier 上一轮的红线扫描给出一个我没有的结论：**G2 还不成立**——
+`src/index.ts:132` 接的是 `placeholderPersona`，内容库**还没有** `persona/speechStyle` 字段。
+它刻意不含人设字面量所以**不违反红线 2**，但"用自己的语气回话"这件事**当时是假的**。
+
+所以这一轮我把**内容 schema 定下来并写出 8 个人设**：
+
+**① `RosterSeat` 加两个必填字段**（`src/content/kinds.ts`）：
+
+- `persona` —— **这个人是谁**：身份、性格、在意什么、怕什么；
+- `speechStyle` —— **他怎么说话**：语气、句子长短、口头禅、以及**不说什么**。
+
+**为什么拆成两个**（不是合成一个 `description`）：*是谁* 与 *怎么说* 是两件事，
+而实践里**后者对"像不像这个人"的影响更大**——一个说话方式写清楚的角色，
+比一个人格形容词堆得多的角色更像人。
+
+**② 校验带长度下限**（`src/content/validate.ts` 新增 `checkProse`）：
+比 `checkId` 多一条——**要有实质内容**。理由写进了代码注释，我复述一下，因为它是个真风险：
+
+> 人设字段如果允许写"工程师"三个字，G2 会以**一种很难查的方式**失败——
+> 模型**确实**拿到了 system prompt，只是里面什么都没说；而表现是"这角色好像没什么个性"，
+> **没人会想到去查内容校验**。
+
+**我实测过它真的会拦**（不是推演）：给人设填 `'工程师'`、说话方式填 `'短'`，
+两条都被拒，报错是「人设（这个人是谁） 至少要 10 个字，"工程师" 太短——人设写得太省，
+模型只能靠猜，角色之间就会听起来是同一个人。」
+
+**③ 写出 8 个人设**（`src/content/packs/default.ts`）：工头阿金（lead，短句祈使、爱说"这事我来拍"）、
+小蓝（engineer，务实、爱说"我先复现一下"）、小铁（稳重、爱加限定条件）、小绿（新人、不怕承认不会）、
+小紫（reviewer，只认证据、爱追问"你怎么知道"）、小青（researcher，谨慎、爱说"我不确定，先查一下"）、
+小绯（ops，像值班日志、常问"回滚点在哪"）、小雯（docs，替读者提问）。
+
+**这就是"跟小人物说话时他有自己的语气"的全部来源——代码里没有任何一句台词（D37）。**
+
+### 顺带修掉一条 flaky 测试（比它看起来重要）
+
+改完之后全量跑出现一条**看似无关**的失败：`test/store.test.js` 的
+「写盘失败 → 计数 + 事件留着重试，不静默丢历史」。我查了：
+
+- **单独跑 3/3 全绿**；全量跑红一次，之后全量再跑 3 次也全绿 → **载荷相关的 flake**；
+- 根因是它用**固定的 `setTimeout(20)` 当同步手段**：机器一忙（当时正有队友并发跑测试），
+  那次持久化还没跑完，断言就读到 0。
+
+**我把它改成"轮询到出现为止 + 截止时间"**，而不是把超时调大——后者只是把 flake 推给更慢的机器。
+理由写进了代码注释：
+
+> **一条 flaky 的测试比一条失败的测试更糟：它让"绿"变得不可信**，
+> 而"绿"正是这套验收纪律的基础。而且它护的这条不变量（写盘失败不许静默丢事件）
+> 一旦真的坏了，最可能的表现就是"有人说它 flaky 而已"。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 367 / pass 367 / fail 0 / todo 0
+```
+
+schema 变更必然打断已有的 fixture（这是测试在做它该做的事）：`test/external-pack.test.js`
+里 5 个座位缺新字段 → 3 条端到端用例变红，补上 fixture 后转绿。
+**报错本身是对的**——它说的是"人设与说话方式是内容，不是可选项"，并指向了示例位置。
+
+### 下一轮从哪继续
+
+**M6-2 剩最后一步（宿主侧）**：`bridge` 把 `src/index.ts` 末尾的 `placeholderPersona()`
+换成"从花名册条目生成 system prompt"。`seed` 注入链路（`buildSystemPromptSeed`）**已经跑通并有测试**，
+所以只差"填内容"。做完之后 G2（"用自己的语气回话"）才第一次成立——
+而**验证它的判据**是 verifier 给的：**改花名册 → system prompt 跟着变，代码零改动**。
+
+### 本轮产出
+
+- 修改：`src/content/kinds.ts`（`RosterSeat.persona/speechStyle` 必填）、
+  `src/content/validate.ts`（`checkProse` + 两处校验）、`src/content/packs/default.ts`（8 个人设）、
+  `test/external-pack.test.js`（5 个 fixture）、`test/store.test.js`（flaky 修复）
+- 测试仍 367/367（`fail 0`、`todo 0`）
 
 ---
 

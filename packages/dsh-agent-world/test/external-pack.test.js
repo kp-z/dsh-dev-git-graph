@@ -241,8 +241,8 @@ test('端到端：外部包顶掉花名册 → createWorld 出来的世界真的
         id: 'roster.software-team',
         name: '我的两人小队',
         seats: [
-          { role: 'lead', name: '队长本人', palette: 'skin.role.lead', model: null },
-          { role: 'engineer', name: '唯一的工程师', palette: 'skin.role.engineer', model: null },
+          { role: 'lead', name: '队长本人', palette: 'skin.role.lead', model: null, persona: '队长本人 是谁，测试 fixture 用的一句话。', speechStyle: '队长本人 的说话方式，测试 fixture 用的一句话。' },
+          { role: 'engineer', name: '唯一的工程师', palette: 'skin.role.engineer', model: null, persona: '唯一的工程师 是谁，测试 fixture 用的一句话。', speechStyle: '唯一的工程师 的说话方式，测试 fixture 用的一句话。' },
         ],
       },
     ])
@@ -274,7 +274,7 @@ test('端到端：外部包没声明 overrides 就想顶掉 → 报错，且世�
   withTempDir((dir) => {
     write(dir, 'sneaky/pack.json', manifest('pack.sneaky', { provides: ['rosters'] })) // 没写 overrides
     write(dir, 'sneaky/rosters.json', [
-      { id: 'roster.software-team', name: '偷偷换掉', seats: [{ role: 'lead', name: 'X', palette: 'skin.role.lead', model: null }] },
+      { id: 'roster.software-team', name: '偷偷换掉', seats: [{ role: 'lead', name: 'X', palette: 'skin.role.lead', model: null, persona: 'X 是谁，测试 fixture 用的一句话。', speechStyle: 'X 的说话方式，测试 fixture 用的一句话。' }] },
     ])
 
     const loaded = loadContentPacks(dir)
@@ -325,8 +325,8 @@ test('端到端：apply 接上 contentDir → 工具看到的世界就是外部�
         id: 'roster.software-team',
         name: '我的两人小队',
         seats: [
-          { role: 'lead', name: '队长本人', palette: 'skin.role.lead', model: null },
-          { role: 'engineer', name: '唯一的工程师', palette: 'skin.role.engineer', model: null },
+          { role: 'lead', name: '队长本人', palette: 'skin.role.lead', model: null, persona: '队长本人 是谁，测试 fixture 用的一句话。', speechStyle: '队长本人 的说话方式，测试 fixture 用的一句话。' },
+          { role: 'engineer', name: '唯一的工程师', palette: 'skin.role.engineer', model: null, persona: '唯一的工程师 是谁，测试 fixture 用的一句话。', speechStyle: '唯一的工程师 的说话方式，测试 fixture 用的一句话。' },
         ],
       },
     ])

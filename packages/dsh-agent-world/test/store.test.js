@@ -273,8 +273,23 @@ test('运行时：写盘失败 → 计数 + 事件**留着重试**，不静默�
   })
 
   runtime.advance(10)
-  await new Promise((r) => setTimeout(r, 20))
-  assert.equal(runtime.diagnostics.persistErrors, 1)
+  // **不要用固定的 `setTimeout` 当同步手段**（R27 修）。
+  //
+  // 原来是 `await new Promise(r => setTimeout(r, 20))` 然后断言 `persistErrors === 1`。
+  // 这在机器空闲时没问题，但在**全量套件 + 队友并发**的负载下，那次持久化可能还没跑完，
+  // 于是这里读到 0 → 变红。R27 亲历过一次：单独跑 3/3 全绿、全量跑红一次。
+  //
+  // 一条 flaky 的测试比一条失败的测试更糟：**它让"绿"变得不可信**，
+  // 而"绿"正是这套验收纪律的基础。而且它护的这条不变量（写盘失败不许静默丢事件）
+  // 一旦真的坏了，最可能的表现就是"有人说它 flaky 而已"。
+  //
+  // 改成"轮询到出现为止 + 截止时间"：它表达的是**等这件事发生**，
+  // 而不是"猜 20ms 应该够了"。截止时间保证它仍然会失败（而不是永远等下去）。
+  const deadline = Date.now() + 2000
+  while (runtime.diagnostics.persistErrors === 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5))
+  }
+  assert.equal(runtime.diagnostics.persistErrors, 1, '2 秒内应当发生一次持久化失败')
   assert.equal(errors.length, 1)
 
   // 修好之后再刷：**那一批事件不该丢**。

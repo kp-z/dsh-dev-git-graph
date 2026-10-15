@@ -199,6 +199,22 @@ export interface RosterSeat {
   palette: string
   /** 建议的模型路由；null = 用宿主默认模型。 */
   model: { provider: string; model: string; reasoningEffort: string | null } | null
+  /**
+   * **这个人是谁**：身份、性格、在意什么、怕什么。
+   *
+   * 这是**内容**（决策 D37）——代码里不许出现角色名、性格描述或台词。
+   * 它会被拼成该角色的 DSH Agent 的 system prompt，所以写得越具体，
+   * 角色之间越不会"听起来是同一个人"。
+   */
+  persona: string
+  /**
+   * **他怎么说话**：语气、句子长短、口头禅、以及**不说什么**。
+   *
+   * 与 `persona` 分开是有意的：*是谁* 与 *怎么说* 是两件事，
+   * 而实践里后者对"像不像这个人"的影响更大（一个说话方式写清楚的角色，
+   * 比一个人格形容词堆得很多的角色更像人）。
+   */
+  speechStyle: string
 }
 
 /** 角色库条目。 */

@@ -97,6 +97,43 @@ function checkId(sink: IssueSink, value: unknown, where: string, what: string, p
 }
 
 /**
+ * 检查一段**给人设用的文字**。
+ *
+ * 比 `checkId` 多一条：**要有实质内容**。人设字段如果允许写"工程师"三个字，
+ * 那 G2（"用自己的语气回话"）会以一种很难查的方式失败——模型**确实**拿到了 system prompt，
+ * 只是里面什么都没说，而表现是"这个角色好像没什么个性"，没人会想到去查内容校验。
+ * 所以这里要求一个长度下限，**并把下限写进报错**。
+ */
+function checkProse(
+  sink: IssueSink,
+  value: unknown,
+  where: string,
+  what: string,
+  pack: string,
+  min = 10,
+): boolean {
+  if (typeof value !== 'string' || value.trim() === '') {
+    sink.error(
+      where,
+      `${what} 必须是非空字符串。人设与说话方式是**内容**（决策 D37），不是可选项：` +
+        `一个没有人设的角色，跟一个不说话的模型一样没用。写法见 src/content/packs/default.ts 的 rosters 段。`,
+      pack,
+    )
+    return false
+  }
+  if (value.trim().length < min) {
+    sink.error(
+      where,
+      `${what} 至少要 ${min} 个字，${JSON.stringify(value)} 太短——` +
+        `人设写得太省，模型只能靠猜，角色之间就会听起来是同一个人。`,
+      pack,
+    )
+    return false
+  }
+  return true
+}
+
+/**
  * 校验单个包的**自洽性**（清单、条目形状、集合内部的引用）。
  *
  * 跨包的引用（站点引用的地块、场景引用的主题）在这里查不到，由 `validateRegistry` 在合并后查。
@@ -265,6 +302,9 @@ function validateEntryShape(
         if (checkEnum(sink, s.role, ROLES, `${where}.seats[${i}].role`, '职业', pack) && s.role === 'lead') leads++
         checkId(sink, s.name, `${where}.seats[${i}].name`, '角色名', pack)
         checkId(sink, s.palette, `${where}.seats[${i}].palette`, '配色 token', pack)
+        // 人设与说话方式是**内容**（决策 D37）。留空不算"还没写"，算配置错误。
+        checkProse(sink, s.persona, `${where}.seats[${i}].persona`, '人设（这个人是谁）', pack)
+        checkProse(sink, s.speechStyle, `${where}.seats[${i}].speechStyle`, '说话方式', pack)
       })
       if (leads !== 1) {
         sink.error(
