@@ -22,7 +22,7 @@
  * 测试里时间必须是确定的，否则"同一角色两次搭话只建一次会话"这类断言难以复现。
  */
 import { decodeBridgeEvent } from './decode.js'
-import { buildPersonaSeed } from './seed.js'
+
 import type {
   AgentFactory,
   BridgeAgentOptions,
@@ -37,7 +37,6 @@ import type {
   SayOptions,
   SayResult,
   SessionTransport,
-  BridgeSeedEvent,
   WaitForReplyOptions,
   WaitReplyResult,
   WakeResult,
@@ -99,6 +98,16 @@ type Failure = { readonly ok: false; readonly characterId: string; readonly code
  *
  * @param options - 见 {@link CharacterBridgeOptions}；`factory` 与 `systemPromptFor` 必填。
  */
+/**
+ * 人设 section 的名字。
+ *
+ * **刻意与第三方预设人格同名**：`systemPrompt.section()` 的契约是
+ * "作用域内的同名 section 覆盖全局的"，而我们要顶掉的正是别人用这个名字注册的人格
+ * （实测：`@sunjuntao/dsh-prompt-library` 用 `deployment:persona`）。
+ * 换一个名字不会覆盖，只会让两套人格同时出现在 prompt 里——那正是 R33 之前的表现。
+ */
+const PERSONA_SECTION_NAME = 'deployment:persona'
+
 export function createCharacterBridge(options: CharacterBridgeOptions): CharacterBridge {
   const factory: AgentFactory = options.factory
   const transport: SessionTransport | undefined = options.transport
@@ -219,13 +228,35 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
 
     // 人设文本**必须来自调用方**（内容库）；这里不拼任何字面量。空文本会在这里抛，
     // 统一按 create-failed 报出去 —— 让"花名册缺字段"这件事有一个可下手的原因。
-    let seed: BridgeSeedEvent[]
+    let personaText: string
     try {
-      // 消息 id 由会话 id 派生：同一会话里唯一、可追溯（看到它就知道是哪个角色的人设），
-      // 而且是确定的 —— 不引入随机数，测试也能断言它。
-      seed = buildPersonaSeed(options.systemPromptFor(characterId), { time: now(), messageId: `${sessionId}:persona` })
+      personaText = options.systemPromptFor(characterId)
+      if (typeof personaText !== 'string' || personaText.trim() === '') {
+        throw new Error('人设文本是空的：system prompt 不能为空（内容库的 rosters 条目可能缺字段）')
+      }
     } catch (error) {
       return fail(characterId, 'create-failed', `人设生成失败：${messageOf(error)}`)
+    }
+
+    // ── 人设挂在哪：**agent 自己的 system prompt section**，不是 seed（R33 真机纠正）──
+    //
+    // 见 `types.ts` 的 `BridgeSectionRegistrar`：seed 里的 system 消息会被 agent loop
+    // 每轮重新组装的 system prompt 覆盖（真机上表现为角色自称"词库助手"——那是 profile 里
+    // 第三方预设的人格）。改成在 agent 自己的作用域里注册同名 section 去**覆盖**它。
+    const setup = (agentCtx: { systemPrompt?: unknown }): void => {
+      const registrar = agentCtx?.systemPrompt as
+        | { section?: (input: { name: string; order: number; text: string }) => unknown; getSectionOrder?: (n: string) => number | undefined }
+        | undefined
+      if (registrar === undefined || typeof registrar.section !== 'function') {
+        // 没有 systemPrompt 服务时**不静默**：人设没挂上意味着角色会说别人的话，
+        // 这是那种"看起来能跑、但完全不对"的失败，必须让上层看得见。
+        options.onError?.(`会话没有 systemPrompt 服务，${characterId} 的人设挂不上（他会说成预设人格）`)
+        return
+      }
+      // 用**同名 section** 覆盖第三方预设的人格；顺序取内置的 persona 段序（缺失则用 0，
+      // 与 `dsh-system-prompt` 的 DEPLOYMENT_PERSONA_PREFIX 一致）。
+      const order = registrar.getSectionOrder?.('DEPLOYMENT_PERSONA_PREFIX') ?? 0
+      registrar.section({ name: PERSONA_SECTION_NAME, order, text: personaText })
     }
 
     // 实时读取优先（用户改了默认模型，下一个被唤醒的角色就用新的），读不到再用静态配置。
@@ -250,7 +281,10 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
 
     const createOptions = {
       sessionId,
-      seed,
+      // **不再传 seed**：人设改走 `setup` 里的 section（见上面的长注释）。
+      // seed 的形状（消息 id、turn/step 框）是 R30 为"把人设塞进会话"付的学费，
+      // 现在那条路已经不用了 —— 留着它只会让"人设到底在哪"变成两个答案。
+      setup,
       ...(agentOptions === undefined ? {} : { agentOptions }),
       ...(cwd === undefined ? {} : { cwd }),
       ...(signal === undefined ? {} : { signal }),
@@ -273,6 +307,9 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
         try {
           handle = await factory.resumeAgent({
             resumeSessionId: sessionId,
+            // 接回已有会话时**同样**要挂人设 section：会话是从磁盘恢复的，
+            // 而 section 是进程内的注册，不挂就没人设（角色会说成预设人格）。
+            setup,
             ...(agentOptions === undefined ? {} : { agentOptions }),
             ...(signal === undefined ? {} : { signal }),
           })

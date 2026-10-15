@@ -186,37 +186,78 @@ test('bridge：不同角色各自一个会话，互不干扰', async () => {
   assert.deepEqual(bridge.liveCharacters().sort(), ['c1', 'c2'])
 })
 
-// ── 3. seed：人设从内容进，代码里零字面量 ─────────────────────────────────────
+// ── 3. 人设：从内容进，挂在 agent 自己的 system prompt section 上（R33）────────────
 
-test('bridge：seed 里是一条 system/message，文本正是 systemPromptFor 给的', async () => {
+/**
+ * 跑一次 `setup`，把它注册的 section 记下来（模拟 agent 作用域里的 systemPrompt）。
+ * 这是"人设真正生效的地方"——R33 之前我们把它塞进 seed，被 agent 每轮重新组装的
+ * system prompt 覆盖，角色于是说成了别人的预设人格。
+ */
+function runSetup(createOptions) {
+  const sections = []
+  const agentCtx = {
+    systemPrompt: {
+      section(input) {
+        sections.push(input)
+        return () => {}
+      },
+      getSectionOrder: (name) => (name === 'DEPLOYMENT_PERSONA_PREFIX' ? 0 : undefined),
+    },
+  }
+  createOptions.setup?.(agentCtx, { id: createOptions.sessionId })
+  return sections
+}
+
+test('bridge：人设挂在 agent 自己的 section 上，文本正是 systemPromptFor 给的（不再走 seed）', async () => {
   const { bridge, factory } = makeBridge()
 
   await bridge.wake('c1')
 
   assert.equal(factory.calls.length, 1)
-  const { seed } = factory.calls[0]
-  // seed 是**一个自我闭合的 turn/step 框**包着一条 system/message（R30：真宿主需要这个框）。
-  assert.deepEqual(
-    seed.map((e) => e.type),
-    ['turn/start', 'step/start', 'system/message', 'step/end', 'turn/end'],
-    'seed 必须是一个闭合的框，否则下一轮 turn/start 会撞上"上一轮还开着"',
-  )
-  assert.deepEqual(seed.map((e) => e.seq), [0, 1, 2, 3, 4], 'seq 必须严格递增')
+  const options = factory.calls[0]
+  // **不再传 seed**：seed 里的 system 消息会被 agent 每轮重新组装的 prompt 覆盖（R33 真机）。
+  assert.equal(options.seed, undefined, '人设不能再走 seed——那条路在真机上被覆盖了')
+  assert.equal(typeof options.setup, 'function', '人设必须经 setup 挂到 agent 自己的作用域')
 
-  const event = seed[2]
-  assert.equal(event.type, 'system/message')
-  assert.equal(event.surfaceOp, 'append', 'system/message 是 surface 事件，必须带 surfaceOp')
-  assert.equal(event.data.turn, 1, 'turn 从 1 起（真宿主拒绝过 0）')
-  assert.equal(event.data.step, 1)
-  assert.equal(event.data.message.role, 'system')
-  assert.deepEqual(event.data.message.source, { kind: 'system-prompt' })
-  assert.deepEqual(event.data.message.content, [{ type: 'text', text: '你是角色 c1。' }])
-  assert.equal(typeof event.data.message.id, 'string')
-  assert.notEqual(event.data.message.id, '', 'id 必填：真宿主拒过没有 id 的消息')
-  assert.equal(event.time, 1_700_000_000_000, '时间戳来自注入的 now()，测试可复现')
+  const sections = runSetup(options)
+  assert.equal(sections.length, 1, '只挂一个人设 section，不能出现两套人格')
+  const [persona] = sections
+  // 同名覆盖：必须与第三方预设人格同名，否则只是"再多一套人格"而不是"换掉它"。
+  assert.equal(persona.name, 'deployment:persona')
+  assert.equal(persona.order, 0)
+  // 人设是内容：bridge 只是把调用方给的文本原样挂上，没有自己加任何一句。
+  assert.equal(persona.text, '你是角色 c1。')
+})
 
-  // 人设是内容：bridge 只是把调用方给的文本装进去，没有自己加任何一句。
-  assert.equal(event.data.message.content.length, 1)
+test('bridge：接回已有会话时**也**要重挂人设（section 是进程内注册，不随会话持久化）', async () => {
+  const calls = []
+  const factory = {
+    calls,
+    async createAgent() {
+      throw new Error('session "x" already exists')
+    },
+    async resumeAgent(options) {
+      calls.push(options)
+      return { agent: { id: options.resumeSessionId }, async dispose() {} }
+    },
+  }
+  // 用现成的 makeBridge（它带假传输通道；不给通道时 wake 会以 service-unavailable 失败）。
+  const { bridge } = makeBridge({ factory })
+  const result = await bridge.wake('c1')
+  assert.equal(result.ok, true, `应当接回成功：${result.reason ?? ''}`)
+  assert.equal(result.created, false)
+  const sections = runSetup({ sessionId: calls[0].resumeSessionId, setup: calls[0].setup })
+  assert.equal(sections.length, 1, '接回的会话没有人设 section，角色就会说成预设人格')
+  assert.equal(sections[0].text, '你是角色 c1。')
+})
+
+test('bridge：会话没有 systemPrompt 服务时**不静默**——人设挂不上要让上层看见', async () => {
+  const errors = []
+  const { bridge, factory } = makeBridge({ options: { onError: (reason) => errors.push(reason) } })
+  await bridge.wake('c1')
+  factory.calls[0].setup({}, { id: 'x' })
+  assert.equal(errors.length, 1)
+  assert.match(errors[0], /人设挂不上/)
 })
 
 test('seed 构造：形状正确，空人设直接抛（内容错误要响）', () => {
@@ -762,8 +803,9 @@ test('adapter：createDshCharacterBridge 装好之后走完整条链路（假 ct
 
   assert.equal(recorded.length, 1, '★ 生产装配路径上也必须只建一次会话')
   assert.equal(promptCalls.length, 2)
-  const personaEvent = recorded[0].seed.find((e) => e.type === 'system/message')
-  assert.deepEqual(personaEvent.data.message.content, [{ type: 'text', text: '你是角色 c1。' }])
+  // R33：人设走 setup → section，不再走 seed。
+  assert.equal(recorded[0].seed, undefined)
+  assert.deepEqual(runSetup(recorded[0]).map((x) => x.text), ['你是角色 c1。'])
 
   // 只碰该碰的服务：没有任何"模型"服务被**直接调用**（角色只会通过 DSH 的会话走模型）。
   // `agentDefaultModel` 是 R30 加的**读**依赖：真宿主上不把模型写进 agent，

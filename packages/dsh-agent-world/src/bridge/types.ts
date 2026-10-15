@@ -109,6 +109,41 @@ export type SeedFrameEvent =
 /** seed 里的任何一条事件。M6-6 要放"上一局对话"回放时在这里扩。 */
 export type BridgeSeedEvent = SystemMessageSeedEvent | SeedFrameEvent
 
+/**
+ * **人设真正生效的地方**（R33 真机纠正）。
+ *
+ * ## 为什么人设不能放在 `seed` 里
+ *
+ * R30–R32 我们把人设装成 `seed` 的一条 `system/message`。真机上它**被覆盖了**：
+ * agent loop 每一轮都会**重新组装**自己的 system prompt 并作为一条新的 `system/message`
+ * 追加进会话——我们的 seed 在最前面（seq=2），组装出来的在最后（seq=13），后者赢。
+ * 症状是角色开口说"我是「词库助手」"（profile 里第三方预设的人格），
+ * 而不是内容库里写的小雯。
+ *
+ * ## 正确机制（DSH 自己的注释里写明了）
+ *
+ * `systemPrompt.section()` 的文档原话：
+ *
+ * > Register an ordered prompt section in the calling context's scope.
+ * > **A scoped section shadows a global section with the same name**;
+ * > duplicates within one layer and non-finite orders throw.
+ *
+ * 所以要在**该 agent 自己的作用域**里注册一个 section。要顶掉别人的预设人格，
+ * 就得用**同一个 section 名**——这不是绕过，这正是 "per-agent override" 的设计意图
+ * （`dsh-system-prompt` 在重名报错里也是这么指路的：*"for a per-agent override,
+ * register through that agent's `agent.ctx` instead"*）。
+ */
+export interface BridgeSectionRegistrar {
+  section(input: { readonly name: string; readonly order: number; readonly text: string }): () => void
+  /** 取内置顺序常量；缺失时返回 `undefined`，由我们退回自己的缺省序。 */
+  getSectionOrder?(name: string): number | undefined
+}
+
+/** `setup(agentCtx, agent)` 里我们用到的部分。 */
+export interface BridgeAgentSetupContext {
+  readonly systemPrompt?: BridgeSectionRegistrar
+}
+
 /** `CreateAgentOptions` 里 bridge 用到的部分。 */
 export interface BridgeCreateAgentOptions {
   readonly sessionId: string
@@ -124,6 +159,11 @@ export interface BridgeCreateAgentOptions {
    * 它的工作目录应该是**用户的工作区**，而不是我们自己的 `.agent-world`。
    */
   readonly cwd?: string
+  /**
+   * 建 agent 时在**它自己的作用域**里挂人设 section（R33）。
+   * 见 {@link BridgeSectionRegistrar}：这是人设真正生效的地方。
+   */
+  readonly setup?: (agentCtx: BridgeAgentSetupContext, agent: { readonly id: string }) => void
   readonly signal?: AbortSignal
 }
 
@@ -149,6 +189,8 @@ export interface AgentFactory {
 export interface BridgeResumeAgentOptions {
   readonly resumeSessionId: string
   readonly agentOptions?: BridgeAgentOptions
+  /** 与建会话同义：接回已有会话时**也要**重挂人设 section（它是进程内注册，不随会话持久化）。 */
+  readonly setup?: (agentCtx: BridgeAgentSetupContext, agent: { readonly id: string }) => void
   readonly signal?: AbortSignal
 }
 

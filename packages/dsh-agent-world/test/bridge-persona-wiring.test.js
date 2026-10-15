@@ -103,7 +103,7 @@ function realPersonas() {
   return byAgentId
 }
 
-test('装配：/api/say 搭话后，createAgent 收到的 seed 里是**那份内容的人设**', async () => {
+test('装配：/api/say 搭话后，角色 agent 的人设 section 里是**那份内容的人设**', async () => {
   const created = []
   const agentLoop = {
     async createAgent(ownerCtx, options) {
@@ -159,16 +159,16 @@ test('装配：/api/say 搭话后，createAgent 收到的 seed 里是**那份内
     // 唤醒是异步的（发送同步、回复走 SSE），所以这里轮询到两次 createAgent 都发生。
     await until(() => created.length >= 2, '两次 agentLoop.createAgent 调用')
 
+    // R33：人设不再走 seed，而是 setup 在 agent 自己的作用域里注册 `deployment:persona` section
+    // （真机上 seed 被 agent 每轮重新组装的 system prompt 覆盖，角色说成了别人的预设人格）。
     const seedTextOf = (options) => {
-      const seed = options.seed
-      // R30：seed 是一个闭合的 turn/step 框，人设消息在框里（不是数组第一项）。
-      assert.ok(Array.isArray(seed) && seed.length === 5, `seed 应当是闭合的框，实际 ${seed?.length} 条`)
-      assert.deepEqual(seed.map((e) => e.type), ['turn/start', 'step/start', 'system/message', 'step/end', 'turn/end'])
-      const event = seed.find((e) => e.type === 'system/message')
-      assert.equal(event.surfaceOp, 'append')
-      const blocks = event.data.message.content
-      assert.ok(Array.isArray(blocks) && blocks.length === 1)
-      return blocks[0].text
+      assert.equal(options.seed, undefined, '人设不能再走 seed')
+      assert.equal(typeof options.setup, 'function')
+      const sections = []
+      options.setup({ systemPrompt: { section: (x) => (sections.push(x), () => {}), getSectionOrder: () => 0 } }, { id: options.sessionId })
+      assert.equal(sections.length, 1, '只挂一个人设 section')
+      assert.equal(sections[0].name, 'deployment:persona', '必须与第三方预设人格同名才能覆盖它')
+      return sections[0].text
     }
 
     const firstText = seedTextOf(created[0])

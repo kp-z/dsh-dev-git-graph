@@ -31,7 +31,89 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R32 末）：`typecheck` 绿 · `test` **431 / pass 431 / fail 0 / todo 0**。**场景换皮肤+光照+取景、面板重组+现代化完成**（DESIGN.md）。**新发现：每重建一次 3D 场景漏 16 张纹理（M4-12，速率已量）。**
+当前验证状态（R33 末）：`typecheck` 绿 · `test` **433 / pass 433 / fail 0 / todo 0**。**G2 第一次成立：真模型、真宿主上每个角色用自己的语气回话。** 人设改走 agent 作用域的 `deployment:persona` section。剩 G4（让角色干活）。
+
+---
+
+## R33 — 2026-10-15 · **G2 第一次成立**：每个角色用自己的语气回话（真模型、真宿主）
+
+### 结果（这是项目至今最重要的一条）
+
+在真宿主上跟两个从没说过话的角色各说一句"介绍一下你自己，再说说你平时最在意什么"，**真模型**回复原文：
+
+> **小紫**（reviewer）："我是小紫，Agent World 里的评审者——不管谁说自己干完了，我只认证据，不认口气。
+> 平时最在意的就一件事：**这条断言能不能红**。你说「测过了」，那把命令和输出跑给我看……"
+
+> **小绯**（ops）："我是小绯，运维，盯稳定性的——上线要经我签字，所以我最在意的不是'能不能跑通'，
+> 而是'跑砸了能不能退回去'。平时最上心两件事：影响面先说清楚，回滚点先找出来。"
+
+两个人的话**各自对上了内容库里写的人设与说话方式**（小紫的"跑给我看""这条断言能红吗"、小绯的"影响面""回滚点"
+都是 R27 写进 `default.ts` 的原话风格），而**代码里一句台词都没有**（D37）。
+GOAL 的四条能力里，**G1 网页、G2 点人物说话、G3 用 DSH 的 AI 基座，现在都有真机证据**。只剩 G4（让他们干活）。
+
+### 怎么走到这一步的（三步，每一步都是真机照出来的）
+
+**① 卡点仍在，但找到了一条真路由。** 用户说"切换模型了"——查到是 desktop profile 第 267 行换成了
+`mmt-vision` / `claude-opus-5-5`。web profile 两个卡点都还在（graphflow 1.20.0、路由指向失效的 key）。
+`mmt-vision` 在 web 里没有适配器，但 desktop 的 `llm-pi-ai` 里登记了一条完整的 `mmt` provider
+（`baseURL` + `apiKeyEnv: MMT_API_KEY`，凭据里有这把 key）。用**一次性叠加层** `--patch`
+（**不改任何 profile 文件**；只含环境变量**名**，脚本里有一道检查：块里一旦出现疑似密钥值就停）
+把这条登记带进 web、关掉坏的 graphflow、路由设为 `mmt / claude-sonnet-4.6`。
+
+**② 第一条真实回复——但说的是别人。** 小雯开口："你好，我是「**词库助手**」……"
+读会话日志：模型收到**两条** system 消息——seq=2 是我们 seed 里的人设，seq=13 是
+**agent loop 每轮重新组装的 system prompt**，里面是 profile 里 `@sunjuntao/dsh-prompt-library`
+通过 `agent/created` 钩子给**每个** agent 注册的人格（section 名 `deployment:persona`）。后者赢。
+
+**这说明 R30–R32 的整个"人设走 seed"方案从根上就是错的**：agent loop 拥有 system prompt，每轮重组；
+seed 里的 system 消息只是会话历史里的一条旧记录。
+
+**③ 用 DSH 自己写明的机制修。** `dsh-system-prompt` 的 `section()` 文档原话：
+*"A scoped section shadows a global section with the same name."*
+它在重名报错里也指了路：*"for a per-agent override, register through that agent's `agent.ctx` instead."*
+所以改成在 `setup(agentCtx)` 里、**在这个 agent 自己的作用域**注册**同名** section `deployment:persona`——
+这不是绕过，正是 per-agent override 的设计意图。**接回已有会话（resume）时也重挂**：section 是进程内注册，
+不随会话持久化，漏了这一处，重启后的角色又会说成预设人格。
+
+### 架构上的修正（记进 ARCHITECTURE 时要写清）
+
+| | R30–R32 | R33 起 |
+|---|---|---|
+| 人设放在哪 | `seed` 里一条 `system/message` | agent 作用域的 `deployment:persona` section |
+| 生效时机 | 只在会话开头（随后被覆盖） | **每一轮**组装 system prompt 时 |
+| 与第三方预设人格 | 共存，后者赢 | 同名覆盖，只剩我们的 |
+| resume 后 | 旧 seed 还在、但无效 | 由 `setup` 重挂 |
+
+**一个诚实的代价**：R30 在 seed 形状上付的学费（消息 id、turn/step 闭合框、seq 自洽，都是真机一条条撞出来的）
+**这条路现在不用了**。`seed.ts` 与它的不变量测试还在，生产代码已不再调用——下一轮决定删还是留给 M6-6
+（"把上一局对话回放进新会话"确实需要合法的 seed 形状）。**留着但标明用途**，比悄悄变成死代码好。
+
+### 验证
+
+```bash
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 433 / pass 433 / fail 0 / todo 0
+```
+
+新测试守的是**这一轮真正学到的不变量**：人设**不走 seed**；只挂**一个** section；section 名**与第三方预设人格同名**
+（换名字只会"多一套人格"而不是"换掉它"）；**resume 时也重挂**；没有 systemPrompt 服务时**不静默**。
+
+真宿主：小紫、小绯各一条真模型回复，**语气与内容库人设一致**。宿主用后已停；**用户的 profile 文件未改动**。
+
+### 用户环境（仍然需要用户做，但不再挡路）
+
+验证用的是一次性叠加层。要让 **web profile 平时就能用**，仍需用户自己：
+1. `dsh plugin --profile web add @roarpeng/graphflow@latest`（1.20.0 会打死所有新会话的第一步，不只是我们的）；
+2. 给 web profile 一条可用路由（把 desktop 的 `llm-pi-ai` providers 那段抄过去，或重填 deepseek-official 的 key）。
+
+### 下一轮从哪继续
+
+1. **G4：让角色干活（M6-4）**——现在是唯一没成立的能力，也是这一整套设计的意义所在。
+   判据仍是那句："**对话通过工具改变了世界**，不是画面变了"。角色 agent 需要一个世界工具
+   （例如 `agent_world_claim(taskId)`），注册在**它自己的作用域**里（同 section 的思路：只给我们的角色，
+   不污染用户其它会话）。先用 `cordis_inspect_query` 查 `tools` 服务的作用域注册方式。
+2. M4-12 纹理泄漏（+16/次重建，R32 量化）。
+3. `seed.ts` 的去留（见上）。
 
 ---
 
