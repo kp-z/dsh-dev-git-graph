@@ -137,28 +137,36 @@ export function pruneMessages(world, keep = 200) {
 }
 
 /**
- * 收到一批增量时该"应用"还是"重新拉快照"。
+ * 收到一批增量时该「应用」还是「重新拉快照」。
  *
- * ## 为什么它值得单独一个函数
+ * ## 语义（R21 修过一次，这里写死）
  *
- * 这是增量推送里**唯一一处"猜"**：猜自己和服务端还接不接得上。猜错的后果是
- * 把新世界的事件叠到旧世界上（画面上是一堆对不上的状态），而且**不会报错**。
- * 抽出来就能直接测三种情况，而不是靠"看起来对"。
+ * `nextSeq` 是「**下一个期望的事件序号**」，不是「已经消费的最后一个序号」。
+ * 这个区别是**一个真 bug 的根因**：`world.seq` 在协议里的含义是「下一个要分配的号」，
+ * 而面板原来把它当「最后消费的号」，于是
  *
- * 三种情况：
- * - `firstSeq === lastSeq + 1`：严丝合缝，应用；
- * - `firstSeq > lastSeq + 1`：中间缺了（服务端重启过、或者我们漏了一批），**重拉快照**；
- * - `firstSeq <= lastSeq`：**倒退**。最典型的来源是**重开一局**（seq 从头开始），
- *   也可能是服务端重放了我们已经有的。两种都不能"跳过重复的继续应用"——
- *   重开一局时那些 seq 看起来"重复"，但它们属于**另一个世界**。
+ *     快照 seq = N  →  lastSeq = N          （把它当成「已经到 N 了」）
+ *     下一条事件    →  seq = N              （它其实是「分配给 N」）
+ *     decideOnBatch(N, N) → N <= N → resync  ✗ 每来一批就重拉一次快照
+ *
+ * 后果不是画面错（快照是新的，看起来完全正常），而是**每秒约 10 次快照请求 +
+ * 每次重建场景泄漏约 6 个 GPU 纹理**——量了才知道。所以这里统一成「下一个期望号」：
+ * 快照的 `seq`、`hello.seq`、以及「上一批最后一条 + 1」三者含义一致。
+ *
+ * ## 三种情况
+ *
+ * - `firstSeq === nextSeq`：严丝合缝，应用；
+ * - `firstSeq > nextSeq`：中间缺了（服务端重启过、或我们漏了一批）→ 重拉；
+ * - `firstSeq < nextSeq`：**倒退或重复**。最典型的来源是**重开一局**（seq 从头开始），
+ *   也可能是服务端重放了我们已经有的。两种都不能「跳过重复的继续应用」——
+ *   重开一局时那些 seq 看起来「重复」，但它们属于**另一个世界**。
  *
  * @param {number} firstSeq - 这批事件的第一条 seq。
- * @param {number} lastSeq - 本地已经用掉的最后一条 seq。
+ * @param {number} nextSeq - 本地**下一个期望**的 seq。
  * @returns {'apply' | 'resync'}
  */
-export function decideOnBatch(firstSeq, lastSeq) {
+export function decideOnBatch(firstSeq, nextSeq) {
   if (!Number.isFinite(firstSeq)) return 'apply' // 空批/异常批：交给上层当无事发生
-  if (firstSeq <= lastSeq) return 'resync'
-  if (firstSeq > lastSeq + 1) return 'resync'
-  return 'apply'
+  return firstSeq === nextSeq ? 'apply' : 'resync'
 }
+

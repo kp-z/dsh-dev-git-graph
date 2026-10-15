@@ -40,8 +40,19 @@ let syncBaseMs = 0
 let lastMessageMs = 0
 /** 连接状态。 */
 let connected = false
-/** 事件里已经用掉的最后一个 seq。 */
-let lastSeq = 0
+/**
+ * **下一个期望**的事件序号（不是「已经消费的最后一个」）。
+ *
+ * 这个区别是 R21 修掉的一个真 bug 的根因，详见 `world-update.js` 里 `decideOnBatch` 的注释：
+ * `world.seq`（快照与 `hello` 里给的就是它）在协议里的含义是「下一个要分配的号」。
+ * 面板原来把它当「最后消费的号」，于是每来一批事件都判定成「缺了一段」而重拉快照——
+ * 每秒约 10 次请求 + 每次重建泄漏约 6 个纹理，而画面看起来完全正常。
+ */
+let nextSeq = 1
+/** 上一次重拉快照的时刻，用来给重拉做节流（异常情况下不要形成请求风暴）。 */
+let lastResyncMs = 0
+/** 两次重拉之间至少间隔这么久。 */
+const RESYNC_MIN_GAP_MS = 1000
 /** 当前视图：`top`（2D 俯视）或 `3d`。 */
 let mode = 'top'
 /** 3D 渲染器；没启用或加载失败时是 null。 */
@@ -232,6 +243,13 @@ function renderSide(scene, tick) {
     `${meta.packs.map((p) => `${p.id}@${p.version}`).join('、')} — ${libs}` +
     (theme ? ` · 主题：${theme.name}（${theme.camera.projection} ${theme.camera.yawDeg}°/${theme.camera.pitchDeg}°）` : '')
 
+  // 3D 模式下把渲染器的真实计数显示出来——"不卡"要能被看见，否则只是承诺。
+  let perf = ''
+  if (mode === '3d' && scene3d !== null) {
+    const st = scene3d.stats()
+    perf = `${st.fps} fps · 帧 ${st.frameMs}ms（簿记 ${st.applyMs} / 绘制 ${st.drawMs}）· 绘制 ${st.drawCalls} · 三角形 ${st.triangles.toLocaleString()} · 纹理 ${st.textures} · 几何 ${st.geometries} · 重建 ${st.planRebuilds}`
+  }
+
   const states = world.agents.reduce((acc, a) => ({ ...acc, [a.state]: (acc[a.state] ?? 0) + 1 }), {})
   const stateText = Object.entries(states).map(([k, v]) => `${STATE_LABEL[k] ?? k} ${v}`).join(' ')
   const flying = world.messages.filter((m) => (m.deliverAtTick ?? 0) > tick).length
@@ -241,7 +259,8 @@ function renderSide(scene, tick) {
     `tick <b>${tick}</b>`,
     world.paused ? '<b class="warn">已暂停</b>' : '<b class="ok">运行中</b>',
     connected ? '<span class="dim">事件流已连接</span>' : '<b class="warn">事件流重连中</b>',
-    `seq ${lastSeq}`,
+    `下一个 seq ${nextSeq}`,
+    perf,
     flying > 0 ? `飞行中纸条 ${flying}` : '',
     (meta.persistErrors ?? 0) > 0 ? `<b class="warn">落盘失败 ${meta.persistErrors} 次</b>` : '',
     // 数据旧了必须说出来：否则"画面不动"会被理解成"世界停了"，而那是两件事。
@@ -375,7 +394,8 @@ async function loadSnapshot() {
       messageDeliveryTicks: snap.runtime.messageDeliveryTicks,
       persistErrors: snap.runtime.diagnostics.persistErrors,
     }
-    lastSeq = snap.seq
+    // 快照的 `seq` 就是「下一个要分配的号」，所以直接赋值——这正是修掉那个 bug 的关键一步。
+    nextSeq = snap.seq
     syncBaseMs = performance.now()
     lastMessageMs = performance.now()
     // 3D 用**快照里的** ScenePlan 重建静态部分（地面/站点/光照/相机），位姿由 `world` 每帧提供。
@@ -397,7 +417,8 @@ function receive(events) {
   if (world === null || events.length === 0) return
   applyEvents(world, events)
   const last = events[events.length - 1]
-  if (last !== undefined) lastSeq = Math.max(lastSeq, last.seq)
+  // 应用之后，「下一个期望号」= 最后一条 + 1（**不是「最后一条」**）。
+  if (last !== undefined) nextSeq = last.seq + 1
   // 每条事件都是一次权威时间校准。
   syncBaseMs = performance.now()
   pruneMessages(world)
@@ -436,8 +457,14 @@ function connect() {
       // 重点是**倒退也算断裂**——重开一局时 seq 从头开始，
       // 只看"是否跳过了一段"会漏掉这种情况，于是新世界的事件被叠到旧世界上，
       // 而画面上只是一堆对不上的状态，不会报任何错。
-      if (first !== undefined && decideOnBatch(first.seq, lastSeq) === 'resync') {
-        void loadSnapshot()
+      if (first !== undefined && decideOnBatch(first.seq, nextSeq) === 'resync') {
+        // **节流**：即使语义正确，异常情况下（服务端反复重开、或内容真的对不上）
+        // 也不能形成「每批事件重拉一次」的请求风暴。合并到最多每秒一次。
+        const now = performance.now()
+        if (now - lastResyncMs >= RESYNC_MIN_GAP_MS) {
+          lastResyncMs = now
+          void loadSnapshot()
+        }
         return
       }
       receive(message.events ?? [])
@@ -462,7 +489,8 @@ function connect() {
     }
 
     if (message.type === 'hello') {
-      lastSeq = Math.max(lastSeq, message.seq ?? 0)
+      // 同理：`hello.seq` 是「下一个要分配的号」，不是「最后一条」。
+      if (typeof message.seq === 'number') nextSeq = message.seq
       render()
     }
   }

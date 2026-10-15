@@ -293,13 +293,28 @@ test('pruneMessages：还在飞的纸条一张都不能丢，落地的最多留 
 })
 
 test('decideOnBatch：接得上就应用，缺一段或**倒退**都重拉快照', () => {
-  assert.equal(decideOnBatch(11, 10), 'apply', '严丝合缝')
-  assert.equal(decideOnBatch(15, 10), 'resync', '中间缺了：硬接会静默丢一段历史')
-  // 倒退是**重开一局**的典型特征：seq 从头开始。跳过"重复的"继续应用是错的——
+  // `nextSeq` 是「**下一个期望**的号」——这条语义是 R21 修掉一个真 bug 的关键。
+  assert.equal(decideOnBatch(11, 11), 'apply', '严丝合缝：下一个期望的就是它')
+  assert.equal(decideOnBatch(15, 11), 'resync', '中间缺了：硬接会静默丢一段历史')
+  // 倒退是**重开一局**的典型特征：seq 从头开始。跳过「重复的」继续应用是错的——
   // 那些 seq 属于另一个世界。
   assert.equal(decideOnBatch(1, 500), 'resync', 'seq 倒退（重开一局）必须重拉快照')
-  assert.equal(decideOnBatch(500, 500), 'resync', '完全相同的重放也重拉，不做猜测')
-  assert.equal(decideOnBatch(Number.NaN, 10), 'apply', '异常批不该触发重拉风暴')
+  assert.equal(decideOnBatch(500, 501), 'resync', '已经消费过的也重拉，不做猜测')
+  assert.equal(decideOnBatch(Number.NaN, 11), 'apply', '异常批不该触发重拉风暴')
+})
+
+test('回归：快照的 seq 是「下一个要分配的号」，所以下一条事件**恰好等于它** → 必须 apply', () => {
+  // 这是 R21 修掉的那个 bug 的最小复现。
+  //
+  // 协议事实（实测）：`GET /api/world` 返回的 `seq` 与 SSE 的 `hello.seq` 都是 `world.seq`，
+  // 含义是「**下一个要分配的号**」；而事件自身的 `seq` 就是它被分配到的号。
+  // 所以「快照 seq = N」之后，**第一条事件就是 N**。
+  //
+  // 旧写法把快照的 N 当成「已经消费到 N 了」，于是 `decideOnBatch(N, N)` 判成 resync →
+  // **每来一批事件就重拉一次快照**。症状不是画面错（快照是新的，看起来完全正常），
+  // 而是每秒约 10 次快照请求 + 每次重建场景泄漏约 6 个 GPU 纹理——**量了才知道**。
+  const worldSeq = 496 // 快照给的「下一个要分配的号」
+  assert.equal(decideOnBatch(worldSeq, worldSeq), 'apply', '这条红 = 面板会开始每秒重拉十次快照')
 })
 
 // ── 反例：证明这条测试真的会红 ──────────────────────────────────────────────

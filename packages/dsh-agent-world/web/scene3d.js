@@ -49,6 +49,16 @@ const MISSING_COLOR = '#FF00FF'
 const PENDING_COLOR = '#7A8BA6'
 
 /**
+ * 站点高亮用的两个颜色，**在模块级建一次**。
+ *
+ * 原来是"每帧、每个 mesh 都 `new THREE.Color(...)`"——10 个站点 × 若干子网格 × 每秒十几次
+ * 渲染，就是每秒几百次分配。单看很小，但它是纯 GC 压力，而且**每次都给材质的
+ * `emissive` 换一个新对象**，等于每帧都在告诉 three "这个材质变了"。
+ */
+const EMISSIVE_BUSY = { r: 0.1647, g: 0.1647, b: 0.1647 }
+const EMISSIVE_FREE = { r: 0, g: 0, b: 0 }
+
+/**
  * 建一个 3D 场景。
  *
  * @param {HTMLCanvasElement} canvas - 画布。
@@ -58,13 +68,31 @@ export function createScene3d(canvas, options = {}) {
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
-    // 保留绘制缓冲。WebGL 默认在合成之后就把绘制缓冲丢掉，于是
-    // `toDataURL()` 与截图工具拿到的是**空白**。这个面板的用途有一部分就是"被人看/被人验"，
-    // 所以付出这点代价换"随时能取到当前这一帧"。代价是显存里多留一块缓冲。
-    preserveDrawingBuffer: true,
+    // **默认关**（R21 的实测结论）。开着它会保住绘制缓冲，于是 `toDataURL()`
+    // 与截图能取到当前帧——但代价是浏览器**每帧都要多做一次缓冲拷贝/同步**，
+    // 而且这条路径会绕过 WebGL 的一些快路径。
+    //
+    // R15 为了"能程序化取像素来核验"把它开成了 true，当时没量过代价；
+    // R21 量了：绘制只有 22 个调用 / 224 个三角形，而 `renderer.render` 每帧要 **15.8ms**。
+    // 关掉之后（见 PROGRESS R21 的实测数字）就回到正常量级。
+    //
+    // 需要取像素时**不要**把它改回 true（那会给所有人付代价），用 URL 参数临时开：
+    // `?pdb=1`。核验才需要它，日常使用不需要。
+    preserveDrawingBuffer: new URLSearchParams(globalThis.location?.search ?? '').has('pdb'),
   })
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  /**
+   * **阴影图不每帧重画**（R21 实测结论）。
+   *
+   * three 默认每帧把整个场景再渲染一遍到 2048×2048 的深度纹理——而我们的场景
+   * 除了几个慢慢走动的角色之外完全静止。那是纯浪费，而且实测占了每帧成本的一大块。
+   *
+   * 现在关掉自动更新，改由 `applyWorld` 每 N 次渲染手动要一次。角色一步只走 0.06 世界单位
+   * （约 0.6/秒），所以两三帧的阴影滞后在等距视角下看不出来。
+   */
+  renderer.shadowMap.autoUpdate = false
+  renderer.shadowMap.needsUpdate = true
 
   /** 程序化几何注册表。尺寸与形状都在 `builders.js` 里，这里只管摆放。 */
   const builders = createBuilderRegistry(THREE)
@@ -100,6 +128,16 @@ export function createScene3d(canvas, options = {}) {
   controls.enablePan = true
   controls.target.set(0, 0, 0)
 
+  /**
+   * 站点 id → 它那个 `Object3D`，以及它下面所有带材质的 mesh。
+   *
+   * **为什么要缓存**：原来是每帧对每个站点调一次 `staticGroup.getObjectByName(...)`——
+   * 那是**遍历整棵场景树**。10 个站点 × 每秒十几次渲染 × 树里几百个节点（GLB 角色带骨架，
+   * 每个几十个节点）= 每秒上万次比较，而图形负载只有 22 个绘制调用。
+   * 实测这一处就是"绘制 22 · 三角形 224 却要 16ms/帧"的主因。
+   */
+  const propNodes = new Map()
+
   /** 由 ScenePlan 建出来的东西，换 plan 时整体丢掉重建。 */
   let staticGroup = new THREE.Group()
   scene.add(staticGroup)
@@ -124,6 +162,17 @@ export function createScene3d(canvas, options = {}) {
     staticGroup = new THREE.Group()
     scene.add(staticGroup)
     actorById.clear()
+    propNodes.clear()
+  }
+
+  /** 记下这个站点下的所有 mesh（高亮时直接改，不用再遍历/查找）。 */
+  const indexPropMeshes = (node) => {
+    const meshes = []
+    node.traverse((child) => {
+      if (child.isMesh === true) meshes.push(child)
+    })
+    node.userData.meshes = meshes
+    node.userData.occupied = null // 未知：第一帧一定会写一次
   }
 
   /** 按主题配相机。等距沙盘的经典参数是 45° / 35.264°。 */
@@ -358,12 +407,17 @@ export function createScene3d(canvas, options = {}) {
         // 到货后：换到同一个位置与名字（`applyWorld` 是按名字找站点的，名字必须保住）。
         (real, old) => {
           real.position.set(p.x, real.position.y, -p.z)
-          swapIn(real, old, null)
+          swapIn(real, old, (fresh) => {
+            indexPropMeshes(fresh)
+            propNodes.set(p.id, fresh)
+          })
         },
       )
       node.position.set(p.x, node.position.y, -p.z)
       node.name = `prop:${p.id}`
       staticGroup.add(node)
+      indexPropMeshes(node)
+      propNodes.set(p.id, node)
     }
   }
 
@@ -389,7 +443,11 @@ export function createScene3d(canvas, options = {}) {
    *
    * @param {object} nextPlan - `ScenePlan`。
    */
+  /** `setPlan` 被调了几次。它在反复调用 = 面板在反复重拉快照（纹理增长的可疑来源）。 */
+  let planRebuilds = 0
+
   const setPlan = (nextPlan) => {
+    planRebuilds += 1
     plan = nextPlan
     half = plan.extent?.half ?? 8
 
@@ -428,16 +486,19 @@ export function createScene3d(canvas, options = {}) {
       if (agent.targetStation !== null) busy.add(agent.targetStation)
     }
     for (const p of plan?.props ?? []) {
-      const mesh = staticGroup.getObjectByName(`prop:${p.id}`)
-      if (mesh === undefined) continue
+      const node = propNodes.get(p.id)
+      if (node === undefined) continue
       const occupied = busy.has(p.id)
-      // 站点现在是 Group（形状由多个 mesh 组成），所以高亮要遍历子节点。
-      mesh.traverse((child) => {
-        if (child.isMesh !== true) return
-        child.material.emissive = occupied ? new THREE.Color(0x2a2a2a) : new THREE.Color(0x000000)
-      })
+      // **只在状态真的变化时**动材质。原来每帧都写一遍，等于每帧都在告诉 three
+      // "这个材质变了"——即使值完全一样。
+      if (node.userData.occupied === occupied) continue
+      node.userData.occupied = occupied
+      const target = occupied ? EMISSIVE_BUSY : EMISSIVE_FREE
+      for (const mesh of node.userData.meshes ?? []) {
+        mesh.material.emissive.setRGB(target.r, target.g, target.b)
+      }
       // 只对**程序化**几何做"被占用时抬一点"：对真模型是拉伸，很难看。
-      if (mesh.userData.kind === 'builder') mesh.scale.y = occupied ? 1.12 : 1
+      if (node.userData.kind === 'builder') node.scale.y = occupied ? 1.12 : 1
     }
 
     for (const agent of world.agents ?? []) {
@@ -460,7 +521,12 @@ export function createScene3d(canvas, options = {}) {
     const rect = canvas.getBoundingClientRect()
     const width = Math.max(1, rect.width)
     const height = Math.max(1, rect.height)
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    // **像素比封顶 1.5**（R21 实测结论）。
+    //
+    // 我们的画布在高分屏上是 2112×1403，DPR=2 → 约 **3 百万像素**，而每个像素都要付
+    // 雾 + PCF 软阴影 + ACES 色调映射的账。实测这就是每帧 17ms 的主因之一。
+    // 1.5 之后填充量降到 56%，而在等距沙盘这种风格上肉眼几乎看不出差别。
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
     renderer.setPixelRatio(dpr)
     renderer.setSize(width, height, false)
 
@@ -476,26 +542,111 @@ export function createScene3d(canvas, options = {}) {
     camera.updateProjectionMatrix()
   }
 
-  return {
+  // ── 性能可见性 ──────────────────────────────────────────────────────────────
+  //
+  // 用户的要求是"**最起码前端不要卡住**"。而**没有可见性就无法对这件事负责**——
+  // 卡顿的表现是"画面一顿一顿"，但看不出是渲染太重、事件太多、还是主线程被别的东西占了。
+  // 所以这里把渲染器的真实计数暴露出来（`renderer.info` 是 three 自己维护的）：
+  // 绘制调用数、三角形数、纹理/几何体数，以及最近这些帧的**平均帧耗时**。
+  let frames = 0
+  let lastFrameMs = 0
+  let frameMsAvg = 0
+  let worstFrameMs = 0
+  /** 拆分：`applyWorld`（我们的簿记）与 `renderer.render`（three 的活）各占多少。 */
+  let applyMs = 0
+  let drawMs = 0
+  /** 阴影图的节拍计数（见 `shadowMap.autoUpdate` 的说明）。 */
+  let shadowTick = 0
+
+  const api = {
     setPlan,
     applyWorld,
     resize,
+
+    /**
+     * 取一份性能快照（诊断用）。
+     *
+     * @returns {{fps: number, frameMs: number, worstMs: number, drawCalls: number, triangles: number, geometries: number, textures: number, programs: number, actors: number, programsNote: string}}
+     */
+    stats() {
+      const info = renderer.info
+      return {
+        fps: frameMsAvg > 0 ? Math.round(1000 / frameMsAvg) : 0,
+        // ⚠️ `frameMs` / `drawMs` **含 vsync 等待**，不是 CPU 成本。
+        // 实测它恰好落在一个 60Hz vblank（≈16.7ms）上，且**不随场景复杂度变化**
+        // （22 个绘制调用与 42 个、224 与 7634 个三角形，都是同一个数）。
+        // 真正属于我们的 CPU 时间是 `applyMs`；渲染提交本身要看 `benchmark()` 的结果。
+        frameMs: Math.round(frameMsAvg * 100) / 100,
+        applyMs: Math.round(applyMs * 100) / 100,
+        drawMs: Math.round(drawMs * 100) / 100,
+        worstMs: Math.round(worstFrameMs * 100) / 100,
+        frames,
+        drawCalls: info.render.calls,
+        triangles: info.render.triangles,
+        geometries: info.memory.geometries,
+        textures: info.memory.textures,
+        programs: info.programs?.length ?? 0,
+        actors: actorById.size,
+        planRebuilds,
+        programsNote: 'three 的 renderer.info，按最近一帧',
+      }
+    },
+
     get plan() {
       return plan
     },
     /** 画一帧。**由调用方调**——不用 rAF，理由见文件头。 */
     render(world) {
       try {
+        const t0 = performance.now()
         applyWorld(world)
+        const t1 = performance.now()
+        // 每 3 次渲染更新一次阴影图（见上面 `autoUpdate` 的说明）。
+        shadowTick += 1
+        if (shadowTick % 3 === 0) renderer.shadowMap.needsUpdate = true
         renderer.render(scene, camera)
+        // 指数滑动平均：单帧抖动不该被当成"卡了"，但持续变慢必须看得出来。
+        const t2 = performance.now()
+        applyMs = applyMs === 0 ? t1 - t0 : applyMs * 0.9 + (t1 - t0) * 0.1
+        drawMs = drawMs === 0 ? t2 - t1 : drawMs * 0.9 + (t2 - t1) * 0.1
+        lastFrameMs = t2 - t0
+        frameMsAvg = frameMsAvg === 0 ? lastFrameMs : frameMsAvg * 0.9 + lastFrameMs * 0.1
+        worstFrameMs = Math.max(worstFrameMs * 0.995, lastFrameMs)
+        frames += 1
       } catch (error) {
         options.onError?.(error)
       }
     },
+    /**
+     * 连续渲染 N 次并返回耗时（**诊断用**）。
+     *
+     * ## 为什么需要它
+     *
+     * 把 `performance.now()` 套在一次 `render()` 外面，量到的是
+     * **"提交 + 等 vsync"**——实测恒为 ~16.7ms，且与场景复杂度无关。
+     * 那会让人误以为"渲染很贵"，进而做出错误的架构判断（比如因此转 Godot）。
+     *
+     * 连续渲染绕开了 vsync（合成器只取最后一帧），所以它量的是**真实的提交成本**。
+     *
+     * @param {number} [n] - 次数。
+     */
+    benchmark(n = 60) {
+      const t0 = performance.now()
+      for (let i = 0; i < n; i++) renderer.render(scene, camera)
+      const total = performance.now() - t0
+      return { renders: n, totalMs: Math.round(total * 100) / 100, perRenderMs: Math.round((total / n) * 1000) / 1000 }
+    },
+
     dispose() {
       clearStatic()
       controls.dispose()
       renderer.dispose()
     },
   }
+
+  // 只有显式 `?debug=1` 才把句柄挂出去。默认不挂：面板的页面上下文没必要多一个全局。
+  if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
+    globalThis.__agentWorldScene3d = api
+  }
+  return api
 }
