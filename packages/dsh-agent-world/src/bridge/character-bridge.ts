@@ -243,7 +243,7 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
     // 见 `types.ts` 的 `BridgeSectionRegistrar`：seed 里的 system 消息会被 agent loop
     // 每轮重新组装的 system prompt 覆盖（真机上表现为角色自称"词库助手"——那是 profile 里
     // 第三方预设的人格）。改成在 agent 自己的作用域里注册同名 section 去**覆盖**它。
-    const setup = (agentCtx: { systemPrompt?: unknown }): void => {
+    const setup = (agentCtx: { systemPrompt?: unknown; tools?: unknown }): void => {
       const registrar = agentCtx?.systemPrompt as
         | { section?: (input: { name: string; order: number; text: string }) => unknown; getSectionOrder?: (n: string) => number | undefined }
         | undefined
@@ -257,6 +257,33 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
       // 与 `dsh-system-prompt` 的 DEPLOYMENT_PERSONA_PREFIX 一致）。
       const order = registrar.getSectionOrder?.('DEPLOYMENT_PERSONA_PREFIX') ?? 0
       registrar.section({ name: PERSONA_SECTION_NAME, order, text: personaText })
+      restrictTools(agentCtx)
+    }
+
+    // ── 工具：角色**只许**动世界（R34，D35 由注册表强制）──────────────────────
+    //
+    // 与人设 section 同一个思路：只在**这个 agent 自己的作用域**里生效，不碰用户其它会话。
+    // allow 列表先用 `get` 过滤——`restrict` 遇到未知名字会抛，而某个工具在这个 profile 里
+    // 没注册（比如没装世界工具的部署）不该让整个角色建不起来。
+    const restrictTools = (agentCtx: { tools?: unknown }): void => {
+      const wanted = options.characterTools
+      if (wanted === undefined) return
+      const scope = agentCtx?.tools as
+        | { restrict?: (f: { allow: readonly string[] }) => unknown; get?: (n: string) => unknown }
+        | undefined
+      if (scope === undefined || typeof scope.restrict !== 'function') {
+        // 拿不到工具注册表就**说出来**：没限制住意味着角色握着 bash/写文件，必须让上层看见。
+        options.onError?.(`会话没有 tools 服务，${characterId} 的工具没能限制（他可能拿得到 bash 等全部工具）`)
+        return
+      }
+      const allow = typeof scope.get === 'function' ? wanted.filter((n) => scope.get!(n) !== undefined) : [...wanted]
+      if (allow.length === 0) {
+        // 一个都看不见时**不能**传空 allow（契约：空过滤器会抛）。改为全部拒绝的语义只能靠 deny，
+        // 而 deny 也要已知名字——所以这里退化为"不限制 + 报出来"，而不是静默放行。
+        options.onError?.(`${characterId} 的世界工具在这个 profile 里一个都没注册，工具未限制`)
+        return
+      }
+      scope.restrict({ allow })
     }
 
     // 实时读取优先（用户改了默认模型，下一个被唤醒的角色就用新的），读不到再用静态配置。

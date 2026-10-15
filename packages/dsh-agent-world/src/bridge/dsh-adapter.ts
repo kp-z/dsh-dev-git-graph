@@ -277,6 +277,8 @@ export interface DshBridgeOptions {
   readonly onError?: (reason: string) => void
   /** 会话工作目录（绝对路径）。默认 `process.cwd()`——与插件的 contentDir / stateDir 同一基准。 */
   readonly cwdFor?: () => string | undefined
+  /** 见 `CharacterBridgeOptions.characterTools`。 */
+  readonly characterTools?: readonly string[]
 }
 
 /** `createDshCharacterBridge()` 的结果：要么装好了，要么给出装不上的原因。 */
@@ -332,6 +334,7 @@ export function createDshCharacterBridge(ctx: unknown, options: DshBridgeOptions
     agentOptionsFor: () => readDefaultModelSelection(ctx),
     // 角色的工作目录 = 插件的工作区（与 contentDir / stateDir 同一个基准），不是 .agent-world。
     cwdFor: options.cwdFor ?? (() => process.cwd()),
+    ...(options.characterTools === undefined ? {} : { characterTools: options.characterTools }),
     ...(options.maxLiveSessions === undefined ? {} : { maxLiveSessions: options.maxLiveSessions }),
     ...(options.sessionIdFor === undefined ? {} : { sessionIdFor: options.sessionIdFor }),
     ...(options.requestIdPrefix === undefined ? {} : { requestIdPrefix: options.requestIdPrefix }),

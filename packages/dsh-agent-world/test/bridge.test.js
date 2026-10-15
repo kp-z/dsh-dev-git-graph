@@ -1076,3 +1076,55 @@ test('checkModelReadiness：不知道选了谁时，退回旧判据（不因缺�
   assert.equal((await checkModelReadiness(ctx)).ok, true)
   assert.equal((await checkModelReadiness(ctx, {})).ok, true)
 })
+
+// ── R34（G4）：角色只许用世界工具 —— D35 由工具注册表强制，而不是靠提示词 ──────────
+
+function runSetupWithTools(createOptions, visible) {
+  const restricted = []
+  const agentCtx = {
+    systemPrompt: { section: () => () => {}, getSectionOrder: () => 0 },
+    tools: {
+      restrict: (filter) => (restricted.push(filter), () => {}),
+      get: (name) => (visible.includes(name) ? { name } : undefined),
+    },
+  }
+  createOptions.setup?.(agentCtx, { id: createOptions.sessionId })
+  return restricted
+}
+
+test('G4：角色 agent 在自己的作用域里被限制为只用世界工具（拿不到 bash/写文件）', async () => {
+  const { bridge, factory } = makeBridge({
+    options: { characterTools: ['agent_world_status', 'agent_world_content', 'agent_world_dispatch'] },
+  })
+  await bridge.wake('c1')
+  const restricted = runSetupWithTools(factory.calls[0], ['agent_world_status', 'agent_world_content', 'agent_world_dispatch', 'bash'])
+  assert.equal(restricted.length, 1, '必须恰好限制一次')
+  assert.deepEqual(restricted[0].allow, ['agent_world_status', 'agent_world_content', 'agent_world_dispatch'])
+  assert.ok(!restricted[0].allow.includes('bash'))
+})
+
+test('G4：allow 先按可见性过滤 —— restrict 遇到未知名字会抛，没注册的工具不能让角色建不起来', async () => {
+  const { bridge, factory } = makeBridge({ options: { characterTools: ['agent_world_status', 'agent_world_dispatch'] } })
+  await bridge.wake('c1')
+  const restricted = runSetupWithTools(factory.calls[0], ['agent_world_status'])
+  assert.deepEqual(restricted[0].allow, ['agent_world_status'])
+})
+
+test('G4：一个世界工具都看不见、或没有 tools 服务时**不静默**', async () => {
+  const errors = []
+  const { bridge, factory } = makeBridge({
+    options: { characterTools: ['agent_world_dispatch'], onError: (r) => errors.push(r) },
+  })
+  await bridge.wake('c1')
+  assert.deepEqual(runSetupWithTools(factory.calls[0], []), [], '空 allow 不能传（契约：空过滤器会抛）')
+  factory.calls[0].setup({ systemPrompt: { section: () => () => {} } }, { id: 'x' })
+  assert.equal(errors.length, 2)
+  assert.match(errors[0], /一个都没注册/)
+  assert.match(errors[1], /没能限制/)
+})
+
+test('G4：不配 characterTools 时保持旧行为（不限制）', async () => {
+  const { bridge, factory } = makeBridge()
+  await bridge.wake('c1')
+  assert.deepEqual(runSetupWithTools(factory.calls[0], ['bash']), [])
+})

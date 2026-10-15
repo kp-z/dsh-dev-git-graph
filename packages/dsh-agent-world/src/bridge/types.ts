@@ -142,6 +142,21 @@ export interface BridgeSectionRegistrar {
 /** `setup(agentCtx, agent)` 里我们用到的部分。 */
 export interface BridgeAgentSetupContext {
   readonly systemPrompt?: BridgeSectionRegistrar
+  readonly tools?: BridgeToolScope
+}
+
+/**
+ * 角色 agent 作用域里的工具注册表（R34，G4）。
+ *
+ * `tools` 服务的契约原话（`cordis_inspect_query` 查到的）：
+ * - `restrict(filter)`：*"Restrict global tools for the calling agent scope … Restrictions intersect;
+ *   scoped registrations remain visible."* —— 只对**这一个 agent** 生效；
+ *   **未知名字会抛**（*"unknown names … fail"*），所以 allow 列表必须先用 `get` 过滤一遍。
+ * - `get(name)`：按调用方作用域查一个工具，看不见返回 `undefined`。
+ */
+export interface BridgeToolScope {
+  restrict?(filter: { readonly allow?: readonly string[]; readonly deny?: readonly string[] }): () => void
+  get?(name: string): unknown
 }
 
 /** `CreateAgentOptions` 里 bridge 用到的部分。 */
@@ -425,6 +440,15 @@ export interface CharacterBridgeOptions {
    * （内容目录、存档目录）也是以它为基准的，所以角色与插件看的是同一个工作区。
    */
   readonly cwdFor?: () => string | undefined
+  /**
+   * 角色**只许**用的全局工具名（R34，红线 D35 由工具注册表强制，而不是靠提示词）。
+   *
+   * 角色 agent 默认继承 profile 的**全部**工具——bash、读写文件、联网……
+   * 对一个游戏里的小人物这是事故级的权限：用户说一句"去修登录 bug"，他可能真的去改用户的代码。
+   * 给了这个列表，`setup` 会在该 agent 作用域里 `restrict({ allow })`，其余一律看不见。
+   * 不给 = 不限制（保持旧行为，测试与无世界工具的部署用）。
+   */
+  readonly characterTools?: readonly string[]
   /** 时间源。默认 `Date.now`；测试传固定值以保证可复现。 */
   readonly now?: () => number
   /** requestId 前缀，默认 `agent-world-say`。 */

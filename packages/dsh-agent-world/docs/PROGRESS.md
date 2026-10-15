@@ -31,7 +31,88 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R33 末）：`typecheck` 绿 · `test` **433 / pass 433 / fail 0 / todo 0**。**G2 第一次成立：真模型、真宿主上每个角色用自己的语气回话。** 人设改走 agent 作用域的 `deployment:persona` section。剩 G4（让角色干活）。
+当前验证状态（R34 末）：`typecheck` 绿 · `test` **437 / pass 437 / fail 0 / todo 0**。**G4 成立：对话让角色调用工具派单，世界从 0 张工单变成 3 张，调度器把第一张派给小青、她开始干活。GOAL 四条能力全部有真机证据。** 下一步：让面板看见角色做了什么（M6-13）。
+
+---
+
+## R34 — 2026-10-15 · **G4 成立：对话让角色真的去干活了**（四条能力全部有真机证据）
+
+### 结果
+
+用大白话对工程师小蓝说："小蓝，登录页有个 bug，用户老是登不上，你们组把它修一下吧。"
+
+小蓝的会话里（真模型，真宿主）发生了这些，**按顺序**：
+
+| 步 | 小蓝说的 | 调的工具 |
+|---|---|---|
+| 1 | "我先复现一下——先看看现在世界是什么状态，有没有现成的工作流能用。" | `agent_world_status`、`agent_world_content` |
+| 2 | "先确认任务库里到底有哪条流水线能对上「修登录 bug」这件事。" | `agent_world_content` ×2 |
+| 3 | "`task.quick-fix` 就是干这个的。先说清楚一件事：我这边**没有登录页的代码库，也没有能复现的环境**……**也不会假装我改了**" | **`agent_world_dispatch`** |
+| 4 | "派好了。工单板现在这样：……" | —— |
+
+世界随之变化（**这才是判据**——不是画面变了，而是对话通过工具改变了世界）：
+
+| | 对话前 | 对话后 |
+|---|---|---|
+| 工单 | 0 | **3**（定位问题边界 / 改代码 / 验证修复，按依赖串起来） |
+| 角色 | 8 人全部待命 | 调度器把第一张派给调研员**小青，她已经在干活**（`working`） |
+
+**GOAL 的四条能力现在都有真机证据**：G1 网页、G2 点人物说话（R33）、G3 用 DSH 的 AI 基座（R33）、**G4 让他们干活（本轮）**。
+
+### 两件值得单独记下的事
+
+**① 人设里的纪律在真机上兑现了。** R27 写进人设的规矩之一是"做不到就直说做不到，**不要声称你已经做了**"。
+小蓝没有代码库，它**主动说清楚了**，然后去做它真能做的事（派一条快速修复流水线）。
+这比"它会调工具"更重要：一个会假装修好了 bug 的角色，比一个什么都不做的角色危险得多。
+
+**② 我差点误判成"没成功"。** 第一次查世界是在回复后 4 秒——小蓝还在多步推理里，工单数是 0，
+回复也只有第一句"我先复现一下"。**`replied` 事件只带了第一步的文字**。读会话日志才看到它其实走了四步、
+在第三步派了单。这揭示了一个**产品缺陷**：面板上只看得到第一句，看不到角色后面真正做了什么。
+记为 M6-13（见下）。
+
+### 本轮的代码：角色**只许**用世界工具（D35 由注册表强制，而不是靠提示词）
+
+角色 agent 默认继承 profile 的**全部**工具——bash、读写文件、联网……对一个游戏里的小人物，这是**事故级**的权限：
+用户说一句"去修登录 bug"，它可能真的去改用户的代码。
+
+`tools` 服务的契约（`cordis_inspect_query` 查到的原文）：
+*"Register globally or in the calling agent scope. Scoped tools shadow globals"* /
+`restrict(filter)`：*"Restrict global tools for the calling agent scope … Restrictions intersect;
+scoped registrations remain visible"*。与上一轮的人设 section **完全同构**——只作用于这一个 agent。
+
+所以在 `setup(agentCtx)` 里 `agentCtx.tools.restrict({ allow })`，白名单是
+`agent_world_status` / `agent_world_content` / `agent_world_dispatch`。**刻意不给 `agent_world_open`**：
+那会让一个角色重开整个世界。两处防御：
+- allow 列表先用 `get` 按可见性过滤——契约说 **"unknown names fail"**，某个工具在这个 profile 里没注册不该让角色建不起来；
+- 一个都看不见、或没有 `tools` 服务时**不静默**：没限制住意味着角色握着 bash，必须让上层看见。
+- **不能传空 allow**（契约：空过滤器会抛）。
+
+真机上的证据：小蓝**只调用了这三个工具**，没有一次 bash、没有一次读文件——它自己也说"我看不到任何 repo"。
+
+### 验证
+
+```bash
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 437 / pass 437 / fail 0 / todo 0
+```
+
++4 条测试：限制恰好一次且只含世界工具；allow 按可见性过滤；看不见/没服务时不静默且不传空 allow；
+不配 `characterTools` 时保持旧行为。
+
+真宿主：同 R33 的一次性叠加层（**用户 profile 文件未改动**），宿主用后已停。
+
+### 已知问题（如实记下）
+
+- **阿金（agent-1）说不了话**：他的会话建于 R30 修 cwd 之前，会话头没有 cwd，接回后永远报 `{{cwd}}`。
+  其余 7 人的会话头都有 cwd（逐个查过）。这条旧会话在用户数据目录里，**我没删**——删掉它，阿金下次说话会重建。
+- **面板只看得到第一句话**（M6-13）。
+
+### 下一轮从哪继续
+
+1. **M6-13：让面板看见角色"做了什么"**。现在 `replied` 只带第一步的文字；小蓝那一轮有四步、三次工具调用、
+   最后一段是完整的工单板——用户在面板上**全都看不见**。至少要：(a) 回复取**最后一条** assistant 文字（或拼全部），
+   (b) 工具调用在对话里显示成一行"🔧 派单：task.quick-fix"。这是让 G4 **被用户看见**的最后一步。
+2. M4-12 纹理泄漏；M6-12 `seed.ts` 去留；M8-0 台账归档。
 
 ---
 

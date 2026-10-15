@@ -146,6 +146,8 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   const dialoguePort = toLazyDialoguePort(() => {
     const wiring = createDshCharacterBridge(ctx, {
       systemPromptFor: createPersonaResolver(state),
+      // 角色只许看世界、读内容、派单（D35）。**不给 agent_world_open**：那会让一个角色重开整个世界。
+      characterTools: ['agent_world_status', 'agent_world_content', 'agent_world_dispatch'],
       maxLiveSessions: resolved.maxLiveSessions,
       requestIdPrefix: 'agent-world-say',
       onError: (reason) => logger.warn(`对话桥：${reason}`),
