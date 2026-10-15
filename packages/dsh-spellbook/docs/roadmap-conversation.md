@@ -970,6 +970,48 @@ SSH 那条路本来就封着（见 09 节）。**这台机器恢复之前，推�
 
 ---
 
+### ✅ 待办已清（2026-10-16 01:00）—— 顺带把病因查准了，附可复用的办法
+
+**结果**：`main` 与 `feat/dsh-daily` 都推到 `6cd84a0`，`dsh-spellbook@0.2.5` 也上了 npm（latest）。
+攒了一天多的东西一件没丢。
+
+**病因（比「国际 HTTPS 被干扰」精确得多）**：**只有 `github.com` 这一个主机不通。**
+
+| 目标 | 结果 |
+|---|---|
+| `api.github.com` / `raw.githubusercontent.com` / `codeload.github.com` | **200 / 301 / 301**（通） |
+| `github.com` | `000`，`Connection timed out` |
+| `github.com` 解析到 | `20.205.243.166` ← **这个 IP 被掐** |
+| `--resolve github.com:443:140.82.121.4`（另一个 GitHub IP） | **200** ✓ |
+| `registry.npmjs.org` | 后来自己恢复了 |
+
+所以不是「境外全断」，也不是 TLS 1.3 的事（`--tls-max 1.2`、`--http1.1`、强制 IPv4/IPv6 都试过，
+全 `000`）。**是 DNS 给的那个 GitHub IP 不通，换个 IP 就通。**
+
+**可复用的办法**（下次再遇到就这么办，别再干等）：
+
+```bash
+# 1) 本地起一个 TCP 转发：把 git 的 CONNECT 转到能通的那个 GitHub IP
+#    证书照验 —— SNI 与 Host 仍是 github.com，这里只转发字节，不是绕过验证
+FWD_TARGET=140.82.121.4 FWD_PORT=18923 node /tmp/git-forward.mjs &
+
+# 2) 让 git 走这个转发
+git -c http.proxy=http://127.0.0.1:18923 push https://github.com/kp-z/dsh-dev-git-graph.git \
+    HEAD:feat/dsh-daily HEAD:main
+
+# 3) 核对
+git -c http.proxy=http://127.0.0.1:18923 ls-remote https://github.com/kp-z/dsh-dev-git-graph.git \
+    refs/heads/main refs/heads/feat/dsh-daily
+```
+
+（转发脚本就二十来行：解析 `CONNECT host:port`，连到 `FWD_TARGET:port`，然后双向 pipe。
+用 `140.82.121.4` 是因为实测它通；换别的 GitHub IP 也行，先拿
+`curl --resolve github.com:443:<ip> https://github.com` 试到 200 再用。）
+
+**npm 那条不用转发**：注册表恢复后直连即可。
+
+---
+
 ---
 
 ## 夜间窗口 · 2026-10-15 08:00 — 结掉性能这条线；把这份入口文件理正
@@ -1008,6 +1050,37 @@ SSH 那条路本来就封着（见 09 节）。**这台机器恢复之前，推�
 
 `npm test` **217/217**，typecheck 干净。**本轮没有代码改动**（只动了这份文档），不发版。
 网络仍然断着，本地攒着 4 个本包提交 + 同分支上别的包的若干。
+
+---
+
+## 夜间窗口 · 2026-10-16 01:00 — 把欠了一天多的推送和发版都补上了
+
+这个窗口没写功能，只干一件积压的事：**把攒着的东西送出去**。见上面「✅ 待办已清」——
+病因查准了（只有 `github.com` 那一个 IP 不通），办法也记下来了（本地 TCP 转发，证书照验）。
+
+**结果**：
+
+| | |
+|---|---|
+| git | `main` 与 `feat/dsh-daily` → `6cd84a0`（`ls-remote` 核对过） |
+| npm | `dsh-spellbook@0.2.5` → latest（注册表核过） |
+
+从 2026-10-15 01:00 到这一轮，中间五个窗口的产出（整站审计、条数不变量、
+新增一条咒语、假红修复、预览回收、roadmap 理正）**一件没丢**，全在这个推送里。
+
+**为什么值得单独记一笔**：卡住的这五轮里，「等网络好了再说」是对的，但**不够** ——
+真正把它解开的是**把病因查细**：从「国际 HTTPS 被干扰」细到「只有 github.com 那一个
+IP 不通、换一个 IP 就 200」。前一个结论只能等，后一个结论能立刻动手。
+**下次再遇到「上不去」，先分主机测一遍再下结论。**
+
+### 现状与下一步
+
+`npm test` **217/217**，typecheck 干净。四条验收里 A/B/D 的机制都在真 app 里复查过；
+**C 仍然只差你点一下**（三条替路见第 09 节）。
+
+**下一步**（给下个窗口）：积压清了，可以回到内容侧或别的正经活。但**别再把窗口
+花在「防它以后说谎」这类内部加固上** —— 连着几轮都是这种，边际价值在下降。
+若用户回了 C 的结果，优先按那个结果收尾。
 
 ---
 
