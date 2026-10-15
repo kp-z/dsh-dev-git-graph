@@ -13,7 +13,17 @@
 import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { buildCharacterSystemPrompt, createDshCharacterBridge, seatForAgent, toLazyDialoguePort } from './bridge/index.js'
+import {
+  buildCharacterSystemPrompt,
+  createDshCharacterBridge,
+  createSessionTransport,
+  createTeamsCaptain,
+  createTeamsPort,
+  readDefaultModelSelection,
+  seatForAgent,
+  toLazyDialoguePort,
+} from './bridge/index.js'
+import type { TeamsPort } from './bridge/index.js'
 import type { CharacterBridge } from './bridge/index.js'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
@@ -173,6 +183,75 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     void liveBridge?.disposeAll()
   }, 'agent-world: dialogue bridge')
 
+  // ── R37：套壳 dsh-agent-teams 的对话后端 ────────────────────────────────────
+  //
+  // 用户原话："为什么不直接在 dsh-agent-teams 这个插件上套壳？" —— 他是对的。
+  // 角色变成 agent-teams 名册里的成员：会话生命周期、信箱、持久化、冷启动接回都归它管，
+  // 我们只当队长（队长就是一个普通 DSH 会话，它自己从不需要发言）。
+  // 与上面的惰性端口**同样惰性**：加载那一刻 tools/subagents 可能还没挂上（R30 的教训）。
+  const resolveSeat = createSeatResolver(state)
+  let teamsPort: TeamsPort | undefined
+  function acquireTeamsPort(): { ok: true; port: TeamsPort } | { ok: false; reason: string } {
+    if (teamsPort !== undefined) return { ok: true, port: teamsPort }
+    const tools = (ctx as unknown as { get(name: string): unknown }).get('tools')
+    const subagents = (ctx as unknown as { get(name: string): unknown }).get('subagents')
+    const createCaptain = createTeamsCaptain(ctx, { cwd: process.cwd() })
+    if (createCaptain === undefined) {
+      return { ok: false, reason: '拿不到 agentLoop：建不了队长会话，所以没法套壳 agent-teams。' }
+    }
+    if (subagents === undefined) {
+      return {
+        ok: false,
+        reason:
+          '拿不到 ctx.subagents：agent-teams 的成员是 subagents 建出来的持久子会话，没有它就没有成员。' +
+          '确认这个 profile 挂了 dsh-subagent 与 dsh-agent-teams。',
+      }
+    }
+    const transport = createSessionTransport(ctx)
+    teamsPort = createTeamsPort(
+      tools,
+      subagents,
+      transport === undefined ? undefined : { subscribe: (listener) => transport.subscribe(listener) },
+      {
+        captainSessionId: 'agent-world:captain',
+        cwd: process.cwd(),
+        teamName: resolved.teamName,
+        teamDescription: resolved.teamDescription,
+        memberNameFor: (id) => resolveSeat(id).name,
+        memberRoleFor: (id) => resolveSeat(id).role,
+        personaFor: (id) => resolveSeat(id).persona,
+        agentOptionsFor: () => readDefaultModelSelection(ctx),
+        onError: (reason) => logger.warn(`agent-teams 套壳：${reason}`),
+        createCaptain,
+      },
+    )
+    logger.info(`对话后端：agent-teams（队长会话 agent-world:captain，团队「${resolved.teamName}」）`)
+    return { ok: true, port: teamsPort }
+  }
+  const teamsDialoguePort = {
+    async say(characterId: string, text: string) {
+      const got = acquireTeamsPort()
+      if (!got.ok) return { ok: false as const, reason: got.reason }
+      return got.port.say(characterId, text)
+    },
+    async waitForReply(
+      characterId: string,
+      timeoutMs: number,
+      onProgress?: (actions: readonly { name: string; detail?: string; ok: boolean }[]) => void,
+    ) {
+      const got = acquireTeamsPort()
+      if (!got.ok) return { ok: false as const, reason: got.reason }
+      return got.port.waitForReply(characterId, timeoutMs, onProgress)
+    },
+    liveCount: () => teamsPort?.liveCount() ?? 0,
+  }
+  ctx.effect(() => () => {
+    void teamsPort?.dispose()
+  }, 'agent-world: agent-teams port')
+
+  /** 按配置选后端。`native` 是 R24–R36 手写的那套，留作对照与回退。 */
+  const activeDialoguePort = resolved.dialogueBackend === 'native' ? dialoguePort : teamsDialoguePort
+
   // ── 诊断：把宿主侧的 agent 报错**带 stack** 写出来（R31）─────────────────────
   //
   // 宿主拒绝一条事件时，那条事件**不会落盘、也不会发 session/event**（后者是提交后才推送）；
@@ -221,7 +300,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         source: hub,
         tickMs: state.tickMs,
         maxLiveSessions: resolved.maxLiveSessions,
-        dialogue: dialoguePort,
+        dialogue: activeDialoguePort,
       },
       (error, request) => {
         const detail = error instanceof Error ? error.message : String(error)
@@ -279,8 +358,22 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
  *
  * @param state - 插件状态（读世界 + 读内容注册表）。
  */
-function createPersonaResolver(state: ReturnType<typeof createPluginState>): (characterId: string) => string {
-  return (characterId: string): string => {
+/**
+ * 角色 id → 花名册席位（R37）。
+ *
+ * 套壳 `dsh-agent-teams` 时，一个角色要三样东西：**成员名**（团队名册里的唯一键）、
+ * **岗位**（写进成员人设的 role）、**人设正文**（走 `executionPrompt`）。
+ * 这三样都从同一个席位上取，所以解析逻辑收在一处——分成三个函数就会出现三份
+ * "怎么按 agent-N 找座位"的实现，迟早不一致。
+ */
+interface ResolvedSeat {
+  readonly name: string
+  readonly role: string
+  readonly persona: string
+}
+
+function createSeatResolver(state: ReturnType<typeof createPluginState>): (characterId: string) => ResolvedSeat {
+  return (characterId: string): ResolvedSeat => {
     const world = state.currentWorld()
     if (world === null) {
       throw new Error('世界还没建出来，读不到这个角色是谁（人设来自内容库的花名册）。')
@@ -322,15 +415,25 @@ function createPersonaResolver(state: ReturnType<typeof createPluginState>): (ch
     const taskTitle =
       carrying === null ? null : (world.tasks.find((task) => task.id === carrying)?.title ?? null)
 
-    return buildCharacterSystemPrompt(seat, {
-      worldName: world.name,
-      tick: world.tick,
-      state: agent.state,
-      stationName: stationLabel(state, agent.station),
-      taskTitle,
-      walkingTo: stationLabel(state, agent.targetStation),
-    })
+    return {
+      name: seat.name,
+      role: seat.role,
+      persona: buildCharacterSystemPrompt(seat, {
+        worldName: world.name,
+        tick: world.tick,
+        state: agent.state,
+        stationName: stationLabel(state, agent.station),
+        taskTitle,
+        walkingTo: stationLabel(state, agent.targetStation),
+      }),
+    }
   }
+}
+
+/** 旧签名（人设正文）：套壳路径之外的调用方还在用。 */
+function createPersonaResolver(state: ReturnType<typeof createPluginState>): (characterId: string) => string {
+  const resolve = createSeatResolver(state)
+  return (characterId) => resolve(characterId).persona
 }
 
 /**

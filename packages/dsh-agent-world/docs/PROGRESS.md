@@ -35,6 +35,44 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 
 ---
 
+## R37 —— 改用 dsh-agent-teams 套壳（会话这一层不再自己写）
+
+**用户的质问**：「为什么这些会话功能你需要自己做？而不是直接用现有的 dsh 基座，这些自愈之类的，为什么不直接在 dsh-agent-teams 这个插件上套壳？」——然后：「直接在 dsh-agent-teams 上套壳就行，赶紧开始吧」。
+
+**他说得对，而且代价已经付过了。** R23–R31 我花了四轮才把手搓的会话种子调对，四个缺陷**全都只在真机上暴露**：
+`message.id` 必填 → `turn` 必须为正 → `system/message` 必须在已开的 turn/step 里 → 种子帧必须自己闭合。
+每一个都是"假 `agentLoop` 什么都接受"造成的假绿。而 agent-teams 把会话创建、续接、崩溃重启后接回、队长/成员关系、落盘**都做完了**，还在生产里跑着。
+
+**做了什么**
+- 新增 `src/bridge/teams.ts`（`createTeamsPort`）：一个角色 = 团队里一名成员；
+  首次说话 → `agent_teams_create`（已带队就用 `agent_teams_status` 接回）→ `agent_teams_add_member`（人设进 `executionPrompt`）→ `agent_teams_send_message` → 订阅成员会话的事件流，`turn/end` 时结算回复。
+  队长是我们建的一个普通 DSH 会话（`agent-world:captain`），走的是 **`ctx.tools.execute({ agent: 队长, ... })`**（agent-teams 的公开工具契约），不碰它的内部函数。
+- `src/config.ts` 加 `dialogueBackend: 'agent-teams' | 'native'`，**默认 `agent-teams`**；`native` 是无 agent-teams 时的降级路径，也保留 R23–R31 那套种子知识。
+- 两条路实现同一个 `DialoguePort`，路由层（`src/routes/dialogue.ts`）一行没动——这正是 R25 那条"routes 不许 import bridge"的缝在还债。
+- 人设仍由 `persona-prompt.ts` 从内容库算（零字面量），换后端不换人设来源。
+
+**验证怎么跑的（真机，不是推演）**
+- `PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck` 绿；`pnpm test`：**tests 455 / pass 455 / fail 0 / todo 0**。
+- 真宿主 `dsh --profile web`（3080），`POST /agent-world/api/say` + SSE：
+  - **小紫（agent-5，评审）6s 回话**：「我是小紫，Agent World 的评审者——只认证据，不认『我测过了』。」
+  - **小绯（agent-7，运维）**：「看上线先看影响面、再谈处置，最后必须给回滚点。」——两个人设都真的生效了。
+  - **宿主重启后再问小紫「我刚才问过你什么」，她答得出上一句原话**；`~/.agent-teams/agent-world/team.json` 名册仍是 2 人、**没重复加人**。这一条就是我们手搓版欠着的"自愈/续接"，现在是白送的。
+
+**踩的坑（都值一笔）**
+1. 工具的结构化返回值字段叫 **`value`**，不是 `structured`（从 `dsh-tools` 的 `materializeFinalResult` 读出来的）。猜错的症状极具误导性：团队明明建好了，面板上报「建团队失败：Team "Agent World" created ... You are the captain.」——**成功的原文被当成错误消息打出来**。
+2. 失败信息可能只在 `result.error` 里，不在 `content` 里，两处都要读。
+3. agent-teams 禁止一个队长带两个团队（报 `you already lead team "…"`），所以"已存在就接回"是必须的，不是优化。
+
+**下一轮从哪继续**
+1. **工具白名单丢了**：native 路径给角色限定了只许用世界工具（D35），套壳后成员走的是 agent-teams 的默认工具集。（BACKLOG M10-1）要在 web profile 的 agent-teams 配置里声明一个 `toolPolicies`（owner 声明，成员按 id 选），再在 `agent_teams_add_member` 传 `tool_policy`。这是改用户 profile 配置，先跟用户确认。
+2. 套壳路径还没有"角色真的干活"（M6-4）：现在成员只会说话。下一步让成员**调我们的世界工具**（`dispatch`/`status`），验收口径是"面板上看见 acting 帧 + 工单真的动了"。
+3. **`src/bridge/teams.ts` 还没有单元测试**——这一轮只有真机证据。下一轮补 `test/teams-port.test.js`（BACKLOG M10-2）：用假 `ctx.tools` / 假 `subagents` 驱动，至少守住：返回值读 `value`、已带队时走 status 接回、成员名重复当成已加入、会话 id 按 label 反查。真机那三条（两个角色 + 重启接回）以后改 `teams.ts` 都要重跑。
+4. 面板侧 `web/ui/dialogue-ui.js` 的 acting 行（M6-13，panel 已做完）还没在真机上见过真帧——等 2 做完一起看。
+
+**假设**：用户要的是"最短路径拿到可用的会话层"，所以我没有把 native 路径删掉（删掉省 300 行，但失去降级与留档）。如果他希望只留一条路，说一声我就删。
+
+---
+
 ## R36 · 死会话自愈（M6-14）+ 真实动作行第一次在浏览器里出现
 
 **一、R35 欠下的那一环补上了**

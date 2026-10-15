@@ -343,3 +343,54 @@ export function createDshCharacterBridge(ctx: unknown, options: DshBridgeOptions
 
   return { ok: true, bridge: createCharacterBridge(bridgeOptions) }
 }
+
+
+/**
+ * 给套壳路径用的"队长"会话（R37）。
+ *
+ * 队长就是一个**普通 DSH 会话**——它自己从不需要发言，只是 `agent_teams_*` 工具
+ * 认的那个调用者身份（`tools.js` 的 `requireCaptain`）。所以这里直接复用旧实现那套
+ * create/resume 兜底：会话已存在就接回来，接不回来就把原因抛出去。
+ *
+ * `cwd` 很关键：agent-teams 把团队状态放在 `<cwd>/<stateDir>/<teamId>/`，
+ * 而它从 `agent.session.header.cwd` 取（`tools.js` 的 `workspaceOf`）。
+ */
+export function createTeamsCaptain(
+  ctx: unknown,
+  options: { readonly cwd: string; readonly onError?: (reason: string) => void },
+): ((sessionId: string, cwd: string) => Promise<BridgeAgentHandle>) | undefined {
+  const factory = createAgentFactory(ctx)
+  if (factory === undefined) return undefined
+
+  return async (sessionId: string, cwd: string): Promise<BridgeAgentHandle> => {
+    const agentOptions = readDefaultModelSelection(ctx)
+    const setup = (agentCtx: { tools?: unknown }): void => {
+      // 队长要用 agent_teams_* 工具，所以**不能**限制它的工具面；
+      // 这里什么都不做，只是把"为什么不限制"写清楚，免得下一个人以为漏了。
+      void agentCtx
+    }
+    const base = {
+      sessionId,
+      cwd,
+      setup,
+      ...(agentOptions === undefined ? {} : { agentOptions }),
+    }
+    try {
+      return await factory.createAgent(base)
+    } catch (error) {
+      if (factory.resumeAgent === undefined) throw error
+      try {
+        return await factory.resumeAgent({ resumeSessionId: sessionId, setup, ...(agentOptions === undefined ? {} : { agentOptions }) })
+      } catch (resumeError) {
+        throw new Error(
+          `队长会话建不起来：${errorText(error)}；接回已有会话也失败：${errorText(resumeError)}`,
+        )
+      }
+    }
+  }
+}
+
+/** 把任意抛出值变成一句话（这个文件里只有套壳路径用到）。 */
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}

@@ -1,0 +1,424 @@
+/**
+ * 套壳在 `@nanmicoder/dsh-agent-teams` 上的对话端口（R37）。
+ *
+ * ## 为什么这么做
+ *
+ * R24–R36 我们自己在 `character-bridge.ts` 里手写了整套角色会话生命周期：
+ * 建会话、already exists 转 resume、人设 section、工具白名单、发话、等回复、
+ * 死会话自愈……约 2300 行，而且真机上每踩一个坑就打一个补丁。
+ *
+ * 用户指出（原话）：*"这些会话功能……为什么不直接在 dsh-agent-teams 这个插件上套壳？"*
+ * 查过契约之后确认他是对的：`dsh-agent-teams` 已经提供了持久的子 agent、成员名册、
+ * 信箱、带依赖的任务图与调度器，**我们只需要当队长**。
+ *
+ * ## 套壳的确切方式（都是读真实现得到的，不是猜的）
+ *
+ * - 它**不暴露服务**，只注册 14 个 `agent_teams_*` 工具（`lib/index.js` 的
+ *   `inject = ['tools','llm','subagents','systemPrompt','agents']`）。
+ * - 工具从 `exec.agent` 拿调用者（`tools.js` 的 `requireCaptain`：
+ *   *"agent_teams tools require a calling agent (exec.agent was undefined)"*），
+ *   **谁调 `agent_teams_create`，谁就是队长**。
+ * - 所以我们的插件持有**一个队长 agent**（一个普通 DSH 会话，它自己从不需要发言），
+ *   用 `ctx.tools.execute({ agent: captain, ... })` **确定性地**调这些工具——
+ *   不经过任何 LLM 转述，所以是快且可测的。
+ * - 成员由它的 `spawnMember` 通过 `ctx.subagents.startContinuable` 建出来，
+ *   会话 id 就是 `start.childId`，label 是 `agent-teams:<teamId>:<成员名>`
+ *   （`members.js`：`const MEMBER_LABEL_PREFIX = 'agent-teams:'`）。
+ *   **成员的会话 id 我们用官方接口 `subagents.listChildren(captainId)` 按 label 反查**，
+ *   不去读它内部的状态文件。
+ * - 人设走 `agent_teams_add_member` 的 `executionPrompt`，它会被拼进
+ *   `memberPersona()`（`members.js`）里的 "Execution guidance" 段。
+ *
+ * ## 与旧实现的关系
+ *
+ * 这个模块实现**同一个** `DialoguePortFace`（`say` / `waitForReply` / `liveCount`）。
+ * 路由（`src/routes/dialogue.ts`）、协议、面板都不需要知道背后换人了。
+ * 旧的手写实现保留到真机验证通过为止，用配置开关切换。
+ */
+import type { BridgeAgentHandle, BridgeAgentOptions, BridgeAction, CharacterBridge } from './types.js'
+
+/** 与 `routes/dialogue.ts` 里 `DialoguePort` 同形；两边靠结构兼容，不互相 import。 */
+export interface TeamsDialogueAck {
+  readonly ok: true
+}
+export interface TeamsDialogueFailure {
+  readonly ok: false
+  readonly reason: string
+}
+export interface TeamsDialogueReplyOk {
+  readonly ok: true
+  readonly text: string
+  readonly actions: readonly BridgeAction[]
+}
+
+/** 一次工具调用的结果（`ctx.tools.execute` 的返回）。只用到我们关心的字段。 */
+interface ToolExecutionResult {
+  readonly isError?: boolean
+  readonly content?: readonly unknown[]
+  /**
+   * 工具的结构化返回值。**字段名是 `value`**——从 `dsh-tools` 的 `materializeFinalResult`
+   * 读出来的（`deepFreeze({ ...presentation, value: result.value })`）。
+   * 第一版我写成了 `structured`，真机上团队明明建好了却被当成失败（R37）。
+   */
+  readonly value?: unknown
+  /** 失败时的错误（`isError: true` 分支带它；文字可能只在这里，不在 content 里）。 */
+  readonly error?: unknown
+}
+
+/** `ctx.tools` 里我们用到的部分。 */
+interface ToolScope {
+  execute?(input: {
+    readonly callId: string
+    readonly name: string
+    readonly arguments: Record<string, unknown>
+    readonly agent: unknown
+    readonly signal: AbortSignal
+  }): Promise<ToolExecutionResult>
+}
+
+/** `ctx.subagents` 里我们用到的部分（官方接口，用来按 label 反查成员会话）。 */
+interface SubagentScope {
+  listChildren?(parentSessionId: string, signal?: AbortSignal): Promise<readonly { readonly id: string; readonly label?: string }[]>
+}
+
+/** 建端口要的东西。**全部注入**，所以这个模块可以被单测完全驱动。 */
+export interface TeamsPortOptions {
+  /** 队长会话 id。固定值，所以重启后还是同一个队长、同一个团队。 */
+  readonly captainSessionId: string
+  /** 队长的工作目录（团队状态落在 `<cwd>/<stateDir>/<teamId>/`）。 */
+  readonly cwd: string
+  /** 团队名（会变成 teamId）。 */
+  readonly teamName: string
+  /** 团队目标，写进成员人设的 "Team goal"。 */
+  readonly teamDescription: string
+  /** 角色 id → 成员名（内容库给，代码里零字面量）。 */
+  readonly memberNameFor: (characterId: string) => string
+  /** 角色 id → 岗位（写进成员人设的 role）。 */
+  readonly memberRoleFor: (characterId: string) => string
+  /** 角色 id → 人设正文（走 `executionPrompt`）。 */
+  readonly personaFor: (characterId: string) => string
+  /** 模型路由（成员的 provider/model）。 */
+  readonly agentOptionsFor?: () => BridgeAgentOptions | undefined
+  /** 旁路错误日志。 */
+  readonly onError?: (reason: string) => void
+  /** 惰性建队长会话；由 `dsh-adapter` 提供（与旧实现共用同一套 create/resume 兜底）。 */
+  readonly createCaptain: (sessionId: string, cwd: string) => Promise<BridgeAgentHandle>
+}
+
+/** 端口能对外说的东西（与 `DialoguePort` 结构兼容）。 */
+export interface TeamsPort {
+  say(characterId: string, text: string): Promise<TeamsDialogueAck | TeamsDialogueFailure>
+  waitForReply(
+    characterId: string,
+    timeoutMs: number,
+    onProgress?: (actions: readonly BridgeAction[]) => void,
+  ): Promise<TeamsDialogueReplyOk | TeamsDialogueFailure>
+  liveCount(): number
+  /** 诊断：当前团队 id（还没建出来时 `undefined`）。 */
+  teamId(): string | undefined
+  dispose(): Promise<void>
+}
+
+/** 一次调用的顺序号：`callId` 要唯一且确定（不用随机数、不用时钟）。 */
+let callSeq = 0
+
+/**
+ * 建一个套在 `dsh-agent-teams` 上的对话端口。
+ *
+ * @param tools - `ctx.tools`（缺了就直接报出来：没有它调不了 `agent_teams_*`）。
+ * @param subagents - `ctx.subagents`（用来按 label 反查成员会话）。
+ * @param transport - 会话事件订阅（复用旧实现那套，抓成员的回复）。
+ */
+export function createTeamsPort(
+  tools: unknown,
+  subagents: unknown,
+  transport: { subscribe(listener: (sessionId: string, event: unknown) => void): () => void } | undefined,
+  options: TeamsPortOptions,
+): TeamsPort {
+  const toolScope = tools as ToolScope | undefined
+  const subagentScope = subagents as SubagentScope | undefined
+
+  let captain: BridgeAgentHandle | undefined
+  let teamId: string | undefined
+  /** 已经加进名册的成员名（幂等：同一个角色说第二句话不重复加）。 */
+  const addedMembers = new Set<string>()
+  /** 成员名 → 会话 id（第一次用到时反查，之后记住）。 */
+  const memberSessions = new Map<string, string>()
+  let disposed = false
+
+  const report = (reason: string): void => options.onError?.(reason)
+
+  /**
+   * 调一个 `agent_teams_*` 工具。
+   *
+   * `tools.execute` 的入参形状是从 `dsh-tools` 的 `createExecution` 读出来的：
+   * 它取 `exec.callId` / `exec.name` / `exec.agent` / `exec.signal` / `exec.arguments`。
+   */
+  async function callTeamTool(
+    name: string,
+    args: Record<string, unknown>,
+    signal: AbortSignal,
+  ): Promise<ToolExecutionResult> {
+    if (toolScope?.execute === undefined) {
+      throw new Error('ctx.tools.execute 不可用：没有它调不了 agent_teams_* 工具')
+    }
+    if (captain === undefined) throw new Error('队长会话还没建出来')
+    callSeq += 1
+    return await toolScope.execute({
+      callId: `agent-world-teams-${callSeq}`,
+      name,
+      arguments: args,
+      agent: captain.agent,
+      signal,
+    })
+  }
+
+  /** 把一次工具结果里的文字拼出来（失败时用来拼可下手的原因）。 */
+  function textOf(result: ToolExecutionResult): string {
+    const parts: string[] = []
+    const err = result.error as { message?: unknown; reason?: unknown } | string | undefined
+    if (typeof err === 'string') parts.push(err)
+    else if (err !== undefined && err !== null) {
+      if (typeof err.message === 'string') parts.push(err.message)
+      if (typeof err.reason === 'string') parts.push(err.reason)
+    }
+    for (const block of result.content ?? []) {
+      if (typeof block === 'object' && block !== null) {
+        const b = block as Record<string, unknown>
+        if (b['type'] === 'text' && typeof b['text'] === 'string') parts.push(b['text'])
+      }
+    }
+    return parts.join('\n')
+  }
+
+  /** 队长的会话（懒建；建不起来就抛，由调用方转成可下手的原因）。 */
+  async function ensureCaptain(): Promise<BridgeAgentHandle> {
+    if (captain !== undefined) return captain
+    const handle = await options.createCaptain(options.captainSessionId, options.cwd)
+    captain = handle
+    return handle
+  }
+
+  /**
+   * 建团队（幂等）。
+   *
+   * `agent_teams_create` 的 `approval: 'automatic'` = 立即执行（另一档是 staged，
+   * 要人在面板上点"批准并运行"）。我们用 automatic：**玩家在游戏里说话就是批准**，
+   * 不该再让他在另一个面板上点一次。
+   *
+   * 已经带过队时它会报错（`findTeamByCaptain` 那套），所以把"已经存在"当成成功——
+   * 这样插件重启后接回同一个队长不会把世界打死。
+   */
+  async function ensureTeam(signal: AbortSignal): Promise<string> {
+    if (teamId !== undefined) return teamId
+    await ensureCaptain()
+    const created = await callTeamTool(
+      'agent_teams_create',
+      { name: options.teamName, description: options.teamDescription, approval: 'automatic' },
+      signal,
+    )
+    const structured = created.value as Record<string, unknown> | undefined
+    const id = typeof structured?.['team_id'] === 'string' ? (structured['team_id'] as string) : undefined
+    if (id !== undefined && id !== '') {
+      teamId = id
+      return id
+    }
+    // 没有 team_id：要么失败了，要么"这个队长已经带了一个队"。
+    const detail = textOf(created)
+    if (/already|exists|leading/i.test(detail)) {
+      // 已经有队：用 status 把 team_id 找回来，而不是重建。
+      const status = await callTeamTool('agent_teams_status', {}, signal)
+      const s = status.value as Record<string, unknown> | undefined
+      const found = typeof s?.['team_id'] === 'string' ? (s['team_id'] as string) : undefined
+      if (found !== undefined && found !== '') {
+        teamId = found
+        return found
+      }
+    }
+    throw new Error(`建团队失败：${detail === '' ? '工具没有返回 team_id' : detail}`)
+  }
+
+  /** 把角色加进名册（幂等；人设走 `executionPrompt`）。 */
+  async function ensureMember(characterId: string, signal: AbortSignal): Promise<string> {
+    const name = options.memberNameFor(characterId)
+    if (addedMembers.has(name)) return name
+    await ensureTeam(signal)
+    const result = await callTeamTool(
+      'agent_teams_add_member',
+      {
+        name,
+        role: options.memberRoleFor(characterId),
+        executionPrompt: options.personaFor(characterId),
+        ...modelArgs(),
+      },
+      signal,
+    )
+    const detail = textOf(result)
+    // "已经用过的名字"是正常的接回路径（插件重启后同一个团队还在）。
+    if (result.isError === true && !/already been used|already/i.test(detail)) {
+      throw new Error(`加成员「${name}」失败：${detail}`)
+    }
+    addedMembers.add(name)
+    return name
+  }
+
+  /** 成员模型路由：用户选了就带上，没选就让 agent-teams 用队长的路由。 */
+  function modelArgs(): Record<string, unknown> {
+    let selection: BridgeAgentOptions | undefined
+    try {
+      selection = options.agentOptionsFor?.()
+    } catch (error) {
+      report(`读默认模型失败（成员将用队长的路由）：${error instanceof Error ? error.message : String(error)}`)
+      return {}
+    }
+    if (selection === undefined) return {}
+    return {
+      provider: selection.provider,
+      model: selection.model,
+      ...(selection.reasoningEffort === undefined ? {} : { reasoning_effort: selection.reasoningEffort }),
+    }
+  }
+
+  /**
+   * 按 label 反查成员的会话 id。
+   *
+   * label 的格式来自 `members.js`：`` `${MEMBER_LABEL_PREFIX}${team.id}:${member.name}` ``
+   * 也就是 `agent-teams:<teamId>:<成员名>`。用**官方接口** `subagents.listChildren`
+   * 拿，不读它内部的状态文件——那些是它的实现细节，会随版本变。
+   */
+  async function resolveMemberSession(memberName: string, signal: AbortSignal): Promise<string | undefined> {
+    const cached = memberSessions.get(memberName)
+    if (cached !== undefined) return cached
+    if (subagentScope?.listChildren === undefined || captain === undefined) return undefined
+    const id = (captain.agent as { id?: string }).id
+    if (typeof id !== 'string') return undefined
+    const children = await subagentScope.listChildren(id, signal)
+    const suffix = `:${memberName}`
+    const hit = children.find((c) => typeof c.label === 'string' && c.label.startsWith('agent-teams:') && c.label.endsWith(suffix))
+    if (hit === undefined) return undefined
+    memberSessions.set(memberName, hit.id)
+    return hit.id
+  }
+
+  return {
+    async say(characterId: string, text: string): Promise<TeamsDialogueAck | TeamsDialogueFailure> {
+      if (disposed) return { ok: false, reason: '插件已卸载：这句话没有投出去。' }
+      if (typeof text !== 'string' || text.trim() === '') {
+        return { ok: false, reason: '消息是空的（或只有空白）：先打点字再发。' }
+      }
+      const signal = new AbortController().signal
+      try {
+        const name = await ensureMember(characterId, signal)
+        const result = await callTeamTool('agent_teams_send_message', { to: name, content: text }, signal)
+        if (result.isError === true) {
+          return { ok: false, reason: `消息没投出去：${textOf(result) || '工具报错但没给原因'}` }
+        }
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, reason: `套壳 agent-teams 时出错：${error instanceof Error ? error.message : String(error)}` }
+      }
+    },
+
+    async waitForReply(
+      characterId: string,
+      timeoutMs: number,
+      onProgress?: (actions: readonly BridgeAction[]) => void,
+    ): Promise<TeamsDialogueReplyOk | TeamsDialogueFailure> {
+      if (transport === undefined) {
+        return { ok: false, reason: '拿不到会话事件总线（ctx.on），所以收不到角色的回复。' }
+      }
+      const signal = new AbortController().signal
+      const memberName = options.memberNameFor(characterId)
+
+      let sessionId: string | undefined
+      try {
+        sessionId = await resolveMemberSession(memberName, signal)
+      } catch (error) {
+        report(`反查成员会话失败：${error instanceof Error ? error.message : String(error)}`)
+      }
+      if (sessionId === undefined) {
+        return {
+          ok: false,
+          reason:
+            `还没拿到成员「${memberName}」的会话 id（它可能还没被唤醒）。` +
+            'agent-teams 的成员在第一次收到消息时才真正建会话，稍等一下再试。',
+        }
+      }
+
+      return await new Promise<TeamsDialogueReplyOk | TeamsDialogueFailure>((resolve) => {
+        const actions: { name: string; detail?: string; ok: boolean }[] = []
+        let text = ''
+        let settled = false
+        const finish = (result: TeamsDialogueReplyOk | TeamsDialogueFailure): void => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          unsubscribe()
+          resolve(result)
+        }
+        const timer = setTimeout(() => {
+          finish({ ok: false, reason: `等了 ${timeoutMs}ms 还没等到「${memberName}」的回复。` })
+        }, timeoutMs)
+
+        const unsubscribe = transport.subscribe((sid, raw) => {
+          if (sid !== sessionId) return
+          const event = raw as { type?: string; data?: unknown } | undefined
+          if (event === undefined || typeof event.type !== 'string') return
+          const data = (event.data ?? {}) as Record<string, unknown>
+
+          if (event.type === 'assistant/message') {
+            const message = data['message'] as { content?: unknown } | undefined
+            const blocks = Array.isArray(message?.content) ? message?.content : []
+            const texts: string[] = []
+            for (const block of blocks) {
+              if (typeof block !== 'object' || block === null) continue
+              const b = block as Record<string, unknown>
+              if (b['type'] === 'text' && typeof b['text'] === 'string') texts.push(b['text'])
+              if (b['type'] === 'tool-call' && typeof b['name'] === 'string') {
+                actions.push({ name: b['name'], ok: true })
+              }
+            }
+            if (texts.length > 0) text = texts.join('\n\n')
+            if (actions.length > 0) onProgress?.(actions.map((a) => ({ ...a })))
+            return
+          }
+
+          if (event.type === 'turn/end') {
+            const reason = data['reason'] as { kind?: string; error?: { message?: string } } | undefined
+            if (reason?.kind === 'error') {
+              finish({ ok: false, reason: `这一轮模型报错（${reason.error?.message ?? '没有详情'}）。` })
+              return
+            }
+            if (text.trim() === '') {
+              finish({
+                ok: false,
+                reason:
+                  actions.length === 0
+                    ? `「${memberName}」这一轮没有发言，也没有动手。再问一次，或换个说法。`
+                    : `「${memberName}」这一轮只动了手（${actions.map((a) => a.name).join('、')}），一句话也没说。`,
+              })
+              return
+            }
+            finish({ ok: true, text, actions: actions.map((a) => ({ ...a })) })
+          }
+        })
+      })
+    },
+
+    liveCount: () => (captain === undefined ? 0 : 1),
+    teamId: () => teamId,
+
+    async dispose(): Promise<void> {
+      disposed = true
+      const handle = captain
+      captain = undefined
+      if (handle !== undefined) {
+        try {
+          await handle.dispose()
+        } catch (error) {
+          report(`释放队长会话时出错（已忽略）：${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    },
+  }
+}

@@ -49,6 +49,7 @@ export {
   createDshCharacterBridge,
   readDefaultModelSelection,
   createSessionTransport,
+  createTeamsCaptain,
   normalizeSessionEvent,
 } from './dsh-adapter.js'
 export type { DshBridgeOptions, DshBridgeResult } from './dsh-adapter.js'
@@ -80,3 +81,6 @@ export type {
   WakeResult,
   WorldContextFacts,
 } from './types.js'
+
+export { createTeamsPort } from './teams.js'
+export type { TeamsPort, TeamsPortOptions } from './teams.js'

@@ -69,6 +69,24 @@ export const AgentWorldConfig = z.object({
    * 改它要同时确认与其它插件的路由不冲突。
    */
   routePrefix: z.string().default('/agent-world'),
+
+  /**
+   * 对话走哪个后端（R37）。
+   *
+   * - `'agent-teams'`（默认）：套壳 `@nanmicoder/dsh-agent-teams`。角色是它名册里的成员，
+   *   会话生命周期、信箱、任务图都归它管。这是我们该走的路——用户指出之后才补上的。
+   * - `'native'`：R24–R36 手写的那套（自己建会话、人设 section、工具白名单、死会话自愈）。
+   *   留着做对照与回退，验证通过后删掉。
+   */
+  dialogueBackend: z.union([z.const('agent-teams'), z.const('native')]).default('agent-teams'),
+
+  /** 团队名（会变成 agent-teams 的 teamId）。 */
+  teamName: z.string().default('Agent World'),
+
+  /** 团队目标，写进每个成员人设的 "Team goal"。 */
+  teamDescription: z
+    .string()
+    .default('一座小镇：每个居民是一个角色，玩家会直接跟他们说话，并让他们把镇上的活干完。'),
 })
 
 export type AgentWorldConfig = Schemastery.TypeT<typeof AgentWorldConfig>
@@ -89,6 +107,11 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     maxLiveSessions:
       config.maxLiveSessions && config.maxLiveSessions > 0 ? Math.floor(config.maxLiveSessions) : 4,
     routePrefix: normalizePrefix(config.routePrefix ?? '/agent-world'),
+    dialogueBackend: config.dialogueBackend === 'native' ? 'native' : 'agent-teams',
+    teamName: config.teamName ?? 'Agent World',
+    teamDescription:
+      config.teamDescription ??
+      '一座小镇：每个居民是一个角色，玩家会直接跟他们说话，并让他们把镇上的活干完。',
   }
 }
 

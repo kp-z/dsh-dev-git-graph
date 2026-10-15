@@ -392,8 +392,9 @@ test('apply：有 webServer 时注册**一个**前缀路由，且清理可调用
   )
 
   // 清理链要能真的走到路由的 disposer。
-  // 有两个：一个是运行时的定时器，一个是这条路由——都属于"热重载必须摘干净"的东西。
-  assert.equal(disposers.length, 3, `应当挂三个清理（运行时 + 对话桥 + 路由），实际 ${disposers.length}`)
+  // 四个：运行时定时器、手写对话桥、agent-teams 套壳端口、这条路由——都属于"热重载必须摘干净"的东西。
+  // （R37 加了第三个：套壳路径下的队长会话也是我们建的。）
+  assert.equal(disposers.length, 4, `应当挂四个清理（运行时 + 手写桥 + 套壳端口 + 路由），实际 ${disposers.length}`)
   for (const dispose of disposers) dispose()
   assert.equal(disposerCalled, 1, '清理必须把路由摘掉')
 })

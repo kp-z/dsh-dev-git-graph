@@ -121,7 +121,9 @@ test('装配：/api/say 搭话后，角色 agent 的人设 section 里是**那�
   }
 
   const { ctx, routes, logs } = fakeCtx({ agentLoop, sessionController })
-  apply(ctx, { persistTicks: 0, persistEveryTicks: 0, autoStart: false, maxLiveSessions: 8 })
+  // R37：这两个用例测的是**手写那套**（native）的行为，所以要显式选它。
+  // 默认后端已经是 agent-teams 的套壳（角色不再由我们建会话）。
+  apply(ctx, { persistTicks: 0, persistEveryTicks: 0, autoStart: false, maxLiveSessions: 8, dialogueBackend: 'native' })
 
   assert.equal(routes.length, 1, '应当注册了一个（且只有一个）前缀路由')
   const route = routes[0]
@@ -201,7 +203,7 @@ test('装配：人设读不到时**退化而不是静默**——/api/say 仍被�
   const agentLoop = { async createAgent() { throw new Error('不该走到这里') } }
 
   const { ctx, routes, logs } = fakeCtx({ agentLoop, sessionController: undefined })
-  apply(ctx, { persistEveryTicks: 0, autoStart: false })
+  apply(ctx, { persistEveryTicks: 0, autoStart: false, dialogueBackend: 'native' })
 
   assert.equal(routes.length, 1)
   // R30 起建桥是**惰性**的（真宿主上会话服务往往在插件之后才挂上）：
