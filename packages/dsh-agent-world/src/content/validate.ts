@@ -284,6 +284,17 @@ function validateEntryShape(
       }
       checkId(sink, entry.theme, `${where}.theme`, '主题 id', pack)
       checkId(sink, entry.roster, `${where}.roster`, '花名册 id', pack)
+      if (entry.residentRules !== undefined) {
+        if (!Array.isArray(entry.residentRules)) {
+          sink.error(`${where}.residentRules`, 'residentRules 必须是字符串数组（每条一句规矩）', pack)
+        } else {
+          entry.residentRules.forEach((rule: unknown, i: number) => {
+            if (typeof rule !== 'string' || rule.trim() === '') {
+              sink.error(`${where}.residentRules[${i}]`, '每条规矩都必须是非空字符串（空条目会在人设里留下一个空的"- "）', pack)
+            }
+          })
+        }
+      }
       return
     }
     case 'rosters': {

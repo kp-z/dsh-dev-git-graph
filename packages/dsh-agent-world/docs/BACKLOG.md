@@ -202,7 +202,8 @@
 | M10-5 | in_progress | **两套任务模型要合流**（R38 定下的下一步）：小镇工单（可重放、按时钟）与 agent-teams 任务图并存 = 两个「谁在干什么」。要么让小镇工单就是 agent-teams 的任务，要么明确分工（小镇管位置/时序，agent-teams 管谁做什么）。**先写进 ARCHITECTURE 再动代码** | `src/sim/**` + `docs/ARCHITECTURE.md` | M10-1 | 用户已授权改内部代码 |
 | M10-6 | ready | **合流接上线**（R39 地基之后）：同步环（队长身份轮询 `agent_teams_status` → `planTeamSync` → 命令进世界）+ live 下 `dispatch` 同时建团队任务并回填 `externalId` + 世界跟随 `dialogueBackend` 切 `live`。先读 status 返回的 tasks 确切字段 | `src/index.ts` + `src/bridge/teams.ts` | M10-5 | 不接上线，真机上任务仍是假完成 |
 | M7-12 | ready | 动作行里 `agent_teams_*` 没有中文标签（`web/ui/labels.js` 只映射了世界工具） | `web/ui/labels.js` | —— | 派给 panel |
-| M7-13 | ready | **角色把玩家当成「船长」，回复变成汇报**（R41 真机）：问小蓝「一句话介绍你自己」，它答「已回复船长：一句话自我介绍发出去了，现在继续待命」。原因：agent-teams 的成员人设把说话人框成 captain，且工作规则要求向 captain 汇报。玩家不该被当成上级。做法：在我们的人设（executionPrompt）里加一条——跟你说话的是镇上的玩家，直接回答他，不要用汇报腔 | `src/bridge/persona-prompt.ts` | —— | 直接影响跟小人物对话的体感 |
+| M7-13 | **done** | **角色把玩家当成「船长」，回复变成汇报**（R41 真机）：问小蓝「一句话介绍你自己」，它答「已回复船长：一句话自我介绍发出去了，现在继续待命」。原因：agent-teams 的成员人设把说话人框成 captain，且工作规则要求向 captain 汇报。玩家不该被当成上级。做法：在我们的人设（executionPrompt）里加一条——跟你说话的是镇上的玩家，直接回答他，不要用汇报腔 | `src/bridge/persona-prompt.ts` | —— | 直接影响跟小人物对话的体感 |
+| M7-14 | ready | **老成员的人设不会刷新**（R42）：agent-teams 在第一次 `add_member` 时定下成员人设，之后不变。R37–R41 加进团队的小紫、小铁、小蓝还是旧人设（仍可能叫玩家"船长"）。做法：套壳端口记录人设的指纹，变了就 `agent_teams_remove_member` 再重新加（注意会丢成员会话的记忆，要权衡）；或先给面板一个"重新招募"按钮 | `src/bridge/teams.ts` | M7-13 | 先问清丢记忆可不可以接受 |
 | M11-1 | ready | **规模压测**（SCALING 第四节第 1 步）：造 500/2000/5000 角色的世界，量每 tick 耗时、存盘耗时、3D 帧耗时、内存，结果表进 `docs/VERIFICATION.md` | `test/` 或 `scripts/` + docs | —— | 后面所有扩展的尺子 |
 | M11-2 | ready | **智能分级**（D42）：角色 `scripted`/`awake` 两级，唤醒/休眠策略 + 并发上限，awake = agent-teams 成员 | `src/bridge/` + `src/domain/` | M10-6 | 成本是否可控取决于它 |
 | M11-3 | ready | **内部模块注册表**（D45）：子系统按协议接口登记，`src/index.ts` 改为按名字装配 | `src/index.ts` + `src/protocol/` | M11-1 | 给后续整体替换铺路 |

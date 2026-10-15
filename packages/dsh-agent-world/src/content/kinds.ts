@@ -189,6 +189,14 @@ export interface SceneEntry {
   roster: string
   /** 角色长什么样——引用 `models` 库的条目 id（同理，不在代码里写死）。 */
   agentModel: string
+  /**
+   * 这座小镇里**所有居民共同遵守的规矩**（R42，M7-13），逐条写进每个角色的人设末尾。
+   *
+   * 以前这几条写死在 `src/bridge/persona-prompt.ts` 里，违反"台词进内容库"那条红线；
+   * 而且换一座小镇（比如一个只能说英文的场景、一个不许动手的观光场景）规矩本来就该不同。
+   * 可选：不写就没有"规矩"那一节。
+   */
+  residentRules?: string[]
 }
 
 /** 花名册里的一个席位。 */

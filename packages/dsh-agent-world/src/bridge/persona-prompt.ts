@@ -95,7 +95,11 @@ function describeDoing(facts: WorldContextFacts): string {
  *   这里再拦一次是因为**一份空人设不会报错，只会让所有角色听起来像同一个人**：
  *   那种失败很难归因，宁可在建会话时直接给出原因。
  */
-export function buildCharacterSystemPrompt(seat: PersonaSeat, facts: WorldContextFacts): string {
+export function buildCharacterSystemPrompt(
+  seat: PersonaSeat,
+  facts: WorldContextFacts,
+  rules: readonly string[] = [],
+): string {
   const persona = seat.persona.trim()
   const speechStyle = seat.speechStyle.trim()
 
@@ -131,10 +135,7 @@ export function buildCharacterSystemPrompt(seat: PersonaSeat, facts: WorldContex
     `- ${where}`,
     `- 你现在：${describeDoing(facts)}`,
     `- ${task}`,
-    '',
-    '## 规矩',
-    '- 用你自己的语气说话，别模仿别人，也别替别人说话。',
-    '- 要改变小镇上的事，只能通过工具去做；做不到就直说做不到，**不要声称你已经做了**。',
-    '- 不知道的事就说不知道。',
+    // 规矩来自内容库（场景的 residentRules，R42）；没写就没有这一节。
+    ...(rules.length === 0 ? [] : ['', '## 规矩', ...rules.map((rule) => `- ${rule}`)]),
   ].join('\n')
 }

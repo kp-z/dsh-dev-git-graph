@@ -429,14 +429,18 @@ function createSeatResolver(state: ReturnType<typeof createPluginState>): (chara
     return {
       name: seat.name,
       role: seat.role,
-      persona: buildCharacterSystemPrompt(seat, {
-        worldName: world.name,
-        tick: world.tick,
-        state: agent.state,
-        stationName: stationLabel(state, agent.station),
-        taskTitle,
-        walkingTo: stationLabel(state, agent.targetStation),
-      }),
+      persona: buildCharacterSystemPrompt(
+        seat,
+        {
+          worldName: world.name,
+          tick: world.tick,
+          state: agent.state,
+          stationName: stationLabel(state, agent.station),
+          taskTitle,
+          walkingTo: stationLabel(state, agent.targetStation),
+        },
+        scene.residentRules ?? [],
+      ),
     }
   }
 }

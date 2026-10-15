@@ -346,3 +346,33 @@ test('真实内容：角色的 id 与花名册序号一一对应（域自己的�
 
   assert.equal(resolved.length, world.agents.length)
 })
+
+// ── R42（M7-13）：规矩来自内容库，并且纠正"把玩家当成船长" ────────────────────
+
+const RULE_SEAT = { role: 'engineer', name: '小蓝', persona: '工程师，写代码的。', speechStyle: '说话简短。' }
+const RULE_FACTS = { worldName: 'Agent World', tick: 1, state: 'idle', stationName: null, taskTitle: null, walkingTo: null }
+
+test('M7-13：规矩逐条出现在人设末尾，原样来自调用方（内容库）', () => {
+  const prompt = buildCharacterSystemPrompt(RULE_SEAT, RULE_FACTS, ['第一条', '第二条'])
+  assert.match(prompt, /## 规矩\n- 第一条\n- 第二条$/)
+})
+
+test('M7-13：没有规矩时不留一个空的"规矩"标题', () => {
+  const prompt = buildCharacterSystemPrompt(RULE_SEAT, RULE_FACTS, [])
+  assert.doesNotMatch(prompt, /## 规矩/)
+})
+
+test('M7-13：代码里不再写死任何一条规矩（红线：台词进内容库）', () => {
+  const prompt = buildCharacterSystemPrompt(RULE_SEAT, RULE_FACTS)
+  assert.doesNotMatch(prompt, /不知道的事就说不知道/, '旧的写死规矩还在代码里')
+})
+
+test('M7-13：默认小镇的规矩里有"别把玩家当船长"这一条', async () => {
+  const { builtinPacks } = await import('../lib/content/index.js')
+  const scene = builtinPacks()
+    .flatMap((p) => p.entries.scenes ?? [])
+    .find((s) => s.id === 'scene.default-town')
+  assert.ok(scene, '找不到默认场景')
+  assert.ok(Array.isArray(scene.residentRules) && scene.residentRules.length >= 4)
+  assert.ok(scene.residentRules.some((r) => /船长/.test(r) && /玩家/.test(r)), '缺少纠正"玩家=船长"的那条规矩')
+})
