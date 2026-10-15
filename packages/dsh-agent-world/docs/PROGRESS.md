@@ -29,9 +29,70 @@ pnpm install --ignore-workspace --lockfile=false
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
+
+# ⚠️ **新增了 web/ 文件之后必须重装 profile**（R47 踩到：3D 整个打不开）
+# profile 的 lib/ 是**按文件硬链接**：已有文件的改动会透过去，**新文件不会出现**。
+# 「改完 build 再刷新」对已有文件成立，对新增文件不成立。
+dsh plugin --profile web remove dsh-agent-world
+rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
+dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R46 末）：`typecheck` 绿 · `test` **520 / 520 / 0 fail / 0 todo**。**看板按流水线分组 + 状态过滤**，分组签显示内容里的中文名（服务端下发）；`clipped()` 三档全空，单条流水线 scale = 1。宿主常驻 bash-3762。
+当前验证状态（R47 末）：`typecheck` 绿 · `test` **547 / 547 / 0 fail / 0 todo**。**纹理泄漏修掉（重建 4 次零增长，真机验）**；待命落点避开家具（**并推翻了「三人站在沙发里」的观感结论——那是等距遮挡**）；3D 现状评估进 `docs/SCENE-REVIEW.md`。宿主常驻 bash-3863。
+
+---
+
+## R47 —— 修纹理泄漏（M4-12）+ 待命落点避开家具 + 3D 现状评估
+
+**本轮三件事，都是"规模一大就爆"或"一眼可见"的问题。**
+
+### ① M4-12 纹理泄漏：`+16/次` → **0**（bridge，task-10）
+**我给的怀疑方向是错的，而"先证实再改"救了这一轮。** 我怀疑 `model-loader` 漏 dispose、clone 各持纹理；
+量出来：**7 个 GLB 加起来只有 1 张纹理**，`Material.clone()` 只复制引用（1 个 uuid / 16 处引用）。
+真正的 16 = **8 个角色 × 2 个 `SkinnedMesh` 的骨架 `boneTexture`**——`SkeletonUtils.clone` 给每个克隆一份自己的
+`Skeleton`，而 `boneTexture` 是渲染时惰性创建的 `DataTexture`，**`material.dispose()` 根本不碰骨架**。
+分段 bisect：空场景 +0 / 只地面 +0 / 只家具 −1 / **只角色 +17**。
+若照我的线索去改模型加载器，**泄漏一点不会少，而我会以为修好了**。
+
+- 修法：`disposeTree()` 把资源登记成 `{id, kind, ownership}`，判断交给**纯函数** `planDisposal()`，骨架按 `OWNED` 释放。
+- **单一所有者 + 借用**（不是引用计数）：`models` 缓存拥有 GLTF 源，实例只拥有材质 clone / 骨架 / 程序化几何。
+  理由是**静态可知**且延伸到 `InstancedMesh`（那里"每实例自己拥有的"是空集）；引用计数则没有"实例对象"可挂。
+- **判据做成了可跑的一行**：`await __agentWorldScene3d.checkRebuildLeak(4)` → `{ok:true, growth:0}`。
+- **真宿主实测（3080，重装后）**：序列 `[18,18,18,18,18]`、`unaccounted [0,0,0,0,0]`、绘图 46 / 三角 7,634 / 几何 22 全不变。
+  画面回归用 `vision_pixel_diff`：**差异 0.27%，worst 区域全在顶部状态栏**（3D 画面逐像素级一致）。
+- `benchmark` 噪声极大（单点 0.258–0.913），所以报**分布**：修前 median 0.362 / 修后 0.343（不劣）。
+
+### ② 待命落点避开家具（verifier，task-11）——**并且推翻了 P0-1 的结论**
+新增 `src/world/hangouts.ts` 纯函数 + 13 条测试。**家具是硬约束、人际间距是软目标**（放不下时按 1→0.75→…→0 退让，
+绝不放弃家具）；传进去的只有几何事实（点+半径），机制不认识 `StationEntry`。
+
+**但 verifier 量了两遍，我那条"三人站在沙发里"的观感结论不成立**：沙发实际是 1.47×0.615 世界单位（GLB×1.5），
+旧落点在世界空间**没有**穿进家具盒（最小盒距 0.500 > 身位 0.35），屏幕空间也没落进沙发投影四边形——
+截图里看到的是**等距视角的遮挡**（1.53 宽的人像叠在 1.47 宽的沙发像前面）。真正成立的只有小青在**保守圆判据**里差 3.5cm。
+**机制修复保留**（便宜、有测试、内容换大家具时更稳），但观感结论按它说的降级。
+
+### ③ 3D 现状评估（lead，`docs/SCENE-REVIEW.md`）
+实测：369 fps · 绘制 46 · 三角 7.6k · 纹理 18 · 场景 **10 个道具**（光桌子 ×4、沙发…）· 8 人**共用一个**程序化 avatar。
+**43 个 vendored `.glb` 里，25 个家具没有任何消费者**（椅子、显示器、键盘都在库里躺着）。
+问题清单按伤害排序：P0 工位是空桌子（人坐空气里）/ 落点与家具；P1 八人长得一样、地面几乎全黑、分区不可辨；P2 四周纯黑虚空、角色没有动作。
+**下一步建议顺序写在该文档第三节**（P0 两条都不需要新资产）。
+
+### ⑤ 两个环境/机制发现（都记进 BACKLOG）
+1. **新增 `web/` 文件不会同步进 profile**（按文件硬链接的边界）：bridge 新增 `web/core/resource-ownership.js` 后，
+   3080 的 `scene3d.js` import 404、**3D 整个打不开**。修法只有重装（`plugin --profile web add file:…`）——
+   **我做了，并确认 `/agent-world/core/resource-ownership.js` 200、3D 恢复**。以前记的"改完 build 再刷新"对**新文件不成立**，这条要写进文档。
+2. **落点修复对"从存档接回的世界"不生效**：`hangout` 存在世界里、接回时**不重算**，所以 3080 上那局
+   （tick 283592，接回来的）八个人的落点还是旧的，小青 1.35 仍在家具圆内。要让修复可见得**重开一局**，
+   或者加"读档时按当前内容重算落点"（这是个设计决定：**存档该不该存可以被重算的派生量**）。记 M10-12。
+
+**验证**：`typecheck` 绿；`pnpm test` **547 / 547 / 0 fail / 0 todo**（我自己复跑，+27：hangouts 13、resource-ownership 14）。
+真机 3080：3D 恢复、`checkRebuildLeak(4)` 零增长、截图 `aw-r47-3d-fixed.png`。
+
+**下一轮从哪继续**
+1. **P0-2 工位是空桌子**（`docs/SCENE-REVIEW.md`）：25 个家具资产没消费者，而 M4-11 已设计好
+   （`StationEntry.models: string[]` 组合 + 局部偏移进内容）。这是**观感提升最直接**的一条，且不需要新资产。
+2. M10-12（读档重算派生量）——它决定上面那条修复能不能在现有局里看见。
+3. 工作位也在家具里（verifier 发现 3：`Station.slots` 把单工位设成桌心，breakplane 的 slots 在沙发中心线上），同一套判据可复用。
 
 ---
 

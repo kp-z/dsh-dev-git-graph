@@ -40,12 +40,24 @@ export function resolveAssetUrl(url) {
 /**
  * 建一个模型缓存。
  *
+ * ══ 所有权（R47 补的，很重要）════════════════════════════════════════════════
+ *
+ * 这个缓存是 GLTF 源资源（几何 + 纹理 + 骨架）的**唯一所有者**。场景里的实例
+ * **借用**这些资源（`clone()` 不复制几何与贴图），所以：
+ *
+ * - 实例离开场景时**不许**释放借来的东西（见 `web/core/resource-ownership.js` 的理由）；
+ * - **所有者必须显式释放**——那就是 `dispose()`。`clear()` 只"忘记"（下次再取会重新加载），
+ *   它**不释放显存**；两者分开是有意的：忘记是缓存策略，释放是所有权义务，
+ *   混成一个方法时，"清缓存"会顺手把还在用的资源释放掉。
+ *
  * @param {object} options
  * @param {(url: string) => Promise<any>} options.load - 真正的加载函数（收到的是**已经拼好**的 URL）。
  * @param {(info: { url: string, error: unknown }) => void} [options.onError] - 每次**首次**失败时回调一次。
- * @returns {{ get: (url: string) => Promise<any>, has: (url: string) => boolean, status: () => object, failedUrls: () => string[], retry: (url: string) => Promise<any>, clear: () => void }}
+ * @param {(value: any) => void} [options.release] - 释放一份已加载的值（由调用方给，因为只有它知道
+ *   值里有什么——本文件刻意不 import three，所以不能自己遍历 `gltf.scene`）。
+ * @returns {{ get: (url: string) => Promise<any>, has: (url: string) => boolean, status: () => object, failedUrls: () => string[], retry: (url: string) => Promise<any>, clear: () => void, dispose: () => void }}
  */
-export function createModelCache({ load, onError } = {}) {
+export function createModelCache({ load, onError, release } = {}) {
   /** url → { status, promise, value, error, attempts } */
   const entries = new Map()
 
@@ -102,8 +114,37 @@ export function createModelCache({ load, onError } = {}) {
       return start(url)
     },
 
+    /**
+     * **只忘记，不释放**。下次 `get(url)` 会重新加载。
+     *
+     * 要释放显存请用 `dispose()`——见文件头"所有权"那段。
+     */
     clear() {
       entries.clear()
+    },
+
+    /**
+     * 释放缓存持有的**全部**源资源（唯一所有者的义务）。
+     *
+     * 调用之后这个缓存仍然可用（会重新加载），但**不能再假定**之前那些值是活的——
+     * 已经借出去的几何/贴图会变成"等下次上传"，而不是黑块（three 会从 CPU 侧重新上传），
+     * 所以这个降级是安全的，只是有一次性重新上传的成本。
+     *
+     * @returns {{ released: number }} 释放了几个已加载的值。
+     */
+    dispose() {
+      let released = 0
+      for (const entry of entries.values()) {
+        if (entry.status !== 'ready' || entry.value === null) continue
+        try {
+          release?.(entry.value)
+          released += 1
+        } catch {
+          // 一个坏值不能挡住其它值的释放（与广播层的取舍同源：别让局部失败升级成整体失败）。
+        }
+      }
+      entries.clear()
+      return { released }
     },
   }
 }

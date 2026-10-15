@@ -25,6 +25,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js' // 见 index.html 的 import map
 import { createBuilderRegistry } from './builders.js'
 import { createModelCache } from './model-loader.js'
+import { accountTextures, assessRebuildSeries, BORROWED, OWNED, planDisposal } from '../core/resource-ownership.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 // **必须是 SkeletonUtils.clone 而不是 Object3D.clone()**：后者的克隆会**共享骨架**，
 // 于是 12 个角色同步抽搐（摆同一个姿势、同一个进度），看起来像"动画坏了"。
@@ -106,6 +107,8 @@ export function createScene3d(canvas, options = {}) {
   const gltfLoader = new GLTFLoader()
   const models = createModelCache({
     load: (url) => gltfLoader.loadAsync(url),
+    // 缓存是 GLTF 源资源的唯一所有者；`releaseCachedModel` 是它履行义务的那一步。
+    release: (gltf) => releaseCachedModel(gltf),
     onError: ({ url, error }) => {
       assetErrors.set(url, String(error?.message ?? error))
       options.onMissing?.({
@@ -156,14 +159,65 @@ export function createScene3d(canvas, options = {}) {
   /** 浮层占掉的边距（CSS 像素）。由面板经 `setViewInsets` 告知；取景据此居中在可见区域。 */
   let viewInsets = { right: 0 }
 
-  /** 清掉一棵子树并释放显存（不只是从场景里摘掉）。 */
+  /**
+   * 清掉一棵子树并释放显存（不只是从场景里摘掉）。
+   *
+   * ══ R47 修的那个泄漏（+16/次重建）══════════════════════════════════════════
+   *
+   * 症状：每 `setPlan` 一次，`renderer.info.memory.textures` **+16**，
+   * 而几何/绘制/三角形完全不变（22/46/7,634）。
+   *
+   * 量出来的组成：**8 个角色 × 2 个 `SkinnedMesh` = 16 张 `boneTexture`**。
+   * 不是 8×2 张 GLB 贴图——整个默认小镇用到的 7 个 GLB 加起来**只有 1 张纹理**
+   * （角色那张 512×512 的 colormap），所以"模型加载器漏了 dispose"这条线索是**错的**。
+   *
+   * 根因：`SkeletonUtils.clone` 给**每个克隆一份自己的 `Skeleton`**，
+   * 而 `Skeleton` 的 `boneTexture` 是渲染时惰性创建的 `DataTexture`。
+   * 原来的实现只 `dispose()` 了几何与材质——`material.dispose()` **不会碰骨架**，
+   * 于是每次重建都新造 16 张骨架纹理，旧的没人释放。
+   *
+   * ══ 所有权（为什么不是引用计数）════════════════════════════════════════════
+   *
+   * `models` 缓存是 GLTF 源资源（几何 + 纹理）的**唯一所有者**；实例**借用**它们。
+   * 实例只拥有自己造出来的东西：材质 clone、骨架（boneTexture）、程序化几何。
+   * 判断交给纯函数 `planDisposal`（可在 node 里测），这里只负责把对象登记进去。
+   */
   const disposeTree = (root) => {
+    /** id → { id, kind, ownership, release }。按 id 去重：两个 mesh 可能共用同一个骨架/几何。 */
+    const resources = new Map()
+    const register = (id, kind, ownership, release) => {
+      if (!resources.has(id)) resources.set(id, { id, kind, ownership, release })
+    }
+
     root.traverse((node) => {
-      if (node.geometry !== undefined) node.geometry.dispose()
+      const geometry = node.geometry
+      if (geometry !== undefined && geometry !== null) {
+        register(`geometry:${geometry.uuid}`, 'geometry', node.userData.borrowedGeometry === true ? BORROWED : OWNED, () =>
+          geometry.dispose(),
+        )
+      }
+
       const material = node.material
-      if (Array.isArray(material)) for (const m of material) m.dispose()
-      else if (material !== undefined) material.dispose()
+      const materials = Array.isArray(material)
+        ? material
+        : material !== undefined && material !== null
+          ? [material]
+          : []
+      for (const m of materials) {
+        // GLB 实例各持一份材质 clone（见 `instantiate`），程序化材质也是就地造的 → 都归实例。
+        // ⚠️ 但材质**引用**的纹理是借来的，所以这里只 dispose 材质本身，不碰它的贴图。
+        register(`material:${m.uuid}`, 'material', OWNED, () => m.dispose())
+      }
+
+      // ★ 这一条就是 R47 的修复：骨架自带 boneTexture，且它是**实例自己**的。
+      if (node.isSkinnedMesh === true && node.skeleton !== undefined && node.skeleton !== null) {
+        const skeleton = node.skeleton
+        register(`skeleton:${skeleton.uuid}`, 'skeleton', OWNED, () => skeleton.dispose())
+      }
     })
+
+    const { dispose } = planDisposal([...resources.values()])
+    for (const id of dispose) resources.get(id)?.release()
   }
 
   const clearStatic = () => {
@@ -174,6 +228,20 @@ export function createScene3d(canvas, options = {}) {
     actorById.clear()
     propNodes.clear()
     actorTopY.clear()
+  }
+
+  /**
+   * 释放**缓存里的**一份 GLTF 源资源（唯一所有者的责任）。
+   *
+   * 用 `disposeTree` 复用同一套所有权规则：源场景里的网格没有 `borrowedGeometry` 标记，
+   * 所以它们的几何按 `OWNED` 处理——**这是对的**，因为源就是所有者。
+   * 这里用函数声明（会被提升）而不是 `const`：缓存在本函数更早的地方建，
+   * 而 `release` 是延迟调用的，提升让"先建缓存、后定义释放逻辑"不会踩 TDZ。
+   */
+  function releaseCachedModel(gltf) {
+    if (gltf === null || gltf === undefined) return
+    if (gltf.scene === null || gltf.scene === undefined) return
+    disposeTree(gltf.scene)
   }
 
   /** 记下这个站点下的所有 mesh（高亮时直接改，不用再遍历/查找）。 */
@@ -384,6 +452,12 @@ export function createScene3d(canvas, options = {}) {
           const real = cloneSkinned(gltf.scene)
           real.traverse((child) => {
             if (child.isMesh !== true) return
+            // 几何是**借**缓存里那份的：`Object3D.clone` / `SkeletonUtils.clone` 都**共享几何**
+            // （不复制 buffer）。所以重建时不许释放它——那是缓存的东西，
+            // 释放它只会让下次重建把同一份几何重新上传一遍（白费，且看起来像在增长）。
+            child.userData.borrowedGeometry = true
+            // 材质则**必须**每个实例一份 clone：clone 会共享材质，改一个会改到所有人。
+            // 它引用的贴图同样是借的（`Material.clone()` 只复制引用）——我们从不 dispose 贴图。
             child.material = child.material.clone()
             child.castShadow = true
             child.receiveShadow = true
@@ -808,8 +882,135 @@ export function createScene3d(canvas, options = {}) {
 
     dispose() {
       clearStatic()
+      // 场景走了，它就再也不是那些 GLTF 源资源的所有者了——**先把义务履行掉**再拆渲染器。
+      // 不调这一步的后果不是立刻可见的：它会表现为"切回 3D 之后每次重建都在重新上传"。
+      models.dispose()
       controls.dispose()
       renderer.dispose()
+    },
+
+    /**
+     * **可跑的验收检查**（R47 / M4-12 的判据）：连续重建 `rebuilds` 次，纹理不许增长。
+     *
+     * 判据由纯函数 `assessRebuildSeries` 给（有 node 测试），这里只负责"在真页面上跑一遍它"。
+     * 这样"修好了没有"是一条命令的答案，而不是靠人盯着一排数字看：
+     *
+     *     await __agentWorldScene3d.checkRebuildLeak(3)   // → { ok: true, growth: 0, sequence: [...] }
+     *
+     * `settleMs` 是刻意留的参数：重建里有一段**异步**（GLB 到货后才换模型），
+     * 采样要等它落定。所以返回里同时给 `sequence`——**涨了没有要能一眼看出来**，
+     * 而不是只信一个 `ok`（R47 的教训正是"数字涨了但没人看组成"）。
+     *
+     * @param {number} [rebuilds] - 重建几次（判据要求 ≥3）。
+     * @param {number} [settleMs] - 每次重建后的等待（让异步加载与首帧落定）。
+     * @returns {Promise<{ok: boolean, growth: number, sequence: number[], reason: string, unaccounted: number[]}>}
+     */
+    async checkRebuildLeak(rebuilds = 3, settleMs = 600) {
+      const series = [renderer.info.memory.textures]
+      const unaccounted = [this.textureReport().unaccounted]
+      for (let i = 0; i < rebuilds; i++) {
+        setPlan(plan)
+        await new Promise((resolve) => setTimeout(resolve, settleMs))
+        series.push(renderer.info.memory.textures)
+        unaccounted.push(this.textureReport().unaccounted)
+      }
+      return { ...assessRebuildSeries(series, { rebuilds }), unaccounted }
+    },
+
+    /**
+     * 纹理账面（R47 / M4-12 的**可复现量法**）。
+     *
+     * 为什么需要它：`stats().textures` 只给一个**总数**（`renderer.info.memory.textures`），
+     * 而"总数涨了 16"有两种完全不同的原因：
+     *
+     * 1. 场景图中**还在用**的纹理变多了（真的多画了东西）；
+     * 2. 场景图里**已经没有**引用、但 GPU 上没释放的纹理变多了（泄漏）。
+     *
+     * 光看总数分不出这两者，于是"修没修好"就变成了猜。这个函数把账面拆开：
+     *
+     * - `gpuTextures`：three 记的 GPU 纹理数（= `stats().textures`）；
+     * - `viaMaterials`：**当前场景图里**材质引用到的**去重**纹理数；
+     * - `shadowMaps`：还在场景里的灯，各自有没有阴影贴图；
+     * - `unaccounted` = `gpuTextures - viaMaterials`：**没有被任何材质引用**的部分。
+     *   它就是"泄漏量"的上界——阴影贴图也计入其中，所以还要看 `shadowMaps`。
+     *
+     * @returns {object} 账面明细（诊断用；正常渲染不依赖它）。
+     */
+    textureReport() {
+      const referenced = new Map()
+      let meshes = 0
+      let skinnedMeshes = 0
+      const boneTextures = new Map()
+      const materials = new Set()
+      scene.traverse((node) => {
+        if (node.isMesh === true) meshes += 1
+        if (node.isSkinnedMesh === true) {
+          skinnedMeshes += 1
+          // ★ 骨架自带一张 boneTexture（DataTexture）。**材质不引用它**，
+          //   所以它既不出现在 `viaMaterials` 里，也不会被 `material.dispose()` 释放。
+          const bone = node.skeleton?.boneTexture
+          if (bone !== undefined && bone !== null) boneTextures.set(bone.uuid, bone)
+        }
+        const material = node.material
+        const list = Array.isArray(material) ? material : material !== undefined ? [material] : []
+        for (const m of list) {
+          if (m === undefined || m === null) continue
+          materials.add(m.uuid)
+          for (const [slot, value] of Object.entries(m)) {
+            if (value === null || typeof value !== 'object') continue
+            if (value.isTexture !== true) continue
+            const hit = referenced.get(value.uuid)
+            if (hit === undefined) {
+              referenced.set(value.uuid, {
+                slot,
+                refs: 1,
+                width: value.image?.width ?? 0,
+                height: value.image?.height ?? 0,
+                name: value.name ?? '',
+              })
+            } else {
+              hit.refs += 1
+            }
+          }
+        }
+      })
+
+      const shadowMaps = []
+      let shadowMapTextures = 0
+      for (const child of scene.children) {
+        if (child.isLight !== true) continue
+        const map = child.shadow?.map
+        const hasMap = map !== undefined && map !== null
+        if (hasMap) shadowMapTextures += 1
+        shadowMaps.push({ type: child.type, castShadow: child.castShadow === true, hasMap })
+      }
+
+      const gpuTextures = renderer.info.memory.textures
+      // 账面交给纯函数算（`web/core/resource-ownership.js`）：去重、共享项只算一次
+      // 这些细节在那儿有测试，这里不再抄一遍算式——抄一遍就迟早会与测试漂移。
+      const account = accountTextures({
+        gpuTextures,
+        materialTextureIds: [...referenced.keys()],
+        skeletonTextureIds: [...boneTextures.keys()],
+        shadowMapTextures,
+      })
+
+      return {
+        gpuTextures,
+        viaMaterials: account.bySource.materials,
+        viaSkeletons: account.bySource.skeletons,
+        materials: materials.size,
+        meshes,
+        skinnedMeshes,
+        shadowMaps,
+        shadowMapTextures,
+        textures: [...referenced.values()].sort((a, b) => b.refs - a.refs),
+        /**
+         * 既没被材质引用、也没被骨架引用的 GPU 纹理数（阴影贴图已单独算过）。
+         * **这才是真正的泄漏量**——R47 之前它是 16/次重建。
+         */
+        unaccounted: account.unaccounted,
+      }
     },
   }
 

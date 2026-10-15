@@ -16,9 +16,9 @@ import {
 } from '../content/instantiate.js'
 import type { ContentRegistry } from '../content/registry.js'
 import { MAX_AGENTS } from '../domain/constants.js'
-import { latticeIn } from '../domain/geometry.js'
 import { createRng, seedFromString } from '../domain/rng.js'
-import type { District, Task, Vec2, World } from '../domain/types.js'
+import type { Task, World } from '../domain/types.js'
+import { DEFAULT_MIN_GAP, hangoutArea, placeHangouts, stationClearance } from './hangouts.js'
 
 /** 建世界的选项。 */
 export interface CreateWorldOptions {
@@ -68,10 +68,22 @@ export function createWorld(options: CreateWorldOptions): World {
   const roster = content.require('rosters', scene.roster, `场景 ${scene.id} 引用的花名册`)
   const agents = instantiateAgents(roster, scene.spawn, maxAgents, rng)
 
-  // 待命的人站哪（BACKLOG M2.5-1）。**不给的话他们会永远叠在出生点上**——
+  // 待命的人站哪（BACKLOG M2.5-1 + R47 P0-1）。**不给的话他们会永远叠在出生点上**——
   // 因为角色只在被派活时才移动，从没被派过活的人一步都不会走。
-  // 落点按广场地块的几何推，所以"把广场改大"就能让人散得更开：内容驱动。
-  const hangouts = hangoutsFor(districts, agents.length)
+  //
+  // R47 修的那件事：落点还必须知道**家具占了哪儿**。原来只按地块几何摊栅格，
+  // 于是"沙发上的三个角色"是必然的——布局算法根本不认识站点。
+  // 传进去的是**几何事实**（点 + 半径），不是 `StationEntry`：机制不该认识内容条目。
+  const blocked = stations.map((station) => ({
+    at: station.anchor,
+    radius: stationClearance(station.kind),
+  }))
+  const hangouts = placeHangouts({
+    bounds: hangoutArea(districts),
+    count: agents.length,
+    blocked,
+    minGap: DEFAULT_MIN_GAP,
+  })
   agents.forEach((agent, i) => {
     agent.hangout = hangouts[i % hangouts.length] ?? null
   })
@@ -105,24 +117,5 @@ export function createWorld(options: CreateWorldOptions): World {
   }
 }
 
-/**
- * 待命角色的歇脚点。
- *
- * 优先用 `commons`（广场）——它本来就是"没活在干的人待的地方"这个语义；
- * 没有广场就退到最大的地块，再没有就退回原点附近的一小块。
- *
- * 退回而不是报错，是因为"这个场景没有广场"是合法的（一个纯机房的场景）。
- */
-function hangoutsFor(districts: readonly District[], count: number): Vec2[] {
-  const commons = districts.find((d) => d.kind === 'commons')
-  const biggest = [...districts].sort((a, b) => {
-    const area = (d: District) => Math.abs(d.bounds.max.x - d.bounds.min.x) * Math.abs(d.bounds.max.z - d.bounds.min.z)
-    return area(b) - area(a)
-  })[0]
-
-  const area = commons ?? biggest
-  if (area === undefined) {
-    return latticeIn({ min: { x: -2, z: -2 }, max: { x: 2, z: 2 } }, count)
-  }
-  return latticeIn(area.bounds, count)
-}
+/** 待命角色的歇脚点算法已抽到 `hangouts.ts`（R47 P0-1）：
+ * 它现在要避开站点占位，所以需要"被占的位置 + 半径"这类几何事实。 */
