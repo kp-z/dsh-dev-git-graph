@@ -189,6 +189,7 @@
 | M6-0 | **done** | **查清「怎么把用户消息送进 DSH Agent 并收回复」**（整条 M6 的阻塞点）。用 `cordis_inspect_query` 查，原始证据进 `docs/BRIDGE-RECON.md` | `docs/BRIDGE-RECON.md` + `docs/GOAL.md` 第三节 | —— | owner: `bridge`（task-1）
 | M6-1 | **done** | 角色 ↔ DSH 会话绑定：懒创建（同角色复用）+ 并发上限 + dispose + `seed` 注入 system prompt | `src/bridge/` + node 测试 | M6-0 | owner: `bridge`（task-1）
 | M6-10 | in_progress | **U1/U2 真机验证**（G2 的门槛）：`MessageBase` 是否强制 `id`、seed 的 `seq` 是否要自洽——只能在**真宿主**上验，需要把插件装进一个 profile。**这是唯一需要用户点头的动作**（会注册路由与工具，影响他当前会话）。若 seed 被拒，「跟小人物说话」会在最后一寸失败 | 真机验证记录 | M6-2 | ⚠️ 等用户点头 |
+| M6-11 | blocked | **等用户环境**：① web profile 的 `@roarpeng/graphflow@1.20.0` 写退休 source 形状，所有新会话第一步失败 → 升到 2.x；② web profile 默认路由 `deepseek-official` 的 key 失效 → 重填或换路由。两件都做完再跑一次真机对话 | 用户 | M6-10 | 不在我们的代码里 |
 | M6-9 | ready | **flaky 测试普查**（R27 发现）：`test/store.test.js` 用固定 `setTimeout(20)` 当同步手段，在载荷下会假红。已修那一处，但**同类写法可能还有**（`grep -n 'setTimeout(' test/`）。flaky 比失败更糟：它让「绿」不可信，而绿是验收纪律的基础 | `test/**` | —— | 一行 grep 就能普查 |
 | M6-2 | **done** | 人设驱动 system prompt（R27 内容侧 + R28 宿主侧）。`seatForAgent` 按**序号优先 + 名字交叉校验**，同名歧义返回 undefined 让上层报原因。**哨兵测试**防 id 规则变动导致人设静默错位。**判据「改花名册 → prompt 跟着变、代码零改动」由真实内容的装配测试证明** | —— | ✅ R28 | —— |
 | M6-3 | **done**（传输段）| 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**
@@ -201,7 +202,7 @@
 | M7-1 | **done** | 看板骨架（R29）| —— | ✅ | —— |
 | M7-2 | **done** | 依赖图布局纯函数（R29，19 例）| —— | ✅ | —— |
 | M7-8 | ready | **增量要带 `blockedBy`/`requires`**：`web/world-update.js` 的 `task.changed` 把新任务建成 `blockedBy: []`，所以**快照之后新建的任务画不出依赖边、也没有 review 虚线框**。真修在 `src/sim/patches.ts` | `src/sim/patches.ts` + `web/world-update.js` + 测试 | M7-1 | panel 报的，不在它范围 |
-| M7-9 | ready | **看板裁剪 + 响应式**：`task-7` 被右边缘切掉一半、成员列表最后一行被下边缘切掉。**注意**：队友报「0 节点溢出、scrollHeight==clientHeight」——`overflow: hidden` 的裁剪**也是这个签名**，所以那个检查证明的是「不需要滚动条」而非「没有切掉」 | `web/board.js` + `style.css` | M7-1 | **我自己视觉核对发现的** |
+| M7-9 | **done** | 看板裁剪 + 响应式（R31，panel）：1280/1024/800 下 `clipped()` 全空；检查判据改为「元素 vs 容器∩视口」 | —— | ✅ | 极端数据下的滚动兜底未验 |
 | M7-10 | ready | 六态中文标签在 `board.js` 与 `app.js` 里是两份 → 合并成共享模块（M7-7 搬侧栏 tab 时一起做） | `web/` | M7-7 | panel 报的债 |
 | M7-2 | ready | **依赖图布局（纯函数）**：输入任务表 → 输出列号（=最长前置链）+ 连线端点；可单测 | `web/board-layout.js` + 测试 | M7-1 | **唯一有算法含量、且可并行**
 | M7-3 | ready | 详情栏 + **与 3D 双向高亮**（点方框 → 场景里工位/角色发亮） | `web/board.js` + `web/scene3d.js` | M7-1 | 看板存在的最大理由

@@ -30,7 +30,83 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R30 末）：`typecheck` 绿 · `test` **422 / pass 422 / fail 0 / todo 0**。**首次装进真宿主（web profile），修掉 6 个只有真机才照得出的 bug；真实模型回复仍差最后一关（producer-owned source kind）。**
+当前验证状态（R31 末）：`typecheck` 绿 · `test` **431 / pass 431 / fail 0 / todo 0**。**最后一关的真凶已定位：web profile 里的 graphflow@1.20.0 写退休的 source 形状（用户环境，需升级到 2.x）；其后是模型路由失效。我们这一侧已全部越过宿主校验。**
+
+---
+
+## R31 — 2026-10-15 · 找到"最后一关"的真凶：不是我们，是另一个插件
+
+### 结论（有 stack，不是推断）
+
+R30 卡在 `format v4 message requires a producer-owned source kind`。被拒的事件不落盘、也不发 `session/event`，
+所以本轮加了一个**诊断钩子**：订阅宿主的 `agent/error`（它带原始 Error 对象），只记 `agent-world:` 开头的会话，
+设了 `AGENT_WORLD_TRACE_FILE` 时追加写文件。第一次跑就拿到了 stack：
+
+    SessionFormatError: format v4 message requires a producer-owned source kind
+      at source            (dsh-session-format-v3-to-v4)
+      at assertV4SourceRowAdmission / assertV4RowAdmission
+      at encodeEvent       ← 落盘编码时
+      at eventLines        (dsh-session-persistence-jsonl)
+
+再查谁在写退休形状 `{kind:'plugin', plugin:…}`：**web profile 里装的 `@roarpeng/graphflow@1.20.0`**。
+它在 `agent/pre-step` 给**每个 agent 的第一步**塞一条 hint，source 用的就是被 v4 退休的形状。
+你 desktop profile 里的 graphflow 是 **2.2.0**，已经修好了（源码注释原话："DSH session format v4 rejects
+the retired V3 wrapper `kind: "plugin"` outright (the whole turn fails at adoption)"）。
+
+**证明**：用一次性叠加层 `--patch`（不改任何 profile 文件）只关掉 `graphflow-dsh` 那一行，同样的话发给全新角色——
+`producer-owned source kind` **消失**，换成了下一层的真实报错。
+
+**这件事影响的不只是我们**：web profile 里所有**新**会话的第一步都会被这条 hint 打死。
+（`session-e78934a5…` 那条 19:23 的会话只有 5 行、0 条回复——同一个死法的强烈嫌疑，但我没有逐条证明它。）
+
+### 越过它之后撞到的是"模型路由"——同样不是我们的 bug，但暴露了我们一个真缺陷
+
+| 尝试 | 结果 |
+|---|---|
+| web profile 默认路由 `deepseek-official` | `Authentication Fails, Your api key: ****iH0g is invalid` —— 那把 key 已失效 |
+| 改成你正在用的 `mmt-vision`（同样用 `--patch`） | `no adapter registered for provider "mmt-vision"` —— web profile 没装这个 provider 的适配器 |
+
+**我们的缺陷**：`checkModelReadiness` 只问"**有没有任何一个** provider 可路由"，不问"**你选的那个**能不能用"——
+所以它放行了一个必然失败的配置，每一轮都要等到模型调用失败才知道，而且报错来自模型层、看不出是路由问题。
+**已修**：现在它拿 `agentDefaultModel` 选中的 provider 去核对可路由列表，不在就**搭话前**拦下，原文是
+"当前选的是 `mmt-vision`，但这个 profile 里没有它的适配器（或没有可用的凭据）。可用的 provider：…"。
++3 条测试；顺手修了一个**本来就不自洽**的 fixture（选 `p-1` 却只说 `p` 可用——新检查正确地把它拦下了）。
+
+### 看板 M7-9（panel 交付，我亲眼看过）
+
+三个宽度 1280 / 1024 / 800 下 `window.__agentWorldBoard.clipped()` 全部为空；我看了 800 宽的截图：
+`task-7` 完整、最后一个成员「小雯」完整、无重叠无溢出。
+**它说清了自己上一轮的盲区**：容器尺寸被设成内容尺寸 → 它自己不溢出、被父容器裁掉，`overflow:auto` 挂错了元素；
+新的检查判据是"元素矩形 vs（容器 ∩ 视口）"，把 `scrollHeight == clientHeight` 那条删了。
+**它主动交出的没验项**：极端数据（某列十几张单）下的滚动兜底没造数据验；视觉模型数到 9 条连线、DOM 是 10 条 `path`，没深究。
+
+### 验证
+
+```bash
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 431 / pass 431 / fail 0 / todo 0
+```
+
+**真实的模型回复：仍然没有拿到。** 我们自己这一侧的接线已经全部越过宿主校验（seed、模型、会话、cwd、source），
+剩下两件都在**环境**里，不在代码里，需要用户决定（见下）。
+
+### 下一轮从哪继续
+
+**需要用户做的两件事（都是改用户自己的环境，我不擅自做）**：
+1. **把 web profile 的 graphflow 升到 2.x**（desktop 已是 2.2.0）：`dsh plugin --profile web add @roarpeng/graphflow@latest`。
+   不升级的话，web profile 里**所有**新会话的第一步都会失败，不只是我们的角色。
+2. **给 web profile 一条能用的模型路由**：要么在 web 的设置里重填 deepseek-official 的 key，
+   要么把默认模型换成那个 profile 里有适配器的 provider。
+
+这两件做完，重跑 R31 的同一条命令即可拿到第一条真实回复。在那之前，我们这边能做的是 M6-4（让角色干活）的
+**无模型部分**：工具定义与"对话 → 命令 → 世界变化"的通路，用假 agentLoop 先跑通。
+
+### 本轮产出
+
+- `src/index.ts`：`agent/error` 诊断钩子（只记本插件会话；`AGENT_WORLD_TRACE_FILE` 时写文件；钩子自身出错不影响对话）
+- `src/bridge/dsh-adapter.ts`：`checkModelReadiness(ctx, selected)` 校验选中的 provider
+- `web/board*.js` + `style.css`：M7-9（panel）
+- 测试 422 → **431**
 
 ---
 

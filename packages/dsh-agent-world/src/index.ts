@@ -10,6 +10,7 @@
  * 落盘与 HTTP/SSE 见 BACKLOG M3，3D 面板见 M4。
  * 架构见 docs/ARCHITECTURE.md，内容模型见 docs/CONTENT.md，协议见 docs/PROTOCOL.md。
  */
+import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { buildCharacterSystemPrompt, createDshCharacterBridge, seatForAgent, toLazyDialoguePort } from './bridge/index.js'
@@ -38,6 +39,12 @@ export const inject = ['tools']
  * @param ctx - cordis 上下文。
  * @param config - Loader 传进来的**原始**配置（schema default 不会被自动填充，故走 resolveConfig）。
  */
+/** 从 agent/error 的负载里尽量取出会话 id（不同版本形状不同）。 */
+function this_agentId(record: Record<string, unknown>): string | undefined {
+  const a = record['agent'] as { id?: unknown } | undefined
+  return typeof a?.id === 'string' ? a.id : undefined
+}
+
 export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): void {
   const resolved = resolveConfig(config)
   const logger = ctx.logger('agent-world')
@@ -163,6 +170,36 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   ctx.effect(() => () => {
     void liveBridge?.disposeAll()
   }, 'agent-world: dialogue bridge')
+
+  // ── 诊断：把宿主侧的 agent 报错**带 stack** 写出来（R31）─────────────────────
+  //
+  // 宿主拒绝一条事件时，那条事件**不会落盘、也不会发 session/event**（后者是提交后才推送）；
+  // `turn/end` 里只剩一句 message。所以 R30 卡在 "producer-owned source kind" 上看不到是哪条。
+  // `agent/error` 带的是**原始 Error 对象**——把它的 stack 打出来就能定位到产出那条事件的代码。
+  //
+  // 只记**本插件建的会话**（id 以 agent-world: 开头），不碰用户其它会话的报错。
+  // 默认只进 logger；设了 AGENT_WORLD_TRACE_FILE 时额外追加到那个文件（宿主日志常常看不到）。
+  const traceFile = process.env['AGENT_WORLD_TRACE_FILE']
+  const onAgentError = (payload: unknown, ...rest: unknown[]): void => {
+    try {
+      const record = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>
+      const agent = (rest[0] ?? record['agent']) as { id?: unknown; session?: { id?: unknown } } | undefined
+      const id = String(agent?.id ?? agent?.session?.id ?? (this_agentId(record) ?? ''))
+      if (id !== '' && !id.startsWith('agent-world:')) return
+      const error = record['error']
+      const stack = error instanceof Error ? (error.stack ?? error.message) : String(error)
+      const line = `[agent-world] agent/error session=${id || '?'} turn=${String(record['turn'])} step=${String(record['step'])}\n${stack}`
+      logger.warn(line)
+      if (traceFile) appendFileSync(traceFile, `${new Date().toISOString()} ${line}\n\n`)
+    } catch {
+      // 诊断钩子自己出错绝不能影响对话
+    }
+  }
+  const on = (ctx as unknown as { on?: (name: string, cb: (...args: unknown[]) => void) => unknown }).on
+  if (typeof on === 'function') {
+    const off = on.call(ctx, 'agent/error', onAgentError)
+    if (typeof off === 'function') ctx.effect(() => off as () => void, 'agent-world: error trace')
+  }
 
   // ── HTTP：面板 + API ─────────────────────────────────────────────────────
   //

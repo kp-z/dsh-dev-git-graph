@@ -248,6 +248,48 @@ export function layoutDependencyGraph(tasks) {
 export const DEFAULT_GEOMETRY = { cellW: 214, cellH: 76, nodeW: 176, nodeH: 58, padX: 14, padY: 12 }
 
 /**
+ * 四档几何尺寸，从"舒服"到"最紧"（M7-9 响应式）。
+ *
+ * 为什么用档位而不是直接 `transform: scale`：缩放会把**文字**一起缩，
+ * 缩到 0.5 就是"看得见但读不了"。所以先把卡片本身变小（字号不变），
+ * 四档都放不下时才退回缩放（`fitGraphGeometry` 的返回值里带 `scale`）。
+ */
+export const GEOMETRY_PRESETS = [
+  { name: 'comfortable', ...DEFAULT_GEOMETRY },
+  { name: 'medium', cellW: 190, cellH: 66, nodeW: 156, nodeH: 52, padX: 14, padY: 12 },
+  { name: 'compact', cellW: 164, cellH: 56, nodeW: 134, nodeH: 44, padX: 12, padY: 10 },
+  { name: 'tight', cellW: 142, cellH: 48, nodeW: 116, nodeH: 38, padX: 10, padY: 8 },
+]
+
+/**
+ * 按**可用空间**挑一档几何，实在放不下就缩放。
+ *
+ * 纯函数（只依赖 layout 与 available）——所以"1280/1024/800 三个宽度下放不放得下"
+ * 这件事可以**在单测里算**，不必每次开浏览器量。
+ *
+ * @param {object} layout - `layoutDependencyGraph()` 的结果。
+ * @param {{width: number, height: number}} available - 可见内容盒的尺寸（CSS px）。
+ * @param {ReadonlyArray<object>} [presets]
+ * @returns {object} `graphGeometry()` 的结果 + `preset`（档位名）+ `scale`（≤1）。
+ */
+export function fitGraphGeometry(layout, available, presets = GEOMETRY_PRESETS) {
+  const width = Number.isFinite(available?.width) ? available.width : 0
+  const height = Number.isFinite(available?.height) ? available.height : 0
+  for (const preset of presets) {
+    const geometry = graphGeometry(layout, preset)
+    if (geometry.width <= width && geometry.height <= height) {
+      return { ...geometry, preset: preset.name, scale: 1 }
+    }
+  }
+  const tightest = presets[presets.length - 1]
+  const geometry = graphGeometry(layout, tightest)
+  // 缩放也是确定性的：只由"内容尺寸 / 可用尺寸"决定，与时间、随机无关。
+  const raw = Math.min(1, width / Math.max(1, geometry.width), height / Math.max(1, geometry.height))
+  const scale = Math.max(0.4, Math.round(raw * 100) / 100)
+  return { ...geometry, preset: tightest.name, scale }
+}
+
+/**
  * 列号/行号 → 像素坐标 + 贝塞尔连线。纯函数，方便测"端点接在卡片边上"。
  *
  * 为什么分成两步（布局 → 几何）：列号是**语义**（最长前置链），像素是**观感**。

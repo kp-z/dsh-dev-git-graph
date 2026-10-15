@@ -21,12 +21,14 @@ import { test } from 'node:test'
 import {
   BOARD_TOKENS,
   DEFAULT_GEOMETRY,
+  GEOMETRY_PRESETS,
   STATUS_TOKEN,
   TASK_STATUSES,
   boardSignature,
   buildBoardModel,
   countStatuses,
   describeTask,
+  fitGraphGeometry,
   graphGeometry,
   layoutDependencyGraph,
   missingBoardTokens,
@@ -337,4 +339,88 @@ test('boardSignature 不含 tick：只有 tick 前进时看板不该重画', () 
   assert.equal(boardSignature({ ...base, tick: 10 }), boardSignature({ ...base, tick: 9999 }))
   const changed = { ...base, tasks: [task('t1', 1, [], { status: 'done' })] , tick: 10 }
   assert.notEqual(boardSignature(base), boardSignature(changed))
+})
+
+// ── 响应式：按可用空间挑档位 / 缩放（M7-9）────────────────────────────────────
+
+/** 一份"真实形状"的图：两条流水线、5 列、最长列 3 行（和内置内容一致）。 */
+function realisticLayout() {
+  return layoutDependencyGraph([
+    task('t1', 1),
+    task('t2', 2, ['t1']),
+    task('t3', 3, ['t1']),
+    task('t4', 4, ['t2']),
+    task('t5', 5, ['t3', 't4']),
+    task('t6', 6, ['t2']),
+    task('t7', 7, ['t5', 't6']),
+    task('t8', 8),
+    task('t9', 9, ['t8']),
+    task('t10', 10, ['t9']),
+  ])
+}
+
+test('空间够就用最舒服的那档（不缩放）', () => {
+  const layout = realisticLayout()
+  const fit = fitGraphGeometry(layout, { width: 1400, height: 400 })
+  assert.equal(fit.preset, GEOMETRY_PRESETS[0].name)
+  assert.equal(fit.scale, 1)
+  assert.deepEqual(graphGeometry(layout, DEFAULT_GEOMETRY).nodes, fit.nodes, '档位只是叠在 graphGeometry 上的两个字段，几何本身不变')
+  assert.equal(graphGeometry(layout, DEFAULT_GEOMETRY).width, fit.width)
+  assert.ok(fit.width <= 1400 && fit.height <= 400)
+})
+
+test('三个验收宽度下都放得下（1280 / 1024 / 800 的可用盒）', () => {
+  const layout = realisticLayout()
+  // 可用盒 = 视口宽 - 边框/内边距 - （宽屏时）左侧 300px 成员栏
+  const cases = [
+    { viewport: 1280, available: { width: 940, height: 300 } },
+    { viewport: 1024, available: { width: 970, height: 240 } },
+    { viewport: 800, available: { width: 745, height: 240 } },
+  ]
+  for (const { viewport, available } of cases) {
+    const fit = fitGraphGeometry(layout, available)
+    const shownW = fit.width * fit.scale
+    const shownH = fit.height * fit.scale
+    assert.ok(shownW <= available.width + 1, `${viewport}px：横向放不下（${shownW} > ${available.width}，档位 ${fit.preset}）`)
+    assert.ok(shownH <= available.height + 1, `${viewport}px：纵向放不下（${shownH} > ${available.height}）`)
+    assert.equal(fit.scale >= 0.4, true, '缩放有个下限，免得缩到读不了')
+  }
+})
+
+test('宽度不够就降档；降到底才缩放（先小卡片，后缩放）', () => {
+  const layout = realisticLayout()
+  const wide = fitGraphGeometry(layout, { width: 1400, height: 400 })
+  const narrow = fitGraphGeometry(layout, { width: 800, height: 400 })
+  assert.notEqual(narrow.preset, wide.preset, '窄了要换更紧的档位')
+  assert.equal(narrow.scale, 1, '还有档位可用时不该缩放（文字不能变小）')
+  assert.ok(narrow.width < wide.width)
+
+  const tiny = fitGraphGeometry(layout, { width: 300, height: 120 })
+  assert.equal(tiny.preset, GEOMETRY_PRESETS[GEOMETRY_PRESETS.length - 1].name, '放不下就退到最紧那一档')
+  assert.ok(tiny.scale < 1)
+  assert.ok(tiny.width * tiny.scale <= 300 + 1)
+})
+
+test('只有高度受限时也降档（宽得离谱但很矮）', () => {
+  const layout = realisticLayout()
+  const fit = fitGraphGeometry(layout, { width: 4000, height: 150 })
+  assert.ok(fit.height * fit.scale <= 150 + 1)
+})
+
+test('可用空间为 0 / 缺失时不炸（量不到尺寸时的兜底）', () => {
+  const layout = realisticLayout()
+  for (const available of [{ width: 0, height: 0 }, {}, undefined, null]) {
+    const fit = fitGraphGeometry(layout, available)
+    assert.equal(fit.preset, GEOMETRY_PRESETS[GEOMETRY_PRESETS.length - 1].name)
+    assert.ok(fit.scale >= 0.4 && fit.scale <= 1, '给一个可用的下界，而不是 0 或 NaN')
+    assert.ok(fit.nodes.t1 !== undefined, '节点一个都不能丢')
+  }
+})
+
+test('挑档位是确定性的：同一份输入同一个结果', () => {
+  const layout = realisticLayout()
+  const available = { width: 812, height: 233 }
+  assert.deepEqual(fitGraphGeometry(layout, available), fitGraphGeometry(layout, available))
+  // 与输入任务的到达顺序无关（`layout.signature` 已经保证了这一点，这里再钉一次）
+  assert.equal(fitGraphGeometry(layout, available).width, fitGraphGeometry({ ...layout, nodes: [...layout.nodes].reverse() }, available).width)
 })

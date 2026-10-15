@@ -814,7 +814,14 @@ function modelProbeCtx(agentDefaultModel) {
   const recorded = []
   const sessionController = {
     async modelCatalog() {
-      return { default: { provider: 'p', model: 'm' }, routableProviders: ['p'], groups: [{ id: 'p' }], failures: [] }
+      // 目录要列出**实际会被选中的** provider：R31 起的就绪检查会核对这两者是否一致，
+      // 而以前这个 fixture 是"选 p-1、只说 p 可用"——那种不自洽现在会被拦下（正确的行为）。
+      return {
+        default: { provider: 'p-1', model: 'm' },
+        routableProviders: ['p', 'p-1'],
+        groups: [{ id: 'p' }],
+        failures: [],
+      }
     },
     async prompt() {
       return { accepted: true }
@@ -986,4 +993,44 @@ test('adapter：拿到相对路径就**不传** —— 宿主会拒绝非绝对�
   })
   await wired.bridge.say('c1', '你好')
   assert.equal(seen[0].meta, undefined, '相对路径不该被当成工作目录传下去')
+})
+
+// ── R31：就绪检查要校验"选中的那个"provider，而不是"任何一个"──────────────────
+
+test('checkModelReadiness：选中的 provider 不在可路由列表里 → 搭话前就拦下，并列出可用的', async () => {
+  const ctx = createFakeCtx({
+    sessionController: {
+      async modelCatalog() {
+        return { routableProviders: ['deepseek-official', 'mmt'], groups: [{ id: 'x' }], failures: [] }
+      },
+    },
+  })
+  const r = await checkModelReadiness(ctx, { provider: 'mmt-vision' })
+  assert.equal(r.ok, false)
+  assert.equal(r.code, 'no-model')
+  assert.match(r.reason, /mmt-vision/, '要说出选的是谁')
+  assert.match(r.reason, /deepseek-official、mmt/, '要列出可用的')
+})
+
+test('checkModelReadiness：选中的 provider 可路由 → 放行', async () => {
+  const ctx = createFakeCtx({
+    sessionController: {
+      async modelCatalog() {
+        return { routableProviders: ['mmt'], groups: [{ id: 'x' }], failures: [] }
+      },
+    },
+  })
+  assert.equal((await checkModelReadiness(ctx, { provider: 'mmt' })).ok, true)
+})
+
+test('checkModelReadiness：不知道选了谁时，退回旧判据（不因缺信息而误拦）', async () => {
+  const ctx = createFakeCtx({
+    sessionController: {
+      async modelCatalog() {
+        return { routableProviders: ['mmt'], groups: [{ id: 'x' }], failures: [] }
+      },
+    },
+  })
+  assert.equal((await checkModelReadiness(ctx)).ok, true)
+  assert.equal((await checkModelReadiness(ctx, {})).ok, true)
 })

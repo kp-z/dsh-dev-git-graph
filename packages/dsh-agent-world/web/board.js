@@ -30,7 +30,7 @@ import {
   boardSignature,
   buildBoardModel,
   describeTask,
-  graphGeometry,
+  fitGraphGeometry,
   layoutDependencyGraph,
   missingBoardTokens,
   resolveBoardColor,
@@ -110,6 +110,11 @@ export function createBoard(options = {}) {
   const chipNodes = new Map()
   /** 成员行里"状态文字"那个节点的引用：agentId → span。 */
   const memberStateNodes = new Map()
+  /** 成员整行的引用（`clipped()` 要拿它比可见容器）：agentId → li。 */
+  const memberRowNodes = new Map()
+  /** 上一次按可用空间挑中的档位/缩放（响应式重排用，也是诊断字段）。 */
+  let fitInfo = null
+  let lastFitSize = null
 
   // ── 骨架（只建一次）────────────────────────────────────────────────────────
   let parts = null
@@ -137,17 +142,28 @@ export function createBoard(options = {}) {
     const graphHead = el(doc, 'h3', undefined, '任务依赖图')
     graphHead.append(el(doc, 'span', 'dim', '左 → 右：前置解锁后续'))
     const canvas = el(doc, 'div', 'board-canvas')
+    // 三层，各有各的职责（M7-9 修的就是这里）：
+    //   canvas  —— **可滚动**的可见容器。**它的尺寸由 flex 决定，绝不由内容决定**。
+    //              之前把 canvas 自己撑成内容宽度，于是它溢出了父容器、被父容器裁掉，
+    //              而"看不出被裁"的原因正是**它自己不滚动**（overflow 在错的元素上）。
+    //   fit     —— 尺寸 = 几何 × scale（缩放后的可见盒；不裁剪）。
+    //   content —— 尺寸 = 几何；缩放挂在这里（transform 不影响布局，所以要 fit 来占位）。
+    const fit = el(doc, 'div', 'board-fit')
+    const content = el(doc, 'div', 'board-content')
     const edges = svgEl(doc, 'svg')
     edges.setAttribute('class', 'board-edges')
     const cards = el(doc, 'div', 'board-cards')
-    canvas.append(edges, cards)
+    content.append(edges, cards)
+    fit.append(content)
+    canvas.append(fit)
     graph.append(graphHead, canvas)
     body.append(members, graph)
 
     const detail = el(doc, 'footer', 'board-detail')
     root.append(head, missing, body, detail)
-    parts = { counts, missing, membersList, edges, canvas, cards, detail, collapse }
+    parts = { counts, missing, members, membersList, edges, canvas, fit, content, cards, detail, collapse }
     setPalette(palette)
+    observeSize()
   }
 
   /** 把 token 写进 CSS 自定义属性（缺的不设，交给 `board-missing*` 看得见）。 */
@@ -213,6 +229,7 @@ export function createBoard(options = {}) {
     list.textContent = ''
     chipNodes.clear()
     memberStateNodes.clear()
+    memberRowNodes.clear()
 
     const rows = model.members.map((member) => ({ kind: 'member', member, tasks: member.tasks }))
     // 未分配的单也要有地方挂，否则"没人领的单"在左栏看不见（而它正是要处理的那种）。
@@ -221,6 +238,7 @@ export function createBoard(options = {}) {
     for (const row of rows) {
       const item = el(doc, 'li', 'board-member')
       if (selected !== null && selected.kind === 'member' && selected.id === row.member.id) item.classList.add('active')
+      memberRowNodes.set(row.member.id ?? '__unowned__', item)
       const head = el(doc, 'div', 'board-member-head')
       head.append(el(doc, 'b', undefined, row.member.name ?? row.member.id ?? '未分配'))
       if (row.member.role !== null && row.member.role !== undefined) head.append(el(doc, 'span', 'dim', row.member.role))
@@ -258,21 +276,49 @@ export function createBoard(options = {}) {
   }
 
   // ── 三段：依赖图 ────────────────────────────────────────────────────────────
+
+  /**
+   * 可见容器的内容盒尺寸（CSS px）。
+   *
+   * **量的是容器、不是内容**：容器尺寸由 flex 与视口决定，所以"按它来挑档位"是稳定的；
+   * 早先那版把容器的 width/height 设成内容尺寸，等于自己把容器撑爆、
+   * 再被父容器裁掉——节点被切一半而页面看起来"正常"。
+   */
+  function measureCanvas() {
+    return {
+      width: Math.max(0, parts.canvas.clientWidth),
+      height: Math.max(0, parts.canvas.clientHeight),
+    }
+  }
+
   function renderGraph() {
-    const { edges: edgeLayer, cards, canvas } = parts
+    const { edges: edgeLayer, cards, canvas, fit: fitBox, content } = parts
+    const available = measureCanvas()
+    // 按**可用空间**挑档位（四档几何，最后手段才是缩放）。纯函数，单测里算过。
+    const fitted = fitGraphGeometry(layout, available)
+    geometry = fitted
+    fitInfo = { preset: fitted.preset, scale: fitted.scale, available, content: { width: fitted.width, height: fitted.height } }
+    lastFitSize = available
+
     cards.textContent = ''
     cardNodes.clear()
     edgeLayer.textContent = ''
-    edgeLayer.setAttribute('width', String(geometry.width))
-    edgeLayer.setAttribute('height', String(geometry.height))
-    edgeLayer.setAttribute('viewBox', `0 0 ${geometry.width} ${geometry.height}`)
-    canvas.style.width = `${geometry.width}px`
-    canvas.style.height = `${geometry.height}px`
-    cards.style.width = `${geometry.width}px`
-    cards.style.height = `${geometry.height}px`
+    edgeLayer.setAttribute('width', String(fitted.width))
+    edgeLayer.setAttribute('height', String(fitted.height))
+    edgeLayer.setAttribute('viewBox', `0 0 ${fitted.width} ${fitted.height}`)
+    // 容器**不被内容撑开**（它自己滚动或放着不动）；被撑开的是内层。
+    canvas.style.width = ''
+    canvas.style.height = ''
+    fitBox.style.width = `${Math.round(fitted.width * fitted.scale)}px`
+    fitBox.style.height = `${Math.round(fitted.height * fitted.scale)}px`
+    content.style.width = `${fitted.width}px`
+    content.style.height = `${fitted.height}px`
+    content.style.transform = fitted.scale === 1 ? '' : `scale(${fitted.scale})`
+    cards.style.width = `${fitted.width}px`
+    cards.style.height = `${fitted.height}px`
 
     const statusOf = new Map(model.tasks.map((t) => [t.id, t.status]))
-    for (const edge of geometry.edges) {
+    for (const edge of fitted.edges) {
       const path = svgEl(doc, 'path')
       path.setAttribute('d', edge.path)
       path.setAttribute('fill', 'none')
@@ -284,7 +330,7 @@ export function createBoard(options = {}) {
 
     for (const node of layout.nodes) {
       const task = model.byId.get(node.id)
-      const pos = geometry.nodes[node.id]
+      const pos = fitted.nodes[node.id]
       if (task === undefined || pos === undefined) continue
       const card = el(doc, 'button', 'board-node')
       card.type = 'button'
@@ -400,6 +446,95 @@ export function createBoard(options = {}) {
     }
   }
 
+  /**
+   * 被切掉的元素（M7-9 的可复用核验入口，`?debug=1` 下挂到 `__agentWorldBoard.clipped()`）。
+   *
+   * ## 为什么不能拿 `scrollHeight == clientHeight` 来验"没被切"
+   *
+   * 那个等式证明的是"**不需要滚动条**"。而 `overflow: hidden` 造成的裁剪**同样满足它**——
+   * 于是最右边的节点被切掉一半、左下角成员行被切掉一半，检查还是绿的。
+   * 正确判据只有一条：**元素矩形 vs 可见容器的矩形**，任何一边超出就是被切了。
+   * 而且容器矩形要**与视口矩形取交集**——在自己容器里合法 ≠ 看得见：
+   * 整个看板被推到视口下面时，成员行在容器里完全合法，而屏幕上根本没有它。
+   *（上一轮被切掉的最后一行就属于这一类：不是列表裁的，是"外边"裁的。）
+   *
+   * @param {{tolerance?: number}} [options] - 容差（默认 1px，抗子像素取整）。
+   * @returns {ReadonlyArray<{kind: string, id: string, edges: string[], overflow: object}>}
+   */
+  function clipped(options = {}) {
+    if (!ready) return []
+    const tolerance = Number.isFinite(options.tolerance) ? options.tolerance : 1
+    const out = []
+    const beyond = (rect, box) => {
+      const edges = []
+      if (rect.right > box.right + tolerance) edges.push('right')
+      if (rect.left < box.left - tolerance) edges.push('left')
+      if (rect.bottom > box.bottom + tolerance) edges.push('bottom')
+      if (rect.top < box.top - tolerance) edges.push('top')
+      if (edges.length === 0) return null
+      return {
+        edges,
+        overflow: {
+          right: Math.round(rect.right - box.right),
+          left: Math.round(box.left - rect.left),
+          bottom: Math.round(rect.bottom - box.bottom),
+          top: Math.round(box.top - rect.top),
+        },
+      }
+    }
+    const canvasBox = intersectWithViewport(parts.canvas.getBoundingClientRect())
+    for (const [id, entry] of cardNodes) {
+      const hit = beyond(entry.card.getBoundingClientRect(), canvasBox)
+      if (hit !== null) out.push({ kind: 'node', id, ...hit })
+    }
+    const membersBox = intersectWithViewport(parts.members.getBoundingClientRect())
+    for (const [id, node] of memberRowNodes) {
+      const hit = beyond(node.getBoundingClientRect(), membersBox)
+      if (hit !== null) out.push({ kind: 'member', id, ...hit })
+    }
+    return out
+  }
+
+  /**
+   * 容器矩形 ∩ 视口矩形。
+   *
+   * 两层都要比：**在自己容器里**不等于**看得见**——整个看板被推到视口下面时，
+   * 成员行在容器里完全合法，而屏幕上根本没有它（上一轮被切掉的最后一行就是这一类）。
+   */
+  function intersectWithViewport(rect) {
+    const viewport = doc.documentElement
+    const left = 0
+    const top = 0
+    const right = viewport.clientWidth
+    const bottom = viewport.clientHeight
+    return {
+      left: Math.max(rect.left, left),
+      top: Math.max(rect.top, top),
+      right: Math.min(rect.right, right),
+      bottom: Math.min(rect.bottom, bottom),
+    }
+  }
+
+  /**
+   * 尺寸变了就重新挑档位（窗口缩放、成员栏换行、看板收起/展开…）。
+   *
+   * 监听的是**可见容器**：`ResizeObserver` 只在元素自己的盒子变化时触发，
+   * 而内容已经不会撑大它了，所以不存在"重排 → 再触发"的自激；
+   * 再加一道"尺寸没变就不动"的闸门，双保险。
+   */
+  function observeSize() {
+    if (typeof globalThis.ResizeObserver !== 'function') return null
+    const observer = new globalThis.ResizeObserver(() => {
+      if (model === null || collapsed) return
+      const size = measureCanvas()
+      if (lastFitSize !== null && size.width === lastFitSize.width && size.height === lastFitSize.height) return
+      renderGraph()
+    })
+    observer.observe(parts.canvas)
+    observer.observe(parts.members)
+    return observer
+  }
+
   function select(next) {
     selected = next
     lastState = null
@@ -436,7 +571,8 @@ export function createBoard(options = {}) {
     // 第二道闸门：折出数据（纯函数），比**结构**签名决定"重建"还是"就地改"。
     model = buildBoardModel(world)
     layout = layoutDependencyGraph(model.tasks)
-    geometry = graphGeometry(layout)
+    // 几何不在这里算：它要按**可见容器的实测尺寸**挑档位，所以由 `renderGraph()` 负责
+    //（只有真重画时才需要，跳过/就地改的路径一次都不用量）。
 
     const structureKey =
       layout.signature +
@@ -467,6 +603,30 @@ export function createBoard(options = {}) {
     return true
   }
 
+  // ── 可复用的核验入口（M7-9）──────────────────────────────────────────────────
+  //
+  // `?debug=1` 时把 `clipped()` 挂到 app.js 那个 `__agentWorldBoard` 门面上，
+  // 于是以后每轮验收都是一行：`window.__agentWorldBoard.clipped()`。
+  //
+  // 为什么要延一个宏任务：那个门面是 **app.js** 在 `createBoard()` 之后建的，
+  // 此刻还不存在；而本轮的写盘范围里没有 app.js（只有 board.js / board-layout.js /
+  // style.css / 测试），所以先等一轮再挂——门面不在就自己建一个。
+  if (ready && typeof globalThis.location !== 'undefined') {
+    let debug = false
+    try {
+      debug = new URLSearchParams(globalThis.location.search ?? '').has('debug')
+    } catch {
+      debug = false
+    }
+    if (debug) {
+      setTimeout(() => {
+        const facade = globalThis.__agentWorldBoard
+        if (facade !== null && facade !== undefined && typeof facade === 'object') facade.clipped = clipped
+        else globalThis.__agentWorldBoardCheck = { clipped }
+      }, 0)
+    }
+  }
+
   return {
     ready,
     update,
@@ -474,6 +634,8 @@ export function createBoard(options = {}) {
     setCollapsed,
     select: (taskId) => select(taskId === null || taskId === undefined ? null : { kind: 'task', id: taskId }),
     selected: () => (selected === null ? null : selected.id ?? null),
+    /** 被切掉的元素（空数组 = 没有东西被裁）。每轮验收的第一行就用它。 */
+    clipped,
     /** 诊断用：`updates` 一直在涨而 `structureRebuilds` 不涨，说明就地更新在做它的事。 */
     stats: () => ({
       ...counters,
@@ -484,6 +646,12 @@ export function createBoard(options = {}) {
       unowned: model?.unowned.length ?? 0,
       missingTokens: missingBoardTokens(palette),
       collapsed,
+      // 响应式：这一帧用的是哪档几何、缩没缩放、容器允许多大。
+      preset: fitInfo?.preset ?? null,
+      scale: fitInfo?.scale ?? null,
+      available: fitInfo?.available ?? null,
+      content: fitInfo?.content ?? null,
+      clipped: clipped().length,
     }),
     /** 只给测试/诊断：看板的模型与布局（DOM 层不导出别的）。 */
     model: () => model,

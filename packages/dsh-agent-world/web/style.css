@@ -132,7 +132,8 @@ button.ghost {
    · **界面底色**（bg/card/fg/dim）缺 token 时退回面板自身的 chrome（`var(--bg)` 等），
      那本来就是面板层的事，不该把整块看板染成品红。缺了什么由顶部的提示条说出来。 */
 #board {
-  height: 340px; min-height: 0; flex: none;
+  /* 高度跟着视口走：小窗口下看板不该把画布挤没（也不该自己被页面切掉）。 */
+  height: clamp(300px, 48vh, 440px); min-height: 0; flex: none;
   border-top: 1px solid var(--line);
   background: var(--board-bg, var(--bg));
   color: var(--board-fg, var(--fg));
@@ -159,32 +160,41 @@ button.ghost {
   border-right: 1px solid var(--board-card-line, var(--line));
 }
 .board-members h3, .board-graph h3 {
-  display: flex; gap: 8px; align-items: baseline; margin: 0 0 6px;
+  display: flex; gap: 8px; align-items: baseline; margin: 0 0 4px;
   font-size: 11px; letter-spacing: .06em; color: var(--board-dim, var(--dim));
 }
-.board-member-list { display: flex; flex-direction: column; gap: 4px; }
+.board-member-list { display: flex; flex-direction: column; gap: 3px; }
 /* 一行一个成员：名字 · 职业 · 状态 + 他手上的单。**刻意压扁**
    ——8 个成员要能一眼看全（需要滚动的话，"谁在做什么"这个首要问题就要滑一下才答得上来）。 */
 .board-member {
   display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
   border: 1px solid var(--board-card-line, var(--line)); background: var(--board-card, var(--panel));
-  border-radius: 6px; padding: 3px 6px;
+  border-radius: 6px; padding: 2px 6px; line-height: 1.35;
 }
 .board-member.active { outline: 1px solid var(--board-select, currentColor); }
 .board-member-head { display: flex; gap: 5px; align-items: baseline; cursor: pointer; }
+.board-member-head b { font-size: 12px; }
 .board-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .board-chip {
   display: flex; gap: 4px; align-items: center; font: inherit; font-size: 11px; cursor: pointer;
-  background: transparent; color: inherit; padding: 0 5px; border-radius: 4px;
+  background: transparent; color: inherit; padding: 0 4px; border-radius: 4px;
   border: 1px solid var(--st, var(--board-line, var(--line)));
 }
 .board-chip-id, .board-node-id, .board-detail-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .board-chip-id { color: var(--board-dim, var(--dim)); }
-.board-graph { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 8px 10px; }
+.board-graph { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 10px; }
+/* 可见容器：**尺寸由 flex 决定，绝不由内容决定**（M7-9 修的就是那一处）。
+   `overflow: auto` 是最后的兜底（极端窄的时候还能滚），`scrollbar-gutter: stable`
+   让滚动条出现/消失不改变内容宽度——否则"重排 → 滚动条 → 再重排"会互相激。 */
 .board-canvas {
-  position: relative; flex: 1; overflow: auto; border-radius: 6px;
+  position: relative; flex: 1; min-height: 0; overflow: auto; border-radius: 6px;
+  scrollbar-gutter: stable;
   border: 1px solid var(--board-card-line, var(--line)); background: var(--board-bg, var(--bg));
 }
+/* fit = 缩放后的可见盒（占位；不裁剪）；content = 真实几何尺寸，缩放挂它身上
+   （transform 不参与布局，所以必须有一层 fit 把尺寸交代清楚）。 */
+.board-fit { position: relative; }
+.board-content { position: relative; transform-origin: top left; }
 .board-edges { position: absolute; left: 0; top: 0; pointer-events: none; }
 .board-cards { position: relative; }
 .board-edge { stroke: var(--board-line, currentColor); stroke-width: 1.2; }
@@ -209,3 +219,25 @@ button.ghost {
 }
 .board-unlocks { color: var(--board-verify, var(--warn)); }
 #board .dim { color: var(--board-dim, var(--dim)); }
+
+/* ── 响应式（M7-9）：窄视口 ──────────────────────────────────────────────────
+   1200px 以下不再左右分栏，改成"成员在上（铺成网格，8~9 行压成 2~3 行）、
+   依赖图在下（拿到整幅宽度）"。这样两种东西都不会被挤到看不见，
+   也不需要靠滚动去够最后一行——**看得见**优先于"能滚到"。 */
+@media (max-width: 1200px) {
+  /* 窄了给看板更多高度：这一档里成员与图是**上下**分空间，而两者都需要固定高度，
+     空间不够时只能靠缩字（读不了）或裁掉（看不见）——两个都不能选。 */
+  #board { height: clamp(320px, 62vh, 520px); }
+  .board-body { flex-direction: column; }
+  .board-members {
+    /* 关键：**按内容高度**（`flex: 0 0 auto` + 不设 max-height），不是被比例切成一半。
+       上一版用 `max-height: 50%` 卡住，结果第二行被切掉 2px——差一点点也是切。
+       `overflow: auto` 只当极端情况（成员特别多）的兜底。 */
+    width: auto; flex: 0 0 auto; overflow: auto;
+    border-right: none; border-bottom: 1px solid var(--board-card-line, var(--line));
+  }
+  /* 铺成网格：列窄一点 → 换行少、行数少，9 个成员在 800px 下也只剩两行。
+     格子窄不等于内容被裁：里面的 chip 自己会换行。 */
+  .board-member-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .board-member { padding: 2px 6px; }
+}

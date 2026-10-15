@@ -188,7 +188,7 @@ export function readDefaultModelSelection(ctx: unknown): BridgeAgentOptions | un
  * 只有**明确查到"一个可路由的模型都没有"**才报 `no-model`，那时面板就能直接说
  * "去设置里选个模型"，而不是让用户对着一个永远不回的输入框猜。
  */
-export async function checkModelReadiness(ctx: unknown): Promise<BridgeReadiness> {
+export async function checkModelReadiness(ctx: unknown, selected?: { provider?: string }): Promise<BridgeReadiness> {
   const controller = getService(ctx, 'sessionController')
   if (controller === undefined) {
     return {
@@ -218,6 +218,26 @@ export async function checkModelReadiness(ctx: unknown): Promise<BridgeReadiness
   const groups = Array.isArray(record.groups) ? record.groups : undefined
   const hasRoutable = routable === undefined || routable.length > 0
   const hasGroups = groups === undefined || groups.length > 0
+
+  // ── 光"有 provider 可路由"不够，还要问"**你选的那个**有没有适配器"（R31 真机踩出来的）──
+  //
+  // 真宿主上 `agentDefaultModel` 指向 `deepseek-official`，而它那把 key 已失效；
+  // 或指向一个这个 profile 没装适配器的 provider（`no adapter registered for provider "…"`）。
+  // 两种情况下旧检查都返回 ok，于是**每一轮都要等模型调用失败才知道**，
+  // 而且报错来自模型层、看不出是路由问题。现在在搭话前就说清：选的是谁、可用的有哪些。
+  const selectedProvider = selected?.provider
+  if (selectedProvider !== undefined && selectedProvider !== '' && routable !== undefined && routable.length > 0) {
+    if (!routable.some((name) => name === selectedProvider)) {
+      return {
+        ok: false,
+        code: 'no-model',
+        reason:
+          `模型没配置：当前选的是 \`${selectedProvider}\`，但这个 profile 里没有它的适配器（或没有可用的凭据）。` +
+          `可用的 provider：${routable.join('、')}。去 DSH 设置里把默认模型换成一个可用的，再搭话。`,
+      }
+    }
+  }
+
   if (hasRoutable && hasGroups) return { ok: true }
 
   const failures = Array.isArray(record.failures) ? record.failures : []
@@ -308,7 +328,7 @@ export function createDshCharacterBridge(ctx: unknown, options: DshBridgeOptions
     factory,
     transport,
     systemPromptFor: options.systemPromptFor,
-    checkReady: () => checkModelReadiness(ctx),
+    checkReady: () => checkModelReadiness(ctx, readDefaultModelSelection(ctx)),
     agentOptionsFor: () => readDefaultModelSelection(ctx),
     // 角色的工作目录 = 插件的工作区（与 contentDir / stateDir 同一个基准），不是 .agent-world。
     cwdFor: options.cwdFor ?? (() => process.cwd()),
