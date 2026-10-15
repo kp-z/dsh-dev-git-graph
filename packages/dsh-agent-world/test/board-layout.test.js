@@ -33,6 +33,7 @@ import {
   layoutDependencyGraph,
   missingBoardTokens,
   resolveBoardColor,
+  shortTaskId,
   unlocksIndex,
 } from '../web/core/board-layout.js'
 
@@ -423,4 +424,53 @@ test('挑档位是确定性的：同一份输入同一个结果', () => {
   assert.deepEqual(fitGraphGeometry(layout, available), fitGraphGeometry(layout, available))
   // 与输入任务的到达顺序无关（`layout.signature` 已经保证了这一点，这里再钉一次）
   assert.equal(fitGraphGeometry(layout, available).width, fitGraphGeometry({ ...layout, nodes: [...layout.nodes].reverse() }, available).width)
+})
+
+// ── R45 / M10-9：产出与失败原因要**跟着模型走到界面**（否则详情区永远看不到）────────────
+
+test('模型带出 output / failureReason（空串归一成 null，UI 只剩一个"没有产出"分支）', () => {
+  const world = {
+    tasks: [
+      task('task-14', 1, [], { status: 'done', output: '结论：这条流水线没缺陷。' }),
+      task('task-18', 2, ['task-14'], { status: 'failed', output: null, failureReason: '这一轮没做成：零行改动。' }),
+      task('task-1', 3, [], { status: 'done', output: '' }), // 真机上早期单做完也没有产出
+      task('task-2', 4, [], { status: 'in_progress' }), // 字段都不在
+    ],
+    agents: [],
+  }
+  const model = buildBoardModel(world)
+  assert.equal(model.byId.get('task-14').output, '结论：这条流水线没缺陷。')
+  assert.equal(model.byId.get('task-18').output, null)
+  assert.equal(model.byId.get('task-18').failureReason, '这一轮没做成：零行改动。')
+  assert.equal(model.byId.get('task-1').output, null, '空串要归一成 null')
+  assert.equal(model.byId.get('task-2').output, null)
+  assert.equal(model.byId.get('task-2').failureReason, null)
+
+  // describeTask 要把它带给详情区（它 spread 了模型里的那张单）
+  const detail = describeTask(model, 'task-18')
+  assert.equal(detail.failureReason, '这一轮没做成：零行改动。')
+  assert.equal(detail.statusToken, STATUS_TOKEN.failed)
+})
+
+test('产出开始/变化会让签名变（详情区不会停在"还没有产出"）', () => {
+  const before = boardSignature({ tasks: [task('task-28', 1, [], { status: 'done' })] })
+  const sameAgain = boardSignature({ tasks: [task('task-28', 1, [], { status: 'done' })] })
+  const withOutput = boardSignature({ tasks: [task('task-28', 1, [], { status: 'done', output: '写完了。' })] })
+  const longer = boardSignature({ tasks: [task('task-28', 1, [], { status: 'done', output: '写完了，而且更详细一点。' })] })
+  const failedNow = boardSignature({ tasks: [task('task-28', 1, [], { status: 'done', failureReason: '环境起不来' })] })
+
+  assert.equal(before, sameAgain, '同一份输入仍然给同一个签名')
+  assert.notEqual(before, withOutput, '产出落地必须让签名变')
+  assert.notEqual(withOutput, longer, '产出变长也要能看出来（长度进签名）')
+  assert.notEqual(before, failedNow, '失败原因的有无也要进签名')
+})
+
+test('左栏短 id：只对 `task-<数字>` 去前缀，别的形状原样（不猜）', () => {
+  assert.equal(shortTaskId('task-28'), '28')
+  assert.equal(shortTaskId('task-1'), '1')
+  assert.equal(shortTaskId('hotfix-3'), 'hotfix-3', '别的形状不该被改（改了就成了假信息）')
+  assert.equal(shortTaskId('task-abc'), 'task-abc')
+  assert.equal(shortTaskId('t4'), 't4')
+  assert.equal(shortTaskId(null), '')
+  assert.equal(shortTaskId(undefined), '')
 })

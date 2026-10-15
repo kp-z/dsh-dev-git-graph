@@ -629,6 +629,32 @@ test('工具名有中文标签，未知的原样显示（不猜、也不藏）',
 
   assert.equal(actingText([action('agent_world_status')]), '正在看世界…', '取**最后一条**动作当"此刻在做的事"')
   assert.equal(actingText([action('agent_world_status'), action('agent_world_dispatch', 'x')]), '正在派单…')
+  // AgentTeams 工具（R45 / M7-12）：名字与语义照装好的插件核过，共 14 个。
+  const teamTools = {
+    agent_teams_create: '建团队',
+    agent_teams_delete: '解散团队',
+    agent_teams_add_member: '加成员',
+    agent_teams_remove_member: '移出成员',
+    agent_teams_send_message: '给队友发消息',
+    agent_teams_create_task: '建任务',
+    agent_teams_claim_task: '领任务',
+    agent_teams_update_task: '更新任务',
+    agent_teams_reassign_task: '改派任务',
+    agent_teams_amend_task: '补任务说明',
+    agent_teams_edit_plan: '改计划',
+    agent_teams_approve: '审批',
+    agent_teams_status: '看团队状态',
+    agent_teams_resume: '恢复团队',
+  }
+  assert.equal(Object.keys(teamTools).length, 14, '插件里就是这 14 个')
+  for (const [name, label] of Object.entries(teamTools)) {
+    assert.equal(toolLabel(name), label, `${name} 缺中文标签（动作行会直接铺代码标识符）`)
+    assert.notEqual(toolLabel(name), name, `${name} 不该原样显示`)
+  }
+  assert.equal(actionText(action('agent_teams_send_message', 'member-2')), '给队友发消息 member-2')
+  assert.equal(actingText([action('agent_teams_claim_task', 't4')]), '正在领任务…')
+  assert.equal(actingText([action('agent_teams_amend_task')]), '正在补任务说明…')
+
   assert.equal(actingText([]), '他在干活…', '还没抓到具体工具时说人话，不显示空白')
   assert.equal(actingText(undefined), '他在干活…')
   assert.equal(actionCountText(3), '3 次调用')

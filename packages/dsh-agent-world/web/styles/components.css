@@ -656,7 +656,7 @@
   min-height: 0;
 }
 .board-members {
-  width: 300px;
+  width: var(--board-members-w);
   flex: none;
   overflow: auto;
   padding: var(--s-2);
@@ -722,6 +722,18 @@
   font-family: var(--mono-font);
   color: var(--fg-2);
 }
+/* chip 里的状态点：7px 够看出颜色，又不会把 chip 撑宽（左栏宽度是稀缺的）。 */
+.board-chip > .board-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+}
+/* "图比可见区大"的提示（R45）：可滚动是实话，但要写在图头上，别让用户以为图就这么多。 */
+.board-graph-hint {
+  font-weight: 400;
+  font-size: var(--fs-micro);
+}
+
 .board-graph {
   flex: 1;
   min-width: 0;
@@ -789,6 +801,12 @@
 .board-node.is-failed {
   background: var(--board-fail-bg, var(--st-failed-bg));
 }
+/* M7-3 双向高亮：点图里的方框 → 左栏成员那边同一张单也亮起来。 */
+.board-chip.is-selected {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
 .board-node.is-selected {
   box-shadow: 0 0 0 2px var(--board-select, var(--accent));
 }
@@ -836,6 +854,91 @@
   border-top: 1px solid var(--stroke);
   font-size: var(--fs-sub);
   color: var(--fg-1);
+  /* 产出面板的定位原点；z-index 让整条详情（含浮起的产出）压在依赖图之上。 */
+  position: relative;
+  z-index: 2;
+}
+
+/* ── 工单产出（R45 / M10-9）─────────────────────────────────────────────────
+   浮在详情条**上方**：看板高度是固定的（M7-9），2000 字挤进 flex 流只会把依赖图压扁
+   或者把结论裁掉。浮起来 = 阅读态，按「收起」就回到图上。 */
+.board-read {
+  position: absolute;
+  /* 只盖在**依赖图**那一列上：盖住成员列会让人读串行（R45 真机自查）。 */
+  left: var(--board-members-w);
+  right: 0;
+  bottom: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  /* **必须不透明**：`--surface-1` 是 4% 白的玻璃色，本来是叠在不透明底上的。
+     直接拿它当背景，下面的依赖图会透出来、和结论正文叠在一起，**根本读不了**
+     （R45 真机自查，截图里方框和文字串行）。所以先铺不透明底色，再叠那层玻璃色。 */
+  background-color: var(--board-card);
+  background-image: linear-gradient(var(--surface-1), var(--surface-1));
+  border: 1px solid var(--stroke-strong);
+  border-bottom: none;
+  border-radius: var(--r-md) var(--r-md) 0 0;
+  box-shadow: var(--shadow-2);
+}
+.board-read-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex: 0 0 auto;
+}
+.board-read-title {
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--fg-0);
+}
+.board-read-chars {
+  font-size: var(--fs-micro);
+  margin-right: auto;
+}
+.board-read-empty {
+  font-size: var(--fs-micro);
+}
+/* 展开时只让**正文**滚：头部（字数 + 收起）留在原地。 */
+.board-read-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  min-height: 0;
+}
+.board-read.is-expanded {
+  max-height: min(58vh, 320px);
+}
+.board-read.is-expanded .board-read-body {
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+.board-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.board-section-label {
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+}
+.board-section-text {
+  margin: 0;
+  /* 产出是**文本**不是标记：结构靠 `pre-wrap` 保留，换行与空行原样呈现。 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--ui-font);
+  font-size: var(--fs-micro);
+  line-height: 1.6;
+  color: var(--fg-1);
+}
+.board-section-failure .board-section-text {
+  color: var(--st-failed);
+}
+/* 收起时看板是矮的，产出面板不浮出来（否则会飘到场景上）。 */
+.board.is-collapsed .board-read {
+  display: none;
 }
 .board-detail-id {
   font-family: var(--mono-font);
@@ -875,6 +978,10 @@
 @media (max-width: 1200px) {
   .board-body {
     flex-direction: column;
+  }
+  /* 窄屏改成上下分栏，成员列不再占左边 → 阅读面板回到整幅宽。 */
+  #board {
+    --board-members-w: 0px;
   }
   .board-members {
     width: auto;

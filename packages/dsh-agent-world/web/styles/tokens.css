@@ -96,6 +96,9 @@
    连哨兵都没有就挂 `.board-missing` 的虚线描边——**缺东西必须一眼看得出来**，
    静默退回一个"看起来设计就这样"的绿，才是最难查的那种错。 */
 #board {
+  /* 成员列宽度。**必须挂在 #board 上**而不是 `.board-body`：产出阅读面板住在 `.board-detail` 里，
+     它是 `.board-body` 的**兄弟**，变量传不过去（R45 真机自查：面板 left 差了 11px、盖住成员列）。 */
+  --board-members-w: 300px;
   --board-bg: var(--bg-0);
   --board-card: var(--bg-1);
   --board-fg: var(--fg-0);

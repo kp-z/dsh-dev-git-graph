@@ -119,9 +119,18 @@ export function instantiateTasks(
   set: TaskSetEntry,
   startIndex: number,
   tick: number,
+  /**
+   * 这是第几批（1 起）。第二批起标题会带上批次号（M6-15，R45）。
+   *
+   * R36 真机：小铁自己指出"同一套流水线派两次，新旧工单标题一模一样，靠标题认工单会认错"
+   * （task-11/12/13 vs task-1/2/3）。**内容库里的标题不变**——批次是实例的属性，
+   * 不是内容的属性；改内容会让"同一套活"在不同批次里看起来是两套活。
+   */
+  batch = 1,
 ): Task[] {
   const idOf = new Map<string, string>()
   set.tasks.forEach((t, i) => idOf.set(t.key, `task-${startIndex + i}`))
+  const suffix = batch <= 1 ? '' : ` #${batch}`
 
   return set.tasks.map((t, i) => ({
     id: `task-${startIndex + i}`,
@@ -129,7 +138,7 @@ export function instantiateTasks(
     set: set.id,
     ordinal: startIndex + i,
     suggestedRole: t.role,
-    title: t.title,
+    title: `${t.title}${suffix}`,
     description: t.description,
     status: 'pending' as const,
     owner: null,

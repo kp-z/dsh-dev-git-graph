@@ -194,7 +194,7 @@
 | M6-13 | **done** | **让面板看见角色做了什么**（R34 真机发现）：`replied` 只带第一步的文字。小蓝那一轮四步、三次工具调用、最后是完整工单板——面板上全看不见。(a) 回复取最后一条 assistant 文字或拼全部；(b) 工具调用在对话里显示成一行（如「🔧 派单：task.quick-fix」） | `src/bridge/` + `web/core/dialogue-state.js` + `web/ui/dialogue-ui.js` | M6-4 | 这是让 G4 **被用户看见**的最后一步 |
 | M6-14 | **done** | **死会话**（R35 真机）：小紫的会话停在 `session/end-seed`（R30 带 seed 的旧会话），resume 后不起新轮，等 60 秒超时。resume 前要检查会话尾部，起不了新轮就丢弃重建，或者至少给出"会话卡住"的明确原因。另：内容不变的 `acting` 帧不推 | `src/bridge/character-bridge.ts` | M6-13 | 其余 7 个角色正常 |
 | M7-11 | **done** | **头顶气泡伸进抽屉底下**（R36 真机截图）：3D 取景已避开抽屉（R32），气泡层没跟着避让。气泡定位要扣掉 `setViewInsets` 的右边距，或夹在可见区域内 | `web/main.js` | —— | 一眼可见的视觉缺陷 |
-| M6-15 | ready | **重复派单的标题冲突**（R36，小铁自己指出）：同一任务集再派一次，新工单与旧工单标题一模一样（task-11/12/13 vs task-1/2/3），靠标题认工单会认错。实例化时给标题加批次（「改代码 #2」），不改内容库 | 工单实例化处 | —— | 内容/产品问题 |
+| M6-15 | **done** | **重复派单的标题冲突**（R36，小铁自己指出）：同一任务集再派一次，新工单与旧工单标题一模一样（task-11/12/13 vs task-1/2/3），靠标题认工单会认错。实例化时给标题加批次（「改代码 #2」），不改内容库 | 工单实例化处 | —— | 内容/产品问题 |
 | M10-1 | **done** | **套壳路径的工具白名单**（R37 丢的）：native 给角色限定了只许用世界工具（D35），套壳后成员拿到的是 agent-teams 默认工具集。做法：web profile 的 agent-teams 配置里声明 `toolPolicies`，`agent_teams_add_member` 传 `tool_policy`。**要改用户 profile 配置，先问** | 用户 profile 配置 + `src/bridge/teams.ts` | —— | 安全面：角色可能拿到 bash/写文件 |
 | M10-2 | **done** | **`teams.ts` 的单元测试**（R37 只有真机证据）：假 `ctx.tools`/假 `subagents` 驱动，守住「返回值读 `value`」「已带队走 status 接回」「成员名重复=已加入」「会话 id 按 label 反查」。真机三条（两个角色 + 重启接回）以后每次改 `teams.ts` 都重跑 | `test/teams-port.test.js` | —— | 真机命令写在 PROGRESS R37 |
 | M10-3 | in_progress | **套壳路径的"角色真的干活"**（M6-4 在套壳上重做）：成员现在只会说话。要让它调我们的世界工具（dispatch/status），验收口径是「面板上出现 acting 帧 + 工单真的动了」 | `src/bridge/teams.ts` + 内容配置 | M10-1 | 这才是 G4 |
@@ -203,9 +203,10 @@
 | M10-6 | **done** | **合流接上线**（R39 地基之后）：同步环（队长身份轮询 `agent_teams_status` → `planTeamSync` → 命令进世界）+ live 下 `dispatch` 同时建团队任务并回填 `externalId` + 世界跟随 `dialogueBackend` 切 `live`。先读 status 返回的 tasks 确切字段 | `src/index.ts` + `src/bridge/teams.ts` | M10-5 | 不接上线，真机上任务仍是假完成 |
 | M10-7 | **done（作废）** | **成员的产出读不到**（R43）：`agent_teams_status` 的 tasks 里没有 output 字段，所以小镇 `task.output` 恒为 null。要看「他写了什么」得另找来源（成员会话文本或 deliverable） | `src/bridge/teams.ts` | M10-6 | 面板/看板想显示产出就需要它 |
 | M10-8 | **done** | **整条流水线没跑完就被验证**：t5（验证修复）当时还 pending。等一条完整流水线自然走完再记一次真机验收 | —— | M10-6 | 验收完整性 |
-| M10-9 | ready | **看板/抽屉里显示出工单产出**（R44：产出已在 `task.output`，界面看不到）。点看板方框 → 抽屉显示结论文本 | `web/ui/**` | —— | 归 panel；属用户排的 UI 优化 |
+| M10-9 | **done** | **看板/抽屉里显示出工单产出**（R44：产出已在 `task.output`，界面看不到）。点看板方框 → 抽屉显示结论文本 | `web/ui/**` | —— | 归 panel；属用户排的 UI 优化 |
 | M10-10 | blocked | **沙箱化工作区**（D46）：居民要真做代码活需要独立 cwd、可丢弃的工作区。**绝不能让居民在用户仓库里跑命令** | —— | M11-2 | 等智能分级之后 |
-| M7-12 | ready | 动作行里 `agent_teams_*` 没有中文标签（`web/ui/labels.js` 只映射了世界工具） | `web/ui/labels.js` | —— | 派给 panel |
+| M10-11 | ready | **看板在规模下装不下**（R45）：28 张单 + 800×700 时 `clipped()` 有 11 个节点（成员区 + 依赖图可读下限物理上装不下）；1024×800 下图缩放 0.42（字≈4px 不可读）。现在行为是「图内可滚动 + 图头明说」。要归零得改**信息组织**：按流水线分组 / 给图加过滤 / 只显示未完成 | `web/ui/board.js` + `web/core/board-layout.js` | —— | 用户关心的看板，规模一涨就是它 |
+| M7-12 | **done** | 动作行里 `agent_teams_*` 没有中文标签（`web/ui/labels.js` 只映射了世界工具） | `web/ui/labels.js` | —— | 派给 panel |
 | M7-13 | **done** | **角色把玩家当成「船长」，回复变成汇报**（R41 真机）：问小蓝「一句话介绍你自己」，它答「已回复船长：一句话自我介绍发出去了，现在继续待命」。原因：agent-teams 的成员人设把说话人框成 captain，且工作规则要求向 captain 汇报。玩家不该被当成上级。做法：在我们的人设（executionPrompt）里加一条——跟你说话的是镇上的玩家，直接回答他，不要用汇报腔 | `src/bridge/persona-prompt.ts` | —— | 直接影响跟小人物对话的体感 |
 | M7-14 | ready | **老成员的人设不会刷新**（R42）：agent-teams 在第一次 `add_member` 时定下成员人设，之后不变。R37–R41 加进团队的小紫、小铁、小蓝还是旧人设（仍可能叫玩家"船长"）。做法：套壳端口记录人设的指纹，变了就 `agent_teams_remove_member` 再重新加（注意会丢成员会话的记忆，要权衡）；或先给面板一个"重新招募"按钮 | `src/bridge/teams.ts` | M7-13 | 先问清丢记忆可不可以接受 |
 | M11-1 | ready | **规模压测**（SCALING 第四节第 1 步）：造 500/2000/5000 角色的世界，量每 tick 耗时、存盘耗时、3D 帧耗时、内存，结果表进 `docs/VERIFICATION.md` | `test/` 或 `scripts/` + docs | —— | 后面所有扩展的尺子 |
@@ -228,7 +229,7 @@
 | M7-10 | ready | 六态中文标签在 `board.js` 与 `app.js` 里是两份 → 合并成共享模块（M7-7 搬侧栏 tab 时一起做） | `web/` | M7-7 | panel 报的债 |
 | M8-0 | ready | **台账归档**（R32 起）：`PROGRESS.md` 已 236KB/32 轮。把 R1–R27 搬进 `docs/PROGRESS-ARCHIVE.md`，`PROGRESS.md` 只留最近窗口 + 环境备忘。**规矩是不删历史**，所以是搬移；搬完要能 grep 到旧轮次 | `docs/PROGRESS*.md` | —— | 纯搬移，值得单独一轮单独验 |
 | M7-2 | ready | **依赖图布局（纯函数）**：输入任务表 → 输出列号（=最长前置链）+ 连线端点；可单测 | `web/board-layout.js` + 测试 | M7-1 | **唯一有算法含量、且可并行**
-| M7-3 | ready | 详情栏 + **与 3D 双向高亮**（点方框 → 场景里工位/角色发亮） | `web/board.js` + `web/scene3d.js` | M7-1 | 看板存在的最大理由
+| M7-3 | **done** | 详情栏 + **与 3D 双向高亮**（点方框 → 场景里工位/角色发亮） | `web/board.js` + `web/scene3d.js` | M7-1 | 看板存在的最大理由
 | M7-4 | ready | 顶部进度条（`done/failed/ready/pending` 分段），数字与 `/api/world` 一致 | `web/board.js` | M7-1 | ——
 | M7-5 | ready | 实时：事件流驱动看板（**不许轮询**） | `web/board.js` | M7-2 | ——
 | M7-6 | ready | **`goal` 概念**：内容库 `goals` + `world.goalId` + 顶部显示；goal 是**派生视图**（进度=所辖任务汇总，不许自己一套状态机） | `src/content/` + `web/board.js` | M7-4 | 唯一的内容 schema 变更

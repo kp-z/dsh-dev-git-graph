@@ -339,3 +339,21 @@ test('apply：autoStart=false 时世界建好但不推进', async () => {
   assert.match(text, /tick=0/, 'autoStart=false 时世界应当停在 0')
   assert.ok(logs.info.some((m) => m.includes('未开始推进')), `日志要说清没在推进：${logs.info.join(' | ')}`)
 })
+
+// ── R45（M6-15）：重复派单不许标题重名 ────────────────────────────────────────
+
+test('R45：同一任务集派两次，第二批的标题带批次号（内容库里的标题不变）', () => {
+  const state = makeState({ taskSets: [] })
+  state.open('流水线小镇')
+  const first = state.dispatch('task.quick-fix')
+  const second = state.dispatch('task.quick-fix')
+  const world = state.currentWorld()
+  const t1 = world.tasks.filter((t) => t.set === 'task.quick-fix')
+  const a = t1.find((t) => t.id === first.addedTaskIds[0])
+  const b = t1.find((t) => t.id === second.addedTaskIds[0])
+  assert.equal(a.title, '定位问题边界', '第一批不带后缀')
+  assert.equal(b.title, '定位问题边界 #2', '第二批带批次号——否则靠标题认工单会认错')
+  // 依赖仍然指向同一批内的前一张，不会跨批。
+  const bPatch = t1.find((t) => t.id === second.addedTaskIds[1])
+  assert.deepEqual(bPatch.blockedBy, [second.addedTaskIds[0]])
+})

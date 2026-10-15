@@ -401,6 +401,10 @@ export function buildBoardModel(world) {
     station: typeof task.station === 'string' ? task.station : null,
     acceptance: typeof task.acceptance === 'string' ? task.acceptance : '',
     description: typeof task.description === 'string' ? task.description : '',
+    // R45 / M10-9：工单的**产出**与失败原因（R44 起在小镇数据里，单张最长 2246 字）。
+    // 空串归一成 null，这样 UI 只有一个"没有产出"的分支要写。
+    output: typeof task.output === 'string' && task.output.trim() !== '' ? task.output : null,
+    failureReason: typeof task.failureReason === 'string' && task.failureReason.trim() !== '' ? task.failureReason : null,
   }))
 
   const members = [...agents].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((agent) => ({
@@ -449,6 +453,22 @@ export function describeTask(model, taskId) {
 }
 
 /**
+ * 左栏 chip 上的**短 id**（R45）。
+ *
+ * 为什么要有它：真机世界有 28 张单，左栏一个成员手上就有 5~7 张；每张都写 `task-28`
+ * 等于把同一个前缀重复 N 遍，一个 300px 宽的列只能排成两三行（实测成员列内容 535px >
+ * 容器 368px，最后几行被挤出去——`clipped()` 一眼就报出来了）。
+ *
+ * **短的只是显示**：`title` 与详情里仍然是完整 id（能复制、能对日志）。
+ * 只对 `task-<数字>` 这种形状去前缀；别的形状（`hotfix-3`）原样保留，不猜。
+ */
+export function shortTaskId(id) {
+  if (typeof id !== 'string') return ''
+  const matched = /^task-(\d+)$/.exec(id)
+  return matched === null ? id : matched[1]
+}
+
+/**
  * 看板要不要重画。
  *
  * 它是"**有没有任何对看板可见的变化**"的指纹：任务（状态/负责人/进度/标题/依赖/能力需求）
@@ -464,7 +484,9 @@ export function boardSignature(world) {
     const deps = Array.isArray(task.blockedBy) ? task.blockedBy.join(',') : ''
     const requires = Array.isArray(task.requires) ? task.requires.join(',') : ''
     parts.push(
-      `t:${task.id}:${task.status}:${task.owner ?? ''}:${Math.round((task.progress ?? 0) * 100)}:${task.title ?? ''}:${deps}:${requires}`,
+      // 签名里带**产出的长度与失败原因的有无**（不是全文，代价要小）：产出是流式落地的，
+      // 不带它的话详情区会在旁边更新后才刷新——用户点了单却看不到刚写好的结论。
+      `t:${task.id}:${task.status}:${task.owner ?? ''}:${Math.round((task.progress ?? 0) * 100)}:${task.title ?? ''}:${deps}:${requires}:${typeof task.output === 'string' ? task.output.length : 0}:${task.failureReason ? 1 : 0}`,
     )
   }
   for (const agent of Array.isArray(world?.agents) ? world.agents : []) {

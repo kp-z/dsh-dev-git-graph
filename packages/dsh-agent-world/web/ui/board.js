@@ -24,6 +24,7 @@
  */
 
 import { taskStatusLabel } from './labels.js'
+import { summarizeTaskOutput } from '../core/task-output.js'
 import {
   BOARD_TOKENS,
   STATUS_TOKEN,
@@ -35,6 +36,7 @@ import {
   layoutDependencyGraph,
   missingBoardTokens,
   resolveBoardColor,
+  shortTaskId,
   unlocksIndex,
 } from '../core/board-layout.js'
 
@@ -85,6 +87,13 @@ export function createBoard(options = {}) {
   let world = null
   /** 选中的东西：`{kind:'task'|'member', id}`。 */
   let selected = null
+  /**
+   * 产出面板是不是展开的（R45）。
+   *
+   * **每次换单都收回折叠态**：展开是"我要读这一篇"的动作，换一张单还沿用上一篇的展开状态，
+   * 会让人以为新单也已经是展开的（而它可能只有两行）。
+   */
+  let outputExpanded = false
   let collapsed = false
   /** 重画统计（诊断用：能说清"看板到底重画了几次"）。 */
   const counters = { updates: 0, structureRebuilds: 0, stateRefreshes: 0, skipped: 0 }
@@ -129,6 +138,11 @@ export function createBoard(options = {}) {
     const graph = el(doc, 'section', 'board-graph')
     const graphHead = el(doc, 'h3', undefined, '任务依赖图')
     graphHead.append(el(doc, 'span', 'dim', '左 → 右：前置解锁后续'))
+    // 缩放到可读下限（0.4）**还**装不下时，画布是可滚动的——这件事要说出来，
+    // 不能让用户以为"图就画了这么多"。文字在 `renderGraph` 里按实际算出的溢出量填。
+    const graphHint = el(doc, 'span', 'board-graph-hint warn')
+    graphHint.hidden = true
+    graphHead.append(graphHint)
     const canvas = el(doc, 'div', 'board-canvas')
     // 三层，各有各的职责（M7-9 修的就是这里）：
     //   canvas  —— **可滚动**的可见容器。**它的尺寸由 flex 决定，绝不由内容决定**。
@@ -149,7 +163,7 @@ export function createBoard(options = {}) {
 
     const detail = el(doc, 'footer', 'board-detail')
     root.append(head, missing, body, detail)
-    parts = { counts, bar, missing, members, membersList, body, edges, canvas, fit, content, cards, detail, collapse }
+    parts = { counts, bar, missing, members, membersList, body, edges, canvas, fit, content, cards, detail, collapse, graphHint }
     setPalette(palette)
     observeSize()
   }
@@ -256,9 +270,15 @@ export function createBoard(options = {}) {
         const task = model.byId.get(taskId)
         if (task === undefined) continue
         const chip = el(doc, 'button', 'board-chip')
+        if (selected !== null && selected.kind === 'task' && selected.id === task.id) chip.classList.add('is-selected')
         chip.type = 'button'
-        chip.title = `${task.id} · ${task.title}`
-        chip.append(el(doc, 'span', 'board-chip-id', task.id), el(doc, 'span', 'dim', taskStatusLabel(task.status)))
+        // 状态用**色点**（与看板其它地方同一套语言），id 用短形式，完整信息在 `title`/`aria-label`
+        // 与详情区里。28 张单的世界里，这一条决定了左栏要不要滚（见 `shortTaskId` 的注释）。
+        chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.status)}`
+        chip.setAttribute('aria-label', chip.title)
+        const chipDot = el(doc, 'i', 'board-dot')
+        applyNodeColors(chipDot, task.status)
+        chip.append(chipDot, el(doc, 'span', 'board-chip-id', shortTaskId(task.id)))
         chip.addEventListener('click', (event) => {
           event.stopPropagation()
           select({ kind: 'task', id: task.id })
@@ -294,8 +314,29 @@ export function createBoard(options = {}) {
     // 按**可用空间**挑档位（四档几何，最后手段才是缩放）。纯函数，单测里算过。
     const fitted = fitGraphGeometry(layout, available)
     geometry = fitted
-    fitInfo = { preset: fitted.preset, scale: fitted.scale, available, content: { width: fitted.width, height: fitted.height } }
+    // 档位 + 缩放之后**还**装不下吗？（缩放有 0.4 的可读下限，真机 28 张单在 800px 宽下会触到）
+    // 这种时候画布是可滚动的（有滚动条），但"可滚动"这件事要**说出来**，不能靠用户自己发现。
+    const overflow = {
+      x: Math.round(fitted.width * fitted.scale - available.width),
+      y: Math.round(fitted.height * fitted.scale - available.height),
+    }
+    // 阈值 4px：1~2px 属于子像素取整/滚动条宽度，为它亮一条警告会让提示变成噪音。
+    const overflowing = overflow.x > 4 || overflow.y > 4
+    fitInfo = {
+      preset: fitted.preset,
+      scale: fitted.scale,
+      available,
+      content: { width: fitted.width, height: fitted.height },
+      overflow,
+      overflowing,
+    }
     lastFitSize = available
+    if (parts.graphHint !== null) {
+      parts.graphHint.hidden = !overflowing
+      if (overflowing) {
+        parts.graphHint.textContent = `（比可见区大 ${Math.max(0, overflow.x)}×${Math.max(0, overflow.y)}px，图内可滚动）`
+      }
+    }
 
     cards.textContent = ''
     cardNodes.clear()
@@ -374,8 +415,11 @@ export function createBoard(options = {}) {
       if (chip !== undefined) {
         chip.dataset.status = task.status
         applyNodeColors(chip, task.status)
-        const label = chip.lastElementChild
-        if (label !== null) label.textContent = taskStatusLabel(task.status)
+        // chip 上是"色点 + 短 id"，状态文字不在这里；完整描述挂在 `title`/`aria-label` 上。
+        chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.status)}`
+        chip.setAttribute('aria-label', chip.title)
+        // M7-3 双向高亮：点图里的方框 → 左栏成员那边同一张单也亮起来。
+        chip.classList.toggle('is-selected', selected !== null && selected.kind === 'task' && selected.id === task.id)
       }
     }
   }
@@ -454,6 +498,62 @@ export function createBoard(options = {}) {
     if (task.blockedByTasks.length > 0) {
       detail.append(el(doc, 'span', 'dim', `被 ${task.blockedByTasks.map((b) => b.id).join('、')} 挡着`))
     }
+    detail.append(renderReadPanel(summarizeTaskOutput(task)))
+  }
+
+  /**
+   * 产出面板（R45 / M10-9）——"他干出了什么"。
+   *
+   * ## 为什么是**浮在详情条上方**，而不是把看板撑高
+   *
+   * 一张单的产出真机上有 1091 ~ 2246 字（≈ 40~60 行）。看板的高度是**固定的**（M7-9 的纪律：
+   * 任何一边超出可见容器就是"被切了"，而外面没有滚动条能救它）。所以只有三条路：
+   *   · 把看板撑高 → 违反固定高度，超出部分被裁（等于把结论吃了）；
+   *   · 挤进 `.board-body` → 依赖图被压小（缩放变小 = 另一种"读不了"，而且图是这一屏的主角）；
+   *   · **浮起来**：贴详情条上方展开，`max-height` + 内部滚动，按「收起」就回到图上。
+   * 选了第三条。默认只显示前 5 行 + 渐隐遮罩（一眼看得到结论开头），`展开全文` 才铺开；
+   * 字数写在标题旁边，用户点之前就知道这篇有多长。
+   *
+   * ## 为什么用 `textContent` 而不是富文本
+   *
+   * 产出是**模型写的文本**。Markdown/HTML 渲染 = 自己开一个注入面。这里连 `<br>` 都不拼：
+   * 换行交给 CSS 的 `white-space: pre-wrap`，段落结构原样保留。
+   */
+  function renderReadPanel(summary) {
+    const box = el(doc, 'div', outputExpanded ? 'board-read is-expanded' : 'board-read')
+    if (!summary.hasContent) {
+      // 没有产出也要有话说：空白会让人以为面板坏了（真机上很多早期单确实没有 output）。
+      box.append(el(doc, 'span', 'dim board-read-empty', summary.note ?? '这张单没有产出。'))
+      return box
+    }
+
+    const head = el(doc, 'div', 'board-read-head')
+    head.append(el(doc, 'span', 'board-read-title', summary.sections[0].label))
+    head.append(
+      el(doc, 'span', 'dim board-read-chars', outputExpanded ? `共 ${summary.chars} 字` : `${summary.chars} 字 · 前 ${summary.sections[0].previewLines} 行`),
+    )
+    const toggle = el(doc, 'button', 'board-read-toggle')
+    toggle.type = 'button'
+    toggle.textContent = outputExpanded ? '收起' : '展开全文'
+    toggle.addEventListener('click', (event) => {
+      event.stopPropagation()
+      outputExpanded = !outputExpanded
+      renderDetail()
+    })
+    head.append(toggle)
+    box.append(head)
+
+    // 正文放在**单独的滚动容器**里：展开时头部（含"收起"按钮与字数）留在原地，
+    // 只有正文滚——不然读到最后想收起还得先滚回顶部。
+    const body = el(doc, 'div', 'board-read-body')
+    for (const section of summary.sections) {
+      const part = el(doc, 'div', `board-section board-section-${section.kind}`)
+      if (summary.sections.length > 1) part.append(el(doc, 'span', 'board-section-label', section.label))
+      part.append(el(doc, 'pre', 'board-section-text', outputExpanded ? section.text : section.preview))
+      body.append(part)
+    }
+    box.append(body)
+    return box
   }
 
   /**
@@ -547,6 +647,7 @@ export function createBoard(options = {}) {
 
   function select(next) {
     selected = next
+    outputExpanded = false
     lastState = null
     renderDetail()
     refreshState()

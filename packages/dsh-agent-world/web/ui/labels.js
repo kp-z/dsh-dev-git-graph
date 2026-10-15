@@ -69,10 +69,35 @@ export const ROLE_LABEL = {
  * 名词短语拼出来是"正在任务派发…"，读着别扭。
  */
 export const TOOL_LABEL = {
+  // 世界工具（小镇里的事）
   agent_world_dispatch: '派单',
   agent_world_status: '看世界',
   agent_world_content: '查内容库',
   agent_world_open: '打开面板',
+
+  /*
+   * AgentTeams 工具（R45 / M7-12）—— 角色**自己**也是 agent-teams 的成员，
+   * 所以动作行里会大量出现 `agent_teams_*`。原来没有映射，界面上就铺着
+   * `agent_teams_send_message` 这种代码标识符。
+   *
+   * 名字与语义是照**装好的插件**核过的（`@nanmicoder/dsh-agent-teams` 的 14 个工具），
+   * 不是我猜的：`amend_task` 是"队长补任务说明"、`resume` 是"把被暂停/升级的团队重新跑起来"、
+   * `approve` 是"批准计划或任务"。标签一律留在这一处，别处不要再写第二份。
+   */
+  agent_teams_create: '建团队',
+  agent_teams_delete: '解散团队',
+  agent_teams_add_member: '加成员',
+  agent_teams_remove_member: '移出成员',
+  agent_teams_send_message: '给队友发消息',
+  agent_teams_create_task: '建任务',
+  agent_teams_claim_task: '领任务',
+  agent_teams_update_task: '更新任务',
+  agent_teams_reassign_task: '改派任务',
+  agent_teams_amend_task: '补任务说明',
+  agent_teams_edit_plan: '改计划',
+  agent_teams_approve: '审批',
+  agent_teams_status: '看团队状态',
+  agent_teams_resume: '恢复团队',
 }
 
 /** 工具的中文名（未知 → 原样返回）。 */

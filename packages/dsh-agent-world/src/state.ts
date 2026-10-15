@@ -241,7 +241,10 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       // 序号接在**既有工单的最大 ordinal** 之后，而不是 `tasks.length + 1`：
       // 后者只在序号连续时等价，而将来一旦有归档/删除，它就会撞 id。
       const nextIndex = world.tasks.reduce((max, t) => Math.max(max, t.ordinal), 0) + 1
-      const created = instantiateTasks(set, nextIndex, world.tick)
+      // 第几批：数一下这个任务集**在日志/世界里已经出现过几次**（用 ordinal 之外的既有单数）。
+      // 用途只有一个——让重复派单的标题不重名（M6-15）。
+      const batch = world.tasks.filter((t) => t.set === set.id).length / Math.max(1, set.tasks.length) + 1
+      const created = instantiateTasks(set, nextIndex, world.tick, Math.floor(batch))
       world.tasks.push(...created)
       // **必须进日志**：派单发生在 tick 之外，而只收增量的客户端（SSE 的面板）
       // 全靠事件才能知道有新工单。工具调用者自己看得到（拿的是同步返回值），
