@@ -287,13 +287,18 @@ async function enable3d() {
       },
       // 内容引用了渲染器没有的构建器时**必须说出来**：那种情况下画面会多出
       // 几个品红方块，而"为什么是品红"完全看不出来。
-      onMissing: ({ models, builders, registered }) => {
+      onMissing: ({ models, builders, registered, assets }) => {
         const parts = []
         if (builders.length > 0) {
           parts.push(`缺构建器 ${builders.join(' / ')}（已实现：${registered.join(' / ')}）`)
         }
         if (models.length > 0) parts.push(`缺模型 ${models.join(' / ')}`)
-        showHint(`内容引用了渲染器实现不了的模型：${parts.join('；')}。这些位置画的是品红占位块。`)
+        // 资源加载失败**单独一类**：它不是"内容写错了"，而是"文件没发出去 / 路径不对"，
+        // 排查动作完全不同（去看 src/vendor/ 与白名单，而不是去看内容）。
+        if (assets !== undefined && assets.length > 0) {
+          parts.push(`模型文件加载失败 ${assets.join('；')}`)
+        }
+        showHint(`内容引用了渲染器给不出的模型：${parts.join('；')}。这些位置画的是品红占位块。`)
       },
     })
     return true

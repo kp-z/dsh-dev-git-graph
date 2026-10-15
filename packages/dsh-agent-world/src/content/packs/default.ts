@@ -19,6 +19,7 @@
  * 到那时新增一个 `pack.kenney-mini`，在清单里显式 `overrides` 掉 `action.*` 与 `model.agent.base`
  * 即可 —— **模拟内核一行不用改**。这正是内容库层存在的意义，也是它第一次真正被验证。
  */
+import { kenneyMiniPack } from './kenney-mini.js'
 import type { ContentPack } from '../kinds.js'
 import { CONTENT_SCHEMA_VERSION } from '../kinds.js'
 
@@ -252,5 +253,6 @@ export const defaultPack: ContentPack = {
 
 /** 当前内置的全部内容包（按推荐装载顺序）。 */
 export function builtinPacks(): ContentPack[] {
-  return [defaultPack]
+  // 顺序 = 装载顺序。表现包放后面（它 `overrides` 掉基础包里的条目）。
+  return [defaultPack, kenneyMiniPack]
 }

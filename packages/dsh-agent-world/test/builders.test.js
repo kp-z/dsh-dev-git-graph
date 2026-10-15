@@ -26,15 +26,23 @@ import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 
 const registry = createBuilderRegistry(THREE)
 
-/** 内置内容里声明的全部构建器名（去重）。 */
+/**
+ * 内置内容里**声明过**的全部构建器名（去重）。
+ *
+ * **扫的是各个包自己的条目，不是合并后的注册表**。这一点是 R19 改对的：
+ * `pack.kenney-mini` 把 `model.agent.base` 覆盖成了 GLB，于是合并后的注册表里
+ * `avatar` 没人引用了——但 `avatar` **并没有变成死代码**：基础包仍声明它，
+ * 而且它是"没装表现包 / GLB 加载失败"时唯一的角色形状。
+ *
+ * 用合并后的注册表来判"有没有人用"，等于让**一次合法的覆盖**把基础包的实现诬告成死代码。
+ * 真正该死掉的是"哪个包都不再声明的实现"。
+ */
 function declaredBuilders() {
-  const content = new ContentRegistry()
-  content.loadAll(builtinPacks())
   const names = new Set()
-  // `list()` 给的是 `{ id, pack, data }`——条目本体在 `data` 里。
-  for (const resolved of content.list('models')) {
-    const source = resolved.data.source
-    if (source.kind === 'procedural') names.add(source.builder)
+  for (const pack of builtinPacks()) {
+    for (const entry of pack.entries.models ?? []) {
+      if (entry.source.kind === 'procedural') names.add(entry.source.builder)
+    }
   }
   return [...names].sort()
 }

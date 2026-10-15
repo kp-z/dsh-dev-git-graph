@@ -177,12 +177,13 @@
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M5-1 | blocked | 角色实体：从 `models` 库取模型（`glb` 或 `procedural`），`SkeletonUtils.clone` | `web/src/actors/avatar.ts` | M4-7 | **R18 已完成前提**：GLTFLoader / BufferGeometryUtils / SkeletonUtils 已 vendor 并可在浏览器里 import（实测都是 function）；Kenney CC0 资产已入库
-| M5-2 | blocked | **消费 `actions` 库**：`AgentState` → 动作条目 → `AnimationMixer` / 程序化动画 | `web/src/actors/animator.ts` | M5-1 |
+| M5-1 | done | 角色实体：从 `models` 库取模型（`glb` 或 `procedural`），`SkeletonUtils.clone` | `web/model-loader.js` + `web/scene3d.js` | M4-7 | **R19 做完了**：异步加载（去重 / 失败记忆 / 到货时检查占位块还在不在）+ `SkeletonUtils.clone()` + 每实例克隆材质。目录写在计划里（`web/src/actors/`）是 D30 之前的设想，实际落在 `web/`。
+| M5-2 | ready | **消费 `actions` 库**：`AgentState` → 动作条目 → `AnimationMixer` / 程序化动画 | `web/src/actors/animator.ts` | M5-1 | **R19 起可做**：`scene3d.js` 已把 GLB 的 `animations: 32` 挂在 `real.userData.animations` 上，就等这一步。**第一件事是 dump 出 GLB 里真实的 32 个剪辑名**——凭印象写内容会在加载时静默对不上。
 | M5-3 | blocked | 网格寻路 A*（网格由站点布局生成）。先零依赖手写；不够再评估 `three-pathfinding@1.3.0` / `@recast-navigation@0.43.1` | `web/src/actors/navmesh.ts` + 测试 | M4-6 |
 | M5-4 | blocked | 每帧同步：`model/` 的插值状态 → 场景对象（采样 + 插值，不推理业务） | `web/src/model/worldModel.ts` | M5-1 M3-4 |
-| M5-5 | blocked | 新增 `pack.kenney-mini`：显式 `overrides` 掉 `models` 与 `actions`，换成 Kenney CC0 资产 | `src/content/packs/kenney-mini.ts` + 资产入库 | M5-2 M4-8 | **R18 已完成前提**：12 个 Kenney 角色 GLB（每个 32 条动画、2 个蒙皮）已入库并可通过白名单路由取到
-| M5-6 | blocked | **验收：加这个包之后 `pnpm test` 仍全绿，且模拟内核零改动** | 在 PROGRESS 里贴出改动范围作证 | M5-5 |
+| M5-5 | done | 新增 `pack.kenney-mini`：显式 `overrides` 掉 `models` 与 `actions`，换成 Kenney CC0 资产 | `src/content/packs/kenney-mini.ts` + 资产入库 | M5-2 M4-8 | **R19 做完了 `models` 那一半**（`overrides: ['models/model.agent.base']` → Kenney GLB）。`actions` 那一半留给 M5-2（要等剪辑名 dump 出来）。
+| M5-6 | done | **验收：加这个包之后 `pnpm test` 仍全绿，且模拟内核零改动** | 在 PROGRESS 里贴出改动范围作证 | M5-5 | **R19 验收通过**：`test` 286/286 绿；diff 证明 `src/sim/`、`src/domain/`、`src/world/`、`src/scene/`、`src/protocol/`、`src/routes/` **全部零改动**（改的是 `web/` 三个文件 + 内容包 + 测试）。渲染器改了，但那是**新机制**（GLB 加载以前不存在），不是"因为换了资产所以改了"。
+| M5-7 | ready | **让 8 个 agent 长得不一样**：12 个 Kenney 角色都入库了，但现在全部用同一个 `model.agent.base`（看起来像复制粘贴）。需要一个「角色模型列表 + 按序分配」的内容概念（例如 `SceneEntry.agentModels: string[]`，host 按 agent 序号分配并写进 `SceneActor.modelId`）。**故意没混进 R19**：那一轮的目标是「GLB 能跑起来」，不是顺手加一个内容概念 | `src/content/kinds.ts` + `src/scene/plan.ts` + `packs/kenney-mini.ts` | R19 |
 
 ## M6 — HUD
 

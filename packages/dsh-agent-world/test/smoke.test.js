@@ -190,7 +190,7 @@ test('createWorld：默认小镇结构完整（4 地块 / 10 站点 / 8 角色�
   assert.equal(w.agents[0].role, 'lead', '第一个角色必须是 lead')
   assert.equal(w.tick, 0)
   assert.equal(w.paused, false)
-  assert.deepEqual(w.origin.packs, ['pack.default'])
+  assert.deepEqual(w.origin.packs, ['pack.default', 'pack.kenney-mini'])
   assert.equal(w.origin.scene, 'scene.default-town')
   assert.deepEqual(w.origin.taskSets, [])
   assert.deepEqual(w.tasks, [], '开局工单板应当是空的，等 lead 派单')

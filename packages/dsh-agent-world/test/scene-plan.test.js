@@ -260,10 +260,23 @@ test('模型表：计划里带上了**本场景用到的**模型，且构建器�
   // 10 个站点只用到 6 种模型 + 1 个角色模型 = 7（不是整本库搬过来）。
   assert.equal(plan.models.length, 7, `只该带用到的模型，实际 ${plan.models.map((m) => m.id).join(', ')}`)
   for (const model of plan.models) {
-    assert.equal(model.builder !== null, true, `${model.id} 是程序化模型，应当有构建器名`)
+    // 每个模型**恰好**是两种来源之一：程序化（有 builder）或外部文件（有 url）。
+    // 两个都有或都没有都是协议错——渲染器会不知道该走哪条路。
+    assert.equal(
+      (model.builder === null) !== (model.url === null),
+      true,
+      `${model.id} 应当恰好有 builder 或 url 之一：${JSON.stringify(model)}`,
+    )
     assert.equal(typeof model.scale, 'number')
   }
-  assert.ok(plan.models.some((m) => m.id === 'model.agent.base'), '角色模型也要在表里')
+
+  // 角色模型来自 `pack.kenney-mini`（它 `overrides` 掉了基础包的程序化 `avatar`）。
+  // 这就是"换资产只改内容"：模拟内核与渲染器都没有为此改一行。
+  const avatar = plan.models.find((m) => m.id === 'model.agent.base')
+  assert.ok(avatar, '角色模型要在表里')
+  assert.equal(avatar.builder, null, '角色现在是 GLB，不是程序化几何')
+  assert.equal(avatar.url, 'kenney-mini-characters/character-male-a.glb')
+  assert.ok(avatar.scale > 1, 'Kenney 的角色自然高度是 0.671，要放大到与镇上家具成比例')
 
   // 每个 prop/actor 的 modelId 都能在表里查到——查不到就是内容对不上，
   // 而渲染器的表现是"一个品红方块"。

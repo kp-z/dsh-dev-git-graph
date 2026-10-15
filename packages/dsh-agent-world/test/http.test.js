@@ -178,7 +178,7 @@ test('GET /api/world：快照里没有事件环形缓冲，但有调色板与运
     // 改一处就会让纸条落点与"已送达"对不上。
     assert.equal(snap.runtime.messageDeliveryTicks, 10)
 
-    assert.deepEqual(snap.content.packs.map((p) => p.id), ['pack.default'])
+    assert.deepEqual(snap.content.packs.map((p) => p.id), ['pack.default', 'pack.kenney-mini'])
     assert.ok(snap.content.libraries.some((l) => l.kind === 'stations' && l.count === 10))
   })
 })

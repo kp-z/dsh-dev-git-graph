@@ -24,6 +24,12 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js' // 见 index.html 的 import map
 import { createBuilderRegistry } from './builders.js'
+import { createModelCache } from './model-loader.js'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+// **必须是 SkeletonUtils.clone 而不是 Object3D.clone()**：后者的克隆会**共享骨架**，
+// 于是 12 个角色同步抽搐（摆同一个姿势、同一个进度），看起来像"动画坏了"。
+// 这条写在 docs/REFERENCES.md §6.4，是 M5 最容易踩的一个坑。
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 
 /**
  * 形状从哪来（R16 改）。
@@ -39,6 +45,8 @@ import { createBuilderRegistry } from './builders.js'
  * 缺的东西会画成品红占位块，并把名字交给 `onMissing`。
  */
 const MISSING_COLOR = '#FF00FF'
+/** 还在加载中的占位色（**不是错误色**：灰蓝，与品红区分开）。 */
+const PENDING_COLOR = '#7A8BA6'
 
 /**
  * 建一个 3D 场景。
@@ -60,6 +68,28 @@ export function createScene3d(canvas, options = {}) {
 
   /** 程序化几何注册表。尺寸与形状都在 `builders.js` 里，这里只管摆放。 */
   const builders = createBuilderRegistry(THREE)
+
+  /**
+   * GLB 模型的加载缓存（M5-1）。
+   *
+   * 一个 `GLTFLoader` 实例复用：它内部有解析器缓存，每次 new 一个会白白丢掉。
+   * 失败由缓存记住并只报一次——`applyWorld` 每帧都在跑，一个 404 不能变成每秒 60 次。
+   */
+  const gltfLoader = new GLTFLoader()
+  const models = createModelCache({
+    load: (url) => gltfLoader.loadAsync(url),
+    onError: ({ url, error }) => {
+      assetErrors.set(url, String(error?.message ?? error))
+      options.onMissing?.({
+        models: [],
+        builders: [],
+        assets: [...assetErrors.entries()].map(([u, m]) => `${u}（${m}）`),
+        registered: builders.names(),
+      })
+    },
+  })
+  /** 加载失败的资源：url → 原因。 */
+  const assetErrors = new Map()
 
   const scene = new THREE.Scene()
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 1000)
@@ -187,6 +217,17 @@ export function createScene3d(canvas, options = {}) {
   /** 缺东西的记录：`{ models: Set, builders: Set }`。换 plan 时清空。 */
   let missing = { models: new Set(), builders: new Set() }
 
+  /** 一个中性占位块（还在加载中）。 */
+  const pending = () => {
+    const node = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 1.3, 0.5),
+      new THREE.MeshLambertMaterial({ color: new THREE.Color(PENDING_COLOR), transparent: true, opacity: 0.55 }),
+    )
+    node.position.y = 0.65
+    node.userData.pending = true
+    return node
+  }
+
   /** 品红占位块：缺失也要**看得见**，否则画面上只是"少了个东西"。 */
   const placeholder = () => {
     const mesh = new THREE.Mesh(
@@ -203,16 +244,51 @@ export function createScene3d(canvas, options = {}) {
    *
    * @returns {object} 摆好的 `Object3D`（缺失时是占位块）。
    */
-  const instantiate = (modelId, modelById, spec) => {
+  const instantiate = (modelId, modelById, spec, onLoaded) => {
     const model = modelById.get(modelId)
     if (model === undefined) {
       missing.models.add(modelId)
       return placeholder()
     }
+
+    // ── 外部模型（GLB）：**异步** ─────────────────────────────────────────────
+    //
+    // 先挂一个中性占位块，加载完再把它换掉。三条约束：
+    //  · 占位色是灰蓝不是品红——"还没到"与"出错了"是两件事，不该长得一样；
+    //  · 到货时要检查它**还在场景里**（用户可能已经换过快照/重开一局）；
+    //  · 每个实例克隆一份材质（`cloneSkinned` 会共享材质，改一个会改到所有人）。
+    if (model.url !== null) {
+      const node = pending()
+      models
+        .get(model.url)
+        .then((gltf) => {
+          const real = cloneSkinned(gltf.scene)
+          real.traverse((child) => {
+            if (child.isMesh !== true) return
+            child.material = child.material.clone()
+            child.castShadow = true
+            child.receiveShadow = true
+          })
+          real.userData.kind = 'glb'
+          real.userData.animations = gltf.animations
+          real.scale.setScalar(model.scale)
+          real.rotation.y = model.rotationY
+          real.position.y += model.anchorY
+          onLoaded?.(real, node)
+        })
+        .catch(() => {
+          // 原因已经由缓存的 onError 报过了（而且只报一次）。这里只保证画面诚实：
+          // 把占位块换成"明确的错误色"，别让它一直假装在加载。
+          node.material.color = new THREE.Color(MISSING_COLOR)
+          node.material.opacity = 1
+          node.userData.pending = false
+        })
+      return node
+    }
+
+    // ── 程序化几何：同步 ──────────────────────────────────────────────────────
     if (model.builder === null) {
-      // GLB 模型：M5 才会真正加载（需要联网拿资源）。**现在明确报出来**，
-      // 而不是画个方块让人以为加载成功了。
-      missing.builders.add(`（GLB）${model.id}`)
+      missing.builders.add(`（无构建器也无 url）${model.id}`)
       return placeholder()
     }
     const node = builders.build(model.builder, spec)
@@ -220,16 +296,43 @@ export function createScene3d(canvas, options = {}) {
       missing.builders.add(model.builder)
       return placeholder()
     }
+    node.userData.kind = 'builder'
     node.scale.setScalar(model.scale)
     node.rotation.y = model.rotationY
     node.position.y += model.anchorY
     return node
   }
 
+  /**
+   * 把"加载完的模型"换到占位块的位置上。
+   *
+   * 到货时那个占位块可能**已经不在场景里**了（用户换过快照、或者重开了一局），
+   * 所以先看 `parent`——没有就丢掉，不要往一个已经废弃的组里挂东西。
+   */
+  const swapIn = (real, old, record) => {
+    const parent = old.parent
+    if (parent === null) return
+    real.position.copy(old.position)
+    real.name = old.name
+    parent.add(real)
+    parent.remove(old)
+    disposeTree(old)
+    record?.(real)
+  }
+
   /** 摆站点。形状由内容声明的模型决定，这里没有形状判断。 */
   const buildProps = (props, modelById) => {
     for (const p of props) {
-      const node = instantiate(p.modelId, modelById, { color: p.color, capacity: p.capacity })
+      const node = instantiate(
+        p.modelId,
+        modelById,
+        { color: p.color, capacity: p.capacity },
+        // 到货后：换到同一个位置与名字（`applyWorld` 是按名字找站点的，名字必须保住）。
+        (real, old) => {
+          real.position.set(p.x, real.position.y, -p.z)
+          swapIn(real, old, null)
+        },
+      )
       node.position.set(p.x, node.position.y, -p.z)
       node.name = `prop:${p.id}`
       staticGroup.add(node)
@@ -239,7 +342,12 @@ export function createScene3d(canvas, options = {}) {
   /** 摆角色。同理，形状来自内容；真正的骨骼模型是 M5。 */
   const buildActors = (actors, modelById) => {
     for (const a of actors) {
-      const node = instantiate(a.modelId, modelById, { color: a.color })
+      const node = instantiate(a.modelId, modelById, { color: a.color }, (real, old) => {
+        real.position.set(a.x, real.position.y, -a.z)
+        // 换过之后 `actorById` 必须指向新对象，否则**位置会停在原地不动**
+        // （`applyWorld` 每帧从这张表里拿对象来更新位姿）。
+        swapIn(real, old, (fresh) => actorById.set(a.id, fresh))
+      })
       node.position.set(a.x, node.position.y, -a.z)
       node.rotation.y = -a.facing
       node.name = `actor:${a.id}`
@@ -275,6 +383,7 @@ export function createScene3d(canvas, options = {}) {
       options.onMissing?.({
         models: [...missing.models].sort(),
         builders: [...missing.builders].sort(),
+        assets: [...assetErrors.entries()].map(([url, reason]) => `${url}（${reason}）`),
         registered: builders.names(),
       })
     }
@@ -299,7 +408,8 @@ export function createScene3d(canvas, options = {}) {
         if (child.isMesh !== true) return
         child.material.emissive = occupied ? new THREE.Color(0x2a2a2a) : new THREE.Color(0x000000)
       })
-      mesh.scale.y = occupied ? 1.12 : 1
+      // 只对**程序化**几何做"被占用时抬一点"：对真模型是拉伸，很难看。
+      if (mesh.userData.kind === 'builder') mesh.scale.y = occupied ? 1.12 : 1
     }
 
     for (const agent of world.agents ?? []) {
@@ -308,9 +418,11 @@ export function createScene3d(canvas, options = {}) {
       // **只改 x/z，不动 y**：y 由构建器决定（人形模型的底面在 y=0，
       // 而旧写法按一个写死的常量把人抬到半空）。这正是"形状交给构建器"带来的差别。
       mesh.position.set(agent.position.x, mesh.position.y, -agent.position.z)
+      // GLB 角色的朝向：Kenney 的模型面朝 +z，而世界里的 `facing` 是绕 y 的弧度，
+      // 且 three 的 z 朝屏幕外（世界坐标 z 朝下，所以取负号）。M5 之前的口径一致。
       mesh.rotation.y = -agent.facing
-      // 在站上/走路/干活用一个矮一点的姿态区分，避免"所有人像在同一状态"。
-      mesh.scale.y = agent.state === 'working' ? 0.82 : 1
+      // 只对**程序化**几何用"压扁"表示在干活：对真模型那是把人压扁，很难看。
+      if (mesh.userData.kind === 'builder') mesh.scale.y = agent.state === 'working' ? 0.82 : 1
     }
     controls.update()
   }
