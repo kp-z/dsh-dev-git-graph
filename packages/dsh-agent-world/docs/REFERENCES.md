@@ -190,3 +190,99 @@ export const SIDE  = (x,y,z) => plane([x,y,z], [0,-1,0], [0,0,-1])
    写一个**消费同一份 `ScenePlan`** 的渲染器，与现在的网格渲染器并列切换。
    这才是"能用 GitHub 上的东西"最实在的形态：不是搬场景，是**搬内核**。
    需要用户拍板要不要（它是一条美术方向的岔路）。
+
+---
+
+## 七、`KsanaDock/Microverse` —— 同一个问题域的 Godot 实现（用户提供，R20 核对）
+
+**这是目前最"对口"的一个**：它做的是 **AI 小镇**，我们做的是 **agent 工作世界**——同一问题域。
+
+| 事实 | 值 |
+|---|---|
+| 地址 | <https://github.com/KsanaDock/Microverse> |
+| 许可证 | **MIT**（`Copyright (c) 2025 KsanaDock`）—— 可以用，要求保留声明 |
+| 技术 | **Godot 4 + GDScript**（不是 web） |
+| 是什么 | 上帝视角沙盒：8 个预设 AI 角色、LLM 自然对话、持久记忆、自主任务、环境感知 |
+| LLM | OpenAI / Claude / Gemini / DeepSeek / 豆包 / Kimi 多供应商 |
+| 结构 | `script/`（`ai/`、`ui/`）+ `scene/`（`characters`/`maps`/`prefab`/`ui`）+ `asset/` |
+| 核心管理器 | `APIManager` · `DialogManager` · `MemoryManager` · `CharacterManager` · `TaskManager` |
+
+### 7.1 它的分工与我们**惊人地对应**（一次外部验证）
+
+| Microverse | dsh-agent-world |
+|---|---|
+| `CharacterPersonality.gd` + `script/ai/background_story/` | `rosters` 库 |
+| `TaskManager.gd` | `tasks` 库 + `sim/scheduler.ts` |
+| `RoomData.gd` / `RoomManager.gd` / `RoomArea.gd` | `districts` + `stations` 库 |
+| `GameSaveManager.gd` | `store/worldStore.ts`（世界 + 事件日志两个文件） |
+| `CameraController.gd` | `ScenePlan.theme.camera` |
+| `Desk.gd` / `Chair.gd`（道具即场景脚本） | `web/builders.js` 的程序化构建器 |
+| `script/ai/AIAgent.gd` | `sim/` 的状态机 + `domain/types.ts` 的 `Agent` |
+
+**"世界 / 角色 / 任务 / 存档"这个切分是这类项目的自然形状。** 一个独立实现走到同样的分工，
+说明我们那十个库不是过度设计。
+
+### 7.2 但它踩的**恰恰是我们明令禁止的两条线**（反向验证）
+
+**① 人设硬编码在代码里。** `script/CharacterPersonality.gd`：
+
+```gdscript
+const PERSONALITY_CONFIG = {
+    "Stephen": {
+        "position": "SleepySheep公司老板",
+        "personality": "奥斯卡级虚伪表演家，职场PUA持证上岗选手……",
+        "speaking_style": "张嘴就是'期权池已备好'……",
+        "work_duties": "每周发布新的'三年愿景'……",
+        "work_habits": "下班时间必在公司群发'深夜奋斗者照片'……",
+    },
+    "Tom": { … }, "Lea": { … }, "Alice": { … },   # 8 个角色全在这一个 const 里
+}
+```
+
+这就是**"代码是数据"**。我们那条红线（决策 D15/D17：人设进 `rosters` 库、
+`RosterSeat` 只有 `role`/`name`/`palette`）要避免的正是这个：
+**换一个人设、加一个角色，都要改这个 `.gd` 文件**。用它的反面来验我们自己的设计，很有说服力。
+
+**② 世界状态挂在场景节点上，靠运行时字符串路径互相找。** `script/ai/AIAgent.gd`：
+
+```gdscript
+extends Node
+class_name AIAgent
+@onready var character = get_parent()
+@onready var dialog_manager = get_node("/root/DialogManager")
+@onready var room_manager = get_node("/root/Office/RoomManager")
+var current_state = State.IDLE
+```
+
+- 世界状态 = Godot 场景树里的节点（**模拟与渲染是同一棵树**）；
+- 模块之间靠 `get_node("/root/…")` 这个**字符串路径**耦合——**没有编译期检查**，
+  重命名一个节点就在运行期静默断掉。
+
+而我们的做法是：`ScenePlan`（渲染器无关，决策 D23）+ 事件日志（协议层）
++ `BOUNDARY_RULES` 边界表（谁能 import 谁，**编译期强制**）。
+**所以它不是"解耦"的参考**——它是单引擎游戏的省事选择，而我们的要求是
+"模块之间用协议通信、禁止耦合"。
+
+### 7.3 它有、而我们**完全没有**的两块（这才是真能借的）
+
+1. **`script/ai/`：LLM 智能体层。** `APIManager.gd` / `APIConfig.gd`（多供应商接入）
+   + `DialogManager.gd` / `ConversationManager.gd` / `DialogService.gd`（对话编排）
+   + `memory/`（持久记忆）+ `background_story/`（角色背景）。
+   **我们的 agent 是确定性规则引擎，没有任何 LLM 层**——而"一个 lead 分配安排各种 agent 任务"
+   最终需要它（就是我们记的 **M7：与真实 subagent 的桥**）。
+2. **`ScenePerceptionManager`：把"角色周围有什么"整理成能给 LLM 的形式。**
+   这是"环境感知 → prompt"的那一层。我们已经有它的**原料**（`ScenePlan`、
+   世界快照、事件流），但没有"怎么裁成一段给模型看"的设计。
+
+### 7.4 判决
+
+| 用途 | 能不能用 |
+|---|---|
+| 直接当**场景数据**用 | ❌ 它是 Godot 项目，不是"给数据就摆"的场景描述 |
+| 当**架构参考** | ⚠️ **反向参考**：它踩了我们禁止的两条线，**验证了我们为什么要那样设计** |
+| 借**我们缺的 LLM 层设计**（M7） | ✅ **真有价值**：多供应商接入、对话编排、记忆、感知→prompt |
+| 当 **Godot 路线的参考/起点** | ✅ **最有价值的一条**——用户最初的首选之一就是 Godot；决策 D23 本来就是为"将来换 Godot 客户端"留的缝 |
+
+**边界与注意**：GDScript + 场景文件与我们的 three.js/TS **无法共用代码**，借的是
+**设计与数据形状**；若抄任何代码，MIT 要求保留版权与许可声明；
+它的人设文案是讽刺职场风格（PUA / 996 玩笑），要借的是**结构**，不是文案。
