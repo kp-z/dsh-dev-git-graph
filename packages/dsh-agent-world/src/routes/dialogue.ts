@@ -29,7 +29,13 @@
  * 多算只会让用户看到一条写清了当前值/上限/怎么办的拒绝。
  */
 import type { RouteEntry } from './router.js'
-import type { DialogueEvent, DialogueSpeaker, SayResponse, WorldServicePort } from '../protocol/index.js'
+import type {
+  DialogueEvent,
+  DialogueSpeaker,
+  SayRequest,
+  SayResponse,
+  WorldServicePort,
+} from '../protocol/index.js'
 
 /**
  * 对话端口：传输层需要的**全部** Agent 能力。
@@ -96,6 +102,78 @@ function capFrom(service: unknown, override: number | undefined): number {
   const value = config?.maxLiveSessions
   if (typeof value === 'number' && Number.isInteger(value) && value > 0) return value
   return DEFAULT_MAX_LIVE_SESSIONS
+}
+
+/**
+ * 把一个不该出现在这里的东西说成人能看懂的样子（写 reason 用）。
+ *
+ * 只报 `undefined` 对排查毫无帮助——用户需要知道"发过来的是个数组/数字/没这个字段"。
+ */
+function describeValue(value: unknown): string {
+  if (value === undefined) return '没有这个字段'
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return '数组'
+  if (typeof value === 'string') return `字符串 ${JSON.stringify(value)}`
+  if (typeof value === 'number') return `数字 ${value}`
+  if (typeof value === 'boolean') return `布尔值 ${value}`
+  return '对象'
+}
+
+/**
+ * 契约联动（**编译期**）：`SayRequest` 的每个字段都必须被 {@link checkSayRequest} 处理过。
+ *
+ * 为什么值得写这三行：`SayRequest` 是本仓库里**跨团队冻结**的类型（lead 拥有
+ * `src/protocol/dialogue.ts`，面板侧按它发请求）。他给 `SayRequest` 加字段而这里没跟上时，
+ * 这个对象字面量会**编译失败**——而不是让新字段被静默忽略、到运行期才发现。
+ * 契约漂移能被 `tsc` 抓住，比靠人记得住可靠。
+ */
+const HANDLED_SAY_REQUEST_FIELDS: Record<keyof SayRequest, true> = { agentId: true, text: true }
+void HANDLED_SAY_REQUEST_FIELDS
+
+/** 校验结论：收窄成契约类型，或给一条能直接下手的原因。 */
+type SayRequestCheck = { readonly ok: true; readonly value: SayRequest } | { readonly ok: false; readonly reason: string }
+
+/**
+ * 把 `POST /api/say` 的请求体校验成契约类型 {@link SayRequest}。
+ *
+ * **收窄的目标类型就是协议层那个 `SayRequest`**（不是这里另写一份形状）——所以
+ * lead 改契约时，这个函数的返回值会编译不过，改哪边是明确的，而不是靠两边的人同步记忆。
+ *
+ * 只做**结构**校验；"角色存不存在""文本是不是全空白"属于语义，留给 `parseSay()` 分开报，
+ * 因为它们的 reason 要给出可用取值/阈值，光靠一个 boolean 守卫说不出来。
+ *
+ * @returns `ok:true` 时 `value` 是类型安全的 `SayRequest`。
+ */
+function checkSayRequest(body: unknown): SayRequestCheck {
+  const shape = '请求体要形如 {"agentId":"agent-3","text":"你去把登录 bug 修一下"} 的 JSON 对象'
+
+  // 整个请求体缺失和"某个字段缺失"是两件事，别用同一句话（"没有这个字段"放在请求体上读不通）。
+  if (body === undefined) {
+    return { ok: false, reason: `${shape}，但没有收到请求体。` }
+  }
+
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return { ok: false, reason: `${shape}，收到的是${describeValue(body)}。` }
+  }
+
+  const { agentId, text } = body as { agentId?: unknown; text?: unknown }
+
+  if (typeof agentId !== 'string' || agentId.trim() === '') {
+    return {
+      ok: false,
+      reason:
+        `agentId 要是角色的 id 字符串（形如 "agent-3"），收到的是${describeValue(agentId)}。` +
+        '可用取值见 GET /api/world 的 world.agents[].id。',
+    }
+  }
+
+  if (typeof text !== 'string') {
+    return { ok: false, reason: `text 要是字符串，收到的是${describeValue(text)}。` }
+  }
+
+  // 注意这里**不**拒绝空串/全空白：那是语义问题，由调用方给一条更具体的原因
+  //（"说话内容不能为空"），而不是混进结构错误里。
+  return { ok: true, value: { agentId, text } }
 }
 
 /**
@@ -196,22 +274,24 @@ export function createDialogueChannel(deps: DialogueDeps): DialogueChannel {
         return { accepted: false, reason: '世界还没建出来，没有人可以搭话。这通常是内容层有错误——见 agent_world_content 的输出。' }
       }
 
-      if (typeof body !== 'object' || body === null) {
-        return { accepted: false, reason: '请求体要形如 {"agentId":"agent-3","text":"你去把登录 bug 修一下"} 的对象。' }
+      // ① 结构：请求体得先是 `SayRequest` 那个形状（契约层类型，见下方 checkSayRequest）。
+      const checked = checkSayRequest(body)
+      if (!checked.ok) {
+        return { accepted: false, reason: checked.reason }
       }
-
-      const { agentId, text } = body as { agentId?: unknown; text?: unknown }
+      const { agentId, text } = checked.value
       const ids = world.agents.map((agent) => agent.id)
 
-      // 角色不存在时**同时**给出被拒的 id 与可用取值：只说"不存在"用户没法照做。
-      if (typeof agentId !== 'string' || agentId.trim() === '' || !ids.includes(agentId)) {
+      // ② 语义：角色要真的存在。不存在时**同时**给出被拒的 id 与可用取值：
+      // 只说"不存在"用户没法照做。
+      if (!ids.includes(agentId)) {
         return {
           accepted: false,
-          reason: `角色 ${JSON.stringify(agentId ?? null)} 不存在：世界里现在有 ${ids.length === 0 ? '（一个都没有）' : ids.join('、')}。`,
+          reason: `角色 ${JSON.stringify(agentId)} 不存在：世界里现在有 ${ids.length === 0 ? '（一个都没有）' : ids.join('、')}。`,
         }
       }
 
-      if (typeof text !== 'string' || text.trim() === '') {
+      if (text.trim() === '') {
         return { accepted: false, reason: '文本为空或全是空白：说话内容不能为空，请输入一句话再发。' }
       }
 

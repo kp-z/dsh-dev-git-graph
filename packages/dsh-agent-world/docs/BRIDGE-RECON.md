@@ -320,3 +320,41 @@ sed -n '95,100p'   dsh-taskboard/src/index.ts
 sed -n '56,66p'    packages/dsh-mermaid-comm/src/gate.ts
 sed -n '144,150p'  packages/dsh-mermaid-comm/src/gate.ts
 ```
+
+## 8. M6-3 落地后补记（谁实现了哪一段）
+
+M6-1 的绑定在 `src/bridge/`；M6-3 的传输段在 `src/routes/dialogue.ts`。
+两边的接缝是**结构等价的两个接口**，而不是一次 `import`：
+
+```
+src/bridge/character-bridge.ts   createCharacterBridge()  → CharacterBridge
+src/bridge/dialogue-port.ts      toDialoguePort(bridge)   → DialoguePortFace
+src/routes/dialogue.ts           createDialogueChannel()  ← DialoguePort（本地声明）
+src/index.ts（组合根）            把 toDialoguePort(...) 的结果当 DialoguePort 传进去
+```
+
+**为什么绕这一下**：`src/protocol/boundaries.ts` 规定 `routes` 只许 import
+`['protocol','runtime','scene']`，**不许 import `bridge`**。这条规则值得保留——破掉之后
+传输层会开始认识"会话怎么建、模型怎么选"，而同一个能力将来还要经工具暴露给模型，
+两条路会开始漂移。代价只是两侧各写一份三方法的接口形状。
+
+### 一条契约决定（lead，R22）
+
+`phase: 'thinking'` 的 `text` 带**提问者的原话**（不是空串）。理由同样是 D38：
+对话是世界里的事件，**第二个面板/刷新后的面板必须也能看到玩家说了什么**。
+`replied` 是回复正文，`failed` 时 `text` 为空且 `reason` 必填。
+
+> ⚠️ **验证者的 `test/acceptance-m6.test.js` 里还有一条旧断言与它冲突**：
+> `if (e.phase === 'thinking') assert.equal(e.text, '', 'thinking 时 text 必须是空串（契约第 56 行）')`。
+> 该断言来自旧契约，**必须由验证者按新契约更新**（本文件的作者无权改验证者的文件）。
+> 除此之外，那一条 SSE 验收用例的其余断言全部通过。
+
+## 9. 已知且已排期的缺口（**本轮刻意不做**）
+
+| # | 缺口 | 影响 | 排期 |
+|---|---|---|---|
+| G1 | **在 `thinking` 帧之后才打开的面板看不到玩家那句话** | SSE 是增量的，而 `/api/world` 快照里没有对话——所以一个"迟到的面板"只能看到回复、看不到提问 | **M6-6**（对话落库与回放）：对话进世界事件日志后，它就会出现在快照/回放里 |
+| G2 | 对话目前是 `type:'dialogue'` 的**独立 SSE 帧**，不是 `WorldEvent` | `WorldEventType` 里没有对话，而"对话怎么进世界日志"是 M6-6 的设计题 | **M6-6** |
+| G3 | 面板侧判据是**字段**（`turnId` + `phase`），与信封无关 | 所以 G2 的迁移不会破坏任何客户端（验证者的验收测试也是递归找字段的） | 无需动作 |
+| G4 | 上限名额由 `release`/`disposeAll` 释放，**不随"一句话说完"归还** | 对成本上限而言多算比少算安全（少算会超开模型会话＝真花钱）；超限的拒绝里写清了当前值/上限/怎么办 | 若 M6-5 面板要提供"让角色下线"，直接调 bridge 的 `release()` |
+

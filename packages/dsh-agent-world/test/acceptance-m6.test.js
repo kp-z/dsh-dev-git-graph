@@ -12,17 +12,23 @@
  * 所以它不知道 bridge 怎么建会话、turnId 怎么生成、事件套在哪种帧里——
  * 只要契约成立就该绿，实现随便换。**验证者的价值就在这个"随便换"上。**
  *
- * ## 为"还没实现的功能"先写的验收测试：标 `todo`，基线永远 `fail 0`
+ * ## 状态：M6-3 传输段已落地，本文件 7 条全绿（R24）
  *
- * 2026-10-15 写这份测试时 `POST /api/say` **还没实现**。做法不是"红着"——
- * **整棵测试树变红会让真正的失败被忽略掉**（红一旦成为常态就不再是信号）。
- * 所以每一条都带 `{ todo: '...' }`：node 的 `todo` 语义是**测试失败也不计入 `fail`**，
- * 于是基线保持 `fail 0`，而 `ℹ todo 6` 就是"欠着的红"的可见清单。
+ * 这份测试是**先写、后实现**的：R23 写它时 `POST /api/say` 还不存在，当时 7 条全标 `todo`
+ * （基线保持 `fail 0`）。R24 端点落地后，**先真的跑绿、才摘掉 `todo`**——
+ * 这是"完成"的判定方式，不是"我觉得应该能过"。
  *
- * 两条纪律（写进 `docs/VERIFICATION.md`）：
- * 1. 为未实现功能先写的验收测试必须标 `todo`，并写明**欠的是哪一条**；
- * 2. **M6 完工的判定 = 去掉 `todo` 后这几条真的转绿**。
- *    禁令：**不许改断言迁就实现**——那就是取消验收，而不是完成验收。
+ * 规矩留档（写进 `docs/VERIFICATION.md`）：
+ * 1. 为未实现功能先写的验收测试必须标 `{ todo: '...' }` 并写明欠的是哪一条；
+ *    基线永远是 `fail 0`。
+ * 2. **摘 `todo` 的标准是"真的跑过了"**。不许改断言迁就实现；
+ *    够不到的断言（例如需要真模型）单独留着 `todo` 并写明由谁覆盖，
+ *    **推演不等于跑过**。
+ *
+ * 本文件当前覆盖的两条真实路径：
+ * - **不接 port**（headless profile 的真实路径）：`thinking` → `failed`，reason 指向"会话服务不可用"；
+ * - **接桩 port**：`thinking` → `replied`，正文与方向都按契约。
+ * 桩只替代"模型怎么回"，**不替代传输**：POST 与 SSE 走的都是真 handler、真 TCP 连接。
  *
  * ## 两条不明显的断言，先把理由说清楚
  *
@@ -49,15 +55,14 @@ import { createHandler } from '../lib/routes/index.js'
 const PREFIX = '/agent-world'
 
 /**
- * "欠着的红"的可见清单：为**尚未实现**的功能先写的验收测试，一律标 `todo`。
+ * 当前**没有**未实现功能的欠账：本文件 7 条全绿。
  *
- * node 的 `todo` 语义：测试失败**不计入 `fail`**，只计入 `todo`。于是基线永远是 `fail 0`
+ * 规矩仍然生效（每轮照用，写进 `docs/VERIFICATION.md`）：
+ * **为"还没实现的功能"先写的验收测试，必须标 `{ todo: '...' }` 并写明欠的是哪一条。**
+ * node 的 `todo` 语义是"失败也不计入 `fail`"，于是基线永远 `fail 0`
  * ——红一旦成为每轮的常态，真正的失败就会被忽略掉。
- *
- * **M6 完工 = 把这两个标签去掉后，本文件真的转绿**。不许改断言迁就实现。
+ * 而完工的判定是：**去掉 `todo` 后真的转绿**，不许改断言迁就实现。
  */
-const TODO_SAY = 'M6-3 未实现：/api/say 端点还没有'
-const TODO_CAP = 'M6-1 未实现：并发唤醒上限（配置旋钮 + 可下手的拒绝理由）还没有；/api/say 端点也没有'
 
 /** 起一个真服务器（端口 0 = 系统分配），跑完关掉。真 HTTP 比假 req/res 更能说明问题。 */
 async function withServer(handler, fn) {
@@ -247,7 +252,7 @@ const CAP_KEY = Object.keys(resolveConfig({})).find(
 
 // ── 1. 合法请求 ──────────────────────────────────────────────────────────────
 
-test('M6-3 · 合法请求：accepted:true + 非空 turnId，且返回是同步的（不等模型）', { todo: TODO_SAY }, async () => {
+test('M6-3 · 合法请求：accepted:true + 非空 turnId，且返回是同步的（不等模型）', async () => {
   const deps = makeDeps()
   await withServer(deps.handler, async (base) => {
     const { ids } = await fetchWorld(base)
@@ -268,7 +273,7 @@ test('M6-3 · 合法请求：accepted:true + 非空 turnId，且返回是同步�
   })
 })
 
-test('M6-3 · 两次搭话拿到不同的 turnId（同一次搭话才复用）', { todo: TODO_SAY }, async () => {
+test('M6-3 · 两次搭话拿到不同的 turnId（同一次搭话才复用）', async () => {
   const deps = makeDeps()
   await withServer(deps.handler, async (base) => {
     const { ids } = await fetchWorld(base)
@@ -284,7 +289,7 @@ test('M6-3 · 两次搭话拿到不同的 turnId（同一次搭话才复用）',
 
 // ── 2. 三类拒绝，reason 都要能直接下手 ───────────────────────────────────────
 
-test('M6-3 · 角色不存在：accepted:false，reason 指出是哪个 id、并给可用取值', { todo: TODO_SAY }, async () => {
+test('M6-3 · 角色不存在：accepted:false，reason 指出是哪个 id、并给可用取值', async () => {
   const deps = makeDeps()
   await withServer(deps.handler, async (base) => {
     const { ids } = await fetchWorld(base)
@@ -311,7 +316,7 @@ test('M6-3 · 角色不存在：accepted:false，reason 指出是哪个 id、并
   })
 })
 
-test('M6-3 · 文本为空 / 全空白：accepted:false，reason 说清"空"', { todo: TODO_SAY }, async () => {
+test('M6-3 · 文本为空 / 全空白：accepted:false，reason 说清"空"', async () => {
   const deps = makeDeps()
   await withServer(deps.handler, async (base) => {
     const { ids } = await fetchWorld(base)
@@ -330,7 +335,7 @@ test('M6-3 · 文本为空 / 全空白：accepted:false，reason 说清"空"', {
   })
 })
 
-test('M6-3 · 超过并发唤醒上限：accepted:false，reason 给出阈值', { todo: TODO_CAP }, async () => {
+test('M6-3 · 超过并发唤醒上限：accepted:false，reason 给出阈值', async () => {
   if (CAP_KEY === undefined) {
     assert.fail(
       '配置里找不到"并发唤醒上限"的旋钮：M6-1 要求"懒创建 + 有上限 + 面板显示会话数"，' +
@@ -376,7 +381,7 @@ test('M6-3 · 超过并发唤醒上限：accepted:false，reason 给出阈值', 
 
 // ── 3. 对话确实进了 SSE（D38：对话是世界里的事件，不是私有旁路） ─────────────
 
-test('M6-3 · 对话进 SSE：字段齐全、turnId 与响应一致、先来 thinking', { todo: TODO_SAY }, async () => {
+test('M6-3 · 对话进 SSE（不接 port 的真实退化路径）：thinking 带提问者原话 → failed 带可下手 reason', async () => {
   const deps = makeDeps()
   await withServer(deps.handler, async (base) => {
     const { ids, tick: worldTick } = await fetchWorld(base)
@@ -385,7 +390,8 @@ test('M6-3 · 对话进 SSE：字段齐全、turnId 与响应一致、先来 thi
       // 先等握手帧：否则"没等到事件"与"流根本没建立"分不开。
       await sse.waitFor((f) => f.data?.type === 'hello', 'hello 握手帧')
 
-      const r = await postSay(base, { agentId: ids[0], text: '你好，你是谁？' })
+      const question = '你好，你是谁？'
+      const r = await postSay(base, { agentId: ids[0], text: question })
       const body = asSayResponse(r, 'SSE 场景下的搭话')
       assert.equal(body.accepted, true, `前置条件：搭话要先被接收（${show(r)}）`)
 
@@ -429,18 +435,97 @@ test('M6-3 · 对话进 SSE：字段齐全、turnId 与响应一致、先来 thi
         )
 
         if (e.phase === 'thinking') {
-          assert.equal(e.text, '', `thinking 时 text 必须是空串（契约第 56 行）：${JSON.stringify(e)}`)
+          // 契约 R24：thinking 的 text 是**提问者的原话**（原设计"空串"与 D38 冲突，
+          // 已作废）。不变量：thinking 帧必须能自证"在回答谁说的什么"。
+          assert.equal(
+            e.text,
+            question,
+            `thinking 的 text 必须是**提问者的原话**（契约 R24，第 45–46、59–72 行）：${JSON.stringify(e)}`,
+          )
         }
         if (e.phase === 'replied') {
           assert.ok(e.text.trim().length > 0, `replied 不该给空文本：${JSON.stringify(e)}`)
         }
         if (e.phase === 'failed') {
+          assert.equal(e.text, '', `failed 时 text 必须是空串（契约第 60 行）：${JSON.stringify(e)}`)
           assert.ok(
             typeof e.reason === 'string' && e.reason.trim().length > 0,
-            `failed 必须带能直接下手的 reason（契约第 58–63 行）：${JSON.stringify(e)}`,
+            `failed 必须带能直接下手的 reason（契约第 73–78 行）：${JSON.stringify(e)}`,
+          )
+          assert.ok(
+            e.reason.trim().length >= 8,
+            `reason 要能直接下手（写清原因与下一步），不能只有一个"失败"：${JSON.stringify(e.reason)}`,
           )
         }
       }
+
+      // 顺序与终态：面板先看到"他在想"，然后**必须**收到一个终态
+      // （红线 6：失败要退化，不要卡住——永远停在 thinking 就是"装作没事"）。
+      const phases = mine.map((e) => e.phase)
+      const terminalIndex = phases.findIndex((p) => p === 'replied' || p === 'failed')
+      assert.ok(
+        terminalIndex !== -1,
+        `必须有一个终态（replied/failed），否则面板会永远停在"他在想"：实际 ${JSON.stringify(phases)}`,
+      )
+      assert.ok(
+        phases.indexOf('thinking') < terminalIndex,
+        `thinking 必须先于终态（面板先显示"他在想"）：实际 ${JSON.stringify(phases)}`,
+      )
+    } finally {
+      await sse.close()
+    }
+  })
+})
+
+test('M6-3 · 对话进 SSE（接上会回话的 port）：thinking → replied，回复正文与方向都对', async () => {
+  // 用**桩 port** 把 replied 这一条真跑通：没有它，测试环境里序列只会是
+  // [thinking, failed]，"replied 带正文"就只是**推演**而不是验过。
+  // 桩只替代"模型怎么回"，不替代传输：POST 与 SSE 走的都是真 handler、真连接。
+  const replyText = '（桩回复）收到，我这就去工位看看。'
+  const stubPort = {
+    async say() {
+      return { ok: true }
+    },
+    async waitForReply() {
+      return { ok: true, text: replyText }
+    },
+    liveCount: () => 1,
+  }
+
+  const deps = makeDeps({}, { dialogue: stubPort })
+  await withServer(deps.handler, async (base) => {
+    const { ids } = await fetchWorld(base)
+    const sse = await openSse(base)
+    try {
+      await sse.waitFor((f) => f.data?.type === 'hello', 'hello 握手帧')
+      const question = '你去看看登录那个 bug'
+      const r = await postSay(base, { agentId: ids[0], text: question })
+      const body = asSayResponse(r, '桩 port 下的搭话')
+      assert.equal(body.accepted, true, `前置条件：搭话要先被接收（${show(r)}）`)
+
+      await sse.waitFor(
+        (f) => findDialogueEvents(f.data).some((e) => e.turnId === body.turnId && e.phase === 'replied'),
+        `turnId=${body.turnId} 的 replied 帧`,
+      )
+
+      const mine = sse.frames
+        .flatMap((f) => findDialogueEvents(f.data))
+        .filter((e) => e.turnId === body.turnId)
+
+      assert.deepEqual(
+        mine.map((e) => e.phase),
+        ['thinking', 'replied'],
+        `桩 port 会立刻回话，序列应当是 [thinking, replied]：${JSON.stringify(mine)}`,
+      )
+
+      const [thinking, replied] = mine
+      assert.equal(thinking.text, question, 'thinking 带的是提问者原话')
+      assert.equal(replied.text, replyText, 'replied 带的是回复正文')
+      assert.deepEqual(thinking.from, { kind: 'god' }, 'thinking 是玩家在说')
+      assert.deepEqual(thinking.to, { kind: 'agent', id: ids[0] }, 'thinking 是说给这个角色')
+      assert.deepEqual(replied.from, { kind: 'agent', id: ids[0] }, 'replied 是角色在说')
+      assert.deepEqual(replied.to, { kind: 'god' }, 'replied 是说给玩家')
+      assert.equal(replied.tick, thinking.tick, '同一次搭话的两个事件应当在同一 tick（世界没推进）')
     } finally {
       await sse.close()
     }

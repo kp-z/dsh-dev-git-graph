@@ -129,6 +129,59 @@ test('say：三类拒绝各自给出可下手的原因，且都不建会话', ()
   assert.equal(port.says.length, 0, '被拒的搭话一条都不该投出去')
 })
 
+// ── 1b. `SayRequest` 契约校验（结构 vs 语义必须分开报） ──────────────────────
+
+test('契约：请求体必须先是 SayRequest 那个形状，字段类型不对要说清是哪个字段', () => {
+  const port = fakePort()
+  const channel = createDialogueChannel({ service: fakeService(), port })
+
+  const cases = [
+    { body: undefined, pattern: /请求体/, what: '没有请求体' },
+    { body: 'agent-1', pattern: /请求体/, what: '发了个字符串' },
+    { body: ['agent-1', '你好'], pattern: /数组/, what: '发了个数组' },
+    { body: {}, pattern: /agentId/, what: '缺 agentId' },
+    { body: { agentId: 42, text: '你好' }, pattern: /agentId/, what: 'agentId 是数字' },
+    { body: { agentId: '  ', text: '你好' }, pattern: /agentId/, what: 'agentId 是空白' },
+    { body: { agentId: 'agent-1' }, pattern: /text/, what: '缺 text' },
+    { body: { agentId: 'agent-1', text: 42 }, pattern: /text/, what: 'text 是数字' },
+  ]
+
+  for (const { body, pattern, what } of cases) {
+    const response = channel.parseSay(body)
+    assert.equal(response.accepted, false, `${what} 必须被拒`)
+    assert.match(response.reason, pattern, `${what} 的 reason 要指出是哪个字段：${response.reason}`)
+    assert.ok(response.reason.trim().length > 0)
+  }
+
+  // 可下手：缺/错 agentId 时要告诉用户去哪儿找合法取值。
+  assert.match(channel.parseSay({}).reason, /world\.agents|api\/world/, '要指出去哪拿可用取值')
+
+  assert.equal(port.says.length, 0, '结构不对的请求一条都不该投出去')
+})
+
+test('契约：结构错误与语义错误是两条不同的原因（不能混成一句"参数错误"）', () => {
+  const channel = createDialogueChannel({ service: fakeService(), port: fakePort() })
+
+  // 全空白文本是**结构合法**的（text 是字符串），所以必须报"文本为空"这条语义原因，
+  // 而不是被结构校验吞掉。分开报，用户才知道自己该改什么。
+  const blank = channel.parseSay({ agentId: 'agent-1', text: '   ' })
+  assert.equal(blank.accepted, false)
+  assert.match(blank.reason, /空/)
+  assert.doesNotMatch(blank.reason, /请求体|要是字符串/, '语义问题不该报成结构问题')
+
+  const ghost = channel.parseSay({ agentId: 'agent-404', text: '在吗' })
+  assert.equal(ghost.accepted, false)
+  assert.match(ghost.reason, /不存在/)
+})
+
+test('契约：多余字段被容忍（只要求契约字段齐全且类型对）', () => {
+  const channel = createDialogueChannel({ service: fakeService(), port: fakePort() })
+
+  const response = channel.parseSay({ agentId: 'agent-1', text: '你好', extra: 1 })
+
+  assert.equal(response.accepted, true, '多一个字段不该把请求拒掉——契约没禁止，拒了只会让面板更难改')
+})
+
 test('say：世界没建出来时给出原因，而不是抛', () => {
   const channel = createDialogueChannel({ service: fakeService({ noWorld: true }), port: fakePort() })
 

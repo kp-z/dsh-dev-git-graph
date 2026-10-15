@@ -30,7 +30,92 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R25 末）：`typecheck` 绿 · `test` **363 / pass 357 / fail 0 / todo 6**。**M6-0/M6-1/M6-3 传输段已收（端到端 curl 实测）；真实模型回复未验。** M6-2 待做。
+当前验证状态（R26 末）：`typecheck` 绿 · `test` **367 / pass 367 / fail 0 / todo 0**（M6-3 真正收口）。**G2 尚未成立：人设仍是脚手架，M6-2 待做。**
+
+---
+
+## R26 — 2026-10-15 · M6-3 真正收口（`todo 0`）+ 验收手法升级 + G2 尚未成立
+
+### M6-3 收口：7/7 条验收用例**真的绿**，不是"标着 todo 所以不计失败"
+
+`todo 6 → 0`。verifier 把 `test/acceptance-m6.test.js:443` 的旧契约断言
+（`thinking.text === ''`）按 R24 的新契约改成"**必须是提问者的原话**"，
+并**先跑绿、再摘 `todo`**。它写明了理由，我认同这个理由本身就是纪律的一部分：
+
+> **是实现对、测试错**（旧断言与 D38 冲突）——所以按 R24 改的是**测试**，不是实现。
+
+### 验收手法升级：**变异检查**（这条让"推演不等于跑过"从口号变成可执行的动作）
+
+R25 我记下"推演不等于跑过"（测试抛异常时只有它**之前**的断言真跑过）。
+verifier 把它变成一个**可执行的证明**：把 `replied` 用例的**最后一行**断言故意改成
+`replied.tick === thinking.tick + 12345` 后跑 → `tests 7 / pass 6 / fail 1`，
+**红在那一行**（`/tmp/aw-mutation.test.js:528`）。
+
+> 也就是说：**"每一行都执行到了"这件事可以被证明，而不必声明。**
+> 命令已写进 `docs/VERIFICATION.md` §3.3。
+
+它还给了**独立探针**（`/tmp/aw-say-probe.mjs`，不经过被断言的层）：
+`POST → 200 {"accepted":true,"turnId":"turn-1"}`，两帧 `thinking`(text=提问原话, tick 0) →
+`failed`(text:"", reason="对话通道没启用（DSH 会话服务不可用）…")。**两条证据互相独立**。
+
+`docs/VERIFICATION.md`（280 行）建起来了：固定命令与数字、两条纪律、浏览器实测、
+**红线扫描 4 组可复制命令 + 实测输出**、性能判据。我 R24 引用了一个不存在的文件，这笔补上了。
+
+### 契约联动的**编译期护栏**（bridge 做的，我实测认可）
+
+```ts
+const HANDLED_SAY_REQUEST_FIELDS: Record<keyof SayRequest, true> = { agentId: true, text: true }
+```
+给 `SayRequest` 加字段而这里没跟上 → 编译失败。**它在隔离目录里真跑过 tsc 验证**：
+契约不变 `exit 0`；加个 `mode?: 'queue'|'steer'` → `TS2741 ... exit 2`。
+这类护栏的价值不在今天，在**半年后有人改契约的那一天**。
+
+而且校验分两段：**① 结构**（是不是 `SayRequest`）→ **② 语义**（角色在不在、文本是不是全空白），
+两段报**不同的** reason——理由写得很实在：「混成一句"参数错误"用户就不知道该改什么」。
+结构错误的 7 条 reason 都带**示例形状**与**去哪找可用取值**（`GET /api/world` 的 `world.agents[].id`）。
+多余字段被**容忍**（契约没禁止），这条也写清了并有用例，免得以后有人猜。
+
+### 一个必须正视的发现：**G2 还不成立**
+
+verifier 的红线扫描给出了一条我没有的结论：
+
+> **M6-2 人设仍是脚手架**：`src/index.ts:132` 接的是 `placeholderPersona`，
+> 内容库**还没有** `persona/speechStyle` 字段（扫描 [B] 0 命中）。
+> 它刻意不含人设字面量 → **不违反红线 2**，但 **G2"用自己的语气回话"尚未成立**。
+
+**这条正好是 GOAL 里 G2 的判据**，而且它把 M6-2 从"下一件事"变成了"G2 的缺口"。所以这一轮
+**我直接把内容 schema 定下来并写出 8 个人设**（见下）。
+
+它的红线扫描其余结论（我记下来，因为这是**第一次有人系统性扫过**）：[A]（`sim/domain/content`
+里的 `Date.now()`/`Math.random()`）**真命中 0**（两处命中都在注释里）；[B] 0；bridge/routes
+直写世界 **0**；[C] 唯一命中 `src/state.ts:245 world.tasks.push(...)`，**已核实是既有派单入口**
+（带 journal 事件），不是旁路。**也就是说四条红线目前都没有被破**——这个结论有扫描命令与实测输出支撑。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 367 / pass 367 / fail 0 / todo 0
+```
+
+**在冻结树上重跑的**（verifier 明确提醒：它上次跑绿后 `src/routes/dialogue.ts` 在 15:18:06 被改过，
+所以"绿"必须重新确认）。**这个提醒值得记**：并发写同一棵树时，
+**"我刚才跑绿了"不算数，必须在冻结的树上重跑**。
+
+### 下一轮从哪继续
+
+**M6-2**（G2 的缺口）：内容库加 `persona`/`speechStyle`（本轮我已定义并写出 8 个人设），
+bridge 把 `src/index.ts` 的 `placeholderPersona()` 换成"从花名册条目生成 system prompt"。
+`seed` 注入链路（`buildSystemPromptSeed`）已跑通并有测试，所以只差"填内容"。
+
+### 本轮产出
+
+- 新增：`docs/VERIFICATION.md`（280 行；验证惯例 + 红线扫描命令 + 两条纪律）
+- 修改：`src/routes/dialogue.ts`（`checkSayRequest` + 编译期护栏）、
+  `test/bridge-dialogue-route.test.js`（16 → 19 条）、`test/acceptance-m6.test.js`
+  （第 443 行按新契约改 + 新增第 7 条真 handler + 真 SSE 的用例）、`docs/BRIDGE-RECON.md`
+- 测试：357 → **367**（`fail 0`、`todo 0`）
 
 ---
 
