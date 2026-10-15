@@ -30,7 +30,91 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R24 末）：`typecheck` 绿 · `test` **347 / pass 341 / fail 0 / todo 6**（todo = M6-3 未实现，按纪律标 todo 不污染基线）。**M6-0 已通（怎么驱动 DSH Agent，有原始证据）。M6-3 进行中。**
+当前验证状态（R25 末）：`typecheck` 绿 · `test` **363 / pass 357 / fail 0 / todo 6**。**M6-0/M6-1/M6-3 传输段已收（端到端 curl 实测）；真实模型回复未验。** M6-2 待做。
+
+---
+
+## R25 — 2026-10-15 · M6-3 传输段落地：端到端通了（我自己 curl 实测，不是推演）
+
+### 这一轮真正通了什么
+
+`POST /api/say` 现在真的存在，而且**我在临时服务器上用 curl 实测了端到端传输**：
+
+| 请求 | 实测结果 |
+|---|---|
+| 合法 | `{"accepted":true,"turnId":"turn-1"}`，HTTP 200 |
+| 角色不存在 | `角色 "agent-9999" 不存在：世界里现在有 agent-1、agent-2、…、agent-8。` |
+| 文本空 / 全空白 | `文本为空或全是空白：说话内容不能为空，请输入一句话再发。` |
+| 发一句之后的 SSE | **真的收到两条 `dialogue` 帧**：`phase='thinking'` → `phase='failed'`，`turnId` 与响应一致 |
+
+信封形状是 `{"type":"dialogue","event":{…}}`——**键是 `event` 不是 `payload`**（我自己第一次解析就写错了）。
+
+**没验到的（不许说成验过）**：**真实的模型回复**。临时服务器里没有 DSH agentLoop 与模型，
+所以序列只会走到 `failed`——而这**正是它该有的行为**：给可下手的原因，而不是装作没事。
+真实的模型回复要在装了本插件的 profile 里才能看到。
+
+### 三条我认为比"让绿灯亮"更重要的判断（都出在队友身上，我记下来是因为它们可复用）
+
+**① 拒绝动边界规则。** `routes` 不许 import `bridge`，所以 M6-3 的接缝做成了
+**两侧各自声明、结构等价的两个接口**，而不是一次 `import`。代价只是几行接口声明，
+换来的是**传输层不认识 agent 生命周期**。这正是那条边界规则存在的意义——
+**它的价值在于它在你图方便的时候拦住你**。
+
+**② 修回归的方式是区分语义，不是降噪。** 第一版在 `agentLoop` 缺失时打 `logger.warn`，
+打红了「不该有警告日志」那条测试。修法不是把噪音降级，而是**区分两件事**：
+`no-agent-loop`（headless profile，**正常配置**）记 `info`；`no-session-service`
+（有 agentLoop 却拿不到会话服务，**真装错了**）才记 `warn`。
+理由：**warn 一旦成为常态就不再是信号**——这和 R21 那条"红一旦成为常态，真失败就会被忽略"是同一个道理。
+
+**③ 主动更正自己的 overclaim ——本轮最值得记的一件事。** `bridge` 先前报告"那条 SSE 用例其余断言全过了"，
+随后**自己更正**：第 432 行**抛异常中断**，所以**只有它之前的断言真的跑过，后面的没跑到**。
+它明确要求我不要把它按实现推演的话当成验收证据。
+
+> **纪律：推演不等于跑过。** 测试抛异常时只能说"第 N 行之前的断言执行并通过"，
+> 不许说"其余通过"。**"没跑到"和"过了"是两件事。**
+
+它还**拒绝自己改那一行**冲突的断言，理由是"我改了就等于实现者替验证者决定验收标准"——
+代价是 M6-3 现在带着一条待改的旧断言，但它把问题指到了**具体行号**，而不是留给别人去猜。
+
+### 一处必须由验证者改的旧断言（我不许实现者去改）
+
+`test/acceptance-m6.test.js:432` 仍是：
+```js
+if (e.phase === 'thinking') assert.equal(e.text, '', 'thinking 时 text 必须是空串')
+```
+**这与我 R24 的契约修正直接冲突**（新契约：`thinking.text` = 提问者原话，理由见 `src/protocol/dialogue.ts`）。
+已派 verifier：改这一行 → **先跑通整条用例** → 才摘 `todo`。
+**摘 `todo` 的标准是"真的跑过了"，不是"我觉得应该能过"。**
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 363 / pass 357 / fail 0 / todo 6
+```
+
+`fail 0` 守住。`todo 6` 里 **5 条已经会真绿**（去掉标志即可），剩 1 条卡在上面那行旧断言。
+**`test/bridge-dialogue-route.test.js`（16 条）补的正是验证者那份够不到的三条路径**：
+`replied` / `failed` / 端口抛异常。
+
+### 下一轮从哪继续
+
+1. **M6-2（人设从 `rosters` 生成 system prompt）**：入口是 `src/index.ts` 末尾的 `placeholderPersona()`
+   （注释里写了"看到它就该想到内容还没接上"）。**内容侧的 schema 变更（`persona`/`speechStyle`）由我定**，
+   那是共享契约，已嘱咐队友不要自己动 `src/content/`。
+2. **verifier 补 `docs/VERIFICATION.md`**（还不存在，我上轮提交里引用了它——这是我引用了一个不存在的文件，
+   记一笔自己的失误）。
+3. 之后按 Roadmap 的 P2：**M7-1 + M7-2 看板**（`task-4`，数据已有、不必等 M6）。
+
+### 本轮产出
+
+- 新增：`src/routes/dialogue.ts`（`DialoguePort` + turnId 注册表 + 上限判定 + `parseSay()` 同步解析）、
+  `src/bridge/dialogue-port.ts`（把 bridge 收窄成 port 形状）、`test/bridge-dialogue-route.test.js`（16 条）
+- 修改：`src/routes/{events,index}.ts`（对话走**同一条 SSE 流**、独立 `dialogue` 帧、慢客户端断开提成
+  `dropSlowClient()` 复用）、`src/config.ts`（`maxLiveSessions`，**注意 schemastery 的 `z.number()` 没有 `.int()`**）、
+  `src/index.ts`（构造 bridge → 注入 port；卸载时 `disposeAll`）
+- 测试：347 → **363**
 
 ---
 

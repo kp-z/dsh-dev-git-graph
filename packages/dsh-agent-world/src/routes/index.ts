@@ -11,6 +11,8 @@ import { createHttpHandler } from './router.js'
 import type { RouteEntry } from './router.js'
 import { apiRoutes } from './api.js'
 import type { ApiDeps } from './api.js'
+import { createDialogueChannel, dialogueRoutes } from './dialogue.js'
+import type { DialoguePort } from './dialogue.js'
 import { eventsRoutes } from './events.js'
 import { panelRoutes } from './panel.js'
 import { HttpError } from './router.js'
@@ -22,6 +24,18 @@ import type { EventSourcePort } from '../protocol/index.js'
 export interface HttpDeps extends ApiDeps {
   /** 事件来源（SSE 从它订阅）。 */
   source: EventSourcePort
+  /**
+   * 对话端口（M6-3）。**可选**：没有它时 `/api/say` 仍会登记对话，
+   * 但会以 SSE `phase:'failed'` + 原因收场（headless profile 的真实路径）。
+   *
+   * 类型是 `routes` 本地声明的形状，所以传进来的可以是
+   * `toDialoguePort(bridge)`（`src/index.ts` 负责接），而 `routes` 不必认识 `bridge`。
+   */
+  dialogue?: DialoguePort
+  /** 覆盖"已唤醒角色"上限；不传则读 `service.config.maxLiveSessions`。 */
+  maxLiveSessions?: number
+  /** 等模型回复的超时（ms）；测试调短用。 */
+  replyTimeoutMs?: number
   /** SSE 心跳间隔（ms）。默认 15 秒；测试会调短。 */
   heartbeatMs?: number
   /** 面板静态文件的根目录；默认取 `lib/web`（由 `scripts/copy-web.mjs` 从 `web/` 同步）。 */
@@ -56,7 +70,8 @@ function defaultVendorRoot(): string {
  * 放在静态面板**之前**：顺序就是优先级。
  */
 function apiCatchAll(): RouteEntry[] {
-  const list = 'GET /api/world（快照）· POST /api/command（命令）· GET /api/events（事件流）'
+  const list =
+    'GET /api/world（快照）· POST /api/command（命令）· POST /api/say（搭话）· GET /api/events（事件流）'
   const missing = (method: string): RouteEntry => ({
     method,
     pattern: '/api/*',
@@ -68,13 +83,24 @@ function apiCatchAll(): RouteEntry[] {
 }
 
 export function buildRoutes(deps: HttpDeps): RouteEntry[] {
+  // 对话通道**只建一次**，同时交给 SSE 与 `/api/say`：
+  // 两条路由必须是同一个对象，否则"说出去的话"就到不了"正在监听的那条流"。
+  const dialogue = createDialogueChannel({
+    service: deps.service,
+    ...(deps.dialogue === undefined ? {} : { port: deps.dialogue }),
+    ...(deps.maxLiveSessions === undefined ? {} : { maxLiveSessions: deps.maxLiveSessions }),
+    ...(deps.replyTimeoutMs === undefined ? {} : { replyTimeoutMs: deps.replyTimeoutMs }),
+  })
+
   return [
     ...eventsRoutes({
       source: deps.source,
       service: deps.service,
+      dialogue,
       ...(deps.heartbeatMs === undefined ? {} : { heartbeatMs: deps.heartbeatMs }),
     }),
     ...apiRoutes(deps),
+    ...dialogueRoutes(dialogue),
     ...apiCatchAll(), // 必须在静态面板之前：否则 API 的错路径会被当成静态文件
     ...vendorRoutes(deps.vendorRoot ?? defaultVendorRoot()), // 也在面板之前：白名单要优先于通配
     ...panelRoutes(deps.webRoot ?? defaultWebRoot()),

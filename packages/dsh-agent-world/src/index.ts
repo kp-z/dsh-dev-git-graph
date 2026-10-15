@@ -12,6 +12,7 @@
  */
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { createDshCharacterBridge, toDialoguePort } from './bridge/index.js'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
 import { createHandler } from './routes/index.js'
@@ -120,6 +121,35 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
 
   if (resolved.autoStart) runtime.start()
 
+  // ── 对话：角色 ↔ DSH Agent 会话（M6-1 / M6-3）─────────────────────────────
+  //
+  // 这一步把"世界里的小人物"接到 DSH 的 AI 基座上：每个角色**第一次被搭话时才**建一个
+  // 真实的 Agent 会话（D36 懒创建），上限由 `maxLiveSessions` 控，卸载时全部 dispose。
+  //
+  // 拿不到会话服务时**不阻塞插件加载**：世界与面板照跑，`/api/say` 仍会登记对话，
+  // 然后以一条写清了原因的 SSE `failed` 事件收场（红线第 6 条：失败要退化，不要卡住）。
+  const wiring = createDshCharacterBridge(ctx, {
+    systemPromptFor: placeholderPersona,
+    maxLiveSessions: resolved.maxLiveSessions,
+    requestIdPrefix: 'agent-world-say',
+    onError: (reason) => logger.warn(`对话桥：${reason}`),
+  })
+  if (wiring.ok) {
+    // 卸载 / 热重载时把所有角色的会话一起释放 —— 否则每改一次代码就多几个活着的会话
+    // （与上面那个 setInterval 泄漏同类：症状是成本慢慢爬高，很难归因到某个插件）。
+    ctx.effect(() => () => {
+      void wiring.bridge.disposeAll()
+    }, 'agent-world: dialogue bridge')
+    logger.info(`对话通道已就绪：上限 ${resolved.maxLiveSessions} 个角色会话（懒创建，超限会给出原因）`)
+  } else if (wiring.code === 'no-agent-loop') {
+    // headless profile 里没有 agent 能力是**正常配置**，不是警告：
+    // 把常态写成 warn，真正的警告就会被淹掉。降级行为本身由 /api/say 的失败原因讲清楚。
+    logger.info(`对话通道未启用（这个 profile 没有 agent 能力，属于正常配置）：${wiring.reason}`)
+  } else {
+    logger.warn(`对话通道未启用（有 agentLoop 却拿不到会话服务，像是装错了）：${wiring.reason}`)
+  }
+  const dialoguePort = wiring.ok ? toDialoguePort(wiring.bridge) : undefined
+
   // ── HTTP：面板 + API ─────────────────────────────────────────────────────
   //
   // `webServer` 是**软依赖**：没有它时世界照跑，只是没有界面。用 `ctx.inject` 而不是写进
@@ -132,7 +162,14 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
 
     const handler = createHandler(
       resolved.routePrefix,
-      { service: state, runtime, source: hub, tickMs: state.tickMs },
+      {
+        service: state,
+        runtime,
+        source: hub,
+        tickMs: state.tickMs,
+        maxLiveSessions: resolved.maxLiveSessions,
+        ...(dialoguePort === undefined ? {} : { dialogue: dialoguePort }),
+      },
       (error, request) => {
         const detail = error instanceof Error ? error.message : String(error)
         logger.warn(`HTTP ${request.method} ${request.pathname} 出错：${detail}`)
@@ -145,7 +182,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     host.effect(() => dispose, 'agent-world: http routes')
 
     logger.info(
-      `面板与 API 挂在 ${resolved.routePrefix}/（同宿主地址）· 快照 ${resolved.routePrefix}/api/world · 事件流 ${resolved.routePrefix}/api/events`,
+      `面板与 API 挂在 ${resolved.routePrefix}/（同宿主地址）· 快照 ${resolved.routePrefix}/api/world · 搭话 ${resolved.routePrefix}/api/say · 事件流 ${resolved.routePrefix}/api/events`,
     )
   })
 
@@ -163,4 +200,20 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       resolved.autoStart ? `每 ${state.tickMs}ms 推进一次（autoStart）` : '已建好但未开始推进（autoStart=false）'
     }`,
   )
+}
+
+/**
+ * 人设占位 —— **M6-2 会删掉这个函数**。
+ *
+ * 这里刻意**没有**任何角色名、性格、台词：红线第 2 条 / 决策 D37 是
+ * "**人设是内容**"，换一个花名册就该换一套性格、不改一行代码。
+ *
+ * 所以本函数只提供一句**结构性**说明，让 M6-3 的对话链路能端到端跑通；
+ * M6-2 会把它换成"从 `rosters` 内容条目生成 system prompt"的那个函数
+ * （内容侧要新增 `persona` / `speechStyle` / `goals` 字段）。
+ *
+ * 换句话说：**它是一根脚手架，不是人设。** 看到它就该想到"内容还没接上"。
+ */
+function placeholderPersona(characterId: string): string {
+  return `你是 Agent World 小镇里的一个角色（角色标识：${characterId}）。`
 }

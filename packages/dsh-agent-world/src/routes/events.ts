@@ -23,7 +23,7 @@
 import type http from 'node:http'
 import type { RouteEntry } from './router.js'
 import { HttpError } from './router.js'
-import type { EventSourcePort, WorldServicePort } from '../protocol/index.js'
+import type { DialogueEvent, EventSourcePort, WorldServicePort } from '../protocol/index.js'
 import { PROTOCOL_VERSION } from '../protocol/index.js'
 
 /** 建 SSE 路由需要的依赖。 */
@@ -32,6 +32,13 @@ export interface EventsDeps {
   service: WorldServicePort
   /** 心跳间隔（ms）。默认 15 秒。 */
   heartbeatMs?: number
+  /**
+   * 对话事件通道（M6-3）。
+   *
+   * 对话走**同一条事件流**，不另开端点——这是决策 D38 的要求：
+   * "对话是世界里的事件"，多开一个面板要能看到同一段对话。
+   */
+  dialogue?: { subscribe(listener: (event: DialogueEvent) => void): () => void }
 }
 
 /** 一帧 SSE 的文本。 */
@@ -115,21 +122,29 @@ export function eventsRoutes(deps: EventsDeps): RouteEntry[] {
         }
 
         let closed = false
+        let unsubscribeDialogue: (() => void) | undefined
+
+        /**
+         * 慢客户端：内核缓冲满了 = 这个客户端跟不上。**断开**，让它重连后用 `Last-Event-ID` 补发。
+         * 继续写就是让内存随一个卡住的浏览器无限增长——这也是广播层的 `publish` 可以是同步的原因。
+         */
+        const dropSlowClient = (): void => {
+          if (closed) return
+          closed = true
+          unsubscribe()
+          unsubscribeDialogue?.()
+          clearInterval(heartbeat)
+          res.write(sseComment('客户端读得太慢，已断开；重连后会自动补发断线期间的事件。'))
+          res.end()
+        }
+
         const unsubscribe = deps.source.subscribe((events) => {
           if (closed || events.length === 0) return
           const last = events[events.length - 1]
           const ok = res.write(
             sseFrame({ v: PROTOCOL_VERSION, type: 'events', events }, last === undefined ? undefined : last.seq),
           )
-          if (!ok) {
-            // 内核缓冲满了 = 这个客户端跟不上。**断开**，让它重连后用 Last-Event-ID 补发。
-            // 继续写就是让内存随一个卡住的浏览器无限增长。
-            closed = true
-            unsubscribe()
-            clearInterval(heartbeat)
-            res.write(sseComment('客户端读得太慢，已断开；重连后会自动补发断线期间的事件。'))
-            res.end()
-          }
+          if (!ok) dropSlowClient()
         })
 
         // 心跳**不只是保活，还是时钟校准**。
@@ -156,10 +171,25 @@ export function eventsRoutes(deps: EventsDeps): RouteEntry[] {
           )
         }, heartbeatMs)
 
+        // ── 对话事件（M6-3）──────────────────────────────────────────────────
+        //
+        // **同一条流、独立的帧类型**，不另开端点 —— 决策 D38：对话是世界里的事件，
+        // 多开一个面板必须能看到同一段对话。
+        //
+        // 为什么是独立帧而不是 `type:'events'` 里的 WorldEvent：`WorldEventType` 里没有对话，
+        // 而"对话怎么进世界日志、怎么回放"是 **M6-6** 的设计题（本轮不做）。
+        // 面板侧的判据是字段（`turnId` + `phase`），验证者的验收测试也是**信封无关**地递归找，
+        // 所以将来 M6-6 把它挪进 WorldEvent 不会破坏任何客户端。
+        unsubscribeDialogue = deps.dialogue?.subscribe((event) => {
+          if (closed) return
+          if (!res.write(sseFrame({ v: PROTOCOL_VERSION, type: 'dialogue', event }))) dropSlowClient()
+        })
+
         const finish = (): void => {
           if (closed) return
           closed = true
           unsubscribe()
+          unsubscribeDialogue?.()
           clearInterval(heartbeat)
         }
         // **必须挂清理**：不摘订阅的话，热重载会泄漏订阅者，

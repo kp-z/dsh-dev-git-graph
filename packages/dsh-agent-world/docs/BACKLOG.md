@@ -189,7 +189,7 @@
 | M6-0 | **done** | **查清「怎么把用户消息送进 DSH Agent 并收回复」**（整条 M6 的阻塞点）。用 `cordis_inspect_query` 查，原始证据进 `docs/BRIDGE-RECON.md` | `docs/BRIDGE-RECON.md` + `docs/GOAL.md` 第三节 | —— | owner: `bridge`（task-1）
 | M6-1 | **done** | 角色 ↔ DSH 会话绑定：懒创建（同角色复用）+ 并发上限 + dispose + `seed` 注入 system prompt | `src/bridge/` + node 测试 | M6-0 | owner: `bridge`（task-1）
 | M6-2 | ready | 人设从 `rosters` 内容库生成 system prompt（内容 schema 加 `persona`/`speechStyle`，要校验 + 报错给可用取值） | `src/content/` + `src/bridge/` + 测试 | M6-1 | 内容变更按 R16 的规矩走
-| M6-3 | in_progress | 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**
+| M6-3 | **done**（传输段）| 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**
 | M6-4 | ready | **让角色干活**：Agent 调世界工具产生**可见变化**（任务板出现该单 + 角色走向工位）。这一整套设计的意义所在 | `src/tools/` + 集成测试 | M6-3 | 判据：「对话通过工具改变了世界」，不是「画面变了」
 | M6-5 | **done** | 对话 UI（3D 头顶气泡 + 侧栏对话面板）+ 对话状态机（纯函数、可 node 测） | `web/` + `test/dialogue-state.test.js` | 契约已冻结 | owner: `panel`（task-2）
 | M6-6 | ready | 对话落库与回放（进现有事件日志，重开一局能读到上一局的对话） | `src/store/` + 测试 | M6-3 | ——

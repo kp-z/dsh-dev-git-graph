@@ -53,6 +53,18 @@ export const AgentWorldConfig = z.object({
   allowImplicitOverride: z.boolean().default(false),
 
   /**
+   * 同时唤醒的角色会话上限（决策 D36：成本可见可控）。
+   *
+   * **与 `maxAgents` 是两件事**，不要混用：`maxAgents` 管"同屏画几个小人"（渲染预算），
+   * 这个管"同时有几个 DSH Agent 会话活着"（模型成本预算）。一个角色被搭话才会占用一个名额，
+   * 所以多数角色整局都不会占。
+   *
+   * 超限时 `/api/say` 会**拒绝并给出可下手的原因**（含当前值与上限），而不是静默排队——
+   * 静默排队会让面板以为话发出去了。
+   */
+  maxLiveSessions: z.number().default(4),
+
+  /**
    * 面板路径前缀。宿主 webServer 上挂的静态面板与 API 都在它下面。
    * 改它要同时确认与其它插件的路由不冲突。
    */
@@ -73,6 +85,9 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     scene: config.scene ?? 'scene.default-town',
     contentDir: config.contentDir ?? '',
     allowImplicitOverride: config.allowImplicitOverride ?? false,
+    // 与 maxAgents 同样的写法：小于 1 或非数就退回默认（0 或负数会让所有搭话都被拒）。
+    maxLiveSessions:
+      config.maxLiveSessions && config.maxLiveSessions > 0 ? Math.floor(config.maxLiveSessions) : 4,
     routePrefix: normalizePrefix(config.routePrefix ?? '/agent-world'),
   }
 }
