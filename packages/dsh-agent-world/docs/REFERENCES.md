@@ -2,9 +2,11 @@
 
 > **这份文档为什么存在**：M4 要做 three.js 场景，最贵的是几处"手写很硬"的东西
 > （相机模式切换、大量实体的实例化、皮肤→样式收敛、标签、拾取）。
-> 原计划是"上网找现成项目借鉴"，但**这台机器目前完全没有外网**
-> （R9/R10 连续确认：`api.github.com`、`registry.npmjs.org`、`example.com` 全是 `000`；
-> `web_search` 工具的端点也配错了，返回 401）。
+>
+> **R17 起外网恢复了**（R9–R16 连续十次确认全断，R17 实测 `api.github.com` 带
+> User-Agent 返回 200、`registry.npmjs.org` / `unpkg.com` / `example.com` 全 200）。
+> 所以下面**第六节**是联网后真去 GitHub 搜到的结果——**全部核对过许可证与文件**，
+> 不是搜索结果的转述。
 >
 > 所以先把**本机已有的参考实现**整理成地图。这不是退而求其次：下面这些是
 > **同一批库**在真实项目里的用法，有类型、有测试，比随手找的 GitHub 仓库更对口。
@@ -82,3 +84,93 @@
 | `meshline` | 3.3.1 | 同上 | 粗线（路线 / 纸条飞行轨迹） |
 
 装法见 BACKLOG 的「路 B」（vendoring，离线可行）。
+
+---
+
+## 六、联网后的 GitHub 搜索结果（R17，逐个核对过许可证与文件）
+
+### 6.1 先说结论
+
+**没有"能直接拿来当场景数据"的现成项目。** 两个最对口的候选，布局都**烘在代码里**
+（是带硬坐标的声明式 TS），而不是外部数据。按本文件第三节那两条标准，它们都是**借鉴**，
+不是**直接使用**。
+
+但搜到的东西**比预期有用**，有两个原因：
+
+1. 其中一个（`factory`）的分层与**我们自己独立选的**几乎同构（`kernel` / `models` /
+   `world` / `theme.ts` / `sim`）——这是一次**外部验证**，不是巧合的相似。
+2. 另一个（`ai-iso-skill`）给出了**第二种美术风格**的实现，而且短到可以整段读：
+   约 15 行投影代码把盒子的每个面变成一幅等距平面。这正好是我们 `ScenePlan`
+   那层缝存在的意义（决策 D23）——**同一份计划，换一个渲染器**。
+
+### 6.2 逐个核对过的候选
+
+| 项目 | ★ | 许可证 | 是什么 | 判决 |
+|---|---|---|---|---|
+| `Khalidabdi1/factory` | 133 | **MIT**（© 2026 Khalid Abdi + Tolga Cohce） | 等距小镇/城市/港口/农场/星舰基地，TS + three.js，78 个文件的 `yard/` 引擎 | **借鉴**（结构可适配，布局不能喂） |
+| `MrBongoC/ai-iso-skill` | 182 | **MIT**（© Tolga Cohce） | **纯 SVG** 的发丝等距图：约 15 行投影把每个面变成 SVG `matrix()`，**零依赖** | **借鉴**（美术风格内核，可直接读透） |
+| `jeromeetienne/threex.proceduralcity` | 145 | MIT | 老牌程序化城市生成器 | 仅参考（three r60 时代，API 早过期） |
+| `StarKnightt/night-street` | 129 | MIT | 黄金时刻程序化街道，R3F + 零外部资产 | 仅参考（React 外壳，我们用不上） |
+| `jstrait/city-tour` | 88 | MIT | 程序化生成城市漫游 | 仅参考 |
+| `VisualSource/selectiveUnrealBloomPass` | 3 | MIT | 选择性 bloom（只让指定物体发光） | 可作 bloom 的备选实现 |
+| `lojjic/aframe-troika-text` | 79 | MIT | `troika-three-text` 在 A-Frame 里的用法 | 看用法（库本身我们已有） |
+
+### 6.3 `factory` 的 `yard/` 分层（外部验证）
+
+```
+yard/kernel    6 个文件  等距内核：投影、平面矩阵、Part 绘制累加器
+yard/models   13 个文件  几何构建器（车辆等）——**与我们 web/builders.js 是同一个思路**
+yard/world    24 个文件  按区域分的场景定义（town / sahel / port / metro / observatory / starbase …）
+yard/sim      29 个文件  模拟
+yard/theme.ts            主题即数据
+yard/layout.ts           路缘等全局常量
+```
+
+它的等距内核是这套：
+
+```ts
+// Scene coords: +x 右下, +y 左下, +z 上。three.js 是 y-up，所以 W 交换 y/z；
+// 一个朝 (-1,-1,-1) 看的正交相机就画出 P(x,y,z)。
+export const W = (x, y, z = 0) => new THREE.Vector3(x, z, y)
+export const plane = (O, U, V) => { …makeBasis(u, v, n).setPosition(W(...O)) }
+export const TOP   = (x,y,z) => plane([x,y,z], [1,0,0], [0,1,0])
+export const FRONT = (x,y,z) => plane([x,y,z], [1,0,0], [0,0,-1])
+export const SIDE  = (x,y,z) => plane([x,y,z], [0,-1,0], [0,0,-1])
+```
+
+**可直接抄的是"平面基矩阵"这个手法**：任何东西（矩形、文字、路径）画在 `(u,v)` 平面上，
+靠这个矩阵就落到正确的等距面。**深度靠绘制顺序解决**，不需要深度缓冲 tricks。
+
+**不能直接用的是布局**：`buildFlats(name, x, y, w, d, h, door)`——坐标是参数，但**调用点把
+坐标写死在代码里**。所以它是"一个做好的小镇"，不是"给数据就摆"的引擎。
+另外它 75 个 `.ts` 里**很多带 `// @ts-nocheck`**，说明这份代码是按"能跑"而不是"能测"写的——
+借结构可以，借代码要重写。
+
+### 6.4 第三节那三块硬骨头，现在的答案
+
+| 缺什么 | 最该读的参考 | 状态 |
+|---|---|---|
+| **骨骼动画** | three.js **官方** `examples/webgl_animation_skinning_blending.html`（200）、`webgl_animation_skinning_ik.html`（200）、`examples/jsm/utils/SkeletonUtils.js`（200） | **已核实存在**。**关键**：`SkeletonUtils.clone()` 是克隆骨骼角色的唯一正确做法——直接 `Object3D.clone()` 会**共享骨架**，24 个角色会同步抽搐。`three-stdlib`（本机 2.35.2 / 最新 2.36.1，MIT）里就有它 |
+| **SDF 文字** | `troika-three-text`（本机 0.49.1 / 最新 **0.52.5**，MIT）；用法看 `lojjic/aframe-troika-text`（79★ MIT） | 库已有，缺的是"头顶名字 + 遮挡处理"的具体写法 |
+| **后处理 / bloom** | three.js 官方 `examples/webgl_postprocessing_unreal_bloom_selective.html`（200）；`VisualSource/selectiveUnrealBloomPass`（MIT） | **`postprocessing` 最新 6.39.5，许可证是 Zlib**（宽松、与 MIT 兼容，但**不是 MIT**——按本文件第三节第一条应当显式记一笔，当作"经核对的例外"） |
+
+**版本情报（R17 实测 npm registry）**：
+
+| 包 | 最新 | 许可证 | 我们现在 |
+|---|---|---|---|
+| `three` | **0.186.1** | MIT | vendored **0.167.1**（离线期唯一副本） |
+| `postprocessing` | 6.39.5 | Zlib | 无（peer 要求 `three >=0.168`，所以 0.167.1 用不了 → **没有 bloom**） |
+| `troika-three-text` | 0.52.5 | MIT | 本机 0.49.1 |
+| `three-stdlib` | 2.36.1 | MIT | 本机 2.35.2 |
+
+### 6.5 联网后的下一步（按价值排序）
+
+1. **换掉 vendored 的 three（0.167.1 → 0.186.1）并引入 `postprocessing`** →
+   **bloom 立刻可用**（主题里的 `post.bloom.enabled` 从 R10 就留好了，一直没人接）。
+   这是一次纯替换：换 `src/vendor/` 三个文件 + 更新 sha256 + 加一个 vendored 依赖。
+2. **M5：真拿 Kenney 的 CC0 角色资产**（`docs/ASSETS.md` 已核验过那批），
+   接 `SkeletonUtils.clone()` + `AnimationMixer`。这是"换资产只改内容"的**唯一真实验证点**（M5-6）。
+3. **可选：加"发丝等距"作为第二种视图**——拿 6.3 那个平面基矩阵手法，
+   写一个**消费同一份 `ScenePlan`** 的渲染器，与现在的网格渲染器并列切换。
+   这才是"能用 GitHub 上的东西"最实在的形态：不是搬场景，是**搬内核**。
+   需要用户拍板要不要（它是一条美术方向的岔路）。

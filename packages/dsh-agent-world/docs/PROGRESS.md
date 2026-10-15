@@ -27,7 +27,131 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R16 末）：`typecheck` 绿 · `test` 270/270 绿。
+当前验证状态（R17 末）：`typecheck` 绿 · `test` 270/270 绿。**外网已恢复。**
+
+---
+
+## R17 — 2026-10-15 · 外网回来了：第一次真去 GitHub 搜索（M4 的研究任务）
+
+### 先说最重要的一件事：网络通了
+
+第 11 次检查（每轮都做）返回的是 **`403` 而不是 `000`**。这不像"还断着"——更像
+"有人应答了但不满意我的请求"。加一个 `User-Agent` 再试：**`api.github.com` 200，搜索真的出结果。**
+
+```
+403 → 200   api.github.com（带 User-Agent）
+200         registry.npmjs.org / unpkg.com / example.com
+```
+
+**这解开的是三件事**（不只是"能搜东西"）：M5 的 Kenney 资产、three 换 0.186.1（bloom 立刻可用）、
+以及**用户从最开始就要我做的那件事**——去 GitHub 找现成的游戏场景。
+（R9–R16 十次 `000` 期间我把这条一直挂在每轮汇报里，现在它不再是阻塞了。）
+
+### 本轮做的是研究：真的去搜了，并且逐个核实
+
+按 `docs/REFERENCES.md` 第三节自己定的两条硬标准来筛（许可证宽松；能喂数据而不是烘死布局），
+**逐个核对了许可证与文件内容**，不是转述搜索结果。写进了该文档的新增第六节。
+
+**结论要直说：没有"能直接拿来当场景数据"的现成项目。** 两个最对口的候选，布局都烘在代码里。
+
+| 项目 | ★ | 许可证 | 判决 |
+|---|---|---|---|
+| `Khalidabdi1/factory` | 133 | **MIT** | **借鉴**（结构可适配，布局不能喂） |
+| `MrBongoC/ai-iso-skill` | 182 | **MIT** | **借鉴**（发丝等距的美术内核，短到能整段读透） |
+| `jeromeetienne/threex.proceduralcity` | 145 | MIT | 仅参考（three r60 时代，API 早过期） |
+| `StarKnightt/night-street` | 129 | MIT | 仅参考（R3F 外壳） |
+| `VisualSource/selectiveUnrealBloomPass` | 3 | MIT | bloom 的备选实现 |
+
+但搜到的东西**比预期有用**，两个原因：
+
+**① `factory` 的分层与我们自己独立选的几乎同构**——`yard/kernel`（等距内核）/
+`yard/models`（13 个几何构建器）/ `yard/world`（24 个按区域分的场景定义）/ `yard/theme.ts` /
+`yard/sim`。这跟我们 R16 才定下的 `builders.js` + `ScenePlan` + 内容库是**同一个思路**。
+一次外部验证，不是巧合的相似。
+
+**② 它的等距内核短到可以直接读透**，而且手法值得抄：
+
+```ts
+export const W = (x, y, z = 0) => new THREE.Vector3(x, z, y)   // 换 y/z：three 是 y-up
+export const plane = (O, U, V) => { …makeBasis(u, v, n).setPosition(W(...O)) }
+export const FRONT = (x,y,z) => plane([x,y,z], [1,0,0], [0,0,-1])
+```
+
+**任何东西（矩形、文字、路径）画在 `(u,v)` 平面上，靠一个基矩阵就落到正确的等距面；
+深度靠绘制顺序解决。** 它的上游 `ai-iso-skill` 更极端：**纯 SVG + 约 15 行投影，零依赖**，
+每个盒子面变成一幅 SVG `matrix()`。
+
+所以"能用 GitHub 上的东西"最实在的形态不是**搬场景**，是**搬内核**——
+而决策 D23（`ScenePlan` 与渲染器无关）正好就是为这件事留的缝。
+
+**不能直接用的原因也写清了**：`factory` 的 `buildFlats(name, x, y, w, d, h, door)` 坐标是参数，
+但**调用点把坐标写死在代码里**——它是"一个做好的小镇"，不是"给数据就摆"的引擎。
+另外它 75 个 `.ts` 里很多带 `// @ts-nocheck`：借结构可以，借代码要重写。
+
+### 第三节那三块硬骨头，现在的答案
+
+| 缺什么 | 结论 |
+|---|---|
+| **骨骼动画** | 最该读的是 **three.js 官方** `webgl_animation_skinning_blending.html` / `_ik.html` / `examples/jsm/utils/SkeletonUtils.js`（三个都实测 200）。**关键**：`SkeletonUtils.clone()` 是克隆骨骼角色的唯一正确做法——直接 `clone()` 会**共享骨架**，24 个角色同步抽搐 |
+| **SDF 文字** | `troika-three-text`（本机 0.49.1，最新 0.52.5，MIT）；用法看 `lojjic/aframe-troika-text` |
+| **后处理 / bloom** | 官方 `webgl_postprocessing_unreal_bloom_selective.html`（200）。**`postprocessing` 最新 6.39.5，许可证是 Zlib**——宽松且与 MIT 兼容，但**不是 MIT**，按第三节第一条我显式记成了"经核对的例外" |
+
+版本情报（实测 npm registry）：`three` **0.186.1**（我们 vendored 0.167.1）、
+`postprocessing` 6.39.5、`troika-three-text` 0.52.5、`three-stdlib` 2.36.1。
+
+### 下一轮从哪继续（联网后按价值排序）
+
+1. **M4-9：换 three 0.167.1 → 0.186.1 + 引入 `postprocessing` → 接上 bloom**。
+   主题里的 `post.bloom.enabled` 从 R10 留到现在没人接（0.167.1 差一个 minor 进不去 peer）。
+   纯替换：换 `src/vendor/` 三个文件 + 更新 sha256 + 新增 vendored 依赖。
+2. **M5：真拿 Kenney 的 CC0 角色资产**（`docs/ASSETS.md` 已核验过那批），
+   接 `SkeletonUtils.clone()` + `AnimationMixer`。这是"换资产只改内容"的唯一真实验证点（M5-6）。
+3. **M4-10（要用户拍板）**：发丝等距作为**第二种视图**——消费同一份 `ScenePlan` 的第二个渲染器。
+   这是我倾向的方向（决策 D23 的第二次兑现），但它是美术方向的岔路，不该我一个人定。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 270 / pass 270 / fail 0
+```
+
+本轮**没有改代码**（研究轮），所以测试数与 R16 相同：**270/270**。改的是
+`docs/REFERENCES.md`（新增第六节）与 `docs/BACKLOG.md`（M4-9 / M4-10）。
+**这一轮的可验证产出就是那份核对过许可证与文件内容的参考清单**——
+它的价值全在"核对过"三个字上：每条判决后面都能指到具体文件或具体 HTTP 状态码。
+
+另外把该文档开头那段已经过期的"这台机器完全没有外网"改成了事实（并保留了断网期的结论，
+因为第三、四、五节的所有判断都是在那十轮里做的，且**它们没有因为联网而失效**）。
+
+### 假设
+
+- **`403` 就是"网络回来了"的信号**：GitHub 的 API 对没有 `User-Agent` 的请求返回 403。
+  这条值得记——**断网与"被拒绝"在 `curl` 里长得完全不同**（`000` vs `403`），
+  而我一直只看"是不是 `000`"。前几轮如果带上 UA 试一次，可能早就发现通了。
+- **`postprocessing` 的 Zlib 可以接受**：Zlib 比 MIT 更宽松、与之兼容。
+  但它是**这条筛选标准上的第一个例外**，所以记在文档里而不是默默放行。
+- **`factory` 的"借鉴"是结构级的**：`kernel/models/world/theme` 这个切分可以照搬，
+  代码不行（`@ts-nocheck`、Next.js 外壳、布局写死）。
+
+### 卡住 / 风险
+
+- **联网后的第一个诱惑是"顺手把 M5 也做了"**。没做：一轮只做一件能做完且能验的事，
+  而研究本身要看的东西（许可证、文件、版本、上游项目）已经够多了。
+- **`unpkg.com` 能通但没验过能装 npm 包**：下一个真正要下载的依赖是 `postprocessing`，
+  而**根 `pnpm install` 是坏的**（`packages/dsh-daily` 的过期 RC 钉死，用户正在那条线上干活，
+  我不能碰）。所以 M4-9 需要一条**绕过根 workspace** 的取包路径——下一轮第一件事就是确认这条路。
+- **搜索只做了仓库级**：GitHub 的代码搜索需要认证，所以"某个仓库里具体怎么用
+  `SkeletonUtils.clone()`"这种问题现在只能靠读官方 example。够用，但不是万能。
+- **`web/` 仍是手写 JS 没有类型**（R10/R13/R14/R15/R16 记到第六次了）。
+  这一轮没动代码所以没加剧，但这仍是我欠得最久的一笔账。
+
+### 本轮产出
+
+- 文档：`docs/REFERENCES.md`（新增第六节：核对过的 GitHub 候选、三块硬骨头的答案、版本情报、下一步排序）、
+  `docs/BACKLOG.md`（新增 M4-9 可做、M4-10 待拍板）
+- 无代码变更；测试仍 270/270
 
 ---
 
