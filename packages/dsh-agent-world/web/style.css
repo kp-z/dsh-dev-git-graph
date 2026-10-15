@@ -122,3 +122,90 @@ button.ghost {
 .bubble b { display: block; color: var(--dim); font-weight: 600; }
 .bubble.d-thinking { color: var(--warn); border-color: #4a3f2b; }
 .bubble.d-failed { color: #f2c0d6; border-color: #6b2b45; }
+
+/* ── 执行看板（M7-1）────────────────────────────────────────────────────────
+   三段式：成员看板 / 任务依赖图 / 详情栏（ROADMAP §3.3）。
+   配色**全部来自看板 token**——board.js 把 token 解析成色值后写成下面的 `--board-*`
+   自定义属性，所以这个文件里没有看板的十六进制色值。
+   两处刻意的差别：
+   · **状态色**缺 token 时是哨兵色（内容里的 `board.missing`，品红）——语义层必须刺眼；
+   · **界面底色**（bg/card/fg/dim）缺 token 时退回面板自身的 chrome（`var(--bg)` 等），
+     那本来就是面板层的事，不该把整块看板染成品红。缺了什么由顶部的提示条说出来。 */
+#board {
+  height: 340px; min-height: 0; flex: none;
+  border-top: 1px solid var(--line);
+  background: var(--board-bg, var(--bg));
+  color: var(--board-fg, var(--fg));
+  display: flex; flex-direction: column; font-size: 12px;
+}
+#board[hidden] { display: none; }
+.board-head {
+  display: flex; align-items: center; gap: 10px; padding: 6px 12px;
+  border-bottom: 1px solid var(--board-card-line, var(--line));
+}
+.board-head h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--board-dim, var(--dim)); margin: 0; }
+.board-counts { flex: 1; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.board-count { display: flex; align-items: center; gap: 4px; }
+.board-count-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--st, currentColor); }
+.board-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--st, currentColor); }
+.board-missing { outline: 1px dashed currentColor; }
+.board-missing-note {
+  padding: 4px 12px; font-size: 11px;
+  background: var(--board-fail-bg, var(--panel)); color: var(--board-verify, var(--warn));
+}
+.board-body { flex: 1; display: flex; min-height: 0; }
+.board-members {
+  width: 300px; flex: none; overflow: auto; padding: 6px 8px;
+  border-right: 1px solid var(--board-card-line, var(--line));
+}
+.board-members h3, .board-graph h3 {
+  display: flex; gap: 8px; align-items: baseline; margin: 0 0 6px;
+  font-size: 11px; letter-spacing: .06em; color: var(--board-dim, var(--dim));
+}
+.board-member-list { display: flex; flex-direction: column; gap: 4px; }
+/* 一行一个成员：名字 · 职业 · 状态 + 他手上的单。**刻意压扁**
+   ——8 个成员要能一眼看全（需要滚动的话，"谁在做什么"这个首要问题就要滑一下才答得上来）。 */
+.board-member {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  border: 1px solid var(--board-card-line, var(--line)); background: var(--board-card, var(--panel));
+  border-radius: 6px; padding: 3px 6px;
+}
+.board-member.active { outline: 1px solid var(--board-select, currentColor); }
+.board-member-head { display: flex; gap: 5px; align-items: baseline; cursor: pointer; }
+.board-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.board-chip {
+  display: flex; gap: 4px; align-items: center; font: inherit; font-size: 11px; cursor: pointer;
+  background: transparent; color: inherit; padding: 0 5px; border-radius: 4px;
+  border: 1px solid var(--st, var(--board-line, var(--line)));
+}
+.board-chip-id, .board-node-id, .board-detail-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.board-chip-id { color: var(--board-dim, var(--dim)); }
+.board-graph { flex: 1; min-width: 0; display: flex; flex-direction: column; padding: 8px 10px; }
+.board-canvas {
+  position: relative; flex: 1; overflow: auto; border-radius: 6px;
+  border: 1px solid var(--board-card-line, var(--line)); background: var(--board-bg, var(--bg));
+}
+.board-edges { position: absolute; left: 0; top: 0; pointer-events: none; }
+.board-cards { position: relative; }
+.board-edge { stroke: var(--board-line, currentColor); stroke-width: 1.2; }
+.board-edge.done { stroke: var(--board-done-line, currentColor); stroke-width: 1.6; }
+.board-node {
+  position: absolute; display: flex; flex-direction: column; gap: 3px; overflow: hidden;
+  text-align: left; font: inherit; cursor: pointer; padding: 5px 7px; border-radius: 6px;
+  background: var(--board-card, var(--panel)); color: var(--board-fg, var(--fg));
+  border: 1px solid var(--board-card-line, var(--line)); border-left: 3px solid var(--st, currentColor);
+}
+.board-node.needs-review { border-style: dashed; border-color: var(--board-verify, currentColor); border-left-style: solid; border-left-color: var(--st, currentColor); }
+.board-node.is-failed { background: var(--board-fail-bg, var(--panel)); }
+.board-node.is-selected { box-shadow: 0 0 0 2px var(--board-select, currentColor); }
+.board-node-top { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--board-dim, var(--dim)); }
+.board-node-id { color: var(--board-dim, var(--dim)); }
+.board-node-title { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.board-node-progress { height: 3px; border-radius: 2px; overflow: hidden; background: var(--board-card-line, var(--line)); }
+.board-node-progress-fill { display: block; height: 100%; width: 0; background: var(--st, currentColor); }
+.board-detail {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px;
+  border-top: 1px solid var(--board-card-line, var(--line));
+}
+.board-unlocks { color: var(--board-verify, var(--warn)); }
+#board .dim { color: var(--board-dim, var(--dim)); }

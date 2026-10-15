@@ -18,6 +18,7 @@
 import { applyEvents, decideOnBatch, pruneMessages } from './world-update.js'
 import { createDialogueUi } from './dialogue-ui.js'
 import { dialogueEventsFromFrame } from './dialogue-state.js'
+import { createBoard } from './board.js'
 
 const SNAPSHOT_API = './api/world'
 const COMMAND_API = './api/command'
@@ -78,6 +79,11 @@ let scene3d = null
 let scene3dError = null
 /** 对话面板（M6-5）。状态机在 `dialogue-state.js`，DOM 在 `dialogue-ui.js`。 */
 let dialogue = null
+/**
+ * 执行看板（M7-1）。**由数据事件驱动**（`board.update(world)`，见 `receive()`），
+ * 不挂进 `render()` 那条 60fps 的路——看板不进 3D 渲染循环，这是"场景不被拖慢"的前提。
+ */
+let board = null
 /** 头顶气泡的 DOM 节点（按 agentId 复用，只改位置与文本，不每帧重建）。 */
 const bubbleNodes = new Map()
 
@@ -91,8 +97,7 @@ const RENDER_MIN_GAP_MS = 16
  *
  * 没有变更事件的那些步**不会产生任何事件**（没人动就没有帧事件，没人在干活就没有进度事件），
  * 所以本地要在两次权威时间之间自己往前走：每条事件与 `sync` 心跳都会校正基准。
- */
-function currentTick() {
+ */function currentTick() {
   if (world === null) return 0
   const slipped = Math.floor(Math.max(0, performance.now() - syncBaseMs) / (meta?.tickMs ?? 100))
   return world.tick + slipped
@@ -518,6 +523,9 @@ async function loadSnapshot() {
       libraries: snap.content.libraries,
       packs: snap.content.packs,
       theme: snap.scene?.theme ?? null,
+      // 看板的颜色 token → 色值。**配色是内容**：面板只从快照里拿这份表，
+      // 代码里没有任何看板的十六进制色值（见 web/board-layout.js 的文件头）。
+      palette: snap.palette ?? {},
       tickMs: snap.runtime.tickMs,
       messageDeliveryTicks: snap.runtime.messageDeliveryTicks,
       persistErrors: snap.runtime.diagnostics.persistErrors,
@@ -526,6 +534,9 @@ async function loadSnapshot() {
     nextSeq = snap.seq
     // 角色的名字只从世界数据来（D37：人设是内容，代码里没有角色名）。
     dialogue?.setAgents(world.agents)
+    // 看板：换快照就重新灌调色板与数据（内容/主题可能真的变了）。
+    board?.setPalette(meta.palette)
+    board?.update(world)
     syncBaseMs = performance.now()
     lastMessageMs = performance.now()
     // 3D 用**快照里的** ScenePlan 重建静态部分（地面/站点/光照/相机），位姿由 `world` 每帧提供。
@@ -661,6 +672,8 @@ function receive(events) {
   // 每条事件都是一次权威时间校准。
   syncBaseMs = performance.now()
   pruneMessages(world)
+  // 看板**由数据事件驱动**（不是每帧）：它自己比签名，结构没变就不动 DOM。
+  board?.update(world)
   render()
 }
 
@@ -795,8 +808,20 @@ $roster.addEventListener('click', (event) => {
 bindPick(canvas, pickTopActor)
 bindPick(canvas3d, (clientX, clientY) => (scene3d === null ? null : scene3d.pickActor(clientX, clientY)))
 
+// ── 执行看板（M7-1）──────────────────────────────────────────────────────────
+//
+// 这里只做**接线**：数据（`world`）与调色板（`snap.palette`）从上面来，
+// 三段式 DOM 与布局全在 `board.js` / `board-layout.js` 里。
+// `onSelect` **刻意留空**：点方框 → 3D 里那个人/工位发亮是 **M7-3** 的活（双向高亮），
+// 本轮不做；留这个钩子是为了那时不必再改这一处。
+board = createBoard({
+  root: document.getElementById('board'),
+  palette: {},
+  onSelect: () => {},
+})
+
 // 本地时钟的可见部分：每 250ms 重画一次，让"没事件但时间在走"看得见，
-// 也让纸条在两次事件之间平滑飞行。
+// 也让纸条在两次事件之间平滑飞行。**看板不在这条路上**（它由 `receive()` 驱动）。
 setInterval(render, 250)
 
 // `?debug=1` 时才把对话状态机挂出去。
@@ -811,6 +836,16 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     expire: (nowTick) => dialogue.expire(nowTick, performance.now()),
     bubbles: () => dialogue.bubblesFor(performance.now()),
     say: sayToAgent,
+  }
+  // 看板：暴露 `stats()`（重画次数 / 列数与边数 / 缺哪些 token）与"用当前世界强制刷新一次"，
+  // 供核验用——**别拿它当业务接口**。
+  globalThis.__agentWorldBoard = {
+    stats: () => board.stats(),
+    refresh: () => board.update(world),
+    select: (taskId) => board.select(taskId),
+    model: () => board.model(),
+    layout: () => board.layout(),
+    geometry: () => board.geometry(),
   }
 }
 

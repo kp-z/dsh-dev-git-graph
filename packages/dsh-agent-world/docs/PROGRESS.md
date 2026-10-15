@@ -30,7 +30,95 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R28 末）：`typecheck` 绿 · `test` **386 / pass 386 / fail 0 / todo 0**。**M6-2 完成（人设驱动 prompt）**。转 P2 看板（M7-1+M7-2）。**唯一等用户点头的事：是否装进 profile 验 U1/U2（G2 的门槛）。**
+当前验证状态（R29 末）：`typecheck` 绿 · `test` **405 / pass 405 / fail 0 / todo 0**。**执行看板（M7-1+M7-2）已交付**。下一件：**在 web profile 验 U1/U2（G2 的门槛，用户已批）**。
+
+---
+
+## R29 — 2026-10-15 · M7-1 + M7-2 执行看板落地（P2 第一件交付）
+
+### 结果
+
+**405 / pass 405 / fail 0 / todo 0**（+19 条布局纯函数测试）。
+
+- `web/board-layout.js`（**纯函数**）：最长前置链列号 + 列内行号 + 贝塞尔端点 + **反向解锁索引** + token 解析。
+  **零 DOM / 零时钟 / 零随机**。
+- `web/board.js`：三段式 DOM/SVG（成员 / 依赖图 / 详情），**不进 3D 渲染循环**。
+- `web/app.js` 只接线（`receive()` 里 `board.update(world)`，**没进 60fps 那条路**）。
+- 内容：`src/content/packs/default.ts` 的 `skins` 库**纯追加** 17 个 `board.*` token（含缺 token 的哨兵色）。
+
+**看板是"把已有数据画出来"，不是新子系统**——这一点被实测证实：依赖图**是真的有依赖**，
+内置任务集自带 `task.software-feature` 7 张 + `quick-fix` 3 张 → **5 列 / 10 边**，
+`task-5` 要 `task-3`+`task-4`、`task-7` 要 `task-5`+`task-6`，最长前置链算对了。
+
+### 我自己的视觉核对抓到一个队友的数字检查**没抓到**的真缺陷
+
+**症状**（我看截图看到的）：
+- **最右侧 `task-7` 被右边缘切掉一半**（只剩 `task-` 和「交付归」）；
+- **左下角成员列表最后一行 `小雯` 被下边缘切掉一半**。
+
+**而队友报的是**："**0 个节点溢出容器**"、"列表不滚动（`scrollHeight == clientHeight == 263`）"。
+
+**这两个结论不矛盾——恰恰是同一个签名的两种解释。** `overflow: hidden` 造成的裁剪，
+`scrollHeight == clientHeight` **也成立**。也就是说：
+
+> 那个检查证明的是「**不需要滚动条**」，**不是**「**没有被切掉**」。
+
+**这就是"面板改动必须真的看一眼"这条规矩的价值**：数字可以全过，而东西明明是坏的。
+已记 **M7-9**（裁剪 + 响应式），并把这条"签名的两种解释"写进 `docs/VERIFICATION.md` 的待补条目。
+
+### 队友主动交出来的两件事（都没让它自己修）
+
+**① 一个真缺陷（不在它写盘范围，只报告）**：增量里**没有 `blockedBy` / `requires`**——
+`web/world-update.js` 的 `task.changed` 分支把新任务建成 `blockedBy: []`，也不带 `requires`。
+所以**快照之后新建的任务，在看板上画不出依赖边、也没有橙色虚线框**。
+真修要让 `src/sim/patches.ts` 的 `task.changed` 带上这两个字段。已记 **M7-8**。
+（这轮看不出来，因为两条流水线都是开局就派出的——**它说清了"为什么现在看不出来"**，
+这比只说"有个缺陷"有用。）
+
+**② 一笔债**：六态中文标签在 `board.js` 与 `app.js` 里是**两份**（它不敢 import `app.js`——
+那是入口、有副作用）。建议 M7-7 搬去 DSH 侧栏 tab 时合并成一份共享模块。已记 **M7-10**。
+
+### 看板自身的代价（可解释，这是它不会拖慢场景的证据）
+
+强制 `board.refresh()` 300 次 = **6ms** → **0.02ms/次**，300 次全走"指纹没变，连模型都不折"的早退。
+真实运行里 `structureRebuilds 1~2 / stateRefreshes 4 / skipped 110+`——
+**结构没变就只就地改几个 class/文本，不重建 DOM**。
+3D 侧：`benchmark(120)` = **0.266ms/次**（R21 基线 0.35ms）、**重建 1**、纹理 18、绘制 42 / 三角形 7,634
+（与 R21 基线一字不差，**纹理没涨**）、看板展开时 4 秒 **0 条 longtask**。
+
+### 一次运行事故（记下来，因为它是真的会发生的那种）
+
+队友在 **18439** 起了一个自己的临时服务器来验（因为 18437 是**内容改动之前**起的进程，
+`service.content()` 在内存里，永远看不到新 token）。这是**对的判断**，但也意味着：
+**改了 `src/content/` 就必须重建 + 重启，否则你会看到一片"缺 token"的看板**。
+我在本轮验收里踩了一次——先看到满屏"缺 17 个看板颜色 token"，重启后正常。
+这条已写进 `docs/VERIFICATION.md` 的浏览器实测流程。
+
+**更值得记的是它的降级表现**：缺 token 时看板**不静默变灰**，而是显示
+「缺 17 个看板颜色 token（board.bg / board.card / …）」并把 10 个节点全挂 `board-missing`（虚线描边）。
+**缺东西就一眼看得出来**——这正是 R19 那条"灰蓝=加载中 / 品红=出错"的同一条原则。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 405 / pass 405 / fail 0 / todo 0
+node --test test/board-layout.test.js                         # tests 19 / pass 19 / fail 0
+```
+
+### 下一轮从哪继续
+
+1. **M7-9（裁剪 + 响应式）**：这是我自己看得见的问题，优先修——**不能被"数字全过"掩盖**。
+2. **M7-8（增量带 `blockedBy`/`requires`）**：`src/sim/patches.ts` 是我的范围，我来改。
+3. **M7-3（与 3D 双向高亮）**：看板存在的最大理由，还没做（`onSelect` 是空钩子）。
+4. 用户已答复：**在 web 这个 profile 验证 U1/U2（G2 的门槛）**——这件事排在最前面，见下一轮。
+
+### 本轮产出
+
+- 新增：`web/board-layout.js`、`web/board.js`、`test/board-layout.test.js`（19 例）
+- 修改：`web/{app.js,index.html,style.css}`、`src/content/packs/default.ts`（17 个 `board.*` token）
+- 测试：386 → **405**
 
 ---
 

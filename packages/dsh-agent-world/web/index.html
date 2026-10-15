@@ -84,6 +84,13 @@
       </aside>
     </main>
 
+    <!--
+      执行看板（M7-1）——三段式：成员看板 / 任务依赖图 / 详情栏。
+      **纯 DOM/SVG，不参与 3D 渲染循环**（由数据事件驱动，理由见 web/board.js 的文件头）；
+      内部结构由 board.js 建，这里只给一个容器。整块可以收起，把地方还给场景。
+    -->
+    <section id="board" class="board" aria-label="执行看板"></section>
+
     <script type="module" src="./app.js"></script>
   </body>
 </html>

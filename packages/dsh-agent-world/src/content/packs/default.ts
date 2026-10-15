@@ -128,6 +128,36 @@ export const defaultPack: ContentPack = {
           'station.mailroom': '#8F6F4A',
           'station.lab': '#5F8F7A',
           'station.breakroom': '#7A8F5F',
+
+          // 执行看板（M7-1）——取自 docs/ROADMAP.md §3.5 从参考图（DSH 内置 Agent Teams 看板）
+          // 提取的目标值。看板与 3D 小镇**同屏并排**，所以这组色刻意比场景暗、比场景低饱和：
+          // 它是"信息层"，不该跟会走动的小人抢视觉重心。
+          //
+          // 六态**直接用 TaskStatus**（不新造一套）：done 绿 / failed 红 / ready 琥珀 /
+          // in_progress 蓝 / blocked 灰 / pending 更暗的灰。§3.5 只给了成功/失败/验证三个目标值，
+          // 其余三个按"六态一眼可分"选，并且都服从同一条纪律：**色相表意，明度分轻重**。
+          'board.bg': '#121212',
+          'board.card': '#2C2C2C',
+          'board.fg': '#E0E0E0',
+          'board.dim': '#A0A0A0',
+          // 依赖连线：淡，不抢节点（§3.5）。比 card 亮一点点，正好能在深底上看见。
+          'board.line': '#444444',
+          'board.cardLine': '#3A3A3A',
+          // 边框语义（§3.5）：完成=实线深绿；验证=虚线橙；失败=实线红 + 微红底。
+          'board.doneLine': '#15803D',
+          'board.verify': '#F59E0B',
+          'board.failBg': '#3A1D1D',
+          // 选中：微弱发光，与"高亮"区分开（§3.5 最后一行）。
+          'board.select': '#60A5FA',
+          'board.status.pending': '#4B5563',
+          'board.status.ready': '#F59E0B',
+          'board.status.in_progress': '#3B82F6',
+          'board.status.blocked': '#6B7280',
+          'board.status.done': '#22C55E',
+          'board.status.failed': '#EF4444',
+          // 缺 token 时的哨兵色。**它是内容而不是代码里的字面量**：面板缺哪个 token
+          // 就用它画，一眼看得出来（沿用 scene.ts resolveColor 里"品红=缺东西"的口径）。
+          'board.missing': '#FF00FF',
         },
       },
     ],
