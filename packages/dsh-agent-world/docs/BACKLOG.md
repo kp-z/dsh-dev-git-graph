@@ -202,6 +202,10 @@
 | M10-5 | in_progress | **两套任务模型要合流**（R38 定下的下一步）：小镇工单（可重放、按时钟）与 agent-teams 任务图并存 = 两个「谁在干什么」。要么让小镇工单就是 agent-teams 的任务，要么明确分工（小镇管位置/时序，agent-teams 管谁做什么）。**先写进 ARCHITECTURE 再动代码** | `src/sim/**` + `docs/ARCHITECTURE.md` | M10-1 | 用户已授权改内部代码 |
 | M10-6 | ready | **合流接上线**（R39 地基之后）：同步环（队长身份轮询 `agent_teams_status` → `planTeamSync` → 命令进世界）+ live 下 `dispatch` 同时建团队任务并回填 `externalId` + 世界跟随 `dialogueBackend` 切 `live`。先读 status 返回的 tasks 确切字段 | `src/index.ts` + `src/bridge/teams.ts` | M10-5 | 不接上线，真机上任务仍是假完成 |
 | M7-12 | ready | 动作行里 `agent_teams_*` 没有中文标签（`web/ui/labels.js` 只映射了世界工具） | `web/ui/labels.js` | —— | 派给 panel |
+| M11-1 | ready | **规模压测**（SCALING 第四节第 1 步）：造 500/2000/5000 角色的世界，量每 tick 耗时、存盘耗时、3D 帧耗时、内存，结果表进 `docs/VERIFICATION.md` | `test/` 或 `scripts/` + docs | —— | 后面所有扩展的尺子 |
+| M11-2 | ready | **智能分级**（D42）：角色 `scripted`/`awake` 两级，唤醒/休眠策略 + 并发上限，awake = agent-teams 成员 | `src/bridge/` + `src/domain/` | M10-6 | 成本是否可控取决于它 |
+| M11-3 | ready | **内部模块注册表**（D45）：子系统按协议接口登记，`src/index.ts` 改为按名字装配 | `src/index.ts` + `src/protocol/` | M11-1 | 给后续整体替换铺路 |
+| M11-4 | ready | **实体/组件**（D43）与**区域**（D44）：等 M11-1 压测给出瓶颈后再设计 | `src/domain/` `src/sim/` `src/store/` | M11-1 | 不做过早设计 |
 | M6-9 | ready | **flaky 测试普查**（R27 发现）：`test/store.test.js` 用固定 `setTimeout(20)` 当同步手段，在载荷下会假红。已修那一处，但**同类写法可能还有**（`grep -n 'setTimeout(' test/`）。flaky 比失败更糟：它让「绿」不可信，而绿是验收纪律的基础 | `test/**` | —— | 一行 grep 就能普查 |
 | M6-2 | **done** | 人设驱动 system prompt（R27 内容侧 + R28 宿主侧）。`seatForAgent` 按**序号优先 + 名字交叉校验**，同名歧义返回 undefined 让上层报原因。**哨兵测试**防 id 规则变动导致人设静默错位。**判据「改花名册 → prompt 跟着变、代码零改动」由真实内容的装配测试证明** | —— | ✅ R28 | —— |
 | M6-3 | **done**（传输段）| 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**
