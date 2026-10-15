@@ -30,7 +30,123 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R21 末）：`typecheck` 绿 · `test` 287/287 绿。**外网已恢复。定时任务已取消（用户要求）。**
+当前验证状态（R22 末）：`typecheck` 绿 · `test` 287/287 绿。**目标见 `docs/GOAL.md`（权威）。定时任务已重建（每小时）。3 个队友在跑（其中两个因 reviewer 限额失败，待重派）。**
+
+---
+
+## R22 — 2026-10-15 · 目标钉死 + 组队 + 冻结对话契约（M6 系列的起点）
+
+### 用户第一次把最终目标说清楚
+
+> 在一个网页上，利用 DSH 的对话机制和它的 AI 基座作为基础，在游戏场景里面
+> 控制并与不同的 Agent（即里面的小人物）进行对话，让他们干活。
+
+拆成四条可验收的能力（G1 网页 / G2 点角色说话 / G3 用 DSH 的 AI 基座 / G4 让他们干活），
+写进了**新建的 `docs/GOAL.md`**——它是从现在起的**权威目标**。
+
+**这一轮没有写功能代码**（除了冻结契约），因为先做这四件的收益大得多：
+
+1. **把目标与架构钉成文档**（`docs/GOAL.md`）：之前 21 轮都在按 BACKLOG 逐条推进，
+   而 BACKLOG 是从"做一个 3D 小镇"长出来的。目标一明确，优先级就变了——
+   **M6 系列（对话）排在 M5-2（动作库）之前**：角色动画是"更好看"，而"能和小人物说话"
+   是用户真正要的那件事。这条修正写进了 GOAL 第六节。
+2. **查清 DSH 的确切接口**（不是猜的）：用 `cordis_inspect_query` 拿到 `ctx.agentLoop` 的
+   完整契约——`createAgent(ownerCtx, { sessionId, seed, agentOptions, setup })`。
+   **`seed` 是关键杠杆**：可以塞一条 `system/message` 当角色的 system prompt，
+   于是**人设（内容库）→ 每个小人物一个真实 DSH Agent** 这条路是通的。
+3. **冻结对话的传输契约**（`src/protocol/dialogue.ts`）：只冻结"线上过什么"
+   （`DialogueEvent` / `SayRequest` / `SayResponse` + "**发送同步、回复走 SSE**"的时序），
+   **世界里怎么存不冻结**——那是 M6-3 的设计题，但受决策 D38 约束（对话是事件，不是旁路）。
+   冻结它是为了让宿主侧与面板侧**能并行开工**。
+4. **组队 + 定时任务**（用户明确要求）：3 个队友 + 3 个共享任务，写盘范围互不重叠。
+
+### 新增的架构决策（都写进 GOAL.md 第二节）
+
+| 决策 | 内容 | 为什么 |
+|---|---|---|
+| **D35** | 宿主是权威，"脑子"是插件：DSH Agent 负责**想与说**，**只能通过工具**改变世界 | 这条把"AI 让世界动起来"限制在一条**可审计、可回放、可测试**的路径上——与人类玩家、与规则调度器走同一个 `commands` 入口。允许 Agent 直接写 `world` 会让确定性、存档与回放全部失效 |
+| **D36** | 一个角色 = 一个 DSH 会话，**懒创建**（第一次搭话才建）+ 有并发上限 + 面板显示会话数 | 8 个角色 × 常驻会话 = 8 份上下文；而多数角色整局都没人搭话 |
+| **D37** | 人设来自 `rosters` 内容库，**不写进代码** | 与 D31（模型选择是内容）同源："这个角色是什么人"是内容 |
+| **D38** | 对话是**世界里的事件**（进事件流、多面板同看、可回放） | 与 R10 的纸条事件同构；做成面板与模型之间的私有旁路就丢了可审计性 |
+
+### 团队与分工（写盘范围互不重叠）
+
+| 队友 | 任务 | 写盘范围 |
+|---|---|---|
+| `bridge` | **task-1**：M6-0 查清"怎么驱动一个 Agent"→ M6-1 角色↔会话绑定 | `src/bridge/**`、`src/routes/**`、`docs/BRIDGE-RECON.md`、`test/bridge*.test.js` |
+| `panel` | **task-2**：M6-5 对话 UI + 对话状态机（纯函数、可 node 测） | `web/**`、`test/dialogue-state.test.js` |
+| `verifier` | **task-3**：**先写会红的验收测试** + 建立每轮验证惯例 | `test/acceptance-m6.test.js`、`docs/VERIFICATION.md` |
+| lead（我） | 共享契约（`src/protocol/**`）、架构文档、最终验收与提交 | `src/protocol/**`、`docs/ARCHITECTURE.md`、`docs/GOAL.md`、`docs/PROGRESS.md`、`docs/BACKLOG.md` |
+
+**一条给验证者的特殊纪律**：**不许改别人的实现**——发现问题只报给 lead，由 owner 修。
+验证者去改实现，就等于没有人独立验证了。
+
+### 定时任务
+
+已建 `schedule-c8c9fa40-0c27-4385-8758-501f325bf474`（每小时一次）。
+**提示词这次写得很短，只指向 `docs/GOAL.md` 与 `docs/PROGRESS.md`**——
+上一版（R2 建的）是个巨大的过时文本，每轮都在说"当前基线 32 个测试"，
+而那时已经 200+ 了。**教训：提示词里不要复制会变的数字，要指向权威来源。**
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 287 / pass 287 / fail 0
+```
+
+本轮**新增了 4 条架构决策与 1 份权威目标文档，但没有新增测试**——
+`src/protocol/dialogue.ts` 目前只有类型（编译期就验完了）。
+真正的测试由三个队友在各自任务里写。
+
+**提交方式刻意改了**：队友正在并发写工作区，所以这一次**不用包级 `git add`**，
+而是**显式列出我自己的文件**（`docs/GOAL.md`、`src/protocol/dialogue.ts`、`src/protocol/index.ts`、
+`docs/PROGRESS.md`、`docs/BACKLOG.md`）。`git add packages/dsh-agent-world` 会把队友**半成品**
+一起提交进去——那是我不想发生的事。
+
+### 下一轮从哪继续
+
+**关键路径是 `task-1`（M6-0）**：查清"怎么把一条用户消息送进已创建的 Agent 并拿到回复、
+以及怎么订阅它的回复"。已查到的材料在 `docs/GOAL.md` 第三节；**下一轮第一件事是读
+`docs/BRIDGE-RECON.md`**（bridge 队友会把原始证据写在那里），然后：
+
+1. 若 M6-0 通了 → 做 **M6-3**（`POST /api/say` → Agent → 回复进 SSE → 面板显示气泡）；
+2. 若 M6-0 卡住 → **换一条路并且说清代价**：例如改用 `ctx.subagents`（它带
+   `start`/`startContinuable`/`sendMessage`/`prompt`），或者放弃"每角色一个会话"
+   改成"一个会话轮流扮演"（那样角色之间会串味，是明确的降级）。
+3. 之后 **M6-4（让角色干活）才是这一整套设计的意义所在**：对话里说"去修那个登录 bug" →
+   任务板真的出现该单 + 角色真的走向工位。**判据是"对话通过工具改变了世界"，不是"画面变了"。**
+
+### 假设
+
+- **`seed` 能当 system prompt 用**：`SessionEventMap` 里 `system/message` 带 `turn`/`step`/`message`，
+  所以造一条种子事件应该就是注入系统提示。**这一点由 M6-0 顺便确认**（bridge 的任务书里要求了）。
+- **一个角色一个会话是可行的**：若 DSH 的 Agent 更贵（例如每个都带完整工具集与上下文），
+  那么 D36 的"上限"就要调小，或者退化成"按需短暂唤醒"。**代价还没有量过**——
+  这是 M6-1 落地后要补的一个数字。
+- **面板可以先走 UI + 纯状态机**：回复的端到端渲染必须等 M6-3。
+  所以我要求 `panel` 在 PROGRESS 里**写清哪一半验了、哪一半没验**。
+
+### 卡住 / 风险
+
+- **DSH Agent 的成本未测**：8 个会话同时活着要多少内存/token，现在完全不知道。
+  M6-1 落地后要量，否则 D36 的"上限"只是拍脑袋。
+- **`bridge` 模块可能需要在 `src/protocol/boundaries.ts` 里加规则**（它是共享文件）——
+  我已要求队友**先问我**，不要自己动。
+- **三个队友并发写同一个工作区**：写盘范围已分开，但 `src/protocol/index.ts` 这类共享出口
+  仍可能被碰。**最终 diff 由我逐文件验收**。
+- **`web/` 仍是手写 JS 没有类型**（记到第十一次）。对话 UI 会让它再多一类形状
+  （`DialogueEvent`）。**在这一轮之后，把 `web/` 迁到 TS 应该排在 M6-4 之前**——
+  否则每加一类事件都在赌字段名。
+
+### 本轮产出
+
+- 新增：`docs/GOAL.md`（权威目标 + D35–D38 + M6 里程碑表）、`src/protocol/dialogue.ts`（冻结契约）
+- 修改：`src/protocol/index.ts`（导出对话契约）
+- 团队：`bridge` / `panel` / `verifier` 三个队友 + 共享任务 `task-1`/`task-2`/`task-3`
+- 定时任务：`schedule-c8c9fa40-0c27-4385-8758-501f325bf474`（每小时，提示词只指向文档）
+- 测试仍 287/287（本轮无新增测试，见上）
 
 ---
 

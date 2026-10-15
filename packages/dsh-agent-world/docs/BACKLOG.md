@@ -186,6 +186,13 @@
 | M5-5 | done | 新增 `pack.kenney-mini`：显式 `overrides` 掉 `models` 与 `actions`，换成 Kenney CC0 资产 | `src/content/packs/kenney-mini.ts` + 资产入库 | M5-2 M4-8 | **R19 做完了 `models` 那一半**（`overrides: ['models/model.agent.base']` → Kenney GLB）。`actions` 那一半留给 M5-2（要等剪辑名 dump 出来）。
 | M5-6 | done | **验收：加这个包之后 `pnpm test` 仍全绿，且模拟内核零改动** | 在 PROGRESS 里贴出改动范围作证 | M5-5 | **R19 验收通过**：`test` 286/286 绿；diff 证明 `src/sim/`、`src/domain/`、`src/world/`、`src/scene/`、`src/protocol/`、`src/routes/` **全部零改动**（改的是 `web/` 三个文件 + 内容包 + 测试）。渲染器改了，但那是**新机制**（GLB 加载以前不存在），不是"因为换了资产所以改了"。
 | M5-7 | ready | **让 8 个 agent 长得不一样**：12 个 Kenney 角色都入库了，但现在全部用同一个 `model.agent.base`（看起来像复制粘贴）。需要一个「角色模型列表 + 按序分配」的内容概念（例如 `SceneEntry.agentModels: string[]`，host 按 agent 序号分配并写进 `SceneActor.modelId`）。**故意没混进 R19**：那一轮的目标是「GLB 能跑起来」，不是顺手加一个内容概念 | `src/content/kinds.ts` + `src/scene/plan.ts` + `packs/kenney-mini.ts` | R19 |
+| M6-0 | in_progress | **查清「怎么把用户消息送进 DSH Agent 并收回复」**（整条 M6 的阻塞点）。用 `cordis_inspect_query` 查，原始证据进 `docs/BRIDGE-RECON.md` | `docs/BRIDGE-RECON.md` + `docs/GOAL.md` 第三节 | —— | owner: `bridge`（task-1）
+| M6-1 | ready | 角色 ↔ DSH 会话绑定：懒创建（同角色复用）+ 并发上限 + dispose + `seed` 注入 system prompt | `src/bridge/` + node 测试 | M6-0 | owner: `bridge`（task-1）
+| M6-2 | ready | 人设从 `rosters` 内容库生成 system prompt（内容 schema 加 `persona`/`speechStyle`，要校验 + 报错给可用取值） | `src/content/` + `src/bridge/` + 测试 | M6-1 | 内容变更按 R16 的规矩走
+| M6-3 | ready | 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**
+| M6-4 | ready | **让角色干活**：Agent 调世界工具产生**可见变化**（任务板出现该单 + 角色走向工位）。这一整套设计的意义所在 | `src/tools/` + 集成测试 | M6-3 | 判据：「对话通过工具改变了世界」，不是「画面变了」
+| M6-5 | in_progress | 对话 UI（3D 头顶气泡 + 侧栏对话面板）+ 对话状态机（纯函数、可 node 测） | `web/` + `test/dialogue-state.test.js` | 契约已冻结 | owner: `panel`（task-2）
+| M6-6 | ready | 对话落库与回放（进现有事件日志，重开一局能读到上一局的对话） | `src/store/` + 测试 | M6-3 | ——
 
 ## M6 — HUD
 
