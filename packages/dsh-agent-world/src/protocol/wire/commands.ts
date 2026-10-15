@@ -45,6 +45,14 @@ export type WorldCommand =
   | { kind: 'taskComplete'; taskId: string; attemptId: string; output: string | null }
   /** 外部确认一张单失败（D41）。`reason` 要能让人下手，与其它失败原因同一条规矩。 */
   | { kind: 'taskFail'; taskId: string; attemptId: string; reason: string }
+  /**
+   * 把小镇的一张单与 agent-teams 的一张任务对应起来（D41，R43）。
+   *
+   * 为什么是命令而不是编排层直接改 `task.externalId`：任何对世界的改动都要经 ingest、进 journal，
+   * 否则回放时这条对应关系凭空消失，后面的 `taskComplete` 就找不到单了。
+   * 同时把世界切进 `live`——一旦有单接上了团队，完成就只认团队的裁决。
+   */
+  | { kind: 'taskLink'; taskId: string; externalId: string }
 
 /** 全部命令的 kind。用于校验与穷尽性检查。 */
 export const WORLD_COMMAND_KINDS = [
@@ -57,6 +65,7 @@ export const WORLD_COMMAND_KINDS = [
   'taskAssign',
   'taskComplete',
   'taskFail',
+  'taskLink',
 ] as const
 
 /** 命令的 kind 类型。 */
@@ -83,6 +92,8 @@ export function describeCommand(command: WorldCommand): string {
       return `完成：${command.taskId}`
     case 'taskFail':
       return `失败：${command.taskId}（${command.reason}）`
+    case 'taskLink':
+      return `对应团队任务：${command.taskId} ↔ ${command.externalId}`
   }
 }
 

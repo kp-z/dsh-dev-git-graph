@@ -104,3 +104,25 @@ test('D41：命令顺序按小镇任务的顺序，不随团队返回顺序变�
   assert.deepEqual(a.map((c) => c.taskId), ['task-1', 'task-2'])
   assert.deepEqual(a, b, '输入顺序不该影响输出')
 })
+
+test('R43：小镇代次落后于团队时，完成前先补一条指派（否则完成会被当旧代拒掉）', () => {
+  const commands = planTeamSync({
+    tasks: [teamTask({ status: 'completed', assignee: '小蓝', attemptId: 'team-1', output: 'done' })],
+    worldTasks: [worldTask({ status: 'in_progress', owner: 'agent-2', attemptId: 'attempt-99-local' })],
+    agentIdForMember: member,
+  })
+  assert.deepEqual(
+    commands.map((c) => c.kind),
+    ['taskAssign', 'taskComplete'],
+    '必须先对齐代次再完成——真机上少了这条，团队做完了小镇还卡在进行中',
+  )
+})
+
+test('R43：代次已经一致时不补多余的指派（幂等）', () => {
+  const commands = planTeamSync({
+    tasks: [teamTask({ status: 'completed', assignee: '小蓝', attemptId: 'a1', output: 'done' })],
+    worldTasks: [worldTask({ status: 'in_progress', owner: 'agent-2', attemptId: 'a1' })],
+    agentIdForMember: member,
+  })
+  assert.deepEqual(commands.map((c) => c.kind), ['taskComplete'])
+})

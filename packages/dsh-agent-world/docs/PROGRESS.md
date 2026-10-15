@@ -31,7 +31,50 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R42 末）：`typecheck` 绿 · `test` **487 / 487 / 0 fail / 0 todo**。角色不再把玩家当船长（新成员已验证；老成员人设未刷新，见 M7-14）。宿主常驻运行。任务合流仍未接上线（M10-6）。
+当前验证状态（R43 末）：`typecheck` 绿 · `test` **494 / 494 / 0 fail / 0 todo**。**任务合流已接上线**：角色真的干活才算完成（真机：团队 t4 claimed 小蓝 ↔ 小镇 task-18 in_progress，看板 1 进行中/1 待办/17 完成）。宿主常驻 bash-3583。
+
+---
+
+## R43 —— 任务合流**接上线了**（M10-6）：角色真的干活才算完成
+
+**这一轮把 D41 从地基变成通路**：团队的任务状态现在真的驱动小镇的工单。
+
+**做了什么**
+- 新增命令 `taskLink`（协议 + sim 落地）：把小镇的单与团队任务对应起来；**一旦有单接上团队，世界自动切 `live`**。
+- `teams.ts` 加 `readTasks()`（走 `agent_teams_status`，字段照 `lib/tools.js` 的 status 段读）与 `createTask()`。
+- 派单后**同时在团队里建任务**并回填对应关系：包一层 `teamAwareWorld.dispatch`，不动 `state`（世界服务不该认识 agent-teams）。
+- 同步环：`runtime` 新增 `onTick`（同步回调，异步工作丢出去），每 20 tick 用 `planTeamSync` 读团队状态 → 算命令 → 进世界。
+- 同步失败只记日志、不打断世界（前三次数 warn）。
+
+**真机验证（web profile，宿主常驻 `bash-3583`）**
+派两条 `task.quick-fix`：
+```
+团队：t1 completed(小紫) → t2 completed(小铁) → t5 pending
+      t3 completed(小紫) → t4 claimed(小蓝)
+小镇：task-14 ext=t1 done(小紫) · task-16 done · task-17 ext=t3 done(小紫)
+      task-18 ext=t4 in_progress(小蓝, 进度 0) · task-19 ext=t5 pending
+```
+看板：**1 进行中 · 1 待办 · 17 完成**；花名册里小蓝标着"干活 · 工位 A 改代码"。截图 `aw-r43-live-board.png`。
+**这就是 G4 的真形态：角色在干活，干完的才算完成。**
+
+**真机抓到并修掉的三个 bug（都不是靠推演能发现的）**
+1. **拓扑循环的上界写错了**：`for (round = 0; round < pending.length + 1; ...)`——`pending` 在循环里会缩短，
+   于是三张单只建了两张，第三张被静默截断。上界改为循环外算。
+2. **同步来的"指派"被旧代检查拒掉**：agent-teams 的指派会开新一代，而旧代检查把新代本身也当成旧代，
+   团队永远接管不了小镇的单。改为：**指派就是采纳团队代次**（不检查），完成/失败仍然检查。
+3. **小镇自己挑了人**：团队还没指派时，调度器按职业自己派人并写下自己的代次，于是团队的指派与完成全被拒——
+   团队明明做完了，小镇永远卡在"进行中"。改为：**live 下接了团队的单只等团队指派**。
+
+**测试**：`typecheck` 绿；`pnpm test` **494 / 494 / 0 fail / 0 todo**（+7：taskLink、readTasks/createTask、补指派、等团队指派、采纳代次）。
+
+**已知没验/待办**
+- **`t5`（验证修复）还没被团队领**：它是 pending，等 t4 完成。整条流水线走完需要时间，这一轮没等到。
+- 团队任务的 `output`（成员写的产出）**读不到**：`agent_teams_status` 的 tasks 里没有 output 字段（只有 deliverable 摘要），
+  所以小镇的 `task.output` 目前恒为 null。要显示"他写了什么"得另找来源。记 M10-7。
+- `M10-5` 记的两套模型"分工"这一轮落成了：小镇管位置/时序，团队管谁做什么。文档已同步（D41）。
+
+**下一轮从哪继续**：① M10-7（把成员的产出显示到面板/看板）；② 让"验证修复"那张也跑完，看整条流水线；
+③ 然后才是 UI 与布局优化（用户排的顺序）；④ M7-14（老人设不刷新）仍待用户决定。
 
 ---
 

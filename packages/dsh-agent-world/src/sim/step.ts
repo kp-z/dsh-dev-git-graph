@@ -81,6 +81,7 @@ export type ExternalTaskCommand =
   | { readonly kind: 'taskAssign'; readonly taskId: string; readonly agentId: string; readonly attemptId: string }
   | { readonly kind: 'taskComplete'; readonly taskId: string; readonly attemptId: string; readonly output: string | null }
   | { readonly kind: 'taskFail'; readonly taskId: string; readonly attemptId: string; readonly reason: string }
+  | { readonly kind: 'taskLink'; readonly taskId: string; readonly externalId: string }
 
 /** 一步的结果。 */
 export interface StepResult {
@@ -148,6 +149,7 @@ function ingest(
       case 'taskAssign':
       case 'taskComplete':
       case 'taskFail':
+      case 'taskLink':
         requests.external.push(command)
         break
     }
@@ -181,11 +183,23 @@ function applyExternalTasks(
     const task = byId.get(command.taskId)
     if (task === undefined) continue
 
+    // 对应关系：只在还没对应时写（幂等；同一张单不许被改接到另一张团队任务上）。
+    if (command.kind === 'taskLink') {
+      if (task.externalId === null && command.externalId !== '') {
+        task.externalId = command.externalId
+        // 一旦有单接上团队，世界就是 live：完成只认团队的裁决（D41）。
+        world.mode = 'live'
+        events.push({ type: 'task.changed', payload: { taskId: task.id, externalId: command.externalId } })
+      }
+      continue
+    }
+
     // ① 代次不对：这条裁决属于上一代执行者，丢掉。
     const stale = command.attemptId !== '' && task.attemptId !== null && task.attemptId !== command.attemptId
 
     if (command.kind === 'taskAssign') {
-      if (stale) continue
+      // 指派**不做旧代检查**：指派本身就是团队开启新一代，它的代次就是新的真相，要被采纳。
+      // （R43 真机：小镇先自己派了、写下自己的代次，若对指派也做旧代检查，团队永远接管不了。）
       if (task.status === 'done' || task.status === 'failed') continue
       const agent = world.agents.find((a) => a.id === command.agentId)
       if (agent === undefined) continue
@@ -199,10 +213,16 @@ function applyExternalTasks(
           previous.state = 'idle'
         }
       }
+      const ownerChanged = task.owner !== agent.id
       task.owner = agent.id
       task.attemptId = command.attemptId === '' ? task.attemptId : command.attemptId
       // 状态交给调度器在下一 tick 领：它才知道该去哪张桌子（能力匹配在 `claimTasks` 里）。
-      if (task.status === 'pending' || task.status === 'blocked') task.status = 'ready'
+      // 换了人的进行中单要退回 ready：原来的工位与进度属于上一个人。
+      if (task.status === 'pending' || task.status === 'blocked' || (ownerChanged && task.status === 'in_progress')) {
+        task.status = 'ready'
+        task.station = null
+        task.progress = 0
+      }
       events.push({ type: 'task.assigned', payload: { taskId: task.id, agentId: agent.id } })
       continue
     }

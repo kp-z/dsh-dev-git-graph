@@ -457,3 +457,45 @@ test('D41：taskFail 落进失败原因，且人从单上摘下来', () => {
   assert.equal(agent.carrying, null)
   assert.equal(agent.state, 'idle')
 })
+
+test('R43：taskLink 写下对应关系并把世界切进 live；已对应的单不许被改接', () => {
+  const world = makeWorld()
+  const task = world.tasks[0]
+  assert.equal(world.mode, 'simulated')
+  step(world, [{ kind: 'taskLink', taskId: task.id, externalId: 't1' }])
+  assert.equal(task.externalId, 't1')
+  assert.equal(world.mode, 'live', '一旦有单接上团队，完成就只认团队的裁决')
+  step(world, [{ kind: 'taskLink', taskId: task.id, externalId: 't9' }])
+  assert.equal(task.externalId, 't1', '同一张单不许被改接到另一张团队任务上')
+})
+
+test('R43：live 下接了团队的单，团队还没指派时小镇不许自己挑人', () => {
+  const world = makeWorld()
+  const task = world.tasks[0]
+  task.externalId = 't1'
+  world.mode = 'live'
+  for (let i = 0; i < 60; i += 1) step(world)
+  assert.equal(task.owner, null, '团队还没指派，小镇自己挑人会让团队的指派与完成全被当旧代拒掉')
+  assert.notEqual(task.status, 'in_progress')
+})
+
+test('R43：团队指派会采纳团队的代次；换人时进行中的单退回 ready 并清进度', () => {
+  const world = makeWorld()
+  const task = world.tasks[0]
+  task.externalId = 't1'
+  world.mode = 'live'
+  task.status = 'in_progress'
+  task.owner = 'agent-1'
+  task.attemptId = 'attempt-local'
+  task.progress = 0.5
+  task.station = 'station.x'
+
+  step(world, [{ kind: 'taskAssign', taskId: task.id, agentId: 'agent-2', attemptId: 'team-1' }])
+  // 同一 tick 里：指派先把单退回 ready、清掉上一个人的工位与进度，
+  // 随后调度器看到"ready + 已有 owner"，立刻按团队的指派让 agent-2 领走——所以这一 tick 结束时是他在做。
+  assert.equal(task.attemptId, 'team-1', '指派就是团队开启新一代，代次要被采纳（调度器也不许覆写它）')
+  assert.equal(task.owner, 'agent-2')
+  assert.equal(task.status, 'in_progress', '由被指派的人重新领走')
+  assert.equal(task.progress, 0, '上一个人的进度不能带过来')
+  assert.notEqual(task.station, 'station.x', '上一个人的工位不能带过来')
+})

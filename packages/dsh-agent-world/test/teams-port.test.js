@@ -136,3 +136,39 @@ test('teams：反查不到成员会话时给出可下手的原因（成员还没
   assert.equal(reply.ok, false)
   assert.match(reply.reason, /会话 id/)
 })
+
+test('R43：readTasks 从 status 的 value.tasks 取（attempt_id → attemptId）；团队没建时为空', async () => {
+  const SENT = { isError: false, value: {}, content: [] }
+  const tools = fakeTools({
+    agent_teams_create: CREATED,
+    agent_teams_add_member: SENT,
+    agent_teams_send_message: SENT,
+    agent_teams_status: {
+      isError: false,
+      content: [],
+      value: { team_id: 'agent-world', tasks: [{ id: 't1', subject: '改代码', status: 'in_progress', assignee: '小蓝', dependencies: [], attempt_id: 'a1' }] },
+    },
+  })
+  const port = makePort({ tools, transport: { subscribe: () => () => {} } })
+  assert.deepEqual(await port.readTasks(), [], '团队还没建出来时不该去问')
+  await port.say('agent-5', '你好')
+  const rows = await port.readTasks()
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0].attemptId, 'a1')
+  assert.equal(rows[0].assignee, '小蓝')
+})
+
+test('R43：createTask 带依赖，返回 value.task_id；拿不到 id 时报出原因', async () => {
+  const tools = fakeTools({
+    agent_teams_create: CREATED,
+    agent_teams_create_task: (input) => ({ isError: false, content: [], value: { task_id: `t-${input.arguments.subject}` } }),
+  })
+  const port = makePort({ tools, transport: { subscribe: () => () => {} } })
+  const id = await port.createTask({ subject: 'B', dependencies: ['t-A'] })
+  assert.equal(id, 't-B')
+  const call = tools.calls.find((c) => c.name === 'agent_teams_create_task')
+  assert.deepEqual(call.arguments.dependencies, ['t-A'])
+
+  const bad = makePort({ tools: fakeTools({ agent_teams_create: CREATED, agent_teams_create_task: { isError: false, content: [], value: {} } }), transport: { subscribe: () => () => {} } })
+  await assert.rejects(bad.createTask({ subject: 'X' }), /task_id/)
+})

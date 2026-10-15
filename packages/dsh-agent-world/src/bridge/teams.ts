@@ -121,7 +121,34 @@ export interface TeamsPort {
   liveCount(): number
   /** 诊断：当前团队 id（还没建出来时 `undefined`）。 */
   teamId(): string | undefined
+  /**
+   * 读团队里的全部任务（D41，R43）。
+   *
+   * 走 `agent_teams_status`：agent-teams 的任务事件**不写进会话**（这个宿主不认识 `agent-teams/*` 事件类型，
+   * 它原话 "Disk state remains the authoritative source"），所以只能问它。
+   * 返回值字段是从 `lib/tools.js` 的 status 段读出来的：`tasks[].{id,subject,status,assignee,dependencies,attempt_id}`。
+   *
+   * @returns 任务列表；团队还没建出来时空数组。
+   */
+  readTasks(): Promise<readonly TeamTaskRow[]>
+  /**
+   * 在团队里建一张任务（D41，R43）。`dependencies` 是**团队任务 id**（先建的先拿到 id）。
+   *
+   * @returns 新任务的 id（`value.task_id`）。
+   */
+  createTask(input: { subject: string; description?: string; dependencies?: readonly string[] }): Promise<string>
   dispose(): Promise<void>
+}
+
+/** `agent_teams_status` 里一张任务的原样字段（只取小镇用得上的）。 */
+export interface TeamTaskRow {
+  readonly id: string
+  readonly subject: string
+  readonly status: 'pending' | 'claimed' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
+  readonly assignee: string
+  readonly dependencies: readonly string[]
+  readonly attemptId: string
+  readonly output: string
 }
 
 /** 一次调用的顺序号：`callId` 要唯一且确定（不用随机数、不用时钟）。 */
@@ -413,6 +440,51 @@ export function createTeamsPort(
 
     liveCount: () => (captain === undefined ? 0 : 1),
     teamId: () => teamId,
+
+    async readTasks(): Promise<readonly TeamTaskRow[]> {
+      if (teamId === undefined) return []
+      const signal = new AbortController().signal
+      const result = await callTeamTool('agent_teams_status', {}, signal)
+      if (result.isError === true) throw new Error(`读团队任务失败：${textOf(result)}`)
+      const value = result.value as { tasks?: unknown } | undefined
+      const rows = Array.isArray(value?.tasks) ? value.tasks : []
+      const out: TeamTaskRow[] = []
+      for (const row of rows) {
+        if (typeof row !== 'object' || row === null) continue
+        const r = row as Record<string, unknown>
+        if (typeof r['id'] !== 'string') continue
+        out.push({
+          id: r['id'],
+          subject: typeof r['subject'] === 'string' ? r['subject'] : '',
+          status: (typeof r['status'] === 'string' ? r['status'] : 'pending') as TeamTaskRow['status'],
+          assignee: typeof r['assignee'] === 'string' ? r['assignee'] : '',
+          dependencies: Array.isArray(r['dependencies']) ? (r['dependencies'] as unknown[]).filter((d): d is string => typeof d === 'string') : [],
+          attemptId: typeof r['attempt_id'] === 'string' ? r['attempt_id'] : '',
+          // status 里**没有** output 字段（它只给完成的结果摘要在 deliverable 里）；留空，完成仍以状态为准。
+          output: typeof r['output'] === 'string' ? r['output'] : '',
+        })
+      }
+      return out
+    },
+
+    async createTask(input): Promise<string> {
+      const signal = new AbortController().signal
+      await ensureTeam(signal)
+      const result = await callTeamTool(
+        'agent_teams_create_task',
+        {
+          subject: input.subject,
+          ...(input.description === undefined || input.description === '' ? {} : { description: input.description }),
+          ...(input.dependencies === undefined || input.dependencies.length === 0 ? {} : { dependencies: [...input.dependencies] }),
+        },
+        signal,
+      )
+      const value = result.value as { task_id?: unknown } | undefined
+      if (result.isError === true || typeof value?.task_id !== 'string' || value.task_id === '') {
+        throw new Error(`在团队里建任务失败：${textOf(result) || '工具没有返回 task_id'}`)
+      }
+      return value.task_id
+    },
 
     async dispose(): Promise<void> {
       disposed = true

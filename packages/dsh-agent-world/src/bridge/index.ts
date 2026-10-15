@@ -84,4 +84,4 @@ export type {
 } from './types.js'
 
 export { createTeamsPort } from './teams.js'
-export type { TeamsPort, TeamsPortOptions } from './teams.js'
+export type { TeamsPort, TeamsPortOptions, TeamTaskRow } from './teams.js'

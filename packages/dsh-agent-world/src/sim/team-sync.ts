@@ -35,6 +35,14 @@ export function planTeamSync(input: TeamSyncInput): WorldCommand[] {
     const team = input.tasks.find((t) => t.id === local.externalId)
     if (team === undefined) continue
 
+    // 小镇的代次与团队不同（比如团队派活这件事被小镇错过了），先补一条指派把代次对齐，
+    // 否则下面的完成/失败会被当成"旧代"拒掉（R43 真机抓到）。同一 tick 内按顺序生效。
+    const terminal = team.status === 'completed' || team.status === 'failed' || team.status === 'cancelled'
+    if (terminal && local.status !== 'done' && local.status !== 'failed' && team.attemptId !== undefined && team.attemptId !== '' && local.attemptId !== team.attemptId) {
+      const agentId = team.assignee === undefined || team.assignee === '' ? null : input.agentIdForMember(team.assignee)
+      if (agentId !== null) commands.push({ kind: 'taskAssign', taskId: local.id, agentId, attemptId: team.attemptId })
+    }
+
     // 完成：只在"小镇还没认为它完成"时发。已经 done 的不重复发（幂等）。
     if (team.status === 'completed' && local.status !== 'done') {
       commands.push({

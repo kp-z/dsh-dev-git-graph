@@ -65,6 +65,15 @@ export interface RuntimeOptions {
   sink?: EventSinkPort
   /** `step()` 出错时的回调（记日志用）。默认吞掉，但 `diagnostics.errors` 会累加。 */
   onError?: (error: unknown) => void
+  /**
+   * 每推进一步后叫一次（R43）。
+   *
+   * 给"世界之外还有真相"的同步用（D41：agent-teams 的任务状态）。**同步调用**，
+   * 所以实现方必须立刻返回、把异步工作丢出去自己做——节拍不能被 IO 拖住。
+   *
+   * @param tick - 推进之后的 tick。
+   */
+  onTick?: (tick: number) => void
   /** 落盘。不传则世界只活在内存里。 */
   persist?: PersistOptions
 }
@@ -258,6 +267,13 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     // 只在世界真的前进时计数：暂停时 step 会早退，tick 不动，那一步不该算进来。
     if (world.tick > tickBefore) {
       diagnostics.ticks += 1
+      // 节拍回调：**同步**，实现方自己把异步工作丢出去（见 `onTick` 的说明）。
+      try {
+        options.onTick?.(world.tick)
+      } catch (error) {
+        diagnostics.errors += 1
+        options.onError?.(error)
+      }
 
       if (persist !== undefined) {
         pendingEvents.push(...fresh)

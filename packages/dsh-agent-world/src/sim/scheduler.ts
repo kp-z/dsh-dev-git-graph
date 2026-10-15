@@ -139,6 +139,14 @@ export function claimTasks(world: World): SchedulerOutcome {
     // **还覆写 `attemptId`**——后者是致命的：agent-teams 的完成汇报带的是它自己的代次，
     // 被覆写之后每一次真实的完成都会被 `applyExternalTasks` 当成"旧代"拒掉，
     // 于是 live 世界里**没有任何一张单能真正完成**，而且不会有任何报错。
+    // live 下接上团队、但团队还没指派的单：**小镇不许自己挑人**（R43 真机抓到）。
+    // 否则小镇先派给小青、写下自己的代次，随后团队派给小紫——小镇的代次让团队的指派与完成全被当成"旧代"拒掉，
+    // 结果是团队已经做完，小镇这边永远卡在"进行中"。
+    if (world.mode === 'live' && task.externalId !== null && task.owner === null) {
+      stalled.push({ taskId: task.id, reason: 'no-worker', detail: '等团队指派：这张单接在团队任务上，由团队决定谁来做。' })
+      continue
+    }
+
     const externallyOwned = task.externalId !== null && task.owner !== null
     const assigned = externallyOwned ? free.find((a) => a.id === task.owner) : undefined
     if (externallyOwned && assigned === undefined) {

@@ -24,12 +24,14 @@ import {
   seatForAgent,
   toLazyDialoguePort,
 } from './bridge/index.js'
+import type { DispatchOutcome, WorldServicePort } from './protocol/index.js'
 import type { TeamsPort } from './bridge/index.js'
 import type { CharacterBridge } from './bridge/index.js'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
 import { createHandler } from './routes/index.js'
 import { createEventHub, createRuntime } from './runtime/index.js'
+import { planTeamSync } from './sim/index.js'
 import { createWorldStore } from './store/index.js'
 import { createPluginState } from './state.js'
 import { registerDispatchTool } from './tools/dispatch.js'
@@ -77,7 +79,96 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   const state = createPluginState(resolved, { externalRoot: contentRoot.root, storeDir })
 
   registerWorldTools(ctx, state)
-  registerDispatchTool(ctx, state)
+
+  // ── D41/R43：把小镇的工单接到 agent-teams 的任务上 ────────────────────────────
+  //
+  // 两件事：
+  // ① **派单时同时在团队里建任务**：小镇的工单是"投影"（谁在哪、什么时候到），
+  //    团队的任务才是"谁做什么、做完没有"。所以要成对创建，再把两张单对应起来。
+  // ② **轮询团队状态并同步回小镇**：团队说"派给谁了/做完了/失败了" → 算成命令 → 进世界。
+  //
+  // 两边都**只通过命令改世界**（`taskLink` / `taskAssign` / `taskComplete` / `taskFail`），
+  // 命令照旧进 journal，所以回放仍然确定（D41 ③）。
+  const TEAM_SYNC_INTERVAL_TICKS = 20
+  let lastTeamSyncTick = -1
+  let teamSyncBusy = false
+  let teamSyncErrors = 0
+
+  /**
+   * 派单的"团队侧"：为刚建出来的小镇工单在团队里建对应任务，并回填对应关系。
+   *
+   * 依赖关系要**映射**：小镇的 `blockedBy` 是小镇 id（`task-3`），团队要的是团队 id（`t3`）。
+   * 所以先建没有依赖的、记下映射，再建依赖它们的——按 `blockedBy` 的拓扑序建。
+   */
+  const linkNewTasksToTeam = async (addedTaskIds: readonly string[]): Promise<void> => {
+    const world = state.currentWorld()
+    if (world === null || addedTaskIds.length === 0) return
+    const port = acquireTeamsPort()
+    if (!port.ok) return
+    const added = new Set(addedTaskIds)
+    const localToTeam = new Map<string, string>()
+    let pending = world.tasks.filter((t) => added.has(t.id))
+
+    // 最多转 N 轮：每轮建"依赖都已映射好"的那些。有环或跨集合依赖时剩下的会被跳过（内容校验本来就禁环）。
+    // ⚠️ 上界必须在循环**外**算（R43 真机抓到）：`pending` 在循环里会缩短，拿它当上界的话
+    // 三张单的流水线只建了两张——第三张被提前截断，而且不报错。
+    const maxRounds = pending.length
+    for (let round = 0; round < maxRounds && pending.length > 0; round += 1) {
+      const ready = pending.filter((t) => t.blockedBy.every((dep) => !added.has(dep) || localToTeam.has(dep)))
+      if (ready.length === 0) break
+      for (const task of ready) {
+        const teamId = await port.port.createTask({
+          subject: task.title,
+          description: task.description,
+          dependencies: task.blockedBy.map((dep) => localToTeam.get(dep)).filter((id): id is string => id !== undefined),
+        })
+        localToTeam.set(task.id, teamId)
+        runtime.enqueue({ kind: 'taskLink', taskId: task.id, externalId: teamId })
+      }
+      pending = pending.filter((t) => !localToTeam.has(t.id))
+    }
+  }
+
+  /** 把团队状态同步回小镇。一轮只发一次命令，失败只记日志不打断世界。 */
+  const syncTeamOnce = async (): Promise<void> => {
+    if (teamSyncBusy) return
+    const world = state.currentWorld()
+    if (world === null) return
+    const port = acquireTeamsPort()
+    if (!port.ok) return
+    teamSyncBusy = true
+    try {
+      const rows = await port.port.readTasks()
+      const commands = planTeamSync({
+        tasks: rows.map((r) => ({
+          id: r.id,
+          subject: r.subject,
+          status: r.status,
+          ...(r.assignee === '' ? {} : { assignee: r.assignee }),
+          dependencies: r.dependencies,
+          ...(r.output === '' ? {} : { output: r.output }),
+          ...(r.attemptId === '' ? {} : { attemptId: r.attemptId }),
+        })),
+        worldTasks: world.tasks.map((t) => ({
+          id: t.id,
+          externalId: t.externalId,
+          status: t.status,
+          owner: t.owner,
+          attemptId: t.attemptId,
+        })),
+        agentIdForMember: (name: string) => world.agents.find((a) => a.name === name)?.id ?? null,
+      })
+      for (const command of commands) runtime.enqueue(command)
+    } catch (error) {
+      teamSyncErrors += 1
+      // 同步失败不该打断世界：世界继续跑，只是这一轮没跟上团队。
+      if (teamSyncErrors <= 3) {
+        logger.warn(`团队任务同步失败（第 ${teamSyncErrors} 次，世界继续跑）：${error instanceof Error ? error.message : String(error)}`)
+      }
+    } finally {
+      teamSyncBusy = false
+    }
+  }
 
   // 内容层的问题不阻断插件加载——照 dsh-daily 的做法：
   // 插件树加载失败会让**整个 dsh 起不来**，那个代价远大于"世界暂时建不出来"。
@@ -127,6 +218,13 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         }),
     onError: (error) =>
       logger.error(`模拟循环出错（已继续，诊断计数见 errors）：${error instanceof Error ? error.message : String(error)}`),
+    // D41/R43：每隔一段 tick 把团队状态同步回小镇。**同步返回**（见 onTick 说明），
+    // 真正的读与算丢给一个不等待的 promise。
+    onTick: (tick) => {
+      if (tick - lastTeamSyncTick < TEAM_SYNC_INTERVAL_TICKS) return
+      lastTeamSyncTick = tick
+      void syncTeamOnce()
+    },
   })
 
   // **先挂清理，再启动。**
@@ -259,6 +357,24 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   ctx.effect(() => () => {
     void teamsPort?.dispose()
   }, 'agent-world: agent-teams port')
+
+  // ── 派单后立刻在团队里建对应任务（D41，R43）────────────────────────────────
+  //
+  // 包在 `state.dispatch` 外面而不是改 `state`：`state`（世界服务）不该认识 agent-teams，
+  // 那是编排层的事。`state` 的方法全是闭包（`this.` 出现 0 次），所以展开一层是安全的。
+  const teamAwareWorld: WorldServicePort = {
+    ...state,
+    dispatch(taskSet: string): DispatchOutcome {
+      const outcome = state.dispatch(taskSet)
+      void linkNewTasksToTeam(outcome.addedTaskIds).catch((error) => {
+        logger.warn(
+          `在团队里建对应任务失败（小镇的工单照常建好了）：${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+      return outcome
+    },
+  }
+  registerDispatchTool(ctx, teamAwareWorld)
 
   /** 按配置选后端。`native` 是 R24–R36 手写的那套，留作对照与回退。 */
   const activeDialoguePort = resolved.dialogueBackend === 'native' ? dialoguePort : teamsDialoguePort
