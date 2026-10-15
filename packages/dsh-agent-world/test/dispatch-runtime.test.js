@@ -171,7 +171,8 @@ test('agent_world_content：kind=tasks 时能列出可用任务集（派单报�
   const content = registered.find((t) => t.name === 'agent_world_content')
 
   const text = await content.execute({ kind: 'tasks' })
-  assert.match(text, /tasks（任务库·语义库）：2 条/)
+  // R44 新增了 task.town-inspection（小镇自己干得了的活），所以是 3 条。
+  assert.match(text, /tasks（任务库·语义库）：3 条/)
 })
 
 // ── 运行时：世界真的会自己动 ────────────────────────────────────────────────

@@ -29,7 +29,7 @@ export function registerDispatchTool(ctx: Context, world: WorldServicePort): voi
         taskSet: {
           type: 'string',
           required: true,
-          description: '任务库里的任务集 id，例如 task.quick-fix（快速修一个 bug）或 task.software-feature（做一个功能）。',
+          description: '任务库里的任务集 id，例如 task.town-inspection（巡检一次小镇，只用看世界/读内容就能走完）。',
         },
       },
       output: {

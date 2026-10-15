@@ -323,6 +323,8 @@ export const defaultPack: ContentPack = {
     // 一个条目 = 一条工作流。派单时一次派出一整条流水线，依赖关系由本库声明。
     tasks: [
       {
+        // ⚠️ 这一套要**代码工具**（改文件、跑命令），而居民现在没有（R43 真机实测全卡在"改代码"）。
+        // 留着是因为它描述了"居民拿到沙箱化代码工具之后"的活（D46）；在那之前派它必然卡住。
         id: 'task.software-feature',
         name: '做一个功能',
         description: '从调研到交付的一条完整流水线。调研定方案 → 并行实现与测试 → 评审 → 文档 → 交付。',
@@ -337,6 +339,27 @@ export const defaultPack: ContentPack = {
         ],
       },
       {
+        // ── 小镇自己干得了的活（R44）────────────────────────────────────────────
+        //
+        // 居民的工具面**只有**看世界 / 读内容 / 派单（D35 + 部署的 toolPolicies），
+        // 所以任何"改文件、跑命令"的活在当前能力面下**天生做不了**。
+        // 实测（R43 真机）三条 software-feature/quick-fix 流水线全卡在"改代码"：
+        // 成员如实报"我手上没有能改代码的工具"，判 failed，且拒绝伪造改动——它们是对的。
+        //
+        // 那套软件工程流水线留着（它描述的是"等居民拿到代码工具之后"的活，见 D46），
+        // 但**小镇开局应该派这一套**：每一步都只用现有工具就能走完，产出是文字结论，
+        // 而结论会随 `taskComplete` 落进 `task.output`，看板上直接读得到。
+        id: 'task.town-inspection',
+        name: '巡检一次小镇',
+        description: '只用「看世界 / 读内容 / 派单」就能走完的流水线：盘点现状 → 核对工单 → 出结论。',
+        tasks: [
+          { key: 'survey', title: '盘点小镇现状', description: '用 agent_world_status 读一遍当前盘面：时钟、在岗的人、工单、站点占用。', requires: ['research'], dependsOn: [], acceptance: '报出当前 tick、在岗人数与各类工单的数量', estimateTicks: 240, role: 'researcher' },
+          { key: 'check', title: '核对工单状态', description: '找出停滞或失败的工单，说清它卡在哪一步、为什么。', requires: ['review'], dependsOn: ['survey'], acceptance: '逐张列出异常工单的 id、状态与卡点', estimateTicks: 300, role: 'reviewer' },
+          { key: 'report', title: '出巡检结论', description: '把发现写成一段结论交给队长：事实、判断、建议三段。', requires: ['deliver'], dependsOn: ['check'], acceptance: '结论含事实与判断，且不含未经验证的断言', estimateTicks: 180, role: 'ops' },
+        ],
+      },
+      {
+        // ⚠️ 同 `task.software-feature`：需要代码工具，当前能力面下走不完（见 D46）。
         id: 'task.quick-fix',
         name: '快速修一个 bug',
         description: '短流程：定界 → 修 → 验。适合明确的小问题。',

@@ -348,3 +348,34 @@ test('list 输出按 id 排序（稳定的输出顺序，否则测试与 diff �
   assert.deepEqual(ids, [...ids].sort())
   assert.equal(ids.length, 10)
 })
+
+// ── R44：小镇自己干得了的活 ──────────────────────────────────────────────────
+
+test('R44：内置任务集里有一套**只用现有工具就能走完**的流水线', async () => {
+  const { builtinPacks } = await import('../lib/content/index.js')
+  const sets = builtinPacks().flatMap((p) => p.entries.tasks ?? [])
+  const town = sets.find((s) => s.id === 'task.town-inspection')
+  assert.ok(town, '缺少小镇自己的巡检流水线——居民只有看世界/读内容/派单，软件工程那套走不完')
+  assert.equal(town.tasks.length, 3)
+  // 每一步都得有验收条件（没有的话模型无从判断自己做完没有）。
+  for (const step of town.tasks) {
+    assert.ok(typeof step.acceptance === 'string' && step.acceptance.trim() !== '', `${step.key} 缺验收条件`)
+  }
+  // 依赖是一条链：survey → check → report。
+  const byKey = Object.fromEntries(town.tasks.map((t) => [t.key, t]))
+  assert.deepEqual(byKey.survey.dependsOn, [])
+  assert.deepEqual(byKey.check.dependsOn, ['survey'])
+  assert.deepEqual(byKey.report.dependsOn, ['check'])
+})
+
+test('R44：要代码工具的那两套**明确标注**了当前走不完（避免下一个人再拿它们开局）', async () => {
+  const { builtinPacks } = await import('../lib/content/index.js')
+  const source = await import('node:fs/promises').then((fs) =>
+    fs.readFile(new URL('../src/content/packs/default.ts', import.meta.url), 'utf8'),
+  )
+  for (const id of ['task.software-feature', 'task.quick-fix']) {
+    assert.ok(source.includes(`id: '${id}'`), `${id} 不见了`)
+  }
+  // 两处措辞不完全一样（一处是「要**代码工具**」），所以按更宽的词数。
+  assert.ok((source.match(/代码工具/g) ?? []).length >= 2, '两套软件工程流水线都要有「需要代码工具」的警示注释')
+})

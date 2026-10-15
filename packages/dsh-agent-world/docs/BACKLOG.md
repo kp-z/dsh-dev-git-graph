@@ -201,8 +201,10 @@
 | M10-4 | ready | **删掉 native 路径**（可选）：套壳稳定后删 `character-bridge.ts`/`seed.ts`/`persona-prompt.ts` 里的种子逻辑约 300 行。**先问用户**——留着它是降级路径，也留着 R23–R31 那笔"为什么不该自己造会话"的知识 | `src/bridge/**` | M10-2 | 用户说删就删 |
 | M10-5 | **done** | **两套任务模型要合流**（R38 定下的下一步）：小镇工单（可重放、按时钟）与 agent-teams 任务图并存 = 两个「谁在干什么」。要么让小镇工单就是 agent-teams 的任务，要么明确分工（小镇管位置/时序，agent-teams 管谁做什么）。**先写进 ARCHITECTURE 再动代码** | `src/sim/**` + `docs/ARCHITECTURE.md` | M10-1 | 用户已授权改内部代码 |
 | M10-6 | **done** | **合流接上线**（R39 地基之后）：同步环（队长身份轮询 `agent_teams_status` → `planTeamSync` → 命令进世界）+ live 下 `dispatch` 同时建团队任务并回填 `externalId` + 世界跟随 `dialogueBackend` 切 `live`。先读 status 返回的 tasks 确切字段 | `src/index.ts` + `src/bridge/teams.ts` | M10-5 | 不接上线，真机上任务仍是假完成 |
-| M10-7 | ready | **成员的产出读不到**（R43）：`agent_teams_status` 的 tasks 里没有 output 字段，所以小镇 `task.output` 恒为 null。要看「他写了什么」得另找来源（成员会话文本或 deliverable） | `src/bridge/teams.ts` | M10-6 | 面板/看板想显示产出就需要它 |
-| M10-8 | ready | **整条流水线没跑完就被验证**：t5（验证修复）当时还 pending。等一条完整流水线自然走完再记一次真机验收 | —— | M10-6 | 验收完整性 |
+| M10-7 | **done（作废）** | **成员的产出读不到**（R43）：`agent_teams_status` 的 tasks 里没有 output 字段，所以小镇 `task.output` 恒为 null。要看「他写了什么」得另找来源（成员会话文本或 deliverable） | `src/bridge/teams.ts` | M10-6 | 面板/看板想显示产出就需要它 |
+| M10-8 | **done** | **整条流水线没跑完就被验证**：t5（验证修复）当时还 pending。等一条完整流水线自然走完再记一次真机验收 | —— | M10-6 | 验收完整性 |
+| M10-9 | ready | **看板/抽屉里显示出工单产出**（R44：产出已在 `task.output`，界面看不到）。点看板方框 → 抽屉显示结论文本 | `web/ui/**` | —— | 归 panel；属用户排的 UI 优化 |
+| M10-10 | blocked | **沙箱化工作区**（D46）：居民要真做代码活需要独立 cwd、可丢弃的工作区。**绝不能让居民在用户仓库里跑命令** | —— | M11-2 | 等智能分级之后 |
 | M7-12 | ready | 动作行里 `agent_teams_*` 没有中文标签（`web/ui/labels.js` 只映射了世界工具） | `web/ui/labels.js` | —— | 派给 panel |
 | M7-13 | **done** | **角色把玩家当成「船长」，回复变成汇报**（R41 真机）：问小蓝「一句话介绍你自己」，它答「已回复船长：一句话自我介绍发出去了，现在继续待命」。原因：agent-teams 的成员人设把说话人框成 captain，且工作规则要求向 captain 汇报。玩家不该被当成上级。做法：在我们的人设（executionPrompt）里加一条——跟你说话的是镇上的玩家，直接回答他，不要用汇报腔 | `src/bridge/persona-prompt.ts` | —— | 直接影响跟小人物对话的体感 |
 | M7-14 | ready | **老成员的人设不会刷新**（R42）：agent-teams 在第一次 `add_member` 时定下成员人设，之后不变。R37–R41 加进团队的小紫、小铁、小蓝还是旧人设（仍可能叫玩家"船长"）。做法：套壳端口记录人设的指纹，变了就 `agent_teams_remove_member` 再重新加（注意会丢成员会话的记忆，要权衡）；或先给面板一个"重新招募"按钮 | `src/bridge/teams.ts` | M7-13 | 先问清丢记忆可不可以接受 |
