@@ -151,6 +151,10 @@ export function createScene3d(canvas, options = {}) {
   let plan = null
   let half = 8
   let zoomFactor = 1
+  /** 相机俯仰角（弧度）。取景要用它算地面菱形的纵向跨度；由 `applyCamera` 更新。 */
+  let pitchRad = (35.264 * Math.PI) / 180
+  /** 浮层占掉的边距（CSS 像素）。由面板经 `setViewInsets` 告知；取景据此居中在可见区域。 */
+  let viewInsets = { right: 0 }
 
   /** 清掉一棵子树并释放显存（不只是从场景里摘掉）。 */
   const disposeTree = (root) => {
@@ -188,6 +192,7 @@ export function createScene3d(canvas, options = {}) {
     zoomFactor = cam.zoom ?? 1
     const yaw = (cam.yawDeg * Math.PI) / 180
     const pitch = (cam.pitchDeg * Math.PI) / 180
+    pitchRad = pitch
     const dist = half * 6
     camera.position.set(
       dist * Math.cos(pitch) * Math.sin(yaw),
@@ -255,18 +260,50 @@ export function createScene3d(canvas, options = {}) {
         : new THREE.FogExp2(new THREE.Color(theme.fog.color).getHex(), theme.fog.density)
   }
 
-  /** 用地块铺地面。 */
+  /**
+   * 用地块铺地面（R32 起是"被灯照亮的台面"，不是一张平涂的色块）。
+   *
+   * 两处变化，都只改**表现**，不碰数据：
+   * 1. `MeshLambertMaterial` → `MeshStandardMaterial`。Lambert 不吃粗糙度，
+   *    整块地是一个均匀的明度，看上去就是"平面图上的色块"；PBR 的高粗糙度 + 零金属
+   *    会让主光在台面上留下柔和的明暗过渡，这是"现代"质感最便宜的来源。
+   * 2. 每块地略微抬高并缩一圈，四周露出深色缝隙（`GROUND_GAP`），再在边缘加一圈
+   *    同色相、更亮的细线——地块之间有了边界，"他走去机房了"一眼就能看出来。
+   *    边线颜色由地块色**推导**（提亮），所以仍然没有任何颜色字面量：换皮肤，边线跟着换。
+   */
+  const GROUND_GAP = 0.12
   const buildGround = (ground) => {
     for (const g of ground) {
+      const base = new THREE.Color(g.color)
+      const w = Math.max(0.1, g.width - GROUND_GAP)
+      const d = Math.max(0.1, g.depth - GROUND_GAP)
+
       const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(g.width, g.depth),
-        new THREE.MeshLambertMaterial({ color: new THREE.Color(g.color) }),
+        new THREE.PlaneGeometry(w, d),
+        new THREE.MeshStandardMaterial({ color: base, roughness: 0.92, metalness: 0 }),
       )
       mesh.rotation.x = -Math.PI / 2
-      mesh.position.set(g.x, 0, -g.z) // 面板的世界坐标 z 朝下，three 的 z 朝屏幕外
+      mesh.position.set(g.x, 0.002, -g.z) // 面板的世界坐标 z 朝下，three 的 z 朝屏幕外；略抬高避免与底板 z-fight
       mesh.receiveShadow = true
       mesh.name = `ground:${g.id}`
       staticGroup.add(mesh)
+
+      // 边缘灯带：同色相、提亮。用 LineLoop 而不是发光材质——零后处理成本，不进 bloom 管线。
+      const edge = base.clone().offsetHSL(0, 0.12, 0.22)
+      const hw = w / 2
+      const hd = d / 2
+      const outline = new THREE.LineLoop(
+        new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(-hw, 0, -hd),
+          new THREE.Vector3(hw, 0, -hd),
+          new THREE.Vector3(hw, 0, hd),
+          new THREE.Vector3(-hw, 0, hd),
+        ]),
+        new THREE.LineBasicMaterial({ color: edge, transparent: true, opacity: 0.85 }),
+      )
+      outline.position.set(g.x, 0.006, -g.z)
+      outline.name = `ground-edge:${g.id}`
+      staticGroup.add(outline)
     }
   }
 
@@ -303,7 +340,7 @@ export function createScene3d(canvas, options = {}) {
   const pending = () => {
     const node = new THREE.Mesh(
       new THREE.BoxGeometry(0.5, 1.3, 0.5),
-      new THREE.MeshLambertMaterial({ color: new THREE.Color(PENDING_COLOR), transparent: true, opacity: 0.55 }),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(PENDING_COLOR), roughness: 0.6, transparent: true, opacity: 0.55 }),
     )
     node.position.y = 0.65
     node.userData.pending = true
@@ -314,7 +351,7 @@ export function createScene3d(canvas, options = {}) {
   const placeholder = () => {
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.8, 0.8, 0.8),
-      new THREE.MeshLambertMaterial({ color: new THREE.Color(MISSING_COLOR) }),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(MISSING_COLOR), roughness: 0.7 }),
     )
     mesh.position.y = 0.4
     mesh.castShadow = true
@@ -541,15 +578,47 @@ export function createScene3d(canvas, options = {}) {
     renderer.setSize(width, height, false)
 
     const aspect = width / height
-    const span = half * 1.25 * zoomFactor
+    // ── 取景（R32 修）──────────────────────────────────────────────────────────
+    //
+    // 旧版用 `half * 1.25 * zoomFactor` 当纵向半高，于是横向可见半宽 = span × aspect
+    // ≈ 16.7，而世界只有 `half`=8 —— **横向留了一倍多的空白**，小镇显得又小又偏。
+    //
+    // 现在是"把世界装进**看得见的那块**"：等距视角下 2·half 见方的地面是个菱形，
+    // 横向跨度 `2·half·√2`、纵向跨度 `2·half·√2·sin(pitch)`；取更紧的那一边定缩放。
+    //
+    // `insetRight` = 右侧浮动抽屉占掉的宽度。世界要居中在可见区域，而不是整个画布——
+    // R32 之前抽屉把小镇最右一列（黄区）的角色整个盖住了。
+    // 用 `setViewOffset` 平移投影窗口：**相机位置不动**，所以 OrbitControls 的状态不受影响。
+    const insetRight = Math.max(0, Math.min(viewInsets.right, width * 0.6))
+    const visibleW = Math.max(1, width - insetRight)
+    const visibleAspect = visibleW / height
+    const groundHalfW = half * Math.SQRT2
+    const groundHalfH = half * Math.SQRT2 * Math.sin(pitchRad)
+    const margin = 1.08 // 留 8% 边距，小镇不贴边
+    const span = Math.max(groundHalfH * margin, (groundHalfW * margin) / visibleAspect) * zoomFactor
     camera.left = -span * aspect
     camera.right = span * aspect
     camera.top = span
     camera.bottom = -span
+    // 把投影窗口往右挪半个抽屉宽：世界中心落在"可见区域"中心。
+    if (insetRight > 0) camera.setViewOffset(width, height, insetRight / 2, 0, width, height)
+    else camera.clearViewOffset()
     // 远近裁剪面跟着世界尺寸走：写死会在放大/缩小后把小镇切掉。
     camera.near = 0.1
     camera.far = half * 40
     camera.updateProjectionMatrix()
+  }
+
+  /**
+   * 告诉场景"浮层占掉了多少"（R32）。由面板在抽屉开合时调用；之后会自动重新取景。
+   *
+   * @param insets - 目前只用 `right`（右侧抽屉宽 + 边距，CSS 像素）。
+   */
+  const setViewInsets = (insets) => {
+    const right = Number(insets?.right) || 0
+    if (right === viewInsets.right) return
+    viewInsets = { right }
+    resize()
   }
 
   // ── 性能可见性 ──────────────────────────────────────────────────────────────
@@ -656,6 +725,12 @@ export function createScene3d(canvas, options = {}) {
     pickActor,
     projectToScreen,
     topYOf,
+
+    /**
+     * 告知"浮层占掉了多少"（R32）：抽屉开合时调用，世界会重新居中到可见区域。
+     * 这是场景与面板之间**唯一**的新接口——面板不需要知道相机怎么算。
+     */
+    setViewInsets,
 
     /**
      * 取一份性能快照（诊断用）。

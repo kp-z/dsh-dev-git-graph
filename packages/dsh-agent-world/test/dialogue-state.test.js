@@ -33,7 +33,7 @@ import {
   speakerAgentId,
   thinkingTurns,
   turnsFor,
-} from '../web/dialogue-state.js'
+} from '../web/core/dialogue-state.js'
 
 const GOD = { kind: 'god' }
 const agent = (id) => ({ kind: 'agent', id })

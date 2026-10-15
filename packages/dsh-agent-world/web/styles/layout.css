@@ -1,0 +1,247 @@
+/*
+ * 布局（R32）：**场景铺满工作区，面板是浮在它上面的玻璃**（DESIGN 第三节）。
+ *
+ * 一屏有两层：
+ *   底层 `.stage` 铺满，里面是场景画布（2D/3D 二选一）与所有浮层；
+ *   浮层都 `position: absolute` 挂在 `.stage` 上，用 `--z-*` 排顺序（token 里定义）。
+ *
+ * 这样"面板挡住场景多少"就只由浮层自己的尺寸决定——不再是"面板把场景挤小"。
+ */
+
+.app {
+  display: grid;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+  background: var(--bg-1);
+}
+
+/* ── 顶栏：56px 玻璃，单行 ────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: 0 var(--s-4);
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--stroke);
+  position: relative;
+  z-index: var(--z-drawer);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.brand-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.brand-name {
+  font-size: var(--fs-title);
+  font-weight: var(--fs-title) / 0;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.topbar-status {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  overflow: hidden;
+}
+.commands {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
+
+/* ── 舞台：铺满 ───────────────────────────────────────────────────────────── */
+.stage {
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+#town,
+#town3d {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#town3d {
+  background: var(--bg-0);
+}
+.bubbles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: var(--z-bubble);
+}
+.view-hint {
+  position: absolute;
+  left: 50%;
+  top: var(--s-4);
+  transform: translateX(-50%);
+  z-index: var(--z-hint);
+}
+
+/* ── 图例：左下角（抬到看板摘要条之上，收起时正好看得见）────────────────── */
+.legend {
+  position: absolute;
+  left: var(--s-4);
+  bottom: calc(var(--s-4) + 46px + var(--s-3));
+  z-index: var(--z-legend);
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow-1);
+}
+
+/* ── 右侧抽屉：浮动玻璃，可收起；对话是它上面的另一层 ────────────────────── */
+.drawer {
+  position: absolute;
+  right: var(--s-4);
+  top: var(--s-4);
+  bottom: calc(var(--s-4) + 46px + var(--s-3));
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--s-3);
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-drawer);
+  transition: transform var(--t-expand) var(--ease), opacity var(--t-expand) var(--ease);
+}
+.drawer.is-closed {
+  transform: translateX(calc(100% + var(--s-5)));
+  opacity: 0;
+  pointer-events: none;
+}
+.drawer-pages {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.drawer-page {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+.roster,
+.tasks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+.content {
+  margin-top: var(--s-4);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--stroke);
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+  line-height: 1.6;
+}
+
+/* 对话：同一个抽屉的另一层，从右侧滑出盖在花名册之上。 */
+.dialogue {
+  position: absolute;
+  inset: 0;
+  padding: var(--s-3);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  border-radius: var(--r-lg);
+  z-index: var(--z-dialogue);
+}
+.dialogue:not([hidden]) {
+  animation: drawer-in var(--t-expand) var(--ease);
+}
+@keyframes drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── 底部看板：浮动玻璃片，**默认收起成一条摘要** ────────────────────────── */
+.board {
+  position: absolute;
+  left: var(--s-4);
+  right: var(--s-4);
+  bottom: var(--s-4);
+  display: flex;
+  flex-direction: column;
+  /* 高度必须**确定**：`flex: 1` 的图与成员栏都靠它解析。
+     只写 max-height 的话子项没有可分的空间，画布高度会退化成 0（看着像"图没画出来"）。 */
+  height: min(460px, 56vh);
+  overflow: hidden;
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-board);
+  transition: height var(--t-expand) var(--ease);
+}
+.board.is-collapsed {
+  height: 46px;
+}
+.board.is-collapsed .board-head {
+  border-bottom-color: transparent;
+}
+
+/* 看板展开时图例会压在它下面：淡出比"半截露在玻璃边缘外面"干净。
+   用 `:has()` 表达"兄弟状态决定外观"，不必让 JS 再传一个标志位。 */
+.stage:has(.board:not(.is-collapsed)) .legend {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── 窄视口 ───────────────────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  /* 窄视口里成员与图是**上下**分空间，而两者都需要固定高度。
+     空间不够时只剩两条路：缩图（字变小、读不动）或裁掉（看不见）——都不好。
+     所以这一档给看板更多高度：展开时多盖一点场景，换来两者都完整、且不缩放。 */
+  .board {
+    height: min(520px, 62vh);
+  }
+}
+
+@media (max-width: 1100px) {
+  .drawer {
+    width: min(320px, calc(100% - var(--s-5)));
+  }
+  .chip-optional {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .topbar {
+    gap: var(--s-2);
+    padding: 0 var(--s-2);
+  }
+  .brand-name {
+    display: none;
+  }
+  .legend {
+    display: none; /* 极窄时先让位给场景与看板 */
+  }
+  .drawer {
+    left: var(--s-2);
+    right: var(--s-2);
+    width: auto;
+  }
+}

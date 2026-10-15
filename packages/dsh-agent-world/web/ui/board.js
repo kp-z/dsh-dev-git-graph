@@ -35,14 +35,13 @@ import {
   missingBoardTokens,
   resolveBoardColor,
   unlocksIndex,
-} from './board-layout.js'
+} from '../core/board-layout.js'
 
 /**
  * 六态的中文标签。
  *
- * 与 `web/app.js` 的 `TASK_LABEL` 同源——那边是既有实现（工单板已经在用）。
- * **两处并存是债**：合到一份共享模块里要动 `app.js`，而 M7-1 只允许最小接线，
- * 留给 M7-7（搬到 DSH 侧栏 tab 时顺手合并）。这里不去 import `app.js`：那是入口文件，有副作用。
+ * 与 `ui/tasks.js` 的 `STATUS_LABEL` 同源（两处都是既有实现）。
+ * **两处并存是债**：合到一份共享模块里要动那两个文件，留给 M7-7（搬到 DSH 侧栏 tab 时顺手合并）。
  */
 const STATUS_LABEL = {
   pending: '待办',
@@ -123,11 +122,14 @@ export function createBoard(options = {}) {
     const head = el(doc, 'header', 'board-head')
     const title = el(doc, 'h2', undefined, '执行看板')
     const counts = el(doc, 'div', 'board-counts')
-    const collapse = el(doc, 'button', 'ghost', '收起')
+    // 收起时的"摘要条"：一条按状态分段的进度条（DESIGN 第三节：默认收起成计数 + 进度条）。
+    // 它只在**收起**时看得见——展开时上半部分已经有完整的计数与依赖图。
+    const bar = el(doc, 'div', 'board-bar')
+    const collapse = el(doc, 'button', 'ghost', '展开')
     collapse.type = 'button'
-    collapse.title = '收起/展开看板（看板不参与 3D 渲染，收起只是为了腾地方）'
+    collapse.title = '展开/收起看板（看板不参与 3D 渲染，收起只是为了腾地方）'
     collapse.addEventListener('click', () => setCollapsed(!collapsed))
-    head.append(title, counts, collapse)
+    head.append(title, bar, counts, collapse)
     counts.setAttribute('role', 'status')
 
     const missing = el(doc, 'div', 'board-missing-note')
@@ -161,7 +163,7 @@ export function createBoard(options = {}) {
 
     const detail = el(doc, 'footer', 'board-detail')
     root.append(head, missing, body, detail)
-    parts = { counts, missing, members, membersList, edges, canvas, fit, content, cards, detail, collapse }
+    parts = { counts, bar, missing, members, membersList, body, edges, canvas, fit, content, cards, detail, collapse }
     setPalette(palette)
     observeSize()
   }
@@ -213,13 +215,22 @@ export function createBoard(options = {}) {
     }
   }
 
+  /**
+   * 收起 / 展开。
+   *
+   * 收起时**整块 body 一起隐藏**（不只是里面的图与列表）——否则会留下一个空的
+   * "任务依赖图"标题栏，看起来像加载失败。`.is-collapsed` 这个类由这里统一挂，
+   * 高度与过渡都写在 `styles/layout.css` 里（DOM 只表达状态，外观归 CSS）。
+   */
   function setCollapsed(next) {
     collapsed = next
     if (!ready) return false
-    parts.canvas.hidden = collapsed
-    parts.membersList.hidden = collapsed
+    root.classList.toggle('is-collapsed', collapsed)
+    parts.body.hidden = collapsed
     parts.detail.hidden = collapsed
     parts.collapse.textContent = collapsed ? '展开' : '收起'
+    // 通知装配处："看板现在是对开的了"。它据此让开地方（见 main.js 的 onCollapsed）。
+    options.onCollapsed?.(collapsed)
     return collapsed
   }
 
@@ -383,9 +394,21 @@ export function createBoard(options = {}) {
     }
   }
 
-  // ── 三段：顶部计数 + 底部详情 ───────────────────────────────────────────────
+  // ── 三段：顶部计数 + 摘要进度条 + 底部详情 ─────────────────────────────────
   function renderCounts() {
     parts.counts.textContent = ''
+    // 摘要条：一条按状态分段的横条（段宽 = 该状态的占比）。收起时它就是"离目标还有多远"。
+    parts.bar.textContent = ''
+    const total = Math.max(1, model.counts.total)
+    for (const status of TASK_STATUSES) {
+      const count = model.counts[status] ?? 0
+      if (count === 0) continue
+      const segment = el(doc, 'i')
+      applyNodeColors(segment, status)
+      segment.style.width = `${(count / total) * 100}%`
+      segment.title = `${STATUS_LABEL[status] ?? status} ${count} / ${model.counts.total}`
+      parts.bar.append(segment)
+    }
     for (const status of TASK_STATUSES) {
       const count = model.counts[status] ?? 0
       if (count === 0 && status !== 'done') continue
@@ -396,7 +419,8 @@ export function createBoard(options = {}) {
       chip.append(dot, el(doc, 'b', undefined, String(count)), el(doc, 'span', 'dim', STATUS_LABEL[status] ?? status))
       parts.counts.append(chip)
     }
-    parts.counts.append(el(doc, 'span', 'board-count dim', `共 ${model.counts.total} 张`))
+    // "共 N 张"在收起状态没有信息量（段数与计数已经说完了），所以给它一个类名让 CSS 收起时隐藏。
+    parts.counts.append(el(doc, 'span', 'board-count dim board-total', `共 ${model.counts.total} 张`))
     if (layout.hasCycle) {
       // 成环降级了就必须说出来（见 board-layout.js 里"为什么降级不抛错"）。
       parts.counts.append(el(doc, 'b', 'warn', `依赖里有环：${layout.unresolved.length} 张单排在最后一列`))
@@ -605,12 +629,11 @@ export function createBoard(options = {}) {
 
   // ── 可复用的核验入口（M7-9）──────────────────────────────────────────────────
   //
-  // `?debug=1` 时把 `clipped()` 挂到 app.js 那个 `__agentWorldBoard` 门面上，
+  // `?debug=1` 时把 `clipped()` 挂到 `main.js` 那个 `__agentWorldBoard` 门面上，
   // 于是以后每轮验收都是一行：`window.__agentWorldBoard.clipped()`。
   //
-  // 为什么要延一个宏任务：那个门面是 **app.js** 在 `createBoard()` 之后建的，
-  // 此刻还不存在；而本轮的写盘范围里没有 app.js（只有 board.js / board-layout.js /
-  // style.css / 测试），所以先等一轮再挂——门面不在就自己建一个。
+  // 为什么要延一个宏任务：那个门面是 **main.js** 在 `createBoard()` 之后建的，
+  // 此刻还不存在。先等一轮再挂——门面不在就自己建一个（别的宿主也能用）。
   if (ready && typeof globalThis.location !== 'undefined') {
     let debug = false
     try {

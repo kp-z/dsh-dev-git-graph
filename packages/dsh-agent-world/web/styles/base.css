@@ -1,0 +1,124 @@
+/*
+ * 基底与排版（R32）。只做三件事：reset、页面骨架、通用文本工具类。
+ * 具体组件在 components.css，摆放位置在 layout.css —— 这里不出现任何一个组件。
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-0);
+  color: var(--fg-0);
+  font: var(--fs-body) / 1.5 var(--ui-font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden; /* 面板是一屏应用；滚动发生在内部面板里 */
+}
+
+/*
+ * `hidden` 必须真的隐藏。
+ *
+ * 这条看着多余，其实是**一个真 bug 的解药**：组件类里写了 `display: flex/grid`，
+ * 而类选择器的优先级高于 UA 样式表里的 `[hidden] { display: none }`——
+ * 于是 `el.hidden = true` 静默失效：收起的看板仍然露出整块内容、
+ * 抽屉里"花名册"和"工单"两页同时显示。`clipped()` 一眼就抓到了它（返回 18 个被切元素）。
+ */
+[hidden] {
+  display: none !important;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: var(--fw-title);
+}
+
+/* 区块标题：小一号 + 大写字距，用来在不加边框的情况下分层级（DESIGN 2.2）。 */
+h2,
+h3,
+.section-title {
+  font-size: var(--fs-section);
+  letter-spacing: var(--tracking-section);
+  text-transform: uppercase;
+  color: var(--fg-2);
+  font-weight: 600;
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* 数字对齐：tick / 百分比 / 计数都用等宽数字，跳动时不会左右晃。 */
+.mono,
+b,
+time {
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: var(--mono-font);
+}
+
+.dim {
+  color: var(--fg-2);
+}
+
+.warn {
+  color: var(--st-ready);
+}
+
+/* 焦点环统一走 `--glow-accent`：键盘用户看得到、鼠标用户也不会被一圈虚线打扰。 */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-accent);
+  border-radius: var(--r-sm);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* 细滚动条：深色界面里默认的粗滚动条非常抢眼。 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--stroke-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--stroke-strong);
+  border-radius: var(--r-pill);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-2);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 减少动效偏好：玻璃与滑出都退化成"直接出现"。 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}

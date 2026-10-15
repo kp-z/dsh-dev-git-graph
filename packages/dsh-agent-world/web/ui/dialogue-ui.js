@@ -33,7 +33,7 @@ import {
   resolveLocalTurn,
   thinkingTurns,
   turnsFor,
-} from './dialogue-state.js'
+} from '../core/dialogue-state.js'
 
 /** 打字时提示面板不轮询的那句话（也是给"为什么回复没立刻出现"的解释）。 */
 const SENDING_HINT = '已发出。这条不走请求等待——回复会经事件流推回来，面板不轮询。'
@@ -57,7 +57,7 @@ function el(doc, tag, className, text) {
  * @param {object} options
  * @param {Document} [options.document] - 文档（测试/嵌入时可换）。
  * @param {(request: {agentId: string, text: string, tick: number, localTurnId: string}) => Promise<{ok: boolean, turnId?: string, status?: number, reason?: string, error?: unknown, text?: string}>} options.send
- *   发话。**由调用方（`app.js`）拥有端点**，这里只管 UI 与状态。
+ *   发话。**由调用方（`main.js`）拥有端点**，这里只管 UI 与状态。
  * @param {() => void} [options.onChanged] - 面板状态变了（花名册上的"…"要跟着变）。
  * @param {object} [options.state] - 状态机选项（`createDialogueState`）。
  */
@@ -328,7 +328,7 @@ export function createDialogueUi(options = {}) {
         refreshWho()
       }
     },
-    /** 面板取当前 tick 的方式（由 app.js 注入，面板自己不碰时钟）。 */
+    /** 面板取当前 tick 的方式（由 main.js 注入，面板自己不碰时钟）。 */
     setTickSource(fn) {
       tickOf = typeof fn === 'function' ? fn : () => 0
     },

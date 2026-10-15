@@ -3,8 +3,17 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agent World · 俯视图</title>
-    <link rel="stylesheet" href="./style.css" />
+    <title>Agent World</title>
+
+    <!--
+      样式分四层（DESIGN.md 第二节）：
+      tokens = 唯一的设计 token 来源；base = reset/排版；components = 徽章/按钮/进度条/卡片；
+      layout = 顶栏、抽屉、浮层的摆法。**组件层里不许出现十六进制色值**，一律引用 token。
+    -->
+    <link rel="stylesheet" href="./styles/tokens.css" />
+    <link rel="stylesheet" href="./styles/base.css" />
+    <link rel="stylesheet" href="./styles/components.css" />
+    <link rel="stylesheet" href="./styles/layout.css" />
 
     <!--
       import map：把裸说明符 `three` 指到本目录 vendor 的那份。
@@ -24,73 +33,86 @@
     </script>
   </head>
   <body>
-    <header>
-      <h1>Agent World</h1>
-      <div id="status" class="status">连接中…</div>
-      <div class="controls">
-        <button id="view-top" class="active">俯视</button>
-        <button id="view-3d">3D</button>
-        <button data-command="pause">暂停</button>
-        <button data-command="resume">继续</button>
-      </div>
-    </header>
-
-    <main>
-      <section class="map">
-        <canvas id="town"></canvas>
-        <!-- 3D 画布与俯视图叠在同一区域，靠 CSS 切换；两者吃同一份数据。 -->
-        <canvas id="town3d" hidden></canvas>
-        <!-- 头顶气泡（M6-5）：跟着角色走的一层 DOM，位置由 app.js 每帧算。
-             pointer-events:none，所以它不会挡住"点角色"这件事；
-             aria-hidden：同一段话在侧栏的对话面板里也有，读屏不必听两遍。 -->
-        <div id="bubbles" class="bubbles" aria-hidden="true"></div>
-        <div id="view-hint" class="view-hint" hidden></div>
-        <div class="legend">
-          <span><i class="swatch ground"></i>地块</span>
-          <span><i class="swatch station"></i>站点</span>
-          <span><i class="swatch agent"></i>角色（实心=在站上，空心=在路上）</span>
-          <span class="dim" id="view-note">点角色（或点右侧花名册那一行）就能跟他说话</span>
+    <div class="app">
+      <!-- 顶栏（56px 玻璃）：品牌 · 视图切换 · 状态胶囊 · 命令 -->
+      <header class="topbar" id="topbar">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          <span class="brand-name">Agent World</span>
         </div>
-      </section>
 
-      <aside>
-        <!--
-          对话面板（M6-5）。**放在侧栏里**而不是画布上：俯视与 3D 是两个渲染器，
-          而"跟谁说话"这件事与渲染器无关——放在侧栏，两个视图下它都在。
-        -->
-        <section id="dialogue" class="dialogue" hidden>
-          <div class="dialogue-head">
-            <h2>对话 <span id="dialogue-who" class="dim"></span></h2>
-            <button id="dialogue-close" class="ghost" type="button" title="关掉对话面板">×</button>
+        <div class="segmented" role="tablist" aria-label="视图">
+          <button id="view-top" class="segment active" type="button" role="tab" aria-selected="true">俯视</button>
+          <button id="view-3d" class="segment" type="button" role="tab" aria-selected="false">3D</button>
+        </div>
+
+        <div class="topbar-status" id="status" role="status" aria-live="off">连接中…</div>
+
+        <div class="commands">
+          <button id="cmd-pause" class="icon-btn" type="button" title="暂停世界">⏸</button>
+          <button id="cmd-resume" class="icon-btn" type="button" title="继续">▶</button>
+          <button id="drawer-toggle" class="icon-btn active" type="button" title="收起 / 展开右侧抽屉">☰</button>
+        </div>
+      </header>
+
+      <!-- 场景铺满工作区；面板是**浮在它上面的玻璃**（DESIGN 第三节） -->
+      <main class="stage" id="stage">
+        <canvas id="town"></canvas>
+        <!-- 3D 画布与俯视图叠在同一区域，靠 hidden 切换；两者吃同一份数据。 -->
+        <canvas id="town3d" hidden></canvas>
+
+        <!-- 头顶气泡（M6-5）：跟着角色走的一层 DOM，位置由 main.js 每帧算。
+             pointer-events:none，所以它不会挡住"点角色"；aria-hidden：同一段话在对话面板里也有。 -->
+        <div id="bubbles" class="bubbles" aria-hidden="true"></div>
+
+        <div id="view-hint" class="view-hint" hidden></div>
+
+        <!-- 图例：左下角可收起的小胶囊，色值从当前场景来（内容改了图例跟着变）。 -->
+        <div id="legend" class="legend is-collapsed" aria-label="图例"></div>
+
+        <!-- 右侧浮动抽屉：花名册 / 工单两页，对话面板是同一抽屉的另一页（滑出覆盖）。 -->
+        <aside class="drawer is-open" id="drawer">
+          <nav class="drawer-tabs" role="tablist" aria-label="抽屉页">
+            <button class="drawer-tab active" type="button" role="tab" data-page="roster" aria-selected="true">花名册</button>
+            <button class="drawer-tab" type="button" role="tab" data-page="tasks" aria-selected="false">工单</button>
+          </nav>
+
+          <div class="drawer-pages">
+            <section class="drawer-page" data-page="roster">
+              <ul id="roster" class="roster"></ul>
+            </section>
+            <section class="drawer-page" data-page="tasks" hidden>
+              <ul id="tasks" class="tasks"></ul>
+              <div id="content" class="content"></div>
+            </section>
           </div>
-          <ul id="dialogue-log" class="dialogue-log"></ul>
-          <div id="dialogue-hint" class="dialogue-hint" hidden></div>
-          <form id="dialogue-form" class="dialogue-form">
-            <textarea
-              id="dialogue-input"
-              rows="2"
-              placeholder="跟他说点什么（回车发送 · Shift+回车换行）"
-            ></textarea>
-            <button id="dialogue-send" type="submit">发送</button>
-          </form>
-        </section>
 
-        <h2>花名册</h2>
-        <ul id="roster" class="roster"></ul>
-        <h2>工单板</h2>
-        <ul id="tasks" class="tasks"></ul>
-        <h2>内容</h2>
-        <div id="content" class="content"></div>
-      </aside>
-    </main>
+          <!--
+            对话面板（M6-5）：**同一个抽屉的另一页**，从右侧滑出盖在花名册之上。
+            元素 id 与 `ui/dialogue-ui.js` 的约定一致。
+          -->
+          <section id="dialogue" class="dialogue" hidden>
+            <div class="dialogue-head">
+              <h2>对话 <span id="dialogue-who" class="dim"></span></h2>
+              <button id="dialogue-close" class="icon-btn" type="button" title="收起对话">×</button>
+            </div>
+            <ul id="dialogue-log" class="dialogue-log"></ul>
+            <div id="dialogue-hint" class="dialogue-hint" hidden></div>
+            <form id="dialogue-form" class="dialogue-form">
+              <textarea id="dialogue-input" rows="2" placeholder="跟他说点什么（回车发送 · Shift+回车换行）"></textarea>
+              <button id="dialogue-send" class="btn btn-primary" type="submit">发送</button>
+            </form>
+          </section>
+        </aside>
 
-    <!--
-      执行看板（M7-1）——三段式：成员看板 / 任务依赖图 / 详情栏。
-      **纯 DOM/SVG，不参与 3D 渲染循环**（由数据事件驱动，理由见 web/board.js 的文件头）；
-      内部结构由 board.js 建，这里只给一个容器。整块可以收起，把地方还给场景。
-    -->
-    <section id="board" class="board" aria-label="执行看板"></section>
+        <!--
+          执行看板（M7-1）：纯 DOM/SVG，不进 3D 渲染循环；**默认收起成一条摘要**。
+          内部结构由 ui/board.js 建（三段式：成员 / 依赖图 / 详情）。
+        -->
+        <section id="board" class="board" aria-label="执行看板"></section>
+      </main>
+    </div>
 
-    <script type="module" src="./app.js"></script>
+    <script type="module" src="./main.js"></script>
   </body>
 </html>

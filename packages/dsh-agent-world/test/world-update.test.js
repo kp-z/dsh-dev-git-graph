@@ -13,7 +13,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { applyEvents, applyEvent, decideOnBatch, pruneMessages } from '../web/world-update.js'
+import { applyEvents, applyEvent, decideOnBatch, pruneMessages } from '../web/core/world-update.js'
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { createWorld } from '../lib/world/create.js'
 import { createPluginState } from '../lib/state.js'

@@ -34,7 +34,7 @@ import {
   missingBoardTokens,
   resolveBoardColor,
   unlocksIndex,
-} from '../web/board-layout.js'
+} from '../web/core/board-layout.js'
 
 /** 造一个任务：`deps` 是 `blockedBy`。 */
 const task = (id, ordinal, deps = [], extra = {}) => ({

@@ -168,8 +168,16 @@ test('GET /api/world：快照里没有事件环形缓冲，但有调色板与运
 
     // 面板读不到内容库，所以配色必须随快照发出。
     assert.equal(typeof snap.palette, 'object')
-    assert.equal(snap.palette['ground.engineering'], '#6F7D5A')
-    assert.equal(snap.palette['role.lead'], '#F0B429')
+    // ⚠️ **不要在这里钉死具体色值**（R32 改的）。颜色是**内容**，改一套皮肤就该只是改内容；
+    // 而把 `#6F7D5A` 写进测试，等于让"换配色"变成一次测试改动——那会让下一个人以为
+    // 颜色是代码约定。这里该守的是**约定**：键在、值是一个合法颜色。
+    for (const token of ['ground.engineering', 'role.lead', 'ink', 'fog']) {
+      assert.match(
+        snap.palette[token] ?? '',
+        /^#[0-9a-fA-F]{6}$/,
+        `调色板必须带上 ${token}，且是 #RRGGBB（实际：${snap.palette[token]}）`,
+      )
+    }
 
     assert.equal(snap.runtime.running, false)
     assert.equal(snap.runtime.tickMs, 100)
@@ -189,8 +197,8 @@ test('world.districts 的 ground 是 token（面板负责查表，服务端负�
     const snap = await (await fetch(`${base}${PREFIX}/api/world`)).json()
     const engineering = snap.world.districts.find((d) => d.id === 'district.engineering')
     assert.equal(engineering.ground, 'skin.ground.engineering')
-    // 面板要剥掉 `skin.` 前缀再查表——两边的约定在这里钉住。
-    assert.equal(snap.palette[engineering.ground.slice('skin.'.length)], '#6F7D5A')
+    // 面板要剥掉 `skin.` 前缀再查表——两边的约定在这里钉住（约定，不是某个色值）。
+    assert.match(snap.palette[engineering.ground.slice('skin.'.length)] ?? '', /^#[0-9a-fA-F]{6}$/)
   })
 })
 
@@ -286,10 +294,12 @@ test('GET /agent-world/ 吐出面板 HTML，且引用的资源都取得到（M3-
   })
 })
 
-test('GET /agent-world/app.js 的正确 MIME 与 no-store', async () => {
+test('GET /agent-world/main.js 的正确 MIME 与 no-store', async () => {
   const { handler } = makeDeps()
   await withServer(handler, async (base) => {
-    const res = await fetch(`${base}${PREFIX}/app.js`)
+    // R32 重组把入口从 `app.js` 改成了 `main.js`（web/ 分了 core/net/scene/ui/styles 子目录）。
+    // 这条测的是"静态服务对 .js 的 MIME 与缓存头"，跟着入口走即可。
+    const res = await fetch(`${base}${PREFIX}/main.js`)
     assert.equal(res.status, 200)
     assert.match(res.headers.get('content-type'), /javascript/)
     assert.equal(res.headers.get('cache-control'), 'no-store')

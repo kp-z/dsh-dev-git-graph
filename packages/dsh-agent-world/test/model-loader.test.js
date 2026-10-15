@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { createModelCache, resolveAssetUrl } from '../web/model-loader.js'
+import { createModelCache, resolveAssetUrl } from '../web/scene/model-loader.js'
 
 /** 造一个记账用的假加载器。 */
 function fakeLoader({ fail = [], delayMs = 0 } = {}) {

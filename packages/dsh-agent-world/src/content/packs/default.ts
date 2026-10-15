@@ -79,23 +79,33 @@ export const defaultPack: ContentPack = {
     skins: [
       {
         id: 'skin.default',
-        name: '舒适等距沙盘（默认）',
+        name: '夜色工作室（默认）',
+        // R32 换的是**色值，不是 token 名**。两套皮肤若用同名 token，`port.ts colors()`
+        // 会按 id 排序叠加、后者静默覆盖前者——那样"换皮肤"就变成了"赌装载顺序"。
+        // 所以换风格的正确做法是就地改值；它仍然兑现 D31 那句承诺：
+        // **场景换了一个样子，`src/sim|domain|protocol|routes` 一行没改。**
+        //
+        // 风格：夜间工作室。深蓝灰底 + 每块被灯照亮的台面。
+        // 纪律是**色相表意、明度分轻重**（与看板那组同一条），并且地块明度一律高于背景——
+        // 地块要像"台面"，而不是像"背景上的污渍"（旧值 #6F7D5A 之类正是后者）。
         colors: {
-          // 环境（大面积、低饱和）
-          'paper': '#CFE6F5',
-          'ground': '#E8D5B7',
-          'wall': '#F7EFE3',
-          'wood': '#B98A5E',
-          'moss': '#8FA97C',
-          'teal': '#4E8C8A',
-          'ink': '#3B3A38',
-          'fog': '#F2E8DC',
+          // 环境（大面积，低饱和，给 3D 的天光/雾/描边用）
+          'paper': '#8FA3C8',
+          'ground': '#1A2030',
+          'wall': '#2A3348',
+          'wood': '#8A6A4A',
+          'moss': '#5F8F6A',
+          'teal': '#3FB8A8',
+          'ink': '#0B0D12',
+          'fog': '#0E131E',
 
-          // 地块地面（每个分区一个色，靠明度区分而非色相）
-          'ground.engineering': '#6F7D5A',
-          'ground.infra': '#5C6B78',
-          'ground.meeting': '#8A7A5C',
-          'ground.commons': '#7D6F5A',
+          // 地块地面：四个分区四个**色相**（青 / 靛 / 紫 / 暖橙），明度都比 ink 高一档。
+          // 旧版靠明度区分而非色相，结果四块地看起来是同一块脏土；色相分开之后
+          // "他走去机房了"这件事在俯视图上一眼就能看出来。
+          'ground.engineering': '#1E3A4A',
+          'ground.infra': '#232E52',
+          'ground.meeting': '#38294F',
+          'ground.commons': '#44341F',
 
           // 消息纸条（M2.5-2 让纸条真的会出现）。手头这张纸上最重要的一件事是
           // **一眼分清"交接"还是"汇报"**，所以两类给冷暖对比鲜明的两色。
@@ -107,27 +117,28 @@ export const defaultPack: ContentPack = {
           'message.answer': '#A0E7A0',
           'message.dispatch': '#E0C3FC',
 
-          // 分区强调色
-          'accent.engineering': '#4FA3D1',
-          'accent.infra': '#7FE3D4',
-          'accent.meeting': '#D97A5A',
-          'accent.commons': '#8E7CC3',
+          // 分区强调色：与上面的地面色同色相、高明度——地块边缘的灯带。
+          'accent.engineering': '#38BDF8',
+          'accent.infra': '#818CF8',
+          'accent.meeting': '#C084FC',
+          'accent.commons': '#FB923C',
 
-          // 角色职业色（中间调，保证一群 agent 读起来像一个团队）
-          'role.lead': '#F0B429',
-          'role.engineer': '#4FA3D1',
-          'role.reviewer': '#A86BD1',
-          'role.researcher': '#3FB8A8',
-          'role.ops': '#E05A8A',
-          'role.docs': '#6FBF73',
+          // 角色职业色：高饱和、高明度。它们是画面里最小、最需要被看见的东西，
+          // 所以是整张调色板里唯一允许"亮"的一组；彼此色相拉开，同屏八个人不撞色。
+          'role.lead': '#FBBF24',
+          'role.engineer': '#38BDF8',
+          'role.reviewer': '#C084FC',
+          'role.researcher': '#2DD4BF',
+          'role.ops': '#FB7185',
+          'role.docs': '#4ADE80',
 
-          // 站点色
-          'station.desk': '#C9A227',
-          'station.meeting': '#B06A3B',
-          'station.server': '#4A5A6A',
-          'station.mailroom': '#8F6F4A',
-          'station.lab': '#5F8F7A',
-          'station.breakroom': '#7A8F5F',
+          // 站点色：比所在地块再亮一档的中间调，像台面上的设备，不抢角色的戏。
+          'station.desk': '#5B7A99',
+          'station.meeting': '#7A5C99',
+          'station.server': '#4B5B8F',
+          'station.mailroom': '#99784F',
+          'station.lab': '#3F8F82',
+          'station.breakroom': '#99694F',
 
           // 执行看板（M7-1）——取自 docs/ROADMAP.md §3.5 从参考图（DSH 内置 Agent Teams 看板）
           // 提取的目标值。看板与 3D 小镇**同屏并排**，所以这组色刻意比场景暗、比场景低饱和：
@@ -191,18 +202,25 @@ export const defaultPack: ContentPack = {
     ],
 
     // ── 主题库 ──────────────────────────────────────────────────────────────
+    //
+    // R32 起这套光照是**为深色场景调的**：主光偏冷白（像顶上的工作灯），
+    // 环境光偏暖（像桌面反射），天光取皮肤里的夜色。
+    // 换光照 = 改这里，`web/` 一行不用改——这也是 D31 那条"表现是内容"的一部分。
     themes: [
       {
         id: 'theme.cozy-isometric',
-        name: '舒适等距沙盘',
+        name: '夜色工作室',
         camera: { projection: 'orthographic', yawDeg: 45, pitchDeg: 35.264, fov: null, zoom: 1.1 },
-        fog: { color: 'skin.fog', density: 0.01 },
+        // 雾比旧版浓一点：深色场景里远处的台面会自然融进背景，场景边缘不再"硬切"。
+        fog: { color: 'skin.fog', density: 0.016 },
         lighting: {
-          hemisphere: { sky: 'skin.paper', ground: 'skin.ground', intensity: 0.55 },
-          directional: { color: '#FFD9A0', intensity: 1.5, position: { x: 12, y: 18, z: 8 }, castShadow: true, shadowMapSize: 2048 },
-          ambient: { color: '#FFF3E0', intensity: 0.2 },
+          hemisphere: { sky: 'skin.paper', ground: 'skin.ground', intensity: 0.7 },
+          // 主光：冷白，从左上打下来，负责"这是一张被照亮的工作台"。
+          directional: { color: '#DCE6FF', intensity: 1.35, position: { x: 10, y: 20, z: 12 }, castShadow: true, shadowMapSize: 2048 },
+          // 环境光：暖橙，很轻。它的作用是让阴影里不死黑，同时给冷色场景一点温度。
+          ambient: { color: '#3A2E22', intensity: 0.45 },
         },
-        post: { toneMapping: 'ACESFilmic', exposure: 1.05, bloom: { enabled: false, threshold: 0.9, strength: 0.35 } },
+        post: { toneMapping: 'ACESFilmic', exposure: 1.15, bloom: { enabled: false, threshold: 0.9, strength: 0.35 } },
       },
     ],
 

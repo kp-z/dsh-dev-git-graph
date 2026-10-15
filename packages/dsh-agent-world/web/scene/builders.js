@@ -29,9 +29,15 @@
  * 所以"这个桌子多大"也是内容，不是代码。
  */
 
-/** 共用的材质工厂：三个参数都从外面来，这里不写字面量色值。 */
+/**
+ * 共用的材质工厂：三个参数都从外面来，这里不写字面量色值。
+ *
+ * R32：Lambert → Standard（PBR）。与地面同一套光照响应——否则程序化的家具会和台面
+ * "不在一个世界里"（一个有柔和明暗，一个是平涂）。粗糙度偏高、零金属：
+ * 像哑光的工作台面与设备外壳，不会出现塑料感的高光斑。
+ */
 function mat(THREE, color) {
-  return new THREE.MeshLambertMaterial({ color: new THREE.Color(color) })
+  return new THREE.MeshStandardMaterial({ color: new THREE.Color(color), roughness: 0.78, metalness: 0.05 })
 }
 
 /** 造一个盒子并摆好位置（阴影默认打开——沙盘没有影子会很平）。 */
