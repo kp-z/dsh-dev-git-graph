@@ -368,3 +368,92 @@ test('journal：emitEvent 是唯一改 seq 的地方，返回的事件就是写�
   assert.equal(world.events[world.events.length - 1], event, '缓冲里存的应当是同一个对象')
   assert.equal(event.tick, world.tick)
 })
+
+// ── D41（R39）：外部裁决进世界 + live 模式不许 tick 完成 ─────────────────────────
+
+test('D41：taskAssign 把单派给角色；taskComplete 才真的完成（不是 tick 涨满）', () => {
+  const world = makeWorld()
+  const task = world.tasks[0]
+  // 接上团队（live 世界的前提）。
+  task.externalId = 't1'
+  world.mode = 'live'
+  const agent = world.agents[0]
+
+  // 外部说"派给他了"。
+  step(world, [{ kind: 'taskAssign', taskId: task.id, agentId: agent.id, attemptId: 'a1' }])
+  assert.equal(task.owner, agent.id)
+  assert.equal(task.attemptId, 'a1')
+
+  // 让他开工（调度器会在下一 tick 领；这里直接推进到 in_progress，专注验完成口径）。
+  task.status = 'in_progress'
+  agent.carrying = task.id
+  agent.state = 'working'
+
+  // 连推**超过估算时长**的 tick：live 下仍然不许自己完成。
+  // （`estimateTicks` 由内容库给，是 600；写死 500 会变成"还没到估算时长"的假绿。）
+  const ticks = (task.estimateTicks ?? 600) * 2
+  for (let i = 0; i < ticks; i += 1) step(world)
+  assert.notEqual(task.status, 'done', 'live 模式下 tick 涨满不算完成（这正是 D41 的核心）')
+  assert.ok(task.progress <= 0.95, `进度必须封顶在 1 以下，实际 ${task.progress}`)
+  assert.equal(agent.state, 'working', '他还在忙——因为单还没完成')
+
+  // 外部确认完成。
+  step(world, [{ kind: 'taskComplete', taskId: task.id, attemptId: 'a1', output: '改完了' }])
+  assert.equal(task.status, 'done')
+  assert.equal(task.progress, 1)
+  assert.equal(task.output, '改完了')
+  assert.equal(agent.carrying, null, '完成时人要从单上摘下来')
+  assert.equal(agent.state, 'idle')
+})
+
+test('D41：旧代次的裁决被拒（重新指派后，上一个执行者的结果不能把新单标成完成）', () => {
+  const world = makeWorld()
+  const task = world.tasks[0]
+  task.externalId = 't1'
+  world.mode = 'live'
+  task.attemptId = 'a2'
+  task.status = 'in_progress'
+
+  step(world, [{ kind: 'taskComplete', taskId: task.id, attemptId: 'a1', output: '旧的' }])
+  assert.notEqual(task.status, 'done', 'a1 是上一代的裁决，必须被拒')
+  assert.equal(task.output, null)
+
+  step(world, [{ kind: 'taskComplete', taskId: task.id, attemptId: 'a2', output: '新的' }])
+  assert.equal(task.status, 'done')
+  assert.equal(task.output, '新的')
+})
+
+test('D41：simulated 模式完全不受影响（老规矩：tick 涨满就完成）', () => {
+  const world = makeWorld()
+  const task = world.tasks[0]
+  const agent = world.agents[0]
+  // 注意：这里**故意**设了 externalId，验证判据是 mode 而不是 externalId 单独起作用。
+  task.externalId = 't1'
+  task.status = 'in_progress'
+  task.owner = agent.id
+  agent.carrying = task.id
+  agent.state = 'working'
+
+  const ticks = (task.estimateTicks ?? 600) * 2
+  for (let i = 0; i < ticks && task.status !== 'done'; i += 1) step(world)
+  assert.equal(task.status, 'done', 'simulated 世界里进度涨满仍然是完成——这是回放与测试的路径')
+})
+
+test('D41：taskFail 落进失败原因，且人从单上摘下来', () => {
+  const world = makeWorld()
+  const task = world.tasks[0]
+  task.externalId = 't1'
+  world.mode = 'live'
+  const agent = world.agents[0]
+  task.status = 'in_progress'
+  task.owner = agent.id
+  task.attemptId = 'a1'
+  agent.carrying = task.id
+  agent.state = 'working'
+
+  step(world, [{ kind: 'taskFail', taskId: task.id, attemptId: 'a1', reason: '接口还没定' }])
+  assert.equal(task.status, 'failed')
+  assert.equal(task.failureReason, '接口还没定')
+  assert.equal(agent.carrying, null)
+  assert.equal(agent.state, 'idle')
+})

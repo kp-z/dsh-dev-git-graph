@@ -133,14 +133,33 @@ export function claimTasks(world: World): SchedulerOutcome {
       continue
     }
 
+    // ── 外部已经指派了人（D41，R39）：**必须尊重它**，不许调度器自己挑 ──────────
+    //
+    // R39 的测试当场抓到：调度器原本无视外部指派，按职业自己挑人并覆写 `owner`，
+    // **还覆写 `attemptId`**——后者是致命的：agent-teams 的完成汇报带的是它自己的代次，
+    // 被覆写之后每一次真实的完成都会被 `applyExternalTasks` 当成"旧代"拒掉，
+    // 于是 live 世界里**没有任何一张单能真正完成**，而且不会有任何报错。
+    const externallyOwned = task.externalId !== null && task.owner !== null
+    const assigned = externallyOwned ? free.find((a) => a.id === task.owner) : undefined
+    if (externallyOwned && assigned === undefined) {
+      // 指派的人此刻不空闲（还在忙别的）：等他，而不是把单塞给别人。
+      stalled.push({
+        taskId: task.id,
+        reason: 'no-worker',
+        detail: '团队把这张单派给了一个此刻还在忙的角色：等他忙完再开工。',
+      })
+      continue
+    }
+
     // 优先同职业；没有就把这张单给任何空闲的人——**不要因为职业不匹配就不派**，
     // 否则一个小队里只要缺某个职业，整条流水线就停在那里。
     const matching = free.find((a) => task.suggestedRole !== null && a.role === task.suggestedRole)
-    const agent = matching ?? free[0]
+    const agent = assigned ?? matching ?? free[0]
     if (agent === undefined) continue
 
     const slot = stationSlot(chosen.station, chosen.slotIndex)
-    const attemptId = `attempt-${world.tick}-${task.id}`
+    // 外部指派的单保留外部代次；只有小镇自己派的单才用自己的代次。
+    const attemptId = externallyOwned && task.attemptId !== null ? task.attemptId : `attempt-${world.tick}-${task.id}`
 
     task.status = 'in_progress'
     task.owner = agent.id

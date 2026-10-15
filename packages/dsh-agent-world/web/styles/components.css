@@ -429,6 +429,39 @@
   color: var(--st-failed);
   border-color: color-mix(in srgb, var(--st-failed) 40%, transparent);
 }
+/*
+ * 气泡的"指向"（R39 / M7-11）。
+ *
+ * 定位被夹到可见区边缘之后，"气泡正对头顶"这句话就不成立了，所以要画一条小尾巴指向
+ * **真实的头顶**（`--tail` 由 main.js 按真实锚点算）。它不只是装饰：没有它，一个贴边的
+ * 气泡看起来像"飘到了别人头上"。
+ *
+ * `.is-pinned` 是另一种情况：**人本身**在抽屉底下（锚点已经出了可见区）。
+ * 这时尾巴改成右侧小箭头——它回答的是"他在那个方向"，而不是"他在这条线的下面"。
+ */
+.bubble.is-clamped::after {
+  content: '';
+  position: absolute;
+  left: var(--tail, 50%);
+  bottom: -4px;
+  width: 8px;
+  height: 8px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--glass-strong);
+  border-right: 1px solid var(--stroke-strong);
+  border-bottom: 1px solid var(--stroke-strong);
+}
+.bubble.is-pinned::after {
+  left: auto;
+  right: -4px;
+  bottom: auto;
+  top: 50%;
+  transform: translateY(-50%) rotate(45deg);
+  border-right: 1px solid var(--stroke-strong);
+  border-top: 1px solid var(--stroke-strong);
+  border-bottom: none;
+}
+
 .bubble-acting {
   color: var(--st-in_progress);
   border-color: color-mix(in srgb, var(--st-in_progress) 38%, transparent);

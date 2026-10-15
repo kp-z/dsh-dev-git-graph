@@ -142,5 +142,9 @@ export function instantiateTasks(
     estimateTicks: t.estimateTicks,
     createdAtTick: tick,
     finishedAtTick: null,
+      // D41：内容库实例化出来的单还没接到团队；live 模式下由同步把 externalId 补上。
+      externalId: null,
+      output: null,
+      failureReason: null,
   }))
 }

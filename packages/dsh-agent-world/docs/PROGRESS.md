@@ -31,7 +31,50 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R38 末）：`typecheck` 绿 · `test` **461 / pass 461 / fail 0 / todo 0**。**套壳落地：角色是 agent-teams 成员、工具白名单生效、真的会调世界工具（G4 在套壳路径成立）。web profile 配置已常驻，desktop 未动。**
+当前验证状态（R39 末）：`typecheck` 绿 · `test` **483 / 483 / 0 fail / 0 todo**。**两套任务合流的地基已就位（D41：命令、纯 diff、外部裁决落地、live 守卫），但还没接上线**；气泡已避开抽屉。
+
+---
+
+## R39 —— 两套任务模型合流的地基（D41）+ 气泡避开抽屉
+
+**先说清一件事**：R38 小紫汇报"13 张工单全完成"，那是 `sim/interaction.ts` 的 `advanceWork` 按
+`progress + 1/estimateTicks` **涨满的**——没有任何 agent 真的干过活。模拟器在扮演"干活"。这是合流的根本理由。
+
+**做了什么（lead）**
+- **D41 写进 ARCHITECTURE**：任务的真相归 agent-teams（谁做什么、做完没有），小镇是它的空间投影（在哪、何时到、看起来忙不忙）。
+  接缝早就有：`WorldMode` 的 `simulated` / `live`。外部结果**以命令进入世界**、照旧进 journal，所以回放仍确定（与 D35 同一条纪律）。
+- **协议**：`WorldCommand` 加 `taskAssign` / `taskComplete` / `taskFail`（带 `attemptId`，与 agent-teams 的执行代语义一致）；
+  新增 `protocol/team.ts`（`TeamTaskView` / `TeamSyncInput`，跨边界的契约）。
+- **`sim/team-sync.ts` 的 `planTeamSync`**：纯函数，团队任务 + 小镇任务 → 命令。幂等、顺序稳定、名字对不上不指派。
+- **`sim/step.ts` 的 `applyExternalTasks`**：外部裁决在同一 tick 落地；旧代次的裁决被拒；完成/失败时把人从单上摘下来。
+- **`Task` 加 `externalId` / `output` / `failureReason`**；`interaction.ts` 的 live 守卫：接上团队的单**不许 tick 完成**，进度封顶 0.95。
+- 自查抓到并修掉的两个真 bug：
+  1. 守卫起初放在 `task.progress = next` **之后**——进度事件会报 1 而状态还是进行中（满格进度条配"进行中"）。改到赋值之前。
+  2. **调度器无视外部指派，还覆写 `attemptId`**（测试当场抓到 owner 变成了 agent-6）。后者是致命的：
+     agent-teams 的每一次真实完成都会被当成"旧代"拒掉，live 世界里**没有任何单能真正完成**，且不报错。
+     现在外部已指派的单只派给那个人（他忙就等），并保留外部代次。
+
+**做了什么（panel，task-7）**：M7-11 头顶气泡避开右侧抽屉。锚点在抽屉下时**贴边 + 箭头，不消失**
+（理由：人看不见时再把话压掉是双重损失）；可见区放不下整块气泡时不画。纯函数 `web/core/bubble-place.js` + 11 条测试。
+它还自己抓到并修了一个初始化顺序 bug（读 TDZ 里的 `drawer` 让整个 main.js 不执行）。
+
+**验证**
+- `typecheck` 绿；`pnpm test` **483 / 483 / 0 fail / 0 todo**（我自己跑的，与 panel 报的一致；+17 我的、+11 panel 的）。
+- **真机（web profile，不带 --patch）**：浏览器里点小铁说话，对话面板出现回复 + "2 次调用 · 看世界 · agent_teams_send_message"
+  动作行；`__agentWorldBubbles.occluded()` = `[]`，`hidden()` = 0；`/api/world` 200。截图 `/Users/kp/Downloads/aw-r39-real.png`。
+
+**没做到的（如实）**
+- **合流只有地基，还没接上线**：`planTeamSync` 与 `applyExternalTasks` 都有测试，但**没有任何代码在真机上调用它们**——
+  还缺"轮询 `agent_teams_status` → `planTeamSync` → 命令送进世界"这一环，世界也还没切到 `live`。所以真机上任务仍是 tick 涨满的假完成。
+- 气泡的贴边/箭头路径 panel 只在窄视口和加宽抽屉下逼出来过，真机上角色都在广场，没自然出现。
+- 动作行里 `agent_teams_send_message` 没有中文标签（`web/ui/labels.js` 只映射了世界工具）。
+
+**下一轮从哪继续**
+1. **接上线**（M10-5 的后半）：在 `src/index.ts` 加同步环——定时用队长身份调 `agent_teams_status`，从 `value.tasks` 取任务，
+   `planTeamSync` 算命令，经 `runtime` 送进世界；同时让 `dispatch` 在 live 下**也**用 `agent_teams_create_task` 建团队任务并回填 `externalId`。
+   先读 `agent_teams_status` 返回的 tasks 确切字段（`lib/tools.js` 的 status 段），别猜。
+2. 世界何时切 `live`：建议跟随 `dialogueBackend === 'agent-teams'`，写进配置。
+3. `labels.js` 补 `agent_teams_*` 的中文标签（派给 panel）。
 
 ---
 

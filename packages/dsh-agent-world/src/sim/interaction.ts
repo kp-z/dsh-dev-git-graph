@@ -61,6 +61,28 @@ export function advanceWork(world: World): WorkOutcome {
     }
 
     const ticks = task.estimateTicks !== null && task.estimateTicks > 0 ? task.estimateTicks : DEFAULT_TASK_TICKS
+
+    // ── live 模式下 **tick 涨满不算完成**（D41，R39）────────────────────────────
+    //
+    // 这是这一整条改动的核心：`simulated` 里"进度涨到 1 就 done"是**模拟器在扮演干活**
+    // （R38 真机上小紫汇报"13 张全完成"，没有一个人真的干过活）。`live` 世界里
+    // 完成只有一个来源：外部（agent-teams）确认这张单做完了。
+    //
+    // 判据是 `world.mode === 'live' && task.externalId !== null`：接上团队的单才受这条约束，
+    // 所以手工造的、没接团队的单仍按老规矩走，不会永远卡住。
+    //
+    // ⚠️ **封顶必须发生在 `task.progress = next` 之前**（R39 自查抓到）：先赋值再封顶的话，
+    // 进度事件里报的是 1，而状态还是 in_progress——面板会画一根满格进度条配"进行中"。
+    const externallyDriven = world.mode === 'live' && task.externalId !== null
+    if (externallyDriven && task.progress + 1 / ticks >= 1) {
+      // 封顶 0.95：1 在视觉上就是"完成"，而它还没完成。人继续显示在忙。
+      const capped = Math.min(task.progress, 0.95)
+      const delta = capped - task.progress
+      task.progress = capped
+      if (delta > 0) progressed.push({ taskId, agentId: agent.id, progress: capped, delta })
+      continue
+    }
+
     const next = Math.min(1, task.progress + 1 / ticks)
     const delta = next - task.progress
     task.progress = next

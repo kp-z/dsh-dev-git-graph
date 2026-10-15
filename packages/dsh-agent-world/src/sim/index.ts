@@ -36,3 +36,4 @@ export { emitPhaseEvents } from './emit.js'
 
 export type { StepRequests, StepResult } from './step.js'
 export { step } from './step.js'
+export { planTeamSync } from './team-sync.js'

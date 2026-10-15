@@ -26,6 +26,7 @@
 
 import { applyEvents, pruneMessages } from './core/world-update.js'
 import { dialogueEventsFromFrame } from './core/dialogue-state.js'
+import { occludedBubbles, placeBubble } from './core/bubble-place.js'
 import { createConnection } from './net/connection.js'
 import { createScene2d } from './scene/scene2d.js'
 import { createTopbar } from './ui/topbar.js'
@@ -70,6 +71,31 @@ const bubbleNodes = new Map()
 let boardSelection = null
 /** 对话面板（状态机在 core/dialogue-state.js，DOM 在 ui/dialogue-ui.js）。 */
 let dialogue = null
+/**
+ * 浮层占掉的边距与矩形（R39）。**唯一来源**：`syncSceneInsets()` 量一次，
+ * 3D 取景与气泡避让都读它（两份测量会漂移）。
+ */
+const stageInsets = { right: 0, drawer: null }
+
+/**
+ * 看板的矩形——**只在展开时**返回（收起时返回 null）。
+ *
+ * 两个理由：
+ * 1. 收起时它就是底下一条 46px 的摘要条，为它把气泡顶上去是白顶；
+ * 2. 收起是**高度过渡**（220ms），而**隐藏标签页里过渡根本不推进**——那一刻
+ *    `getBoundingClientRect()` 会一直读到过渡起点那个 450px 的旧值。用**类名**当闸门就不受
+ *    过渡状态影响：类名是"意图"（用户点了收起），矩形是"此刻的像素"。
+ *    （我第一版就是被这个骗了：量到 450px 的"收起态"，于是所有气泡被无意义地顶高。）
+ *
+ * 展开时现读（不缓存）：过渡进行中每一帧的矩形都不同，缓存只会拿到中间值。
+ */
+function boardRectNow() {
+  const el = $('board')
+  if (el === null || el.classList.contains('is-collapsed')) return null
+  const rect = el.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+  return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
+}
 /** 角色色（内容里的职业色，来自 ScenePlan）——花名册的色点用。 */
 let colorById = new Map()
 
@@ -89,13 +115,34 @@ const topbar = createTopbar({
  * 收起时会变成一条窄栏，任何一个常数都会在其中一种情况下算错。
  * 场景那边只认一个像素数，不知道抽屉长什么样——面板换布局不需要改场景。
  */
+/**
+ * 抽屉现在开着吗——读 **DOM 的类**，不读 `drawer` 对象。
+ *
+ * 这里踩过一次：`createDrawer()` 在构造末尾 `paint()` → 触发 `onToggle` → 触发
+ * `syncSceneInsets()`，而那一刻 `const drawer = createDrawer(...)` 还在 TDZ。
+ * 症状是 `ReferenceError: Cannot access 'drawer' before initialization` 让**整个 main.js
+ * 不执行**：页面永远停在顶栏那句"连接中…"、花名册一片空白。
+ * 类名本来就是抽屉自己在 `paint()` 里先设、再回调的，所以读它是同一份事实，而且没有顺序依赖。
+ */
+function drawerIsOpen() {
+  const el = $('drawer')
+  return el !== null && el.classList.contains('is-open')
+}
+
 function syncSceneInsets() {
-  if (scene3d === null) return
   const el = $('drawer')
   const rect = el?.getBoundingClientRect?.()
-  const open = drawer.isOpen() && rect !== undefined && rect.width > 0
+  const open = drawerIsOpen() && rect !== undefined && rect.width > 0
   // 右侧留 12px 呼吸，别让小镇紧贴抽屉边缘。
-  scene3d.setViewInsets({ right: open ? el.getBoundingClientRect().width + 12 : 0 })
+  // **只量这一处**：3D 取景与气泡避让都读 `stageInsets.right`——各量一份迟早会漂移，
+  // 而漂移的症状是"某一边看起来差一点"，很难归因。
+  stageInsets.right = open ? rect.width + 12 : 0
+  stageInsets.drawer = open ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } : null
+  // 看板矩形**故意不在这里量**：看板高度有 220ms 过渡（展开/收起），事件驱动地量只会量到
+  // 动画中间值（我第一版就是这样：启动时量到 450px 的展开态，于气泡被无意义地顶高）。
+  // 它改成每帧现读（见 `boardRectNow()`），代价格外小：那一帧本来就要读 `$bubbles` 的尺寸。
+  // 场景那边只认一个像素数，不知道抽屉长什么样——面板换布局不需要改场景。
+  scene3d?.setViewInsets({ right: stageInsets.right })
 }
 
 const drawer = createDrawer({
@@ -132,7 +179,9 @@ const board = createBoard({
   // 等于变相被裁**（M7-9 那条纪律）。收起是可见的、一键能恢复的动作，比让用户
   // 以为"图只有一半"要好。
   onCollapsed: (collapsed) => {
+    // 展开看板会把抽屉收起来（两者都需要横向空间），所以边距要重量。
     if (collapsed === false) drawer.toggle(false)
+    syncSceneInsets()
   },
   onSelect: (taskId) => {
     boardSelection = taskId
@@ -243,6 +292,11 @@ function updateBubbles() {
   if ($bubbles === null || meta === null) return
   const list = dialogue === null ? [] : dialogue.bubblesFor(performance.now())
   const seen = new Set()
+  const view = { width: $bubbles.clientWidth, height: $bubbles.clientHeight }
+  // 抽屉占位复用 `syncSceneInsets()` 量到的那份（**同一份测量**，见那里的注释）；
+  // 看板矩形现读（它带过渡动画，缓存会拿到动画中间值）。
+  const insetRight = stageInsets.right
+  const boardRect = boardRectNow()
 
   for (const bubble of list) {
     const agent = world?.agents.find((a) => a.id === bubble.agentId)
@@ -265,7 +319,7 @@ function updateBubbles() {
       const text = document.createElement('span')
       node.append(name, text)
       $bubbles.append(node)
-      entry = { node, name, text, sig: null }
+      entry = { node, name, text, sig: null, size: null, placed: null }
       bubbleNodes.set(agent.id, entry)
     }
     const sig = `${bubble.phase}\u0001${bubble.text}`
@@ -275,9 +329,27 @@ function updateBubbles() {
       entry.name.textContent = agent.name
       entry.text.textContent = bubble.text
       entry.sig = sig
+      entry.size = null // 文本变了 → 尺寸重量一次（避让要用真实宽度，不然贴边会算错）
     }
-    entry.node.style.left = `${Math.round(anchor.x)}px`
-    entry.node.style.top = `${Math.round(anchor.y)}px`
+    if (entry.size === null) {
+      // 只在文本变化时量：`offsetWidth` 会触发布局，而这个循环每帧都在跑（气泡只有几个）。
+      entry.size = { width: entry.node.offsetWidth || 200, height: entry.node.offsetHeight || 28 }
+    }
+
+    const placed = placeBubble({ anchor, size: entry.size, view, insetRight, board: boardRect })
+    entry.placed = placed
+    // 可见区放不下（极窄视口下抽屉是整幅宽浮层）：**不画**，而不是画一半在抽屉底下。
+    if (!placed.visible) {
+      entry.node.hidden = true
+      continue
+    }
+    entry.node.hidden = false
+    entry.node.classList.toggle('is-clamped', placed.clamped)
+    entry.node.classList.toggle('is-pinned', placed.pinnedRight)
+    // `--tail` 让箭头指向**真实的**头顶（贴边之后它不一定在气泡正中）。
+    entry.node.style.setProperty('--tail', `${Math.round(placed.tailPercent)}%`)
+    entry.node.style.left = `${Math.round(placed.left)}px`
+    entry.node.style.top = `${Math.round(placed.top)}px`
   }
 
   // 淡出/离场的气泡要**真的摘掉**，否则 DOM 会随着"聊过多少人"一直涨。
@@ -382,6 +454,8 @@ async function sayToAgent({ agentId, text }) {
 function openDialogueFor(agentId) {
   if (agentId === null || agentId === undefined) return
   dialogue.toggle(agentId)
+  // 对话是"同一个抽屉的另一页"——它会（在收起状态下）把抽屉打开，所以边距要重量。
+  syncSceneInsets()
   render(true)
 }
 
@@ -521,6 +595,32 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     expire: (nowTick) => dialogue.expire(nowTick, performance.now()),
     bubbles: () => dialogue.bubblesFor(performance.now()),
     say: sayToAgent,
+  }
+  /**
+   * 气泡的核验入口（R39）：`occluded()` 必须为空数组。
+   *
+   * 现读 DOM（这是诊断入口，不是每帧路径）：拿每个气泡的 `getBoundingClientRect()`
+   * 与**抽屉的矩形**求交——贴边之后两者应当完全不相交。
+   */
+  globalThis.__agentWorldBubbles = {
+    occluded: () => {
+      const drawerEl = $('drawer')
+      const rect = drawerIsOpen() && drawerEl !== null ? drawerEl.getBoundingClientRect() : null
+      // 隐藏的（没有地方放）不算"被遮"——它压根没画。`hidden()` 单独报数量。
+      const bubbles = [...$bubbles.children].filter((node) => !node.hidden).map((node, index) => ({
+        id: node.querySelector('b')?.textContent ?? `#${index}`,
+        rect: node.getBoundingClientRect(),
+      }))
+      return occludedBubbles(bubbles, rect === null ? null : { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+    },
+    /** 有几个气泡因为"可见区放不下"没画（极窄视口）。 */
+    hidden: () => [...$bubbles.children].filter((node) => node.hidden).length,
+    /** 每个气泡被放在哪、以及为什么（`occluded` = 人本身在抽屉底下）。 */
+    placed: () =>
+      [...bubbleNodes.entries()].map(([agentId, entry]) => ({ agentId, ...(entry.placed ?? {}) })),
+    insets: () => ({ ...stageInsets, board: boardRectNow() }),
+    /** 纯函数本体，方便在控制台里试着复算（如 `place(anchor, size)`）。 */
+    place: placeBubble,
   }
   globalThis.__agentWorldBoard = {
     stats: () => board.stats(),

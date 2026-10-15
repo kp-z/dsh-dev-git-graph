@@ -36,7 +36,8 @@
  * `step()` **就地修改传入的 world 并返回它**（同一个引用）。"纯"指的是：
  * 不碰 IO、不用未注入的随机与时间。调用方要么拥有这个世界，要么先克隆一份。
  */
-import type { AgentRole, World, WorldEvent } from '../domain/types.js'
+import type {
+  WorldEventType, AgentRole, World, WorldEvent } from '../domain/types.js'
 import type { WorldCommand } from '../protocol/wire/commands.js'
 import { advanceMovement } from './movement.js'
 import { advanceWork } from './interaction.js'
@@ -65,7 +66,21 @@ export interface StepRequests {
   hire: { role: AgentRole; name: string | null }[]
   /** 要设置的真实时间倍速（编排层的事，不影响模拟结果）。 */
   setSpeed: number | null
+  /**
+   * 外部（agent-teams）对工单的裁决（D41，R39）。
+   *
+   * **这些就地改世界，与 `dispatch`/`hire` 不同**——那两个要内容库才能落（由编排层完成），
+   * 而"某张单被派给谁 / 做完了 / 失败了"是纯粹的既有事实，模拟内核自己能落。
+   * 而且它们必须**在同一 tick 内生效**：否则面板上会出现"人还在工位上忙，但单已经完成"的一帧。
+   */
+  external: ExternalTaskCommand[]
 }
+
+/** 外部裁决一条工单（D41）。 */
+export type ExternalTaskCommand =
+  | { readonly kind: 'taskAssign'; readonly taskId: string; readonly agentId: string; readonly attemptId: string }
+  | { readonly kind: 'taskComplete'; readonly taskId: string; readonly attemptId: string; readonly output: string | null }
+  | { readonly kind: 'taskFail'; readonly taskId: string; readonly attemptId: string; readonly reason: string }
 
 /** 一步的结果。 */
 export interface StepResult {
@@ -86,7 +101,7 @@ export interface StepResult {
 }
 
 function emptyRequests(): StepRequests {
-  return { reset: null, dispatch: [], hire: [], setSpeed: null }
+  return { reset: null, dispatch: [], hire: [], setSpeed: null, external: [] }
 }
 
 /**
@@ -130,10 +145,94 @@ function ingest(
       case 'setSpeed':
         requests.setSpeed = command.speed
         break
+      case 'taskAssign':
+      case 'taskComplete':
+      case 'taskFail':
+        requests.external.push(command)
+        break
     }
   }
 
   return paused
+}
+
+/**
+ * 把外部裁决落到世界里（D41，R39）。
+ *
+ * 三条纪律：
+ * 1. **认 `attemptId`**：agent-teams 的执行代一变，旧的完成汇报就该被拒——
+ *    否则"重新指派之后，上一个执行者的结果把新单标成完成"。空串表示对方没给代次（放行）。
+ * 2. **幂等**：已经 done/failed 的单不再改（同步是轮询的，同一件事会被看到很多次）。
+ * 3. **指派要连带落位**：人得从当前状态切到"去做这张单"，否则他只是站在广场上，
+ *    而工单板说他在忙——那是画面与数据打架。
+ *
+ * @param world - 世界（就地修改）。
+ * @param commands - 本 tick 收到的外部裁决。
+ * @returns 要记账的事件载荷。
+ */
+function applyExternalTasks(
+  world: World,
+  commands: readonly ExternalTaskCommand[],
+): { type: WorldEventType; payload: Record<string, unknown> }[] {
+  const events: { type: WorldEventType; payload: Record<string, unknown> }[] = []
+  const byId = new Map(world.tasks.map((t) => [t.id, t]))
+
+  for (const command of commands) {
+    const task = byId.get(command.taskId)
+    if (task === undefined) continue
+
+    // ① 代次不对：这条裁决属于上一代执行者，丢掉。
+    const stale = command.attemptId !== '' && task.attemptId !== null && task.attemptId !== command.attemptId
+
+    if (command.kind === 'taskAssign') {
+      if (stale) continue
+      if (task.status === 'done' || task.status === 'failed') continue
+      const agent = world.agents.find((a) => a.id === command.agentId)
+      if (agent === undefined) continue
+      if (task.owner === agent.id && task.status === 'in_progress') continue
+
+      // 换人时把上一个人从这张单上摘下来（否则他永远"在忙一张不属于他的单"）。
+      if (task.owner !== null && task.owner !== agent.id) {
+        const previous = world.agents.find((a) => a.id === task.owner)
+        if (previous !== undefined && previous.carrying === task.id) {
+          previous.carrying = null
+          previous.state = 'idle'
+        }
+      }
+      task.owner = agent.id
+      task.attemptId = command.attemptId === '' ? task.attemptId : command.attemptId
+      // 状态交给调度器在下一 tick 领：它才知道该去哪张桌子（能力匹配在 `claimTasks` 里）。
+      if (task.status === 'pending' || task.status === 'blocked') task.status = 'ready'
+      events.push({ type: 'task.assigned', payload: { taskId: task.id, agentId: agent.id } })
+      continue
+    }
+
+    if (stale) continue
+    if (task.status === 'done' || task.status === 'failed') continue
+
+    const owner = task.owner === null ? undefined : world.agents.find((a) => a.id === task.owner)
+    if (owner !== undefined && owner.carrying === task.id) {
+      owner.carrying = null
+      owner.state = 'idle'
+      owner.station = null
+      owner.targetStation = null
+      owner.path = []
+    }
+
+    if (command.kind === 'taskComplete') {
+      task.status = 'done'
+      task.progress = 1
+      task.finishedAtTick = world.tick
+      task.station = null
+      task.output = command.output
+      events.push({ type: 'task.completed', payload: { taskId: task.id, agentId: task.owner, stationId: null } })
+    } else {
+      task.status = 'failed'
+      task.failureReason = command.reason
+      events.push({ type: 'task.failed', payload: { taskId: task.id, reason: command.reason } })
+    }
+  }
+  return events
 }
 
 /**
@@ -150,6 +249,13 @@ export function step(world: World, commands: readonly WorldCommand[] = []): Step
   // ── 1. ingest ──
   // 先处理命令：暂停时**也要**能收到 resume，所以这一段在暂停判断之前。
   for (const item of ingest(world, commands, requests)) {
+    events.push(emitEvent(world, item.type, item.payload))
+  }
+
+  // 外部裁决在**同一 tick 内**落地（见 `StepRequests.external` 的说明）。
+  // 放在暂停判断之前：暂停是"模拟不推进"，不是"外部事实不算数"——
+  // 团队里的活不会因为我们按了暂停就停下来，单完成了就该显示完成。
+  for (const item of applyExternalTasks(world, requests.external)) {
     events.push(emitEvent(world, item.type, item.payload))
   }
 

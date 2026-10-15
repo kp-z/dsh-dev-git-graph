@@ -173,6 +173,18 @@ export interface Task {
   estimateTicks: number | null
   createdAtTick: number
   finishedAtTick: number | null
+  /**
+   * 这张单镜像的 agent-teams 任务 id（D41，R39）。`simulated` 世界里恒为 `null`。
+   *
+   * 为什么要一个显式字段而不是"两边 id 取一样"：小镇的 id 是 `task-3` 这种**创建序**，
+   * 而 agent-teams 的是团队内 `t3`。硬凑成一样会让"重开一局后序号怎么排"变成两边都要协商的事；
+   * 显式映射则允许任一边独立演进，也让"这张单还没接到团队"（null）成为一个可表达的状态。
+   */
+  externalId: string | null
+  /** 成员写下的结果（live 模式下由 `taskComplete` 落进来；simulated 恒为 `null`）。 */
+  output: string | null
+  /** 失败原因（live 模式下由 `taskFail` 落进来）。要能让人下手。 */
+  failureReason: string | null
 }
 
 /** 邮箱消息。它的存在是为了**投递动画**：小镇里一张纸条从 A 飞到 B。 */
@@ -220,6 +232,9 @@ export type WorldEventType =
   | 'agent.state'
   | 'agent.moved'
   | 'task.changed'
+  | 'task.assigned'
+  | 'task.completed'
+  | 'task.failed'
   | 'message.sent'
   | 'world.paused'
 

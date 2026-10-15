@@ -29,9 +29,35 @@ export type WorldCommand =
   | { kind: 'hire'; role: AgentRole; name: string | null }
   /** 调整模拟倍速（渲染层用，不影响确定性——它只改真实时间到 tick 的换算）。 */
   | { kind: 'setSpeed'; speed: number }
+  /**
+   * 外部（agent-teams）把一张单派给了某个角色（D41，R39）。
+   *
+   * **只在 `live` 世界里有意义**：这是"谁做什么"的真相从 agent-teams 流进小镇的入口。
+   * 小镇据此把角色走向合适的站点、显示他在忙——那是它的投影职责。
+   * `attemptId` 来自 agent-teams 的执行代：旧代的完成汇报会被拒，与 agent-teams 自己的
+   * 「stale attempt」语义一致，避免"重新指派后旧结果把新单标成完成"。
+   */
+  | { kind: 'taskAssign'; taskId: string; agentId: string; attemptId: string }
+  /**
+   * 外部确认一张单**真的做完了**（D41）。`output` 是成员写下的结果（agent-teams 的 `output`）。
+   * live 模式下这是 `done` 的**唯一**来源——tick 涨满进度不再算完成。
+   */
+  | { kind: 'taskComplete'; taskId: string; attemptId: string; output: string | null }
+  /** 外部确认一张单失败（D41）。`reason` 要能让人下手，与其它失败原因同一条规矩。 */
+  | { kind: 'taskFail'; taskId: string; attemptId: string; reason: string }
 
 /** 全部命令的 kind。用于校验与穷尽性检查。 */
-export const WORLD_COMMAND_KINDS = ['pause', 'resume', 'reset', 'dispatch', 'hire', 'setSpeed'] as const
+export const WORLD_COMMAND_KINDS = [
+  'pause',
+  'resume',
+  'reset',
+  'dispatch',
+  'hire',
+  'setSpeed',
+  'taskAssign',
+  'taskComplete',
+  'taskFail',
+] as const
 
 /** 命令的 kind 类型。 */
 export type WorldCommandKind = (typeof WORLD_COMMAND_KINDS)[number]
@@ -51,6 +77,12 @@ export function describeCommand(command: WorldCommand): string {
       return `招募 ${command.role}${command.name === null ? '' : `（${command.name}）`}`
     case 'setSpeed':
       return `设置倍速 ${command.speed}×`
+    case 'taskAssign':
+      return `派给 ${command.agentId}：${command.taskId}`
+    case 'taskComplete':
+      return `完成：${command.taskId}`
+    case 'taskFail':
+      return `失败：${command.taskId}（${command.reason}）`
   }
 }
 

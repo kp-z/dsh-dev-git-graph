@@ -100,3 +100,4 @@ export type {
 } from '../domain/types.js'
 
 export * from './dialogue.js'
+export * from './team.js'

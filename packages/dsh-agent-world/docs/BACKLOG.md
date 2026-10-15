@@ -193,13 +193,15 @@
 | M6-12 | ready | **`seed.ts` 去留**（R33）：人设已改走 agent 作用域的 section，生产代码不再调用 seed。R30 在 seed 形状上付的学费（消息 id / turn-step 闭合框 / seq）只对 M6-6「把上一局对话回放进新会话」有用。决定：删，或标明只服务 M6-6 | `src/bridge/seed.ts` + 测试 | —— | 别让它悄悄变成死代码 |
 | M6-13 | **done** | **让面板看见角色做了什么**（R34 真机发现）：`replied` 只带第一步的文字。小蓝那一轮四步、三次工具调用、最后是完整工单板——面板上全看不见。(a) 回复取最后一条 assistant 文字或拼全部；(b) 工具调用在对话里显示成一行（如「🔧 派单：task.quick-fix」） | `src/bridge/` + `web/core/dialogue-state.js` + `web/ui/dialogue-ui.js` | M6-4 | 这是让 G4 **被用户看见**的最后一步 |
 | M6-14 | **done** | **死会话**（R35 真机）：小紫的会话停在 `session/end-seed`（R30 带 seed 的旧会话），resume 后不起新轮，等 60 秒超时。resume 前要检查会话尾部，起不了新轮就丢弃重建，或者至少给出"会话卡住"的明确原因。另：内容不变的 `acting` 帧不推 | `src/bridge/character-bridge.ts` | M6-13 | 其余 7 个角色正常 |
-| M7-11 | ready | **头顶气泡伸进抽屉底下**（R36 真机截图）：3D 取景已避开抽屉（R32），气泡层没跟着避让。气泡定位要扣掉 `setViewInsets` 的右边距，或夹在可见区域内 | `web/main.js` | —— | 一眼可见的视觉缺陷 |
+| M7-11 | **done** | **头顶气泡伸进抽屉底下**（R36 真机截图）：3D 取景已避开抽屉（R32），气泡层没跟着避让。气泡定位要扣掉 `setViewInsets` 的右边距，或夹在可见区域内 | `web/main.js` | —— | 一眼可见的视觉缺陷 |
 | M6-15 | ready | **重复派单的标题冲突**（R36，小铁自己指出）：同一任务集再派一次，新工单与旧工单标题一模一样（task-11/12/13 vs task-1/2/3），靠标题认工单会认错。实例化时给标题加批次（「改代码 #2」），不改内容库 | 工单实例化处 | —— | 内容/产品问题 |
 | M10-1 | **done** | **套壳路径的工具白名单**（R37 丢的）：native 给角色限定了只许用世界工具（D35），套壳后成员拿到的是 agent-teams 默认工具集。做法：web profile 的 agent-teams 配置里声明 `toolPolicies`，`agent_teams_add_member` 传 `tool_policy`。**要改用户 profile 配置，先问** | 用户 profile 配置 + `src/bridge/teams.ts` | —— | 安全面：角色可能拿到 bash/写文件 |
 | M10-2 | **done** | **`teams.ts` 的单元测试**（R37 只有真机证据）：假 `ctx.tools`/假 `subagents` 驱动，守住「返回值读 `value`」「已带队走 status 接回」「成员名重复=已加入」「会话 id 按 label 反查」。真机三条（两个角色 + 重启接回）以后每次改 `teams.ts` 都重跑 | `test/teams-port.test.js` | —— | 真机命令写在 PROGRESS R37 |
 | M10-3 | in_progress | **套壳路径的"角色真的干活"**（M6-4 在套壳上重做）：成员现在只会说话。要让它调我们的世界工具（dispatch/status），验收口径是「面板上出现 acting 帧 + 工单真的动了」 | `src/bridge/teams.ts` + 内容配置 | M10-1 | 这才是 G4 |
 | M10-4 | ready | **删掉 native 路径**（可选）：套壳稳定后删 `character-bridge.ts`/`seed.ts`/`persona-prompt.ts` 里的种子逻辑约 300 行。**先问用户**——留着它是降级路径，也留着 R23–R31 那笔"为什么不该自己造会话"的知识 | `src/bridge/**` | M10-2 | 用户说删就删 |
-| M10-5 | ready | **两套任务模型要合流**（R38 定下的下一步）：小镇工单（可重放、按时钟）与 agent-teams 任务图并存 = 两个「谁在干什么」。要么让小镇工单就是 agent-teams 的任务，要么明确分工（小镇管位置/时序，agent-teams 管谁做什么）。**先写进 ARCHITECTURE 再动代码** | `src/sim/**` + `docs/ARCHITECTURE.md` | M10-1 | 用户已授权改内部代码 |
+| M10-5 | in_progress | **两套任务模型要合流**（R38 定下的下一步）：小镇工单（可重放、按时钟）与 agent-teams 任务图并存 = 两个「谁在干什么」。要么让小镇工单就是 agent-teams 的任务，要么明确分工（小镇管位置/时序，agent-teams 管谁做什么）。**先写进 ARCHITECTURE 再动代码** | `src/sim/**` + `docs/ARCHITECTURE.md` | M10-1 | 用户已授权改内部代码 |
+| M10-6 | ready | **合流接上线**（R39 地基之后）：同步环（队长身份轮询 `agent_teams_status` → `planTeamSync` → 命令进世界）+ live 下 `dispatch` 同时建团队任务并回填 `externalId` + 世界跟随 `dialogueBackend` 切 `live`。先读 status 返回的 tasks 确切字段 | `src/index.ts` + `src/bridge/teams.ts` | M10-5 | 不接上线，真机上任务仍是假完成 |
+| M7-12 | ready | 动作行里 `agent_teams_*` 没有中文标签（`web/ui/labels.js` 只映射了世界工具） | `web/ui/labels.js` | —— | 派给 panel |
 | M6-9 | ready | **flaky 测试普查**（R27 发现）：`test/store.test.js` 用固定 `setTimeout(20)` 当同步手段，在载荷下会假红。已修那一处，但**同类写法可能还有**（`grep -n 'setTimeout(' test/`）。flaky 比失败更糟：它让「绿」不可信，而绿是验收纪律的基础 | `test/**` | —— | 一行 grep 就能普查 |
 | M6-2 | **done** | 人设驱动 system prompt（R27 内容侧 + R28 宿主侧）。`seatForAgent` 按**序号优先 + 名字交叉校验**，同名歧义返回 undefined 让上层报原因。**哨兵测试**防 id 规则变动导致人设静默错位。**判据「改花名册 → prompt 跟着变、代码零改动」由真实内容的装配测试证明** | —— | ✅ R28 | —— |
 | M6-3 | **done**（传输段）| 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**
