@@ -156,6 +156,38 @@ export function createSessionTransport(ctx: unknown): SessionTransport | undefin
 }
 
 /**
+ * **只订阅、不发话**的事件通道（R38，给套壳路径用）。
+ *
+ * 套壳路径发话走 `agent_teams_send_message`（工具），根本不用 `sessionController.prompt`；
+ * 它只需要从成员会话的事件流里收回复。而 `createSessionTransport` 要求 `sessionController`
+ * 也在——R38 真机上 web profile 里 `sessionController` 一直是 pending
+ * （宿主日志：`ui-deliverables … pending (waiting for service: sessionController)`），
+ * 于是套壳路径被一个**它根本不用**的服务卡死。依赖要按实际用到的算。
+ *
+ * @returns 没有 `ctx.on` 时 `undefined`。
+ */
+export function createSessionEventFeed(
+  ctx: unknown,
+): { subscribe(listener: (sessionId: string, event: BridgeSessionEvent) => void): () => void } | undefined {
+  const on = pluck(ctx, 'on')
+  if (on === undefined) return undefined
+  return {
+    subscribe(listener) {
+      const maybeDispose = (
+        on as unknown as (this: unknown, name: string, cb: (...args: unknown[]) => void) => unknown
+      ).call(ctx, 'session/event', (session: unknown, event: unknown) => {
+        const sessionId = sessionIdOf(session)
+        if (sessionId === undefined) return
+        const normalized = normalizeSessionEvent(event)
+        if (normalized === undefined) return
+        listener(sessionId, normalized)
+      })
+      return typeof maybeDispose === 'function' ? (maybeDispose as () => void) : () => {}
+    },
+  }
+}
+
+/**
  * 读用户在 DSH 里选的**默认模型**：`ctx.agentDefaultModel.currentSelection()`。
  *
  * 这是官方会话控制器在"新会话还没写过请求头"时用的同一个来源

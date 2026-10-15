@@ -49,6 +49,7 @@ export {
   createDshCharacterBridge,
   readDefaultModelSelection,
   createSessionTransport,
+  createSessionEventFeed,
   createTeamsCaptain,
   normalizeSessionEvent,
 } from './dsh-adapter.js'

@@ -31,7 +31,54 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R36 末）：`typecheck` 绿 · `test` **455 / 455 / 0 fail / 0 todo**。**真实动作行第一次在浏览器里出现（小铁 4 次调用、派单成功）；死会话自愈上线（小紫 60s 超时 → 20s 回话）。**
+当前验证状态（R38 末）：`typecheck` 绿 · `test` **461 / pass 461 / fail 0 / todo 0**。**套壳落地：角色是 agent-teams 成员、工具白名单生效、真的会调世界工具（G4 在套壳路径成立）。web profile 配置已常驻，desktop 未动。**
+
+---
+
+## R38 —— 套壳落地到配置里 + 角色真的会调世界工具了（G4 在套壳路径上成立）
+
+用户：「web profile 随便动他就是测试用的，别动 desktop 就行，然后第一步先套壳，第二步开始可以改内部代码，跑通后开始优化 UI 和布局。」
+
+**做了什么**
+- **把临时叠加层写进 web profile**（`~/.dsh/profiles/web/cordis.patch.yml`，改前备份成 `.bak-agent-world-r38`）：
+  关掉写退休 source 形状的 graphflow、登记 `mmt` 路由、把 `agent-default-model` 指到 `mmt/claude-sonnet-4.6`。
+  以前每次启动都要带 `--patch /tmp/aw-r33.yml`，现在常驻，**不再需要叠加层**。**desktop profile 一个字没动。**
+- **角色工具白名单回来了**（R37 丢掉的那条，BACKLOG M10-1）：agent-teams 的 `toolPolicies` 里声明
+  `agent-world-resident`（allow = 三个世界工具），`teams.ts` 在 `agent_teams_add_member` 时带 `tool_policy`。
+  真机上成员的工具面是 `agent_world_status/content/dispatch` + agent-teams 自动加的四个协调工具，**没有 bash、没有写文件**。
+  ⚠️ 踩到：**patch 的 `config` 是整块替换不是合并**——只写 `toolPolicies` 会把 bundle 自带的
+  `stateDir`/`memberProvider` 一起抹掉（dump-config 一眼看出）。所以把原值原样带上。
+- **套壳路径不再依赖 `sessionController`**（R38 真机 bug）：`waitForReply` 原来用
+  `createSessionTransport`，它要求 `sessionController.prompt` 也在——而 web profile 里这个服务**一直 pending**
+  （宿主日志：`ui-deliverables … pending (waiting for service: sessionController)`），于是套壳路径被一个
+  **它根本不用**的服务卡死（发话走的是 `agent_teams_send_message` 工具）。新增 `createSessionEventFeed`：只订阅。
+- **暂时性失败不缓存**（同一轮踩到，与 R30 同一条教训）：`acquireTeamsPort` 原本把"事件通道还没挂上"的端口
+  建好并记住，之后每次搭话都拿不到回复。现在缺通道时**不建端口**，下次搭话重试。
+
+**真机验证（web profile，不带任何 --patch）**
+`POST /agent-world/api/say` 让小紫"先看看小镇现在什么状况"，6 秒，SSE 推出：
+```
+[acting] agent_world_status()
+[acting] agent_world_status() | agent_teams_send_message()
+[replied] 又核了一遍盘面…时钟走到 tick 78249…8 人全待命在广场、手上 0 工单，
+          工单板 13 张全完成…判断不变：镇子静止不是缺人、也不卡依赖，是缺一张新工单。
+          我：小紫，评审岗，只认证据——"我测过了"不算，能跑红的断言才算。
+```
+**这是 G4 第一次在套壳路径上成立**：角色经 agent-teams 的成员身份，**真的调用了我们的世界工具**并读了盘面，
+acting 帧也真的推到了 SSE（M6-13 那套面板动作行的数据源）。它甚至自己调 `agent_teams_send_message` 向队长汇报。
+
+**测试**：`typecheck` 绿 · `pnpm test` **461 / pass 461 / fail 0 / todo 0**（+6：`test/teams-port.test.js`）。
+新测试守的是"读错字段名/少传参数"这类只在真机炸的低级错（R37 的 `value`/`structured` 就是），
+**它不证明真机行为**——真机那几条只能靠真宿主，命令见本轮与 R37。
+
+**下一轮从哪继续**
+1. **第二步：改内部代码**（用户已授权）。最该改的是 `src/sim/` 的任务模型与 agent-teams 任务图的对接：
+   现在小镇有自己的一套工单（可重放、按时钟推进），成员又有 agent-teams 的任务图，**两个"谁在干什么"**。
+   要么让小镇工单就是 agent-teams 的任务，要么明确分工（小镇管"走到哪、什么时候"，agent-teams 管"谁做什么"）。
+   **这是设计决策，先写进 ARCHITECTURE 再动代码。**
+2. 然后才是 UI 与布局优化（用户排的顺序）。
+3. 积压：M10-2 已完成（teams 单测）；M10-3 部分完成（角色会调工具了，但还没走完"派单 → 工单真的动"）；
+   M10-4 删 native 路径待用户点头；M7-11 气泡被抽屉挡；M6-15 重复派单标题重名。
 
 ---
 

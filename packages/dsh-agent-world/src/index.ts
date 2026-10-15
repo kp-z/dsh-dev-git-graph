@@ -16,6 +16,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import {
   buildCharacterSystemPrompt,
   createDshCharacterBridge,
+  createSessionEventFeed,
   createSessionTransport,
   createTeamsCaptain,
   createTeamsPort,
@@ -207,11 +208,20 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
           '确认这个 profile 挂了 dsh-subagent 与 dsh-agent-teams。',
       }
     }
-    const transport = createSessionTransport(ctx)
+    // ⚠️ **暂时性失败不许缓存**（R38 真机踩到，与 R30 同一条教训）：事件通道比我们晚挂上时，
+    // 若把"没有事件通道"的端口建好并记住，之后每次搭话都拿不到回复。所以缺它时**不建端口**，下次再试。
+    // 只要 `ctx.on`：套壳路径发话走工具，不需要 `sessionController`（R38：它在 web profile 里一直 pending）。
+    const feed = createSessionEventFeed(ctx)
+    if (feed === undefined) {
+      return {
+        ok: false,
+        reason: '拿不到会话事件总线（ctx.on）：能建团队但收不到成员的回复。再搭一次话试试；一直这样说明宿主没有事件总线。',
+      }
+    }
     teamsPort = createTeamsPort(
       tools,
       subagents,
-      transport === undefined ? undefined : { subscribe: (listener) => transport.subscribe(listener) },
+      feed,
       {
         captainSessionId: 'agent-world:captain',
         cwd: process.cwd(),
@@ -220,6 +230,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         memberNameFor: (id) => resolveSeat(id).name,
         memberRoleFor: (id) => resolveSeat(id).role,
         personaFor: (id) => resolveSeat(id).persona,
+        toolPolicy: resolved.memberToolPolicy,
         agentOptionsFor: () => readDefaultModelSelection(ctx),
         onError: (reason) => logger.warn(`agent-teams 套壳：${reason}`),
         createCaptain,

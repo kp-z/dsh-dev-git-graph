@@ -80,6 +80,12 @@ export const AgentWorldConfig = z.object({
    */
   dialogueBackend: z.union([z.const('agent-teams'), z.const('native')]).default('agent-teams'),
 
+  /**
+   * 角色在 agent-teams 里用哪个工具策略（部署方在 agent-teams 的 `toolPolicies` 里声明）。
+   * 默认 `agent-world-resident`：只许看世界、读内容、派单（D35）。空串 = 不限制。
+   */
+  memberToolPolicy: z.string().default('agent-world-resident'),
+
   /** 团队名（会变成 agent-teams 的 teamId）。 */
   teamName: z.string().default('Agent World'),
 
@@ -108,6 +114,7 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
       config.maxLiveSessions && config.maxLiveSessions > 0 ? Math.floor(config.maxLiveSessions) : 4,
     routePrefix: normalizePrefix(config.routePrefix ?? '/agent-world'),
     dialogueBackend: config.dialogueBackend === 'native' ? 'native' : 'agent-teams',
+    memberToolPolicy: config.memberToolPolicy ?? 'agent-world-resident',
     teamName: config.teamName ?? 'Agent World',
     teamDescription:
       config.teamDescription ??

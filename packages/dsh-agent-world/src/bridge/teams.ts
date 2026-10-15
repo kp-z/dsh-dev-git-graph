@@ -97,6 +97,11 @@ export interface TeamsPortOptions {
   readonly memberRoleFor: (characterId: string) => string
   /** 角色 id → 人设正文（走 `executionPrompt`）。 */
   readonly personaFor: (characterId: string) => string
+  /**
+   * 成员的工具策略 id（agent-teams 的 `toolPolicies` 里由部署方声明，成员按 id 选）。
+   * 用它把角色限制成"只许动世界"（D35）。不给 = 用 agent-teams 的默认工具集。
+   */
+  readonly toolPolicy?: string
   /** 模型路由（成员的 provider/model）。 */
   readonly agentOptionsFor?: () => BridgeAgentOptions | undefined
   /** 旁路错误日志。 */
@@ -249,6 +254,7 @@ export function createTeamsPort(
         name,
         role: options.memberRoleFor(characterId),
         executionPrompt: options.personaFor(characterId),
+        ...(options.toolPolicy === undefined || options.toolPolicy === '' ? {} : { tool_policy: options.toolPolicy }),
         ...modelArgs(),
       },
       signal,
