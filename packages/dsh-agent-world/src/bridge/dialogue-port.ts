@@ -75,3 +75,74 @@ export function toDialoguePort(
     liveCount: () => bridge.liveCount(),
   }
 }
+
+/** 建桥的**延迟**尝试结果。 */
+export type BridgeAttempt =
+  | { readonly ok: true; readonly bridge: CharacterBridge }
+  | { readonly ok: false; readonly reason: string }
+
+/**
+ * 惰性解析版本：**第一次真正要说话时**才建桥，成功后记住。
+ *
+ * ## 为什么必须有这个（R30 在真宿主上踩出来的）
+ *
+ * 原来 `src/index.ts` 是在**插件加载那一刻**同步调一次 `createDshCharacterBridge(ctx)`，
+ * 算完就把结果定死。在真宿主上这直接坏了：
+ *
+ * - cordis 的加载次序由 `inject` 图决定，我们只声明了 `inject = ['tools']`，
+ *   所以插件在 `tools` 就绪时就加载，**不等 `sessionController`**；
+ * - 那一刻 `ctx.get('sessionController')` 还是 `undefined` → 判定 `no-session-service`
+ *   → 端口**永久**是 `undefined`，于是 `/api/say` 每条都回
+ *   "对话通道没启用（DSH 会话服务不可用）"。
+ *
+ * 而配置里 `session-controller`（第 461 行）明明排在 `agent-world`（第 1408 行）**之前**——
+ * 所以**这不是配置问题，是"用加载时刻去判断一个后来才存在的服务"**。
+ * 用 `ctx.inject` 等它出现也可以，但那会把这个端口绑死在某个挂载时机上；
+ * 惰性解析对**任何**挂载顺序都成立，而且顺带覆盖了热重载。
+ *
+ * ## 失败仍然要可下手（红线第 6 条）
+ *
+ * 每次失败都返回**当次**尝试的原因，而不是一个缓存的旧字符串 ——
+ * 因为"服务还没挂上"和"服务挂了又掉了"对用户是同一句话，但对诊断不是。
+ * 只有**成功**会被记住。
+ */
+export function toLazyDialoguePort(
+  attempt: () => BridgeAttempt,
+  options: ToDialoguePortOptions = {},
+): DialoguePortFace {
+  const fallbackTimeoutMs = options.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS
+  let resolved: CharacterBridge | undefined
+
+  /**
+   * 拿到桥：成功过就直接用，否则重试一次。
+   *
+   * @returns 桥，或者这次建不起来的原因。
+   */
+  const acquire = (): BridgeAttempt => {
+    if (resolved !== undefined) return { ok: true, bridge: resolved }
+    const next = attempt()
+    if (next.ok) resolved = next.bridge
+    return next
+  }
+
+  return {
+    async say(characterId: string, text: string): Promise<DialogueAck> {
+      const got = acquire()
+      if (!got.ok) return { ok: false, reason: got.reason }
+      const result = await got.bridge.say(characterId, text)
+      return result.ok ? { ok: true } : { ok: false, reason: result.reason }
+    },
+
+    async waitForReply(characterId: string, timeoutMs: number): Promise<DialogueReply> {
+      const got = acquire()
+      if (!got.ok) return { ok: false, reason: got.reason }
+      const result = await got.bridge.waitForReply(characterId, {
+        timeoutMs: timeoutMs > 0 ? timeoutMs : fallbackTimeoutMs,
+      })
+      return result.ok ? { ok: true, text: result.reply.text } : { ok: false, reason: result.reason }
+    },
+
+    // 还没建起来时是 0，而不是抛 —— 诊断接口不该因为没装好就炸。
+    liveCount: () => resolved?.liveCount() ?? 0,
+  }
+}

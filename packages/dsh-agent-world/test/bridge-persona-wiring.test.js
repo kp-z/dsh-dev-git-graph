@@ -161,9 +161,10 @@ test('装配：/api/say 搭话后，createAgent 收到的 seed 里是**那份内
 
     const seedTextOf = (options) => {
       const seed = options.seed
-      assert.ok(Array.isArray(seed) && seed.length === 1, 'seed 应当是恰好一条 system/message')
-      const event = seed[0]
-      assert.equal(event.type, 'system/message')
+      // R30：seed 是一个闭合的 turn/step 框，人设消息在框里（不是数组第一项）。
+      assert.ok(Array.isArray(seed) && seed.length === 5, `seed 应当是闭合的框，实际 ${seed?.length} 条`)
+      assert.deepEqual(seed.map((e) => e.type), ['turn/start', 'step/start', 'system/message', 'step/end', 'turn/end'])
+      const event = seed.find((e) => e.type === 'system/message')
       assert.equal(event.surfaceOp, 'append')
       const blocks = event.data.message.content
       assert.ok(Array.isArray(blocks) && blocks.length === 1)
@@ -203,9 +204,9 @@ test('装配：人设读不到时**退化而不是静默**——/api/say 仍被�
   apply(ctx, { persistEveryTicks: 0, autoStart: false })
 
   assert.equal(routes.length, 1)
-  // 没有会话服务属于"有 agentLoop 却拿不到会话服务"→ 这是真装错了，应当 warn。
-  assert.equal(logs.warn.length, 1, `应当正好一条警告，实际：${logs.warn.join(' | ')}`)
-  assert.match(logs.warn[0], /会话服务/)
+  // R30 起建桥是**惰性**的（真宿主上会话服务往往在插件之后才挂上）：
+  // 加载时**不该**下结论，所以加载时没有警告。警告在第一次真正要说话时发出。
+  assert.equal(logs.warn.length, 0, `加载时不该对一个可能稍后才出现的服务下结论，实际：${logs.warn.join(' | ')}`)
 
   const server = createServer(routes[0].handler)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -221,6 +222,22 @@ test('装配：人设读不到时**退化而不是静默**——/api/say 仍被�
     const body = await response.json()
     assert.equal(body.accepted, true, '话收到了就是收到了；失败通过 SSE 的 failed 事件说清楚')
     assert.equal(typeof body.turnId, 'string')
+
+    // 第一次搭话时才尝试建桥 → 此时才该有那条警告（有 agentLoop 却拿不到会话服务 = 真装错了）。
+    // 用轮询 + 截止时间等它出现，不用固定 sleep（R27 的规矩）。
+    const deadline = Date.now() + 2000
+    while (logs.warn.length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5))
+    assert.equal(logs.warn.length, 1, `第一次搭话后应当正好一条警告，实际：${logs.warn.join(' | ')}`)
+    assert.match(logs.warn[0], /会话服务/)
+
+    // 再说一句：同一种失败**不再重复写日志**（否则日志会被同一句话淹没），但原因照样可下手。
+    await fetch(`http://127.0.0.1:${port}${PREFIX}/api/say`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agentId: 'agent-1', text: '再问一次' }),
+    })
+    await new Promise((r) => setTimeout(r, 20))
+    assert.equal(logs.warn.length, 1, '同一种失败只记一次日志')
   } finally {
     await new Promise((resolve) => server.close(resolve))
   }

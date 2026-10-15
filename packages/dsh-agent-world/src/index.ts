@@ -12,7 +12,8 @@
  */
 import { resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
-import { buildCharacterSystemPrompt, createDshCharacterBridge, seatForAgent, toDialoguePort } from './bridge/index.js'
+import { buildCharacterSystemPrompt, createDshCharacterBridge, seatForAgent, toLazyDialoguePort } from './bridge/index.js'
+import type { CharacterBridge } from './bridge/index.js'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
 import { createHandler } from './routes/index.js'
@@ -128,27 +129,40 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   //
   // 拿不到会话服务时**不阻塞插件加载**：世界与面板照跑，`/api/say` 仍会登记对话，
   // 然后以一条写清了原因的 SSE `failed` 事件收场（红线第 6 条：失败要退化，不要卡住）。
-  const wiring = createDshCharacterBridge(ctx, {
-    systemPromptFor: createPersonaResolver(state),
-    maxLiveSessions: resolved.maxLiveSessions,
-    requestIdPrefix: 'agent-world-say',
-    onError: (reason) => logger.warn(`对话桥：${reason}`),
+  //
+  // ⚠️ **建桥必须是惰性的**（R30 在真宿主上踩出来的）：插件加载那一刻，`sessionController`
+  // 往往还没挂上 —— cordis 只按 `inject` 图排序，而我们只声明了 `tools`。原来在这里同步建一次，
+  // 结果被定死成"没有会话服务"，`/api/say` 从此每条都失败。现在推迟到第一次真正要说话时，
+  // 成功后记住；失败则每次都给出**当次**的原因（服务没挂上 / 挂了又掉了，诊断上不是一回事）。
+  let liveBridge: CharacterBridge | undefined
+  let lastFailureCode: string | undefined
+  const dialoguePort = toLazyDialoguePort(() => {
+    const wiring = createDshCharacterBridge(ctx, {
+      systemPromptFor: createPersonaResolver(state),
+      maxLiveSessions: resolved.maxLiveSessions,
+      requestIdPrefix: 'agent-world-say',
+      onError: (reason) => logger.warn(`对话桥：${reason}`),
+    })
+    if (wiring.ok) {
+      liveBridge = wiring.bridge
+      logger.info(`对话通道已就绪：上限 ${resolved.maxLiveSessions} 个角色会话（懒创建，超限会给出原因）`)
+      return { ok: true, bridge: wiring.bridge }
+    }
+    // 同一种失败只记一次日志：每次搭话都重试，若每次都写一行，日志就会被同一句话淹没。
+    if (lastFailureCode !== wiring.code) {
+      lastFailureCode = wiring.code
+      // headless profile 里没有 agent 能力是**正常配置**，记 info；
+      // 有 agentLoop 却拿不到会话服务才值得 warn —— 把常态写成 warn，真正的警告就会被淹掉。
+      if (wiring.code === 'no-agent-loop') logger.info(`对话通道未启用（这个 profile 没有 agent 能力，属于正常配置）：${wiring.reason}`)
+      else logger.warn(`对话通道暂不可用（有 agentLoop 却拿不到会话服务）：${wiring.reason}`)
+    }
+    return { ok: false, reason: wiring.reason }
   })
-  if (wiring.ok) {
-    // 卸载 / 热重载时把所有角色的会话一起释放 —— 否则每改一次代码就多几个活着的会话
-    // （与上面那个 setInterval 泄漏同类：症状是成本慢慢爬高，很难归因到某个插件）。
-    ctx.effect(() => () => {
-      void wiring.bridge.disposeAll()
-    }, 'agent-world: dialogue bridge')
-    logger.info(`对话通道已就绪：上限 ${resolved.maxLiveSessions} 个角色会话（懒创建，超限会给出原因）`)
-  } else if (wiring.code === 'no-agent-loop') {
-    // headless profile 里没有 agent 能力是**正常配置**，不是警告：
-    // 把常态写成 warn，真正的警告就会被淹掉。降级行为本身由 /api/say 的失败原因讲清楚。
-    logger.info(`对话通道未启用（这个 profile 没有 agent 能力，属于正常配置）：${wiring.reason}`)
-  } else {
-    logger.warn(`对话通道未启用（有 agentLoop 却拿不到会话服务，像是装错了）：${wiring.reason}`)
-  }
-  const dialoguePort = wiring.ok ? toDialoguePort(wiring.bridge) : undefined
+  // 卸载 / 热重载时把所有角色的会话一起释放 —— 否则每改一次代码就多几个活着的会话
+  // （与上面那个 setInterval 泄漏同类：症状是成本慢慢爬高，很难归因到某个插件）。
+  ctx.effect(() => () => {
+    void liveBridge?.disposeAll()
+  }, 'agent-world: dialogue bridge')
 
   // ── HTTP：面板 + API ─────────────────────────────────────────────────────
   //
@@ -168,7 +182,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         source: hub,
         tickMs: state.tickMs,
         maxLiveSessions: resolved.maxLiveSessions,
-        ...(dialoguePort === undefined ? {} : { dialogue: dialoguePort }),
+        dialogue: dialoguePort,
       },
       (error, request) => {
         const detail = error instanceof Error ? error.message : String(error)

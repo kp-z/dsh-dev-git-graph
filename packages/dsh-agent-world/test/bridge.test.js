@@ -19,7 +19,11 @@ import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
 
 import {
+  buildPersonaSeed,
   buildSystemPromptSeed,
+  SEED_STEP,
+  SEED_SEQ,
+  SEED_TURN,
   checkModelReadiness,
   createAgentFactory,
   createCharacterBridge,
@@ -191,14 +195,24 @@ test('bridge：seed 里是一条 system/message，文本正是 systemPromptFor �
 
   assert.equal(factory.calls.length, 1)
   const { seed } = factory.calls[0]
-  assert.ok(Array.isArray(seed) && seed.length === 1, '要注入且只注入一条 seed 事件')
+  // seed 是**一个自我闭合的 turn/step 框**包着一条 system/message（R30：真宿主需要这个框）。
+  assert.deepEqual(
+    seed.map((e) => e.type),
+    ['turn/start', 'step/start', 'system/message', 'step/end', 'turn/end'],
+    'seed 必须是一个闭合的框，否则下一轮 turn/start 会撞上"上一轮还开着"',
+  )
+  assert.deepEqual(seed.map((e) => e.seq), [0, 1, 2, 3, 4], 'seq 必须严格递增')
 
-  const event = seed[0]
+  const event = seed[2]
   assert.equal(event.type, 'system/message')
   assert.equal(event.surfaceOp, 'append', 'system/message 是 surface 事件，必须带 surfaceOp')
+  assert.equal(event.data.turn, 1, 'turn 从 1 起（真宿主拒绝过 0）')
+  assert.equal(event.data.step, 1)
   assert.equal(event.data.message.role, 'system')
   assert.deepEqual(event.data.message.source, { kind: 'system-prompt' })
   assert.deepEqual(event.data.message.content, [{ type: 'text', text: '你是角色 c1。' }])
+  assert.equal(typeof event.data.message.id, 'string')
+  assert.notEqual(event.data.message.id, '', 'id 必填：真宿主拒过没有 id 的消息')
   assert.equal(event.time, 1_700_000_000_000, '时间戳来自注入的 now()，测试可复现')
 
   // 人设是内容：bridge 只是把调用方给的文本装进去，没有自己加任何一句。
@@ -208,14 +222,28 @@ test('bridge：seed 里是一条 system/message，文本正是 systemPromptFor �
 test('seed 构造：形状正确，空人设直接抛（内容错误要响）', () => {
   const seed = buildSystemPromptSeed('某段人设', { time: 7, messageId: 'm1' })
   assert.equal(seed.type, 'system/message')
-  assert.equal(seed.seq, 0)
+  assert.equal(seed.seq, SEED_SEQ)
   assert.equal(seed.time, 7)
-  assert.equal(seed.data.turn, 0)
-  assert.equal(seed.data.step, 0)
+  assert.equal(seed.data.turn, SEED_TURN)
+  assert.equal(seed.data.step, SEED_STEP)
+  assert.ok(SEED_TURN > 0, '真宿主拒绝 turn=0')
   assert.equal(seed.data.message.id, 'm1')
 
-  assert.throws(() => buildSystemPromptSeed('   '), /人设文本是空的/)
-  assert.throws(() => buildSystemPromptSeed(''), /人设文本是空的/)
+  assert.throws(() => buildSystemPromptSeed('   ', { messageId: 'm1' }), /人设文本是空的/)
+  assert.throws(() => buildSystemPromptSeed('', { messageId: 'm1' }), /人设文本是空的/)
+})
+
+test('buildPersonaSeed：框是闭合的，且人设那一条在框里', () => {
+  const seed = buildPersonaSeed('某段人设', { messageId: 'm1' })
+  assert.deepEqual(seed.map((e) => e.type), ['turn/start', 'step/start', 'system/message', 'step/end', 'turn/end'])
+  // 框内的 turn/step 必须一致，否则 requireOpenStep 会拒
+  for (const e of seed) {
+    if (e.type === 'system/message') continue
+    assert.equal(e.data.turn, SEED_TURN)
+  }
+  const msg = seed.find((e) => e.type === 'system/message')
+  assert.equal(msg.data.turn, SEED_TURN)
+  assert.equal(msg.data.step, SEED_STEP)
 })
 
 test('bridge：人设是空的 → create-failed，且不白建会话', async () => {
@@ -734,10 +762,13 @@ test('adapter：createDshCharacterBridge 装好之后走完整条链路（假 ct
 
   assert.equal(recorded.length, 1, '★ 生产装配路径上也必须只建一次会话')
   assert.equal(promptCalls.length, 2)
-  assert.deepEqual(recorded[0].seed[0].data.message.content, [{ type: 'text', text: '你是角色 c1。' }])
+  const personaEvent = recorded[0].seed.find((e) => e.type === 'system/message')
+  assert.deepEqual(personaEvent.data.message.content, [{ type: 'text', text: '你是角色 c1。' }])
 
-  // 只碰该碰的服务：没有任何"模型"服务被直接调用（角色只会通过 DSH 的会话走模型）。
-  assert.deepEqual([...new Set(ctx.asked)].sort(), ['agentLoop', 'sessionController'])
+  // 只碰该碰的服务：没有任何"模型"服务被**直接调用**（角色只会通过 DSH 的会话走模型）。
+  // `agentDefaultModel` 是 R30 加的**读**依赖：真宿主上不把模型写进 agent，
+  // 组 system prompt 时 `{{model}}` 没有值，整轮报 "prompt variable "{{model}}" has no value"。
+  assert.deepEqual([...new Set(ctx.asked)].sort(), ['agentDefaultModel', 'agentLoop', 'sessionController'])
 
   await bridge.disposeAll()
   assert.equal(bridge.liveCount(), 0)
@@ -773,4 +804,186 @@ test('adapter：checkModelReadiness 只在"一个可路由模型都没有"时拦
   assert.equal((await checkModelReadiness(boom)).ok, true, '探测失败不等于没有模型，不能冒充"没配置"')
 
   assert.equal((await checkModelReadiness(createFakeCtx({}))).code, 'service-unavailable')
+})
+
+
+// ── R30：模型选择必须真的传进 createAgent ─────────────────────────────────────
+
+/** 一个最小的、会记录 createAgent 参数的 DSH 假环境（用现成的 createFakeCtx）。 */
+function modelProbeCtx(agentDefaultModel) {
+  const recorded = []
+  const sessionController = {
+    async modelCatalog() {
+      return { default: { provider: 'p', model: 'm' }, routableProviders: ['p'], groups: [{ id: 'p' }], failures: [] }
+    },
+    async prompt() {
+      return { accepted: true }
+    },
+  }
+  const agentLoop = {
+    async createAgent(ownerCtx, options) {
+      recorded.push(options)
+      return { agent: { id: options.sessionId }, async dispose() {} }
+    },
+  }
+  return { ctx: createFakeCtx({ agentLoop, sessionController, agentDefaultModel }), recorded }
+}
+
+test('adapter：把用户选的默认模型透传给 createAgent（少了它真宿主会拒）', async () => {
+  const { ctx, recorded } = modelProbeCtx({
+    currentSelection: () => ({ provider: 'p-1', model: 'm-1', reasoningEffort: 'high' }),
+  })
+  const result = createDshCharacterBridge(ctx, { systemPromptFor: () => '人设' })
+  assert.equal(result.ok, true)
+  await result.bridge.say('c1', '你好')
+  assert.deepEqual(recorded[0].agentOptions, { provider: 'p-1', model: 'm-1', reasoningEffort: 'high' })
+})
+
+test('adapter：模型选择是**每次唤醒时**读的 —— 用户改了默认模型，下一个角色就用新的', async () => {
+  let selection = { provider: 'p-1', model: 'old-model' }
+  const { ctx, recorded } = modelProbeCtx({ currentSelection: () => selection })
+  const result = createDshCharacterBridge(ctx, { systemPromptFor: () => '人设' })
+  await result.bridge.say('c1', '你好')
+
+  selection = { provider: 'p-1', model: 'new-model' }
+  await result.bridge.say('c2', '你好')
+
+  assert.equal(recorded[0].agentOptions.model, 'old-model')
+  assert.equal(recorded[1].agentOptions.model, 'new-model', '不能把旧选择缓存住')
+})
+
+test('adapter：读不到默认模型时不崩 —— 不传 agentOptions，让宿主自己决定', async () => {
+  const { ctx, recorded } = modelProbeCtx(undefined)
+  const result = createDshCharacterBridge(ctx, { systemPromptFor: () => '人设' })
+  await result.bridge.say('c1', '你好')
+  assert.equal(recorded.length, 1)
+  assert.equal(recorded[0].agentOptions, undefined)
+})
+
+// ── R30：会话已存在 → 接回，而不是失败或换新 id ─────────────────────────────
+
+test('adapter：会话已存在时**接回**它（真宿主上持久化后会撞上 already exists）', async () => {
+  const resumed = []
+  const sessionController = {
+    async modelCatalog() {
+      return { default: { provider: 'p', model: 'm' }, routableProviders: ['p'], groups: [{ id: 'p' }], failures: [] }
+    },
+    async prompt() {
+      return { accepted: true }
+    },
+  }
+  const agentLoop = {
+    async createAgent(ownerCtx, options) {
+      throw new Error(`session "${options.sessionId}" already exists`)
+    },
+    async resume(ownerCtx, options) {
+      resumed.push(options)
+      return { agent: { id: options.resumeSessionId }, async dispose() {} }
+    },
+  }
+  const ctx = createFakeCtx({ agentLoop, sessionController })
+  const wired = createDshCharacterBridge(ctx, { systemPromptFor: () => '人设' })
+  const result = await wired.bridge.wake('c1')
+
+  assert.equal(result.ok, true, `应当接回成功：${result.reason ?? ''}`)
+  assert.equal(result.created, false, 'created:false 表示这是接回的（角色记得上次说过的话）')
+  assert.equal(resumed.length, 1)
+  assert.equal(resumed[0].resumeSessionId, result.sessionId, '必须接回**同一个** id，不能换新的')
+  assert.equal(wired.bridge.liveCount(), 1)
+})
+
+test('adapter：建与接回都失败时，两个原因**都**要出现在报错里', async () => {
+  const sessionController = {
+    async modelCatalog() {
+      return { default: { provider: 'p', model: 'm' }, routableProviders: ['p'], groups: [{ id: 'p' }], failures: [] }
+    },
+    async prompt() {
+      return { accepted: true }
+    },
+  }
+  const agentLoop = {
+    async createAgent() {
+      throw new Error('建不起来-A')
+    },
+    async resume() {
+      throw new Error('接不回来-B')
+    },
+  }
+  const wired = createDshCharacterBridge(createFakeCtx({ agentLoop, sessionController }), { systemPromptFor: () => '人设' })
+  const result = await wired.bridge.wake('c1')
+  assert.equal(result.ok, false)
+  assert.match(result.reason, /建不起来-A/)
+  assert.match(result.reason, /接不回来-B/)
+})
+
+test('adapter：宿主没有 resume（无持久化后端）时，照常报原始原因', async () => {
+  const sessionController = {
+    async modelCatalog() {
+      return { default: { provider: 'p', model: 'm' }, routableProviders: ['p'], groups: [{ id: 'p' }], failures: [] }
+    },
+    async prompt() {
+      return { accepted: true }
+    },
+  }
+  const agentLoop = {
+    async createAgent() {
+      throw new Error('建不起来-A')
+    },
+  }
+  const wired = createDshCharacterBridge(createFakeCtx({ agentLoop, sessionController }), { systemPromptFor: () => '人设' })
+  const result = await wired.bridge.wake('c1')
+  assert.equal(result.ok, false)
+  assert.match(result.reason, /建不起来-A/)
+  assert.doesNotMatch(result.reason, /接回/)
+})
+
+// ── R30：会话工作目录（真宿主上 {{cwd}} 必须有值）─────────────────────────────
+
+test('adapter：cwd 放进 createAgent 的 options.meta，且只带绝对路径', async () => {
+  const seen = []
+  const sessionController = {
+    async modelCatalog() {
+      return { default: { provider: 'p', model: 'm' }, routableProviders: ['p'], groups: [{ id: 'p' }], failures: [] }
+    },
+    async prompt() {
+      return { accepted: true }
+    },
+  }
+  const agentLoop = {
+    async createAgent(ownerCtx, options) {
+      seen.push(options)
+      return { agent: { id: options.sessionId }, async dispose() {} }
+    },
+  }
+  const wired = createDshCharacterBridge(createFakeCtx({ agentLoop, sessionController }), {
+    systemPromptFor: () => '人设',
+    cwdFor: () => '/tmp/some-workspace',
+  })
+  await wired.bridge.say('c1', '你好')
+  assert.deepEqual(seen[0].meta, { cwd: '/tmp/some-workspace' }, 'cwd 必须放进 options.meta')
+  assert.equal(seen[0].cwd, undefined, 'cwd 不该作为顶层字段传下去')
+})
+
+test('adapter：拿到相对路径就**不传** —— 宿主会拒绝非绝对路径，宁可让它报缺 {{cwd}}', async () => {
+  const seen = []
+  const sessionController = {
+    async modelCatalog() {
+      return { default: { provider: 'p', model: 'm' }, routableProviders: ['p'], groups: [{ id: 'p' }], failures: [] }
+    },
+    async prompt() {
+      return { accepted: true }
+    },
+  }
+  const agentLoop = {
+    async createAgent(ownerCtx, options) {
+      seen.push(options)
+      return { agent: { id: options.sessionId }, async dispose() {} }
+    },
+  }
+  const wired = createDshCharacterBridge(createFakeCtx({ agentLoop, sessionController }), {
+    systemPromptFor: () => '人设',
+    cwdFor: () => '.agent-world',
+  })
+  await wired.bridge.say('c1', '你好')
+  assert.equal(seen[0].meta, undefined, '相对路径不该被当成工作目录传下去')
 })

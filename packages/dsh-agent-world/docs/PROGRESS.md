@@ -30,7 +30,60 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R29 末）：`typecheck` 绿 · `test` **405 / pass 405 / fail 0 / todo 0**。**执行看板（M7-1+M7-2）已交付**。下一件：**在 web profile 验 U1/U2（G2 的门槛，用户已批）**。
+当前验证状态（R30 末）：`typecheck` 绿 · `test` **422 / pass 422 / fail 0 / todo 0**。**首次装进真宿主（web profile），修掉 6 个只有真机才照得出的 bug；真实模型回复仍差最后一关（producer-owned source kind）。**
+
+---
+
+## R30 — 2026-10-15 · 第一次装进真宿主：六个只有真机才照得出来的 bug
+
+用户批准在 **`web` profile** 里验证（它是用户放所有工作区插件的开发 profile，已有 8 个 `file:` 安装的同仓插件）。
+安装用官方指法：`dsh plugin --profile web add file:/…/packages/dsh-agent-world`。
+（第一次误用 `plugin_manager` 打到了当前会话的 `desktop` profile，因 pnpm store 不匹配**失败且未改动任何东西**；之后改用 CLI 指定 profile。）
+
+### 真宿主逐条撞出的问题（每一条在所有假 agentLoop 测试里都看不见）
+
+| # | 真宿主报错 | 根因 | 修法 | 守护测试 |
+|---|---|---|---|---|
+| 1 | `对话通道没启用（DSH 会话服务不可用）` | 加载那一刻同步建桥，`sessionController` 还没挂上 → 端口被定死为 undefined | **惰性建桥** `toLazyDialoguePort`：第一次说话时才建，成功后记住，失败每次给当次原因 | `bridge-lazy-port.test.js`（复现"服务后来才出现"） |
+| 2 | `seed system/message at index 0 lacks an identified message` | 消息 `id` 可选（BRIDGE-RECON U1 的答案是**强制**） | `messageId` 必填，由 `${sessionId}:persona` 派生 | `bridge-seed-invariants.test.js`（照抄 `assertMessageEventShape` 的判据） |
+| 3 | `format v4 system/message turn must be positive` + `requireOpenStep` | 孤零零一条 system 消息，turn=0，没有 turn/step 框 | `buildPersonaSeed`：`turn/start → step/start → system/message → step/end → turn/end`，turn/step 从 1 起、seq 严格递增、**框自己关上** | `bridge.test.js` 断言五事件序列 |
+| 4 | `prompt variable "{{model}}" has no value` | 建 agent 没给模型 | 每次唤醒时读 `ctx.agentDefaultModel.currentSelection()`（官方会话控制器同一来源） | 透传 + "改了默认模型下一个角色就用新的" |
+| 5 | `session "agent-world:agent-1" already exists` | 会话落盘了，重启后用同 id 再建 | **接回而不是换新 id**（换 id 会让角色忘掉说过的话）：`createAgent` 失败 → `agentLoop.resume` | 三条：接回同 id / 两个原因都报 / 无持久化时照常报 |
+| 6 | `prompt variable "{{cwd}}" has no value` | 会话头没有 cwd | `cwd` 放进 **`options.meta`**（我先猜成第三个参数，被自己的测试当场抓住）；只传绝对路径；默认 `process.cwd()`，**不是** `.agent-world` | 两条：meta 形状 / 相对路径不传 |
+
+所有判据都是**从真实现读出来的**（用 Electron 的 node 模式直接读 `app.asar` 里的 `dsh-session` / `dsh-agent-loop` / `dsh-system-prompt` / `dsh-session-format-v3-to-v4`），不是猜的。
+
+### 没解决的（下一轮第一件事）
+
+全新角色（`agent-5`）现在**越过了上面全部六关**：会话头 `cwd:"/Users/kp"`、seed 五事件完整落盘、用户消息进了 inbox、turn 2 已开始。
+然后在模型那一轮报：
+
+    format v4 message requires a producer-owned source kind
+
+这条校验（`dsh-session-format-v3-to-v4` 的 `source()`）要求每个消息槽 `source.kind` 是非空且不为 `'plugin'` 的字符串。
+已核对：我们的 seed `{kind:'system-prompt'}` ✅、inbox 里的用户消息 `{kind:'user', rpcId}` ✅（与正常会话同形）。
+所以出问题的是 **turn 2 里某个由宿主追加、但没落盘的消息**（被拒的事件不会写进日志——日志停在 seq 11）。
+**下一步**：在真宿主里挂一个 `session/event` 监听或读 `agent/error` 事件，拿到被拒那条事件的 type；
+重点怀疑 `session-title-llm` 在第一条用户消息后发起的 `session/title-llm-request`（它的 `messages` 槽也受同一校验，而它会把我们 seed 里的 system 消息一起带上）。
+
+**另一个已知遗留**：`agent-1` 的会话是修复 #6 之前建的，接回的是**没有 cwd 的旧头部**，所以它会一直报 `{{cwd}}`。
+那是一条可删的旧会话（`~/.dsh/sessions/--Users-kp--/agent-world~003Aagent-1/`），**我没有删**——那是用户数据目录，留给用户或下一轮决定。
+
+### 验证
+
+```bash
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 422 / pass 422 / fail 0 / todo 0
+```
+
+真宿主：插件在 web profile 被正确挂载（`/agent-world/api/world` 200、世界在跑、`/api/say` 接收、SSE 推 `thinking` 与 `failed`，失败原因全部可下手）。
+**真实的模型回复：还没有拿到。** 不许说成验过。
+
+### 一条值得记的教训
+
+**假 agentLoop 的绿是"契约的绿"，不是"宿主的绿"。** 这六个 bug 每一个都满足了我们自己写的契约，却违反了宿主真实的不变量。
+R28 里 bridge 队友那句"它证明的是 seed 内容对，不是真实 DSH 会接受这条 seed"——这一轮被逐字证实。
+今后 bridge 侧的不变量测试要**照抄真实现的判据**（`bridge-seed-invariants.test.js` 是第一份），而不是照我们以为的形状写。
 
 ---
 

@@ -22,7 +22,7 @@
  * 测试里时间必须是确定的，否则"同一角色两次搭话只建一次会话"这类断言难以复现。
  */
 import { decodeBridgeEvent } from './decode.js'
-import { buildSystemPromptSeed } from './seed.js'
+import { buildPersonaSeed } from './seed.js'
 import type {
   AgentFactory,
   BridgeAgentOptions,
@@ -37,7 +37,7 @@ import type {
   SayOptions,
   SayResult,
   SessionTransport,
-  SystemMessageSeedEvent,
+  BridgeSeedEvent,
   WaitForReplyOptions,
   WaitReplyResult,
   WakeResult,
@@ -219,26 +219,74 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
 
     // 人设文本**必须来自调用方**（内容库）；这里不拼任何字面量。空文本会在这里抛，
     // 统一按 create-failed 报出去 —— 让"花名册缺字段"这件事有一个可下手的原因。
-    let seed: SystemMessageSeedEvent[]
+    let seed: BridgeSeedEvent[]
     try {
-      seed = [buildSystemPromptSeed(options.systemPromptFor(characterId), { time: now() })]
+      // 消息 id 由会话 id 派生：同一会话里唯一、可追溯（看到它就知道是哪个角色的人设），
+      // 而且是确定的 —— 不引入随机数，测试也能断言它。
+      seed = buildPersonaSeed(options.systemPromptFor(characterId), { time: now(), messageId: `${sessionId}:persona` })
     } catch (error) {
       return fail(characterId, 'create-failed', `人设生成失败：${messageOf(error)}`)
     }
 
-    const agentOptions: BridgeAgentOptions | undefined = options.agentOptions
+    // 实时读取优先（用户改了默认模型，下一个被唤醒的角色就用新的），读不到再用静态配置。
+    let agentOptions: BridgeAgentOptions | undefined = options.agentOptions
+    if (options.agentOptionsFor !== undefined) {
+      try {
+        agentOptions = options.agentOptionsFor() ?? agentOptions
+      } catch (error) {
+        // 读模型选择失败不该让唤醒直接崩：退回静态配置，并让原因可见。
+        options.onError?.(`读取默认模型失败，退回静态配置：${messageOf(error)}`)
+      }
+    }
+    // 工作目录：宿主会校验**必须是绝对路径**，所以相对路径一律不带（宁可让宿主报缺 {{cwd}}，
+    // 也不要传一个非法值把整轮对话打死）。
+    let cwd: string | undefined
+    try {
+      const candidate = options.cwdFor?.()
+      if (typeof candidate === 'string' && candidate.startsWith('/')) cwd = candidate
+    } catch (error) {
+      options.onError?.(`读取工作目录失败（已忽略）：${messageOf(error)}`)
+    }
+
     const createOptions = {
       sessionId,
       seed,
       ...(agentOptions === undefined ? {} : { agentOptions }),
+      ...(cwd === undefined ? {} : { cwd }),
       ...(signal === undefined ? {} : { signal }),
     }
 
     let handle: { readonly agent: { readonly id: string }; dispose(): Promise<void> }
+    let resumed = false
     try {
       handle = await factory.createAgent(createOptions)
     } catch (error) {
-      return fail(characterId, 'create-failed', `会话创建失败：${messageOf(error)}`)
+      // ── "这个会话已经存在" 是**正常路径**，不是错误（R30 真宿主验证）──────────
+      //
+      // 挂上 `sessionPersistence` 之后，上次运行建过的会话会落盘，这次用同一个 id
+      // 再建就会抛 `session "agent-world:agent-1" already exists`。
+      //
+      // **正确反应是接回那条会话，而不是换一个新 id**：换 id 会让这个角色忘掉
+      // 上一次跟他说过的话——而"昨天跟阿金交代过的事他记得"正是这个产品要的东西。
+      // 所以：能 resume 就 resume；不能（宿主没有持久化后端）才报原因。
+      if (factory.resumeAgent !== undefined) {
+        try {
+          handle = await factory.resumeAgent({
+            resumeSessionId: sessionId,
+            ...(agentOptions === undefined ? {} : { agentOptions }),
+            ...(signal === undefined ? {} : { signal }),
+          })
+          resumed = true
+        } catch (resumeError) {
+          return fail(
+            characterId,
+            'create-failed',
+            `会话创建失败：${messageOf(error)}；接回已有会话也失败：${messageOf(resumeError)}`,
+          )
+        }
+      } else {
+        return fail(characterId, 'create-failed', `会话创建失败：${messageOf(error)}`)
+      }
     }
 
     // createAgent 期间 bridge 可能已被 dispose（插件卸载）；那样必须立刻清掉刚建的会话，
@@ -255,7 +303,8 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
     sessions.set(characterId, { characterId, sessionId, handle, createdAt: now() })
     bySessionId.set(sessionId, characterId)
     ensureSubscribed()
-    return { ok: true, characterId, sessionId, created: true, liveCount: sessions.size }
+    // `created: false` 表示这次是**接回**已有会话（角色记得上次说过的话）。
+    return { ok: true, characterId, sessionId, created: !resumed, liveCount: sessions.size }
   }
 
   async function wake(characterId: string): Promise<WakeResult> {

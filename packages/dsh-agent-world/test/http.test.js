@@ -383,7 +383,7 @@ test('apply：有 webServer 时注册**一个**前缀路由，且清理可调用
 
   // 清理链要能真的走到路由的 disposer。
   // 有两个：一个是运行时的定时器，一个是这条路由——都属于"热重载必须摘干净"的东西。
-  assert.equal(disposers.length, 2, `应当挂两个清理（运行时 + 路由），实际 ${disposers.length}`)
+  assert.equal(disposers.length, 3, `应当挂三个清理（运行时 + 对话桥 + 路由），实际 ${disposers.length}`)
   for (const dispose of disposers) dispose()
   assert.equal(disposerCalled, 1, '清理必须把路由摘掉')
 })

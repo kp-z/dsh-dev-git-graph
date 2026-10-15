@@ -31,9 +31,9 @@
  * 侦查证据（Inspect 原始输出 + DSH 实现片段）见 `docs/BRIDGE-RECON.md`。
  */
 export { createCharacterBridge, DEFAULT_MAX_LIVE_SESSIONS, DEFAULT_REPLY_TIMEOUT_MS, isBadRequest } from './character-bridge.js'
-export { buildSystemPromptSeed, SEED_SEQ, SEED_STEP, SEED_TURN } from './seed.js'
+export { buildPersonaSeed, buildSystemPromptSeed, SEED_SEQ, SEED_STEP, SEED_TURN } from './seed.js'
 export { decodeBridgeEvent, extractAssistantReply, extractTurnEnd } from './decode.js'
-export { toDialoguePort } from './dialogue-port.js'
+export { toDialoguePort, toLazyDialoguePort } from './dialogue-port.js'
 export type {
   DialogueAck,
   DialoguePortFace,
@@ -47,6 +47,7 @@ export {
   checkModelReadiness,
   createAgentFactory,
   createDshCharacterBridge,
+  readDefaultModelSelection,
   createSessionTransport,
   normalizeSessionEvent,
 } from './dsh-adapter.js'

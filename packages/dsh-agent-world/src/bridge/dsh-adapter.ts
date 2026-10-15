@@ -18,6 +18,8 @@ import { createCharacterBridge } from './character-bridge.js'
 import type {
   AgentFactory,
   BridgeAgentHandle,
+  BridgeAgentOptions,
+  BridgeResumeAgentOptions,
   BridgeCreateAgentOptions,
   BridgePromptRequest,
   BridgeReadiness,
@@ -86,13 +88,32 @@ export function createAgentFactory(ctx: unknown): AgentFactory | undefined {
   const createAgent = pluck(agentLoop, 'createAgent')
   if (createAgent === undefined) return undefined
 
+  const resume = pluck(agentLoop, 'resume')
+
   return {
     async createAgent(options: BridgeCreateAgentOptions): Promise<BridgeAgentHandle> {
+      // `cwd` 在 **`options.meta` 里**（`createAgent(ownerCtx, options)` 只有两个参数）。
+      // 我第一版猜成"第三个参数"，被自己的测试当场抓住——所以这行有测试守着。
+      const { cwd, ...rest } = options
+      const payload = cwd === undefined ? rest : { ...rest, meta: { cwd } }
       const handle = await (
         createAgent as unknown as (owner: unknown, opts: unknown) => Promise<BridgeAgentHandle>
-      ).call(agentLoop, ctx, options)
+      ).call(agentLoop, ctx, payload)
       return handle
     },
+
+    // 只有宿主提供了 resume 才暴露它 —— 没有持久化后端时它也不存在，那时保持"建不了就报原因"。
+    ...(resume === undefined
+      ? {}
+      : {
+          async resumeAgent(options: BridgeResumeAgentOptions): Promise<BridgeAgentHandle> {
+            return await (resume as unknown as (owner: unknown, opts: unknown) => Promise<BridgeAgentHandle>).call(
+              agentLoop,
+              ctx,
+              options,
+            )
+          },
+        }),
   }
 }
 
@@ -131,6 +152,31 @@ export function createSessionTransport(ctx: unknown): SessionTransport | undefin
       })
       return typeof maybeDispose === 'function' ? (maybeDispose as () => void) : () => {}
     },
+  }
+}
+
+/**
+ * 读用户在 DSH 里选的**默认模型**：`ctx.agentDefaultModel.currentSelection()`。
+ *
+ * 这是官方会话控制器在"新会话还没写过请求头"时用的同一个来源
+ * （`dsh-api-session-controller`：`if (loggedHeader === undefined) return defaultModel.currentSelection()`），
+ * 所以角色和用户自己开的对话**用的是同一个模型**，不另造一套配置。
+ *
+ * @returns `{provider, model, reasoningEffort?}`；没有该服务或读不到时 `undefined`。
+ */
+export function readDefaultModelSelection(ctx: unknown): BridgeAgentOptions | undefined {
+  const service = getService(ctx, 'agentDefaultModel')
+  const current = pluck(service, 'currentSelection')
+  if (current === undefined) return undefined
+  const raw = (current as unknown as (this: unknown) => unknown).call(service)
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const sel = raw as Record<string, unknown>
+  if (typeof sel.provider !== 'string' || sel.provider === '') return undefined
+  if (typeof sel.model !== 'string' || sel.model === '') return undefined
+  return {
+    provider: sel.provider,
+    model: sel.model,
+    ...(typeof sel.reasoningEffort === 'string' && sel.reasoningEffort !== '' ? { reasoningEffort: sel.reasoningEffort } : {}),
   }
 }
 
@@ -209,6 +255,8 @@ export interface DshBridgeOptions {
   readonly sessionIdFor?: (characterId: string) => string
   readonly requestIdPrefix?: string
   readonly onError?: (reason: string) => void
+  /** 会话工作目录（绝对路径）。默认 `process.cwd()`——与插件的 contentDir / stateDir 同一基准。 */
+  readonly cwdFor?: () => string | undefined
 }
 
 /** `createDshCharacterBridge()` 的结果：要么装好了，要么给出装不上的原因。 */
@@ -261,6 +309,9 @@ export function createDshCharacterBridge(ctx: unknown, options: DshBridgeOptions
     transport,
     systemPromptFor: options.systemPromptFor,
     checkReady: () => checkModelReadiness(ctx),
+    agentOptionsFor: () => readDefaultModelSelection(ctx),
+    // 角色的工作目录 = 插件的工作区（与 contentDir / stateDir 同一个基准），不是 .agent-world。
+    cwdFor: options.cwdFor ?? (() => process.cwd()),
     ...(options.maxLiveSessions === undefined ? {} : { maxLiveSessions: options.maxLiveSessions }),
     ...(options.sessionIdFor === undefined ? {} : { sessionIdFor: options.sessionIdFor }),
     ...(options.requestIdPrefix === undefined ? {} : { requestIdPrefix: options.requestIdPrefix }),

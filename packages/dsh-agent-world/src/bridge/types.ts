@@ -75,21 +75,55 @@ export interface SystemMessageSeedEvent {
       readonly role: 'system'
       readonly source: { readonly kind: 'system-prompt' }
       readonly content: readonly { readonly type: 'text'; readonly text: string }[]
-      /** 见 BRIDGE-RECON §6 U1：`MessageBase` 是否强制要 `id` 还没核实，故可选。 */
-      readonly id?: string
+      /**
+       * **必填**（R30 真宿主验证）：`dsh-session` 的 `assertMessageEventShape` 要求
+       * `typeof message.id === "string" && message.id !== ""`，否则整条 seed 被拒：
+       * `seed system/message at index 0 lacks an identified message`。
+       * 这正是 BRIDGE-RECON §6 的 U1，答案是"强制"。
+       */
+      readonly id: string
     }
   }
   readonly surfaceOp: 'append'
 }
 
-/** 目前 seed 只有一种事件。留成别名，M6-6 要放"上一局对话"回放时好扩。 */
-export type BridgeSeedEvent = SystemMessageSeedEvent
+/**
+ * seed 里包住人设消息的**框事件**（R30 真宿主验证）。
+ *
+ * `dsh-session` 的不变量要求 `system/message` 落在一个**已打开的** turn/step 里
+ * （`requireOpenStep`），turn/step 编号从 1 起，seq 严格递增；而 seed 结束后 agent
+ * 会自己 `turn/start` 下一轮，所以**这个框必须自己关上**，否则下一轮会撞上
+ * "turn/start while turn 1 is still open"。
+ */
+export type SeedFrameEvent =
+  | { readonly type: 'turn/start'; readonly seq: number; readonly time: number; readonly data: { readonly turn: number } }
+  | { readonly type: 'step/start'; readonly seq: number; readonly time: number; readonly data: { readonly turn: number; readonly step: number } }
+  | { readonly type: 'step/end'; readonly seq: number; readonly time: number; readonly data: { readonly turn: number; readonly step: number } }
+  | {
+      readonly type: 'turn/end'
+      readonly seq: number
+      readonly time: number
+      readonly data: { readonly turn: number; readonly reason: { readonly kind: 'completed' } }
+    }
+
+/** seed 里的任何一条事件。M6-6 要放"上一局对话"回放时在这里扩。 */
+export type BridgeSeedEvent = SystemMessageSeedEvent | SeedFrameEvent
 
 /** `CreateAgentOptions` 里 bridge 用到的部分。 */
 export interface BridgeCreateAgentOptions {
   readonly sessionId: string
   readonly seed?: readonly BridgeSeedEvent[]
   readonly agentOptions?: BridgeAgentOptions
+  /**
+   * 会话的工作目录（**必须是绝对路径**，宿主会校验）。
+   *
+   * R30 真宿主验证：不给它，这个 profile 的 persona 模板 `Your working directory is {{cwd}}`
+   * 就没有值，整轮报 `prompt variable "{{cwd}}" has no value`。
+   *
+   * ⚠️ **不能填插件的存档目录**：角色以后要用工具干活（读代码、改文件），
+   * 它的工作目录应该是**用户的工作区**，而不是我们自己的 `.agent-world`。
+   */
+  readonly cwd?: string
   readonly signal?: AbortSignal
 }
 
@@ -101,6 +135,21 @@ export interface BridgeCreateAgentOptions {
  */
 export interface AgentFactory {
   createAgent(options: BridgeCreateAgentOptions): Promise<BridgeAgentHandle>
+  /**
+   * 从**已有的持久化会话**恢复一个 agent（可选，缺了就不做 resume 兜底）。
+   *
+   * R30 真宿主验证：`sessionPersistence` 一旦挂上，上次运行建过的会话会落盘，
+   * 这次再用同一个 sessionId 建就会抛 `session "…" already exists`。
+   * 正确反应不是换一个新 id（那会丢掉这个角色说过的话），而是**接回原来那条会话**。
+   */
+  resumeAgent?(options: BridgeResumeAgentOptions): Promise<BridgeAgentHandle>
+}
+
+/** `resume` 用到的部分（与 `CreateAgentOptions.resumeSessionId` 对应）。 */
+export interface BridgeResumeAgentOptions {
+  readonly resumeSessionId: string
+  readonly agentOptions?: BridgeAgentOptions
+  readonly signal?: AbortSignal
 }
 
 /** `PromptContentPart` 的 text 分支（BRIDGE-RECON §3.3）。 */
@@ -320,6 +369,20 @@ export interface CharacterBridgeOptions {
   readonly sessionIdFor?: (characterId: string) => string
   /** 透传给 `createAgent` 的模型选择。 */
   readonly agentOptions?: BridgeAgentOptions
+  /**
+   * **建会话那一刻**才读的模型选择（优先于 `agentOptions`）。
+   *
+   * R30 真宿主验证：不给模型，agent 组 system prompt 时 `{{model}}` 没有值，
+   * 整轮报 `prompt variable "{{model}}" has no value for this assembly`。
+   * 做成函数而不是常量，是为了**用户在 DSH 设置里改了默认模型，下一个被唤醒的角色就用新的**。
+   * 返回 `undefined` 表示读不到，此时退回 `agentOptions`。
+   */
+  readonly agentOptionsFor?: () => BridgeAgentOptions | undefined
+  /**
+   * 会话工作目录（绝对路径）。默认 `process.cwd()` —— 插件的其它相对路径
+   * （内容目录、存档目录）也是以它为基准的，所以角色与插件看的是同一个工作区。
+   */
+  readonly cwdFor?: () => string | undefined
   /** 时间源。默认 `Date.now`；测试传固定值以保证可复现。 */
   readonly now?: () => number
   /** requestId 前缀，默认 `agent-world-say`。 */

@@ -188,7 +188,7 @@
 | M5-7 | ready | **让 8 个 agent 长得不一样**：12 个 Kenney 角色都入库了，但现在全部用同一个 `model.agent.base`（看起来像复制粘贴）。需要一个「角色模型列表 + 按序分配」的内容概念（例如 `SceneEntry.agentModels: string[]`，host 按 agent 序号分配并写进 `SceneActor.modelId`）。**故意没混进 R19**：那一轮的目标是「GLB 能跑起来」，不是顺手加一个内容概念 | `src/content/kinds.ts` + `src/scene/plan.ts` + `packs/kenney-mini.ts` | R19 |
 | M6-0 | **done** | **查清「怎么把用户消息送进 DSH Agent 并收回复」**（整条 M6 的阻塞点）。用 `cordis_inspect_query` 查，原始证据进 `docs/BRIDGE-RECON.md` | `docs/BRIDGE-RECON.md` + `docs/GOAL.md` 第三节 | —— | owner: `bridge`（task-1）
 | M6-1 | **done** | 角色 ↔ DSH 会话绑定：懒创建（同角色复用）+ 并发上限 + dispose + `seed` 注入 system prompt | `src/bridge/` + node 测试 | M6-0 | owner: `bridge`（task-1）
-| M6-10 | ready | **U1/U2 真机验证**（G2 的门槛）：`MessageBase` 是否强制 `id`、seed 的 `seq` 是否要自洽——只能在**真宿主**上验，需要把插件装进一个 profile。**这是唯一需要用户点头的动作**（会注册路由与工具，影响他当前会话）。若 seed 被拒，「跟小人物说话」会在最后一寸失败 | 真机验证记录 | M6-2 | ⚠️ 等用户点头 |
+| M6-10 | in_progress | **U1/U2 真机验证**（G2 的门槛）：`MessageBase` 是否强制 `id`、seed 的 `seq` 是否要自洽——只能在**真宿主**上验，需要把插件装进一个 profile。**这是唯一需要用户点头的动作**（会注册路由与工具，影响他当前会话）。若 seed 被拒，「跟小人物说话」会在最后一寸失败 | 真机验证记录 | M6-2 | ⚠️ 等用户点头 |
 | M6-9 | ready | **flaky 测试普查**（R27 发现）：`test/store.test.js` 用固定 `setTimeout(20)` 当同步手段，在载荷下会假红。已修那一处，但**同类写法可能还有**（`grep -n 'setTimeout(' test/`）。flaky 比失败更糟：它让「绿」不可信，而绿是验收纪律的基础 | `test/**` | —— | 一行 grep 就能普查 |
 | M6-2 | **done** | 人设驱动 system prompt（R27 内容侧 + R28 宿主侧）。`seatForAgent` 按**序号优先 + 名字交叉校验**，同名歧义返回 undefined 让上层报原因。**哨兵测试**防 id 规则变动导致人设静默错位。**判据「改花名册 → prompt 跟着变、代码零改动」由真实内容的装配测试证明** | —— | ✅ R28 | —— |
 | M6-3 | **done**（传输段）| 对话通道：`POST /api/say` → Agent → 回复进 SSE → 面板气泡 | `src/routes/` + `src/bridge/` + `web/` | M6-1 | **关键路径**

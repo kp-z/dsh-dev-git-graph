@@ -321,8 +321,11 @@ test('apply：挂上了运行时清理（热重载不泄漏定时器）', () => 
   const { ctx, disposers } = fakeCtx()
   apply(ctx, { autoStart: true, tickMs: 60_000, persistEveryTicks: 0 })
 
-  assert.equal(disposers.length, 1, '必须挂一个清理函数，否则热重载会多一个世界在跑')
-  disposers[0]() // 清理必须可调用且不抛
+  // 两个清理：① 运行时（停定时器）② 对话桥（释放所有角色会话）。
+  // ② 是 R30 起**无条件**挂的：桥改成惰性建立后，可能在加载之后才建起来，
+  // 若仍只在"加载时建桥成功"才挂，那种情况下的会话就没人释放了。
+  assert.equal(disposers.length, 2, '必须挂运行时与对话桥两个清理，否则热重载会多一个世界在跑 / 多几个活着的会话')
+  for (const d of disposers) d() // 清理必须可调用且不抛（包括桥还没建起来的时候）
 })
 
 test('apply：autoStart=false 时世界建好但不推进', async () => {
