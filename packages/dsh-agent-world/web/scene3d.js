@@ -22,7 +22,7 @@
  */
 
 import * as THREE from 'three'
-import { OrbitControls } from 'three/addons/OrbitControls.js' // 见 index.html 的 import map
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js' // 见 index.html 的 import map
 import { createBuilderRegistry } from './builders.js'
 
 /**

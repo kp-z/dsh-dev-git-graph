@@ -27,7 +27,151 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build
 ```
 
-当前验证状态（R17 末）：`typecheck` 绿 · `test` 270/270 绿。**外网已恢复。**
+当前验证状态（R18 末）：`typecheck` 绿 · `test` 271/271 绿。**外网已恢复。定时任务已按用户要求取消。**
+
+---
+
+## R18 — 2026-10-15 · Kenney CC0 角色资产入库 + three 加载器就位（M5 的前提）
+
+### 两件事先记在最上面
+
+1. **用户要求取消定时任务——已取消**（`schedule-2d55592d…`）。此后不再自动开轮。
+2. 取消时工作区里有**半成品**（我把 `src/vendor/three/` 重排了，但白名单与 import map 还指着旧路径，
+   3D 视图此时是坏的）。**已收尾到全绿再停**，没有把坏状态留给用户。
+
+### 本轮做了什么
+
+**1. 去掉了"为一个关着的开关升级 three"这件事（M4-9 暂停，理由已量过）**
+
+原计划是换 three 0.167.1 → 0.186.1 好接 bloom。动手前查了主题内容：
+
+```
+post: { toneMapping: 'ACESFilmic', exposure: 1.05, bloom: { enabled: false, … } }
+```
+
+**`enabled: false`**——当前美术就是暖色纸感等距，bloom 是关的。而升级的代价是
+**+2.2MB**（0.186 起 `three.module.js` 与 `three.core.js` 分成两个文件，且**没有 min 版**）。
+为一个关着的开关付这个代价不划算。**判决与代价都写进了 BACKLOG 的 M4-9**，哪天主题要开 bloom 就能直接用。
+
+**2. 改做价值更高的那件：M5 的资产（它对应你一开始点名的"动作库"）**
+
+按 `docs/ASSETS.md` 已经核验过的选型（**不重新调研**）下载 Kenney "Mini Characters"：
+
+- 直链 `https://kenney.nl/media/pages/assets/mini-characters/bfc7e272b4-1774770718/kenney_mini-characters.zip`
+- 许可证 **CC0**（`License.txt` 原文入库，"无需署名"字样一并核对过）
+- **只 vendor 12 个角色**，没要整包里的 14 个辅具/轮椅（用不到；CC0 允许只取一部分）
+
+**并且逐个解析了 GLB 的 JSON chunk 来验**（不是"看着像"）：
+
+| 项目 | 实测 |
+|---|---|
+| 每个角色的动画数 | **32**（`idle`/`walk`/`sprint`/`sit`…） |
+| 蒙皮数 | **2**（已绑定骨骼） |
+| 外部依赖 | **`Textures/colormap.png`**（8.5KB，12 个角色共用） |
+| 体积 | 12 个角色合计 **2.9MB**（单个 237–273KB） |
+| 整包 zip | 2,403,059B，sha256 `9e1d48e6…d0999` |
+
+**3. 顺带把 three 的加载器也 vendor 了**（M5-1 的直接前提）
+`GLTFLoader.js` / `BufferGeometryUtils.js` / `SkeletonUtils.js`——`SkeletonUtils.clone()` 是
+**克隆骨骼角色的唯一正确做法**（直接 `Object3D.clone()` 会共享骨架，12 个角色会同步抽搐，
+见 `REFERENCES.md` §6.4）。
+
+**4. 目录结构刻意与上游一致**（这是本轮的设计决定，记成决策 D32）
+
+`GLTFLoader.js` 里有 `import '../utils/BufferGeometryUtils.js'`——**拍平一层这个相对路径就断了**，
+而"改 vendored 代码"是我不做的事（改了 sha256 就失去意义，而 sha256 正是"这份代码确实是我核对过的那份"的唯一凭据）。
+所以：
+
+```
+src/vendor/three/build/three.module.min.js
+src/vendor/three/examples/jsm/{controls,loaders,utils}/*.js
+src/vendor/three/LICENSE
+src/vendor/kenney-mini-characters/{License.txt, Textures/colormap.png, 12 × *.glb}
+```
+
+import map 相应改成 three 官方文档的写法：`"three"` + `"three/addons/"` 前缀映射。
+
+白名单从"文件名→MIME 的映射"改成**确切相对路径数组 + 按扩展名给 MIME**：让"哪些能服务"
+（安全边界）与"以什么类型服务"（协议细节）成为两个独立问题。**穷举性没降低**——认的是确切路径，
+不做任何拼接猜路径。
+
+### 验证
+
+```bash
+cd packages/dsh-agent-world
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run typecheck   # 绿
+PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test            # tests 271 / pass 271 / fail 0
+```
+
+270 → **271**。新增的测试里有两条是真有价值的：
+
+- **磁盘 ↔ 白名单双向核对**（递归）：文件进了 `src/vendor/` 却忘了开路由 → 运行期 404，
+  而那时你在看别的错误。反过来白名单里有、磁盘上没有 → 必然 404。
+- **GLB 必须带齐它引用的外部贴图**：直接解析 GLB 的 JSON chunk 读出 `images[].uri`，
+  再断言那个文件在 vendor 里。少它的表现是"模型加载成功但一片纯色"——最难查的一种半成功。
+  同一条测试顺带把"32 条动画 + 有蒙皮"这两个前提**钉死了**（它是 `actions` 库的资产依据）。
+
+**测试抓到了一个我看不出来的真 bug**：白名单新增 `three/LICENSE`（**没有扩展名**），
+而取扩展名的表达式是 `name.slice(name.lastIndexOf('.'))` → 对 `three/LICENSE` 切出 `"E"` →
+这个白名单文件**一被请求就 500**。已抽成 `extensionOf()`（两处共用，测试也直接打它），
+无扩展名按 `text/plain` 发。
+
+**真实 HTTP 路由逐个核对过**：4 个 three 文件 + LICENSE + GLB + 贴图 + Kenney License 全 **200**；
+`README.md`（不服务的）**404**；三种越界尝试（`../`、`a/../../`、编码斜杠 `%2f`）全 **404**；
+GLB 的 `Content-Type: model/gltf-binary`、魔数 `glTF`、246,916B。
+
+**浏览器实测**（重排 import map 是最容易静默失效的地方）：
+
+| 检查 | 结果 |
+|---|---|
+| `import('three')` | **418 个导出** |
+| `import('three/addons/controls/OrbitControls.js')` | function |
+| `import('three/addons/loaders/GLTFLoader.js')` | **function**（新） |
+| `import('three/addons/utils/SkeletonUtils.js')` | **`clone` 是 function**（新） |
+| 3D 画面 | 1685 种颜色、20.5% 非黑、**0 品红像素**——与重排前**完全一致**（没弄坏） |
+
+### 下一轮从哪继续（不再自动开轮，等你说）
+
+**M5-1 + M5-5：真正把 GLB 用起来。**
+
+1. `web/scene3d.js` 的 `instantiate()` 现在是**同步**的，GLB 要**异步**加载 → 需要一个
+   `Map<url, Promise<GLB>>` 缓存 + "模型到货后再摆上去"的路径（`applyWorld` 每帧都在跑，天然适合）。
+2. 加载后 **`SkeletonUtils.clone()`**（**不是** `Object3D.clone()`——会共享骨架）。
+3. 新增 `pack.kenney-mini`：显式 `overrides: ['models/model.agent.base']`，把程序化 `avatar`
+   换成 `{ kind: 'glb', url: 'kenney-mini-characters/character-male-a.glb' }`。
+   **`url` 相对本插件资源根**（决策 D32），渲染器按 `./<url>` 解析。
+4. **M5-6 是验收点**：加了这个包之后 `pnpm test` 仍全绿、且**模拟内核零改动**。
+   在那之前，"换资产只改内容"不算已验证。
+5. 之后再接 `actions` 库（32 条剪辑 → `AnimationMixer`），那才是完整的"动作库"。
+
+### 假设
+
+- **只 vendor 12 个角色而不是整包**：CC0 允许任意取舍；辅具/轮椅本场景用不到。要加随时能补（直链与 sha256 都记着）。
+- **`Textures/colormap.png` 是共享贴图**：12 个角色引用同一个文件，所以只 vendor 一份。
+- **不 vendor `three.core.js`**：那是 0.186 才有的拆分；我们仍在 0.167.1（单文件 min 版），M4-9 既然暂停就保持一致。
+- **白名单用数组而不是映射**：MIME 由扩展名决定，于是"能服务哪些"与"以什么类型服务"分开。
+
+### 卡住 / 风险
+
+- **vendor 目录现在 3.73MB**（three 1.0MB + 角色 2.9MB）。这是有意的代价，但值得知道：
+  **再来两个 Kenney 包就会到 10MB 量级**，届时应该考虑"资产包按需下载"而不是继续 vendor。
+- **GLTFLoader / SkeletonUtils 已 vendor、已可达，但还没有任何代码消费它们**——
+  这条我写在了 `src/vendor/README.md` 最显眼的"还没做的事"一节里，
+  因为"链路建好了没有消费者"正是我在 R12 批评过的形态。**它们必须在下一轮被用起来。**
+- **`web/` 仍是手写 JS 没有类型**（R10 记到第七次）。本轮又给它加了一个 import map 契约。
+- **定时任务已取消**，所以"M5 什么时候做"由你决定，不再有每小时的推进。
+
+### 本轮产出
+
+- 新增：`src/vendor/kenney-mini-characters/`（15 个文件）、
+  `src/vendor/three/examples/jsm/{loaders/GLTFLoader.js, utils/BufferGeometryUtils.js, utils/SkeletonUtils.js}`
+- 移动：`src/vendor/three.module.min.js` → `three/build/`、`three.OrbitControls.js` → `three/examples/jsm/controls/`、
+  `LICENSE.three` → `three/LICENSE`
+- 修改：`src/routes/vendor.ts`（嵌套白名单 + `extensionOf` + MIME 表）、`web/index.html`（import map）、
+  `web/scene3d.js`（说明符）、`src/vendor/README.md`（20 个文件逐个 sha256 + 许可 + 还没做的事）、
+  `test/{vendor,builders}.test.js`
+- 文档：`ARCHITECTURE.md`（决策 D32）、`BACKLOG.md`（M4-9 暂停并记下代价、M5-1/M5-5 记上前提已就位）
+- 测试从 270 → 271
 
 ---
 

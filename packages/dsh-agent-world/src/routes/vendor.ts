@@ -35,10 +35,41 @@ import { HttpError } from './router.js'
  * 漏了会红。这是刻意的摩擦：文件进了 `src/vendor/` 却忘了开路由，
  * 表现是"运行时 404"，而那时你已经在看别的错误了。
  */
-export const VENDOR_WHITELIST: Readonly<Record<string, string>> = {
-  'three.module.min.js': 'text/javascript; charset=utf-8',
-  'three.OrbitControls.js': 'text/javascript; charset=utf-8',
-  'LICENSE.three': 'text/plain; charset=utf-8',
+export const VENDOR_WHITELIST: readonly string[] = [
+  // three.js（MIT）——**保持上游的目录结构**：它的 addon 之间有相对 import
+  // （`loaders/GLTFLoader.js` 会 `import '../utils/BufferGeometryUtils.js'`），
+  // 拍平成一层那些相对路径就断了，而**改 vendored 代码是我不做的事**（sha256 就失去意义）。
+  'three/LICENSE',
+  'three/build/three.module.min.js',
+  'three/examples/jsm/controls/OrbitControls.js',
+  'three/examples/jsm/loaders/GLTFLoader.js',
+  'three/examples/jsm/utils/BufferGeometryUtils.js',
+  'three/examples/jsm/utils/SkeletonUtils.js',
+
+  // Kenney "Mini Characters"（CC0）——12 个已绑定骨骼的角色，每个内嵌 32 条动画。
+  // `Textures/colormap.png` **必须一起 vendor**：GLB 里的 `images[].uri` 指的是它，
+  // 少一个文件的表现是"模型在、但一片惨白/纯色"，很难归因。
+  'kenney-mini-characters/License.txt',
+  'kenney-mini-characters/Textures/colormap.png',
+  ...['male', 'female'].flatMap((sex) => ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => `kenney-mini-characters/character-${sex}-${k}.glb`)),
+]
+
+/**
+ * 扩展名 → MIME。
+ *
+ * 单独一张表而不是把 MIME 写进白名单：这样"哪些文件能服务"与"以什么类型服务"
+ * 是两个独立的问题（前者是安全边界，后者是协议细节），改一个不会碰另一个。
+ */
+export const VENDOR_MIME: Readonly<Record<string, string>> = {
+  // 空键 = **没有扩展名**（例如上游的 `LICENSE`）。当时写成
+  // `name.slice(name.lastIndexOf('.'))`，对 `three/LICENSE` 会切出 `"E"`，
+  // 于是这个白名单里的文件一被请求就 500——测试抓到的，不是我看出来的。
+  '': 'text/plain; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.glb': 'model/gltf-binary',
+  '.png': 'image/png',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
 }
 
 /**
@@ -50,14 +81,30 @@ export function vendorRoutes(rootDir: string): RouteEntry[] {
   return [
     {
       method: 'GET',
-      pattern: '/vendor/:file',
+      // `*` 而不是 `:file`：vendored 资源要能放进子目录（three 的 addon 之间靠相对
+      // import 相连，必须保持上游结构）。安全性**没有降低**：认的是白名单里的**确切
+      // 相对路径**，不做任何拼接猜路径——所以 `..` 之类根本匹配不上。
+      //
+      // 客户端**不可能靠编码斜杠越界**：`matchPath` 逐段解码后用 `/` 重新拼接，于是
+      // `three%2Fbuild%2F...` 会得到同一条（合法的）相对路径；能匹配到的只有白名单里那些。
+      pattern: '/vendor/*',
       handler: async ({ pathname, res }) => {
         const name = pathname.slice('/vendor/'.length)
-        const mime = VENDOR_WHITELIST[name]
-        if (mime === undefined) {
+        if (!VENDOR_WHITELIST.includes(name)) {
           throw new HttpError(
             404,
-            `不在白名单里的第三方资源 "${name}"。已开放：${Object.keys(VENDOR_WHITELIST).join(' / ')}`,
+            `不在白名单里的第三方资源 "${name}"。已开放 ${VENDOR_WHITELIST.length} 个文件，例如：` +
+              `${VENDOR_WHITELIST.slice(0, 4).join(' / ')} …`,
+          )
+        }
+        const ext = extensionOf(name)
+        const mime = VENDOR_MIME[ext]
+        if (mime === undefined) {
+          // 白名单里有、但扩展名没登记 MIME：这是**代码不一致**，不是请求的问题。
+          throw new HttpError(
+            500,
+            `资源 "${name}" 在白名单里，但扩展名 "${ext}" 没登记 MIME。` +
+              `已登记：${Object.keys(VENDOR_MIME).join(' / ')}`,
           )
         }
 
@@ -86,12 +133,25 @@ export function vendorRoutes(rootDir: string): RouteEntry[] {
 }
 
 /**
+ * 取一个白名单路径的扩展名（含点）。**没有扩展名时返回空串**，而不是最后一个字符。
+ *
+ * 单独一个函数是因为这个表达式很容易写错（第一版就写错了）。抽出来也让测试能直接打它。
+ *
+ * @param path - 白名单里的相对路径。
+ */
+export function extensionOf(path: string): string {
+  const base = path.slice(path.lastIndexOf('/') + 1)
+  const dot = base.lastIndexOf('.')
+  return dot <= 0 ? '' : base.slice(dot)
+}
+
+/**
  * 列出白名单里的文件名。
  *
  * 给测试与诊断用：`src/vendor/` 里出现没登记的文件时，要能报出"多了什么"。
  */
 export function vendorFileNames(): string[] {
-  return Object.keys(VENDOR_WHITELIST).sort()
+  return [...VENDOR_WHITELIST].sort()
 }
 
 /** 供类型推断用的响应形状（避免 `http` 被 TS 当成未使用）。 */

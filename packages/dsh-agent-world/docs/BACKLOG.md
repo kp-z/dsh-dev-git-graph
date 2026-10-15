@@ -169,7 +169,7 @@
 | M4-6 | done | **消费 `districts` + `stations` 库**：地面与站点几何按内容生成 | `web/src/scene/town.ts` | M4-4 M4-5 |
 | M4-7 | done | 程序化几何构建器注册表（`avatar`/`desk`/`server`…，对应 `models` 库的 `builder` 字段） | `web/src/scene/builders.ts` | M4-6 |
 | M4-10 | blocked | **发丝等距作为第二种视图**（可选）：用 `ai-iso-skill` 那套平面基矩阵手法，写一个**消费同一份 `ScenePlan`** 的渲染器，与现在的网格渲染器并列切换。这是决策 D23 那层缝的第二次兑现，但**它是一条美术方向的岔路，需要用户拍板** | `web/` 新渲染器 + `web/index.html` 的视图切换 | 用户拍板 |
-| M4-9 | ready | **换掉 vendored 的 three（0.167.1 → 0.186.1）+ 引入 `postprocessing`** → 接上 bloom。主题里的 `post.bloom.enabled` 从 R10 就留好了却一直没人接——0.167.1 差一个 minor 进不去 peer 范围。**现在联网了，这是纯替换**：换 `src/vendor/` 三个文件 + 更新 sha256 + 新增一个 vendored 依赖（Zlib，见 `src/vendor/README.md` 的许可记录约定） | `src/vendor/` + `web/scene3d.js` 的 `applyPost` | R17 |
+| M4-9 | ready | **换掉 vendored 的 three（0.167.1 → 0.186.1）+ 引入 `postprocessing`** → 接上 bloom。主题里的 `post.bloom.enabled` 从 R10 就留好了却一直没人接——0.167.1 差一个 minor 进不去 peer 范围。**现在联网了，这是纯替换**：换 `src/vendor/` 三个文件 + 更新 sha256 + 新增一个 vendored 依赖（Zlib，见 `src/vendor/README.md` 的许可记录约定） | `src/vendor/` + `web/scene3d.js` 的 `applyPost` | R17 | **R18 实测后暂停**：主题里 `post.bloom.enabled: false`（当前就是暖色纸感等距，bloom 是关着的），而升级 three 要 +2.2MB（0.186 起 `three.module.js` 与 `three.core.js` 分成两个文件、且没有 min 版）。为一个**关着的开关**付这个代价不划算。**哪天主题要开 bloom，这条就是前提**——代价已经量过了 |
 | M4-7b | ready | **`SceneModel.url`（GLB 分支）没被消费**：内容里写 `kind: 'glb'` 的模型，渲染器现在会报「（GLB）xxx」并把位置画成品红块——**诚实**，但还没实现。依赖 M5（要联网拿 `pack.kenney-mini`）与 M1.6-7 已就绪的路径校验 | `web/scene3d.js` + `web/builders.js` | M5 |
 | M4-8 | done | 资源台账：**按仓库实际约定**落在 `src/vendor/README.md`（版本 / 来源 / sha256 / 许可 / 换版本步骤 / 为什么钉 0.167.1），加穷举白名单路由 + `test/vendor.test.js` 双向核对（目录↔白名单、import map↔白名单）。**更正**：这条原计划写 `VENDOR.md` + `THIRD_PARTY_NOTICES.md`，但本仓库没有这两个文件，`docs/DIRECTORY.md` 的约定就是 `src/vendor/README.md`——按既有约定走，不自己发明一套 | `src/vendor/README.md` · `src/routes/vendor.ts` · `test/vendor.test.js` | 
 
@@ -177,11 +177,11 @@
 
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
-| M5-1 | blocked | 角色实体：从 `models` 库取模型（`glb` 或 `procedural`），`SkeletonUtils.clone` | `web/src/actors/avatar.ts` | M4-7 |
+| M5-1 | blocked | 角色实体：从 `models` 库取模型（`glb` 或 `procedural`），`SkeletonUtils.clone` | `web/src/actors/avatar.ts` | M4-7 | **R18 已完成前提**：GLTFLoader / BufferGeometryUtils / SkeletonUtils 已 vendor 并可在浏览器里 import（实测都是 function）；Kenney CC0 资产已入库
 | M5-2 | blocked | **消费 `actions` 库**：`AgentState` → 动作条目 → `AnimationMixer` / 程序化动画 | `web/src/actors/animator.ts` | M5-1 |
 | M5-3 | blocked | 网格寻路 A*（网格由站点布局生成）。先零依赖手写；不够再评估 `three-pathfinding@1.3.0` / `@recast-navigation@0.43.1` | `web/src/actors/navmesh.ts` + 测试 | M4-6 |
 | M5-4 | blocked | 每帧同步：`model/` 的插值状态 → 场景对象（采样 + 插值，不推理业务） | `web/src/model/worldModel.ts` | M5-1 M3-4 |
-| M5-5 | blocked | 新增 `pack.kenney-mini`：显式 `overrides` 掉 `models` 与 `actions`，换成 Kenney CC0 资产 | `src/content/packs/kenney-mini.ts` + 资产入库 | M5-2 M4-8 |
+| M5-5 | blocked | 新增 `pack.kenney-mini`：显式 `overrides` 掉 `models` 与 `actions`，换成 Kenney CC0 资产 | `src/content/packs/kenney-mini.ts` + 资产入库 | M5-2 M4-8 | **R18 已完成前提**：12 个 Kenney 角色 GLB（每个 32 条动画、2 个蒙皮）已入库并可通过白名单路由取到
 | M5-6 | blocked | **验收：加这个包之后 `pnpm test` 仍全绿，且模拟内核零改动** | 在 PROGRESS 里贴出改动范围作证 | M5-5 |
 
 ## M6 — HUD

@@ -20,7 +20,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import * as THREE from '../lib/vendor/three.module.min.js'
+import * as THREE from '../lib/vendor/three/build/three.module.min.js'
 import { createBuilderRegistry } from '../web/builders.js'
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 
