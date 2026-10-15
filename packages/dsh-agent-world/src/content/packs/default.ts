@@ -19,6 +19,7 @@
  * 到那时新增一个 `pack.kenney-mini`，在清单里显式 `overrides` 掉 `action.*` 与 `model.agent.base`
  * 即可 —— **模拟内核一行不用改**。这正是内容库层存在的意义，也是它第一次真正被验证。
  */
+import { DEFAULT_STATIONS } from './stations.js'
 import { kenneyMiniPack } from './kenney-mini.js'
 import { kenneyFurniturePack } from './kenney-furniture.js'
 import type { ContentPack } from '../kinds.js'
@@ -56,21 +57,11 @@ export const defaultPack: ContentPack = {
     // ── 站点库 ──────────────────────────────────────────────────────────────
     //
     // `relativeTo` 让坐标是相对地块中心的偏移：改小镇尺寸时不用手改十个坐标。
-    stations: [
-      { id: 'station.desk-a', name: '工位 A', kind: 'desk', district: 'district.engineering', relativeTo: 'district.engineering', anchor: { x: -1, z: -1 }, capacity: 1, capabilities: ['code'], model: 'model.station.desk' },
-      { id: 'station.desk-b', name: '工位 B', kind: 'desk', district: 'district.engineering', relativeTo: 'district.engineering', anchor: { x: 1.5, z: -1 }, capacity: 1, capabilities: ['code'], model: 'model.station.desk' },
-      { id: 'station.desk-c', name: '工位 C', kind: 'desk', district: 'district.engineering', relativeTo: 'district.engineering', anchor: { x: -1, z: 1.5 }, capacity: 1, capabilities: ['code'], model: 'model.station.desk' },
-      { id: 'station.review-table', name: '评审桌', kind: 'desk', district: 'district.engineering', relativeTo: 'district.engineering', anchor: { x: 1.5, z: 1.5 }, capacity: 2, capabilities: ['review'], model: 'model.station.desk' },
-
-      { id: 'station.server-rack', name: '机柜', kind: 'server', district: 'district.infra', relativeTo: 'district.infra', anchor: { x: -2, z: -1 }, capacity: 1, capabilities: ['compute'], model: 'model.station.server' },
-      { id: 'station.lab-bench', name: '实验台', kind: 'lab', district: 'district.infra', relativeTo: 'district.infra', anchor: { x: 1.5, z: -1 }, capacity: 1, capabilities: ['research'], model: 'model.station.lab' },
-
-      { id: 'station.war-room', name: '作战室', kind: 'meeting', district: 'district.meeting', relativeTo: 'district.meeting', anchor: { x: -1, z: -1 }, capacity: 4, capabilities: ['converse'], model: 'model.station.meeting' },
-      { id: 'station.board', name: '告示板', kind: 'meeting', district: 'district.meeting', relativeTo: 'district.meeting', anchor: { x: 1.5, z: -1 }, capacity: 1, capabilities: ['review', 'converse'], model: 'model.station.meeting' },
-
-      { id: 'station.mailroom', name: '收发室', kind: 'mailroom', district: 'district.commons', relativeTo: 'district.commons', anchor: { x: -1, z: -1 }, capacity: 1, capabilities: ['deliver'], model: 'model.station.mailroom' },
-      { id: 'station.breakroom', name: '休息区', kind: 'breakroom', district: 'district.commons', relativeTo: 'district.commons', anchor: { x: 1.5, z: -1 }, capacity: 3, capabilities: ['rest'], model: 'model.station.breakroom' },
-    ],
+    //
+    // `DEFAULT_STATIONS` 单独导出：`pack.kenney-furniture` 要**复用同一份锚点与能力**
+    // 再加 `props`（M4-11）。整条重写会让坐标分叉成两份，改一处忘一处时
+    // 表现是"某个家具飘到隔壁区"——那种错很难归因。
+    stations: DEFAULT_STATIONS,
 
     // ── 皮肤库 ──────────────────────────────────────────────────────────────
     //

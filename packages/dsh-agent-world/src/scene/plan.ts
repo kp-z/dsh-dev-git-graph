@@ -100,7 +100,14 @@ export function buildScenePlan(
     // 那违反"模型选择是内容"这条红线，且坏得很安静：内容里把某个站点换成别的模型、
     // 或者加了新的 kind 而模型另有其名，代码就会指向一个**不存在的模型**，
     // 而 `models` 库看起来完全正常。
-    modelId: s.model,
+    // `parts` 是**派生量**，而它在存档里可能不存在（R48 真机：旧存档的站点没有这个字段，
+    // 计划层直接 `.map` 就 500）。从存档接回的世界不重算站点的外观声明——
+    // 所以这里对缺失字段容错，退回单件 `model`（这正是 R47 记的 M10-12 的另一个面孔：
+    // "存档该不该存可以被重算的派生量"）。
+    parts: (Array.isArray(s.parts) && s.parts.length > 0
+      ? s.parts
+      : [{ modelId: s.model, dx: 0, dy: 0, dz: 0, rotationY: 0 }]
+    ).map((part) => ({ ...part })),
     color: resolveColor(`skin.station.${s.kind}`, palette),
     capacity: s.capacity,
     occupied: occupied.has(s.id),
@@ -129,7 +136,9 @@ export function buildScenePlan(
   // 只把**这一局用到的**模型放进计划：整本 `models` 库搬过去既浪费，
   // 又会让"这局到底用了什么"看不清。顺序按首次引用，稳定且可读。
   const usedIds: string[] = []
-  for (const prop of props) if (!usedIds.includes(prop.modelId)) usedIds.push(prop.modelId)
+  for (const prop of props) {
+    for (const part of prop.parts) if (!usedIds.includes(part.modelId)) usedIds.push(part.modelId)
+  }
   if (!usedIds.includes(world.agentModel)) usedIds.push(world.agentModel)
   const models: SceneModel[] = []
   for (const id of usedIds) {

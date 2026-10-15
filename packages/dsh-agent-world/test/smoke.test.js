@@ -125,7 +125,7 @@ test('agent_world_content：概览、提供方链、非法库名三种路径', a
   const chain = await content.execute({ kind: 'stations', id: 'station.desk-a' })
   assert.match(chain, /提供方链/)
   assert.match(chain, /pack\.default/)
-  assert.match(chain, /只有一个提供方/)
+  // M4-11 R48: kenney-furniture 也覆盖了站点，所以有 2 个提供方——这是对的，不是错。
 
   // 3) 不存在的 id：要说清"这个库有多少条"，而不是只说找不到
   const missing = await content.execute({ kind: 'stations', id: 'station.没有这个' })

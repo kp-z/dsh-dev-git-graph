@@ -294,8 +294,17 @@ export class ContentRegistry {
       if (!this.get('districts', st.data.district)) {
         missing(`stations/${st.id}.district`, 'districts', st.data.district, `站点 ${st.id}`)
       }
-      if (hasModels && !this.get('models', st.data.model)) {
-        missing(`stations/${st.id}.model`, 'models', st.data.model, `站点 ${st.id}`)
+      // 站点的外观要么写在 `model`（单件），要么写在 `props`（组合，M4-11）。
+      // 两条路都要查引用——组合站点漏查的话，少一个模型时画面上只是"少了个东西"。
+      if (hasModels) {
+        const refs: { readonly where: string; readonly modelId: string | undefined }[] = [
+          { where: `stations/${st.id}.model`, modelId: st.data.model },
+          ...(st.data.props ?? []).map((part, i) => ({ where: `stations/${st.id}.props[${i}].model`, modelId: part.model })),
+        ]
+        for (const ref of refs) {
+          if (ref.modelId === undefined) continue
+          if (!this.get('models', ref.modelId)) missing(ref.where, 'models', ref.modelId, `站点 ${st.id}`)
+        }
       }
       if (st.data.relativeTo && !this.get('districts', st.data.relativeTo)) {
         missing(`stations/${st.id}.relativeTo`, 'districts', st.data.relativeTo, `站点 ${st.id} 的 relativeTo`)

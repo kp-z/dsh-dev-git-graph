@@ -251,7 +251,48 @@ function validateEntryShape(
       checkId(sink, entry.district, `${where}.district`, '所属地块 id', pack)
       // 站点**必须声明**自己长什么样。不声明的话渲染器只能猜（R16 之前代码就是靠
       // `model.station.${kind}` 拼接猜的），而猜错时画面上的表现是"少了个东西"。
-      checkId(sink, entry.model, `${where}.model`, '站点模型 id（引用 models 库）', pack)
+      //
+      // M4-11 起有两种写法：单件 `model`，或组合 `props`（桌+椅+显示器）。**至少要有一个**——
+      // 两个都没有等于"这个站点不声明外观"，那正是要被拦住的情况。
+      const rawProps = entry.props
+      const hasProps = Array.isArray(rawProps) && rawProps.length > 0
+      if (hasProps) {
+        ;(rawProps as unknown[]).forEach((part: unknown, i: number) => {
+          const at = `${where}.props[${i}]`
+          if (!isObject(part)) {
+            sink.error(at, '每个部件必须是对象，形如 { model, offset?: {x,y,z}, rotationY? }', pack)
+            return
+          }
+          checkId(sink, (part as { model?: unknown }).model, `${at}.model`, '部件模型 id（引用 models 库）', pack)
+          const offset = (part as { offset?: unknown }).offset
+          if (offset !== undefined) {
+            if (!isObject(offset)) {
+              sink.error(`${at}.offset`, 'offset 必须是对象 {x?, y?, z?}（相对站点锚点的局部偏移）', pack)
+            } else {
+              for (const axis of ['x', 'y', 'z'] as const) {
+                const v = (offset as Record<string, unknown>)[axis]
+                if (v !== undefined && typeof v !== 'number') {
+                  sink.error(`${at}.offset.${axis}`, `offset.${axis} 必须是数字`, pack)
+                }
+              }
+            }
+          }
+          const ry = (part as { rotationY?: unknown }).rotationY
+          if (ry !== undefined && typeof ry !== 'number') {
+            sink.error(`${at}.rotationY`, 'rotationY 必须是数字（弧度）', pack)
+          }
+        })
+        if (entry.model !== undefined) {
+          sink.error(
+            `${where}.model`,
+            '同时给了 props 与 model。**二选一**：组合站点用 props（每一项是一件事物），单件家具用 model。' +
+              '两者都给的话"我加的那个显示器到底生效没有"只能靠读渲染器代码才知道。',
+            pack,
+          )
+        }
+      } else {
+        checkId(sink, entry.model, `${where}.model`, '站点模型 id（引用 models 库）', pack)
+      }
       if (!isObject(entry.anchor) || typeof entry.anchor.x !== 'number' || typeof entry.anchor.z !== 'number') {
         sink.error(`${where}.anchor`, '必须有 anchor.x 与 anchor.z（数字）', pack)
       }

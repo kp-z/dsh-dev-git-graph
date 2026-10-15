@@ -515,27 +515,48 @@ export function createScene3d(canvas, options = {}) {
     record?.(real)
   }
 
-  /** 摆站点。形状由内容声明的模型决定，这里没有形状判断。 */
+  /**
+   * 摆站点。形状由内容声明的模型决定，这里没有形状判断。
+   *
+   * ## 一个站点是一**组**部件（M4-11，R48）
+   *
+   * `p.parts` 里的每一项是"这个站点的一件东西"（桌子、椅子、显示器…），
+   * 位置是**相对站点锚点**的局部偏移。所以每个站点建一个**空组**当锚点，
+   * 每件东西挂在组里——**组名保持 `prop:<id>`**，因为 `applyWorld` 是按名字
+   * 找站点来更新高亮的；名字放在某一件家具上会让"这个站点在哪"变成"这个显示器在哪"。
+   *
+   * 偏移的坐标约定与站点本身一致：世界的 +z 朝**屏幕下方**（等距视角），
+   * 所以 z 取负（与 `node.position.set(p.x, _, -p.z)` 同一条约定）。
+   */
   const buildProps = (props, modelById) => {
     for (const p of props) {
-      const node = instantiate(
-        p.modelId,
-        modelById,
-        { color: p.color, capacity: p.capacity },
-        // 到货后：换到同一个位置与名字（`applyWorld` 是按名字找站点的，名字必须保住）。
-        (real, old) => {
-          real.position.set(p.x, real.position.y, -p.z)
-          swapIn(real, old, (fresh) => {
-            indexPropMeshes(fresh)
-            propNodes.set(p.id, fresh)
-          })
-        },
-      )
-      node.position.set(p.x, node.position.y, -p.z)
-      node.name = `prop:${p.id}`
-      staticGroup.add(node)
-      indexPropMeshes(node)
-      propNodes.set(p.id, node)
+      const group = new THREE.Group()
+      group.name = `prop:${p.id}`
+      group.position.set(p.x, 0, -p.z)
+      const parts = Array.isArray(p.parts) && p.parts.length > 0 ? p.parts : []
+      for (const part of parts) {
+        const node = instantiate(
+          part.modelId,
+          modelById,
+          { color: p.color, capacity: p.capacity },
+          // 到货后：换到**同一个局部位置**（组已经承担了站点的世界坐标）。
+          (real, old) => {
+            real.position.copy(old.position)
+            swapIn(real, old, (fresh) => {
+              indexPropMeshes(fresh)
+            })
+          },
+        )
+        // 局部偏移：模型条目的 scale/rotationY 由 `instantiate` 负责，
+        // 这里只叠内容声明的**位置**与**额外旋转**。
+        node.position.set(part.dx, part.dy, -part.dz)
+        if (part.rotationY !== 0) node.rotation.y += part.rotationY
+        node.name = `part:${p.id}:${part.modelId}`
+        group.add(node)
+      }
+      staticGroup.add(group)
+      indexPropMeshes(group)
+      propNodes.set(p.id, group)
     }
   }
 

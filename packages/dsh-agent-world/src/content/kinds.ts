@@ -168,7 +168,34 @@ export interface StationEntry {
    * 或者某个 kind 用了不同命名的模型时，代码会**静默指向一个不存在的模型**，
    * 而 `models` 库看起来还是「配好了」的。模型选择是内容，不是代码。
    */
+  /**
+   * 单件家具的模型 id。**与 `props` 二选一**（都有会被校验器判错）。
+   *
+   * 可选是 M4-11 带来的：组合站点没有"这一个模型"可言。
+   * 校验器保证"至少有一个"，所以可选不会漏成"什么都没声明"。
+   */
+  model?: string
+  /**
+   * 这个站点由哪些模型拼出来（M4-11，R48）。**给了它就取代 `model`**。
+   *
+   * 一个工位是"书桌 + 椅子 + 显示器"——哪张桌子上有显示器、显示器摆在桌面哪个位置，
+   * 都是**内容决策**，不是渲染器决策。`offset` 是相对站点锚点的局部偏移。
+   *
+   * 与 `model` 的关系：`props` 是**更完整的表达**，`model` 保留给"就一件家具"的简单站点
+   * （也保证老内容包不用改）。两个都给时**报错**而不是猜——静默选一个会让内容作者
+   * 以为自己的声明生效了。
+   */
+  props?: readonly StationPropEntry[]
+}
+
+/** 站点的一个组成部分。 */
+export interface StationPropEntry {
+  /** `models` 库里的条目 id。 */
   model: string
+  /** 相对站点锚点的局部偏移（世界单位）；方向按世界坐标，与 `anchor` 同一套。 */
+  offset?: { readonly x?: number; readonly y?: number; readonly z?: number }
+  /** 额外绕 Y 轴旋转（弧度）。 */
+  rotationY?: number
 }
 
 /** 场景条目：一局小镇的装配单。 */

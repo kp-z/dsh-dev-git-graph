@@ -92,8 +92,24 @@ export interface Station {
    * 带在身上，好让场景描述层原样交给渲染器。
    */
   model: string
+  /**
+   * 这个站点摆出来的部件（M4-11，R48）。**至少一件**。
+   *
+   * 单件家具的站点这里就是一项（由 `model` 推出来）；组合站点（桌+椅+显示器）由
+   * 内容的 `props` 声明。渲染器只读它——不再有"这个站点用哪个模型"这个更弱的问题。
+   */
+  parts: StationPart[]
   /** 角色坐下时的精确位置（相对 anchor 的偏移，已算好便于渲染层直接吸附）。 */
   slots: Vec2[]
+}
+
+/** 站点的一个部件：模型 id + 相对站点锚点的局部偏移。 */
+export interface StationPart {
+  modelId: string
+  dx: number
+  dy: number
+  dz: number
+  rotationY: number
 }
 
 /** 角色用的模型路由。与 DSH 真实成员的 provider/model/reasoningEffort 对齐。 */

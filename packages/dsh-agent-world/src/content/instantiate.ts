@@ -17,7 +17,8 @@
  *
  * 依赖**单向向上**，没有环。加新东西时按这个方向放。
  */
-import type { Agent, District, Station, Task, Vec2 } from '../domain/types.js'
+import type {
+  StationPart, Agent, District, Station, Task, Vec2 } from '../domain/types.js'
 import type { Rng } from '../domain/rng.js'
 import { slotsFor } from '../domain/constants.js'
 import { boundsCenter } from '../domain/geometry.js'
@@ -63,6 +64,18 @@ export function instantiateStation(entry: StationEntry, districts: ReadonlyMap<s
     const c = districtCenter(home.bounds)
     anchor = { x: c.x + entry.anchor.x, z: c.z + entry.anchor.z }
   }
+  // `props` 有就用它，否则退回单件 `model`（老内容包不用改）。
+  // **不给两者都生效的语义**：那样"我加了个显示器"到底加没加上，只能靠读渲染器代码才知道。
+  const parts: StationPart[] =
+    entry.props !== undefined && entry.props.length > 0
+      ? entry.props.map((part) => ({
+          modelId: part.model,
+          dx: part.offset?.x ?? 0,
+          dy: part.offset?.y ?? 0,
+          dz: part.offset?.z ?? 0,
+          rotationY: part.rotationY ?? 0,
+        }))
+      : [{ modelId: requireModel(entry.model, entry.id), dx: 0, dy: 0, dz: 0, rotationY: 0 }]
   return {
     id: entry.id,
     name: entry.name,
@@ -70,10 +83,26 @@ export function instantiateStation(entry: StationEntry, districts: ReadonlyMap<s
     district: entry.district,
     anchor,
     capacity: entry.capacity,
-    model: entry.model,
+    // 领域层的 `model` 保留给"单件站点"（渲染之外还有人读它，比如诊断输出）。
+    // 组合站点没有单件模型，用首页部件顶上——**不留空串**，否则界面上会出现一个空名字。
+    model: parts[0]?.modelId ?? '',
+    parts,
     capabilities: [...entry.capabilities],
     slots: slotsFor(entry.capacity),
   }
+}
+
+/**
+ * 取单件模型 id；内容没写时**报错而不是给空串**。
+ *
+ * 校验器已经拦住"两个都没写"，所以走到这里说明是**绕过校验**的路径（比如手工构造的条目）。
+ * 报出来比让渲染层画一个品红块更容易归因。
+ */
+function requireModel(model: string | undefined, stationId: string): string {
+  if (model === undefined || model === '') {
+    throw new Error(`站点 "${stationId}" 既没有 props 也没有 model：不知道它该长什么样。`)
+  }
+  return model
 }
 
 /** 内容条目 → 一队 Agent。 */

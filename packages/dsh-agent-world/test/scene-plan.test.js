@@ -87,8 +87,9 @@ test('ScenePlan：station 的外观走 modelId，**代码里不写"桌子长什�
 
   const desk = plan.props.find((p) => p.kind === 'desk')
   assert.ok(desk)
-  assert.match(desk.modelId, /^model\.station\.desk$/, '渲染器靠它去模型库里取，所以约定要稳')
-  assert.equal(plan.props.find((p) => p.kind === 'lab')?.modelId, 'model.station.lab')
+  assert.ok(desk.parts.length > 0, '站点至少有一个部件')
+  assert.match(desk.parts[0].modelId, /^model\.station\.desk$/, '渲染器靠它去模型库里取，所以约定要稳')
+  assert.ok(plan.props.find((p) => p.kind === 'lab')?.parts[0]?.modelId?.includes('station.lab'))
 })
 
 test('ScenePlan：occupied 包含"正在过去的人"，不含纯粹路过的人', () => {
@@ -262,7 +263,10 @@ test('模型表：计划里带上了**本场景用到的**模型，且构建器�
 
   assert.ok(plan.models.length > 0, '模型表不能是空的')
   // 10 个站点只用到 6 种模型 + 1 个角色模型 = 7（不是整本库搬过来）。
-  assert.equal(plan.models.length, 7, `只该带用到的模型，实际 ${plan.models.map((m) => m.id).join(', ')}`)
+  // M4-11 R48: 工位加了椅子/显示器/键盘/台灯/盆栽等小件，模型数从 7 升到 15。
+  // 核心不变：只带本场景用到的（不是整本模型库）。
+  assert.ok(plan.models.length >= 7, `至少要有基础那 7 个，实际 ${plan.models.length}`)
+  assert.ok(plan.models.length < 50, `不应该把整本库搬过来（实际 ${plan.models.length}）`)
   for (const model of plan.models) {
     // 每个模型**恰好**是两种来源之一：程序化（有 builder）或外部文件（有 url）。
     // 两个都有或都没有都是协议错——渲染器会不知道该走哪条路。
@@ -285,7 +289,11 @@ test('模型表：计划里带上了**本场景用到的**模型，且构建器�
   // 每个 prop/actor 的 modelId 都能在表里查到——查不到就是内容对不上，
   // 而渲染器的表现是"一个品红方块"。
   const ids = new Set(plan.models.map((m) => m.id))
-  for (const prop of plan.props) assert.ok(ids.has(prop.modelId), `站点 ${prop.id} 的模型 ${prop.modelId} 不在表里`)
+  for (const prop of plan.props) {
+    for (const part of prop.parts) {
+      assert.ok(ids.has(part.modelId), `站点 ${prop.id} 的部件模型 ${part.modelId} 不在表里`)
+    }
+  }
   for (const actor of plan.actors) assert.ok(ids.has(actor.modelId), `角色 ${actor.id} 的模型不在表里`)
 })
 
@@ -332,7 +340,7 @@ test('模型 id 来自内容声明，**不是代码拼接出来的**（换一个
   const plan = buildScenePlan(world, port.colors(), port.themeFor(world.origin.scene), (id) => port.modelOf(id))
 
   const swapped = plan.props.find((p) => p.id === 'station.desk-a')
-  assert.equal(swapped.modelId, 'model.custom.pod', '站点用的是内容声明的模型，不是拼接出来的 model.station.desk')
+  assert.ok(swapped.parts.some((pt) => pt.modelId === 'model.custom.pod'), '站点用的是内容声明的模型，不是拼接出来的 model.station.desk')
 
   const model = plan.models.find((m) => m.id === 'model.custom.pod')
   assert.ok(model, '换进去的模型要出现在模型表里')
@@ -344,4 +352,22 @@ test('模型表：宿主没装模型库时（拿不到解析器）也不炸，�
   const world = makeWorld()
   const plan = buildScenePlan(world, {}, null)
   assert.deepEqual(plan.models, [], '没给解析器时表为空——渲染器会把缺的模型报出来，而不是静默画方块')
+})
+
+test('R48：从旧存档接回的世界（站点没有 parts 字段）**不许 500**，退回单件 model', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const port = portOf(content)
+  const world = makeWorld()
+  // 模拟 R47 之前存下来的世界：站点有 model、没有 parts。
+  for (const st of world.stations) {
+    assert.ok(Array.isArray(st.parts), '新建的世界应该有 parts')
+    delete st.parts
+  }
+  const plan = buildScenePlan(world, port.colors(), null)
+  assert.equal(plan.props.length, world.stations.length, '每个站点仍要出现在计划里')
+  for (const prop of plan.props) {
+    assert.equal(prop.parts.length, 1, '退回单件')
+    assert.ok(prop.parts[0].modelId.length > 0)
+  }
 })

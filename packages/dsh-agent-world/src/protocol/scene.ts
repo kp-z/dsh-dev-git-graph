@@ -65,12 +65,35 @@ export interface SceneProp {
   kind: StationKind
   x: number
   z: number
-  /** 内容库里对应的模型条目 id，形如 `model.station.desk`。渲染器去模型库里取。 */
-  modelId: string
+  /**
+   * 这个站点由哪些模型**拼**出来（M4-11，R48）。**顺序有意义**：渲染器按序摆。
+   *
+   * 为什么是数组而不是一个 `modelId`：一个工位是"书桌 + 椅子 + 显示器"，
+   * 而"这张桌子上有没有显示器"是**内容决策**（`StationEntry.props`）。
+   * 从前的单数形状把一个站点锁死成一件家具，于是 R47 评估时看到的是
+   * **光秃秃的桌子、人坐在空气里**，而库里躺着 25 个没人用的家具。
+   *
+   * 每一项的 `dx/dy/dz/rotationY` 是**相对站点锚点**的局部偏移，同样来自内容
+   * （"显示器摆在桌面中间偏后"）。**"摆正、贴地"仍是机制**（`recenterOnGround`），
+   * 不在内容里写"这个模型的包围盒怎么偏"。
+   */
+  parts: ScenePropPart[]
   color: string
   capacity: number
   /** 现在有没有人（含正在过去的）。渲染层据此画高亮。 */
   occupied: boolean
+}
+
+/** 站点的一个组成部分（M4-11）。 */
+export interface ScenePropPart {
+  /** `models` 库里的条目 id，形如 `model.station.desk`。 */
+  modelId: string
+  /** 相对站点锚点的局部偏移（世界单位）。缺省 0。 */
+  dx: number
+  dy: number
+  dz: number
+  /** 额外绕 Y 轴旋转（弧度）。缺省 0；与模型条目自己的 `rotationY` 相加。 */
+  rotationY: number
 }
 
 /** 一个角色。 */
