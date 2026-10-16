@@ -28,7 +28,9 @@ import { applyEvents, pruneMessages } from './core/world-update.js'
 import { dialogueEventsFromFrame } from './core/dialogue-state.js'
 import { occludedBubbles, placeBubble } from './core/bubble-place.js'
 import { createConnection } from './net/connection.js'
-import { createScene2d } from './scene/scene2d.js'
+// R57：默认走 PixiJS；`?renderer=canvas` 或 WebGL 起不来时自动用 canvas2D。
+// 门面的接口与原来的 `createScene2d` 一模一样，所以下面一行都不用改。
+import { createScene2dRenderer } from './scene/scene-renderer.js'
 import { createTopbar } from './ui/topbar.js'
 import { createRoster } from './ui/roster.js'
 import { createTasks } from './ui/tasks.js'
@@ -165,7 +167,7 @@ const tasks = createTasks({
 
 const legend = createLegend({ root: $('legend') })
 
-const scene2d = createScene2d(canvas, { pickSlopPx: PICK_SLOP_PX })
+const scene2d = createScene2dRenderer(canvas, { pickSlopPx: PICK_SLOP_PX })
 
 /**
  * 执行看板（M7-1）。**由数据事件驱动**（`board.update(world)`），
@@ -381,11 +383,18 @@ function render(force = false) {
   roster.update({ world, thinkingIds, activeId: dialogue?.agentId() ?? null, colorById })
   tasks.update({ world, meta, selectedTaskId: boardSelection })
 
-  // 3D 模式下把渲染器的真实计数显示出来——"不卡"要能被看见，否则只是承诺。
+  // 把渲染器的**真实计数**显示出来——"不卡"要能被看见，否则只是承诺（R57）。
   let perf = ''
   if (mode === '3d' && scene3d !== null) {
     const st = scene3d.stats()
-    perf = `${st.fps} fps · 绘制 ${st.drawCalls} · 三角 ${(st.triangles / 1000).toFixed(1)}k · 纹理 ${st.textures} · 重建 ${st.planRebuilds}`
+    perf = `3D · ${st.fps} fps · 绘制 ${st.drawCalls} · 三角 ${(st.triangles / 1000).toFixed(1)}k · 纹理 ${st.textures} · 重建 ${st.planRebuilds}`
+  } else {
+    // 2D：报的是**这一帧真正提交了几次绘制**。Pixi 报的是 GL 合批数（40 个精灵应该个位数），
+    // canvas2D 报的是提交次数（它没有批处理）——换引擎的收益就写在这两个数上。
+    const st = scene2d.stats()
+    const name = st.backend === 'pixi' ? 'Pixi' : 'canvas2D'
+    const tail = st.backend === 'canvas2d' && st.fallbackReason !== null ? `（退回：${st.fallbackReason}）` : ''
+    perf = `${name} · 绘制 ${st.drawCalls}${st.batched === true ? '（合批）' : ''} · 精灵 ${st.sprites ?? '-'}${tail}`
   }
   topbar.render({
     world,
@@ -609,6 +618,13 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
    * 只会"看起来怪"。有这三个读数，问题能当场定位到"是没加载、还是切错了、还是缩放不对"。
    */
   globalThis.__agentWorldScene2d = {
+    // R57：渲染后端的实际读数（Pixi 合批数 / canvas2D 提交次数）+ 降级原因。
+    stats: () => scene2d.stats(),
+    backend: () => scene2d.backend(),
+    calls: () => scene2d.calls(),
+    /** 与 3D 的 `projectToScreen` 同义：给"点选行为有没有变"做对照。 */
+    pickAt: (clientX, clientY) => scene2d.pick({ world, scene: meta?.scene, clientX, clientY }),
+    anchorAt: (agentId) => scene2d.anchorOf({ world, scene: meta?.scene, agentId }),
     metrics: () => scene2d.metrics(meta?.scene ?? null),
     loader: () => scene2d.loader.status(),
     palette: (url) => scene2d.loader.palette(url),

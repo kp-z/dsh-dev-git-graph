@@ -117,6 +117,11 @@ export interface SceneSheetSpec {
   animations: Readonly<
     Record<string, { col: number; row: number; frames: number; frameMs: number; layout: 'row' | 'column'; mirror: boolean }>
   >
+  /**
+   * 要不要按角色配色重上色（R58）。**默认 false**——见内容层 `SheetSpec.recolor` 的说明：
+   * 对"已经画完的角色"重上色会把头发/衣服/皮肤染成一色。
+   */
+  recolor: boolean
 }
 
 /** 一个角色。 */

@@ -18,24 +18,15 @@
  */
 
 import { planGroundTiles } from '../core/ground-tiles.js'
+// 相机与拾取**与 Pixi 渲染器共用一份**（R57）：换渲染器不能换点选行为。
+import { ANCHOR_LIFT_PX, FIT, MAX_ZOOM, TILE_PX, anchorFor, cameraFor, liveActors as liveActorsOf, pickActor } from '../core/scene-camera.js'
 import { assignColorVariants, lightnessLadder, variantColor } from '../core/pixel-recolor.js'
 import { directionOf, frameIndex, frameRect, integerZoom, pickAnimation, spriteBox } from '../core/pixel-sheet.js'
 import { createSheetLoader } from './sheet-loader.js'
 
-/** 俯视场景留边：世界边长 × 这个系数决定画面里小镇占多大（1.06 = 四周留一点空）。 */
-const FIT = 1.06
-
-/**
- * 一个世界单位 = 一格 = 16 源像素（库里像素资源的主尺寸就是 16×16）。
- *
- * 这个数字决定"缩放一定取整数倍"这件事能不能落地：世界 16×16 格 = 256 源像素，
- * 舞台约 740×650 → `floor(650 / (256×1.06)) = 2` 倍。**整数倍**是像素画的命：
- * 2.5 倍会让有的像素占 2 格、有的占 3 格，整张图糊成一片。
- */
-const TILE_PX = 16
-
-/** 缩放上限：再大就看不到整个小镇了（俯视图要的是"一眼看全"）。 */
-const MAX_ZOOM = 6
+// `FIT` / `TILE_PX` / `MAX_ZOOM` 都在 `core/scene-camera.js` 里（两个渲染器共用）。
+// 一个世界单位 = 一格 = 16 源像素 → 世界 16×16 格 = 256 源像素；舞台约 740×650 →
+// `floor(650/(256×1.06)) = 2` 倍。**整数倍**是像素画的命（2.5 倍会让像素大小不一）。
 
 /**
  * canvas 里的字体**不能写 CSS 变量**（`ctx.font` 只认真的字体描述串，写 `var(...)` 会被静默忽略、
@@ -65,6 +56,23 @@ export function createScene2d(canvas, options = {}) {
   const pickSlopPx = Number.isFinite(options.pickSlopPx) ? options.pickSlopPx : 16
   const ctx = canvas.getContext('2d')
   /**
+   * 逐帧的绘制调用计数（R57 的**对照基线**）。
+   *
+   * canvas2D 没有批处理：每一次 `drawImage` / `fillRect` 都是一次提交，所以这个数字
+   * 就是"这一帧总共提交了多少次绘制"。Pixi 那边报的是**实际 GL 合批数**——
+   * 换引擎的收益要靠这两个数的对比说话，而不是靠形容词。
+   */
+  const frameCounts = { drawImage: 0, fillRect: 0, strokeRect: 0, fillText: 0, fill: 0, stroke: 0, drawCalls: 0 }
+  const replayFrame = { drawImage: 0, fillRect: 0, strokeRect: 0, fillText: 0, fill: 0, stroke: 0, drawCalls: 0 }
+  for (const name of ['drawImage', 'fillRect', 'strokeRect', 'fillText', 'fill', 'stroke']) {
+    const original = ctx[name].bind(ctx)
+    ctx[name] = (...args) => {
+      frameCounts[name] += 1
+      frameCounts.drawCalls += 1
+      return original(...args)
+    }
+  }
+  /**
    * 精灵加载器（R51）：按 url 缓存 `<img>`、按"角色配色"缓存重上色结果。
    *
    * 放在渲染器里而不是全局单例：一个页面可能有多个画布（未来的小地图/回放），
@@ -88,30 +96,7 @@ export function createScene2d(canvas, options = {}) {
 
   /** 唯一的几何来源：世界坐标 ↔ 画布像素。 */
   function metrics(scene) {
-    const width = canvas.clientWidth
-    const height = canvas.clientHeight
-    const half = scene?.extent?.half ?? 8
-    const worldPx = Math.round(half * 2 * TILE_PX)
-    // **整数倍**（不是"刚好铺满"那个小数）：见 `TILE_PX` 的注释。
-    const zoom = integerZoom({
-      viewWidth: width,
-      viewHeight: height,
-      worldPixelsW: worldPx,
-      worldPixelsH: worldPx,
-      fit: FIT,
-      maxZoom: MAX_ZOOM,
-    })
-    const scale = TILE_PX * zoom
-    return {
-      width,
-      height,
-      half,
-      zoom,
-      worldPx,
-      scale,
-      toX: (x) => width / 2 + x * scale,
-      toY: (z) => height / 2 + z * scale,
-    }
+    return cameraFor({ viewWidth: canvas.clientWidth, viewHeight: canvas.clientHeight, half: scene?.extent?.half ?? 8 })
   }
 
   /**
@@ -121,23 +106,7 @@ export function createScene2d(canvas, options = {}) {
    * 而 3D 吃的是 `world.agents`——两个视图给出互相矛盾的真相，且看起来都"正常"。
    */
   function liveActors(world, scene) {
-    const plan = scene?.actors ?? []
-    if (world === null || world?.agents === undefined) return plan
-    const byId = new Map(plan.map((a) => [a.id, a]))
-    // 快照还没回来、或角色是新加的时候退回一个中性色，而不是凭空编一个人设（D37）。
-    const fallback = scene?.noteColors?.report ?? '#7C8CFF'
-    return world.agents.map((a) => ({
-      id: a.id,
-      name: a.name,
-      state: a.state,
-      x: a.position?.x ?? byId.get(a.id)?.x ?? 0,
-      z: a.position?.z ?? byId.get(a.id)?.z ?? 0,
-      color: byId.get(a.id)?.color ?? fallback,
-      // R51：精灵要按朝向选动画、按模型条目查图集。两个都来自**实时世界 + 内容计划**，
-      // 缺了就只能退回色块（所以这里给的是 null 而不是编一个默认值）。
-      facing: Number.isFinite(a.facing) ? a.facing : (byId.get(a.id)?.facing ?? 0),
-      modelId: byId.get(a.id)?.modelId ?? null,
-    }))
+    return liveActorsOf(world, scene)
   }
 
   /**
@@ -340,8 +309,14 @@ export function createScene2d(canvas, options = {}) {
       const model = a.modelId === null ? undefined : models.get(a.modelId)
       let drew = false
       if (model?.sheet !== null && model?.sheet !== undefined && typeof model.url === 'string') {
-        // 有图集就按角色自己的配色重上色（8 个人各不相同靠的就是这一步）。
-        const art = loader.sprite(model.url, a.color, variantOf.get(a.id) ?? 0)
+        // **只有内容显式要求重上色时才染**（R58）：默认拿原图。
+        // 重上色是把精灵自己用得最多的前 3 色换成角色色的明暗三档——对裸模（OGA 那套）是对的，
+        // 但对**已经画完的角色**（Microverse：前 3 色是头发棕、衣服蓝、皮肤）会把它们染成一色。
+        const art = loader.sprite(
+          model.url,
+          model.sheet.recolor === true ? a.color : null,
+          variantOf.get(a.id) ?? 0,
+        )
         const picked = art === null ? null : pickAnimation(model.sheet, { state: a.state, direction: directionOf(a.facing) })
         if (art !== null && picked !== null) {
           const frame = frameRect(model.sheet, picked.anim, frameIndex(picked.anim, nowMs))
@@ -446,6 +421,11 @@ export function createScene2d(canvas, options = {}) {
     lastWorld = world
     lastScene = scene
     const m = metrics(scene)
+    // 这一帧的计数从 0 开始（上一帧的数字留在 `replayFrame` 里给 `stats()` 读）
+    for (const key of Object.keys(frameCounts)) {
+      replayFrame[key] = frameCounts[key]
+      frameCounts[key] = 0
+    }
     ctx.clearRect(0, 0, m.width, m.height)
     // 像素画的第一条纪律：**关掉插值**。`resize()` 改过 canvas 尺寸会重置状态，
     // 所以放在每帧开头（一行，省得将来有人把 resize 挪到别处）。
@@ -468,21 +448,15 @@ export function createScene2d(canvas, options = {}) {
     const source = scene ?? lastScene
     const sourceWorld = world ?? lastWorld
     if (sourceWorld === null || source === null) return null
-    const m = metrics(source)
-    if (!(m.scale > 0)) return null
-    const rect = canvas.getBoundingClientRect()
-    const wx = (clientX - rect.left - m.width / 2) / m.scale
-    const wz = (clientY - rect.top - m.height / 2) / m.scale
-    let best = null
-    let bestPx = pickSlopPx
-    for (const a of sourceWorld.agents) {
-      const distance = Math.hypot((a.position.x - wx) * m.scale, (a.position.z - wz) * m.scale)
-      if (distance <= bestPx) {
-        best = a.id
-        bestPx = distance
-      }
-    }
-    return best
+    return pickActor({
+      world: sourceWorld,
+      scene: source,
+      camera: metrics(source),
+      clientX,
+      clientY,
+      rect: canvas.getBoundingClientRect(),
+      pickSlopPx,
+    })
   }
 
   /**
@@ -493,12 +467,18 @@ export function createScene2d(canvas, options = {}) {
     const source = scene ?? lastScene
     const sourceWorld = world ?? lastWorld
     if (source === null || sourceWorld === null) return null
-    const agent = sourceWorld.agents.find((a) => a.id === agentId)
-    if (agent === undefined) return null
-    const m = metrics(source)
-    // 往上抬过角色名那一行（名字画在圆点上方 11px 处）。
-    return { x: m.toX(agent.position.x), y: m.toY(agent.position.z) - 26, width: m.width, height: m.height, behind: false }
+    return anchorFor({ world: sourceWorld, camera: metrics(source), agentId, liftPx: ANCHOR_LIFT_PX })
   }
 
-  return { resize, render, pick, anchorOf, metrics, liveActors, loader }
+  /** 这一帧的绘制调用数（canvas2D = 提交次数，没有合批）。 */
+  function stats() {
+    return {
+      renderer: 'canvas2d',
+      batched: false,
+      drawCalls: replayFrame.drawCalls,
+      breakdown: { ...replayFrame },
+    }
+  }
+
+  return { resize, render, pick, anchorOf, metrics, liveActors, loader, stats }
 }

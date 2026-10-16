@@ -192,6 +192,8 @@ export function contentPortOf(
           rowsPerFigure: source.sheet.rowsPerFigure,
           anchor: source.sheet.anchor,
           animations,
+          // 缺省 false（不染）——别人画好的美术默认不动，见 `SheetSpec.recolor`。
+          recolor: source.sheet.recolor === true,
         },
         scale,
         rotationY,
