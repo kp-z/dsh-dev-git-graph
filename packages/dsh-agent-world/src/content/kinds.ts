@@ -416,6 +416,26 @@ export interface ActionEntry {
   /** 服务哪个状态。同一个状态可以有多个动作（随机挑一个，避免所有角色同步得像机器人）。 */
   state: AgentState
   clip: string | null
+  /**
+   * **2D 图集里的动作带名**（R60）：`idle` / `walk` / `sit`。
+   *
+   * 与 `clip` 分工：`clip` 是 3D 的 GLB 动画剪辑名，`band` 是像素图集里的那一条带
+   *（`SheetSpec.animations` 的键前缀，渲染器按 `band.方向` 去找帧）。
+   * 两者都可以是 null——**null 表示这条路走不了**，渲染器要退回而不是硬播一个错的。
+   *
+   * 为什么要有它：在此之前 2D 渲染器把"状态→动作"**硬编码**成
+   * `walking ? 'walk' : 'idle'`，内容库里的 `action.work` / `action.talk` 全是摆设——
+   * 而"表现是内容"是我们自己的红线（D31）。
+   */
+  band: string | null
+  /**
+   * 同一个状态下**相对权重**（挑一个动作时用）。
+   *
+   * 为什么要有：`actions` 库的注释早写了"同一个状态可以有多个动作（随机挑一个，
+   * 避免所有角色同步得像机器人）"，但没有权重就只能等概率——而"偶尔伸个懒腰"
+   * 和"大部分时间只是站着"显然不该等概率。缺省 1。
+   */
+  weight: number
   loop: boolean
   speedScale: number
   /** 切换到这个动作的淡入时长（ms）。 */

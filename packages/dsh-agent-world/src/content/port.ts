@@ -157,6 +157,23 @@ export function contentPortOf(
       return merged
     },
     themeFor: (sceneId) => buildThemePlan(registry, sceneId),
+    /**
+     * 状态 → 动作的映射（R60）。**渲染器不许自己写死这条映射**——
+     * 在此之前 2D 渲染器硬编码 `walking ? 'walk' : 'idle'`，内容库里的
+     * `action.work` / `action.talk` 全是摆设，而"表现是内容"是我们自己的红线（D31）。
+     */
+    actions: () =>
+      registry.list('actions').map((e) => ({
+        id: e.id,
+        name: e.data.name,
+        state: e.data.state,
+        // `band` 缺省 null = **如实声明 2D 图集里没有这个动作**，渲染器要退回而不是硬播。
+        band: e.data.band ?? null,
+        // 缺省 1：老内容包没写 weight 也能跑。
+        weight: typeof e.data.weight === 'number' ? e.data.weight : 1,
+        speedScale: e.data.speedScale,
+        fadeMs: e.data.fadeMs,
+      })),
     modelOf: (id) => {
       // `get` 返回的是 `{ id, pack, data }`（解析结果），条目本身在 `data` 里。
       const resolved = registry.get('models', id)

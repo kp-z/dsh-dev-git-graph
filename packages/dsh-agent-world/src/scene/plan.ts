@@ -29,7 +29,7 @@
 import type { World } from '../domain/types.js'
 import { MESSAGE_KINDS } from '../domain/types.js'
 import { boundsCenter } from '../domain/geometry.js'
-import type { SceneActor, SceneGround, ScenePlan, SceneProp , SceneModel} from '../protocol/scene.js'
+import type { SceneActor, SceneGround, ScenePlan, SceneProp , SceneModel, SceneAction} from '../protocol/scene.js'
 import { resolveColor } from '../protocol/scene.js'
 import type { ThemePlan } from '../protocol/theme.js'
 
@@ -67,6 +67,11 @@ export function buildScenePlan(
    * 这样场景描述层**不用认识内容库**，只认识 `SceneModel` 这个契约。
    */
   resolveModel: (id: string) => SceneModel | null = () => null,
+  /**
+   * 状态 → 动作（R60）。与 `resolveModel` 同样是**注入**——场景描述层不认识内容库。
+   * 缺省空数组：渲染器拿不到映射时退回它自己的缺省（`walking`→走，其余→站）。
+   */
+  resolveActions: () => readonly SceneAction[] = () => [],
 ): ScenePlan {
   const ground: SceneGround[] = world.districts.map((d) => {
     const c = boundsCenter(d.bounds)
@@ -158,6 +163,8 @@ export function buildScenePlan(
     extent: { half: extentOf(world) },
     theme,
     ground,
+    // 状态 → 动作（来自内容库 `actions`，R60）。渲染器据此挑动画，不许自己写死映射。
+    actions: [...resolveActions()],
     props,
     actors,
     models,

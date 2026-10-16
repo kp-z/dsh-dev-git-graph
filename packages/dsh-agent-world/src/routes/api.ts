@@ -58,8 +58,13 @@ export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
     palette: { ...content.colors() },
     // 渲染就绪的"要摆什么"。**这是渲染层的唯一输入**：2D canvas 画它，
     // 将来的 three.js（不管是我们写的还是现成场景）也画它。
-    scene: buildScenePlan(world, content.colors(), content.themeFor(world.origin.scene), (id) =>
-      content.modelOf(id),
+    scene: buildScenePlan(
+      world,
+      content.colors(),
+      content.themeFor(world.origin.scene),
+      (id) => content.modelOf(id),
+      // 状态 → 动作（R60）：**来自内容库**，渲染器不许自己写死这条映射。
+      () => content.actions(),
     ),
     runtime: {
       running: deps.runtime.running,

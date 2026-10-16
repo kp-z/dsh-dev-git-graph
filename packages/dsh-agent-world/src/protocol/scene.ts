@@ -174,6 +174,29 @@ export interface SceneActor {
  * 渲染器**只需要它**就能把画面画出来；HUD 的列表类内容（花名册、工单板）走 `world`，
  * 那是文本，与场景无关。
  */
+/**
+ * **状态 → 动作**的一条映射（渲染就绪，R60）。
+ *
+ * 为什么要下发：2D 渲染器原先**硬编码** `walking ? 'walk' : 'idle'`，内容库里的
+ * `action.work` / `action.talk` 完全没用上——而"表现是内容"是我们的红线（D31）。
+ * 现在渲染器只做一件事：**按状态筛出候选、按权重挑一个、用 `band.方向` 找帧**。
+ *
+ * `band` 为 null 表示这个动作在 2D 图集里没有对应带——渲染器**退回上一档**（通常是 `idle`），
+ * 不要硬播一个错的。
+ */
+export interface SceneAction {
+  id: string
+  name: string
+  /** 服务哪个状态。 */
+  state: string
+  /** 2D 图集里的动作带名（`idle` / `walk` / `sit`）；null = 2D 没有这个动作。 */
+  band: string | null
+  /** 相对权重（同一个状态下按它挑）。 */
+  weight: number
+  speedScale: number
+  fadeMs: number
+}
+
 export interface ScenePlan {
   /**
    * 世界的半径（半边长）。渲染器据此铺地面、定取景范围——
@@ -190,6 +213,8 @@ export interface ScenePlan {
   ground: SceneGround[]
   props: SceneProp[]
   actors: SceneActor[]
+  /** 状态 → 动作的映射（**来自内容库**，渲染器不许自己写死）。 */
+  actions: SceneAction[]
   /**
    * 本场景引用到的模型（`SceneProp.modelId` 与 `SceneActor.modelId` 在这张表里查）。
    *

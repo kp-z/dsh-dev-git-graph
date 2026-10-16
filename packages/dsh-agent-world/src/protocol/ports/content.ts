@@ -7,7 +7,7 @@
  */
 import type { LibraryDescriptor, LibraryKind } from '../library-kinds.js'
 import type { ThemePlan } from '../theme.js'
-import type { SceneModel } from '../scene.js'
+import type { SceneModel , SceneAction} from '../scene.js'
 
 /** 校验级别。 */
 export type IssueLevel = 'error' | 'warning'
@@ -80,6 +80,16 @@ export interface ContentPort {
    * 于是"换一套皮肤包"就是加一个包，不用改任何代码。
    */
   colors(): Readonly<Record<string, string>>
+
+  /**
+   * 状态 → 动作的映射（R60）。
+   *
+   * 存在的理由与 `colors()` 同类：**渲染器只许 import 协议层、读不到内容库**，
+   * 所以这条映射必须由服务端算好随 `ScenePlan` 发出去。
+   * 在此之前 2D 渲染器把它写死成 `walking ? 'walk' : 'idle'`，
+   * 内容库里的 `action.work` / `action.talk` 全是摆设。
+   */
+  actions(): readonly SceneAction[]
   /**
    * 取某个场景用到的主题，映射成**渲染就绪**的 `ThemePlan`（色值已解析）。
    *

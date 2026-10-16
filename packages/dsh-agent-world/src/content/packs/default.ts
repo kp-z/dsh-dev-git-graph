@@ -225,14 +225,27 @@ export const defaultPack: ContentPack = {
     //
     // `clip: null` = 程序化动画（起伏/挤压/倾斜）。每个 AgentState 都要有动作，
     // 否则角色进入那个状态会僵在上一帧（注册表的 validate() 会因此报错）。
+    // ── 动作库（R60 起 **2D 渲染器真的读它了**）─────────────────────────────
+    //
+    // `band` = 像素图集里那条带。我们的 Microverse 图集只有三条带：
+    // **`idle`（站着，6 帧，会轻微起伏）/ `walk`（走）/ `sit`（坐着，6 帧，与 idle 不同）**。
+    // 所以"打字/喝咖啡/伸懒腰"这类姿态**这套图没有**——别在 `band` 里编一个不存在的名字，
+    // 渲染器找不到就会退回 `idle`，看起来像"没生效"。
+    //
+    // `weight`：同一个状态下挑哪个。**干活给了 `sit` 更高的权重**——人坐在工位上干活
+    // 比站着自然，而这套 `sit` 美术从 R51 入库起就一直是死数据（M13-4）。
     actions: [
-      { id: 'action.idle', name: '待命', state: 'idle', clip: null, loop: true, speedScale: 0.6, fadeMs: 200 },
-      { id: 'action.walk', name: '走路', state: 'walking', clip: null, loop: true, speedScale: 1, fadeMs: 150 },
-      { id: 'action.work', name: '干活', state: 'working', clip: null, loop: true, speedScale: 1, fadeMs: 200 },
-      { id: 'action.talk', name: '交谈', state: 'talking', clip: null, loop: true, speedScale: 0.8, fadeMs: 200 },
-      { id: 'action.blocked', name: '受阻', state: 'blocked', clip: null, loop: true, speedScale: 0.5, fadeMs: 250 },
-      { id: 'action.celebrate', name: '庆祝', state: 'celebrating', clip: null, loop: false, speedScale: 1.2, fadeMs: 150 },
-      { id: 'action.sleep', name: '休息', state: 'sleeping', clip: null, loop: true, speedScale: 0.4, fadeMs: 400 },
+      { id: 'action.idle', name: '待命', state: 'idle', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.6, fadeMs: 200 },
+      { id: 'action.walk', name: '走路', state: 'walking', clip: null, band: 'walk', weight: 1, loop: true, speedScale: 1, fadeMs: 150 },
+      // 干活：多数坐姿 + 少数站姿（白板前、机柜前站着更合理）。
+      { id: 'action.work.sit', name: '坐着干活', state: 'working', clip: null, band: 'sit', weight: 3, loop: true, speedScale: 1, fadeMs: 200 },
+      { id: 'action.work.stand', name: '站着干活', state: 'working', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 1, fadeMs: 200 },
+      { id: 'action.talk', name: '交谈', state: 'talking', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.8, fadeMs: 200 },
+      { id: 'action.blocked', name: '受阻', state: 'blocked', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.5, fadeMs: 250 },
+      // 庆祝/休息**这套图集没有对应动作**：`band: null` 是**如实声明走不了**，
+      // 让渲染器退回 idle，而不是硬播一个错的。
+      { id: 'action.celebrate', name: '庆祝', state: 'celebrating', clip: null, band: null, weight: 1, loop: false, speedScale: 1.2, fadeMs: 150 },
+      { id: 'action.sleep', name: '休息', state: 'sleeping', clip: null, band: 'sit', weight: 1, loop: true, speedScale: 0.4, fadeMs: 400 },
     ],
 
     // ── 主题库 ──────────────────────────────────────────────────────────────
