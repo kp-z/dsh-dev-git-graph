@@ -215,10 +215,23 @@ test('瞬移规则：停在旧落点上的惰性角色被挪走；有在途意�
 
   assert.equal(moved('agent-5'), false, '⑤ 挂着路径的人有在途意图，即使位置在旧落点上也不挪')
 
-  // 但五个人的 **hangout** 都换成了新的（这才是"修复看得见"的那一半）。
+  // 五个人的 **hangout** 都按当前内容重算过（这才是"修复看得见"的那一半）。
+  //
+  // ⚠️ 这里**不能**断言"每个人的落点都变了"——那不是不变式。落点由间距常量与站点占位算出，
+  // 改了常量之后**某些人的落点可能恰好落在原地**（R52：把 `DEFAULT_MIN_GAP` 从 1.8 调到 2.2 时
+  // 就有一个人的落点仍是 (4,4)，于是这条断言假红）。
+  // 真正的不变式是"重算过"：每个人的落点等于**新建世界**算出来的那一个。
+  const recomputed = makeWorld(content)
   for (const agent of world.agents) {
-    assert.notDeepEqual(agent.hangout, legacy.agents.find((a) => a.id === agent.id).hangout)
+    const expected = recomputed.agents.find((a) => a.id === agent.id)
+    assert.deepEqual(agent.hangout, expected.hangout, `${agent.name} 的落点应当等于按当前内容重算的结果`)
   }
+  // 至少要有一个人**确实**动了——否则"重算"这件事没有被这条测试覆盖到。
+  const movedCount = world.agents.filter((agent) => {
+    const before = legacy.agents.find((a) => a.id === agent.id)
+    return before.hangout === null || distance(before.hangout, agent.hangout) > 1e-9
+  }).length
+  assert.ok(movedCount > 0, '至少要有一个人的落点因为重算而改变，否则这条测试什么也没验到')
   assert.ok(
     changes.some((c) => c.includes('agent-1') || c.includes('工头阿金')),
     `changes 要说清谁被挪了：${JSON.stringify(changes)}`,

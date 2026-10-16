@@ -41,6 +41,8 @@ const DIRS: ReadonlyArray<readonly [string, number]> = [
 /** 走路带在 y=128（第 2 带），待机带在 y=64（第 1 带）。`rowsPerFigure` 是 1，所以带号 = y/64。 */
 const BAND_IDLE = 1
 const BAND_RUN = 2
+/** 坐下带：y=256 → 第 4 带（`sit_left` / `sit_right` 实测在这里）。 */
+const BAND_SIT = 4
 /** 上游 `.tscn` 里 `"speed": 5.0`，6 帧 → 每帧 200ms（与 5fps 一致）。 */
 const FRAME_MS = 200
 
@@ -53,6 +55,15 @@ function locomotion(): Record<string, SheetAnimation> {
   // 不分方向的兜底：渲染层的回退链会用到（`walk.right` 缺了也不至于僵住）。
   out['walk'] = { col: 18, row: BAND_RUN, frames: 6, frameMs: FRAME_MS }
   out['idle'] = { col: 18, row: BAND_IDLE, frames: 6, frameMs: FRAME_MS }
+
+  // 坐下（上游 `sit_*`，在 y=256 那条带）。**先入库，暂不映射**：
+  // 我们的状态机里没有"坐下"这个状态（只有 idle/walking/working/…），
+  // 所以渲染层现在还选不到它。等把 `working` 映到坐姿时直接用（BACKLOG M13-4）。
+  // 注意上游的 sit 帧**不规整**（Tom 是 5 帧、Lea 7 帧、Joe 15 帧、Stephen 4 帧），
+  // 所以这里按**每段各自的首帧与帧数**声明，不能用一个统一的 frames。
+  for (const [dir, col] of DIRS) {
+    out[`sit.${dir}`] = { col, row: BAND_SIT, frames: 6, frameMs: FRAME_MS }
+  }
   return out
 }
 
