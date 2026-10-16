@@ -42,6 +42,7 @@ import type { WorldCommand } from '../protocol/wire/commands.js'
 import { advanceMovement } from './movement.js'
 import { advanceWork } from './interaction.js'
 import { advanceIdle } from './idle.js'
+import type { StepContext } from '../protocol/idle.js'
 import { dispatchComms } from './comms.js'
 import type { CommsOutcome } from './comms.js'
 import type { DeliverOutcome } from './mailbox.js'
@@ -260,9 +261,14 @@ function applyExternalTasks(
  *
  * @param world - 世界（**就地修改**）。
  * @param commands - 本 tick 收到的命令；默认空。
+ * @param context - 本 tick 的内容上下文（待命行为目录）；默认空 = 老行为。
  * @returns 本 tick 的事件、派工、诊断与转交动作。
  */
-export function step(world: World, commands: readonly WorldCommand[] = []): StepResult {
+export function step(
+  world: World,
+  commands: readonly WorldCommand[] = [],
+  context: StepContext = {},
+): StepResult {
   const requests = emptyRequests()
   const events: WorldEvent[] = []
 
@@ -297,7 +303,7 @@ export function step(world: World, commands: readonly WorldCommand[] = []): Step
   // 待命角色走向歇脚点（M2.5-1）。**放在 movement 之后**：movement 只处理 `walking`，
   // 而这一步只处理 `idle`，两者互不重叠；但刚被派工的人这一 tick 已经是 `walking` 了，
   // 所以不会被这里再挪一次。
-  const idle = advanceIdle(world)
+  const idle = advanceIdle(world, context.idleBehaviors ?? [])
 
   // ── 4. interaction ──
   const work = advanceWork(world)

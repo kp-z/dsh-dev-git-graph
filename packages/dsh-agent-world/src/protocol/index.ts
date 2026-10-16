@@ -102,3 +102,5 @@ export type {
 
 export * from './dialogue.js'
 export * from './team.js'
+export type { IdleBehaviorKind, IdleBehaviorPlan, StepContext } from './idle.js'
+export { IDLE_BEHAVIOR_KINDS } from './idle.js'

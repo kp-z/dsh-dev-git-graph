@@ -16,7 +16,7 @@ import type {
   AgentState,
   StationKind,
 } from '../domain/types.js'
-import { LIBRARY_SPECS } from './kinds.js'
+import { IDLE_BEHAVIOR_KINDS, LIBRARY_SPECS } from './kinds.js'
 import type { ContentPack, LibraryKind, PackManifest } from './kinds.js'
 import { CONTENT_SCHEMA_VERSION } from './kinds.js'
 import type { ContentIssue, IssueLevel } from '../protocol/ports/content.js'
@@ -505,6 +505,28 @@ function validateEntryShape(
       }
       if (typeof entry.speedScale !== 'number' || entry.speedScale <= 0) {
         sink.error(`${where}.speedScale`, 'speedScale 必须是正数', pack)
+      }
+      // 待命编排参数（R68）。这里必须**当场报错**：写错了不会崩，
+      // 只会让待命的人"看起来就是不动"或"一直朝一个方向挪"——而那和"这个功能没做"长得一模一样。
+      if (entry.idle !== null && entry.idle !== undefined) {
+        const idle = entry.idle
+        if (!isObject(idle)) {
+          sink.error(`${where}.idle`, 'idle 要么是 null，要么是 { kind, ticksMin, ticksMax, radius }', pack)
+          return
+        }
+        checkEnum(sink, idle.kind, IDLE_BEHAVIOR_KINDS, `${where}.idle.kind`, '待命行为', pack)
+        const lo = idle.ticksMin
+        const hi = idle.ticksMax
+        if (typeof lo !== 'number' || typeof hi !== 'number' || !Number.isFinite(lo) || !Number.isFinite(hi)) {
+          sink.error(`${where}.idle.ticksMin`, 'ticksMin/ticksMax 必须是数字', pack)
+        } else if (lo <= 0) {
+          sink.error(`${where}.idle.ticksMin`, `ticksMin 必须 > 0（得到 ${lo}）——0 长度的行为会每 tick 重挑一次`, pack)
+        } else if (hi < lo) {
+          sink.error(`${where}.idle.ticksMax`, `ticksMax(${hi}) 不能小于 ticksMin(${lo})`, pack)
+        }
+        if (typeof idle.radius !== 'number' || !Number.isFinite(idle.radius) || idle.radius < 0) {
+          sink.error(`${where}.idle.radius`, 'radius 必须是非负数（其它 kind 写 0）', pack)
+        }
       }
       return
     }

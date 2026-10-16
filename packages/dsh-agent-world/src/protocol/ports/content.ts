@@ -5,6 +5,7 @@
  * 好处不是"多一层好看"，而是：内容层换实现（比如将来支持从 npm 装内容包）时，
  * 消费方一行不用改。
  */
+import type { IdleBehaviorPlan } from '../idle.js'
 import type { LibraryDescriptor, LibraryKind } from '../library-kinds.js'
 import type { ThemePlan } from '../theme.js'
 import type { SceneModel , SceneAction, SceneMap} from '../scene.js'
@@ -96,6 +97,14 @@ export interface ContentPort {
    * 底图必须由服务端算好随 `ScenePlan` 发出去。没有底图时返回 null（渲染器按分区铺色）。
    */
   map(): SceneMap | null
+  /**
+   * **待命行为目录**（R68）——给模拟内核用的纯数据投影。
+   *
+   * 存在的理由与 `map()` 完全一样：`sim/` 按边界规则不许 import 内容库，
+   * 所以内容必须由服务端算好、由 `runtime/` 注入给 `step()`。
+   * 没有行为目录时返回空数组（= 待命的人站着不动，那是 R68 之前的回退路径）。
+   */
+  idleBehaviors(): readonly IdleBehaviorPlan[]
   /**
    * 取某个场景用到的主题，映射成**渲染就绪**的 `ThemePlan`（色值已解析）。
    *

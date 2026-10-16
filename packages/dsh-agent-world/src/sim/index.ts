@@ -20,6 +20,9 @@ export { advanceWork } from './interaction.js'
 export type { IdleOutcome } from './idle.js'
 export { advanceIdle } from './idle.js'
 
+export type { IdleSlot } from './idle-behavior.js'
+export { describeKind, idleSlotAt, lookFacing, paceGoal, quarterFacing, quarterOf, slotTicks } from './idle-behavior.js'
+
 export type { CommsOutcome } from './comms.js'
 export { dispatchComms } from './comms.js'
 

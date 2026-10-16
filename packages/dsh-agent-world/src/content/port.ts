@@ -8,6 +8,7 @@
  * 或从远端拉）只需要换掉这个文件的实现，工具与面板一行不动。
  */
 import { LIBRARY_SPECS } from './kinds.js'
+import type { IdleBehaviorPlan } from '../protocol/idle.js'
 import type { ContentRegistry } from './registry.js'
 import type { ContentIssue, ContentPort, ContentView, PackDescriptor } from '../protocol/ports/content.js'
 import type { LibraryDescriptor } from '../protocol/library-kinds.js'
@@ -158,6 +159,55 @@ export function contentPortOf(
     },
     themeFor: (sceneId) => buildThemePlan(registry, sceneId),
     /**
+     * **待命行为目录**（R68）：把 `actions` 库投影成模拟内核能吃的纯数据。
+     *
+     * ## 为什么是"投影"而不是"直接给 ActionEntry"
+     *
+     * `sim/` 不许 import 内容库（边界规则），所以只能给它纯数据。这里做三件事：
+     * 挑出**待命能用的**动作、补上 sim 需要而内容还没表达的字段、以及把
+     * `band: null` 的动作**如实带过去**（让 sim 自己跳过，而不是在这里悄悄换成别的带）。
+     *
+     * ## 时长与踱步半径从哪来
+     *
+     * 内容目前只声明了 `band` / `weight`（R60 加的），**没有**时长与踱步半径。
+     * 这里给的是**保守默认值**（时长 90~240 tick ≈ 9~24 秒；原地不动），
+     * 并把"要按行为区分时长"这件事留给内容——见下面 `idleDurationOf` 的注释。
+     * 我刻意**不**在代码里写一张"哪个动作多长"的表：那就是把表现写进代码（违反 D37）。
+     */
+    idleBehaviors: () => {
+      // 把**内容侧**的 `ActionEntry.idle`（`IdleBehaviorSpec`：kind / ticksMin / ticksMax / radius）
+      // 投影成 **sim 侧**的 `IdleBehaviorPlan`。
+      //
+      // 这里做**过滤**而不是把 `band` 传给 sim：`band: null` 表示图集里没有那条带，
+      // 也就是"2D 里画不出来"。**画不出来就不该被选成待命行为**——否则角色会站着不动，
+      // 而数据说他在"张望"。但"为什么画不出来"是渲染的事，**不该泄漏进 sim**
+      //（模拟内核只认已经装配好的数据，不认图集）。
+      //
+      // 两个类型**同名不同类型**比重复更坏：我第一版两边都叫 `IdleBehaviorSpec`，
+      // 于是这里引协议层的、`entry.data.idle` 是内容层的 → 属性对不上、10 条 TS 错。
+      const out: IdleBehaviorPlan[] = []
+      for (const entry of registry.list('actions')) {
+        const action = entry.data
+        const spec = action.idle
+        // `null` = 这条动作**没有待命语义**（例如 `action.walk` 是移动的结果，不是待命行为）。
+        if (spec === null || spec === undefined) continue
+        // 图集里没有这条带 → 2D 演不出来 → 不参与选择。
+        if (action.band === null) continue
+        // 两侧**同名**（`ticksMin`/`ticksMax`）——见 `protocol/idle.ts` 里那段注释：
+        // 我一度让两侧各叫一个名字，结果被当成同一个类型，在同一处来回改了三次。
+        const ticksMin = Math.max(1, Math.floor(spec.ticksMin))
+        out.push({
+          id: action.id,
+          kind: spec.kind,
+          weight: Number.isFinite(action.weight) && action.weight > 0 ? action.weight : 1,
+          ticksMin,
+          ticksMax: Math.max(ticksMin, Math.floor(spec.ticksMax)),
+          radius: Math.max(0, spec.radius),
+        })
+      }
+      return out
+    },
+    /**
      * 场景底图（R62）。取 `maps` 库里排在最前的那一条——底图是**整场景一张**，
      * 不需要按 id 查（将来若要按场景切换，把这里换成"按 sceneId 查"即可，契约不变）。
      */
@@ -229,3 +279,4 @@ export function contentPortOf(
     },
   }
 }
+

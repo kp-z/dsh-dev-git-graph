@@ -235,18 +235,47 @@ export const defaultPack: ContentPack = {
     //
     // `weight`：同一个状态下挑哪个。**干活给了 `sit` 更高的权重**——人坐在工位上干活
     // 比站着自然，而这套 `sit` 美术从 R51 入库起就一直是死数据（M13-4）。
+    //
+    // ── 待命编排（R68）──────────────────────────────────────────────────────────
+    // `action.idle.*` 三条是"待命的人给自己找点事做"的**目录**。在此之前待命的人
+    // 走到歇脚点就彻底静止，8 个人像 8 个摆件——"像游戏"最大的缺口就在这里。
+    //
+    // 三条都只能由现有美术组合出来（`idle`/`walk`/`sit` 三条带 + 移动 + 朝向）：
+    //   · `.look` 张望：站定、把脸转向另一个方向 —— 图集四向，所以**换方向就是换动画**，
+    //     这是最便宜也最明显的"他在动"；
+    //   · `.pace` 踱步：往附近另一点挪一小段再停下；
+    //   · `.rest` 歇会儿：切到 `sleeping` 状态（**它是唯一带 `sit` 带的状态**，且至今没有任何
+    //     逻辑用它），坐一会儿再站起来。
+    //
+    // **节奏（时长）怎么定的**：槽长 = 目录里最长的 `ticksMax` = **200 tick ≈ 20 秒**，
+    // 所以每个人大约每 20 秒做一件事、做 4~20 秒，其余时间站着发呆。
+    // 8 个人的槽位边界由 id 派生、互相错开，所以**镜头里总有人在动**。
+    // 这个数字是量出来的：第一版取到 480 tick（48 秒），60 秒采样里 agent-1 只转了一次头——
+    // 那不是"像游戏"，那是"卡住了"。
+    //
+    // ⚠️ 权重同时被两边读，改之前先看 `ActionEntry.idle` 的注释：`sim` 拿它加权挑一个，
+    // 而 `web` 的 `bandOfState` 取该状态下**权重最大**的那条决定播哪条带。
+    // 所以这里让**张望（带 `idle`）权重最大**——渲染器就仍然给待命的角色播站立/张望，
+    // 与"多数时间在张望"的意图一致。踱步/歇息的**带**差异这一轮上不了屏
+    // （需要按角色覆盖带，那是 web/ + 协议层的事），位置与朝向的变化照样看得见。
     actions: [
-      { id: 'action.idle', name: '待命', state: 'idle', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.6, fadeMs: 200 },
-      { id: 'action.walk', name: '走路', state: 'walking', clip: null, band: 'walk', weight: 1, loop: true, speedScale: 1, fadeMs: 150 },
+      { id: 'action.idle', name: '待命', state: 'idle', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.6, fadeMs: 200, idle: null },
+      // 张望：4~9 秒（**10 tick = 1 秒**，默认 tickMs=100）。
+      { id: 'action.idle.look', name: '张望', state: 'idle', clip: null, band: 'idle', weight: 4, loop: true, speedScale: 0.6, fadeMs: 250, idle: { kind: 'look', ticksMin: 40, ticksMax: 90, radius: 0 } },
+      // 踱步：6~12 秒（走 0.45~0.9 世界单位，一步 0.06 → 大约 8~15 步就走完），半径比人的间距小。
+      { id: 'action.idle.pace', name: '踱步', state: 'idle', clip: null, band: 'idle', weight: 3, loop: true, speedScale: 1, fadeMs: 200, idle: { kind: 'pace', ticksMin: 60, ticksMax: 120, radius: 0.9 } },
+      // 歇会儿：12~20 秒坐下。权重最低——不能老是坐着，否则"待命"看着像"下班"。
+      { id: 'action.idle.rest', name: '歇会儿', state: 'idle', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.4, fadeMs: 400, idle: { kind: 'rest', ticksMin: 120, ticksMax: 200, radius: 0 } },
+      { id: 'action.walk', name: '走路', state: 'walking', clip: null, band: 'walk', weight: 1, loop: true, speedScale: 1, fadeMs: 150, idle: null },
       // 干活：多数坐姿 + 少数站姿（白板前、机柜前站着更合理）。
-      { id: 'action.work.sit', name: '坐着干活', state: 'working', clip: null, band: 'sit', weight: 3, loop: true, speedScale: 1, fadeMs: 200 },
-      { id: 'action.work.stand', name: '站着干活', state: 'working', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 1, fadeMs: 200 },
-      { id: 'action.talk', name: '交谈', state: 'talking', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.8, fadeMs: 200 },
-      { id: 'action.blocked', name: '受阻', state: 'blocked', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.5, fadeMs: 250 },
+      { id: 'action.work.sit', name: '坐着干活', state: 'working', clip: null, band: 'sit', weight: 3, loop: true, speedScale: 1, fadeMs: 200, idle: null },
+      { id: 'action.work.stand', name: '站着干活', state: 'working', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 1, fadeMs: 200, idle: null },
+      { id: 'action.talk', name: '交谈', state: 'talking', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.8, fadeMs: 200, idle: null },
+      { id: 'action.blocked', name: '受阻', state: 'blocked', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.5, fadeMs: 250, idle: null },
       // 庆祝/休息**这套图集没有对应动作**：`band: null` 是**如实声明走不了**，
       // 让渲染器退回 idle，而不是硬播一个错的。
-      { id: 'action.celebrate', name: '庆祝', state: 'celebrating', clip: null, band: null, weight: 1, loop: false, speedScale: 1.2, fadeMs: 150 },
-      { id: 'action.sleep', name: '休息', state: 'sleeping', clip: null, band: 'sit', weight: 1, loop: true, speedScale: 0.4, fadeMs: 400 },
+      { id: 'action.celebrate', name: '庆祝', state: 'celebrating', clip: null, band: null, weight: 1, loop: false, speedScale: 1.2, fadeMs: 150, idle: null },
+      { id: 'action.sleep', name: '休息', state: 'sleeping', clip: null, band: 'sit', weight: 1, loop: true, speedScale: 0.4, fadeMs: 400, idle: null },
     ],
 
     // ── 主题库 ──────────────────────────────────────────────────────────────

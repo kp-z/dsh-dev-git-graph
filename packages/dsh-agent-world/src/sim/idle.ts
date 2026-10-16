@@ -24,8 +24,10 @@
  * 返回"谁挪了"，帧事件由 `emit.ts` 统一合并产出（与其他阶段一样）。
  */
 import { WALK_SPEED } from '../domain/constants.js'
-import { findPath } from './pathfind.js'
+import { findPath, cellOf, isWalkable } from './pathfind.js'
 import { angleTo, distance, stepToward } from '../domain/geometry.js'
+import { idleSlotAt, paceGoal, lookFacing } from './idle-behavior.js'
+import type { IdleBehaviorPlan } from '../protocol/idle.js'
 import type { World } from '../domain/types.js'
 
 /** 一次待命走动的结果。 */
@@ -34,23 +36,69 @@ export interface IdleOutcome {
   advanced: string[]
   /** 本 tick 刚好走到歇脚点的角色 id（诊断用，不发事件）。 */
   settled: string[]
+  /**
+   * 本 tick **行为上发生了变化**的角色 id（换了朝向）。
+   *
+   * 为什么与 `advanced` 分开：`advanced` 的语义是"位置动了"，帧事件按它发。
+   * 换朝向不动位置，但也必须让渲染器知道"这一帧他和上一帧不一样"。
+   */
+  acted: string[]
+  /**
+   * 本 tick **坐下去**（`idle → sleeping`）的角色 id。
+   *
+   * 状态是**离散量**，帧事件（`world.tick`）里带的是 `[id, x, z, facing]` 四元组，
+   * 没有 `state`——所以状态转换必须单独发 `agent.state`。漏发的表现很难查：
+   * 服务端认为他在坐着、客户端还显示站着，而两边都"看起来正常"
+   *（R68 真的踩到过：`world-update.test.js` 的往返比对把它抓了出来）。
+   */
+  satDown: string[]
+  /** 本 tick **站起来**（`sleeping → idle`）的角色 id。理由同上。 */
+  stoodUp: string[]
 }
 
 /**
- * 推进一 tick 的待命走动。
+ * 推进一 tick 的待命走动 + 待命行为。
  *
- * **会就地修改 `world.agents` 的位置与朝向。**
+ * **会就地修改 `world.agents` 的位置、朝向与状态。**
  *
  * @param world - 世界（就地修改）。
+ * @param behaviors - 待命行为目录（来自内容库 `actions`；空数组 = 不编排，退回老行为）。
  */
-export function advanceIdle(world: World): IdleOutcome {
+export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[] = []): IdleOutcome {
   const advanced: string[] = []
   const settled: string[] = []
+  const acted: string[] = []
+  const satDown: string[] = []
+  const stoodUp: string[] = []
+
+  // "有单子在等人领"用的是调度器自己的口径（`status === 'ready'`）——**不重复它的角色匹配**，
+  // 只要队列非空就不许有人歇着。宁可少歇一会儿，也不能让"整队人都在坐着"卡住派工：
+  // 调度器只从 `state === 'idle'` 里挑人（`scheduler.ts` 的 `idleAgents`），
+  // 坐着的（`sleeping`）不在候选里。
+  const workWaiting = world.tasks.some((task) => task.status === 'ready')
 
   for (const agent of world.agents) {
-    if (agent.state !== 'idle') continue
-    const goal = agent.hangout
-    if (goal === null) continue
+    // 歇会儿用的 `sleeping` 也由这一段管：它是待命行为的产物，没有别的地方设置它。
+    const resting = agent.state === 'sleeping'
+    if (agent.state !== 'idle' && !resting) continue
+
+    const home = agent.hangout
+    const slot = home === null ? null : idleSlotAt(behaviors, world.seed, agent.id, world.tick)
+
+    // ① 先决定"还要不要继续坐着"。三种情况要站起来：有人等活、槽位结束、
+    //    或者这一槽挑中的根本不是 `rest`（比如他坐下之后内容换了）。
+    if (resting) {
+      const keepResting =
+        !workWaiting && slot !== null && slot.behavior.kind === 'rest' && slot.active
+      if (keepResting) {
+        settled.push(agent.id)
+        continue // 坐着不动
+      }
+      agent.state = 'idle'
+      stoodUp.push(agent.id)
+    }
+
+    if (home === null) continue
 
     // @deprecated-note 待命的人不该还挂着**派工**路径（那是上一轮派工的残渣，
     // 玩家会看到"待命中却在走向工位"）。但 R64 起待命移动**自己也要一条绕障路径**——
@@ -63,6 +111,15 @@ export function advanceIdle(world: World): IdleOutcome {
       agent.path = []
     }
 
+    // ② 本 tick 的目标点。踱步时是槽内的临时点，其余时候就是歇脚点——
+    //    于是"走出去了"和"走回来"用的是同一段逻辑，窗口一结束他自己就往回走。
+    const pacing = slot !== null && slot.active && slot.behavior.kind === 'pace'
+    const goal = pacing
+      ? paceGoal(world.seed, agent.id, slot.index, home, slot.behavior.radius, (point) =>
+          world.nav === null ? true : isWalkable(world.nav, cellOf(world.nav, point)),
+        )
+      : home
+
     const remaining = distance(agent.position, goal)
     if (remaining <= WALK_SPEED) {
       // 到位：精确落点（不精确的话会永远差一点点，每 tick 都判一次"还没到"）。
@@ -71,6 +128,25 @@ export function advanceIdle(world: World): IdleOutcome {
         advanced.push(agent.id)
       }
       settled.push(agent.id)
+
+      // ③ 到位之后才谈"给自己找点事做"。走着的路上不张望——那会变成"边飘边转头"。
+      //    `pacing` 的情况什么都不做：他刚到那个点，站在那儿把这一槽耗完。
+      if (!pacing && slot !== null && slot.active) {
+        const behavior = slot.behavior
+        if (behavior.kind === 'look') {
+          // `lookFacing` 是**绝对角度**（只由 seed/id/槽号定），所以同一槽里反复调用得到
+          // 同一个值——"不一样才写"于是等价于"一槽只写一次"。写成相对旋转就会每 tick
+          // 再加 90°，人原地转圈。
+          const turned = lookFacing(world.seed, agent.id, slot.index)
+          if (turned !== agent.facing) {
+            agent.facing = turned
+            acted.push(agent.id)
+          }
+        } else if (behavior.kind === 'rest' && !workWaiting) {
+          agent.state = 'sleeping'
+          satDown.push(agent.id)
+        }
+      }
       continue
     }
 
@@ -91,5 +167,5 @@ export function advanceIdle(world: World): IdleOutcome {
     advanced.push(agent.id)
   }
 
-  return { advanced, settled }
+  return { advanced, settled, acted, satDown, stoodUp }
 }

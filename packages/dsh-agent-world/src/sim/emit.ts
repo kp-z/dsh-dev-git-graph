@@ -95,6 +95,18 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
     push('agent.state', { id: arrival.agentId, ...agentPatch(world, arrival.agentId) })
   }
 
+  // 3.5) 待命行为：坐下 / 站起来（R68）。
+  //
+  // 状态是**离散量**，而第 6 段那条帧事件带的是 `[id, x, z, facing]`——不带 `state`。
+  // 所以"他坐下了"必须在这里单独说一句，否则只收增量的客户端会一直显示他站着，
+  // 而两边的世界看起来都"正常"（`world-update.test.js` 的往返比对就是抓这个的）。
+  for (const id of outcomes.idle.satDown) {
+    push('agent.state', { id, ...agentPatch(world, id), reason: 'idle-rest' })
+  }
+  for (const id of outcomes.idle.stoodUp) {
+    push('agent.state', { id, ...agentPatch(world, id), reason: 'idle-stand' })
+  }
+
   // 4) 干活：里程碑 + 完工
   for (const item of outcomes.work.progressed) {
     // 承上启下：`before` 由 after - delta 得出，所以这里不用再抄一遍 estimateTicks 的换算。
@@ -124,15 +136,23 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
     push('message.sent', { id: msg.id, from: msg.from, to: msg.to, deliverAtTick: msg.deliverAtTick })
   }
 
-  // 6) 帧：有位移才发。**这是唯一承载连续量的事件。**
+  // 6) 帧：有位移**或朝向/坐站变化**才发。**这是唯一承载连续量的事件。**
   //
   // 客户端拿到它之后只更新这几个人（不是整个花名册）——这是"增量"的关键：
-  // 一帧只带真的有位移的人，而不是 24 个角色的全量位置。
+  // 一帧只带真的有变化的人，而不是 24 个角色的全量位置。
   //
   // 用 movement 返回的 `advanced` 而**不是**过滤 `state === 'walking'`：
   // 本 tick 到站的人已经切成 `working` 了，按状态过滤会把他漏掉，
   // 于是渲染层拿不到他的落位坐标，表现为"走到一半突然被吸过去"。
-  const advancedIds = [...outcomes.movement.advanced, ...outcomes.idle.advanced]
+  //
+  // `idle.acted`（R68）：**只换朝向/坐站、位置没动**的人也必须在里面。这一帧带的是
+  // `[id, x, z, facing]` 四元组，位置不变、朝向我照样能带上；不发的话"张望"就永远上不了屏——
+  // 而"待命的人在动"正是 R68 要解决的问题（那种漏发会长得和"功能没做"一模一样）。
+  const advancedIds = [
+    ...outcomes.movement.advanced,
+    ...outcomes.idle.advanced,
+    ...outcomes.idle.acted,
+  ]
   if (advancedIds.length > 0) {
     const moved = new Set(advancedIds)
     push('world.tick', {

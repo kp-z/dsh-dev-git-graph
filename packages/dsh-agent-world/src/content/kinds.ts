@@ -28,6 +28,8 @@
  * 模拟内核一行不动。这就是"方便替换升级和切换"的落点。
  */
 import type { AgentRole, AgentState, Bounds, Capability, DistrictKind, StationKind, Vec2 } from '../domain/types.js'
+import type { IdleBehaviorKind } from '../protocol/idle.js'
+import { IDLE_BEHAVIOR_KINDS } from '../protocol/idle.js'
 import type { LibraryKind, LibraryLayer } from '../protocol/library-kinds.js'
 
 // ── 库的种类 ────────────────────────────────────────────────────────────────
@@ -412,6 +414,41 @@ export interface ModelEntry {
 }
 
 /**
+ * 待命时"给自己找点事做"的行为种类（R68）。
+ *
+ * 只有三种，不是设计保守，而是**图集只有三条带**：`idle` / `walk` / `sit`，各四向 6 帧。
+ * 没有打字、喝咖啡、伸懒腰的姿势。所以取值表达的是"**用现有三条带 + 移动 + 朝向能组合出什么**"，
+ * 不是"想让他在干嘛"。要加第四种，先得有美术。
+ */
+// `IdleBehaviorKind` / `IDLE_BEHAVIOR_KINDS` 住在**协议层**（`protocol/idle.ts`）：
+// 内容与 sim 都要用它，而只有"内容 import 协议"这一个方向是允许的。
+// 这里重新导出，是为了让内容包与校验器继续从 `kinds.js` 拿到它们（少改一处 import）。
+
+/**
+ * 一条动作在**待命编排**里的参数（R68）。
+ *
+ * 为什么挂在 `ActionEntry` 上、而不是新起一个库：`actions` 库本来就是"状态 → 表现"的内容目录，
+ * 而待命行为恰恰就是"待命时播哪条带、播多久、要不要挪个地方"——同一个主语。
+ * 另起一个库要么得动协议层的 `LIBRARY_KINDS`（共享契约，且 `LIBRARY_KINDS` 与内容层的
+ * `LIBRARY_SPECS` 有测试钉着必须一一对应），要么在内容层造一个只有 sim 认识的概念。
+ *
+ * `null` = 这条动作**不参与**待命编排（它只在对应状态被渲染时用）。
+ */
+export interface IdleBehaviorSpec {
+  readonly kind: IdleBehaviorKind
+  /**
+   * 这一段持续多少个 tick。
+   *
+   * **用 tick 不用毫秒**：模拟是定步长的，用毫秒就要在 sim 里做时间换算，
+   * 而"同一 seed 同一段行为"这条确定性会立刻被挂钟时间污染。
+   */
+  readonly ticksMin: number
+  readonly ticksMax: number
+  /** `pace` 用：离歇脚点最远挪多少世界单位。其它 kind 忽略（写 0）。 */
+  readonly radius: number
+}
+
+/**
  * 动作库条目：一个 `AgentState` 的表现。
  *
  * `clip` 为 null 表示走程序化动画（起伏/挤压/倾斜）——这是零资产、零许可风险的兜底，
@@ -447,6 +484,18 @@ export interface ActionEntry {
   speedScale: number
   /** 切换到这个动作的淡入时长（ms）。 */
   fadeMs: number
+  /**
+   * 待命编排参数（R68）：`null` = 这条动作不参与"待命的人找点事做"。
+   *
+   * ⚠️ **这一个字段被两边读，语义不同**：
+   * - `sim` 在这些条目之间按 `weight` **加权挑一个**——"他此刻在干什么"；
+   * - `web` 的 `bandOfState` 取该状态下**权重最大**的那条来决定播哪条带。
+   *
+   * 后者拿不到"sim 挑了谁"（`SceneActor` 上没有"本 tick 的动作"这个字段），
+   * 所以**权重最大的那条待命动作必须带 `idle`**，否则全体待命角色的表现都会被换掉。
+   * 改权重前先读这条。
+   */
+  idle: IdleBehaviorSpec | null
 }
 
 /**
@@ -560,3 +609,6 @@ export interface PackManifest {
 
 /** 当前支持的清单格式版本。 */
 export const CONTENT_SCHEMA_VERSION = 1
+
+export type { IdleBehaviorKind }
+export { IDLE_BEHAVIOR_KINDS }

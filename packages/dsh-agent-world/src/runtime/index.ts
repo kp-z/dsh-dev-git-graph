@@ -245,7 +245,15 @@ export function createRuntime(options: RuntimeOptions): Runtime {
 
     let result: StepResult
     try {
-      result = step(world, commands)
+      // R68：把**内容里的待命行为目录**注入给 `step()`。
+      //
+      // 为什么在运行时接线而不是挂到 `World` 上：`sim/` 按边界规则不许 import 内容库，
+      // 而"每新增一个 `World` 派生字段就多一类'只在 createWorld 加了、忘了 reconcileWorld'
+      // 的 bug"——R66 刚被这个咬过（`{...world}` 的展开会掩盖漏掉的那处）。
+      // 用可选第三参注入则 `World` 形状不变、存档 schema 不变、现有调用点一行不改。
+      //
+      // 内容拿不到时传空数组 → `step` 退回"待命的人站着不动"，那是如实退化。
+      result = step(world, commands, { idleBehaviors: service.content().idleBehaviors() })
     } catch (error) {
       diagnostics.errors += 1
       options.onError?.(error)
