@@ -348,6 +348,17 @@ function validateEntryShape(
       } else {
         checkId(sink, entry.model, `${where}.model`, '站点模型 id（引用 models 库）', pack)
       }
+      if (entry.slots !== undefined) {
+        if (!Array.isArray(entry.slots) || entry.slots.length === 0) {
+          sink.error(`${where}.slots`, 'slots 给了就必须是非空数组（形如 [{x,z}]）', pack)
+        } else {
+          entry.slots.forEach((slot: unknown, i: number) => {
+            if (!isObject(slot) || typeof slot.x !== 'number' || typeof slot.z !== 'number') {
+              sink.error(`${where}.slots[${i}]`, '每个槽位必须有数字 x 与 z（相对锚点的偏移）', pack)
+            }
+          })
+        }
+      }
       if (!isObject(entry.anchor) || typeof entry.anchor.x !== 'number' || typeof entry.anchor.z !== 'number') {
         sink.error(`${where}.anchor`, '必须有 anchor.x 与 anchor.z（数字）', pack)
       }

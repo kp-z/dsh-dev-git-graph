@@ -120,41 +120,65 @@ const CHARACTERS: ReadonlyArray<readonly [string, string]> = [
 const f = (n: number): string => `model.pixel.f${n}`
 
 /**
- * **办公室怎么摆**：站点 → 部件（R54，用户要求"搞个办公室就行"）。
+ * 地板用哪一格：`16_Office_32x32.png` 的 `(col4,row80)`。
  *
- * 偏移单位是**世界单位**（1 单位 = 16 源像素，见 `scene2d.js` 的缩放约定）。
- * 所以一张 32px 宽的桌子 = 2 单位宽，而两个工位相距 2.5 单位——**摆得下，但不宽裕**。
+ * **为什么是这一格**：地砖必须**四边无缝**才能平铺，而"满铺"不等于"无缝"。
+ * 我逐格量了左右/上下两对边的逐像素相等率：
+ * `(1,4)` 看着满铺但左右/上下缝都是 **0.00**（拼起来全是线），`(4,80)` 都是 **1.00**。
  *
- * `dz` 的正方向是**屏幕下方**（世界的 +z），所以"摆在桌子前面"是正的 `dz`，
- * "贴在墙上"是负的。`dy` 是抬高（显示器摆到桌面上用）。
+ * ⚠️ 用的是**处理过的那一张**（`microverse/floors/floor-office.png`），不是图集原格。
+ * 原格亮度范围只有 176~194（极差 19/255），纹理本来就极弱；再乘上暗区色之后
+ * 纹理极差只剩 5~6 级，屏幕上就是一块纯色（R55 真机确认）。所以入库时把它
+ * 拉成 150~255、均值 248（**按比例缩放 RGB，色相不变**——只改对比度，不改图案）。
+ * 处理后再乘区色，纹理极差回到 23~32 级。
  */
-const STATION_PROPS: ReadonlyArray<readonly [string, readonly StationPropEntry[]]> = [
-  // 工位：整套工位（#227 一件就画完了桌面+键盘+鼠标+显示器）+ 一把椅子在前方。
-  ['station.desk-a', [{ model: f(227) }, { model: f(317), offset: { z: 0.85 } }, { model: f(100), offset: { x: -0.85, z: -0.35 } }]],
-  ['station.desk-b', [{ model: f(231) }, { model: f(317), offset: { z: 0.85 } }, { model: f(142), offset: { x: 0.8, z: -0.3 } }]],
-  ['station.desk-c', [{ model: f(227) }, { model: f(318), offset: { z: 0.85 } }, { model: f(98), offset: { x: 0.8, z: -0.3 } }]],
+const FLOOR_TILE = { col: 4, row: 80 }
+const FLOOR_URL = 'microverse/floors/floor-office.png'
 
-  // 评审桌：空桌面 + 两把椅子 + 一摞文件。
+/**
+ * **办公室怎么摆**：站点 → 部件 + **人站哪**（R54/R56）。
+ *
+ * 偏移单位是**世界单位**（1 单位 = 16 源像素）。一张 32px 宽的桌子 = 2 单位宽，
+ * 而两个工位相距 2.5 单位——摆得下，但不宽裕。
+ *
+ * `dz` 的正方向是**屏幕下方**（世界的 +z）：摆在桌子前面是正的 `dz`。
+ * `dy` 是抬高（显示器摆到桌面上用）。
+ *
+ * ## 第三项是 `slots`：人站在哪（R56，M10-13）
+ *
+ * 默认槽位是**以锚点为中心摊开**的，而锚点落在家具中心——于是"干活的人站在桌子里面"。
+ * 所以每个站点显式声明站位，**与上面那把椅子的偏移写在同一条里**：
+ * 椅子在 `z: 0.85`，人就站 `z: 0.85`。两件事放在一起，对不上时一眼能看出来。
+ */
+const STATION_PROPS: ReadonlyArray<
+  readonly [string, readonly StationPropEntry[], readonly { x: number; z: number }[]]
+> = [
+  // 工位：整套工位（#227 一件就画完了桌面+键盘+显示器）+ 椅子在前方 → 人站椅子上。
+  ['station.desk-a', [{ model: f(227) }, { model: f(317), offset: { z: 0.85 } }, { model: f(100), offset: { x: -0.85, z: -0.35 } }], [{ x: 0, z: 0.85 }]],
+  ['station.desk-b', [{ model: f(231) }, { model: f(317), offset: { z: 0.85 } }, { model: f(142), offset: { x: 0.8, z: -0.3 } }], [{ x: 0, z: 0.85 }]],
+  ['station.desk-c', [{ model: f(227) }, { model: f(318), offset: { z: 0.85 } }, { model: f(98), offset: { x: 0.8, z: -0.3 } }], [{ x: 0, z: 0.85 }]],
+
+  // 评审桌：两把椅子 → 两个槽位，各自对上自己的椅子。
   ['station.review-table', [
     { model: f(321) },
     { model: f(317), offset: { x: -0.6, z: 0.85 } },
     { model: f(317), offset: { x: 0.6, z: 0.85 } },
     { model: f(179), offset: { x: 0.75, z: -0.25 } },
-  ]],
+  ], [{ x: -0.6, z: 0.85 }, { x: 0.6, z: 0.85 }]],
 
-  // 机柜：机柜本体 + 旁边一台显示器（机房总得有个屏幕）。
-  ['station.server-rack', [{ model: f(203) }, { model: f(129), offset: { x: 0.9, z: 0.1 } }]],
+  // 机柜：没有椅子，人站在柜子**前面**（原来是站在柜子中心 = 穿模）。
+  ['station.server-rack', [{ model: f(203) }, { model: f(129), offset: { x: 0.9, z: 0.1 } }], [{ x: 0, z: 0.95 }]],
 
-  // 实验台：带仪器的桌面 + 椅子 + 显示器 + 盆栽。
+  // 实验台：椅子 + 显示器 + 盆栽 → 人站椅子上。
   ['station.lab-bench', [
     { model: f(322) },
     { model: f(317), offset: { z: 0.85 } },
     { model: f(127), offset: { x: -0.55, z: -0.35, y: 0.55 } },
     { model: f(99), offset: { x: 0.85, z: -0.25 } },
-  ]],
+  ], [{ x: 0, z: 0.85 }]],
 
   // 作战室：**没有现成的大会议桌**，所以用两张长桌柜拼一张（用户说"没有长桌就搞个办公室就行"）。
-  // 这是刻意的凑法，写在注释里，免得下一个人以为上游有长桌。
+  // 四把椅子两两在长边两侧 → 四个槽位各自对上。
   ['station.war-room', [
     { model: f(324), offset: { x: -0.7 } },
     { model: f(325), offset: { x: 0.7 } },
@@ -162,59 +186,26 @@ const STATION_PROPS: ReadonlyArray<readonly [string, readonly StationPropEntry[]
     { model: f(317), offset: { x: 0.7, z: 0.9 } },
     { model: f(317), offset: { x: -0.7, z: -0.9 }, rotationY: Math.PI },
     { model: f(317), offset: { x: 0.7, z: -0.9 }, rotationY: Math.PI },
-  ]],
+  ], [{ x: -0.7, z: 0.9 }, { x: 0.7, z: 0.9 }, { x: -0.7, z: -0.9 }, { x: 0.7, z: -0.9 }]],
 
-  // 告示板：白板 + 旁边一个文件柜。
-  ['station.board', [{ model: f(170) }, { model: f(200), offset: { x: -1.0, z: 0.15 } }]],
+  // 告示板：站在白板前面看。
+  ['station.board', [{ model: f(170) }, { model: f(200), offset: { x: -1.0, z: 0.15 } }], [{ x: 0, z: 0.9 }]],
 
-  // 收发室：文件匣 + 箱子（#179 是核到的最可信的"装东西"的件）。
+  // 收发室：站在柜子前面（原来是站在文件匣里）。
   ['station.mailroom', [
     { model: f(179), offset: { x: -0.35 } },
     { model: f(20), offset: { x: 0.5, z: 0.15 } },
     { model: f(98), offset: { x: 0.95, z: -0.4 } },
-  ]],
+  ], [{ x: 0, z: 0.85 }]],
 
-  // 休息区：沙发 + 饮水机 + 大盆栽 + 白板（墙上那块图表板）。
+  // 休息区：沙发**前面**站三个人（容量 3）。原来是三个槽位在沙发中心线上 = 坐在沙发里。
   ['station.breakroom', [
     { model: f(337) },
     { model: f(173), offset: { x: -1.1, z: -0.2 } },
     { model: f(339), offset: { x: 1.3, z: -0.1 } },
     { model: f(172), offset: { x: 0.2, z: -1.0 } },
-  ]],
+  ], [{ x: -0.6, z: 0.6 }, { x: 0, z: 0.6 }, { x: 0.6, z: 0.6 }]],
 ]
-
-/**
- * 地板：`16_Office_32x32.png` 的 `(col4,row80)`。
- *
- * **为什么是这一格**：地砖必须**四边无缝**才能平铺，而"满铺"不等于"无缝"。
- * 我自己逐格量了左右/上下两对边的逐像素相等率：
- *
- * | 格 | 颜色 | 左右缝 | 上下缝 | 能平铺吗 |
- * |---|---|---|---|---|
- * | `(1,4)` | 浅蓝灰 | **0.00** | **0.00** | ✗（看着满铺，其实拼起来全是线） |
- * | `(4,80)` | 浅蓝灰 | **1.00** | **1.00** | ✓ **用这个** |
- * | `(7,77)` | 深蓝灰 | 1.00 | 1.00 | ✓（备选，留给将来分区用） |
- *
- * ⚠️ 这处是**推翻了上一轮的结论**：`docs/tile-index.md` 把 `(1,4)` 当候选，
- * 但它左右缝 0.00。报告里"满铺"与"无缝"混用过，所以这里以**实测的两对边相等率**为准。
- */
-const FLOOR_TILE = { col: 4, row: 80 }
-
-/**
- * ⚠️ 用的是**处理过的那一张**（`microverse/floors/floor-office.png`），不是图集原格。原因如下。
- *
- * 原格实测：亮度均值 193、**范围只有 176~194（极差 19/255）**——纹理本来就极弱。
- * 而我们的渲染方式是"地砖 × 区色"（乘算），深色区色（亮度 ~50）会把那点起伏一起缩掉：
- * 算下来纹理极差只剩 **5~6 级**，屏幕上就是**一块纯色**（R55 真机截图确认过）。
- *
- * 所以入库时对这张砖做了**一次处理**（脚本见 `docs/tile-index.md`）：
- * 把亮度范围拉成 **150~255**、均值提到 248，**按比例缩放 RGB 所以色相不变**。
- * 处理后再乘区色，纹理极差回到 **23~32 级**——看得见了。
- *
- * 这只改**对比度与亮度**，不改图案：格子边界、材质颗粒都还在原位置。
- * 换成别的区色时要重算的是"区色亮不亮"，而不是这张图。
- */
-const FLOOR_URL = 'microverse/floors/floor-office.png'
 
 export const pixelPack: ContentPack = {
   manifest: {
@@ -304,9 +295,11 @@ export const pixelPack: ContentPack = {
 
     // 站点：复用默认包的锚点与能力，只把外观换成像素家具（与 `pack.kenney-furniture` 同一手法）。
     stations: DEFAULT_STATIONS.filter((st) => STATION_PROPS.some(([id]) => id === st.id)).map((st) => {
-      const parts = STATION_PROPS.find(([id]) => id === st.id)?.[1] ?? []
+      const spec = STATION_PROPS.find(([id]) => id === st.id)
+      const parts = spec?.[1] ?? []
+      const slots = spec?.[2] ?? []
       const { model: _single, ...rest } = st
-      return { ...rest, props: parts }
+      return { ...rest, props: parts, slots }
     }),
   },
 }

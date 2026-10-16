@@ -461,3 +461,41 @@ test('R51：外观重算是幂等的（第二次没有变化）', () => {
   assert.deepEqual(twice.world.agents.map((a) => a.modelId), once.world.agents.map((a) => a.modelId))
   assert.ok(!twice.changes.some((c) => c.includes('外观')), '第二次不该再报外观变化')
 })
+
+// ── R56：工作位不该在家具里（M10-13）─────────────────────────────────────────
+
+test('R56：站点声明的 slots 来自内容，且**不在家具中心**（否则人站在桌子里）', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const world = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
+
+  const deskA = world.stations.find((s) => s.id === 'station.desk-a')
+  assert.ok(deskA, '工位 A 要在世界里')
+  assert.ok(Array.isArray(deskA.slots) && deskA.slots.length > 0, '工位要有槽位')
+
+  // **核心不变式**：工位的站位必须在锚点**前方**（z 为正），而不是压在锚点上。
+  // 锚点落在家具中心，所以"槽位 = (0,0)"就等于"人站在桌子里"——那正是 M10-13 报的问题。
+  const slot = deskA.slots[0]
+  assert.ok(slot.z > 0.3, `工位的站位应当在桌子前方（z>0.3），实际 z=${slot.z}`)
+
+  // 而且站位要与**内容里那把椅子**对得上（同一个条目里声明的）。
+  // 椅子在 props 里是 `z: 0.85`——这里断言两者一致，防止将来只改一处。
+  const chair = deskA.parts.find((p) => p.modelId.endsWith('f317'))
+  assert.ok(chair, '工位应当有椅子（f317）')
+  assert.ok(
+    Math.abs(chair.dz - slot.z) < 1e-9,
+    `站位应当与椅子重合：椅子 dz=${chair.dz}，站位 z=${slot.z}`,
+  )
+})
+
+test('R56：没声明 slots 的站点仍然按容量摊（回退路径没断）', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  // 机柜在 pack.pixel 里声明了 slots；造一个没声明的站点来验回退。
+  const world = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
+  const review = world.stations.find((s) => s.id === 'station.review-table')
+  assert.ok(review.slots.length >= 2, '容量 2 的站点至少两个槽位')
+  // 两个槽位不该重合（重合就等于"两个人站同一个点"）。
+  const [a, b] = review.slots
+  assert.ok(Math.abs(a.x - b.x) > 1e-9 || Math.abs(a.z - b.z) > 1e-9, '同一站点的槽位不该重合')
+})

@@ -89,7 +89,11 @@ export function instantiateStation(entry: StationEntry, districts: ReadonlyMap<s
     model: parts[0]?.modelId ?? '',
     parts,
     capabilities: [...entry.capabilities],
-    slots: slotsFor(entry.capacity),
+    // 内容声明了人站哪就用它（"椅子在哪，人就站哪"），否则按容量摊一排。
+    slots:
+      entry.slots !== undefined && entry.slots.length > 0
+        ? entry.slots.map((v) => ({ x: v.x, z: v.z }))
+        : slotsFor(entry.capacity),
   }
 }
 
