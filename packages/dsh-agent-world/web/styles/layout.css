@@ -10,7 +10,10 @@
 
 .app {
   display: grid;
-  grid-template-rows: 56px 1fr;
+  /* R64：顺序是 **顶栏 → 执行看板 → 舞台 → 状态条(footer)**。
+     用户的要求是"执行看板在上面、状态条去 footer"——所以换的是**行序**，
+     顶层容器只负责排队，各自的外观仍归 CSS。 */
+  grid-template-rows: 56px auto 1fr auto;
   height: 100vh;
   background: var(--bg-1);
 }
@@ -45,6 +48,23 @@
   font-weight: 600;
   letter-spacing: 0.01em;
 }
+.footer {
+  /* R64：状态条的落脚点（用户："状态在 footer"）。视觉与顶栏同一套玻璃，只是更矮更暗。 */
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: 0 var(--s-4);
+  border-top: 1px solid var(--stroke);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  z-index: var(--z-board);
+}
+.footer .topbar-status {
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+}
+
 .topbar-status {
   flex: 1;
   display: flex;
@@ -178,15 +198,15 @@
 
 /* ── 底部看板：浮动玻璃片，**默认收起成一条摘要** ────────────────────────── */
 .board {
-  position: absolute;
-  left: var(--s-4);
-  right: var(--s-4);
-  bottom: var(--s-4);
+  /* R64：不再浮在舞台底部，而是顶栏之下的**一整行**（顺序由 .app 的网格行序决定）。 */
+  position: relative;
+  margin: var(--s-2) var(--s-4) var(--s-2);
   display: flex;
   flex-direction: column;
   /* 高度必须**确定**：`flex: 1` 的图与成员栏都靠它解析。
      只写 max-height 的话子项没有可分的空间，画布高度会退化成 0（看着像"图没画出来"）。 */
-  height: min(460px, 56vh);
+  /* 展开时高度必须**确定**（内部 flex 靠它解析）；收起时就是一行摘要，交给内容撑。 */
+  height: min(340px, 38vh);
   overflow: hidden;
   background: var(--glass-strong);
   backdrop-filter: var(--blur);
@@ -195,6 +215,10 @@
   box-shadow: var(--shadow-2);
   z-index: var(--z-board);
   transition: height var(--t-expand) var(--ease);
+}
+.board.is-collapsed {
+  /* 收起 = 一行摘要（`board.js` 会把 body 一起隐藏）——高度交给内容，别留一块空地。 */
+  height: auto;
 }
 .board.is-collapsed {
   height: 46px;

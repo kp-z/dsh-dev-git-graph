@@ -54,14 +54,19 @@
           <button id="view-3d" class="segment" type="button" role="tab" aria-selected="false">3D</button>
         </div>
 
-        <div class="topbar-status" id="status" role="status" aria-live="off">连接中…</div>
-
         <div class="commands">
           <button id="cmd-pause" class="icon-btn" type="button" title="暂停世界">⏸</button>
           <button id="cmd-resume" class="icon-btn" type="button" title="继续">▶</button>
           <button id="drawer-toggle" class="icon-btn active" type="button" title="收起 / 展开右侧抽屉">☰</button>
         </div>
       </header>
+
+      <!--
+        执行看板（R64 起在**上面**）：纯 DOM/SVG，不进渲染循环。
+        用户要求"执行看板在上面、状态条去 footer"——所以它是顶栏之下的一整行，
+        而状态条（`#status`）落到底部 footer。
+      -->
+      <section id="board" class="board" aria-label="执行看板"></section>
 
       <!-- 场景铺满工作区；面板是**浮在它上面的玻璃**（DESIGN 第三节） -->
       <main class="stage" id="stage">
@@ -113,12 +118,12 @@
           </section>
         </aside>
 
-        <!--
-          执行看板（M7-1）：纯 DOM/SVG，不进 3D 渲染循环；**默认收起成一条摘要**。
-          内部结构由 ui/board.js 建（三段式：成员 / 依赖图 / 详情）。
-        -->
-        <section id="board" class="board" aria-label="执行看板"></section>
       </main>
+
+      <!-- 状态条（R64 起在 footer）：运行中 / tick / 连接 / 渲染器读数 -->
+      <footer class="footer" id="footer">
+        <div class="topbar-status" id="status" role="status" aria-live="off">连接中…</div>
+      </footer>
     </div>
 
     <script type="module" src="./main.js"></script>

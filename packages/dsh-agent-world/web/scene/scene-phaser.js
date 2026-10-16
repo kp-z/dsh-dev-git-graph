@@ -40,6 +40,7 @@ import { parseRgb } from '../core/ground-tiles.js'
 import {
   ANCHOR_LIFT_PX,
   animationCandidates,
+  bandOfState,
   FIT,
   MAX_ZOOM,
   TILE_PX,
@@ -560,22 +561,26 @@ export function createScenePhaser(canvas, options = {}) {
         entry.sprite.setOrigin(ox, oy)
         entry.sprite.setPosition(posX, posY)
         entry.sprite.setVisible(true)
-        // **先把帧钉在一格上**：`setTexture` 之后帧是 `__BASE`（整张图），
-        // 万一下面没找到动画、或者刚好在换纹理，就会闪一帧"整张图"。
+        // `setTexture` 之后帧可能是 `__BASE`（整张图）——但**只在没有动画可播时才钉帧**。
+        // ⚠️ 这里曾经**每帧都 setFrame(第一帧)**，结果动画永远冻在第一帧：
+        // `currentAnim.key` 看着是对的，人却在原地滑（R64 逐个验方向时才逮到）。
         const firstAnim = Object.values(sheet?.animations ?? {})[0]
         const firstFrame = firstAnim === undefined
           ? 0
           : (animationFrameList(sheet, firstAnim, perRowByUrl.get(model.url) ?? 1)[0] ?? 0)
-        if (entry.sprite.frame?.name !== String(firstFrame)) entry.sprite.setFrame(firstFrame)
         // 该播哪个动画：**回退链在纯函数里**（返回候选名），`play` 交给引擎。
         // 动画按纹理分开命名（重上色纹理有它自己的一套），否则换色会串回原图。
         const animName = resolveAnimationKey((name) => activeScene.anims.exists(animKeyFor(textureKey, name)) === true, {
-          state: actor.state,
+          // **带由内容库给**（`ScenePlan.actions`）：working → sit，其余按库里的声明。
+          // 渲染器不自己编这套映射——那正是"坐着干活的人站着"那类错藏身的地方。
+          band: bandOfState(plan?.actions, actor.state),
           direction: directionOf(actor.facing),
         })
         if (animName !== null) {
           const fullKey = animKeyFor(textureKey, animName)
           if (entry.sprite.anims.currentAnim?.key !== fullKey) entry.sprite.play(fullKey, true)
+          // 正在播就**别碰帧**（碰了就成了"看着在走、其实是冻帧"）；没在播才钉第一帧
+          else if (entry.sprite.anims.isPlaying !== true) entry.sprite.setFrame(firstFrame)
         }
         const heightPx = Math.max(1, Math.round(Number(sheet.cellH) || 16))
         entry.label.setPosition(Math.round(screenX(actor.x)), Math.round(screenY(actor.z) - heightPx - 4))

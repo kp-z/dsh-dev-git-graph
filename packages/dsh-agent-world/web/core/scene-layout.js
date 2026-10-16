@@ -55,7 +55,31 @@ export function directionOf(facing) {
   return dx >= 0 ? 'right' : 'left'
 }
 
-/** 状态 → 动作名（只有两个动作；其余状态都当站着）。 */
+/**
+ * 状态 → **动画带**。以内容库 `ScenePlan.actions` 为准（它是"动作库"，渲染器只执行）。
+ *
+ * 为什么必须走它：`working` 这类状态在动作库里是**两条**动作（`action.work.sit` 带 `sit`、
+ * 权重 3；`action.work.stand` 带 `idle`、权重 1）。渲染器自己只认"walking 走、其余站着"的话，
+ * 坐着干活的人会**站着**——界面看起来完全正常，所以这种错很难发现（R64 实测到过）。
+ * 多条同状态时取**权重最大**的那条：确定、可预期，权重仍然表达"更倾向坐着"。
+ *
+ * `actions` 缺失时退回老规则（只有走路与站着）——那是回退路径，不是废弃路径。
+ */
+export function bandOfState(actions, state) {
+  if (Array.isArray(actions)) {
+    let best = null
+    for (const action of actions) {
+      if (action === null || action === undefined || action.state !== state) continue
+      if (action.band === null || action.band === undefined) continue
+      const weight = Number.isFinite(action.weight) ? action.weight : 1
+      if (best === null || weight > best.weight) best = { band: action.band, weight }
+    }
+    if (best !== null) return best.band
+  }
+  return state === 'walking' ? 'walk' : 'idle'
+}
+
+/** 状态 → 动作名（**没有动作库时的老规则**；有 `actions` 请用 `bandOfState`）。 */
 export function actionOf(state) {
   return state === 'walking' ? 'walk' : 'idle'
 }
@@ -75,7 +99,8 @@ export function keyOfAnimationName(name) {
  * `动作.方向` → `动作` → `idle.方向` → `idle`。
  */
 export function animationCandidates(input = {}) {
-  const action = actionOf(input.state)
+  // 允许直接给 `band`（内容库算出来的）；没给就按老规则从 state 推。
+  const action = input.band ?? actionOf(input.state)
   const direction = input.direction ?? null
   const out = []
   if (direction !== null) out.push(animationKey(action, direction))

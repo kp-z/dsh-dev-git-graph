@@ -15,6 +15,7 @@ import { test } from 'node:test'
 import {
   ANCHOR_LIFT_PX,
   TILE_PX,
+  bandOfState,
   worldFrame,
   FOUR_DIRECTIONS,
   actionOf,
@@ -270,4 +271,65 @@ test('整数缩放按**两个轴**算：74×42 的办公室在 1400×748 的舞�
 test('整数缩放：上限仍然生效，0 尺寸视口给 1（不返回 0 或负数）', () => {
   assert.equal(integerZoom({ viewWidth: 0, viewHeight: 0, worldPixelsW: 1184, worldPixelsH: 672 }), 1)
   assert.equal(integerZoom({ viewWidth: 99999, viewHeight: 99999, worldPixelsW: 1184, worldPixelsH: 672, maxZoom: 3 }), 3)
+})
+
+/** 真机的动作库（从 `/api/world` 抄下来的，只留与"状态→带"有关的部分）。 */
+const ACTIONS = [
+  { id: 'action.blocked', state: 'blocked', band: 'idle', weight: 1 },
+  { id: 'action.celebrate', state: 'celebrating', band: null, weight: 1 },
+  { id: 'action.idle', state: 'idle', band: 'idle', weight: 1 },
+  { id: 'action.sleep', state: 'sleeping', band: 'sit', weight: 1 },
+  { id: 'action.talk', state: 'talking', band: 'idle', weight: 1 },
+  { id: 'action.walk', state: 'walking', band: 'walk', weight: 1 },
+  { id: 'action.work.sit', state: 'working', band: 'sit', weight: 3 },
+  { id: 'action.work.stand', state: 'working', band: 'idle', weight: 1 },
+]
+
+test('状态→动画带：**以内容动作库为准**，同一状态多条时取权重最大的那条', () => {
+  // 这是 R64 实测到的真 bug：渲染器自己只认"walking 走、其余站着" → 坐着干活的人会站着
+  assert.equal(bandOfState(ACTIONS, 'working'), 'sit', 'working 有 sit(权重 3) 与 idle(权重 1) → 取 sit')
+  assert.equal(bandOfState(ACTIONS, 'walking'), 'walk')
+  assert.equal(bandOfState(ACTIONS, 'idle'), 'idle')
+  assert.equal(bandOfState(ACTIONS, 'sleeping'), 'sit', '休息也是坐着')
+  assert.equal(bandOfState(ACTIONS, 'talking'), 'idle')
+  assert.equal(bandOfState(ACTIONS, 'blocked'), 'idle')
+  // `band: null` = 这条动作没有画面表现 → 退回站立，而不是编一条带出来
+  assert.equal(bandOfState(ACTIONS, 'celebrating'), 'idle')
+  // 权重相等时取先出现的那条（确定）
+  assert.equal(bandOfState([{ state: 'working', band: 'a', weight: 2 }, { state: 'working', band: 'b', weight: 2 }], 'working'), 'a')
+})
+
+test('没有动作库时退回老规则（walking→walk，其余→idle）——回退路径不是废弃路径', () => {
+  assert.equal(bandOfState(undefined, 'working'), 'idle')
+  assert.equal(bandOfState(null, 'walking'), 'walk')
+  assert.equal(bandOfState([], 'walking'), 'walk')
+  assert.equal(bandOfState([{ state: 'working', band: 'sit' }], 'walking'), 'walk', '库里没有 walking → 老规则')
+})
+
+test('候选链按**带**走：sit 也享受同一条回退链（sit→idle→图集第一条）', () => {
+  assert.deepEqual(animationCandidates({ band: 'sit', direction: 'down' }), ['sit-down', 'sit', 'idle-down', 'idle'])
+  assert.deepEqual(animationCandidates({ band: 'walk', direction: 'left' }), ['walk-left', 'walk', 'idle-left', 'idle'])
+  assert.deepEqual(animationCandidates({ band: 'sit', direction: null }), ['sit', 'idle'])
+  // 没给 band 时按 state 推（老调用方）
+  assert.deepEqual(animationCandidates({ state: 'walking', direction: 'up' }), ['walk-up', 'walk', 'idle-up', 'idle'])
+})
+
+test('真数据：图集四条带的**行号**与线性帧号（walk=行2 / sit=行4，每行 56 格）', () => {
+  const sheet = {
+    cellW: 32, cellH: 64, rowsPerFigure: 1, anchor: 'bottom',
+    animations: {
+      'walk.right': { col: 0, row: 2, frames: 6, frameMs: 200 },
+      'walk.down': { col: 18, row: 2, frames: 6, frameMs: 200 },
+      'idle.down': { col: 18, row: 1, frames: 6, frameMs: 200 },
+      'sit.down': { col: 18, row: 4, frames: 6, frameMs: 200 },
+    },
+  }
+  const perRow = framesPerRow(sheet, 1792)      // 真图 1792×1280，格 32×64
+  assert.equal(perRow, 56)
+  // 行号 × 每行格数 = 该带第一条的线性帧号；带内再按 col 偏
+  assert.equal(animationFrameList(sheet, sheet.animations['walk.down'], perRow)[0], 2 * 56 + 18)
+  assert.equal(animationFrameList(sheet, sheet.animations['sit.down'], perRow)[0], 4 * 56 + 18)
+  assert.equal(animationFrameList(sheet, sheet.animations['sit.down'], perRow).length, 6)
+  // 行号就是"带"：walker 与 sitter 用的绝不是同一行
+  assert.notEqual(sheet.animations['walk.down'].row, sheet.animations['sit.down'].row)
 })
