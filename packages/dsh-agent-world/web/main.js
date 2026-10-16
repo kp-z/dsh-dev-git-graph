@@ -414,6 +414,8 @@ function render(force = false) {
   updateBubbles()
   // 面板只重画签名变了的东西；"他在想…（12s）"里的秒数靠这次调用更新。
   dialogue?.render(now)
+  // 视野按钮的禁用态/倍数跟着渲染层走（接口没就位时显示 —，并全部禁用）
+  syncViewControls()
 }
 
 // ── 发话（M6-5 的发送侧）──────────────────────────────────────────────────────
@@ -498,6 +500,50 @@ function bindPick(element, pick) {
 }
 
 bindPick(canvas, (clientX, clientY) => scene2d.pick({ world, scene: meta?.scene, clientX, clientY }))
+
+// ── 视野控制（R65）────────────────────────────────────────────────────────────
+//
+// 缩放/适配/复位由**渲染层**提供（R65 的视口改造）。这里只做三件事：
+// ① 把按钮接上去；② 每帧按 `viewState()` 刷新"能不能再放大/缩小"的禁用态与倍数显示；
+// ③ 接口还没就位时**明确禁用**——静默失效最难查（按钮在、点了没反应，看起来像渲染坏了）。
+const viewControls = {
+  zoomIn: document.querySelector('#cmd-zoom-in'),
+  zoomOut: document.querySelector('#cmd-zoom-out'),
+  fit: document.querySelector('#cmd-fit'),
+  reset: document.querySelector('#cmd-reset'),
+  zoomLabel: document.querySelector('#view-zoom'),
+}
+
+function viewStateOf() {
+  if (typeof scene2d.viewState !== 'function') return null
+  try {
+    return scene2d.viewState()
+  } catch {
+    return null
+  }
+}
+
+function syncViewControls() {
+  const state = viewStateOf()
+  const supports = state !== null
+  const { zoomIn, zoomOut, fit, reset, zoomLabel } = viewControls
+  if (zoomIn !== null) zoomIn.disabled = !supports || state.canZoomIn === false
+  if (zoomOut !== null) zoomOut.disabled = !supports || state.canZoomOut === false
+  if (fit !== null) fit.disabled = !supports || state.fitted === true
+  if (reset !== null) reset.disabled = !supports
+  if (zoomLabel !== null) zoomLabel.textContent = supports ? `${state.zoom}×` : '—'
+}
+
+for (const [id, method] of [['zoomIn', 'zoomIn'], ['zoomOut', 'zoomOut'], ['fit', 'fitView'], ['reset', 'resetView']]) {
+  const button = viewControls[id]
+  if (button === null) continue
+  button.addEventListener('click', () => {
+    if (typeof scene2d[method] !== 'function') return
+    scene2d[method]()
+    syncViewControls()
+  })
+}
+syncViewControls()
 bindPick(canvas3d, (clientX, clientY) => (scene3d === null ? null : scene3d.pickActor(clientX, clientY)))
 
 // ── 世界命令（暂停/继续）──────────────────────────────────────────────────────
@@ -633,6 +679,23 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     palette: (url) => scene2d.loader.palette(url),
     recolored: (url, color, variant = 0) => scene2d.loader.recoloredImage(url, color, variant),
     liveActors: () => scene2d.liveActors(world, meta?.scene ?? null),
+    // R65 视图控制：暴露出来**是为了能在页内直接验**（缩放/平移是交互，靠点按钮猜很难归因）。
+    viewState: () => (typeof scene2d.viewState === 'function' ? scene2d.viewState() : null),
+    zoomIn: () => scene2d.zoomIn?.(),
+    zoomOut: () => scene2d.zoomOut?.(),
+    fitView: () => scene2d.fitView?.(),
+    resetView: () => scene2d.resetView?.(),
+    camera: () => {
+      const scene = window.__agentWorldPhaser?.scene?.()
+      const cam = scene?.cameras?.main
+      if (cam === undefined || cam === null) return null
+      return {
+        zoom: cam.zoom,
+        scrollX: Math.round(cam.scrollX),
+        scrollY: Math.round(cam.scrollY),
+        bounds: cam._bounds ? { x: Math.round(cam._bounds.x), y: Math.round(cam._bounds.y), w: Math.round(cam._bounds.width), h: Math.round(cam._bounds.height) } : null,
+      }
+    },
   }
 
   /**

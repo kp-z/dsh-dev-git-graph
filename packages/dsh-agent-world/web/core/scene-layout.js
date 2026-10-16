@@ -232,6 +232,58 @@ export function integerZoom(input = {}) {
 }
 
 /**
+ * 用户能缩放到哪些档位（R65）——**整数倍**，所以是一个离散的阶梯，不是连续值。
+ *
+ * 为什么是"档位"而不是"连续缩放"：像素画的命是整数倍（`MAX_ZOOM` 那段注释里写了
+ * 2.5 倍会让有的像素占 2 格、有的占 3 格，整张图糊成一片）。所以滚轮不是一个连续的
+ * `zoom *= 1.1`，而是**在阶梯上走一格**——这也是为什么"缩放到某处"必须知道"当前是哪一档"。
+ *
+ * 档位从 1 开始：小于 1 会把像素画缩小采样，同样糊（而且全世界只有 1184×672，
+ * 缩到 0.5 倍时字就看不清了）。上限 `MAX_ZOOM`。
+ */
+export function zoomLevels(maxZoom = MAX_ZOOM) {
+  const top = Math.max(1, Math.floor(Number.isFinite(maxZoom) ? maxZoom : MAX_ZOOM))
+  const out = []
+  for (let z = 1; z <= top; z += 1) out.push(z)
+  return out
+}
+
+/**
+ * 适配档（"一眼看全"）：屏幕上**装得下整个取景框**的最大整数倍。
+ *
+ * 这就是 R58 起相机默认用的那个 `integerZoom`——抽出来是因为现在有两个用它的地方：
+ * 进场的默认视图，以及"复位"按钮。两处各算一份迟早会飘。
+ */
+export function fitZoom(input = {}) {
+  return integerZoom(input)
+}
+
+/**
+ * 在档位阶梯上走 `step` 格（+1 放大、-1 缩小、0 不动）。
+ *
+ * 两个边界行为是刻意的：
+ * - **越界时停在边界档**（不是回绕、也不是不变）——用户连续滚到顶再滚，应当停在最大档，
+ *   而不是突然跳回最小档；
+ * - **`levels` 为空时返回 `current`**：没有可用档位是"内容/配置不对"，
+ *   那时不动比乱动安全（渲染层不会因此白屏）。
+ *
+ * `current` 不在阶梯上时（比如窗口刚变、fit 档变了）**先归到最近的一档再走**——
+ * 否则"在 1.7 倍上滚一格"会算出 2.7 这种非整数档。
+ */
+export function steppedZoom(current, step, levels) {
+  const list = Array.isArray(levels) && levels.length > 0 ? levels : null
+  const value = Number.isFinite(current) ? current : 1
+  if (list === null) return value
+  const delta = Number.isFinite(step) ? Math.trunc(step) : 0
+  let nearest = 0
+  for (let i = 1; i < list.length; i += 1) {
+    if (Math.abs(list[i] - value) < Math.abs(list[nearest] - value)) nearest = i
+  }
+  const index = Math.min(list.length - 1, Math.max(0, nearest + delta))
+  return list[index]
+}
+
+/**
  * 平铺相位（像素）：区左边界相对**世界网格**偏了多少。
  *
  * 四个区共用同一张砖，所以相位必须按世界网格算，不能各从自己的左上角起贴

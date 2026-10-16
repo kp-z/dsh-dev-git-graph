@@ -119,7 +119,9 @@ export function createBoard(options = {}) {
   let membersOpen = true
   /** 用户手动开合过成员栏吗（手动过之后，窗口跨断点就不再替他改）。 */
   let membersUserSet = false
-  let collapsed = false
+  // R65：默认**收起**。收起 = 一行摘要（标题 + 进度条 + 计数 + "正在跑什么"），
+  // 展开才是完整工单列表——用户点「展开」是他的选择，但**默认状态不许占掉场景**。
+  let collapsed = true
   /** 重画统计（诊断用：能说清"看板到底重画了几次"）。 */
   const counters = { updates: 0, structureRebuilds: 0, stateRefreshes: 0, skipped: 0 }
   let lastStructure = null
@@ -142,6 +144,9 @@ export function createBoard(options = {}) {
     const head = el(doc, 'header', 'board-head')
     const title = el(doc, 'h2', undefined, '执行看板')
     const counts = el(doc, 'div', 'board-counts')
+    // R65：收起时不能只是"一条空进度条 + 几个数字"——把**正在跑的单子标题**摆出来，
+    // 一眼看得出这个世界此刻在干什么（用户对看板的原话就是"一整条只有进度条和数字"）。
+    const active = el(doc, 'div', 'board-active')
     // 收起时的"摘要条"：一条按状态分段的进度条（DESIGN 第三节：默认收起成计数 + 进度条）。
     // 它只在**收起**时看得见——展开时上半部分已经有完整的计数与依赖图。
     const bar = el(doc, 'div', 'board-bar')
@@ -149,7 +154,7 @@ export function createBoard(options = {}) {
     collapse.type = 'button'
     collapse.title = '展开/收起看板（看板不参与 3D 渲染，收起只是为了腾地方）'
     collapse.addEventListener('click', () => setCollapsed(!collapsed))
-    head.append(title, bar, counts, collapse)
+    head.append(title, bar, counts, active, collapse)
     counts.setAttribute('role', 'status')
 
     const missing = el(doc, 'div', 'board-missing-note')
@@ -203,10 +208,14 @@ export function createBoard(options = {}) {
     const detail = el(doc, 'footer', 'board-detail')
     root.append(head, missing, viewBar, body, detail)
     parts = {
-      counts, bar, missing, viewBar, groupChips, filterChips,
+      counts, bar, active, missing, viewBar, groupChips, filterChips,
       members, membersList, membersToggle, body, edges, canvas, fit, content, cards, detail, collapse, graphHint,
     }
     setPalette(palette)
+    // 初始状态也要**真的应用**：只改 `collapsed` 的初值、不 paint 的话，
+    // 展开/收起的类名与隐藏属性都还停在"展开"上（R65 实测到：看板默认占 306px）。
+    setCollapsed(collapsed)
+    setMembersOpen(membersOpen)
     applyNarrowDefault()
     observeSize()
   }
@@ -516,6 +525,18 @@ export function createBoard(options = {}) {
   // ── 三段：顶部计数 + 摘要进度条 + 底部详情 ─────────────────────────────────
   function renderCounts() {
     parts.counts.textContent = ''
+    // 正在跑的单子：最多两条 + "还有 N 条"
+    if (parts.active !== undefined && parts.active !== null) {
+      parts.active.textContent = ''
+      const running = (world?.tasks ?? []).filter((t) => t.status === 'in_progress')
+      for (const task of running.slice(0, 2)) {
+        const item = el(doc, 'span', 'board-active-item', `▶ ${task.title}`)
+        item.title = task.title
+        parts.active.append(item)
+      }
+      if (running.length > 2) parts.active.append(el(doc, 'span', 'board-active-more', `还有 ${running.length - 2} 条在跑`))
+      if (running.length === 0) parts.active.append(el(doc, 'span', 'board-active-more', '当前没有在跑的单子'))
+    }
     // 摘要条：一条按状态分段的横条（段宽 = 该状态的占比）。收起时它就是"离目标还有多远"。
     parts.bar.textContent = ''
     const total = Math.max(1, model.counts.total)

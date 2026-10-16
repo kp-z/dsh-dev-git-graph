@@ -38,7 +38,7 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R64 末）：`typecheck` 绿 · `test` **616 / 616 / 0 fail / 0 todo**。**寻路换成现成的 EasyStar.js**（MIT，vendored；我手搓的 A* 已按用户要求删掉），碰撞网格由原版 Godot 物理多边形解出（37×21、248 格实心、9 个房间全连通）。隔离环境用真实数据验过绕障（4/6 个途经点）✓。⚠️ **真机上仍采样到 1 点路径**，最可能是 `world.nav` 没落到运行中的世界上——**下一轮第一件事**，在那之前不能说"真机不穿墙了"。宿主常驻 bash-1210。
+当前验证状态（R65 末）：`typecheck` 绿 · `test` **622 / 622 / 0 fail / 0 todo**。**界面重构完成**（场景占 85–90%、看板收成一行摘要、footer 是 4 组读数信息带、横向溢出消除）+ **视口可缩放可平移**（全部走 Phaser 现成的 `Scale.RESIZE` / `setZoom` / `input` / `FixedKeyControl` / `setBounds`；我们只留整数倍档位与取景框两条产品规则）。真机验过：canvas 缓冲区 = CSS 尺寸、缩放序列 1→2→3→4→5 每步一致、拖拽换算对。**D56 立为硬规矩：能用 Phaser 现成的就绝不自建**。宿主常驻 bash-1344。（`world.nav` 那个未决项仍在 BACKLOG M15-2。）
 
 ---
 
@@ -4973,6 +4973,75 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 - 分支：`feat/dsh-agent-world`（从 `feat/dsh-daily` 的 HEAD 切出；**没有**动那个分支上的未提交改动）
 - 新增包：`packages/dsh-agent-world/`
 - 文档：`docs/ARCHITECTURE.md`、`docs/BACKLOG.md`、本文件、`README.md`
+---
+
+## R65 —— 界面重构 + **可缩放可平移视口**（用户需求①③④）
+
+### 用户两句话
+1. "整个界面的布局和 UI 你都要重新优化下，视野也要变成可缩放可移动的"
+2. **"phaser.io 里有可用的相机视口引擎吧，你千万别自己开发呀"** / **"反正就全部用 Phaser
+   里现成的工具设计和实现这个游戏，千万不要自己搞，你给我记住了"**
+
+第 2 句是**同一类错误的第三次**（R63 手搓 A\* → R64 准备手写视口 → R65 自己驱动画布尺寸），
+所以不只是改代码，**立成了决策 D56**（见 `ARCHITECTURE.md`）。
+
+### 我实测出来的界面问题（不是猜的）
+| 问题 | 实测 |
+|---|---|
+| **横向溢出** | 页面 1500px，`.stage` 只有 1227px（右侧被挤掉 273px） |
+| **花名册常驻遮挡** | 右侧 400px ≈ 屏幕 27%，一直盖着办公室右半边 |
+| **执行看板是细长空条** | 46px 高、只有进度条和几个数字 |
+| **状态条几乎不可见** | footer 只有 18px |
+| **canvas 绘制缓冲区 ≠ CSS 尺寸** | **1227×409 vs 1227×669**——渲染分辨率少 40%，画面被拉伸（发糊的真因） |
+
+最后一条是**真 bug**，而且成因正是"不该自己管的事自己管了"：`scale: { mode: Scale.NONE }` +
+手调 `game.scale.resize()`，R64 改布局后我们漏了一拍。**`Scale.RESIZE` 一句解决。**
+
+### 分工（按文件接缝，避免互相踩）
+- **panel（task-23）**：`index.html` / `styles/**` / `ui/**` / `main.js` 的 UI 部分
+- **lead（我）**：`scene/scene-phaser.js` + `core/scene-layout.js`（相机/缩放/平移）
+
+### 我做的（全部用 Phaser 现成的）
+| 能力 | 用的 Phaser |
+|---|---|
+| 画布跟随容器 | **`Scale.RESIZE`**（删掉 3 处手调 `game.scale.resize`） |
+| 缩放 | `camera.setZoom()`（离散整数档） |
+| 平移 | 相机 `scroll` + Phaser 的 `input` 事件 |
+| 键盘推相机 | **`Cameras.Controls.FixedKeyControl`**（WASD，它自己算速度与积分） |
+| 边界夹取 | `camera.setBounds()` |
+| 屏幕↔世界 | `camera.getWorldPoint()`（拾取与气泡锚点都走它） |
+
+**我们只保留两条引擎不可能知道的产品规则**：① 像素画必须整数倍缩放（`zoomLevels` /
+`steppedZoom` / `fitZoom` 三个纯函数 + 11 条测试）；② 取景框按地图算（`worldFrame`）。
+
+### 三个真 bug（都是"两个真相源"这一类）
+1. **`metrics()` 自己重算 zoom** → 用户放大后**名字标签与气泡留在原地**。
+   改成一律读 `camera.zoom`。
+2. **`viewState()` 报"我们记住的档位"** → 界面显示 `6×` 而**相机实际在 2**。
+   改成一律报相机真实档位（按钮禁用态也从它算）。
+3. ⚠️ **`applyCamera()` 每帧把 zoom 设回去，和 Phaser 打架**——最花时间的一个：
+   `zoomEffect` 的状态明明是对的（`progress: 1`、`source: 1`、`destination: 2`），
+   而 `camera.zoom` 读出来**始终是 1**，表现是"点了放大没反应"。
+   **根因**：我们把相机当成"自己每帧推导出来的量"，于是缓动的结果每次都被下一帧覆盖。
+   **改法**：`applyCamera()` 只管视口/边界/居中，**zoom 只由"换档"和"复位"两处显式设置**。
+   这条正是 D56 的实质：**相机是真相，我们只是操作它的手。**
+   顺带：离散档位本来也不需要缓动，`setZoom` 直接落地（`zoomTo` 的缓动在真机上没落地）。
+
+### 一个"测法错了"，值得记
+我用 `canvas.dispatchEvent(new PointerEvent('pointerdown'))` 测拖拽，得到 `dx: 0`、
+差一点就写"拖拽坏了"。加计数探针才发现：**那套合成事件根本进不了 Phaser 的输入系统**；
+换成 `MouseEvent` 立刻就通了（`hits.down 1 / move 2 / up 1`）。
+而拖拽的真实数学是对的：zoom=3 时拖 160 屏幕像素 → `scrollX +54`，理论 `160/3 = 53.3` ✓。
+**这与"用降采样截图判色"是同一类教训：测法错了会得出"功能坏了"的假结论。**
+
+### 验证（真机）
+- `typecheck` 绿；`pnpm test` **622 / 622 / 0 fail / 0 todo**（新增 11 条缩放档位测试）。
+- **canvas 缓冲区 = CSS 尺寸**（1400×658 = 1400×658）✓
+- **缩放序列**：`1→2→3→4→5→4→1`，每一步 `camera.zoom` 与 `viewState().zoom` **一致** ✓
+- **拖拽平移**：zoom=3 拖 160 屏幕像素 → `scrollX -700 → -646`（+54 ≈ 160/3）✓
+- **键盘**：`FixedKeyControl` 已接（WASD/方向键），**没在真机按过**（合成键盘事件同样进不去输入系统）。
+- 截图 `aw-r65-zoom3.png`（3× 放大、像素锐利、标签跟着缩放、控件显示 `3×`）。
+
 ---
 
 ## R64 —— 物理：**用现成的寻路库**让角色不再穿墙（用户需求②）

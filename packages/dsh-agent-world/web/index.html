@@ -80,11 +80,25 @@
 
         <div id="view-hint" class="view-hint" hidden></div>
 
-        <!-- 图例：左下角可收起的小胶囊，色值从当前场景来（内容改了图例跟着变）。 -->
-        <div id="legend" class="legend is-collapsed" aria-label="图例"></div>
+        <!--
+          R65：视图控制簇（右下角一组浮动控件）。
+          以前「图例」一个人浮在场景左下角、和内容叠着像补丁；现在它和缩放/适配/复位
+          归在同一簇里，而且**都在场景之外的那一层**（`position:absolute` 的浮层），
+          不参与场景布局。
+          缩放/适配/复位调用渲染层的 `scene2d.zoomIn/zoomOut/fitView/resetView`；
+          接口还没就位时按钮**自动禁用**（不是静默失效——静默失效最难查）。
+        -->
+        <div class="view-controls" id="view-controls" role="group" aria-label="视野控制">
+          <button id="cmd-zoom-out" class="icon-btn" type="button" title="缩小">−</button>
+          <button id="cmd-zoom-in" class="icon-btn" type="button" title="放大">＋</button>
+          <button id="cmd-fit" class="icon-btn" type="button" title="适配（整张地图完整显示）">⤢</button>
+          <button id="cmd-reset" class="icon-btn" type="button" title="复位（缩放 + 居中）">⌖</button>
+          <span class="view-zoom" id="view-zoom" aria-live="off"></span>
+          <div id="legend" class="legend is-collapsed" aria-label="图例"></div>
+        </div>
 
         <!-- 右侧浮动抽屉：花名册 / 工单两页，对话面板是同一抽屉的另一页（滑出覆盖）。 -->
-        <aside class="drawer is-open" id="drawer">
+        <aside class="drawer is-closed" id="drawer">
           <nav class="drawer-tabs" role="tablist" aria-label="抽屉页">
             <button class="drawer-tab active" type="button" role="tab" data-page="roster" aria-selected="true">花名册</button>
             <button class="drawer-tab" type="button" role="tab" data-page="tasks" aria-selected="false">工单</button>

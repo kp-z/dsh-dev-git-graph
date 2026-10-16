@@ -14,6 +14,10 @@ import { test } from 'node:test'
 
 import {
   ANCHOR_LIFT_PX,
+  MAX_ZOOM,
+  fitZoom,
+  steppedZoom,
+  zoomLevels,
   TILE_PX,
   bandOfState,
   worldFrame,
@@ -332,4 +336,50 @@ test('真数据：图集四条带的**行号**与线性帧号（walk=行2 / sit=
   assert.equal(animationFrameList(sheet, sheet.animations['sit.down'], perRow).length, 6)
   // 行号就是"带"：walker 与 sitter 用的绝不是同一行
   assert.notEqual(sheet.animations['walk.down'].row, sheet.animations['sit.down'].row)
+})
+
+// ── R65：缩放档位（可缩放视口）───────────────────────────────────────────────
+
+test('缩放档位：从 1 到 MAX_ZOOM 的整数阶梯', () => {
+  assert.deepEqual(zoomLevels(6), [1, 2, 3, 4, 5, 6])
+  assert.deepEqual(zoomLevels(1), [1])
+  // 非法/缺参数不该炸，也不该给出空阶梯（空阶梯会让"缩放"整个失效）
+  assert.deepEqual(zoomLevels(0), [1])
+  assert.deepEqual(zoomLevels(NaN), zoomLevels(MAX_ZOOM))
+})
+
+test('缩放档位：**整数倍**是像素画的命（不接受 1.5 这种档）', () => {
+  for (const z of zoomLevels(MAX_ZOOM)) assert.equal(Number.isInteger(z), true, `${z} 不是整数`)
+})
+
+test('适配档：两个轴都算（只按短边会把横着的办公室算小）', () => {
+  // 横着的舞台 + 横着的地图：短边（高）算出来更小，取小的才不会裁切
+  const fit = fitZoom({ viewWidth: 1227, viewHeight: 669, worldPixelsW: 1184, worldPixelsH: 672 })
+  assert.equal(fit, 1)
+  // 视口比地图大很多 → 最多放大到装得下的整数倍
+  assert.equal(fitZoom({ viewWidth: 4000, viewHeight: 3000, worldPixelsW: 1000, worldPixelsH: 800 }), 3)
+  // 视口极小 → 不缩到 1 以下（缩下去像素画会糊）
+  assert.equal(fitZoom({ viewWidth: 100, viewHeight: 100, worldPixelsW: 1184, worldPixelsH: 672 }), 1)
+})
+
+test('换档：越界**停在边界**，不回绕也不乱跳', () => {
+  const levels = zoomLevels(6)
+  assert.equal(steppedZoom(1, 1, levels), 2, '放大一档')
+  assert.equal(steppedZoom(6, 1, levels), 6, '到顶再放大 → 停在顶')
+  assert.equal(steppedZoom(1, -1, levels), 1, '到底再缩小 → 停在底')
+  assert.equal(steppedZoom(3, 0, levels), 3, '不动')
+})
+
+test('换档：当前值不在阶梯上时**先归到最近一档再走**', () => {
+  const levels = zoomLevels(6)
+  // 窗口刚变、fit 档变了都可能让 camera.zoom 落在非整数档上；
+  // 不归位的话"1.7 上滚"会算出 2.7 这种非整数档，像素就糊了。
+  assert.equal(steppedZoom(1.7, 1, levels), 3)
+  assert.equal(steppedZoom(1.7, 0, levels), 2)
+  assert.equal(steppedZoom(2.4, -1, levels), 1)
+})
+
+test('换档：没有可用档位时**不动**（不动比乱动安全）', () => {
+  assert.equal(steppedZoom(3, 1, []), 3)
+  assert.equal(steppedZoom(3, 1, null), 3)
 })

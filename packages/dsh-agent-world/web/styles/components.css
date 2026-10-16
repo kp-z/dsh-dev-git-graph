@@ -346,6 +346,38 @@
 }
 
 /* ── 图例：左下角可收起的小胶囊 ───────────────────────────────────────────── */
+/* R65：视图控制簇（右下角一组浮动控件：缩放/适配/复位 + 图例）。
+   它在场景**之外的那一层**，不参与场景布局、也不改变 canvas 尺寸。 */
+.view-controls {
+  position: absolute;
+  right: var(--s-3);
+  bottom: var(--s-3);
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 4px;
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-pill);
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-drawer);
+}
+.view-controls .icon-btn {
+  min-width: 28px;
+}
+.view-controls .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.view-zoom {
+  min-width: 34px;
+  text-align: center;
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+  font-variant-numeric: tabular-nums;
+}
+
 .legend {
   display: flex;
   align-items: center;

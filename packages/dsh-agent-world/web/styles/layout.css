@@ -13,12 +13,12 @@
   /* R64：顺序是 **顶栏 → 执行看板 → 舞台 → 状态条(footer)**。
      用户的要求是"执行看板在上面、状态条去 footer"——所以换的是**行序**，
      顶层容器只负责排队，各自的外观仍归 CSS。 */
-  grid-template-rows: 56px auto 1fr auto;
+  grid-template-rows: 48px auto 1fr 36px;
   height: 100vh;
   background: var(--bg-1);
 }
 
-/* ── 顶栏：56px 玻璃，单行 ────────────────────────────────────────────────── */
+/* ── 顶栏：48px 玻璃，单行（R65：从 56 收到 48，把高度让给场景）────────────── */
 .topbar {
   display: flex;
   align-items: center;
@@ -49,11 +49,13 @@
   letter-spacing: 0.01em;
 }
 .footer {
-  /* R64：状态条的落脚点（用户："状态在 footer"）。视觉与顶栏同一套玻璃，只是更矮更暗。 */
+  /* R64/R65：状态条落到 footer（用户要求）；R65 把它从 18px 抬到 **36px** 并分组，
+     让"运行中 / tick / 事件流 / seq / 渲染器 / 精灵数"成为一条**读得清的信息带**。 */
   display: flex;
   align-items: center;
   gap: var(--s-3);
   min-width: 0;
+  height: 36px;
   padding: 0 var(--s-4);
   border-top: 1px solid var(--stroke);
   background: var(--glass-strong);
@@ -63,6 +65,29 @@
 .footer .topbar-status {
   font-size: var(--fs-micro);
   color: var(--fg-2);
+  gap: var(--s-3);
+  /* 信息带里各组不换行、超出就滚动（窄窗口下宁可滚动，也不要把字挤成一坨） */
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.footer .topbar-status::-webkit-scrollbar {
+  display: none;
+}
+
+/* 状态带里的"组"：每组一个标签 + 几个读数，组间用竖线分隔 */
+.status-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex: 0 0 auto;
+}
+.status-group + .status-group {
+  padding-left: var(--s-3);
+  border-left: 1px solid var(--stroke);
+}
+.status-group-label {
+  color: var(--fg-3);
+  letter-spacing: 0.04em;
 }
 
 .topbar-status {
@@ -83,7 +108,10 @@
 .stage {
   position: relative;
   overflow: hidden;
+  /* `min-width: 0` 是 grid/flex 子项**能收缩**的前提：少了它，宽内容会把整行撑出横向溢出
+     （R65 实测到的"页面 1500、舞台只有 1227"就是这一类）。 */
   min-height: 0;
+  min-width: 0;
 }
 #town,
 #town3d {
@@ -128,8 +156,9 @@
   position: absolute;
   right: var(--s-4);
   top: var(--s-4);
-  bottom: calc(var(--s-4) + 46px + var(--s-3));
-  width: 340px;
+  /* R65：看板是网格行（不再浮在底部），所以抽屉底边只需要留出视图控制簇的位置。 */
+  bottom: calc(var(--s-4) + 44px);
+  width: 300px;
   display: flex;
   flex-direction: column;
   padding: var(--s-3);
@@ -217,8 +246,22 @@
   transition: height var(--t-expand) var(--ease);
 }
 .board.is-collapsed {
-  /* 收起 = 一行摘要（`board.js` 会把 body 一起隐藏）——高度交给内容，别留一块空地。 */
-  height: auto;
+  /* 收起 = **一行摘要**：高度给一个确定值，并且 `align-self: start`。
+     为什么要写死而不是 `auto`：board 是 grid 行里的一项，默认 `align-self: stretch`
+     会把它拉到整行高度——于是"类名挂上了、body 也隐藏了，看板还是 306px"（R65 实测）。
+     行高由这一项决定，所以 46px 就是整行的成本。 */
+  height: 46px;
+  align-self: start;
+}
+/*
+ * ⚠️ 收起时必须**用 CSS** 把 body/detail 真正拿掉。
+ * 只设 `element.hidden = true` 是不够的：`.board-body{display:flex}` 会盖掉 `[hidden]`
+ * 默认的 `display:none`（R51 踩过同一个坑）——结果是"类名挂上了、DOM 也标了 hidden，
+ * 但看板照样占 306px"，把场景挤到 398px，`clipped()` 一次报 16 个元素。
+ */
+.board.is-collapsed .board-body,
+.board.is-collapsed .board-detail {
+  display: none !important;
 }
 .board.is-collapsed {
   height: 46px;

@@ -34,7 +34,7 @@
  * 2. **拾取用精灵自己的包围盒**（`getBounds()`，与 `setInteractive` 的命中几何同一份）：
  *    R57 的拾取是"脚下 ±16px 的圆"，实测角色的头/身体 3/4 点不中（R58 查清的死角）。
  */
-import { CANVAS, Game, Scale, Scene, WEBGL } from 'phaser'
+import { CANVAS, Cameras, Game, Scale, Scene, WEBGL } from 'phaser'
 
 import { parseRgb } from '../core/ground-tiles.js'
 import {
@@ -47,14 +47,17 @@ import {
   animationFrameList,
   directionOf,
   frameRateOf,
+  fitZoom,
   framesPerRow,
   integerZoom,
   keyOfAnimationName,
   liveActors as liveActorsOf,
   originOf,
   resolveAnimationKey,
+  steppedZoom,
   tilePhasePx,
   worldFrame,
+  zoomLevels,
 } from '../core/scene-layout.js'
 import { assignColorVariants } from '../core/pixel-recolor.js'
 import { createSheetLoader } from './sheet-loader.js'
@@ -146,6 +149,16 @@ export function createScenePhaser(canvas, options = {}) {
   }
   let game = null
   let activeScene = null
+  /**
+   * 用户选的缩放档（R65）。`null` = **跟随适配**（窗口变大变小都自动"一眼看全"）；
+   * 一旦用户滚过轮/按过缩放键，就锁成具体档位，不再被窗口尺寸改掉——
+   * "我放大看了半天，一拉窗口又跳回去了"是最烦人的那种交互。
+   */
+  let userZoom = null
+  /** 相机移动控制（键盘）。Phaser 自带，不自己写积分。 */
+  let keyControl = null
+  /** 下一次 `applyCamera()` 是否要居中（进场与"复位"要，用户拖动后不要）。 */
+  let centerOnNextApply = true
   let lastRenderInput = null
   let pendingSize = null
   let assetsPlanned = false
@@ -172,11 +185,11 @@ export function createScenePhaser(canvas, options = {}) {
   const screenX = (worldX) => metrics().toX(worldX)
   const screenY = (worldZ) => metrics().toY(worldZ)
 
-  function zoomNow() {
+  /** 适配档："一眼看全"的最大整数倍（两个轴都算——只按短边会把横着的办公室算小）。 */
+  function fitZoomNow() {
     const { width, height } = viewSize(live.canvas)
     const frame = worldFrame(state.plan)
-    // 按两个轴算：74×42 的办公室和 1400×748 的舞台都是横的，只按短边算会看不清
-    return integerZoom({
+    return fitZoom({
       viewWidth: width,
       viewHeight: height,
       worldPixelsW: frame.worldPxW,
@@ -186,7 +199,39 @@ export function createScenePhaser(canvas, options = {}) {
     })
   }
 
+  /** 可用档位：**从适配档往上**。比"一眼看全"更小没有意义（画面缩成一小块）。 */
+  function levelsNow() {
+    const fit = fitZoomNow()
+    return zoomLevels(MAX_ZOOM).filter((z) => z >= Math.max(1, fit))
+  }
+
+  /**
+   * **当前档位**：用户选过就用用户的，没选过就跟随适配。
+   *
+   * 这是缩放这件事**唯一的真相**——相机、气泡锚点、拾取换算全从它读。
+   * 各处自己算一份的话，会出现"画面缩放了但名字没跟着动"这类错位。
+   */
+  function zoomNow() {
+    return userZoom === null ? fitZoomNow() : userZoom
+  }
+
   /** 世界像素 ↔ 相机（缩放归相机，显示对象一律 scale 1）。 */
+  /**
+   * 把相机的取景框与缩放对齐到当前状态。
+   *
+   * ## 顺序很重要（R65 踩到的坑）
+   *
+   * 我第一版按"zoom → bounds → center → scroll"写，真机上缩放会**莫名其妙掉回 1**。
+   * 两个原因叠在一起：
+   * ① `applyCamera()` 用**当前 zoom** 算 `setBounds` 的 padding——而缩放动画期间
+   *    `camera.zoom` 是中间值（1.0 → 2.0 之间），于是边界被算成"中间档"的尺寸，
+   *    动画结束后就卡在那个错的边界上（实测 `scrollX -700`，而 zoom=2 时本该是 `-942`）。
+   * ② 更根本的：**边界不该依赖当前档位**。Phaser 的 `setBounds` 是"相机能走到哪"，
+   *    它属于**世界**（地图多大），不属于**视口**（我这一刻看多大）。
+   *    所以 padding 只在"世界比**最小**视口还小"时才有意义——用**适配档**算一次就够。
+   *
+   * 现在的顺序：**先定边界（只看世界与适配档）→ 再设 zoom → 最后按需居中/夹取**。
+   */
   function applyCamera() {
     if (activeScene === null) return
     const { width, height } = viewSize(live.canvas)
@@ -194,23 +239,43 @@ export function createScenePhaser(canvas, options = {}) {
     // ⚠️ 显示对象摆的是**世界像素**（1 旧世界单位 = 16 世界像素），所以相机只要
     // 整数倍缩放本身；写成 `integerZoom × TILE_PX` 的话，256 像素的小镇会被放大 32 倍，
     // 相机只看得到 44×23 像素的一角（R58 踩过这个坑）。
-    const zoom = zoomNow()
     const frame = worldFrame(state.plan)
     camera.setViewport(0, 0, width, height)
-    camera.setZoom(zoom)
+    // ⚠️⚠️ **不在这里设 zoom**（R65 查了很久的一个真 bug）。
+    //
+    // 我原来的写法是"每帧把 `camera.zoom` 对齐到 `zoomNow()`"。那和 Phaser 的相机**打架**：
+    // 实测 `zoomEffect` 明明跑完了（`progress: 1`、`source: 1`、`destination: 2`），
+    // 而 `camera.zoom` 读出来还是 1——**缓动的结果每次都被我们下一帧覆盖掉**，
+    // 表现就是"点了放大没反应"。中间加 `zoomAnimating` 标志只是把症状挪了个位置
+    //（动画期间不设 → 动画完成那一帧又被设回去）。
+    //
+    // 正确的分工（D56：相机是真相，我们只是操作它的手）：
+    //   · **谁改 zoom**：只有 `applyZoomStep`（走 `zoomTo`）与 `resetView`（走 `setZoom`）；
+    //   · **`applyCamera()` 只管引擎不该被我们猜的那部分**：视口尺寸、世界边界、居中。
+    // 换句话说：**zoom 是相机的状态，不是我们每帧重新推导出来的量。**
     // 取景框交给引擎：`setBounds` 负责"别移出世界"，`centerOn(0,0)` 负责居中。
     // 世界坐标**中心为 0**，所以边界从 `(-halfW, -halfH)` 起、宽高各是世界像素尺寸。
     // ⚠️ 世界比视口**小**时（办公室 1184×672 vs 舞台 1400×748）边界会把滚动夹到左/上，
     // 结果整张图贴在左上角；所以要按差额**向外留 padding**，留出居中的空间。
-    const padX = Math.max(0, (width / zoom - frame.worldPxW) / 2)
-    const padY = Math.max(0, (height / zoom - frame.worldPxH) / 2)
+    // 世界比视口小时留 padding 让它能居中；**比视口大时 pad=0**，
+    // 否则会多出一圈空白、拖到底也看不到地图边缘。
+    // ⚠️ padding 用**适配档**算，不用当前档——否则缩放动画的中间值会把边界算错，
+    // 而且"放大之后边界反而变小"（越放大越走不出去）这种反直觉行为就是从这里来的。
+    const fit = fitZoomNow()
+    const padX = Math.max(0, (width / fit - frame.worldPxW) / 2)
+    const padY = Math.max(0, (height / fit - frame.worldPxH) / 2)
     camera.setBounds(
       frame.originPxX - padX,
       frame.originPxY - padY,
       frame.worldPxW + padX * 2,
       frame.worldPxH + padY * 2,
     )
-    camera.centerOn(0, 0)
+    // ⚠️ **只有"跟随适配"时才居中**。用户拖过之后每次 `applyCamera()` 都 `centerOn(0,0)`
+    // 会把他拖到的位置一直拽回中央——那正是"拖不动"这种 bug 的成因。
+    if (centerOnNextApply === true) {
+      camera.centerOn(0, 0)
+      centerOnNextApply = false
+    }
     // **把滚动量取整**，否则半像素的相机位移会让整张图糊掉
     camera.setScroll(Math.round(camera.scrollX), Math.round(camera.scrollY))
     const ui = activeScene.uiCamera
@@ -218,6 +283,168 @@ export function createScenePhaser(canvas, options = {}) {
       ui.setViewport(0, 0, width, height)
       ui.setZoom(1)
       ui.setScroll(0, 0)
+    }
+  }
+
+  // ── 视图控制（R65）：**缩放/平移全部交给 Phaser 的相机** ─────────────────────
+  //
+  // 为什么不自写：我这一轮本来准备手写"滚轮 → 改 zoom、拖拽 → 改 scroll"，
+  // 用户当场拦下——"phaser.io 里有可用的相机视口引擎吧，你千万别自己开发呀"。
+  // 这与 D53（少自己造引擎）是同一条，而且这已经是第三次（物理 → 寻路 → 相机）。
+  //
+  // Phaser 3.90 现成的（我在浏览器里逐个验过存在）：
+  //   · `camera.zoomTo(zoom, ms, ease)`  —— 带缓动的缩放
+  //   · `camera.pan(x, y, ms, ease)`     —— 带缓动的平移
+  //   · `camera.setBounds(...)`          —— 边界夹取
+  //   · `Phaser.Cameras.Controls.FixedKeyControl` —— 键盘推相机（它自己算速度与积分）
+  //   · `input.on('wheel')` / `pointermove` —— 输入事件
+  //
+  // **我们只保留两条引擎不可能知道的产品规则**：① 像素画必须整数倍缩放（离散档位）；
+  // ② 取景框按地图算（`worldFrame`）。其余一律不自己算。
+
+  /** 缩放动画时长（毫秒）。太短像瞬移、太长像卡住。 */
+  const ZOOM_MS = 180
+  /** 键盘推相机的速度（像素/秒）。 */
+  const KEY_SPEED = 420
+
+  /**
+   * 换档：`step` = +1 放大 / -1 缩小。**用 Phaser 的 `camera.setZoom()` 直接设**。
+   *
+   * ## 为什么不用 `zoomTo`（缓动）
+   *
+   * 我原来用 `camera.zoomTo(target, 180, 'Sine.easeOut')`，真机上排查了很久：
+   * 特效的状态是**对的**（`progress: 1`、`source: 1`、`destination: 2`、`isRunning` 从 true
+   * 变 false），但 `camera.zoom` 读出来**始终是 1**。也就是说缓动的结果没有落到相机上。
+   *
+   * 我没有继续往 Phaser 内部挖——因为**这一档产品需求本来就不需要缓动**：
+   * "点一下放大一档"是**离散操作**（整数倍阶梯），要的是**立刻、确定**地到那一档。
+   * `setZoom` 就是引擎为这件事提供的 API，行为直接、没有中间态、也不会和任何东西打架。
+   *
+   * 需要缓动的是**滚轮连续缩放**与相机跟随，那是另一件事（真要做，用 Phaser 的
+   * `camera.pan` / 特效时再单独验一次，并且**必须在真机上确认结果落地**）。
+   */
+  function applyZoomStep(step) {
+    if (activeScene === null) return
+    const camera = activeScene.cameras.main
+    // 起点用**相机真实档位**（连按两次时，"我们记住的档位"可能与相机不一致）。
+    const current = camera.zoom || zoomNow()
+    const target = steppedZoom(current, step, levelsNow())
+    if (target === current) return
+    userZoom = target
+    camera.setZoom(target)
+    // 档位变了 → 世界相对视口的大小变了 → 边界要重算（padding 从"留白"变成 0）。
+    applyCamera()
+    notifyViewChange()
+  }
+
+  /** 适配：让整张地图完整显示（= 回到适配档 + 居中）。 */
+  function fitView() {
+    resetView()
+  }
+
+  /** 复位：回到适配档并居中（用户按住拖了半天之后想"回到全景"）。 */
+  function resetView() {
+    userZoom = null
+    centerOnNextApply = true
+    // 复位是**显式设 zoom**（不带动画：用户按"复位"要的是"立刻回到全景"）。
+    // `applyCamera()` 已经不管 zoom 了，所以这里必须自己设——这是唯一两个改 zoom 的地方之一。
+    if (activeScene !== null) activeScene.cameras.main.setZoom(fitZoomNow())
+    applyCamera()
+    notifyViewChange()
+  }
+
+  /** 视图变了（缩放/复位）→ 通知外壳刷新按钮禁用态与倍数。 */
+  function notifyViewChange() {
+    if (typeof options.onViewChange === 'function') {
+      options.onViewChange(viewState())
+    }
+  }
+
+  /**
+   * 当前视图状态（外壳用它刷新按钮禁用态与倍数显示）。
+   *
+   * ⚠️ **`zoom` 一律报相机的真实档位**，不报 `userZoom`。
+   *
+   * 我第一版报的是 `zoomNow()`（= 我们记住的档位），真机上当场露馅：
+   * **界面显示 `6×` 而相机实际在 `2`**——两个真相源，而且用户看到的倍数与画面不符。
+   * 这与 D56 是同一条：**相机是真相，我们只是操作它的手**。
+   * 按钮的禁用态也必须从真实档位算，否则会在"已经到顶"时还给一个能按的按钮。
+   */
+  function viewState() {
+    const fit = fitZoomNow()
+    const levels = levelsNow()
+    const camera = activeScene?.cameras?.main
+    const zoom = camera === undefined || camera === null ? zoomNow() : (camera.zoom || 1)
+    const top = levels[levels.length - 1] ?? zoom
+    const bottom = levels[0] ?? zoom
+    return {
+      zoom,
+      fit,
+      minZoom: bottom,
+      maxZoom: top,
+      canZoomIn: zoom < top,
+      canZoomOut: zoom > bottom,
+      // `fitted` = 还在"一眼看全"那一档。
+      fitted: zoom === fit,
+    }
+  }
+
+  /**
+   * 接输入到 Phaser 的相机上。
+   *
+   * ⚠️ 用 `scene.input`（**不是 DOM 监听**）：Phaser 已经处理了画布缩放/指针坐标换算，
+   * 自己挂 `canvas.addEventListener` 的话，指针位置要再算一遍设备像素比与画布偏移——
+   * 而那份换算引擎已经有了（`camera.getWorldPoint`）。
+   */
+  function wireViewControls(scene) {
+    const camera = scene.cameras.main
+
+    // 滚轮缩放：**在档位阶梯上走一格**（不是连续的 `zoom *= 1.1`）。
+    scene.input.on('wheel', (_pointer, _objects, _dx, dy) => {
+      if (dy === 0) return
+      applyZoomStep(dy > 0 ? -1 : 1)
+    })
+
+    // 拖拽平移：按住画布拖动相机。位移**除以 zoom**——`scrollX` 是世界像素，
+    // 而指针位移是屏幕像素；不除的话放大后"拖一格跳很远"。
+    let dragging = false
+    let lastX = 0
+    let lastY = 0
+    scene.input.on('pointerdown', (pointer) => {
+      // 点在角色上时不进入拖拽（否则"点人"会变成"拖地图"，选不中）。
+      if (pointer.rightButtonDown()) return
+      dragging = true
+      lastX = pointer.x
+      lastY = pointer.y
+    })
+    scene.input.on('pointermove', (pointer) => {
+      if (dragging !== true || pointer.isDown !== true) return
+      const zoom = camera.zoom || 1
+      const dx = (pointer.x - lastX) / zoom
+      const dy = (pointer.y - lastY) / zoom
+      lastX = pointer.x
+      lastY = pointer.y
+      // 直接改 scroll 并立即夹取：拖拽要跟手，**不能**走 `pan()` 的缓动（那会有拖影感）。
+      camera.setScroll(camera.scrollX - dx, camera.scrollY - dy)
+      camera.setScroll(Math.round(camera.scrollX), Math.round(camera.scrollY))
+    })
+    scene.input.on('pointerup', () => {
+      dragging = false
+    })
+    scene.input.on('pointerupoutside', () => {
+      dragging = false
+    })
+
+    // 键盘推相机：**用 Phaser 自带的 FixedKeyControl**，它自己算速度与积分。
+    if (scene.input.keyboard !== null && scene.input.keyboard !== undefined) {
+      keyControl = new Cameras.Controls.FixedKeyControl({
+        camera,
+        left: scene.input.keyboard.addKey('A'),
+        right: scene.input.keyboard.addKey('D'),
+        up: scene.input.keyboard.addKey('W'),
+        down: scene.input.keyboard.addKey('S'),
+        speed: KEY_SPEED / 1000,
+      })
     }
   }
 
@@ -252,14 +479,31 @@ export function createScenePhaser(canvas, options = {}) {
       main.ignore(this.layers.labels)
       this.uiCamera.ignore([this.layers.ground, this.layers.props, this.layers.actors, this.layers.notes])
       buildAnims()
+      wireViewControls(this)
       activeScene = this
       // 计数必须在**渲染器真的存在**之后装：`new Game()` 之后那一刻 renderer 还没建出来，
       // 在构造后立刻装的那一版被守卫挡掉了 —— 表现是 drawCalls 永远是 0。
       installFrameCounter(this.game)
       state.ready = true
+      // 进场：把 zoom 定到适配档（`applyCamera()` 不再管 zoom，所以这里显式设一次）。
+      this.cameras.main.setZoom(fitZoomNow())
       applyCamera()
       if (lastRenderInput !== null) render(lastRenderInput)
       if (typeof options.onReady === 'function') options.onReady()
+    }
+
+    /**
+     * 每帧：推进键盘相机控制（R65）。
+     *
+     * `FixedKeyControl` 是 Phaser 的**有状态**控制器——它自己记按键、自己按 delta 积分，
+     * 所以必须每帧喂它 delta。放在场景的 `update()` 里是引擎的标准位置
+     *（`Scene.update(time, delta)` 由 Phaser 主循环调用）。
+     */
+    update(_time, delta) {
+      if (keyControl !== null && keyControl !== undefined) keyControl.update(delta)
+      // 拖拽/键盘动过相机之后把滚动量取整，否则半像素会让整张图糊掉。
+      const camera = this.cameras.main
+      camera.setScroll(Math.round(camera.scrollX), Math.round(camera.scrollY))
     }
   }
 
@@ -727,9 +971,11 @@ export function createScenePhaser(canvas, options = {}) {
     state.nowMs = Number.isFinite(input.nowMs) ? input.nowMs : (globalThis.performance?.now?.() ?? 0)
 
     if (state.ready !== true || activeScene === null) {
-      // 还没 create：只把尺寸对上；资产等 create 之后按需加载
-      const size = pendingSize ?? initial
-      if (game !== null) game.scale.resize(size.width, size.height)
+      // 还没 create：尺寸**交给 Scale Manager**（`Scale.RESIZE` 会跟着父容器走），
+      // 我们不再手调 `game.scale.resize()`——R65 之前那版手调过一次，
+      // 真机上漏了一拍（缓冲区 1227×409 vs CSS 1227×669）。
+      // 这里只记下"想要多大"，create 之后由引擎与 `applyCamera()` 各自负责自己那半。
+      pendingSize = pendingSize ?? initial
       return
     }
 
@@ -832,15 +1078,13 @@ export function createScenePhaser(canvas, options = {}) {
     const { width, height } = viewSize(live.canvas)
     const plan = scene ?? state.plan
     const frame = worldFrame(plan)
-    // **和相机同一套算法**（都走世界取景框）：两处各算一份的话，气泡锚点会慢慢偏
-    const zoom = integerZoom({
-      viewWidth: width,
-      viewHeight: height,
-      worldPixelsW: frame.worldPxW,
-      worldPixelsH: frame.worldPxH,
-      fit: FIT,
-      maxZoom: MAX_ZOOM,
-    })
+    // ⚠️ **以相机的真实 zoom 为准**，不在这里重算。
+    // R65 加了用户缩放之后，"重新算一遍适配档"就成了错的——用户放大到 4 倍时
+    // 这里会算出 1，于是**名字标签与气泡会留在原地、而画面已经放大**（错位得很明显）。
+    // R62 已经因为"理想居中 vs 相机真实滚动"差过 108/38 像素，同一个坑不要再踩第二次：
+    // **凡是相机状态，一律读相机本身**；没有相机（还没起来）才退回适配档。
+    const camera = activeScene?.cameras?.main
+    const zoom = camera === undefined || camera === null ? fitZoomNow() : (camera.zoom || 1)
     const scale = TILE_PX * zoom
     return {
       width,
@@ -871,7 +1115,10 @@ export function createScenePhaser(canvas, options = {}) {
   function resize() {
     const size = viewSize(live.canvas)
     if (game !== null && state.ready === true) {
-      game.scale.resize(size.width, size.height)
+      // ⚠️ `Scale.RESIZE` 模式下**不要再手调 `game.scale.resize()`**（R65）。
+      // 引擎已经在监听父容器、自己同步画布缓冲区；再手调一次是重复劳动，
+      // 而且会走一遍引擎的 resize 流程（真机上表现为"缩放被重置"）。
+      // 这里只做引擎不管的那件事：**按新视口重新取景**。
       applyCamera()
     } else {
       pendingSize = size
@@ -947,8 +1194,17 @@ export function createScenePhaser(canvas, options = {}) {
       antialias: false,
       banner: false,
       audio: { noAudio: true },
-      // 尺寸由 DOM/CSS 决定 → 不让 Scale Manager 接管
-      scale: { mode: Scale.NONE, width: size.width, height: size.height },
+      // ⚠️ **`Scale.RESIZE`：让 Phaser 的 Scale Manager 跟着容器走**（R65）。
+      //
+      // 原来是 `Scale.NONE` + 我们自己调 `game.scale.resize()`，注释还写着"尺寸由 DOM 决定、
+      // 不让 Scale Manager 接管"。那个自驱版本真机实测漏了一次：**画布的绘制缓冲区是
+      // 1227×409，而 CSS 显示尺寸是 1227×669**——渲染分辨率比显示少了 40%，
+      // 画面是被拉伸上去的（看着发糊就是这个原因）。R64 改了布局（多出看板行与 footer），
+      // 我们的 `resize()` 没跟着跑。
+      //
+      // 现在交给引擎：`RESIZE` 会监听父容器尺寸并同步画布缓冲区——**"容器变了要跟着变"
+      // 这件事本来就不该由业务代码维护**（这条和物理/寻路/相机是同一个道理）。
+      scale: { mode: Scale.RESIZE, parent: live.canvas.parentElement ?? undefined, width: size.width, height: size.height },
       scene: AgentWorldScene,
     })
     activeScene = game.scene.getScene('world') ?? null
@@ -1014,6 +1270,12 @@ export function createScenePhaser(canvas, options = {}) {
     resize,
     render,
     pick,
+    // ── 视图控制（R65）：外壳的 − ＋ ⤢ ⌖ 四个按钮接这几个 ────────────────────
+    zoomIn: () => applyZoomStep(1),
+    zoomOut: () => applyZoomStep(-1),
+    fitView,
+    resetView,
+    viewState,
     anchorOf,
     metrics,
     liveActors: liveActorsOf,

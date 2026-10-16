@@ -29,7 +29,11 @@ export function createTopbar(options) {
   const doc = options.document ?? globalThis.document
   const root = options.root
   const ready = root !== null && root !== undefined
-  const $status = ready ? root.querySelector('.topbar-status') : null
+  // ⚠️ R65 修：状态条在 R64 就从顶栏搬到了 footer（用户要求"状态在 footer"），
+  // 而这里还在 `root`（= `#topbar`）**里面**找它 → 找不到 → `render()` 每帧直接返回，
+  // 于是 footer 永远停在初始的"连接中…"（界面看起来正常，其实整条状态带是死的）。
+  // 现在两处都找：顶栏里没有就从文档里找。
+  const $status = ready ? (root.querySelector('.topbar-status') ?? doc.querySelector('.topbar-status')) : null
   const $top = ready ? root.querySelector('#view-top') : null
   const $three = ready ? root.querySelector('#view-3d') : null
   const $pause = ready ? root.querySelector('#cmd-pause') : null
@@ -72,18 +76,32 @@ export function createTopbar(options) {
     const flying = world.messages.filter((m) => (m.deliverAtTick ?? 0) > tick).length
     const stale = silentForMs > (info.staleAfterMs ?? 8000)
 
+    // R65：把这一串读数**分组**——一条信息带要有"哪里是哪里"，而不是一坨小字挤在左边。
+    const group = (label, items) => {
+      const inner = items.filter(Boolean).join('')
+      if (inner === '') return ''
+      return `<span class="status-group"><span class="status-group-label">${label}</span>${inner}</span>`
+    }
     const chips = [
-      world.paused ? chip('已暂停', 'warn') : chip('运行中', 'ok'),
-      chip(`tick <b>${tick}</b>`, 'mono'),
-      connected ? chip('事件流已连接', 'ok') : chip('事件流重连中', 'warn'),
-      // 数据旧了必须说出来：否则"画面不动"会被理解成"世界停了"，而那是两件事。
-      stale ? chip(`${Math.round(silentForMs / 1000)} 秒没收到事件`, 'warn') : '',
-      waiting > 0 ? chip(`${waiting} 句话在等回复`, 'warn') : '',
-      (meta.persistErrors ?? 0) > 0 ? chip(`落盘失败 ${meta.persistErrors} 次`, 'danger') : '',
-      flying > 0 ? chip(`飞行中纸条 ${flying}`, 'dim') : '',
-      stateText === '' ? '' : chip(stateText, 'dim', ' chip-optional'),
-      info.perf === undefined || info.perf === '' ? '' : chip(info.perf, 'mono', ' chip-optional'),
-      chip(`seq ${nextSeq}`, 'dim', ' chip-optional'),
+      group('运行', [
+        world.paused ? chip('已暂停', 'warn') : chip('运行中', 'ok'),
+        chip(`tick <b>${tick}</b>`, 'mono'),
+        // 数据旧了必须说出来：否则"画面不动"会被理解成"世界停了"，而那是两件事。
+        stale ? chip(`${Math.round(silentForMs / 1000)} 秒没收到事件`, 'warn') : '',
+      ]),
+      group('事件流', [
+        connected ? chip('已连接', 'ok') : chip('重连中', 'warn'),
+        chip(`seq <b>${nextSeq}</b>`, 'mono'),
+        (meta.persistErrors ?? 0) > 0 ? chip(`落盘失败 ${meta.persistErrors} 次`, 'danger') : '',
+      ]),
+      group('角色', [
+        stateText === '' ? '' : chip(stateText, 'dim', ' chip-optional'),
+        waiting > 0 ? chip(`${waiting} 句话在等回复`, 'warn') : '',
+        flying > 0 ? chip(`飞行中纸条 ${flying}`, 'dim') : '',
+      ]),
+      group('渲染', [
+        info.perf === undefined || info.perf === '' ? '' : chip(info.perf, 'mono', ' chip-optional'),
+      ]),
     ]
       .filter(Boolean)
       .join('')

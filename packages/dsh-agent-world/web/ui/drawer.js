@@ -25,7 +25,9 @@ export function createDrawer(options) {
   const doc = options.document ?? globalThis.document
   const root = options.root
   const ready = root !== null && root !== undefined
-  let open = true
+  // R65：默认**收起**。抽屉是浮在场景上的（300px ≈ 屏幕 21%），常驻就等于把主角挡掉一块。
+  // 状态只有这一份（DOM 类只是它的投影）——所以"默认收起"改这里，不改 HTML 的类名。
+  let open = false
   let page = 'roster'
 
   const pages = ready ? [...root.querySelectorAll('.drawer-page')] : []
