@@ -65,6 +65,17 @@ export const VENDOR_WHITELIST: readonly string[] = [
     'cardboardBoxClosed', 'cardboardBoxOpen', 'trashcan', 'radio',
     'televisionVintage', 'plantSmall1', 'plantSmall2', 'pottedPlant',
   ].map((name) => `kenney-furniture/${name}.glb`),
+
+  // ── 2D 像素资源（R50，D49）：**按目录前缀开放** ────────────────────────────────
+  //
+  // 为什么不再逐个列举：这一批是 **1720 个文件、11 个 CC0 包**（见 `docs/PIXEL-ASSETS.md`），
+  // 手抄 1720 行既不可读、也会在下一次补资源时漏掉（漏掉的表现是"图裂了"，很难归因到白名单）。
+  // 而这些包的**授权是整包一致的**（每个包目录里都有上游 `LICENSE.txt` 原文 + sha256，逐包核过），
+  // 所以"整个目录可服务"与"逐个文件可服务"在安全上是同一件事——**只要路径解析收紧**（见 `isAllowedVendorPath`）。
+  //
+  // 注意：目录前缀**只给像素资源**。three 与 Kenney 的 GLB 仍是逐个列举——
+  // 那是"渲染器现在要用什么"的清单，收紧它有价值。
+  'pixel/',
 ]
 
 /**
@@ -103,10 +114,10 @@ export function vendorRoutes(rootDir: string): RouteEntry[] {
       pattern: '/vendor/*',
       handler: async ({ pathname, res }) => {
         const name = pathname.slice('/vendor/'.length)
-        if (!VENDOR_WHITELIST.includes(name)) {
+        if (!isAllowedVendorPath(name)) {
           throw new HttpError(
             404,
-            `不在白名单里的第三方资源 "${name}"。已开放 ${VENDOR_WHITELIST.length} 个文件，例如：` +
+            `不在白名单里的第三方资源 "${name}"。已开放 ${VENDOR_WHITELIST.length} 个条目，例如：` +
               `${VENDOR_WHITELIST.slice(0, 4).join(' / ')} …`,
           )
         }
@@ -165,6 +176,41 @@ export function extensionOf(path: string): string {
  */
 export function vendorFileNames(): string[] {
   return [...VENDOR_WHITELIST].sort()
+}
+
+/**
+ * 这条请求路径能不能服务（R50：白名单支持**目录前缀**）。
+ *
+ * 两条规则：
+ * 1. 白名单里的**确切路径**永远可以（老行为不变）；
+ * 2. 以 `/` 结尾的白名单条目是**目录前缀**，其后任何文件都可以——**但路径必须先过关**。
+ *
+ * 为什么单独一个纯函数：这是**安全边界**，而边界要被穷举测试（`..`、绝对路径、空段、
+ * 编码过的斜杠…）。混在 handler 里就只能靠发请求去试，测不全。
+ *
+ * @param name - 已由 `matchPath` 逐段解码并重新用 `/` 拼好的相对路径。
+ */
+export function isAllowedVendorPath(name: string): boolean {
+  if (VENDOR_WHITELIST.includes(name)) return true
+  if (!isSafeRelativePath(name)) return false
+  return VENDOR_WHITELIST.some((entry) => entry.endsWith('/') && name.startsWith(entry))
+}
+
+/**
+ * 相对路径安全吗。
+ *
+ * 收紧到什么程度：**只允许** `[A-Za-z0-9._-]` 组成的段、用 `/` 分隔、至少两段
+ * （必须落在某个目录里）、且没有空段。于是 `..`、`.`、绝对路径、`~/`、空字节、
+ * 反斜杠、以及 Windows 盘符都进不来——**不靠"拼接前替换掉 `..`"那种补丁**。
+ *
+ * 为什么要求至少两段：单段路径（`pixel` 这种）是目录本身，没有 servable 的内容，
+ * 而"能服务一个目录"没有意义（我们要么服务文件、要么什么都不服务）。
+ */
+export function isSafeRelativePath(name: string): boolean {
+  if (typeof name !== 'string' || name === '' || name.length > 512) return false
+  const segments = name.split('/')
+  if (segments.length < 2) return false
+  return segments.every((seg) => /^[A-Za-z0-9._-]+$/.test(seg) && seg !== '.' && seg !== '..')
 }
 
 /** 供类型推断用的响应形状（避免 `http` 被 TS 当成未使用）。 */

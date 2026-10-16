@@ -1,0 +1,43 @@
+	
+
+	Roguelike Modern City (2.0)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 29-10-2022
+
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	This content is free to use in personal, educational and commercial projects.
+
+	Support us by crediting Kenney or www.kenney.nl (this is not mandatory)
+
+			------------------------------
+
+	Donate:   http://support.kenney.nl
+	Patreon:  http://patreon.com/kenney/
+
+	Follow on Twitter for updates:
+	http://twitter.com/KenneyNL
+
+══════════════════════════════════════════════════════════════════
+来源与证据（R50 收集时逐包抄录；上游的 License.txt 统一改名成 LICENSE.txt，
+因为 macOS 大小写不敏感，两个名字会互相覆盖 —— 内容逐字未改，见上）
+══════════════════════════════════════════════════════════════════
+包名           : roguelike-modern-city（1036 个资源）
+作者           : Kenney (www.kenney.nl)
+许可           : CC0 1.0 — Creative Commons Zero（公有领域贡献）
+许可全文       : https://creativecommons.org/publicdomain/zero/1.0/
+资源页（读过） : https://kenney.nl/assets/roguelike-modern-city
+下载直链       : https://kenney.nl/media/pages/assets/roguelike-modern-city/0ff3dfff2b-1677694743/kenney_roguelike-modern-city.zip
+zip 的 sha256  : 2a3f36b1bc3a3d1cb4b9da051c493d163c493fe54adc66e78e76b3fb4abcfc56
+收录日期       : 2026-10-16
+
+我在资源页上逐字读到的原句：
+  · "Download this package (1036 assets) for free, CC0 licensed!"
+  · "Creative Commons CC0"
+
+署名要求：无。CC0 不要求署名；Kenney 自己在原文里写 "Support us by crediting Kenney or
+www.kenney.nl (this is not mandatory)"。

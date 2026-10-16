@@ -1,0 +1,32 @@
+OpenGameArt — "16x16 base sprites"
+作者: Unnamed      许可: CC0      收录日期: 2026-10-16
+
+──────────────────────────────────────────────────────────────────
+许可：CC0 1.0（公有领域贡献）—— 资源页 License(s) 字段逐字写的就是 "CC0"
+许可全文：https://creativecommons.org/publicdomain/zero/1.0/
+资源页（我亲自读过）：https://opengameart.org/content/16x16-base-sprites
+署名要求：无（CC0 不要求署名；页面也没有 Attribution Instructions 字段）
+
+资源页上逐字读到的原文
+──────────────────────────────────────────────────────────────────
+· Author: Unnamed
+· License(s): CC0
+· 正文（作者自述，逐字）:
+    "I'm working on pixel art character sprites for a 16x16 tile set. My animations
+     are far from perfect but maybe it will be useful for someone. Male and female
+     base sprites for 16x16 tile sets. 1 frame idle and 6 frame walk cycle, 4 directions."
+· Tags: 16x16 32x16 Pixel Art base sprite male female walk cycle
+· Collections: 8 Frame Walk Cycles / CC0 Walk Cycles / Characters
+
+为什么收它：主风格 16x16；**这是全库里唯一带"4 方向 + 行走帧"的人物**。
+文件结构（实测 126x144，7 列 x 8 行，格子 18px = 16px 画 + 2px 边距；
+  4 个方向 x {idle 行, 行走行}，与作者自述的 "1 frame idle and 6 frame walk cycle, 4 directions" 一致）
+──────────────────────────────────────────────────────────────────
+下载的文件与校验：
+  base_male.png                  2966 B  sha256 62ce53be0a21aab54fbca2fbf5c8ef4156ae0d30dfc74044599e33a7c0cf319c
+  base_female.png                3012 B  sha256 787d7a4a8a281ae547b6843c2c2ae898fb4ba9284f4cc04aee1024b26da9b0b1
+  walk_cycle_male.gif            3141 B  sha256 a017409be4b237188ece7aac08c33fb909b21f91ed1cb475490d4b82d8576c78
+  walk_cycle_female.gif          3164 B  sha256 2c464cb5ea40e75bda9eca0d398624050e4408e969a457192d6284b049b7f222
+
+注意：这是**裸体基础件**（base sprite），需要按角色配色重上色 → 8 个角色的做法是
+"同一套骨架 + 不同调色板"，不是 8 张各画一遍。

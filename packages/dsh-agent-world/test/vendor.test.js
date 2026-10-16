@@ -19,7 +19,14 @@ import { fileURLToPath } from 'node:url'
 import { after, test } from 'node:test'
 
 import { createHandler } from '../lib/routes/index.js'
-import { VENDOR_MIME, VENDOR_WHITELIST, extensionOf, vendorFileNames } from '../lib/routes/vendor.js'
+import {
+  VENDOR_MIME,
+  VENDOR_WHITELIST,
+  extensionOf,
+  isAllowedVendorPath,
+  isSafeRelativePath,
+  vendorFileNames,
+} from '../lib/routes/vendor.js'
 import { createPluginState } from '../lib/state.js'
 import { resolveConfig } from '../lib/config.js'
 import { createEventHub, createRuntime } from '../lib/runtime/index.js'
@@ -76,7 +83,9 @@ test('白名单与 src/vendor/ 的目录内容一一对应（漏一个都会在�
     .sort()
   const listed = vendorFileNames()
 
-  const notServed = onDisk.filter((name) => !listed.includes(name))
+  // R50：覆盖判定走**真实的服务判定函数**（白名单支持目录前缀），而不是逐字比对。
+  // 逐字比对在 1720 个像素文件面前没有意义，而"能不能服务出去"才是这张测试要挡的事。
+  const notServed = onDisk.filter((name) => !isAllowedVendorPath(name))
   assert.deepEqual(
     notServed,
     [],
@@ -84,7 +93,11 @@ test('白名单与 src/vendor/ 的目录内容一一对应（漏一个都会在�
       `请加进 src/routes/vendor.ts 的 VENDOR_WHITELIST。`,
   )
 
-  const missing = listed.filter((name) => !onDisk.includes(name))
+  // 反方向：白名单里的**确切路径**必须在磁盘上；目录前缀条目检查目录确实存在。
+  const missing = listed.filter((name) => {
+    if (name.endsWith('/')) return !onDisk.some((file) => file.startsWith(name))
+    return !onDisk.includes(name)
+  })
   assert.deepEqual(
     missing,
     [],
@@ -98,6 +111,11 @@ test('白名单是穷举式的：没有通配、没有 `..`、没有绝对路径
     assert.ok(!name.startsWith('/'), `白名单项不该是绝对路径：${name}`)
     assert.ok(!name.includes('\\'), `白名单项不该含反斜杠：${name}`)
     assert.ok(!name.startsWith('.'), `白名单项不该是隐藏文件：${name}`)
+    // 目录前缀条目（以 `/` 结尾）：不查扩展名，但必须是安全相对路径 + 至少一层目录。
+    if (name.endsWith('/')) {
+      assert.ok(isSafeRelativePath(`${name}x`), `目录前缀 ${name} 形状不合法`)
+      continue
+    }
     // 每一项都要有扩展名，且扩展名在 MIME 表里——否则运行期会 500。
     const ext = extensionOf(name)
     assert.ok(VENDOR_MIME[ext] !== undefined, `白名单项 ${name} 的扩展名 ${JSON.stringify(ext)} 没登记 MIME`)
@@ -265,4 +283,45 @@ test('Kenney 的 GLB **必须**有它引用的外部贴图（少了会"加载成
   // 顺带把"32 条动画"这个关键前提也钉住——它是"actions 库"的资产依据。
   assert.equal(gltf.animations.length, 32, `每个角色应当内嵌 32 条动画，实际 ${gltf.animations.length}`)
   assert.ok(gltf.skins.length >= 1, '必须是已绑定骨骼的（否则做不了动作库）')
+})
+
+
+// ── R50：白名单的目录前缀与路径安全（这是安全边界，要穷举）────────────────────
+
+test('R50：像素资源整个目录可服务（1720 个文件不再逐个列举）', () => {
+  assert.ok(VENDOR_WHITELIST.includes('pixel/'), '像素资源目录要开放')
+  assert.ok(isAllowedVendorPath('pixel/characters/oga-16x16-base-sprites/some.png'))
+  assert.ok(isAllowedVendorPath('pixel/tiles/kenney-tiny-town/LICENSE.txt'))
+  // 没开前缀的目录仍然进不来。
+  assert.ok(!isAllowedVendorPath('pixel-evil/x.png'), '前缀不许被当作字符串包含匹配')
+  assert.ok(!isAllowedVendorPath('notpixel/x.png'))
+})
+
+test('R50：越界路径一律拒绝（前缀开放不许把 `..` 放进来）', () => {
+  const bad = [
+    'pixel/../../etc/passwd',
+    'pixel/./x.png',
+    'pixel//x.png',
+    '/pixel/x.png',
+    'pixel/x.png/../../y',
+    'pixel/a b.png',
+    'pixel/a\\b.png',
+    'pixel/单段之外/x.png'.replace('x.png', 'ok.png').replace('单段之外', '段'),
+    'x.png',
+    '',
+  ]
+  for (const name of bad) {
+    assert.ok(!isSafeRelativePath(name), `这个路径不该算安全：${JSON.stringify(name)}`)
+    assert.ok(!isAllowedVendorPath(name) || VENDOR_WHITELIST.includes(name), `这个路径不该被服务：${JSON.stringify(name)}`)
+  }
+})
+
+test('R50：合法路径放行（含子目录、点、连字符、下划线）', () => {
+  for (const name of [
+    'pixel/tiles/kenney-roguelike-rpg-pack/Tiles/tile_0000.png',
+    'pixel/ui/kenney-pixel-ui-pack/LICENSE.txt',
+    'a/b/c-d_e.f.png',
+  ]) {
+    assert.ok(isSafeRelativePath(name), `这个路径应当算安全：${name}`)
+  }
 })

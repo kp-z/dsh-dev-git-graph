@@ -41,7 +41,13 @@
           <span class="brand-name">Agent World</span>
         </div>
 
-        <div class="segmented" role="tablist" aria-label="视图">
+        <!--
+          视图切换（R50，D49）：渲染方向改为 2D 俯视格子，3D **从界面摘掉、代码保留**（用户决定）。
+          `web/scene/scene3d.js` 与 GLB 资产仍在库里；调试时可用 `?view=3d` 切过去对比。
+          按钮留着但隐藏，是为了 main.js 里按 id 找元素的代码不必改——它们找不到元素时会静默失效，
+          那种"按钮没了、某个功能也悄悄坏了"的错很难归因。
+        -->
+        <div class="segmented" role="tablist" aria-label="视图" hidden>
           <button id="view-top" class="segment active" type="button" role="tab" aria-selected="true">俯视</button>
           <button id="view-3d" class="segment" type="button" role="tab" aria-selected="false">3D</button>
         </div>

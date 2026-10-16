@@ -195,6 +195,25 @@ function makeState(overrides = {}) {
   return state
 }
 
+/**
+ * 等一个**最终会成立**的条件，而不是固定睡一觉（R50 修）。
+ *
+ * 为什么不能用 `setTimeout(20)`：checkpoint 是 fire-and-forget 的，20ms 在空载机器上够、
+ * 在有人并发下载资源的机器上就不够——于是测试**假红**。R27 就记过这个坑（"同类写法可能还有"），
+ * R50 在真机上又碰到一次（verifier 并发下载时这条红了，单独跑三次全绿）。
+ *
+ * 假红比真失败更糟：它会让人去改没坏的代码。
+ */
+async function eventually(check, { timeoutMs = 2000, stepMs = 5 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const value = await check()
+    if (value) return value
+    if (Date.now() >= deadline) return null
+    await new Promise((r) => setTimeout(r, stepMs))
+  }
+}
+
 test('运行时：每 N tick checkpoint 一次，快照与事件都落盘', async () => {
   const dir = await tempDir()
   const state = makeState()
@@ -207,16 +226,20 @@ test('运行时：每 N tick checkpoint 一次，快照与事件都落盘', asyn
   })
 
   runtime.advance(50)
-  // checkpoint 是 fire-and-forget 的，给它一个微任务的机会。
-  await new Promise((r) => setTimeout(r, 20))
-  const afterFifty = await createWorldStore(dir).load()
-  assert.ok(afterFifty && 'ok' in afterFifty, '第 50 tick 应当已经写过一次')
+  // checkpoint 是 fire-and-forget 的：**轮询到它落盘为止**，不睡固定时长。
+  const afterFifty = await eventually(async () => {
+    const loaded = await createWorldStore(dir).load()
+    return loaded && 'ok' in loaded && loaded.ok.savedAtTick >= 50 ? loaded : null
+  })
+  assert.ok(afterFifty, '第 50 tick 应当已经写过一次')
   assert.equal(afterFifty.ok.savedAtTick, 50)
 
   runtime.advance(50)
-  await new Promise((r) => setTimeout(r, 20))
-  const afterHundred = await createWorldStore(dir).load()
-  assert.ok(afterHundred && 'ok' in afterHundred)
+  const afterHundred = await eventually(async () => {
+    const loaded = await createWorldStore(dir).load()
+    return loaded && 'ok' in loaded && loaded.ok.savedAtTick >= 100 ? loaded : null
+  })
+  assert.ok(afterHundred, '第 100 tick 应当已经写过一次')
   assert.equal(afterHundred.ok.savedAtTick, 100)
 
   const info = await createWorldStore(dir).info()

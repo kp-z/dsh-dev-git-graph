@@ -1,0 +1,42 @@
+	
+
+	Tiny Factory (1.0)
+
+	Created/distributed by Kenney (www.kenney.nl)
+	Creation date: 08-09-2026
+
+			------------------------------
+
+	License: (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	This content is free to use in personal, educational and commercial projects.
+	Support us by crediting Kenney or www.kenney.nl (this is not mandatory)
+
+			------------------------------
+
+	Donate:   http://support.kenney.nl
+	Patreon:  http://patreon.com/kenney/
+
+	Follow on Twitter for updates:
+	http://twitter.com/KenneyNL
+
+══════════════════════════════════════════════════════════════════
+来源与证据（R50 收集时逐包抄录；上游的 License.txt 统一改名成 LICENSE.txt，
+因为 macOS 大小写不敏感，两个名字会互相覆盖 —— 内容逐字未改，见上）
+══════════════════════════════════════════════════════════════════
+包名           : tiny-factory（130 个资源）
+作者           : Kenney (www.kenney.nl)
+许可           : CC0 1.0 — Creative Commons Zero（公有领域贡献）
+许可全文       : https://creativecommons.org/publicdomain/zero/1.0/
+资源页（读过） : https://kenney.nl/assets/tiny-factory
+下载直链       : https://kenney.nl/media/pages/assets/tiny-factory/1652277319-1788860879/kenney_tiny-factory.zip
+zip 的 sha256  : eaec4169aa4bf3ea7cec4be2b06147b1a02e54bdbe61d49d4568df7e57b0db2a
+收录日期       : 2026-10-16
+
+我在资源页上逐字读到的原句：
+  · "Download this package (130 assets) for free, CC0 licensed!"
+  · "Creative Commons CC0"
+
+署名要求：无。CC0 不要求署名；Kenney 自己在原文里写 "Support us by crediting Kenney or
+www.kenney.nl (this is not mandatory)"。

@@ -1,0 +1,43 @@
+
+###############################################################################
+
+
+	Roguelike pack
+	by Kenney Vleugels for Kenney (www.kenney.nl)
+	with help by Lynn Evers (Twitter: @EversLynn)
+
+			------------------------------
+
+	License (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You may use these graphics in personal and commercial projects.
+	Credit (Kenney or www.kenney.nl) would be nice but is not mandatory.
+
+			------------------------------
+
+	Donate:   http://donate.kenney.nl/
+	Request:  http://request.kenney.nl/
+
+
+###############################################################################
+
+══════════════════════════════════════════════════════════════════
+来源与证据（R50 收集时逐包抄录；上游的 License.txt 统一改名成 LICENSE.txt，
+因为 macOS 大小写不敏感，两个名字会互相覆盖 —— 内容逐字未改，见上）
+══════════════════════════════════════════════════════════════════
+包名           : roguelike-rpg-pack（1700 个资源）
+作者           : Kenney (www.kenney.nl)
+许可           : CC0 1.0 — Creative Commons Zero（公有领域贡献）
+许可全文       : https://creativecommons.org/publicdomain/zero/1.0/
+资源页（读过） : https://kenney.nl/assets/roguelike-rpg-pack
+下载直链       : https://kenney.nl/media/pages/assets/roguelike-rpg-pack/12c03cd78b-1677697420/kenney_roguelike-rpg-pack.zip
+zip 的 sha256  : 8e7d2378f8f794245645f6d7dc7aeeb246791410a7e512293c594b46a5a9524b
+收录日期       : 2026-10-16
+
+我在资源页上逐字读到的原句：
+  · "Download this package (1700 assets) for free, CC0 licensed!"
+  · "Creative Commons CC0"
+
+署名要求：无。CC0 不要求署名；Kenney 自己在原文里写 "Support us by crediting Kenney or
+www.kenney.nl (this is not mandatory)"。

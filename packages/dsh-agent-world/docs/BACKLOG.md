@@ -214,6 +214,11 @@
 | M7-13 | **done** | **角色把玩家当成「船长」，回复变成汇报**（R41 真机）：问小蓝「一句话介绍你自己」，它答「已回复船长：一句话自我介绍发出去了，现在继续待命」。原因：agent-teams 的成员人设把说话人框成 captain，且工作规则要求向 captain 汇报。玩家不该被当成上级。做法：在我们的人设（executionPrompt）里加一条——跟你说话的是镇上的玩家，直接回答他，不要用汇报腔 | `src/bridge/persona-prompt.ts` | —— | 直接影响跟小人物对话的体感 |
 | M7-14 | ready | **老成员的人设不会刷新**（R42）：agent-teams 在第一次 `add_member` 时定下成员人设，之后不变。R37–R41 加进团队的小紫、小铁、小蓝还是旧人设（仍可能叫玩家"船长"）。做法：套壳端口记录人设的指纹，变了就 `agent_teams_remove_member` 再重新加（注意会丢成员会话的记忆，要权衡）；或先给面板一个"重新招募"按钮 | `src/bridge/teams.ts` | M7-13 | 先问清丢记忆可不可以接受 |
 | M11-1 | ready | **规模压测**（SCALING 第四节第 1 步）：造 500/2000/5000 角色的世界，量每 tick 耗时、存盘耗时、3D 帧耗时、内存，结果表进 `docs/VERIFICATION.md` | `test/` 或 `scripts/` + docs | —— | 后面所有扩展的尺子 |
+| M12-1 | ready | **图集逐格语义表**（R50）：各像素包不提供名称表，所以"哪一格是桌子/木地板/椅子"无人标注。用各包自带 `Sample.png` 对照标注成 `tile-index.md`。**没有它接渲染只能靠看，看错会静默画错** | `docs/tile-index.md` + `src/vendor/pixel/` | —— | 接渲染的前置 |
+| M12-2 | ready | **定"8 个角色怎么来"**（R50）：带行走帧的只有 OGA 那 2 套（Kenney 人物是静态单帧）。两条路：给那 2 套按 8 种配色重上色（便宜、风格统一）／再找 1~2 套 CC0 四方向角色 | `src/vendor/pixel/characters/` | —— | 走路动画是"让人看起来在干活"的关键 |
+| M12-3 | ready | **接 2D 渲染**：`scene2d.js` 现在画色块与圆点，换成精灵（角色/地面/家具/道具/UI）。两个渲染器吃同一份 ScenePlan，所以只动 `web/scene/scene2d.js` | `web/scene/scene2d.js` | M12-1 M12-2 | 用户要的"2D 游戏"本体 |
+| M12-4 | ready | **2D 缺件补齐**（R50）：缺现代办公专有物（显示器/键盘/白板/服务器机柜/咖啡机）、特效与表情完全没有 | `src/vendor/pixel/` | —— | 靠上色/裁剪/再找 CC0 |
+| M12-5 | done | vendor 白名单支持**目录前缀**（R50）：`pixel/` 整目录开放，安全靠收紧路径解析（纯函数 + 穷举测试）。真机：资源 200、越界 404 | `src/routes/vendor.ts` | —— | —— |
 | M11-2 | ready | **智能分级**（D42）：角色 `scripted`/`awake` 两级，唤醒/休眠策略 + 并发上限，awake = agent-teams 成员 | `src/bridge/` + `src/domain/` | M10-6 | 成本是否可控取决于它 |
 | M11-3 | ready | **内部模块注册表**（D45）：子系统按协议接口登记，`src/index.ts` 改为按名字装配 | `src/index.ts` + `src/protocol/` | M11-1 | 给后续整体替换铺路 |
 | M11-4 | ready | **实体/组件**（D43）与**区域**（D44）：等 M11-1 压测给出瓶颈后再设计 | `src/domain/` `src/sim/` `src/store/` | M11-1 | 不做过早设计 |

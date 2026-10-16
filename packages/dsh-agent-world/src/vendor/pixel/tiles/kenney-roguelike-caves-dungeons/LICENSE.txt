@@ -1,0 +1,42 @@
+
+###############################################################################
+
+
+	Roguelike Cave & Dungeons pack
+	by Kenney Vleugels for Kenney (www.kenney.nl)
+
+			------------------------------
+
+	License (Creative Commons Zero, CC0)
+	http://creativecommons.org/publicdomain/zero/1.0/
+
+	You may use these graphics in personal and commercial projects.
+	Credit (Kenney or www.kenney.nl) would be nice but is not mandatory.
+
+			------------------------------
+
+	Donate:   http://donate.kenney.nl/
+	Request:  http://request.kenney.nl/
+
+
+###############################################################################
+
+══════════════════════════════════════════════════════════════════
+来源与证据（R50 收集时逐包抄录；上游的 License.txt 统一改名成 LICENSE.txt，
+因为 macOS 大小写不敏感，两个名字会互相覆盖 —— 内容逐字未改，见上）
+══════════════════════════════════════════════════════════════════
+包名           : roguelike-caves-dungeons（520 个资源）
+作者           : Kenney (www.kenney.nl)
+许可           : CC0 1.0 — Creative Commons Zero（公有领域贡献）
+许可全文       : https://creativecommons.org/publicdomain/zero/1.0/
+资源页（读过） : https://kenney.nl/assets/roguelike-caves-dungeons
+下载直链       : https://kenney.nl/media/pages/assets/roguelike-caves-dungeons/5195ceb8ca-1677694831/kenney_roguelike-caves-dungeons.zip
+zip 的 sha256  : 8ee0f7ce911e7bc0c425e98783058870d0a49572440ab0b89a5f44e68b74f0bf
+收录日期       : 2026-10-16
+
+我在资源页上逐字读到的原句：
+  · "Download this package (520 assets) for free, CC0 licensed!"
+  · "Creative Commons CC0"
+
+署名要求：无。CC0 不要求署名；Kenney 自己在原文里写 "Support us by crediting Kenney or
+www.kenney.nl (this is not mandatory)"。

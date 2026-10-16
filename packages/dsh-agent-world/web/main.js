@@ -263,7 +263,8 @@ async function enable3d() {
 
 /** 切换视图。 */
 async function setMode(next) {
-  if (next === '3d' && !(await enable3d())) next = 'top' // 起不来就留在俯视图，不装作切过去了
+  // 3D 起不来就留在俯视图，不装作切过去了。
+  if (next === '3d' && !(await enable3d())) next = 'top'
   mode = next
 
   canvas.hidden = next !== 'top'
