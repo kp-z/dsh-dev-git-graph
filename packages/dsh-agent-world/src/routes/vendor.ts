@@ -46,6 +46,13 @@ export const VENDOR_WHITELIST: readonly string[] = [
   // 只 vendor 这一个文件：它是自包含的 ESM 包（不像 three 的 addon 之间有相对 import）。
   'pixi/pixi.min.mjs',
   'pixi/LICENSE',
+  // Phaser 3.90（MIT）——**成熟的 2D 游戏框架**（R58）。
+  // 换它的理由不是"画得更快"（Pixi 已经做到了），而是**动画/相机/瓦片/补间/粒子/输入
+  // 全都自带**：这些原先是我们手写的（`pixel-sheet.js` 的帧切分与动画选择、
+  // `scene-camera.js` 的相机与拾取，一行行都是引擎该干的活）。
+  // 用 `.esm.min.js` 而不是 `.esm.js`：后者 7.8MB 未压缩，解析一次很贵。
+  'phaser/phaser.esm.min.js',
+  'phaser/LICENSE',
   'three/examples/jsm/controls/OrbitControls.js',
   'three/examples/jsm/loaders/GLTFLoader.js',
   'three/examples/jsm/utils/BufferGeometryUtils.js',
