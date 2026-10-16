@@ -67,16 +67,24 @@ export function instantiateStation(entry: StationEntry, districts: ReadonlyMap<s
   }
   // `props` 有就用它，否则退回单件 `model`（老内容包不用改）。
   // **不给两者都生效的语义**：那样"我加了个显示器"到底加没加上，只能靠读渲染器代码才知道。
-  const parts: StationPart[] =
-    entry.props !== undefined && entry.props.length > 0
-      ? entry.props.map((part) => ({
-          modelId: part.model,
-          dx: part.offset?.x ?? 0,
-          dy: part.offset?.y ?? 0,
-          dz: part.offset?.z ?? 0,
-          rotationY: part.rotationY ?? 0,
-        }))
-      : [{ modelId: requireModel(entry.model, entry.id), dx: 0, dy: 0, dz: 0, rotationY: 0 }]
+  //
+  // R62 起还有**第三种**写法：两种都不给。这是给"**底图已经把家具画好了**"的场景用的
+  //（原版办公室的 24 个座位就是这样：桌子和椅子在 `map` 的图块里，站点只声明"人在哪、能干什么"）。
+  // 所以这里不再把"没有外观"当错误——渲染器拿不到部件就画色块回退，那是它的事。
+  // ⚠️ 校验器（`validate.ts`）与我改这里时**必须同步**，否则会出现
+  // "校验放行、实例化抛"的错配（我第一版就是这样，真机 `stations: 0` 才发现）。
+  const declared = Array.isArray(entry.props) && entry.props.length > 0
+  const parts: StationPart[] = declared
+    ? entry.props!.map((part) => ({
+        modelId: part.model,
+        dx: part.offset?.x ?? 0,
+        dy: part.offset?.y ?? 0,
+        dz: part.offset?.z ?? 0,
+        rotationY: part.rotationY ?? 0,
+      }))
+    : entry.model !== undefined && entry.model !== ''
+      ? [{ modelId: entry.model, dx: 0, dy: 0, dz: 0, rotationY: 0 }]
+      : []
   return {
     id: entry.id,
     name: entry.name,
@@ -95,19 +103,6 @@ export function instantiateStation(entry: StationEntry, districts: ReadonlyMap<s
         ? entry.slots.map((v) => ({ x: v.x, z: v.z }))
         : slotsFor(entry.capacity),
   }
-}
-
-/**
- * 取单件模型 id；内容没写时**报错而不是给空串**。
- *
- * 校验器已经拦住"两个都没写"，所以走到这里说明是**绕过校验**的路径（比如手工构造的条目）。
- * 报出来比让渲染层画一个品红块更容易归因。
- */
-function requireModel(model: string | undefined, stationId: string): string {
-  if (model === undefined || model === '') {
-    throw new Error(`站点 "${stationId}" 既没有 props 也没有 model：不知道它该长什么样。`)
-  }
-  return model
 }
 
 /** 内容条目 → 一队 Agent。 */

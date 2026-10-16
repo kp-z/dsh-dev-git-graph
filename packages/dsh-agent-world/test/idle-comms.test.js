@@ -50,20 +50,22 @@ test('歇脚点：每个角色都有，且**互不重叠**（这就是"6 个人�
   assert.equal(seen.size, world.agents.length)
 })
 
-test('歇脚点：落在广场地块里（所以"把广场改大"就能让人散得更开）', () => {
+test('歇脚点：落在**某个地块**里（所以人在房间里，不会站在墙里）', () => {
+  // R62：旧断言要求"落在广场里"，那绑定了"内置场景只有一个 commons"。
+  // 换上原版办公室（9 个房间）后落点按房间分配，所以改守"落在某个地块内部"——
+  // 房间与房间之间是有墙的，人落在所有地块之外就是**站在墙里**，那才是要拦的。
   const world = makeWorld()
-  const commons = world.districts.find((d) => d.kind === 'commons')
-  assert.ok(commons, '内置场景应当有广场')
 
   for (const agent of world.agents) {
     const h = agent.hangout
-    assert.ok(
-      h.x >= Math.min(commons.bounds.min.x, commons.bounds.max.x) &&
-        h.x <= Math.max(commons.bounds.min.x, commons.bounds.max.x) &&
-        h.z >= Math.min(commons.bounds.min.z, commons.bounds.max.z) &&
-        h.z <= Math.max(commons.bounds.min.z, commons.bounds.max.z),
-      `${agent.name} 的歇脚点 ${h.x},${h.z} 跑到广场外面了`,
+    const inSomeRoom = world.districts.some(
+      (d) =>
+        h.x >= Math.min(d.bounds.min.x, d.bounds.max.x) &&
+        h.x <= Math.max(d.bounds.min.x, d.bounds.max.x) &&
+        h.z >= Math.min(d.bounds.min.z, d.bounds.max.z) &&
+        h.z <= Math.max(d.bounds.min.z, d.bounds.max.z),
     )
+    assert.ok(inSomeRoom, `${agent.name} 的歇脚点 ${h.x},${h.z} 在所有地块之外（会站在墙里）`)
   }
 })
 

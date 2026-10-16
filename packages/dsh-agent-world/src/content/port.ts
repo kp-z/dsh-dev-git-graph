@@ -158,6 +158,16 @@ export function contentPortOf(
     },
     themeFor: (sceneId) => buildThemePlan(registry, sceneId),
     /**
+     * 场景底图（R62）。取 `maps` 库里排在最前的那一条——底图是**整场景一张**，
+     * 不需要按 id 查（将来若要按场景切换，把这里换成"按 sceneId 查"即可，契约不变）。
+     */
+    map: () => {
+      const entry = registry.list('maps')[0]
+      if (entry === undefined) return null
+      const m = entry.data
+      return { url: m.url, width: m.width, height: m.height, cellPx: m.cellPx, unitsPerCell: m.unitsPerCell }
+    },
+    /**
      * 状态 → 动作的映射（R60）。**渲染器不许自己写死这条映射**——
      * 在此之前 2D 渲染器硬编码 `walking ? 'walk' : 'idle'`，内容库里的
      * `action.work` / `action.talk` 全是摆设，而"表现是内容"是我们自己的红线（D31）。

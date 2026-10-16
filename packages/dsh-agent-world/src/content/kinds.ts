@@ -55,6 +55,13 @@ export interface LibrarySpec {
 /** 库目录。**加一个新库必须同时在这里登记**，否则校验器不认。 */
 export const LIBRARY_SPECS: readonly LibrarySpec[] = [
   {
+    kind: 'maps',
+    layer: 'presentation',
+    title: '底图库',
+    idPrefix: 'map.',
+    summary: '整张烘好的场景底图（R62：原版办公室就是一张图），渲染器一次画完',
+  },
+  {
     kind: 'districts',
     layer: 'semantic',
     title: '地块库',
@@ -442,6 +449,23 @@ export interface ActionEntry {
   fadeMs: number
 }
 
+/**
+ * 底图库条目（R62）：一整张烘好的场景底图。
+ *
+ * `width`/`height` 是**格数**，`cellPx` 是一格多少源像素——渲染器据此把图对齐到世界坐标。
+ */
+export interface MapEntry {
+  id: string
+  name: string
+  /** 底图 URL（相对 vendor 根）。 */
+  url: string
+  width: number
+  height: number
+  cellPx: number
+  /** 一格等于多少世界单位。 */
+  unitsPerCell: number
+}
+
 /** 皮肤库条目：一堆命名色 token。 */
 export interface SkinEntry {
   id: string
@@ -491,6 +515,7 @@ export interface LibraryEntryMap {
   skins: SkinEntry
   sounds: SoundEntry
   themes: ThemeEntry
+  maps: MapEntry
 }
 
 /** 取某个库的条目类型。 */

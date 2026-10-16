@@ -26,6 +26,7 @@ export type LibraryKind =
   | 'skins'
   | 'sounds'
   | 'themes'
+  | 'maps'
 
 /** 库属于哪一层。 */
 export type LibraryLayer = 'semantic' | 'presentation'
@@ -42,6 +43,7 @@ export const LIBRARY_KINDS: readonly LibraryKind[] = [
   'skins',
   'sounds',
   'themes',
+  'maps',
 ] as const
 
 /** 每个库属于哪一层。协议层与内容层的库目录必须一致——有一条测试钉住这件事。 */
@@ -56,6 +58,7 @@ export const LIBRARY_LAYERS: Readonly<Record<LibraryKind, LibraryLayer>> = {
   skins: 'presentation',
   sounds: 'presentation',
   themes: 'presentation',
+  maps: 'presentation',
 }
 
 /** 一个库在诊断/面板里的描述。内容层负责填充它。 */

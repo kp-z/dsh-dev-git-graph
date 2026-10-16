@@ -14,6 +14,8 @@ import { test } from 'node:test'
 
 import {
   ANCHOR_LIFT_PX,
+  TILE_PX,
+  worldFrame,
   FOUR_DIRECTIONS,
   actionOf,
   animationCandidates,
@@ -223,4 +225,49 @@ test('平铺相位：负半轴（左边界 -8 世界像素）也与世界网格�
   // 同一块砖在四个区里相位必须一致（跨区无缝的前提）
   const phases = [-128, -128, 0, 0].map((left) => tilePhasePx({ leftWorld: left, tileUnits: 32, scale: 1 }))
   assert.deepEqual(phases, [0, 0, 0, 0])
+})
+
+test('世界取景框（R62）：有底图时按**图**算 —— 37×21 格 / 32px / 每格 2 单位 → 74×42 单位、1184×672 像素', () => {
+  const plan = { extent: { half: 35 }, map: { url: 'microverse/scene/office.png', width: 37, height: 21, cellPx: 32, unitsPerCell: 2 } }
+  const frame = worldFrame(plan)
+  assert.equal(frame.source, 'map')
+  assert.equal(frame.halfW, 37, '74 单位宽 → 半宽 37')
+  assert.equal(frame.halfH, 21, '42 单位高 → 半高 21')
+  assert.equal(frame.worldPxW, 1184, '37 × 32 = 1184 源像素')
+  assert.equal(frame.worldPxH, 672)
+  // 图左上角的世界像素坐标：世界坐标**中心为 0**，图坐标**左上为 0** —— 这一步最容易差半张图
+  assert.equal(frame.originPxX, -592, '-37 单位 × 16 像素')
+  assert.equal(frame.originPxY, -336)
+  // 图的一格 = 2 单位 = 32 世界像素 = 图上 32 像素 → **1:1，scale 1**
+  assert.equal(frame.unitsPerCell * TILE_PX, frame.cellPx)
+})
+
+test('世界取景框：没有底图时退回 extent（正方形），喂进老的世界也不会变', () => {
+  const frame = worldFrame({ extent: { half: 8 } })
+  assert.equal(frame.source, 'extent')
+  assert.equal(frame.halfW, 8)
+  assert.equal(frame.worldPxH, 256)
+  assert.equal(frame.originPxX, -128)
+  // 缺 extent 时按 8 处理（不炸）
+  assert.equal(worldFrame({}).halfW, 8)
+  assert.equal(worldFrame(null).halfW, 8)
+})
+
+test('整数缩放按**两个轴**算：74×42 的办公室在 1400×748 的舞台上正好 1 倍（不会算成看不清）', () => {
+  const frame = worldFrame({ map: { width: 37, height: 21, cellPx: 32, unitsPerCell: 2 } })
+  const zoom = integerZoom({ viewWidth: 1400, viewHeight: 748, worldPixelsW: frame.worldPxW, worldPixelsH: frame.worldPxH })
+  assert.equal(zoom, 1, '1184×672 塞得进 1400×748，1 倍')
+  // 只按短边（老算法）会得到 0.59 → 夹到 1；按两轴才是"真的装得下"
+  const naive = integerZoom({ viewWidth: 1400, viewHeight: 748, worldPixels: 1184 })
+  assert.equal(naive, 1)
+  // 轴会分别起作用：又宽又扁的视口里，限制来自高度
+  assert.equal(integerZoom({ viewWidth: 4000, viewHeight: 700, worldPixelsW: 1184, worldPixelsH: 672 }), 1)
+  // 视口够大时给整数倍（不出现小数）
+  const big = integerZoom({ viewWidth: 3000, viewHeight: 1600, worldPixelsW: 1184, worldPixelsH: 672 })
+  assert.ok(Number.isInteger(big) && big >= 1)
+})
+
+test('整数缩放：上限仍然生效，0 尺寸视口给 1（不返回 0 或负数）', () => {
+  assert.equal(integerZoom({ viewWidth: 0, viewHeight: 0, worldPixelsW: 1184, worldPixelsH: 672 }), 1)
+  assert.equal(integerZoom({ viewWidth: 99999, viewHeight: 99999, worldPixelsW: 1184, worldPixelsH: 672, maxZoom: 3 }), 3)
 })

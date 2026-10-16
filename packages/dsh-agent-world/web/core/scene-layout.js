@@ -142,15 +142,66 @@ export function originOf(sheet) {
 }
 
 /**
+ * 世界的取景框（R62）：**世界是中心为 0 的矩形**，底图是"左上角为 0"的一张图。
+ *
+ * 有底图（`plan.map`）时按**图**算；没有时退回 `extent.half`（原来是正方形 16×16）。
+ * 两个量在这里定死、别处都从它推，就不会出现"差了半张图"那种错：
+ * · `halfW/halfH`：世界半宽/半高（单位）→ 图左上角的世界坐标 = `(-halfW, -halfH)`
+ * · `originPxX/Y`：图左上角的**世界像素**坐标（世界像素 = 单位 × 16）
+ *
+ * 真机那一档：37×21 格、`cellPx=32`、`unitsPerCell=2` → 74×42 单位、1184×672 像素、
+ * 原点在 `(-592, -336)`。
+ */
+export function worldFrame(plan, tilePx = TILE_PX) {
+  const map = plan?.map ?? null
+  const unitsPerCell = Number(map?.unitsPerCell)
+  const cellPx = Number(map?.cellPx)
+  if (map !== null && Number.isFinite(map?.width) && Number.isFinite(map?.height) && Number.isFinite(cellPx) && cellPx > 0) {
+    const perCell = Number.isFinite(unitsPerCell) && unitsPerCell > 0 ? unitsPerCell : 2
+    const halfW = (map.width * perCell) / 2
+    const halfH = (map.height * perCell) / 2
+    return {
+      source: 'map',
+      halfW,
+      halfH,
+      unitsPerCell: perCell,
+      cellPx,
+      worldPxW: Math.round(map.width * cellPx),
+      worldPxH: Math.round(map.height * cellPx),
+      originPxX: Math.round(-halfW * tilePx),
+      originPxY: Math.round(-halfH * tilePx),
+    }
+  }
+  const half = Number.isFinite(plan?.extent?.half) ? plan.extent.half : 8
+  const worldPx = Math.round(half * 2 * tilePx)
+  return {
+    source: 'extent',
+    halfW: half,
+    halfH: half,
+    unitsPerCell: 1,
+    cellPx: tilePx,
+    worldPxW: worldPx,
+    worldPxH: worldPx,
+    originPxX: Math.round(-half * tilePx),
+    originPxY: Math.round(-half * tilePx),
+  }
+}
+
+/**
  * **整数倍**缩放：像素画的命（2.5 倍会让有的像素占 2 格、有的占 3 格，整张图糊成一片）。
+ *
+ * R62 起**按两个轴分别算**：世界从 16×16 正方形变成 74×42（和屏幕一样是横的），
+ * 只按短边算会把横着的办公室挤成"格子很小看不清"。
+ * `worldPixels` 是正方形世界的兼容入口（老调用方还在用）。
  */
 export function integerZoom(input = {}) {
   const viewWidth = Number(input.viewWidth) || 0
   const viewHeight = Number(input.viewHeight) || 0
-  const worldPixels = Math.max(1, Number(input.worldPixels) || 1)
+  const worldW = Math.max(1, Number(input.worldPixelsW) || Number(input.worldPixels) || 1)
+  const worldH = Math.max(1, Number(input.worldPixelsH) || Number(input.worldPixels) || 1)
   const fit = Number.isFinite(input.fit) && input.fit > 0 ? input.fit : FIT
   const maxZoom = Number.isFinite(input.maxZoom) ? input.maxZoom : MAX_ZOOM
-  const raw = Math.min(viewWidth, viewHeight) / (worldPixels * fit)
+  const raw = Math.min(viewWidth / (worldW * fit), viewHeight / (worldH * fit))
   if (!Number.isFinite(raw) || raw < 1) return 1
   return Math.min(maxZoom, Math.floor(raw))
 }

@@ -7,7 +7,7 @@
  */
 import type { LibraryDescriptor, LibraryKind } from '../library-kinds.js'
 import type { ThemePlan } from '../theme.js'
-import type { SceneModel , SceneAction} from '../scene.js'
+import type { SceneModel , SceneAction, SceneMap} from '../scene.js'
 
 /** 校验级别。 */
 export type IssueLevel = 'error' | 'warning'
@@ -90,6 +90,12 @@ export interface ContentPort {
    * 内容库里的 `action.work` / `action.talk` 全是摆设。
    */
   actions(): readonly SceneAction[]
+
+  /**
+   * 场景底图（R62）。与 `actions()` 同理：渲染器读不到内容库，
+   * 底图必须由服务端算好随 `ScenePlan` 发出去。没有底图时返回 null（渲染器按分区铺色）。
+   */
+  map(): SceneMap | null
   /**
    * 取某个场景用到的主题，映射成**渲染就绪**的 `ThemePlan`（色值已解析）。
    *

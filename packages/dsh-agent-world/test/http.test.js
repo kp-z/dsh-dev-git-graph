@@ -186,8 +186,22 @@ test('GET /api/world：快照里没有事件环形缓冲，但有调色板与运
     // 改一处就会让纸条落点与"已送达"对不上。
     assert.equal(snap.runtime.messageDeliveryTicks, 10)
 
-    assert.deepEqual(snap.content.packs.map((p) => p.id), ['pack.default', 'pack.kenney-mini', 'pack.kenney-furniture', 'pack.pixel'])
-    assert.ok(snap.content.libraries.some((l) => l.kind === 'stations' && l.count === 10))
+    // ⚠️ 不写死包列表（R62 起多了 `pack.office`）：装哪些包是内容选择，
+    // 这条测试要守的是"快照里报出了包"+ 顺序稳定。
+    // 包列表是**装载顺序**（后面的包覆盖前面的），不是字母序——所以别断言"已排序"。
+    // 要守的是"报出来了、而且内置包都在"。
+    const packIds = snap.content.packs.map((p) => p.id)
+    assert.ok(packIds.length > 0, '快照里应当报出装载了哪些包')
+    for (const id of ['pack.default', 'pack.pixel', 'pack.office']) {
+      assert.ok(packIds.includes(id), `快照里应当有 ${id}`)
+    }
+    // ⚠️ 不写死条数（R62 起站点库 = 原版办公室的 24 个座位 + 手搭的 10 个）。
+    // 要守的是"报出了每个库的种类与条数"，不是某一个具体数字。
+    for (const kind of ['districts', 'stations', 'models', 'actions', 'maps']) {
+      const lib = snap.content.libraries.find((l) => l.kind === kind)
+      assert.ok(lib, `快照的库清单里应当有 ${kind}`)
+      assert.ok(typeof lib.count === 'number' && lib.count > 0, `${kind} 的条数应当是正数`)
+    }
   })
 })
 

@@ -53,6 +53,9 @@ export const VENDOR_WHITELIST: readonly string[] = [
   // 用 `.esm.min.js` 而不是 `.esm.js`：后者 7.8MB 未压缩，解析一次很贵。
   'phaser/phaser.esm.min.js',
   'phaser/LICENSE',
+  // 原版办公室底图（R62）：由 `scripts/convert-microverse-map.mjs` 解出的 1322 格烘成一张 PNG。
+  // 一次 `drawImage` 就画完整场景——先用这种方式接通，真要"单格可寻址"时再升级 tilemap。
+  'microverse/scene/office.png',
   'three/examples/jsm/controls/OrbitControls.js',
   'three/examples/jsm/loaders/GLTFLoader.js',
   'three/examples/jsm/utils/BufferGeometryUtils.js',

@@ -346,7 +346,9 @@ test('list 输出按 id 排序（稳定的输出顺序，否则测试与 diff �
   const content = loaded()
   const ids = content.list('stations').map((e) => e.id)
   assert.deepEqual(ids, [...ids].sort())
-  assert.equal(ids.length, 10)
+  // ⚠️ **不要写死条数**：R62 起内置包多了 `pack.office` 的 24 个座位，
+  // 而"条数"是内容选择、不是这条测试要守的性质（顺序稳定才是）。这里只要求非空。
+  assert.ok(ids.length > 0, '站点库不该是空的')
 })
 
 // ── R44：小镇自己干得了的活 ──────────────────────────────────────────────────

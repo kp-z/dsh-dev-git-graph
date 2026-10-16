@@ -341,9 +341,70 @@ export function hangoutsForWorld(
   count: number,
   minGap: number = DEFAULT_MIN_GAP,
 ): Vec2[] {
-  const blocked = stations.map((station) => ({
-    at: station.anchor,
-    radius: stationClearance(station.kind),
-  }))
-  return placeHangouts({ bounds: hangoutArea(districts), count, blocked, minGap })
+  // ⚠️ **`blocked` 的顺序也必须确定**：`rankByClearance` 在余量相等时按候选序号 tie-break，
+  // 而候选点的余量取决于最近的家具——家具表的顺序一变，同分项的次序就变，落点跟着变。
+  // 第一版只按 id 排了分区、没排站点，`reconcile.test.js` 仍然抓到落点差一个象限。
+  const blocked = [...stations]
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((station) => ({
+      at: station.anchor,
+      radius: stationClearance(station.kind),
+    }))
+
+  // ── R62：**按房间分配**，而不是全塞进一块地 ────────────────────────────────
+  //
+  // 原来的做法是 `placeHangouts({ bounds: hangoutArea(districts), ... })`，
+  // 而 `hangoutArea` 取的是"第一个 commons 分区"。在只有一个公共区的 16×16 小镇里这没问题；
+  // 换成**原版办公室的 9 个房间**之后，"第一个 commons" 是健身房——
+  // 于是 8 个人**全站在健身房里**（真机实测，一格不差）。
+  //
+  // 而且把全世界的包围盒当候选区还有个更糟的后果：**房间里是有墙的**，
+  // 而 `blocked` 只知道家具、不知道墙，所以人会落进墙里。
+  // 按房间分配同时解决这两件事：人一定在某个房间内部。
+  //
+  // 份额按房间面积分（大房间多站几个人），用最大余数法保证**总和恰好等于 count**
+  //（用四舍五入会多一个或少一个）。同样确定性：无 `Math.random()`、无 `Date.now()`。
+  if (districts.length === 0 || count <= 0) return []
+  // ⚠️ **按 id 排序**再分名额，不依赖调用方给的顺序。
+  // 第一版直接用传入顺序，而 `createWorld` 与 `reconcileWorld` 产出的分区顺序不一定相同
+  //（reconcile 会把"场景里没有的旧分区"追加在后面）→ 两条路径算出的落点不一样，
+  // `reconcile.test.js` 当场抓到（小绿的落点 (6.4,-6.4) vs (-6.4,6.4)）。
+  // 排序之后"同内容必同落点"不再取决于谁调用。
+  const ordered = [...districts].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const area = (d: District): number =>
+    Math.max(0.0001, (d.bounds.max.x - d.bounds.min.x) * (d.bounds.max.z - d.bounds.min.z))
+  const total = ordered.reduce((sum, d) => sum + area(d), 0)
+  const exact = ordered.map((d) => (count * area(d)) / total)
+  const quota = exact.map((v) => Math.floor(v))
+  let left = count - quota.reduce((a, b) => a + b, 0)
+  // `noUncheckedIndexedAccess` 下 `exact[i]` / `quota[i]` 是 `number | undefined`——
+  // 索引进安全数组也要显式兜底，不能因为"我知道它在范围内"就省掉（tsc 会拦，而且拦得对）。
+  const at = (arr: readonly number[], i: number): number => arr[i] ?? 0
+  const order = ordered
+    .map((_, i) => i)
+    .sort((a, b) => (at(exact, b) - at(quota, b)) - (at(exact, a) - at(quota, a)) || a - b)
+  for (const i of order) {
+    if (left <= 0) break
+    quota[i] = (quota[i] ?? 0) + 1
+    left -= 1
+  }
+
+  const out: Vec2[] = []
+  for (let i = 0; i < ordered.length; i++) {
+    const n = quota[i] ?? 0
+    if (n <= 0) continue
+    const d = ordered[i]
+    if (d === undefined) continue
+    out.push(...placeHangouts({ bounds: d.bounds, count: n, blocked, minGap }))
+  }
+  // 万一某些房间一个点都放不下（被家具占满），补足总数——宁可挤，也不能让
+  // 调用方 `hangouts[i % length]` 把两个人分到同一格（那是更糟的画面）。
+  if (out.length < count) {
+    const fallback = placeHangouts({ bounds: hangoutArea(districts), count, blocked, minGap })
+    for (const p of fallback) {
+      if (out.length >= count) break
+      out.push(p)
+    }
+  }
+  return out.slice(0, Math.max(count, out.length))
 }

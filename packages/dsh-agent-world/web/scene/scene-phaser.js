@@ -53,6 +53,7 @@ import {
   originOf,
   resolveAnimationKey,
   tilePhasePx,
+  worldFrame,
 } from '../core/scene-layout.js'
 import { assignColorVariants } from '../core/pixel-recolor.js'
 import { createSheetLoader } from './sheet-loader.js'
@@ -149,9 +150,12 @@ export function createScenePhaser(canvas, options = {}) {
   let assetsPlanned = false
   let assetsLoading = false
   let plannedAssets = new Map()
+  let plannedImages = new Map()
   let sheetByUrl = new Map()
   const perRowByUrl = new Map()
   const textureKeyByUrl = new Map()
+  /** 底图（`scene.map.url`）的纹理键。底图不是"模型"，所以单独记。 */
+  const MAP_KEY = 'map:office'
   const actorNodes = new Map()
   const actorPathCounts = { sprites: 0, fallbacks: 0 }
   const groundNodes = new Map()
@@ -161,16 +165,21 @@ export function createScenePhaser(canvas, options = {}) {
   let actorPick = typeof options.onActorPick === 'function' ? options.onActorPick : null
   let lastStats = { renderer: 'phaser', backend: rendererType === CANVAS ? 'canvas' : 'webgl', drawCalls: 0, sprites: 0, ready: false }
 
-  const screenX = (worldX) => live.canvas.clientWidth / 2 + worldX * TILE_PX * zoomNow()
-  const screenY = (worldZ) => live.canvas.clientHeight / 2 + worldZ * TILE_PX * zoomNow()
+  // 文字（名字/区块名）挂在 **zoom=1 的 UI 相机**上，位置是"画布像素"。
+  // 必须和世界里的对象用**同一套换算**（`metrics()`，它读相机真实滚动），
+  // 否则名字会整体偏掉（世界比视口小时 Phaser 会夹住滚动，靠"理想居中"算就偏 108/38px）。
+  const screenX = (worldX) => metrics().toX(worldX)
+  const screenY = (worldZ) => metrics().toY(worldZ)
 
   function zoomNow() {
     const { width, height } = viewSize(live.canvas)
-    const half = state.plan?.extent?.half ?? 8
+    const frame = worldFrame(state.plan)
+    // 按两个轴算：74×42 的办公室和 1400×748 的舞台都是横的，只按短边算会看不清
     return integerZoom({
       viewWidth: width,
       viewHeight: height,
-      worldPixels: Math.round(half * 2 * TILE_PX),
+      worldPixelsW: frame.worldPxW,
+      worldPixelsH: frame.worldPxH,
       fit: FIT,
       maxZoom: MAX_ZOOM,
     })
@@ -185,10 +194,23 @@ export function createScenePhaser(canvas, options = {}) {
     // 整数倍缩放本身；写成 `integerZoom × TILE_PX` 的话，256 像素的小镇会被放大 32 倍，
     // 相机只看得到 44×23 像素的一角（R58 踩过这个坑）。
     const zoom = zoomNow()
+    const frame = worldFrame(state.plan)
     camera.setViewport(0, 0, width, height)
     camera.setZoom(zoom)
-    // 世界原点居中；**把滚动量取整**，否则半像素的相机位移会让整张图糊掉
+    // 取景框交给引擎：`setBounds` 负责"别移出世界"，`centerOn(0,0)` 负责居中。
+    // 世界坐标**中心为 0**，所以边界从 `(-halfW, -halfH)` 起、宽高各是世界像素尺寸。
+    // ⚠️ 世界比视口**小**时（办公室 1184×672 vs 舞台 1400×748）边界会把滚动夹到左/上，
+    // 结果整张图贴在左上角；所以要按差额**向外留 padding**，留出居中的空间。
+    const padX = Math.max(0, (width / zoom - frame.worldPxW) / 2)
+    const padY = Math.max(0, (height / zoom - frame.worldPxH) / 2)
+    camera.setBounds(
+      frame.originPxX - padX,
+      frame.originPxY - padY,
+      frame.worldPxW + padX * 2,
+      frame.worldPxH + padY * 2,
+    )
     camera.centerOn(0, 0)
+    // **把滚动量取整**，否则半像素的相机位移会让整张图糊掉
     camera.setScroll(Math.round(camera.scrollX), Math.round(camera.scrollY))
     const ui = activeScene.uiCamera
     if (ui !== null && ui !== undefined) {
@@ -287,12 +309,18 @@ export function createScenePhaser(canvas, options = {}) {
       buildAnims()
       return false
     }
+    plannedImages = planned.images
     if (assetsLoading === true) return true
     // ⚠️ 模型 url 是**相对内容目录**的（`microverse/floors/floor-office.png`），而页面在
     // `/agent-world/`：不给基址就会去请求 `/agent-world/microverse/...`（404）。
     // 动态加载时 `preload` 里设过的基址不生效，必须在这里再设一次。
     activeScene.load.setBaseURL(options.assetBaseUrl ?? './vendor/')
     for (const [key, url] of missing) {
+      if (planned.images.get(key) !== undefined) {
+        // 底图就是一整张图（没有帧网格）
+        activeScene.load.image(key, url)
+        continue
+      }
       const sheet = planned.sheets.get(url)
       const cellW = Math.max(1, Math.round(Number(sheet?.cellW) || 16))
       const cellH = Math.max(1, Math.round(Number(sheet?.cellH) || cellW))
@@ -315,6 +343,12 @@ export function createScenePhaser(canvas, options = {}) {
   function planAssets(plan) {
     const assets = new Map()
     const sheets = new Map()
+    const images = new Map()
+    // 底图：一整张烘好的图（不是图块网格）
+    if (plan?.map !== null && plan?.map !== undefined && typeof plan.map.url === 'string' && plan.map.url !== '') {
+      images.set(MAP_KEY, plan.map.url)
+      assets.set(MAP_KEY, plan.map.url)
+    }
     for (const model of plan?.models ?? []) {
       if (model?.sheet === null || model?.sheet === undefined || typeof model.url !== 'string') continue
       sheets.set(model.url, model.sheet)
@@ -322,7 +356,7 @@ export function createScenePhaser(canvas, options = {}) {
       textureKeyByUrl.set(model.url, key)
       assets.set(key, model.url)
     }
-    return { assets, sheets }
+    return { assets, sheets, images }
   }
 
   // ── 地面 ─────────────────────────────────────────────────────────────────
@@ -363,6 +397,30 @@ export function createScenePhaser(canvas, options = {}) {
   function drawGround(plan) {
     const models = new Map((plan?.models ?? []).map((model) => [model.id, model]))
     const wanted = new Set()
+
+    // ── 底图（R62）─────────────────────────────────────────────────────────
+    // 对齐换算：图左上角 = 世界 `(-halfW, -halfH)`（`halfW = width*unitsPerCell/2`），
+    // 世界坐标中心为 0、图坐标左上为 0 —— 所以位置是 `-half * TILE_PX` 的**世界像素**。
+    // 图 1184×672 源像素、一个地图格 = `unitsPerCell`(2) 单位 = 32 世界像素 → **1:1，scale 1**。
+    const map = plan?.map ?? null
+    const frame = worldFrame(plan)
+    const hasMap = map !== null && map !== undefined && typeof map.url === 'string' && activeScene.textures.exists(MAP_KEY) === true
+    if (hasMap) {
+      let image = groundNodes.get('map')
+      if (image === undefined) {
+        image = activeScene.add.image(frame.originPxX, frame.originPxY, MAP_KEY)
+        image.setOrigin(0, 0)
+        image.setDepth(-1)
+        activeScene.layers.ground.add(image)
+        groundNodes.set('map', image)
+      }
+      image.setTexture(MAP_KEY)
+      image.setPosition(frame.originPxX, frame.originPxY)
+      image.setVisible(true)
+      wanted.add('map')
+    }
+    // 底下按分区铺色只在**没有底图**时画（有底图会盖住它，还会在图外铺出一片怪色）
+    if (!hasMap) {
     for (const district of plan?.ground ?? []) {
       const model = district.modelId === null || district.modelId === undefined ? null : models.get(district.modelId)
       const sheet = model?.sheet ?? null
@@ -403,6 +461,7 @@ export function createScenePhaser(canvas, options = {}) {
       }
       node.setVisible(true)
     }
+    }
     for (const [key, node] of groundNodes) if (!wanted.has(key)) node.setVisible(false)
   }
 
@@ -438,6 +497,9 @@ export function createScenePhaser(canvas, options = {}) {
         node.setVisible(true)
         spriteCount += 1
       })
+      // 有底图时不给"没有外观的站点"画色块：原版这 24 把椅子的家具在**地图的图块里**，
+      // 再画色块就会在地上多出一堆方块。（没有底图时保留色块回退 = 缺东西要看得见）
+      if (spriteCount === 0 && plan?.map !== null && plan?.map !== undefined) continue
       if (spriteCount === 0) {
         const nodeKey = `propr:${prop.id}`
         wanted.add(nodeKey)
@@ -763,11 +825,14 @@ export function createScenePhaser(canvas, options = {}) {
 
   function metrics(scene) {
     const { width, height } = viewSize(live.canvas)
-    const half = (scene ?? state.plan)?.extent?.half ?? 8
+    const plan = scene ?? state.plan
+    const frame = worldFrame(plan)
+    // **和相机同一套算法**（都走世界取景框）：两处各算一份的话，气泡锚点会慢慢偏
     const zoom = integerZoom({
       viewWidth: width,
       viewHeight: height,
-      worldPixels: Math.round(half * 2 * TILE_PX),
+      worldPixelsW: frame.worldPxW,
+      worldPixelsH: frame.worldPxH,
       fit: FIT,
       maxZoom: MAX_ZOOM,
     })
@@ -775,14 +840,27 @@ export function createScenePhaser(canvas, options = {}) {
     return {
       width,
       height,
-      half,
+      half: frame.halfW,
       zoom,
       scale,
-      toX: (x) => width / 2 + x * scale,
-      toY: (z) => height / 2 + z * scale,
-      toWorldX: (px) => (px - width / 2) / scale,
-      toWorldZ: (py) => (py - height / 2) / scale,
+      // **以相机的真实状态为准**（滚动 + 缩放）：相机可能被 `setBounds` 夹住、将来还会跟随角色，
+      // 用"理想居中"的公式算出来的锚点会和画面对不上（R62 就是这样差了 108/38 像素）。
+      toX: (x) => x * scale - scrollXNow(),
+      toY: (z) => z * scale - scrollYNow(),
+      toWorldX: (px) => (px + scrollXNow()) / scale,
+      toWorldZ: (py) => (py + scrollYNow()) / scale,
     }
+  }
+
+  /** 相机当前的滚动量（画布像素）——锚点/拾取都从它推。 */
+  function scrollXNow() {
+    const camera = activeScene?.cameras?.main
+    return camera === undefined || camera === null ? 0 : camera.scrollX * (camera.zoom || 1)
+  }
+
+  function scrollYNow() {
+    const camera = activeScene?.cameras?.main
+    return camera === undefined || camera === null ? 0 : camera.scrollY * (camera.zoom || 1)
   }
 
   function resize() {

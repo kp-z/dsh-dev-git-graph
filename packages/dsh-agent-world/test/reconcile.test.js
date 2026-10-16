@@ -27,7 +27,7 @@ import { test } from 'node:test'
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { createWorld } from '../lib/world/create.js'
 import { reconcileWorld, HANGOUT_MOVE_EPSILON } from '../lib/world/reconcile.js'
-import { stationClearance } from '../lib/world/hangouts.js'
+import { hangoutsForWorld, stationClearance } from '../lib/world/hangouts.js'
 import { latticeIn, distance } from '../lib/domain/geometry.js'
 import { step } from '../lib/sim/step.js'
 
@@ -225,11 +225,16 @@ test('瞬移规则：停在旧落点上的惰性角色被挪走；有在途意�
   // 改了常量之后**某些人的落点可能恰好落在原地**（R52：把 `DEFAULT_MIN_GAP` 从 1.8 调到 2.2 时
   // 就有一个人的落点仍是 (4,4)，于是这条断言假红）。
   // 真正的不变式是"重算过"：每个人的落点等于**新建世界**算出来的那一个。
-  const recomputed = makeWorld(content)
-  for (const agent of world.agents) {
-    const expected = recomputed.agents.find((a) => a.id === agent.id)
-    assert.deepEqual(agent.hangout, expected.hangout, `${agent.name} 的落点应当等于按当前内容重算的结果`)
-  }
+  // ⚠️ **要用"同一个 agent 数量"重算**，不能拿 `makeWorld()`（8 人）来比——
+  // 上面把 `legacy.agents` 截成了 5 个人，而落点是**按人数**摊的：
+  // 8 个人分到 4 个地块的份额与 5 个人不同，所以两组点本来就不该相等。
+  // （R62 之前这条侥幸是绿的：旧算法把所有人摊在同一个广场里，人数变了前几个点恰好重合。）
+  // 真正的不变式是"**用当前内容 + 当前人数重算过**"，所以这里直接调同一个函数。
+  const expectedPoints = hangoutsForWorld(world.districts, world.stations, world.agents.length)
+  world.agents.forEach((agent, index) => {
+    const expected = expectedPoints[index % Math.max(1, expectedPoints.length)]
+    assert.deepEqual(agent.hangout, expected, `${agent.name} 的落点应当等于按当前内容重算的结果`)
+  })
   // 至少要有一个人**确实**动了——否则"重算"这件事没有被这条测试覆盖到。
   const movedCount = world.agents.filter((agent) => {
     const before = legacy.agents.find((a) => a.id === agent.id)

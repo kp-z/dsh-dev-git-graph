@@ -38,7 +38,7 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R58 末）：`typecheck` 绿 · `test` **607 / 607 / 0 fail / 0 todo**。**渲染器换成 Phaser 3.90**（web 渲染层净减 389 行，删掉的都是引擎本职；绘制 4 次 / 58 精灵）。**点选死角已修**（角色从"只有脚下可点"改成整只可点，100→883 命中）。**第三方资产许可取证**（microverse 的美术不可分发，已补署名 + 加 `private: true` 防手滑；用户知情继续）。**openclaw-office 参考结论**：渲染别学它（154 个硬编码色值），行为学它（M14-1..4）。宿主常驻 bash-816。
+当前验证状态（R62 末）：`typecheck` 绿 · `test` **611 / 611 / 0 fail / 0 todo**。**Microverse 原版办公室跑起来了**：9 个房间（原版中文名+描述）、24 个座位、1322 格底图，8 个角色散在 7 个房间；对话端到端 `thinking → acting×2 → replied` **在真机上验过**。宿主常驻 bash-1083。
 
 ---
 
@@ -4973,3 +4973,61 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 - 分支：`feat/dsh-agent-world`（从 `feat/dsh-daily` 的 HEAD 切出；**没有**动那个分支上的未提交改动）
 - 新增包：`packages/dsh-agent-world/`
 - 文档：`docs/ARCHITECTURE.md`、`docs/BACKLOG.md`、本文件、`README.md`
+---
+
+## R62 —— **把 Microverse 原版场景跑起来了**（用户："先把这个场景里的 agent 添加上运行一下试试能不能驱动动作和对话"）
+
+### 结论：跑通了。截图 `aw-r62-office-live.png`，对话链路 `thinking → acting×2 → replied`
+
+- **画面**：原版办公室（9 个房间、墙、家具全在），8 个像素小人**散在 7 个不同房间**里。
+- **对话**：我给小蓝发"在吗？"→ `thinking` → `acting`（调 `agent_teams_send_message`）×2 →
+  `replied`"已回复：在，手头零活，没派单，按住等授权。继续保持待命，等队长或玩家的下一条"。
+  **AI 在复原出来的场景里真的动起来了。**
+
+### 怎么做的
+
+**① 底图（协议 + 内容）**
+- 协议加 `ScenePlan.map: SceneMap`（`url/width/height/cellPx/unitsPerCell`）。
+- 内容是**一整张烘好的 PNG**（`microverse/scene/office.png`，1184×672）——
+  1322 格跨 8 个图集，先用"一张图"接通，少一个协议（网格+多图集+剔除）。
+  代价：**单格不可寻址**（不能只染一块地板）；真要时再升级 tilemap，契约形状不变。
+- 新增 `maps` 库（协议层 `LibraryKind` + 内容层 `MapEntry` + `LIBRARY_SPECS` + `ContentPort.map()`）。
+
+**② 场景（内容包 `pack.office`）**
+- 9 个房间 = 分区（**名字与描述是原版写好的中文**）；24 把椅子 = 站点；`scene.office` 装配单。
+- **站点不需要 `props`**：家具在地图的图块里。这是复原原版带来的真实简化——
+  家具位置不再是我们维护的数据（`pack.pixel` 那份手搭的 10 站点+props 仍留着做对照）。
+
+**③ 三个我自己犯的错，都是"想当然"**
+1. **`scene.office` 里猜了两个内容 id**（`roster.default` / `theme.studio-night`），
+   实际是 `roster.software-team` / `theme.cozy-isometric` → **76 个测试红**。
+   **内容 id 必须去库里查，不能按命名习惯推。**
+2. **校验器放行了"没有外观的站点"，但 `instantiateStation` 没放行** → 真机 `stations: 0`。
+   两处必须同步改，否则是"校验过、实例化抛"的错配。
+3. **按房间分配落点时依赖了分区顺序**，而 `createWorld` 与 `reconcileWorld` 的分区顺序可能不同
+   → 同一内容算出不同落点（`reconcile.test.js` 当场抓到，小绿差一个象限）。
+   修法是**分区与站点都按 id 排序**，让"同内容必同落点"不再取决于谁调用。
+
+**④ 一个真 bug（不是我的）**：`hangoutArea()` 取的是"**第一个 `commons` 分区**"。
+只有一个公共区的 16×16 小镇里没问题；换成 9 个房间后第一个 commons 是**健身房**——
+**8 个人全挤在健身房里**（真机实测，一格不差）。而且把全世界的包围盒当候选区还有个更糟的后果：
+**房间之间是有墙的**，而 `blocked` 只知道家具、不知道墙 → 人会落进墙里。
+改成**按房间分配**（按面积分份额、最大余数法保证总和恰好等于人数），同时解决两件事。
+实测落点分布：会议室/HR办公室/老板办公室/办公室×2/健身房/接待处/等候大厅——**7 个房间，没人在墙里**。
+
+**⑤ 一批"写死数字"的测试**（`10 站点` / `4 地块` / 写死的包列表 / `10 个条目`）
+在 R62 之后必然红——它们是**内容选择的快照**，不是不变式。全部改成查性质（顺序稳定、包含、条数为正）。
+另有两条测试断言"落点在广场里"，那绑定了"只有一个 commons"；改成"**落在某个地块内部**"
+（房间之间有墙，落在所有地块之外就是站在墙里——那才是要拦的）。
+
+### 验证
+- `typecheck` 绿；`pnpm test` **611 / 611 / 0 fail / 0 todo**。
+- 真机：`scene.office` / 9 分区 / **24 座位**（名字是原版的：接待处座位、HR办公室座位…）/ 28 工单保留 /
+  8 角色散在 7 个房间 / 底图下发。
+- 对话端到端：`thinking → acting×2 → replied`（正文贴在上面）。
+- 存档备份在 `~/.agent-world.bak-r62`（切换场景前备份的，28 工单完整保留）。
+
+**没做到**：走动（"派单→走到椅子→坐下"）**没亲眼看到**——这一局调度器当时没派单。
+`walk` 动画与朝向映射是同一套代码路径（前面几轮验过）。另：`extent.half` 真机是 35 不是 37
+（panel 让底图优先所以不影响取景，但这个数应当修一致）。
+

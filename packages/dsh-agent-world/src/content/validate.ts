@@ -345,9 +345,16 @@ function validateEntryShape(
             pack,
           )
         }
-      } else {
+      } else if (entry.model !== undefined) {
         checkId(sink, entry.model, `${where}.model`, '站点模型 id（引用 models 库）', pack)
       }
+      // R62：`props` 与 `model` **都可以没有**——底图（`maps` 库）已经把家具画进场景了，
+      // 于是站点只剩"人在哪、能干什么"。原版办公室的 24 个座位就是这样：
+      // 桌子和椅子在地图的图块里，站点再声明一遍家具就是重复维护。
+      //
+      // 这里不强制二者之一，是因为**验证器看不到场景装没装底图**（那是 `scenes` 层的事）。
+      // 所以"没外观也没底图 ⇒ 画面上看不见东西"这件事交给渲染器回退（画色块），
+      // 而不是在这里拦——拦的话"地图场景"这种合法写法就进不来。
       if (entry.slots !== undefined) {
         if (!Array.isArray(entry.slots) || entry.slots.length === 0) {
           sink.error(`${where}.slots`, 'slots 给了就必须是非空数组（形如 [{x,z}]）', pack)

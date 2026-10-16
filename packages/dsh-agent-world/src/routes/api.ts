@@ -65,6 +65,8 @@ export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
       (id) => content.modelOf(id),
       // 状态 → 动作（R60）：**来自内容库**，渲染器不许自己写死这条映射。
       () => content.actions(),
+      // 场景底图（R62）：复原 Microverse 原版办公室的那张烘图。
+      () => content.map(),
     ),
     runtime: {
       running: deps.runtime.running,

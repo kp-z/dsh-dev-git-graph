@@ -118,7 +118,7 @@ test('agent_world_content：概览、提供方链、非法库名三种路径', a
   assert.match(overview, /已装载 \d+ 个内容包/)
   assert.match(overview, /pack\.default/)
   assert.match(overview, /外部内容目录：/, '要报出外部目录，否则"配了没生效"无从下手')
-  assert.match(overview, /stations（站点库·语义库）：10 条/)
+  assert.match(overview, /stations（站点库·语义库）：\d+ 条/)
   assert.match(overview, /内容层没有任何问题/)
 
   // 2) 提供方链：内置内容每个 id 只有一个提供方
@@ -130,7 +130,7 @@ test('agent_world_content：概览、提供方链、非法库名三种路径', a
   // 3) 不存在的 id：要说清"这个库有多少条"，而不是只说找不到
   const missing = await content.execute({ kind: 'stations', id: 'station.没有这个' })
   assert.match(missing, /没有/)
-  assert.match(missing, /10 个条目/)
+  assert.match(missing, /\d+ 个条目/)
 
   // 4) 非法库名：给可用取值
   await assert.rejects(() => content.execute({ kind: '不存在的库', id: 'x' }), /可用库名/)
@@ -190,7 +190,11 @@ test('createWorld：默认小镇结构完整（4 地块 / 10 站点 / 8 角色�
   assert.equal(w.agents[0].role, 'lead', '第一个角色必须是 lead')
   assert.equal(w.tick, 0)
   assert.equal(w.paused, false)
-  assert.deepEqual(w.origin.packs, ['pack.default', 'pack.kenney-mini', 'pack.kenney-furniture', 'pack.pixel'])
+  // ⚠️ 不写死包列表：R62 起多了 `pack.office`（原版办公室），而"装了哪些包"是内容选择、
+  // 不是这条测试要守的性质（结构数、角色数、初始状态才是）。这里只要求内置包都在。
+  for (const id of ['pack.default', 'pack.kenney-mini', 'pack.kenney-furniture', 'pack.pixel', 'pack.office']) {
+    assert.ok(w.origin.packs.includes(id), `内置包 ${id} 应当在 origin.packs 里`)
+  }
   assert.equal(w.origin.scene, 'scene.default-town')
   assert.deepEqual(w.origin.taskSets, [])
   assert.deepEqual(w.tasks, [], '开局工单板应当是空的，等 lead 派单')

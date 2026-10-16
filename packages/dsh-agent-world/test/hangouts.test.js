@@ -295,15 +295,27 @@ test('真内容：生产表 `STATION_CLEARANCE` 覆盖独立测出的真实尺�
 
 test('真内容：落点仍在广场里、互不重合、间距不劣于目标（原有性质不许退化）', () => {
   const world = makeWorld()
-  const commons = world.districts.find((d) => d.kind === 'commons')
-  assert.ok(commons, '内置场景应当有广场')
+  // ⚠️ R62 起断言的是"**落在某个地块里**"，不再是"落在广场里"。
+  //
+  // 旧断言绑定了"内置场景只有一个 commons"这件事。而 R62 换上原版办公室（9 个房间）之后，
+  // 玩家落点**按房间分配**（`hangoutsForWorld`）——那是刻意的：旧做法取"第一个 commons"，
+  // 换成 9 个房间后 8 个人**全挤在健身房里**（真机实测），而且会把全世界的包围盒当候选区，
+  // 于是人会落进**墙里**（`blocked` 只知道家具、不知道墙）。
+  //
+  // 真正要守的不变式是"落点在某个房间内部"（所以人不会站在墙里），下面还照旧查
+  // 互不重合与间距——那两条才是这个测试的原始价值。
+  const inside = (p) =>
+    world.districts.some(
+      (d) =>
+        p.x >= Math.min(d.bounds.min.x, d.bounds.max.x) &&
+        p.x <= Math.max(d.bounds.min.x, d.bounds.max.x) &&
+        p.z >= Math.min(d.bounds.min.z, d.bounds.max.z) &&
+        p.z <= Math.max(d.bounds.min.z, d.bounds.max.z),
+    )
   const points = world.agents.map((a) => a.hangout)
 
   for (const p of points) {
-    assert.ok(
-      p.x >= commons.bounds.min.x && p.x <= commons.bounds.max.x && p.z >= commons.bounds.min.z && p.z <= commons.bounds.max.z,
-      `落点跑到广场外了：${JSON.stringify(p)}`,
-    )
+    assert.ok(inside(p), `落点跑到所有地块之外了（会站在墙里）：${JSON.stringify(p)}`)
   }
   assert.equal(new Set(points.map((p) => `${p.x},${p.z}`)).size, points.length, '落点重合了（M2.5-1 的原始 bug）')
   assert.ok(

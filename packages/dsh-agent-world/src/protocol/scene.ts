@@ -197,6 +197,27 @@ export interface SceneAction {
   fadeMs: number
 }
 
+/**
+ * 场景的**底图**（R62）。
+ *
+ * 为什么是"一整张烘好的图"而不是"图块网格"：原版场景有 1322 格、跨 8 个图集。
+ * 第一次接通时**先把图烘成一张 PNG**，渲染器只需一次 `drawImage`——
+ * 少一个协议（网格 + 多图集 + 分块剔除），能更快看到"小人在真办公室里"。
+ * 代价是**单格不可寻址**（不能只染某一块地板、不能高亮某个房间）。
+ * 真要那些能力时再升级成 tilemap，那是一条独立的升级路径，不影响现在的契约形状。
+ */
+export interface SceneMap {
+  /** 底图 URL（相对 vendor 根）；null = 这一局没有底图，渲染器退回按分区铺色。 */
+  url: string | null
+  /** 地图格数。 */
+  width: number
+  height: number
+  /** 一格多少源像素（图里的实际尺寸 = width×cellPx）。 */
+  cellPx: number
+  /** 一格等于多少世界单位（渲染器据此把图缩放到世界坐标）。 */
+  unitsPerCell: number
+}
+
 export interface ScenePlan {
   /**
    * 世界的半径（半边长）。渲染器据此铺地面、定取景范围——
@@ -215,6 +236,8 @@ export interface ScenePlan {
   actors: SceneActor[]
   /** 状态 → 动作的映射（**来自内容库**，渲染器不许自己写死）。 */
   actions: SceneAction[]
+  /** 场景底图；null = 没有底图，渲染器按分区铺色（老行为）。 */
+  map: SceneMap | null
   /**
    * 本场景引用到的模型（`SceneProp.modelId` 与 `SceneActor.modelId` 在这张表里查）。
    *

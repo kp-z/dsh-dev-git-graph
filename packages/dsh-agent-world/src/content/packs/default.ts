@@ -22,6 +22,7 @@
 import { DEFAULT_DISTRICTS } from './districts.js'
 import { DEFAULT_STATIONS } from './stations.js'
 import { pixelPack } from './pixel.js'
+import { officePack } from './office.js'
 import { kenneyMiniPack } from './kenney-mini.js'
 import { kenneyFurniturePack } from './kenney-furniture.js'
 import type { ContentPack } from '../kinds.js'
@@ -466,5 +467,14 @@ export const defaultPack: ContentPack = {
 /** 当前内置的全部内容包（按推荐装载顺序）。 */
 export function builtinPacks(): ContentPack[] {
   // 顺序 = 装载顺序。表现包放后面（它 `overrides` 掉基础包里的条目）。
-  return [defaultPack, kenneyMiniPack, kenneyFurniturePack, pixelPack]
+  return [
+    defaultPack,
+    kenneyMiniPack,
+    kenneyFurniturePack,
+    pixelPack,
+    // R62：**原版办公室**。它整条覆盖 districts/stations 并提供底图——
+    // 装在最后 = 它说了算（内容包按装载顺序叠加）。想去掉它回到"我们手搭的小镇"，
+    // 把它从这一行删掉即可。
+    officePack,
+  ]
 }
