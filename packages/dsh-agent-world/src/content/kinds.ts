@@ -235,6 +235,14 @@ export interface RosterSeat {
   /** 建议的模型路由；null = 用宿主默认模型。 */
   model: { provider: string; model: string; reasoningEffort: string | null } | null
   /**
+   * **这个席位长什么样**（R51）。指向 `models` 库的条目 id；不写就用场景的 `agentModel`。
+   *
+   * 为什么需要它：场景层只有一个 `agentModel`（"这座小镇的人默认长什么样"），
+   * 而 8 个居民**应该长得不一样**——那不是场景属性，是**席位属性**。
+   * 把这个决定放在这里，于是"某个人换一张脸"是改内容，不是改渲染器。
+   */
+  appearance?: string
+  /**
    * **这个人是谁**：身份、性格、在意什么、怕什么。
    *
    * 这是**内容**（决策 D37）——代码里不许出现角色名、性格描述或台词。
@@ -285,10 +293,75 @@ export interface TaskSetEntry {
 
 // ── 表现库的条目 ────────────────────────────────────────────────────────────
 
-/** 模型来源：外部文件或程序化构建器。 */
+/** 模型来源：外部文件、程序化构建器，或**像素图集**（2D，R51）。 */
 export type ModelSource =
   | { kind: 'glb'; url: string; clipSource: boolean }
   | { kind: 'procedural'; builder: string }
+  | { kind: 'sheet'; url: string; sheet: SheetSpec }
+
+/**
+ * 像素图集的切法（2D，R51）。
+ *
+ * ## 为什么"哪一格是什么"必须写在内容里
+ *
+ * 这些 CC0 图集**不提供名称表**（R50 实测：11 个包没有一份逐格说明），所以"第 3 行第 5 格是椅子"
+ * 这件事**只能由人声明**。让渲染器去猜（按位置约定、按文件名）会在换一套图集时静默画错，
+ * 而"某件家具变成了别的东西"极难归因。
+ *
+ * ## 单位
+ *
+ * 全用**格**而不是像素：`cellW/cellH` 只在切图时用一次，此后一切（第几列、跨几行）都是格。
+ * 于是"把 16px 的图集换成 32px 的"不用改任何动画定义。
+ */
+export interface SheetSpec {
+  /** 单格宽（像素）。 */
+  cellW: number
+  /** 单格高（像素）。 */
+  cellH: number
+  /**
+   * 一个完整事物占几格高。
+   *
+   * 人物几乎总是 2（头 + 身）：`18×36` 的立绘在 `18×18` 的格子里就是跨两行。
+   * 家具/地砖是 1。**跨行是从"带"的顶端往下数**（见 `SheetAnimation.row`）。
+   */
+  rowsPerFigure: number
+  /**
+   * 贴地方式：`bottom` = 图底边贴地面格（人、家具），`center` = 图心对准格心（地砖）。
+   *
+   * 这一条是**机制**（怎么把图对准格子），不是内容——所以放在 `SheetSpec` 里由渲染器执行，
+   * 而具体某个模型选哪种仍是内容决定。
+   */
+  anchor: 'bottom' | 'center'
+  /**
+   * 动画：名字 → 在图上哪一块。
+   *
+   * 名字用**点分**的 `动作.方向`（`walk.down` / `idle.left`）；方向缺省表示"不分方向"。
+   * 之所以不把方向做成独立字段：有些图集只画了左右（靠水平翻转省一半），
+   * 有些画了四向，把它们硬塞进同一个结构会逼着内容作者填假数据。
+   */
+  animations: Readonly<Record<string, SheetAnimation>>
+}
+
+/** 一段动画在图上的位置（单位：格）。 */
+export interface SheetAnimation {
+  /** 起始列（0 起）。 */
+  col: number
+  /** 起始**带**（0 起）。一条带高 `rowsPerFigure` 格，所以实际像素行 = `row * rowsPerFigure * cellH`。 */
+  row: number
+  /** 帧数。 */
+  frames: number
+  /** 每帧时长（ms）。 */
+  frameMs: number
+  /** 帧沿什么方向排。缺省 `row`（同一带里向右排）。 */
+  layout?: 'row' | 'column'
+  /**
+   * 这一段的第 `n` 帧是**水平翻转**得到的（省一半画面）。
+   *
+   * 例：只画了朝左的走路，朝右就是同一批帧翻过来。声明在这里而不是让渲染器猜，
+   * 因为"翻转是不是对"取决于图（有些图正面朝左、有些朝右）。
+   */
+  mirror?: boolean
+}
 
 /** 模型库条目。 */
 export interface ModelEntry {

@@ -76,6 +76,11 @@ export const VENDOR_WHITELIST: readonly string[] = [
   // 注意：目录前缀**只给像素资源**。three 与 Kenney 的 GLB 仍是逐个列举——
   // 那是"渲染器现在要用什么"的清单，收紧它有价值。
   'pixel/',
+
+  // Microverse（**MIT**，用户指定）：8 个像素角色 + 办公室家具 + 地图图集。
+  // 与 `pixel/` 同理按目录开放（授权整包一致，`microverse/LICENSE` 是上游原文）。
+  // 许可原文必须随包发布——MIT 要求保留版权声明。
+  'microverse/',
 ]
 
 /**

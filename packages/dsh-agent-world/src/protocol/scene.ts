@@ -96,6 +96,22 @@ export interface ScenePropPart {
   rotationY: number
 }
 
+/**
+ * 像素图集的切法（渲染就绪的形态，2D / R51）。
+ *
+ * 与内容层的 `SheetSpec` 是两个类型而不是复用同一个：协议层**不许 import 内容层**
+ * （边界检查器会拦）。所以这里是"渲染器需要什么就放什么"的精简形状。
+ */
+export interface SceneSheetSpec {
+  cellW: number
+  cellH: number
+  rowsPerFigure: number
+  anchor: 'bottom' | 'center'
+  animations: Readonly<
+    Record<string, { col: number; row: number; frames: number; frameMs: number; layout: 'row' | 'column'; mirror: boolean }>
+  >
+}
+
 /** 一个角色。 */
 /**
  * 一个模型的**渲染就绪**描述（`models` 库条目的投影）。
@@ -112,6 +128,13 @@ export interface SceneModel {
   builder: string | null
   /** GLB 的**包内相对路径**（已过路径校验）；程序化模型为 null。 */
   url: string | null
+  /**
+   * 像素图集的切法（2D，R51）。GLB 与程序化模型为 null。
+   *
+   * 与 `parts` 同一条规矩：**形状由内容声明**，渲染器只执行。
+   * "第几格是椅子""走路有几帧"都在这里，所以换一套图集不用改渲染代码。
+   */
+  sheet: SceneSheetSpec | null
   scale: number
   rotationY: number
   anchorY: number

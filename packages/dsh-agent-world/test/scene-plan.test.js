@@ -278,13 +278,18 @@ test('模型表：计划里带上了**本场景用到的**模型，且构建器�
     assert.equal(typeof model.scale, 'number')
   }
 
-  // 角色模型来自 `pack.kenney-mini`（它 `overrides` 掉了基础包的程序化 `avatar`）。
-  // 这就是"换资产只改内容"：模拟内核与渲染器都没有为此改一行。
-  const avatar = plan.models.find((m) => m.id === 'model.agent.base')
-  assert.ok(avatar, '角色模型要在表里')
-  assert.equal(avatar.builder, null, '角色现在是 GLB，不是程序化几何')
-  assert.equal(avatar.url, 'kenney-mini-characters/character-male-a.glb')
-  assert.ok(avatar.scale > 1, 'Kenney 的角色自然高度是 0.671，要放大到与镇上家具成比例')
+  // 角色的外观由**花名册席位**声明（R51 新增 `RosterSeat.appearance`），
+  // 而不是全场景共用一个 `model.agentModel`。所以这里守的是**真正重要的那件事**：
+  // 计划里带上了每个角色实际要用的模型，且它要么有 builder、要么有 url/sheet。
+  // （不再断言"角色一定是 Kenney 的 GLB"——那是某一次资产选择，不是不变式。）
+  const actorModels = new Set(plan.actors.map((a) => a.modelId))
+  assert.ok(actorModels.size >= 2, `角色应当各用各的模型（实际 ${actorModels.size} 种）`)
+  for (const id of actorModels) {
+    assert.ok(plan.models.some((m) => m.id === id), `角色模型 ${id} 要在表里`)
+  }
+  // 默认外观（没声明 `appearance` 的席位会用它）仍要可解析——它是回退路径。
+  const fallback = port.modelOf('model.agent.base')
+  assert.ok(fallback, '默认角色外观要能解析（席位没声明 appearance 时靠它）')
 
   // 每个 prop/actor 的 modelId 都能在表里查到——查不到就是内容对不上，
   // 而渲染器的表现是"一个品红方块"。

@@ -66,7 +66,7 @@ export function createWorld(options: CreateWorldOptions): World {
   )
 
   const roster = content.require('rosters', scene.roster, `场景 ${scene.id} 引用的花名册`)
-  const agents = instantiateAgents(roster, scene.spawn, maxAgents, rng)
+  const agents = instantiateAgents(roster, scene.spawn, maxAgents, rng, scene.agentModel)
 
   // 待命的人站哪（BACKLOG M2.5-1 + R47 P0-1）。**不给的话他们会永远叠在出生点上**——
   // 因为角色只在被派活时才移动，从没被派过活的人一步都不会走。

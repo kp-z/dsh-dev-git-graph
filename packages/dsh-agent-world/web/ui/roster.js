@@ -13,6 +13,7 @@
  * 2. 名字/职业/站位**全部来自世界数据**（D37：人设是内容，代码里没有角色名）。
  */
 
+import { assignColorVariants, variantColor } from '../core/pixel-recolor.js'
 import { agentStateLabel, agentStateTone, roleLabel } from './labels.js'
 
 function esc(text) {
@@ -58,6 +59,9 @@ export function createRoster(options) {
     if (signature === lastSignature) return
     lastSignature = signature
 
+    // 撞色兜底（R51）：同一配色的第 2、3… 个角色在色相上错开——**与画布共用同一份分配**
+    // （`assignColorVariants`），否则花名册上的小蓝和地图上的小蓝不是一个颜色。
+    const variants = assignColorVariants(world.agents.map((agent) => ({ id: agent.id, color: colorById?.get(agent.id) })))
     root.innerHTML = world.agents
       .map((agent) => {
         const stationName = agent.station
@@ -67,7 +71,8 @@ export function createRoster(options) {
             : '广场'
         const carrying = agent.carrying ? world.tasks.find((t) => t.id === agent.carrying) : null
         const tone = agentStateTone(agent.state)
-        const color = colorById?.get(agent.id) ?? 'var(--fg-2)'
+        const rawColor = colorById?.get(agent.id)
+        const color = rawColor === undefined ? 'var(--fg-2)' : variantColor(rawColor, variants.get(agent.id) ?? 0)
         const pending = thinking.has(agent.id)
           ? '<span class="badge badge-ready agent-pending">他在想…</span>'
           : `<span class="badge badge-${tone}">${esc(agentStateLabel(agent.state))}</span>`

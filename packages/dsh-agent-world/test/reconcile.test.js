@@ -405,3 +405,42 @@ test('降级：内容里的站点不自洽（relativeTo 指向不存在的地块
     `警告要说清哪个站点、为什么：${JSON.stringify(warnings)}`,
   )
 })
+
+// ── R51：角色外观也是派生量 ───────────────────────────────────────────────────
+
+test('R51：旧存档里角色没有 modelId → 读档时按花名册重算（否则渲染层拿到 undefined）', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const world = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
+
+  // 模拟 R51 之前存下来的世界：角色有 palette、没有 modelId。
+  const legacy = {
+    ...world,
+    agents: world.agents.map((a) => {
+      const { modelId: _drop, ...rest } = a
+      return rest
+    }),
+  }
+
+  const { world: fixed, changes } = reconcileWorld(legacy, content)
+
+  assert.equal(fixed.agents.length, legacy.agents.length, '重算不该增减角色')
+  for (const a of fixed.agents) {
+    assert.equal(typeof a.modelId, 'string', `${a.name} 应当拿到 modelId`)
+    assert.ok(a.modelId !== '', `${a.name} 的 modelId 不能是空串`)
+  }
+  // 8 个席位各声明了 appearance → 8 个角色应当用 8 种模型（这正是"长得不一样"）。
+  const distinct = new Set(fixed.agents.map((a) => a.modelId))
+  assert.equal(distinct.size, fixed.agents.length, `每个角色应当各用一个模型，实际 ${distinct.size} 种`)
+  assert.ok(changes.some((c) => c.includes('外观')), 'changes 要说清改了外观')
+})
+
+test('R51：外观重算是幂等的（第二次没有变化）', () => {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  const world = createWorld({ content, scene: 'scene.default-town', createdAt: '2026-01-01T00:00:00.000Z' })
+  const once = reconcileWorld(world, content)
+  const twice = reconcileWorld(once.world, content)
+  assert.deepEqual(twice.world.agents.map((a) => a.modelId), once.world.agents.map((a) => a.modelId))
+  assert.ok(!twice.changes.some((c) => c.includes('外观')), '第二次不该再报外观变化')
+})

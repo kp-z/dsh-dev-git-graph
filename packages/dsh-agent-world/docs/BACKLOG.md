@@ -216,9 +216,13 @@
 | M11-1 | ready | **规模压测**（SCALING 第四节第 1 步）：造 500/2000/5000 角色的世界，量每 tick 耗时、存盘耗时、3D 帧耗时、内存，结果表进 `docs/VERIFICATION.md` | `test/` 或 `scripts/` + docs | —— | 后面所有扩展的尺子 |
 | M12-1 | ready | **图集逐格语义表**（R50）：各像素包不提供名称表，所以"哪一格是桌子/木地板/椅子"无人标注。用各包自带 `Sample.png` 对照标注成 `tile-index.md`。**没有它接渲染只能靠看，看错会静默画错** | `docs/tile-index.md` + `src/vendor/pixel/` | —— | 接渲染的前置 |
 | M12-2 | ready | **定"8 个角色怎么来"**（R50）：带行走帧的只有 OGA 那 2 套（Kenney 人物是静态单帧）。两条路：给那 2 套按 8 种配色重上色（便宜、风格统一）／再找 1~2 套 CC0 四方向角色 | `src/vendor/pixel/characters/` | —— | 走路动画是"让人看起来在干活"的关键 |
-| M12-3 | ready | **接 2D 渲染**：`scene2d.js` 现在画色块与圆点，换成精灵（角色/地面/家具/道具/UI）。两个渲染器吃同一份 ScenePlan，所以只动 `web/scene/scene2d.js` | `web/scene/scene2d.js` | M12-1 M12-2 | 用户要的"2D 游戏"本体 |
+| M12-3 | **done** | **接 2D 渲染**：`scene2d.js` 现在画色块与圆点，换成精灵（角色/地面/家具/道具/UI）。两个渲染器吃同一份 ScenePlan，所以只动 `web/scene/scene2d.js` | `web/scene/scene2d.js` | M12-1 M12-2 | 用户要的"2D 游戏"本体 |
 | M12-4 | ready | **2D 缺件补齐**（R50）：缺现代办公专有物（显示器/键盘/白板/服务器机柜/咖啡机）、特效与表情完全没有 | `src/vendor/pixel/` | —— | 靠上色/裁剪/再找 CC0 |
 | M12-5 | done | vendor 白名单支持**目录前缀**（R50）：`pixel/` 整目录开放，安全靠收紧路径解析（纯函数 + 穷举测试）。真机：资源 200、越界 404 | `src/routes/vendor.ts` | —— | —— |
+| M13-1 | ready | **逐格标注 Microverse 的 339 件办公家具**（R51）：2D 家具现在是色块，因为站点用的是 Kenney 的 GLB。要把 `microverse/objects/*.png` 标成"哪一张是桌子/椅子/机柜/沙发"。**用户要求选资源先给预览确认**，所以先出拼贴图给用户看再接入 | `docs/tile-index.md` + `src/content/packs/pixel.ts` | —— | 2D 家具的前置 |
+| M13-2 | ready | **2D 落点拥挤**（R51 截图）：8 个人全挤在公共区右下角、互相重叠。`placeHangouts` 按地块几何摊，没算人物在 2D 下的显示尺寸。真机上比 3D 更明显 | `src/world/hangouts.ts` | —— | 观感 |
+| M13-3 | ready | **2D 地面换真地板**（R51）：现在是按地块色铺的棋盘格。Microverse 的地图图集是"整间屋子的拼图"，要先从里面挑出**可平铺**的地板格 | `docs/tile-index.md` + `src/content/packs/pixel.ts` | M13-1 | 与家具同一批标注 |
+| M13-4 | ready | **坐下/站立动画没接**（R51）：Microverse 有 `sit_*` / `stand_*`，而状态机里没有对应状态（只有 idle/walking/working/talking/blocked/celebrating/sleeping）。要么映射到 `working`，要么加状态 | `src/domain/types.ts` + 内容 | —— | —— |
 | M11-2 | ready | **智能分级**（D42）：角色 `scripted`/`awake` 两级，唤醒/休眠策略 + 并发上限，awake = agent-teams 成员 | `src/bridge/` + `src/domain/` | M10-6 | 成本是否可控取决于它 |
 | M11-3 | ready | **内部模块注册表**（D45）：子系统按协议接口登记，`src/index.ts` 改为按名字装配 | `src/index.ts` + `src/protocol/` | M11-1 | 给后续整体替换铺路 |
 | M11-4 | ready | **实体/组件**（D43）与**区域**（D44）：等 M11-1 压测给出瓶颈后再设计 | `src/domain/` `src/sim/` `src/store/` | M11-1 | 不做过早设计 |

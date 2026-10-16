@@ -20,6 +20,7 @@
  * 即可 —— **模拟内核一行不用改**。这正是内容库层存在的意义，也是它第一次真正被验证。
  */
 import { DEFAULT_STATIONS } from './stations.js'
+import { pixelPack } from './pixel.js'
 import { kenneyMiniPack } from './kenney-mini.js'
 import { kenneyFurniturePack } from './kenney-furniture.js'
 import type { ContentPack } from '../kinds.js'
@@ -118,6 +119,11 @@ export const defaultPack: ContentPack = {
           // 所以是整张调色板里唯一允许"亮"的一组；彼此色相拉开，同屏八个人不撞色。
           'role.lead': '#FBBF24',
           'role.engineer': '#38BDF8',
+          // R51：**三个工程师席位需要三种颜色**。原来它们共用 `role.engineer`，
+          // 于是 8 个角色只有 6 种颜色——2D 渲染里三个人长得一模一样（panel 数出来的：
+          // agent-2/3/4 全是 #38BDF8）。同族拉开色相，保证"一眼能认出谁是谁"而不打乱蓝色=工程师这条语义。
+          'role.engineer.2': '#6366F1',
+          'role.engineer.3': '#22D3EE',
           'role.reviewer': '#C084FC',
           'role.researcher': '#2DD4BF',
           'role.ops': '#FB7185',
@@ -176,6 +182,22 @@ export const defaultPack: ContentPack = {
       { id: 'model.station.lab', name: '实验台（程序化）', source: { kind: 'procedural', builder: 'lab' }, scale: 1, rotationY: 0, anchorY: 0 },
       { id: 'model.station.breakroom', name: '休息区（程序化）', source: { kind: 'procedural', builder: 'breakroom' }, scale: 1, rotationY: 0, anchorY: 0 },
       { id: 'model.prop.delivery', name: '投递物（程序化）', source: { kind: 'procedural', builder: 'delivery' }, scale: 1, rotationY: 0, anchorY: 0 },
+
+      // ── 8 个席位的**占位**外观（R51）───────────────────────────────────────
+      //
+      // 花名册的每个席位声明了 `appearance`（"这个人长什么样"），所以那 8 个 id
+      // **必须由基础包提供**——否则"只装 pack.default"的世界里，8 个角色会指向不存在的模型。
+      // 这里给的是程序化 avatar 占位；`pack.pixel` 会把它们覆盖成像素图集。
+      //
+      // 与 `DEFAULT_STATIONS` 同一条思路：**基础包自洽**，艺术包负责升级外观。
+      ...['tom', 'lea', 'jack', 'joe', 'stephen', 'alice', 'grace', 'monica'].map((n) => ({
+        id: `model.agent.mv-${n}`,
+        name: `席位外观（程序化）${n}`,
+        source: { kind: 'procedural' as const, builder: 'avatar' },
+        scale: 1,
+        rotationY: 0,
+        anchorY: 0,
+      })),
     ],
 
     // ── 动作库 ──────────────────────────────────────────────────────────────
@@ -227,6 +249,7 @@ export const defaultPack: ContentPack = {
             role: 'lead',
             name: '工头阿金',
             palette: 'skin.role.lead',
+            appearance: 'model.agent.mv-tom',
             model: null,
             persona:
               '带五个人的工程组长，排期与拍板的人。最怕的不是写错代码，而是"没人知道现在卡在谁身上"。' +
@@ -239,6 +262,7 @@ export const defaultPack: ContentPack = {
             role: 'engineer',
             name: '小蓝',
             palette: 'skin.role.engineer',
+            appearance: 'model.agent.mv-lea',
             model: null,
             persona: '主力工程师，团队里写代码最快的那个。习惯先把问题复现出来再动手，讨厌凭感觉改。',
             speechStyle:
@@ -248,7 +272,8 @@ export const defaultPack: ContentPack = {
           {
             role: 'engineer',
             name: '小铁',
-            palette: 'skin.role.engineer',
+            palette: 'skin.role.engineer.2',
+            appearance: 'model.agent.mv-jack',
             model: null,
             persona: '工程师，稳的那一个。宁可慢半天也要把边界条件想清楚，最听不得"应该没问题"。',
             speechStyle:
@@ -258,7 +283,8 @@ export const defaultPack: ContentPack = {
           {
             role: 'engineer',
             name: '小绿',
-            palette: 'skin.role.engineer',
+            palette: 'skin.role.engineer.3',
+            appearance: 'model.agent.mv-joe',
             model: null,
             persona: '刚加入的工程师，好奇、问得多、不怕承认自己不会。学得很快，也因此经常先问再动。',
             speechStyle:
@@ -269,6 +295,7 @@ export const defaultPack: ContentPack = {
             role: 'reviewer',
             name: '小紫',
             palette: 'skin.role.reviewer',
+            appearance: 'model.agent.mv-stephen',
             model: null,
             persona: '评审者，只认证据。见过太多"测过了"其实没测的提交，所以对断言比对人更信任。',
             speechStyle:
@@ -279,6 +306,7 @@ export const defaultPack: ContentPack = {
             role: 'researcher',
             name: '小青',
             palette: 'skin.role.researcher',
+            appearance: 'model.agent.mv-alice',
             model: null,
             persona: '调研者，负责在动手之前把未知变成已知。宁可多花半天查，也不愿赌一个没验证的假设。',
             speechStyle:
@@ -289,6 +317,7 @@ export const defaultPack: ContentPack = {
             role: 'ops',
             name: '小绯',
             palette: 'skin.role.ops',
+            appearance: 'model.agent.mv-grace',
             model: null,
             persona: '运维，盯着稳定性。上线要经他签字，所以他对影响面与回滚方案最敏感，对"看起来没问题"零容忍。',
             speechStyle:
@@ -299,6 +328,7 @@ export const defaultPack: ContentPack = {
             role: 'docs',
             name: '小雯',
             palette: 'skin.role.docs',
+            appearance: 'model.agent.mv-monica',
             model: null,
             persona: '文档，把发生过的事写成别人能看懂的东西。会替读者提问，也因此常常发现没人注意到的前提缺失。',
             speechStyle:
@@ -402,5 +432,5 @@ export const defaultPack: ContentPack = {
 /** 当前内置的全部内容包（按推荐装载顺序）。 */
 export function builtinPacks(): ContentPack[] {
   // 顺序 = 装载顺序。表现包放后面（它 `overrides` 掉基础包里的条目）。
-  return [defaultPack, kenneyMiniPack, kenneyFurniturePack]
+  return [defaultPack, kenneyMiniPack, kenneyFurniturePack, pixelPack]
 }

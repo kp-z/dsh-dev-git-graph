@@ -227,18 +227,43 @@ export function reconcileWorld(world: World, content: ContentRegistry): Reconcil
     warnings.push(`这些地块在当前场景里已经没有了，但存档里还在（保留）：${droppedDistricts.join(' / ')}`)
   }
 
+  // ── 外观：由**花名册**重算（R51）─────────────────────────────────────────
+  //
+  // `agent.modelId` 是"这个人长什么样"，来源是花名册席位的 `appearance`（内容），
+  // 所以它是**派生量**——与 `hangout` 同一条规矩。旧存档里没有这个字段（R51 才加），
+  // 不重算的话渲染层拿到 `undefined`，表现是"人不显示"或"所有人用同一个形象"。
+  const rosterId = scene.roster
+  const roster = rosterId === undefined ? undefined : content.get('rosters', rosterId)?.data
+  const appearanceById = new Map<string, { modelId: string; palette: string }>()
+  if (roster !== undefined) {
+    roster.seats.forEach((seat, i) => {
+      appearanceById.set(`agent-${i + 1}`, {
+        modelId: seat.appearance ?? scene.agentModel,
+        palette: seat.palette,
+      })
+    })
+  }
+
   // ── 落点：由地块几何 + 站点占位重算（与建世界同一个函数，保证不漂移）──
   const hangouts = hangoutsForWorld(districts, stations, world.agents.length)
 
   const agents: Agent[] = []
   const movedIdle: string[] = []
   let hangoutChanged = 0
+  let appearanceChanged = 0
   world.agents.forEach((agent, index) => {
     const next = hangouts[index % Math.max(1, hangouts.length)] ?? null
     const old = agent.hangout
     const hangoutMoved = old === null || next === null ? old !== next : distance(old, next) > 1e-9
+    // 外观先算（它和落点无关，两者都要落到同一个 agent 对象上）。
+    const want = appearanceById.get(agent.id)
+    const withLook =
+      want !== undefined && (agent.modelId !== want.modelId || agent.palette !== want.palette)
+        ? { ...agent, modelId: want.modelId, palette: want.palette }
+        : agent
+    if (withLook !== agent) appearanceChanged += 1
     if (!hangoutMoved) {
-      agents.push(agent)
+      agents.push(withLook)
       return
     }
     hangoutChanged += 1
@@ -252,13 +277,17 @@ export function reconcileWorld(world: World, content: ContentRegistry): Reconcil
     if (inert && parkedOnOld && next !== null) {
       // 他的位置就是旧落点的拷贝 → 派生量，跟着挪。（世界在跑时本来他自己也会走过去；
       // 但暂停的世界不会，而"暂停时看起来没修好"正是这个 bug 最初的报告方式。）
-      agents.push({ ...agent, hangout: next, position: { ...next }, path: [] })
+      agents.push({ ...withLook, hangout: next, position: { ...next }, path: [] })
       movedIdle.push(agent.name)
       return
     }
     // 有在途意图、或不在旧落点上 → 只改落点，位置是历史。
-    agents.push({ ...agent, hangout: next })
+    agents.push({ ...withLook, hangout: next })
   })
+
+  if (appearanceChanged > 0) {
+    changes.push(`角色外观已按当前花名册重算：${appearanceChanged} 个角色换了形象或配色`)
+  }
 
   if (hangoutChanged > 0) {
     changes.push(

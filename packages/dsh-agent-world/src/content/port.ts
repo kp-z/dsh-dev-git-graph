@@ -163,9 +163,40 @@ export function contentPortOf(
       if (resolved === undefined) return null
       const { source, scale, rotationY, anchorY } = resolved.data
       // 映射在这里做（而不是让渲染器读 `ModelEntry`）：只有内容层知道条目的原始形状。
-      return source.kind === 'procedural'
-        ? { id, builder: source.builder, url: null, scale, rotationY, anchorY }
-        : { id, builder: null, url: source.url, scale, rotationY, anchorY }
+      if (source.kind === 'procedural') {
+        return { id, builder: source.builder, url: null, sheet: null, scale, rotationY, anchorY }
+      }
+      if (source.kind === 'glb') {
+        return { id, builder: null, url: source.url, sheet: null, scale, rotationY, anchorY }
+      }
+      // 像素图集（R51）：把 `SheetSpec` 摊成渲染器要的形状。
+      // 缺省值在这里补（`layout` 缺省 `row`、`mirror` 缺省 false），所以内容作者只写必要的东西。
+      const animations: Record<string, { col: number; row: number; frames: number; frameMs: number; layout: 'row' | 'column'; mirror: boolean }> = {}
+      for (const [name, a] of Object.entries(source.sheet.animations)) {
+        animations[name] = {
+          col: a.col,
+          row: a.row,
+          frames: a.frames,
+          frameMs: a.frameMs,
+          layout: a.layout ?? 'row',
+          mirror: a.mirror === true,
+        }
+      }
+      return {
+        id,
+        builder: null,
+        url: source.url,
+        sheet: {
+          cellW: source.sheet.cellW,
+          cellH: source.sheet.cellH,
+          rowsPerFigure: source.sheet.rowsPerFigure,
+          anchor: source.sheet.anchor,
+          animations,
+        },
+        scale,
+        rotationY,
+        anchorY,
+      }
     },
   }
 }

@@ -111,6 +111,8 @@ export function instantiateAgents(
   spawn: Vec2,
   maxAgents: number,
   rng: Rng,
+  /** 场景默认外观（`SceneEntry.agentModel`）。席位自己声明了 `appearance` 就用它自己的。 */
+  defaultAppearance: string,
 ): Agent[] {
   const seats = roster.seats.slice(0, Math.max(0, maxAgents))
   return seats.map((seat, i) => ({
@@ -118,6 +120,8 @@ export function instantiateAgents(
     name: seat.name,
     role: seat.role,
     palette: seat.palette,
+    // 席位声明的外观优先；没声明就用场景默认。于是"某个人换一张脸"是改内容。
+    modelId: seat.appearance ?? defaultAppearance,
     state: 'idle' as const,
     position: { ...spawn },
     // 初始朝向来自 rng：同一个 seed 得到同一个朝向，可复现。

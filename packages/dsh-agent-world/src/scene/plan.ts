@@ -123,7 +123,9 @@ export function buildScenePlan(
     state: a.state,
     color: resolveColor(a.palette, palette),
     carryingTaskId: a.carrying,
-    modelId: world.agentModel,
+    // 每个角色自己的外观（R51）。`world.agentModel` 只是**默认值**，
+    // 已经由 `instantiateAgents` 填进 `a.modelId` 了。
+    modelId: a.modelId,
   }))
 
   // 纸条配色也从内容来。遍历 domain 里的 MESSAGE_KINDS 而不是在这里手写一份清单：
@@ -139,7 +141,7 @@ export function buildScenePlan(
   for (const prop of props) {
     for (const part of prop.parts) if (!usedIds.includes(part.modelId)) usedIds.push(part.modelId)
   }
-  if (!usedIds.includes(world.agentModel)) usedIds.push(world.agentModel)
+  for (const actor of actors) if (!usedIds.includes(actor.modelId)) usedIds.push(actor.modelId)
   const models: SceneModel[] = []
   for (const id of usedIds) {
     const resolved = resolveModel(id)

@@ -603,6 +603,20 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     say: sayToAgent,
   }
   /**
+   * 2D 渲染的核验入口（R51）：缩放倍数、图集加载状态、某个图集的调色板。
+   *
+   * 为什么值得挂出来：像素画的错法（缩放取小数、图集没加载、切图切错）**都不会报错**，
+   * 只会"看起来怪"。有这三个读数，问题能当场定位到"是没加载、还是切错了、还是缩放不对"。
+   */
+  globalThis.__agentWorldScene2d = {
+    metrics: () => scene2d.metrics(meta?.scene ?? null),
+    loader: () => scene2d.loader.status(),
+    palette: (url) => scene2d.loader.palette(url),
+    recolored: (url, color, variant = 0) => scene2d.loader.recoloredImage(url, color, variant),
+    liveActors: () => scene2d.liveActors(world, meta?.scene ?? null),
+  }
+
+  /**
    * 气泡的核验入口（R39）：`occluded()` 必须为空数组。
    *
    * 现读 DOM（这是诊断入口，不是每帧路径）：拿每个气泡的 `getBoundingClientRect()`

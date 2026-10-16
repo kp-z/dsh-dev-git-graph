@@ -126,6 +126,13 @@ export interface Agent {
   role: AgentRole
   /** 角色配色（主色），渲染层用它给角色上色，保证同一个人每次都是同色。 */
   palette: string
+  /**
+   * 这个角色长什么样（`models` 库的 id）。
+   *
+   * 与 `palette` 并存而不是取代它：`palette` 是**主色**（花名册色点、看板、2D 重上色都要它），
+   * 而 `modelId` 是**形象**（GLB 或像素图集）。两者由内容分别决定。
+   */
+  modelId: string
   state: AgentState
   /** 当前位置（俯视平面）。 */
   position: Vec2

@@ -72,6 +72,61 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** 判断一个值是否是允许的枚举取值，并给出带候选列表的报错文案。 */
+/**
+ * 查像素图集的切法（R51）。
+ *
+ * 为什么值得逐条查：切法写错**不会报错，只会画错**——格子偏一格就是"所有人的头没了"，
+ * 而那种画面看起来像渲染器坏了。这些字段是手写的数字，手写就会错，且很难从画面上反推是哪一项。
+ */
+function checkSheet(sink: IssueSink, sheet: unknown, where: string, pack: string): void {
+  if (!isObject(sheet)) {
+    sink.error(where, 'sheet 必须是对象（cellW/cellH/rowsPerFigure/anchor/animations）', pack)
+    return
+  }
+  const spec = sheet
+  for (const key of ['cellW', 'cellH', 'rowsPerFigure'] as const) {
+    const v = spec[key]
+    if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
+      sink.error(`${where}.${key}`, `${key} 必须是正整数（单位：像素/格）`, pack)
+    }
+  }
+  if (spec['anchor'] !== 'bottom' && spec['anchor'] !== 'center') {
+    sink.error(`${where}.anchor`, 'anchor 必须是 "bottom"（人/家具）或 "center"（地砖）', pack)
+  }
+  const anims = spec['animations']
+  if (!isObject(anims) || Object.keys(anims).length === 0) {
+    sink.error(`${where}.animations`, '至少要有 1 段动画，否则没人知道从图上哪一块开始切', pack)
+    return
+  }
+  for (const [name, raw] of Object.entries(anims)) {
+    const at = `${where}.animations["${name}"]`
+    if (!isObject(raw)) {
+      sink.error(at, '每段动画必须是对象 { col, row, frames, frameMs }', pack)
+      continue
+    }
+    for (const key of ['col', 'row'] as const) {
+      const v = raw[key]
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) {
+        sink.error(`${at}.${key}`, `${key} 必须是非负整数（第几格，0 起）`, pack)
+      }
+    }
+    const frames = raw['frames']
+    if (typeof frames !== 'number' || !Number.isInteger(frames) || frames <= 0) {
+      sink.error(`${at}.frames`, 'frames 必须是正整数（这一段的帧数）', pack)
+    }
+    const frameMs = raw['frameMs']
+    if (typeof frameMs !== 'number' || frameMs <= 0) {
+      sink.error(`${at}.frameMs`, 'frameMs 必须是正数（每帧时长，毫秒）', pack)
+    }
+    if (raw['layout'] !== undefined && raw['layout'] !== 'row' && raw['layout'] !== 'column') {
+      sink.error(`${at}.layout`, 'layout 只能是 "row"（向右排，缺省）或 "column"（向下排）', pack)
+    }
+    if (raw['mirror'] !== undefined && typeof raw['mirror'] !== 'boolean') {
+      sink.error(`${at}.mirror`, 'mirror 只能是 true/false', pack)
+    }
+  }
+}
+
 function checkEnum<T extends string>(
   sink: IssueSink,
   value: unknown,
@@ -406,13 +461,19 @@ function validateEntryShape(
     case 'models': {
       checkId(sink, entry.name, `${where}.name`, '模型名', pack)
       const src = entry.source
-      if (!isObject(src) || (src.kind !== 'glb' && src.kind !== 'procedural')) {
-        sink.error(`${where}.source`, 'source.kind 必须是 "glb" 或 "procedural"', pack)
+      if (!isObject(src) || (src.kind !== 'glb' && src.kind !== 'procedural' && src.kind !== 'sheet')) {
+        sink.error(`${where}.source`, 'source.kind 必须是 "glb"、"procedural" 或 "sheet"', pack)
       } else if (src.kind === 'glb') {
         // **不是 `checkId`**：它只检查"非空字符串"，而复用到路径字段上
         // 等于"任意字符串都能过"——那个洞就是这么来的（见 asset-path.ts 的头注释）。
         const urlProblem = assetPathProblem(src.url, 'GLB 地址')
         if (urlProblem !== null) sink.error(`${where}.source.url`, urlProblem, pack)
+      } else if (src.kind === 'sheet') {
+        // 像素图集（R51）：地址与切法都要查。切法写错**不报错只画错**（格子偏一格就是"头没了"），
+        // 所以这几个手写数字必须拦在装载期。
+        const urlProblem = assetPathProblem(src.url, '像素图集地址')
+        if (urlProblem !== null) sink.error(`${where}.source.url`, urlProblem, pack)
+        checkSheet(sink, src.sheet, `${where}.source.sheet`, pack)
       } else {
         checkId(sink, src.builder, `${where}.source.builder`, '构建器名', pack)
       }

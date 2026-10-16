@@ -130,11 +130,17 @@ test('世界与计划都指向 Kenney 角色，且计划里带上了它的 url',
   const plan = buildScenePlan(world, port.colors(), port.themeFor(world.origin.scene), (id) => port.modelOf(id))
 
   assert.ok(plan.actors.length > 0)
-  for (const actor of plan.actors) assert.equal(actor.modelId, 'model.agent.base')
 
-  const model = plan.models.find((m) => m.id === 'model.agent.base')
-  assert.ok(model, '角色模型必须在计划的模型表里')
+  // 场景的**默认**外观仍是 Kenney 的 GLB（席位没声明 `appearance` 时用它）。
+  // R51 起每个席位可以声明自己的外观，所以**不再**断言"所有角色都用它"——
+  // 那条断言在"每个人长得不一样"这件事变成需求之后就不成立了。
+  const model = port.modelOf('model.agent.base')
+  assert.ok(model, '默认角色外观必须可解析')
   assert.equal(model.url, 'kenney-mini-characters/character-male-a.glb')
+
+  // 真正的不变式：每个角色实际用的模型都在计划的模型表里（查不到就是品红方块）。
+  const ids = new Set(plan.models.map((m) => m.id))
+  for (const actor of plan.actors) assert.ok(ids.has(actor.modelId), `角色 ${actor.id} 的模型不在表里`)
 })
 
 test('换成 GLB 之后模拟内核**零改动**：世界结构照旧（4 地块 / 10 站点 / 8 角色）', () => {
@@ -146,3 +152,54 @@ test('换成 GLB 之后模拟内核**零改动**：世界结构照旧（4 地块
   assert.equal(world.stations.length, 10)
   assert.equal(world.agents.length, 8)
 })
+
+// ── R51：像素包（pack.pixel）──────────────────────────────────────────────────
+
+test('R51：pack.pixel 声明的**每一个图集都在磁盘上**（内容与文件之间没有编译器关系）', async () => {
+  const { builtinPacks } = await import('../lib/content/index.js')
+  const { existsSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = fileURLToPath(new URL('../src/vendor', import.meta.url))
+
+  const pack = builtinPacks().find((p) => p.manifest.id === 'pack.pixel')
+  assert.ok(pack, 'pack.pixel 不见了')
+
+  const sheets = (pack.entries.models ?? []).filter((m) => m.source.kind === 'sheet')
+  assert.ok(sheets.length >= 6, `像素图集至少要有角色 2 + 地面若干，实际 ${sheets.length}`)
+  for (const m of sheets) {
+    assert.ok(existsSync(join(root, m.source.url)), `${m.id} 声明的图集不在磁盘上：${m.source.url}`)
+  }
+})
+
+test('R51：角色图集的切法与**实测尺寸**一致（格子数必须整除图宽高）', async () => {
+  const { builtinPacks } = await import('../lib/content/index.js')
+  const { readFileSync } = await import('node:fs')
+  const { join } = await import('node:path')
+  const { fileURLToPath } = await import('node:url')
+  const root = fileURLToPath(new URL('../src/vendor', import.meta.url))
+
+  const pack = builtinPacks().find((p) => p.manifest.id === 'pack.pixel')
+  const agents = (pack.entries.models ?? []).filter((m) => m.id.startsWith('model.agent.pixel'))
+
+  for (const m of agents) {
+    const buf = readFileSync(join(root, m.source.url))
+    // PNG 的 IHDR：宽高在字节 16..24（大端）。
+    const w = buf.readUInt32BE(16)
+    const h = buf.readUInt32BE(20)
+    const { cellW, cellH, rowsPerFigure, animations } = m.source.sheet
+    assert.equal(w % cellW, 0, `${m.id}: 图宽 ${w} 不被格宽 ${cellW} 整除`)
+    assert.equal(h % (cellH * rowsPerFigure), 0, `${m.id}: 图高 ${h} 不被 带高 ${cellH * rowsPerFigure} 整除`)
+    const bands = h / (cellH * rowsPerFigure)
+    const cols = w / cellW
+    for (const [name, a] of Object.entries(animations)) {
+      assert.ok(a.row < bands, `${m.id} 的 ${name} 指到第 ${a.row} 带，但图上只有 ${bands} 带`)
+      assert.ok(a.col + a.frames <= cols, `${m.id} 的 ${name} 从第 ${a.col} 格取 ${a.frames} 帧，超出图宽 ${cols} 格`)
+    }
+    // 四向行走都要有——少了方向，角色转身时会僵住。
+    for (const dir of ['down', 'up', 'left', 'right']) {
+      assert.ok(animations[`walk.${dir}`], `${m.id} 缺 walk.${dir}`)
+    }
+  }
+})
+
