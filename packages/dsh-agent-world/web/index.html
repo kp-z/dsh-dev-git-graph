@@ -31,12 +31,19 @@
   </head>
   <body>
     <div class="app">
-      <!-- 顶栏（56px 玻璃）：品牌 · 视图切换 · 状态胶囊 · 命令 -->
+      <!--
+        顶栏（48px 玻璃）——R70 起**顶栏与看板合成一行**（用户："上方 title 和看板行应该是一行
+        紧凑点，重新设计，简约优雅，图标"）。所以 `#board` 就放在这一行里：
+        收起时它是这一行里的**摘要**（图标 · 进度条 · 计数徽章 · 正在跑什么 · 展开图标），
+        展开时它变成**浮层**（`position: absolute`，浮在舞台之上，**不占布局、不挤压场景**）。
+      -->
       <header class="topbar" id="topbar">
         <div class="brand">
           <span class="brand-dot"></span>
           <span class="brand-name">Agent World</span>
         </div>
+
+        <section id="board" class="board" aria-label="执行看板"></section>
 
         <div class="commands">
           <button id="cmd-pause" class="icon-btn" type="button" title="暂停世界">⏸</button>
@@ -44,13 +51,6 @@
           <button id="drawer-toggle" class="icon-btn active" type="button" title="收起 / 展开右侧抽屉">☰</button>
         </div>
       </header>
-
-      <!--
-        执行看板（R64 起在**上面**）：纯 DOM/SVG，不进渲染循环。
-        用户要求"执行看板在上面、状态条去 footer"——所以它是顶栏之下的一整行，
-        而状态条（`#status`）落到底部 footer。
-      -->
-      <section id="board" class="board" aria-label="执行看板"></section>
 
       <!-- 场景铺满工作区；面板是**浮在它上面的玻璃**（DESIGN 第三节） -->
       <main class="stage" id="stage">

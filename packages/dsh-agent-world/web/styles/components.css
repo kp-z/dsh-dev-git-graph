@@ -634,6 +634,61 @@
   padding: var(--s-2) var(--s-3);
   border-bottom: 1px solid var(--stroke);
 }
+
+/*
+ * R70 紧凑行：顶栏里的看板摘要（用户："上方 title 和看板行应该是一行紧凑点，
+ * 重新设计，简约优雅，图标"）。所以收起态下：
+ * · 标题只留**图标**（文字藏起来，但仍在 DOM 里，读屏与展开态都还在）；
+ * · 进度条收成固定宽度的小条，计数用徽章，正在跑的单子截断；
+ * · 展开按钮（▾）贴右端。
+ * 这些只在**收起**时生效——展开的浮层里仍然是完整的标题与图。
+ */
+.board.is-collapsed .board-head {
+  flex-direction: row;
+  gap: var(--s-2);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border-bottom: none;
+}
+.board.is-collapsed .board-title-text {
+  display: none;
+}
+.board.is-collapsed .board-title-icon {
+  color: var(--fg-1);
+  font-size: var(--fs-body);
+  line-height: 1;
+}
+.board-title-icon {
+  margin-right: var(--s-1);
+}
+.board.is-collapsed .board-bar {
+  flex: 0 0 auto;
+  width: 64px;
+  min-width: 64px;
+}
+.board.is-collapsed .board-counts {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  gap: var(--s-2);
+  overflow: hidden;
+}
+.board.is-collapsed .board-active {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--fg-2);
+  font-size: var(--fs-micro);
+}
+.board.is-collapsed .board-collapse {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 2px var(--s-2);
+  line-height: 1;
+}
 .board-head h2 {
   font-size: var(--fs-section);
 }

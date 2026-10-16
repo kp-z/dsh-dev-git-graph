@@ -150,7 +150,12 @@ export function createBoard(options = {}) {
   if (ready) {
     root.classList.add('board')
     const head = el(doc, 'header', 'board-head')
-    const title = el(doc, 'h2', undefined, '执行看板')
+    // R70：把标题拆成"图标 + 文字"两段——紧凑行里由 CSS 只显示图标（用户要"图标化、简约"），
+    // 展开时两段都在，读起来仍然是一个完整的标题。
+    const title = el(doc, 'h2', 'board-title')
+    const titleIcon = el(doc, 'span', 'board-title-icon', '▦')
+    titleIcon.setAttribute('aria-hidden', 'true')
+    title.append(titleIcon, el(doc, 'span', 'board-title-text', '执行看板'))
     const counts = el(doc, 'div', 'board-counts')
     // R65：收起时不能只是"一条空进度条 + 几个数字"——把**正在跑的单子标题**摆出来，
     // 一眼看得出这个世界此刻在干什么（用户对看板的原话就是"一整条只有进度条和数字"）。
@@ -158,9 +163,11 @@ export function createBoard(options = {}) {
     // 收起时的"摘要条"：一条按状态分段的进度条（DESIGN 第三节：默认收起成计数 + 进度条）。
     // 它只在**收起**时看得见——展开时上半部分已经有完整的计数与依赖图。
     const bar = el(doc, 'div', 'board-bar')
-    const collapse = el(doc, 'button', 'ghost', '展开')
+    // R70：图标化。文字搬进 `title` 与 `aria-label`——视觉上是一个箭头，读屏仍然读得懂。
+    const collapse = el(doc, 'button', 'ghost board-collapse', '▾')
     collapse.type = 'button'
-    collapse.title = '展开/收起看板（看板不参与 3D 渲染，收起只是为了腾地方）'
+    collapse.title = '展开执行看板'
+    collapse.setAttribute('aria-label', '展开执行看板')
     collapse.addEventListener('click', () => setCollapsed(!collapsed))
     head.append(title, bar, counts, active, collapse)
     counts.setAttribute('role', 'status')
@@ -338,7 +345,9 @@ export function createBoard(options = {}) {
     root.classList.toggle('is-collapsed', collapsed)
     parts.body.hidden = collapsed
     parts.detail.hidden = collapsed
-    parts.collapse.textContent = collapsed ? '展开' : '收起'
+    parts.collapse.textContent = collapsed ? '▾' : '▴'
+    parts.collapse.title = collapsed ? '展开执行看板' : '收起执行看板'
+    parts.collapse.setAttribute('aria-label', parts.collapse.title)
     // 通知装配处："看板现在是对开的了"。它据此让开地方（见 main.js 的 onCollapsed）。
     options.onCollapsed?.(collapsed)
     return collapsed

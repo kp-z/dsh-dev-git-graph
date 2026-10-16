@@ -10,10 +10,10 @@
 
 .app {
   display: grid;
-  /* R64：顺序是 **顶栏 → 执行看板 → 舞台 → 状态条(footer)**。
-     用户的要求是"执行看板在上面、状态条去 footer"——所以换的是**行序**，
-     顶层容器只负责排队，各自的外观仍归 CSS。 */
-  grid-template-rows: 48px auto 1fr 36px;
+  /* 顺序：顶栏（含看板摘要）→ 舞台 → 状态条。看板展开时是**浮层**，不占行。 */
+  /* R70：执行看板不再独占一行——它并进顶栏（收起）或浮在舞台上（展开）。
+     所以只剩三行：顶栏(48) / 舞台(1fr) / 状态条(36)。 */
+  grid-template-rows: 48px 1fr 36px;
   height: 100vh;
   background: var(--bg-1);
 }
@@ -223,55 +223,67 @@
 
 /* ── 底部看板：浮动玻璃片，**默认收起成一条摘要** ────────────────────────── */
 .board {
-  /* R64：不再浮在舞台底部，而是顶栏之下的**一整行**（顺序由 .app 的网格行序决定）。 */
-  position: relative;
-  margin: var(--s-2) var(--s-4) var(--s-2);
+  /* R70：收起时它是顶栏里的**一段摘要**——不占新的一行、没有自己的边框与底色。
+     ⚠️ `position: static` 是**故意的**：这样展开浮层的包含块是 `header.topbar`
+     （它有 `position: relative`），浮层才能横跨整宽，而且**完全不参与布局**。 */
+  position: static;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  /* 高度必须**确定**：`flex: 1` 的图与成员栏都靠它解析。
-     只写 max-height 的话子项没有可分的空间，画布高度会退化成 0（看着像"图没画出来"）。 */
-  /* 展开时高度必须**确定**（内部 flex 靠它解析）；收起时就是一行摘要，交给内容撑。 */
-  height: min(340px, 38vh);
-  overflow: hidden;
-  background: var(--glass-strong);
-  backdrop-filter: var(--blur);
-  border: 1px solid var(--stroke);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-2);
-  z-index: var(--z-board);
-  transition: height var(--t-expand) var(--ease);
+  height: auto;
+  overflow: visible;
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  z-index: auto;
+  transition: none;
 }
 .board.is-collapsed {
-  /* 收起 = **一行摘要**：高度给一个确定值，并且 `align-self: start`。
-     为什么要写死而不是 `auto`：board 是 grid 行里的一项，默认 `align-self: stretch`
-     会把它拉到整行高度——于是"类名挂上了、body 也隐藏了，看板还是 306px"（R65 实测）。
-     行高由这一项决定，所以 46px 就是整行的成本。 */
-  height: 46px;
-  align-self: start;
+  /* 收起态：高度由内容撑（就是顶栏那一行 48px），不留任何额外高度。 */
+  height: auto;
 }
 /*
  * ⚠️ 收起时必须**用 CSS** 把 body/detail 真正拿掉。
  * 只设 `element.hidden = true` 是不够的：`.board-body{display:flex}` 会盖掉 `[hidden]`
  * 默认的 `display:none`（R51 踩过同一个坑）——结果是"类名挂上了、DOM 也标了 hidden，
- * 但看板照样占 306px"，把场景挤到 398px，`clipped()` 一次报 16 个元素。
+ * 但看板照样占 300px"，把场景挤矮，`clipped()` 一次报 16 个元素。
  */
 .board.is-collapsed .board-body,
 .board.is-collapsed .board-detail {
   display: none !important;
 }
-.board.is-collapsed {
-  height: 46px;
-}
-.board.is-collapsed .board-head {
-  border-bottom-color: transparent;
+
+/*
+ * 展开 = **浮层**（R70，用户第 3 条："展开看板不要影响下面的渲染，只是悬浮在上面"）。
+ *
+ * `position: absolute` 让它**退出布局流**：舞台的 `getBoundingClientRect()` 展开前后
+ * 完全相等（这就是本轮的硬指标，R65 时展开会把舞台从 658px 压到 398px）。
+ * 包含块是 `header.topbar`（`position: relative`）→ 横跨整宽、贴在顶栏下沿。
+ * 高度上限 46vh/400px：右下角的视图控制簇（缩放/适配/复位/图例）在底部约 44px 内，
+ * 够不着它——用户要求"别盖住常用控件"。
+ */
+.board:not(.is-collapsed) {
+  position: absolute;
+  top: calc(100% + var(--s-2));
+  left: var(--s-4);
+  right: var(--s-4);
+  height: min(46vh, 400px);
+  display: flex;
+  flex-direction: column;
+  padding: var(--s-3);
+  overflow: hidden;
+  background: var(--glass-strong);
+  backdrop-filter: var(--blur);
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  z-index: var(--z-drawer);
 }
 
-/* 看板展开时图例会压在它下面：淡出比"半截露在玻璃边缘外面"干净。
-   用 `:has()` 表达"兄弟状态决定外观"，不必让 JS 再传一个标志位。 */
-.stage:has(.board:not(.is-collapsed)) .legend {
-  opacity: 0;
-  pointer-events: none;
-}
 
 /* ── 窄视口 ───────────────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
