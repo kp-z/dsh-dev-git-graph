@@ -28,6 +28,7 @@ import { MESSAGE_DELIVERY_TICKS } from '../domain/constants.js'
 import type { WorldEvent } from '../domain/types.js'
 import type { WorldStore } from '../store/index.js'
 import type { EventSinkPort, RuntimeDiagnostics, RuntimePort, WorldCommand, WorldServicePort } from '../protocol/index.js'
+import { STALLED_DIAGNOSTIC_CAP } from '../protocol/index.js'
 import { nullEventSink } from '../protocol/index.js'
 import type { StepResult } from '../sim/index.js'
 import { step } from '../sim/index.js'
@@ -121,6 +122,8 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     unhandledHires: 0,
     errors: 0,
     persistErrors: 0,
+    // R67：最近一次调度里"派不出去"的单。算它的是 `claimTasks()`，这里只是留一个出口。
+    stalled: [],
   }
 
   /**
@@ -263,6 +266,19 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     if (lastFresh !== undefined) nextSeqToPublish = lastFresh.seq + 1
 
     sink.publish(fresh)
+
+    // R67：把"派不出去"的原因记下来给面板看。
+    //
+    // ⚠️ 是**替换**而不是累加：它是"最近一次调度"的快照。累加的话，
+    // 上一 tick 卡住、这一 tick 已经派出去的单会永远留在列表里，于是面板会一直说
+    // "它派不出去"——而人已经在干了。那比不显示更糟（数据与画面打架）。
+    //
+    // 上限见 `STALLED_DIAGNOSTIC_CAP`：这里截断，避免"100 张单没工位"时每帧快照都背 100 条。
+    diagnostics.stalled = result.stalled.slice(0, STALLED_DIAGNOSTIC_CAP).map((s) => ({
+      taskId: s.taskId,
+      reason: s.reason,
+      detail: s.detail,
+    }))
 
     // 只在世界真的前进时计数：暂停时 step 会早退，tick 不动，那一步不该算进来。
     if (world.tick > tickBefore) {

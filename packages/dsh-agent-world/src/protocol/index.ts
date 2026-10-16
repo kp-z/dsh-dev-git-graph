@@ -44,7 +44,8 @@ export type {
   ProviderChain,
 } from './ports/content.js'
 export type { EventSinkPort, EventSourcePort } from './ports/events.js'
-export type { RuntimeDiagnostics, RuntimePort } from './ports/runtime.js'
+export type { RuntimeDiagnostics, RuntimePort, StalledTask } from './ports/runtime.js'
+export { STALLED_DIAGNOSTIC_CAP } from './ports/runtime.js'
 export type { ThemeCamera, ThemeFog, ThemeLighting, ThemePlan, ThemePost } from './theme.js'
 export type { SceneActor, SceneGround, ScenePlan, SceneProp } from './scene.js'
 export { resolveColor } from './scene.js'
