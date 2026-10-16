@@ -18,7 +18,7 @@ import type { ContentRegistry } from '../content/registry.js'
 import { MAX_AGENTS } from '../domain/constants.js'
 import { createRng, seedFromString } from '../domain/rng.js'
 import type { Task, World } from '../domain/types.js'
-import { DEFAULT_MIN_GAP, hangoutArea, placeHangouts, stationClearance } from './hangouts.js'
+import { hangoutsForWorld } from './hangouts.js'
 
 /** 建世界的选项。 */
 export interface CreateWorldOptions {
@@ -73,17 +73,10 @@ export function createWorld(options: CreateWorldOptions): World {
   //
   // R47 修的那件事：落点还必须知道**家具占了哪儿**。原来只按地块几何摊栅格，
   // 于是"沙发上的三个角色"是必然的——布局算法根本不认识站点。
-  // 传进去的是**几何事实**（点 + 半径），不是 `StationEntry`：机制不该认识内容条目。
-  const blocked = stations.map((station) => ({
-    at: station.anchor,
-    radius: stationClearance(station.kind),
-  }))
-  const hangouts = placeHangouts({
-    bounds: hangoutArea(districts),
-    count: agents.length,
-    blocked,
-    minGap: DEFAULT_MIN_GAP,
-  })
+  //
+  // 算它的是 `hangoutsForWorld`（`hangouts.ts`）：**建世界与读档重算共用同一个函数**，
+  // 否则两份实现会漂移，症状是"新开一局对、读旧档错"。
+  const hangouts = hangoutsForWorld(districts, stations, agents.length)
   agents.forEach((agent, i) => {
     agent.hangout = hangouts[i % hangouts.length] ?? null
   })

@@ -36,7 +36,7 @@
  * 排序用 `(clearance 降序, 候选序号升序)` 做全序 tie-break，所以**同输入必同输出**。
  * 这一条是模拟内核的硬要求（同 seed 重开一局必须长出同一个世界）。
  */
-import type { Bounds, District, StationKind, Vec2 } from '../domain/types.js'
+import type { Bounds, District, Station, StationKind, Vec2 } from '../domain/types.js'
 
 /**
  * 一个**已被人身占住**的几何事实：中心点 + 需要空出的半径。
@@ -311,4 +311,25 @@ export function hangoutArea(districts: readonly District[]): Bounds {
         Math.abs(a.bounds.max.x - a.bounds.min.x) * Math.abs(a.bounds.max.z - a.bounds.min.z),
     )[0]
   return biggest?.bounds ?? { min: { x: -2, z: -2 }, max: { x: 2, z: 2 } }
+}
+
+/**
+ * **装配层唯一该调用的那个**：给一组地块 + 一组站点，算待命落点。
+ *
+ * 存在的理由是"不许有两份"：建世界（`create.ts`）与读档重算（`reconcile.ts`）
+ * 都要算落点，而两份实现一定会在某次改动里漂移——那时的症状是
+ * "新开一局站位对、读旧档站位错"，且只在旧档上复现（正是 R47/R48 那个坑的形状）。
+ * 所以半径怎么来、用哪块地、间距多少，全部收在这一个函数里。
+ */
+export function hangoutsForWorld(
+  districts: readonly District[],
+  stations: readonly Station[],
+  count: number,
+  minGap: number = DEFAULT_MIN_GAP,
+): Vec2[] {
+  const blocked = stations.map((station) => ({
+    at: station.anchor,
+    radius: stationClearance(station.kind),
+  }))
+  return placeHangouts({ bounds: hangoutArea(districts), count, blocked, minGap })
 }

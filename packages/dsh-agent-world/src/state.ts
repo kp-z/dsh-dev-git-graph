@@ -39,6 +39,7 @@ import type {
 } from './protocol/index.js'
 import { noteTasksAdded } from './sim/journal.js'
 import { loadWorldSync } from './store/index.js'
+import { reconcileWorld } from './world/reconcile.js'
 import { createWorld } from './world/create.js'
 
 /** 建插件状态的选项。 */
@@ -199,8 +200,43 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       })
     }
 
+    // ── 重算派生量（M10-12 / R49）──
+    //
+    // 存档是**上一个版本的内容**的冻结，而世界里的量分两种：
+    // **派生量**（`station.parts`/`slots`、`agent.hangout`、地块几何——内容和几何的函数）
+    // 与**历史**（tick、工单进度、消息、位置/状态/路径）。前者读档时按当前内容重算，
+    // 后者原样保留。不重算的话，改内容只对新开的局生效——R47/R48 连吃两次。
+    //
+    // **必须降级而不是抛**：重算出问题（内容不自洽、站点被删）不能把插件卡在启动上。
+    // 所以整段包在 try 里，出错就沿用存档那份，并把原因写进 issue 列表。
+    let reconciled = world
+    try {
+      const result = reconcileWorld(world, registry)
+      reconciled = result.world
+      for (const message of result.warnings) {
+        issueList.push({ level: 'warning', pack: null, where: 'store/world.json', message })
+      }
+      if (result.changes.length > 0) {
+        issueList.push({
+          level: 'warning',
+          pack: null,
+          where: 'store/world.json',
+          message: `这一局的外观已按当前内容重算（历史不变）：${result.changes.join('；')}`,
+        })
+      }
+    } catch (error) {
+      issueList.push({
+        level: 'warning',
+        pack: null,
+        where: 'store/world.json',
+        message:
+          `重算存档里的派生量时出错（已按存档原样继续，不影响运行）：` +
+          `${error instanceof Error ? error.message : String(error)}`,
+      })
+    }
+
     restored = { savedAtTick, packVersions: content }
-    return world
+    return reconciled
   }
 
   const state: PluginState = {

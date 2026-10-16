@@ -392,6 +392,14 @@ export function createScene3d(canvas, options = {}) {
    * 后者是"怎么把任意外部模型放进来"的通用能力，所以它属于机制。
    *
    * 对已经居中的模型（Kenney 的角色）这是**无操作**——所以不需要开关。
+   *
+   * ⚠️ **调用方的契约（R49 立）**：这里把位移写在 `node.position` 上，
+   * 所以 `onLoaded` 里的调用方必须**往这个位置上加**自己的摆放偏移
+   * （`position.add(...)`），**不能 `position.copy(...)` / `position.set(...)` 覆盖**——
+   * 覆盖会把居中的位移整个抹掉，于是模型按原始原点摆放，
+   * 而 Kenney 家具的原点在角上（`desk` 的盒心在 x 0.536 / z -0.276）。
+   * 这个坑真的发生过（R49：桌面小件和桌子各自带着不同的原点偏移，
+   * 鼠标直接悬在桌子外面），所以两个调用点都写了注释指着这一段。
    */
   const recenterOnGround = (node) => {
     node.updateMatrixWorld(true)
@@ -507,7 +515,18 @@ export function createScene3d(canvas, options = {}) {
   const swapIn = (real, old, record) => {
     const parent = old.parent
     if (parent === null) return
-    real.position.copy(old.position)
+    // ⚠️ **不要在这里动 `real` 的变换**（R49 修）。
+    //
+    // 原来这里有一行 `real.position.copy(old.position)`，用来"继承占位块站的位置"。
+    // 但它同时把 `recenterOnGround` 写进 `real.position` 的**居中贴地位移一起抹掉**了，
+    // 而 Kenney 家具的原点在角/边上（`desk` 盒心在 x 0.536 / z -0.276）。
+    // 后果是两个都很难查的缺陷：
+    //   · 站点家具按**原始原点**摆放，于是"桌面小件"的位置全都不对（鼠标悬在桌子外面）；
+    //   · 角色继承了占位块的 `y`（`pending()` 把它放在 0.65，因为占位盒高 1.3、要让它底面贴地），
+    //     于是**8 个角色都浮在地面上方 0.65**（实测：块高 1.343、minY 0.65）。
+    //
+    // 现在契约是：**调用方在 `onLoaded` 里算好 `real` 的完整变换**（位置与朝向），
+    // `swapIn` 只负责挂进场景、改名、销毁旧节点。两个调用点都按这个契约写了。
     real.name = old.name
     parent.add(real)
     parent.remove(old)
@@ -540,8 +559,23 @@ export function createScene3d(canvas, options = {}) {
           modelById,
           { color: p.color, capacity: p.capacity },
           // 到货后：换到**同一个局部位置**（组已经承担了站点的世界坐标）。
+          //
+          // ⚠️ 这里必须是 `add`，**不是 `copy`**（R49 修）。
+          //
+          // `recenterOnGround` 把"按包围盒在 x/z 居中、底面贴到 y=0"的位移**写在了
+          // `real.position` 上**；而 `copy(old.position)` 会把它整个抹掉，于是 GLB
+          // 按**原始原点**摆放——而 Kenney 家具的原点在角/边上（实测 `desk` 的盒心
+          // 在 x 0.536 / z -0.276，`computerKeyboard` 在 x 0.212）。
+          //
+          // 后果正是 R48 那个"桌面小件与桌子对不上"：桌子和键鼠各自带着**不同的**
+          // 原始原点偏移，内容里算好的相对位置就全错了（我实测过：只有桌子+鼠标时，
+          // 鼠标落在桌子外面、悬在背景上）。`add` 之后两边都按盒心摆放，内容里的偏移才成立。
           (real, old) => {
-            real.position.copy(old.position)
+            // 位置 = `recenterOnGround` 的居中贴地位移（已经在 `real.position` 上）
+            //      **加上**内容声明的局部偏移。
+            real.position.add(old.position)
+            // 朝向同理：`real.rotation.y` 是模型条目自己的 rotationY，再叠内容的额外旋转。
+            real.rotation.y += old.rotation.y
             swapIn(real, old, (fresh) => {
               indexPropMeshes(fresh)
             })
@@ -564,7 +598,12 @@ export function createScene3d(canvas, options = {}) {
   const buildActors = (actors, modelById) => {
     for (const a of actors) {
       const node = instantiate(a.modelId, modelById, { color: a.color }, (real, old) => {
+        // 角色与家具**不同**：x/z 与朝向每帧都由 `applyWorld` 从世界状态写回来，
+        // 所以这里只负责把 `recenterOnGround` 算好的 **y 留住**（让脚踩在地面上）。
+        // **绝不能继承占位块的 y**——`pending()` 把它放在 0.65（占位盒高 1.3、底面要贴地），
+        // 继承过来就是"8 个角色整体浮空 0.65"（R49 实测到的那个缺陷）。
         real.position.set(a.x, real.position.y, -a.z)
+        real.rotation.y = -a.facing
         // 换过之后 `actorById` 必须指向新对象，否则**位置会停在原地不动**
         // （`applyWorld` 每帧从这张表里拿对象来更新位姿）。
         swapIn(real, old, (fresh) => actorById.set(a.id, fresh))
@@ -936,6 +975,28 @@ export function createScene3d(canvas, options = {}) {
         unaccounted.push(this.textureReport().unaccounted)
       }
       return { ...assessRebuildSeries(series, { rebuilds }), unaccounted }
+    },
+
+    /**
+     * 场景里每个"件/角色"的**世界包围盒**（R49 / M10-15 的量法）。
+     *
+     * 为什么需要它：等距视角下"贴着桌面"与"悬空 0.1"在截图上几乎同形，
+     * 而"鼠标是不是在桌面上"是可以**算**的——把桌子的盒子和鼠标的盒子拿出来一比就知道。
+     * 实测证明目测在这件事上不可靠：同一张只有桌子+鼠标的图，
+     * 修好之前鼠标明显在桌子外，而看图并不能稳定地给出这个结论。
+     *
+     * @returns {{name: string, min: number[], max: number[]}[]} 世界坐标下的 AABB。
+     */
+    sceneBoxes() {
+      const out = []
+      staticGroup.traverse((node) => {
+        const name = typeof node.name === 'string' ? node.name : ''
+        if (!name.startsWith('part:') && !name.startsWith('actor:') && !name.startsWith('prop:')) return
+        const box = new THREE.Box3().setFromObject(node)
+        if (box.isEmpty()) return
+        out.push({ name, min: box.min.toArray(), max: box.max.toArray() })
+      })
+      return out
     },
 
     /**
