@@ -184,9 +184,9 @@
 | M14-2 | ready | **tick 驱动的昼夜节奏**（参考 `openclaw-office` 的 `lib/ambient-cycle.ts`）：1 真实分钟 ≈ 1 办公小时，上午最忙 → 午休人走光 → 傍晚陆续下班 → 夜里只剩加班。⚠️ **它原版用 `Date.now()`，我们的红线禁止**——要**由 tick 推导**（好处：重放同一局得到同样的"一天"）。**渲染层不许自己看钟** | `src/sim/` + 协议（下发"当前办公时刻"） | M14-1 | 氛围 |
 | M14-3 | ready | **闲逛与活动**（参考 `lib/roaming-manager.ts` / `office-activities.ts`）：现在待命角色只会"走到落点站着"。要有活动目录（去接水、去白板前看、去休息区）与闲逛 | `src/sim/` + `src/content/`（活动目录） | M14-2 | 氛围 |
 | M14-4 | ready | **站位的动态占用集**（参考 `lib/position-allocator.ts`）：它的占用是在**运行时**算的（能处理"位子被占了"），我们的是静态避让。角色一多就可能有两人抢同一个落点 | `src/domain/` | —— | 正确性 |
-| M15-1 | ready | **执行看板与状态条换位**（用户需求①）：状态条移到 footer，执行看板标题放上面 | `web/ui/` + `web/styles/` | —— | 用户明确要求 |
+| M15-1 | done（R64/task-22） | **执行看板与状态条换位**（用户需求①）：状态条移到 footer，执行看板标题放上面 | `web/ui/` + `web/styles/` | —— | 用户明确要求 |
 | M15-2 | done（R66） | **物理属性：墙/家具不可穿透**（用户需求②）。**已实测确认问题**：角色走路是**严格线性插值**（阿金 -1.14→-32.00 每步等距），直接穿墙。要做：① 从地图的 `WallAndFloor` 图层解出**可行走格**（可碰撞区）；② `sim/movement` 的寻路从"直线"改成**绕开不可走格**（A* 或流场）；③ 家具（电脑/桌子）也要挡（地图的 Furniture 图层即碰撞数据）。确定性要求不变 | `src/sim/`、`src/domain/`、内容层的碰撞图 | —— | 用户明确要求 |
-| M15-3 | ready | **subagent 支持上下左右与移动动作**（用户需求③）：R60 已把 `walk.<dir>` 接进内容库与动作映射，但**渲染层是否按方向播对应动画**、以及"坐着/站着"的切换没在真机上逐个验过。要：点一个 subagent，让他朝四个方向各走一段，逐个截图确认动画与朝向对得上 | `web/scene/` + 验证 | M15-2 | 用户明确要求 |
+| M15-3 | done（R64/task-22） | **subagent 支持上下左右与移动动作**（用户需求③）：R60 已把 `walk.<dir>` 接进内容库与动作映射，但**渲染层是否按方向播对应动画**、以及"坐着/站着"的切换没在真机上逐个验过。要：点一个 subagent，让他朝四个方向各走一段，逐个截图确认动画与朝向对得上 | `web/scene/` + 验证 | M15-2 | 用户明确要求 |
 | M15-4 | ready | **真机手按验证键盘 WASD 四个方向**（R65 只验到 `D` 往右）。⚠️ 前提：标签页必须在前台（`document.hidden === false` **且帧计数器在动**）——后台标签页 Phaser 的 rAF 不推进，4 秒 0 帧。做法：切到前台 → 逐键按 A/D/W/S → 读 `camera.scrollX/scrollY` 的方向与 `KEY_SPEED` 是否吻合 → 再验松键立刻停 | `web/` 无需改（纯验证） | —— | R65 遗留 |
 | M16-1 | ready | **删掉剩余的 4.0M 死重量**（R66 清点）：`src/vendor/pixi` 656K（R58 换 Phaser 后 import map 已删、无人引用）+ `kenney-mini-characters` 2.9M + `kenney-furniture` 432K（全是 3D 的 GLB，白名单里 43 个 `.glb`）。删它们要**同时**改 `src/routes/vendor.ts` 白名单 + 相关测试（`test/vendor.test.js` 等），否则白名单会指向不存在的文件 | `src/vendor/`、`src/routes/vendor.ts`、`test/` | —— | R66 清点 |
 | M16-2 | ready | **`docs/ARCHITECTURE.md` 第 1 节还在讲「技术选型：three.js」**（R66）：3D 已删、Phaser 是唯一渲染器，那一节与现实不符。要改成「技术选型：Phaser 3.90」，并把 three 的取舍移到历史决策里（D51/D53 已经记了过程） | `docs/ARCHITECTURE.md` | —— | R66 发现 |
