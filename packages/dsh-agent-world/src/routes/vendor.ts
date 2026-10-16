@@ -41,6 +41,11 @@ export const VENDOR_WHITELIST: readonly string[] = [
   // 拍平成一层那些相对路径就断了，而**改 vendored 代码是我不做的事**（sha256 就失去意义）。
   'three/LICENSE',
   'three/build/three.module.min.js',
+  // PixiJS 8.6.6（MIT）——2D 的 WebGL 渲染器（R57）。**精灵批处理**是换它的理由：
+  // canvas2D 每个精灵一次 drawImage，而游戏需要"几百个精灵一次提交"。
+  // 只 vendor 这一个文件：它是自包含的 ESM 包（不像 three 的 addon 之间有相对 import）。
+  'pixi/pixi.min.mjs',
+  'pixi/LICENSE',
   'three/examples/jsm/controls/OrbitControls.js',
   'three/examples/jsm/loaders/GLTFLoader.js',
   'three/examples/jsm/utils/BufferGeometryUtils.js',
@@ -95,6 +100,9 @@ export const VENDOR_MIME: Readonly<Record<string, string>> = {
   // 于是这个白名单里的文件一被请求就 500——测试抓到的，不是我看出来的。
   '': 'text/plain; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  // `.mjs` 是 ESM 的另一种扩展名（PixiJS 的 dist 用它）。**没有它浏览器会拒绝执行**
+  //（`text/plain` 的 module script 会被 CORS/类型检查拦下），而表现是"场景整个起不来"。
+  '.mjs': 'text/javascript; charset=utf-8',
   '.glb': 'model/gltf-binary',
   '.png': 'image/png',
   '.txt': 'text/plain; charset=utf-8',

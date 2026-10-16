@@ -81,26 +81,27 @@ export const defaultPack: ContentPack = {
         // 纪律是**色相表意、明度分轻重**（与看板那组同一条），并且地块明度一律高于背景——
         // 地块要像"台面"，而不是像"背景上的污渍"（旧值 #6F7D5A 之类正是后者）。
         colors: {
-          // ── 配色以 **MvizLite 的主题**为准（R54，决策 D50）────────────────────
+          // ── 配色**从美术出发**（R57，决策 D52）──────────────────────────────
           //
-          // 用户指出"和 mviz lite 的渲染颜色差别很大，要统一"。MvizLite 的
-          // `src/pages/MvizLite/layout/MvizLiteTheme.less` 是那份配色的**单一事实来源**，
-          // 里面写明了三层底：
-          //   页面背景 `#1e2130` · 卡片/3D 画布底色 `#2f343c` · 标题栏 `#252a31`
-          // 它的强调色（用得多、且有语义）是：`#5B91F4` 蓝 / `#5DC5AD` 青 / `#F36600` 橙 /
-          // `#FFD602` 黄 / `#A680FF` 紫 / `#52C41A` 绿 / `#6CDCE7` 亮青 / `#FF7875` 珊瑚。
+          // R54 我曾把配色对齐到 MvizLite（`MvizLiteTheme.less`）。**那条约束已撤销**：
+          // 用户明确说"不需要对齐 MvizLite 配色，你自己设计就行，这个和 MvizLite 没关系"。
+          // 那套深灰蓝是给数据可视化面板用的，不是给游戏场景用的。
           //
-          // 下面每个值都从那一组里取，**不再自己发明颜色**。
-          'paper': '#8FA3C8',
-          // 直接对齐 MvizLite 的页面背景（原来是 `#1A2030`，差一点点但确实不一样）。
-          'ground': '#1E2130',
-          // 对齐卡片/3D 画布底色。
-          'wall': '#2F343C',
-          'wood': '#8A6A4A',
-          'moss': '#5F8F6A',
-          'teal': '#3FB8A8',
-          'ink': '#0B0D12',
-          'fog': '#0E131E',
+          // 现在这组色是**量出来的**：我把要用的 26 件家具与角色图的主色统计了一遍，
+          // 它们自己就是一族**偏紫的蓝灰**（`#3A3A50` 20% / `#46465E` 11% / `#565972` 9% /
+          // `#6C6E85` 7%），配暖色点缀（木 `#D0BE9C`、头发 `#B37B3F`、皮肤 `#FFCBB0`）。
+          //
+          // 设计原则两条：
+          //  ① **底色用美术自己那族紫蓝灰** —— 家具因此"长在场景里"，而不是贴上去的；
+          //  ② **角色用高饱和亮色** —— 32px 的小人在暗底上必须一眼认得出是谁。
+          'paper': '#D4DEE6',
+          'ground': '#1C1A26',
+          'wall': '#3A3A50',
+          'wood': '#D0BE9C',
+          'moss': '#5C7A5A',
+          'teal': '#465E62',
+          'ink': '#14121C',
+          'fog': '#1C1A26',
 
           // 地块地面：**以 MvizLite 的卡片底色 `#2f343c` 为基准，往各自强调色的色相偏一点**。
           //
@@ -130,24 +131,24 @@ export const defaultPack: ContentPack = {
           'message.dispatch': '#E0C3FC',
 
           // 分区强调色：与上面的地面色同色相、高明度——地块边缘的灯带。
-          'accent.engineering': '#5B91F4',
-          'accent.infra': '#6CDCE7',
-          'accent.meeting': '#A680FF',
-          'accent.commons': '#F36600',
+          'accent.engineering': '#4FA8FF',
+          'accent.infra': '#3FD0C9',
+          'accent.meeting': '#B98CFF',
+          'accent.commons': '#FFB259',
 
           // 角色职业色：高饱和、高明度。它们是画面里最小、最需要被看见的东西，
           // 所以是整张调色板里唯一允许"亮"的一组；彼此色相拉开，同屏八个人不撞色。
-          'role.lead': '#FFD602',
-          'role.engineer': '#5B91F4',
+          'role.lead': '#FFC94D',
+          'role.engineer': '#4FA8FF',
           // R51：**三个工程师席位需要三种颜色**。原来它们共用 `role.engineer`，
           // 于是 8 个角色只有 6 种颜色——2D 渲染里三个人长得一模一样（panel 数出来的：
           // agent-2/3/4 全是 #38BDF8）。同族拉开色相，保证"一眼能认出谁是谁"而不打乱蓝色=工程师这条语义。
-          'role.engineer.2': '#6FB6FE',
-          'role.engineer.3': '#40A9FF',
-          'role.reviewer': '#A680FF',
-          'role.researcher': '#5DC5AD',
-          'role.ops': '#F36600',
-          'role.docs': '#52C41A',
+          'role.engineer.2': '#7C7CFF',
+          'role.engineer.3': '#3FD0C9',
+          'role.reviewer': '#B98CFF',
+          'role.researcher': '#5FD68A',
+          'role.ops': '#FF8A4C',
+          'role.docs': '#FF7EB6',
 
           // 站点色：比所在地块再亮一档的中间调，像台面上的设备，不抢角色的戏。
           'station.desk': '#5B7A99',
