@@ -17,6 +17,7 @@
  * 各写一份的话，三者会以"慢半拍"的方式不一致——而那种错看起来像"渲染没刷新"。
  */
 
+import { planGroundTiles } from '../core/ground-tiles.js'
 import { assignColorVariants, lightnessLadder, variantColor } from '../core/pixel-recolor.js'
 import { directionOf, frameIndex, frameRect, integerZoom, pickAnimation, spriteBox } from '../core/pixel-sheet.js'
 import { createSheetLoader } from './sheet-loader.js'
@@ -140,17 +141,30 @@ export function createScene2d(canvas, options = {}) {
   }
 
   /**
-   * 地块 → **整块世界的离屏画布**（像素砖），每帧只 blit 一次。
+   * 地块 → **整块世界的离屏画布**，每帧只 blit 一次。
    *
-   * 为什么不每帧逐格画：世界 16×16 格 = 256 个方块 × 每帧，纯浪费；
-   * 而地块是**静态**的（颜色来自内容），只有配色变了才需要重画。
-   * 砖块的浅/深色**不另发明配色**：用 `lightnessLadder(地块色)` 从内容给的那个色推出来。
+   * 两种地面：
+   * 1. **真地板**（`SceneGround.modelId` 指到一张图集）：按 32×32 铺满该区，
+   *    再拿该区的 `color` 做一次 `multiply`——四个区共用同一张砖，**靠颜色区分**。
+   * 2. **程序化砖**（`modelId` 为 null，或图还没加载/取不到）：按地块色铺棋盘格。
+   *    这条是回退路径，**不能删**（R47：缺东西要一眼看得出来，不能白屏）。
+   *
+   * 缓存：按"地块配色 + modelId + 图 url + 图集就绪数"签名。最后那一项是关键——
+   * 图是异步加载的，第一帧很可能还没到，不把"就绪数"算进签名就会**缓存住回退画面**。
    */
   function groundCanvas(scene) {
     const half = scene?.extent?.half ?? 8
     const worldPx = Math.round(half * 2 * TILE_PX)
     const districts = scene?.ground ?? []
-    const signature = `${worldPx}|${districts.map((g) => `${g.id}:${g.color}:${g.x},${g.z},${g.width},${g.depth}`).join(';')}`
+    const models = new Map((scene?.models ?? []).map((model) => [model.id, model]))
+    const loaded = loader.status().ready
+    const signature = [
+      worldPx,
+      `ready:${loaded}`,
+      districts
+        .map((g) => `${g.id}:${g.color}:${g.x},${g.z},${g.width},${g.depth}:${g.modelId ?? '-'}`)
+        .join(';'),
+    ].join('|')
     if (groundCache !== null && groundCache.signature === signature) return groundCache.canvas
 
     const surface = document.createElement('canvas')
@@ -166,6 +180,45 @@ export function createScene2d(canvas, options = {}) {
       const y0 = Math.round(px(district.z - district.depth / 2))
       const w = Math.round(district.width * TILE_PX)
       const h = Math.round(district.depth * TILE_PX)
+      const model = district.modelId === null || district.modelId === undefined ? null : models.get(district.modelId)
+      const sheet = model?.sheet ?? null
+      const art = sheet === null || typeof model?.url !== 'string' ? null : loader.image(model.url)
+
+      if (art !== null) {
+        const still = pickAnimation(sheet, { state: 'idle', direction: null })
+        const anim = still?.anim ?? Object.values(sheet.animations ?? {})[0]
+        const tilePx = Math.max(1, Math.round(Number(sheet.cellW) || TILE_PX))
+        const tilePy = Math.max(1, Math.round(Number(sheet.cellH) || tilePx))
+        const plan = planGroundTiles({
+          district,
+          half,
+          unitPx: TILE_PX,
+          tilePx,
+          tilePy,
+          cell: { col: anim?.col ?? 0, row: anim?.row ?? 0 },
+        })
+        // 一区一块**子画布**：铺砖与染色都发生在这一块里。
+        // 为什么不用主画布直接乘：`multiply` 会把**已有的所有像素**都乘一遍，
+        // 漏进邻区；圈在子画布里，"染色只影响这一区"是结构上保证的，而不是靠小心。
+        const sub = document.createElement('canvas')
+        sub.width = Math.max(1, plan.width)
+        sub.height = Math.max(1, plan.height)
+        const sctx = sub.getContext('2d')
+        sctx.imageSmoothingEnabled = false
+        for (const placement of plan.placements) {
+          sctx.drawImage(art, placement.sx, placement.sy, placement.sw, placement.sh, placement.dx, placement.dy, placement.sw, placement.sh)
+        }
+        // 染色：图给纹理、色给色调。铺完再乘，**乘完立刻复位**——
+        // 不复位的话后面每一次绘制都还在 multiply 里，那种 bug 很难查（表现是"画面越来越暗"）。
+        sctx.globalCompositeOperation = 'multiply'
+        sctx.fillStyle = district.color
+        sctx.fillRect(0, 0, sub.width, sub.height)
+        sctx.globalCompositeOperation = 'source-over'
+        g.drawImage(sub, x0, y0)
+        continue
+      }
+
+      // ── 回退：程序化像素砖（按地块色推浅/深色，不另发明配色）──
       const ladder = lightnessLadder(district.color) ?? [district.color, district.color, district.color]
       g.fillStyle = ladder[1]
       g.fillRect(x0, y0, w, h)

@@ -79,6 +79,8 @@ export function buildScenePlan(
       width: Math.abs(d.bounds.max.x - d.bounds.min.x),
       depth: Math.abs(d.bounds.max.z - d.bounds.min.z),
       color: resolveColor(d.ground, palette),
+      // 地面图（R55）：内容声明了就带上，渲染器平铺；没声明就只用颜色。
+      modelId: d.groundModel ?? null,
     }
   })
 
@@ -142,6 +144,8 @@ export function buildScenePlan(
     for (const part of prop.parts) if (!usedIds.includes(part.modelId)) usedIds.push(part.modelId)
   }
   for (const actor of actors) if (!usedIds.includes(actor.modelId)) usedIds.push(actor.modelId)
+  // 地面图也要进模型表——否则渲染器拿到 modelId 却查不到图（表现是"地板没了"）。
+  for (const g of ground) if (g.modelId !== null && !usedIds.includes(g.modelId)) usedIds.push(g.modelId)
   const models: SceneModel[] = []
   for (const id of usedIds) {
     const resolved = resolveModel(id)

@@ -19,6 +19,7 @@
  * 到那时新增一个 `pack.kenney-mini`，在清单里显式 `overrides` 掉 `action.*` 与 `model.agent.base`
  * 即可 —— **模拟内核一行不用改**。这正是内容库层存在的意义，也是它第一次真正被验证。
  */
+import { DEFAULT_DISTRICTS } from './districts.js'
 import { DEFAULT_STATIONS } from './stations.js'
 import { pixelPack } from './pixel.js'
 import { kenneyMiniPack } from './kenney-mini.js'
@@ -28,6 +29,7 @@ import { CONTENT_SCHEMA_VERSION } from '../kinds.js'
 
 /** 小镇半边长。与 `SceneEntry.groundSize` 保持一致（地块 bounds 由它推）。 */
 const HALF = 8
+
 
 /** 生成地块的矩形 bounds：`min` 到 `max`。 */
 function box(x1: number, z1: number, x2: number, z2: number): { min: { x: number; z: number }; max: { x: number; z: number } } {
@@ -48,12 +50,10 @@ export const defaultPack: ContentPack = {
 
   entries: {
     // ── 地块库 ──────────────────────────────────────────────────────────────
-    districts: [
-      { id: 'district.engineering', name: '工程区', kind: 'engineering', bounds: box(-HALF, -HALF, 0, 0), ground: 'skin.ground.engineering' },
-      { id: 'district.infra', name: '机房', kind: 'infra', bounds: box(0, -HALF, HALF, 0), ground: 'skin.ground.infra' },
-      { id: 'district.meeting', name: '会议区', kind: 'meeting', bounds: box(-HALF, 0, 0, HALF), ground: 'skin.ground.meeting' },
-      { id: 'district.commons', name: '公共区', kind: 'commons', bounds: box(0, 0, HALF, HALF), ground: 'skin.ground.commons' },
-    ],
+    // `DEFAULT_DISTRICTS` 单独导出：美术包要按区声明地板图（R55），
+    // 整条重写会让边界坐标分叉成两份（与 `DEFAULT_STATIONS` 同一条理由）。
+    districts: DEFAULT_DISTRICTS,
+
 
     // ── 站点库 ──────────────────────────────────────────────────────────────
     //
@@ -110,10 +110,14 @@ export const defaultPack: ContentPack = {
           // 所以取中间：**低饱和、但色相分得开**，且全部落在 MvizLite 的冷灰蓝基调里。
           //   engineering ← 蓝 `#5B91F4` · infra ← 亮青 `#6CDCE7`
           //   meeting     ← 紫 `#A680FF` · commons ← 橙 `#F36600`
-          'ground.engineering': '#333A48',
-          'ground.infra': '#2F3A3C',
-          'ground.meeting': '#363040',
-          'ground.commons': '#3C342C',
+          // R55：**提亮过**。原来这四个是 `#333A48` 一类（亮度 ~50），乘上地砖之后
+          // 整个地板只剩 38~44 级亮度，真机截图里"几乎接近黑色、纹理看不见"。
+          // 现在亮度 ~62~79，仍然在 MvizLite 的冷灰蓝基调里（对方卡片底 `#2f343c` 是 52），
+          // 但地板能看出来了。
+          'ground.engineering': '#3E4E6E',
+          'ground.infra': '#37504F',
+          'ground.meeting': '#463A5C',
+          'ground.commons': '#57462F',
 
           // 消息纸条（M2.5-2 让纸条真的会出现）。手头这张纸上最重要的一件事是
           // **一眼分清"交接"还是"汇报"**，所以两类给冷暖对比鲜明的两色。

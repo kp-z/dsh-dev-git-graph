@@ -56,6 +56,13 @@ export interface SceneGround {
   depth: number
   /** **已解析成色值**（不是 token）。 */
   color: string
+  /**
+   * 这一区的地面**平铺哪张图**（R55）；没有就只用 `color`。
+   *
+   * 与 `SceneProp.parts` 同一条规矩：**形状由内容声明、渲染器只执行**。
+   * 渲染器拿到模型表里的 `sheet` 就按格子平铺，拿不到就退回纯色。
+   */
+  modelId: string | null
 }
 
 /** 一个站点（用 `models` 库的 id 指代它长什么样）。 */

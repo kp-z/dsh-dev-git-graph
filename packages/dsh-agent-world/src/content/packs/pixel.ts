@@ -26,6 +26,7 @@
  */
 import type { ContentPack, SheetAnimation, StationPropEntry } from '../kinds.js'
 import { DEFAULT_STATIONS } from './stations.js'
+import { DEFAULT_DISTRICTS } from './districts.js'
 
 /** Microverse 角色帧的实测尺寸（32 宽 × 64 高）。 */
 const CELL_W = 32
@@ -182,6 +183,39 @@ const STATION_PROPS: ReadonlyArray<readonly [string, readonly StationPropEntry[]
   ]],
 ]
 
+/**
+ * 地板：`16_Office_32x32.png` 的 `(col4,row80)`。
+ *
+ * **为什么是这一格**：地砖必须**四边无缝**才能平铺，而"满铺"不等于"无缝"。
+ * 我自己逐格量了左右/上下两对边的逐像素相等率：
+ *
+ * | 格 | 颜色 | 左右缝 | 上下缝 | 能平铺吗 |
+ * |---|---|---|---|---|
+ * | `(1,4)` | 浅蓝灰 | **0.00** | **0.00** | ✗（看着满铺，其实拼起来全是线） |
+ * | `(4,80)` | 浅蓝灰 | **1.00** | **1.00** | ✓ **用这个** |
+ * | `(7,77)` | 深蓝灰 | 1.00 | 1.00 | ✓（备选，留给将来分区用） |
+ *
+ * ⚠️ 这处是**推翻了上一轮的结论**：`docs/tile-index.md` 把 `(1,4)` 当候选，
+ * 但它左右缝 0.00。报告里"满铺"与"无缝"混用过，所以这里以**实测的两对边相等率**为准。
+ */
+const FLOOR_TILE = { col: 4, row: 80 }
+
+/**
+ * ⚠️ 用的是**处理过的那一张**（`microverse/floors/floor-office.png`），不是图集原格。原因如下。
+ *
+ * 原格实测：亮度均值 193、**范围只有 176~194（极差 19/255）**——纹理本来就极弱。
+ * 而我们的渲染方式是"地砖 × 区色"（乘算），深色区色（亮度 ~50）会把那点起伏一起缩掉：
+ * 算下来纹理极差只剩 **5~6 级**，屏幕上就是**一块纯色**（R55 真机截图确认过）。
+ *
+ * 所以入库时对这张砖做了**一次处理**（脚本见 `docs/tile-index.md`）：
+ * 把亮度范围拉成 **150~255**、均值提到 248，**按比例缩放 RGB 所以色相不变**。
+ * 处理后再乘区色，纹理极差回到 **23~32 级**——看得见了。
+ *
+ * 这只改**对比度与亮度**，不改图案：格子边界、材质颗粒都还在原位置。
+ * 换成别的区色时要重算的是"区色亮不亮"，而不是这张图。
+ */
+const FLOOR_URL = 'microverse/floors/floor-office.png'
+
 export const pixelPack: ContentPack = {
   manifest: {
     id: 'pack.pixel',
@@ -190,12 +224,14 @@ export const pixelPack: ContentPack = {
     version: '3.0.0',
     schemaVersion: 1,
     requires: ['pack.default'],
-    provides: ['models', 'stations'],
+    provides: ['models', 'stations', 'districts'],
     // 显式声明（红线）。家具模型是新 id；站点是**整条覆盖**（注册表是整条替换）。
     overrides: [
       ...CHARACTERS.map(([name]) => `models/model.agent.mv-${name.toLowerCase()}`),
       ...FURNITURE.map(([n]) => `models/${f(n)}`),
       ...STATION_PROPS.map(([id]) => `stations/${id}`),
+      'models/model.ground.floor',
+      ...DEFAULT_DISTRICTS.map((d) => `districts/${d.id}`),
     ],
   },
   entries: {
@@ -235,7 +271,36 @@ export const pixelPack: ContentPack = {
         rotationY: 0,
         anchorY: 0,
       })),
+
+      // ── 地板 ──
+      // 一格一图，`anchor: 'center'`（地砖是"贴在格子上"，不是"立在格子上"）。
+      {
+        id: 'model.ground.floor',
+        name: '办公室地板',
+        source: {
+          kind: 'sheet' as const,
+          url: FLOOR_URL,
+          sheet: {
+            cellW: 32,
+            cellH: 32,
+            rowsPerFigure: 1,
+            anchor: 'center' as const,
+            // 已经是单格图了，所以从 (0,0) 取。
+            animations: { still: { col: 0, row: 0, frames: 1, frameMs: FRAME_MS } },
+          },
+        },
+        scale: 1,
+        rotationY: 0,
+        anchorY: 0,
+      },
     ],
+
+    // 地块：复用默认包的边界，只声明"地面铺哪张图"（R55）。
+    //
+    // **颜色仍来自 `ground` token**：渲染器应当把这张图**按区色染色**再平铺
+    //（图给纹理、色给色调）。于是四个区既共用一张无缝地砖，又能一眼分出哪是哪，
+    // 而且色调仍归 `skins`（也就是 MvizLite 那套配色，D50）。
+    districts: DEFAULT_DISTRICTS.map((d) => ({ ...d, groundModel: 'model.ground.floor' })),
 
     // 站点：复用默认包的锚点与能力，只把外观换成像素家具（与 `pack.kenney-furniture` 同一手法）。
     stations: DEFAULT_STATIONS.filter((st) => STATION_PROPS.some(([id]) => id === st.id)).map((st) => {

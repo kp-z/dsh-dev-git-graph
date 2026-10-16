@@ -41,6 +41,7 @@ export function instantiateDistrict(entry: DistrictEntry): District {
     kind: entry.kind,
     bounds: { min: { ...entry.bounds.min }, max: { ...entry.bounds.max } },
     ground: entry.ground,
+    groundModel: entry.groundModel ?? null,
   }
 }
 

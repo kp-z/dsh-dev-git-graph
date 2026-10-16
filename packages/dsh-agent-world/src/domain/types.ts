@@ -66,6 +66,8 @@ export interface Bounds {
 
 /** 地段：把站点分组，也是配色与地面材质的单位。 */
 export interface District {
+  /** 地面图（`models` 库的 id）；null = 只用 `ground` 颜色。R55。 */
+  groundModel: string | null
   id: string
   name: string
   kind: DistrictKind

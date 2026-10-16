@@ -141,6 +141,14 @@ export interface DistrictEntry {
   bounds: Bounds
   /** 地面色。指向 `skins` 库里的 token，形如 `skin.ground.engineering`；找不到就按字面量当地色用。 */
   ground: string
+  /**
+   * 这一区的地面**铺哪张图**（R55）。指向 `models` 库的条目 id；不写就只用 `ground` 那个颜色。
+   *
+   * 为什么是内容：2D 之后"地板长什么样"是**美术选择**（办公室木地板 / 机房防静电地板 /
+   * 会议区地毯），而颜色只是它的兜底。渲染器拿到图就平铺、拿不到就退回颜色——
+   * 于是"换一套地板"是加一个包，不是改渲染代码。
+   */
+  groundModel?: string
 }
 
 /**
