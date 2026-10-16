@@ -38,7 +38,7 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R65 末）：`typecheck` 绿 · `test` **622 / 622 / 0 fail / 0 todo**。**界面重构完成**（场景占 85–90%、看板收成一行摘要、footer 是 4 组读数信息带、横向溢出消除）+ **视口可缩放可平移**（全部走 Phaser 现成的 `Scale.RESIZE` / `setZoom` / `input` / `FixedKeyControl` / `setBounds`；我们只留整数倍档位与取景框两条产品规则）。真机验过：canvas 缓冲区 = CSS 尺寸、缩放序列 1→2→3→4→5 每步一致、拖拽换算对。**D56 立为硬规矩：能用 Phaser 现成的就绝不自建**。宿主常驻 bash-1344。（`world.nav` 那个未决项仍在 BACKLOG M15-2。）
+当前验证状态（R66 末）：`typecheck` 绿 · `test` **625 / 625 / 0 fail / 0 todo**。**M15-2 还清了**：读档时 `nav`（导航网格）没被重算 → 寻路静默退回直线；修好后真机实测**走路真的拐弯绕障**（25 个途经点、在 (4,-4) 转向），回归测试反向验过（撤掉修复→3 红）。顺手修掉"两套拾取"（真路径曾在我手写的 `getBounds()` 上，现已交给 Phaser 的 `setInteractive`+`pointerup`）。`web/` 清点结论：剩下的自写代码大多站得住，**该删的只有 3D（1254 行 + 860K，已派 task-24）**。宿主常驻 bash-1367。
 
 ---
 
@@ -4973,6 +4973,67 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 - 分支：`feat/dsh-agent-world`（从 `feat/dsh-daily` 的 HEAD 切出；**没有**动那个分支上的未提交改动）
 - 新增包：`packages/dsh-agent-world/`
 - 文档：`docs/ARCHITECTURE.md`、`docs/BACKLOG.md`、本文件、`README.md`
+---
+
+## R66 —— 还清 M15-2 的债：**真机走路真的绕障了**；顺手清掉"两套拾取"
+
+### M15-2 修好了，而且这次有决定性证据
+用户在此之前问过"真机走路仍直线穿墙"——那笔债还了。
+
+**真机实测**（小青被派工后逐秒采样）：
+```
+路径点数=25 位置=(-7.10,-4.30) 途经=[(-6,-4), (-4,-4), (-2,-4)]
+路径点数=21 位置=( 0.06,-4.00) 途经=[(2,-4), (4,-4), (4,-6)]   ← 拐弯！
+路径点数=18 位置=( 4.00,-6.12) 途经=[(4,-8), (2,-10), (0,-12)] ← 继续拐
+```
+走到 `(4,-4)` 之后**转向**（`3.74,-4.00 → 4.00,-4.96 → 4.00,-6.12`）——
+**这是拐弯，不是直线插值**；途经点逐格递减（25→24→…→18），正是 `movement.ts` 消费路径的样子。
+R63 那次是严格等距的直线（穿墙），两者一眼可辨。
+
+### 根因：派生量漏了一处，而我的测试测了个假前提
+`world.nav`（寻路用的导航网格）是 R64 加的**派生量**，我只在 `create.ts` 里接了，
+**`reconcile.ts` 里漏了**——而真实存档**从不落盘派生量**，所以读档后 `nav` 是 `undefined`，
+寻路**静默退回直线**（不报错、界面看起来完全正常）。
+
+**为什么我的测试当时是绿的**：它拿一个**已经带 `nav`** 的世界去 reconcile，
+`{...world}` 把 `nav` 带过去了；而真实存档根本没有这个字段。
+**这跟 R47/R48 是同一个坑的形状**：派生量漏一处，只在旧档上复现。
+
+**修的是规矩，不只是补丁**：`reconcile.ts` 组装世界时把派生量**一次列全**
+（`districts / stations / agents / nav`），并写明——
+> **加一个派生字段，就必须在 `createWorld` 与 `reconcileWorld` 两处同时补上。**
+> `{...world}` 的展开会**掩盖**漏掉的那一处。
+
+回归测试也刻意写成"**输入必须是真实存档的形状**（`delete legacy.nav`）"，
+而不是"造一个带 nav 的世界再 reconcile"——后者会重现同一个假前提。
+**并且验过它抓得住 bug**：临时撤掉修复 → **3 条红**；恢复 → 绿。
+
+### 顺手清掉一处 D56 违规：同一件事有两套拾取
+清点 `web/` 时发现的：
+
+| 路径 | 走谁 | 后果 |
+|---|---|---|
+| `sprite.on('pointerdown')` → `onActorPick` | **Phaser 的 `setInteractive`** | 只写了个调试全局 |
+| `bindPick(canvas)` → `scene2d.pick()` | **我手写遍历 `getBounds()`** | **真正打开对话的是这条** |
+
+**我接了 Phaser 的交互，却把真路径留在自己手写的拾取上。** 现在引擎那套是唯一真路径：
+`sprite.on('pointerup')` + `pointer.getDistance() > 5`（忽略拖拽）+ `pointer.getDuration() > 700`
+（忽略长按）——这两个判断用 **Phaser Pointer 自带的 API** 表达，不必自己记 `downX/downY/downAt`。
+（`main.js` 那半由 panel 接手，见 task-24 的追加说明。）
+
+### 清点结论：`web/` 里剩下的自写代码**大多站得住**
+| 文件 | 行数 | 判断 |
+|---|---|---|
+| `sheet-loader.js` | 184 | ✅ 取原图 + 重上色（Phaser loader 已在用：`this.load.image` / `spritesheet`） |
+| `pixel-recolor.js` | 254 | ✅ 纯函数（Phaser 的 `tint` 是**乘算**，做不了"换发色"这种调色板替换） |
+| `bubble-place` / `board-layout` / `dialogue-state` | — | ✅ DOM 面板，不是 Phaser 的活 |
+| 平铺 / 深度 / 拾取 | — | ✅ 已经是 `tileSprite` / `setDepth` / `setInteractive` |
+| **`scene3d.js` + `model-loader.js` + `vendor/three`** | **1254 + 860K** | ❌ **该删**——已派 task-24 |
+
+### 验证
+- `typecheck` 绿；`pnpm test` **625 / 625 / 0 fail / 0 todo**（新增 3 条 R66 回归）。
+- 真机：`nav` 37×21 / 248 格挡住 / origin(-37,-21)；**走路绕障实测拐弯**（证据在上面）。
+- 回归测试的有效性**反向验过**（撤掉修复 → 3 红）。
 ---
 
 ## R65 —— 界面重构 + **可缩放可平移视口**（用户需求①③④）

@@ -795,10 +795,28 @@ export function createScenePhaser(canvas, options = {}) {
           entry.sprite = activeScene.add.sprite(0, 0, textureKey)
           entry.sprite.setDepth(2)
           activeScene.layers.actors.add(entry.sprite)
-          // **整只角色可点**（不是脚下一个小圆）：只负责手型与引擎侧命中几何；
-          // 真正"点了谁"仍由 `pick()` 决定，两者用同一份精灵几何，不会互相矛盾。
+          // **整只角色可点**（不是脚下一个小圆）——用 Phaser 自己的交互系统。
+          //
+          // ## 这里曾经是"两套拾取"（R66 修掉）
+          //
+          // 原来 `setInteractive` 只用来出手型，**真正"点了谁"走的是我手写的
+          // `pick()`**（遍历精灵 `getBounds()` 做命中判定）。于是同一个问题有两套实现：
+          // 引擎那套只写了个调试全局，真路径在自写的那套上——这正是 D56 要禁的形态
+          //（"能用引擎现成的却自己搞"），而且两套几何一旦漂移就会"点得中但选不中"。
+          //
+          // 现在真路径就是引擎的：`pointerup` 只在**指针在该对象上抬起**时触发，
+          // 而"忽略拖拽/长按"这两个产品规则由 **Phaser 的 Pointer 自带 API** 表达——
+          // `pointer.getDistance()`（按下到抬起的位移）与 `pointer.getDuration()`（按住时长）。
+          // 不需要自己记 downX/downY/downAt（那是 `main.js::bindPick` 手写的那套）。
           entry.sprite.setInteractive({ useHandCursor: true })
-          entry.sprite.on('pointerdown', () => { if (actorPick !== null) actorPick(actor.id) })
+          entry.sprite.on('pointerup', (pointer) => {
+            if (actorPick === null) return
+            // 拖拽（在拖地图）不算点人：位移超过 5px 就放过。
+            if (typeof pointer.getDistance === 'function' && pointer.getDistance() > 5) return
+            // 长按也不算点人（700ms 以上）。
+            if (typeof pointer.getDuration === 'function' && pointer.getDuration() > 700) return
+            actorPick(actor.id)
+          })
         }
         entry.sprite.setTexture(textureKey)
         const [ox, oy] = originOf(sheet)

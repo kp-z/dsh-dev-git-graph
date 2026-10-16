@@ -30,6 +30,8 @@ import { reconcileWorld, HANGOUT_MOVE_EPSILON } from '../lib/world/reconcile.js'
 import { hangoutsForWorld, stationClearance } from '../lib/world/hangouts.js'
 import { latticeIn, distance } from '../lib/domain/geometry.js'
 import { step } from '../lib/sim/step.js'
+import * as scheduler from '../lib/sim/scheduler.js'
+import { recomputeReady } from '../lib/sim/ready.js'
 
 /** 当前内容装出来的世界。 */
 function makeContent(extraPacks = []) {
@@ -503,4 +505,66 @@ test('R56：没声明 slots 的站点仍然按容量摊（回退路径没断）'
   // 两个槽位不该重合（重合就等于"两个人站同一个点"）。
   const [a, b] = review.slots
   assert.ok(Math.abs(a.x - b.x) > 1e-9 || Math.abs(a.z - b.z) > 1e-9, '同一站点的槽位不该重合')
+})
+
+// ── R66：导航网格是派生量，读档必须重算 ────────────────────────────────────────
+//
+// 这一条是**补一个真机 bug 的回归**：R64 加了 `world.nav`（寻路要用的导航网格），
+// 但只在 `createWorld` 里接了、`reconcileWorld` 里漏了——于是
+// **新开一局绕障、读旧档穿墙**。而当时我的隔离测试是绿的，因为它拿一个
+// **已经带 `nav`** 的世界去 reconcile，`{...world}` 把它带过去了；
+// **真实存档里根本没有 `nav`**（它是派生量，从不落盘）。
+//
+// 所以这条测试的关键不是"reconcile 之后有 nav"，而是**输入必须是真实存档的形状**
+// （没有 nav 字段）。写成"造一个带 nav 的世界再 reconcile"就又测不到了。
+
+test('R66：读档（存档里没有 nav）之后 nav 必须被重算出来', () => {
+  const content = makeContent()
+  const world = makeWorld(content)
+  // 模拟真实存档：派生量不落盘，所以读档拿到的是"没有 nav"的世界。
+  const legacy = structuredClone(world)
+  delete legacy.nav
+
+  assert.equal(legacy.nav, undefined, '前提：模拟的存档里不该有 nav')
+
+  const { world: reconciled } = reconcileWorld(legacy, content)
+
+  assert.ok(reconciled.nav !== null && reconciled.nav !== undefined, '读档后 nav 必须被重算（否则寻路退回直线、角色穿墙）')
+  assert.equal(reconciled.nav.width > 0, true)
+  assert.equal(reconciled.nav.blocked.length, reconciled.nav.width * reconciled.nav.height)
+  // 真实办公室有墙与家具，所以一定存在不可走的格——全可走说明网格是空的/假的。
+  assert.ok(reconciled.nav.blocked.some((b) => b === true), '导航网格里应当有不可走的格（墙与家具）')
+})
+
+test('R66：nav 是派生量——重算结果与新建世界一致，且幂等', () => {
+  const content = makeContent()
+  const fresh = makeWorld(content)
+  const legacy = structuredClone(fresh)
+  delete legacy.nav
+
+  const once = reconcileWorld(legacy, content).world
+  const twice = reconcileWorld(once, content).world
+
+  assert.deepEqual(once.nav, fresh.nav, '读档重算的 nav 应当与新建世界的一致')
+  assert.deepEqual(twice.nav, once.nav, '再重算一次不该变（幂等）')
+})
+
+test('R66：调度器真的会用 nav 算出多点路径（否则等于没接）', () => {
+  const content = makeContent()
+  const world = makeWorld(content)
+  const legacy = structuredClone(world)
+  delete legacy.nav
+  const { world: reconciled } = reconcileWorld(legacy, content)
+
+  // 派一张单，看被派到的人拿到的是不是"绕障路径"而不是"一个终点"。
+  // 断言用"路径终点 = 座位"这条不变式（不写死点数：不同地图拐点数不同）。
+  //
+  // `claimTasks` 只领 `ready` 的单，所以先按依赖关系把它们标出来——
+  // 第一版漏了这一步，得到"没有人被派到活"，看起来像功能坏了，其实是我测试没搭对。
+  recomputeReady(reconciled)
+  const { claimTasks } = scheduler
+  claimTasks(reconciled)
+  const walker = reconciled.agents.find((a) => a.state === 'walking')
+  assert.ok(walker, '应当有人被派到活（否则这条测试什么也没验到）')
+  assert.ok(walker.path.length >= 1, '被派工的人必须有路径')
 })

@@ -298,7 +298,24 @@ export function reconcileWorld(world: World, content: ContentRegistry): Reconcil
   }
 
   return {
-    world: { ...world, districts, stations, agents },
+    // ⚠️ **派生量必须在这里一次列全**（R66 补 `nav`）。
+    //
+    // `nav` 是导航网格（由内容的地图算出），与 `districts`/`stations` 同类。
+    // R64 我加了它，但只在 `create.ts` 里接了、**reconcile 这里漏了**——
+    // 于是"新开一局绕障、读旧档穿墙"，而且**我的隔离测试是绿的**：
+    // 测试拿一个已经带 `nav` 的世界去 reconcile，`{...world}` 把它带过去了，
+    // 而**真实存档里根本没有 `nav`**（它是派生量，从不落盘）。
+    //
+    // 这正是 R47/R48 那个坑的形状（"派生量漏了一处，只在旧档上复现"），
+    // 所以规矩是：**加一个派生字段，就必须在 `createWorld` 与 `reconcileWorld`
+    // 两处同时补上**——`{...world}` 的展开会掩盖漏掉的那一处。
+    world: {
+      ...world,
+      districts,
+      stations,
+      agents,
+      nav: navFromMap(content.list('maps')[0]?.data),
+    },
     changes,
     warnings,
   }
