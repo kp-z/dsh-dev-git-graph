@@ -464,6 +464,13 @@ export interface MapEntry {
   cellPx: number
   /** 一格等于多少世界单位。 */
   unitsPerCell: number
+  /**
+   * **可行走网格**（R64 物理），长度 = width × height，`false` = 走不了。
+   *
+   * 由原版图块的物理多边形解出（不是"看图猜哪张像墙"）。
+   * 可选：没有它就没有碰撞（退回直线走），那是老内容的回退路径。
+   */
+  walkable?: readonly boolean[]
 }
 
 /** 皮肤库条目：一堆命名色 token。 */

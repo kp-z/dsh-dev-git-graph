@@ -38,7 +38,7 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R63 末）：`typecheck` 绿 · `test` **611 / 611 / 0 fail / 0 todo**。**派工链终于通了**（补上座位缺的 `compute`/`research` 两种能力；实测 派工→走路→到岗→working→续派）。**已证实走路是直线穿墙**（阿金 -1.14→-32.00 严格线性）。用户三条新需求见 BACKLOG M15-1..3。宿主常驻 bash-1119。
+当前验证状态（R64 末）：`typecheck` 绿 · `test` **616 / 616 / 0 fail / 0 todo**。**寻路换成现成的 EasyStar.js**（MIT，vendored；我手搓的 A* 已按用户要求删掉），碰撞网格由原版 Godot 物理多边形解出（37×21、248 格实心、9 个房间全连通）。隔离环境用真实数据验过绕障（4/6 个途经点）✓。⚠️ **真机上仍采样到 1 点路径**，最可能是 `world.nav` 没落到运行中的世界上——**下一轮第一件事**，在那之前不能说"真机不穿墙了"。宿主常驻 bash-1210。
 
 ---
 
@@ -4973,6 +4973,65 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 - 分支：`feat/dsh-agent-world`（从 `feat/dsh-daily` 的 HEAD 切出；**没有**动那个分支上的未提交改动）
 - 新增包：`packages/dsh-agent-world/`
 - 文档：`docs/ARCHITECTURE.md`、`docs/BACKLOG.md`、本文件、`README.md`
+---
+
+## R64 —— 物理：**用现成的寻路库**让角色不再穿墙（用户需求②）
+
+### 用户当场纠了我一次
+我第一版**手搓了一个 A\***。用户："**物理引擎应该是现成的吧，不要自己搞一个物理碰撞引擎哈**"。
+这与 D53（"少自己创建引擎，用成熟的方案"）是同一条。判据还是那句：
+**"这东西我换个游戏项目会重写吗？"**——会，那就该用现成的。**手搓的 A\* 已删除。**
+
+### 换成 EasyStar.js（vendored）
+- `src/vendor/easystar/`——MIT 0.4.4（2012 年起的老牌格子寻路库），源码树 + `heap` 依赖 + 两份 LICENSE。
+- ⚠️ 上游 `bin/` 那份**不能用**：webpack `libraryTarget: "var"`，挂在**全局变量**上、**没有模块导出**
+  （实测 `require` 得到空对象）。用源码树。
+- 垫片 `index.mjs` 放 **vendor 里**：`createRequire` 只出现在第三方适配层，
+  `src/sim/` 对它只做静态 import。**因为边界规则不许 `sim/` import `node:module`——
+  那条规则是对的**（模拟内核要纯净、可移植），不该为了用库去绕它。测试当场抓到了这个违规。
+
+### 碰撞数据本来就是现成的
+不猜"哪张图看着像墙"：原版 Godot 场景里每个图块挂不挂 `physics_layer_0/polygon_0` 就是权威答案。
+扩展转换器解出**可行走网格**：`37×21` 格、**248/777 格实心**（墙 + 桌 + 电脑 + 柜子）。
+验证：**9 个房间全部互相连通**（最大连通块 488 格把 9 个房间都包含在内）；
+那 39 格孤岛是**地图外圈的走廊**、1 格的是两个角——不在房间里，人不该去。
+
+### 两个"降级路径看起来正常"的坑（都值得记）
+1. **EasyStar 的异步回调包了一层 `setTimeout`**：
+   ```js
+   var callbackWrapper = function(result) {
+       if (syncEnabled) { callback(result) }
+       else { setTimeout(function() { callback(result) }, 0) }   // ← 就是这里
+   }
+   ```
+   所以"`findPath` 之后紧接着 `calculate()`、再读回调结果"拿到的是 **null**——
+   路径**悄悄退回成直线**（穿墙照旧），**而且不报错**。必须 `enableSync()`。
+   这类"降级路径看起来完全正常"的错误最难发现，`reconcile.test.js` 那种才抓得到。
+2. **路径终点必须是真实座位坐标，不是格中心**：换掉的话"到站"永远差半个格，
+   渲染层看起来像没坐下。
+
+### 改动
+- `src/sim/pathfind.ts`（薄适配层）· `src/world/nav.ts`（内容→导航网格，建世界/读档共用）
+- 领域加 `NavGrid`、`World.nav`；内容 `MapEntry.walkable`；协议不改（浏览器不需要网格）
+- **调度器**：`agent.path = findPath(world.nav, agent.position, slot)`（原来是 `[{slot}]` 一个点）
+- **`idle.ts`**：待命移动**也要绕障**，并且顺手修了"只清路径不清 `targetStation`"——
+  派工残渣的判据是**目标工位**还挂着，不是"path 非空"
+
+### 验证
+- `typecheck` 绿；`pnpm test` **616 / 616 / 0 fail / 0 todo**。
+- **真实数据**（真的办公室场景 + 真的座位）：`findPath` 从阿金位置到 `station.seat-01`
+  返回 **4 个途经点**、绕开障碍 ✓；5×3 带墙的网格返回 **6 个途经点**绕行 ✓。
+- 改了 4 条"绑定旧行为"的测试：`path.length === 1` → 断言**路径终点是那个座位**；
+  `path[0]` 当终点 → 改成**最后一个点**（多点路径下 `path[0]` 是第一个拐点）；
+  待命测试 → 区分"派工残渣"与"待命路径"。
+
+### ⚠️ 没验完的（如实记，不假装）
+真机上采样到的一条路径**仍然是 1 个点**（小紫从 `(-5.48,-6.60)` 走到 `station.seat-02`）。
+我在隔离环境用**同样的真实数据**跑是对的，所以差异在**运行中那份世界**——
+最可能是 `world.nav` 在宿主里没落上（存档里没有 `nav`，靠读档时的 reconcile 补）。
+**下一轮第一件事**：确认宿主内存里的 `world.nav` 是否非空，若不是就查 reconcile 的调用路径。
+在此之前**不能**说"真机上已经不穿墙了"。
+
 ---
 
 ## R63 —— 修掉"**一张单都派不出去**"（能力覆盖缺两个）；记录用户三条新需求

@@ -19,6 +19,7 @@ import { MAX_AGENTS } from '../domain/constants.js'
 import { createRng, seedFromString } from '../domain/rng.js'
 import type { Task, World } from '../domain/types.js'
 import { hangoutsForWorld } from './hangouts.js'
+import { navFromMap } from './nav.js'
 
 /** 建世界的选项。 */
 export interface CreateWorldOptions {
@@ -101,6 +102,10 @@ export function createWorld(options: CreateWorldOptions): World {
     origin: { scene: scene.id, packs: content.packIds, taskSets },
     districts,
     stations,
+
+    // 导航网格（R64 物理）：从内容的地图派生，与 districts/stations 同一条规矩。
+
+    nav: navFromMap(content.list('maps')[0]?.data),
     agents,
     tasks,
     messages: [],

@@ -79,6 +79,28 @@ for (const m of src.matchAll(/\[sub_resource type="TileSet" id="([^"]+)"\]([\s\S
 /** 图层没写 tile_set 时的兜底：只有一个 TileSet 的场景照常能跑。 */
 const soleTileset = sourceToAtlasByTileset.size === 1 ? [...sourceToAtlasByTileset.keys()][0] : null
 
+// ── ③.5 碰撞：哪些图块是**实心**的 ──────────────────────────────────────────
+//
+// **不要在代码里猜"哪张图看着像墙"**——原版场景里就有权威数据：Godot 的 `TileSet`
+// 给每个图块挂 `physics_layer_0/polygon_0/points`，带多边形的那一格就是实心的
+//（墙、桌子、电脑、柜子…共 124 个图块定义都带）。我们用它的**有无**当碰撞位，
+// 不看多边形形状——俯视 2D 里"整格挡不挡"就够了。
+//
+// 键是 `atlasSourceId|atlas_x|atlas_y`（碰撞定义挂在 `TileSetAtlasSource` 上，
+// 而 `atlas_x:atlas_y` 是**该图集内**的格子坐标）。
+const solidCellsByAtlas = new Map()
+{
+  // 逐 TileSetAtlasSource 块扫：块内的 `x:y/0/physics_layer_0/...` 就是该图集的实心格。
+  for (const m of src.matchAll(/\[sub_resource type="TileSetAtlasSource" id="([^"]+)"\]([\s\S]*?)(?=\n\[sub_resource|\n\[node|\n?$)/g)) {
+    const atlasId = m[1]
+    const solid = new Set()
+    for (const t of m[2].matchAll(/^(\d+):(\d+)\/0\/physics_layer_0\/polygon_0\/points/gm)) {
+      solid.add(`${t[1]},${t[2]}`)
+    }
+    if (solid.size > 0) solidCellsByAtlas.set(atlasId, solid)
+  }
+}
+
 // ── ④ 图层：解 tile_map_data ─────────────────────────────────────────────────
 const layers = []
 for (const m of src.matchAll(/\[node name="([^"]+)" type="TileMapLayer"[^\]]*\]([\s\S]*?)(?=\n\[node |\n?$)/g)) {
@@ -96,6 +118,7 @@ for (const m of src.matchAll(/\[node name="([^"]+)" type="TileMapLayer"[^\]]*\](
   }
   const cells = []
   const usedAtlas = []
+  const blocked = new Set()
   for (let i = 0; i < count; i++) {
     const o = 2 + i * 12
     const [x, y, s, ax, ay] = [raw.readInt16LE(o), raw.readInt16LE(o + 2), raw.readInt16LE(o + 4), raw.readInt16LE(o + 6), raw.readInt16LE(o + 8)]
@@ -105,8 +128,13 @@ for (const m of src.matchAll(/\[node name="([^"]+)" type="TileMapLayer"[^\]]*\](
     let idx = usedAtlas.indexOf(file)
     if (idx < 0) { usedAtlas.push(file); idx = usedAtlas.length - 1 }
     cells.push([x, y, idx, ax, ay])
+    // 这一格实心吗？（该图集在该 atlas 坐标上有物理多边形）
+    const atlasId = sourceToAtlas.get(s)
+    if (atlasId !== undefined && solidCellsByAtlas.get(atlasId)?.has(`${ax},${ay}`) === true) {
+      blocked.add(`${x},${y}`)
+    }
   }
-  layers.push({ name, atlasFiles: usedAtlas, cells })
+  layers.push({ name, atlasFiles: usedAtlas, cells, blocked: [...blocked] })
 }
 
 // ── ⑤ 房间：Area2D(groups=room_area) + 紧跟的 CollisionShape2D ────────────────
@@ -154,6 +182,15 @@ const height = Math.max(...layers.flatMap((l) => l.cells.map((c) => c[1]))) + 1
 const CELL = 32
 const cellRect = (r) => [Math.round(r[0] / CELL), Math.round(r[1] / CELL), Math.round(r[2] / CELL), Math.round(r[3] / CELL)]
 
+// ── 全图可行走网格：任一图层在该格放了实心图块 → 不可走 ─────────────────────
+const walkable = new Array(width * height).fill(true)
+for (const l of layers) {
+  for (const key of l.blocked) {
+    const [bx, by] = key.split(',').map(Number)
+    if (bx >= 0 && bx < width && by >= 0 && by < height) walkable[by * width + bx] = false
+  }
+}
+
 const body = `/**
  * **本文件由脚本生成，不要手改**：\`scripts/convert-microverse-map.mjs\`。
  *
@@ -173,6 +210,8 @@ export interface OfficeMapLayer {
   readonly atlasFiles: readonly string[]
   /** 每格 \`[x, y, 图集下标, atlas_x, atlas_y]\`。 */
   readonly cells: ReadonlyArray<readonly number[]>
+  /** 这一层里**实心**的格，形如 \`["3,7", …]\`（由原版图块的物理多边形解出）。 */
+  readonly blocked: readonly string[]
 }
 
 export interface OfficeMapRoom {
@@ -204,6 +243,15 @@ export const OFFICE_MAP = {
   objects: ${JSON.stringify(objects)},
   /** 房间的格矩形（由 \`rectPx\` 算出来，单独存一份省得每处都算）。 */
   roomsInCells: ${JSON.stringify(rooms.map((r) => ({ node: r.node, name: r.name, cells: cellRect(r.rectPx) })))},
+  /**
+   * **可行走网格**（R64 物理）：\`walkable[row * width + col]\`，true = 能站。
+   *
+   * 由原版图块的**物理多边形**解出（不是"看图猜哪张像墙"）：某一格只要在**任何**图层上
+   * 放着实心图块，就是不可走的。墙、桌子、电脑、柜子都在内。
+   */
+  walkable: ${JSON.stringify(walkable)},
+  /** 不可走的格数（诊断用）。 */
+  blockedCount: ${walkable.filter((v) => !v).length},
 } as const
 `
 
@@ -216,3 +264,4 @@ console.log(`    地图 ${width}×${height} 格 · ${layers.length} 层 · ${cel
 console.log(`    房间 ${rooms.length} 个：${rooms.map((r) => r.name).join('、')}`)
 console.log(`    家具/角色实例 ${objects.length} 个`)
 console.log(`    用到的图集 ${[...new Set(layers.flatMap((l) => l.atlasFiles))].length} 个`)
+console.log(`    **实心格 ${walkable.filter((v) => !v).length} / ${walkable.length}**（由原版图块的物理多边形解出）`)

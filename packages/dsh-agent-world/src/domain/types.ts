@@ -41,6 +41,30 @@ export type AgentState =
 export type TaskStatus = 'pending' | 'ready' | 'in_progress' | 'blocked' | 'done' | 'failed'
 
 /** 站点种类。决定它在场景里长什么样。 */
+/**
+ * **导航网格**（R64 物理）：世界里的可行走区。
+ *
+ * 为什么是一张**格网**而不是"一组矩形障碍"：地图本身就是格子的（37×21、一格 32px），
+ * 碰撞数据也来自原版图块的物理多边形——格子是**数据的原生形状**，
+ * 转成矩形再去判包含只会多一层可能算错的换算。
+ *
+ * `blocked[row * width + col] === true` 表示这一格**不能站**（墙、桌、电脑…）。
+ * 由内容（地图）在**建世界 / 读档重算**时派生，与 `districts`、`stations` 同一条规矩：
+ * 谁都能随时按当前内容重算出来，不手改。
+ */
+export interface NavGrid {
+  /** 格数。 */
+  readonly width: number
+  readonly height: number
+  /** 一格等于多少世界单位。 */
+  readonly unitsPerCell: number
+  /** 世界左上角对应的网格坐标偏移（世界坐标是**中心为 0**，网格是左上角为 0）。 */
+  readonly originX: number
+  readonly originZ: number
+  /** 长度 = width × height；true = 走不了。 */
+  readonly blocked: readonly boolean[]
+}
+
 export type StationKind = 'desk' | 'meeting' | 'server' | 'mailroom' | 'lab' | 'breakroom'
 
 /**
@@ -306,6 +330,8 @@ export interface World {
   origin: WorldOrigin
   districts: District[]
   stations: Station[]
+  /** 导航网格（R64 物理）。**派生量**：由内容的地图在建世界/读档时算出。null = 没有地图（退回直线走）。 */
+  nav: NavGrid | null
   agents: Agent[]
   tasks: Task[]
   messages: Message[]

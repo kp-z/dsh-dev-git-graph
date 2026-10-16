@@ -21,6 +21,7 @@
  */
 import type { ContentPack, DistrictEntry, StationEntry, MapEntry, SceneEntry } from '../kinds.js'
 import { OFFICE_BACKGROUND, OFFICE_DISTRICTS, OFFICE_STATIONS } from './office-scene.js'
+import { OFFICE_MAP } from './office-map.js'
 
 /** 底图（整张办公室，1184×672）。 */
 const MAP: MapEntry = {
@@ -31,6 +32,8 @@ const MAP: MapEntry = {
   height: OFFICE_BACKGROUND.height,
   cellPx: OFFICE_BACKGROUND.cellPx,
   unitsPerCell: OFFICE_BACKGROUND.unitsPerCell,
+  // 原版图块的物理多边形解出来的可行走网格（248/777 格是墙或家具）。
+  walkable: OFFICE_MAP.walkable,
 }
 
 /**

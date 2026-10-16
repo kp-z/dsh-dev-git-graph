@@ -24,6 +24,7 @@
  * 返回"谁挪了"，帧事件由 `emit.ts` 统一合并产出（与其他阶段一样）。
  */
 import { WALK_SPEED } from '../domain/constants.js'
+import { findPath } from './pathfind.js'
 import { angleTo, distance, stepToward } from '../domain/geometry.js'
 import type { World } from '../domain/types.js'
 
@@ -51,9 +52,16 @@ export function advanceIdle(world: World): IdleOutcome {
     const goal = agent.hangout
     if (goal === null) continue
 
-    // 待命的人不该还挂着派工路径。真出现了就清掉——否则玩家会看到一个人
-    // "待命中却在走向工位"，而那是上一轮派工留下的残渣。
-    if (agent.path.length > 0) agent.path = []
+    // @deprecated-note 待命的人不该还挂着**派工**路径（那是上一轮派工的残渣，
+    // 玩家会看到"待命中却在走向工位"）。但 R64 起待命移动**自己也要一条绕障路径**——
+    // 否则待命的人会直线穿墙走到待命点（R63 实测就是这么走的）。
+    // 所以不再无脑清空，而是标记这条路径是"待命用"的。
+    // 派工残渣 = **目标工位**还挂着。清它、也清那条去工位的路径——
+    // 只清路径不清 targetStation 的话，调度器与渲染层都还以为他"正在去某个工位"。
+    if (agent.targetStation !== null) {
+      agent.targetStation = null
+      agent.path = []
+    }
 
     const remaining = distance(agent.position, goal)
     if (remaining <= WALK_SPEED) {
@@ -66,8 +74,19 @@ export function advanceIdle(world: World): IdleOutcome {
       continue
     }
 
-    const moved = stepToward(agent.position, goal, WALK_SPEED)
-    agent.facing = angleTo(agent.position, goal)
+    // 没有路径就**规划一条绕障的**（只在"刚被清空 / 换了待命点"时发生一次，
+    // 不是每 tick 都算——`findPath` 内部有网格缓存，但也没必要每 tick 走一遍 A*）。
+    if (agent.path.length === 0) {
+      const planned = findPath(world.nav, agent.position, goal)
+      // 只剩终点一个点 = 直线可达，那就别挂路径，省掉每 tick 的 shift。
+      if (planned.length > 1) agent.path = planned
+    }
+
+    // 有路径就沿途经点走（否则退回直走——那是 `nav === null` 的回退路径）。
+    const next = agent.path[0] ?? goal
+    const moved = stepToward(agent.position, next, WALK_SPEED)
+    if (agent.path.length > 0 && distance(moved.position, next) <= 1e-9) agent.path.shift()
+    agent.facing = angleTo(agent.position, next)
     agent.position = moved.position
     advanced.push(agent.id)
   }

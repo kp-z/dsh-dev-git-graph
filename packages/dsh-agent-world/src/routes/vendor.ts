@@ -56,6 +56,17 @@ export const VENDOR_WHITELIST: readonly string[] = [
   // 原版办公室底图（R62）：由 `scripts/convert-microverse-map.mjs` 解出的 1322 格烘成一张 PNG。
   // 一次 `drawImage` 就画完整场景——先用这种方式接通，真要"单格可寻址"时再升级 tilemap。
   'microverse/scene/office.png',
+  // EasyStar.js（寻路库，MIT）——服务端 sim 用它算绕障路径，**浏览器不需要**，
+  // 但 `src/vendor/` 的每一份文件都要有路由，否则有一条测试会红（而且运行期 404 很难归因）。
+  'easystar/easystar.cjs',
+  'easystar/instance.cjs',
+  'easystar/node.cjs',
+  'easystar/heap.cjs',
+  'easystar/index.mjs',
+  'easystar/index.d.mts',
+  'easystar/LICENSE',
+  'easystar/LICENSE-heap',
+  'easystar/README.md',
   'three/examples/jsm/controls/OrbitControls.js',
   'three/examples/jsm/loaders/GLTFLoader.js',
   'three/examples/jsm/utils/BufferGeometryUtils.js',
@@ -113,6 +124,11 @@ export const VENDOR_MIME: Readonly<Record<string, string>> = {
   // `.mjs` 是 ESM 的另一种扩展名（PixiJS 的 dist 用它）。**没有它浏览器会拒绝执行**
   //（`text/plain` 的 module script 会被 CORS/类型检查拦下），而表现是"场景整个起不来"。
   '.mjs': 'text/javascript; charset=utf-8',
+  // EasyStar 是 CommonJS 源码 + 一个 ESM 垫片（见 `src/vendor/easystar/index.mjs` 的头注释）。
+  '.cjs': 'text/javascript; charset=utf-8',
+  // ⚠️ 取扩展名用的是 `lastIndexOf('.')`，所以 `index.d.mts` 切出来是 **`.mts`** 不是 `.d.mts`。
+  '.mts': 'text/plain; charset=utf-8',
+  '.ts': 'text/plain; charset=utf-8',
   '.glb': 'model/gltf-binary',
   '.png': 'image/png',
   '.txt': 'text/plain; charset=utf-8',

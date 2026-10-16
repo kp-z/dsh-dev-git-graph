@@ -21,6 +21,7 @@
  * 返回"谁领了什么"，事件由 `step.ts` 统一产出。
  */
 import { stationSlot } from '../domain/geometry.js'
+import { findPath } from './pathfind.js'
 import type { Agent, Station, Task, World } from '../domain/types.js'
 
 /** 一次派工。 */
@@ -178,7 +179,9 @@ export function claimTasks(world: World): SchedulerOutcome {
     agent.carrying = task.id
     agent.targetStation = chosen.station.id
     agent.station = null
-    agent.path = [{ ...slot }]
+    // R64 物理：**绕障路径**，不再是一个终点（那会直线穿墙）。
+    // `findPath` 返回一串途经点；`movement.ts` 的循环逐个 shift，逻辑一行没改。
+    agent.path = findPath(world.nav, agent.position, slot)
     agent.state = 'walking'
 
     taken.add(agent.id)

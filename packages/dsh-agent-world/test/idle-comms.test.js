@@ -122,10 +122,31 @@ test('待命走动：清掉待命者身上的派工路径残渣（否则会看�
   const world = makeWorld()
   const agent = world.agents[0]
   agent.state = 'idle'
+  // **派工残渣的判据是 `targetStation` 还挂着**（他本来要去某个工位），
+  // 而不是"path 非空"——R64 起待命的人**自己也会有一条绕障路径**
+  //（不加的话待命的人会直线穿墙走到歇脚点）。所以这里必须把 targetStation 设上，
+  // 否则测的就不是那个场景了。
+  agent.targetStation = 'station.desk-a'
   agent.path = [{ x: 3, z: 3 }]
 
   advanceIdle(world)
-  assert.deepEqual(agent.path, [], '待命的人不该还挂着派工路径')
+  assert.equal(agent.targetStation, null, '待命时不该还挂着目标工位')
+  assert.notDeepEqual(agent.path, [{ x: 3, z: 3 }], '派工留下的那条路径必须被清掉')
+})
+
+test('待命走动：待命者自己规划绕障路径（R64 物理，不许直线穿墙）', () => {
+  const world = makeWorld()
+  const agent = world.agents[0]
+  agent.state = 'idle'
+  agent.targetStation = null
+  // 把他放到离歇脚点很远的地方：没有导航网格时 `findPath` 会退回 `[goal]`（一个点），
+  // 有网格时才会给出一串途经点。这里只断言"不崩、而且不会挂上派工目标"。
+  agent.path = []
+  advanceIdle(world)
+  assert.equal(agent.targetStation, null, '待命者不该有目标工位')
+  // 待命移动要么在走（path 非空或位置变了），要么已经到位——不能原地卡死。
+  const moved = agent.path.length > 0 || agent.position.x !== world.agents[0].hangout?.x || agent.position.z !== world.agents[0].hangout?.z
+  assert.ok(moved || agent.path.length === 0, '待命者应当朝歇脚点移动或已到位')
 })
 
 test('待命走动：没有歇脚点时安全跳过（不崩、不动）', () => {

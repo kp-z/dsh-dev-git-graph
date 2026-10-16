@@ -62,6 +62,7 @@ import { slotsFor } from '../domain/constants.js'
 import { distance } from '../domain/geometry.js'
 import type { Agent, District, Station, World } from '../domain/types.js'
 import { hangoutsForWorld } from './hangouts.js'
+import { navFromMap } from './nav.js'
 
 /** "他确实停在旧落点上"的容差（世界单位）。理由见文件头。 */
 export const HANGOUT_MOVE_EPSILON = 0.25

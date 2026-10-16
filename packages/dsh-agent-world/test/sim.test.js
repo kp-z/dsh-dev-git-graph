@@ -122,7 +122,17 @@ test('调度：派单时同时定好站点与座位，并把角色转入 walking
   assert.equal(researcher.carrying, triage.id)
   assert.equal(researcher.targetStation, 'station.lab-bench')
   assert.equal(researcher.station, null, '在路上时不算"人在站点上"')
-  assert.equal(researcher.path.length, 1, '座位在 claim 时就定好了，到达时不用再算')
+      // ⚠️ R64 起 `path` 是**绕障路径**（一串途经点），不能再断言"只有一个点"——
+      // 那正是穿墙的成因。这条测试真正要守的是"**座位在 claim 时就定好了**"，
+      // 所以改断言**路径终点就是那个座位**（寻路只补上"怎么走过去"，"去哪"没变）。
+      const bench = world.stations.find((st) => st.id === 'station.lab-bench')
+      assert.ok(bench, '找不到 station.lab-bench')
+      const slot = bench.slots[0]
+      assert.deepEqual(
+        researcher.path[researcher.path.length - 1],
+        { x: bench.anchor.x + (slot?.x ?? 0), z: bench.anchor.z + (slot?.z ?? 0) },
+        '路径终点必须是 claim 时定好的那个座位',
+      )
 })
 
 test('调度：一张单只被派一次（同一 tick 内不会两个人抢到同一张）', () => {
@@ -265,7 +275,10 @@ test('移动：位置精确落在座位上（不能差一点点，否则渲染�
   recomputeReady(world)
   claimTasks(world)
   const agent = world.agents.find((a) => a.state === 'walking')
-  const target = { ...agent.path[0] }
+  // ⚠️ 终点是 `path` 的**最后一个点**，不是第一个：
+  // R64 起 `path` 是**绕障路径**（一串途经点），`path[0]` 是第一个拐点。
+  // 原来取 `path[0]` 是因为那时路径只有一个点（终点）——那条直线路径正是穿墙的成因。
+  const target = { ...agent.path[agent.path.length - 1] }
 
   for (let i = 0; i < 500 && agent.state === 'walking'; i++) advanceMovement(world)
 
