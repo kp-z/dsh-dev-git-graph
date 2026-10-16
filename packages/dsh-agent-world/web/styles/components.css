@@ -894,6 +894,89 @@
   z-index: 2;
 }
 
+/* ── 卡死（R67 / M13-5）：前置单已失败 → 永远等不到 ────────────────────────────
+   它**不是**世界六态之一，是面板从 `blockedBy` 算出来的结论，所以内容库的调色板里
+   没有对应 token——`--st` 在这里由设计 token（`--st-dead`）兜底，JS 里不写色值。
+   视觉上与「待办/失败」拉开：虚线边框 + 紫红 + 稍暗的底，并且**只在卡死时**出现。 */
+.board-node.is-dead,
+.board-chip.is-dead,
+.board-count.is-dead {
+  --st: var(--st-dead);
+}
+.board-node.is-dead {
+  border-style: dashed;
+  border-left-style: solid;
+  background: color-mix(in srgb, var(--st-dead) 10%, var(--board-card, var(--bg-1)));
+}
+/* 卡死这一枚从色点到文字**整枚**都得是"死"的味道：
+   只染色点的话，标签还是灰的，扫一眼仍然像普通计数（R67 真机自查）。 */
+.board-node.is-dead .board-node-id,
+.board-node.is-dead .board-node-title,
+.board-count.is-dead,
+.board-count.is-dead b,
+.board-count.is-dead span,
+.board-active-dead {
+  color: var(--st-dead);
+}
+.board-active-dead {
+  font-weight: 600;
+}
+.board-dead-note,
+.board-stall-note {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 0 0 auto;
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sub);
+}
+.board-dead-note {
+  border: 1px solid color-mix(in srgb, var(--st-dead) 36%, transparent);
+  border-left: 3px solid var(--st-dead);
+  background: var(--st-dead-bg);
+}
+.board-dead-head {
+  color: var(--st-dead);
+  font-weight: 600;
+}
+.board-dead-line {
+  color: var(--fg-0);
+}
+.board-dead-id {
+  font-family: var(--mono-font);
+  margin-right: 4px;
+}
+/* 失败原因真机上有几百字：这里显示前几行，全文在 `title` 里（不让它把面板撑爆）。 */
+.board-dead-reason {
+  margin: 0;
+  max-height: 4.2em;
+  overflow: hidden;
+  color: var(--fg-1);
+  font-size: var(--fs-micro);
+  white-space: pre-wrap;
+}
+.board-dead-exit {
+  color: var(--fg-0);
+  font-size: var(--fs-micro);
+}
+.board-stall-note {
+  border: 1px solid color-mix(in srgb, var(--st-ready) 30%, transparent);
+  border-left: 3px solid var(--st-ready);
+  background: var(--st-ready-bg);
+}
+.board-stall-head {
+  color: var(--st-ready);
+  font-weight: 600;
+}
+.board-stall-reason {
+  color: var(--fg-0);
+}
+.board-stall-detail {
+  color: var(--fg-1);
+  font-size: var(--fs-micro);
+}
+
 /* ── 工单产出（R45 / M10-9）─────────────────────────────────────────────────
    浮在详情条**上方**：看板高度是固定的（M7-9），2000 字挤进 flex 流只会把依赖图压扁
    或者把结论裁掉。浮起来 = 阅读态，按「收起」就回到图上。 */

@@ -361,6 +361,69 @@ export function unlocksIndex(tasks) {
   return index
 }
 
+/**
+ * 这张单的**前置里有哪些已经失败了**（R67 / M13-5）。
+ *
+ * 为什么它等于"永远等不到"，而不是"再等等"：`failed` 是**终态**——失败的前置不会
+ * 再变成 `done`，所以后续单的状态机永远停在 `pending`，永远不可能 `ready`。
+ * 真机上就是这样：`task-19 ← task-18(failed)`、`task-22 ← task-21(failed)`、
+ * `task-25 ← task-24(failed)`，而看板只说「待办」——用户看到的是"人不动、单挂着"。
+ *
+ * 判据（任务书写死的）：`blockedBy` **非空**且其中**至少一个**状态是 `failed`。
+ * `blockedBy` 里指向表外的 id 不算（那条单不在这个世界里，无从判失败）。
+ *
+ * @param {object} task
+ * @param {Map<string, object>|Record<string, object>} byId - 同一批任务按 id 索引
+ * @returns {object[]} 失败的前置单（原样返回模型里的对象）
+ */
+export function deadBlockersOf(task, byId) {
+  const blocked = Array.isArray(task?.blockedBy) ? task.blockedBy : []
+  if (blocked.length === 0) return []
+  const lookup = (id) => (byId instanceof Map ? byId.get(id) : byId?.[id])
+  const out = []
+  for (const id of blocked) {
+    const other = lookup(id)
+    if (other !== null && other !== undefined && other.status === 'failed') out.push(other)
+  }
+  return out
+}
+
+/**
+ * **显示状态**：卡死（前置失败）压过真实状态，其余原样。
+ *
+ * 为什么不改 `status` 本身：`status` 是世界的字段（筛选、计数、状态机都按它走）。
+ * "卡死"是我们**从图上算出来的**结论，是另一层信息——混进 `status` 会让
+ * "世界说它是什么"和"我们判断它怎样"再也分不开。
+ */
+export function displayStatusOf(task, byId) {
+  const status = TASK_STATUSES.includes(task?.status) ? task.status : 'pending'
+  if (deadBlockersOf(task, byId).length === 0) return status
+  // **只有真的"卡住不动"的单才显示成卡死**：`done` 已经交付、`failed` 已经终结、
+  // `in_progress` 正在跑——它们不会因为某个前置失败而变成"等不到"。
+  // 判据本身（前置里有 failed）不受影响：`deadBlockers` 照记，详情里能看到这个事实。
+  return status === 'pending' || status === 'ready' || status === 'blocked' ? 'dead' : status
+}
+
+/** 六态 + `dead` 的计数（顶部那行进度条用）。**只数，不改状态**。
+ *
+ * 优先读 `displayStatus`（模型会给每张单挂上派生状态）；没有那个字段的裸任务按
+ * 真实 `status` 数——这样它既能服务看板模型，也能单独测。
+ */
+export function countDisplayStatuses(tasks) {
+  const counts = { total: 0, dead: 0 }
+  for (const status of TASK_STATUSES) counts[status] = 0
+  for (const task of indexTasks(tasks)) {
+    counts.total += 1
+    const shown = task.displayStatus ?? task.status
+    if (shown === 'dead') {
+      counts.dead += 1
+      continue
+    }
+    counts[TASK_STATUSES.includes(shown) ? shown : 'pending'] += 1
+  }
+  return counts
+}
+
 /** 任务状态的六态计数（顶部那行进度条用）。**只数，不改状态**。 */
 export function countStatuses(tasks) {
   const counts = { total: 0 }
@@ -413,6 +476,17 @@ export function buildBoardModel(world) {
     failureReason: typeof task.failureReason === 'string' && task.failureReason.trim() !== '' ? task.failureReason : null,
   }))
 
+  // R67 / M13-5：先按 id 索引一遍，才能判"前置失败了没有"。
+  // 这一步必须在 `counts` 之前：卡死的单要从「待办」里摘出来，否则计数会说谎。
+  const lookup = new Map(tasks.map((t) => [t.id, t]))
+  const deadIds = []
+  for (const task of tasks) {
+    const failed = deadBlockersOf(task, lookup)
+    task.deadBlockers = failed.map((t) => ({ id: t.id, title: t.title, failureReason: t.failureReason }))
+    task.displayStatus = displayStatusOf(task, lookup)
+    if (failed.length > 0) deadIds.push(task.id)
+  }
+
   const members = [...agents].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map((agent) => ({
     id: agent.id,
     name: agent.name ?? agent.id,
@@ -427,7 +501,11 @@ export function buildBoardModel(world) {
     tasks,
     byId: new Map(tasks.map((t) => [t.id, t])),
     unowned: tasks.filter((t) => t.owner === null).map((t) => t.id),
-    counts: countStatuses(tasks),
+    // 计数按**显示状态**：卡死的单进 `counts.dead`，不再混进「待办」——
+    // 否则顶部会同时说"待办 3"和"卡死 3"，同一张单被数两次。
+    counts: countDisplayStatuses(tasks),
+    /** 卡死（前置失败、永远等不到）的单。`count` 供顶部摘要用，`ids` 供排查用。 */
+    dead: { ids: deadIds, count: deadIds.length },
     /** 这一份模型里的流水线分组（传进来的 tasks 已经被视图过滤过，所以它就是"当前视图的分组"）。 */
     groups: groupTasks(tasks),
   }
@@ -453,6 +531,8 @@ export function describeTask(model, taskId) {
   return {
     ...task,
     statusToken: STATUS_TOKEN[task.status] ?? STATUS_TOKEN.pending,
+    /** 卡死时的显示状态（详情栏与卡片都按它上色/写文案）。 */
+    displayStatus: task.displayStatus ?? task.status,
     unlocks: show(unlocks),
     blockedByTasks: show(task.blockedBy),
     /** 需要 `review` 能力的任务在图上画橙色虚线框（ROADMAP §3.3 第 3 条："验证"是站点能力，不是一种角色）。 */

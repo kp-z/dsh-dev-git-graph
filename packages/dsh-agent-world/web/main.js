@@ -63,6 +63,14 @@ let lastRenderMs = -1
 const bubbleNodes = new Map()
 /** 看板里选中的任务（用来高亮抽屉里对应的那一行）。 */
 let boardSelection = null
+/**
+ * 调度器诊断（R67 / M13-5）：`runtime.diagnostics`。
+ *
+ * 看板用它显示"调度器这一轮为什么不派某张单"（没人 / 没工位）。它是**快照字段**，
+ * 只在 `onSnapshot` 里更新——事件流不带它。所以它是"最近一次调度"的读数，
+ * 而不是累积历史（这一点要和看板里"前置失败=永远等不到"的结论区分开）。
+ */
+let diagnostics = null
 /** 对话面板（状态机在 core/dialogue-state.js，DOM 在 ui/dialogue-ui.js）。 */
 let dialogue = null
 /**
@@ -469,6 +477,7 @@ const connection = createConnection({
       messageDeliveryTicks: snap.runtime.messageDeliveryTicks,
       persistErrors: snap.runtime.diagnostics.persistErrors,
     }
+    diagnostics = snap.runtime.diagnostics ?? null
     colorById = new Map((snap.scene?.actors ?? []).map((a) => [a.id, a.color]))
     // 角色的名字只从世界数据来（D37：人设是内容，代码里没有角色名）。
     dialogue.setAgents(world.agents)
@@ -478,14 +487,14 @@ const connection = createConnection({
     // 没有的字段就是 `undefined`——第一版写成 meta.taskSets，于是每次都把目录清空成 {}，
     // 分组签一直显示英文短 id（真机上抓到的）。
     board.setTaskSets?.(snap.taskSets)
-    board.update(world)
+    board.update(world, { diagnostics })
     legend.update({ scene: meta.scene })
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
   onEvents: (events) => {
     applyEvents(world, events)
     pruneMessages(world)
-    board.update(world)
+    board.update(world, { diagnostics })
     render()
   },
   onSync: () => {
@@ -610,7 +619,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
   }
   globalThis.__agentWorldBoard = {
     stats: () => board.stats(),
-    refresh: () => board.update(world),
+    refresh: () => board.update(world, { diagnostics }),
     select: (taskId) => board.select(taskId),
     model: () => board.model(),
     layout: () => board.layout(),

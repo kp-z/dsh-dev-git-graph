@@ -25,6 +25,9 @@ export const TASK_STATUS_LABEL = {
   blocked: '受阻',
   done: '完成',
   failed: '失败',
+  // R67 / M13-5：**派生**状态，不是世界的六态。`blockedBy` 里有前置 `failed` → 永远等不到。
+  // 放在同一张表里是因为界面只需要问一句"这个（显示）状态叫什么"。
+  dead: '卡死',
 }
 
 /** `AgentState` → 界面文案。 */
@@ -131,6 +134,22 @@ export function toolLabel(name) {
 /** 六态文案（未知 → 原样）。 */
 export function taskStatusLabel(status) {
   return TASK_STATUS_LABEL[status] ?? String(status ?? '')
+}
+
+/**
+ * 调度器"现在为什么不派这张单"的原因文案（R67 / M13-5）。
+ *
+ * 这两类原因要**与"前置失败"分开显示**：一个用户能做的是"等/补人/补工位"，
+ * 另一个是"这张单已经死了，重派或取消"。混成一句话，用户就不知道该做什么。
+ */
+export const STALL_REASON_LABEL = {
+  'no-worker': '没有空闲的人',
+  'no-station': '没有能承载它的工位',
+}
+
+/** 调度器停滞原因文案（未知 → 原样，宁可用英文短 id 也别显示 undefined）。 */
+export function stallReasonLabel(reason) {
+  return STALL_REASON_LABEL[reason] ?? String(reason ?? '未知')
 }
 
 /** 代理状态文案（未知 → 原样）。 */

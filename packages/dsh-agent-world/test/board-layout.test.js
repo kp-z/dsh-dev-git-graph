@@ -27,6 +27,9 @@ import {
   boardSignature,
   buildBoardModel,
   countStatuses,
+  countDisplayStatuses,
+  deadBlockersOf,
+  displayStatusOf,
   describeTask,
   fitGraphGeometry,
   graphGeometry,
@@ -266,7 +269,8 @@ test('buildBoardModel：成员、他们的任务、未分配的单、六态计�
   assert.deepEqual(model.members[1].tasks, ['t2'])
   assert.equal(model.members[1].carrying, 't2')
   assert.deepEqual(model.unowned, ['t3', 't4'])
-  assert.deepEqual(model.counts, { total: 4, in_progress: 1, ready: 1, blocked: 0, pending: 0, done: 1, failed: 1 })
+  // `dead` 是新的一栏（R67 / M13-5）：卡死的单从「待办」里摘出来单独数。
+  assert.deepEqual(model.counts, { total: 4, dead: 0, in_progress: 1, ready: 1, blocked: 0, pending: 0, done: 1, failed: 1 })
   assert.deepEqual(
     model.tasks.map((t) => t.id),
     ['t1', 't2', 't3', 't4'],
@@ -318,10 +322,13 @@ test('describeTask：标题/状态/执行者/解锁了谁，以及"验证"是能
   assert.equal(describeTask(model, '不存在'), null)
 })
 
-test('未知状态不炸：当成 pending，并且计数里不出现第七种状态', () => {
+test('未知状态不炸：当成 pending，并且计数里不凭空多出状态', () => {
   const model = buildBoardModel({ agents: [], tasks: [task('t1', 1, [], { status: '莫名其妙' })] })
   assert.equal(model.tasks[0].status, 'pending')
-  assert.deepEqual(Object.keys(model.counts).sort(), ['total', ...TASK_STATUSES].sort())
+  // R67 之前这里是"不许出现第七种状态"。现在有且只有一个新增栏 `dead`——它不是世界的状态，
+  // 而是**我们从 `blockedBy` 算出来的结论**（前置失败）。除它以外仍然一个都不许多。
+  assert.deepEqual(Object.keys(model.counts).sort(), ['total', ...TASK_STATUSES, 'dead'].sort())
+  assert.equal(model.counts.dead, 0, '没有前置失败的单时，这一栏就是 0')
   assert.deepEqual(countStatuses([{ id: 'x' }]), { total: 1, in_progress: 0, ready: 0, blocked: 0, pending: 1, done: 0, failed: 0 })
 })
 
@@ -696,4 +703,76 @@ test('R46：main.js 必须把 **snapshot 的** taskSets 喂给看板（真机上
   )
   assert.match(source, /board\.setTaskSets\?\.\(snap\.taskSets\)/, 'main.js 应从 snap.taskSets 取流水线目录')
   assert.doesNotMatch(source, /setTaskSets\?\.\(meta\.taskSets\)/, 'meta 里没有 taskSets 字段，取它就是 undefined')
+})
+
+// ── R67 / M13-5：卡死的单（前置失败 → 永远等不到）─────────────────────────────
+//
+// 真机上的形状：`task-19 ← task-18(failed)`、`task-22 ← task-21(failed)`、`task-25 ← task-24(failed)`。
+// 这些单的状态机永远停在 pending，而界面以前只说「待办」——用户看不出这是个死结。
+
+test('前置失败 → 判为卡死；前置只是没做完 → 照旧等着', () => {
+  const tasks = [
+    task('task-18', 18, [], { status: 'failed', failureReason: '我手上没有能改代码的工具' }),
+    task('task-19', 19, ['task-18'], { status: 'pending' }),
+    task('task-20', 20, ['task-17'], { status: 'pending' }),
+    task('task-17', 17, [], { status: 'in_progress' }),
+  ]
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+
+  assert.deepEqual(deadBlockersOf(tasks[1], byId).map((t) => t.id), ['task-18'])
+  assert.deepEqual(deadBlockersOf(tasks[2], byId).map((t) => t.id), [], '前置只是还在跑，不是卡死')
+  assert.equal(displayStatusOf(tasks[1], byId), 'dead')
+  assert.equal(displayStatusOf(tasks[2], byId), 'pending', '正常等待不许被涂成卡死')
+})
+
+test('卡死判定：空前置 / 表外前置 / 前置是 done 都不算卡死', () => {
+  const byId = new Map([['task-1', task('task-1', 1, [], { status: 'done' })]])
+  assert.deepEqual(deadBlockersOf(task('a', 1), byId), [], '没有前置')
+  assert.deepEqual(deadBlockersOf(task('b', 2, ['task.不在表里']), byId), [], '表外的前置判不了失败')
+  assert.deepEqual(deadBlockersOf(task('c', 3, ['task-1']), byId), [], 'done 的前置不挡路')
+  assert.equal(displayStatusOf(task('c', 3, ['task-1']), byId), 'pending')
+})
+
+test('卡死是"显示状态"，不许覆盖世界的 status（统计/筛选仍按真实状态走）', () => {
+  const model = buildBoardModel({
+    agents: [],
+    tasks: [
+      task('task-24', 24, [], { status: 'failed' }),
+      task('task-25', 25, ['task-24'], { status: 'pending' }),
+    ],
+  })
+  const dead = model.byId.get('task-25')
+  assert.equal(dead.status, 'pending', '世界说它是 pending——这一点不能被我们改写')
+  assert.equal(dead.displayStatus, 'dead')
+  assert.deepEqual(dead.deadBlockers.map((b) => b.id), ['task-24'])
+  assert.deepEqual(model.dead, { ids: ['task-25'], count: 1 })
+  // 计数按显示状态：卡死的单不再混进「待办」，否则同一张单被数两次
+  assert.equal(model.counts.dead, 1)
+  assert.equal(model.counts.pending, 0)
+  assert.equal(model.counts.total, 2)
+})
+
+test('countDisplayStatuses：六态 + dead，总数守恒', () => {
+  const counts = countDisplayStatuses([
+    task('a', 1, [], { status: 'done' }),
+    task('b', 2, [], { status: 'failed' }),
+    task('c', 3, [], { status: 'in_progress' }),
+    task('d', 4, [], { status: 'nonsense' }),
+  ])
+  assert.equal(counts.total, 4)
+  assert.equal(counts.done, 1)
+  assert.equal(counts.failed, 1)
+  assert.equal(counts.in_progress, 1)
+  assert.equal(counts.pending, 1, '认不出的状态按 pending 计')
+  assert.equal(counts.dead, 0, '这一批里没有"前置失败"的单')
+  const sum = TASK_STATUSES.reduce((acc, s) => acc + counts[s], 0) + counts.dead
+  assert.equal(sum, counts.total)
+})
+
+test('已交付/正在跑的单，即使前置失败也不涂成卡死（它没有"等不到"这件事）', () => {
+  const byId = new Map([['task-1', task('task-1', 1, [], { status: 'failed' })]])
+  assert.equal(displayStatusOf(task('d1', 2, ['task-1'], { status: 'done' }), byId), 'done')
+  assert.equal(displayStatusOf(task('d2', 3, ['task-1'], { status: 'in_progress' }), byId), 'in_progress')
+  // 但事实照记：详情里仍然看得到"它有个前置失败了"
+  assert.deepEqual(deadBlockersOf(task('d1', 2, ['task-1'], { status: 'done' }), byId).map((t) => t.id), ['task-1'])
 })

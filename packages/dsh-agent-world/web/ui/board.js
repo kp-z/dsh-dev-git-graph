@@ -23,7 +23,7 @@
  * 而不是静默退回一个看起来"设计就这样"的灰。
  */
 
-import { MEMBERS_TOGGLE_LABEL, VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, groupViewLabel, taskStatusLabel } from './labels.js'
+import { MEMBERS_TOGGLE_LABEL, VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, groupViewLabel, stallReasonLabel, taskStatusLabel } from './labels.js'
 import { summarizeTaskOutput } from '../core/task-output.js'
 import {
   applyView,
@@ -126,6 +126,14 @@ export function createBoard(options = {}) {
   const counters = { updates: 0, structureRebuilds: 0, stateRefreshes: 0, skipped: 0 }
   let lastStructure = null
   let lastState = null
+  /**
+   * 调度器这一轮"为什么不派某张单"（R67 / M13-5）：`taskId → { reason, detail }`。
+   *
+   * ⚠️ 它**只解释"调度器现在不派"**（没人 / 没工位），是**瞬时快照**（每次调度覆盖一次）。
+   * "前置失败导致永远等不到"是任务表自身的性质，走 `model` 里算出来的 `deadBlockers`——
+   * 两件事分开显示，因为用户要做的事不同：一个是等，一个是这张单已经死了。
+   */
+  let stallById = new Map()
   /** 卡片的 DOM 引用（就地更新用）：taskId → {node, ...}。 */
   const cardNodes = new Map()
   const chipNodes = new Map()
@@ -298,6 +306,15 @@ export function createBoard(options = {}) {
   }
 
   function applyNodeColors(node, status) {
+    // 「卡死」是**我们算出来的派生状态**，不在内容库调色板的 status token 里。
+    // 硬查调色板会落到 `missing` 哨兵（品红），所以它走**设计 token**（`--st-dead`，见 tokens.css）——
+    // 颜色由 CSS 定，这个文件里一个十六进制都不写。
+    node.classList.toggle('is-dead', status === 'dead')
+    if (status === 'dead') {
+      node.style.removeProperty('--st')
+      node.classList.remove('board-missing')
+      return
+    }
     const color = statusColor(status)
     if (color === null) {
       node.style.removeProperty('--st')
@@ -367,10 +384,10 @@ export function createBoard(options = {}) {
         chip.type = 'button'
         // 状态用**色点**（与看板其它地方同一套语言），id 用短形式，完整信息在 `title`/`aria-label`
         // 与详情区里。28 张单的世界里，这一条决定了左栏要不要滚（见 `shortTaskId` 的注释）。
-        chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.status)}`
+        chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
         chip.setAttribute('aria-label', chip.title)
         const chipDot = el(doc, 'i', 'board-dot')
-        applyNodeColors(chipDot, task.status)
+        applyNodeColors(chipDot, task.displayStatus ?? task.status)
         chip.append(chipDot, el(doc, 'span', 'board-chip-id', shortTaskId(task.id)))
         // **已完成的单只留一个短标记**（R46）：真机 28 张里 22 张是 done，每个成员手上 5~7 张，
         // 全都画成"色点 + 号"会让左栏在 1227×804 这种尺寸下差 45px 装不下（clipped 报 2 行）。
@@ -501,19 +518,19 @@ export function createBoard(options = {}) {
       const chip = chipNodes.get(task.id)
       if (entry !== undefined) {
         const { card, fill } = entry
-        card.dataset.status = task.status
-        applyNodeColors(card, task.status)
+        card.dataset.status = task.displayStatus ?? task.status
+        applyNodeColors(card, task.displayStatus ?? task.status)
         card.classList.toggle('is-done', task.status === 'done')
         card.classList.toggle('is-failed', task.status === 'failed')
         card.classList.toggle('is-selected', selected !== null && selected.kind === 'task' && selected.id === task.id)
         fill.style.width = `${Math.round(Math.min(1, Math.max(0, task.progress)) * 100)}%`
-        card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.status)}`
+        card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
       }
       if (chip !== undefined) {
-        chip.dataset.status = task.status
-        applyNodeColors(chip, task.status)
+        chip.dataset.status = task.displayStatus ?? task.status
+        applyNodeColors(chip, task.displayStatus ?? task.status)
         // chip 上是"色点 + 短 id"，状态文字不在这里；完整描述挂在 `title`/`aria-label` 上。
-        chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.status)}`
+        chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
         chip.setAttribute('aria-label', chip.title)
         chip.classList.toggle('is-done', task.status === 'done')
         // M7-3 双向高亮：点图里的方框 → 左栏成员那边同一张单也亮起来。
@@ -536,11 +553,17 @@ export function createBoard(options = {}) {
       }
       if (running.length > 2) parts.active.append(el(doc, 'span', 'board-active-more', `还有 ${running.length - 2} 条在跑`))
       if (running.length === 0) parts.active.append(el(doc, 'span', 'board-active-more', '当前没有在跑的单子'))
+      if ((model?.counts?.dead ?? 0) > 0) {
+        const dead = el(doc, 'span', 'board-active-dead', `⛔ ${model.counts.dead} 张卡死（前置失败）`)
+        dead.title = '这些单永远等不到，需要重派或取消'
+        parts.active.append(dead)
+      }
     }
     // 摘要条：一条按状态分段的横条（段宽 = 该状态的占比）。收起时它就是"离目标还有多远"。
     parts.bar.textContent = ''
     const total = Math.max(1, model.counts.total)
-    for (const status of TASK_STATUSES) {
+    const barStatuses = (model.counts.dead ?? 0) > 0 ? [...TASK_STATUSES, 'dead'] : TASK_STATUSES
+    for (const status of barStatuses) {
       const count = model.counts[status] ?? 0
       if (count === 0) continue
       const segment = el(doc, 'i')
@@ -558,6 +581,15 @@ export function createBoard(options = {}) {
       dot.classList.add('board-count-dot')
       chip.append(dot, el(doc, 'b', undefined, String(count)), el(doc, 'span', 'dim', taskStatusLabel(status)))
       parts.counts.append(chip)
+    }
+    // 「卡死」单独一枚，而且**带标题**：它和「待办」的区别必须一眼看得出来——
+    // 用户看到"单挂着不动"时的第一个问题就是"为什么"。
+    if ((model.counts.dead ?? 0) > 0) {
+      const deadChip = el(doc, 'span', 'board-count is-dead')
+      deadChip.title = `${model.counts.dead} 张单的前置单已经失败——它们永远等不到，需要重派或取消`
+      const deadDot = el(doc, 'i', 'board-dot board-count-dot is-dead')
+      deadChip.append(deadDot, el(doc, 'b', undefined, String(model.counts.dead)), el(doc, 'span', undefined, taskStatusLabel('dead')))
+      parts.counts.append(deadChip)
     }
     // "共 N 张"在收起状态没有信息量（段数与计数已经说完了），所以给它一个类名让 CSS 收起时隐藏。
     parts.counts.append(el(doc, 'span', 'board-count dim board-total', `共 ${model.counts.total} 张`))
@@ -590,10 +622,10 @@ export function createBoard(options = {}) {
       return
     }
     const dot = el(doc, 'i', 'board-dot')
-    applyNodeColors(dot, task.status)
+    applyNodeColors(dot, task.displayStatus ?? task.status)
     dot.classList.add('board-count-dot')
     detail.append(dot, el(doc, 'b', 'board-detail-id', task.id), el(doc, 'span', undefined, task.title))
-    detail.append(el(doc, 'span', 'dim', `状态 ${taskStatusLabel(task.status)}`))
+    detail.append(el(doc, 'span', 'dim', `状态 ${taskStatusLabel(task.displayStatus ?? task.status)}`))
     detail.append(el(doc, 'span', 'dim', `执行者 ${task.ownerName ?? '未分配'}`))
     if (task.requires.length > 0) detail.append(el(doc, 'span', 'dim', `需要 ${task.requires.join('/')}`))
     // 参考图里那句 "Unlocks t2,t3"：**从 blockedBy 反向索引来**，不用新数据。
@@ -608,7 +640,61 @@ export function createBoard(options = {}) {
     if (task.blockedByTasks.length > 0) {
       detail.append(el(doc, 'span', 'dim', `被 ${task.blockedByTasks.map((b) => b.id).join('、')} 挡着`))
     }
-    detail.append(renderReadPanel(summarizeTaskOutput(task)))
+    // ① 这张单**已经死了**（前置失败，永远等不到）——先说结论，再说细节
+    // ② 调度器**这一轮**为什么不派它（没人 / 没工位）——与 ① 分开写
+    //
+    // 两块都放进**浮在详情条上方**的那个盒子（`.board-read`）：详情条只有一行高，
+    // 几十上百字的失败原因塞进去必然被裁（M7-9 的纪律：被裁就是没显示）。
+    const notes = []
+    if (Array.isArray(task.deadBlockers) && task.deadBlockers.length > 0) notes.push(renderDeadNote(task.deadBlockers))
+    const stall = stallById.get(task.id)
+    if (stall !== undefined) notes.push(renderStallNote(stall))
+    detail.append(renderReadPanel(summarizeTaskOutput(task), notes))
+  }
+
+  /**
+   * "这张单已经死了"（R67 / M13-5）：前置单失败 → 后续单永远停在 `pending`。
+   *
+   * 真机上就有三张（`task-19 ← task-18(failed)` 等）。以前界面只说「待办」，
+   * 用户看到的是"人不动、单挂着"，**看不出这是个死结**。这里把"哪张前置失败了"
+   * 和"它当时的失败原因"一起摆出来——失败原因往往长到几百字，所以截断 + `title` 全文。
+   */
+  function renderDeadNote(failed) {
+    const box = el(doc, 'div', 'board-dead-note')
+    box.append(el(doc, 'div', 'board-dead-head', '⛔ 永远等不到：它的前置单已经失败了'))
+    for (const dep of failed) {
+      const line = el(doc, 'div', 'board-dead-line')
+      line.append(el(doc, 'b', 'board-dead-id', dep.id))
+      line.append(el(doc, 'span', undefined, `《${dep.title ?? '（无标题）'}》`))
+      box.append(line)
+      const reason = typeof dep.failureReason === 'string' ? dep.failureReason.trim() : ''
+      if (reason !== '') {
+        const text = reason.length > 200 ? `${reason.slice(0, 200)}…` : reason
+        const para = el(doc, 'p', 'board-dead-reason', text)
+        para.title = reason
+        box.append(para)
+      } else {
+        box.append(el(doc, 'p', 'board-dead-reason dim', '（这张前置单没有写下失败原因）'))
+      }
+    }
+    box.append(el(doc, 'div', 'board-dead-exit', '出路：把这张单重派给别人、或直接取消它——它不会再自己动起来。'))
+    return box
+  }
+
+  /**
+   * "调度器这一轮为什么不派它"（R67 / M13-5）。
+   *
+   * 与 `renderDeadNote` 分开：那一类是**死结**（要重派/取消），这一类是**在等**
+   * （要补人 / 补能承载这个能力的工位）。`detail` 是模拟侧写好的中文，直接显示。
+   */
+  function renderStallNote(stall) {
+    const box = el(doc, 'div', 'board-stall-note')
+    box.append(el(doc, 'div', 'board-stall-head', '⏳ 调度器现在不派它（还在等）'))
+    box.append(el(doc, 'div', 'board-stall-reason', stallReasonLabel(stall.reason)))
+    if (typeof stall.detail === 'string' && stall.detail.trim() !== '') {
+      box.append(el(doc, 'div', 'board-stall-detail', stall.detail))
+    }
+    return box
   }
 
   /**
@@ -629,11 +715,14 @@ export function createBoard(options = {}) {
    * 产出是**模型写的文本**。Markdown/HTML 渲染 = 自己开一个注入面。这里连 `<br>` 都不拼：
    * 换行交给 CSS 的 `white-space: pre-wrap`，段落结构原样保留。
    */
-  function renderReadPanel(summary) {
+  function renderReadPanel(summary, notes = []) {
     const box = el(doc, 'div', outputExpanded ? 'board-read is-expanded' : 'board-read')
+    // 先说"为什么它不动"（如果它确实不动），再说"它干出了什么"。
+    for (const note of notes) box.append(note)
     if (!summary.hasContent) {
       // 没有产出也要有话说：空白会让人以为面板坏了（真机上很多早期单确实没有 output）。
-      box.append(el(doc, 'span', 'dim board-read-empty', summary.note ?? '这张单没有产出。'))
+      // 但**有 note 的时候不再补这句**——那时上面已经把事情说清楚了，"没有产出"只会造成噪音。
+      if (notes.length === 0) box.append(el(doc, 'span', 'dim board-read-empty', summary.note ?? '这张单没有产出。'))
       return box
     }
 
@@ -834,9 +923,22 @@ export function createBoard(options = {}) {
    *
    * @param {object} nextWorld - 本地世界（快照 + 增量维护）。
    */
-  function update(nextWorld) {
+  function update(nextWorld, extra = undefined) {
     counters.updates += 1
     world = nextWorld
+    // 诊断是**显示用**的：先收下（它不进结构签名，也不该被下面的早退闸门吃掉）。
+    if (extra !== undefined && extra !== null && extra.diagnostics !== undefined) {
+      const stalled = Array.isArray(extra.diagnostics.stalled) ? extra.diagnostics.stalled : []
+      const next = new Map()
+      for (const item of stalled) {
+        if (item === null || item === undefined) continue
+        if (typeof item.taskId !== 'string' || item.taskId === '') continue
+        next.set(item.taskId, item)
+      }
+      const changed = next.size !== stallById.size || [...next.keys()].some((id) => !stallById.has(id))
+      stallById = next
+      if (changed && selected !== null && selected.kind === 'task') renderDetail()
+    }
     if (!ready) return false
     if (world === null || world === undefined) return false
 
