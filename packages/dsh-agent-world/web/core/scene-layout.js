@@ -1,0 +1,193 @@
+/*
+ * 场景布局的**纯逻辑**（R58）：只留"Phaser 不知道、只有我们自己知道"的事。
+ *
+ * ── 为什么这个文件这么小 ────────────────────────────────────────────────────
+ *
+ * R57 之前，帧切分/帧推进/精灵盒/相机/拾取都是我们手写的（`pixel-sheet.js` +
+ * `scene-camera.js`，272 行）。R58 换 Phaser 之后这些**全部交出去了**：
+ *
+ * | 原来的活 | 现在谁干 |
+ * |---|---|
+ * | 切帧（`frameRect`） | `this.load.spritesheet(key, url, { frameWidth, frameHeight })` |
+ * | 帧推进（`frameIndex`） | `this.anims.create({ key, frames, frameRate })` + `sprite.play(key)` |
+ * | 精灵盒/锚点（`spriteBox`） | `sprite.setOrigin(0.5, anchor === 'bottom' ? 1 : 0.5)` |
+ * | 相机缩放/居中（`cameraFor`） | `this.cameras.main.setZoom(z)` + `centerOn(0, 0)` |
+ * | 屏幕↔世界（`pickActor`/`anchorFor`） | `camera.getWorldPoint()` / `camera.worldView` |
+ * | 平铺（`planGroundTiles`） | `this.add.tileSprite(...)` + `tilePositionX/Y` |
+ * | WebGL 起不来的回退 | `type: Phaser.AUTO` |
+ *
+ * 剩下的两类**不能交出去**：
+ * ① **内容语义**：`walking`→`walk`、`facing` 弧度→四向、动画回退链、多带图集怎么变成
+ *    线性帧号——这是**我们协议里的约定**（`SceneSheetSpec`），引擎不可能知道。
+ * ② **产品规则**：像素画必须整数倍缩放、气泡抬多高、平铺相位必须对齐世界格。
+ *
+ * 这一层是纯函数，所以它能在 node 里测——引擎那一半由浏览器里的实测覆盖。
+ */
+
+/** 四向（顺序固定，便于测试与稳定输出）。 */
+export const FOUR_DIRECTIONS = ['down', 'up', 'left', 'right']
+
+/** 一个世界单位 = 一格 = 16 源像素。 */
+export const TILE_PX = 16
+
+/** 缩放上限（俯视图要"一眼看全"）。 */
+export const MAX_ZOOM = 6
+
+/** 世界边长 × 这个系数决定画面里小镇占多大。 */
+export const FIT = 1.06
+
+/** 气泡锚点比角色脚下高多少像素。 */
+export const ANCHOR_LIFT_PX = 26
+
+/**
+ * `facing`（弧度，`atan2(Δz, Δx)`，屏幕 +z 朝下）量化成四向。
+ *
+ * `0 = right`、`π/2 = down`、`π = left`、`-π/2 = up`。
+ * **正好 45° 的两可情形约定归竖向**：`cos(-3π/4)` 与 `sin(-3π/4)` 在浮点里差最后一位，
+ * 不给偏置的话"朝向"会变成浮点的运气。
+ */
+export function directionOf(facing) {
+  const value = Number.isFinite(facing) ? facing : 0
+  const dz = Math.sin(value)
+  const dx = Math.cos(value)
+  const bias = 1e-9
+  if (Math.abs(dz) + bias >= Math.abs(dx)) return dz >= 0 ? 'down' : 'up'
+  return dx >= 0 ? 'right' : 'left'
+}
+
+/** 状态 → 动作名（只有两个动作；其余状态都当站着）。 */
+export function actionOf(state) {
+  return state === 'walking' ? 'walk' : 'idle'
+}
+
+/** 动画 key：契约里是点分的 `walk.down`；Phaser 的 key 用连字符更省事（也避免和属性路径混淆）。 */
+export function animationKey(action, direction) {
+  return direction === null || direction === undefined ? action : `${action}-${direction}`
+}
+
+/** 契约里的动画名 → Phaser 的 key（`walk.down` → `walk-down`；不分的 `idle` 原样）。 */
+export function keyOfAnimationName(name) {
+  return String(name).replace(/\./g, '-')
+}
+
+/**
+ * 动画回退链（**语义不变**，只是改成先算出候选 key 再问引擎有没有）：
+ * `动作.方向` → `动作` → `idle.方向` → `idle`。
+ */
+export function animationCandidates(input = {}) {
+  const action = actionOf(input.state)
+  const direction = input.direction ?? null
+  const out = []
+  if (direction !== null) out.push(animationKey(action, direction))
+  out.push(animationKey(action, null))
+  if (direction !== null) out.push(animationKey('idle', direction))
+  out.push(animationKey('idle', null))
+  return [...new Set(out)]
+}
+
+/**
+ * 选出真正存在的动画 key（`exists` 由引擎给：Phaser 的 `this.anims.exists`）。
+ * 候选链一个都不存在时返回 `null`——调用方据此保留"没动画"的状态，而不是放错动画。
+ */
+export function resolveAnimationKey(exists, input = {}) {
+  for (const key of animationCandidates(input)) {
+    if (exists(key) === true) return key
+  }
+  return null
+}
+
+/** 一条带里有多少帧（`row * framesPerRow + col` 的 `framesPerRow`）。 */
+export function framesPerRow(sheet, imageWidth) {
+  const cellW = Math.max(1, Math.round(Number(sheet?.cellW) || 1))
+  const width = Math.round(Number(imageWidth) || 0)
+  return Math.max(1, Math.floor(width / cellW))
+}
+
+/** 多带图集的 `(col, row)` → Phaser spritesheet 的**线性帧号**。 */
+export function frameIndexOf(framesPerRowValue, col, row) {
+  const perRow = Math.max(1, Math.floor(Number(framesPerRowValue) || 1))
+  const c = Math.max(0, Math.floor(Number(col) || 0))
+  const r = Math.max(0, Math.floor(Number(row) || 0))
+  return r * perRow + c
+}
+
+/**
+ * 一条动画的**帧号数组**（喂给 `this.anims.create({ frames })`）。
+ *
+ * 契约：一帧在 `(col + i, row)`，`row` 是**带**号；`layout:'column'` 时沿带号走
+ * （即帧号 `+framesPerRow` 递增）。这个换算是**纯数据**，在装载时算一次。
+ */
+export function animationFrameList(sheet, anim, perRow) {
+  const col = Math.max(0, Math.floor(Number(anim?.col) || 0))
+  const row = Math.max(0, Math.floor(Number(anim?.row) || 0))
+  const count = Math.max(1, Math.floor(Number(anim?.frames) || 1))
+  const columns = anim?.layout === 'column'
+  const frames = []
+  for (let i = 0; i < count; i += 1) {
+    frames.push(columns ? frameIndexOf(perRow, col, row + i) : frameIndexOf(perRow, col + i, row))
+  }
+  return frames
+}
+
+/** 一条动画的帧间隔（毫秒）→ Phaser 的 `frameRate`（帧/秒）。 */
+export function frameRateOf(anim) {
+  const ms = Number(anim?.frameMs)
+  if (!Number.isFinite(ms) || ms <= 0) return 0
+  return 1000 / ms
+}
+
+/** 多带图集 → 锚点（`bottom` = 底边贴地；`center` = 居中）。 */
+export function originOf(sheet) {
+  return sheet?.anchor === 'bottom' ? [0.5, 1] : [0.5, 0.5]
+}
+
+/**
+ * **整数倍**缩放：像素画的命（2.5 倍会让有的像素占 2 格、有的占 3 格，整张图糊成一片）。
+ */
+export function integerZoom(input = {}) {
+  const viewWidth = Number(input.viewWidth) || 0
+  const viewHeight = Number(input.viewHeight) || 0
+  const worldPixels = Math.max(1, Number(input.worldPixels) || 1)
+  const fit = Number.isFinite(input.fit) && input.fit > 0 ? input.fit : FIT
+  const maxZoom = Number.isFinite(input.maxZoom) ? input.maxZoom : MAX_ZOOM
+  const raw = Math.min(viewWidth, viewHeight) / (worldPixels * fit)
+  if (!Number.isFinite(raw) || raw < 1) return 1
+  return Math.min(maxZoom, Math.floor(raw))
+}
+
+/**
+ * 平铺相位（像素）：区左边界相对**世界网格**偏了多少。
+ *
+ * 四个区共用同一张砖，所以相位必须按世界网格算，不能各从自己的左上角起贴
+ * （否则跨区交界处花纹错半格 = 一条明显的缝；R55 为此逐像素量过缝率）。
+ */
+export function tilePhasePx(input = {}) {
+  const tileUnits = Number.isFinite(input.tileUnits) && input.tileUnits > 0 ? input.tileUnits : 2
+  const scale = Number.isFinite(input.scale) ? input.scale : 1
+  const left = Number.isFinite(input.leftWorld) ? input.leftWorld : 0
+  const gridStart = Math.floor(left / tileUnits) * tileUnits
+  return Math.round((left - gridStart) * scale)
+}
+
+/**
+ * 俯视图要画的角色：**实时位姿**（`world.agents`）+ **内容里的外观**（`scene.actors`）。
+ *
+ * 这也不是引擎的活：引擎不知道"世界"和"内容计划"是两份数据。
+ * 只遍历 `scene.actors` 的话人会永远站在开局位置——两个视图给出互相矛盾的真相。
+ */
+export function liveActors(world, scene) {
+  const plan = scene?.actors ?? []
+  if (world === null || world === undefined || world.agents === undefined) return plan
+  const byId = new Map(plan.map((a) => [a.id, a]))
+  const fallback = scene?.noteColors?.report ?? '#7C8CFF'
+  return world.agents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    state: a.state,
+    x: a.position?.x ?? byId.get(a.id)?.x ?? 0,
+    z: a.position?.z ?? byId.get(a.id)?.z ?? 0,
+    color: byId.get(a.id)?.color ?? fallback,
+    facing: Number.isFinite(a.facing) ? a.facing : (byId.get(a.id)?.facing ?? 0),
+    modelId: byId.get(a.id)?.modelId ?? null,
+  }))
+}

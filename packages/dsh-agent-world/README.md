@@ -155,3 +155,15 @@ test/         node --test
 MIT。所有第三方美术资产只用 CC0/public domain，并逐个登记在
 `web/public/assets/VENDOR.md`（来源 URL + 许可 + sha256），许可原文一并入库。
 运行期**不依赖任何 CDN**。
+
+## ⚠️ 为什么 `package.json` 里有 `private: true`
+
+`src/vendor/microverse/` 的美术来自 **LimeZu Modern Office**，其条款明确
+**"You CAN'T resell or distribute the asset to others"**（可用、不可分发）。
+而 `files` 里的 `lib` 会把这套图一起打包。
+
+`private: true` 是一个**防手滑**的闸：它让 `npm publish` 失败，这样"分发"必须由人**主动去掉这一行**才会发生。
+署名已按对方要求补在 `CREDITS.md`（满足 "Credits required"），但**署名不能替代分发授权**。
+
+**用户已知情并决定继续开发**（R59："不需要授权你只管搞就是了"），所以这不是阻塞项。
+将来真要对外发布，先读 `docs/ASSET-LICENSES-EVIDENCE.md`（逐套原文证据）与 BACKLOG 的 M13-9。

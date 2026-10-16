@@ -28,9 +28,10 @@ import { applyEvents, pruneMessages } from './core/world-update.js'
 import { dialogueEventsFromFrame } from './core/dialogue-state.js'
 import { occludedBubbles, placeBubble } from './core/bubble-place.js'
 import { createConnection } from './net/connection.js'
-// R57：默认走 PixiJS；`?renderer=canvas` 或 WebGL 起不来时自动用 canvas2D。
-// 门面的接口与原来的 `createScene2d` 一模一样，所以下面一行都不用改。
-import { createScene2dRenderer } from './scene/scene-renderer.js'
+// R58：2D 渲染器 = **Phaser**（唯一实现）。`?renderer=canvas` 映射到 `type: Phaser.CANVAS`；
+// 缺省 `Phaser.AUTO` = WebGL 优先、**canvas 自动回退**（我们自己写的那套回退已删）。
+// 接口与以前逐个同名同参，所以下面一行都不用改。
+import { createScenePhaser, requestedRenderer } from './scene/scene-phaser.js'
 import { createTopbar } from './ui/topbar.js'
 import { createRoster } from './ui/roster.js'
 import { createTasks } from './ui/tasks.js'
@@ -46,8 +47,6 @@ const SAY_API = './api/say'
 const RENDER_MIN_GAP_MS = 16
 /** "他在想…"最多挂多少步（宿主挂了的话 `failed` 永远不会来，面板要有自己的兜底）。 */
 const DIALOGUE_SILENT_TICKS = 300
-/** 点角色时的容差（像素）：点在小人旁边一点也算点到他了。 */
-const PICK_SLOP_PX = 16
 
 const $ = (id) => document.getElementById(id)
 const canvas = $('town')
@@ -167,7 +166,12 @@ const tasks = createTasks({
 
 const legend = createLegend({ root: $('legend') })
 
-const scene2d = createScene2dRenderer(canvas, { pickSlopPx: PICK_SLOP_PX })
+const scene2d = createScenePhaser(canvas, {
+  renderer: requestedRenderer(),
+  // 引擎侧的点击入口（`setInteractive` 冒泡上来）——真正"点了谁"仍由 `pick()` 决定，
+  // 两者用同一份精灵几何。这里只透给诊断,不抢 main.js 的处理权。
+  onActorPick: (agentId) => { globalThis.__agentWorldLastActorClick = agentId },
+})
 
 /**
  * 执行看板（M7-1）。**由数据事件驱动**（`board.update(world)`），
@@ -389,12 +393,11 @@ function render(force = false) {
     const st = scene3d.stats()
     perf = `3D · ${st.fps} fps · 绘制 ${st.drawCalls} · 三角 ${(st.triangles / 1000).toFixed(1)}k · 纹理 ${st.textures} · 重建 ${st.planRebuilds}`
   } else {
-    // 2D：报的是**这一帧真正提交了几次绘制**。Pixi 报的是 GL 合批数（40 个精灵应该个位数），
-    // canvas2D 报的是提交次数（它没有批处理）——换引擎的收益就写在这两个数上。
+    // 2D：报 Phaser 用哪个渲染器、这一帧提交了几次 GL 绘制、画了多少个对象。
+    // （绘制次数挂在 Phaser 的 prerender/postrender 钩子上数，不是我们多渲染一遍。）
     const st = scene2d.stats()
-    const name = st.backend === 'pixi' ? 'Pixi' : 'canvas2D'
-    const tail = st.backend === 'canvas2d' && st.fallbackReason !== null ? `（退回：${st.fallbackReason}）` : ''
-    perf = `${name} · 绘制 ${st.drawCalls}${st.batched === true ? '（合批）' : ''} · 精灵 ${st.sprites ?? '-'}${tail}`
+    const name = st.backend === 'canvas' ? 'Phaser(canvas)' : 'Phaser(WebGL)'
+    perf = `${name} · 绘制 ${st.drawCalls}${st.batched === true ? '（合批）' : ''} · 精灵 ${st.sprites ?? '-'}`
   }
   topbar.render({
     world,

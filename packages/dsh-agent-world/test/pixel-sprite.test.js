@@ -1,5 +1,5 @@
 /**
- * 像素精灵的纯逻辑测试（R51 / M12-3）：重上色 + 切图。
+ * 重上色与精灵的纯逻辑测试（R51 / M12-3）：重上色 + 切图。
  *
  * ## 为什么这两块必须有测试
  *
@@ -28,7 +28,6 @@ import {
   recolorPlan,
   rgbToHex,
 } from '../web/core/pixel-recolor.js'
-import { FOUR_DIRECTIONS, directionOf, frameIndex, frameRect, integerZoom, pickAnimation, spriteBox } from '../web/core/pixel-sheet.js'
 
 /** 裸模的真实调色板形状：3 主色 + 4 个各 28 像素的细节色（任务书里核过的）。 */
 const NUDE_PALETTE = [
@@ -162,94 +161,12 @@ test('取像素调色板：透明像素不算，按"像素多→少"排（同票
 
 // ── 切图 ────────────────────────────────────────────────────────────────────
 
-test('facing → 四向：与 `angleTo = atan2(Δz, Δx)` 且 +z 朝屏幕下方一致', () => {
-  assert.equal(directionOf(0), 'right')
-  assert.equal(directionOf(Math.PI / 2), 'down')
-  assert.equal(directionOf(Math.PI), 'left')
-  assert.equal(directionOf(-Math.PI / 2), 'up')
-  // 正好 45° 是**两可**的（左下既可以算左也可以算上）：约定归竖向，且永远同一侧。
-  assert.equal(directionOf(-2.356194490192345), 'up', '真机 agent-1 的 facing = -3π/4（两可）→ 约定竖向')
-  assert.equal(directionOf(Math.PI / 4), 'down', '同一条约定：45° → 竖')
-  assert.equal(directionOf(Math.PI / 4 - 0.01), 'right', '明显偏横 → right')
-  assert.equal(directionOf(Math.PI / 4 + 0.01), 'down', '明显偏竖 → down')
-  // 两可情形的确定性：同一输入必须永远同一输出（浮点最后一位不该决定朝向）
-  assert.equal(directionOf(-3 * Math.PI / 4), directionOf(-2.356194490192345))
-  assert.equal(directionOf(Number.NaN), 'right', '认不出当 0，不炸')
-  assert.deepEqual(FOUR_DIRECTIONS, ['down', 'left', 'right', 'up'])
-})
 
-test('选动画：精确命中 → 无方向 → idle → 图集第一条（顺序确定）', () => {
-  const sheet = {
-    animations: {
-      'walk.down': { col: 0, row: 0, frames: 4, frameMs: 120, layout: 'row', mirror: false },
-      'walk': { col: 0, row: 2, frames: 2, frameMs: 200, layout: 'row', mirror: false },
-      'idle': { col: 0, row: 3, frames: 2, frameMs: 400, layout: 'row', mirror: false },
-    },
-  }
-  assert.equal(pickAnimation(sheet, { state: 'walking', direction: 'down' }).name, 'walk.down')
-  assert.equal(pickAnimation(sheet, { state: 'walking', direction: 'up' }).name, 'walk', '没有 walk.up → 用不分方向的 walk')
-  assert.equal(pickAnimation(sheet, { state: 'idle', direction: 'up' }).name, 'idle')
-  assert.equal(pickAnimation(sheet, { state: 'working', direction: 'left' }).name, 'idle', '干活也是站着')
-  assert.equal(pickAnimation({ animations: {} }, { state: 'walking', direction: 'down' }), null)
-  assert.equal(pickAnimation(null, {}), null)
-  // 只有奇怪的动画名时也要给一个（确定性地取名字排序第一条）
-  const odd = { animations: { 'zzz': { frames: 1 }, 'aaa': { frames: 1 } } }
-  assert.equal(pickAnimation(odd, { state: 'walking', direction: 'down' }).name, 'aaa')
-})
 
-test('帧推进：按 frameMs 走、循环、边界不炸', () => {
-  const anim = { frames: 4, frameMs: 120 }
-  assert.equal(frameIndex(anim, 0), 0)
-  assert.equal(frameIndex(anim, 119), 0)
-  assert.equal(frameIndex(anim, 120), 1)
-  assert.equal(frameIndex(anim, 480), 0, '绕回第一帧')
-  assert.equal(frameIndex(anim, 500), 0)
-  assert.equal(frameIndex({ frames: 1, frameMs: 120 }, 999), 0, '单帧不动')
-  assert.equal(frameIndex({ frames: 4, frameMs: 0 }, 999), 0, '没给帧间隔就不动（除以 0 会出 NaN）')
-  assert.equal(frameIndex(null, 999), 0)
-  assert.equal(frameIndex(anim, Number.NaN), 0)
-})
 
-test('切图：`row` 是**带**号（18×18 格、两条带一格 → 一条带 36px 高）', () => {
-  const sheet = { cellW: 18, cellH: 18, rowsPerFigure: 2, anchor: 'bottom', animations: {} }
-  const anim = { col: 0, row: 1, frames: 3, frameMs: 120, layout: 'row', mirror: false }
-  assert.deepEqual(frameRect(sheet, anim, 0), { sx: 0, sy: 36, sw: 18, sh: 36 })
-  assert.deepEqual(frameRect(sheet, anim, 2), { sx: 36, sy: 36, sw: 18, sh: 36 }, 'row 布局：帧沿 col 走')
-  // 真机图是 126×144：7 列 × 4 条带，正好装得下
-  assert.ok(frameRect(sheet, anim, 6).sx + 18 <= 126)
-  assert.ok(frameRect(sheet, { ...anim, row: 3 }, 0).sy + 36 <= 144)
-})
 
-test('切图：column 布局沿带号走；帧号越界夹住（不画出图外）', () => {
-  const sheet = { cellW: 16, cellH: 16, rowsPerFigure: 1, anchor: 'center', animations: {} }
-  const anim = { col: 2, row: 0, frames: 3, frameMs: 100, layout: 'column', mirror: false }
-  assert.deepEqual(frameRect(sheet, anim, 0), { sx: 32, sy: 0, sw: 16, sh: 16 })
-  assert.deepEqual(frameRect(sheet, anim, 2), { sx: 32, sy: 32, sw: 16, sh: 16 })
-  assert.deepEqual(frameRect(sheet, anim, 99), { sx: 32, sy: 32, sw: 16, sh: 16 }, '越界夹到最后一帧')
-  assert.deepEqual(frameRect(sheet, anim, -3), { sx: 32, sy: 0, sw: 16, sh: 16 }, '负数夹到第一帧')
-})
 
-test('整数缩放：只给整数、至少 1、有上限（小数会让像素大小不一）', () => {
-  // 真机的数：世界 16×16 格 × 16px = 256px，舞台约 740×650，留 6% 边 → 2 倍
-  assert.equal(integerZoom({ viewWidth: 740, viewHeight: 650, worldPixelsW: 256, worldPixelsH: 256, fit: 1.06 }), 2)
-  assert.equal(integerZoom({ viewWidth: 256, viewHeight: 256, worldPixelsW: 256, worldPixelsH: 256 }), 1)
-  assert.equal(integerZoom({ viewWidth: 100, viewHeight: 100, worldPixelsW: 256, worldPixelsH: 256 }), 1, '再小也不为 0')
-  assert.equal(integerZoom({ viewWidth: 1920, viewHeight: 1080, worldPixelsW: 256, worldPixelsH: 256 }), 4)
-  assert.equal(integerZoom({ viewWidth: 99999, viewHeight: 99999, worldPixelsW: 16, worldPixelsH: 16, maxZoom: 6 }), 6, '封顶')
-  for (const zoom of [0.5, 1.5, 2.9]) {
-    assert.equal(Number.isInteger(integerZoom({ viewWidth: 256 * zoom, viewHeight: 256 * zoom, worldPixelsW: 256, worldPixelsH: 256 })), true)
-  }
-})
 
-test('精灵盒：`bottom` 贴地、`center` 居中（人 vs 地砖的区别）', () => {
-  const frame = { sx: 0, sy: 0, sw: 18, sh: 36 }
-  const bottom = spriteBox({ anchor: 'bottom' }, frame, { cx: 100, groundY: 200, scale: 2 })
-  assert.deepEqual(bottom, { x: 100 - 18, y: 200 - 72, w: 36, h: 72 }, '底边中点贴 (cx, groundY)')
-  const center = spriteBox({ anchor: 'center' }, frame, { cx: 100, groundY: 200, scale: 2 })
-  assert.deepEqual(center, { x: 100 - 18, y: 200 - 36, w: 36, h: 72 }, '图心对准格心')
-  // 锚点缺省按 bottom（人物/家具是多数）
-  assert.deepEqual(spriteBox({}, frame, { cx: 0, groundY: 100, scale: 1 }), { x: -9, y: 64, w: 18, h: 36 })
-})
 
 test('撞色兜底：variant 0 完全不动原配色，正数才错开色相（稳定、可区分）', () => {
   const base = '#38BDF8'

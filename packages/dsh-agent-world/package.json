@@ -1,6 +1,7 @@
 {
   "name": "dsh-agent-world",
   "version": "0.1.0",
+  "private": true,
   "description": "DSH 插件：把多智能体协作搬进一座可视化 3D 小镇——每个真实 subagent 是一个会走动的角色，每件任务是一张可被拾取的工单，每次调度是一次空间上的移动与协作。",
   "license": "MIT",
   "type": "module",

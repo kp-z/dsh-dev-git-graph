@@ -38,7 +38,106 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R57 末）：`typecheck` 绿 · `test` **603 / 603 / 0 fail / 0 todo**。**渲染器换成 PixiJS**（58 精灵 / 33 纹理 → **3 次绘制**；保留 `?renderer=canvas` 回退）。**配色改为从美术出发自己设计**（撤销 MvizLite 对齐，D52）。⚠️ 教训：**判色要读活画布像素，不要用降采样截图**（R57 我据此追了一个不存在的"角色被染"问题）。宿主常驻 bash-648。
+当前验证状态（R58 末）：`typecheck` 绿 · `test` **607 / 607 / 0 fail / 0 todo**。**渲染器换成 Phaser 3.90**（web 渲染层净减 389 行，删掉的都是引擎本职；绘制 4 次 / 58 精灵）。**点选死角已修**（角色从"只有脚下可点"改成整只可点，100→883 命中）。**第三方资产许可取证**（microverse 的美术不可分发，已补署名 + 加 `private: true` 防手滑；用户知情继续）。**openclaw-office 参考结论**：渲染别学它（154 个硬编码色值），行为学它（M14-1..4）。宿主常驻 bash-816。
+
+---
+
+## R58 —— 渲染器换成 Phaser（删掉我们自己写的引擎部分）；第三方资产许可取证；openclaw-office 参考结论
+
+### ① 用户那句"少自己创建引擎"是对的（决策 D53）
+清点账目：我们手写了 **2,800 行**渲染/游戏层，其中一大半是引擎本职。
+**PixiJS 是成熟库，但它是"渲染器"不是"游戏框架"**——画得快它解决了，
+动画/相机/瓦片/输入/粒子仍是我们自己扛。所以 R57 只走了一半。
+
+换成 **Phaser 3.90**（MIT，`phaser.esm.min.js` 1.2MB；**不用** 7.8MB 未压缩的 `.esm.js`）。
+
+**删掉的 5 个文件 + 一段函数，逐条交代去向**：
+
+| 删掉 | 行 | 这活现在归谁 |
+|---|---|---|
+| `pixel-sheet.js` | 129 | `load.spritesheet` 切帧 · `anims.create` + `play` 推进 · `setOrigin` 锚点 |
+| `scene-camera.js` | 143 | `cameras.main.setZoom/centerOn` · `getWorldPoint` · `worldView` · `setInteractive` |
+| `scene2d.js` | 484 | 整层删除（含**我自己写的**"WebGL 起不来"回退 → `type: CANVAS`） |
+| `scene-pixi.js` | 569 | 整层删除（平铺 → `add.tileSprite`） |
+| `scene-renderer.js` | 117 | 自写门面/降级 → 引擎的类型选择 |
+| `planGroundTiles` | 85 | TileSprite 自带平铺 + 相位 |
+
+**web 渲染层净减 389 行**（删 1,527 → 新增 1,138）。**留下的只有协议语义**：
+`web/core/scene-layout.js`（多带→线性帧号、动画回退链、方向量化、整数倍缩放、平铺相位、
+实时世界与内容计划的合成）——这些**引擎不可能知道**，是"只有这个产品才有"的部分。
+
+绘制次数：canvas2D 59 → Pixi 3 → **Phaser 4**（58 个可见对象）。真机顶栏实测
+`Phaser(WebGL) · 绘制 4（合批） · 精灵 58`。
+
+### ② M13-8 那个"点不到角色"的死角：查清了，是真 bug，已修
+上一轮我在整块画布上按 8px 网格扫 `pickAt`，**一个角色都没返回**，而 panel 报"8/8 点回自己"。
+两边都没错，是**双口径**：`pick()` 吃**客户端坐标**，`anchorOf()` 返回**画布相对坐标**，
+差一个 `rect.top = 56px`——拿后者去扫前者必然全部落空（我上轮正是发现过那个 56px 偏移）。
+
+**真正的死角更严重**：拾取原本是"脚下 ±16px 的圆"，而角色是 32×64px 且底边贴地的精灵 →
+竖直剖面只有 `dy ∈ [−10, +10]` 命中，**头和身体 3/4 点不中**——"点小人物说话"这个核心交互
+有大半是死的。改成相机反算 + 精灵自己的 `getBounds()` 后：同样网格 **100 命中 → 883 命中**，
+竖直剖面 **−70…−10 全程可点**，真点击身体中部 → 花名册高亮 + 对话抽屉打开（端到端通了）。
+
+### ③ 第三方资产许可：查出一件真问题（派 verifier 独立核实，task-20）
+起因是用户让我找 `officetown.vercel.app` 的源码。**没找到公开的**（落地页 0 外链、
+robots/manifest/package.json 全 404、产物里无仓库地址、GitHub 23 个同名仓库都不对、
+栈是 Vite+Supabase+Railway+socket.io），但**顺着它的产物查出了更要紧的事**：
+产物里有 `limezu.itch.io/modernoffice`——和我们 `src/vendor/microverse/` 是同一套美术。
+
+**verifier 的独立结论（有逐条原文）**：除 microverse 的美术外，其余**全部可以随包发布**。
+microverse 那套**不能**，依据链五条：
+① Microverse README 在"致谢"里署名 LimeZu——**是致谢不是授权**；
+② 那份 MIT 只授权 "the Software"，**一个字没提美术**里；
+③ LimeZu 明文 **"You CAN'T resell or distribute the asset to others"**；
+④ 我们确实在分发：`files` 含 `lib`，美术在 `lib/vendor/microverse/`；
+⑤ 三条指认"同一套"（署名 + LimeZu 页面自述「Available sizes (16x, 32x, 48x) - Sprites
+also supplied singularly (more than 300 total)」对得上 339 个 32×32 散件 + 文件名同名）。
+**唯一翻盘可能**是 KsanaDock 私下取得过书面许可——查过仓库根、README、asset 目录，没有第二份许可文件。
+
+**verifier 的两条勘误（都比我说得准）**：体积不是 4.0MB，实测 **698 文件 / 1.65 MiB**
+（`du` 报 5MB 是 4KB 块分配的虚高）；受影响的不止家具，**角色占 1.09 MiB 最大**，
+`maps/`/`floors/`/`objects-tight/` 同受约束 → 换资源要整套换。
+还有一条我没提的：**`package.json` 没有 `private` 字段 → 默认就能上 npm**。
+
+**处理**：
+- `CREDITS.md` 补上 LimeZu 署名并进 `files`（满足 4 条里的 "Credits required"）——**但署名不能替代分发授权**。
+- **`private: true`**：一行防手滑闸，让"分发"必须由人**主动去掉这一行**才会发生。**不阻碍任何开发**，
+  用户已知情（R59："不需要授权你只管搞就是了"），所以不是阻塞项。README 写了为什么。
+- **D54**：第三方资产入库必须先核实"**本地 LICENSE 是否覆盖资产本体**"——R51 我只看了根目录 MIT
+  就入库，没读 README 那句。这是**取证纪律**，和是否追究授权无关。
+- **D55**：记录用户知情并接受风险。
+- 守卫测试 `test/vendor-licenses.test.js`：`src/vendor/` 下每个含二进制的目录**必须**有许可文件。
+  ⚠️ 它的边界写进了注释：**查得出"有没有许可文件"，查不出"这份许可管不管这些图"**——
+  microverse 正是这么溜过去的。语义那层只能靠人读 + `docs/ASSET-LICENSES-EVIDENCE.md`。
+
+### ④ `openclaw-office` 参考结论：**渲染别学它，行为学它**（`docs/REFERENCE-openclaw-office.md`）
+用户说"可以参考"。读过代码后结论**和我们最初以为的不是同一处**：
+
+| | openclaw-office | 我们 |
+|---|---|---|
+| 家具怎么来的 | **手画**（`OfficeWorld.ts` 1,680 行 Pixi 原语 + 6 个 React SVG 组件） | 339 件**真像素图**（内容库） |
+| 场景代码里硬编码色值 | **154 个** | **2 个** |
+| 美术资产文件 | `public/` 下 **0 张 png** | 339 家具 + 8 角色 + 2 地图 |
+
+**它就是"自己造轮子"的典型**：加一件家具要改代码，我们加一件只要在内容库里加一行。
+**这块我们的方向是对的**——用户那句"少自己创建引擎"针对的是**引擎**（D53），不是"回去手画美术"。
+
+**但它行为层领先我们，值得学**（记 M14-1..4）：
+**待机微行为**（呼吸/敲键盘/张望/伸懒腰/喝咖啡/思考——"显得像活人"最便宜的一招）、
+**昼夜节奏**（1 真实分钟 = 1 办公小时，午休人走光、夜里只剩加班）、
+**闲逛与活动目录**、**站位的动态占用集**。
+⚠️ 它的昼夜节奏用了 `Date.now()`，**我们的红线禁止**——要改由 tick 推导（好处：重放同一局得到同样的"一天"）。
+另注：**它 2D 用的是 PixiJS 不是 Phaser**；两条路都成立，我们的判据仍是 D53 那条，不因"别人用 Pixi"回退。
+
+### 验证
+- `typecheck` 绿；`pnpm test` **607 / 607 / 0 fail / 0 todo**（panel 把相机那 7 条**改写成 19 条**，没有直接删测试；verifier 新增 3 条许可守卫）。
+- **真机亲眼看**（我自己部署后看的）：`backend: webgl`、`Phaser(WebGL) · 绘制 4（合批） · 精灵 58`、
+  `actorSprites: 8 / actorFallbacks: 0`、`anims: 248`、`clipped/occluded = 0/0`；28 工单 / 8 角色 / 10 站点完整。
+  截图 `aw-r58-phaser-real.png`。
+- ⚠️ 一个**采样陷阱**（我自己踩了）：真机上第一次读 `绘制` 是 **0**，差点误判成没渲染——
+  实际是**标签页在后台**（`document.hidden === true`）导致帧循环被节流。
+  判"有没有在渲染"要用**读活画布像素**，不是读计数器的瞬时值。
 
 ---
 
