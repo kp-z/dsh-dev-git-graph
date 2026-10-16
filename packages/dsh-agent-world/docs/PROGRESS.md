@@ -38,7 +38,7 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R68 末）：`typecheck` 绿 · `test` **619 / 619 / 0 fail / 0 todo**。**待命的人动起来了**（行为目录 look/pace/rest 全在内容里；确定性靠 `(seed,id,tick)` 纯函数，零新增 World 字段）——真机采样"动过的待命角色" **2/8 → 8/8**，朝向在变、出现 `sleeping`。**卡死的单可见了**（真机 3 张单的前置是 failed → 新状态「卡死」+ 详情写明哪张前置失败与出路；世界的 status 一个字没改）。宿主常驻 bash-1618。下一轮：M17-1（动作带上屏）、M16-1/M16-2。
+当前验证状态（R69 末）：`typecheck` 绿 · `test` **624 / 624 / 0 fail / 0 todo**。**踱步播走路的带了**：根因是 `pacing` 推着人走却没设 `state=walking`（真机连采 6 次从未出现 walking）；判据用 `targetStation` 分"派工走路 vs 待命踱步"。真机（重启后）纯待命的人里已出现 walking ✓。**并纠正 R68 的一条错误结论**：`rest` 的 `sit` 带本来就能上屏，坏的只有踱步。宿主常驻 bash-1661。下一轮：M16-1（删 4M 死重量）、`walking` 语义歧义（见 M18-1）。
 
 ---
 
@@ -5025,9 +5025,10 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 - 红线扫描：`src/sim|domain|content` 无 `Date.now()`/`Math.random()` 实调用。
 
 ### 没验 / 已记 BACKLOG
-- **踱步与休息的"动画带"上不了屏**（M17-1）：渲染器 `bandOfState` 取权重最大的带，
-  而 `SceneActor` 没有"本 tick 的动作"字段 → 待命角色永远播站立/转身。
-  位置与朝向的变化照常可见，但"走"和"坐"两个**带**看不出来。要按角色覆盖带需 `web/` + 协议加字段。
+- ~~**踱步与休息的"动画带"上不了屏**~~ —— **这条结论是错的，R69 已改正**：
+  `rest`（`sleeping → sit`）**本来就能上屏**（活画布拍到 `sit-left`）；
+  真正坏的只有**踱步**一条：`pacing` 推着人走却没设 `state='walking'` → 播 `idle` 带、人在滑。
+  R69 修好了（判据用 `targetStation` 分主人），真机已验。
 - `rest` 复用 `sleeping`（唯一带 `sit` 带的状态），靠"有 `ready` 工单就立刻叫起来"避免卡派工。
 - `stalled` 非空时的真实显示没验（此刻真机 `stalled` 是 `[]`）。
 ---
