@@ -83,13 +83,19 @@ test('ScenePlan：station 的外观走 modelId，**代码里不写"桌子长什�
   const content = new ContentRegistry()
   content.loadAll(builtinPacks())
   const port = portOf(content)
-  const plan = buildScenePlan(makeWorld(), port.colors(), null)
+  // 第 4 个参数是"模型 id → 渲染就绪描述"的解析器；**不传就建不出模型表**，
+  // 而"部件能不能解析到图"正是这条测试要守的东西（R54 补）。
+  const plan = buildScenePlan(makeWorld(), port.colors(), null, (id) => port.modelOf(id))
 
   const desk = plan.props.find((p) => p.kind === 'desk')
   assert.ok(desk)
   assert.ok(desk.parts.length > 0, '站点至少有一个部件')
-  assert.match(desk.parts[0].modelId, /^model\.station\.desk$/, '渲染器靠它去模型库里取，所以约定要稳')
-  assert.ok(plan.props.find((p) => p.kind === 'lab')?.parts[0]?.modelId?.includes('station.lab'))
+  // **不断言具体模型 id**：那是内容选择（R16 起就在内容里），会随资产包变
+  //（Kenney 的 GLB → Microverse 的像素图，R54 刚换过一次）。
+  // 要守的约定是"渲染器能靠 `parts[].modelId` 在模型表里取到图"——查不到就是品红方块。
+  const ids = new Set(plan.models.map((m) => m.id))
+  for (const part of desk.parts) assert.ok(ids.has(part.modelId), `部件 ${part.modelId} 不在模型表里`)
+  assert.ok(plan.props.find((p) => p.kind === 'lab').parts.length > 0, '实验台也要有部件')
 })
 
 test('ScenePlan：occupied 包含"正在过去的人"，不含纯粹路过的人', () => {

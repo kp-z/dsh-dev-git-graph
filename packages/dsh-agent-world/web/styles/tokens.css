@@ -3,17 +3,33 @@
  *
  * 规矩（DESIGN.md 第二节）：所有组件样式只引用这里的变量，**组件层里不许出现十六进制色值**。
  * 场景的配色不在这里：它走内容库 `skins`（D31/D37），由 `ScenePlan` 解析好后交给渲染器。
- * 两条线共用同一套"语气"（深色基底、玻璃、克制的强调色），所以拼起来像一个产品。
  *
- * 分组顺序 = DESIGN.md 的表格顺序，改 token 时对着文档改。
+ * ## R54：基底色**对齐 MvizLite**（决策 D50）
+ *
+ * 用户指出"看着和 mviz lite 的样式差别很大，看看能不能统一一下"。
+ * MvizLite 的 `src/pages/MvizLite/layout/MvizLiteTheme.less` 是那份配色的单一事实来源，
+ * 它写明了三层底：
+ *
+ * | 用途 | MvizLite | 这里的 token |
+ * |---|---|---|
+ * | 页面/整体背景 | `#1e2130` | `--bg-0` |
+ * | 标题栏 | `#252a31` | `--bg-1` |
+ * | 卡片 / 3D 画布底色 | `#2f343c` | `--glass` 的基色 |
+ *
+ * 改之前这里的底是 `#0b0d12`——**比对方暗了一大截**，两块界面并排看就是"两个产品"。
+ * 现在底色直接取对方的值；强调色也换成对方的 `#5B91F4`。
+ *
+ * 内容库的 `skins` 里那几个色（地面/角色/强调）同样对齐了 MvizLite（见 `packs/default.ts`）。
+ * 两条线取同一组色，拼起来才像一个产品——这正是 D50 那句话。
  */
 
 :root {
   /* ── 基底与玻璃 ─────────────────────────────────────────────────────────── */
-  --bg-0: #0b0d12; /* 最底层背景 */
-  --bg-1: #11141b; /* 场景外的工作区底色 */
-  --glass: rgba(22, 26, 36, 0.72);
-  --glass-strong: rgba(26, 31, 43, 0.88);
+  --bg-0: #1e2130; /* 最底层背景（= MvizLite 页面背景） */
+  --bg-1: #252a31; /* 场景外的工作区底色（= MvizLite 标题栏） */
+  /* 玻璃基色取 MvizLite 的卡片底色 `#2f343c`，再压一点透明度做玻璃。 */
+  --glass: rgba(47, 52, 60, 0.78);
+  --glass-strong: rgba(47, 52, 60, 0.92);
   --stroke: rgba(255, 255, 255, 0.08);
   --stroke-strong: rgba(255, 255, 255, 0.14);
   --blur: blur(16px) saturate(140%);
@@ -28,20 +44,20 @@
   --fg-2: #6b7489;
 
   /* ── 强调 ───────────────────────────────────────────────────────────────── */
-  --accent: #7c8cff;
-  --accent-soft: rgba(124, 140, 255, 0.16);
+  --accent: #5b91f4; /* = MvizLite 的主强调色 */
+  --accent-soft: rgba(91, 145, 244, 0.16);
 
   /* ── 状态（与 TaskStatus 一一对应；看板、工单、花名册共用）─────────────── */
-  --st-done: #4ade80;
-  --st-done-bg: rgba(74, 222, 128, 0.14);
-  --st-in_progress: #60a5fa;
-  --st-in_progress-bg: rgba(96, 165, 250, 0.14);
-  --st-ready: #fbbf24;
-  --st-ready-bg: rgba(251, 191, 36, 0.14);
-  --st-blocked: #f87171;
-  --st-blocked-bg: rgba(248, 113, 113, 0.1);
-  --st-failed: #f87171;
-  --st-failed-bg: rgba(248, 113, 113, 0.16);
+  --st-done: #52c41a;
+  --st-done-bg: rgba(82, 196, 26, 0.14);
+  --st-in_progress: #5b91f4;
+  --st-in_progress-bg: rgba(91, 145, 244, 0.14);
+  --st-ready: #ffd602;
+  --st-ready-bg: rgba(255, 214, 2, 0.14);
+  --st-blocked: #ff7875;
+  --st-blocked-bg: rgba(255, 120, 117, 0.1);
+  --st-failed: #ff4d4f;
+  --st-failed-bg: rgba(255, 77, 79, 0.16);
   --st-pending: #8b93a7;
   --st-pending-bg: rgba(139, 147, 167, 0.12);
 

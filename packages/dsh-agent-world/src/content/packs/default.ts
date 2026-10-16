@@ -81,23 +81,39 @@ export const defaultPack: ContentPack = {
         // 纪律是**色相表意、明度分轻重**（与看板那组同一条），并且地块明度一律高于背景——
         // 地块要像"台面"，而不是像"背景上的污渍"（旧值 #6F7D5A 之类正是后者）。
         colors: {
-          // 环境（大面积，低饱和，给 3D 的天光/雾/描边用）
+          // ── 配色以 **MvizLite 的主题**为准（R54，决策 D50）────────────────────
+          //
+          // 用户指出"和 mviz lite 的渲染颜色差别很大，要统一"。MvizLite 的
+          // `src/pages/MvizLite/layout/MvizLiteTheme.less` 是那份配色的**单一事实来源**，
+          // 里面写明了三层底：
+          //   页面背景 `#1e2130` · 卡片/3D 画布底色 `#2f343c` · 标题栏 `#252a31`
+          // 它的强调色（用得多、且有语义）是：`#5B91F4` 蓝 / `#5DC5AD` 青 / `#F36600` 橙 /
+          // `#FFD602` 黄 / `#A680FF` 紫 / `#52C41A` 绿 / `#6CDCE7` 亮青 / `#FF7875` 珊瑚。
+          //
+          // 下面每个值都从那一组里取，**不再自己发明颜色**。
           'paper': '#8FA3C8',
-          'ground': '#1A2030',
-          'wall': '#2A3348',
+          // 直接对齐 MvizLite 的页面背景（原来是 `#1A2030`，差一点点但确实不一样）。
+          'ground': '#1E2130',
+          // 对齐卡片/3D 画布底色。
+          'wall': '#2F343C',
           'wood': '#8A6A4A',
           'moss': '#5F8F6A',
           'teal': '#3FB8A8',
           'ink': '#0B0D12',
           'fog': '#0E131E',
 
-          // 地块地面：四个分区四个**色相**（青 / 靛 / 紫 / 暖橙），明度都比 ink 高一档。
-          // 旧版靠明度区分而非色相，结果四块地看起来是同一块脏土；色相分开之后
-          // "他走去机房了"这件事在俯视图上一眼就能看出来。
-          'ground.engineering': '#1E3A4A',
-          'ground.infra': '#232E52',
-          'ground.meeting': '#38294F',
-          'ground.commons': '#44341F',
+          // 地块地面：**以 MvizLite 的卡片底色 `#2f343c` 为基准，往各自强调色的色相偏一点**。
+          //
+          // 为什么不直接拿四个强调色当地面：那四色是**前景色**（图标/描边/文字），
+          // 铺满一块地会把画面压死。而纯用 `#2f343c` 四块地又长得一样——
+          // R47 的 3D 评估就吃过这个亏（"四个区几乎全黑、分不出哪是哪"）。
+          // 所以取中间：**低饱和、但色相分得开**，且全部落在 MvizLite 的冷灰蓝基调里。
+          //   engineering ← 蓝 `#5B91F4` · infra ← 亮青 `#6CDCE7`
+          //   meeting     ← 紫 `#A680FF` · commons ← 橙 `#F36600`
+          'ground.engineering': '#333A48',
+          'ground.infra': '#2F3A3C',
+          'ground.meeting': '#363040',
+          'ground.commons': '#3C342C',
 
           // 消息纸条（M2.5-2 让纸条真的会出现）。手头这张纸上最重要的一件事是
           // **一眼分清"交接"还是"汇报"**，所以两类给冷暖对比鲜明的两色。
@@ -110,24 +126,24 @@ export const defaultPack: ContentPack = {
           'message.dispatch': '#E0C3FC',
 
           // 分区强调色：与上面的地面色同色相、高明度——地块边缘的灯带。
-          'accent.engineering': '#38BDF8',
-          'accent.infra': '#818CF8',
-          'accent.meeting': '#C084FC',
-          'accent.commons': '#FB923C',
+          'accent.engineering': '#5B91F4',
+          'accent.infra': '#6CDCE7',
+          'accent.meeting': '#A680FF',
+          'accent.commons': '#F36600',
 
           // 角色职业色：高饱和、高明度。它们是画面里最小、最需要被看见的东西，
           // 所以是整张调色板里唯一允许"亮"的一组；彼此色相拉开，同屏八个人不撞色。
-          'role.lead': '#FBBF24',
-          'role.engineer': '#38BDF8',
+          'role.lead': '#FFD602',
+          'role.engineer': '#5B91F4',
           // R51：**三个工程师席位需要三种颜色**。原来它们共用 `role.engineer`，
           // 于是 8 个角色只有 6 种颜色——2D 渲染里三个人长得一模一样（panel 数出来的：
           // agent-2/3/4 全是 #38BDF8）。同族拉开色相，保证"一眼能认出谁是谁"而不打乱蓝色=工程师这条语义。
-          'role.engineer.2': '#6366F1',
-          'role.engineer.3': '#22D3EE',
-          'role.reviewer': '#C084FC',
-          'role.researcher': '#2DD4BF',
-          'role.ops': '#FB7185',
-          'role.docs': '#4ADE80',
+          'role.engineer.2': '#6FB6FE',
+          'role.engineer.3': '#40A9FF',
+          'role.reviewer': '#A680FF',
+          'role.researcher': '#5DC5AD',
+          'role.ops': '#F36600',
+          'role.docs': '#52C41A',
 
           // 站点色：比所在地块再亮一档的中间调，像台面上的设备，不抢角色的戏。
           'station.desk': '#5B7A99',

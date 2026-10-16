@@ -97,9 +97,13 @@ test('R48 形状：存档里的站点没有 parts → 读档后 parts/slots 来�
     assert.deepEqual(got, freshStation, `${freshStation.id} 的派生量与新建世界不一致`)
   }
 
-  // 工位是组合件（R48 的观感判据：5~6 件），不是单件。
+  // 工位是**组合件**（R48 的观感判据），不是单件。
+  //
+  // ⚠️ 不写"≥5 件"：那是某一次内容选择的数字。R54 把家具从 Kenney 的 GLB 换成
+  // Microverse 的像素图之后，工位变成 3 件（整套工位 + 椅子 + 盆栽）——
+  // 数量变了，但"它是一组拼出来的东西"这个**不变式**没变。
   const deskA = world.stations.find((s) => s.id === 'station.desk-a')
-  assert.ok(deskA.parts.length >= 5, `工位 A 应当是组合件，实际 ${deskA.parts.length} 件`)
+  assert.ok(deskA.parts.length > 1, `工位 A 应当是组合件（不止一件），实际 ${deskA.parts.length} 件`)
   assert.ok(
     changes.some((c) => c.includes('站点派生量')),
     `changes 要说清站点被重算了：${JSON.stringify(changes)}`,
@@ -147,7 +151,7 @@ test('内容才是权威：换成另一个包（工位 2 件）后，读档按**
   assert.equal(deskA.parts.length, 2, `读档应当按当前内容重算，实际 ${JSON.stringify(deskA.parts)}`)
   assert.equal(deskA.parts[1].dz, -0.2, '部件的偏移也应当来自当前内容')
   // 其余站点不受这个包影响，仍是内置的组合件。
-  assert.ok(world.stations.find((s) => s.id === 'station.desk-b').parts.length >= 5)
+  assert.ok(world.stations.find((s) => s.id === 'station.desk-b').parts.length > 1)
 })
 
 test('R47 形状 · 落点重算：全是旧的栅格点 → 全部避开家具，且与新建世界一致', () => {
