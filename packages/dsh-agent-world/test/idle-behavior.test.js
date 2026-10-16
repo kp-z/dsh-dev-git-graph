@@ -1,5 +1,5 @@
 /**
- * 待命行为（R68）：让"没活干的人"自己找点事做。
+ * 待命行为（R68 / R69）：让"没活干的人"自己找点事做，而且**看得出来在走**。
  *
  * ## 这份测试在防什么
  *
@@ -24,6 +24,8 @@ import { createWorld } from '../lib/world/create.js'
 import { createPluginState } from '../lib/state.js'
 import { resolveConfig } from '../lib/config.js'
 import { step } from '../lib/sim/step.js'
+import { advanceIdle } from '../lib/sim/idle.js'
+import { advanceMovement } from '../lib/sim/movement.js'
 import {
   quarterFacing,
   quarterOf,
@@ -34,7 +36,7 @@ import {
 } from '../lib/sim/idle-behavior.js'
 // 跨层对照：渲染器把朝向量化成四方向的**那一份实现**。
 // `sim/` 按边界规则不许 import `web/`，所以只能各写一份，用这条测试把两份钉在一起。
-import { directionOf } from '../web/core/scene-layout.js'
+import { bandOfState, directionOf } from '../web/core/scene-layout.js'
 
 /** 造一个世界（与 `test/sim.test.js` 的造法一致：不经 store，不写盘）。 */
 function makeWorld({ taskSets = ['task.quick-fix'], name = 'idle-seed' } = {}) {
@@ -47,6 +49,13 @@ function makeWorld({ taskSets = ['task.quick-fix'], name = 'idle-seed' } = {}) {
     createdAt: '2026-01-01T00:00:00.000Z',
     taskSets,
   })
+}
+
+/** 取内容库里**带 band 的整套动作**（渲染器 `bandOfState` 吃的那种形状）。 */
+function actionsFromContent() {
+  const content = new ContentRegistry()
+  content.loadAll(builtinPacks())
+  return content.list('actions').map((entry) => entry.data)
 }
 
 /** 从**内容库**里取出待命行为目录（与 runtime 注入给 `step()` 的是同一条路）。 */
@@ -273,4 +282,88 @@ test('槽长取目录里最长的 maxTicks（换内容就换节奏，代码里�
   const longest = Math.max(...behaviors.map((behavior) => behavior.ticksMax))
   assert.equal(slotTicks(behaviors), longest)
   assert.equal(slotTicks([]), 1, '空目录也要给一个正的槽长，不能是 0（否则除零）')
+})
+
+// ── R69：状态要跟着"有没有在挪"走（否则人在滑动、播的是站立的带）──────────────
+
+test('R69 踱步期间状态是 walking（这是渲染器播走路带的唯一依据）', () => {
+  // 只放一条 pace：这样"他此刻该踱步"不靠运气，槽位相位只影响什么时候开始。
+  const paceOnly = [
+    { id: 'action.idle.pace', kind: 'pace', weight: 1, ticksMin: 60, ticksMax: 120, radius: 0.9 },
+  ]
+  const world = makeWorld({ name: 'pacing-walking' })
+  const agent = world.agents[0]
+  assert.ok(agent !== undefined && agent.hangout !== null)
+  agent.position = { x: agent.hangout.x, z: agent.hangout.z }
+  agent.path = []
+
+  let walkingTicks = 0
+  let movedWhileWalking = 0
+  let last = { x: agent.position.x, z: agent.position.z }
+  for (let i = 0; i < 300; i += 1) {
+    step(world, [], { idleBehaviors: paceOnly })
+    if (agent.state === 'walking') {
+      walkingTicks += 1
+      if (Math.hypot(agent.position.x - last.x, agent.position.z - last.z) > 1e-9) movedWhileWalking += 1
+    }
+    last = { x: agent.position.x, z: agent.position.z }
+  }
+  assert.ok(
+    walkingTicks > 0,
+    '300 tick 里一次 walking 都没出现 —— 真机症状就是这样：人在滑动、播的却是站立的带（R69）',
+  )
+  assert.ok(movedWhileWalking > 0, 'walking 的那几 tick 里位置也得真的在变（否则是"站着声称在走"）')
+  assert.ok(walkingTicks < 300, `不该整段都在走路（${walkingTicks}/300）——他到位之后要停下来`)
+})
+
+test('R69 movement 不认领没有目标工位的走路（那是待命踱步，不是坏数据）', () => {
+  const world = makeWorld({ name: 'movement-skip' })
+  const agent = world.agents[0]
+  assert.ok(agent !== undefined)
+  agent.state = 'walking'
+  agent.targetStation = null
+  agent.path = []
+
+  const out = advanceMovement(world)
+  assert.deepEqual(out.repaired, [], '没有目标工位的走路不该被 movement"修好"')
+  assert.equal(agent.state, 'walking', '它属于待命流程，该留给 idle 段推进')
+})
+
+test('R69 movement 仍然修"目标站点不存在"的走路（守卫换了主人，但没有消失）', () => {
+  const world = makeWorld({ name: 'movement-repair' })
+  const agent = world.agents[0]
+  assert.ok(agent !== undefined)
+  agent.state = 'walking'
+  agent.targetStation = 'station.这个站点不存在'
+  agent.path = []
+
+  const out = advanceMovement(world)
+  assert.deepEqual(out.repaired, [agent.id], '目标站点不存在是真坏数据，必须修')
+  assert.equal(agent.state, 'idle')
+  assert.equal(agent.targetStation, null)
+})
+
+test('R69 自称走路却连歇脚点都没有的人，由 idle 段收成 idle（原守卫搬家，别留静默卡死）', () => {
+  const world = makeWorld({ name: 'stray-walking' })
+  const agent = world.agents[0]
+  assert.ok(agent !== undefined)
+  agent.state = 'walking'
+  agent.targetStation = null
+  agent.path = []
+  agent.hangout = null
+
+  const out = advanceIdle(world, [])
+  assert.ok(out.repaired.includes(agent.id), '没人推得动的 walking 必须被收掉并报出来')
+  assert.equal(agent.state, 'idle')
+})
+
+test('R69 带映射：sit / walk / idle 三条都上得了屏（bandOfState 取权重最大的那条）', () => {
+  const actions = actionsFromContent()
+  // `walking → walk`：踱步与派工走路共用这一条（所以 R69 那一行才值钱）。
+  assert.equal(bandOfState(actions, 'walking'), 'walk')
+  // `sleeping → sit`：这就是 `rest` 的"坐"。R68 我一度报"坐看不出来"，**那条是错的**——
+  // 它靠状态切换 `idle → sleeping` 换了带，本来就能上屏（这条断言把结论钉住）。
+  assert.equal(bandOfState(actions, 'sleeping'), 'sit')
+  // `idle → idle`：待命里权重最大的那条必须带 idle，否则全体待命表现会被换掉。
+  assert.equal(bandOfState(actions, 'idle'), 'idle')
 })

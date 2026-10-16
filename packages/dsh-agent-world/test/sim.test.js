@@ -285,15 +285,25 @@ test('移动：位置精确落在座位上（不能差一点点，否则渲染�
   assert.deepEqual(agent.position, target)
 })
 
-test('移动：自称 walking 却没有目标 → 就地修好并报出来（不留静默卡死）', () => {
+test('移动：没有目标工位的 walking **不归 movement 管**（R69 起它是待命踱步）', () => {
+  // 语义变了，说清楚改在哪：
+  //   R69 之前 —— `walking` 只有"派工走路"一种，所以"没有目标工位"必然**是坏数据**，就地修成 idle。
+  //   R69 之后 —— 待命踱步也走 `walking`（否则渲染器播站立的带，人却在地板上滑），
+  //                而踱步**没有目标工位**（不许占工位）。判据于是分成两个主人：
+  //                `targetStation !== null` = 派工流程（movement 推）；`=== null` = 待命流程（idle.ts 推）。
+  //
+  // **"坏数据"那条保护没有消失**，只是换了主人：由 `advanceIdle` 收尾
+  //（连歇脚点都没有、谁都推不动的那种 → 收成 idle 并报出来，见 `test/idle-behavior.test.js`）。
+  // 换主人的理由：只有 idle 段知道"没有目标工位的走路"该往哪走，movement 不知道。
   const world = makeWorld()
   const agent = world.agents[0]
   agent.state = 'walking'
   agent.targetStation = null
+  agent.path = []
 
   const outcome = advanceMovement(world)
-  assert.deepEqual(outcome.repaired, [agent.id])
-  assert.equal(agent.state, 'idle', '不修的话他会永远卡在"走路"上不动')
+  assert.deepEqual(outcome.repaired, [], '待命踱步不是坏数据，movement 不该认领它')
+  assert.equal(agent.state, 'walking', '留给 idle 段推进')
 })
 
 test('移动：目标站点不存在也要修好', () => {

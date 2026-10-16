@@ -272,10 +272,16 @@ test('事件：stalled 是诊断信息，**不发事件**（否则没空闲角�
 })
 
 test('事件：状态矛盾被修好时要报出来（不留静默）', () => {
+  // ⚠️ R69 改了这个场景的**构造**，因为"矛盾"的定义变了：
+  //   · `walking` + 没有目标工位 + **有歇脚点** → 现在是**合法的待命踱步**（idle.ts 推着他走）；
+  //   · `walking` + 没有目标工位 + **没有歇脚点** → 谁都推不动他，才是真矛盾
+  //     （原来这条由 movement 收，现在由 idle 段收，理由见 `movement.ts` 的两个主人表）。
+  // 断言本身一个字没改：**修好了就必须报出来**。
   const world = makeWorld()
   const agent = world.agents[0]
   agent.state = 'walking'
   agent.targetStation = null
+  agent.hangout = null
 
   const result = step(world)
   const repaired = result.events.find(

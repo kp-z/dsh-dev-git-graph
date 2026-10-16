@@ -95,16 +95,20 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
     push('agent.state', { id: arrival.agentId, ...agentPatch(world, arrival.agentId) })
   }
 
-  // 3.5) 待命行为：坐下 / 站起来（R68）。
+  // 3.5) 待命行为：状态转换（坐下 / 站起来 / 开始踱步 / 踱步停下）（R68 / R69）。
   //
   // 状态是**离散量**，而第 6 段那条帧事件带的是 `[id, x, z, facing]`——不带 `state`。
-  // 所以"他坐下了"必须在这里单独说一句，否则只收增量的客户端会一直显示他站着，
+  // 所以每一次状态转换都必须在这里单独说一句，否则只收增量的客户端会一直显示他上一个状态，
   // 而两边的世界看起来都"正常"（`world-update.test.js` 的往返比对就是抓这个的）。
-  for (const id of outcomes.idle.satDown) {
-    push('agent.state', { id, ...agentPatch(world, id), reason: 'idle-rest' })
+  //
+  // R69 让这条更重要了：踱步现在会让状态在 `idle ↔ walking` 之间来回切，
+  // 而"切了 walking"就是要让渲染器换到走路的带——**这条事件断了，真机上就还是站着滑**。
+  for (const id of outcomes.idle.stateChanged) {
+    push('agent.state', { id, ...agentPatch(world, id), reason: 'idle' })
   }
-  for (const id of outcomes.idle.stoodUp) {
-    push('agent.state', { id, ...agentPatch(world, id), reason: 'idle-stand' })
+  // 自称在走路却连歇脚点都没有的人，由 idle 段收成 idle（原 movement 那条守卫，R69 换了主人）。
+  for (const id of outcomes.idle.repaired) {
+    push('agent.state', { id, ...agentPatch(world, id), reason: 'repaired' })
   }
 
   // 4) 干活：里程碑 + 完工

@@ -56,6 +56,16 @@ export interface IdleSlot {
   readonly behavior: IdleBehaviorPlan
   /** 他**正在做**这件事；`false` = 本槽已做完，此刻在发呆。 */
   readonly active: boolean
+  /** 本槽这一次"做事"总共持续多少 tick（内容在 `ticksMin..ticksMax` 里抽的值）。 */
+  readonly span: number
+  /**
+   * 已经做了多少 tick（`0 .. span-1`，只在 `active` 时有意义）。
+   *
+   * 为什么要暴露它：**踱步要走一个来回**——出去一半时间、回来一半时间（R69）。
+   * 只给"在不在做"的话，人会在第一个 tick 就冲到终点，然后站着耗完剩下的 90% 时间；
+   * 有了进度就能把整段路分摊到整段窗口里，全程都在走（也就全程都该播走路的带）。
+   */
+  readonly elapsed: number
 }
 
 /** 按权重挑一条；权重全为 0（或非法）时退回第一条——只保证不崩，内容错由校验器挡。 */
@@ -106,7 +116,7 @@ export function idleSlotAt(
   const behavior = pickWeighted(behaviors, rng)
   if (behavior === null) return null
   const span = Math.max(1, Math.round(rng.range(behavior.ticksMin, behavior.ticksMax)))
-  return { index, behavior, active: offset < span }
+  return { index, behavior, active: offset < span, span, elapsed: offset }
 }
 
 /**

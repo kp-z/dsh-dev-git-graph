@@ -50,11 +50,27 @@ export function advanceMovement(world: World): MovementOutcome {
   for (const agent of world.agents) {
     if (agent.state !== 'walking') continue
 
-    const targetId = agent.targetStation
-    const station = targetId === null ? undefined : stations.get(targetId)
+    // ⚠️ **R69：`walking` 有两个主人，判据是 `targetStation`。**
+    //
+    // | 谁写的 | targetStation | 谁推进 |
+    // |---|---|---|
+    // | 调度器派工（`scheduler.ts` claim 时**同时**写 state 与 targetStation） | 有 | 这里 |
+    // | 待命踱步（`idle.ts`，人往歇脚点附近的点挪） | 无 | `idle.ts` |
+    //
+    // 所以"没有目标工位的走路"**不是坏数据**，而是**别人的**。这里要跳过，
+    // 而不是把它"修好"——修了就是"待命的人刚开始踱步就被打回站着"，
+    // 而那正是 R69 要修的症状（人在滑动、却播站立的带）。
+    //
+    // 那"自称走路又没有目标"这类真正的坏数据谁来收？—— `idle.ts`：
+    // 它认领所有 `targetStation === null` 的走路（含连歇脚点都没有、谁都推不动的那种），
+    // 推不动就当场收成 `idle` 报出来。**守卫没消失，只是换了主人**——
+    // 因为只有那个主人知道"没有目标工位的走路"该往哪走。
+    if (agent.targetStation === null) continue
 
-    if (targetId === null || station === undefined) {
-      // 自称在走路却没有（有效的）目标：修好，别让它卡住。
+    const station = stations.get(agent.targetStation)
+
+    if (station === undefined) {
+      // 声明的目标站点不存在（内容改了 / 存档旧了）：修好，别让它卡住。
       agent.targetStation = null
       agent.path = []
       agent.state = 'idle'

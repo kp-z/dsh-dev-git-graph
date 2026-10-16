@@ -44,16 +44,21 @@ export interface IdleOutcome {
    */
   acted: string[]
   /**
-   * 本 tick **坐下去**（`idle → sleeping`）的角色 id。
+   * 本 tick **状态变过**的角色 id（坐下 / 站起来 / 开始踱步 / 踱步停下）。
    *
-   * 状态是**离散量**，帧事件（`world.tick`）里带的是 `[id, x, z, facing]` 四元组，
-   * 没有 `state`——所以状态转换必须单独发 `agent.state`。漏发的表现很难查：
-   * 服务端认为他在坐着、客户端还显示站着，而两边都"看起来正常"
-   *（R68 真的踩到过：`world-update.test.js` 的往返比对把它抓了出来）。
+   * 状态是**离散量**，而 `world.tick` 帧事件带的是 `[id, x, z, facing]`——不带 `state`。
+   * 所以每一次状态转换都必须单独发 `agent.state`，否则只收增量的客户端会显示他上一个状态，
+   * 而两边的世界看起来都"正常"（R68 真的踩到过：`world-update.test.js` 的往返比对抓出来的）。
    */
-  satDown: string[]
-  /** 本 tick **站起来**（`sleeping → idle`）的角色 id。理由同上。 */
-  stoodUp: string[]
+  stateChanged: string[]
+  /**
+   * 本 tick 被**收成 idle** 的"自称在走路、却推不动"的角色 id。
+   *
+   * 这是 movement.ts 原来那条守卫搬过来的：那种角色本来由 movement 修，
+   * 但 R69 起 movement 只认领**有目标工位**的走路（见那边的两个主人表），
+   * 于是"连歇脚点都没有的 walking"没人管——不收就是**静默卡死**，最难查的一类。
+   */
+  repaired: string[]
 }
 
 /**
@@ -68,8 +73,8 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
   const advanced: string[] = []
   const settled: string[] = []
   const acted: string[] = []
-  const satDown: string[] = []
-  const stoodUp: string[] = []
+  const stateChanged: string[] = []
+  const repaired: string[] = []
 
   // "有单子在等人领"用的是调度器自己的口径（`status === 'ready'`）——**不重复它的角色匹配**，
   // 只要队列非空就不许有人歇着。宁可少歇一会儿，也不能让"整队人都在坐着"卡住派工：
@@ -80,9 +85,22 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
   for (const agent of world.agents) {
     // 歇会儿用的 `sleeping` 也由这一段管：它是待命行为的产物，没有别的地方设置它。
     const resting = agent.state === 'sleeping'
-    if (agent.state !== 'idle' && !resting) continue
+    // R69：**没有目标工位的 `walking` 是待命踱步**，主人是这里（判据与 `movement.ts` 成对，
+    // 见那边的两个主人表）。认领它，否则刚设成 walking 的人下一 tick 就被当成坏数据修掉。
+    const ambientWalking = agent.state === 'walking' && agent.targetStation === null
+    if (agent.state !== 'idle' && !resting && !ambientWalking) continue
 
     const home = agent.hangout
+    if (home === null) {
+      // 待命流程连"往哪走"都不知道（没有歇脚点）→ 不能把他留在 `walking` 上：
+      // 那正是 movement 原来那条守卫防的静默卡死，现在由能看见这个人的一方收尾。
+      if (ambientWalking) {
+        agent.state = 'idle'
+        agent.path = []
+        repaired.push(agent.id)
+      }
+      continue
+    }
     const slot = home === null ? null : idleSlotAt(behaviors, world.seed, agent.id, world.tick)
 
     // ① 先决定"还要不要继续坐着"。三种情况要站起来：有人等活、槽位结束、
@@ -95,10 +113,8 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
         continue // 坐着不动
       }
       agent.state = 'idle'
-      stoodUp.push(agent.id)
+      stateChanged.push(agent.id)
     }
-
-    if (home === null) continue
 
     // @deprecated-note 待命的人不该还挂着**派工**路径（那是上一轮派工的残渣，
     // 玩家会看到"待命中却在走向工位"）。但 R64 起待命移动**自己也要一条绕障路径**——
@@ -111,14 +127,25 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
       agent.path = []
     }
 
-    // ② 本 tick 的目标点。踱步时是槽内的临时点，其余时候就是歇脚点——
-    //    于是"走出去了"和"走回来"用的是同一段逻辑，窗口一结束他自己就往回走。
-    const pacing = slot !== null && slot.active && slot.behavior.kind === 'pace'
-    const goal = pacing
+    // ② 本 tick 的目标点。
+    //
+    // 踱步 = **出去一半时间、回来一半时间**（R69）。为什么不是"走到那个点就站着耗完窗口"：
+    // 那个点离歇脚点只有 0.45~0.9 世界单位、一步 0.06 → 他 8~15 tick 就走到了，
+    // 而窗口有 60~120 tick —— 结果 90% 的时间是站着，看起来还是"没在动"。
+    // 现在整段窗口都在走，也就整段都该播走路的带。
+    //
+    // ⚠️ `!workWaiting` 是个**必要的闸门**，不是保守：调度器只从 `state === 'idle'` 里挑人
+    //（`scheduler.ts` 的 `idleAgents`），而踱步期间他是 `walking`。若有人在等活还让他出去转，
+    // 那一单就得等他回来才派得出去（最坏一整个窗口 ≈ 12 秒）。所以"有活等着就别踱步"。
+    const pacing =
+      slot !== null && slot.active && slot.behavior.kind === 'pace' && !workWaiting
+    const paceTarget = pacing
       ? paceGoal(world.seed, agent.id, slot.index, home, slot.behavior.radius, (point) =>
           world.nav === null ? true : isWalkable(world.nav, cellOf(world.nav, point)),
         )
-      : home
+      : null
+    const headingOut = pacing && slot !== null && slot.elapsed * 2 < slot.span
+    const goal = paceTarget !== null && headingOut ? paceTarget : home
 
     const remaining = distance(agent.position, goal)
     if (remaining <= WALK_SPEED) {
@@ -128,6 +155,12 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
         advanced.push(agent.id)
       }
       settled.push(agent.id)
+
+      // 停下来了：状态跟着回到 `idle`（渲染器据此从"走"的带切回"站"的带）。
+      if (agent.state === 'walking') {
+        agent.state = 'idle'
+        stateChanged.push(agent.id)
+      }
 
       // ③ 到位之后才谈"给自己找点事做"。走着的路上不张望——那会变成"边飘边转头"。
       //    `pacing` 的情况什么都不做：他刚到那个点，站在那儿把这一槽耗完。
@@ -144,10 +177,28 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
           }
         } else if (behavior.kind === 'rest' && !workWaiting) {
           agent.state = 'sleeping'
-          satDown.push(agent.id)
+          stateChanged.push(agent.id)
         }
       }
       continue
+    }
+
+    // 还在挪 → 该不该说自己在走路（R69 的核心一行）。
+    //
+    // 之前这里只推位置、不改状态，于是渲染器按 `idle` 选动画带：**人在滑动、播的是站立的带**。
+    // 真机连采 6 次的状态分布是 `{'sleeping': 1, 'idle': 7}`——**从来没有 `walking`**，
+    // 而"待命的人看不出在走"正是这么来的（内容里 `walking → walk` 一直是好的）。
+    //
+    // ⚠️ **只在"踱步槽"里改，通勤（从别处走到歇脚点）仍然保持 `idle`。** 这不是偷懒：
+    // 我第一版把"只要在动就设 walking"做了，结果**派工当场坏掉**——
+    // `scheduler.ts` 的 `idleAgents` 只挑 `state === 'idle'`，于是"正在走向歇脚点的人"
+    // 全都不再是派工候选（7 条既有测试红：R67 的 stalled、D41 的派工）。
+    // 也就是说 `walking` 在这个代码库里同时驮着两件事：「我在挪」**和**「我在派工流程里」。
+    // 这个歧义值得单独修（见汇报），但**不是这一轮该顺手改的**——它会把调度语义一起动了。
+    const wanted = paceTarget !== null ? 'walking' : 'idle'
+    if (agent.state !== wanted) {
+      agent.state = wanted
+      stateChanged.push(agent.id)
     }
 
     // 没有路径就**规划一条绕障的**（只在"刚被清空 / 换了待命点"时发生一次，
@@ -167,5 +218,5 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
     advanced.push(agent.id)
   }
 
-  return { advanced, settled, acted, satDown, stoodUp }
+  return { advanced, settled, acted, stateChanged, repaired }
 }
