@@ -113,16 +113,12 @@
   min-height: 0;
   min-width: 0;
 }
-#town,
-#town3d {
+#town {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   display: block;
-}
-#town3d {
-  background: var(--bg-0);
 }
 .bubbles {
   position: absolute;

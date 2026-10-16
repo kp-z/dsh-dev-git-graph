@@ -79,15 +79,6 @@
   color: var(--fg-0);
 }
 
-/* ── 分段控件（俯视 | 3D）────────────────────────────────────────────────── */
-.segmented {
-  display: inline-flex;
-  padding: 3px;
-  gap: 2px;
-  border-radius: var(--r-sm);
-  background: var(--surface-1);
-  border: 1px solid var(--stroke);
-}
 .segment {
   padding: 5px var(--s-3);
   border: 0;

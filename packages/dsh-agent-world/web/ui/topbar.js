@@ -18,7 +18,6 @@
  *
  * @param {object} options
  * @param {HTMLElement} options.root - 顶栏容器。
- * @param {(mode: 'top'|'3d') => void} options.onMode
  * @param {(kind: 'pause'|'resume') => void} options.onCommand
  * @param {() => void} [options.onToggleDrawer]
  * @param {Document} [options.document]
@@ -34,20 +33,15 @@ export function createTopbar(options) {
   // 于是 footer 永远停在初始的"连接中…"（界面看起来正常，其实整条状态带是死的）。
   // 现在两处都找：顶栏里没有就从文档里找。
   const $status = ready ? (root.querySelector('.topbar-status') ?? doc.querySelector('.topbar-status')) : null
-  const $top = ready ? root.querySelector('#view-top') : null
-  const $three = ready ? root.querySelector('#view-3d') : null
   const $pause = ready ? root.querySelector('#cmd-pause') : null
   const $resume = ready ? root.querySelector('#cmd-resume') : null
   const $drawer = ready ? root.querySelector('#drawer-toggle') : null
   let lastSignature = null
-  let currentMode = 'top'
 
   const chip = (text, tone, extra = '') =>
     `<span class="chip${tone === undefined ? '' : ` chip-${tone}`}${extra}">${text}</span>`
 
   if (ready) {
-    $top?.addEventListener('click', () => options.onMode?.('top'))
-    $three?.addEventListener('click', () => options.onMode?.('3d'))
     $pause?.addEventListener('click', () => options.onCommand?.('pause'))
     $resume?.addEventListener('click', () => options.onCommand?.('resume'))
     $drawer?.addEventListener('click', () => options.onToggleDrawer?.())
@@ -112,22 +106,10 @@ export function createTopbar(options) {
     $status.innerHTML = chips
   }
 
-  /** 视图切换的选中态。 */
-  function setMode(mode) {
-    currentMode = mode
-    if (!ready) return
-    $top?.classList.toggle('active', mode === 'top')
-    $three?.classList.toggle('active', mode === '3d')
-    $top?.setAttribute('aria-selected', String(mode === 'top'))
-    $three?.setAttribute('aria-selected', String(mode === '3d'))
-    lastSignature = null
-  }
 
   return {
     ready,
     render,
-    setMode,
-    mode: () => currentMode,
     /** 抽屉开关按钮的选中态（别的地方也能开抽屉）。 */
     setDrawerOpen(open) {
       $drawer?.classList.toggle('active', open)

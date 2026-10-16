@@ -76,7 +76,7 @@ async function withVendorServer(rootDir, fn) {
 // ── 目录与白名单必须对得上 ──────────────────────────────────────────────────
 
 test('白名单与 src/vendor/ 的目录内容一一对应（漏一个都会在运行期变成 404）', async () => {
-  // **要递归**：vendored 资源现在有子目录（three 的 addon 结构必须保留）。
+  // **要递归**：vendored 资源有子目录（如 `kenney-mini-characters/Textures/`）。
   const onDisk = (await walk(VENDOR_SRC))
     // `README.md` 是给人看的说明，不需要也不该被服务出去。
     .filter((name) => name !== 'README.md')
@@ -120,9 +120,9 @@ test('白名单是穷举式的：没有通配、没有 `..`、没有绝对路径
     const ext = extensionOf(name)
     assert.ok(VENDOR_MIME[ext] !== undefined, `白名单项 ${name} 的扩展名 ${JSON.stringify(ext)} 没登记 MIME`)
   }
-  // 嵌套路径必须真的支持（three 的 addon 结构要求如此）。
-  assert.ok(VENDOR_WHITELIST.includes('three/build/three.module.min.js'))
-  assert.ok(VENDOR_WHITELIST.includes('three/examples/jsm/utils/SkeletonUtils.js'))
+  // 嵌套路径必须真的支持（白名单里有两层以上的真实文件）。
+  assert.ok(VENDOR_WHITELIST.includes('kenney-mini-characters/Textures/colormap.png'))
+  assert.ok(VENDOR_WHITELIST.includes('microverse/scene/office.png'))
   // 12 个角色（pack.kenney-mini）+ 31 个家具（pack.kenney-furniture）。
   assert.equal(VENDOR_WHITELIST.filter((n) => n.endsWith('.glb')).length, 43, '角色 + 家具的 GLB 总数')
   assert.ok(VENDOR_WHITELIST.includes('kenney-furniture/desk.glb'), '家具也要能服务')
@@ -132,14 +132,14 @@ test('白名单是穷举式的：没有通配、没有 `..`、没有绝对路径
 
 test('vendor 路由：白名单里的文件能取到，MIME 正确，且带缓存头', async () => {
   await withVendorServer(VENDOR_SRC, async (base) => {
-    const res = await fetch(`${base}${PREFIX}/vendor/three/build/three.module.min.js`)
+    const res = await fetch(`${base}${PREFIX}/vendor/phaser/phaser.esm.min.js`)
     assert.equal(res.status, 200)
     assert.match(res.headers.get('content-type'), /javascript/)
     assert.match(res.headers.get('cache-control'), /max-age/)
     const body = await res.text()
     assert.ok(body.length > 100_000, '拿到的是完整文件，不是空响应')
 
-    const license = await fetch(`${base}${PREFIX}/vendor/three/LICENSE`)
+    const license = await fetch(`${base}${PREFIX}/vendor/phaser/LICENSE`)
     assert.equal(license.status, 200)
     assert.match(license.headers.get('content-type'), /text\/plain/)
 
@@ -168,7 +168,7 @@ test('vendor 路由：不在白名单的文件一律 404，且**说明已开放�
     assert.equal(res.status, 404, '不在白名单的文件不能因为扩展名是 .js 就被服务')
     const body = await res.json()
     assert.match(body.error, /不在白名单/)
-    assert.match(body.error, /three\/build\/three\.module\.min\.js/, '要列出已开放的文件，别只说不允许')
+    assert.match(body.error, /phaser\/phaser\.esm\.min\.js/, '要列出已开放的文件，别只说不允许')
   })
 })
 
@@ -177,7 +177,7 @@ test('vendor 路由：白名单里有、磁盘上没有 → 报错指向"构建�
   tempDirs.push(empty)
 
   await withVendorServer(empty, async (base) => {
-    const res = await fetch(`${base}${PREFIX}/vendor/three/build/three.module.min.js`)
+    const res = await fetch(`${base}${PREFIX}/vendor/phaser/phaser.esm.min.js`)
     assert.equal(res.status, 404)
     const body = await res.json()
     assert.match(body.error, /构建没同步|build:web/, '要说清该去哪找原因')
@@ -190,7 +190,7 @@ test('vendor 路由优先于静态面板的通配（否则第三方资源会被�
   // 面板通配也指向同一个目录：如果顺序反了，请求会落到面板那条路上，
   // 得到的 404 文案会是"不在白名单"之外的东西。
   await withVendorServer(dir, async (base) => {
-    const res = await fetch(`${base}${PREFIX}/vendor/three/build/three.module.min.js`)
+    const res = await fetch(`${base}${PREFIX}/vendor/phaser/phaser.esm.min.js`)
     const body = await res.json()
     assert.match(body.error, /构建没同步|build:web/, '应当是 vendor 路由给的错误')
     assert.ok(!/不服务的文件类型/.test(body.error), '不该落到静态面板那条路')
@@ -202,7 +202,7 @@ test('vendor 路由：多段路径与穿越都不匹配（模式是单段，天�
     // 嵌套是允许的，但**只有白名单里的确切路径**。
     assert.equal((await fetch(`${base}${PREFIX}/vendor/a/b/c.js`)).status, 404, '不在白名单的嵌套路径')
     assert.equal((await fetch(`${base}${PREFIX}/vendor/..%2fpackage.json`)).status, 404, '编码上跳')
-    assert.equal((await fetch(`${base}${PREFIX}/vendor/three/build/..%2f..%2f..%2fpackage.json`)).status, 404)
+    assert.equal((await fetch(`${base}${PREFIX}/vendor/phaser/..%2f..%2f..%2fpackage.json`)).status, 404)
     assert.equal((await fetch(`${base}${PREFIX}/vendor/README.md`)).status, 404, 'README 是给人看的，不服务')
   })
 })
@@ -217,7 +217,7 @@ test('构建产物 lib/vendor/ 与 src/vendor/ 保持一致（否则运行期读
   )
 })
 
-test('面板的 import map 指向白名单里真实存在的文件（写错一个字符就是 3D 白屏）', async () => {
+test('面板的 import map 指向白名单里真实存在的文件（写错一个字符就是引擎白屏）', async () => {
   const { readFile } = await import('node:fs/promises')
   const html = await readFile(fileURLToPath(new URL('../web/index.html', import.meta.url)), 'utf8')
   const mapText = /<script type="importmap">([\s\S]*?)<\/script>/.exec(html)
@@ -225,12 +225,12 @@ test('面板的 import map 指向白名单里真实存在的文件（写错一�
 
   const map = JSON.parse(mapText[1])
   const entries = Object.entries(map.imports)
-  assert.ok(entries.length >= 2, '至少要映射 three 与它的附加组件')
+  assert.ok(entries.length >= 1, '至少要把 Phaser 映射上（R66：three 随 3D 一起删了）')
 
   for (const [specifier, target] of entries) {
     const name = String(target).replace('./vendor/', '')
     if (String(target).endsWith('/')) {
-      // 目录前缀映射（`three/addons/` → `.../jsm/`）：白名单里必须有文件落在它下面。
+      // 目录前缀映射（如 `x/y/` → `.../z/`）：白名单里必须有文件落在它下面。
       assert.ok(
         VENDOR_WHITELIST.some((n) => n.startsWith(name)),
         `import map 的前缀 "${specifier}" → "${target}" 下面没有任何白名单文件`,
@@ -239,7 +239,7 @@ test('面板的 import map 指向白名单里真实存在的文件（写错一�
     }
     assert.ok(
       VENDOR_WHITELIST.includes(name),
-      `import map 指向了 "${target}"，而白名单里没有 "${name}"——3D 会白屏且只报一个 404`,
+      `import map 指向了 "${target}"，而白名单里没有 "${name}"——引擎会白屏且只报一个 404`,
     )
   }
 
@@ -250,9 +250,11 @@ test('面板的 import map 指向白名单里真实存在的文件（写错一�
 
 test('vendored 资源带许可证原文（MIT 与 CC0 都要求保留声明）', async () => {
   const { readFile } = await import('node:fs/promises')
-  const threeLicense = await readFile(join(VENDOR_SRC, 'three', 'LICENSE'), 'utf8')
-  assert.match(threeLicense, /MIT/i)
-  assert.match(threeLicense, /three\.js authors/i, '要保留上游的版权声明')
+  // R66：`three/` 删了，MIT 这一类改看 Phaser 的 LICENSE——
+  // 要求没变（上游的版权与许可声明必须随包发布），只是换了参照物。
+  const phaserLicense = await readFile(join(VENDOR_SRC, 'phaser', 'LICENSE'), 'utf8')
+  assert.match(phaserLicense, /MIT/i)
+  assert.match(phaserLicense, /Phaser/i, '要保留上游的版权声明')
 
   // Kenney 是 CC0（无需署名），但**许可证原文必须一起发**——这是"从哪来的"唯一凭据。
   const kenney = await readFile(join(VENDOR_SRC, 'kenney-mini-characters', 'License.txt'), 'utf8')

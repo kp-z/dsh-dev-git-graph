@@ -38,7 +38,7 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R66 末）：`typecheck` 绿 · `test` **625 / 625 / 0 fail / 0 todo**。**M15-2 还清了**：读档时 `nav`（导航网格）没被重算 → 寻路静默退回直线；修好后真机实测**走路真的拐弯绕障**（25 个途经点、在 (4,-4) 转向），回归测试反向验过（撤掉修复→3 红）。顺手修掉"两套拾取"（真路径曾在我手写的 `getBounds()` 上，现已交给 Phaser 的 `setInteractive`+`pointerup`）。`web/` 清点结论：剩下的自写代码大多站得住，**该删的只有 3D（1254 行 + 860K，已派 task-24）**。宿主常驻 bash-1367。
+当前验证状态（R67 末）：`typecheck` 绿 · `test` **599 / 599 / 0 fail / 0 todo**。**3D 路径已删**（−1619 行 −860K，用户 R61 就批准过；`web/` 里已无 3D 残留，真机验过"没有 3D 按钮 + 脚本活着 + 场景正常"）。**M13-5 协议那半完成**：真机查出 3 张单永远等不到（`blockedBy` 指向 failed 的单），而调度器的 `stalled`（含中文原因）**从来没有出口**——现已送进快照（反向验过：撤掉接线 3 条红）。panel 已接 task-25 做界面那半。宿主常驻 bash-1463。
 
 ---
 
@@ -4973,6 +4973,54 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 - 分支：`feat/dsh-agent-world`（从 `feat/dsh-daily` 的 HEAD 切出；**没有**动那个分支上的未提交改动）
 - 新增包：`packages/dsh-agent-world/`
 - 文档：`docs/ARCHITECTURE.md`、`docs/BACKLOG.md`、本文件、`README.md`
+---
+
+## R66/R67 —— 删掉 3D（−1619 行 −860K）；把「派不出去」的原因送出到面板
+
+### 用户的硬规矩（第三次重申，已立 D56）
+> "反正就全部用 Phaser 里现成的工具设计和实现这个游戏，千万不要自己搞，你给我记住了。"
+
+这一轮把它**执行**了，不只是记着：
+
+**① 删掉 3D 路径**（用户 R61 就批准过）——`scene3d.js` 1104 + `model-loader.js` 150 +
+`builders.js` 189 + `resource-ownership.js` 176 + `vendor/three` 860K + 30 条测试；
+`main.js` 744 → 628 行。**这是 `web/` 里最大的一块"不是 Phaser 的渲染代码"。**
+
+**② 清掉"两套拾取"**：真路径曾在我手写的 `getBounds()` 遍历上，现在引擎的
+`setInteractive` + `pointerup`（`getDistance() > 5` 忽略拖拽、`getDuration() > 700` 忽略长按）是唯一真路径。
+
+**③ 清点结论**：`web/` 里剩下的自写代码大多**站得住**，并且每一条都能说出理由——
+`sheet-loader`（取原图+重上色；Phaser loader 已在用）、`pixel-recolor`（纯函数；Phaser 的 `tint`
+是**乘算**，做不了换发色）、`bubble-place`/`board-layout`/`dialogue-state`（DOM 面板，不是 Phaser 的活）、
+平铺/深度/拾取（已是 `tileSprite`/`setDepth`/`setInteractive`）。
+
+### M13-5 的协议那半：让"卡住"可见
+**真机证据**：`task-19/22/25` 三张单**永远不可能执行**——`blockedBy` 指向的
+`task-18/21/24` 状态是 **failed**。**前置失败 → 后续单永远停在 pending**，而界面只说「待办」。
+同时发现 `claimTasks()` 算的 `stalled`（含中文 detail）**从来没有出口**，算完就丢。
+
+- 协议加 `RuntimeDiagnostics.stalled` + `StalledTask`（`reason` 用**联合类型**，不用自由字符串）；
+- `STALLED_DIAGNOSTIC_CAP = 20`（它用于**归因**，不是审计日志）；
+- 每 tick **替换**而非累加——累加会让"人已经在干活了面板还说派不出去"，
+  **数据与画面打架比不显示更糟**（有测试专门守它）；
+- **它只解释"调度器为什么现在不派"**，不解释"这张单已经死了"——后者是任务表自身的性质，
+  由面板从 `blockedBy` 算。两件事的出口不同，混起来会让面板分不清"该等人"还是"该放弃"。
+
+### 两条方法论（都来自本轮的失误）
+1. **"HTML 看起来对" ≠ 脚本活着**：panel 删 `topbar.js` 的变量声明时漏了一处用法，
+   `main.js` **整块 ReferenceError 死掉**，而按钮照旧渲染、a11y 树看着完全正常。
+   → 面板改动后**验收第一行先断言 `__agentWorldScene2d`/`__agentWorldDialogue` 等全局存在**。
+2. **提交信息必须走文件（`git commit -F`），不要走 `-m`**：上一轮用 `-m` 写带反引号的长文本，
+   shell 把反引号当命令替换执行，`world.nav`、`{...world}` 全被替换成空，提交信息留下洞。
+
+### 验证
+- `typecheck` 绿；`pnpm test` **599 / 599 / 0 fail / 0 todo**（+4 条 stalled 测试，−30 条 3D 测试）。
+- 真机：`#town3d`/`#view-3d`/`.segmented` 都不存在；四个调试全局都在；
+  backend webgl；canvas 缓冲区 = CSS 尺寸；缩放通电；`diagnostics.stalled` 字段已在快照里。
+- **反向验过**：撤掉 stalled 接线 → 3 条红；恢复 → 绿。
+
+### 下一轮可接着删的（已记 BACKLOG）
+`src/vendor/pixi` 656K + `kenney-mini-characters` 2.9M + `kenney-furniture` 432K（全是 3D 的 GLB）。
 ---
 
 ## R66 —— 还清 M15-2 的债：**真机走路真的绕障了**；顺手清掉"两套拾取"

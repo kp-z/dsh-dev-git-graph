@@ -3,7 +3,7 @@
  *
  * 它把四块东西接起来：
  *   1) `net/connection.js`：一次快照 + 一条 SSE 增量流；
- *   2) `scene/*`：两个渲染器（2D 永远在，3D 按需动态加载）；
+ *   2) `scene/*`：渲染器（R66 起只有 Phaser 这一条：俯视格子）；
  *   3) `ui/*`：顶栏、抽屉（花名册/工单/对话）、图例、底部看板；
  *   4) `core/*`：纯逻辑（增量应用、对话状态机、看板布局）。
  *
@@ -12,7 +12,7 @@
  *
  * ── 一帧里发生什么（渲染循环）────────────────────────────────────────────────
  *
- *   setInterval(250ms) ──► render()  ──► 画场景（2D 或 3D）
+ *   setInterval(250ms) ──► render()  ──► 画场景（Phaser）
  *                                      ├─ 花名册/工单/顶栏（都是文本，签名没变就不动 DOM）
  *                                      ├─ 头顶气泡（位置每帧算）
  *                                      └─ 对话面板（只重画变了的那些行）
@@ -50,7 +50,6 @@ const DIALOGUE_SILENT_TICKS = 300
 
 const $ = (id) => document.getElementById(id)
 const canvas = $('town')
-const canvas3d = $('town3d')
 const $bubbles = $('bubbles')
 const $hint = $('view-hint')
 
@@ -58,12 +57,6 @@ const $hint = $('view-hint')
 let world = null
 /** 快照里的静态部分（场景描述、内容概况、主题、时钟参数、调色板）。 */
 let meta = null
-/** 当前视图：`top`（2D 俯视）或 `3d`。 */
-let mode = 'top'
-/** 3D 渲染器；没启用或加载失败时是 null。 */
-let scene3d = null
-/** 3D 加载失败的原因（显示给用户，别再让用户猜）。 */
-let scene3dError = null
 /** 上一次真正渲染的时刻（节流用）。 */
 let lastRenderMs = -1
 /** 头顶气泡的 DOM 节点（按 agentId 复用，只改位置与文本，不每帧重建）。 */
@@ -104,7 +97,6 @@ let colorById = new Map()
 
 const topbar = createTopbar({
   root: $('topbar'),
-  onMode: (next) => void setMode(next),
   onCommand: (kind) => void sendCommand(kind),
   onToggleDrawer: () => drawer.toggle(),
 })
@@ -143,7 +135,6 @@ function syncSceneInsets() {
   // 动画中间值（我第一版就是这样：启动时量到 450px 的展开态，于气泡被无意义地顶高）。
   // 它改成每帧现读（见 `boardRectNow()`），代价格外小：那一帧本来就要读 `$bubbles` 的尺寸。
   // 场景那边只认一个像素数，不知道抽屉长什么样——面板换布局不需要改场景。
-  scene3d?.setViewInsets({ right: stageInsets.right })
 }
 
 const drawer = createDrawer({
@@ -168,9 +159,11 @@ const legend = createLegend({ root: $('legend') })
 
 const scene2d = createScenePhaser(canvas, {
   renderer: requestedRenderer(),
-  // 引擎侧的点击入口（`setInteractive` 冒泡上来）——真正"点了谁"仍由 `pick()` 决定，
-  // 两者用同一份精灵几何。这里只透给诊断,不抢 main.js 的处理权。
-  onActorPick: (agentId) => { globalThis.__agentWorldLastActorClick = agentId },
+  // **点击角色的真路径**（R66）：Phaser 的 `setInteractive` + `pointerup` 冒泡上来，
+  // "忽略拖拽/长按"由引擎的 Pointer API（`getDistance`/`getDuration`）判断，
+  // 我们不再自己记 downX/downY/downAt（那段手写 `bindPick` 已删）。
+  // R58 修过的死角在这里同样成立：命中区就是精灵几何，点身体任意位置都算。
+  onActorPick: (agentId) => openDialogueFor(agentId),
 })
 
 /**
@@ -224,75 +217,12 @@ function showHint(text) {
   $hint.hidden = text === '' || text === null || text === undefined
 }
 
-// ── 视图切换 ──────────────────────────────────────────────────────────────────
-
-/**
- * 切到 3D。
- *
- * **动态 `import()` 而不是顶层 import**：three 是 vendor 进来的大文件，
- * 它加载失败（文件缺失、浏览器不支持 import map、没有 WebGL）时，
- * 顶层 import 会把**整个面板**带崩——包括那个"唯一能看清模拟对不对"的俯视图。
- * 动态导入让失败退化成"3D 不可用 + 一句原因"，2D 照常。
- */
-async function enable3d() {
-  if (scene3d !== null) return true
-  if (scene3dError !== null) return false
-  try {
-    const module = await import('./scene/scene3d.js')
-    scene3d = module.createScene3d(canvas3d, {
-      onError: (error) => {
-        scene3dError = String(error)
-        showHint(`3D 渲染出错：${scene3dError}`)
-      },
-      // 内容引用了渲染器没有的构建器时**必须说出来**：那种情况下画面会多出
-      // 几个品红方块，而"为什么是品红"完全看不出来。
-      onMissing: ({ models, builders, registered, assets }) => {
-        const parts = []
-        if (builders.length > 0) parts.push(`缺构建器 ${builders.join(' / ')}（已实现：${registered.join(' / ')}）`)
-        if (models.length > 0) parts.push(`缺模型 ${models.join(' / ')}`)
-        // 资源加载失败**单独一类**：它不是"内容写错了"，而是"文件没发出去 / 路径不对"。
-        if (assets !== undefined && assets.length > 0) parts.push(`模型文件加载失败 ${assets.join('；')}`)
-        showHint(`内容引用了渲染器给不出的模型：${parts.join('；')}。这些位置画的是品红占位块。`)
-      },
-    })
-    // 建好之后立刻把当前抽屉占位告诉它：否则第一帧会按"全画布居中"取景，
-    // 于是开局的第一个画面正是"小镇被抽屉盖住"的那一版（R32 前的老问题）。
-    syncSceneInsets()
-    return true
-  } catch (error) {
-    // 原因要显示出来：只写"3D 不可用"的话，用户没法判断是少了文件还是浏览器不支持。
-    scene3dError = error instanceof Error ? error.message : String(error)
-    showHint(`3D 不可用：${scene3dError}（俯视图不受影响）`)
-    return false
-  }
-}
-
-/** 切换视图。 */
-async function setMode(next) {
-  // 3D 起不来就留在俯视图，不装作切过去了。
-  if (next === '3d' && !(await enable3d())) next = 'top'
-  mode = next
-
-  canvas.hidden = next !== 'top'
-  canvas3d.hidden = next !== '3d'
-  topbar.setMode(next)
-
-  if (next === '3d' && scene3d !== null) {
-    if (meta !== null) scene3d.setPlan(meta.scene)
-    scene3d.resize()
-  } else if (next === 'top') {
-    scene2d.resize()
-  }
-  render(true)
-}
-
 // ── 气泡 ──────────────────────────────────────────────────────────────────────
 
 /**
  * 头顶气泡（M6-5）。
  *
- * 位置每帧算：3D 走 `scene3d.projectToScreen`（投影 + 角色实测头顶高度），
- * 俯视走 `scene2d.anchorOf()`——**两个渲染器各自给出画布相对像素**，
+ * 位置每帧算：走 `scene2d.anchorOf()`——渲染器给出**画布相对像素**，
  * 所以这里不需要知道任何换算公式。节点按 agentId 复用。
  */
 function updateBubbles() {
@@ -310,10 +240,7 @@ function updateBubbles() {
     if (agent === undefined) continue
 
     let anchor = null
-    if (mode === '3d' && scene3d !== null && canvas3d.hidden === false) {
-      const p = scene3d.projectToScreen(agent.position.x, scene3d.topYOf(agent.id), -agent.position.z)
-      if (p.behind === false && p.width > 0) anchor = { x: p.x, y: p.y - 4 }
-    } else if (mode === 'top' && canvas.hidden === false) {
+    if (canvas.hidden === false) {
       anchor = scene2d.anchorOf({ world, scene: meta.scene, agentId: agent.id })
     }
     if (anchor === null) continue
@@ -376,34 +303,23 @@ function render(force = false) {
   lastRenderMs = now
   const tick = currentTick()
 
-  if (mode === '3d' && scene3d !== null) {
-    scene3d.render(world)
-  } else {
-    scene2d.render({ world, scene: meta.scene, tick, messageDeliveryTicks: meta.messageDeliveryTicks })
-  }
+  scene2d.render({ world, scene: meta.scene, tick, messageDeliveryTicks: meta.messageDeliveryTicks })
 
-  // 侧栏与顶栏都是文本，与场景无关：两个视图共用。
+  // 侧栏与顶栏都是文本，与场景无关。
   const thinkingIds = new Set((dialogue?.thinkingTurns() ?? []).map((t) => t.agentId))
   roster.update({ world, thinkingIds, activeId: dialogue?.agentId() ?? null, colorById })
   tasks.update({ world, meta, selectedTaskId: boardSelection })
 
   // 把渲染器的**真实计数**显示出来——"不卡"要能被看见，否则只是承诺（R57）。
-  let perf = ''
-  if (mode === '3d' && scene3d !== null) {
-    const st = scene3d.stats()
-    perf = `3D · ${st.fps} fps · 绘制 ${st.drawCalls} · 三角 ${(st.triangles / 1000).toFixed(1)}k · 纹理 ${st.textures} · 重建 ${st.planRebuilds}`
-  } else {
-    // 2D：报 Phaser 用哪个渲染器、这一帧提交了几次 GL 绘制、画了多少个对象。
-    // （绘制次数挂在 Phaser 的 prerender/postrender 钩子上数，不是我们多渲染一遍。）
-    const st = scene2d.stats()
-    const name = st.backend === 'canvas' ? 'Phaser(canvas)' : 'Phaser(WebGL)'
-    perf = `${name} · 绘制 ${st.drawCalls}${st.batched === true ? '（合批）' : ''} · 精灵 ${st.sprites ?? '-'}`
-  }
+  // 报 Phaser 用哪个渲染器、这一帧提交了几次 GL 绘制、画了多少个对象。
+  // （绘制次数挂在 Phaser 的 prerender/postrender 钩子上数，不是我们多渲染一遍。）
+  const sceneStats = scene2d.stats()
+  const backendName = sceneStats.backend === 'canvas' ? 'Phaser(canvas)' : 'Phaser(WebGL)'
+  const perf = `${backendName} · 绘制 ${sceneStats.drawCalls}${sceneStats.batched === true ? '（合批）' : ''} · 精灵 ${sceneStats.sprites ?? '-'}`
   topbar.render({
     world,
     meta,
     tick,
-    mode,
     perf,
     connected: connection.status().connected,
     nextSeq: connection.status().nextSeq,
@@ -474,32 +390,7 @@ function openDialogueFor(agentId) {
   render(true)
 }
 
-// ── 画布上的点击（点角色说话）──────────────────────────────────────────────────
 
-/**
- * 画布上的点击：**按下与抬起在同一点、且时间不太长，才算点击**。
- *
- * 3D 的 `OrbitControls` 一直在监听拖拽——不判位移的话，"转个视角"会顺手弹出对话面板，
- * 而那时用户根本不知道自己点到谁了。
- */
-function bindPick(element, pick) {
-  let downX = 0
-  let downY = 0
-  let downAt = 0
-  element.addEventListener('pointerdown', (event) => {
-    downX = event.clientX
-    downY = event.clientY
-    downAt = event.timeStamp
-  })
-  element.addEventListener('pointerup', (event) => {
-    if (Math.abs(event.clientX - downX) > 5 || Math.abs(event.clientY - downY) > 5) return
-    if (event.timeStamp - downAt > 700) return
-    const agentId = pick(event.clientX, event.clientY)
-    if (agentId !== null && agentId !== undefined) openDialogueFor(agentId)
-  })
-}
-
-bindPick(canvas, (clientX, clientY) => scene2d.pick({ world, scene: meta?.scene, clientX, clientY }))
 
 // ── 视野控制（R65）────────────────────────────────────────────────────────────
 //
@@ -544,7 +435,6 @@ for (const [id, method] of [['zoomIn', 'zoomIn'], ['zoomOut', 'zoomOut'], ['fit'
   })
 }
 syncViewControls()
-bindPick(canvas3d, (clientX, clientY) => (scene3d === null ? null : scene3d.pickActor(clientX, clientY)))
 
 // ── 世界命令（暂停/继续）──────────────────────────────────────────────────────
 
@@ -590,11 +480,6 @@ const connection = createConnection({
     board.setTaskSets?.(snap.taskSets)
     board.update(world)
     legend.update({ scene: meta.scene })
-    // 3D 用**快照里的** ScenePlan 重建静态部分；位姿由 `world` 每帧提供。
-    if (mode === '3d' && scene3d !== null) {
-      scene3d.setPlan(snap.scene)
-      scene3d.resize()
-    }
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
   onEvents: (events) => {
@@ -632,7 +517,6 @@ window.addEventListener('resize', () => {
   // 先更新占位再 resize：窄视口下抽屉宽度本身会变（CSS 媒体查询），
   // 顺序反了就会用上一档的宽度取景，表现是"缩完窗口小镇偏一下、下次再正"。
   syncSceneInsets()
-  if (scene3d !== null) scene3d.resize()
   render(true)
 })
 
