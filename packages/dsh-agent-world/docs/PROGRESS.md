@@ -38,7 +38,7 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R62 末）：`typecheck` 绿 · `test` **611 / 611 / 0 fail / 0 todo**。**Microverse 原版办公室跑起来了**：9 个房间（原版中文名+描述）、24 个座位、1322 格底图，8 个角色散在 7 个房间；对话端到端 `thinking → acting×2 → replied` **在真机上验过**。宿主常驻 bash-1083。
+当前验证状态（R63 末）：`typecheck` 绿 · `test` **611 / 611 / 0 fail / 0 todo**。**派工链终于通了**（补上座位缺的 `compute`/`research` 两种能力；实测 派工→走路→到岗→working→续派）。**已证实走路是直线穿墙**（阿金 -1.14→-32.00 严格线性）。用户三条新需求见 BACKLOG M15-1..3。宿主常驻 bash-1119。
 
 ---
 
@@ -4973,6 +4973,43 @@ PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm test
 - 分支：`feat/dsh-agent-world`（从 `feat/dsh-daily` 的 HEAD 切出；**没有**动那个分支上的未提交改动）
 - 新增包：`packages/dsh-agent-world/`
 - 文档：`docs/ARCHITECTURE.md`、`docs/BACKLOG.md`、本文件、`README.md`
+---
+
+## R63 —— 修掉"**一张单都派不出去**"（能力覆盖缺两个）；记录用户三条新需求
+
+### 起因：用户要"看 agent 动起来"，结果发现人一动不动
+用户："先把这个场景里的 agent 添加上运行一下试试能不能驱动动作和对话"。
+对话链路 R62 就通了，但**派工一条都不成立**——8 个人永远 idle。
+
+### 根因：24 个座位缺 `research` 与 `compute` 两种能力
+R62 我把房间映射成能力时，是按"房间语义"编的（办公室=code/review、接待处=deliver…），
+**没有对着任务集实际要求的能力逐个点名**。实测：
+- 座位提供：`code / review / converse / deliver`
+- 任务集需要：`code / compute / deliver / research / review`
+- **缺 `compute` 与 `research`** → `pickStation()` 返回 null → 调度器每 tick 攒一条
+  `no-station` 却**不报错**（只在诊断里），人一动不动、界面看起来一切正常。
+
+**修法**：`ROOM_CAPS` 补齐——办公室 `['code','review','compute']`、HR办公室 `['review','converse','research']`。
+并在生成器注释里写死规矩：**判断依据不能是"这套座位看起来够用"，要对着任务集里出现过的能力逐个点名**。
+
+### 修完实测（真机，派了一套 `task.town-inspection`）
+```
+[1] 工头阿金 walking → station.seat-03  pos=(-1.14, 4.10)
+[3] 小青     working → station.seat-02  pos=(-28.50,-16.50)   ← 走到了、开工了
+[8] 工头阿金 working → station.seat-03  pos=(-32.00,-16.50)
+```
+**派工 → 走路 → 到岗 → working → 下一张单接着派**，这条链终于真的在跑。
+
+### 顺带证实了用户第 2 条需求的必要性
+阿金从 `(-1.14, 4.10)` 走到 `(-32.00, -16.50)`，中间采样是
+`-6.13 → -11.12 → -16.06 → -21.05 → -26.04 → -31.03`——**严格线性**，
+也就是**直线穿过整个办公室、穿墙而过**。现在只是"看起来在走"，不是"在办公室里走"。
+
+### 用户下一轮的三条需求（本轮只做了 blocker，这三条是接下来）
+1. **执行看板与状态条换位**：状态条去 footer，执行看板标题放上面。
+2. **物理属性**：墙、电脑等物体不可穿透；agent 的位置与动作要摆对。
+3. **subagent 支持上下左右与移动动作**。
+
 ---
 
 ## R62 —— **把 Microverse 原版场景跑起来了**（用户："先把这个场景里的 agent 添加上运行一下试试能不能驱动动作和对话"）

@@ -52,11 +52,19 @@ const ROOM_KIND = {
 // ⚠️ 能力是**固定集合**（`Capability`：code|review|research|converse|compute|deliver|rest）。
 // 我第一版按房间语义编了 meet/hire/decide/greet/wait —— 验证器全拦了（51 条错误）。
 // 这是对的：能力是任务调度的契约，不是自由文本，不能每个房间发明一个。
+// ⚠️ **必须覆盖任务集实际要求的全部能力**，否则 `pickStation` 返回 null、
+// 任务静默 stall、人一动不动（R63 真机实测：24 个座位只有 code/review/converse/deliver，
+// 而 `task.town-inspection` 要 `research`、`task.software-feature` 要 `compute` →
+// 一张单都派不出去，调度器每 tick 攒一条 no-station 还不报错）。
+//
+// 判断依据不能靠"这套座位看起来够用"，要**对着任务集里出现过的能力逐个点名**。
+// 任务集要求：code / compute / deliver / research / review（`converse`/`rest` 是社交与休息，
+// 不参与派工但保留给人待命用）。
 const ROOM_CAPS = {
-  办公室: ['code', 'review'],
+  办公室: ['code', 'review', 'compute'],   // 财务 + 工程师，14 个工位
   会议室: ['converse'],
-  HR办公室: ['review', 'converse'],
-  老板办公室: ['converse'],
+  HR办公室: ['review', 'converse', 'research'],
+  老板办公室: ['review', 'converse'],
   茶水间: ['rest'],
   健身房: ['rest'],
   接待处: ['deliver', 'converse'],

@@ -224,7 +224,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "review",
-      "converse"
+      "converse",
+      "research"
     ],
     "slots": [
       {
@@ -245,7 +246,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "review",
-      "converse"
+      "converse",
+      "research"
     ],
     "slots": [
       {
@@ -266,7 +268,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -287,7 +290,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -308,7 +312,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -329,7 +334,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -350,7 +356,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -371,7 +378,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -392,7 +400,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -493,7 +502,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -514,7 +524,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -535,7 +546,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -556,7 +568,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -577,7 +590,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -598,7 +612,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -619,7 +634,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "code",
-      "review"
+      "review",
+      "compute"
     ],
     "slots": [
       {
@@ -640,7 +656,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "capacity": 1,
     "capabilities": [
       "review",
-      "converse"
+      "converse",
+      "research"
     ],
     "slots": [
       {
@@ -660,6 +677,7 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     },
     "capacity": 1,
     "capabilities": [
+      "review",
       "converse"
     ],
     "slots": [
@@ -680,6 +698,7 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     },
     "capacity": 1,
     "capabilities": [
+      "review",
       "converse"
     ],
     "slots": [
