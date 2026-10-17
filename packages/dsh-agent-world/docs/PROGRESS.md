@@ -38,7 +38,42 @@ rm -rf ~/.dsh/profiles/web/node_modules/dsh-agent-world
 dsh plugin --profile web add file:$PWD
 ```
 
-当前验证状态（R70 末）：`typecheck` 绿 · `test` **624 / 624 / 0 fail / 0 todo**。**用户三条 UI 需求全部验过**：① 相机默认固定 **2×** 并**聚焦 agent-1**（Phaser 的 `startFollow`+`setDeadzone`，点谁跟谁）；② 顶栏与看板合成一行 **48px**（原 94px）；③ 展开看板是**浮层**，`.stage` 展开前后**完全相等**（720px）。宿主常驻 bash-1691。下一轮：M16-1（删 4M 死重量）、M18-1（walking 语义歧义）。
+当前验证状态（R72 末）：`typecheck` 绿 · `test` **624 / 624 / 0 fail / 0 todo**。**用户对 R70「镜头聚焦 agent」的修正已落地**：缩放不再吸附/跟随任何角色（删掉 `startFollow`/`setDeadzone`/`focusAgent`/`followAgentId`/`autoFocusDone`），只剩**力度控制**——默认固定 2×（居中于世界）、滚轮/按钮在整数档位阶梯上走、最小与最大范围由 `levelsNow()` 夹住（默认档也夹进范围）。点角色只开对话、不动镜头。下一轮：M16-1（删 4M 死重量）、M18-1（walking 语义歧义）。
+
+---
+
+## R72 —— 缩放不吸附 agent：只留力度控制 + 夹住最小/最大范围（用户修正）
+
+### 起因（用户原话，R70 之后的修正）
+R70 按用户第 1 条需求做了「默认固定缩放 + **镜头聚焦某个 agent**」——用的是 Phaser 的
+`startFollow` + `setDeadzone`，且**点谁就跟着谁**。用户下一轮反馈（灵枢记忆）：
+> **「缩放不需要吸附到某个 agent 上，只需要控制缩放的力度，并且最小和最大范围要控制住。」**
+
+也就是说 R70 把「默认有个固定缩放」理解成了「镜头跟着人走」，**理解过头了**——
+用户要的其实只是：默认一个固定档、缩放就是缩放的力度、别让它跑出范围。跟随是多余且打扰的
+（人在动，镜头一直在拽，观感上反而是"视角变化太灵活"）。
+
+### 改动（`web/scene/scene-phaser.js`，纯渲染层，协议/内容/模拟一行没动）
+1. **删掉整条"跟随"路径**：`startFollow` / `setDeadzone` / `stopFollow`、`focusAgent()`、
+   `followAgentId`、`autoFocusDone`、`FOLLOW_LERP`、`firstActorId()`、`focusedAgentId`（viewState 字段）、
+   返回门面上的 `focusAgent`、点角色的 `focusAgent(actor.id)`、`render()` 里的开局自动聚焦块。
+2. **点角色 = 只开对话**（`actorPick`），不再动镜头——「我在跟这个人」的自动镜头已删。
+3. **默认档夹进范围**：`zoomNow()` 在 `userZoom === null` 时把 `DEFAULT_ZOOM`(2) 用
+   `Math.min(top, Math.max(bottom, DEFAULT_ZOOM))` 夹进 `levelsNow()` 的 [最小, 最大]；`resetView()`
+   与 `create()` 的进场缩放也改走 `zoomNow()`（不再直接 `setZoom(DEFAULT_ZOOM)`）。
+   理由：极小窗口下 fit 档可能 > 2，直接设 2× 会低于最小档。
+4. 复位语义 = **回到默认档 + 居中于世界**（不再「聚焦某个人」）；适配（fitView）不变 = 看全图 + 居中。
+
+### 验证
+- `typecheck` 绿；`pnpm test` **624 / 624 / 0 fail / 0 todo**。
+- `lib/web/scene/scene-phaser.js` 已同步（`copy-web` 原地写，`startFollow/focusAgent/followAgentId/setDeadzone` 计数 0）。
+- `docs/ARCHITECTURE.md` §5.1 的 `CameraRig` 一行改成事实：「俯视 2D（Phaser），缩放/平移/居中；**不吸附、不跟随任何角色**（R72）」。
+
+### ⚠️ 没验完的（如实记）
+**真机没跑**：这一轮宿主没在跑（`/agent-world/api/world` 在 19387 / 3080 / 3000 全 000/404，
+`job_list` 空），所以「点角色不再动镜头」「默认 2× 居中」「滚轮到顶/到底停在边界」这几点是
+**代码 + 纯逻辑保证**，还没在浏览器里亲眼确认。宿主起来后第一件事：打开 `/agent-world/`，
+滚轮放大到 6× 再滚确认停住、缩小到 fit 确认停住、点一个角色确认镜头不跳、按复位确认回到 2× 居中。
 
 ---
 

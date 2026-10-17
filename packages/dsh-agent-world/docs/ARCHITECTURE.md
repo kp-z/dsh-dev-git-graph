@@ -280,7 +280,7 @@ Scene
 │   └── Roads                  寻路网格的可视化投影
 ├── Actors          Agent × N（≤24 同屏用独立对象；超出走 InstancedMesh + 简模）
 ├── Effects         投递物 / 庆祝粒子 / 警示气泡
-└── CameraRig       斜俯视 isometric，可 orbit / 缩放 / 跟随某个角色
+└── CameraRig       俯视 2D（Phaser），缩放（整数倍档位，夹 [最小, 最大]）/ 平移 / 居中；**不吸附、不跟随任何角色**（R72）
 ```
 
 ### 5.2 分层职责（严格）

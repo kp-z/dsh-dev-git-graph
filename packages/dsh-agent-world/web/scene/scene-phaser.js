@@ -160,34 +160,18 @@ export function createScenePhaser(canvas, options = {}) {
   /** 下一次 `applyCamera()` 是否要居中（进场与"复位"要，用户拖动后不要）。 */
   let centerOnNextApply = true
   /**
-   * **默认固定档**（R70，用户第 1 条："默认有一个固定的缩放，不是最大，而是集中到某个 agent"）。
+   * **默认固定档**（R72，用户修正："缩放不需要吸附到某个 agent，只需要控制缩放的力度，
+   * 并且最小和最大范围要控制住"）。
    *
    * 为什么不是"适配档"（把整张图缩到看得全）：那样 8 个 32×64 的小人在 1400px 宽的舞台里
-   * 只有 1 倍、**细节全糊在一起**，而且"看全"这件事对"跟着某个人看他在干什么"没有帮助。
+   * 只有 1 倍、**细节全糊在一起**。
    * 为什么不是最大档（6×）：只看得到几个格子，失去方位感。
    * 2× 是**能看清角色动作、又还认得出房间**的那一档。
    *
-   * 它只在"用户没自己缩放过"时生效——一旦用户滚过轮，`userZoom` 说了算（见 `zoomNow`）。
+   * 它只在"用户没自己缩放过"时生效——一旦用户滚过轮/点过缩放键，`userZoom` 说了算（见 `zoomNow`）。
    */
   const DEFAULT_ZOOM = 2
 
-  /**
-   * 跟随的插值系数（0~1，越小越"慢悠悠"）。
-   *
-   * 用 Phaser 的 `startFollow` 而不是自己每帧算位置：引擎的跟随自带
-   * **死区（deadzone）**与**插值**，自己写这两件事就是重造相机（D56 明令禁止）。
-   */
-  const FOLLOW_LERP = 0.12
-
-  /**
-   * **镜头跟着谁**（R70）。`null` = 不跟随（看全图）。
-   *
-   * 默认跟着第一个角色——用户要的是"集中到某个 agent"，而开局时最自然的焦点
-   * 就是队里那个 lead（角色顺序由内容的花名册决定，这里不写死是谁）。
-   */
-  let followAgentId = null
-  /** 开局自动聚焦只做一次（否则用户点了别人会被每帧重置回第一个）。 */
-  let autoFocusDone = false
   let lastRenderInput = null
   let pendingSize = null
   let assetsPlanned = false
@@ -235,13 +219,20 @@ export function createScenePhaser(canvas, options = {}) {
   }
 
   /**
-   * **当前档位**：用户选过就用用户的，没选过就跟随适配。
+   * **当前档位**：用户选过就用用户的，没选过用默认固定档（**夹进 [最小, 最大] 范围**）。
    *
    * 这是缩放这件事**唯一的真相**——相机、气泡锚点、拾取换算全从它读。
    * 各处自己算一份的话，会出现"画面缩放了但名字没跟着动"这类错位。
+   *
+   * R72：默认档也要**夹进可用档位范围**（用户："最小和最大范围要控制住"）——
+   * 极小窗口下 fit 档可能 > 2，此时默认 2× 低于最小档，得抬到最小档；反之亦然。
    */
   function zoomNow() {
-    return userZoom === null ? DEFAULT_ZOOM : userZoom
+    if (userZoom !== null) return userZoom
+    const levels = levelsNow()
+    const bottom = levels[0] ?? 1
+    const top = levels[levels.length - 1] ?? MAX_ZOOM
+    return Math.min(top, Math.max(bottom, DEFAULT_ZOOM))
   }
 
   /** 世界像素 ↔ 相机（缩放归相机，显示对象一律 scale 1）。 */
@@ -299,9 +290,9 @@ export function createScenePhaser(canvas, options = {}) {
       frame.worldPxW + padX * 2,
       frame.worldPxH + padY * 2,
     )
-    // ⚠️ **只有"跟随适配"时才居中**。用户拖过之后每次 `applyCamera()` 都 `centerOn(0,0)`
+    // ⚠️ **只有请求居中时才居中**。用户拖过之后每次 `applyCamera()` 都 `centerOn(0,0)`
     // 会把他拖到的位置一直拽回中央——那正是"拖不动"这种 bug 的成因。
-    if (centerOnNextApply === true && followAgentId === null) {
+    if (centerOnNextApply === true) {
       camera.centerOn(0, 0)
       centerOnNextApply = false
     }
@@ -331,40 +322,6 @@ export function createScenePhaser(canvas, options = {}) {
   // **我们只保留两条引擎不可能知道的产品规则**：① 像素画必须整数倍缩放（离散档位）；
   // ② 取景框按地图算（`worldFrame`）。其余一律不自己算。
 
-  /**
-   * **把镜头对准某个角色**（R70）——用户第 1 条要的"集中到某个 agent"。
-   *
-   * 全部交给 Phaser 的相机：`startFollow`（跟谁）+ `setDeadzone`（小范围移动不推镜头）
-   * + 插值系数（`FOLLOW_LERP`，慢悠悠跟上去而不是硬贴）。
-   * **这三件事都是引擎自带的**，自己每帧算 `scrollX/scrollY` 就是重造相机（D56 禁止）。
-   *
-   * 死区取**半格**（`TILE_PX` 的一半）：角色在格子里小幅挪动时不推镜头——
-   * 否则镜头会跟着"呼吸"一起抖，看着比不跟随更糟。
-   */
-  function focusAgent(agentId) {
-    if (activeScene === null) return
-    const camera = activeScene.cameras.main
-    const entry = agentId === null ? undefined : actorNodes.get(agentId)
-    const sprite = entry?.sprite
-    if (sprite === undefined || sprite === null) {
-      // 那个人还没上屏（或已经被删）：退回"看全图"，而不是留在一个追不到的 id 上。
-      followAgentId = null
-      camera.stopFollow()
-      applyCamera()
-      notifyViewChange()
-      return
-    }
-    followAgentId = agentId
-    // 已经锁定的档位不动；没锁过就用默认固定档（不是适配档——见 `DEFAULT_ZOOM`）。
-    userZoom = userZoom ?? DEFAULT_ZOOM
-    camera.startFollow(sprite, true, FOLLOW_LERP, FOLLOW_LERP)
-    camera.setDeadzone(TILE_PX / 2, TILE_PX / 2)
-    applyCamera()
-    notifyViewChange()
-  }
-
-  /** 缩放动画时长（毫秒）。太短像瞬移、太长像卡住。 */
-  const ZOOM_MS = 180
   /** 键盘推相机的速度（像素/秒）。 */
   const KEY_SPEED = 420
 
@@ -401,36 +358,25 @@ export function createScenePhaser(canvas, options = {}) {
 
   /** 适配：让整张地图完整显示（= 回到适配档 + 居中）。 */
   function fitView() {
-    // **看全图**：停掉跟随（否则引擎的跟随会立刻把镜头拽回那个人身上，
-    // 表现是"点了适配但画面自己跳回去"），然后缩到适配档并居中。
-    followAgentId = null
+    // **看全图**：缩到适配档并居中。
     userZoom = null
     centerOnNextApply = true
     if (activeScene !== null) {
-      activeScene.cameras.main.stopFollow()
       activeScene.cameras.main.setZoom(fitZoomNow())
     }
     applyCamera()
     notifyViewChange()
   }
 
-  /** 复位：回到适配档并居中（用户按住拖了半天之后想"回到全景"）。 */
+  /** 复位：回到默认固定档并居中（用户按住拖了半天之后想"回到开局视角"）。 */
   function resetView() {
-    // R70：复位的语义变了——不再是"缩到看得全整张图"，而是**回到默认档 + 聚焦某个人**。
-    // 用户要的是"默认有一个固定的缩放，集中到某个 agent"；"看全图"仍然有，走 `fitView()`。
+    // R72：复位的语义 = **回到默认档 + 居中**。不再"聚焦某个人"（用户修正：缩放不吸附 agent）。
     userZoom = null
-    centerOnNextApply = false
-    if (activeScene !== null) activeScene.cameras.main.setZoom(DEFAULT_ZOOM)
-    // 聚焦对象优先跟着用户点过的那个人；没点过就用第一个角色（开局焦点）。
-    const target = followAgentId ?? firstActorId()
-    focusAgent(target)
-  }
-
-  /** 第一个角色的 id（开局焦点）。由**世界的角色顺序**决定，不写死是谁。 */
-  function firstActorId() {
-    const agents = state.world?.agents
-    const first = Array.isArray(agents) ? agents[0] : undefined
-    return typeof first?.id === 'string' ? first.id : null
+    centerOnNextApply = true
+    // 用 `zoomNow()` 而不是直接 `DEFAULT_ZOOM`：默认档同样要夹进 [最小, 最大] 范围。
+    if (activeScene !== null) activeScene.cameras.main.setZoom(zoomNow())
+    applyCamera()
+    notifyViewChange()
   }
 
   /** 视图变了（缩放/复位）→ 通知外壳刷新按钮禁用态与倍数。 */
@@ -466,8 +412,6 @@ export function createScenePhaser(canvas, options = {}) {
       canZoomOut: zoom > bottom,
       // `fitted` = 还在"一眼看全"那一档（`fitView()` 之后为 true）。
       fitted: zoom === fit,
-      // R70：镜头正跟着谁（null = 看全图 / 没跟随）。外壳用它显示"正在跟谁"。
-      focusedAgentId: followAgentId,
     }
   }
 
@@ -567,9 +511,9 @@ export function createScenePhaser(canvas, options = {}) {
       // 在构造后立刻装的那一版被守卫挡掉了 —— 表现是 drawCalls 永远是 0。
       installFrameCounter(this.game)
       state.ready = true
-      // R70：进场用**默认固定档**（不是适配档），并把镜头对准第一个角色。
-      // `applyCamera()` 不管 zoom，所以这里显式设一次。
-      this.cameras.main.setZoom(DEFAULT_ZOOM)
+      // R72：进场用**默认固定档**（不是适配档），居中于世界（不吸附任何 agent）。
+      // `applyCamera()` 不管 zoom，所以这里显式设一次（用 `zoomNow()` 把默认档夹进范围）。
+      this.cameras.main.setZoom(zoomNow())
       applyCamera()
       if (lastRenderInput !== null) render(lastRenderInput)
       if (typeof options.onReady === 'function') options.onReady()
@@ -898,8 +842,7 @@ export function createScenePhaser(canvas, options = {}) {
             if (typeof pointer.getDistance === 'function' && pointer.getDistance() > 5) return
             // 长按也不算点人（700ms 以上）。
             if (typeof pointer.getDuration === 'function' && pointer.getDuration() > 700) return
-            // R70：点谁就把镜头对准谁——"我在跟这个人"是玩家最自然的预期。
-            focusAgent(actor.id)
+            // R72：点人只开对话，**不动镜头**（缩放不吸附 agent）。
             actorPick(actor.id)
           })
         }
@@ -1094,15 +1037,6 @@ export function createScenePhaser(canvas, options = {}) {
     drawLabels(plan)
     drawProps(plan)
     drawActors(worldState, plan, state.nowMs)
-    // R70：**第一次真的有角色上屏时，把镜头对准第一个角色**（用户第 1 条："默认…集中到某个 agent"）。
-    //
-    // 为什么放在这里而不是 `create()`：`create()` 时角色还没建（世界快照比引擎启动晚到），
-    // `focusAgent` 找不到精灵会退回"看全图"——那正是我第一次实测到 `focusedAgentId: null` 的原因。
-    // 只做一次：之后用户点谁就跟随谁，不该被每帧重置。
-    if (autoFocusDone !== true && actorNodes.size > 0) {
-      autoFocusDone = true
-      focusAgent(firstActorId())
-    }
     drawNotes(worldState, plan, state.tick, messageDeliveryTicks)
     applyCamera()
     // 绘制次数不在这里数：那是**引擎自己那一帧**的事，挂在它的帧钩子上（见下），
@@ -1388,8 +1322,6 @@ export function createScenePhaser(canvas, options = {}) {
     fitView,
     resetView,
     viewState,
-    /** R70：把镜头对准某个角色（点角色时内部也会调它）。 */
-    focusAgent,
     anchorOf,
     metrics,
     liveActors: liveActorsOf,
