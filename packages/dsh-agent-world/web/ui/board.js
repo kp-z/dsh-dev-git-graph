@@ -415,8 +415,30 @@ export function createBoard(options = {}) {
       const item = el(doc, 'li', 'board-member')
       if (selected !== null && selected.kind === 'member' && selected.id === row.member.id) item.classList.add('active')
       memberRowNodes.set(row.member.id ?? '__unowned__', item)
+      /**
+       * R4：把行的**可访问性/可测性**属性补回来。
+       *
+       * 为什么必须补（这不是"锦上添花"）：R3 把侧边栏那份 `renderAgentRow` 删掉、改用这里的
+       * `renderMembers` 之后，行上丢了 `data-agent-id` / `role` / `tabindex` / `aria-label`。后果三条：
+       *   ① 键盘 Tab 走不到行上 —— 只能鼠标点，键盘用户用不了；
+       *   ② 屏幕阅读器读不出"这是一个人、他叫什么、在干什么"；
+       *   ③ **自动化验收静默失效** —— `li[data-agent-id="…"]` 选不中，于是"点成员行没生效"
+       *      这种误判会反着报（R93 验收真的被绊住过一次）。
+       * 第 ③ 条最危险：判据自己坏了，人却以为是被测的东西坏了。
+       *
+       * 「未分配」那一行 `id === null`（它没有场景实体，点了也没处聚焦），所以**不给**按钮语义，
+       * 只标 `aria-disabled`——这是唯一允许分叉的条件，判据是 `id === null`。
+       */
+      const memberName = row.member.name ?? row.member.id ?? '未分配'
+      if (row.member.id !== null) {
+        item.dataset.agentId = row.member.id
+        item.setAttribute('role', 'button')
+        item.tabIndex = 0
+      } else {
+        item.setAttribute('aria-disabled', 'true')
+      }
       const head = el(doc, 'div', 'board-member-head')
-      head.append(el(doc, 'b', undefined, row.member.name ?? row.member.id ?? '未分配'))
+      head.append(el(doc, 'b', undefined, memberName))
       // R3：角色/状态**翻成中文**。看板原先直接印 `lead` / `idle`（原始状态码），
       // 而 R2 的侧边栏印的是「负责人 · 待命」。共用一份渲染之后只能有一份措辞——
       // 选中文：状态码是给程序看的，界面上印 `idle` 等于没给用户任何信息。
@@ -431,6 +453,15 @@ export function createBoard(options = {}) {
       )
       head.append(stateSpan)
       memberStateNodes.set(row.member.id ?? '__unowned__', stateSpan)
+      // `aria-label` 要在名字/角色/状态都齐了之后拼：只报名字的话，读屏用户听不出
+      // "这个人在干什么"，而那恰恰是这块列表的全部信息量。
+      if (row.member.id !== null) {
+        const parts = [memberName]
+        if (roleText !== '') parts.push(roleText)
+        const stateText = agentStateLabel(row.member.state)
+        if (stateText !== '') parts.push(stateText)
+        item.setAttribute('aria-label', parts.join(' · '))
+      }
       // R76：花名册删掉之后，「点成员对话」的入口移到看板成员卡上——一个独立的小按钮，
       // 与「点成员选中看任务」分开，避免点谁就弹对话。
       if (row.member.id !== null && typeof options.onMemberPick === 'function') {
@@ -445,7 +476,9 @@ export function createBoard(options = {}) {
         })
         head.append(talk)
       }
-      head.addEventListener('click', () => {
+      // 行既是"可点的"就该是"可敲的"：给了 `role="button"` + `tabindex` 却不响应
+      // 回车/空格，等于对键盘用户撒谎（他 Tab 上来、按下去，什么也不发生）。
+      const activate = () => {
         select({ kind: 'member', id: row.member.id })
         // R3：点成员行 → **也**通知外面（侧边栏里点谁就该聚焦谁）。
         //
@@ -453,7 +486,24 @@ export function createBoard(options = {}) {
         // 语义是"跟他说话"（开会话面板）；这里是"选中/聚焦"。
         // 「未分配」那一行 `id === null`（它没有场景实体），不可聚焦。
         if (row.member.id !== null) options.onMemberSelect?.(row.member.id)
-      })
+      }
+      head.addEventListener('click', activate)
+      if (row.member.id !== null) {
+        // ⚠️ 监听挂在 `item` 上、不是 `head` 上：`tabindex` 在 `item`，
+        // 所以键盘焦点落在 `item`——挂错地方的话 Tab 过来按回车什么也不会发生，
+        // 而"属性都在、行为没有"是最难看出来的一种 a11y 假实现。
+        item.addEventListener('keydown', (event) => {
+          // 空格键在按钮语义里也算"按下"（原生 button 就是这样）。
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          // ⚠️ 必须截断冒泡：`main.js` 有个文档级 keydown 把 **Enter** 当"开始对话"，
+          // 而它的守卫只排 `INPUT/TEXTAREA`——焦点在行上时照样会触发。
+          // 不拦的话"在行上按回车"会**既是选中又开面板**，等于偷偷改了行为
+          // （本轮是行为不变的重构，一格都不许变）。
+          event.stopPropagation()
+          activate()
+        })
+      }
       item.append(head)
 
       const chips = el(doc, 'div', 'board-chips')

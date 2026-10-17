@@ -136,7 +136,13 @@ const scene2d = createScenePhaser(canvas, {
   // "忽略拖拽/长按"由引擎的 Pointer API（`getDistance`/`getDuration`）判断，
   // 我们不再自己记 downX/downY/downAt（那段手写 `bindPick` 已删）。
   // R58 修过的死角在这里同样成立：命中区就是精灵几何，点身体任意位置都算。
-  onActorPick: (agentId) => openDialogueFor(agentId),
+  // ① 场景点人：聚焦（选中 + 镜头）**已经由渲染层的 `selectAgent` 做过了**
+  //（`scene-phaser.js` 的 `pointerup` 里先 `selectAgent` 再回调这里）——
+  // `focusAgent` 对"已选中的同一个"是空操作，所以这里只管开面板。
+  onActorPick: (agentId) => {
+    focusAgent(agentId, 'scene')
+    openDialogueFor(agentId)
+  },
   // P4：玩家用键盘走完一段 → 把落点写回世界（否则服务端还停在旧坐标，解锁会瞬移回去）。
   onAgentMoveSettled: (agentId, x, z) => void sendCommand({ kind: 'moveAgent', agentId, x, z }),
 })
@@ -181,15 +187,13 @@ const board = createBoard({
   mounts: sidebar.mounts(),
   styleRoot: $('sidebar'),
   palette: {},
-  // 看板定位（P1）：点成员卡 → 选中该 agent（键盘移动/镜头锁定的对象）+ 打开对话面板。
+  // ② 💬 按钮：聚焦 + 开面板（"跟他说话"）。
   onMemberPick: (agentId) => {
-    if (typeof scene2d.selectAgent === 'function') scene2d.selectAgent(agentId)
+    focusAgent(agentId, 'talk')
     openDialogueFor(agentId)
   },
-  // R3：点成员**行** = 只管选中/聚焦（不动对话面板）。侧边栏里点谁，镜头就跟谁。
-  onMemberSelect: (agentId) => {
-    if (typeof scene2d.selectAgent === 'function') scene2d.selectAgent(agentId)
-  },
+  // ③ 成员**行**：只聚焦，**不开**面板。侧边栏里点谁，镜头就跟谁。
+  onMemberSelect: (agentId) => void focusAgent(agentId, 'member'),
 })
 boardRef = board
 
@@ -347,6 +351,48 @@ function openDialogueFor(agentId) {
   dialogue.toggle(agentId)
   render(true)
 }
+
+/**
+ * 上一次聚焦是从哪条路来的（只给 `__agentWorld` 门面读，**不参与分支**）。
+ *
+ * ⚠️ 必须**声明在 `focusAgent` 之前**：`createScenePhaser()` 的装配是同步的，
+ * 它会立刻注册回调；而这里一旦有同步调用路径（R91 已经踩过一次 TDZ），
+ * 声明在后就是 `ReferenceError`，且症状和本轮改动毫无关系、极难归因。
+ */
+let lastFocusSource = null
+
+/**
+ * **聚焦的唯一入口**（R4 / DESIGN §6）：选中 + 镜头跟随。
+ *
+ * 三个入口（场景点人 / 成员行 / 💬）都走这里，`source` **只用于埋点**——
+ * 写进 `__agentWorld.lastFocusSource`，验收时据此核对"三条路真的汇到了一处"。
+ * ⚠️ **任何按 `source` 分叉行为都算违规**：那样它就不是唯一入口，只是三个入口的别名。
+ *
+ * ## 为什么"要不要开对话面板"**不**统一（不是遗漏）
+ *
+ * 三处现在的可观察行为确实不同（见 `__agentWorld.focusMatrix()` 那张表）。统一它们
+ * 属于**产品决策**（"点人到底该不该弹面板"），留给用户拍板；本轮是**行为不变的重构**，
+ * 所以只把"选中 + 镜头"这段共同部分收进来，开面板由各调用点自己决定。
+ *
+ * ## 为什么"已经选中同一个就不再调 selectAgent"
+ *
+ * 这不是优化，是**为了行为不变**：`selectAgent` 每次都会重开一段 420ms 的镜头平移
+ *（`startFollowSelection`）。而场景点人的路径上，`scene-phaser.js` 的 `pointerup`
+ * **已经**调过 `selectAgent` 了——这里再调一次就会把刚开始的平移重新起一遍，
+ * 用户看到的是"镜头顿一下再走"。聚焦一个已经聚焦的对象本来就该是空操作。
+ *
+ * @param {string} agentId
+ * @param {'scene'|'member'|'talk'} source - 仅埋点
+ * @returns {boolean} 是否已是聚焦态
+ */
+function focusAgent(agentId, source) {
+  if (typeof agentId !== 'string' || agentId === '') return false
+  lastFocusSource = source
+  if (typeof scene2d.selectAgent !== 'function') return false
+  if (scene2d.selectedAgent?.() === agentId) return true
+  return scene2d.selectAgent(agentId) === true
+}
+
 
 
 
@@ -602,6 +648,29 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     // R46：分组/状态过滤（= 界面上那两排 chip 的同一条路径，核验用）。
     setView: (next) => board.setView(next),
     setMembersOpen: (open) => board.setMembersOpen(open),
+  }
+  /**
+   * 聚焦入口的核验面（R4）。
+   *
+   * `lastFocusSource` 是**验收的判据**：点过三个入口之后它分别是 `scene` / `member` / `talk`，
+   * 说明三条路真的汇到了同一个 `focusAgent`。它**只用于埋点**——
+   * 若哪天有人写了 `if (source === 'member') …`，这个字段就会成为唯一的证据。
+   */
+  globalThis.__agentWorld = {
+    lastFocusSource: () => lastFocusSource,
+    selectedAgent: () => (typeof scene2d.selectedAgent === 'function' ? scene2d.selectedAgent() : null),
+    focus: (agentId, source) => focusAgent(agentId, source ?? 'debug'),
+    /**
+     * 三个入口各自**现在**的可观察行为（`selectedAgent / following / dialogueOpen`）。
+     *
+     * 存在的理由：本轮是"行为不变的重构"，而"没变"这件事必须能被**逐条读出来**，
+     * 否则下一轮谁都说不清改之前是什么样。这张表就是 DESIGN §6 那张表的运行时版本。
+     */
+    focusMatrix: () => [
+      { source: 'scene', 选中: true, 开面板: true, 说明: '场景点人：渲染层先 selectAgent，回调再开面板' },
+      { source: 'member', 选中: true, 开面板: false, 说明: '成员行：只聚焦' },
+      { source: 'talk', 选中: true, 开面板: true, 说明: '💬：聚焦 + 开面板' },
+    ],
   }
   /**
    * 侧边栏的核验入口（R2）：两档切换与行数——以及**溢出判据**（M7-9：
