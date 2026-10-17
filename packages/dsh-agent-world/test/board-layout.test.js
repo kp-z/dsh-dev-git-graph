@@ -434,6 +434,60 @@ test('可用空间为 0 / 缺失时不炸（量不到尺寸时的兜底）', () 
   }
 })
 
+// ── R3 / task-6：竖向排布（侧边栏只有 ~290px 宽，横向排布必然缩到读不了）─────────────
+test('竖向排布：前置在上、后续在下，连线接上下边缘', () => {
+  const layout = layoutDependencyGraph([task('a', 1), task('b', 2, ['a'])])
+  const geo = graphGeometry(layout, {}, 'vertical')
+  const a = geo.nodes.a
+  const b = geo.nodes.b
+  // 竖向 = 列号走 y，行号走 x。层 0 在上，层 1 在下。
+  assert.equal(a.y, DEFAULT_GEOMETRY.padY)
+  assert.equal(b.y, DEFAULT_GEOMETRY.padY + DEFAULT_GEOMETRY.cellH)
+  assert.equal(a.x, DEFAULT_GEOMETRY.padX)
+  assert.equal(b.x, DEFAULT_GEOMETRY.padX)
+
+  const edge = geo.edges[0]
+  assert.equal(edge.y1, a.y + a.h, '起点在前置卡片的下边缘')
+  assert.equal(edge.x1, a.cx)
+  assert.equal(edge.y2, b.y, '终点在后置卡片的上边缘')
+  assert.equal(edge.x2, b.cx)
+  assert.match(edge.path, /^M \d+ \d+ C /)
+
+  // 同样的层数，竖向比横向**窄**（这正是侧边栏需要的）。
+  const horizontal = graphGeometry(layout)
+  assert.ok(geo.width < horizontal.width, '竖向排布要显著更窄')
+  assert.ok(geo.height > horizontal.height, '代价是更高——侧边栏高度够')
+})
+
+test('竖向排布：默认仍是横向（不改老行为）', () => {
+  const layout = layoutDependencyGraph([task('a', 1), task('b', 2, ['a'])])
+  assert.deepEqual(graphGeometry(layout), graphGeometry(layout, {}, 'horizontal'))
+  assert.deepEqual(fitGraphGeometry(layout, { width: 800, height: 400 }), fitGraphGeometry(layout, { width: 800, height: 400 }, undefined, 'horizontal'))
+})
+
+test('侧边栏宽度下：竖向 1:1 装下，横向只能缩到读不了（R3 的真实世界 = 3 节点链）', () => {
+  // 这是真机快照里的形状：task-1 → task-2 → task-3 一条链。
+  const layout = layoutDependencyGraph([task('task-1', 1), task('task-2', 2, ['task-1']), task('task-3', 3, ['task-2'])])
+  const sidebar = { width: 290, height: 612 }
+  const vertical = fitGraphGeometry(layout, sidebar, undefined, 'vertical')
+  const horizontal = fitGraphGeometry(layout, sidebar)
+  // 判据不是"装得下"，而是"**不用缩放**就装得下"——缩到 0.65 的 8px 标题等于没显示。
+  assert.equal(vertical.scale, 1, `竖向应 1:1 装下，实际 ${vertical.scale}（${vertical.preset}）`)
+  assert.ok(vertical.width <= sidebar.width && vertical.height <= sidebar.height)
+  assert.ok(horizontal.scale < vertical.scale, '横向在同样宽度下必然要缩')
+})
+
+test("'auto'：窄栏里挑竖向；宽屏下仍挑横向（不因为改实现而无故换边）", () => {
+  const chain = layoutDependencyGraph([task('task-1', 1), task('task-2', 2, ['task-1']), task('task-3', 3, ['task-2'])])
+  const narrow = fitGraphGeometry(chain, { width: 290, height: 612 }, undefined, 'auto')
+  assert.equal(narrow.orientation, 'vertical')
+  assert.equal(narrow.scale, 1)
+
+  const wide = fitGraphGeometry(realisticLayout(), { width: 1400, height: 500 }, undefined, 'auto')
+  assert.equal(wide.orientation, 'horizontal', '宽而矮的空间里横向才是对的')
+  assert.equal(wide.scale, 1)
+})
+
 test('挑档位是确定性的：同一份输入同一个结果', () => {
   const layout = realisticLayout()
   const available = { width: 812, height: 233 }

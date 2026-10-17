@@ -50,7 +50,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r88'
+const BUILD = 'build r91'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
@@ -142,38 +142,56 @@ const scene2d = createScenePhaser(canvas, {
 })
 
 /**
- * 侧边栏（R2 / PLAN §二(a)）：两档视图（Agent 列表 / 任务流程图）。
+ * 看板的引用（R3）。为什么不是直接读 `board`：`createSidebar()` 建完页签会**同步**调一次
+ * `setView(初始档)`，于是 `onViewChange` 在下面 `const board = createBoard(...)` 那一行
+ * **之前**就跑了。
  *
- * 本轮**只读**：不搬看板、不改渲染路径。点击回调按**最终形态**签名（`onSelect(agentId)`），
- * 现在接的是已有的 `selectAgent`（选中 + 420ms 平移跟随，真机验过的那条链路），
- * R4 把它换成单一入口 `focusAgent` 时，`sidebar.js` 一行都不用改。
+ * ⚠️ 这里**不能**用 `typeof board === 'undefined'` 兜：`typeof` 只对"从未声明"的标识符安全，
+ * 对处在暂时性死区（TDZ）里的 `const` 一样抛 ReferenceError。第一版就是这么写的，
+ * 结果整个 `main.js` 在装配阶段被中断——顶栏与侧边栏都在，场景与所有门面全没建，
+ * 而控制台只有一条和看板毫无关系的 ReferenceError（真机踩到，R91）。
+ * 所以用一只**先声明好的**可变引用承接。
+ */
+let boardRef = null
+
+/**
+ * 侧边栏（R2 建 / R3 收口）：两档视图（Agent 列表 / 任务流程图）。
+ *
+ * 这里**只建外壳**（页签 + 两块容器）。内容全部来自看板——同一份 `renderMembers` /
+ * `renderGraph` 的产物挂进去，所以不存在"侧边栏版"和"看板版"两套渲染。
  */
 const sidebar = createSidebar({
   root: $('sidebar'),
-  onSelect: (agentId) => {
-    if (typeof scene2d.selectAgent === 'function') scene2d.selectAgent(agentId)
+  // 藏在 `hidden` 里的容器量出来是 0×0：切到任务图档之后让看板重挑一次几何。
+  onViewChange: () => {
+    boardRef?.refreshGraph()
   },
 })
 
 /**
- * 执行看板（M7-1）。**由数据事件驱动**（`board.update(world)`），
- * 不挂进 `render()` 那条 60fps 的路——看板不进 3D 渲染循环，这是"场景不被拖慢"的前提。
- * 默认**收起成一条摘要**（DESIGN 第三节）。
+ * 执行看板（M7-1 → R3：从顶栏搬进侧边栏）。
+ *
+ * **挂载模式**：不建顶栏摘要条，把成员档与任务图档分别挂到侧边栏的两块容器里。
+ * `palette` 变量也挂在侧边栏上（`styleRoot`），两档都能继承到 `--board-*`。
+ *
+ * 数据仍是**事件驱动**（`board.update(world)`），不进 `render()` 那条 250ms 的路——
+ * 这是"看板不拖慢场景"的前提。
  */
 const board = createBoard({
-  root: $('board'),
+  mounts: sidebar.mounts(),
+  styleRoot: $('sidebar'),
   palette: {},
-  // R76：没有抽屉了，展开看板不再需要"把谁收起来"——但展开仍要重画气泡避让（看板浮层会占顶部空间）。
-  onCollapsed: () => render(true),
-  onSelect: (taskId) => {
-    boardSelection = taskId
-  },
   // 看板定位（P1）：点成员卡 → 选中该 agent（键盘移动/镜头锁定的对象）+ 打开对话面板。
   onMemberPick: (agentId) => {
     if (typeof scene2d.selectAgent === 'function') scene2d.selectAgent(agentId)
     openDialogueFor(agentId)
   },
+  // R3：点成员**行** = 只管选中/聚焦（不动对话面板）。侧边栏里点谁，镜头就跟谁。
+  onMemberSelect: (agentId) => {
+    if (typeof scene2d.selectAgent === 'function') scene2d.selectAgent(agentId)
+  },
 })
+boardRef = board
 
 dialogue = createDialogueUi({
   send: sayToAgent,
@@ -425,16 +443,14 @@ const connection = createConnection({
     // 分组签一直显示英文短 id（真机上抓到的）。
     board.setTaskSets?.(snap.taskSets)
     board.update(world, { diagnostics })
-    sidebar.update(world, meta)
     legend.update({ scene: meta.scene })
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
   onEvents: (events) => {
     applyEvents(world, events)
     pruneMessages(world)
+    // R3：侧边栏**没有自己的数据路径**了——看板那一份渲染直接挂进了它的两档。
     board.update(world, { diagnostics })
-    // R2：侧边栏跟同一份数据（内部按结构签名自节流，不是每帧重建 DOM）。
-    sidebar.update(world, meta)
     render()
   },
   onSync: () => {
@@ -466,8 +482,8 @@ window.addEventListener('resize', () => {
   render(true)
 })
 
-// 看板默认收起成一条摘要（DESIGN 第三节：场景是主角）。
-board.setCollapsed(true)
+// R3：看板从顶栏搬进侧边栏之后**没有"收起"这回事**了——它常驻在侧边栏里，
+// 两档由页签切换（`setCollapsed` 在挂载模式下是空操作，这里不再调它）。
 
 // 本地时钟的可见部分：每 250ms 重画一次，让"没事件但时间在走"看得见，
 // 也让纸条与气泡在两次事件之间平滑移动。**看板不在这条路上**（它由数据事件驱动）。
@@ -576,8 +592,13 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     model: () => board.model(),
     layout: () => board.layout(),
     geometry: () => board.geometry(),
+    /** 当前选中的任务 id（R3：`select()` 是写入口，读入口一直在 board 上没暴露）。 */
+    selected: () => board.selected(),
     // `clipped()` 由 board.js 自己在同一个宏任务里挂（它先于 app 的门面创建）。
-    expand: () => board.setCollapsed(false),
+    // R3：`expand()` 已删——看板搬进侧边栏之后没有"展开/收起"，它是常驻的两档。
+    // 留着它只会让核验脚本以为还存在那个状态。
+    /** 切到观察任务图的那一档（= 点「任务流程图」页签的同一条路径）。 */
+    showGraph: () => sidebar.setView('graph'),
     // R46：分组/状态过滤（= 界面上那两排 chip 的同一条路径，核验用）。
     setView: (next) => board.setView(next),
     setMembersOpen: (open) => board.setMembersOpen(open),

@@ -123,18 +123,18 @@
 
 ## 五、轮次计划（每 2 小时一轮，按序取）
 
-| 轮 | 目标 | 谁 | 产出 | 依赖 |
-|---|---|---|---|---|
-| **R1** | 调研：侧边栏挂法 + 列表聚焦 + 交互最佳实践（**只出文档，不动代码**） | skill-finder + designer | `docs/RESEARCH-reuse.md`、`docs/DESIGN-interaction.md` | — |
-| **R2** | 侧边栏骨架：`sidebar.js` + 两档视图切换（Agent 列表 / 任务图），**先只读** | developer | 新文件 + 截图 | R1 |
-| **R3** | 看板搬进侧边栏，`#board` 从 header 摘掉（**只留一份渲染代码**） | developer | 改动 + 回归 | R2 |
-| **R4** | 列表聚焦：点卡片 = 选中 + 镜头平移 | developer | 改动 + 真机截图 | R2 |
-| **R5** | 细节打磨：Map 显示 + Header 图标 + 两档分辨率不溢出 | designer→developer | 改动 + 裁剪判据 | R3 |
-| **R6** | 交互收敛：按 `DESIGN-interaction.md` 去重入口 | developer + reviewer | 改动 + 评审 | R1 |
-| **R7** | 稳定 S1/S2：帧/状态一致性自检 + 回归 | developer | 测试或页内自检 | — |
-| **R8** | 稳定 S3：卡住的单在界面上有出口 | developer | 改动 + 造场景验证 | — |
-| **R9** | 分层 S4：墙/桌/椅/黑板按原版参与 Y 排序（**对照 Godot 原版**） | developer + reviewer | 截图对照 | — |
-| **R10** | 复盘：把前 9 轮的经验写进 `ARCHITECTURE.md`，重排下一批 | Leader | 文档 | R1–R9 |
+| 轮 | 目标 | 谁 | 产出 | 依赖 | 状态 |
+|---|---|---|---|---|---|
+| **R1** | 调研：侧边栏挂法 + 列表聚焦 + 交互最佳实践（**只出文档，不动代码**） | skill-finder + designer | `docs/RESEARCH-reuse.md`、`docs/DESIGN-interaction.md` | — | ✅ 完成（task-1/2，Leader 逐条核实） |
+| **R2** | 侧边栏骨架：`sidebar.js` + 两档视图切换（Agent 列表 / 任务图），**先只读** | developer | 新文件 + 截图 | R1 | ✅ 完成（task-5；真机 280px/无横向滚动/8 行/点行→选中+跟随） |
+| **R3** | 看板搬进侧边栏，`#board` 从 header 摘掉（**只留一份渲染代码**） | developer | 改动 + 回归 | R2 | 🔄 进行中（task-6） |
+| **R4** | 列表聚焦：点卡片 = 选中 + 镜头平移 | developer | 改动 + 真机截图 | R2 | 🔄 部分完成（侧边栏行已通；待与场景/看板合流为唯一 `focusAgent`） |
+| **R5** | 细节打磨：Map 显示 + Header 图标 + 两档分辨率不溢出 | designer→developer | 改动 + 裁剪判据 | R3 | ⬜ |
+| **R6** | 交互收敛：按 `DESIGN-interaction.md` 去重入口 | developer + reviewer | 改动 + 评审 | R1 | ⬜ |
+| **R7** | 稳定 S1/S2：帧/状态一致性自检 + 回归 | developer | 测试或页内自检 | — | ✅ 完成（task-3；`R0 F0 D0` + 故障注入 R0→R328 实测） |
+| **R8** | 稳定 S3：卡住的单在界面上有出口 | developer | 改动 + 造场景验证 | — | ⬜ |
+| **R9** | 分层 S4：墙/桌/椅/黑板按原版参与 Y 排序（**对照 Godot 原版**） | developer + reviewer | 截图对照 | — | ⚠️ **并行 Agent 已在做**（他们已提交 R78/R79：家具改为可 Y 排序实体、椅子不再压桌面）。**不要重复**；由他们做完后我方只做独立复核（截图对照） |
+| **R10** | 复盘：把前 9 轮的经验写进 `ARCHITECTURE.md`，重排下一批 | Leader | 文档 | R1–R9 | ⬜ |
 
 > 顺序不是死的：**若用户临时提了别的，用户的话优先**，插到当前轮之前，并把被挤掉的条目往后挪。
 

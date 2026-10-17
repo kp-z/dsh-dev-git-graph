@@ -1,5 +1,5 @@
 /*
- * 侧边栏（R2 / PLAN §二(a)）—— 页面内 `<aside>`，挤窄舞台而不是浮在上面。
+ * 侧边栏（R2 建 → R3 收口）—— 页面内 `<aside>`，挤窄舞台而不是浮在上面。
  *
  * ## 为什么是 grid 列（而不是 `position:absolute` 浮层）
  *
@@ -19,7 +19,7 @@
 .app {
   /* 侧边栏宽度：只有这一处定义（窄视口在文件末尾按档收窄）。
      `tokens.css` 是另一个 Agent 也在碰的公共文件，所以这个局部变量就放在使用它的文件里。 */
-  --sidebar-w: 280px;
+  --sidebar-w: 320px;
   /* 列：舞台(1fr) + 侧边栏(固定)。行仍由 layout.css 给（48 / 1fr / 36）。 */
   grid-template-columns: 1fr var(--sidebar-w);
 }
@@ -36,6 +36,20 @@
   backdrop-filter: var(--blur);
   border-left: 1px solid var(--stroke);
   z-index: var(--z-drawer);
+
+  /* ── 看板 token（R3）──────────────────────────────────────────────────────
+     看板原先住在 `#board` 里，它的成员列宽与底色变量挂在 `tokens.css` 的 `#board {}` 上。
+     现在看板挂进侧边栏，那些变量必须能被**两档**继承到，所以在这里重挂一遍。
+     ⚠️ `--board-members-w: 0` 是必须的：它是"成员列占多宽"，而侧边栏里成员列是**整宽**的
+        （见下方 `.board-members { width: auto }`）。留着 300px 会让成员行只占左边一半、
+        右边空出一条，还顺带把产出阅读面板（`.board-read` 的 `left`）推到错的位置。 */
+  --board-members-w: 0px;
+  --board-bg: var(--bg-0);
+  --board-card: var(--bg-1);
+  --board-fg: var(--fg-0);
+  --board-dim: var(--fg-2);
+  --board-line: var(--stroke-strong);
+  --board-card-line: var(--stroke);
 }
 
 /* ── 头：两档页签 ──────────────────────────────────────────────────────────── */
@@ -70,113 +84,108 @@
   border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-/* ── 体：只有这块滚 ────────────────────────────────────────────────────────── */
+/* ── 体：**两档各自滚**，不是整块滚 ────────────────────────────────────────────
+   Agent 档是一列可滚的成员行；任务图档的图有自己的滚动容器（`.board-canvas`），
+   如果外层再滚一次，图里横竖两条滚动条会打架，用户拖起来像"卡住"。 */
 .sidebar-body {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
-  padding: var(--s-2);
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .sidebar-panel[hidden] {
   display: none;
 }
+.sidebar-panel-agents {
+  overflow: auto;
+  padding: var(--s-2);
+}
 
-/* Agent 列表：**沿用看板的成员卡语言**（`.board-member*`，components.css:918），
-   这里只补"整卡可点"与"当前工单"两处侧边栏特有的东西。 */
-.sidebar-agents {
-  gap: 4px;
+/* ── Agent 档：看板的成员栏搬过来（R3）───────────────────────────────────────
+   `renderMembers()` 的产物本身没变（`.board-members` / `.board-member`），
+   这里只把"左栏 300px 固定宽"改成"整宽"，因为侧边栏里没有左右分栏。 */
+.sidebar-panel-agents .board-members {
+  width: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: visible;
+  padding: 0;
+  border-right: none;
 }
-.sidebar-agent {
-  /* 整卡可点 = 整卡是命中区（不做"只有名字能点"那种半吊子）。 */
+.sidebar-panel-agents .board-members h3 {
+  /* 档签已经说明这是"Agent 列表"，再来一个「成员看板」小标题是同一句话。
+     但开合按钮（窄视口那张）要留着——它是折叠态的唯一出口。 */
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+}
+.sidebar-panel-agents .board-member {
   cursor: pointer;
-  transition: border-color var(--t-hover) var(--ease), background var(--t-hover) var(--ease);
 }
-.sidebar-agent:hover {
-  border-color: var(--stroke-strong);
-  background: color-mix(in srgb, var(--surface-1) 60%, transparent);
-}
-.sidebar-agent:focus-visible {
-  outline: none;
-  box-shadow: var(--glow-accent);
-}
-.sidebar-agent .board-member-head {
-  /* 行内的头不许自己再撑开：整卡才是命中区。 */
-  cursor: inherit;
+.sidebar-panel-agents .board-member-head {
   flex: 1 1 100%;
   min-width: 0;
 }
-.sidebar-agent .board-member-head b {
+.sidebar-panel-agents .board-member-head b {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sidebar-agent-task {
-  display: flex;
-  gap: var(--s-1);
-  align-items: baseline;
-  min-width: 0;
-  font-size: var(--fs-micro);
-  color: var(--fg-2);
-}
-.sidebar-agent-task-id {
+
+/* ── 任务图档：视图条 + 依赖图 + 详情（R3）────────────────────────────────── */
+.sidebar-panel-graph .board-view {
   flex: none;
-  color: var(--accent);
-  font-family: var(--mono-font);
+  padding: var(--s-2) var(--s-2) 0;
 }
-.sidebar-agent-task .dim {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ── 任务图（本轮是只读摘要；R3 由看板搬入真正的依赖图）────────────────────── */
-.sidebar-graph-group {
-  margin-bottom: var(--s-3);
-}
-.sidebar-graph-group h3 {
-  margin: 0 0 var(--s-1);
-  font-size: var(--fs-section);
-  font-weight: var(--fw-title);
-  letter-spacing: var(--tracking-section);
-  color: var(--fg-2);
-  text-transform: uppercase;
-}
-.sidebar-task {
-  cursor: default;
-}
-.sidebar-task .board-member-head {
-  cursor: inherit;
-}
-.sidebar-task .board-member-head b {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sidebar-empty {
-  margin: 0;
+.sidebar-panel-graph .board-graph {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--s-2);
+}
+.sidebar-panel-graph .board-graph h3 {
+  /* 图头那句"左 → 右：前置解锁后续"在窄栏里换行会占两行，压成一行小字。 */
   font-size: var(--fs-micro);
   color: var(--fg-2);
+}
+.sidebar-panel-graph .board-graph h3 .dim {
+  display: none;
+}
+.sidebar-panel-graph .board-detail {
+  flex: none;
+  /* 详情条在窄栏里必须换行：一行排不下"状态/执行者/解锁了…"四段。 */
+  flex-wrap: wrap;
+  padding: var(--s-2);
+  border-top: 1px solid var(--stroke);
+  font-size: var(--fs-micro);
+}
+.sidebar-panel-graph .board-missing-note {
+  flex: none;
+  font-size: var(--fs-micro);
+}
+
+/* 看板的"缺 token"告警与图头提示都靠 `hidden` 收起——挂载模式下这些节点分散在两档里，
+   统一在这里兜一道，免得漏掉某个容器自己的 `display` 覆盖了 `hidden`。 */
+#sidebar [hidden] {
+  display: none !important;
 }
 
 /* ── 窄视口：侧边栏让位 ────────────────────────────────────────────────────── */
 /*
- * 1024×768 是验收线（M7-9 判据）。固定 280px 在 1024 下只剩 744px 给舞台，
- * 仍装得下（当前默认视野按 1227 宽调过，引擎会自己按新宽度适配），所以这里只**收窄**，
- * 不隐藏——隐藏会让"唯一的交互面"在窄屏上直接消失，比拥挤更糟。
+ * 1024×768 是验收线（M7-9 判据）。320px 在 1024 下只剩 704px 给舞台，仍装得下。
+ * 这里只**收窄**，不隐藏——隐藏会让"唯一的交互面"在窄屏上直接消失，比拥挤更糟。
  */
 @media (max-width: 1200px) {
   .app {
-    --sidebar-w: 232px;
+    --sidebar-w: 272px;
   }
 }
 @media (max-width: 900px) {
   .app {
-    --sidebar-w: 200px;
-  }
-  .sidebar-agent-task {
-    /* 极窄时工单行让位给名字与状态：一行里塞三段必然溢出。 */
-    display: none;
+    --sidebar-w: 232px;
   }
 }

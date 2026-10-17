@@ -34,10 +34,8 @@
   <body>
     <div class="app">
       <!--
-        顶栏（48px 玻璃）——R70 起**顶栏与看板合成一行**（用户："上方 title 和看板行应该是一行
-        紧凑点，重新设计，简约优雅，图标"）。所以 `#board` 就放在这一行里：
-        收起时它是这一行里的**摘要**（图标 · 进度条 · 计数徽章 · 正在跑什么 · 展开图标），
-        展开时它变成**浮层**（`position: absolute`，浮在舞台之上，**不占布局、不挤压场景**）。
+        顶栏（48px 玻璃）。R3 起它**只有品牌与命令按钮**：看板搬进侧边栏了
+        （两档：Agent 列表 / 任务流程图），顶栏不再有摘要条。
       -->
       <header class="topbar" id="topbar">
         <div class="brand">
@@ -62,8 +60,12 @@
             title="点击重命名">Agent World</span>
         </div>
 
-        <section id="board" class="board" aria-label="执行看板"></section>
-
+        <!--
+          R3：`#board` **从顶栏摘掉了**。看板现在整体挂在侧边栏里（两档：Agent 列表 /
+          任务流程图），所以顶栏只剩品牌与命令按钮。
+          为什么不是"顶栏留摘要 + 侧边栏放详情"：那会是同一份数据的两套渲染
+          （用户原话「避免同样的功能做两份」）——摘要条与侧边栏会各自算出不同的计数。
+        -->
         <div class="commands">
           <button id="cmd-pause" class="icon-btn" type="button" title="暂停世界" aria-label="暂停世界">
             <svg viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="3.6" width="2.3" height="8.8" rx="1.15" /><rect x="8.7" y="3.6" width="2.3" height="8.8" rx="1.15" /></svg>

@@ -42,6 +42,179 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R93（Lead）—— 验收 task-6：声称全部成立；但发现一处**它没提的回归**
+
+### 核实结果（逐条对它的声称，全部为真）
+| 它的声称 | 我的核实 | 结论 |
+|---|---|---|
+| `#board` 从顶栏摘掉 | `grep 'id="board"\|class="board"' web/index.html` **无命中**；页内 `hasBoardInHeader: false` | ✅ |
+| `renderGraph` 只留一份 | `grep -rn "function renderGraph" web/` → 只有 `board.js:506`；`renderMembers` 同（`board.js:403`） | ✅ |
+| `sidebar.js` 306 → 153 行 | `wc -l` = **153** | ✅ |
+| 依赖图是真图不是分组摘要 | 页内 SVG `.board-edges` 有 **2 条 `path.board-edge done`**（竖排 242×252）；点任务节点 → 详情 `task-1 / 状态 完成 / 执行者 小青 / 解锁了 task-2` | ✅ |
+| 点成员行 → 选中 + 跟随 + 对话不打开 | 点 `.board-member-head` → `sel=agent-1`、`following: true`、`dlg: false` | ✅ |
+| 测试 642/642 | `node --test` = 642 pass / 0 fail | ✅ |
+| 性能条无上涨 | `绘制 2（合批）· 精灵 194 · 切换 0 · R0 F0 D0 · build r91` | ✅ |
+
+### ⚠️ 它没提的回归：**复用 `renderMembers` 时丢了行的可访问性/可测性属性**
+上一轮侧边栏自己的 `renderAgentRow` 产出的是：
+```html
+<li class="board-member sidebar-agent" data-agent-id="agent-1" tabindex="0" role="button" aria-label="…">
+```
+删掉它、改用 `board.js::renderMembers` 之后，行变成：
+```html
+<li class="board-member">          <!-- 没有 data-agent-id / role / tabindex -->
+```
+后果（三条，都不在它的报告里）：
+1. **键盘不可达**：没有 `tabindex`，Tab 走不到成员行；
+2. **屏幕阅读器不再当它是按钮**：`role="button"` + `aria-label` 都没了；
+3. **自动化/e2e 会静默失效**：**我自己的验收就是被这条绊住的**——`li[data-agent-id="agent-1"]`
+   选不到，我一度以为"点成员行没生效"，直到改成 `.board-member-head` 才验通。
+   （功能没坏，但**验证手段坏了**——这比功能坏更隐蔽。）
+
+**处置**：不阻塞 task-6（功能确实通了），但记为**下一轮必改**：把 `data-agent-id` / `role` / `tabindex` /
+`aria-label` 加回 `board.js::renderMembers` 产出的行上（一处改，两处挂载都受益）。
+这也正是「复用要复用到语义层，不是只复用视觉」的例子。
+
+### 另一条已知未做（developer 主动标注，我认可它的判断）
+`💬` 按钮还在（8 个）。设计文档 §6 说删（它与"点人 + Enter"重复）。
+它没删的理由是"删之前得先确认 Enter/页签那条路真的可达"——**这个理由成立**（先确认替代路径可用再删旧路），
+但它已连挂两轮，下一轮必须给出结论：要么删掉并证明 Enter 可达，要么写清为什么保留。
+
+### 下一轮从哪继续
+- **R4**：三入口（侧边栏行 / 场景点人 / 看板卡）收成唯一 `focusAgent`；顺带把上面的可访问性属性加回。
+- **R6**：按设计文档删重复入口（含 `💬` 的最终结论）。
+- **R9**：等并行 Agent 的家具分层交付后做独立复核（不写实现）。
+
+---
+
+## R92（task-6 / developer）—— **看板搬进侧边栏**：`#board` 从顶栏摘掉，依赖图只留一份
+
+> 编号说明（Lead 核定）：本条原写成 R91，与 Lead 的「轮次执行」撞号。
+> 按时间顺序：R91 = Lead 轮次执行（落回退点 + 派 R3）、**R92 = 本条（task-6 交付，最新）**。
+> 只改标题序号，内容未动。
+
+### 做了什么
+1. **`board.js` 加"挂载模式"**（`options.mounts` / `options.styleRoot`）：
+   `createBoard()` 原本只会往 `root`（`#board`）里建"顶栏摘要 + 展开浮层"。
+   现在可以只给两个容器，把**同一批节点**分挂上去——成员行去 Agent 档、依赖图 + 视图条 + 详情去任务图档。
+   - 摘要条（`board-head`）在挂载模式下**不建**（它是顶栏那一条，侧边栏里没有它的位置）。
+   - `setCollapsed()` 在挂载模式下是**空操作**：两档是否可见由页签决定，不许它偷偷隐藏 `body/detail`。
+   - `applyNarrowDefault()` 跳过：那是"成员在上、图在下"的窄屏妥协，两档互斥时不存在。
+2. **`index.html`：`<section id="board">` 删除**。顶栏只剩品牌与命令按钮。
+3. **`sidebar.js` 从 306 行削到 153 行**，**删掉 4 个重复实现**：
+   `renderAgentRow` / `currentTaskOf` / `renderGraph`（按状态分组的临时摘要）/ `signatureOf`。
+   它现在只做"两块容器 + 页签条"，渲染逻辑一行都没有。
+4. **依赖图在窄栏里画不出来 → 加了竖向排布（`board-layout.js`）**。理由与判据见下一节。
+5. **反证**：`grep -rn "function renderGraph" web/` → **只有 `board.js:506` 一处**；`renderMembers` 同（`board.js:403`）。
+
+### 为什么不是纯搬运：窄栏里的"看得见但读不了"
+
+搬完先量了一次，横向排布在侧边栏（290px 宽）里是这样：
+
+| 排布 | 档位 | 缩放 | 内容尺寸 | 结果 |
+|---|---|---|---|---|
+| 横向 | `tight` | **0.65** | 446×64 | 标题变成 ~8px，**读不了** |
+| 竖向 | `comfortable` | **1.0** | 242×252 | 标题正常，3 节点一屏装下 |
+
+关键点：横向那版 `clipped()` 报 **0**——几何上它确实装下了。所以这不是"溢出"，而是
+**"缩到读不出"**，`clipped()` 永远抓不到这类失败。侧边栏是"窄而高"，把层序竖过来才合身。
+
+实现：`graphGeometry(layout, options, orientation)` 加第三参数（默认 `'horizontal'`，老行为一字未改），
+`fitGraphGeometry(..., 'auto')` 两个方向各算一遍**取缩放更大、档位更松的那个**——
+某条流水线并行很多时横向可能反而更省，这由算术决定，不该我们预先猜。
+判据（已进测试）：`'auto'` 在 290×612 的连续链上选竖向且 `scale === 1`；在 1400×500 上仍选横向。
+
+### 踩到并修掉的三个坑（都值得记住）
+
+1. **`typeof` 对 TDZ 里的 `const` 一样抛 ReferenceError**。
+   `createSidebar()` 建完页签会**同步**调一次 `onViewChange`，那时 `const board` 还没初始化。
+   第一版写 `if (typeof board === 'undefined') return` 兜——**兜不住**，`typeof` 只对"从未声明"安全。
+   真机表现极具误导性：顶栏与侧边栏都在，但场景、所有 `__agentWorld*` 门面全没建，
+   控制台只有一条和看板无关的 ReferenceError。改为**先声明** `let boardRef = null` 承接。
+2. **`hidden` 里的容器量出来是 0×0**。数据变化时任务图档通常藏着，`renderGraph()` 按 0 宽
+   挑几何会缩到 0.4 下限、节点挤成一列。改为：宽或高 < 1 时**直接不画**，
+   切档后由新导出的 `refreshGraph()` 显式补一次。
+3. **共用渲染后措辞倒退了**：看板原先直接印 `lead` / `idle`（原始状态码），
+   而 R2 的侧边栏印的是「负责人 · 待命」。既然只能留一份，就留中文——
+   在 `board.js` 里改成 `roleLabel()` / `agentStateLabel()`，而不是在侧边栏里另写一套。
+
+### 顺带补上的一处缺口（原本会被当成回归）
+
+`board.js` 的成员行点击**只改看板自己的高亮、完全不碰场景**（DESIGN §3.2 记的那条漏接）。
+看板搬进侧边栏之后，这等于"点了列表里的名字，镜头不动"——R2 本来能动，属于倒退。
+所以加了 `options.onMemberSelect?.(id)`（**与 `onMemberPick` 分开**：前者 = 选中/聚焦，后者 = 💬 说话），
+`main.js` 接到 `scene2d.selectAgent`。「未分配」行 `id === null` 不触发（它没有场景实体）。
+
+### 验证怎么跑的（真机 3080）
+
+| 项 | 1440×900 | 1024×768 |
+|---|---|---|
+| 顶栏里有 `#board` | **没有**（`getElementById('board') === null`） | 同 |
+| 侧边栏宽 | 320 | 272 |
+| Agent 档行数 | 8 | 8 |
+| 依赖图 | 3 节点 · **2 条边** · `comfortable` · **scale 1** · vertical · `clipped 0` | 同 |
+| `overflow()` 横向裁切 | 0 行 | 0 行 |
+| `document.scrollWidth` | 1440（无横向滚动） | 1024 |
+| 性能条 | `绘制 2（合批） · 精灵 194 · 切换 0 · R0 F0 D0 · build r91` | 同 |
+
+- **点成员行** → `selectedAgent: null → 'agent-1'`、`following: true`、镜头 `scrollX -396 / scrollY -242`，
+  且 `dialogue.isOpen() === false`（选中与对话确实是两条路）。
+- **点任务节点** → `board.selected() === 'task-1'`，详情显示「状态 完成 · 执行者 小青 · 需要 research · 解锁了 task-2」。
+- `node --check` ×5 · `copy-web` 已同步（`curl` 逐个 200）· `tsc --noEmit` 绿 · `node --test test/` **642 / 642**
+  （新增 4 条：竖向几何、默认不变、侧边栏宽度下 1:1、`auto` 在窄/宽两档下的选择）。
+
+### 下一轮从哪继续
+- **R4（聚焦收敛）**：`main.js` 现在有两条通往 `selectAgent` 的路（`onMemberPick` 里的、以及新加的 `onMemberSelect`）。
+  按 DESIGN §5.1 收成一个 `focusAgent(agentId, source)`，`onMemberPick` 只保留 💬 语义。
+- 遗留：`board.js` 里那个 💬 按钮还在（DESIGN §6 说删）。本轮没删——不属 R3 范围，
+  且删它会把"鼠标-only 也能开会话"这条路砍掉，得先确认 Enter/页签那条真的可达。
+
+### 卡住
+- 无。但**并行 Agent 的改动会打进同一个文件**：`board.js` 在我读到之后被别人改过一版
+  （`ls -l` 从 03:31 变成 03:52），`head.addEventListener` 那处是重读后才改的，没有覆盖。
+
+---
+
+## R91（Lead）—— 本轮轮次执行：先落**回退点**，再派 R3
+
+### 起因
+2 小时定时任务触发（`schedule-12329974…`）。按路线文档「五、轮次计划」取第一个未完成轮次。
+同时用户两次提到 **「随时 commit 方便回退」** —— 在"两个 Agent 共用一个工作区"的前提下这条是刚需，本轮先做。
+
+### 做了什么
+1. **提交回退点** `c59ebec`（48 个文件，`git add packages/dsh-agent-world`）：
+   团队 R86–R90 的全部产出 + 朝向问题收尾（R80–R89）。提交信息里**显式写明这是整包快照**，
+   且其中 `web/scene/scene-phaser.js`、`web/main.js`、`web/index.html` 等**同时含并行 Agent 的在途改动**。
+2. **清掉临时文件** `.tmp-dir-strip.png`（我自己早前做的方向帧对照图，不该进版本库）。
+3. **派 task-6 = R3**（看板搬进侧边栏、`#board` 从 header 摘掉、依赖图只留一份）给 developer。
+4. **更新路线文档的轮次表**：补「状态」列，R1/R2/R7 标 ✅、R3/R4 标进行中、
+   **R9 标注「并行 Agent 已在做（他们已提交 R78/R79）」并改为"不重复，只做独立复核"**。
+
+### 关键判断：R9（家具分层）**不派给自己人**
+`git log` 显示并行 Agent 已提交 `e819d02`（R78 场景按原版层序渲染 + 椅子不再压桌面）与
+`b76b4b8`（R79 墙与家具改为可 Y 排序的实体）——**正是用户抱怨最多的那条**。
+所以我方**不做实现**（避免两份改动打架），只在路线表里把它标成"待他们做完后由我方独立复核"。
+
+### 验证怎么跑的
+- `git log --oneline -2` 确认提交落地：`c59ebec` 在 `b76b4b8` 之上。
+- `git status --short -- packages/dsh-agent-world` 复核暂存内容（48 个文件）。
+- 路线表与 PROGRESS 的编号复核：R86 Leader / R87 自检 / R88 评审 / R89 收账 / R90 侧边栏 / R91 本条。
+
+### 下一轮从哪继续
+- **R3（task-6）** 完成后验收：反证 `renderGraph` 只指向一份实现 + 顶栏确实没有看板 + 真机截图。
+- 然后 **R4 合流**（侧边栏行 / 场景点人 / 看板卡 → 唯一 `focusAgent`），再 R5/R6。
+- **R9 等并行 Agent 交付后做独立复核**（截图对照，不写实现）。
+
+### 假设
+- 用户说的「随时 commit」指**本包整体快照**（含并行改动），不是只提交我的文件——
+  因为回退点要能整体回退；若他希望只提交自己那条线，下次改为按文件择选。
+
+### 卡住
+- 无。但**共用一个工作区**意味着我的提交必然裹进对方的在途改动；
+  已写进提交信息，并在路线文档里提醒"读文件以磁盘现状为准"。
+
+---
+
 ## R90（task-5 / developer）—— 侧边栏骨架：**页面内 `<aside>`**，两档视图（只读）
 
 > 编号说明（Lead 核定）：本条原写成 R88，与 reviewer 的 task-4 条目撞号。

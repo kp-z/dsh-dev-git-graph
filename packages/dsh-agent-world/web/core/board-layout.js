@@ -270,26 +270,41 @@ export const GEOMETRY_PRESETS = [
  * @param {object} layout - `layoutDependencyGraph()` 的结果。
  * @param {{width: number, height: number}} available - 可见内容盒的尺寸（CSS px）。
  * @param {ReadonlyArray<object>} [presets]
- * @returns {object} `graphGeometry()` 的结果 + `preset`（档位名）+ `scale`（≤1）。
+ * @param {'horizontal'|'vertical'|'auto'} [orientation] - 排布方向。
+ *   默认 `'horizontal'`（老行为，一点没改）。`'auto'` = 两个方向都算一遍，**取缩放更小、
+ *   档位更松的那个**——侧边栏用这个：290px 宽的窄栏里竖向通常赢，但某条流水线并行很多时
+ *   横向可能反而更省，这由算术决定，不该由我们预先猜。
+ * @returns {object} `graphGeometry()` 的结果 + `preset`（档位名）+ `scale`（≤1）+ `orientation`（实际用哪个）。
  */
-export function fitGraphGeometry(layout, available, presets = GEOMETRY_PRESETS) {
+export function fitGraphGeometry(layout, available, presets = GEOMETRY_PRESETS, orientation = 'horizontal') {
+  if (orientation === 'auto') {
+    const horizontal = fitGraphGeometry(layout, available, presets, 'horizontal')
+    const vertical = fitGraphGeometry(layout, available, presets, 'vertical')
+    // 判据只看**两件事**：先比缩放（大 = 字大 = 可读），再比档位序号（小 = 卡片更大）。
+    // 两者都相同就留横向——老形态，不因为"改了实现"而无故换边。
+    const rank = (fit) => [fit.scale, -presets.findIndex((p) => p.name === fit.preset)]
+    const [hs, hp] = rank(horizontal)
+    const [vs, vp] = rank(vertical)
+    const pickVertical = vs > hs || (vs === hs && vp > hp)
+    return pickVertical ? vertical : horizontal
+  }
   const width = Number.isFinite(available?.width) ? available.width : 0
   const height = Number.isFinite(available?.height) ? available.height : 0
   for (const preset of presets) {
-    const geometry = graphGeometry(layout, preset)
+    const geometry = graphGeometry(layout, preset, orientation)
     if (geometry.width <= width && geometry.height <= height) {
-      return { ...geometry, preset: preset.name, scale: 1 }
+      return { ...geometry, preset: preset.name, scale: 1, orientation }
     }
   }
   const tightest = presets[presets.length - 1]
-  const geometry = graphGeometry(layout, tightest)
+  const geometry = graphGeometry(layout, tightest, orientation)
   // 缩放也是确定性的：只由"内容尺寸 / 可用尺寸"决定，与时间、随机无关。
   const raw = Math.min(1, width / Math.max(1, geometry.width), height / Math.max(1, geometry.height))
   // **向下取整**，不是四舍五入：向上取整会让"缩放后的图"比可用区大最多 0.5%
   //（400px 高的图 → 2px），而那 2px 正好是 `clipped()` 要报的"超出了"。
   // 这一条是 R46 用真机数据算出来的：22 张单在 800×700 下 raw=0.635 → round=0.64 → 溢出 2px。
   const scale = Math.max(0.4, Math.floor(raw * 100) / 100)
-  return { ...geometry, preset: tightest.name, scale }
+  return { ...geometry, preset: tightest.name, scale, orientation }
 }
 
 /**
@@ -298,16 +313,41 @@ export function fitGraphGeometry(layout, available, presets = GEOMETRY_PRESETS) 
  * 为什么分成两步（布局 → 几何）：列号是**语义**（最长前置链），像素是**观感**。
  * 混在一起的话，改一次卡片宽度就可能顺手改坏列号。
  *
+ * ## `orientation`（R3 加）：横向 / 竖向
+ *
+ * 默认 `'horizontal'`：前置在左、后续在右（老行为，一点没改）。
+ * `'vertical'`：**把两个轴对调**——前置在上、后续在下，同一层的人往右排。
+ *
+ * 为什么需要它：侧边栏只有 ~290px 宽、600px 高，而一张卡最紧也要 116px。
+ * 横向排布时 3 层就要 446px，只能缩到 0.65——标题变成 8px，**"看得见但读不了"**，
+ * 那比被裁掉更难查（`clipped()` 也报不出来，因为几何上确实装下了）。
+ * 转置之后同样的 3 层只要 242×252，comfortable 档 1:1 就放得下。
+ *
+ * @param {object} layout
+ * @param {object} [options] - 几何尺寸
+ * @param {'horizontal'|'vertical'} [orientation]
  * @returns {{nodes: Record<string, {x: number, y: number, w: number, h: number, cx: number, cy: number}>, edges: object[], width: number, height: number}}
  */
-export function graphGeometry(layout, options = {}) {
+export function graphGeometry(layout, options = {}, orientation = 'horizontal') {
   const { cellW, cellH, nodeW, nodeH, padX, padY } = { ...DEFAULT_GEOMETRY, ...options }
+  const vertical = orientation === 'vertical'
+  // 对调之后，"沿主轴的步长"是行高、"垂直轴的步长"是列宽。命名成两个局部量，
+  // 下面的连线代码就只写一份，不必按方向分叉。
+  // ⚠️ padding 也要跟着换：`padX` 是横向留白、`padY` 是纵向留白，对调轴时必须一起对调，
+  // 否则竖向图的左边缘会拿到 12px 而应有的 14px（差 2px——测试里就是这条报的）。
+  const alongStep = vertical ? cellH : cellW
+  const crossStep = vertical ? cellW : cellH
+  const padAlong = vertical ? padY : padX
+  const padCross = vertical ? padX : padY
   const nodes = {}
   let maxColumn = -1
   const rowsInColumn = new Map()
   for (const node of layout?.nodes ?? []) {
-    const x = Math.round(padX + node.column * cellW)
-    const y = Math.round(padY + node.row * cellH)
+    // `along` = 主轴（横向时是 x，竖向时是 y）；`cross` = 另一个轴。
+    const along = Math.round(padAlong + node.column * alongStep)
+    const cross = Math.round(padCross + node.row * crossStep)
+    const x = vertical ? cross : along
+    const y = vertical ? along : cross
     nodes[node.id] = { x, y, w: nodeW, h: nodeH, cx: Math.round(x + nodeW / 2), cy: Math.round(y + nodeH / 2), column: node.column, row: node.row }
     maxColumn = Math.max(maxColumn, node.column)
     rowsInColumn.set(node.column, Math.max(rowsInColumn.get(node.column) ?? 0, node.row))
@@ -318,6 +358,18 @@ export function graphGeometry(layout, options = {}) {
     const from = nodes[edge.from]
     const to = nodes[edge.to]
     if (from === undefined || to === undefined) continue
+    if (vertical) {
+      // 前置卡片**下**边缘中点 → 后置卡片**上**边缘中点。
+      const x1 = from.cx
+      const y1 = from.y + from.h
+      const x2 = to.cx
+      const y2 = to.y
+      // 控制点竖直外推（与横向版本同一个思路：让多条边不叠在一条直线上）。
+      const reach = Math.max(24, Math.round(Math.abs(y2 - y1) / 2))
+      const path = `M ${x1} ${y1} C ${x1} ${y1 + reach}, ${x2} ${y2 - reach}, ${x2} ${y2}`
+      edges.push({ from: edge.from, to: edge.to, x1, y1, x2, y2, path })
+      continue
+    }
     // 从"前置"卡片右边缘中点 → "后置"卡片左边缘中点。
     const x1 = from.x + from.w
     const y1 = from.cy
@@ -330,11 +382,13 @@ export function graphGeometry(layout, options = {}) {
   }
 
   const maxRow = Math.max(0, ...rowsInColumn.values())
+  const mainExtent = Math.round(padAlong * 2 + (maxColumn + 1) * alongStep)
+  const crossExtent = Math.round(padCross * 2 + (maxRow + 1) * crossStep)
   return {
     nodes,
     edges,
-    width: Math.round(padX * 2 + (maxColumn + 1) * cellW),
-    height: Math.round(padY * 2 + (maxRow + 1) * cellH),
+    width: vertical ? crossExtent : mainExtent,
+    height: vertical ? mainExtent : crossExtent,
   }
 }
 

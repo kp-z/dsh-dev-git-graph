@@ -23,7 +23,7 @@
  * 而不是静默退回一个看起来"设计就这样"的灰。
  */
 
-import { MEMBERS_TOGGLE_LABEL, VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, groupViewLabel, stallReasonLabel, taskStatusLabel } from './labels.js'
+import { MEMBERS_TOGGLE_LABEL, VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, agentStateLabel, groupViewLabel, roleLabel, stallReasonLabel, taskStatusLabel } from './labels.js'
 import { summarizeTaskOutput } from '../core/task-output.js'
 import {
   applyView,
@@ -74,18 +74,39 @@ function svgEl(doc, tag) {
 /**
  * 建一块看板。
  *
+ * ## 两个挂载模式（R3 / task-6）
+ *
+ * - **独立模式**（`options.root`）：看板自己就是顶栏里那条摘要 + 展开浮层。R70–R90 的形态。
+ * - **挂载模式**（`options.mounts`）：把**同一份**渲染产物分挂到外面给的两个容器里
+ *   （侧边栏的两档视图）。此时不建摘要条、没有"收起"这回事。
+ *
+ * 为什么是参数而不是复制一份渲染代码：`renderMembers` / `renderGraph` 是这块面板最贵的
+ * 两段逻辑（成员分组、依赖分列、几何挑档、就地更新签名）。复制一份就等于"同一份数据两套
+ * 实现"，两边迟早漂移——这正是用户点名的「避免同样的功能做两份」。
+ *
  * @param {object} options
- * @param {HTMLElement} options.root - 容器（`#board`）。
+ * @param {HTMLElement} [options.root] - 独立模式的容器（原 `#board`）
+ * @param {{members?: HTMLElement, graph?: HTMLElement}} [options.mounts] - 挂载模式的容器
+ * @param {HTMLElement} [options.styleRoot] - 把 `--board-*` 变量写到哪（挂载模式下是侧边栏）
  * @param {Record<string, string>} [options.palette] - 快照里的 token → 色值。
  * @param {(taskId: string|null) => void} [options.onSelect] - 选中变化（**M7-3 的双向高亮会挂这里**，本轮不接）。
  * @param {(agentId: string) => void} [options.onMemberPick] - 点成员卡上的"对话"按钮（R76：花名册删掉后的对话入口）。
+ * @param {(agentId: string) => void} [options.onMemberSelect] - 点成员行本身 = **选中/聚焦**（R3：与上一条语义不同，别合并）。
  * @param {Document} [options.document]
  */
 export function createBoard(options = {}) {
   const doc = options.document ?? globalThis.document
-  const root = options.root
+  const root = options.root ?? null
+  /** 挂载模式：产物分挂到外部容器（侧边栏两档）。 */
+  const mounts = options.mounts ?? null
+  const mounted = mounts !== null && (mounts.members != null || mounts.graph != null)
+  /**
+   * 样式与类名的落点。挂载模式下**不是** `root`（它可能根本不存在），
+   * 而是外部给的祖先（侧边栏）——`--board-*` 变量挂在那里，两档都能继承到。
+   */
+  const styleRoot = options.styleRoot ?? root ?? mounts?.members ?? mounts?.graph ?? null
   /** 没有容器就退化成空实现：看板没了不该把面板带崩（俯视图还要看模拟）。 */
-  const ready = root !== null && root !== undefined
+  const ready = styleRoot !== null && styleRoot !== undefined
   let palette = options.palette ?? {}
   /**
    * 流水线目录：`set` id → 内容里的中文名（`snapshot.taskSets`，R46）。
@@ -149,7 +170,7 @@ export function createBoard(options = {}) {
   // ── 骨架（只建一次）────────────────────────────────────────────────────────
   let parts = null
   if (ready) {
-    root.classList.add('board')
+    styleRoot.classList.add('board')
     const head = el(doc, 'header', 'board-head')
     // R70：把标题拆成"图标 + 文字"两段——紧凑行里由 CSS 只显示图标（用户要"图标化、简约"），
     // 展开时两段都在，读起来仍然是一个完整的标题。
@@ -227,7 +248,21 @@ export function createBoard(options = {}) {
     // 展开/收起不再把右侧命令按钮拽移位（此前是整块 `#board` 变 `position:absolute`）。
     const panel = el(doc, 'div', 'board-panel')
     panel.append(missing, viewBar, body, detail)
-    root.append(head, panel)
+    if (mounted === true) {
+      /*
+       * 挂载模式（R3）：同一批节点**分挂**到侧边栏的两档里，`#board` 那份摘要条不建。
+       *
+       *   成员档 ← `members`（成员行 + 每人在手的单）
+       *   任务图档 ← `missing`（缺 token 的告警）+ `viewBar`（分组/筛选）+ `graph`（依赖图）+ `detail`（选中详情）
+       *
+       * 为什么 `board-body` 不挂：它是"成员 | 图"左右分栏的容器，而两档是**互斥视图**，
+       * 同时挂上去就成了两份并排（正是要消灭的"做两份"）。
+       */
+      mounts.members?.append(members)
+      mounts.graph?.append(missing, viewBar, graph, detail)
+    } else {
+      root?.append(head, panel)
+    }
     parts = {
       counts, bar, active, missing, viewBar, groupChips, filterChips,
       members, membersList, membersToggle, body, edges, canvas, fit, content, cards, detail, collapse, graphHint, panel,
@@ -237,7 +272,8 @@ export function createBoard(options = {}) {
     // 展开/收起的类名与隐藏属性都还停在"展开"上（R65 实测到：看板默认占 306px）。
     setCollapsed(collapsed)
     setMembersOpen(membersOpen)
-    applyNarrowDefault()
+    // 挂载模式下没有"上下分空间"这回事（两档互斥），窄视口收起成员栏的默认也就不适用。
+    if (mounted !== true) applyNarrowDefault()
     observeSize()
   }
 
@@ -290,17 +326,17 @@ export function createBoard(options = {}) {
       const varName = CSS_VARS[key]
       const value = resolveBoardColor(palette, token)
       if (varName === undefined) continue
-      if (value === null) root.style.removeProperty(varName)
-      else root.style.setProperty(varName, value)
+      if (value === null) styleRoot.style.removeProperty(varName)
+      else styleRoot.style.setProperty(varName, value)
     }
     for (const status of TASK_STATUSES) {
       const value = resolveBoardColor(palette, STATUS_TOKEN[status])
       const varName = `--board-status-${status}`
-      if (value === null) root.style.removeProperty(varName)
-      else root.style.setProperty(varName, value)
+      if (value === null) styleRoot.style.removeProperty(varName)
+      else styleRoot.style.setProperty(varName, value)
     }
     const missing = missingBoardTokens(palette)
-    root.classList.toggle('board-missing-tokens', missing.length > 0)
+    styleRoot.classList.toggle('board-missing-tokens', missing.length > 0)
     if (parts.missing !== null) {
       parts.missing.textContent =
         missing.length === 0
@@ -348,7 +384,11 @@ export function createBoard(options = {}) {
   function setCollapsed(next) {
     collapsed = next
     if (!ready) return false
-    root.classList.toggle('is-collapsed', collapsed)
+    // 挂载模式没有"收起"这回事：两档是否可见由侧边栏的页签决定。
+    // 这里仍然接受调用（外壳可能还调着），但**不许**去隐藏 `body/detail`——
+    // 那会让侧边栏里空掉两块，而且看不出是谁干的。
+    if (mounted === true) return collapsed
+    styleRoot.classList.toggle('is-collapsed', collapsed)
     parts.body.hidden = collapsed
     parts.detail.hidden = collapsed
     parts.collapse.textContent = collapsed ? '▾' : '▴'
@@ -377,13 +417,17 @@ export function createBoard(options = {}) {
       memberRowNodes.set(row.member.id ?? '__unowned__', item)
       const head = el(doc, 'div', 'board-member-head')
       head.append(el(doc, 'b', undefined, row.member.name ?? row.member.id ?? '未分配'))
-      if (row.member.role !== null && row.member.role !== undefined) head.append(el(doc, 'span', 'dim', row.member.role))
+      // R3：角色/状态**翻成中文**。看板原先直接印 `lead` / `idle`（原始状态码），
+      // 而 R2 的侧边栏印的是「负责人 · 待命」。共用一份渲染之后只能有一份措辞——
+      // 选中文：状态码是给程序看的，界面上印 `idle` 等于没给用户任何信息。
+      const roleText = roleLabel(row.member.role)
+      if (roleText !== '') head.append(el(doc, 'span', 'dim', roleText))
       // 状态是会变的那一半：留下来给 `refreshState()` 就地改文字，不必重建整块列表。
       const stateSpan = el(
         doc,
         'span',
         'dim',
-        row.member.state === null || row.member.state === undefined ? '' : `· ${row.member.state}`,
+        row.member.state === null || row.member.state === undefined ? '' : `· ${agentStateLabel(row.member.state)}`,
       )
       head.append(stateSpan)
       memberStateNodes.set(row.member.id ?? '__unowned__', stateSpan)
@@ -401,7 +445,15 @@ export function createBoard(options = {}) {
         })
         head.append(talk)
       }
-      head.addEventListener('click', () => select({ kind: 'member', id: row.member.id }))
+      head.addEventListener('click', () => {
+        select({ kind: 'member', id: row.member.id })
+        // R3：点成员行 → **也**通知外面（侧边栏里点谁就该聚焦谁）。
+        //
+        // ⚠️ 与 `onMemberPick` 是两件事，别合并：`onMemberPick` 是那个 💬 按钮，
+        // 语义是"跟他说话"（开会话面板）；这里是"选中/聚焦"。
+        // 「未分配」那一行 `id === null`（它没有场景实体），不可聚焦。
+        if (row.member.id !== null) options.onMemberSelect?.(row.member.id)
+      })
       item.append(head)
 
       const chips = el(doc, 'div', 'board-chips')
@@ -454,8 +506,16 @@ export function createBoard(options = {}) {
   function renderGraph() {
     const { edges: edgeLayer, cards, canvas, fit: fitBox, content } = parts
     const available = measureCanvas()
+    // 0×0 = 这一档被 `hidden` 藏着（侧边栏停在 Agent 档）。这时**不画**：
+    // 按 0 宽挑出来的几何必然缩到 0.4 下限、节点全挤成一列，切过来看到的就是一张废图。
+    // 等它可见时由 `refreshGraph()` 重画（页签切换会调；ResizeObserver 也会补一脚）。
+    if (available.width < 1 || available.height < 1) return false
     // 按**可用空间**挑档位（四档几何，最后手段才是缩放）。纯函数，单测里算过。
-    const fitted = fitGraphGeometry(layout, available)
+    //
+    // R3：方向交给 `'auto'` —— 侧边栏是"窄而高"（~290×600），横向排布在那里只能缩到 0.65，
+    // 标题变 8px（看得见、读不了，`clipped()` 还报不出来）。竖向通常赢，但某条流水线并行
+    // 很多时横向可能更省，所以让算术决定，而不是我们预先猜一个方向。
+    const fitted = fitGraphGeometry(layout, available, undefined, 'auto')
     geometry = fitted
     // 档位 + 缩放之后**还**装不下吗？（缩放有 0.4 的可读下限，真机 28 张单在 800px 宽下会触到）
     // 这种时候画布是可滚动的（有滚动条），但"可滚动"这件事要**说出来**，不能靠用户自己发现。
@@ -468,6 +528,7 @@ export function createBoard(options = {}) {
     fitInfo = {
       preset: fitted.preset,
       scale: fitted.scale,
+      orientation: fitted.orientation ?? 'horizontal',
       available,
       content: { width: fitted.width, height: fitted.height },
       overflow,
@@ -533,6 +594,21 @@ export function createBoard(options = {}) {
       cards.append(card)
       cardNodes.set(task.id, { card, fill })
     }
+    return true
+  }
+
+  /**
+   * 重挑几何重画依赖图（R3）。
+   *
+   * 为什么需要它：任务图住在侧边栏的第二档，而**藏在 `hidden` 里的容器量出来是 0×0**。
+   * 世界数据变化时那一档通常是隐藏的，`renderGraph()` 会（正确地）跳过；
+   * 等用户切过来，几何还是上一档的，或者根本没画过。所以切档之后必须显式补一次。
+   *
+   * 判据：调用后 `stats().nodes/edges` 与 `stats().preset` 都是当前这一档的真实值。
+   */
+  function refreshGraph() {
+    if (!ready || model === null) return false
+    return renderGraph()
   }
 
   /** 只有状态/进度/选中变了：就地改，不重建 DOM。 */
@@ -540,7 +616,7 @@ export function createBoard(options = {}) {
     // 左栏成员行上的状态文字也要跟着走（成员**结构**没变时不重建列表）。
     for (const member of model.members) {
       const node = memberStateNodes.get(member.id)
-      if (node !== undefined) node.textContent = member.state === null ? '' : `· ${member.state}`
+      if (node !== undefined) node.textContent = member.state === null ? '' : `· ${agentStateLabel(member.state)}`
     }
     for (const task of model.tasks) {
       const entry = cardNodes.get(task.id)
@@ -639,8 +715,8 @@ export function createBoard(options = {}) {
       const member = model.members.find((m) => m.id === selected.id)
       const label = member ?? { name: '未分配', role: null, state: null, tasks: model.unowned }
       detail.append(el(doc, 'b', undefined, label.name))
-      if (label.role !== null && label.role !== undefined) detail.append(el(doc, 'span', 'dim', `· ${label.role}`))
-      if (label.state !== null && label.state !== undefined) detail.append(el(doc, 'span', 'dim', `· ${label.state}`))
+      if (label.role !== null && label.role !== undefined) detail.append(el(doc, 'span', 'dim', `· ${roleLabel(label.role)}`))
+      if (label.state !== null && label.state !== undefined) detail.append(el(doc, 'span', 'dim', `· ${agentStateLabel(label.state)}`))
       detail.append(el(doc, 'span', undefined, `在手的单：${label.tasks.length === 0 ? '（没有）' : label.tasks.join('、')}`))
       return
     }
@@ -866,7 +942,9 @@ export function createBoard(options = {}) {
   function observeSize() {
     if (typeof globalThis.ResizeObserver !== 'function') return null
     const observer = new globalThis.ResizeObserver(() => {
-      if (model === null || collapsed) return
+      // ⚠️ 挂载模式下**不能**看 `collapsed`（它恒为初始值 true，而侧边栏根本没有"收起"）。
+      // 这里的真理是"画布量出来有多大"：0×0 说明这一档被 `hidden` 藏着，等它可见了再画。
+      if (model === null || (mounted !== true && collapsed)) return
       const size = measureCanvas()
       if (lastFitSize !== null && size.width === lastFitSize.width && size.height === lastFitSize.height) return
       renderGraph()
@@ -1053,6 +1131,8 @@ export function createBoard(options = {}) {
     setPalette,
     setTaskSets,
     setCollapsed,
+    /** R3：切到任务图档之后重挑几何（挂载模式下它常常是"数据变了但这档藏着"）。 */
+    refreshGraph,
     select: (taskId) => select(taskId === null || taskId === undefined ? null : { kind: 'task', id: taskId }),
     selected: () => (selected === null ? null : selected.id ?? null),
     /** 被切掉的元素（空数组 = 没有东西被裁）。每轮验收的第一行就用它。 */
@@ -1069,6 +1149,7 @@ export function createBoard(options = {}) {
       collapsed,
       // 响应式：这一帧用的是哪档几何、缩没缩放、容器允许多大。
       preset: fitInfo?.preset ?? null,
+      orientation: fitInfo?.orientation ?? null,
       scale: fitInfo?.scale ?? null,
       available: fitInfo?.available ?? null,
       content: fitInfo?.content ?? null,
