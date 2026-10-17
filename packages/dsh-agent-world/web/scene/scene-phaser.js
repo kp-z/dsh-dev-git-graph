@@ -77,6 +77,20 @@ export function requestedRenderer(search = globalThis.location?.search ?? '') {
 /** 画布里的字体**不能写 CSS 变量**（canvas 不认 `var(...)`）。与 `tokens.css` 同序。 */
 const UI_FONT = 'system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif'
 const LABEL_STYLE = { fontFamily: UI_FONT, fontSize: '10px', color: '#ffffff', stroke: '#000000', strokeThickness: 3 }
+// R77：头顶气泡的对话框底图——Kenney 像素 UI 包的 9-slice 米色面板（48×48）。
+// 用引擎的 `add.nineslice()` 撑到任意尺寸（游戏引擎成熟方案），不再手画圆角矩形。
+const BUBBLE_PANEL_KEY = 'ui-panel-tan'
+const BUBBLE_PANEL_URL = 'pixel/ui/kenney-pixel-ui-pack/9-Slice/Ancient/tan.png'
+const BUBBLE_SLICE = 3 // 9-slice 边宽：面板实际边框≈2px（1px 高光 + 1px 描边）+ 1px 圆角
+
+/**
+ * 角色移动速度（px/s）。**绑定引擎的 Arcade 物理**来移动（`physics.moveTo` 朝目标设速度），
+ * 而不是手写补间/每帧 lerp——移动是引擎成熟能力，不该自己造轮子（D56）。
+ *
+ * 速度必须与服务端一致：`src/domain/constants.ts` 里 `WALK_SPEED`(0.06 单位/tick) × `TILE_PX`(16)
+ * × 每秒 10 tick（`DEFAULT_TICK_MS`=100）= 9.6 px/s。追快了会冲过头、慢了会拖在后头。
+ */
+const WALK_SPEED_PX = 0.06 * TILE_PX * 10
 
 /**
  * 用哪个渲染器。
@@ -183,20 +197,161 @@ export function createScenePhaser(canvas, options = {}) {
   const textureKeyByUrl = new Map()
   /** 底图（`scene.map.url`）的纹理键。底图不是"模型"，所以单独记。 */
   const MAP_KEY = 'map:office'
+  /**
+   * 底图/碰撞体的**资源版本**。重烘 `office.png` 或 `office-colliders.json` 后要改这里。
+   *
+   * 为什么不能只靠 HTTP 缓存头：浏览器在旧响应还在 `max-age` 内时不会回源 ——
+   * 改服务端 `Cache-Control` **不会**让已缓存的条目失效。表现是"文件明明换了、画面没变"，
+   * 而且 curl 校验完全正常，极难归因。把版本写进 URL 才能确定性地换掉它。
+   */
+  const MAP_ASSET_VERSION = '2026-10-18-7'
+
+  /** 地图对象贴图：`office-objects.json` 里的 `texture` 字段就是这里的键。 */
+  /** 墙体图层（透明 PNG，只含墙格）。 */
+  const WALLS_KEY = 'map:walls'
+
+  /**
+   * 原版 `Office.tscn` 的**层序**（照抄，不发明）。
+   *
+   * 事实依据：整个场景 `y_sort_enabled` 出现 **0 次**，只有一个 `z_index = 1`
+   * 挂在 `Furniture4` 上。所以原版是**固定层序**，不是 Y 排序：
+   *
+   *   z_index 0（按节点顺序）：WallAndFloor → Furniture0 → Furniture1 → Furniture2
+   *                            → Furniture3 → 椅子等对象 → Characters
+   *   z_index 1：Furniture4 —— 画在**所有角色之上**（墙上挂件/黑板就在这层）
+   *
+   * 深度只是一个"排号"，层与层之间不会有穿插。
+   */
+  const LAYER_KEYS = ['map:layer0', 'map:layer1', 'map:layer2', 'map:layer3', 'map:layer4', 'map:layer5']
+
+  /**
+   * **一张统一的绘制顺序表**（深度只是排号，层与层之间不会穿插）。
+   *
+   * 照抄 `Office.tscn` 的树序 + `z_index`：椅子是**分组穿插**在家具层之间的，不是统一一层 ——
+   * 这正是"椅子盖在桌子上"的根因（之前我把 24 把椅子全塞进同一层，压在所有制之上）。
+   *
+   *   WallAndFloor → ReceptionChair → Furniture0 → Furniture1 → HrChars → FrontChairs
+   *   → Furniture2 → MeetingRoomChairs → Furniture3 → BackChairs → Characters
+   *   → Furniture4（z_index = 1，画在所有 z_index=0 之上）
+   */
+  const DRAW_ORDER = {
+    layer0: 0, // WallAndFloor
+    ReceptionChair: 10,
+    layer1: 20, // Furniture0
+    layer2: 30, // Furniture1
+    HrChars: 40,
+    FrontChairs: 50,
+    layer3: 60, // Furniture2
+    MeetingRoomChairs: 70,
+    layer4: 80, // Furniture3
+    BackChairs: 90,
+    actors: 100, // Characters
+    layer5: 110, // Furniture4（z_index = 1）
+  }
+  /** 每层的深度，按 `LAYER_KEYS` 的顺序取。 */
+  const LAYER_DEPTHS = [
+    DRAW_ORDER.layer0, DRAW_ORDER.layer1, DRAW_ORDER.layer2,
+    DRAW_ORDER.layer3, DRAW_ORDER.layer4, DRAW_ORDER.layer5,
+  ]
+  /** 角色：固定一个深度（原版不排序，按节点顺序）。 */
+  const ACTOR_DEPTH = DRAW_ORDER.actors
+
+  /**
+   * 椅子统一压在**所有家具层之下**。
+   *
+   * ⚠️ 这是**有意偏离原版**的一处，理由要写清楚：
+   * 原版 `Office.tscn` 里 `BackChairs` 排在 `Furniture3` **之后**，而原版不做 Y 排序，
+   * 所以原版会把椅子像素**盖在桌面/桌沿上**（用户截图里箭头指的就是这个）。
+   * 按"参考原版"照抄反而复现了这个毛病，用户明确要求"椅子不应该在桌子上面"。
+   *
+   * 家具层最低是 20（Furniture0），所以椅子取 15：在地板之上、在所有家具之下。
+   * 代价：桌子近侧（画面下方）的椅子会被桌子完全挡住 —— 这符合"椅子塞在桌下"的观感。
+   */
+  const CHAIR_DEPTH = 15
+
+  const MAP_OBJECT_TEXTURES = {
+    'office-chair-101.png': 'microverse/single-objects/office-chair-101.png',
+    'office-chair-106.png': 'microverse/single-objects/office-chair-106.png',
+    'office-chair-110.png': 'microverse/single-objects/office-chair-110.png',
+  }
+
+  /** 给静态资源 URL 加版本参数（`?v=`）。已经带查询串的用 `&`。 */
+  function withAssetVersion(url) {
+    const sep = url.includes('?') ? '&' : '?'
+    return `${url}${sep}v=${MAP_ASSET_VERSION}`
+  }
   const actorNodes = new Map()
   const actorPathCounts = { sprites: 0, fallbacks: 0 }
   const groundNodes = new Map()
   const propNodes = new Map()
   const noteNodes = new Map()
-  const labelNodes = new Map()
+  /** R76：头顶气泡（Phaser 对象）——agentId → { container, bg, name, text }。 */
+  const bubbleNodes = new Map()
   let actorPick = typeof options.onActorPick === 'function' ? options.onActorPick : null
-  let lastStats = { renderer: 'phaser', backend: rendererType === CANVAS ? 'canvas' : 'webgl', drawCalls: 0, sprites: 0, ready: false }
+  /** P1：当前选中的 agent id（键盘移动 / 镜头锁定的入口）。`null` = 未选中。 */
+  let selectedAgentId = null
+  /** P1：选中者脚下的高亮圈（Phaser Shape，随物理精灵每帧贴位）。 */
+  let selectionRing = null
+  /**
+   * P3：移动模式开关。由超控面板的「对话 / 移动」切换驱动——
+   * 只有 `true` 时键盘（WASD/方向键）才操控选中 agent；`false` 时键盘归相机/输入框。
+   */
+  let movementEnabled = false
+  /** P3：角色移动键（WASD + 方向键）。在 `wireViewControls` 里建、`tickManualMovement` 里读。 */
+  let moveKeys = null
+  /**
+   * P5：墙/家具的**静态碰撞体**（Arcade StaticGroup）。
+   *
+   * 之前手动操控直接给物理体设速度，而世界里根本没有"墙"这个东西 → 人可以从墙里穿过去。
+   * 权威的墙其实一直都在：`world.nav` 的 `blocked`（由原版 Godot 图块的物理多边形解出来）。
+   * 这里把它变成引擎的碰撞体，分离与贴墙滑动交给 Arcade，不自己写碰撞响应。
+   */
+  let wallGroup = null
+  /** 墙体由哪份 nav 建出来的（scene + 网格参数）；变了才重建。 */
+  let wallKey = null
+  /**
+   * 精细碰撞体（与底图**同一次**生成）：`{ cellPx, rects: [[x,y,w,h]...] }`，地图像素坐标。
+   *
+   * 为什么需要它：`nav.blocked` 是按**整格**算的，而格子里的家具往往只占一半 ——
+   * 拿整格当实心，人会在离桌子/墙还有一段距离的地方就被挡住（"墙贴不匹配"的观感来源）。
+   * 这份数据是按每格美术的 alpha 轮廓算的，所以挡在人真正看得见的地方。
+   */
+  let fineColliders = null
+  /** 精细碰撞体属于哪张底图（换场景要重取）。 */
+  let fineCollidersUrl = null
+  /**
+   * 地图上的**对象**（椅子等）：`{ chairs: [{texture, px:[x,y]}] }`。
+   *
+   * 为什么不烘进底图：底图是**一整张 depth=-1 的图**，烘进去就永远压在角色下面。
+   * 原版 Godot 里椅子是独立节点、和角色一起 Y 排序 —— 站到椅子背后就该被挡住。
+   */
+  let mapObjects = null
+  let mapObjectsUrl = null
 
-  // 文字（名字/区块名）挂在 **zoom=1 的 UI 相机**上，位置是"画布像素"。
-  // 必须和世界里的对象用**同一套换算**（`metrics()`，它读相机真实滚动），
-  // 否则名字会整体偏掉（世界比视口小时 Phaser 会夹住滚动，靠"理想居中"算就偏 108/38px）。
-  const screenX = (worldX) => metrics().toX(worldX)
-  const screenY = (worldZ) => metrics().toY(worldZ)
+  function loadMapObjects(mapUrl) {
+    if (typeof mapUrl !== 'string' || mapUrl === '') return
+    if (mapObjectsUrl === mapUrl && mapObjects !== null) return
+    mapObjectsUrl = mapUrl
+    const url = String(mapUrl).replace(/\.png$/i, '-objects.json')
+    const base = options.assetBaseUrl ?? './vendor/'
+    void fetch(`${base}${withAssetVersion(url)}`)
+      .then((res) => (res.ok === true ? res.json() : null))
+      .then((data) => {
+        if (data === null || mapObjectsUrl !== mapUrl) return
+        mapObjects = data
+        objectNodesKey = null
+        if (lastRenderInput !== null) render(lastRenderInput)
+      })
+      .catch(() => { /* 没有对象数据也能跑 */ })
+  }
+
+  /** 椅子精灵（按数据建一次，之后只同步深度）。 */
+  const objectNodes = new Map()
+  let objectNodesKey = null
+  /** 墙体图层节点（每条墙一个 image，`setCrop` 取对应块）。 */
+  const wallNodes = new Map()
+  let wallNodesKey = null
+  let lastStats = { renderer: 'phaser', backend: rendererType === CANVAS ? 'canvas' : 'webgl', drawCalls: 0, sprites: 0, ready: false }
 
   /** 适配档："一眼看全"的最大整数倍（两个轴都算——只按短边会把横着的办公室算小）。 */
   function fitZoomNow() {
@@ -290,6 +445,9 @@ export function createScenePhaser(canvas, options = {}) {
       frame.worldPxW + padX * 2,
       frame.worldPxH + padY * 2,
     )
+    // P2：跟随中滚动由 `startFollow` 每帧接管——这里不 centerOn / 不 setScroll，否则会跟镜头打架
+    //（把跟随目标刚算好的位置又拉回中心/夹掉）。只保留上面的 viewport + bounds（边界仍要夹）。
+    if (isFollowing()) return
     // ⚠️ **只有请求居中时才居中**。用户拖过之后每次 `applyCamera()` 都 `centerOn(0,0)`
     // 会把他拖到的位置一直拽回中央——那正是"拖不动"这种 bug 的成因。
     if (centerOnNextApply === true) {
@@ -298,12 +456,6 @@ export function createScenePhaser(canvas, options = {}) {
     }
     // **把滚动量取整**，否则半像素的相机位移会让整张图糊掉
     camera.setScroll(Math.round(camera.scrollX), Math.round(camera.scrollY))
-    const ui = activeScene.uiCamera
-    if (ui !== null && ui !== undefined) {
-      ui.setViewport(0, 0, width, height)
-      ui.setZoom(1)
-      ui.setScroll(0, 0)
-    }
   }
 
   // ── 视图控制（R65）：**缩放/平移全部交给 Phaser 的相机** ─────────────────────
@@ -324,6 +476,20 @@ export function createScenePhaser(canvas, options = {}) {
 
   /** 键盘推相机的速度（像素/秒）。 */
   const KEY_SPEED = 420
+
+  /**
+   * 滚轮缩放：**累积滚动量，跨阈值才进一档**（不是逐事件进档）。
+   *
+   * 触控板 / 高分辨率滚轮一次轻划会连发几十个 `wheel` 事件（每个 `dy` 都很小），
+   * 逐事件走一档会把"轻轻一划"放大成"一路缩到头"——这就是"放大缩小太灵敏"的根。
+   * 改成累加：滚满 `WHEEL_ZOOM_STEP_DY` 像素才动一档，两次进档之间还有
+   * `WHEEL_ZOOM_COOLDOWN_MS` 的冷却——两重都让缩放"慢下来"。
+   *
+   * 停顿超过冷却就清零累积：下一划从头算，不把上一划的余量带过来。
+   * 顶部 ± 按钮**不受此限制**（点一下永远是一档）。
+   */
+  const WHEEL_ZOOM_STEP_DY = 90
+  const WHEEL_ZOOM_COOLDOWN_MS = 250
 
 
   /**
@@ -425,9 +591,19 @@ export function createScenePhaser(canvas, options = {}) {
   function wireViewControls(scene) {
     const camera = scene.cameras.main
 
-    // 滚轮缩放：**在档位阶梯上走一格**（不是连续的 `zoom *= 1.1`）。
+    // 滚轮缩放：**累积滚动量，跨阈值才进一档**（不是连续的 `zoom *= 1.1`）。
+    // 触控板一次轻划连发的事件每发 `dy` 都很小，逐发进档会"一路缩到头"（太灵敏）。
+    // 这里把 `dy` 攒起来，攒满 `WHEEL_ZOOM_STEP_DY` 才走一档；停顿久了清零重算。
+    let wheelAccum = 0
+    let lastWheelZoomAt = 0
     scene.input.on('wheel', (_pointer, _objects, _dx, dy) => {
       if (dy === 0) return
+      const now = Date.now()
+      if (now - lastWheelZoomAt > WHEEL_ZOOM_COOLDOWN_MS) wheelAccum = 0
+      wheelAccum += dy
+      if (Math.abs(wheelAccum) < WHEEL_ZOOM_STEP_DY) return
+      lastWheelZoomAt = now
+      wheelAccum = 0
       applyZoomStep(dy > 0 ? -1 : 1)
     })
 
@@ -436,9 +612,24 @@ export function createScenePhaser(canvas, options = {}) {
     let dragging = false
     let lastX = 0
     let lastY = 0
+    /** 这次按下是否落在角色上（否则就是空白/家具，用来判"空白点击解锁"）。 */
+    let pressedOnActor = false
+
+    /** 指针此刻压在角色上吗？（角色精灵打了 `actorId` 标记，用引擎的 `hitTestPointer` 判。） */
+    function pointerIsOnActor(pointer) {
+      const hits = scene.input.hitTestPointer(pointer)
+      if (!Array.isArray(hits)) return false
+      return hits.some((obj) => typeof obj?.getData === 'function' && obj.getData('actorId') !== undefined)
+    }
+
     scene.input.on('pointerdown', (pointer) => {
-      // 点在角色上时不进入拖拽（否则"点人"会变成"拖地图"，选不中）。
       if (pointer.rightButtonDown()) return
+      // 点在角色上：不进入拖拽（否则"点人"会变成"拖地图"，选不中）；交给角色自己的 pointerup。
+      pressedOnActor = pointerIsOnActor(pointer)
+      if (pressedOnActor === true) {
+        dragging = false
+        return
+      }
       dragging = true
       lastX = pointer.x
       lastY = pointer.y
@@ -454,8 +645,14 @@ export function createScenePhaser(canvas, options = {}) {
       camera.setScroll(camera.scrollX - dx, camera.scrollY - dy)
       camera.setScroll(Math.round(camera.scrollX), Math.round(camera.scrollY))
     })
-    scene.input.on('pointerup', () => {
+    scene.input.on('pointerup', (pointer) => {
+      const wasDrag = typeof pointer.getDistance === 'function' && pointer.getDistance() > 5
+      const wasLongPress = typeof pointer.getDuration === 'function' && pointer.getDuration() > 700
       dragging = false
+      // P2：点在**空白处**（不是角色、不是拖拽、不是长按）= 取消选中 + 解锁镜头。
+      if (pressedOnActor === false && wasDrag === false && wasLongPress === false) {
+        clearSelection()
+      }
     })
     scene.input.on('pointerupoutside', () => {
       dragging = false
@@ -463,14 +660,28 @@ export function createScenePhaser(canvas, options = {}) {
 
     // 键盘推相机：**用 Phaser 自带的 FixedKeyControl**，它自己算速度与积分。
     if (scene.input.keyboard !== null && scene.input.keyboard !== undefined) {
+      // ⚠️ `addKey(键, enableCapture=false)`：默认 `addKey` 会**捕获**按键并 `preventDefault`，
+      // 于是"在对话输入框里打 wasd"会被引擎吃掉（字打不出来，还会顺手推相机）。
+      // 这里不捕获——键盘优先归输入框，引擎只在"没在打字"时才读（见 `isTextInputFocused`）。
       keyControl = new Cameras.Controls.FixedKeyControl({
         camera,
-        left: scene.input.keyboard.addKey('A'),
-        right: scene.input.keyboard.addKey('D'),
-        up: scene.input.keyboard.addKey('W'),
-        down: scene.input.keyboard.addKey('S'),
+        left: scene.input.keyboard.addKey('A', false),
+        right: scene.input.keyboard.addKey('D', false),
+        up: scene.input.keyboard.addKey('W', false),
+        down: scene.input.keyboard.addKey('S', false),
         speed: KEY_SPEED / 1000,
       })
+
+      // P3：**角色移动键**（WASD + 方向键）。同样 `enableCapture=false`——
+      // 引擎不抢按键，打字的字母才不会被 `preventDefault` 吃掉。
+      const K = scene.input.keyboard
+      const pair = (a, b) => [K.addKey(a, false), K.addKey(b, false)]
+      moveKeys = {
+        up: pair('W', 'UP'),
+        down: pair('S', 'DOWN'),
+        left: pair('A', 'LEFT'),
+        right: pair('D', 'RIGHT'),
+      }
     }
   }
 
@@ -482,28 +693,35 @@ export function createScenePhaser(canvas, options = {}) {
     }
 
     preload() {
-      // 我们的数据（世界快照）比引擎启动**晚到**，所以这里不排资产——装载由
+      // 我们的数据（世界快照）比引擎启动**晚到**，所以这里不排内容资产——装载由
       // `ensureAssets()` 在第一次 `render()` 里按需发起（见那里的注释）。
+      // R77：气泡底图是**固定 UI 资产**（和内容无关），进引擎就载。
       this.load.on('loaderror', (file) => { state.loadError = `load-error: ${file?.key ?? '?'}` })
+      this.load.setBaseURL(options.assetBaseUrl ?? './vendor/')
+      this.load.image(BUBBLE_PANEL_KEY, BUBBLE_PANEL_URL)
+      // 椅子（原版 prefab 的单对象贴图）。它们是**地图对象**、不进底图：
+      // 底图是一整张 depth=-1 的图，烘进去就永远压在角色下面，遮挡关系会错。
+      for (const [key, url] of Object.entries(MAP_OBJECT_TEXTURES)) this.load.image(key, url)
+      // 原版的 6 个 TileMapLayer 各一张透明图，前端按层序摆（见 LAYER_DEPTHS）。
+      LAYER_KEYS.forEach((key, index) => {
+        this.load.image(key, `microverse/scene/office-layer${index}.png`)
+      })
     }
 
     create() {
-      // 主相机画世界（zoom = 16 × 整数倍）；文字层交给一台 **zoom=1 的 UI 相机**——
-      // 否则 10px 的字会被相机放大 32 倍（这正是"手写渲染器"里没这问题、
-      // 换成引擎后最容易踩的坑：缩放是全局的）。
-      this.uiCamera = this.cameras.add(0, 0, viewSize(live.canvas).width, viewSize(live.canvas).height)
-      this.uiCamera.setZoom(1)
+      // 全部元素都画在**主相机**上（同一套世界坐标），文字也放进世界：
+      // 名字挂在 `labels` 容器（最后 add → 渲染在最上层，不被家具/墙挡住），
+      // 位置用世界像素、缩放交给相机——不再用第二台 UI 相机 + 手算画布像素。
       this.layers = {
         ground: this.add.container(0, 0),
-        props: this.add.container(0, 0),
-        actors: this.add.container(0, 0),
+        // 家具 + 角色**合并成同一层**：遮挡必须跨这两类做 y 排序（见 `depthFor`）。
+        // 拆成两个容器的话，容器之间只有"谁整体在前"，做不到"这个角色在桌后、那个在桌前"。
+        entities: this.add.container(0, 0),
         notes: this.add.container(0, 0),
-        // 文字层**不归主相机管**：主相机 zoom 是 32，10px 的字会被放大 32 倍
         labels: this.add.container(0, 0),
+        // R76：头顶气泡进引擎（Phaser Text/Graphics，世界坐标，随相机缩放平移）。
+        bubbles: this.add.container(0, 0),
       }
-      const main = this.cameras.main
-      main.ignore(this.layers.labels)
-      this.uiCamera.ignore([this.layers.ground, this.layers.props, this.layers.actors, this.layers.notes])
       buildAnims()
       wireViewControls(this)
       activeScene = this
@@ -527,7 +745,25 @@ export function createScenePhaser(canvas, options = {}) {
      *（`Scene.update(time, delta)` 由 Phaser 主循环调用）。
      */
     update(_time, delta) {
-      if (keyControl !== null && keyControl !== undefined) keyControl.update(delta)
+      // P2：跟随中键盘推相机停用（WASD 留给 P3 移 agent）；未跟随才推相机。
+      // 另：焦点在文字输入上时（对话模式）引擎一律不读键盘——否则打字会顺手推相机。
+      if (isFollowing() !== true && isTextInputFocused() !== true && keyControl !== null && keyControl !== undefined) keyControl.update(delta)
+      // P3：键盘操控选中 agent（移动模式才生效；其余情况内部会清零速度）。
+      tickManualMovement()
+      // 移动由引擎的 Arcade 物理每帧推进（`moveActorTo` 里的 `physics.moveTo`），这里不再手写移动。
+      // 只有"名字贴头顶"要在这同步：标签在另一个容器里（永远盖在家具上），物理动的是精灵，
+      // 所以每帧把标签钉到精灵脚下 + labelDy——这不是手写物理，是"两个显示对象保持相对位置"。
+      for (const entry of actorNodes.values()) {
+        const sprite = entry.sprite
+        if (sprite === null || sprite === undefined || sprite.visible !== true) continue
+        const label = entry.label
+        if (label !== null && label !== undefined && label.visible === true) {
+          label.x = sprite.x
+          label.y = sprite.y + (entry.labelDy ?? -16)
+        }
+      }
+      // P1：高亮圈跟着选中者的物理精灵贴（和标签同一个道理：两个显示对象保持相对位置）。
+      syncSelectionRing()
       // 拖拽/键盘动过相机之后把滚动量取整，否则半像素会让整张图糊掉。
       const camera = this.cameras.main
       camera.setScroll(Math.round(camera.scrollX), Math.round(camera.scrollY))
@@ -618,8 +854,11 @@ export function createScenePhaser(canvas, options = {}) {
     const images = new Map()
     // 底图：一整张烘好的图（不是图块网格）
     if (plan?.map !== null && plan?.map !== undefined && typeof plan.map.url === 'string' && plan.map.url !== '') {
-      images.set(MAP_KEY, plan.map.url)
-      assets.set(MAP_KEY, plan.map.url)
+      // ⚠️ `assets` 才是**真正拿去 load 的 url**（`images` 只用于"这张是整图不是图集"的判断）。
+      // 版本号必须写进 `assets`，否则 URL 不变、浏览器继续用旧缓存。
+      const mapUrl = withAssetVersion(plan.map.url)
+      images.set(MAP_KEY, mapUrl)
+      assets.set(MAP_KEY, mapUrl)
     }
     for (const model of plan?.models ?? []) {
       if (model?.sheet === null || model?.sheet === undefined || typeof model.url !== 'string') continue
@@ -666,6 +905,438 @@ export function createScenePhaser(canvas, options = {}) {
     return key
   }
 
+  /**
+   * 遮挡（y 排序）深度：**屏幕越靠下（世界 +z 越大）越画在上面**。
+   *
+   * 以前的深度是死的（家具 1、角色 2），于是角色**永远**盖在家具上——站在机柜
+   * "后面"的人也盖住机柜，这就是"遮挡关系不对"。现在家具与角色合并进同一个容器，
+   * 各自按世界 z 取深度，靠下（z 大）的排在靠上（z 小）的前面，由 `sort('depth')` 落地。
+   *
+   * 乘 `TILE_PX` 只是把 z 放大成整数像素，让"深度相等"的概率更低（浮点相等会让排序抖动）。
+   * 负值没关系——它只在这个容器内部比大小，不跟地面/纸条的深度发生关系。
+   */
+  function depthFor(z) {
+    return Math.round((Number.isFinite(z) ? z : 0) * TILE_PX)
+  }
+
+  /**
+   * 把精灵移到目标位置——**交给引擎的 Arcade 物理**（`physics.moveTo` 朝目标设速度）。
+   *
+   * 不手写每帧 lerp、也不起 Tween：物理系统每帧推进、恒定速度、到达自然停，这正是引擎
+   * 内置的"移动"能力（D56）。服务端 100ms 推一格、客户端 250ms 渲染一次，物理在两次渲染
+   * 之间匀速追着最新目标走，角色平滑不跳。
+   *
+   * - 首帧 / 目标跳太远（重置、换位、fallback 矩形 ↔ 精灵切换）：`body.reset` 直接落位，别从 (0,0) 滑过去。
+   * - 到达（够近）：停速度 + 精确落位，别围着目标抖。
+   * - 标签在 `update()` 里每帧跟着物理移动的精灵贴（标签在另一个容器里）。
+   */
+  function moveActorTo(entry, tx, ty) {
+    const sprite = entry.sprite
+    if (sprite === null || sprite === undefined) return
+    const label = entry.label
+    const labelDy = entry.labelDy ?? -16
+    const labelY = ty + labelDy
+    const body = sprite.body ?? null
+
+    // 3 格（48 世界像素）：正常行走 250ms 只挪 ~2.5px，跳超过这个量就是"传送"，直接落位。
+    if (Math.abs(sprite.x - tx) > 48 || Math.abs(sprite.y - ty) > 48) {
+      if (body !== null && body !== undefined) {
+        body.reset(tx, ty)
+        // ⚠️ `Body.reset` 不认 `offset`：不重算的话脚部碰撞体会被甩到帧左上角，
+        // 人就整只卡进墙里（实测：脚在 y=66，body 跑到 y=2，一步都走不动）。
+        body.updateFromGameObject()
+      } else sprite.setPosition(tx, ty)
+      if (label !== null && label !== undefined) label.setPosition(tx, labelY)
+      return
+    }
+
+    // 没有物理体（fallback 矩形，无纹理的罕见路径）：直接落位。
+    if (body === null || body === undefined) {
+      sprite.setPosition(tx, ty)
+      if (label !== null && label !== undefined) label.setPosition(tx, labelY)
+      return
+    }
+
+    // 到达（已足够近）：停掉速度并精确落位，避免围着目标来回抖。
+    if (Math.hypot(tx - sprite.x, ty - sprite.y) < 1) {
+      body.reset(tx, ty)
+      body.updateFromGameObject()
+      return
+    }
+
+    // 引擎物理移动：朝目标设速度，物理世界每帧推进；到达后由上面的分支停住。
+    activeScene.physics.moveTo(sprite, tx, ty, WALK_SPEED_PX)
+  }
+
+  // ── 选中（P1）：点人 / 看板定位 → 记下 selectedAgentId + 脚下高亮圈 ───────────
+
+  /**
+   * 选中一个 agent。选中态是「键盘移动 / 镜头锁定」的入口（P3 / P2 接上）。
+   * 这里只做两件：记下 id + 把高亮圈挪到它脚下（高亮圈每帧跟着物理精灵贴，见 `update()`）。
+   */
+  function selectAgent(agentId) {
+    selectedAgentId = agentId
+    syncSelectionRing()
+    startFollowSelection()
+    return true
+  }
+
+  /** 取消选中：清 id + 藏高亮圈 + 解锁镜头。 */
+  function clearSelection() {
+    // 交还位置所有权前，先把落点落地：否则服务端还停在旧坐标，客户端一交还就会瞬移回去。
+    if (selectedAgentId !== null) {
+      if (manualPositionIds.has(selectedAgentId)) {
+        const moved = actorNodes.get(selectedAgentId)?.sprite
+        if (moved !== null && moved !== undefined) {
+          notifyMoveSettled(selectedAgentId, moved.x / TILE_PX, moved.y / TILE_PX)
+        }
+      }
+      manualPositionIds.delete(selectedAgentId)
+    }
+    wasManualWalking = false
+    selectedAgentId = null
+    stopFollowSelection()
+    syncSelectionRing()
+  }
+
+  /**
+   * 把高亮圈挪到选中 agent 脚下（或隐藏）。
+   *
+   * 为什么用**引擎的 Shape**（`add.ellipse`）而不是自己画 / 贴图：高亮是一个显示对象，
+   * 和精灵一样有坐标/深度/可见性，进 `entities` 层一起做 y 排序（不手写层级、不另开层）。
+   * 没选中、或选中者还没建出精灵（首帧）时只藏不报错。
+   */
+  function syncSelectionRing() {
+    const entry = selectedAgentId === null ? undefined : actorNodes.get(selectedAgentId)
+    const sprite = entry === undefined ? null : entry.sprite
+    if (sprite === null || sprite === undefined || sprite.visible !== true) {
+      if (selectionRing !== null && selectionRing !== undefined) selectionRing.setVisible(false)
+      return
+    }
+    if (selectionRing === null || selectionRing === undefined) {
+      selectionRing = activeScene.add.ellipse(0, 0, 24, 10, 0x00e5ff, 0.18)
+      selectionRing.setStrokeStyle(2, 0x00e5ff, 1)
+      selectionRing.setOrigin(0.5, 1)
+      activeScene.layers.entities.add(selectionRing)
+    }
+    selectionRing.setPosition(sprite.x, sprite.y)
+    // 紧贴在角色脚下**略低一点**：让角色站在圈上（entities 按 depth 排序，圈比角色略低）。
+    selectionRing.setDepth((sprite.depth ?? 0) - 0.01)
+    selectionRing.setVisible(true)
+  }
+
+  // ── 镜头锁定（P2）：选中 → startFollow 跟随；取消选中 → stopFollow 解锁 ─────────
+
+  /** P2：镜头是否正在跟随。跟随 = 选中了、且选中者有可跟的精灵。 */
+  function isFollowing() {
+    const entry = selectedAgentId === null ? undefined : actorNodes.get(selectedAgentId)
+    const sprite = entry === undefined ? null : entry.sprite
+    return sprite !== null && sprite !== undefined && sprite.visible === true
+  }
+
+  /** 点击锁定时的镜头平移动画时长（毫秒）。太短像瞬移，太长像卡住。 */
+  const CAMERA_PAN_MS = 420
+
+  /**
+   * P2：镜头跟随选中的 agent（带 lerp 平滑）。
+   * 用引擎的 `camera.startFollow`（D56：相机是真相，我们只是操作它的手），不手写每帧 scroll。
+   * 但**不是直接贴过去**：先 `camera.pan` 平移到位（用户要的"镜头平移动画"），
+   * 到位后再把跟随接上——直接 startFollow 的观感是"瞬移一格"。
+   */
+  function startFollowSelection() {
+    if (activeScene === null) return
+    const camera = activeScene.cameras.main
+    const entry = selectedAgentId === null ? undefined : actorNodes.get(selectedAgentId)
+    const sprite = entry === undefined ? null : entry.sprite
+    if (sprite === null || sprite === undefined) return
+    camera.stopFollow()
+    // ⚠️ `pan()` 的第 6 个参数是**每帧**回调（内部 `_onUpdate`），**不是**"完成回调"。
+    // 拿它当完成回调用，跟随会在平移的**第一帧**就接管，动画还没开始就被 follow 的
+    // 每帧贴位吃掉（表现：镜头"啪"地贴过去，没有平移）。真正的完成信号是 `pancomplete` 事件。
+    camera.off('camerapancomplete')
+    camera.once('camerapancomplete', () => {
+      // 平移途中可能已经取消/换人：只按**当前**选中态接管（换人就跟着新的人）。
+      if (selectedAgentId === null) return
+      const cur = actorNodes.get(selectedAgentId)?.sprite
+      if (cur !== null && cur !== undefined) camera.startFollow(cur, true, 0.12, 0.12)
+    })
+    camera.pan(sprite.x, sprite.y, CAMERA_PAN_MS, 'Sine.easeInOut', true)
+  }
+
+  /** P2：解除镜头跟随（点空白 / 点解锁按钮 / Esc 走这条）。 */
+  function stopFollowSelection() {
+    if (activeScene === null) return
+    const camera = activeScene.cameras.main
+    camera.stopFollow()
+    // 平移还没走完也要停：否则解锁后镜头仍会飘到那个人身上。
+    camera.off('camerapancomplete')
+    camera.panEffect?.reset?.()
+  }
+
+  /**
+   * P3：开关"键盘操控选中 agent"。由超控面板的模式切换驱动（对话 → 关，移动 → 开）。
+   * 这里只记状态；真正的键位处理在 `update()` 里（见 P3）。
+   */
+  function setMovementEnabled(enabled) {
+    movementEnabled = enabled === true
+    return movementEnabled
+  }
+
+  /**
+   * 焦点此刻是否在**文字输入**上（textarea / input / contenteditable）。
+   *
+   * 这是「对话 / 移动」互斥的判据：只要用户在打字，引擎就**不该**读键盘——
+   * 否则 WASD 一边进输入框、一边推相机/推角色，就是两套在抢同一批按键。
+   */
+  function isTextInputFocused() {
+    const el = globalThis.document?.activeElement
+    if (el === null || el === undefined) return false
+    const tag = String(el.tagName ?? '').toUpperCase()
+    return tag === 'TEXTAREA' || tag === 'INPUT' || el.isContentEditable === true
+  }
+
+  // ── 键盘操控角色（P3）─────────────────────────────────────────────────────
+
+  /** 玩家键盘走速（世界像素/秒）。服务端 `WALK_SPEED_PX` 是 9.6（约 0.6 格/秒），
+   *  手动操控要"跟手"，给 4.5 格/秒左右：再快会像滑冰，再慢会觉得没反应。 */
+  const MANUAL_SPEED_PX = 72
+
+  /** 这个 agent 此刻是否由玩家键盘接管（= 选中了它 + 处于移动模式）。 */
+  function isManualControl(agentId) {
+    return movementEnabled === true && selectedAgentId !== null && selectedAgentId === agentId
+  }
+
+  /**
+   * 被玩家键盘**挪过位置**的 agent（位置所有权归客户端，服务端同步要跳过）。
+   *
+   * 为什么不直接复用 `isManualControl`：走两步再切回「对话」时，若立刻把位置还给服务端，
+   * 角色会**当场被拽回原位**（服务端还停在旧坐标），观感就是"一进对话就瞬移"。
+   * 所以位置所有权要**粘住**，直到解除选中才交还。
+   */
+  const manualPositionIds = new Set()
+
+  /** 上一帧是否正在被键盘推着走（用于在"停下那一刻"只报一次坐标，不逐帧发请求）。 */
+  let wasManualWalking = false
+  /** 诊断：`tickManualMovement` 上一次为什么走/没走（`moving` / `no-direction` / `mode-off` …）。 */
+  let lastManualReason = 'init'
+
+  /** 把"玩家走完的落点"交给外壳去发命令——渲染层不碰 HTTP。 */
+  function notifyMoveSettled(agentId, x, z) {
+    if (typeof options.onAgentMoveSettled !== 'function') return
+    options.onAgentMoveSettled(agentId, x, z)
+  }
+
+  /** 该 agent 的位置此刻是否归客户端（服务端同步跳过它）。 */
+  function ownsPosition(agentId) {
+    return manualPositionIds.has(agentId)
+  }
+
+  /**
+   * P3：每帧按键盘给选中 agent 设速度（推进交给 Arcade 物理，不手写位移）。
+   *
+   * 三种情况都**显式清零速度**（松键 / 切回对话 / 失焦），否则角色会一直滑下去——
+   * 这是"键盘控制"最容易留的尾巴。
+   */
+  function tickManualMovement() {
+    const entry = selectedAgentId === null ? undefined : actorNodes.get(selectedAgentId)
+    const sprite = entry === undefined ? null : entry.sprite
+    const body = sprite?.body ?? null
+    if (body === null || body === undefined) { lastManualReason = 'no-body'; return }
+
+    const active = movementEnabled === true && isTextInputFocused() !== true && moveKeys !== null
+    if (active !== true) {
+      lastManualReason = movementEnabled !== true ? 'mode-off' : (isTextInputFocused() === true ? 'text-focus' : 'no-keys')
+      if (body.velocity.x !== 0 || body.velocity.y !== 0) body.setVelocity(0, 0)
+      // ⚠️ 这里**不要**挑站立动画：松键/切模式后动画要交回 `drawActors`（服务端朝向），
+      // 一旦在这里写 `idle-<lastDir>`，被摸过的人就会永远钉在最后那个方向。
+      // 切走/失焦时也要把落点落地（否则服务端还停在旧坐标，解锁会瞬移）。
+      if (wasManualWalking === true && selectedAgentId !== null) {
+        wasManualWalking = false
+        notifyMoveSettled(selectedAgentId, sprite.x / TILE_PX, sprite.y / TILE_PX)
+      }
+      return
+    }
+
+    const anyDown = (list) => list.some((key) => key.isDown === true)
+    let vx = 0
+    let vy = 0
+    if (anyDown(moveKeys.left)) vx -= 1
+    if (anyDown(moveKeys.right)) vx += 1
+    if (anyDown(moveKeys.up)) vy -= 1
+    if (anyDown(moveKeys.down)) vy += 1
+
+    if (vx === 0 && vy === 0) {
+      lastManualReason = 'no-direction'
+      body.setVelocity(0, 0)
+      // ⚠️ 松键后**不要**在这里挑站立动画：动画要交回 `drawActors`（服务端朝向）。
+      // 这里一写 `idle-<lastDir>`，被摸过的人就永远钉在最后那个方向——
+      // 用户反馈的「只要朝向不是向右就会跳向右」正是这条（因为位置所有权是粘的，
+      // drawActors 又整段跳过动画，最后只剩手动这套按 lastDir 播）。
+      // 松键 = 一次移动结束：**在这一刻**把落点交给服务端（不逐帧发）。
+      if (wasManualWalking === true) {
+        wasManualWalking = false
+        notifyMoveSettled(selectedAgentId, sprite.x / TILE_PX, sprite.y / TILE_PX)
+      }
+      return
+    }
+    wasManualWalking = true
+    lastManualReason = 'moving'
+
+    // 斜向归一化：不除的话斜着走会比直着快 √2 倍。
+    const len = Math.hypot(vx, vy) || 1
+    body.setVelocity((vx / len) * MANUAL_SPEED_PX, (vy / len) * MANUAL_SPEED_PX)
+    // 一旦真的被玩家推动过 → 位置归客户端（切回对话模式也不会被服务端拽回）。
+    if (selectedAgentId !== null) manualPositionIds.add(selectedAgentId)
+
+    // 屏幕 +y = 世界 +z，所以 atan2(vy, vx) 直接喂 `directionOf` 就是四向。
+    const dir = directionOf(Math.atan2(vy, vx))
+    entry.lastDir = dir
+    playManualAnim(entry, 'walk', dir)
+    // 深度按**脚下当前位置**重算：边走遮挡关系边跟上（不再用服务端那份旧 z）。
+    sprite.setDepth(depthFor(sprite.y / TILE_PX))
+  }
+
+  /** 手动操控时自己挑动画（服务端那套在 `drawActors` 里对被接管的人跳过）。 */
+  function playManualAnim(entry, band, direction) {
+    if (activeScene === null) return
+    const textureKey = entry.textureKey
+    if (textureKey === null || textureKey === undefined) return
+    const name = resolveAnimationKey(
+      (n) => activeScene.anims.exists(animKeyFor(textureKey, n)) === true,
+      { band, direction },
+    )
+    if (name === null) return
+    const full = animKeyFor(textureKey, name)
+    if (entry.sprite.anims.currentAnim?.key !== full) entry.sprite.play(full, true)
+  }
+
+  // ── 墙体碰撞（P5）────────────────────────────────────────────────────────────
+
+  /**
+   * 取"与底图同源"的精细碰撞体（`vendor/<mapUrl 同目录>/office-colliders.json`）。
+   *
+   * 拿不到就**继续用整格网格**（不阻塞渲染、不报错）——它是优化而不是必需依赖。
+   */
+  function loadFineColliders(mapUrl) {
+    if (typeof mapUrl !== 'string' || mapUrl === '') return
+    // 记录**底图 url**（不是转换后的路径）：`rebuildWalls` 拿它跟 `plan.map.url` 对齐。
+    if (fineCollidersUrl === mapUrl && fineColliders !== null) return
+    fineCollidersUrl = mapUrl
+    const fetchUrl = String(mapUrl).replace(/\.png$/i, '-colliders.json')
+    const base = options.assetBaseUrl ?? './vendor/'
+    void fetch(`${base}${withAssetVersion(fetchUrl)}`)
+      .then((res) => (res.ok === true ? res.json() : null))
+      .then((data) => {
+        // 期间可能换了场景：只接受仍是当前这一份。
+        if (data === null || fineCollidersUrl !== mapUrl) return
+        fineColliders = data
+        wallKey = null // 强制下一次 render 重建碰撞体
+        if (lastRenderInput !== null) render(lastRenderInput)
+      })
+      .catch(() => { /* 退回整格网格 */ })
+  }
+
+  /**
+   * 用 `world.nav` rebuild 墙体的静态碰撞体。
+   *
+   * 为什么用**行合并**：248 个阻挡格逐格建体会白建 248 个静态体；同一行连续的阻挡格
+   * 合成一条矩形后只剩 77 个。墙是横平竖直的，行合并正好贴合它的形状。
+   *
+   * 为什么交给 Arcade 而不是自己写"下一格能不能走"：自己写只能把那一轴的速度清零，
+   * 贴着墙斜走会发涩（先停住再蹭），而引擎的分离+滑动是它自带的能力（D56）。
+   */
+  function rebuildWalls(worldState) {
+    if (activeScene === null) return
+    const nav = worldState?.nav ?? null
+    const sceneId = String(worldState?.origin?.scene ?? '')
+    // 网格参数 + 场景 id 一起当签名：换场景、换地图时就要重建。
+    const key = nav === null
+      ? `${sceneId}|none`
+      : `${sceneId}|${nav.width}x${nav.height}@${nav.unitsPerCell}|${nav.originX},${nav.originZ}`
+    if (key === wallKey) return
+    wallKey = key
+
+    // 旧组连同它的碰撞一起丢掉（否则换场景后还残留上一张图的墙）。
+    for (const entry of actorNodes.values()) {
+      entry.collider?.destroy?.()
+      entry.collider = null
+    }
+    if (wallGroup !== null && wallGroup !== undefined) {
+      wallGroup.clear(true, true)
+      wallGroup = null
+    }
+    // 兜底：把世界里**所有**静态体清掉再重建。
+    //
+    // 为什么不能只 clear 自己的组：粗网格（77 个）与精细碰撞体（203 个）是两套实现，
+    // 切换时若有一组没被销毁干净，那些"看不见的整格墙"仍然挡人 —— 表现就是
+    // "换了精细碰撞还是没改善"。静态体只在换场景/换数据时重建，清一次很便宜。
+    const world = activeScene.physics.world
+    const stale = world.staticBodies.getArray().slice()
+    for (const body of stale) {
+      const owner = body.gameObject
+      if (owner !== null && owner !== undefined) owner.destroy()
+      else world.disableBody(body)
+    }
+    if (nav === null || nav.width <= 0 || nav.height <= 0) return
+
+    wallGroup = activeScene.physics.add.staticGroup()
+
+    // ── 优先：与底图同源的精细碰撞体（地图像素坐标 → 世界像素，只差一个原点偏移）──
+    // 底图 url 在**场景计划**上（`plan.map.url`），不是 world.scene（那只是一个 id 字符串）。
+    const mapUrl = state.plan?.map?.url ?? null
+    const fine = fineColliders !== null && fineCollidersUrl !== null && fineCollidersUrl === mapUrl
+      ? fineColliders
+      : null
+    if (fine !== null && Array.isArray(fine.rects) === true && fine.rects.length > 0) {
+      const offsetPxX = Number(nav.originX) * TILE_PX
+      const offsetPxY = Number(nav.originZ) * TILE_PX
+      for (const rect of fine.rects) {
+        if (Array.isArray(rect) !== true || rect.length < 4) continue
+        const [rx, ry, rw, rh] = rect
+        if (!(rw > 0) || !(rh > 0)) continue
+        const body = activeScene.add.rectangle(offsetPxX + rx + rw / 2, offsetPxY + ry + rh / 2, rw, rh, 0x000000, 0)
+        body.setVisible(false)
+        wallGroup.add(body)
+      }
+      for (const entry of actorNodes.values()) {
+        const sprite = entry.sprite
+        if (sprite === null || sprite === undefined) continue
+        if (sprite.body === null || sprite.body === undefined) continue
+        entry.collider = activeScene.physics.add.collider(sprite, wallGroup)
+      }
+      return
+    }
+
+    const cellPx = Number(nav.unitsPerCell) * TILE_PX
+    if (!(cellPx > 0)) { wallGroup = null; return }
+    const originPxX = Number(nav.originX) * TILE_PX
+    const originPxY = Number(nav.originZ) * TILE_PX
+
+    for (let row = 0; row < nav.height; row += 1) {
+      let col = 0
+      while (col < nav.width) {
+        if (nav.blocked[row * nav.width + col] !== true) { col += 1; continue }
+        const start = col
+        while (col < nav.width && nav.blocked[row * nav.width + col] === true) col += 1
+        const widthPx = (col - start) * cellPx
+        const x = originPxX + start * cellPx + widthPx / 2
+        const y = originPxY + row * cellPx + cellPx / 2
+        // 不可见的矩形：只做碰撞体，不参与画面（墙本身画在底图上）。
+        const rect = activeScene.add.rectangle(x, y, widthPx, cellPx, 0x000000, 0)
+        rect.setVisible(false)
+        wallGroup.add(rect)
+      }
+    }
+
+    // 已经建出来的主角补上碰撞（新建的在 drawActors 里挂）。
+    for (const entry of actorNodes.values()) {
+      const sprite = entry.sprite
+      if (sprite === null || sprite === undefined) continue
+      if (sprite.body === null || sprite.body === undefined) continue
+      entry.collider = activeScene.physics.add.collider(sprite, wallGroup)
+    }
+  }
+
   function drawGround(plan) {
     const models = new Map((plan?.models ?? []).map((model) => [model.id, model]))
     const wanted = new Set()
@@ -688,7 +1359,8 @@ export function createScenePhaser(canvas, options = {}) {
       }
       image.setTexture(MAP_KEY)
       image.setPosition(frame.originPxX, frame.originPxY)
-      image.setVisible(true)
+      // 分层图可用时，合成底图会重复绘制（同一像素画两遍）。藏起来，只留分层。
+      image.setVisible(LAYER_KEYS.some((key) => activeScene.textures.exists(key) === true) !== true)
       wanted.add('map')
     }
     // 底下按分区铺色只在**没有底图**时画（有底图会盖住它，还会在图外铺出一片怪色）
@@ -737,6 +1409,122 @@ export function createScenePhaser(canvas, options = {}) {
     for (const [key, node] of groundNodes) if (!wanted.has(key)) node.setVisible(false)
   }
 
+  /**
+   * 画地图对象（椅子）。**进 `entities` 层并按 y 取深度** —— 这样它和角色一起排序：
+   * 站在椅子后面会被挡住，站在前面会挡住椅子（原版 Godot 里就是这个行为）。
+   */
+  function drawMapObjects() {
+    if (activeScene === null) return
+    const data = mapObjects
+    if (data === null || data === undefined || Array.isArray(data.chairs) !== true) return
+    const key = mapObjectsUrl
+    if (objectNodesKey !== key) {
+      for (const node of objectNodes.values()) node.destroy()
+      objectNodes.clear()
+      objectNodesKey = key
+    }
+    const offsetPxX = -37 * TILE_PX
+    const offsetPxY = -21 * TILE_PX
+    const wanted = new Set()
+    data.chairs.forEach((chair, index) => {
+      if (chair === null || chair === undefined) return
+      const textureKey = String(chair.texture ?? '')
+      if (textureKey === '' || MAP_OBJECT_TEXTURES[textureKey] === undefined) return
+      if (activeScene.textures.exists(textureKey) !== true) return
+      const px = Array.isArray(chair.px) ? chair.px : null
+      if (px === null || px.length < 2) return
+      const id = `${index}:${textureKey}`
+      wanted.add(id)
+      let node = objectNodes.get(id)
+      if (node === undefined) {
+        node = activeScene.add.image(0, 0, textureKey)
+        // 原版 Sprite2D 默认居中（centered=true），Phaser 的 image 默认也是 0.5/0.5，不用改。
+        activeScene.layers.entities.add(node)
+        objectNodes.set(id, node)
+      }
+      node.setTexture(textureKey)
+      // 地图像素 → 世界像素（图左上角 = (-halfW,-halfH)）
+      const worldX = px[0] + offsetPxX
+      const worldY = px[1] + offsetPxY
+      node.setPosition(worldX, worldY)
+      // 统一压到家具层之下（见 `CHAIR_DEPTH` 的说明）。索引偏移只保证同深度下次序稳定。
+      node.setDepth(CHAIR_DEPTH + index * 0.001)
+      node.setVisible(true)
+    })
+    for (const [id, node] of objectNodes) if (!wanted.has(id)) node.setVisible(false)
+  }
+
+  /**
+   * 按**原版层序**铺 6 个图块层。
+   *
+   * 这是对 `Office.tscn` 的直译：层是**固定前后关系**，层内不排序。
+   * 之前我自己发明了"墙按行底部取深度"的 Y 排序，那不是原版行为，已删除。
+   */
+  function drawLayers() {
+    if (activeScene === null) return
+    const anyLayer = LAYER_KEYS.some((key) => activeScene.textures.exists(key) === true)
+    if (anyLayer !== true) return false
+    const offsetPxX = -37 * TILE_PX
+    const offsetPxY = -21 * TILE_PX
+    LAYER_KEYS.forEach((key, index) => {
+      if (activeScene.textures.exists(key) !== true) return
+      const nodeKey = `layer:${index}`
+      let node = wallNodes.get(nodeKey)
+      if (node === undefined) {
+        node = activeScene.add.image(offsetPxX, offsetPxY, key)
+        node.setOrigin(0, 0)
+        node.setDepth(LAYER_DEPTHS[index])
+        // ⚠️ 必须和对象/角色放**同一个容器**：容器之间是整体排序的，
+        // 放在 `ground` 里无论深度设多少都压不过 `entities` 里的角色。
+        activeScene.layers.entities.add(node)
+        wallNodes.set(nodeKey, node)
+      }
+      node.setTexture(key)
+      node.setPosition(offsetPxX, offsetPxY)
+      node.setDepth(LAYER_DEPTHS[index])
+      node.setVisible(true)
+    })
+    return true
+  }
+
+  /**
+   * 画墙体图层。每条墙（按行合并的矩形）用 `setCrop` 从透明图里取那一块，
+   * 深度取**该行底部** —— 这样"站在墙上方"的角色会被墙挡住，"站在墙下方"的会盖住墙，
+   * 与 Godot 原版 YSort 的观感一致。
+   */
+  function drawWalls() {
+    if (activeScene === null) return
+    const rects = fineColliders?.walls
+    if (Array.isArray(rects) !== true || activeScene.textures.exists(WALLS_KEY) !== true) return
+    const offsetPxX = -37 * TILE_PX
+    const offsetPxY = -21 * TILE_PX
+    if (wallNodesKey !== WALLS_KEY) {
+      for (const node of wallNodes.values()) node.destroy()
+      wallNodes.clear()
+      wallNodesKey = WALLS_KEY
+    }
+    const wanted = new Set()
+    rects.forEach((rect, index) => {
+      if (Array.isArray(rect) !== true || rect.length < 4) return
+      const [rx, ry, rw, rh] = rect
+      if (!(rw > 0) || !(rh > 0)) return
+      const id = `${index}`
+      wanted.add(id)
+      let node = wallNodes.get(id)
+      if (node === undefined) {
+        node = activeScene.add.image(0, 0, WALLS_KEY)
+        node.setOrigin(0, 0)
+        activeScene.layers.entities.add(node)
+        wallNodes.set(id, node)
+      }
+      node.setCrop(rx, ry, rw, rh)
+      node.setPosition(offsetPxX + rx, offsetPxY + ry)
+      node.setDepth(depthFor((offsetPxY + ry + rh) / TILE_PX))
+      node.setVisible(true)
+    })
+    for (const [id, node] of wallNodes) if (!wanted.has(id)) node.setVisible(false)
+  }
+
   // ── 家具 / 角色 / 纸条 ────────────────────────────────────────────────────
 
   function drawProps(plan) {
@@ -755,8 +1543,8 @@ export function createScenePhaser(canvas, options = {}) {
         let node = propNodes.get(nodeKey)
         if (node === undefined) {
           node = activeScene.add.sprite(0, 0, key)
-          node.setDepth(1)
-          activeScene.layers.props.add(node)
+          node.setDepth(depthFor(prop.z + (part.dz ?? 0)))
+          activeScene.layers.entities.add(node)
           propNodes.set(nodeKey, node)
         }
         const [ox, oy] = originOf(sheet)
@@ -766,6 +1554,7 @@ export function createScenePhaser(canvas, options = {}) {
         if (firstAnim !== undefined) node.setFrame(animationFrameList(sheet, firstAnim, perRowByUrl.get(model.url) ?? 1)[0] ?? 0)
         node.setOrigin(ox, oy)
         node.setPosition(Math.round((prop.x + (part.dx ?? 0)) * TILE_PX), Math.round((prop.z + (part.dz ?? 0)) * TILE_PX))
+        node.setDepth(depthFor(prop.z + (part.dz ?? 0)))
         node.setVisible(true)
         spriteCount += 1
       })
@@ -779,11 +1568,12 @@ export function createScenePhaser(canvas, options = {}) {
         const size = (prop.capacity > 1 ? 18 : 13)
         if (node === undefined) {
           node = activeScene.add.rectangle(0, 0, size, size, colorOf(prop.color), 1)
-          node.setDepth(1)
-          activeScene.layers.props.add(node)
+          node.setDepth(depthFor(prop.z))
+          activeScene.layers.entities.add(node)
           propNodes.set(nodeKey, node)
         }
         node.setPosition(Math.round(prop.x * TILE_PX), Math.round(prop.z * TILE_PX))
+        node.setDepth(depthFor(prop.z))
         node.setVisible(true)
       }
     }
@@ -819,9 +1609,13 @@ export function createScenePhaser(canvas, options = {}) {
       if (baseKey !== null && activeScene.textures.exists(baseKey) === true) {
         const textureKey = ensureTintedSheet(model.url, actor.color, variants.get(actor.id) ?? 0, sheet) ?? baseKey
         if (entry.sprite === null) {
-          entry.sprite = activeScene.add.sprite(0, 0, textureKey)
-          entry.sprite.setDepth(2)
-          activeScene.layers.actors.add(entry.sprite)
+          // 用**引擎的 Arcade 物理精灵**：移动交给物理系统（`moveActorTo` 里的 `physics.moveTo`），
+          // 不手写每帧补间。物理体负责"朝目标匀速走"，其余（动画/点人/深度）照旧。
+          entry.sprite = activeScene.physics.add.sprite(0, 0, textureKey)
+          entry.sprite.setDepth(ACTOR_DEPTH)
+          activeScene.layers.entities.add(entry.sprite)
+          // P2：给精灵打上 actorId 标记，`wireViewControls` 用 `hitTestPointer` 判"点在角色上还是空白"。
+          entry.sprite.setData('actorId', actor.id)
           // **整只角色可点**（不是脚下一个小圆）——用 Phaser 自己的交互系统。
           //
           // ## 这里曾经是"两套拾取"（R66 修掉）
@@ -837,27 +1631,60 @@ export function createScenePhaser(canvas, options = {}) {
           // 不需要自己记 downX/downY/downAt（那是 `main.js::bindPick` 手写的那套）。
           entry.sprite.setInteractive({ useHandCursor: true })
           entry.sprite.on('pointerup', (pointer) => {
-            if (actorPick === null) return
             // 拖拽（在拖地图）不算点人：位移超过 5px 就放过。
             if (typeof pointer.getDistance === 'function' && pointer.getDistance() > 5) return
             // 长按也不算点人（700ms 以上）。
             if (typeof pointer.getDuration === 'function' && pointer.getDuration() > 700) return
+            // P1：点人 = 选中（与开对话解耦——镜头锁定 P2、键盘移动 P3 都读这个选中态）。
+            selectAgent(actor.id)
             // R72：点人只开对话，**不动镜头**（缩放不吸附 agent）。
-            actorPick(actor.id)
+            if (actorPick !== null) actorPick(actor.id)
           })
         }
-        entry.sprite.setTexture(textureKey)
+        // ⚠️ **只在纹理真的变了才 `setTexture`**（R85 真凶）。
+        //
+        // Phaser 的 `GameObject.setTexture(key)` 会顺手 `setFrame(当前帧名)`，
+        // 而新纹理上那个帧名解析回 **第 0 帧** —— 于是每次渲染都把精灵打回第 0 帧。
+        // 动画只在**帧号变化时**才写回精灵帧（帧率 5fps = 每 200ms），
+        // 而这里每 250ms 重置一次 ⇒ 两者交错，精灵在「正确帧」和「第 0 帧」之间来回跳。
+        //
+        // 为什么只有"朝右"的人看不出来：第 0 帧是朝右的姿势，朝右的人两帧看着一样；
+        // 朝左/上/下的人就会看到"一直被掰回向右"——用户原话「只要朝向不是向右就会跳向右」。
+        if (entry.sprite.texture?.key !== textureKey) entry.sprite.setTexture(textureKey)
         const [ox, oy] = originOf(sheet)
         entry.sprite.setOrigin(ox, oy)
-        entry.sprite.setPosition(posX, posY)
+        // P5：碰撞体只取**脚下一小块**（俯视游戏的通行做法）——上半身可以盖在桌面上，
+        // 脚不能踏进墙里。offset 是相对帧左上角算的，底锚精灵要把 offset 推到脚底，
+        // 否则整个身体高度都参与碰撞，人会离墙"悬着"半格过不去。
+        const cellW = Math.max(1, Number(sheet.cellW) || 16)
+        const cellH = Math.max(1, Number(sheet.cellH) || 16)
+        const bodyW = Math.max(4, Math.round(cellW * 0.6))
+        const bodyH = Math.max(3, Math.round(cellH * 0.34))
+        if (entry.sprite.body !== null && entry.sprite.body !== undefined) {
+          entry.sprite.body.setSize(bodyW, bodyH)
+          entry.sprite.body.setOffset((cellW - bodyW) / 2, cellH - bodyH)
+          // 改完尺寸/偏移要立刻落到物理体上，否则第一帧的碰撞体还在原位。
+          entry.sprite.body.updateFromGameObject()
+        }
+        // 墙/家具碰撞：挂上之后手动操控就穿不过去了（重建墙时由 `rebuildWalls` 统一重挂）。
+        if (wallGroup !== null && wallGroup !== undefined && (entry.collider === null || entry.collider === undefined)) {
+          entry.collider = activeScene.physics.add.collider(entry.sprite, wallGroup)
+        }
+        // 名字贴着角色头顶：`posY` 是角色脚下（世界像素）。这些底锚角色在 `cellH` 高的
+        // 格子里实际只占下 ~75%（顶部留白 ~25%），所以不能拿整格 `cellH` 当身高——旧值
+        // `-(cellH + 4)` 把留白也算进去，名字会飘到头顶上方 ~20px（太远）。按可视身高再留 2px。
+        // `labelDy` 记下"标签离脚下的竖直距离"，`update()` 里每帧跟着物理移动的精灵贴。
+        entry.labelDy = -(Math.round((Number(sheet.cellH) || 16) * 0.75) + 2)
+        // P3：被键盘接管的角色**不接受服务端位置**（否则每 250ms 渲染就被拽回原地，
+        // 看起来就是"一走动就弹回去"）。动画同理交给 `tickManualMovement` 自己挑。
+        entry.textureKey = textureKey
+        const manual = ownsPosition(actor.id)
+        if (manual !== true) moveActorTo(entry, posX, posY)
+        entry.sprite.setDepth(ACTOR_DEPTH)
         entry.sprite.setVisible(true)
         // `setTexture` 之后帧可能是 `__BASE`（整张图）——但**只在没有动画可播时才钉帧**。
         // ⚠️ 这里曾经**每帧都 setFrame(第一帧)**，结果动画永远冻在第一帧：
         // `currentAnim.key` 看着是对的，人却在原地滑（R64 逐个验方向时才逮到）。
-        const firstAnim = Object.values(sheet?.animations ?? {})[0]
-        const firstFrame = firstAnim === undefined
-          ? 0
-          : (animationFrameList(sheet, firstAnim, perRowByUrl.get(model.url) ?? 1)[0] ?? 0)
         // 该播哪个动画：**回退链在纯函数里**（返回候选名），`play` 交给引擎。
         // 动画按纹理分开命名（重上色纹理有它自己的一套），否则换色会串回原图。
         const animName = resolveAnimationKey((name) => activeScene.anims.exists(animKeyFor(textureKey, name)) === true, {
@@ -866,28 +1693,51 @@ export function createScenePhaser(canvas, options = {}) {
           band: bandOfState(plan?.actions, actor.state),
           direction: directionOf(actor.facing),
         })
-        if (animName !== null) {
+        // 钉帧必须钉**解析出来的那条动画**的首帧。
+        // ⚠️ 原来取 `sheet.animations` 的第一个（= `walk.right`，列 0）—— 于是"动画没在播"
+        // 的那一刻人会被钉成**朝右**。这正是用户反馈「朝向不是向右就跳向右」的另一半来源
+        //（另一半是位置所有权粘住时跳过了动画，见下面的条件）。取不到就退到 `idle.down`（正面）。
+        const pinAnim = animName === null
+          ? null
+          : (sheet?.animations?.[String(animName).replace(/-/g, '.')] ?? null)
+        const pinSource = pinAnim ?? sheet?.animations?.['idle.down'] ?? Object.values(sheet?.animations ?? {})[0]
+        const firstFrame = pinSource === undefined || pinSource === null
+          ? 0
+          : (animationFrameList(sheet, pinSource, perRowByUrl.get(model.url) ?? 1)[0] ?? 0)
+        // ⚠️ 动画只在「**键盘正推着走**」的那几帧让给 `tickManualMovement`。
+        // 位置所有权（`manualPositionIds`）是**粘住**的（切回对话也不能被服务端拽回），
+        // 但**动画不能跟着粘**——否则被玩家摸过的人会永远钉在最后按下的那个方向，
+        // 服务端的朝向再也不生效。用户反馈的「只要朝向不是向右就会跳向右」就是这条：
+        // 位置仍归客户端 → drawActors 跳过动画 → 只有手动那套按 `lastDir` 播，而它恰好是 right。
+        if ((manual !== true || wasManualWalking !== true) && animName !== null) {
           const fullKey = animKeyFor(textureKey, animName)
           if (entry.sprite.anims.currentAnim?.key !== fullKey) entry.sprite.play(fullKey, true)
           // 正在播就**别碰帧**（碰了就成了"看着在走、其实是冻帧"）；没在播才钉第一帧
           else if (entry.sprite.anims.isPlaying !== true) entry.sprite.setFrame(firstFrame)
         }
-        const heightPx = Math.max(1, Math.round(Number(sheet.cellH) || 16))
-        entry.label.setPosition(Math.round(screenX(actor.x)), Math.round(screenY(actor.z) - heightPx - 4))
         entry.label.setVisible(true)
         spriteCount += 1
         continue
       }
       fallbackCount += 1
       if (entry.sprite === null || entry.sprite.type !== 'Rectangle') {
+        entry.collider?.destroy?.()
+        entry.collider = null
         entry.sprite?.destroy()
         entry.sprite = activeScene.add.rectangle(0, 0, 12, 12, colorOf(actor.color), 1)
-        entry.sprite.setDepth(2)
-        activeScene.layers.actors.add(entry.sprite)
+        entry.sprite.setDepth(ACTOR_DEPTH)
+        activeScene.layers.entities.add(entry.sprite)
+        // 没有模型的角色（fallback 方块）也要有物理体：否则它不受墙约束，能在墙里穿。
+        activeScene.physics.add.existing(entry.sprite)
+        entry.sprite.setData('actorId', actor.id)
+        if (wallGroup !== null && wallGroup !== undefined) {
+          entry.collider = activeScene.physics.add.collider(entry.sprite, wallGroup)
+        }
       }
-      entry.sprite.setPosition(posX, posY)
+      entry.labelDy = -16
+      moveActorTo(entry, posX, posY)
+      entry.sprite.setDepth(ACTOR_DEPTH)
       entry.sprite.setVisible(true)
-      entry.label.setPosition(Math.round(screenX(actor.x)), Math.round(screenY(actor.z) - 18))
       entry.label.setVisible(true)
     }
     for (const [id, entry] of actorNodes) {
@@ -946,29 +1796,6 @@ export function createScenePhaser(canvas, options = {}) {
     return key
   }
 
-  /** 区块名（文字交给 **zoom=1 的 UI 相机**，所以位置是屏幕坐标）。 */
-  function drawLabels(plan) {
-    const wanted = new Set()
-    for (const district of plan?.ground ?? []) {
-      const key = `label:${district.id}`
-      wanted.add(key)
-      let label = labelNodes.get(key)
-      if (label === undefined) {
-        label = activeScene.add.text(0, 0, district.name, LABEL_STYLE)
-        label.setDepth(3)
-        activeScene.layers.labels.add(label)
-        labelNodes.set(key, label)
-      }
-      if (label.text !== district.name) label.text = district.name
-      label.setPosition(
-        Math.round(screenX(district.x - district.width / 2)) + 8,
-        Math.round(screenY(district.z - district.depth / 2)) + 6,
-      )
-      label.setVisible(true)
-    }
-    for (const [key, label] of labelNodes) if (!wanted.has(key)) label.setVisible(false)
-  }
-
   /** 飞行中的纸条（Phaser 的 Rectangle；位置按插值走，引擎负责合成）。 */
   function drawNotes(worldState, plan, tick, messageDeliveryTicks) {
     if (worldState === null) return
@@ -1004,6 +1831,141 @@ export function createScenePhaser(canvas, options = {}) {
     for (const [key, node] of noteNodes) if (!wanted.has(key)) node.setVisible(false)
   }
 
+  // ── 头顶气泡（R76 进引擎 → R77 用本地 9-slice 美术面板）──────────────────────
+  // 底图 = Kenney 像素 UI 包的米色面板（`add.nineslice` 撑到任意尺寸，引擎成熟方案，不再手画圆角矩形）。
+  // 文字颜色改**深棕**（适配米色底）；语义色（在想/在忙/失败）挪到一个 6px 状态点，不再染整段文字。
+  // 「气泡 vs 名字」二选一：气泡出现藏掉头顶名字标签，消失再露出来（`bubbleVisibleIds`）。
+
+  /** 语义色（状态点用）：在想=琥珀、在忙=蓝、失败=红、其余=面板本色。 */
+  function bubbleColor(phase) {
+    switch (phase) {
+      case 'thinking': return 0xffc94d // --st-ready
+      case 'acting': return 0x4fa8ff // --st-in_progress
+      case 'failed': return 0xff6b6b // --st-failed
+      default: return 0xb08a4f // 面板边框色（米棕）
+    }
+  }
+  const BUBBLE_TEXT_COLOR = '#3d2b1a' // 深棕，适配米色底
+  const BUBBLE_PAD_X = 10
+  const BUBBLE_PAD_Y = 7
+  const BUBBLE_MAX_W = 200
+  const BUBBLE_GAP = 4 // 气泡底边离头顶的间距
+  // 「对话气泡」和「面板」的区别就是那条朝下指说话人的小尾巴——底图（本地 9-slice 面板）没有
+  // 尾巴，这里补一个小三角：填色=面板内芯、斜边描边=面板描边，顶边不描（和面板连成一体）。
+  const BUBBLE_TAIL_W = 12 // 尾巴底边宽
+  const BUBBLE_TAIL_H = 5 // 尾巴高（朝下，伸进 `BUBBLE_GAP` 指向头顶）
+  const BUBBLE_FILL = 0xd3bf8f // 面板内芯米色（采样 Ancient/tan.png 中心）
+  const BUBBLE_EDGE = 0xb1a077 // 面板描边米棕（采样 1px 内侧）
+  /** 本帧有气泡的 agent——名字标签据此让位（二选一）。 */
+  const bubbleVisibleIds = new Set()
+
+  function makeBubbleNode() {
+    const container = activeScene.add.container(0, 0)
+    container.setDepth(1000)
+    // 底图：优先 9-slice 美术面板；纹理没载好时退回 Graphics（不让气泡整块消失）。
+    const usePanel = activeScene.textures.exists(BUBBLE_PANEL_KEY) === true
+    const bg = usePanel
+      ? activeScene.add.nineslice(0, 0, BUBBLE_PANEL_KEY, undefined, 40, 28, BUBBLE_SLICE, BUBBLE_SLICE, BUBBLE_SLICE, BUBBLE_SLICE)
+      : activeScene.add.graphics()
+    // 尾巴：朝下的小三角，把「面板」变成「对话气泡」。画在 bg 之上、文字之下。
+    const tail = activeScene.add.graphics()
+    const dot = activeScene.add.circle(0, 0, 3, bubbleColor(''))
+    const text = activeScene.add.text(0, 0, '', {
+      fontFamily: UI_FONT,
+      fontSize: '12px',
+      color: BUBBLE_TEXT_COLOR,
+      lineSpacing: 2,
+      wordWrap: { width: BUBBLE_MAX_W, useAdvancedWrap: true },
+    })
+    container.add([bg, tail, text, dot])
+    activeScene.layers.bubbles.add(container)
+    return { container, bg, tail, text, dot, usePanel }
+  }
+
+  /** 让底图撑到 w×h：9-slice 直接 `setSize`；Graphics 退路画回 R76 的圆角矩形。 */
+  function resizeBubbleBg(node, w, h) {
+    if (node.usePanel === true) {
+      node.bg.setSize(w, h)
+      drawBubbleTail(node.tail, h, true)
+      return
+    }
+    const g = node.bg
+    g.clear()
+    g.fillStyle(0x3a3a50, 0.92)
+    g.lineStyle(1, 0xffffff, 0.14)
+    g.fillRoundedRect(-w / 2, -h / 2, w, h, 6)
+    g.strokeRoundedRect(-w / 2, -h / 2, w, h, 6)
+    drawBubbleTail(node.tail, h, false)
+  }
+
+  /** 画气泡的朝下小尾巴：填色=面板内芯、斜边描边=面板描边，顶边不描（与面板连成一体）。 */
+  function drawBubbleTail(g, h, usePanel) {
+    g.clear()
+    const y0 = h / 2 - 0.5 // 尾巴顶边略压进面板底边，避免和面板底边之间露一条缝
+    const yTip = y0 + BUBBLE_TAIL_H
+    const half = BUBBLE_TAIL_W / 2
+    const fill = usePanel ? BUBBLE_FILL : 0x3a3a50
+    const edge = usePanel ? BUBBLE_EDGE : 0xffffff
+    g.fillStyle(fill, usePanel ? 1 : 0.92)
+    g.fillTriangle(-half, y0, half, y0, 0, yTip)
+    g.lineStyle(1, edge, usePanel ? 1 : 0.14)
+    g.beginPath()
+    g.moveTo(-half, y0)
+    g.lineTo(0, yTip)
+    g.lineTo(half, y0)
+    g.strokePath()
+  }
+
+  function drawBubbles(bubbles = []) {
+    // 场景还没 `create()`（`activeScene` 已被 `startGame` 里的 `game.scene.getScene('world')`
+    // 提前赋成场景对象，但 `layers` 要等 `create()` 才建）——此时 `activeScene` 非 null 而
+    // `activeScene.layers` 是 undefined，直接读 `.bubbles` 会抛"reading 'bubbles'"。
+    // 所以和 `render()` 一样先判 `state.ready`（`create()` 的完成信号），再判层在不在。
+    if (state.ready !== true || activeScene === null || activeScene.layers === undefined || activeScene.layers.bubbles === undefined) return
+    const seen = new Set()
+    bubbleVisibleIds.clear()
+    for (const bubble of bubbles) {
+      const entry = actorNodes.get(bubble.agentId)
+      if (entry === undefined) continue
+      const sprite = entry.sprite
+      if (sprite === null || sprite === undefined || sprite.visible !== true) continue
+      seen.add(bubble.agentId)
+      bubbleVisibleIds.add(bubble.agentId)
+      let node = bubbleNodes.get(bubble.agentId)
+      if (node === undefined) {
+        node = makeBubbleNode()
+        bubbleNodes.set(bubble.agentId, node)
+      }
+      node.text.setText(bubble.text ?? '')
+      const w = Math.min(BUBBLE_MAX_W, node.text.width + BUBBLE_PAD_X * 2)
+      const h = node.text.height + BUBBLE_PAD_Y * 2
+      resizeBubbleBg(node, w, h)
+      node.text.setPosition(-w / 2 + BUBBLE_PAD_X, -h / 2 + BUBBLE_PAD_Y)
+      node.dot.setFillStyle(bubbleColor(bubble.phase))
+      node.dot.setPosition(-w / 2 + 6, -h / 2 + 6)
+      // 容器 origin(0.5,0.5)：中心摆在「头顶 - 间距 - 半高」。头顶用精灵 top-center（不依赖被藏掉的标签）。
+      const top = sprite.getTopCenter()
+      node.container.setPosition(Math.round(top.x), Math.round(top.y - BUBBLE_GAP - h / 2))
+      node.container.setVisible(true)
+      // 二选一：气泡盖掉头顶名字标签。
+      entry.label.setVisible(false)
+    }
+    for (const [id, node] of bubbleNodes) {
+      if (seen.has(id)) continue
+      node.container.setVisible(false)
+    }
+    // 没有气泡、且还活着的 agent：把名字标签重新露出来（顺手贴回位置，避免 update() 跳过隐藏标签后的旧值）。
+    for (const [id, entry] of actorNodes) {
+      if (bubbleVisibleIds.has(id)) continue
+      if (entry.sprite === null || entry.sprite === undefined || entry.sprite.visible !== true) continue
+      if (entry.label.visible !== true) {
+        entry.label.x = entry.sprite.x
+        entry.label.y = entry.sprite.y + (entry.labelDy ?? -16)
+        entry.label.setVisible(true)
+      }
+    }
+  }
+
   // ── 画一帧 ───────────────────────────────────────────────────────────────
 
   function render(input = {}) {
@@ -1034,9 +1996,18 @@ export function createScenePhaser(canvas, options = {}) {
     }
 
     drawGround(plan)
-    drawLabels(plan)
     drawProps(plan)
+    // 墙要先于角色建好，`drawActors` 里新建精灵时才能挂上碰撞。
+    loadFineColliders(plan?.map?.url ?? null)
+    loadMapObjects(plan?.map?.url ?? null)
+    rebuildWalls(worldState)
+    // 分层图齐了就按层序铺（原版做法）；否则退回合成底图。
+    const layered = drawLayers()
+    if (layered !== true) drawWalls()
+    drawMapObjects()
     drawActors(worldState, plan, state.nowMs)
+    // 家具与角色都进了同一层，且深度跟着世界 z 走 → 每帧按深度重排一次，遮挡才正确。
+    activeScene.layers.entities.sort('depth')
     drawNotes(worldState, plan, state.tick, messageDeliveryTicks)
     applyCamera()
     // 绘制次数不在这里数：那是**引擎自己那一帧**的事，挂在它的帧钩子上（见下），
@@ -1240,6 +2211,10 @@ export function createScenePhaser(canvas, options = {}) {
       antialias: false,
       banner: false,
       audio: { noAudio: true },
+      // **绑定引擎的 Arcade 物理**：移动交给物理系统（`physics.moveTo`），不再手写补间/lerp。
+      // 俯视 2D、无重力；碰撞/寻路仍由服务端确定性模拟负责，客户端物理只负责"视觉上的匀速移动"。
+      // ⚠️ `default` 用字符串 `'arcade'`（本 build 不导出 `Physics.ARCADE` 常量，只有 `Physics.Arcade` 命名空间）。
+      physics: { default: 'arcade', arcade: { gravity: { y: 0 } } },
       // ⚠️ **`Scale.RESIZE`：让 Phaser 的 Scale Manager 跟着容器走**（R65）。
       //
       // 原来是 `Scale.NONE` + 我们自己调 `game.scale.resize()`，注释还写着"尺寸由 DOM 决定、
@@ -1327,10 +2302,36 @@ export function createScenePhaser(canvas, options = {}) {
     liveActors: liveActorsOf,
     stats,
     loader,
+    /** R76：头顶气泡进引擎——每帧喂 `[{ agentId, phase, text, name }]`，场景用 Phaser 对象画。 */
+    renderBubbles: drawBubbles,
     /** 诊断：Phaser 到底用了哪个渲染器（webgl / canvas）。 */
     backend: backendName,
     /** 诊断：让夹具/测试能拿到 Phaser 的实例。 */
     game: () => game,
     scene: () => activeScene,
+    // ── 选中（P1）/ 镜头锁定（P2）：点人 / 看板定位走这两个；键盘移动（P3）会读选中态 ──
+    selectAgent,
+    clearSelection,
+    selectedAgent: () => selectedAgentId,
+    following: () => isFollowing(),
+    /** P3：超控面板「移动」模式 → 打开键盘操控；「对话」→ 关掉。 */
+    setMovementEnabled,
+    movementEnabled: () => movementEnabled,
+    /** 诊断：键盘操控的接线状态（键位有没有建起来、焦点头在不在输入框）。 */
+    manualState: () => ({
+      hasMoveKeys: moveKeys !== null,
+      movementEnabled,
+      lastReason: lastManualReason,
+      keyStates: moveKeys === null ? null : {
+        up: moveKeys.up.map((k) => `${k.key}:${k.isDown}`),
+        down: moveKeys.down.map((k) => `${k.key}:${k.isDown}`),
+        left: moveKeys.left.map((k) => `${k.key}:${k.isDown}`),
+        right: moveKeys.right.map((k) => `${k.key}:${k.isDown}`),
+      },
+      textInputFocused: isTextInputFocused(),
+      hasWallGroup: wallGroup !== null,
+      wallCount: wallGroup === null ? 0 : wallGroup.getLength(),
+      hasKeyControl: keyControl !== null,
+    }),
   }
 }

@@ -53,6 +53,24 @@ export const VENDOR_WHITELIST: readonly string[] = [
   // 原版办公室底图（R62）：由 `scripts/convert-microverse-map.mjs` 解出的 1322 格烘成一张 PNG。
   // 一次 `drawImage` 就画完整场景——先用这种方式接通，真要"单格可寻址"时再升级 tilemap。
   'microverse/scene/office.png',
+  // 精细碰撞体（R78）：由 `scripts/bake-office-map.py` 与底图**同一次**生成。
+  // 底图是"看到的样子"，这份是"挡人的形状"——两者同源，才不会出现"墙贴/碰撞对不上"。
+  'microverse/scene/office-colliders.json',
+  // 地图对象（椅子等）：**不烘进底图**，由前端渲染成实体，才能和角色一起做 Y 排序。
+  'microverse/scene/office-objects.json',
+  // 墙体图层（透明 PNG）：与角色一起做 Y 排序，所以不能并进底图。
+  'microverse/scene/office-walls.png',
+  // 原版 6 个 TileMapLayer 各一张透明图（层序固定，见 web 端的 LAYER_DEPTHS）。
+  'microverse/scene/office-layer0.png',
+  'microverse/scene/office-layer1.png',
+  'microverse/scene/office-layer2.png',
+  'microverse/scene/office-layer3.png',
+  'microverse/scene/office-layer4.png',
+  'microverse/scene/office-layer5.png',
+  // 椅子贴图（R78）：原版是 prefab 对象（不在图块里），单独随仓库提交，烘焙脚本用。
+  'microverse/single-objects/office-chair-101.png',
+  'microverse/single-objects/office-chair-106.png',
+  'microverse/single-objects/office-chair-110.png',
   // EasyStar.js（寻路库，MIT）——服务端 sim 用它算绕障路径，**浏览器不需要**，
   // 但 `src/vendor/` 的每一份文件都要有路由，否则有一条测试会红（而且运行期 404 很难归因）。
   'easystar/easystar.cjs',
@@ -123,6 +141,8 @@ export const VENDOR_MIME: Readonly<Record<string, string>> = {
   '.ts': 'text/plain; charset=utf-8',
   '.glb': 'model/gltf-binary',
   '.png': 'image/png',
+  // 精细碰撞体（R78）：与底图同源生成的 JSON 数据。
+  '.json': 'application/json; charset=utf-8',
   '.txt': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
 }
@@ -177,8 +197,17 @@ export function vendorRoutes(rootDir: string): RouteEntry[] {
         res.writeHead(200, {
           'Content-Type': mime,
           'Content-Length': body.length,
-          // vendored 资源版本固定（在文件名与 README 里记着版本号），没有理由每次回源。
-          'Cache-Control': 'public, max-age=3600',
+          // ⚠️ 这里按**是否会被重新生成**分两档，不能一律长缓存。
+          //
+          // `microverse/` 下的底图与碰撞体是 `scripts/bake-office-map.py` 的产物，
+          // 我们会**反复重烘**（补椅子、改碰撞）。以前统一 `max-age=3600`，结果重烘完
+          // 浏览器仍然拿旧图一小时 —— 表现就是"代码明明改了，画面一点没变"，
+          // 而且服务端 200、md5 也对得上，极难归因。这类资源一律 `no-cache`（每次回源校验）。
+          //
+          // 其余 vendored 库版本固定（文件名/README 里记着版本号），可以放心长缓存。
+          'Cache-Control': name.startsWith('microverse/')
+            ? 'no-cache'
+            : 'public, max-age=3600',
         })
         res.end(body)
         return undefined
