@@ -484,6 +484,8 @@ export function createBoard(options = {}) {
         //
         // ⚠️ 与 `onMemberPick` 是两件事，别合并：`onMemberPick` 是那个 💬 按钮，
         // 语义是"跟他说话"（开会话面板）；这里是"选中/聚焦"。
+        // 这条分工是**用户拍板过的**（`docs/PLAN-game-agent.md` (d) 节）：
+        // 列表=定位，点人=定位+开面板，回车=在已选中基础上开对话。别"顺手统一"。
         // 「未分配」那一行 `id === null`（它没有场景实体），不可聚焦。
         if (row.member.id !== null) options.onMemberSelect?.(row.member.id)
       }

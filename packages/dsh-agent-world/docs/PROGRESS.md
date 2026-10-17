@@ -42,6 +42,115 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R96（Lead）—— 验收 task-7（R4）：全过；**并且它纠正了我任务书里的一个错**
+
+### ⚠️ 先认错：我的任务书写错了
+我在 task-7 的表格里写「场景点人 = **不选中**」。**实测是选中**：
+`scene-phaser.js:1735` 的 `selectAgent(actor.id)` 在 `:1741` 的 `actorPick(actor.id)` **之前**执行。
+developer 没照我的文档做，而是**先量了一遍**，以实测为准——而且实测结果正好与用户刚拍板的 (d)1 一致。
+**这是本轮最有价值的一条**：任务书（哪怕是 Leader 写的）也会错；
+「改前先量」比"照着任何文档做"都可靠。已把它写进纪律。
+
+### 逐条核实（它的声称 → 我的核实）
+| 声称 | 核实 | 结论 |
+|---|---|---|
+| 三入口汇到唯一 `focusAgent` | `main.js:395` 定义；三处调用 `:143 'scene'` / `:196 'member'` / `:192 'talk'` | ✅ |
+| `source` 只埋点、零分支 | `grep "source ==="` 只命中一行**注释**（内容是警告）；另有 `focusMatrix()` 可运行时复读 | ✅ |
+| 行为不变（三元组逐条一致） | 页内 `focusMatrix()`：scene=选中✓/开面板✓、member=选中✓/开面板✗、talk=选中✓/开面板✓ | ✅ |
+| a11y 四属性补回 | `#sidebar li[data-agent-id="agent-1"]` 命中，HTML 含 `data-agent-id`/`role="button"`/`tabindex="0"`/`aria-label="工头阿金 · 负责人 · 待命"`；**8/8 行四属性齐全** | ✅ |
+| 补了 Enter/Space 激活 + 挡掉全局 Enter | 页内 `row.focus()` + Enter → `sel=agent-1`、`following=true`、**`dlg=false`**（面板没被全局 Enter 顺手打开） | ✅ |
+| 642/642 | `node --test` = 642 pass / 0 fail | ✅ |
+| 性能条无上涨 | `绘制 0（合批）· 精灵 194–195 · 切换 0 · R0 F0 D? · build r91`；`D?` 是后台标签未拉快照的**如实**状态（R87 加的 `unverified`），不是回归 | ✅ |
+
+### 它顺手修掉的一处**假实现**（值得记）
+上一轮补了 `role="button"` + `tabindex="0"` 却**不响应键盘**——等于对键盘用户撒谎。
+它补了 Enter/Space，又发现会与 `main.js` 的文档级 keydown 撞车（那个把 Enter 当"开始对话"，
+守卫只排 `INPUT/TEXTAREA`）——不拦的话"行上按回车"会**既选中又开面板**，等于偷偷改行为。
+所以加了 `stopPropagation()`。**这正是"行为不变"该怎么守：连"新加的键盘路径"也要算进行为里。**
+
+### 下一轮从哪继续
+- **R6**：删 💬（用户已拍板）；顺带处理它标注的第二条待拍板项——
+  `openDialogueFor` 现在是 `toggle`（再点同一人会**关面板**），DESIGN 主张改 `open`，**但那会改行为**，需用户拍板。
+- R5（细节打磨）、R8（卡住的单有出口）待排；R9 等并行 Agent 交付后独立复核。
+
+### 假设
+- 「行为不变」的判据是**三元组 + 键盘路径**，不只是鼠标三元组——它自己把这个范围扩对了。
+
+### 卡住
+- 无。
+
+---
+
+## R95（task-7 / developer）—— 三入口收成唯一 `focusAgent`（**行为不变**）+ 补回行的 a11y
+
+> 编号说明（Lead 核定）：本条原写成 R94，与 Lead 的「派 R4」撞号。
+> 按时间顺序：R94 = Lead 派 R4、**R95 = 本条（task-7 交付）**、R96 = Lead 验收。只改序号，内容未动。
+
+### 做了什么
+1. **唯一入口 `focusAgent(agentId, source)`**（`web/main.js`）：只统一"选中 + 镜头"，
+   `source` **只写 `__agentWorld.lastFocusSource`，不参与任何分支**。三个入口全部改走它：
+   `onActorPick → 'scene'`、`onMemberSelect → 'member'`、`onMemberPick → 'talk'`。
+2. **"要不要开面板"留在各调用点**，并在注释里写明**为什么不统一**——引 `PLAN-game-agent.md` (d) 节
+   （用户 R94 拍板：列表=定位 / 点人=定位+开面板 / 回车=在已选中基础上开对话），
+   并显式标注「设计文档 task-2 那条『点人只聚焦』被否掉了，别照着它纠正」。
+3. **补回成员行的四个属性**（`board.js::renderMembers`，一处改、侧边栏与看板两处挂载都受益）：
+   `data-agent-id` / `role="button"` / `tabindex="0"` / `aria-label`（中文，名字 · 角色 · 状态）。
+   「未分配」行 `id === null` 只标 `aria-disabled="true"`——它是唯一允许分叉的条件。
+4. **顺手补了"给了属性却不响应键盘"的假实现**：给行加 `Enter`/`Space` 激活，
+   并 `stopPropagation()` —— 否则 `main.js` 那个文档级 keydown 会把 Enter 当"开始对话"，
+   于是"在行上按回车"会**既选中又开面板**，等于偷偷改了行为。
+
+### 为什么 `focusAgent` 里要"已选中同一人就不调 `selectAgent`"
+
+这不是优化，是**为了行为不变**：`selectAgent` 每次都重开一段 420ms 镜头平移，
+而场景点人那条路上 `scene-phaser.js::pointerup` **已经**调过 `selectAgent` 了——
+再调一次会把刚开始的平移重新起一遍，用户看到"镜头顿一下再走"。
+
+### 行为不变的反证（改前 / 改后逐条一致）
+
+改前基线（同一页面、同一套探针）：
+
+| 入口 | `selectedAgent()` | `following()` | `dialogue.isOpen()` | 改后 | 来源埋点 |
+|---|---|---|---|---|---|
+| 场景点人 | `'agent-1'` | `true` | **`true`** | 一致 | `scene` |
+| 成员行 | `'agent-1'` | `true` | **`false`** | 一致 | `member` |
+| 💬 | `'agent-1'` | `true` | **`true`** | 一致 | `talk` |
+
+> ⚠️ 任务书那张表把「场景点人」记成**不选中**——**与实测不符**：`scene-phaser.js` 的
+> `pointerup` 里先 `selectAgent(actor.id)` 再回调 `actorPick`，所以点人本来就会选中。
+> 本轮按**实测**为准（它也与用户刚拍板的 (d) 1 一致："点人 = 选中 + 镜头 + 弹面板"）。
+> 这条值得记：**任务书里的表格也会写错**，改前先量一遍比照着什么文档都可靠。
+
+- **a11y 反证**（`document.querySelector('#sidebar li[data-agent-id="agent-1"]')` 命中，8/8 行都有）：
+
+```
+<li class="board-member active" data-agent-id="agent-1" role="button" tabindex="0"
+    aria-label="工头阿金 · 负责人 · 待命">
+```
+- **键盘路径**：`li.focus()` 后 `activeElement === li`；按 `Enter` → `selected='agent-2'`、
+  `following=true`、`dialogue.isOpen()===false`、`defaultPrevented=true`；`Space` 同效。
+  即"键盘可达"不是属性摆设。
+- **`__agentWorld.lastFocusSource()`** 依次读到 `scene` / `member` / `talk` —— 三条路确实汇到一处。
+  另挂 `__agentWorld.focusMatrix()`：把 (d) 节那张分工表做成运行时版本，"没变"可以随时复读。
+
+### 验证怎么跑的
+`node --check`（`main.js` / `board.js`）· `copy-web` 已同步（与 profile 逐文件 diff 全等）·
+`tsc --noEmit` 绿 · `node --test test/` **642 / 642**（无新增：本轮是重构，行为不变就没有新用例）·
+性能条 `绘制 0（合批） · 精灵 194–195 · 切换 0 · R0 F0 D? · build r91`。
+`D?` 是后台标签页下"漂移项还没比过"的**如实**状态（R87 的设计），不是回归。
+
+### 下一轮从哪继续
+- **R6（等 Lead 派）**：删 💬 按钮。删之前要确认"鼠标-only 开会话"这条路仍可达——
+  按 (d) 节应当是"点场景里的人"，可达；但 `onMemberPick` 那条回调与 `board.js:458-478`
+  的按钮块要一起清掉，别留半截。
+- 遗留：`openDialogueFor` 仍是 `dialogue.toggle()`（再点同一人会关面板）。
+  DESIGN §5.1 主张改 `open()`，但那会改变行为 → **不属于行为不变的重构**，留给用户拍板。
+
+### 卡住
+- 无。任务书与实测有一处冲突（场景点人是否选中），已按实测做并在上面记明。
+
+---
+
 ## R94（Lead）—— 本轮轮次执行：派 R4（并**刻意把它限制成"行为不变的重构"**）
 
 ### 起因
