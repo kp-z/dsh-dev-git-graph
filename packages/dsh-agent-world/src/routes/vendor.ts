@@ -60,6 +60,8 @@ export const VENDOR_WHITELIST: readonly string[] = [
   'microverse/scene/office-objects.json',
   // 墙体图层（透明 PNG）：与角色一起做 Y 排序，所以不能并进底图。
   'microverse/scene/office-walls.png',
+  // 可 Y 排序的家具矩形（每行一条）：前端用 `setCrop` 从整层图上取，不新增纹理。
+  'microverse/scene/office-tiles.json',
   // 原版 6 个 TileMapLayer 各一张透明图（层序固定，见 web 端的 LAYER_DEPTHS）。
   'microverse/scene/office-layer0.png',
   'microverse/scene/office-layer1.png',

@@ -41,6 +41,7 @@ OUT = os.path.join(SCENE_DIR, 'office.png')
 COLLIDERS_OUT = os.path.join(ROOT, 'src/vendor/microverse/scene/office-colliders.json')
 OBJECTS_OUT = os.path.join(ROOT, 'src/vendor/microverse/scene/office-objects.json')
 WALLS_OUT = os.path.join(ROOT, 'src/vendor/microverse/scene/office-walls.png')
+TILES_OUT = os.path.join(ROOT, 'src/vendor/microverse/scene/office-tiles.json')
 
 # 椅子 prefab → （贴图, Sprite2D 相对偏移）。偏移取自原版 .tscn 的 `position = Vector2(...)`，
 # 缺省即居中于节点原点。
@@ -136,6 +137,34 @@ def main() -> int:
             layer_img.alpha_composite(tile, (x * C, y * C))
         layer_img.save(os.path.join(SCENE_DIR, f'office-layer{layer_index}.png'))
     print(f'  分层图 {len(m["layers"])} 张 → office-layer0..{len(m["layers"]) - 1}.png')
+
+    # ── 可 Y 排序的"对象矩形" ─────────────────────────────────────────────────
+    # 为什么要把家具从"整层一张图"拆成矩形：整层图只有一个深度，角色永远压在它上面；
+    # 拆成"每行一个矩形 + 深度取该行底边"之后，角色站到桌子**后面**才会被挡住。
+    # 地板**不参与**（地板一旦排序，角色会被脚下的地板盖住）—— 它留在整层图里当背景。
+    tile_rects = []
+    last_index = len(m['layers']) - 1
+    for layer_index, layer in enumerate(m['layers']):
+        if layer_index == 0:
+            continue  # WallAndFloor 里的墙由 `walls` 单独处理，地板留背景
+        if layer_index == last_index:
+            # Furniture4 在原版带 `z_index = 1`：**固定在角色之上**，不参与排序。
+            # 把它也放进矩形列表会导致同一像素画两遍（一次排序、一次置顶）。
+            continue
+        cell_set = {(c[0], c[1]) for c in layer['cells']}
+        for row in range(H):
+            col = 0
+            while col < W:
+                if (col, row) not in cell_set:
+                    col += 1
+                    continue
+                start = col
+                while col < W and (col, row) in cell_set:
+                    col += 1
+                tile_rects.append({'layer': layer_index, 'rect': [start * C, row * C, (col - start) * C, C]})
+    with open(TILES_OUT, 'w', encoding='utf-8') as fh:
+        json.dump({'rects': tile_rects}, fh, ensure_ascii=False, separators=(',', ':'))
+    print(f'  可排序家具矩形 {len(tile_rects)} 个 → {TILES_OUT}')
 
     walls_img = Image.new('RGBA', (W * C, H * C), (0, 0, 0, 0))
     wall_rects = []

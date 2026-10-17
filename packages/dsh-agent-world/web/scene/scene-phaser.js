@@ -204,7 +204,7 @@ export function createScenePhaser(canvas, options = {}) {
    * 改服务端 `Cache-Control` **不会**让已缓存的条目失效。表现是"文件明明换了、画面没变"，
    * 而且 curl 校验完全正常，极难归因。把版本写进 URL 才能确定性地换掉它。
    */
-  const MAP_ASSET_VERSION = '2026-10-18-7'
+  const MAP_ASSET_VERSION = '2026-10-18-10'
 
   /** 地图对象贴图：`office-objects.json` 里的 `texture` 字段就是这里的键。 */
   /** 墙体图层（透明 PNG，只含墙格）。 */
@@ -245,17 +245,17 @@ export function createScenePhaser(canvas, options = {}) {
     MeetingRoomChairs: 70,
     layer4: 80, // Furniture3
     BackChairs: 90,
-    actors: 100, // Characters
     layer5: 110, // Furniture4（z_index = 1）
   }
-  /** 每层的深度，按 `LAYER_KEYS` 的顺序取。 */
-  const LAYER_DEPTHS = [
-    DRAW_ORDER.layer0, DRAW_ORDER.layer1, DRAW_ORDER.layer2,
-    DRAW_ORDER.layer3, DRAW_ORDER.layer4, DRAW_ORDER.layer5,
-  ]
-  /** 角色：固定一个深度（原版不排序，按节点顺序）。 */
-  const ACTOR_DEPTH = DRAW_ORDER.actors
-
+  /**
+   * 只把**两类**层当整张平铺图，其余（墙 + Furniture0..3）拆成矩形做 Y 排序。
+   *
+   * · `0`（WallAndFloor）：地板 + 墙。地板**必须**是背景 —— 它一旦参与排序，
+   *   角色会被自己脚下的那格地板盖住。墙另有 `office-walls.png` 参与排序（见 `drawWalls`）。
+   * · `5`（Furniture4）：墙上挂件/黑板。原版给它 `z_index = 1`，要固定在角色**之上**，
+   *   参与排序反而会被角色挡住。
+   */
+  const FLAT_LAYER_DEPTHS = { 0: -10000, 5: 1000 }
   /**
    * 椅子统一压在**所有家具层之下**。
    *
@@ -327,6 +327,14 @@ export function createScenePhaser(canvas, options = {}) {
    */
   let mapObjects = null
   let mapObjectsUrl = null
+  /**
+   * 可 Y 排序的家具矩形：`{ rects: [{layer, rect:[x,y,w,h]}] }`，地图像素坐标。
+   * 拆矩形的理由见 `drawTiles`。
+   */
+  let mapTiles = null
+  let mapTilesUrl = null
+  const tileNodes = new Map()
+  let tileNodesKey = null
 
   function loadMapObjects(mapUrl) {
     if (typeof mapUrl !== 'string' || mapUrl === '') return
@@ -345,10 +353,27 @@ export function createScenePhaser(canvas, options = {}) {
       .catch(() => { /* 没有对象数据也能跑 */ })
   }
 
+  function loadMapTiles(mapUrl) {
+    if (typeof mapUrl !== 'string' || mapUrl === '') return
+    if (mapTilesUrl === mapUrl && mapTiles !== null) return
+    mapTilesUrl = mapUrl
+    const url = String(mapUrl).replace(/\.png$/i, '-tiles.json')
+    const base = options.assetBaseUrl ?? './vendor/'
+    void fetch(`${base}${withAssetVersion(url)}`)
+      .then((res) => (res.ok === true ? res.json() : null))
+      .then((data) => {
+        if (data === null || mapTilesUrl !== mapUrl) return
+        mapTiles = data
+        tileNodesKey = null
+        if (lastRenderInput !== null) render(lastRenderInput)
+      })
+      .catch(() => { /* 没有拆图数据就退回整层平铺 */ })
+  }
+
   /** 椅子精灵（按数据建一次，之后只同步深度）。 */
   const objectNodes = new Map()
   let objectNodesKey = null
-  /** 墙体图层节点（每条墙一个 image，`setCrop` 取对应块）。 */
+  /** 墙体图层节点（每条墙一个 image，用**纹理帧**取对应块）。 */
   const wallNodes = new Map()
   let wallNodesKey = null
   let lastStats = { renderer: 'phaser', backend: rendererType === CANVAS ? 'canvas' : 'webgl', drawCalls: 0, sprites: 0, ready: false }
@@ -985,8 +1010,14 @@ export function createScenePhaser(canvas, options = {}) {
   function clearSelection() {
     // 交还位置所有权前，先把落点落地：否则服务端还停在旧坐标，客户端一交还就会瞬移回去。
     if (selectedAgentId !== null) {
+      // ⚠️ **解锁必须清速度**（R89 / 评审 I-2）：`tickManualMovement` 第一行是
+      // `selectedAgentId === null → no-body` 早退，所以清完 id 之后**再也走不到清零那句**，
+      // 物理体带着 `vx=72` 继续滑——实测按 Esc 之后精灵还会多滑 5.8px 才被服务端拽回。
+      // 清零要放在**清 id 之前**，此刻还能拿到那个人的 body。
+      const entry = actorNodes.get(selectedAgentId)
+      entry?.sprite?.body?.setVelocity?.(0, 0)
       if (manualPositionIds.has(selectedAgentId)) {
-        const moved = actorNodes.get(selectedAgentId)?.sprite
+        const moved = entry?.sprite
         if (moved !== null && moved !== undefined) {
           notifyMoveSettled(selectedAgentId, moved.x / TILE_PX, moved.y / TILE_PX)
         }
@@ -1461,19 +1492,20 @@ export function createScenePhaser(canvas, options = {}) {
    * 之前我自己发明了"墙按行底部取深度"的 Y 排序，那不是原版行为，已删除。
    */
   function drawLayers() {
-    if (activeScene === null) return
+    if (activeScene === null) return false
     const anyLayer = LAYER_KEYS.some((key) => activeScene.textures.exists(key) === true)
     if (anyLayer !== true) return false
     const offsetPxX = -37 * TILE_PX
     const offsetPxY = -21 * TILE_PX
-    LAYER_KEYS.forEach((key, index) => {
-      if (activeScene.textures.exists(key) !== true) return
-      const nodeKey = `layer:${index}`
+    for (const [indexText, depth] of Object.entries(FLAT_LAYER_DEPTHS)) {
+      const index = Number(indexText)
+      const key = LAYER_KEYS[index]
+      if (key === undefined || activeScene.textures.exists(key) !== true) continue
+      const nodeKey = `flat:${index}`
       let node = wallNodes.get(nodeKey)
       if (node === undefined) {
         node = activeScene.add.image(offsetPxX, offsetPxY, key)
         node.setOrigin(0, 0)
-        node.setDepth(LAYER_DEPTHS[index])
         // ⚠️ 必须和对象/角色放**同一个容器**：容器之间是整体排序的，
         // 放在 `ground` 里无论深度设多少都压不过 `entities` 里的角色。
         activeScene.layers.entities.add(node)
@@ -1481,14 +1513,77 @@ export function createScenePhaser(canvas, options = {}) {
       }
       node.setTexture(key)
       node.setPosition(offsetPxX, offsetPxY)
-      node.setDepth(LAYER_DEPTHS[index])
+      node.setDepth(depth)
       node.setVisible(true)
-    })
+    }
     return true
   }
 
   /**
-   * 画墙体图层。每条墙（按行合并的矩形）用 `setCrop` 从透明图里取那一块，
+   * 把整层图里的一个矩形注册成**纹理帧**，返回帧名。
+   *
+   * ⚠️ 不能用 `setCrop`：Phaser 的 `setCrop` 只改 UV、**不改四边形尺寸**，
+   * 于是被裁的区域会被拉伸铺满整张图的尺寸（实测表现是"家具被切成条 / 错位"）。
+   * 注册帧才是裁剪区域的正统做法 —— 帧自带宽高，渲染出来就是原尺寸的那一块。
+   * 帧只是 UV 记录，不会复制纹理，所以 152 个帧几乎没有开销。
+   */
+  function tileFrame(textureKey, rx, ry, rw, rh) {
+    const texture = activeScene.textures.get(textureKey)
+    const name = `t${rx}_${ry}_${rw}_${rh}`
+    if (texture.has(name) !== true) texture.add(name, 0, rx, ry, rw, rh)
+    return name
+  }
+
+  /**
+   * 把家具（Furniture0..3）按**矩形**摆进 `entities` 并参与 Y 排序。
+   *
+   * 为什么不能整层一张图：整层只有一个深度，角色永远压在它上面 —— 站到桌子**后面**
+   * 也不会被挡住。拆成"每行一个矩形"后，深度取**该行底边**，遮挡关系就对了
+   *（同一行的家具深度相同，横向不会有缝）。
+   *
+   * 矩形用**纹理帧**从整层图上取（见 `tileFrame`），所以纹理只有 6 张，不会多出几百个纹理。
+   */
+  function drawTiles() {
+    if (activeScene === null) return
+    const rects = mapTiles?.rects
+    if (Array.isArray(rects) !== true) return
+    const offsetPxX = -37 * TILE_PX
+    const offsetPxY = -21 * TILE_PX
+    if (tileNodesKey !== mapTilesUrl) {
+      for (const node of tileNodes.values()) node.destroy()
+      tileNodes.clear()
+      tileNodesKey = mapTilesUrl
+    }
+    const wanted = new Set()
+    rects.forEach((item, index) => {
+      const layer = Number(item?.layer)
+      const rect = item?.rect
+      if (Array.isArray(rect) !== true || rect.length < 4) return
+      const key = LAYER_KEYS[layer]
+      if (key === undefined || activeScene.textures.exists(key) !== true) return
+      const [rx, ry, rw, rh] = rect
+      if (!(rw > 0) || !(rh > 0)) return
+      const id = `tile:${index}`
+      wanted.add(id)
+      let node = tileNodes.get(id)
+      if (node === undefined) {
+        node = activeScene.add.image(0, 0, key)
+        node.setOrigin(0, 0)
+        activeScene.layers.entities.add(node)
+        tileNodes.set(id, node)
+      }
+      node.setTexture(key, tileFrame(key, rx, ry, rw, rh))
+      node.setOrigin(0, 0)
+      node.setPosition(offsetPxX + rx, offsetPxY + ry)
+      // 深度 = 该行**底边**的世界 z。`depthFor` 乘回 TILE_PX，所以这里就是像素值本身。
+      node.setDepth(depthFor((offsetPxY + ry + rh) / TILE_PX))
+      node.setVisible(true)
+    })
+    for (const [id, node] of tileNodes) if (!wanted.has(id)) node.setVisible(false)
+  }
+
+  /**
+   * 画墙体图层。每条墙（按行合并的矩形）用**纹理帧**从透明图里取那一块，
    * 深度取**该行底部** —— 这样"站在墙上方"的角色会被墙挡住，"站在墙下方"的会盖住墙，
    * 与 Godot 原版 YSort 的观感一致。
    */
@@ -1517,7 +1612,8 @@ export function createScenePhaser(canvas, options = {}) {
         activeScene.layers.entities.add(node)
         wallNodes.set(id, node)
       }
-      node.setCrop(rx, ry, rw, rh)
+      node.setTexture(WALLS_KEY, tileFrame(WALLS_KEY, rx, ry, rw, rh))
+      node.setOrigin(0, 0)
       node.setPosition(offsetPxX + rx, offsetPxY + ry)
       node.setDepth(depthFor((offsetPxY + ry + rh) / TILE_PX))
       node.setVisible(true)
@@ -1612,7 +1708,7 @@ export function createScenePhaser(canvas, options = {}) {
           // 用**引擎的 Arcade 物理精灵**：移动交给物理系统（`moveActorTo` 里的 `physics.moveTo`），
           // 不手写每帧补间。物理体负责"朝目标匀速走"，其余（动画/点人/深度）照旧。
           entry.sprite = activeScene.physics.add.sprite(0, 0, textureKey)
-          entry.sprite.setDepth(ACTOR_DEPTH)
+          entry.sprite.setDepth(depthFor(actor.z))
           activeScene.layers.entities.add(entry.sprite)
           // P2：给精灵打上 actorId 标记，`wireViewControls` 用 `hitTestPointer` 判"点在角色上还是空白"。
           entry.sprite.setData('actorId', actor.id)
@@ -1637,7 +1733,11 @@ export function createScenePhaser(canvas, options = {}) {
             if (typeof pointer.getDuration === 'function' && pointer.getDuration() > 700) return
             // P1：点人 = 选中（与开对话解耦——镜头锁定 P2、键盘移动 P3 都读这个选中态）。
             selectAgent(actor.id)
-            // R72：点人只开对话，**不动镜头**（缩放不吸附 agent）。
+            // 点人 = **聚焦**：选中 + 420ms 平移跟随（由上面 `selectAgent` 里的
+            // `startFollowSelection` 负责），面板默认落进移动档。
+            // ⚠️ 这里原来写的是「R72：点人只开对话，**不动镜头**」——那条从 R80 起就不成立了
+            //（`selectAgent` 现在会 `startFollowSelection`）。注释与代码不符时注释是错的，
+            // 留着会直接误导下一个实现者以为点人不该动镜头。
             if (actorPick !== null) actorPick(actor.id)
           })
         }
@@ -1680,7 +1780,7 @@ export function createScenePhaser(canvas, options = {}) {
         entry.textureKey = textureKey
         const manual = ownsPosition(actor.id)
         if (manual !== true) moveActorTo(entry, posX, posY)
-        entry.sprite.setDepth(ACTOR_DEPTH)
+        entry.sprite.setDepth(depthFor(actor.z))
         entry.sprite.setVisible(true)
         // `setTexture` 之后帧可能是 `__BASE`（整张图）——但**只在没有动画可播时才钉帧**。
         // ⚠️ 这里曾经**每帧都 setFrame(第一帧)**，结果动画永远冻在第一帧：
@@ -1725,7 +1825,7 @@ export function createScenePhaser(canvas, options = {}) {
         entry.collider = null
         entry.sprite?.destroy()
         entry.sprite = activeScene.add.rectangle(0, 0, 12, 12, colorOf(actor.color), 1)
-        entry.sprite.setDepth(ACTOR_DEPTH)
+        entry.sprite.setDepth(depthFor(actor.z))
         activeScene.layers.entities.add(entry.sprite)
         // 没有模型的角色（fallback 方块）也要有物理体：否则它不受墙约束，能在墙里穿。
         activeScene.physics.add.existing(entry.sprite)
@@ -1736,7 +1836,7 @@ export function createScenePhaser(canvas, options = {}) {
       }
       entry.labelDy = -16
       moveActorTo(entry, posX, posY)
-      entry.sprite.setDepth(ACTOR_DEPTH)
+      entry.sprite.setDepth(depthFor(actor.z))
       entry.sprite.setVisible(true)
       entry.label.setVisible(true)
     }
@@ -2000,10 +2100,14 @@ export function createScenePhaser(canvas, options = {}) {
     // 墙要先于角色建好，`drawActors` 里新建精灵时才能挂上碰撞。
     loadFineColliders(plan?.map?.url ?? null)
     loadMapObjects(plan?.map?.url ?? null)
+    loadMapTiles(plan?.map?.url ?? null)
     rebuildWalls(worldState)
-    // 分层图齐了就按层序铺（原版做法）；否则退回合成底图。
+    // 分层图齐了就按"地板背景 + 可排序对象"铺；否则退回合成底图 + 整格墙。
     const layered = drawLayers()
-    if (layered !== true) drawWalls()
+    // 墙**始终**参与 Y 排序：layer0 那张平铺图里的墙只是兜底（在最底层），
+    // 真正决定遮挡的是这些按行取深度的墙条 —— 角色站到墙后才会被挡住。
+    drawWalls()
+    drawTiles()
     drawMapObjects()
     drawActors(worldState, plan, state.nowMs)
     // 家具与角色都进了同一层，且深度跟着世界 z 走 → 每帧按深度重排一次，遮挡才正确。
