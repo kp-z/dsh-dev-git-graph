@@ -315,7 +315,12 @@ export function liveActors(world, scene) {
     x: a.position?.x ?? byId.get(a.id)?.x ?? 0,
     z: a.position?.z ?? byId.get(a.id)?.z ?? 0,
     color: byId.get(a.id)?.color ?? fallback,
-    facing: Number.isFinite(a.facing) ? a.facing : (byId.get(a.id)?.facing ?? 0),
+    // ⚠️ 兜底**不要用 0**：`directionOf(0)` 恰好是 "right"，于是"缺朝向"会静默变成
+    // "所有人都在向右看"（用户反馈：「只要朝向不是向右就会跳向右」）。
+    // 先退到内容里的静态朝向，再退到 `π/2`（down，中性），不再凭空造出 right。
+    facing: Number.isFinite(a.facing)
+      ? a.facing
+      : (Number.isFinite(byId.get(a.id)?.facing) ? byId.get(a.id).facing : Math.PI / 2),
     modelId: byId.get(a.id)?.modelId ?? null,
   }))
 }

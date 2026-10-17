@@ -238,6 +238,11 @@ export interface SceneEntry {
   spawn: Vec2
   /** 小镇半边长（世界坐标范围 [-groundSize, groundSize]）。 */
   groundSize: number
+  /**
+   * 场景底图（引用 `maps` 库条目 id；可选）。有底图的场景（如原版办公室）家具已烘进图里，
+   * 站点不需要 props；没有底图的场景（如默认小镇）靠分区铺色 + 站点 props。不写 = 没有底图。
+   */
+  map?: string
   /** 引用主题 id（表现库）；host 不消费，交给 web。 */
   theme: string
   /** 引用花名册 id。 */

@@ -42,7 +42,8 @@ async function withServer(handler, fn) {
 
 /** 一套可用的依赖（真世界 + 真运行时 + 真路由）。 */
 function makeDeps() {
-  const service = createPluginState(resolveConfig({ autoStart: false }))
+  // http 测试固定 default-town：`task.quick-fix` 的目标站点（desk-a/b/c）都在这个场景里。
+  const service = createPluginState(resolveConfig({ autoStart: false, scene: 'scene.default-town' }))
   service.ensureWorld()
   service.dispatch('task.quick-fix')
   const runtime = createRuntime({ service, tickMs: 100 })
@@ -452,7 +453,7 @@ test('端到端：apply 注册的处理器挂到真服务器上，页面与 API 
     },
   }
 
-  apply(ctx, { autoStart: false, persistEveryTicks: 0 })
+  apply(ctx, { autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' })
   assert.ok(route)
 
   await withServer(route.handler, async (base) => {
@@ -517,7 +518,7 @@ test('readJsonBody：空体返回 undefined，坏 JSON 抛 400', async () => {
 })
 
 test('applyCommand / buildSnapshot：没有世界时给 503 而不是崩', () => {
-  const service = createPluginState(resolveConfig({ autoStart: false }))
+  const service = createPluginState(resolveConfig({ autoStart: false, scene: 'scene.default-town' }))
   const runtime = createRuntime({ service, tickMs: 100 })
   const deps = { service, runtime, tickMs: 100 }
 
@@ -528,7 +529,7 @@ test('applyCommand / buildSnapshot：没有世界时给 503 而不是崩', () =>
 // ── R46：流水线目录随快照下发（看板要按流水线分组，中文名是内容）────────────────
 
 test('R46：快照带 taskSets 目录（id → 中文名），前端不必猜中文', () => {
-  const service = createPluginState(resolveConfig({ autoStart: false }))
+  const service = createPluginState(resolveConfig({ autoStart: false, scene: 'scene.default-town' }))
   service.open('目录小镇')
   service.dispatch('task.quick-fix')
   const runtime = createRuntime({ service, tickMs: 100 })

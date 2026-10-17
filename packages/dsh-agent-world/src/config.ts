@@ -22,6 +22,15 @@ export const AgentWorldConfig = z.object({
   autoStart: z.boolean().default(true),
 
   /**
+   * 待命的人是否做"张望 / 踱步 / 歇息"这些自主动作。
+   *
+   * R75 默认 **false**（用户："先让 agent 不进行任何动作"）——先把"位置对不对"与
+   * "动作对不对"分开验证：关掉时待命的人走到歇脚点就站定，不转头、不踱步、不坐下。
+   * 位置对了之后把这里翻成 `true` 就能把待命行为按原样加回来（内容侧一行都不用动）。
+   */
+  idleActionsEnabled: z.boolean().default(false),
+
+  /**
    * 每多少 tick 落一次盘（快照 + 事件）。`0` = 不落盘，世界只活在内存里。
    *
    * 默认 100（10 tick/秒下约 10 秒一次）。这是**崩溃时最多丢多少**的粒度，
@@ -36,7 +45,7 @@ export const AgentWorldConfig = z.object({
   worldName: z.string().default('Agent World'),
 
   /** 默认用哪个场景（`scenes` 库的 id）。换它 = 换一座小镇，代码不动。 */
-  scene: z.string().default('scene.default-town'),
+  scene: z.string().default('scene.office'),
 
   /**
    * 外部内容包目录（相对 workspace）。留空 = 只用内置内容。
@@ -103,10 +112,11 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     stateDir: config.stateDir ?? '.agent-world',
     tickMs: config.tickMs && config.tickMs > 0 ? config.tickMs : 100,
     autoStart: config.autoStart ?? true,
+    idleActionsEnabled: config.idleActionsEnabled ?? false,
     persistEveryTicks: config.persistEveryTicks ?? 100,
     maxAgents: config.maxAgents && config.maxAgents > 0 ? config.maxAgents : 24,
     worldName: config.worldName ?? 'Agent World',
-    scene: config.scene ?? 'scene.default-town',
+    scene: config.scene ?? 'scene.office',
     contentDir: config.contentDir ?? '',
     allowImplicitOverride: config.allowImplicitOverride ?? false,
     // 与 maxAgents 同样的写法：小于 1 或非数就退回默认（0 或负数会让所有搭话都被拒）。

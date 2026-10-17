@@ -1,0 +1,182 @@
+/*
+ * 侧边栏（R2 / PLAN §二(a)）—— 页面内 `<aside>`，挤窄舞台而不是浮在上面。
+ *
+ * ## 为什么是 grid 列（而不是 `position:absolute` 浮层）
+ *
+ * 浮层（像 `.dialogue` / `.view-controls`）会**遮住场景**；而 PLAN §二(a) 的目标是
+ * 「侧边栏 = 唯一的"人与团队"交互面」，遮住场景会直接削弱它。
+ * 改成 `.app` 的第二列之后：
+ *
+ *   `.stage` 变窄 → `#town` 的父容器变窄 → 引擎的 `Scale.RESIZE` 自己跟（`scene-phaser.js:2219`）
+ *
+ * ⚠️ **不许**在这里、或任何地方，在侧边栏开合时手调 `game.scale.resize()`
+ *（`scene-phaser.js:2126-2127`：那会让真机上刚拖好的缩放被打回 1×）。
+ *
+ * `.app` 的原则是 `layout.css` 的（只定义了行），这里**追加列**——用同一份 grid 容器，
+ * 但不在别人的文件里改，避免与并行 Agent 冲突。
+ */
+
+.app {
+  /* 侧边栏宽度：只有这一处定义（窄视口在文件末尾按档收窄）。
+     `tokens.css` 是另一个 Agent 也在碰的公共文件，所以这个局部变量就放在使用它的文件里。 */
+  --sidebar-w: 280px;
+  /* 列：舞台(1fr) + 侧边栏(固定)。行仍由 layout.css 给（48 / 1fr / 36）。 */
+  grid-template-columns: 1fr var(--sidebar-w);
+}
+
+#sidebar {
+  grid-column: 2;
+  /* 跨满三行 = 顶栏以下到底部，视觉上是一条完整的"人"栏。 */
+  grid-row: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  border-left: 1px solid var(--stroke);
+  z-index: var(--z-drawer);
+}
+
+/* ── 头：两档页签 ──────────────────────────────────────────────────────────── */
+.sidebar-head {
+  flex: none;
+  padding: var(--s-2);
+  border-bottom: 1px solid var(--stroke);
+}
+.sidebar-tabs {
+  display: flex;
+  gap: var(--s-1);
+}
+.sidebar-tab {
+  flex: 1;
+  padding: 5px var(--s-2);
+  font-family: inherit;
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color var(--t-hover) var(--ease), background var(--t-hover) var(--ease);
+}
+.sidebar-tab:hover {
+  color: var(--fg-0);
+  background: var(--surface-1);
+}
+.sidebar-tab.is-active {
+  color: var(--fg-0);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* ── 体：只有这块滚 ────────────────────────────────────────────────────────── */
+.sidebar-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--s-2);
+}
+.sidebar-panel[hidden] {
+  display: none;
+}
+
+/* Agent 列表：**沿用看板的成员卡语言**（`.board-member*`，components.css:918），
+   这里只补"整卡可点"与"当前工单"两处侧边栏特有的东西。 */
+.sidebar-agents {
+  gap: 4px;
+}
+.sidebar-agent {
+  /* 整卡可点 = 整卡是命中区（不做"只有名字能点"那种半吊子）。 */
+  cursor: pointer;
+  transition: border-color var(--t-hover) var(--ease), background var(--t-hover) var(--ease);
+}
+.sidebar-agent:hover {
+  border-color: var(--stroke-strong);
+  background: color-mix(in srgb, var(--surface-1) 60%, transparent);
+}
+.sidebar-agent:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-accent);
+}
+.sidebar-agent .board-member-head {
+  /* 行内的头不许自己再撑开：整卡才是命中区。 */
+  cursor: inherit;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.sidebar-agent .board-member-head b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-agent-task {
+  display: flex;
+  gap: var(--s-1);
+  align-items: baseline;
+  min-width: 0;
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+}
+.sidebar-agent-task-id {
+  flex: none;
+  color: var(--accent);
+  font-family: var(--mono-font);
+}
+.sidebar-agent-task .dim {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── 任务图（本轮是只读摘要；R3 由看板搬入真正的依赖图）────────────────────── */
+.sidebar-graph-group {
+  margin-bottom: var(--s-3);
+}
+.sidebar-graph-group h3 {
+  margin: 0 0 var(--s-1);
+  font-size: var(--fs-section);
+  font-weight: var(--fw-title);
+  letter-spacing: var(--tracking-section);
+  color: var(--fg-2);
+  text-transform: uppercase;
+}
+.sidebar-task {
+  cursor: default;
+}
+.sidebar-task .board-member-head {
+  cursor: inherit;
+}
+.sidebar-task .board-member-head b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-empty {
+  margin: 0;
+  padding: var(--s-2);
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+}
+
+/* ── 窄视口：侧边栏让位 ────────────────────────────────────────────────────── */
+/*
+ * 1024×768 是验收线（M7-9 判据）。固定 280px 在 1024 下只剩 744px 给舞台，
+ * 仍装得下（当前默认视野按 1227 宽调过，引擎会自己按新宽度适配），所以这里只**收窄**，
+ * 不隐藏——隐藏会让"唯一的交互面"在窄屏上直接消失，比拥挤更糟。
+ */
+@media (max-width: 1200px) {
+  .app {
+    --sidebar-w: 232px;
+  }
+}
+@media (max-width: 900px) {
+  .app {
+    --sidebar-w: 200px;
+  }
+  .sidebar-agent-task {
+    /* 极窄时工单行让位给名字与状态：一行里塞三段必然溢出。 */
+    display: none;
+  }
+}

@@ -36,7 +36,7 @@
  * 排序用 `(clearance 降序, 候选序号升序)` 做全序 tie-break，所以**同输入必同输出**。
  * 这一条是模拟内核的硬要求（同 seed 重开一局必须长出同一个世界）。
  */
-import type { Bounds, District, Station, StationKind, Vec2 } from '../domain/types.js'
+import type { Bounds, District, NavGrid, Station, StationKind, Vec2 } from '../domain/types.js'
 
 /**
  * 一个**已被人身占住**的几何事实：中心点 + 需要空出的半径。
@@ -57,6 +57,11 @@ export interface PlaceHangoutsOptions {
   readonly count: number
   /** 被家具占住的位置。**硬约束**：任何返回值都离它们 ≥ 各自的 `radius`。 */
   readonly blocked?: readonly OccupiedSpot[]
+  /**
+   * 导航网格（墙）。**硬约束**：任何返回值都必须落在可行走格上（含四邻，留出人物身位）。
+   * 没有（`null`/缺省）就跳过墙约束，退回只避家具——那些场景本就没有墙数据。
+   */
+  readonly nav?: NavGrid | null
   /**
    * 人与人之间的**目标**间距（软约束：放不下时按 {@link GAP_RELAX_STEPS} 逐个放弃）。
    * 默认 {@link DEFAULT_MIN_GAP}。
@@ -228,6 +233,27 @@ function clearanceOf(point: Vec2, blocked: readonly OccupiedSpot[]): number {
 }
 
 /**
+ * 世界点是否落在**可行走**格上（只查落点所在的那一格）。
+ *
+ * 墙是导航网格里的硬约束（`blocked === true`），而待命落点**不该认识家具之外的地图**——
+ * 但"人不能站在墙上"是家具约束之外的另一条硬事实。这里只做纯几何判定，不 import `sim/`
+ *（`world/` 在分层里低于 `sim/`，向上引用会成环），判定公式与 `sim/pathfind.ts` 的
+ * `cellOf`/`isWalkable` **逐字一致**，靠测试钉在一起。
+ *
+ * 为什么只查中心格、不查四邻：人物身位半径 0.35，而一格是 2 世界单位——只要中心格可行走，
+ * 角色身体最多探进相邻格 0.35（还不到半格的 1/4），画面里是"贴着墙站"而不是"站进墙里"。
+ * 查四邻会把小房间（如卫生间 10×3 格）的可用区削到只剩中间一条，反而逼退化的兜底把两个人
+ * 叠到同一格——那比"贴墙"更糟（R75 真机踩过）。
+ */
+function walkableAt(nav: NavGrid | null | undefined, p: Vec2): boolean {
+  if (nav === null || nav === undefined) return true
+  const col = Math.round((p.x - nav.originX) / nav.unitsPerCell - 0.5)
+  const row = Math.round((p.z - nav.originZ) / nav.unitsPerCell - 0.5)
+  if (col < 0 || col >= nav.width || row < 0 || row >= nav.height) return false
+  return nav.blocked[row * nav.width + col] !== true
+}
+
+/**
  * 从 `pool` 里挑 `count` 个点：第一个取 `pool[0]`（调用方已按余量排好），
  * 之后每次取"离已选点集最远"的那个（最远点采样）。
  *
@@ -277,6 +303,7 @@ function spread(pool: readonly Vec2[], count: number, gap: number): Vec2[] | nul
 export function placeHangouts(options: PlaceHangoutsOptions): Vec2[] {
   const { bounds, count } = options
   const blocked = options.blocked ?? []
+  const nav = options.nav ?? null
   const minGap = options.minGap !== undefined && options.minGap > 0 ? options.minGap : DEFAULT_MIN_GAP
   if (count <= 0) return []
 
@@ -287,23 +314,23 @@ export function placeHangouts(options: PlaceHangoutsOptions): Vec2[] {
     if (all.length >= count) break
   }
 
+  // 墙是**硬约束**（与家具同级）：先按"可行走"滤一遍，再谈家具余量。
+  const onGround = all.filter((point) => walkableAt(nav, point))
   const safe = rankByClearance(
-    all.filter((point) => clearanceOf(point, blocked) >= 0),
+    onGround.filter((point) => clearanceOf(point, blocked) >= 0),
     blocked,
   ).map((entry) => entry.point)
 
-  // ① 家具约束硬性成立的前提下，逐个放弃人际间距。
+  // ① 家具 + 墙约束硬性成立的前提下，逐个放弃人际间距。
   for (const factor of GAP_RELAX_STEPS) {
     const picked = spread(safe, count, minGap * factor)
     if (picked !== null) return picked
   }
 
   // ② 退化：连"零间距"都放不下 count 个安全点 → 整块地基本被家具占了。
-  //    这时**只从"余量最好的那一档"里挑**（第 count 名的余量作为下限），再在其中尽量散开：
-  //    先按余量挑、再谈间距。**不能**在这张排序表上直接"最远点采样"——
-  //    那样第二个点会因为"离第一个点最远"而跳到场地另一头，很可能正落在家具里
-  //    （这是本函数第一版真的写错过的地方，见 test/hangouts.test.js 的病态用例）。
-  const ranked = rankByClearance(all, blocked)
+  //    墙约束**仍然保留**（"站墙上"永远不可接受），只放弃家具约束：
+  //    从"可行走"的点里按家具余量挑最好的那一档，再在其中尽量散开。
+  const ranked = rankByClearance(onGround, blocked)
   const floorEntry = ranked[Math.min(count, ranked.length) - 1]
   const best = floorEntry === undefined ? ranked : ranked.filter((entry) => entry.clearance >= floorEntry.clearance)
   return spread(best.map((entry) => entry.point), count, 0) ?? best.slice(0, count).map((entry) => entry.point)
@@ -340,6 +367,7 @@ export function hangoutsForWorld(
   stations: readonly Station[],
   count: number,
   minGap: number = DEFAULT_MIN_GAP,
+  nav: NavGrid | null = null,
 ): Vec2[] {
   // ⚠️ **`blocked` 的顺序也必须确定**：`rankByClearance` 在余量相等时按候选序号 tie-break，
   // 而候选点的余量取决于最近的家具——家具表的顺序一变，同分项的次序就变，落点跟着变。
@@ -395,16 +423,43 @@ export function hangoutsForWorld(
     if (n <= 0) continue
     const d = ordered[i]
     if (d === undefined) continue
-    out.push(...placeHangouts({ bounds: d.bounds, count: n, blocked, minGap }))
+    out.push(...placeHangouts({ bounds: d.bounds, count: n, blocked, minGap, nav }))
   }
-  // 万一某些房间一个点都放不下（被家具占满），补足总数——宁可挤，也不能让
-  // 调用方 `hangouts[i % length]` 把两个人分到同一格（那是更糟的画面）。
-  if (out.length < count) {
-    const fallback = placeHangouts({ bounds: hangoutArea(districts), count, blocked, minGap })
-    for (const p of fallback) {
-      if (out.length >= count) break
-      out.push(p)
+  // 去重 + 补足：per-room 分配在"小房间放不下名额"时会返回不足，而旧实现用
+  // 全图 `placeHangouts` 兜底——全图点会和 per-room 点**撞车**（重复落点，
+  // 真机：8 人里 2 对叠在同一格）。这里保证返回 `count` 个**互不相同**的点：
+  // 先按坐标去重，不足再从"全图可行走点"里按离家具余量补，绝不重复、绝不进墙。
+  const keyOf = (p: Vec2): string => `${Math.round(p.x * 1000)},${Math.round(p.z * 1000)}`
+  const seen = new Set<string>()
+  const unique: Vec2[] = []
+  for (const p of out) {
+    const k = keyOf(p)
+    if (seen.has(k)) continue
+    seen.add(k)
+    unique.push(p)
+  }
+  if (unique.length < count) {
+    let x0 = Number.POSITIVE_INFINITY
+    let x1 = Number.NEGATIVE_INFINITY
+    let z0 = Number.POSITIVE_INFINITY
+    let z1 = Number.NEGATIVE_INFINITY
+    for (const d of ordered) {
+      x0 = Math.min(x0, d.bounds.min.x, d.bounds.max.x)
+      x1 = Math.max(x1, d.bounds.min.x, d.bounds.max.x)
+      z0 = Math.min(z0, d.bounds.min.z, d.bounds.max.z)
+      z1 = Math.max(z1, d.bounds.min.z, d.bounds.max.z)
+    }
+    const pool = rankByClearance(
+      latticeCandidates({ min: { x: x0, z: z0 }, max: { x: x1, z: z1 } }, 0.5).filter((p) => walkableAt(nav, p)),
+      blocked,
+    ).map((entry) => entry.point)
+    for (const p of pool) {
+      if (unique.length >= count) break
+      const k = keyOf(p)
+      if (seen.has(k)) continue
+      seen.add(k)
+      unique.push(p)
     }
   }
-  return out.slice(0, Math.max(count, out.length))
+  return unique.slice(0, count)
 }

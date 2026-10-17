@@ -18,8 +18,8 @@
  * 3. **名字来自世界数据**（`setAgents`），代码里没有任何角色名——
  *    人设是内容（D37）。名字没到（快照还没回来）时显示"该角色"，而不是编一个。
  *
- * 面板放在侧栏里，所以**俯视与 3D 两个视图下它都在**（不随 `state.mode` 变），
- * 这是"对话不该被渲染器绑住"的直接体现。
+ * R76：面板从右侧抽屉移到**舞台底部中间**（DOM 浮层），仍与渲染器解耦——逻辑不变，
+ * 只换了容器位置。这也是"对话不该被渲染器绑住"的直接体现。
  */
 
 import { actionCountText, actionIcon, actionText, actingText } from './labels.js'
@@ -60,6 +60,8 @@ function el(doc, tag, className, text) {
  * @param {(request: {agentId: string, text: string, tick: number, localTurnId: string}) => Promise<{ok: boolean, turnId?: string, status?: number, reason?: string, error?: unknown, text?: string}>} options.send
  *   发话。**由调用方（`main.js`）拥有端点**，这里只管 UI 与状态。
  * @param {() => void} [options.onChanged] - 面板状态变了（花名册上的"…"要跟着变）。
+ * @param {() => void} [options.onUnlock] - 点「取消锁定」时回调（P2：解锁镜头，由 main.js 接到 `scene2d.clearSelection`）。
+ * @param {(mode: 'chat'|'move') => void} [options.onModeChange] - 超控模式切了（main.js 拿它开关引擎键盘移动）。
  * @param {object} [options.state] - 状态机选项（`createDialogueState`）。
  */
 export function createDialogueUi(options = {}) {
@@ -75,6 +77,15 @@ export function createDialogueUi(options = {}) {
   const $send = byId('dialogue-send')
   const $hint = byId('dialogue-hint')
   const $close = byId('dialogue-close')
+  /** P2：取消锁定按钮（点它解锁镜头，不关对话）。 */
+  const $unlock = byId('dialogue-unlock')
+  /** 对话记录的展开/收起按钮（记录默认收起，因为回复气泡已经实时展示了）。 */
+  const $logToggle = byId('dialogue-log-toggle')
+  /** 超控双模式：两片 tab + 两个面板（同时只亮一个）。 */
+  const $modeChat = byId('dialogue-mode-chat')
+  const $modeMove = byId('dialogue-mode-move')
+  const $chatPanel = byId('dialogue-mode-chat-panel')
+  const $movePanel = byId('dialogue-mode-move-panel')
   /** 面板缺元素时**不要抛**：对话没了不该把整个面板带崩（俯视图还要看模拟）。 */
   const ready = [$panel, $log, $form, $input, $hint].every((node) => node !== null && node !== undefined)
 
@@ -96,6 +107,20 @@ export function createDialogueUi(options = {}) {
     $hint.textContent = text ?? ''
     $hint.className = `dialogue-hint ${tone}`
     $hint.hidden = text === null || text === undefined || text === ''
+  }
+
+  /** 对话记录是否展开。默认收起——回复实时出现在角色头顶气泡里，这里只是历史回看。 */
+  let logOpen = false
+
+  /** 展开/收起对话记录（只切 CSS 类，`renderLog` 照常往里写，展开时内容已经是最新的）。 */
+  function setLogOpen(next) {
+    logOpen = next
+    if ($log !== null) $log.classList.toggle('is-collapsed', !logOpen)
+    if ($logToggle !== null && $logToggle !== undefined) {
+      $logToggle.textContent = logOpen ? '收起记录' : '记录'
+      $logToggle.title = logOpen ? '收起对话记录' : '展开对话记录'
+      $logToggle.setAttribute('aria-expanded', logOpen ? 'true' : 'false')
+    }
   }
 
   /** 把这一轮"刚变过"这件事记下来（气泡靠它决定什么时候淡出）。 */
@@ -205,15 +230,27 @@ export function createDialogueUi(options = {}) {
       info === undefined ? `${UNKNOWN_NAME}（${currentAgentId}）` : `${info.name} · ${info.role ?? ''}`
   }
 
-  function open(agentId) {
+  /**
+   * 打开超控面板。
+   *
+   * `mode` 默认 `'move'`：**选中一个人，第一件事是能操控他走**，不是让他说话
+   * （想说话再点「对话」或按回车）。只有显式传 `'chat'`（回车快捷键）才从对话起步。
+   */
+  function open(agentId, mode = 'move') {
     if (!ready || agentId === null || agentId === undefined) return false
     currentAgentId = agentId
     $panel.hidden = false
     setHint('')
     lastSignature = null
+    // 每次打开都回到默认：记录收起（回复气泡已经在实时展示，别用历史压着输入框）。
+    setLogOpen(false)
+    const nextMode = mode === 'chat' ? 'chat' : 'move'
+    setMode(nextMode)
     refreshWho()
     renderLog(performance.now(), true)
-    $input?.focus()
+    // 移动档**不能抢焦点**：焦点一旦落在 textarea 上，WASD/方向键就被输入框吞掉，
+    // 表现是"选中了却走不动"。只有对话档才把焦点给输入框。
+    if (nextMode === 'chat') $input?.focus()
     options.onChanged?.()
     return true
   }
@@ -222,6 +259,8 @@ export function createDialogueUi(options = {}) {
     if (!ready) return
     currentAgentId = null
     $panel.hidden = true
+    // 面板藏了，焦点不能留在隐藏的输入框上（否则引擎以为用户在打字、键盘一直不归它）。
+    $input?.blur()
     setHint('')
     options.onChanged?.()
   }
@@ -229,6 +268,39 @@ export function createDialogueUi(options = {}) {
   function toggle(agentId) {
     if (currentAgentId === agentId) close()
     else open(agentId)
+  }
+
+  // ── 超控双模式（对话 / 移动）─────────────────────────────────────────────────
+  //
+  // 两者**互斥**，根因在"键盘焦点归谁"：
+  //   · 对话模式：焦点在 textarea 上，键盘是**文字**；
+  //   · 移动模式：焦点必须离开 textarea（否则 WASD/方向键被输入框吞掉），键盘才是**动作**。
+  // 所以切换模式不是"换个面板"那么简单，**搬焦点**才是这条互斥的关键。
+
+  /** @type {'chat'|'move'} */
+  let currentMode = 'chat'
+
+  /**
+   * 切换模式。`chat` → 输入框亮相并聚焦、引擎移动关；`move` → 输入框藏起来并失焦、引擎移动开。
+   */
+  function setMode(mode) {
+    const next = mode === 'move' ? 'move' : 'chat'
+    currentMode = next
+    const isChat = next === 'chat'
+    $modeChat?.classList.toggle('is-active', isChat)
+    $modeMove?.classList.toggle('is-active', !isChat)
+    $modeChat?.setAttribute('aria-selected', String(isChat))
+    $modeMove?.setAttribute('aria-selected', String(!isChat))
+    if ($chatPanel !== null && $chatPanel !== undefined) $chatPanel.hidden = !isChat
+    if ($movePanel !== null && $movePanel !== undefined) $movePanel.hidden = isChat
+    if (isChat === true) {
+      // 回对话：焦点给输入框（下一句直接能打字）。
+      $input?.focus()
+    } else if (doc.activeElement === $input) {
+      // 去移动：焦点必须离开输入框，否则 WASD/方向键全被 textarea 吞掉。
+      $input.blur()
+    }
+    options.onModeChange?.(next)
   }
 
   /** 发话。**先本地乐观建轮**，再等宿主的 `accepted`。 */
@@ -334,13 +406,16 @@ export function createDialogueUi(options = {}) {
   }
 
   if (ready) {
+    setLogOpen(false)
     $form.addEventListener('submit', (event) => {
       event.preventDefault()
       void submit()
     })
     $input.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
+        // Esc = 退出锁定：关面板 + 解锁镜头（与 main.js 的全局 Esc 同一个语义）。
         close()
+        options.onUnlock?.()
         return
       }
       if (event.key !== 'Enter' || event.shiftKey) return
@@ -350,6 +425,10 @@ export function createDialogueUi(options = {}) {
       void submit()
     })
     $close?.addEventListener('click', () => close())
+    $unlock?.addEventListener('click', () => options.onUnlock?.())
+    $modeChat?.addEventListener('click', () => setMode('chat'))
+    $modeMove?.addEventListener('click', () => setMode('move'))
+    $logToggle?.addEventListener('click', () => setLogOpen(!logOpen))
   }
 
   return {
@@ -380,6 +459,9 @@ export function createDialogueUi(options = {}) {
     bubblesFor,
     isOpen: () => currentAgentId !== null,
     agentId: () => currentAgentId,
+    /** 超控模式：`'chat'`（打字）| `'move'`（键盘操控）。 */
+    mode: () => currentMode,
+    setMode,
     turnsFor: (agentId) => turnsFor(state, agentId),
     latestTurn: (agentId) => latestTurn(state, agentId),
     thinkingTurns: () => thinkingTurns(state),

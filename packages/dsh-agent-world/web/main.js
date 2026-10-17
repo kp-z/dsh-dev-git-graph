@@ -25,18 +25,16 @@
  */
 
 import { applyEvents, pruneMessages } from './core/world-update.js'
+import { createSelfCheck } from './core/self-check.js'
 import { dialogueEventsFromFrame } from './core/dialogue-state.js'
-import { occludedBubbles, placeBubble } from './core/bubble-place.js'
 import { createConnection } from './net/connection.js'
 // R58：2D 渲染器 = **Phaser**（唯一实现）。`?renderer=canvas` 映射到 `type: Phaser.CANVAS`；
 // 缺省 `Phaser.AUTO` = WebGL 优先、**canvas 自动回退**（我们自己写的那套回退已删）。
 // 接口与以前逐个同名同参，所以下面一行都不用改。
 import { createScenePhaser, requestedRenderer } from './scene/scene-phaser.js'
 import { createTopbar } from './ui/topbar.js'
-import { createRoster } from './ui/roster.js'
-import { createTasks } from './ui/tasks.js'
 import { createLegend } from './ui/legend.js'
-import { createDrawer } from './ui/drawer.js'
+import { createSidebar } from './ui/sidebar.js'
 import { createBoard } from './ui/board.js'
 import { createDialogueUi } from './ui/dialogue-ui.js'
 
@@ -48,9 +46,44 @@ const RENDER_MIN_GAP_MS = 16
 /** "他在想…"最多挂多少步（宿主挂了的话 `failed` 永远不会来，面板要有自己的兜底）。 */
 const DIALOGUE_SILENT_TICKS = 300
 
+/**
+ * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
+ * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
+ */
+const BUILD = 'build r88'
+
+/** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
+let lastAnimKeys = null
+/** 累计"某只精灵的动画键变了"的次数——朝向抖动会把它快速推高，稳定时它不动。 */
+let animFlipCount = 0
+
+/**
+ * 统计"动画键发生变化的次数"（R84 诊断用）。
+ *
+ * 为什么放在外壳而不是渲染层：`scene-phaser.js` 正被另一个 Agent 频繁改写，
+ * 每次改都会被并发冲突挡住；而这件事实质上只是**读一帧的显示列表**，属于外壳的事。
+ *
+ * @returns {number} 到目前为止累计的切换次数
+ */
+function trackAnimFlips() {
+  const scene = globalThis.__agentWorldPhaser?.scene?.()
+  const list = scene?.layers?.entities?.list
+  if (Array.isArray(list) !== true) return animFlipCount
+  const keys = []
+  for (const object of list) {
+    if (object?.type === 'Sprite' && object.visible !== false) keys.push(object.anims?.currentAnim?.key ?? '')
+  }
+  if (lastAnimKeys !== null && lastAnimKeys.length === keys.length) {
+    for (let i = 0; i < keys.length; i += 1) {
+      if (keys[i] !== lastAnimKeys[i]) animFlipCount += 1
+    }
+  }
+  lastAnimKeys = keys
+  return animFlipCount
+}
+
 const $ = (id) => document.getElementById(id)
 const canvas = $('town')
-const $bubbles = $('bubbles')
 const $hint = $('view-hint')
 
 /** 本地世界（快照起家，之后靠增量维护）。 */
@@ -59,8 +92,6 @@ let world = null
 let meta = null
 /** 上一次真正渲染的时刻（节流用）。 */
 let lastRenderMs = -1
-/** 头顶气泡的 DOM 节点（按 agentId 复用，只改位置与文本，不每帧重建）。 */
-const bubbleNodes = new Map()
 /** 看板里选中的任务（用来高亮抽屉里对应的那一行）。 */
 let boardSelection = null
 /**
@@ -73,97 +104,31 @@ let boardSelection = null
 let diagnostics = null
 /** 对话面板（状态机在 core/dialogue-state.js，DOM 在 ui/dialogue-ui.js）。 */
 let dialogue = null
-/**
- * 浮层占掉的边距与矩形（R39）。**唯一来源**：`syncSceneInsets()` 量一次，
- * 3D 取景与气泡避让都读它（两份测量会漂移）。
- */
-const stageInsets = { right: 0, drawer: null }
-
-/**
- * 看板的矩形——**只在展开时**返回（收起时返回 null）。
- *
- * 两个理由：
- * 1. 收起时它就是底下一条 46px 的摘要条，为它把气泡顶上去是白顶；
- * 2. 收起是**高度过渡**（220ms），而**隐藏标签页里过渡根本不推进**——那一刻
- *    `getBoundingClientRect()` 会一直读到过渡起点那个 450px 的旧值。用**类名**当闸门就不受
- *    过渡状态影响：类名是"意图"（用户点了收起），矩形是"此刻的像素"。
- *    （我第一版就是被这个骗了：量到 450px 的"收起态"，于是所有气泡被无意义地顶高。）
- *
- * 展开时现读（不缓存）：过渡进行中每一帧的矩形都不同，缓存只会拿到中间值。
- */
-function boardRectNow() {
-  const el = $('board')
-  if (el === null || el.classList.contains('is-collapsed')) return null
-  const rect = el.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) return null
-  return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
-}
-/** 角色色（内容里的职业色，来自 ScenePlan）——花名册的色点用。 */
-let colorById = new Map()
-
 // ── UI 模块 ───────────────────────────────────────────────────────────────────
 
 const topbar = createTopbar({
   root: $('topbar'),
+  worldName: 'Agent World',
   onCommand: (kind) => void sendCommand(kind),
-  onToggleDrawer: () => drawer.toggle(),
 })
 
-/**
- * 把"抽屉占了多少"告诉 3D 场景，让世界居中在**看得见的那块**（R32）。
- *
- * 宽度是**量出来的**（`getBoundingClientRect`），不是写死 320：抽屉在窄视口会变宽、
- * 收起时会变成一条窄栏，任何一个常数都会在其中一种情况下算错。
- * 场景那边只认一个像素数，不知道抽屉长什么样——面板换布局不需要改场景。
- */
-/**
- * 抽屉现在开着吗——读 **DOM 的类**，不读 `drawer` 对象。
- *
- * 这里踩过一次：`createDrawer()` 在构造末尾 `paint()` → 触发 `onToggle` → 触发
- * `syncSceneInsets()`，而那一刻 `const drawer = createDrawer(...)` 还在 TDZ。
- * 症状是 `ReferenceError: Cannot access 'drawer' before initialization` 让**整个 main.js
- * 不执行**：页面永远停在顶栏那句"连接中…"、花名册一片空白。
- * 类名本来就是抽屉自己在 `paint()` 里先设、再回调的，所以读它是同一份事实，而且没有顺序依赖。
- */
-function drawerIsOpen() {
-  const el = $('drawer')
-  return el !== null && el.classList.contains('is-open')
-}
-
-function syncSceneInsets() {
-  const el = $('drawer')
-  const rect = el?.getBoundingClientRect?.()
-  const open = drawerIsOpen() && rect !== undefined && rect.width > 0
-  // 右侧留 12px 呼吸，别让小镇紧贴抽屉边缘。
-  // **只量这一处**：3D 取景与气泡避让都读 `stageInsets.right`——各量一份迟早会漂移，
-  // 而漂移的症状是"某一边看起来差一点"，很难归因。
-  stageInsets.right = open ? rect.width + 12 : 0
-  stageInsets.drawer = open ? { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom } : null
-  // 看板矩形**故意不在这里量**：看板高度有 220ms 过渡（展开/收起），事件驱动地量只会量到
-  // 动画中间值（我第一版就是这样：启动时量到 450px 的展开态，于气泡被无意义地顶高）。
-  // 它改成每帧现读（见 `boardRectNow()`），代价格外小：那一帧本来就要读 `$bubbles` 的尺寸。
-  // 场景那边只认一个像素数，不知道抽屉长什么样——面板换布局不需要改场景。
-}
-
-const drawer = createDrawer({
-  root: $('drawer'),
-  onToggle: (open) => {
-    topbar.setDrawerOpen(open)
-    syncSceneInsets()
-  },
-})
-
-const roster = createRoster({ root: $('roster'), onPick: (agentId) => openDialogueFor(agentId) })
-
-const tasks = createTasks({
-  root: $('tasks'),
-  // 点抽屉里的一张单 = 在看板里选中它（同一件事的两处入口，选中状态只有一份）。
-  onPick: (taskId) => {
-    board.select(taskId)
-  },
-})
+// R76：右侧抽屉（花名册/工单）已删——agent/任务列表只剩顶栏看板一份；气泡进引擎后也不再需要给抽屉让位。
 
 const legend = createLegend({ root: $('legend') })
+
+/**
+ * 渲染自检（R7 / 计划 S1+S2）：**帧被重置 / 动画互抢 / 与服务端漂移**三个计数器。
+ *
+ * 逻辑全在 `core/self-check.js`（纯函数，node 里测过）；这里只做接线——
+ * 因为它要读的两处读数（Phaser 的 `entities` 层、`scene2d.liveActors()`）
+ * 都在这个装配层拿得到，而渲染层正被另一个 Agent 频繁改写。
+ *
+ * 为什么要它：R85 的真凶（每帧 `setTexture` 把帧打回第 0 帧）**不报错**，
+ * 只表现为"看起来在跳"，前六轮全靠猜机制。有了这三个数，"在跳"就变成一个数字。
+ */
+const selfCheck = createSelfCheck({
+  actors: () => (typeof scene2d.liveActors === 'function' ? scene2d.liveActors(world, meta?.scene ?? null) : []),
+})
 
 const scene2d = createScenePhaser(canvas, {
   renderer: requestedRenderer(),
@@ -172,6 +137,22 @@ const scene2d = createScenePhaser(canvas, {
   // 我们不再自己记 downX/downY/downAt（那段手写 `bindPick` 已删）。
   // R58 修过的死角在这里同样成立：命中区就是精灵几何，点身体任意位置都算。
   onActorPick: (agentId) => openDialogueFor(agentId),
+  // P4：玩家用键盘走完一段 → 把落点写回世界（否则服务端还停在旧坐标，解锁会瞬移回去）。
+  onAgentMoveSettled: (agentId, x, z) => void sendCommand({ kind: 'moveAgent', agentId, x, z }),
+})
+
+/**
+ * 侧边栏（R2 / PLAN §二(a)）：两档视图（Agent 列表 / 任务流程图）。
+ *
+ * 本轮**只读**：不搬看板、不改渲染路径。点击回调按**最终形态**签名（`onSelect(agentId)`），
+ * 现在接的是已有的 `selectAgent`（选中 + 420ms 平移跟随，真机验过的那条链路），
+ * R4 把它换成单一入口 `focusAgent` 时，`sidebar.js` 一行都不用改。
+ */
+const sidebar = createSidebar({
+  root: $('sidebar'),
+  onSelect: (agentId) => {
+    if (typeof scene2d.selectAgent === 'function') scene2d.selectAgent(agentId)
+  },
 })
 
 /**
@@ -182,26 +163,30 @@ const scene2d = createScenePhaser(canvas, {
 const board = createBoard({
   root: $('board'),
   palette: {},
-  // 展开看板时把抽屉收起来：两者都需要横向空间，叠着会互相遮住——而**被遮住的图
-  // 等于变相被裁**（M7-9 那条纪律）。收起是可见的、一键能恢复的动作，比让用户
-  // 以为"图只有一半"要好。
-  onCollapsed: (collapsed) => {
-    // 展开看板会把抽屉收起来（两者都需要横向空间），所以边距要重量。
-    if (collapsed === false) drawer.toggle(false)
-    syncSceneInsets()
-  },
+  // R76：没有抽屉了，展开看板不再需要"把谁收起来"——但展开仍要重画气泡避让（看板浮层会占顶部空间）。
+  onCollapsed: () => render(true),
   onSelect: (taskId) => {
     boardSelection = taskId
-    // 只在抽屉已经在"工单"页时才重画它：点看板不该把抽屉跳来跳去。
-    if (drawer.page() === 'tasks') tasks.update({ world, selectedTaskId: taskId })
+  },
+  // 看板定位（P1）：点成员卡 → 选中该 agent（键盘移动/镜头锁定的对象）+ 打开对话面板。
+  onMemberPick: (agentId) => {
+    if (typeof scene2d.selectAgent === 'function') scene2d.selectAgent(agentId)
+    openDialogueFor(agentId)
   },
 })
 
 dialogue = createDialogueUi({
   send: sayToAgent,
   onChanged: () => {
-    drawer.setDialogueOpen(dialogue.isOpen())
     render(true)
+  },
+  // P2：点「取消锁定」→ 解锁镜头（不关对话，只解除选中/跟随）。
+  onUnlock: () => {
+    if (typeof scene2d.clearSelection === 'function') scene2d.clearSelection()
+  },
+  // P3 地基：超控模式切换 → 开/关引擎的键盘操控（互斥：打字时不动，移动时不打字）。
+  onModeChange: (mode) => {
+    if (typeof scene2d.setMovementEnabled === 'function') scene2d.setMovementEnabled(mode === 'move')
   },
   maxAgeTicks: DIALOGUE_SILENT_TICKS,
 })
@@ -228,78 +213,24 @@ function showHint(text) {
 // ── 气泡 ──────────────────────────────────────────────────────────────────────
 
 /**
- * 头顶气泡（M6-5）。
+ * 头顶气泡（M6-5 → R76 进引擎 → R77 用本地 9-slice 美术面板）。
  *
- * 位置每帧算：走 `scene2d.anchorOf()`——渲染器给出**画布相对像素**，
- * 所以这里不需要知道任何换算公式。节点按 agentId 复用。
+ * 气泡现在是 **Phaser 对象**（NineSlice 面板 + Text + 状态点，世界坐标，随相机缩放平移），
+ * 主循环只做一件事：从对话状态机拿 `[{agentId, phase, text}]` 交给场景画。
+ * 名字**不进气泡**（气泡 vs 名字二选一：有气泡就藏头顶名字，气泡消失再露出来）。
+ * 屏幕边缘避让/尾巴指向这些"贴边"逻辑随 DOM 层一起删掉了——世界坐标里气泡跟着人走，
+ * 人走到画面边缘气泡自然跟着出画面，这是游戏该有的样子，不需要额外夹取。
  */
 function updateBubbles() {
-  if ($bubbles === null || meta === null) return
+  if (meta === null) return
   const list = dialogue === null ? [] : dialogue.bubblesFor(performance.now())
-  const seen = new Set()
-  const view = { width: $bubbles.clientWidth, height: $bubbles.clientHeight }
-  // 抽屉占位复用 `syncSceneInsets()` 量到的那份（**同一份测量**，见那里的注释）；
-  // 看板矩形现读（它带过渡动画，缓存会拿到动画中间值）。
-  const insetRight = stageInsets.right
-  const boardRect = boardRectNow()
-
+  const enriched = []
   for (const bubble of list) {
     const agent = world?.agents.find((a) => a.id === bubble.agentId)
     if (agent === undefined) continue
-
-    let anchor = null
-    if (canvas.hidden === false) {
-      anchor = scene2d.anchorOf({ world, scene: meta.scene, agentId: agent.id })
-    }
-    if (anchor === null) continue
-
-    seen.add(agent.id)
-    let entry = bubbleNodes.get(agent.id)
-    if (entry === undefined) {
-      const node = document.createElement('div')
-      const name = document.createElement('b')
-      const text = document.createElement('span')
-      node.append(name, text)
-      $bubbles.append(node)
-      entry = { node, name, text, sig: null, size: null, placed: null }
-      bubbleNodes.set(agent.id, entry)
-    }
-    const sig = `${bubble.phase}\u0001${bubble.text}`
-    if (entry.sig !== sig) {
-      // 名字来自世界数据；文本用 textContent（回复正文是模型产出的内容，不是标记）。
-      entry.node.className = `bubble bubble-${bubble.phase}`
-      entry.name.textContent = agent.name
-      entry.text.textContent = bubble.text
-      entry.sig = sig
-      entry.size = null // 文本变了 → 尺寸重量一次（避让要用真实宽度，不然贴边会算错）
-    }
-    if (entry.size === null) {
-      // 只在文本变化时量：`offsetWidth` 会触发布局，而这个循环每帧都在跑（气泡只有几个）。
-      entry.size = { width: entry.node.offsetWidth || 200, height: entry.node.offsetHeight || 28 }
-    }
-
-    const placed = placeBubble({ anchor, size: entry.size, view, insetRight, board: boardRect })
-    entry.placed = placed
-    // 可见区放不下（极窄视口下抽屉是整幅宽浮层）：**不画**，而不是画一半在抽屉底下。
-    if (!placed.visible) {
-      entry.node.hidden = true
-      continue
-    }
-    entry.node.hidden = false
-    entry.node.classList.toggle('is-clamped', placed.clamped)
-    entry.node.classList.toggle('is-pinned', placed.pinnedRight)
-    // `--tail` 让箭头指向**真实的**头顶（贴边之后它不一定在气泡正中）。
-    entry.node.style.setProperty('--tail', `${Math.round(placed.tailPercent)}%`)
-    entry.node.style.left = `${Math.round(placed.left)}px`
-    entry.node.style.top = `${Math.round(placed.top)}px`
+    enriched.push({ agentId: bubble.agentId, phase: bubble.phase, text: bubble.text })
   }
-
-  // 淡出/离场的气泡要**真的摘掉**，否则 DOM 会随着"聊过多少人"一直涨。
-  for (const [agentId, entry] of bubbleNodes) {
-    if (seen.has(agentId)) continue
-    entry.node.remove()
-    bubbleNodes.delete(agentId)
-  }
+  scene2d.renderBubbles(enriched)
 }
 
 // ── 渲染 ──────────────────────────────────────────────────────────────────────
@@ -313,17 +244,20 @@ function render(force = false) {
 
   scene2d.render({ world, scene: meta.scene, tick, messageDeliveryTicks: meta.messageDeliveryTicks })
 
-  // 侧栏与顶栏都是文本，与场景无关。
-  const thinkingIds = new Set((dialogue?.thinkingTurns() ?? []).map((t) => t.agentId))
-  roster.update({ world, thinkingIds, activeId: dialogue?.agentId() ?? null, colorById })
-  tasks.update({ world, meta, selectedTaskId: boardSelection })
-
   // 把渲染器的**真实计数**显示出来——"不卡"要能被看见，否则只是承诺（R57）。
   // 报 Phaser 用哪个渲染器、这一帧提交了几次 GL 绘制、画了多少个对象。
   // （绘制次数挂在 Phaser 的 prerender/postrender 钩子上数，不是我们多渲染一遍。）
   const sceneStats = scene2d.stats()
   const backendName = sceneStats.backend === 'canvas' ? 'Phaser(canvas)' : 'Phaser(WebGL)'
-  const perf = `${backendName} · 绘制 ${sceneStats.drawCalls}${sceneStats.batched === true ? '（合批）' : ''} · 精灵 ${sceneStats.sprites ?? '-'}`
+  // R84：**构建标记 + 朝向抖动计数**。
+  // 为什么要它：这两个指标让"页面到底是不是新代码""朝向到底有没有在抖"变成**界面上能读的数**，
+  // 不用再靠猜。之前两轮就是在"不知道用户跑的是哪份代码"的情况下改的，白改。
+  const flips = trackAnimFlips()
+  // R86：**自检读数**（帧重置 / 动画互抢 / 与世界漂移）。
+  // 三个数正常时**恒为 0**——所以"不是 0"本身就是结论，不需要再去猜是哪一类。
+  // 抽样自节流（800ms 一次），这条路是 250ms 一跳，加它不会让渲染变慢。
+  selfCheck.sample()
+  const perf = `${backendName} · 绘制 ${sceneStats.drawCalls}${sceneStats.batched === true ? '（合批）' : ''} · 精灵 ${sceneStats.sprites ?? '-'} · 切换 ${flips} · ${selfCheck.report().text} · ${BUILD}`
   topbar.render({
     world,
     meta,
@@ -393,8 +327,6 @@ async function sayToAgent({ agentId, text }) {
 function openDialogueFor(agentId) {
   if (agentId === null || agentId === undefined) return
   dialogue.toggle(agentId)
-  // 对话是"同一个抽屉的另一页"——它会（在收起状态下）把抽屉打开，所以边距要重量。
-  syncSceneInsets()
   render(true)
 }
 
@@ -446,12 +378,14 @@ syncViewControls()
 
 // ── 世界命令（暂停/继续）──────────────────────────────────────────────────────
 
-async function sendCommand(kind) {
+async function sendCommand(command) {
+  // `command` 可以是 kind 字符串（暂停/继续），也可以是完整对象（如 moveAgent 要带坐标）。
+  const payload = typeof command === 'string' ? { kind: command } : command
   try {
     const res = await fetch(COMMAND_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ command: { kind } }),
+      body: JSON.stringify({ command: payload }),
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) showHint(`命令被拒（${res.status}）：${body.error ?? '宿主没说原因'}`)
@@ -465,6 +399,8 @@ async function sendCommand(kind) {
 
 const connection = createConnection({
   onSnapshot: (snap) => {
+    // 快照成功拿到 → 之前那句"读不到世界"（通常是启动瞬间宿主的瞬态错误）可以收起来了。
+    showHint('')
     world = snap.world
     meta = {
       scene: snap.scene,
@@ -478,7 +414,8 @@ const connection = createConnection({
       persistErrors: snap.runtime.diagnostics.persistErrors,
     }
     diagnostics = snap.runtime.diagnostics ?? null
-    colorById = new Map((snap.scene?.actors ?? []).map((a) => [a.id, a.color]))
+    // 标题跟世界名走（R74）：世界叫什么，顶栏就显示什么——除非用户自己改过。
+    topbar.setWorldName(world.name)
     // 角色的名字只从世界数据来（D37：人设是内容，代码里没有角色名）。
     dialogue.setAgents(world.agents)
     board.setPalette(meta.palette)
@@ -488,6 +425,7 @@ const connection = createConnection({
     // 分组签一直显示英文短 id（真机上抓到的）。
     board.setTaskSets?.(snap.taskSets)
     board.update(world, { diagnostics })
+    sidebar.update(world, meta)
     legend.update({ scene: meta.scene })
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
@@ -495,6 +433,8 @@ const connection = createConnection({
     applyEvents(world, events)
     pruneMessages(world)
     board.update(world, { diagnostics })
+    // R2：侧边栏跟同一份数据（内部按结构签名自节流，不是每帧重建 DOM）。
+    sidebar.update(world, meta)
     render()
   },
   onSync: () => {
@@ -523,9 +463,6 @@ const connection = createConnection({
 
 window.addEventListener('resize', () => {
   scene2d.resize()
-  // 先更新占位再 resize：窄视口下抽屉宽度本身会变（CSS 媒体查询），
-  // 顺序反了就会用上一档的宽度取景，表现是"缩完窗口小镇偏一下、下次再正"。
-  syncSceneInsets()
   render(true)
 })
 
@@ -552,6 +489,12 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     expire: (nowTick) => dialogue.expire(nowTick, performance.now()),
     bubbles: () => dialogue.bubblesFor(performance.now()),
     say: sayToAgent,
+    // 超控双模式：核验「对话 ↔ 移动」切换是否真的把焦点/引擎开关一起搬了。
+    mode: () => dialogue.mode(),
+    setMode: (mode) => dialogue.setMode(mode),
+    isOpen: () => dialogue.isOpen(),
+    open: (agentId, mode) => dialogue.open(agentId, mode),
+    close: () => dialogue.close(),
   }
   /**
    * 2D 渲染的核验入口（R51）：缩放倍数、图集加载状态、某个图集的调色板。
@@ -572,6 +515,18 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     palette: (url) => scene2d.loader.palette(url),
     recolored: (url, color, variant = 0) => scene2d.loader.recoloredImage(url, color, variant),
     liveActors: () => scene2d.liveActors(world, meta?.scene ?? null),
+    /**
+     * R86：**渲染自检读数**（一帧里比对出来的一致性）。
+     *
+     * 返回 `{text, counts, last, world, verdict}`：
+     * - `counts.frameResets` 精灵实际帧 ≠ 动画当前帧（有人重置了帧，R85 就是这类）；
+     * - `counts.animFlips` 动画键 A→B→A 来回翻（互抢；单向前进不算）；
+     * - `counts.facingDrift` 本地世界与服务端快照的 `facing` 连续两次对不上。
+     * **正常时三个数恒为 0**；不是 0 就说明这一类故障真的发生了。
+     */
+    selfCheck: () => selfCheck.report(),
+    // R77：把气泡绘制也挂出来，页内就能验 9-slice 面板 / 文字 / 状态点 / 名字二选一。
+    renderBubbles: (bubbles) => scene2d.renderBubbles(bubbles ?? []),
     // R65 视图控制：暴露出来**是为了能在页内直接验**（缩放/平移是交互，靠点按钮猜很难归因）。
     viewState: () => (typeof scene2d.viewState === 'function' ? scene2d.viewState() : null),
     zoomIn: () => scene2d.zoomIn?.(),
@@ -589,33 +544,30 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
         bounds: cam._bounds ? { x: Math.round(cam._bounds.x), y: Math.round(cam._bounds.y), w: Math.round(cam._bounds.width), h: Math.round(cam._bounds.height) } : null,
       }
     },
+    // P1 选中 / P2 锁定：页内直接验「点人 / 看板定位 → 高亮圈 + 镜头跟随」。
+    selectAgent: (agentId) => (typeof scene2d.selectAgent === 'function' ? scene2d.selectAgent(agentId) : false),
+    clearSelection: () => scene2d.clearSelection?.(),
+    selectedAgent: () => (typeof scene2d.selectedAgent === 'function' ? scene2d.selectedAgent() : null),
+    following: () => (typeof scene2d.following === 'function' ? scene2d.following() : null),
+    movementEnabled: () => (typeof scene2d.movementEnabled === 'function' ? scene2d.movementEnabled() : null),
+    manualState: () => (typeof scene2d.manualState === 'function' ? scene2d.manualState() : null),
+    setMovementEnabled: (on) => (typeof scene2d.setMovementEnabled === 'function' ? scene2d.setMovementEnabled(on) : null),
   }
 
   /**
-   * 气泡的核验入口（R39）：`occluded()` 必须为空数组。
+   * 气泡的核验入口（R39 → R76）。
    *
-   * 现读 DOM（这是诊断入口，不是每帧路径）：拿每个气泡的 `getBoundingClientRect()`
-   * 与**抽屉的矩形**求交——贴边之后两者应当完全不相交。
+   * R76 起气泡是**引擎内 Phaser 对象**（不再有 DOM 层、也没有屏幕边缘夹取/遮挡那套）。
+   * 这里只报**数据侧**（对话状态机给什么）；绘制在 Phaser 场景里，核对走 `__agentWorldScene2d`。
    */
   globalThis.__agentWorldBubbles = {
-    occluded: () => {
-      const drawerEl = $('drawer')
-      const rect = drawerIsOpen() && drawerEl !== null ? drawerEl.getBoundingClientRect() : null
-      // 隐藏的（没有地方放）不算"被遮"——它压根没画。`hidden()` 单独报数量。
-      const bubbles = [...$bubbles.children].filter((node) => !node.hidden).map((node, index) => ({
-        id: node.querySelector('b')?.textContent ?? `#${index}`,
-        rect: node.getBoundingClientRect(),
-      }))
-      return occludedBubbles(bubbles, rect === null ? null : { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom })
+    list: () => {
+      const list = dialogue === null ? [] : dialogue.bubblesFor(performance.now())
+      return list.map((b) => {
+        const agent = world?.agents.find((a) => a.id === b.agentId)
+        return { agentId: b.agentId, name: agent?.name ?? null, phase: b.phase, text: b.text }
+      })
     },
-    /** 有几个气泡因为"可见区放不下"没画（极窄视口）。 */
-    hidden: () => [...$bubbles.children].filter((node) => node.hidden).length,
-    /** 每个气泡被放在哪、以及为什么（`occluded` = 人本身在抽屉底下）。 */
-    placed: () =>
-      [...bubbleNodes.entries()].map(([agentId, entry]) => ({ agentId, ...(entry.placed ?? {}) })),
-    insets: () => ({ ...stageInsets, board: boardRectNow() }),
-    /** 纯函数本体，方便在控制台里试着复算（如 `place(anchor, size)`）。 */
-    place: placeBubble,
   }
   globalThis.__agentWorldBoard = {
     stats: () => board.stats(),
@@ -630,7 +582,46 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     setView: (next) => board.setView(next),
     setMembersOpen: (open) => board.setMembersOpen(open),
   }
+  /**
+   * 侧边栏的核验入口（R2）：两档切换与行数——以及**溢出判据**（M7-9：
+   * 元素的盒子必须落在「容器 ∩ 视口」里）。溢出是那种"看起来正常"的错：
+   * 它不报错，只是内容被裁掉，所以必须能被量出来。
+   */
+  globalThis.__agentWorldSidebar = {
+    stats: () => sidebar.stats(),
+    view: () => sidebar.view(),
+    setView: (next) => sidebar.setView(next),
+    /** 溢出判据（M7-9）：元素盒子必须落在「最近的可滚祖先 ∩ 视口」里。 */
+    overflow: (selector) => sidebar.overflow(selector),
+  }
 }
+
+// ── 键盘：Esc 退出锁定 / Enter 开始对话 ─────────────────────────────────────
+//
+// 焦点在输入框里时**不拦**：Enter 要能正常发送、Esc 由输入框自己处理（它会 close + 解锁）。
+// 只有焦点不在文字输入上，这两个键才是"超控面板"的快捷键。
+globalThis.document?.addEventListener('keydown', (event) => {
+  const tag = String(globalThis.document.activeElement?.tagName ?? '').toUpperCase()
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return
+  if (dialogue === null) return
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    // 退出锁定 = 解锁镜头 + 收起面板（面板是"操控这个人"的上下文，人不锁了就收起）。
+    dialogue.close()
+    if (typeof scene2d.clearSelection === 'function') scene2d.clearSelection()
+    return
+  }
+
+  if (event.key === 'Enter') {
+    const agentId = typeof scene2d.selectedAgent === 'function' ? scene2d.selectedAgent() : null
+    if (agentId === null || agentId === undefined) return
+    event.preventDefault()
+    // 回车开始对话：面板没开就**以对话档**打开（open 默认是移动档，这里必须显式要 chat）。
+    if (dialogue.isOpen() !== true) dialogue.open(agentId, 'chat')
+    else dialogue.setMode('chat')
+  }
+})
 
 scene2d.resize()
 void connection.reload()

@@ -26,7 +26,7 @@
 import { WALK_SPEED } from '../domain/constants.js'
 import { findPath, cellOf, isWalkable } from './pathfind.js'
 import { angleTo, distance, stepToward } from '../domain/geometry.js'
-import { idleSlotAt, paceGoal, lookFacing } from './idle-behavior.js'
+import { idleSlotAt, paceGoal } from './idle-behavior.js'
 import type { IdleBehaviorPlan } from '../protocol/idle.js'
 import type { World } from '../domain/types.js'
 
@@ -167,10 +167,10 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
       if (!pacing && slot !== null && slot.active) {
         const behavior = slot.behavior
         if (behavior.kind === 'look') {
-          // `lookFacing` 是**绝对角度**（只由 seed/id/槽号定），所以同一槽里反复调用得到
-          // 同一个值——"不一样才写"于是等价于"一槽只写一次"。写成相对旋转就会每 tick
-          // 再加 90°，人原地转圈。
-          const turned = lookFacing(world.seed, agent.id, slot.index)
+          // R74：张望不再随机转身，而是朝房间中心（0,0）回正。站定的人该有一个稳定的朝向；
+          // 踱步会把它带走（出去/折返两次 180°），所以"张望"的职责变成"踱完步后转回中心"。
+          // 确定性、可设计，不再像随机抽签那样原地转圈（用户："还是会旋转 / 不要搞得很随机"）。
+          const turned = angleTo(agent.position, { x: 0, z: 0 })
           if (turned !== agent.facing) {
             agent.facing = turned
             acted.push(agent.id)

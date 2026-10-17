@@ -35,18 +35,43 @@
   align-items: center;
   gap: var(--s-2);
 }
-.brand-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.brand-mark svg {
+  width: 15px;
+  height: 15px;
+  display: block;
 }
 .brand-name {
   font-size: var(--fs-title);
-  font-weight: var(--fs-title) / 0;
   font-weight: 600;
   letter-spacing: 0.01em;
+  color: var(--fg-0);
+  /* 可编辑标题：不打断顶栏节奏，只在悬停/聚焦时露出"可以改"的边界。 */
+  padding: 1px var(--s-1);
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  outline: none;
+  cursor: text;
+  transition: border-color var(--t-hover) var(--ease), background var(--t-hover) var(--ease);
+}
+.brand-name:hover {
+  background: var(--surface-1);
+  border-color: var(--stroke);
+}
+.brand-name:focus {
+  background: var(--surface-1);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  box-shadow: var(--glow-accent);
 }
 .footer {
   /* R64/R65：状态条落到 footer（用户要求）；R65 把它从 18px 抬到 **36px** 并分组，
@@ -120,13 +145,6 @@
   height: 100%;
   display: block;
 }
-.bubbles {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  z-index: var(--z-bubble);
-}
 .view-hint {
   position: absolute;
   left: 50%;
@@ -147,86 +165,41 @@
   box-shadow: var(--shadow-1);
 }
 
-/* ── 右侧抽屉：浮动玻璃，可收起；对话是它上面的另一层 ────────────────────── */
-.drawer {
+/* ── 对话：舞台底部中间（R76，用户：点 agent 的聊天对话框放下方中间） ────── */
+.dialogue {
   position: absolute;
-  right: var(--s-4);
-  top: var(--s-4);
-  /* R65：看板是网格行（不再浮在底部），所以抽屉底边只需要留出视图控制簇的位置。 */
-  bottom: calc(var(--s-4) + 44px);
-  width: 300px;
-  display: flex;
-  flex-direction: column;
+  left: 50%;
+  bottom: var(--s-4);
+  transform: translateX(-50%);
+  width: min(560px, calc(100% - var(--s-6)));
+  max-height: min(56vh, 420px);
   padding: var(--s-3);
-  background: var(--glass);
+  background: var(--glass-strong);
   backdrop-filter: var(--blur);
   border: 1px solid var(--stroke);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2);
-  z-index: var(--z-drawer);
-  transition: transform var(--t-expand) var(--ease), opacity var(--t-expand) var(--ease);
-}
-.drawer.is-closed {
-  transform: translateX(calc(100% + var(--s-5)));
-  opacity: 0;
-  pointer-events: none;
-}
-.drawer-pages {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-}
-.drawer-page {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding-right: 2px;
-}
-.roster,
-.tasks {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-}
-.content {
-  margin-top: var(--s-4);
-  padding-top: var(--s-3);
-  border-top: 1px solid var(--stroke);
-  font-size: var(--fs-micro);
-  color: var(--fg-2);
-  line-height: 1.6;
-}
-
-/* 对话：同一个抽屉的另一层，从右侧滑出盖在花名册之上。 */
-.dialogue {
-  position: absolute;
-  inset: 0;
-  padding: var(--s-3);
-  background: var(--glass-strong);
-  backdrop-filter: var(--blur);
-  border-radius: var(--r-lg);
   z-index: var(--z-dialogue);
 }
 .dialogue:not([hidden]) {
-  animation: drawer-in var(--t-expand) var(--ease);
+  animation: dialogue-in var(--t-expand) var(--ease);
 }
-@keyframes drawer-in {
+@keyframes dialogue-in {
   from {
     opacity: 0;
-    transform: translateX(16px);
+    transform: translateX(-50%) translateY(14px);
   }
   to {
     opacity: 1;
-    transform: none;
+    transform: translateX(-50%) translateY(0);
   }
 }
 
 /* ── 底部看板：浮动玻璃片，**默认收起成一条摘要** ────────────────────────── */
 .board {
-  /* R70：收起时它是顶栏里的**一段摘要**——不占新的一行、没有自己的边框与底色。
-     ⚠️ `position: static` 是**故意的**：这样展开浮层的包含块是 `header.topbar`
-     （它有 `position: relative`），浮层才能横跨整宽，而且**完全不参与布局**。 */
-  position: static;
+  /* R76：`#board` **永久留在顶栏 flex 流内**（它自己就是那段摘要条）。`position: relative`
+     只让它成为展开浮层的定位祖先——不再让整块看板退流，展开/收起都不会把右侧命令按钮拽移位。 */
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
   margin: 0;
@@ -242,31 +215,19 @@
   z-index: auto;
   transition: none;
 }
-.board.is-collapsed {
-  /* 收起态：高度由内容撑（就是顶栏那一行 48px），不留任何额外高度。 */
-  height: auto;
-}
-/*
- * ⚠️ 收起时必须**用 CSS** 把 body/detail 真正拿掉。
- * 只设 `element.hidden = true` 是不够的：`.board-body{display:flex}` 会盖掉 `[hidden]`
- * 默认的 `display:none`（R51 踩过同一个坑）——结果是"类名挂上了、DOM 也标了 hidden，
- * 但看板照样占 300px"，把场景挤矮，`clipped()` 一次报 16 个元素。
- */
-.board.is-collapsed .board-body,
-.board.is-collapsed .board-detail {
-  display: none !important;
+/* 展开才看得见的部分（视图条 + 成员/依赖图 + 详情）默认收起：整个面板藏起来。 */
+.board-panel {
+  display: none;
 }
 
 /*
  * 展开 = **浮层**（R70，用户第 3 条："展开看板不要影响下面的渲染，只是悬浮在上面"）。
- *
- * `position: absolute` 让它**退出布局流**：舞台的 `getBoundingClientRect()` 展开前后
- * 完全相等（这就是本轮的硬指标，R65 时展开会把舞台从 658px 压到 398px）。
- * 包含块是 `header.topbar`（`position: relative`）→ 横跨整宽、贴在顶栏下沿。
+ * R76：绝对定位只落在 `.board-panel` 上（独立节点），`board-head` 摘要条仍留在流内。
+ * 包含块是 `.board`（`position: relative`）→ 横跨整宽、贴在摘要条下沿。
  * 高度上限 46vh/400px：右下角的视图控制簇（缩放/适配/复位/图例）在底部约 44px 内，
  * 够不着它——用户要求"别盖住常用控件"。
  */
-.board:not(.is-collapsed) {
+.board:not(.is-collapsed) .board-panel {
   position: absolute;
   top: calc(100% + var(--s-2));
   left: var(--s-4);
@@ -289,16 +250,14 @@
 @media (max-width: 1200px) {
   /* 窄视口里成员与图是**上下**分空间，而两者都需要固定高度。
      空间不够时只剩两条路：缩图（字变小、读不动）或裁掉（看不见）——都不好。
-     所以这一档给看板更多高度：展开时多盖一点场景，换来两者都完整、且不缩放。 */
-  .board {
+     所以这一档给看板更多高度：展开时多盖一点场景，换来两者都完整、且不缩放。
+     R76：高度落在 `.board-panel`（展开浮层）上，不是 `#board` 摘要条。 */
+  .board:not(.is-collapsed) .board-panel {
     height: min(520px, 62vh);
   }
 }
 
 @media (max-width: 1100px) {
-  .drawer {
-    width: min(320px, calc(100% - var(--s-5)));
-  }
   .chip-optional {
     display: none;
   }
@@ -313,10 +272,5 @@
   }
   .legend {
     display: none; /* 极窄时先让位给场景与看板 */
-  }
-  .drawer {
-    left: var(--s-2);
-    right: var(--s-2);
-    width: auto;
   }
 }

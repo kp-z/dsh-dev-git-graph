@@ -53,8 +53,29 @@ export function applyEvent(world, event) {
         const agent = agentOf(world, id)
         if (agent === undefined) continue
         agent.position = { x, z }
-        agent.facing = facing
+        // ⚠️ **只在有限数时才覆盖朝向**。JSON 里 `NaN`/`undefined` 会变成 `null`，
+        // 而无条件赋值会把客户端朝向**永久毒化**成 null —— `directionOf(null)` 走
+        // `Number.isFinite(x) ? x : 0` → 0 → **right**，于是"不管原来朝哪都会变成向右"，
+        // 而且因为帧事件只带"有位移的人"，站着的人再也不会被纠正。
+        //（用户反馈：「只要朝向不是向右就会跳向右」——就是这条。）
+        if (Number.isFinite(facing)) agent.facing = facing
       }
+      return
+    }
+
+    case 'agent.moved': {
+      // 手动落点（P4）：玩家用键盘走过之后，服务端把落点广播回来。
+      // 不应用它的话，客户端世界还停在旧坐标——一解锁就会把人拽回去（实测会瞬移 50px）。
+      const agent = agentOf(world, payload.id)
+      if (agent === undefined) return
+      if (Number.isFinite(payload.x) && Number.isFinite(payload.z)) {
+        agent.position = { x: payload.x, z: payload.z }
+      }
+      // ⚠️ 用 `Number.isFinite` 而不是 `typeof === 'number'`（R89 / 评审 I-3）：
+      // `typeof NaN === 'number'` 是 **true**，所以 NaN 会被放行写进 facing，
+      // 而 `directionOf(NaN)` 走 `Number.isFinite` 兜底 → 0 → **right**。
+      // 同一族的三条入口（world.tick / agent.moved / agent.state）必须用同一个判据。
+      if (Number.isFinite(payload.facing)) agent.facing = payload.facing
       return
     }
 
@@ -66,7 +87,8 @@ export function applyEvent(world, event) {
       if ('station' in payload) agent.station = payload.station
       if ('targetStation' in payload) agent.targetStation = payload.targetStation
       if ('carrying' in payload) agent.carrying = payload.carrying
-      if (typeof payload.facing === 'number') agent.facing = payload.facing
+      // 同 `agent.moved`：`typeof === 'number'` 会放行 NaN（见那里的注释）。
+      if (Number.isFinite(payload.facing)) agent.facing = payload.facing
       return
     }
 

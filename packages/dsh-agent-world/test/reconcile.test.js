@@ -27,7 +27,7 @@ import { test } from 'node:test'
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { createWorld } from '../lib/world/create.js'
 import { reconcileWorld, HANGOUT_MOVE_EPSILON } from '../lib/world/reconcile.js'
-import { hangoutsForWorld, stationClearance } from '../lib/world/hangouts.js'
+import { DEFAULT_MIN_GAP, hangoutsForWorld, stationClearance } from '../lib/world/hangouts.js'
 import { latticeIn, distance } from '../lib/domain/geometry.js'
 import { step } from '../lib/sim/step.js'
 import * as scheduler from '../lib/sim/scheduler.js'
@@ -46,6 +46,19 @@ function makeWorld(content = makeContent()) {
   return createWorld({
     content,
     scene: 'scene.default-town',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    taskSets: ['task.quick-fix'],
+  })
+}
+
+/**
+ * 原版办公室世界：`scene.office` 声明了底图（`map`），所以它有 nav（墙/家具碰撞）。
+ * "导航网格是派生量"这组测试要验的是**非空 nav 的重算与幂等**，不能用没有底图的默认小镇。
+ */
+function makeOfficeWorld(content = makeContent()) {
+  return createWorld({
+    content,
+    scene: 'scene.office',
     createdAt: '2026-01-01T00:00:00.000Z',
     taskSets: ['task.quick-fix'],
   })
@@ -232,7 +245,7 @@ test('瞬移规则：停在旧落点上的惰性角色被挪走；有在途意�
   // 8 个人分到 4 个地块的份额与 5 个人不同，所以两组点本来就不该相等。
   // （R62 之前这条侥幸是绿的：旧算法把所有人摊在同一个广场里，人数变了前几个点恰好重合。）
   // 真正的不变式是"**用当前内容 + 当前人数重算过**"，所以这里直接调同一个函数。
-  const expectedPoints = hangoutsForWorld(world.districts, world.stations, world.agents.length)
+  const expectedPoints = hangoutsForWorld(world.districts, world.stations, world.agents.length, DEFAULT_MIN_GAP, world.nav)
   world.agents.forEach((agent, index) => {
     const expected = expectedPoints[index % Math.max(1, expectedPoints.length)]
     assert.deepEqual(agent.hangout, expected, `${agent.name} 的落点应当等于按当前内容重算的结果`)
@@ -520,7 +533,7 @@ test('R56：没声明 slots 的站点仍然按容量摊（回退路径没断）'
 
 test('R66：读档（存档里没有 nav）之后 nav 必须被重算出来', () => {
   const content = makeContent()
-  const world = makeWorld(content)
+  const world = makeOfficeWorld(content)
   // 模拟真实存档：派生量不落盘，所以读档拿到的是"没有 nav"的世界。
   const legacy = structuredClone(world)
   delete legacy.nav
@@ -538,7 +551,7 @@ test('R66：读档（存档里没有 nav）之后 nav 必须被重算出来', ()
 
 test('R66：nav 是派生量——重算结果与新建世界一致，且幂等', () => {
   const content = makeContent()
-  const fresh = makeWorld(content)
+  const fresh = makeOfficeWorld(content)
   const legacy = structuredClone(fresh)
   delete legacy.nav
 
@@ -551,7 +564,7 @@ test('R66：nav 是派生量——重算结果与新建世界一致，且幂等'
 
 test('R66：调度器真的会用 nav 算出多点路径（否则等于没接）', () => {
   const content = makeContent()
-  const world = makeWorld(content)
+  const world = makeOfficeWorld(content)
   const legacy = structuredClone(world)
   delete legacy.nav
   const { world: reconciled } = reconcileWorld(legacy, content)

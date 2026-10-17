@@ -185,6 +185,21 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       return null
     }
 
+    // R75：配置里的场景**换了** → 整局重开。场景决定地图/地块/站点/歇脚点，换场景 = 换世界。
+    // 之前只查"场景还在不在"，不查"是不是同一座"——于是把默认场景从 default-town 换成 office 后，
+    // 旧存档（origin.scene=default-town）仍被照单全收，用户看到的还是 16×16 小镇叠在 office 背景上
+    // （"很多元素位置放的不对"正是这个）。这里检测到场景不一致就直接重开，别再让旧存档兜底。
+    if (world.origin.scene !== config.scene) {
+      issueList.push({
+        level: 'warning',
+        pack: null,
+        where: 'store/world.json',
+        message:
+          `存档场景是 "${world.origin.scene}"，当前配置场景是 "${config.scene}"——场景换了，整局重开。`,
+      })
+      return null
+    }
+
     // 内容包版本对不上：**照常采纳**。内容升级本来就该改变表现（这正是"内容可替换"的意义），
     // 但要把差异写出来——不然"旧存档为什么变样了"只能靠猜。
     const current = registry.packs.map((p) => ({ id: p.id, version: p.version }))

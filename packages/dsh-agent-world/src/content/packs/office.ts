@@ -92,6 +92,8 @@ const SCENE: SceneEntry = {
   spawn: { x: -28, z: 12 },
   // 世界半边长 = 地图宽度的一半（74 / 2）。
   groundSize: 37,
+  // 底图：整张烘好的办公室。家具在图里，所以站点不写 props。
+  map: 'map.office',
   theme: 'theme.cozy-isometric',
   roster: 'roster.software-team',
   agentModel: 'model.agent.mv-tom',

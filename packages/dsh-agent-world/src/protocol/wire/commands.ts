@@ -53,6 +53,14 @@ export type WorldCommand =
    * 同时把世界切进 `live`——一旦有单接上了团队，完成就只认团队的裁决。
    */
   | { kind: 'taskLink'; taskId: string; externalId: string }
+  /**
+   * 玩家把某个角色**挪到指定坐标**（键盘操控落地，P4）。
+   *
+   * 为什么必须走命令而不是客户端自己改画面：世界是**服务端权威**的。位置不写进世界，
+   * 下一次同步就会把人拽回原处——玩家看到的就是"走两步又弹回去"。
+   * 这条命令让"玩家走过的地方"真正落进世界，也进 journal，回放能复现。
+   */
+  | { kind: 'moveAgent'; agentId: string; x: number; z: number }
 
 /** 全部命令的 kind。用于校验与穷尽性检查。 */
 export const WORLD_COMMAND_KINDS = [
@@ -66,6 +74,7 @@ export const WORLD_COMMAND_KINDS = [
   'taskComplete',
   'taskFail',
   'taskLink',
+  'moveAgent',
 ] as const
 
 /** 命令的 kind 类型。 */
@@ -94,6 +103,8 @@ export function describeCommand(command: WorldCommand): string {
       return `失败：${command.taskId}（${command.reason}）`
     case 'taskLink':
       return `对应团队任务：${command.taskId} ↔ ${command.externalId}`
+    case 'moveAgent':
+      return `移动到 ${command.agentId}：(${command.x.toFixed(2)}, ${command.z.toFixed(2)})`
   }
 }
 

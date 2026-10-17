@@ -49,6 +49,11 @@
   cursor: pointer;
   transition: background var(--t-hover) var(--ease), color var(--t-hover) var(--ease);
 }
+.icon-btn svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
 .icon-btn:hover {
   background: var(--surface-2);
   color: var(--fg-0);
@@ -507,6 +512,11 @@
   align-items: baseline;
   gap: var(--s-2);
 }
+.dialogue-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+}
 .dialogue-log {
   display: flex;
   flex-direction: column;
@@ -515,6 +525,10 @@
   overflow: auto;
   margin: var(--s-3) 0;
   font-size: var(--fs-sub);
+}
+/* 记录默认收起（回复实时在头顶气泡里）；点「记录」展开。 */
+.dialogue-log.is-collapsed {
+  display: none;
 }
 .dialogue-log > li {
   padding: var(--s-2) var(--s-3);
@@ -624,6 +638,174 @@
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
   outline: none;
   box-shadow: var(--glow-accent);
+}
+
+/* ── agent 超控面板：游戏 HUD 风格，紧凑单行头 ────────────────────────────────
+   设计取舍：
+   · **没有大标题**。面板是 HUD，"超控"这种字用户看一次就懂，不必常年占一行。
+   · 角色名 + 模式 chip + 两个方图标**挤一行**：视线不用上下扫，面板高度也让给画面。
+   · 模式 chip 两片**都有可见底色**：未选中片若 transparent，透出玻璃深底就成了"黑洞"。 */
+.oc-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.oc-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sub);
+  font-weight: 700;
+  color: var(--fg-0);
+  letter-spacing: 0.01em;
+}
+/* 名字前的小状态点（HUD 常见的"当前控制对象"标记）。 */
+.oc-name::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  vertical-align: middle;
+}
+
+.dialogue-modes {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, #000 18%, transparent);
+  border: 1px solid var(--stroke);
+  flex: none;
+}
+.mode-tab {
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: var(--surface-2);
+  color: var(--fg-2);
+  font: 600 var(--fs-micro) / 1.2 var(--ui-font);
+  cursor: pointer;
+  white-space: nowrap;
+  /* ⚠️ 只过渡 color：`background` 目标值是 `color-mix()`，Chromium 对它的插值会中途
+     卡死——切了模式但 computed background 停在旧值（看起来"选中的没亮"）。 */
+  transition: color 120ms ease;
+}
+.mode-tab:hover {
+  color: var(--fg-0);
+  background: color-mix(in srgb, #fff 14%, transparent);
+}
+.mode-tab.is-active {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--fg-0);
+}
+.mode-tab:focus-visible {
+  outline: none;
+  box-shadow: var(--glow-accent);
+}
+
+/* 右侧动作组：与模式 chip 之间加一道分隔线，既分组又留出呼吸空间。
+   （挤在一起会误触，视觉上也透不过气——vision 复查提到过。） */
+.oc-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  margin-left: 2px;
+  padding-left: var(--s-2);
+  border-left: 1px solid var(--stroke);
+}
+
+/* 方图标按钮：解锁 / 收起。等宽等高，右边两个不会因为字形宽窄而不齐。 */
+.oc-icon {
+  flex: none;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--stroke);
+  background: var(--surface-1);
+  color: var(--fg-1);
+  font: 500 var(--fs-micro) / 1 var(--ui-font);
+  cursor: pointer;
+}
+/* 「解锁」是文字按钮：`⏏` 这类符号在深色小尺寸下辨识度太差（vision 复查看不清）。 */
+.oc-icon-text {
+  padding: 0 8px;
+}
+.oc-icon:hover {
+  color: var(--fg-0);
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.mode-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.mode-panel[hidden] {
+  display: none;
+}
+
+.dialogue-log-head {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--s-2);
+}
+
+/* 移动模式：一行键帽提示（无长句）。 */
+.oc-keys {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-3);
+  padding: var(--s-2) 0 0;
+}
+.oc-keyset {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: var(--fs-micro);
+  color: var(--fg-2);
+}
+.oc-keyset b {
+  margin-left: 3px;
+  font-weight: 500;
+  color: var(--fg-1);
+}
+/* 键帽统一成"同一个盒子"：固定宽高 + 居中。字母与箭头（↑←↓→ 会走回退字体，
+   字形更宽）混排时，用 `min-width` 会让箭头帽被撑大、字母帽显得小一圈。 */
+.oc-keys kbd,
+.move-hint kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  margin: 0;
+  border-radius: 4px;
+  border: 1px solid var(--stroke);
+  border-bottom-width: 2px;
+  background: var(--surface-2);
+  font-family: var(--mono-font);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--fg-0);
+  text-align: center;
+  vertical-align: middle;
+  box-sizing: border-box;
 }
 
 /* ── 执行看板内部件（容器与摆法在 layout.css）──────────────────────────────── */
@@ -775,6 +957,20 @@
 .board-member-head b {
   font-size: var(--fs-sub);
   color: var(--fg-0);
+}
+/* R76：成员卡上的「对话」小按钮（花名册删掉后的对话入口）。 */
+.board-member-head .board-talk {
+  margin-left: auto;
+  padding: 0 4px;
+  font-size: var(--fs-micro);
+  line-height: 1;
+  border: none;
+  background: none;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.board-member-head .board-talk:hover {
+  color: var(--accent);
 }
 .board-chips {
   display: flex;

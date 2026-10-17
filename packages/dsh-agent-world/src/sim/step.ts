@@ -118,21 +118,21 @@ function ingest(
   world: World,
   commands: readonly WorldCommand[],
   requests: StepRequests,
-): { type: 'world.paused'; payload: Record<string, unknown> }[] {
-  const paused: { type: 'world.paused'; payload: Record<string, unknown> }[] = []
+): { type: WorldEventType; payload: Record<string, unknown> }[] {
+  const out: { type: WorldEventType; payload: Record<string, unknown> }[] = []
 
   for (const command of commands) {
     switch (command.kind) {
       case 'pause':
         if (!world.paused) {
           world.paused = true
-          paused.push({ type: 'world.paused', payload: { paused: true } })
+          out.push({ type: 'world.paused', payload: { paused: true } })
         }
         break
       case 'resume':
         if (world.paused) {
           world.paused = false
-          paused.push({ type: 'world.paused', payload: { paused: false } })
+          out.push({ type: 'world.paused', payload: { paused: false } })
         }
         break
       case 'reset':
@@ -153,10 +153,30 @@ function ingest(
       case 'taskLink':
         requests.external.push(command)
         break
+      case 'moveAgent': {
+        // 键盘操控落地（P4）。**服务端权威**：位置写进世界，客户端才不会被同步拽回去。
+        const agent = world.agents.find((item) => item.id === command.agentId)
+        if (agent === undefined) break
+        // 坏坐标直接拒：NaN 一旦写进位置，寻路/渲染/快照全都会跟着坏掉。
+        if (!Number.isFinite(command.x) || !Number.isFinite(command.z)) break
+        agent.position = { x: command.x, z: command.z }
+        // 待命踱步以 `hangout` 为锚：不跟着走的话，下一 tick 待命逻辑会把他往旧歇脚点拽。
+        agent.hangout = { x: command.x, z: command.z }
+        // 清掉在途状态：路径、目标工位、在站标记——他现在就是"玩家放下的人"。
+        agent.path = []
+        agent.targetStation = null
+        agent.station = null
+        agent.state = 'idle'
+        out.push({
+          type: 'agent.moved',
+          payload: { id: agent.id, x: command.x, z: command.z, source: 'manual' },
+        })
+        break
+      }
     }
   }
 
-  return paused
+  return out
 }
 
 /**

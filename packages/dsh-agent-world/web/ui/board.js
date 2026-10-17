@@ -78,6 +78,7 @@ function svgEl(doc, tag) {
  * @param {HTMLElement} options.root - 容器（`#board`）。
  * @param {Record<string, string>} [options.palette] - 快照里的 token → 色值。
  * @param {(taskId: string|null) => void} [options.onSelect] - 选中变化（**M7-3 的双向高亮会挂这里**，本轮不接）。
+ * @param {(agentId: string) => void} [options.onMemberPick] - 点成员卡上的"对话"按钮（R76：花名册删掉后的对话入口）。
  * @param {Document} [options.document]
  */
 export function createBoard(options = {}) {
@@ -221,10 +222,15 @@ export function createBoard(options = {}) {
     body.append(members, graph)
 
     const detail = el(doc, 'footer', 'board-detail')
-    root.append(head, missing, viewBar, body, detail)
+    // R76：把「展开才看得见」的部分（视图条 + 成员/依赖图 + 详情）包进一个 `.board-panel`。
+    // 这样展开浮层是**独立节点**，`#board` 本身（含 `board-head` 摘要条）永远留在顶栏 flex 流内，
+    // 展开/收起不再把右侧命令按钮拽移位（此前是整块 `#board` 变 `position:absolute`）。
+    const panel = el(doc, 'div', 'board-panel')
+    panel.append(missing, viewBar, body, detail)
+    root.append(head, panel)
     parts = {
       counts, bar, active, missing, viewBar, groupChips, filterChips,
-      members, membersList, membersToggle, body, edges, canvas, fit, content, cards, detail, collapse, graphHint,
+      members, membersList, membersToggle, body, edges, canvas, fit, content, cards, detail, collapse, graphHint, panel,
     }
     setPalette(palette)
     // 初始状态也要**真的应用**：只改 `collapsed` 的初值、不 paint 的话，
@@ -381,6 +387,20 @@ export function createBoard(options = {}) {
       )
       head.append(stateSpan)
       memberStateNodes.set(row.member.id ?? '__unowned__', stateSpan)
+      // R76：花名册删掉之后，「点成员对话」的入口移到看板成员卡上——一个独立的小按钮，
+      // 与「点成员选中看任务」分开，避免点谁就弹对话。
+      if (row.member.id !== null && typeof options.onMemberPick === 'function') {
+        const talk = el(doc, 'button', 'board-talk ghost')
+        talk.type = 'button'
+        talk.textContent = '💬'
+        talk.title = `跟 ${row.member.name ?? row.member.id} 说句话`
+        talk.setAttribute('aria-label', talk.title)
+        talk.addEventListener('click', (event) => {
+          event.stopPropagation()
+          options.onMemberPick(row.member.id)
+        })
+        head.append(talk)
+      }
       head.addEventListener('click', () => select({ kind: 'member', id: row.member.id }))
       item.append(head)
 

@@ -14,6 +14,7 @@ import { apply, inject, name } from '../lib/index.js'
 import { createRng, seedFromString, summarize } from '../lib/domain/index.js'
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { createWorld } from '../lib/world/create.js'
+import { lookFacing } from '../lib/sim/idle-behavior.js'
 
 /**
  * 清理函数的收集器。
@@ -172,10 +173,13 @@ test('createWorld：不同 seed 会分叉（否则"确定性"是假的）', () =
   const a = createWorld({ ...base, name: '小镇甲' })
   const b = createWorld({ ...base, name: '小镇乙' })
   assert.notEqual(a.seed, b.seed)
+  // R73.5：初始朝向不再随机（用户："开局不要搞得随机"），改为固定面朝房间中心。
+  // 于是"不同 seed 会分叉"从"初始朝向"移到了**待命行为**——张望/踱步的方向按
+  // `(seed, agent.id)` 派生，seed 一变方向就变（这正是"确定性"仍成立、但不是假确定）。
   assert.notEqual(
-    a.agents.map((x) => x.facing).join(','),
-    b.agents.map((x) => x.facing).join(','),
-    '不同 seed 应得到不同的初始朝向',
+    a.agents.map((x) => lookFacing(a.seed, x.id, 0)).join(','),
+    b.agents.map((x) => lookFacing(b.seed, x.id, 0)).join(','),
+    '不同 seed 应得到不同的待命张望方向',
   )
 })
 

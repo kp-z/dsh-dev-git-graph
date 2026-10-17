@@ -42,6 +42,801 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R90（task-5 / developer）—— 侧边栏骨架：**页面内 `<aside>`**，两档视图（只读）
+
+> 编号说明（Lead 核定）：本条原写成 R88，与 reviewer 的 task-4 条目撞号。
+> 按时间顺序：R88 = reviewer 评审、R89 = Lead 收账修 I-2/I-3、**R90 = 本条（侧边栏，最新）**。
+> 只改标题序号，内容一字未动（台账规矩：不删历史）。
+
+### 做了什么
+1. **新文件 `web/ui/sidebar.js`**：`createSidebar({ root, onSelect })`，两档视图（Agent 列表 / 任务流程图）。
+   - 行结构照抄看板成员卡（`.board-member` / `.board-member-head` = 名字 · 角色 · 状态 · 当前工单），
+     状态/角色/任务状态**全部走 `ui/labels.js` 已有的中文表**（`agentStateLabel` / `roleLabel` / `taskStatusLabel`），
+     没有写第二份文案。
+   - **卡内不放任何按钮**（DESIGN §4.1 / A4）；整卡可点、`role="button"`、`tabIndex=0`、Enter/Space 同路径。
+   - 点击回调**已按最终形态签名** `onSelect(agentId)`，现在接的是 `scene2d.selectAgent`；R4 换成 `focusAgent` 时本文件零改动。
+   - `update()` 按**结构签名**自节流（世界每秒推十几次事件，签名不变就只就地改状态文字）；顺带提供 `overflow()` 溢出判据。
+     **两档都在同一条签名后面**——第一版把任务图画在签名判断之前，等于列表节流了、图没节流；
+     真机复验：连推 2.5s 事件后任务图**复用同一批 DOM 节点**（`firstElementChild` 恒等），不再重建。
+     签名里也带上了 `title`/`owner`，否则"改名/换人"会被误判成"结构没变"。
+2. **新文件 `web/styles/sidebar.css`**：`.app` 追加第二列（`grid-template-columns: 1fr var(--sidebar-w)`），
+   `<aside>` 跨三行。**这是"挤窄舞台"而不是浮层**——浮层会遮场景，与 PLAN §二(a) 冲突。
+   窄视口 280 → 232（≤1200）→ 200（≤900，此时隐藏"当前工单"行）。
+3. **最小接线**（3 处，都是只加）：
+   - `web/index.html`：+ `<link sidebar.css>`、+ `<aside id="sidebar">`（`.app` 第 4 个子节点）；
+   - `web/main.js`：+ import、+ `createSidebar` 实例、`onSnapshot`/`onEvents` 里各 + 一行 `sidebar.update(world, meta)`、
+     + `__agentWorldSidebar` 门面（`stats/view/setView/overflow`）；`BUILD` → **build r88**。
+4. **顺手改掉过期注释**（Lead 点名）：`scene-phaser.js` 里「R72：点人只开对话，**不动镜头**」——
+   R80 起 `selectAgent` 就会 `startFollowSelection`，留着会误导下一个实现者。改成「点人 = 聚焦（选中 + 420ms 平移跟随）」。
+
+### 验证怎么跑的（真机 3080）
+`dsh plugin --profile web add file:$PWD` **重装过 profile**（新增 web 文件硬链接不覆盖；第一次探测又 404，装完才 200）。
+
+| 项 | 1440×900 | 1024×768 |
+|---|---|---|
+| `__agentWorldSidebar.stats()` | `{agents:8, rows:8, view:'agents'}` | 同 |
+| 侧边栏宽 | 280 | 232 |
+| 舞台 / canvas | 1160×816 | 792×684 |
+| `overflow()` 横向裁切 | **0 行**（8 行全在容器∩视口内） | **0 行** |
+| `document.scrollWidth` | 1440（无横向滚动） | 1024 |
+| 性能条 | `绘制 0（合批） · 精灵 18 · 切换 0 · R0 F0 D0 · build r88` | 同 |
+
+- **两档可切换**：`setView('graph')` → `aria-selected` 与 `panel.hidden` 同步翻转，任务图按状态分组（`完成 · 3`，3 行）。
+- **点击连通**：点第一行 → `selectedAgent: null → 'agent-1'`、`following: true`、`camera` 从 0 平移到 `scrollX -335/scrollY -224`。
+- **合成数据验两处边界**（世界当前 3 张单都已完成，"当前工单"分支无真实数据）：
+  - `owner:'agent-1'` + `status:'in_progress'` → 行下出现 `#99 + 标题`；`done` 的单**不**出现；
+  - 超长名字行 `overflow()` 仍 0 裁切（靠 `text-overflow: ellipsis` 收掉，不是撑爆）；
+  - `onSelect` 收到 `'agent-1'`，`aria-label` = `工头阿金 · 负责人 · 干活`。
+- `node --check`（3 文件）绿 · `copy-web` 已同步（web 与 profile 逐文件 diff **全等**）· `tsc --noEmit` 绿 · `node --test test/` **638/638**。
+
+### 下一轮从哪继续
+- **R3（搬看板）**：把 `board.js:363` 的 `renderMembers()` 改为"容器由外部给"（`options.membersRoot`），
+  然后**删掉 `sidebar.js` 里的 `renderAgentRow`**，改调共享那份——这是本文件唯一一处"将来必须删"的重复，
+  已在代码注释里写明。别留两份。
+- **R4（聚焦）**：`board.js` head click 加 `options.onMemberSelect?.(id)`；`main.js` 把 `sidebar.onSelect`
+  与它都接到同一个 `focusAgent`（DESIGN §6 的规格）。R4 不要碰相机代码。
+
+### 卡点 / 已知
+1. **任务图档本轮是"按状态分组的只读摘要"**，不是依赖图——真正的依赖图在 `board.js::renderGraph`，R3 搬。
+   现在画一份等于两份实现，所以刻意不画。
+2. `sidebar.update()` 只挂在 `onSnapshot`/`onEvents` 上；`onSync` 那条还**没有**（没有数据变化，不需要）——
+   但如果将来侧边栏要显示"心跳/断流"，得在那里补一行。
+3. **`.app` 的列定义在我的 `sidebar.css` 里**（`layout.css` 只定义了行）。这是为了不与并行 Agent 改同一文件；
+   若将来 `layout.css` 也要定义列，把这条挪过去并删掉我这条，**别两处都留**。
+
+---
+
+## R89（Lead）—— 收 reviewer 的账：修掉 I-2 / I-3；并踩中 **M10-14**（新 web 文件不进 profile）
+
+### 起因
+reviewer（task-4，R88）审出 3 条遗留。**我逐条核实**后才动手（不照单全收）：
+
+| 它的断言 | 我的核实 | 结论 |
+|---|---|---|
+| I-1 `moveAgent` 命令不带 facing | `src/protocol/wire/commands.ts:63` 确实只有 `agentId,x,z` | ✅ 属协议变更，留单独一轮 |
+| I-2 `clearSelection()` 不清 velocity | 函数体只清 `wasManualWalking`/`selectedAgentId`，**没有一处碰 body** | ✅ 本次修 |
+| I-3 `directionOf(null) === 'right'` 仍在；`typeof === 'number'` 放行 NaN | node 直测两条都成立（`typeof NaN === 'number'` 为 true） | ✅ 本次修 |
+
+### 做了什么
+1. **I-2**（`web/scene/scene-phaser.js` `clearSelection`）：解锁时**先清物理体速度再清 id**。
+   为什么必须放在清 id 之前：`tickManualMovement` 第一行就是 `selectedAgentId === null → no-body` 早退，
+   **清完 id 再也走不到清零那句**——评审实测按 Esc 后精灵还会多滑 5.8px。
+2. **I-3**（`web/core/world-update.js`）：`agent.moved` / `agent.state` 两处的
+   `typeof payload.facing === 'number'` → **`Number.isFinite(payload.facing)`**。
+   与 R83 给 `world.tick` 加的是同一个判据，三条入口现在一致（`grep 'typeof payload.facing'` 归零）。
+
+### 验证怎么跑的（真机 3080，`?t=38`）
+- **I-2 严格验证**（先抓住精灵引用，因为清选中后高亮圈消失、不能再靠圈找）：
+  按住 D → `vx=72, x=61`；`clearSelection()` → **`vx=0, x=61`**；再推 10 帧 → `vx=0, x=61`
+  ⇒ **slidPx = 0**（修前是 5.8px）。
+- `node --check` ×2 + `copy-web` + `tsc --noEmit` 绿；`web/` 与 `lib/web/` 逐文件 `diff -q` 一致；
+  宿主吐出的两个文件都含新代码。
+
+### ⚠️ 本轮踩中的坑：M10-14 真的会**打死整页**
+现象：页面 `readyState=complete`、canvas 在，但 **`__agentWorld*` 全局一个都没有** —— `main.js` 初始化抛错。
+定位：逐个试 `main.js` 的 import → **`ui/sidebar.js` 返回 404**（developer 新建并接线了，但没进 profile）。
+机制：profile 的 `lib/` 是**按文件硬链接**，新文件不会被带上；`dsh plugin --profile web add file:$PWD`
+**这次也没带上**（pnpm 按路径缓存了包内容，报 `+1 -32` 但目录 mtime 停在 01:14）。
+**可用的修法（本轮实证）**：按同一硬链接机制补链——
+```bash
+SRC=<pkg>/lib ; DST=~/.dsh/profiles/web/node_modules/dsh-agent-world/lib
+comm -23 <(cd $SRC && find . -type f | sort) <(cd $DST && find . -type f | sort)   # 找出缺失
+# 逐个：mkdir -p $(dirname $DST/$rel) && ln $SRC/$rel $DST/$rel
+```
+补了 `web/ui/sidebar.js` + `web/styles/sidebar.css` 两个，`sidebar.js` 立刻 200，页面恢复。
+**结论：重装 profile 不是可靠手段；新增 `web/` 文件后必须核对 profile 里有没有那个文件**（记进路线文档纪律）。
+
+### 顺带确认（developer 的 task-5 产出在真机上确实工作了）
+页面恢复后读到：两档 tab（`Agent 列表` 默认选中 / `任务流程图`）、8 行 agent
+（`工头阿金 负责人 待命` … `小雯 文档 待命`）、以及任务行（`定位问题边界 小青`、`改代码 小蓝`）。
+
+### 下一轮从哪继续
+- **I-1**（`moveAgent` 带 facing）→ 协议变更，按 reviewer 的建议单开一轮（BACKLOG M20-1）。
+- **S4 家具分层**（用户抱怨最多，已提优先级）：按路线文档的判据做，逐件与原版对照截图。
+- task-5 的正式验收（截图 + 两档分辨率裁剪判据 + 性能条）由 developer 补，我复核。
+
+### 卡住
+- 无。但 `dsh plugin ... add file:$PWD` **会顺手卸掉 32 个包**（本轮实测 `Packages: +1 -32`），
+  用它重装前要先确认 profile 没被拆坏——这也是我改用硬链接补链的原因。
+
+---
+
+## R88（task-4 / reviewer）—— **独立评审 R80–R85 朝向/动画修复链**：R85 为真，另找到 3 条遗留
+
+> 评审对象（**审的就是这份磁盘现状**，并行开发期间被改过 3 次，见下「版本」）：
+> `web/scene/scene-phaser.js` `web/ui/dialogue-ui.js` `web/core/world-update.js` `web/core/scene-layout.js`。
+> 本文只写**我自己量到的**，不复述 R80–R85 的结论。
+
+### 版本（很关键：评审期间 `scene-phaser.js` 被并行开发改了 **5 次**，行号持续漂移）
+| 时刻 | scene-phaser.js sha / 大小 | 说明 |
+|---|---|---|
+| 开工 | `e40929e…` 115457 B | 第一次静态读的版本 |
+| 01:03:56 | `6867351…` 116116 B | 首个浏览器页 `build r85` 跑的是它 |
+| 01:26:10 | `3a792ead…` 117885 B | 我按它写过第一版行号 |
+| 01:33 | `4153599…` 119176 B | 又开始漂 |
+| 01:39 | `7b52eb0f…` | 又一次 |
+| **收尾** | **`19730ffb…`** | **下面所有实测都以它为准**；`web/` = `lib/web/` = 3080 吐出 **三者 sha 相同** |
+
+> ⚠️ **因此本文的定位以「函数名 / 表达式原文」为准，行号只作参考**（下表行号标的是 `19730ffb` 这一刻的值；`scene-phaser.js` 一轮之内挪过 100 多行）。
+> 收尾时我在 `7b52eb0` 与 `19730ffb` 上各把 A/B/C 三项**整体重跑了一遍，结论完全一致**，所以判定不随版本漂移。
+> 交付时文件已又走到 `6eda58f5…`：我逐条 grep 了本文引用的**每一个表达式**（`texture?.key !== textureKey`、`wasManualWalking !== true`、`lastManualReason = 'no-body'`、`function clearSelection`、`entry.sprite.setOrigin(ox, oy)`、`node.setTexture(key)`、`node.setFrame(animationFrameList`）——**全部仍存在**，判定对最新版依然成立，只有行号会继续漂。**后续轮次引用这个文件请写表达式/函数名，别写行号**：它一轮被改 5 次。
+> 其余三个文件评审期间未变：`dialogue-ui.js 73bd67a…`、`world-update.js d33431e…`、`scene-layout.js d602118…`。
+> 页面构建标记 `build r86`（`web/main.js` 的 `const BUILD`）。**教训复现**：R85 那条"记 sha"的规矩是必要的——同一天里这部文件的同一段逻辑挪了 100 多行。
+
+### 判定（一句话）
+**R85 那条是真凶、也是真修**：实测 8 只精灵在 8 次 `render` 后 `sprite.frame.name === anims.currentFrame.textureFrame` **0 处不一致**，且 `setTexture` 调用数 **0**。
+**但"朝向不是右就会跳向右"这一族问题没有全部关掉**：还剩 3 条能重置帧/卡住动画的路径（下面 I-1/I-2/I-3），其中 **I-1 会在每次松键后造成一次可见的朝向回跳**。
+
+### 四条审点逐条回答
+
+**① R80 `ui/dialogue-ui.js` 的 `open(agentId, mode='move')`（`:239` 起，`:253` 是 `if (nextMode === 'chat') $input?.focus()`）**
+成立。实测：`open('agent-2')` 后 `mode()==='move'`、`activeElement===BUTTON/BODY`（不是 textarea）、`movementEnabled()===true`；按 `D` 精灵 `vx=72`、动画 `walk-right`。切 `chat` 后 `activeElement==='dialogue-input'`、速度归 0。**没有抢焦点问题。**
+
+**② R81/R82 `scene-phaser.js` 的 `tickManualMovement` 早退（表达式 `lastManualReason = 'no-body'`，`19730ffb` 的 `:1169`）· `drawActors` 的动画归属 `if ((manual !== true || wasManualWalking !== true) && animName !== null)`（`:1786`）**
+规则本身对：`ownsPosition` 只粘**位置**、动画松键即交回。实测松键后一次 `render` 就回 `idle-left`（服务端 `facing=-3.0648`）。
+**但引入了一个新问题，见 I-1。**
+
+**③ R83 `world-update.js` 的 `if (Number.isFinite(facing)) agent.facing = facing`（`:61`）+ `scene-layout.js` 的 `liveActors` 兜底（`:321-323`）**
+`Number.isFinite(facing)` 守卫**确实挡住了毒化**（node 实测：帧事件带 `null` 时字段保持 `-3.0648` 不被覆盖）。
+**但 `Math.PI / 2` 兜底只是把"朝右"换成"朝下"，属于治标** —— 理由与更好的做法见 I-3。
+
+**④ R85 `if (entry.sprite.texture?.key !== textureKey) entry.sprite.setTexture(textureKey)`（`19730ffb` 的 `:1727`）**
+真修，且**机制说法对**：Phaser `setTexture()` 会把精灵帧按帧名重解析。我另用 spy 证明现在 `setTexture` 分支在稳态下**根本不进入**（12 个 render 里纹理键恒定 1 个值）。
+
+### 问题清单（每条：文件:符号（行号以 `19730ffb` 为准）+ 复现步骤）
+
+| # | 位置 | 严重度 | 问题 |
+|---|---|---|---|
+| **I-1** | `scene-phaser.js` 的 `drawActors` 动画归属条件 `(manual !== true \|\| wasManualWalking !== true)`（`:1786`）+ `main.js` 的 `setInterval(render, 250)`（`:437`） | 中（可见） | **松键后最多 250ms 仍播 `walk-*`，再瞬间跳回服务端朝向** |
+| **I-2** | `scene-phaser.js` 的 `tickManualMovement` 早退 `no-body`（`:1169`）+ `clearSelection()`（`:1010`） | 中 | **Esc 取消选中后 `body.velocity` 不清零**：角色带着 72px/s 继续滑，靠下一次 render 才被拽回 |
+| **I-3** | `scene-layout.js` 的 `directionOf` 兜底 `const value = Number.isFinite(facing) ? facing : 0`（`:50`）+ `world-update.js` 的 `agent.moved`/`agent.state` 用 `typeof payload.facing === 'number'`（`:74`、`:86`） | 低（潜伏） | 兜底只是换了默认值；`directionOf(null)` 实测**仍返回 `right`**；`NaN` 能从另外两条事件进世界 |
+| I-4 | `scene-phaser.js` 的 `entry.sprite.setOrigin(ox, oy)`（`:1729`，每次 render 都调） | 低（性能） | 非必要每帧写；实测 8 次 render = 64 次 `setOrigin`，与帧无关但白做 |
+| I-5 | `scene-phaser.js` 的 `drawProps` 里 `node.setTexture(key)` / `node.setFrame(...)`（`:1554`、`:1628`） | 低 | 与 R85 同类写法（每次 render 无条件 `setTexture`），当前静态图无感，属同类风险面 |
+
+#### I-1 复现（**最值得修的一条**）
+```
+1. 打开 ?debug=1，__agentWorldScene2d.selectAgent('agent-2')（服务端 facing=-3.0648 → left）
+2. __agentWorldDialogue.open('agent-2','move')
+3. window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyD',keyCode:68,bubbles:true}))
+4. 手动推帧 4 次 scene.update(0,16) → 精灵 anim=walk-right, vx=72
+5. keyup 后再推 15 次 scene.update(0,16) → 动画**仍是 walk-right**（人站着、播走路）
+6. 触发一次 render（dialogue.open）→ 才变 idle-left
+```
+**量到的数**：`render` 由 `main.js:456` 的 `setInterval(render, 250)` 驱动（用 `setOrigin` 当心跳实测间隔 `249/250/250/250`ms）。所以松键后"站立却播走路"的窗口 **0–250ms**（实测多次落在 21ms / 35ms / 55ms，取决于松键落在 render 周期的哪里）。
+**它算不算 R82 说的"回跳"**：不算**方向**错，但仍是"朝向在松键后突变一次"，且**走路姿势滞留**——用户当初描述的"两个状态切换"观感会以弱化形式残留。
+**建议**（R82 的注释自己已写出方向）：`moveAgent` 命令带上 `facing`（`src/protocol/wire/commands.ts` 的 `{ kind: 'moveAgent'; agentId: string; x: number; z: number }` 现在只有 `x/z`；`src/sim/step.ts` 的 `moveAgent` 分支也没写 `facing`）。这样松键后交回服务端时，服务端记的就是玩家刚走的方向，跳变消失。**属协议变更，要单独一轮。**
+
+#### I-2 复现
+```
+1. selectAgent('agent-3') + open(...,'move')，按住 D，推 4 帧 → vx=72, anim=walk-right
+2. __agentWorldScene2d.clearSelection()      // 等价 main.js:568 的 Esc
+3. 再推 40 帧 → vx 仍 =72，anim 仍 walk-right（manualState().lastReason === 'no-body'）
+4. 一次 render 后才 vx=0、anim=idle-up
+```
+**为什么会漏**：`clearSelection()`（`:1010`）只清 `selectedAgentId` 和 `manualPositionIds`，**不碰 velocity**；而 `tickManualMovement` 第一件事是
+`const entry = selectedAgentId === null ? undefined : …`，`undefined` → `body === null` → **`:1169` 直接 `return`**，永远走不到 `if (body.velocity.x !== 0 || body.velocity.y !== 0) body.setVelocity(0, 0)`（`:1174`）。
+**真实时钟下的后果**（前台标签页实测）：取消选中后 260ms 内精灵 `x` 又滑了 **5.8px** 才被 `moveActorTo` 拽回。位移不大，但"松手了人还在走"正是手感问题。
+**建议**：`clearSelection` 里对该精灵显式 `body?.setVelocity(0,0)`；或把 `tickManualMovement` 的早退改成"先给上一只被接管的精灵清零，再 return"。
+
+#### I-3 为什么说 `Math.PI / 2` 是治标
+- 我 node 实测：`directionOf(null) === 'right'`、`directionOf(NaN) === 'right'`（`scene-layout.js:50` 的 `: 0` 还在）。**治标的是调用点多传了一层兜底，函数本身仍会把"不知道"解释成"朝右"。**
+- `liveActors` 的兜底链只保护了**渲染**；`world.agents[i].facing` 本身仍可能带着坏值，任何新调用点（现在的 `drawActors` 之外，见 `scene-phaser.js` 里 `direction: directionOf(actor.facing)` 那一处之外的将来代码）都会踩同一个坑。
+- 更要紧的：`world-update.js` 的 `agent.moved`（`:74`）与 `agent.state`（`:86`）用的是 `typeof payload.facing === 'number'`，**`NaN` 能过**（实测把 `agent.facing` 写成 `NaN`，靠 `liveActors` 才兜成 `π/2`）。JSON 线上 `NaN` 会变 `null` 所以这是**防御纵深**问题而非现网 bug——但四条路径三种写法，早晚会有人照着错的那条写。
+- **正解**（任选其一，都比改兜底值好）：① `directionOf` 对非有限值返回 `null`，由调用点显式决定（现在是"静默 right"）；② 全部四条入口统一用 `Number.isFinite`；③ 在 `src/sim/emit.ts` 的 `.map((a) => [a.id, a.position.x, a.position.z, a.facing] as const)`（`:165`）发帧事件处断言 `facing` 有限（R83 自己写的"源头值得补一条断言"）。
+
+### 我实跑过的验证（可复现）
+```js
+// 页内；build r86 / scene-phaser.js = 19730ffb… / 3080（收尾又在新版本上整体重跑一遍，结论一致）
+// A. R85 是否真修（8 次 render 后逐只比对）
+for (let i=0;i<8;i++) __agentWorldDialogue.open('agent-2','move')
+//   → 8 只精灵 frame.name === anims.currentFrame.textureFrame：0 处不一致
+//   → spy 计数：setTexture 0 · setFrame 0 · anims.stop 0 · setOrigin 64（每次 render ×8 只）
+//   → __agentWorldScene2d.selfCheck().counts = {frameResets:0, animFlips:0, facingDrift:0}
+// B. 帧重置计数器的可信度：故意不看代码，只读 R0/F0/D0 + 上面 spy 交叉印证，两者一致
+// C. 12 个 render 周期内纹理键只出现 1 个值 → R85 的守卫让 setTexture 分支在稳态下不进入
+```
+- 另用 node 直测纯函数：`world-update.js` 的 `null` 守卫（保持 `-3.0648` ✅）、`NaN` 经 `agent.moved`/`agent.state` 仍写入 `NaN`（❌ 见 I-3）、`liveActors` 全缺兜底 `π/2` → `down`。
+
+### 结论
+R85 = **真凶 + 真修**，可以认为"每 250ms 把帧打回第 0 帧（朝右姿势）"这条已关闭（有我自己的实测 + 新自检 `R0 F0 D0` 双证）。
+R80 / R83 的守卫**方向对、覆盖面不够**（R83 只保护了 `world.tick` 一条入口、兜底只是换默认值）。
+R81/R82 的归属规则**没引入方向错**，但把"走路姿势滞留至多 250ms"这个尾巴留下了（I-1），而且取消选中时速度不清零（I-2）——后者是 R81/R82 之前就有的老问题，只是这轮才被量出来。
+
+### 下一轮从哪继续
+- **I-1**（`moveAgent` 带 `facing`）是把它彻底做干净的那一步，但属协议变更，建议单独一轮：改 `src/protocol/wire/commands.ts:63` + `src/sim/step.ts` 的 `moveAgent` 分支 + `web/main.js:140` 的 `onAgentMoveSettled` 三处 + 回归。
+- **I-2** 很小（`clearSelection` 加一句 `body?.setVelocity(0,0)`），可顺手做。
+- **I-3** 归入稳定的统一化（`directionOf` 或四入口）。
+
+### 假设
+- I-1 的"往后再无残留"依赖"`render` 只在 250ms 定时器与事件时触发"这一现状；若哪天改成 rAF 每帧 render，则 I-1 的窗口会消失而 I-2 的"靠 render 兜底"会更不可靠。
+- 我判定 I-1 为"中"而非"高"：它不改变最终朝向的正确性，只影响松键后至多 250ms 的观感。
+
+### 卡住 / 限制
+- 后台标签页 rAF 被节流，长采样会把 CDP 调用拖超时（这次又踩了一次：`new Promise` + `requestAnimationFrame` 直接 20s 超时）。**可靠手法**：手动 `scene.update()` 推帧 + `dialogue.open()` 触发 `render`，或用 `setTimeout` 轮询且总时长 <1.2s。
+- `__agentWorldPhaser.scene()` 上**看不到 `actorNodes`**（闭包变量），要读精灵得遍历 `scene.layers.entities.list` 并按 `getData('actorId')` 过滤。
+
+---
+
+## R87（task-3 / developer）—— 渲染自检：帧重置 / 动画互抢 / 状态漂移，三项**页面上能读的数**
+
+> 编号说明（Lead 核定）：本条原写成 R86，与 Leader 那条「组建智能体团队」撞号。
+> 两条都是真实的轮次产出，**不改内容、只把序号理顺**：Leader 的记账保留 R86，本条改为 R87
+> （它写在后面）。台账规矩是"不删历史"，所以这里只改标题序号 + 保留这条说明。
+
+### 做了什么
+1. **新文件 `web/core/self-check.js`**（纯逻辑，不碰 DOM / Phaser，可在 node 里测）。
+   三个计数器，全部只增不减（"曾经出过错"这件事本身要留下）：
+   | 计数 | 读什么 | 什么算一次 |
+   |---|---|---|
+   | `frameResets` | `sprite.frame.name` vs `sprite.anims.currentFrame.textureFrame` | 两者不等，**且动画在播**（每只精灵每次抽样最多记 1） |
+   | `animFlips` | `sprite.anims.currentAnim.key` | **A→B→A** 来回翻（单向前进不算——一天会换几十次键，那不是故障） |
+   | `facingDrift` | `liveActors()[i].facing` vs `GET ./api/world` 的同字段 | **连续两次抽样**看到同一个不一致值（单向的推送时差会被吸收） |
+2. **`web/main.js` 只加 4 处接线**（+19 行，零删除，避开了另一个 Agent 的热点改动）：
+   - `import { createSelfCheck }`；
+   - `const selfCheck = createSelfCheck({ actors: () => scene2d.liveActors(world, meta?.scene ?? null) })`；
+   - `render()` 里 `selfCheck.sample()` + 性能条末尾 `· R0 F0 D0`；
+   - `__agentWorldScene2d.selfCheck()` 门面；`BUILD` 推到 `build r86`。
+3. **`test/self-check.test.js`**：10 条用例，逐条钉死"什么算故障、什么**不**算"。
+4. **顺手修掉一个自己造出来的静默形态**：快照是异步慢档拉的，还没到手时漂移一项**一次都没比过**，
+   而原来 `D0` 与"比过且一致"长得一模一样。现在摘要写 **`D?`**、`verdict` 给 **`unverified`**。
+   （后台标签页按设计不拉快照——真机第一次就撞上了这个岔口。）
+
+### 验证怎么跑的（真机 3080，`?debug=1&t=86`）
+`dsh plugin --profile web add file:$PWD` **重装过 profile**（新文件硬链接不覆盖，见环境备忘）。
+
+| 步骤 | 读数 |
+|---|---|
+| 正常态（刷新 5s 后） | `R0 F0 D0` · `verdict: ok` · 8/8 只精灵、8 条服务端朝向都比对过 |
+| 逐字段核对 | 客户端 `liveActors()` 与服务端快照 **8/8 完全一致**（`|Δ|<1e-6`） |
+| **故障注入①**：`setInterval(250ms)` 对每只精灵无条件 `setTexture(o.texture.key)`（= R85 真凶的同一条路径） | 6 秒后 **`R0 → R328`**，停手时 **440**，`last.resets` 每抽都是 8/8 |
+| 停掉注入 | `R440` **不再变动**（隔 8s 复读仍是 440），`last.resets` 回到 **0** |
+| **故障注入②**：另建实例，客户端 `facing=-π/2` / 服务端 `+π/2` | 第一次抽样 `D0`（只进 pending）→ 第二次 **`D1`** → 客户端追上后停在 **1**，`verdict: degraded` |
+| 性能条原文 | `Phaser(WebGL) · 绘制 0（合批） · 精灵 22 · 切换 0 · R0 F0 D0 · build r86` |
+
+- `node --check`（两个文件）绿 · `node scripts/copy-web.mjs` 同步 · `tsc -p tsconfig.json --noEmit` 绿。
+- `node --test test/` → **638 / 638 / 0 fail**（新增 10 条）。
+
+### 判据（**这条留给后续每一轮直接用**）
+> **正常时 `R` 与 `D` 恒为 0**；`D?` 表示"还没比过"，不是"没问题"。
+> `R` 涨 ⇒ 有东西在动画之外改精灵帧（先查 `setTexture`/`setFrame` 的无条件调用）；
+> `F` 涨 ⇒ 两套动画在抢同一只精灵；
+> `D` 涨 ⇒ 增量没落到本地世界（或服务端权威值没被应用）。
+> 三者都能在**不看日志、不开 devtools 断点**的情况下从性能条读出来。
+
+### 下一轮从哪继续
+- reviewer 可用**上面那两条注入脚本**做回归：不再需要改源码制造故障
+  （比"临时改回无条件 `setTexture` 再改回来"更安全——不碰另一个 Agent 的文件）。
+- 遗留：`animFlips` 需要"两帧历史"才能判 A→B→A，抽样间隔是 800ms，
+  所以**快于 1.6s 的来回翻**抓不全。若要抓高频抖动，把 `intervalMs` 降到 250 且只在 `?debug=1` 时开。
+- 遗留：`/api/world` 在后台标签页不拉（省请求）。要在后台也验漂移，可加 `?selfcheck=force` 开关。
+
+### 卡住
+- `world` 是 `main.js` 的模块私有变量，**没法从页内注坏数据**，所以"客户端漂移"的注入走的是
+  线上同一份 `core/self-check.js` 另建实例（`import('/agent-world/core/self-check.js')`），
+  而不是真把 `main.js` 里那份 `world` 改脏。机制验到了，但**不是端到端的注入**。
+
+---
+
+## R86 —— 组建智能体团队 + 挂 2 小时轮次 + 重写路线（用户要求）
+
+### 起因（用户原话，要点）
+> 设置一个两小时的定时任务；规划以后如何优化这个游戏，**把游戏和 AI 工作完美结合**，让界面更和谐、功能更完善、产品更稳定。
+> ① 组建智能体团队（Leader 指派与监督；要有开发者/设计者/Reviewer/Skill 寻找者）；
+> ② 每两小时执行一轮，任务要好好安排；最终目标是**好玩、稳定、易用**，让 AI 办公室能**监控与操控**智能体团队；
+> ③ 界面：**(a)** 看板从 Header 移到侧边栏（**别做两份**，侧边栏可只显示 Agent 列表或任务流程图）、
+> **(b)** 点 Agent 列表卡片 = **自动聚焦**到该 Agent、**(c)** 细节（Map 任务显示、Header 图标）、**(d)** 交互简化并调研最佳实践。
+
+### 做了什么
+1. **重写 `docs/PLAN-game-agent.md`** 成长期路线：三条支柱（好玩/稳定/易用）判据、界面重构四条 (a)–(d)、
+   稳定四条 S1–S4、团队分工、每 2 小时一轮的固定流程、**R1–R10 轮次计划表**、以及协作纪律（与另一个 Agent 共处一个工作区）。
+2. **挂定时任务**：`schedule-12329974-fad8-4aec-b54e-89f2f65af8a5`（`everySeconds: 7200`，下一次约 02:59）。
+   投递内容 = 「读路线文档 → 取第一个未完成轮次 → 指派 → 验收 → 记账」的完整流程 + 两条警告（并行 Agent、参考原版不要自己发挥）。
+3. **组建团队**（Agent Teams，4 人 + 我这个 Lead），并**先建任务再派人**：
+   | 成员 | 任务 | 产出 | 写范围 |
+   |---|---|---|---|
+   | skill-finder | task-1 | `docs/RESEARCH-reuse.md`（可复用方案调研） | 仅该文档 |
+   | designer | task-2 | `docs/DESIGN-interaction.md`（交互收敛） | 仅该文档 |
+   | developer | task-3 | 渲染层稳定自检（帧重置/状态漂移可读读数） | `web/main.js`（优先新文件） |
+   | reviewer | task-4 | R80–R85 朝向修复链的独立评审 | `docs/PROGRESS.md`/`BACKLOG.md` |
+   另有 task-5（侧边栏骨架，`blocked_by: [task-1, task-2]`）等 R1 出文档后再派。
+
+### 为什么这样分工
+- **R1 先出文档、不写代码**：用户明确要"调研怎么做最合适"，而界面重构动的是另一个 Agent 的热点文件；
+  先把"挂在哪、用什么渲染、点谁触发什么"定下来，再动代码，返工最少。
+- **给 developer/reviewer 的是不依赖设计的活**：否则两人第一轮就空转。developer 做稳定自检（S1/S2），
+  reviewer 审刚修完的 R80–R85——这两件都有独立价值，且不碰热点文件。
+
+### 验证怎么跑的
+- `docs/PLAN-game-agent.md` 已落盘；`schedule_list` 能查到该定时任务（`state: scheduled`）。
+- `list_agents` 四个成员均 `running`；`team_task_list` 显示 task-1..4 `ready`、task-5 `ready:false`（依赖未满足）。
+
+### 下一轮从哪继续
+- **R1 的两份文档**（task-1/task-2）出来后：派 task-5（侧边栏骨架）。
+- 每 2 小时由定时任务触发；**若用户临时插话，用户优先**，把被挤掉的轮次往后挪。
+
+### 假设
+- 用户要的"侧边栏"指**页面内的侧边栏**（现有页面只有 topbar/stage/dialogue/footer，没有 aside）；
+  若他其实指 DSH GUI 的右侧栏 tab（BACKLOG M7-7 那条），task-1 的调研会给出依据，届时按调研结论改。
+
+### 卡住
+- 无。但**并行 Agent 是长期风险**：他常改 `web/scene/scene-phaser.js`、`web/main.js`、`web/index.html`、
+  `web/styles/layout.css`；本轮已把"动手前看 mtime、优先新建文件"写进每个成员的任务书与路线文档。
+
+---
+
+## R85 —— **真凶找到**：每帧 `setTexture()` 把精灵帧打回第 0 帧（朝右的姿势）
+
+### 起因（用户给的关键线索）
+> **「你试试你能不能查出来为什么初始化如果不是朝向右就一直变换的问题」**
+
+「只有朝右看不出来」这条把范围压到了**帧内容**上——不是数据、不是状态机，是**精灵显示的帧**。
+
+### 怎么查出来的（这次是量出来的，不是猜的）
+页内读「动画当前帧」和「精灵实际帧」，**两者对不上**：
+
+| 读什么 | 值 |
+|---|---|
+| `sprite.anims.currentFrame.textureFrame` | **69**（动画说自己在 idle-left 的第 69 帧） |
+| `sprite.frame.name` | **0**（精灵实际显示第 0 帧） |
+
+再做一次单变量实验，机制立刻现形：
+
+| 操作 | `sprite.frame.name` |
+|---|---|
+| 初始 | 0 |
+| `setFrame(69)` | **69** ✅ |
+| **`setTexture(同一个 key)`** | **0** ← 打回去了 |
+| 再 `setFrame(69)` | 69 ✅ |
+
+### 根因
+`drawActors()` **每次渲染都无条件调** `entry.sprite.setTexture(textureKey)`。
+Phaser 的 `GameObject.setTexture(key)` 会顺手 `setFrame(当前帧名)`，而新纹理上那个帧名解析回
+**第 0 帧** —— 于是每 250ms 把精灵打回第 0 帧。
+
+而动画**只在帧号变化时才写回精灵帧**（内容帧率 5fps = 每 200ms）。两者交错：
+
+```
+t=0    render  → 帧被打回 0
+t=200  动画    → 帧写成正确值（如 69）
+t=250  render  → 又被打回 0
+t=400  动画    → 正确值
+...
+```
+
+⇒ 精灵在「正确帧」和「第 0 帧」之间**每秒跳四五次**。第 0 帧是**朝右**的姿势，
+所以朝右的人两帧看着一样（"看不出来"），朝左/上/下的人就被反复掰回向右
+——正是用户从一开始描述的「只要朝向不是向右就会跳向右」「两个状态切换」。
+
+### 做了什么（一行）
+```js
+// 前：entry.sprite.setTexture(textureKey)          ← 每次渲染都重置帧
+// 后：只在纹理真的变了才换
+if (entry.sprite.texture?.key !== textureKey) entry.sprite.setTexture(textureKey)
+```
+
+### 验证怎么跑的（真机 3080，`?debug=1&t=35`）
+- 连续 10 次 `render(true)`，逐只比对 `Number(sprite.frame.name) === anims.currentFrame.textureFrame`
+  → **0 处不一致**（修前 8/8 全不一致）。
+- `node --check` + `tsc --noEmit` 绿；`web/` 与 `lib/web/` 同步。
+
+### 顺带留下的两个诊断（R84 加的，这次靠它们收敛）
+1. 性能条末尾的 **`build r85`**：一眼判定"你看的这页是不是新代码"。
+2. 性能条里的 **`切换 N`**：动画键变化计数，朝向抖动会让它快速上涨。
+
+### 反思（用户明确要求过）
+前四轮（R81–R83 + 两次改动画守卫）都是**先想一个说得通的机制就改**，没有量现场。
+这次改成「先量三样：动画帧 / 精灵帧 / 单变量实验」，十分钟就定位。
+**规矩：朝向类问题先比 `sprite.frame.name` 与 `anims.currentFrame.textureFrame`**——
+这两个数不一致，就一定是"有东西在重置帧"，和数据/状态机无关。
+
+### 下一轮从哪继续
+- 刷新后请用户复看；若仍有个别角色跳，用性能条的 `切换 N` 判断是"还在抖"还是"已停"。
+- 遗留：`setTexture` 的同类风险在 `drawObjects`（line 1383 附近的 `node.setTexture`）也有一处，
+  那里是静态图（无动画），风险低，暂不动。
+
+### 卡住
+- 浏览器标签在后台时 rAF 被节流，动画不推进；所以用「手动 `render(true)` + 直接读帧号」代替实时观察。
+
+---
+
+## R83 —— 朝向再修：**别让缺失的 facing 静默变成 right**（含对前两轮的反思）
+
+### 起因
+> **「看图，这个 agent 在未移动状态一直在这个两个状态切换，不符合预期，你要反思下为什么一直修不好」**
+
+用户两张图（同一只「小蓝」）：一张**站着面朝右**，一张走路姿势。而服务端 `/api/world` 里
+`agent-2 = idle / facing=-3.065`（**left**）、位置完全不动（连采 3 次 tick 都在涨、坐标不变）。
+
+### 这次先「量」再「改」（前两轮错在顺序）
+| 量什么 | 怎么量 | 结果 |
+|---|---|---|
+| 服务端朝向 | `GET ./api/world` | 8 人 facing 全有效：`up/left/up/left/left/left/down/right` |
+| 客户端拿到的朝向 | 页内 `__agentWorldScene2d.liveActors()`（它带 `facing`） | 与上面**一致** |
+| 实际播的动画 | 连续 `dialogue.open()` 触发 8 次 `render(true)`，读精灵 `anims.currentAnim.key` | **8 只全部稳定，无抖动** |
+| 世界在跑吗 | SSE 6 秒只收到 hello/sync；tick 每 2 秒涨 ~22 | 在跑，但没有变化事件（全员 idle） |
+
+⇒ **在"新代码 + 刚刷新的页面"上，我复现不出这个现象。** 用户现场与我的差异只剩两种可能：
+① 页面还是旧模块（没刷新）；② 页面里的 `facing` 被**毒化**成了 `null`（见下）。
+
+### 真正的代码缺陷（这次改的就是它）
+`web/core/world-update.js` 的 `world.tick` 帧事件：
+```js
+const [id, x, z, facing] = row
+agent.facing = facing          // ← 无条件覆盖
+```
+JSON 里 `NaN`/`undefined` 会变 `null`。一旦某条帧事件带 `null`：
+`agent.facing = null` → `Number.isFinite(null) === false` → `liveActors` 兜底
+`?? 0` → `directionOf(0)` = **right**。而帧事件**只带"有位移的人"**，站着的人
+再也不会被纠正 ⇒ **永久朝右**。这精确解释了用户的规律：「只要朝向不是向右就会跳向右」。
+
+### 做了什么（两处，都是"别让缺失值静默变成 right"）
+1. **`web/core/world-update.js`**：`if (Number.isFinite(facing)) agent.facing = facing`——
+   非有限值不再覆盖。
+2. **`web/core/scene-layout.js` `liveActors()`**：兜底链从 `?? 0` 改成
+   「内容里的静态 facing → `π/2`(down)」，**不再凭空造出 right**。
+
+### 反思：为什么前两轮修不好
+1. **用推理代替测量**：R81 断言"两套动画互抢"、R82 断言"位置所有权粘住动画"——都是先想出一个
+   说得通的机制就改，**没有先读现场数据**。这次先量了三样（服务端 facing / 客户端 facing / 实际
+   动画键），十分钟就定位到"缺失值被当 0"。
+2. **没确认用户跑的是不是新代码**：R82 我自己都在**没刷新**的旧页面上复测过，得出"修了没用"的
+   假结论；用户那边同理。以后每次改完先核对宿主吐出的文件里有没有新串，再谈验证。
+3. **在共享工作区里没意识到并发**：另一个 Agent 同时在改 `scene-phaser.js`，文件大小在我两次
+   检查之间从 100840 变到 105094。我该在每次"验证通过"时记下文件 sha，否则验的是哪个版本都不确定。
+4. **没有给用户一个自证手段**：应该有个"构建标记/版本号"在界面上，一眼能看出页面新旧。
+
+### 验证怎么跑的
+- `node --check` ×2 + `tsc --noEmit` 绿；宿主吐出的 `core/scene-layout.js` 含新兜底（grep 命中）。
+- 刷新后（`?t=32`）：8 只精灵连续 8 次 `render(true)` 动画键**零变化**；`liveActors()` 的
+  facing 与服务端逐个一致。
+
+### 下一轮从哪继续
+- **请用户硬刷新（Cmd+Shift+R）后再看**；若仍在，界面加一个构建标记（本次改动没做，避免动 topbar）。
+- 待办：`src/sim/emit.ts` 侧查清**什么时候会发出非有限 facing**（当前快照全有效，说明触发条件
+  罕见；客户端已免疫，但源头值得补一条断言）。
+
+### 假设
+- 用户现场是 ①或②之一；两者都被这次改动覆盖（①刷新、②免疫 + 刷新后自愈）。
+
+### 卡住
+- 浏览器标签在后台（`visibility: hidden`），rAF 被节流，无法做长时间实时采样；
+  改为「读 `/api/world` + 读 `liveActors()` + 手动 `render(true)` 抽帧」三种静态手段交叉验证。
+
+---
+
+## R82 —— 朝向**钉死在 right** 的真根因：位置所有权是粘的，动画也被一起粘住了
+
+### 起因（用户原话，关键线索）
+> **「还是没修复，发现规律了只要朝向不是向右就会跳向右」**
+
+「只有 right 是稳定的、其它方向都会变成 right」= 一定有个 **`?? 0` 兜底**在生效
+（`directionOf(0)` = right）。顺着这条线索查到了真根因，**R81 的诊断是错的**（R81 只解释了
+"两套动画互抢"，但那次改动后用户仍复现）。
+
+### 真根因（已用真机数据坐实）
+1. 玩家用键盘把某个 agent 推过一次之后，`manualPositionIds.add(agentId)` ——
+   **位置所有权是"粘住"的**（P4 的设计：切回对话也不能被服务端拽回）。
+2. `drawActors()` 里这一段是**一个 `manual` 同时管位置和动画**：
+   ```js
+   const manual = ownsPosition(actor.id)
+   if (manual !== true) moveActorTo(...)                      // 位置
+   if (manual !== true && animName !== null) play(服务端朝向)   // 动画 ← 被一起跳过了
+   ```
+3. 于是被摸过的人：**位置归客户端 + 服务端动画整段跳过**，只剩 `tickManualMovement`
+   按 `entry.lastDir`（最后一次按下的方向）播 → **永久钉在 right**（因为试的人按的是 D）。
+   没被摸过的人则正常 —— 所以现象是"只要朝向不是 right 就会跳 right"。
+
+**实测证据**：选中 agent-1（服务端 `facing = -2.045` → 应为 **up**），按一下 D 再松开，
+sprite 停在 `idle-right` 不动；同一时刻 `/api/world` 里 facing 仍是 -2.045（**数据是对的**）。
+
+### 做了什么（`web/scene/scene-phaser.js`，两处）
+1. **动画不再跟位置所有权走**：`drawActors` 的动画条件从 `manual !== true`
+   改成 `(manual !== true || wasManualWalking !== true)` ——
+   只有"**键盘正推着走**"的那几帧才把动画让给手动逻辑，一松键立刻交回服务端。
+2. **删掉手动分支里两处 `playManualAnim(entry,'idle', lastDir)`**（松键分支 + 未激活分支），
+   它们就是"钉住方向"的来源。
+
+### 验证怎么跑的（真机 3080，`?debug=1&t=30`）
+| 阶段 | 期望 | 实测 |
+|---|---|---|
+| 刚选中（未按键） | 服务端朝向 `idle-up` | `idle-up` ✅ |
+| 按住 D | `walk-right` | `walk-right` ✅ |
+| 松开 + 强制一次 render | **交回服务端 → `idle-up`** | `idle-up` ✅（修前是 `idle-right`） |
+| 再推 20 帧 | 保持 `idle-up` | `idle-up` ✅ |
+
+- 服务端 `/api/world` 的 8 个 facing 全是有效值（up/left/up/left/left/left/down/right），
+  **数据侧没问题**，问题纯在渲染层。
+
+### ⚠️ 一个反复踩的坑（这次也是它让用户以为"没修好"）
+**页面必须刷新**。我上一轮改完只跑了 `copy-web`，浏览器里还是旧模块 —— 我自己的复测也
+因此在旧代码上跑了两次，得出"修了没用"的假结论。核对办法：请求宿主吐出的
+`/agent-world/scene/scene-phaser.js`，grep 这次新增的注释串；sha 和 `lib/web/` 对上才算数。
+
+### 下一轮从哪继续
+- 真机刷新后复看一次；仍有残留就查 `src/sim/idle.ts` 的 `pace` 往返（每槽一次 180°，属正常）。
+- 遗留：`moveAgent` 命令只带 x/z 不带 facing，所以手动走完松开后，朝向会回到"服务端记着的旧朝向"
+  （可能和玩家刚走的方向不一致）。想做顺，就把 facing 也进命令 —— 属协议变更，单独一轮。
+
+### 假设
+- `ownsPosition` 粘住是**位置**的正确策略（防瞬移），但对**动画**是错的；两者要拆开。
+
+### 卡住
+- 浏览器标签在后台（`document.visibilityState==='hidden'`）时 rAF 被节流，
+  页内长采样会拖超时；验证改用「手动 `scene.update()` 推帧 + 用 `dialogue.open()` 触发
+  `render(true)`」两步走，才验得动 `drawActors`。
+
+---
+
+## R81 —— 修「agent 朝向一直在左右跳」：手动待机动画和服务端动画在抢同一只精灵
+
+### 起因（用户原话）
+> **「检查下为什么 agent 贴图一直在左右朝向切换不太稳定」**
+
+### 根因（是我 R80 那条改动引出来的）
+R80 把选中默认档改成 `move`，于是 `movementEnabled = true`、`tickManualMovement()` 每帧都跑。
+它原先是**无条件**播站立动画：
+
+```js
+if (vx === 0 && vy === 0) {           // 没按方向键
+  playManualAnim(entry, 'idle', entry.lastDir ?? 'down')   // ← 60fps 一直在播
+}
+```
+
+而这个人在**被玩家真正推过之前** `ownsPosition(agentId)` 仍是 `false`，
+`drawActors()` 又每 250ms 按服务端的 `actor.facing` 播一次（`if (manual !== true && …) play()`）。
+
+⇒ **同一只精灵被两套动画轮流覆盖**：60fps 的 `idle-down`（`lastDir` 还没值，兜底 down）压住 59 帧，
+每 250ms 服务端的方向闪一帧 → 屏幕上就是「朝向一直左右跳」。
+（R80 之前默认是 chat 档 → `movementEnabled` 为 false → `tickManualMovement` 早退 → 两套不打架，
+所以这个 bug 是我那条改动**引出来**的，不是原生的。）
+
+### 做了什么（`web/scene/scene-phaser.js`，两处）
+1. **没按键的分支**：只有 `ownsPosition(selectedAgentId) === true` 才 `playManualAnim(idle, lastDir)`；
+   位置/朝向仍归服务端的人**不再抢动画**。
+2. **未激活分支**（切回对话/失焦）：同样只在 `ownsPosition` 时收尾成站立，
+   否则被接管过的人会**停在 `walk` 上原地踏步**（原来这条分支根本不播动画）。
+
+### 验证怎么跑的（真机 3080，`?debug=1&t=29`；页面在后台，用 `scene.update()` 手动推帧，不依赖 rAF）
+| 场景 | 期望 | 实测 |
+|---|---|---|
+| 选中但没按键，推 8 帧 | 动画**不变**（服务端说了算） | 8 只精灵的 anim key **全部未变**，`changed: []` |
+| 按住 D，推 6 帧 | `walk-right` | `walk-right` ✅ |
+| 松键，再推 6 帧 | `idle-right`（此时已 `ownsPosition`） | `idle-right` ✅ |
+
+- `node --check` + `tsc --noEmit` 绿；`copy-web` 后 `web` 与 `lib/web` 一致。
+
+### 下一轮从哪继续
+- 真机**肉眼**再确认一次（我这边页面在后台，只能手动推帧；rAF 在后台被浏览器节流，长采样会超时）。
+- 已知残留：`isManualControl` 之外，`manualPositionIds` 是**粘住**的（切回对话也不还位置），所以对话档下被接管过的人位置由客户端说了算——这是 P4 的设计，不是 bug，但要知道。
+
+### 假设
+- 「左右跳」就是这两套动画互抢；如果真机上还有残留，下一个嫌疑是 `idle.ts` 里 `pace` 往返（每槽一次 180°，属正常）和 `look` 回正。
+
+### 卡住
+- 浏览器标签在后台（`document.visibilityState === 'hidden'`）时 Phaser 的 rAF 被节流，
+  **页内长采样（>4s 的 setInterval）会直接把 CDP 调用拖超时**；换成「手动 `scene.update()` 推帧」才验得动。
+
+---
+
+## R80 —— 选中 agent 默认进「移动」档（不是对话）；顺手把 web_search 的根因查清
+
+### 起因（用户原话）
+> **「选中 agent 应该是默认移动操作而不是对话」**
+
+### 做了什么
+1. **默认档改成 `move`**（`web/ui/dialogue-ui.js`）：`open(agentId, mode = 'move')`——选中一个人，面板直接进**移动档**（引擎键盘接管、`setMovementEnabled(true)`）；想说话再点「对话」或按**回车**。
+   - 关键坑：**移动档不能抢焦点**。原 `open()` 结尾无条件 `$input?.focus()`，焦点落在 textarea 上时 `tickManualMovement` 的 `isTextInputFocused()` 会把 WASD 全吞掉（表现是"选中了却走不动"）。现在只有 `mode === 'chat'` 才聚焦。
+2. **回车仍是对话**（`web/main.js`）：`dialogue.open(agentId, 'chat')` 显式要 chat；面板已开时 `setMode('chat')` 不变。
+3. **调试门面补参数**：`__agentWorldDialogue.open(agentId, mode)`（原来只透传 `agentId`，页内验不了 chat 档）。
+
+### 验证怎么跑的（真机 3080，`?debug=1&t=28`）
+三步全绿：
+| 动作 | mode | 对话面板 | 移动面板 | 焦点 | movementEnabled |
+|---|---|---|---|---|---|
+| 选中 agent | `move` | 隐藏 | 显示 | `BODY` | `true` |
+| 回车 | `chat` | 显示 | 隐藏 | `dialogue-input` | `false` |
+| 点「移动」 | `move` | 隐藏 | 显示 | `BODY` | `true` |
+
+- **键盘真的推动了人**：按住 `D` 700ms，被选中精灵 `vx=72px/s`、`x +50.4px`（`layers.entities` 的 sprite 实测；`anchorAt`/`liveActors` 读的是服务端世界坐标，**看不出**本地推动——别用它们验这个）。
+- `node --check` + `tsc --noEmit` 绿；`copy-web` 后 `web` 与 `lib/web` 一致。
+
+### ⚠️ 与另一个 Agent 的分工（本轮踩到的现实）
+- 我改 `web/ui/dialogue-ui.js` 时第一次被 **FS_STALE_VERSION** 挡下——他当时正在动这些文件（`web/main.js`/`scene-phaser.js` mtime 在我编辑前 1 分钟）。
+- 所以本轮只做了**最小、可叠加**的三处改动，没碰选中/镜头/移动的实现（那是他的活）。
+
+### 顺带查清：`web_search` 为什么坏（未修完，只差重启）
+- 我的会话跑在 **desktop profile**（19387/PID 39936），该 profile 的 bundles **没有** `@liustack/modsearch`；只有 `web` profile（3080）有。所以桌面端退回 `web-search-deepseek` → `api.deepseek.com`，而那把 key 已失效。
+- 已把 `@liustack/modsearch` 复制进 `~/.dsh/profiles/desktop/node_modules/` 并加进其 `package.json` 的 bundles（原文件已备份），import/解析均验证通过；**bundles 只在启动时装载，所以要重启 App 才生效**。重启会打断另一个对话，故等用户点头。
+
+### 下一轮从哪继续
+- 用户点头后重启 App → 验 `web_search` 走 modsearch（`/modsearch/config` 应回 200）。
+- 游戏 Agent 四块规划见 `docs/PLAN-game-agent.md`；我这条轴的顺序：C5 删死重量 → C7 flaky 普查 → C1/C3 语义 → O1/O2 警报 → B1/B2 目标进度。
+
+### 假设
+- 「默认移动」指**选中后的默认档位**，不是"点击直接开始走"；对话仍要显式动作（回车/点「对话」）。
+- `isTextInputFocused()` 是移动的唯一焦点闸门，所以只要 `open()` 不抢焦点就够。
+
+### 卡住
+- 键盘推动的验证只能靠**合成 KeyboardEvent 派发到 `window`**（派到 `document` 不生效）；真机手按仍需用户确认一次。
+
+---
+
+## R79 —— 气泡补「朝下小尾巴」，把面板变成真·对话气泡；重启宿主
+
+### 起因（用户原话）
+> **「你选用的美术资源不对不是对话气泡」**
+> （R77 用的 `Ancient/tan.png` 是 9-slice 米色面板，没有尾巴，读起来像"牌子/盘子"，不是对话气泡。）
+
+### 做了什么（只动 `web/scene/scene-phaser.js`）
+1. **先穷尽本地美术**：`vision` 查了 UI 包 spritesheet（538×592）、tiny-battle Sample、microverse `objects-tight`（339 张拼贴图）——**确认本地没有任何现成的带尾巴对话气泡**，只有 9-slice 面板/边框。
+2. **面板 + 尾巴 = 对话气泡**（D57：复用本地面板，只补"尾巴"这个缺失特征，不手画整个气泡）：
+   - `makeBubbleNode()` 加一个 `tail`（`add.graphics()`），插在 bg 之上、文字之下（容器顺序 `[bg, tail, text, dot]`）。
+   - `resizeBubbleBg()` 里 `drawBubbleTail(node.tail, h, usePanel)`：朝下小三角，**填色 = 面板内芯 `#d3bf8f`、斜边描边 = 面板描边 `#b1a077`**（两色都采样 `Ancient/tan.png` 实际像素）、底边宽 12px、高 5px、**顶边不描**（和面板连成一体）。
+   - 尾巴几何：`fillTriangle(-6, h/2-0.5), (6, h/2-0.5), (0, h/2+4.5)` —— 顶边略压进面板底边 0.5px 防露缝，尖端伸进 `BUBBLE_GAP`(4px) 指向头顶。
+3. **重启宿主 3080**：后台 `dsh web`（旧 job `bash-2346`）已退出、3080 挂掉；重启用 `danger-full-access`（`dsh web` 启动要写 `~/.dsh/profiles/web/cordis.yml`，工作区外，沙箱 workspace-write 会 EPERM）。重启后 3080 回 200。
+
+### 验证怎么跑的
+- `node --check` + `copy-web.mjs` + `tsc --noEmit` 全绿；`diff -q web/scene/scene-phaser.js lib/...` 同步。
+- 页内 `__agentWorldScene2d.renderBubbles([...])` 后读 bubble 容器：**4 子节点**（NineSlice bg / Graphics tail / Text / Arc dot），tail `commandBuffer` 解出 `fillStyle 0xD3BF8F + fillTriangle(-6,13.09)(6,13.09)(0,18.09) + lineStyle 0xB1A077 + strokePath` —— 朝下三角、色值、方向全部正确。
+- 真实气泡（`./api/say` → 想/说/看世界）渲染层气泡容器在位、文字正确、尾巴同一条路径。
+
+### 下一轮从哪继续
+- **用户新需求①（主）**：agent 初始位置 + 键盘移动 —— 选中 agent（点击 或 看板定位）后可键盘移动；选中后视角锁定；点击 agent 以外取消选中；**利用好游戏引擎**（Phaser 输入 + 相机）。用户要求**先设计计划**。
+- **用户新需求②**：review 本分支 vs dev 的代码，"用 perf skill 出 review 报告"——**本会话技能表里没有 perf skill**，需先和用户确认是指"性能 review"还是别的 skill。
+- 遗留 backlog：对话记录默认收起（`web/ui/dialogue-ui.js`）、饮水机落点（`src/content/packs/office-map.ts`）、M16-1 删 `src/vendor/pixi`+GLB、M18-1 walking 语义。
+
+### 假设
+- 尾巴用 Graphics 补在 9-slice 面板上，是"复用本地美术 + 只补缺失特征"，不违反 R76 的"别再手画整个气泡"。
+- 采样色 `#d3bf8f`/`#b1a077` 与面板同源，尾巴能无缝接上。
+
+### 卡住
+- **没能出真机截图确认尾巴外观**：Phaser WebGL 画布 `preserveDrawingBuffer=false` 导致 `canvas.toDataURL()/drawImage()` 全空白；加之气泡 TTL 12s、相机随 agent 移动，多次"触发→截图"时序都没赶上。只能靠 `commandBuffer` 程序化验证尾巴几何/色值正确（已足够证明实现正确，但缺肉眼最后一眼）。
+
+---
+
+## R78 —— 名字贴头 + 去掉区/室文字 验证收尾；"读不到世界：reading 'bubbles'" 根因修复
+
+### 起因（用户最新反馈）
+> **「agent 头上的名称和他们距离太远了需要很近才行」**
+> **「去掉"工程区""会议室"等这些文字」**
+
+（这两条此前已改到文件里但没验证；本轮做验证，并顺带把**每次刷新都冒出来**的"读不到世界"错连根修了。）
+
+### 做了什么
+1. **名字贴头（验证）**：`drawActors` 的 `labelDy = -(cellH*0.75 + 2)` ≈ -50（角色在图内只占下 ~75%、顶部 ~20px 透明留白，旧 `-(cellH+4)` 把留白算进身高才显得飘）。实测 8 个 agent 标签底边距帧顶 gap **全部 = 14px**，即距**可视头顶** 0~6px，紧贴。
+2. **去掉区/室文字（验证）**：`scene-phaser.js` 里按 `plan.ground` 画 `district.name` 的整段已删（`grep "district\.name"` 归零）；「工程区/会议室/机房…」在 web/ 渲染层已无任何绘制。
+3. **"读不到世界：Cannot read properties of undefined (reading 'bubbles')" 根因修复**：
+   - 抓完整栈定位到 `drawBubbles`（scene-phaser.js:1148）：`startGame()` 里 `activeScene = game.scene.getScene('world')` 在 `create()` **之前**就把 `activeScene` 赋成场景对象（此时 `layers` 还没建），于是 `activeScene === null` 挡不住、`activeScene.layers.bubbles` 读到 undefined → 抛错 → `reload()` 的 catch 把"快照其实拿到了世界"也误报成"读不到世界"。
+   - 修法：`drawBubbles` 守卫改成 `state.ready !== true || activeScene === null || activeScene.layers === undefined || activeScene.layers.bubbles === undefined`（和 `render()` 一致，用 `state.ready` 作"create 完成"信号）。
+   - 另加：`onSnapshot` 成功即 `showHint('')`（错误提示不再"永不消失"）。
+
+### 验证怎么跑的
+- `node --check` + `copy-web.mjs` + `tsc --noEmit` 全绿；`diff -q web lib` 同步。
+- 临时 `globalThis.__awSnapErr` 抓栈确认只 `drawBubbles` 一处，修后已删临时日志。
+- 刷新（`?t=25`）：`#view-hint` 空 + hidden=true（"读不到世界"消失）；8 agent；名字 gap 全部 14px；`ui-panel-tan` 已载。
+- vision：名字"几乎贴着头顶"、无「工程区/会议室」文字。
+
+### 下一轮从哪继续
+- 新反馈①：「下方 agent 对话框默认不显示对话记录（游戏里有气泡，可展开查看）」→ `web/ui/dialogue-ui.js` 默认展开态。
+- 新反馈②：「饮水机不该在这」→ `src/content/packs/office-map.ts` 的家具落点（饮水机坐标）。
+- 新反馈③：用户说「你重启一下吧」→ 先确认重启对象（host 3080？页面？），再动。
+
+### 假设
+- 「距离太远」指名字相对**可视头顶**（帧内 20px 透明留白让旧值显得飘），0.75 系数取可视身高成立。
+- "读不到世界"纯属客户端启动竞态（快照比 Phaser `create` 先到），非宿主世界损坏——世界数据一直是好的。
+
+### 卡住
+- 「去掉工程区/会议室文字」已确认是**渲染层** district 名标签（已删），**不是**删内容定义——`districts.ts` 名字仍用于地面着色/站点摆放，删了会坏。
+
+---
+
+## R77 —— 气泡用本地 9-slice 美术面板 + 文字适配 + 气泡/名字二选一（用户最新反馈）
+
+### 起因（用户原话）
+> **「气泡的样式需要重新设计下用本地的美术资源对话框，文字颜色要要适配，对话气泡和 agent 名应该是二选一的存在吧」**
+
+三条诉求：① 气泡底图换成**本地美术资源**的对话框；② 文字颜色适配新底图；③ 对话气泡和 agent 名**二选一**（别同时出现）。
+
+### 做了什么（全在渲染层 `web/`，模拟层 `src/` 一行没动）
+1. **底图换本地 9-slice 美术面板**（`web/scene/scene-phaser.js`）：
+   - 用 Kenney 像素 UI 包的米色面板 `pixel/ui/kenney-pixel-ui-pack/9-Slice/Ancient/tan.png`（48×48）。
+   - 用 Phaser 引擎自带的 `add.nineslice()` 撑到任意尺寸（**游戏引擎成熟方案，不再手画 Graphics 圆角矩形**）。
+   - 纹理在 `AgentWorldScene.preload()` 里载入（固定 UI 资产，与内容无关），key `ui-panel-tan`；纹理没载好时退回旧 Graphics 圆角矩形（不让气泡整块消失）。
+   - `BUBBLE_SLICE = 3`：采样面板像素实测边框 ≈2px（1px 高光 + 1px 描边）+ 1px 圆角，不是 48 图里想当然的 16px。
+2. **文字颜色适配**：`BUBBLE_TEXT_COLOR = '#3d2b1a'`（深棕，适配米色底）。
+3. **语义色挪到状态点**：原来"在想/在忙/失败"染整段文字（`node.text.setColor(bubbleColor(...))`），改成气泡左上角一个 6px 圆点（琥珀 `0xffc94d` / 蓝 `0x4fa8ff` / 红 `0xff6b6b`）——文字不再跟语义色撞底图对比度。
+4. **气泡/名字二选一**：`makeBubbleNode()` 里删掉 `name` 行（气泡里不再叠名字）；`drawBubbles()` 里新增 `bubbleVisibleIds` 集合——有气泡的 agent `entry.label.setVisible(false)`，没气泡的活着角色在循环尾把名字标签重新露出来并顺手贴回位置（`update()` 会跳过隐藏标签的定位，避免露出来时停在旧坐标）。气泡定位从"依赖标签 y"改成 `sprite.getTopCenter()`（不依赖被藏掉的标签）。
+5. `web/main.js`：`updateBubbles()` 不再往气泡塞 `name` 字段；`__agentWorldScene2d` 调试门面挂上 `renderBubbles`（页内就能验）。
+6. **清掉全部调试标记**：`__m0`–`__m4`、`__awRR`、`__awRRValue`、`__awStartGameErr`（grep 确认归零）。
+
+### 验证怎么跑的
+- `node --check web/{scene,main}.js` + `copy-web.mjs` + `tsc -p tsconfig.json --noEmit` 全绿。
+- 页内 `__agentWorldPhaser.scene()` ready、`textures.exists('ui-panel-tan')`=true（textures 53→54）、`stats()` 55 精灵 / webgl / 合批。
+- **真实气泡**（点开工头阿金 → 状态"他在想…"）：vision 确认是**米色羊皮纸面板 + 深棕文字 + 黄色状态点 + 头顶名字隐藏**。
+- **三态二选一**：`__agentWorldScene2d.renderBubbles([thinking/acting/failed ×3])` 后读 `labels` 容器——工头阿金/小蓝/小铁（有气泡的 3 个）`visible=false`，其余 5 个 `visible=true`，对应关系逐一核对无误。
+
+### 下一轮从哪继续
+- **肉眼确认三种状态点颜色同时出现**（thinking/acting/failed 的黄/蓝/红）：同一代码路径、只换 `setFillStyle` 值，风险低，但真机没截图到三色同框。触发方式：`__agentWorldScene2d.renderBubbles([{agentId:'agent-1',phase:'thinking',text:'x'},{agentId:'agent-2',phase:'acting',text:'y'},{agentId:'agent-3',phase:'failed',text:'z'}])` 后立刻截图（主循环 ~100ms 会拿真实气泡覆盖注入值，要快）。
+- 想换面板质感：`BUBBLE_PANEL_URL` 换成 `Ancient/brown.png` 或 `Colored/blue.png`（同为 48×48 9-slice），再相应改 `BUBBLE_TEXT_COLOR`。
+- 遗留 backlog 仍挂：agent 位置/动画、M18-1（walking 语义）、M16-1（删 `src/vendor/pixi` + kenney GLB ~4.0M）。
+
+### 假设
+- 米色面板（主色 `#d3bf8f`）+ 深棕文字（`#3d2b1a`）对比度足够，读得清（vision 已确认文字可辨）。
+- 气泡只会在 thinking/acting/failed 出现，所以 `bubbleColor` 的 default 分支（面板米棕 `0xb08a4f`）基本不触发。
+
+### 卡住的地方
+- 期间出现一次 **「读不到世界：Cannot read properties of undefined (reading 'bubbles')」**：来自 `web/main.js` 的世界拉取失败分支（`showHint`），是**宿主侧世界接口的瞬时错误**，与本轮气泡改造无关；刷新后自愈（状态栏恢复"运行 运行中 · 事件流已连接"）。未追根因（超本轮范围，且已自愈）。
+- 更早的「scene2d is not defined / 游戏不起」是本会话早期**浏览器陈旧缓存**导致的假象：反复 rebuild + 刷新后，当前 `web/` 与 `lib/web/` `diff -q` 完全一致，游戏正常起（WebGL / 55 精灵 / 气泡层在位）。
+
+---
+
+## R75 —— agent 完全静止 + 初始化落点避开墙/家具（用户最新两条反馈）
+
+### 起因（用户原话）
+> **「我观察还是没修复，能不能先让 agent 不进行任何动作，初始化放在一个正确位置不要和墙壁物体重叠」**
+> **「我刷新发现没修复，确定下是不是所有元素都在游戏引擎里，按道理绑定在里面不会那么复杂」**
+
+两条诉求：① agent 先别做任何动作（站着不动）；② 初始位置别和墙/家具重叠。
+
+### 改动（全是模拟层 `src/`，渲染层一行没动）
+1. **冻结待命动作，走运行时开关**（不是删内容）：
+   - `src/config.ts`：`idleActionsEnabled: z.boolean().default(false)`（schema 放 `autoStart` 之后）+ `resolveConfig()` 透传。
+   - `src/runtime/index.ts`：`RuntimeOptions` 加 `idleActionsEnabled?`；`createRuntime()` 里
+     `step(world, commands, { idleBehaviors: idleActionsEnabled ? service.content().idleBehaviors() : [] })`。
+   - `src/index.ts`：`createRuntime({...})` 传入 `resolved.idleActionsEnabled`。
+   - `src/content/packs/default.ts`：look/pace/rest 三条 idle 行为**完整保留**（把上一轮"idle:null"的实验回滚了），
+     翻回开关即恢复。测试断言也从"0 条"改回"3 条"。
+2. **落点避开墙/家具**（`src/world/hangouts.ts`）：
+   - `PlaceHangoutsOptions` 加 `nav?: NavGrid | null`；`placeHangouts` 用 `walkableAt(nav,p)` 过滤候选，
+     墙是硬约束（退化路径②也保留）。
+   - `hangoutsForWorld(...)` 接 `nav` 并透传；`create.ts`/`reconcile.ts` 各自把 `nav` 提到 hangouts 调用之前。
+   - 只查**中心格**（角色半径 0.35 < 半格 1，见注释；先试过"中心+4 邻格"会把 8 个落点塌成 6 个）。
+
+### 验证（怎么跑的）
+- `typecheck` 绿；`pnpm test` **622 / 624 / 2 fail / 0 todo**（2 fail 是 `store.test.js` 写盘重试/同步 flush，**预先存在、与本轮无关**）。
+- 宿主重起（`dsh web`，3080）+ 清掉根 `.agent-world` 强制新建世界，`GET /api/world` 实测：
+  **8/8 agent 全在 WALK 格**（此前 agent-1(1.6,6.4)/agent-3(-6.4,-6.4)/agent-7(-6.4,6.4) 三人在 WALL 上，现已全部移开）。
+- 连续两次快照（tick 207→238，30 tick）：**moved 0/8**——无位移、无转向、无状态变化，待命冻结生效。
+
+### 🔍 顺手查清一个"假问题"（重要，别再踩）
+用户"刷新发现没修复 / 元素在不在引擎里"一度让我怀疑黑屏。逐层排掉后真相是：
+- **所有元素确实都在 Phaser 引擎里**：`scene.layers` = ground(1) + entities(42) + labels(12)，共 55 个显示对象。
+- 之前用 `readPixels`/`toDataURL` 读画布全是黑，是因为 Phaser 默认 `preserveDrawingBuffer: false`，
+  帧提交后缓冲区被清掉——**读的是清空后的缓冲，不是用户看到的画面**。
+- 用 Phaser `renderer.snapshot()`（在渲染周期内读）实测：**99.7% 非黑**，办公室地板/家具/角色/名字都在。
+  → 结论：**没有黑屏 bug**，之前截图工具也读到了被清空的缓冲。别再据此开"黑屏"这条线。
+
+### 下一轮从哪继续
+- M16-1：删死重量 `src/vendor/pixi` + kenney GLB（约 4.0M），见 `docs/BACKLOG.md`。
+- M18-1：walking 语义歧义（"走到工位"到底算不算完成）。
+- 可选：`preserveDrawingBuffer` 保持 false（性能优先），**验证渲染一律用 `renderer.snapshot()`，别用 readPixels/toDataURL/screenshot**。
+
+### 假设 / 卡住
+- 假设用户看到的不是黑屏（渲染正常），其真实抱怨就是"重叠 + 乱动"两条——本轮已修。
+- 2 个 store 测试失败是环境性（写盘失败重试 + stop 同步 flush），`store.ts`/`store.test.js` 本轮未碰，不追。
+
+---
+
 ## R72 —— 缩放不吸附 agent：只留力度控制 + 夹住最小/最大范围（用户修正）
 
 ### 起因（用户原话，R70 之后的修正）
@@ -69,11 +864,17 @@ R70 按用户第 1 条需求做了「默认固定缩放 + **镜头聚焦某个 a
 - `lib/web/scene/scene-phaser.js` 已同步（`copy-web` 原地写，`startFollow/focusAgent/followAgentId/setDeadzone` 计数 0）。
 - `docs/ARCHITECTURE.md` §5.1 的 `CameraRig` 一行改成事实：「俯视 2D（Phaser），缩放/平移/居中；**不吸附、不跟随任何角色**（R72）」。
 
-### ⚠️ 没验完的（如实记）
-**真机没跑**：这一轮宿主没在跑（`/agent-world/api/world` 在 19387 / 3080 / 3000 全 000/404，
-`job_list` 空），所以「点角色不再动镜头」「默认 2× 居中」「滚轮到顶/到底停在边界」这几点是
-**代码 + 纯逻辑保证**，还没在浏览器里亲眼确认。宿主起来后第一件事：打开 `/agent-world/`，
-滚轮放大到 6× 再滚确认停住、缩小到 fit 确认停住、点一个角色确认镜头不跳、按复位确认回到 2× 居中。
+### ✅ 真机补验（R73 补记）
+宿主重起后（`dsh web`，`http://127.0.0.1:3080/agent-world/`）实测**全部通过**：
+
+- **缩放边界**：连点放大停在 **6×**（上限），连点缩小停在 **1×**（fit 下限，本窗口 fit=1），
+  复位回 **2×**。`viewState()` 返回 `{zoom, fit, minZoom:1, maxZoom:6, canZoomIn, canZoomOut, fitted}`，
+  已无 `focusedAgentId` 字段；门面已无 `focusAgent`。
+- **点角色不动镜头**：点小铁（agent-3）后 `camera.scrollX/scrollY` 保持 `-700/-360`、zoom 保持 2，
+  对话面板照常打开（`工头阿金 · lead` 可见）——点人只开对话、镜头不跳，端到端确认。
+- **默认 2× 居中**：进场即 2×、`scroll` 在 `centerOnNextApply` 后居中于世界。
+
+「R72 没验完」这条作废，闭账。
 
 ---
 

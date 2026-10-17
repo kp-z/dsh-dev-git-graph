@@ -151,6 +151,7 @@ test('命令：判别式覆盖完整，且描述是可读中文', () => {
     { kind: 'dispatch', taskSet: 'task.quick-fix' },
     { kind: 'hire', role: 'engineer', name: null },
     { kind: 'setSpeed', speed: 2 },
+    { kind: 'moveAgent', agentId: 'agent-1', x: 1.5, z: -2.25 },
   ]
   for (const command of commands) {
     assert.ok(isWorldCommand(command), `${JSON.stringify(command)} 应当是合法命令`)

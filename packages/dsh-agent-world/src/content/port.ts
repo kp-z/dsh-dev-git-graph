@@ -208,11 +208,15 @@ export function contentPortOf(
       return out
     },
     /**
-     * 场景底图（R62）。取 `maps` 库里排在最前的那一条——底图是**整场景一张**，
-     * 不需要按 id 查（将来若要按场景切换，把这里换成"按 sceneId 查"即可，契约不变）。
+     * 场景底图（R62）。按场景 id 取：`scenes` 条目上的 `map` 字段指向 `maps` 库里的底图。
+     * 之前这里取"maps 库里第一条"——于是默认小镇也拿到原版办公室的底图，家具画了两遍
+     * （底图烘一遍 + 站点 props 再摆一遍）。改成按场景查：没声明底图就返回 null。
      */
-    map: () => {
-      const entry = registry.list('maps')[0]
+    map: (sceneId) => {
+      const sceneEntry = registry.get('scenes', sceneId)
+      const mapId = typeof sceneEntry?.data?.map === 'string' ? sceneEntry.data.map : null
+      if (mapId === null) return null
+      const entry = registry.get('maps', mapId)
       if (entry === undefined) return null
       const m = entry.data
       return { url: m.url, width: m.width, height: m.height, cellPx: m.cellPx, unitsPerCell: m.unitsPerCell }

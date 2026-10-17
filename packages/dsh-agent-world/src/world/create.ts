@@ -16,9 +16,10 @@ import {
 } from '../content/instantiate.js'
 import type { ContentRegistry } from '../content/registry.js'
 import { MAX_AGENTS } from '../domain/constants.js'
+import { angleTo } from '../domain/geometry.js'
 import { createRng, seedFromString } from '../domain/rng.js'
 import type { Task, World } from '../domain/types.js'
-import { hangoutsForWorld } from './hangouts.js'
+import { DEFAULT_MIN_GAP, hangoutsForWorld } from './hangouts.js'
 import { navFromMap } from './nav.js'
 
 /** 建世界的选项。 */
@@ -69,17 +70,35 @@ export function createWorld(options: CreateWorldOptions): World {
   const roster = content.require('rosters', scene.roster, `场景 ${scene.id} 引用的花名册`)
   const agents = instantiateAgents(roster, scene.spawn, maxAgents, rng, scene.agentModel)
 
+  // 导航网格（R64 物理）：从内容的地图派生。**必须在算歇脚点之前**——
+  // 歇脚点要避开墙（R75），而墙数据来自这张网格。
+  // 可行走网格也跟场景走：只有声明了 `map` 的场景才有（否则 null → 退回直线走）。
+  // 之前这里取 `list('maps')[0]`，默认小镇也拿到办公室的墙/家具碰撞，走位会撞上"看不见的墙"。
+  const nav = navFromMap(
+    typeof scene.map === 'string'
+      ? content.require('maps', scene.map, `场景 ${scene.id} 引用的底图`)
+      : null,
+  )
+
   // 待命的人站哪（BACKLOG M2.5-1 + R47 P0-1）。**不给的话他们会永远叠在出生点上**——
   // 因为角色只在被派活时才移动，从没被派过活的人一步都不会走。
   //
   // R47 修的那件事：落点还必须知道**家具占了哪儿**。原来只按地块几何摊栅格，
   // 于是"沙发上的三个角色"是必然的——布局算法根本不认识站点。
+  // R75：还得知道**墙在哪**——只避家具不避墙，人会站进墙里（真机：8 人里 3 个在墙上）。
   //
   // 算它的是 `hangoutsForWorld`（`hangouts.ts`）：**建世界与读档重算共用同一个函数**，
   // 否则两份实现会漂移，症状是"新开一局对、读旧档错"。
-  const hangouts = hangoutsForWorld(districts, stations, agents.length)
+  const hangouts = hangoutsForWorld(districts, stations, agents.length, DEFAULT_MIN_GAP, nav)
   agents.forEach((agent, i) => {
-    agent.hangout = hangouts[i % hangouts.length] ?? null
+    const hangout = hangouts[i % hangouts.length] ?? null
+    agent.hangout = hangout
+    if (hangout !== null) {
+      // 开局直接站在自己的歇脚点上（不再全部叠在出生点），并**面向房间中心**——
+      // 位置与朝向都确定，不是随机开局（用户："初始化位置也不对 / 不要搞得很随机"）。
+      agent.position = { ...hangout }
+      agent.facing = angleTo(hangout, { x: 0, z: 0 })
+    }
   })
 
   // 任务集按顺序实例化。`startIndex` 接着上一批的号往下排，保证跨集合也不撞 id。
@@ -102,10 +121,7 @@ export function createWorld(options: CreateWorldOptions): World {
     origin: { scene: scene.id, packs: content.packIds, taskSets },
     districts,
     stations,
-
-    // 导航网格（R64 物理）：从内容的地图派生，与 districts/stations 同一条规矩。
-
-    nav: navFromMap(content.list('maps')[0]?.data),
+    nav,
     agents,
     tasks,
     messages: [],

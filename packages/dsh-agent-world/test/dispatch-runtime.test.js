@@ -56,7 +56,8 @@ function fakeCtx(services = {}) {
 
 /** 建一个插件态（用内置内容）。 */
 function makeState(overrides = {}) {
-  return createPluginState(resolveConfig({ autoStart: false, ...overrides }))
+  // 派单测试固定 default-town：`task.quick-fix` 的目标站点（desk-a/b/c）都在这个场景里。
+  return createPluginState(resolveConfig({ autoStart: false, scene: 'scene.default-town', ...overrides }))
 }
 
 /** 造一个可控世界（不经过插件态），给纯运行时测试用。 */

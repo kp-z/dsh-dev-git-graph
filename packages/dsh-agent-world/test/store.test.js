@@ -190,7 +190,11 @@ test('同步读档与异步读档结果一致（解析只有一份实现）', as
 // ── 运行时：真的会写下去吗 ──────────────────────────────────────────────────
 
 function makeState(overrides = {}) {
-  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, ...overrides }))
+  // 落盘测试固定用 default-town（`makeWorld` 也用它）：这套测试要的是"落盘/恢复"的机制，
+  // 与生产默认的 office 场景无关。固定场景，避免 R75 的"换场景即重开"把恢复路径短路掉。
+  const state = createPluginState(
+    resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town', ...overrides }),
+  )
   state.ensureWorld()
   return state
 }
@@ -291,6 +295,7 @@ test('运行时：写盘失败 → 计数 + 事件**留着重试**，不静默�
   const runtime = createRuntime({
     service: state,
     tickMs: 100,
+    idleActionsEnabled: true,
     persist: { store: flaky, checkpointEveryTicks: 10 },
     onError: (e) => errors.push(e),
   })
@@ -330,6 +335,7 @@ test('运行时：stop 走**同步**刷盘——关停后立刻检查，文件�
   const runtime = createRuntime({
     service: state,
     tickMs: 100,
+    idleActionsEnabled: true,
     persist: { store, checkpointEveryTicks: 100_000 },
   })
 
@@ -359,12 +365,12 @@ test('运行时：没配 persist 就什么都不写（世界只活在内存里�
 test('恢复：新起的插件状态把上次的世界接回来，并记录来源', async () => {
   const dir = await tempDir()
 
-  const first = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), { storeDir: dir })
+  const first = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), { storeDir: dir })
   const world = first.ensureWorld()
   world.tick = 77
   await createWorldStore(dir).saveWorld(world, PACKS)
 
-  const second = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), { storeDir: dir })
+  const second = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), { storeDir: dir })
   const restored = second.ensureWorld()
 
   assert.equal(restored.tick, 77, '应当接回存档里的世界，而不是新开一局')
@@ -376,7 +382,7 @@ test('恢复：新起的插件状态把上次的世界接回来，并记录来�
 })
 
 test('恢复：新开的局 restoredFrom() 是 null', () => {
-  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), {
+  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), {
     storeDir: join(tmpdir(), 'agent-world-绝对不存在的目录'),
   })
   state.ensureWorld()
@@ -389,7 +395,7 @@ test('恢复：存档里的场景在当前内容里不存在 → **拒绝采用*
   world.tick = 99
   await createWorldStore(dir).saveWorld({ ...world, origin: { ...world.origin, scene: 'scene.根本没有' } }, PACKS)
 
-  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), { storeDir: dir })
+  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), { storeDir: dir })
   const fresh = state.ensureWorld()
 
   assert.notEqual(fresh.tick, 99, '场景都不在，接回来只会得到一块空画布')
@@ -404,7 +410,7 @@ test('恢复：存档坏了 → 照样能起来，并记一条 warning（坏存�
   const dir = await tempDir()
   await writeFile(join(dir, WORLD_FILE), '{ 这不是 json', 'utf8')
 
-  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), { storeDir: dir })
+  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), { storeDir: dir })
   const fresh = state.ensureWorld() // 不抛
 
   assert.ok(fresh.id.length > 0, '应当新开了一局')
@@ -420,7 +426,7 @@ test('恢复：内容包版本不一致 → **照常采纳**，但把差异写�
   world.tick = 12
   await createWorldStore(dir).saveWorld(world, [{ id: 'pack.default', version: '9.9.9' }])
 
-  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), { storeDir: dir })
+  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), { storeDir: dir })
   const restored = state.ensureWorld()
 
   assert.equal(restored.tick, 12, '内容升级本来就该改变表现——不该因此拒绝旧存档')
@@ -437,7 +443,7 @@ test('恢复：场景还在，但站点/角色被内容改动过 → 仍采纳�
   world.tick = 5
   await createWorldStore(dir).saveWorld(world, PACKS)
 
-  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), { storeDir: dir })
+  const state = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), { storeDir: dir })
   const restored = state.ensureWorld()
   assert.equal(restored.tick, 5)
   assert.equal(restored.agents.length, world.agents.length)
@@ -449,7 +455,7 @@ test('恢复：场景还在，但站点/角色被内容改动过 → 仍采纳�
 test('端到端：跑一段 → 落盘 → 新起一个状态 → 世界接着跑（重启不丢）', async () => {
   const dir = await tempDir()
 
-  const first = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), { storeDir: dir })
+  const first = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), { storeDir: dir })
   first.ensureWorld()
   first.dispatch('task.quick-fix')
   const runtime1 = createRuntime({
@@ -460,7 +466,7 @@ test('端到端：跑一段 → 落盘 → 新起一个状态 → 世界接着�
   runtime1.advance(400)
   await runtime1.flush()
 
-  const second = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0 }), { storeDir: dir })
+  const second = createPluginState(resolveConfig({ autoStart: false, persistEveryTicks: 0, scene: 'scene.default-town' }), { storeDir: dir })
   const restored = second.ensureWorld()
 
   assert.equal(restored.tick, 400)

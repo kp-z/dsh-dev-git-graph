@@ -94,9 +94,10 @@ export interface ContentPort {
 
   /**
    * 场景底图（R62）。与 `actions()` 同理：渲染器读不到内容库，
-   * 底图必须由服务端算好随 `ScenePlan` 发出去。没有底图时返回 null（渲染器按分区铺色）。
+   * 底图必须由服务端算好随 `ScenePlan` 发出去。按场景 id 取——只有声明了 `map` 的场景
+   * （如原版办公室）才有底图；没有时返回 null（渲染器按分区铺色）。
    */
-  map(): SceneMap | null
+  map(sceneId: string): SceneMap | null
   /**
    * **待命行为目录**（R68）——给模拟内核用的纯数据投影。
    *

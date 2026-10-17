@@ -407,7 +407,10 @@ test('干活：完工后下游变可领取（四段串起来能跑通一条流�
   for (const t of world.tasks) t.estimateTicks = 3
 
   let guard = 0
-  while (guard++ < 200) {
+  // R73.5：开局不再全部叠在出生点，而是站在各自的歇脚点上——歇脚点在广场（南侧），
+  // 而工位在北侧，走过去的距离比"出生点就在工位旁"远得多，200 tick 不够走到。
+  // 预算放宽到 600 tick（纯走路时间，不影响"流水线能跑通"这个断言本身）。
+  while (guard++ < 600) {
     recomputeReady(world)
     claimTasks(world)
     advanceMovement(world)

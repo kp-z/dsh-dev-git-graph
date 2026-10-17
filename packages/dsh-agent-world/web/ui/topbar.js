@@ -19,10 +19,15 @@
  * @param {object} options
  * @param {HTMLElement} options.root - 顶栏容器。
  * @param {(kind: 'pause'|'resume') => void} options.onCommand
- * @param {() => void} [options.onToggleDrawer]
  * @param {Document} [options.document]
  */
 import { agentStateLabel } from './labels.js'
+
+/**
+ * 标题覆盖存在 localStorage 里的键（用户"自己更改"的标题要跨刷新存活）。
+ * 值经过 `trim`；空串等同"没改过"，删掉回落到世界名。
+ */
+const TITLE_OVERRIDE_KEY = 'agent-world:brand-name'
 
 export function createTopbar(options) {
   const doc = options.document ?? globalThis.document
@@ -35,7 +40,7 @@ export function createTopbar(options) {
   const $status = ready ? (root.querySelector('.topbar-status') ?? doc.querySelector('.topbar-status')) : null
   const $pause = ready ? root.querySelector('#cmd-pause') : null
   const $resume = ready ? root.querySelector('#cmd-resume') : null
-  const $drawer = ready ? root.querySelector('#drawer-toggle') : null
+  const $brandName = ready ? root.querySelector('#brand-name') : null
   let lastSignature = null
 
   const chip = (text, tone, extra = '') =>
@@ -44,7 +49,73 @@ export function createTopbar(options) {
   if (ready) {
     $pause?.addEventListener('click', () => options.onCommand?.('pause'))
     $resume?.addEventListener('click', () => options.onCommand?.('resume'))
-    $drawer?.addEventListener('click', () => options.onToggleDrawer?.())
+
+    // ── 可编辑标题（R74）─────────────────────────────────────────────────────
+    // 读 localStorage 的覆盖（有就先用，比 HTML 里的占位更早生效），
+    // 然后监听编辑动作：回车/失焦 = 提交，Esc = 还原。
+    if ($brandName) {
+      let titleOverride = readTitleOverride(doc)
+      if (titleOverride !== null) $brandName.textContent = titleOverride
+
+      $brandName.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          $brandName.blur()
+        } else if (event.key === 'Escape') {
+          $brandName.textContent = titleOverride ?? options.worldName ?? 'Agent World'
+          $brandName.blur()
+        }
+      })
+      $brandName.addEventListener('blur', () => {
+        const next = ($brandName.textContent ?? '').replace(/\s+/g, ' ').trim()
+        if (next === '') {
+          // 清空 = 放弃覆盖，回到世界名。
+          titleOverride = null
+          removeTitleOverride(doc)
+          $brandName.textContent = options.worldName ?? 'Agent World'
+          return
+        }
+        titleOverride = next
+        $brandName.textContent = next
+        saveTitleOverride(doc, next)
+      })
+    }
+  }
+
+  /**
+   * 世界名到了（快照里带下来）。**只在没有用户覆盖时**才改标题——
+   * 用户自己敲进去的名字是显式的，不能被后端回传的世界名冲掉。
+   */
+  function setWorldName(name) {
+    if (!$brandName) return
+    // 用户正在敲标题时，别用后端回传的世界名覆盖他的输入（重连/快照补拉会撞上）。
+    if (doc.activeElement === $brandName) return
+    const override = readTitleOverride(doc)
+    $brandName.textContent = override ?? name ?? 'Agent World'
+  }
+
+  function readTitleOverride(d) {
+    try {
+      const raw = d.defaultView?.localStorage.getItem(TITLE_OVERRIDE_KEY) ?? null
+      return raw === null || raw.trim() === '' ? null : raw
+    } catch {
+      // localStorage 不可用（隐私模式 / 沙箱）：退化成"只在本会话生效"。
+      return null
+    }
+  }
+  function saveTitleOverride(d, value) {
+    try {
+      d.defaultView?.localStorage.setItem(TITLE_OVERRIDE_KEY, value)
+    } catch {
+      /* 同上：存不了就算了，标题仍在本会话内生效。 */
+    }
+  }
+  function removeTitleOverride(d) {
+    try {
+      d.defaultView?.localStorage.removeItem(TITLE_OVERRIDE_KEY)
+    } catch {
+      /* 同上 */
+    }
   }
 
   /**
@@ -110,9 +181,6 @@ export function createTopbar(options) {
   return {
     ready,
     render,
-    /** 抽屉开关按钮的选中态（别的地方也能开抽屉）。 */
-    setDrawerOpen(open) {
-      $drawer?.classList.toggle('active', open)
-    },
+    setWorldName,
   }
 }

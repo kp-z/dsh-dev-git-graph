@@ -189,7 +189,7 @@
 | M15-3 | done（R64/task-22） | **subagent 支持上下左右与移动动作**（用户需求③）：R60 已把 `walk.<dir>` 接进内容库与动作映射，但**渲染层是否按方向播对应动画**、以及"坐着/站着"的切换没在真机上逐个验过。要：点一个 subagent，让他朝四个方向各走一段，逐个截图确认动画与朝向对得上 | `web/scene/` + 验证 | M15-2 | 用户明确要求 |
 | M15-4 | ready | **真机手按验证键盘 WASD 四个方向**（R65 只验到 `D` 往右）。⚠️ 前提：标签页必须在前台（`document.hidden === false` **且帧计数器在动**）——后台标签页 Phaser 的 rAF 不推进，4 秒 0 帧。做法：切到前台 → 逐键按 A/D/W/S → 读 `camera.scrollX/scrollY` 的方向与 `KEY_SPEED` 是否吻合 → 再验松键立刻停 | `web/` 无需改（纯验证） | —— | R65 遗留 |
 | M16-1 | ready | **删掉剩余的 4.0M 死重量**（R66 清点）：`src/vendor/pixi` 656K（R58 换 Phaser 后 import map 已删、无人引用）+ `kenney-mini-characters` 2.9M + `kenney-furniture` 432K（全是 3D 的 GLB，白名单里 43 个 `.glb`）。删它们要**同时**改 `src/routes/vendor.ts` 白名单 + 相关测试（`test/vendor.test.js` 等），否则白名单会指向不存在的文件 | `src/vendor/`、`src/routes/vendor.ts`、`test/` | —— | R66 清点 |
-| M16-2 | ready | **`docs/ARCHITECTURE.md` 第 1 节还在讲「技术选型：three.js」**（R66）：3D 已删、Phaser 是唯一渲染器，那一节与现实不符。要改成「技术选型：Phaser 3.90」，并把 three 的取舍移到历史决策里（D51/D53 已经记了过程） | `docs/ARCHITECTURE.md` | —— | R66 发现 |
+| M16-2 | done（R69） | **`docs/ARCHITECTURE.md` 第 1 节还在讲「技术选型：three.js」**（R66）：3D 已删、Phaser 是唯一渲染器，那一节与现实不符。要改成「技术选型：Phaser 3.90」，并把 three 的取舍移到历史决策里（D51/D53 已经记了过程） | `docs/ARCHITECTURE.md` | —— | R66 发现 |
 | M17-1 | done（R69，**结论已改正**） | **待命行为的"动画带"上不了屏**（R68）：渲染器 `bandOfState` 取该状态下**权重最大**的带，而 `SceneActor` 上没有"本 tick 的动作"字段 → 待命角色**永远播站立/转身**，踱步的"走"和 `rest` 的"坐"这两个带看不出来（位置与朝向变化照常可见）。要按角色覆盖带，需要 `web/` + 协议加字段（`SceneActor` 带 `band`，或 `ScenePlan.actions` 支持按角色覆盖） | `src/protocol/scene.ts`、`src/scene/plan.ts`、`web/scene/` | —— | R68 已知代价 |
 | M17-2 | ready | **`stalled` 非空时的真实显示没验**（R67）：`runtime.diagnostics.stalled` 在真机上一直是 `[]`（没有单被调度器卡着）。面板侧的"字段→Map→详情"链路验过、空数组不显示也验过，但**非空样本没跑过**。要造出 `no-station`（把某张 ready 单的 `requires` 改成没有工位提供的能力）或 `no-worker`（全员忙）的场景，然后看详情里的「⏳ 调度器现在不派它」是否显示正确 | 无需改代码（纯验证） | —— | R67 遗留 |
 | M17-3 | ready | **`rest` 复用了 `sleeping` 状态**（R68）：它是唯一带 `sit` 带的状态，但 `scheduler.ts` 只从 `idle` 里挑人 → 坐着的人拿不到活。当前对策是"只要有 `ready` 工单就立刻叫起来"（有单测钉着）。更干净的做法是给"坐着待命"一个自己的状态或给调度器加一条"从 sleeping 里也能叫人"的规则 | `src/domain/types.ts`、`src/sim/scheduler.ts` | —— | R68 已知代价 |
@@ -325,6 +325,19 @@
 | # | 状态 | 任务 | 产出 | 依赖 |
 |---|---|---|---|---|
 | M9-1 | blocked | README / 安装脚本 / 装进 web profile 并验证 | `README.md` `scripts/` | M7-3 |
+
+---
+
+## M20 — 朝向/动画遗留（R88 独立评审发现，均已实测复现）
+
+| # | 状态 | 任务 | 产出 | 依赖 | 备注 |
+|---|---|---|---|---|---|
+| M20-1 | ready | **`moveAgent` 命令带上 `facing`**（R88 的 I-1）。现状：`src/protocol/wire/commands.ts:63` 的 `moveAgent` 只有 `{agentId,x,z}`，`src/sim/step.ts` 的 `moveAgent` 分支也只写位置 → 玩家键盘走完松开后，交回服务端时朝向会跳回**服务端记着的旧朝向**（实测：`agent-2` 按住 D 播 `walk-right`，松键后 ≤250ms 变回 `idle-left`，因为服务端 `facing=-3.0648`）。且松键到下一次 `render`（`main.js:437` 的 250ms 定时器）之间，`walk-*` 姿势会滞留 → 用户看到的"朝向突然一变 / 两个状态切换"以此弱化形式残留。⚠️ **属协议变更**，三处要一起改：`commands.ts` 的命令形状 + `step.ts` 写 `agent.facing` + `web/main.js:140` 的 `onAgentMoveSettled` 传方向（方向从 `scene-phaser.js` 的 `tickManualMovement` 里已知的 `lastDir`/`atan2` 取） | `src/protocol/wire/commands.ts`、`src/sim/step.ts`、`web/main.js`、`web/scene/scene-phaser.js` + 回归 | —— | R88 评审实测 |
+| M20-2 | ready | **取消选中时不清 `body.velocity`**（R88 的 I-2）：`scene-phaser.js` 的 `clearSelection()`（`19730ffb` 的 `:1010`） 只清 `selectedAgentId` / `manualPositionIds`，而 `tickManualMovement` 的第一行 `selectedAgentId === null` → `entry === undefined` → `body === null` → **`:1169` 直接 return**，永远走不到 `:1174` 的 `body.setVelocity(0,0)`。实测：按住 D 时 Esc，`vx` 仍是 72，随后 260ms 内精灵 `x` 又滑 **5.8px** 才被下一次 `render` 的 `moveActorTo` 拽回。修法很小：`clearSelection()` 里对那只精灵显式 `body?.setVelocity(0,0)`；或把早退分支改成"先给上一只被接管的精灵清零再 return" | `web/scene/scene-phaser.js` | —— | R88 评审实测 |
+| M20-3 | ready | **"不知道朝向"要显式表达，别再静默变 `right`**（R88 的 I-3）。现状四处三种写法：`scene-layout.js:50` 的 `directionOf` 对非有限值兜 `0`（=**right**，实测 `directionOf(null)==='right'`）／`scene-layout.js:323` 的 `liveActors` 兜 `π/2`（=down，**只是把"朝右"换成"朝下"，治标**）／`world-update.js:61` 用 `Number.isFinite`（正确）／`world-update.js:74,86` 用 `typeof === 'number'`（**放行 `NaN`**，实测能把 `agent.facing` 写成 `NaN`，只靠 `liveActors` 才兜住）。建议：让 `directionOf` 对非有限值返回 `null`（调用点显式决定），或四条入口统一 `Number.isFinite`，并在 `src/sim/emit.ts:165` 发帧事件处断言有限 | `web/core/scene-layout.js`、`web/core/world-update.js`、`src/sim/emit.ts` | —— | R88 评审实测（纯函数 node 复现） |
+| M20-4 | ready | **`scene-phaser.js` 的 `entry.sprite.setOrigin(ox, oy)`（`:1729`）每次 render 无条件调**（R88 的 I-4）：与帧无关（不重置帧，实测 8 次 render 全一致），但白做——实测 8 次 render = 64 次调用。改成"只在 `originX/Y` 变了才设"即可，顺带给 R85 那类"每帧写显示属性"的写法立个规矩 | `web/scene/scene-phaser.js` | —— | 性能 / 一致性 |
+| M20-5 | ready | **`drawProps` 里与 R85 同类的写法**（R88 的 I-5）：`scene-phaser.js` 的 `drawProps` 里 `node.setTexture(key)`（`:1554`）每次 render 无条件调、`node.setFrame(...)`（`:1628`）同样。当前是静态家具图（无动画），**看不出问题**，所以 R85 当时判"风险低、暂不动"是对的；但它和真凶是同一个写法，将来家具一旦带动画就会复活同一个 bug。至少加一行注释指回 R85，或一并改成条件式 | `web/scene/scene-phaser.js` | —— | 同类风险面 |
+| M20-6 | ready | **验证读精灵的正确入口**（R88 踩到，写死以免下次再摸）：`__agentWorldPhaser.scene()` 上**看不到 `actorNodes`**（它是闭包变量），要读某只角色的精灵必须遍历 `scene.layers.entities.list` 并按 `getData('actorId')` 过滤。另：后台标签页里用 `new Promise` + `requestAnimationFrame` 采样会直接把 CDP 调用拖到 **20s 超时**；可靠手法是「手动 `scene.update(0,16)` 推帧 + `dialogue.open()` 触发 `render`」，或用 `setTimeout` 轮询且总时长 <1.2s | `docs/VERIFICATION.md` | —— | 验证手法 |
 
 ---
 

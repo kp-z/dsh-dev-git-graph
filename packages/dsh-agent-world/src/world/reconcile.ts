@@ -61,7 +61,7 @@ import type { ContentRegistry } from '../content/registry.js'
 import { slotsFor } from '../domain/constants.js'
 import { distance } from '../domain/geometry.js'
 import type { Agent, District, Station, World } from '../domain/types.js'
-import { hangoutsForWorld } from './hangouts.js'
+import { DEFAULT_MIN_GAP, hangoutsForWorld } from './hangouts.js'
 import { navFromMap } from './nav.js'
 
 /** "他确实停在旧落点上"的容差（世界单位）。理由见文件头。 */
@@ -245,8 +245,16 @@ export function reconcileWorld(world: World, content: ContentRegistry): Reconcil
     })
   }
 
-  // ── 落点：由地块几何 + 站点占位重算（与建世界同一个函数，保证不漂移）──
-  const hangouts = hangoutsForWorld(districts, stations, world.agents.length)
+  // ── 导航网格（派生量，与建世界同一个来源）——**在算落点之前**，落点要避开墙。──
+  // 与 `createWorld` 同一条规则：只有声明了 `map` 的场景才有可行走网格（否则 null → 直线走）。
+  const nav = navFromMap(
+    typeof scene.map === 'string'
+      ? content.require('maps', scene.map, `场景 ${scene.id} 引用的底图`)
+      : null,
+  )
+
+  // ── 落点：由地块几何 + 站点占位 + 墙重算（与建世界同一个函数，保证不漂移）──
+  const hangouts = hangoutsForWorld(districts, stations, world.agents.length, DEFAULT_MIN_GAP, nav)
 
   const agents: Agent[] = []
   const movedIdle: string[] = []
@@ -314,7 +322,7 @@ export function reconcileWorld(world: World, content: ContentRegistry): Reconcil
       districts,
       stations,
       agents,
-      nav: navFromMap(content.list('maps')[0]?.data),
+      nav,
     },
     changes,
     warnings,

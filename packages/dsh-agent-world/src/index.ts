@@ -207,6 +207,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   const runtime = createRuntime({
     service: state,
     tickMs: state.tickMs,
+    idleActionsEnabled: resolved.idleActionsEnabled,
     sink: hub,
     ...(storeDir === null
       ? {}

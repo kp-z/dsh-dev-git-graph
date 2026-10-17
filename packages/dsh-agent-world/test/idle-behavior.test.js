@@ -27,6 +27,7 @@ import { step } from '../lib/sim/step.js'
 import { advanceIdle } from '../lib/sim/idle.js'
 import { advanceMovement } from '../lib/sim/movement.js'
 import {
+  LOOK_HOLD_SLOTS,
   quarterFacing,
   quarterOf,
   idleSlotAt,
@@ -65,6 +66,21 @@ function idleBehaviorsFromContent() {
   return service.content().idleBehaviors()
 }
 
+/**
+ * 一份**固定**的待命行为目录（R75 起用）。
+ *
+ * R75 的"冻结待命"移到了**运行时开关** `idleActionsEnabled`（默认 false）：运行时给 `step()`
+ * 注入空目录，于是待命的人站定不动；内容层**仍保留三条待命动作**（翻回开关即恢复）。
+ * 所以这里不再从内容取目录——用一份合成目录驱动 sim，把"sim 的待命行为能力"与"当前内容
+ * 关没关行为"解耦：内容可以关掉行为，但 sim 拿到目录就必须照常演出，否则以后要恢复行为时
+ * 能力已经悄悄烂掉，而测试全绿——那是假绿。
+ */
+const SYNTHETIC_BEHAVIORS = [
+  { id: 'action.idle.look', kind: 'look', weight: 4, ticksMin: 40, ticksMax: 90, radius: 0 },
+  { id: 'action.idle.pace', kind: 'pace', weight: 1, ticksMin: 60, ticksMax: 120, radius: 1.4 },
+  { id: 'action.idle.rest', kind: 'rest', weight: 1, ticksMin: 120, ticksMax: 200, radius: 0 },
+]
+
 /** 跑 N tick，每步都带上目录。 */
 function run(world, ticks, behaviors) {
   for (let i = 0; i < ticks; i += 1) step(world, [], { idleBehaviors: behaviors })
@@ -79,44 +95,44 @@ function idleFingerprint(world) {
     .sort()
 }
 
-test('待命行为：目录来自内容库（三条、覆盖 look/pace/rest）', () => {
+test('待命行为：R75 冻结在运行时，内容目录仍完整保留三条（翻回开关即恢复）', () => {
   const behaviors = idleBehaviorsFromContent()
-  const ids = behaviors.map((behavior) => behavior.id)
-  assert.ok(behaviors.length >= 3, `内容里应当有待命行为，实际 ${behaviors.length} 条：${ids.join(' / ')}`)
-  const kinds = new Set(behaviors.map((behavior) => behavior.kind))
-  for (const kind of ['look', 'pace', 'rest']) {
-    assert.ok(kinds.has(kind), `目录里缺 ${kind}：${ids.join(' / ')}`)
-  }
-  for (const behavior of behaviors) {
-    assert.ok(behavior.ticksMin > 0, `${behavior.id}.minTicks 必须 > 0`)
-    assert.ok(behavior.ticksMax >= behavior.ticksMin, `${behavior.id} 的 maxTicks 不能小于 minTicks`)
-    assert.ok(behavior.radius >= 0, `${behavior.id}.radius 必须非负`)
-  }
+  const ids = behaviors.map((behavior) => behavior.id).sort()
+  assert.deepEqual(
+    ids,
+    ['action.idle.look', 'action.idle.pace', 'action.idle.rest'],
+    `内容层的待命行为目录应仍是 look/pace/rest 三条（R75 只是运行时关掉，不删内容），` +
+      `实际 ${behaviors.length} 条：${ids.join(' / ')}`,
+  )
+  // "关行为"是运行时开关（`idleActionsEnabled=false` 注入空目录），不是删内容；
+  // sim 拿到目录照常演出的能力由下面用 SYNTHETIC_BEHAVIORS 驱动的那组测试守着。
 })
 
-test('待命行为：权重最大的那条是 look（渲染器按最大权重取带，权重配错会换掉全体待命表现）', () => {
-  const behaviors = idleBehaviorsFromContent()
-  let top = behaviors[0]
-  for (const behavior of behaviors) {
-    if (behavior.weight > top.weight) top = behavior
+test('待命动作里 look 权重最高（band 映射与恢复待命行为后都靠它）', () => {
+  const actions = actionsFromContent()
+  const idleActions = actions.filter((action) => action.band === 'idle')
+  assert.ok(idleActions.length > 0, '应当有待命动作（band=idle）')
+  let top = idleActions[0]
+  for (const action of idleActions) {
+    if (action.weight > top.weight) top = action
   }
   assert.equal(
-    top.kind,
-    'look',
-    `权重最大的是 ${top.id}（${top.kind}，${top.weight}）。渲染器的 bandOfState 取该状态下权重最大的动作` +
+    top.id,
+    'action.idle.look',
+    `待命动作里权重最大的是 ${top.id}（${top.weight}）。渲染器的 bandOfState 取该状态下权重最大的动作` +
       '决定播哪条带，所以这里必须是 look——否则全体待命角色会一起换姿势。',
   )
 })
 
 test('确定性：同 seed + 同目录跑 800 tick，两个世界逐字节一致', () => {
-  const behaviors = idleBehaviorsFromContent()
+  const behaviors = SYNTHETIC_BEHAVIORS
   const a = run(makeWorld({ name: 'same-seed' }), 800, behaviors)
   const b = run(makeWorld({ name: 'same-seed' }), 800, behaviors)
   assert.equal(JSON.stringify(a), JSON.stringify(b), '同 seed 的两个世界必须逐字节一致')
 })
 
 test('确定性：800 tick 里待命的人**确实在动**（不是"因为没变化所以相等"）', () => {
-  const behaviors = idleBehaviorsFromContent()
+  const behaviors = SYNTHETIC_BEHAVIORS
   const world = makeWorld({ name: 'moving' })
   const seen = new Set()
   for (let i = 0; i < 800; i += 1) {
@@ -138,7 +154,7 @@ test('确定性：800 tick 里待命的人**确实在动**（不是"因为没变
 })
 
 test('确定性：不同 seed 会分叉（否则"确定性"是假的）', () => {
-  const behaviors = idleBehaviorsFromContent()
+  const behaviors = SYNTHETIC_BEHAVIORS
   const a = run(makeWorld({ name: 'seed-a' }), 400, behaviors)
   const b = run(makeWorld({ name: 'seed-b' }), 400, behaviors)
   assert.notEqual(JSON.stringify(a), JSON.stringify(b), '不同 seed 必须走出不同的世界')
@@ -162,7 +178,7 @@ test('不传目录 = 老行为：站在歇脚点上的人不会自己动（回�
 })
 
 test('待命的人真的会动：换朝向或挪位置（用同一个角色的采样，不靠"多数人"兜底）', () => {
-  const behaviors = idleBehaviorsFromContent()
+  const behaviors = SYNTHETIC_BEHAVIORS
   const world = makeWorld({ name: 'one-agent-moving' })
   const agent = world.agents[0]
   assert.ok(agent !== undefined && agent.hangout !== null)
@@ -177,8 +193,8 @@ test('待命的人真的会动：换朝向或挪位置（用同一个角色的�
   assert.ok(poses.size > 1, `2000 tick 里这个待命角色只有一种姿态（${poses.size} 种）——他没在动`)
 })
 
-test('行为由内容驱动：把 pace 从目录里摘掉，就再也不会有踱步', () => {
-  const behaviors = idleBehaviorsFromContent()
+test('行为由目录驱动：把 pace 从目录里摘掉，就再也不会有踱步', () => {
+  const behaviors = SYNTHETIC_BEHAVIORS
   const withoutPace = behaviors.filter((behavior) => behavior.kind !== 'pace')
   assert.ok(withoutPace.length > 0 && withoutPace.length < behaviors.length, '目录应当既有 pace 也有别的')
 
@@ -200,7 +216,7 @@ test('行为由内容驱动：把 pace 从目录里摘掉，就再也不会有�
 })
 
 test('待命的人不占工位：跑 600 tick，待命角色不挂站点、也不占任何工位', () => {
-  const behaviors = idleBehaviorsFromContent()
+  const behaviors = SYNTHETIC_BEHAVIORS
   const world = makeWorld({ name: 'no-takeover' })
   // 派一单出去，让"有人在干活"和"有人待命"同时存在。
   step(world, [{ kind: 'dispatch', taskSet: 'task.quick-fix' }], { idleBehaviors: behaviors })
@@ -215,7 +231,7 @@ test('待命的人不占工位：跑 600 tick，待命角色不挂站点、也�
 })
 
 test('不卡派工：有待领工单时没人还坐着（scheduler 只从 idle 里挑人）', () => {
-  const behaviors = idleBehaviorsFromContent()
+  const behaviors = SYNTHETIC_BEHAVIORS
   const world = makeWorld({ name: 'no-stall' })
   step(world, [{ kind: 'dispatch', taskSet: 'task.quick-fix' }], { idleBehaviors: behaviors })
   for (let i = 0; i < 600; i += 1) {
@@ -241,18 +257,26 @@ test('跨层一致：sim 的四方向量化与渲染器的 directionOf 在同一
   }
 })
 
-test('张望：相邻两槽必然换一个方向，且同一槽反复调用不漂', () => {
+test('张望：隔 LOOK_HOLD_SLOTS 槽才换一次方向，且同一槽反复调用不漂', () => {
   for (const seed of [1, 42, 999, 123456]) {
     for (const agentId of ['agent-1', 'agent-7', 'agent-13']) {
       for (let slot = 1; slot < 60; slot += 1) {
         const now = quarterOf(lookFacing(seed, agentId, slot))
         const before = quarterOf(lookFacing(seed, agentId, slot - 1))
-        assert.notEqual(
-          now,
-          before,
-          `seed=${seed} ${agentId} 第 ${slot} 槽与上一槽同方向 —— 图集只有四向，"张望"就看不见了`,
-        )
-        // 幂等：这就是"一槽只写一次"赖以成立的性质（不是相对旋转）。
+        if (slot % LOOK_HOLD_SLOTS === 0) {
+          assert.notEqual(
+            now,
+            before,
+            `seed=${seed} ${agentId} 第 ${slot} 槽是换方向的边界，方向却没变`,
+          )
+        } else {
+          assert.equal(
+            now,
+            before,
+            `seed=${seed} ${agentId} 第 ${slot} 槽不该换方向却换了（人物会一直原地旋转）`,
+          )
+        }
+        // 幂等：这就是"隔几槽只写一次"赖以成立的性质（不是相对旋转）。
         assert.equal(lookFacing(seed, agentId, slot), lookFacing(seed, agentId, slot))
       }
     }
@@ -278,7 +302,7 @@ test('四方向角度与下标一一对应（quarterFacing / quarterOf 互逆）
 })
 
 test('槽长取目录里最长的 maxTicks（换内容就换节奏，代码里没有魔法数）', () => {
-  const behaviors = idleBehaviorsFromContent()
+  const behaviors = SYNTHETIC_BEHAVIORS
   const longest = Math.max(...behaviors.map((behavior) => behavior.ticksMax))
   assert.equal(slotTicks(behaviors), longest)
   assert.equal(slotTicks([]), 1, '空目录也要给一个正的槽长，不能是 0（否则除零）')

@@ -124,8 +124,10 @@ export function instantiateAgents(
     modelId: seat.appearance ?? defaultAppearance,
     state: 'idle' as const,
     position: { ...spawn },
-    // 初始朝向来自 rng：同一个 seed 得到同一个朝向，可复现。
-    facing: rng.range(0, Math.PI * 2),
+    // 初始朝向**固定朝下（面向观众）**，不再 `rng.range(0, 2π)`——那会让开局 8 个人
+    // 东一个西一个地乱转，看起来像"随机出来的残局"。真正的朝向由 `world/create.ts`
+    // 在分配歇脚点后改成"面向房间中心"，这里只是兜底（没有歇脚点时也体面）。
+    facing: Math.PI / 2,
     station: null,
     targetStation: null,
     path: [],

@@ -77,6 +77,14 @@ export interface RuntimeOptions {
   onTick?: (tick: number) => void
   /** 落盘。不传则世界只活在内存里。 */
   persist?: PersistOptions
+  /**
+   * 是否让待命的人做自主动作（张望/踱步/歇息）。
+   *
+   * R75 默认 **false**（用户："先让 agent 不进行任何动作"）。`false` 时 `step()` 拿到的
+   * 待命行为目录是空数组，待命的人走到歇脚点就站定，不转头、不踱步、不坐下。
+   * 这是**运行时**的开关，内容侧一字不改——翻回 `true` 即可恢复原有待命行为。
+   */
+  idleActionsEnabled?: boolean
 }
 
 /** 世界运行时。实现协议层的 `RuntimePort`（路由只认那个接口）。 */
@@ -114,6 +122,7 @@ export interface Runtime extends RuntimePort {
  */
 export function createRuntime(options: RuntimeOptions): Runtime {
   const { service, tickMs, persist } = options
+  const idleActionsEnabled = options.idleActionsEnabled ?? false
   const sink = options.sink ?? nullEventSink
   const diagnostics: RuntimeDiagnostics = {
     ticks: 0,
@@ -253,7 +262,11 @@ export function createRuntime(options: RuntimeOptions): Runtime {
       // 用可选第三参注入则 `World` 形状不变、存档 schema 不变、现有调用点一行不改。
       //
       // 内容拿不到时传空数组 → `step` 退回"待命的人站着不动"，那是如实退化。
-      result = step(world, commands, { idleBehaviors: service.content().idleBehaviors() })
+      // R75：`idleActionsEnabled=false` 时**故意**传空数组 → 同样的退回路径变成
+      // 设计开关（"先让 agent 不进行任何动作"），内容侧仍保留三条待命行为、翻回即恢复。
+      result = step(world, commands, {
+        idleBehaviors: idleActionsEnabled ? service.content().idleBehaviors() : [],
+      })
     } catch (error) {
       diagnostics.errors += 1
       options.onError?.(error)

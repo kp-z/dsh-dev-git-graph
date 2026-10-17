@@ -260,10 +260,15 @@ export const defaultPack: ContentPack = {
     // （需要按角色覆盖带，那是 web/ + 协议层的事），位置与朝向的变化照样看得见。
     actions: [
       { id: 'action.idle', name: '待命', state: 'idle', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.6, fadeMs: 200, idle: null },
-      // 张望：4~9 秒（**10 tick = 1 秒**，默认 tickMs=100）。
-      { id: 'action.idle.look', name: '张望', state: 'idle', clip: null, band: 'idle', weight: 4, loop: true, speedScale: 0.6, fadeMs: 250, idle: { kind: 'look', ticksMin: 40, ticksMax: 90, radius: 0 } },
-      // 踱步：6~12 秒（走 0.45~0.9 世界单位，一步 0.06 → 大约 8~15 步就走完），半径比人的间距小。
-      { id: 'action.idle.pace', name: '踱步', state: 'idle', clip: null, band: 'idle', weight: 3, loop: true, speedScale: 1, fadeMs: 200, idle: { kind: 'pace', ticksMin: 60, ticksMax: 120, radius: 0.9 } },
+      // 张望：10~20 秒（**10 tick = 1 秒**，默认 tickMs=100）。
+      // 原先是 4~9 秒——待命的人每几秒就转一次头，看久了像"人物一直在原地转圈"
+      // （用户反馈：旋转不符合预期）。拉长到 10~20 秒，转头的节奏慢下来、更像自然张望。
+      { id: 'action.idle.look', name: '张望', state: 'idle', clip: null, band: 'idle', weight: 4, loop: true, speedScale: 0.6, fadeMs: 250, idle: { kind: 'look', ticksMin: 100, ticksMax: 200, radius: 0 } },
+      // 踱步：6~12 秒（走 0.7~1.4 世界单位，一步 0.06 → 大约 12~24 步就走完）。
+      // R74：权重 2 → 1、半径 0.9 → 1.4。踱步一次 = 出去再折返 = 两次 180° 转身，
+      // 是"人物不停转身"的最大来源；压到 1（与 rest 同权重）把转身总量砍半，
+      // 半径放大到 1.4 让"走出去再折返"更明显是一段走动，而不是原地转圈。
+      { id: 'action.idle.pace', name: '踱步', state: 'idle', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 1, fadeMs: 200, idle: { kind: 'pace', ticksMin: 60, ticksMax: 120, radius: 1.4 } },
       // 歇会儿：12~20 秒坐下。权重最低——不能老是坐着，否则"待命"看着像"下班"。
       { id: 'action.idle.rest', name: '歇会儿', state: 'idle', clip: null, band: 'idle', weight: 1, loop: true, speedScale: 0.4, fadeMs: 400, idle: { kind: 'rest', ticksMin: 120, ticksMax: 200, radius: 0 } },
       { id: 'action.walk', name: '走路', state: 'walking', clip: null, band: 'walk', weight: 1, loop: true, speedScale: 1, fadeMs: 150, idle: null },
