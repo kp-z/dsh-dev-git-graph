@@ -11,28 +11,33 @@
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
-  padding: 7px var(--s-3);
-  border-radius: var(--r-sm);
-  border: 1px solid var(--stroke);
-  background: var(--surface-1);
+  padding: 6px var(--s-3);
+  border-radius: 0;
+  border: 1px solid var(--ink);
+  background: var(--paper-card);
   color: var(--fg-0);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: background var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease);
+  box-shadow: var(--shadow-1);
+  transition: background var(--t-hover) var(--ease);
 }
 .btn:hover {
-  background: var(--surface-2);
-  border-color: var(--stroke-strong);
+  background: var(--paper-hover);
 }
+/* 按下 = **把硬阴影吃掉**（"按进去"的像素表达），不改变尺寸。 */
 .btn:active {
-  background: var(--surface-3);
+  box-shadow: none;
+  transform: translate(2px, 2px);
 }
 .btn-primary {
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  color: var(--fg-0);
+  background: var(--accent);
+  color: var(--ink);
+  border-color: var(--ink);
 }
 .btn-primary:hover {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 82%, var(--paper-card));
 }
 
 /* 图标按钮（暂停/继续/抽屉/关闭）：方形、无边框、悬停才浮出来。 */
@@ -40,14 +45,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: var(--r-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--fg-1);
+  width: 32px;
+  height: 32px;
+  border-radius: 0;
+  border: 1px solid var(--ink);
+  background: var(--paper-card);
+  color: var(--ink);
   cursor: pointer;
-  transition: background var(--t-hover) var(--ease), color var(--t-hover) var(--ease);
+  box-shadow: var(--shadow-1);
+  transition: background var(--t-hover) var(--ease);
 }
 .icon-btn svg {
   width: 15px;
@@ -55,13 +61,15 @@
   display: block;
 }
 .icon-btn:hover {
-  background: var(--surface-2);
-  color: var(--fg-0);
+  background: var(--paper-hover);
+}
+.icon-btn:active {
+  box-shadow: none;
+  transform: translate(2px, 2px);
 }
 .icon-btn.active {
-  color: var(--fg-0);
-  background: var(--surface-2);
-  border-color: var(--stroke);
+  background: var(--accent);
+  color: var(--ink);
 }
 
 /* 看板里的"收起/展开"用的老类名（board.js 里叫 ghost）：等价于 icon-btn。 */
@@ -69,19 +77,18 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  height: 28px;
+  min-width: 26px;
+  height: 26px;
   padding: 0 var(--s-2);
-  border-radius: var(--r-sm);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--fg-1);
+  border-radius: 0;
+  border: 1px solid var(--ink);
+  background: var(--paper-card);
+  color: var(--ink);
   font-size: var(--fs-sub);
   cursor: pointer;
 }
 .ghost:hover {
-  background: var(--surface-2);
-  color: var(--fg-0);
+  background: var(--paper-hover);
 }
 
 .segment {
@@ -98,8 +105,8 @@
   color: var(--fg-0);
 }
 .segment.active {
-  background: var(--surface-3);
-  color: var(--fg-0);
+  background: var(--paper-card);
+  color: var(--ink);
   box-shadow: var(--shadow-1);
 }
 
@@ -109,9 +116,9 @@
   align-items: center;
   gap: 5px;
   padding: 3px var(--s-2);
-  border-radius: var(--r-pill);
-  border: 1px solid var(--stroke);
-  background: var(--surface-1);
+  border-radius: 0;
+  border: 1px solid var(--ink);
+  background: var(--paper-card);
   color: var(--fg-1);
   font-size: var(--fs-micro);
   white-space: nowrap;
@@ -119,20 +126,24 @@
 .chip b {
   color: var(--fg-0);
 }
+/* 顶栏胶囊的"强调色"变体：**色点 + 墨字**，不是彩色文字（同一条物理约束）。 */
 .chip-ok {
-  color: var(--st-done);
-  border-color: color-mix(in srgb, var(--st-done) 30%, transparent);
-  background: var(--st-done-bg);
+  color: var(--fg-0);
+  border-color: var(--ink);
+  background: var(--paper-card);
+  box-shadow: inset 3px 0 0 var(--st-done);
 }
 .chip-warn {
-  color: var(--st-ready);
-  border-color: color-mix(in srgb, var(--st-ready) 30%, transparent);
-  background: var(--st-ready-bg);
+  color: var(--fg-0);
+  border-color: var(--ink);
+  background: var(--paper-card);
+  box-shadow: inset 3px 0 0 var(--st-ready);
 }
 .chip-danger {
-  color: var(--st-failed);
-  border-color: color-mix(in srgb, var(--st-failed) 34%, transparent);
-  background: var(--st-failed-bg);
+  color: var(--fg-0);
+  border-color: var(--ink);
+  background: var(--paper-card);
+  box-shadow: inset 3px 0 0 var(--st-failed);
 }
 .chip-dim {
   color: var(--fg-2);
@@ -142,59 +153,74 @@
 }
 
 /* ── 状态徽章（花名册 / 工单 / 看板共用同一套语义色）────────────────────── */
+/*
+ * 状态徽章 = **实心色块 + 对色字**（R103 的核心修复）。
+ *
+ * ⚠️ 原来这里是 `color: var(--st-done)` 那种"彩色文字 + 半透明底"——
+ * 那套只在**深色玻璃**上成立。换成米色纸之后，R11 实测状态色作文字只有 1.18–2.08:1
+ * （门槛 4.5），**全部读不出来**。所以现在：底色是**实心状态色**，字是 `--st-*-fg`，
+ * 每一对都算过（墨字压亮块、白字压灰块）。**别改回彩色文字。**
+ */
 .badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 2px var(--s-2);
-  border-radius: var(--r-pill);
+  border-radius: 0;
   font-size: var(--fs-micro);
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   white-space: nowrap;
-  color: var(--st-pending);
+  /* 默认 = pending：灰块 + 墨字。 */
+  color: var(--st-pending-fg);
   background: var(--st-pending-bg);
-  border: 1px solid transparent;
+  border: 1px solid var(--ink);
 }
 .badge-done {
-  color: var(--st-done);
+  color: var(--st-done-fg);
   background: var(--st-done-bg);
 }
 .badge-in_progress {
-  color: var(--st-in_progress);
+  color: var(--st-in_progress-fg);
   background: var(--st-in_progress-bg);
 }
 .badge-ready {
-  color: var(--st-ready);
+  color: var(--st-ready-fg);
   background: var(--st-ready-bg);
 }
 .badge-blocked {
-  color: var(--st-blocked);
+  /* blocked 是唯一用**白字**的：墨字只有 3.83，白字 4.83。 */
+  color: var(--st-blocked-fg);
   background: var(--st-blocked-bg);
-  border-style: dashed;
-  border-color: color-mix(in srgb, var(--st-blocked) 45%, transparent);
 }
 .badge-failed {
-  color: var(--st-failed);
+  color: var(--st-failed-fg);
   background: var(--st-failed-bg);
 }
 .badge-pending {
-  color: var(--st-pending);
+  color: var(--st-pending-fg);
   background: var(--st-pending-bg);
+}
+/* 「卡死」也是实心块（紫 + 墨字 7.29）。 */
+.badge-dead {
+  color: var(--st-dead-fg);
+  background: var(--st-dead-bg);
 }
 
 /* ── 进度条 ───────────────────────────────────────────────────────────────── */
 .progress {
   position: relative;
-  height: 4px;
-  border-radius: var(--r-pill);
+  height: 6px;
+  border-radius: 0;
   background: var(--surface-2);
+  border: 1px solid var(--ink);
   overflow: hidden;
 }
 .progress > i {
   display: block;
   height: 100%;
-  border-radius: var(--r-pill);
+  border-radius: 0;
   background: var(--accent);
   transition: width var(--t-expand) var(--ease);
 }
@@ -205,12 +231,14 @@
   align-items: center;
   gap: var(--s-2);
   padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-md);
+  border-radius: 0;
+  /* R103：卡片 = **双层描边**（外 1px `#B1A077` + 内 1px `#D9CDAF`）+ 硬偏移阴影。
+     这是方案 A 的形状语言；控件（按钮/胶囊）才用墨色描边。 */
   border: 1px solid var(--stroke);
-  background: var(--surface-1);
+  background: var(--paper-card);
   cursor: pointer;
-  transition: background var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease),
-    box-shadow var(--t-hover) var(--ease);
+  box-shadow: var(--shadow-1), var(--bevel);
+  transition: background var(--t-hover) var(--ease);
 }
 .agent-card:hover {
   background: var(--surface-2);
@@ -420,10 +448,12 @@
 /* ── 提示条（读不到世界 / 3D 的问题）──────────────────────────────────────── */
 .view-hint {
   padding: var(--s-2) var(--s-3);
-  border-radius: var(--r-md);
-  border: 1px solid color-mix(in srgb, var(--st-ready) 35%, transparent);
-  background: var(--st-ready-bg);
-  color: var(--st-ready);
+  border-radius: 0;
+  border: 1px solid var(--ink);
+  background: var(--paper-card);
+  /* R103：原来是"橙色文字压橙底"（纸面上 1.x:1）。现在 = **墨字 + 左侧实心色块**。 */
+  box-shadow: inset 4px 0 0 var(--st-ready), var(--shadow-1);
+  color: var(--ink);
   font-size: var(--fs-sub);
   max-width: 640px;
 }
@@ -449,12 +479,12 @@
   font-size: 10px;
 }
 .bubble-thinking {
-  color: var(--st-ready);
-  border-color: color-mix(in srgb, var(--st-ready) 35%, transparent);
+  color: var(--ink);
+  border-color: var(--ink);
 }
 .bubble-failed {
-  color: var(--st-failed);
-  border-color: color-mix(in srgb, var(--st-failed) 40%, transparent);
+  color: var(--ink);
+  border-color: var(--ink);
 }
 /*
  * 气泡的"指向"（R39 / M7-11）。
@@ -490,8 +520,8 @@
 }
 
 .bubble-acting {
-  color: var(--st-in_progress);
-  border-color: color-mix(in srgb, var(--st-in_progress) 38%, transparent);
+  color: var(--ink);
+  border-color: var(--ink);
 }
 
 /* ── 对话面板 ─────────────────────────────────────────────────────────────── */
@@ -551,11 +581,14 @@
   border-color: var(--stroke);
 }
 .d-thinking {
-  color: var(--st-ready);
+  /* 墨字 + 左侧色块：状态由**块**表达，不由字色表达。 */
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--st-ready);
 }
 /* `acting` = 他在干活（工具在跑）。颜色比"在想"更亮一点，因为它是**有进展**的信号。 */
 .d-acting {
-  color: var(--st-in_progress);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--st-in_progress);
 }
 /* 动作行：回复正文**下面**的小字。刻意压低权重（正文才是结论），
    但每条一行、带图标，所以"调了几次、调了什么"一眼数得出来。 */
@@ -586,14 +619,16 @@
   opacity: 0.85;
 }
 .d-action.is-failed {
-  color: var(--st-failed);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--st-failed);
 }
 .d-failed {
   background: var(--st-failed-bg);
   border-color: color-mix(in srgb, var(--st-failed) 30%, transparent);
 }
 .d-reason {
-  color: var(--st-failed);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--st-failed);
 }
 .d-tick {
   margin-left: var(--s-2);
@@ -614,8 +649,9 @@
   color: var(--fg-1);
 }
 .dialogue-hint.warn {
-  background: var(--st-ready-bg);
-  color: var(--st-ready);
+  background: var(--paper-card);
+  color: var(--ink);
+  box-shadow: inset 4px 0 0 var(--st-ready);
 }
 .dialogue-form {
   display: flex;
@@ -907,8 +943,10 @@
 .board-missing-note {
   padding: var(--s-2) var(--s-3);
   font-size: var(--fs-micro);
+  /* 「缺 token」是**故障**：实心红块 + 墨字（4.93），一眼能看见，且读得出。 */
   background: var(--st-failed-bg);
-  color: var(--st-ready);
+  color: var(--st-failed-fg);
+  border-bottom: 1px solid var(--ink);
 }
 .board-body {
   flex: 1;
@@ -940,13 +978,17 @@
   align-items: center;
   gap: 5px;
   padding: 3px var(--s-2);
-  border-radius: var(--r-sm);
+  border-radius: 0;
+  /* R103：成员行 = 纸卡片（双层描边 + 硬阴影）。 */
   border: 1px solid var(--stroke);
-  background: var(--surface-1);
+  background: var(--paper-card);
+  box-shadow: var(--shadow-1), var(--bevel);
   font-size: var(--fs-micro);
 }
 .board-member.active {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  /* 选中：**墨色粗描边**（像素语言里"被选中"是加粗边，不是发光）。 */
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink), var(--shadow-1);
 }
 .board-member-head {
   display: flex;
@@ -963,30 +1005,64 @@
   flex-wrap: wrap;
   gap: var(--s-1);
 }
+/*
+ * 任务块 = **实心状态块 + 对色字**（R103）。
+ *
+ * `board.js::applyNodeColors()` 会给每个 chip 内联写 `--st`（内容库的状态色），
+ * 同时把显示状态写进 `data-status`。于是"哪一态用墨字、哪一态用白字"可以在 CSS 里
+ * 按状态分开写——这正是 §2.4 那张对比度表的落地：
+ *
+ *   done 8.13 / in_progress 5.04 / ready 8.63 / failed 4.93  → 墨字
+ *   blocked 4.83 / pending 7.56                              → 白字
+ *
+ * ⚠️ 不许改回"透明底 + 彩色字"：状态色当文字在纸面上只有 1.18–2.08:1。
+ */
 .board-chip {
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
   padding: 1px 5px;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--st, var(--stroke));
-  background: transparent;
-  color: var(--fg-1);
+  border-radius: 0;
+  border: 1px solid var(--ink);
+  /*
+   * ⚠️ fallback 必须是**纸色**，不能是状态色。
+   *
+   * 为什么：`board.js::select()` 里 `refreshState()` 跑在 `renderMembers()` **之前**，
+   * 所以刚重建出来的 chip 身上**没有** `--st`（`--st` 只被写在里面的 `.board-dot` 上）。
+   * 如果 fallback 用深色状态色，那些 chip 就会变成"深块 + 墨字"= **2.45:1**（实测抓到过）。
+   * 用纸色 fallback 之后两种情形都成立：
+   *   无 `--st` → 纸块 + 墨字（14.51）；有 `--st` → 实心状态块 + `data-status` 给的对色字。
+   * 状态点（`.board-dot`）用 `currentColor`，于是它会跟着一起翻色。
+   */
+  background: var(--st, var(--paper-card));
+  color: var(--ink);
   font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   cursor: pointer;
 }
+/* 深色块用白字（对比度表里只有这两态需要）。 */
+.board-chip[data-status='blocked'],
+.board-chip[data-status='pending'] {
+  color: #ffffff;
+}
 .board-chip:hover {
-  background: var(--surface-2);
+  /* 悬停只改描边，不改底色——底色是**状态**，悬停不是状态。 */
+  border-color: var(--paper-hover);
+  outline: 1px solid var(--ink);
 }
 .board-chip-id {
   font-family: var(--mono-font);
-  color: var(--fg-2);
+  /* 跟着块色走：默认墨，深块上白。 */
+  color: inherit;
 }
 /* chip 里的状态点：7px 够看出颜色，又不会把 chip 撑宽（左栏宽度是稀缺的）。 */
+/* 实心块已经表达了状态，块内那个色点就多余了——收成 3px 的墨点当分隔符。 */
 .board-chip > .board-dot {
-  width: 7px;
-  height: 7px;
+  width: 3px;
+  height: 3px;
   flex: 0 0 auto;
+  background: currentColor;
 }
 /* 已完成的单：不留色点、收紧内边距（左栏的宽度是稀缺的，而"完成的"是历史）。
    仍然可点、仍然有 title——**压小不等于隐藏**。 */
@@ -1020,9 +1096,12 @@
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
-  border-radius: var(--r-md);
+  border-radius: 0;
+  /* R103：图区**不设底色**（`docs/DESIGN-ui-theme.md` §5.2）——直接露出纸面板，
+     只有连线和节点有颜色。原来是"墨色 55% 半透明"的深色槽，在纸面板里像一块黑板。 */
   border: 1px solid var(--stroke);
-  background: color-mix(in srgb, var(--bg-0) 55%, transparent);
+  background: transparent;
+  box-shadow: var(--bevel);
 }
 .board-fit {
   position: relative;
@@ -1053,16 +1132,18 @@
   overflow: hidden;
   text-align: left;
   padding: 5px 7px;
-  border-radius: var(--r-sm);
-  background: var(--board-card, var(--bg-1));
-  color: var(--board-fg, var(--fg-0));
-  border: 1px solid var(--board-card-line, var(--stroke));
-  border-left: 3px solid var(--st, currentColor);
+  border-radius: 0;
+  background: var(--board-card, var(--paper-card));
+  color: var(--board-fg, var(--ink));
+  /* R103：纸卡片 + 双层描边 + 硬偏移阴影；**左侧 3px 状态色**是节点唯一的彩色处。 */
+  border: 1px solid var(--stroke);
+  border-left: 3px solid var(--st, var(--ink));
+  box-shadow: var(--shadow-1);
   cursor: pointer;
-  transition: box-shadow var(--t-hover) var(--ease), transform var(--t-hover) var(--ease);
+  transition: background var(--t-hover) var(--ease);
 }
 .board-node:hover {
-  box-shadow: var(--shadow-1);
+  background: var(--paper-hover);
 }
 .board-node.needs-review {
   border-style: dashed;
@@ -1075,12 +1156,13 @@
 }
 /* M7-3 双向高亮：点图里的方框 → 左栏成员那边同一张单也亮起来。 */
 .board-chip.is-selected {
-  outline: 1px solid var(--accent);
+  outline: 2px solid var(--ink);
   outline-offset: 1px;
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .board-node.is-selected {
-  box-shadow: 0 0 0 2px var(--board-select, var(--accent));
+  /* 选中 = **墨色粗框**（像素语言），不是发光。 */
+  border-color: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink), var(--shadow-1);
 }
 .board-node-top {
   display: flex;
@@ -1106,10 +1188,11 @@
   font-size: var(--fs-sub);
 }
 .board-node-progress {
-  height: 3px;
-  border-radius: var(--r-pill);
+  height: 4px;
+  border-radius: 0;
   overflow: hidden;
   background: var(--surface-2);
+  border: 1px solid var(--ink);
 }
 .board-node-progress-fill {
   display: block;
@@ -1147,13 +1230,22 @@
 }
 /* 卡死这一枚从色点到文字**整枚**都得是"死"的味道：
    只染色点的话，标签还是灰的，扫一眼仍然像普通计数（R67 真机自查）。 */
+/*
+ * 「卡死」的着色（R103）。原来这些选择器统一 `color: var(--st-dead)`——
+ * 紫字压在米色纸上只有 ~2:1。现在**只给背景与描边上色**，字仍是墨色。
+ */
+.board-node.is-dead,
+.board-count.is-dead,
+.board-active-dead {
+  background: var(--st-dead-bg);
+  color: var(--st-dead-fg);
+  border-color: var(--ink);
+}
 .board-node.is-dead .board-node-id,
 .board-node.is-dead .board-node-title,
-.board-count.is-dead,
 .board-count.is-dead b,
-.board-count.is-dead span,
-.board-active-dead {
-  color: var(--st-dead);
+.board-count.is-dead span {
+  color: var(--st-dead-fg);
 }
 .board-active-dead {
   font-weight: 600;
@@ -1174,8 +1266,10 @@
   background: var(--st-dead-bg);
 }
 .board-dead-head {
-  color: var(--st-dead);
-  font-weight: 600;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 .board-dead-line {
   color: var(--fg-0);
@@ -1203,8 +1297,10 @@
   background: var(--st-ready-bg);
 }
 .board-stall-head {
-  color: var(--st-ready);
-  font-weight: 600;
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 .board-stall-reason {
   color: var(--fg-0);
@@ -1289,7 +1385,8 @@
   color: var(--fg-1);
 }
 .board-section-failure .board-section-text {
-  color: var(--st-failed);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--st-failed);
 }
 /* 收起时看板是矮的：产出面板不浮出来，视图条也不占地方。 */
 .board.is-collapsed .board-read,
@@ -1301,7 +1398,8 @@
   color: var(--fg-0);
 }
 .board-unlocks {
-  color: var(--st-ready);
+  color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--st-ready);
 }
 
 /* ── 视图条（R46 · M10-11）：分组签 + 状态过滤，两排 chip 可叠加 ──────────────

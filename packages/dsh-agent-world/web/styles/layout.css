@@ -24,8 +24,10 @@
   align-items: center;
   gap: var(--s-4);
   padding: 0 var(--s-4);
-  background: var(--glass);
-  border-bottom: 1px solid var(--stroke);
+  /* R103：顶栏 = **木质条**（原来是半透明玻璃）。硬底 + 墨描边 + 下沿硬阴影。 */
+  background: var(--wood);
+  border-bottom: 2px solid var(--ink);
+  box-shadow: var(--bevel);
   position: relative;
   z-index: var(--z-drawer);
 }
@@ -41,9 +43,10 @@
   width: 24px;
   height: 24px;
   flex: 0 0 auto;
-  border-radius: var(--r-sm);
-  background: var(--accent-soft);
-  color: var(--accent);
+  border-radius: 0;
+  background: var(--wood-light);
+  border: 1px solid var(--ink);
+  color: var(--paper-card);
 }
 .brand-mark svg {
   width: 15px;
@@ -52,25 +55,26 @@
 }
 .brand-name {
   font-size: var(--fs-title);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: var(--fg-0);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  /* 木条上的字 = 纸色（`#7E5A38` 底上 4.83，达标）。 */
+  color: var(--paper-card);
   /* 可编辑标题：不打断顶栏节奏，只在悬停/聚焦时露出"可以改"的边界。 */
   padding: 1px var(--s-1);
-  border-radius: var(--r-sm);
+  border-radius: 0;
   border: 1px solid transparent;
   outline: none;
   cursor: text;
   transition: border-color var(--t-hover) var(--ease), background var(--t-hover) var(--ease);
 }
 .brand-name:hover {
-  background: var(--surface-1);
-  border-color: var(--stroke);
+  border-color: var(--paper-card);
 }
 .brand-name:focus {
-  background: var(--surface-1);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  box-shadow: var(--glow-accent);
+  /* 木条上的"可编辑"边界：纸色硬框（不是发光）。 */
+  background: color-mix(in srgb, var(--ink) 22%, transparent);
+  border-color: var(--paper-card);
 }
 .footer {
   /* R64/R65：状态条落到 footer（用户要求）；R65 把它从 18px 抬到 **36px** 并分组，
@@ -81,13 +85,18 @@
   min-width: 0;
   height: 36px;
   padding: 0 var(--s-4);
-  border-top: 1px solid var(--stroke);
-  background: var(--glass-strong);
+  border-top: 2px solid var(--ink);
+  /* R103：底栏 = 纸面（原来是不透明玻璃）。 */
+  background: var(--paper-panel);
+  box-shadow: var(--bevel);
   z-index: var(--z-board);
 }
 .footer .topbar-status {
   font-size: var(--fs-micro);
   color: var(--fg-2);
+  /* R103（设计文档 §5.2）：读数用**等宽数字**——tick/seq 每秒都在跳，
+     变宽数字会让整条带子左右抖。 */
+  font-variant-numeric: tabular-nums;
   gap: var(--s-3);
   /* 信息带里各组不换行、超出就滚动（窄窗口下宁可滚动，也不要把字挤成一坨） */
   overflow-x: auto;
@@ -109,8 +118,11 @@
   border-left: 1px solid var(--stroke);
 }
 .status-group-label {
-  color: var(--fg-3);
-  letter-spacing: 0.04em;
+  /* ⚠️ 这里原来写 `var(--fg-3)`——**那个 token 从来没定义过**，
+     所以这行一直静默失效（继承父色）。R103 顺手改成已定义的 token。 */
+  color: var(--fg-2);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
 }
 
 .topbar-status {
@@ -157,8 +169,10 @@
   left: var(--s-4);
   bottom: calc(var(--s-4) + 46px + var(--s-3));
   z-index: var(--z-legend);
-  background: var(--glass);
-  border: 1px solid var(--stroke);
+  /* R103：浮层 = **纸卡片**（原来是玻璃）。零圆角 + 墨描边 + 硬偏移阴影。 */
+  background: var(--paper-card);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   box-shadow: var(--shadow-1);
 }
 
@@ -171,10 +185,11 @@
   width: min(560px, calc(100% - var(--s-6)));
   max-height: min(56vh, 420px);
   padding: var(--s-3);
-  background: var(--glass-strong);
-  border: 1px solid var(--stroke);
-  border-radius: var(--r-lg);
+  background: var(--paper-panel);
+  border: 1px solid var(--ink);
+  border-radius: 0;
   box-shadow: var(--shadow-2);
+  box-shadow: var(--shadow-2), var(--bevel);
   z-index: var(--z-dialogue);
 }
 .dialogue:not([hidden]) {
@@ -232,10 +247,10 @@
   flex-direction: column;
   padding: var(--s-3);
   overflow: hidden;
-  background: var(--glass-strong);
-  border: 1px solid var(--stroke-strong);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-2);
+  background: var(--paper-panel);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  box-shadow: var(--shadow-2), var(--bevel);
   z-index: var(--z-drawer);
 }
 

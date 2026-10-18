@@ -42,6 +42,160 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R104（task-12 / developer）—— UI 换成**方案 A「像素纸 / 木质面板」**（先 tokens、后组件）
+
+> 编号说明（Lead 核定）：本条原写成 R103，与 Lead 的「R9 独立复核」撞号。
+> 按时间：R103 = Lead 复核 R9、**R104 = 本条（task-12 交付）**、R105 = Lead 验收 R12。只改序号。
+
+### 用户拍板
+> 从 `docs/mockup/ui-hud-styles.html` 的四套里选 **A**：米色纸面板 + 木质标题条 + 硬偏移阴影 + 零圆角 + 等宽大写标签。
+
+### 顺序（任务书硬要求，已遵守）
+**第一步只改 `tokens.css`**（把变量值整体换掉）→ **第二步**才动组件 CSS 去引用。
+反过来会产出"新组件配旧色"或"引用了还不存在的 token"的半成品。本轮先落 tokens 并 `copy-web`，
+确认宿主吐出的 CSS 已是新值，才动 `base/layout/components/sidebar`。
+
+### 五条语言与判据（都是可 grep 的）
+
+| # | 语言 | 判据 | 实测 |
+|---|---|---|---|
+| 1 | 圆角 **0**（仅状态点 2px） | `grep border-radius` 里非 0/2px 的为 0 | **0 处** |
+| 2 | 描边 **2px 双层实色** | `1px solid #B1A077` + `inset 0 0 0 1px #D9CDAF` | `var(--bevel)` **10 处**使用 |
+| 3 | 阴影 **`3px 3px 0` 硬偏移** | 带 blur 半径的 `box-shadow` 为 0 | **0 处** |
+| 4 | 背景模糊 **0 处** | `grep -rc backdrop-filter web/styles/` 全 0 | **全 0**（`--blur` 变量一并删除） |
+| 5 | **系统等宽栈** + 全大写 + `0.10em` | 不引外部字体 | `body` 计算值 = `ui-monospace, SFMono-Regular, …` ✓；footer 标签 `uppercase` + `1.1px`（=11px×0.1）✓ |
+
+### 状态色**绝不作为文字**（本轮核心修复）
+
+原来 `.badge-*` / `.chip-ok` / `.d-thinking` 等 17 处都是「彩色文字 + 半透明底」——
+那套只在**深色玻璃**上成立；换到米色纸后 R11 实测只有 1.18–2.08:1。现在一律
+**实心色块 + 对色字**，逐个算过（真机 `getComputedStyle` 复量，非手算）：
+
+| 状态 | 块色 | 字色 | 对比度 | 门槛 4.5 |
+|---|---|---|---|---|
+| done | `#22C55E` | 墨 `#14121C` | **8.13** | ✓ |
+| in_progress | `#3B82F6` | 墨 | **5.04** | ✓ |
+| ready | `#F59E0B` | 墨 | **8.63** | ✓ |
+| **blocked** | `#6B7280` | **白** | **4.83** | ✓（墨字只有 3.83，所以用白） |
+| failed | `#EF4444` | 墨 | **4.93** | ✓（临界但达标） |
+| **pending** | `#4B5563` | **白** | **7.56** | ✓（墨字只有 2.45） |
+| dead | `#B98CFF` | 墨 | **7.29** | ✓ |
+
+> 状态色按 `docs/DESIGN-ui-theme.md` §2.4 的裁决**统一用内容库那套**（`board.status.*`），
+> 所以 `--st-pending` 从 `#8B93A7` 改成了内容库的 `#4B5563`（深灰 → 必须白字）。
+
+**另外两处不达标也一并修掉**（都是算出来的，不是看出来的）：
+- 木条底 `#97714A` 上的纸色字只有 **3.44** → 木色改深到 `#7E5A38`，纸色字 **4.83** ✓
+- 次级文字 `#6D543A` 压在面板 `#D3BF8F` 上只有 **3.90** → 改 `#5E4730`，**4.80** ✓
+
+### 踩到并修掉的三个坑
+
+1. **看板 chrome 被内容库内联覆盖**。`board.js::setPalette()` 把内容库的 `board.*`
+   **内联**写到 `#sidebar`（`board.bg #121212` / `board.card #2C2C2C` / `board.fg #E0E0E0`，
+   都是为深底设计的）——于是纸面板里嵌了一块黑板。
+   解法**不用 `!important`**：内联样式赢不了普通规则，但**继承**也赢不了普通规则；
+   我在两块真正的容器（`.sidebar-panel-*`）上重新声明同名变量，作用域覆盖即可。
+   **只覆盖 chrome，状态色继续用内容库那套**。图区按 §5.2 改成**透明**（露出纸面板）。
+2. **任务块 fallback 用错颜色**（实测抓到 2.45:1）。`board.js::select()` 里
+   `refreshState()` 跑在 `renderMembers()` **之前**，所以刚重建的 chip 身上**没有** `--st`
+   （`--st` 只写在里面的 `.board-dot` 上）。原 fallback 是深色状态色 → 深块 + 墨字 = **2.45**。
+   改成**纸色 fallback** 后两种情形都成立：无 `--st` → 纸块 + 墨字 **14.51**；
+   有 `--st` → 实心块 + `data-status` 给的对色字（如 done 8.13）。两条都在真机复量过。
+3. **`var(--fg-3)` 从来没定义过**（`layout.css:112`），那行 `color` 一直静默失效（继承父色）。
+   顺手改成已定义的 token。
+
+### 行为不回归（逐条真机证据）
+
+| (d) 决策 | 实测 |
+|---|---|
+| (d)1 场景点人 = 选中 + 镜头 + 弹面板（移动档） | `selected='agent-1'`、`following=true`、`open=true`、`mode='move'`、`lastFocusSource='scene'` |
+| (d)2 回车 = 对话档 | `mode='chat'`、`activeElement='dialogue-input'`、`movementEnabled=false` |
+| (d)3 成员行 = 只选中 + 镜头 | `selected='agent-1'`、`following=true`、**`open=false`**、`src='member'` |
+| (d)4 再点同一人不关面板 | 再点 A 后 `open=true`（未关） |
+| 💬 已删 | `.board-talk` 数量 **0** |
+| 两块同屏无 tab | `[role=tablist]` **0**；agents 高 462 / graph 高 438（1440×900），447/415（1024×768） |
+| 折叠 + 持久化 | 折叠宽 **34px**、`aria-expanded=false`；`localStorage=1`；**刷新后仍折叠**（34px） |
+| 自检 R/F/D | `R0 F0 D0`（`build r103`） |
+
+### 验收数字
+- `node --check` 绿 · `copy-web` 已同步 · **`diff -rq web lib/web` 无输出** ✓ · `tsc --noEmit` 绿 · `node --test` **642 / 642**
+- 两个视口（1440×900 / 1024×768）：`.sidebar-body` 可滚、**无横向滚动**，`document.scrollWidth` = 1440 / 1024，
+  `overflow()` 裁切 **0 行**；性能条 `绘制 0（合批） · 精灵 194 · 切换 0 · R0 F0 D0 · build r103`（**无上涨**）
+- **宿主不需要重启**：`curl` 直接确认它吐出的 `tokens.css` 已是新值（`paper-panel` 命中 4 次）、
+  五个 CSS 的 `backdrop-filter` 全为 0。
+
+### 下一轮从哪继续（**两处 CSS 做不了、需要 board.js 一行**）
+1. **成员卡的部门色竖条**：设计文档 §5.2 要"左侧 3px 实心部门色竖条"，但
+   `buildBoardModel()` 的 member 模型**不带 `palette`**，DOM 上也没有任何颜色属性 → CSS 无从取色。
+   我**没有自己发明** role→部门色 的映射（那是设计决策）。补法：`board.js` 里
+   `item.style.setProperty('--rail', 部门色)`（CSS 已经按 `var(--rail)` 就位）。
+2. **成员卡自己的状态块**：`renderMembers()` 把 agent 状态写成纯文本（`· 待命`），没有 `data-state`，
+   所以那一块只能是中性纸块。补法同上：加 `item.dataset.state = member.state`，CSS 按 `[data-state]` 上色。
+   （**任务块**的状态块已经生效——`data-status` + `--st` 现成。）
+
+### 卡住
+- 无。两处"需要 board.js 一行"的项已列在上面；本轮严格守住声明写范围（`web/styles/*` + `index.html`），
+  没有擅自改 `board.js` / `src/content`（后者是内容，改它会影响整个游戏的美术方向）。
+
+---
+
+## R105（Lead）—— 验收 R12：**新 UI 上线，五条判据全过**；并记下两条待补
+
+### 逐条核实（它的声称 → 我的独立测量）
+| 声称 | 我的核实 | 结论 |
+|---|---|---|
+| `backdrop-filter` 全 0 | `grep -rc` 合计 **0**；**再用 live CSSOM 遍历 `document.styleSheets` 数 `backdrop-filter` = 0**（不只靠 grep） | ✅ |
+| 无模糊阴影 | 带 blur 半径的 `box-shadow` = **0** | ✅ |
+| 圆角只剩 0/2px | 字面 px 圆角 = **0**（全部走 token，`--r-sm/md/lg=0`、`--r-pill=2px`） | ✅ |
+| `--blur` 已删 | `var(--blur)` 引用 = **0** | ✅ |
+| 等宽字体 | `getComputedStyle(body).fontFamily` = `ui-monospace, SFMono-Regular, "SF Mono", …` | ✅ |
+| `diff -rq web lib/web` 无输出 | 实测一致（这次没再漏 `copy-web`） | ✅ |
+| 642/642 | `node --test` = 642 pass / 0 fail | ✅ |
+| 行为不回归 | 页内 `focusMatrix()` = scene(选中+开面板) / member(选中不开)；两档同屏 **302×462 / 302×409** 且 `hidden` 均 false；`#sidebar [role=tablist]`=**0**；`.board-talk`=**0**；折叠按钮 `aria-expanded=true` | ✅ |
+
+**真机外观**：截图与 mockup 方案 A 对得上——木质顶栏 + 等宽大写标签、纸面板卡片、
+硬边双层描边、零模糊、状态用色块（绿 chip 上是墨字）。`build r103`、`R0 F0 D0`、精灵 194。
+
+> ⚠️ 记一条我自己的错：验收第一遍我把 `border-radius: var(--r-sm)` 当成"非 0/2px 字面值"，
+> 报了 4 处不合规。**实际那些是 token 引用、解析后就是 0**。判据要按"解析后的值"写，
+> 不能按"源码字面量"写——这已经是我第三次栽在"判据写得太字面/范围太宽"上了。
+
+### 它挖到的三个真坑（都在报告里，我认）
+1. **纸面板里嵌了一块黑板**：`board.js::setPalette()` 把内容库的 `board.*`（为深底设计）
+   **内联**写到 `#sidebar` 上。解法**没用 `!important`**——而是在子容器上重声明同名变量
+   （内联赢不了普通规则，但**继承也赢不了普通规则**，所以重声明才有效）。这是 CSS 层叠的正解。
+2. **任务块 fallback 用了深色状态色，实测 2.45:1**：`board.js::select()` 里 `refreshState()`
+   跑在 `renderMembers()` **之前**，新 chip 身上还没有 `--st`。改成纸色 fallback 后两条路径
+   分别 14.51 / 8.13。
+3. **`var(--fg-3)` 从未定义**，那行 `color` 一直静默失效（继承父色）。顺手修掉。
+
+### 两条它**正确地没越范围**去做的（各需 `board.js` 一行）
+1. **成员卡的部门色竖条**：member 模型不带 `palette`，且"哪个 role 归哪个部门色"是**设计决策**，
+   不该由实现者发明。CSS 钩子 `var(--rail)` 已就位（默认透明，设色即 3px 生效）。
+2. **成员卡自己的状态块**：`renderMembers` 只写纯文本、没有 `data-state`（任务块的状态块已生效）。
+
+> 这两条我判它做得对：**"CSS 钩子先就位、数据由上游给"比"实现者自己发明映射"好**。
+> 下轮我把 role→部门色 的映射写进设计文档，再派一行实现。
+
+### 另记一处**不是本轮引入**但会误导用户的观察
+截图里底栏显示 **「14 秒没收到事件」**——世界当前无变更（8 人全待命、无工单流转）时，
+这个"过期"提示会亮。它属于既有的连接陈旧判据，**与 R12 无关**，但用户很可能把它读成"界面坏了"。
+记为下轮候选（S3「失败要可见」的反面：**"没事发生"不该长得像"出事了"**）。
+
+### 下一轮从哪继续
+1. 把 **role→部门色** 映射写进 `DESIGN-ui-theme.md`，派 `board.js` 两行（竖条 + 成员卡状态块）；
+2. **R5**（细节打磨：Map 显示 / Header 图标 / 两档分辨率不溢出）；
+3. **R8**（卡住的单在界面上有出口）；
+4. 上面那条"无事件 ≠ 出错"的提示语义。
+
+### 假设
+- UI 语言已按用户拍板的方案 A 落地，**不再改方向**；后续只做细节与两条补齐。
+
+### 卡住
+- 无。
+
+---
+
 ## R103（Lead）—— 独立复核 **R9（家具分层）** + 验证依赖图连线修复生效
 
 ### 起因

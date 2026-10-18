@@ -84,9 +84,11 @@
   --st-failed: #ef4444;
   --st-failed-bg: #ef4444;
   --st-failed-fg: var(--ink); /* 4.93（临界但达标） */
-  --st-pending: #8b93a7;
-  --st-pending-bg: #8b93a7;
-  --st-pending-fg: var(--ink); /* 6.03 */
+  /* pending 用内容库的 `#4B5563`（设计文档 §2.4 裁决统一用内容库那套）——
+     它是**深灰**，所以字必须是**白**（7.56）；用墨字只有 2.45。 */
+  --st-pending: #4b5563;
+  --st-pending-bg: #4b5563;
+  --st-pending-fg: #ffffff; /* 7.56 */
   /* R67 / M13-5：「卡死」（前置单已失败，永远等不到）。**不是**世界六态之一，
      是我们从 blockedBy 算出来的结论，所以内容库调色板里没有它。 */
   --st-dead: #b98cff;

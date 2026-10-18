@@ -32,8 +32,10 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--glass);
-  border-left: 1px solid var(--stroke);
+  /* R103：侧边栏 = **纸面板**（原来是半透明玻璃）。左沿墨线分隔舞台。 */
+  background: var(--paper-panel);
+  border-left: 2px solid var(--ink);
+  box-shadow: var(--bevel);
   z-index: var(--z-drawer);
 
   /* ── 看板 token（R3）──────────────────────────────────────────────────────
@@ -43,11 +45,13 @@
         （见下方 `.board-members { width: auto }`）。留着 300px 会让成员行只占左边一半、
         右边空出一条，还顺带把产出阅读面板（`.board-read` 的 `left`）推到错的位置。 */
   --board-members-w: 0px;
-  --board-bg: var(--bg-0);
-  --board-card: var(--bg-1);
-  --board-fg: var(--fg-0);
-  --board-dim: var(--fg-2);
-  --board-line: var(--stroke-strong);
+  /* R103：**纸色**（原来是 `--bg-0` 深底）。这里必须跟着 tokens 一起换，
+     否则侧边栏是纸、里面挂的看板还是深色——那正是"新组件配旧色"的半成品。 */
+  --board-bg: var(--paper-panel);
+  --board-card: var(--paper-card);
+  --board-fg: var(--ink);
+  --board-dim: var(--ink-dim);
+  --board-line: var(--ink);
   --board-card-line: var(--stroke);
 }
 
@@ -58,23 +62,27 @@
   align-items: center;
   gap: var(--s-2);
   padding: var(--s-2);
-  border-bottom: 1px solid var(--stroke);
+  /* R103：头部 = **木质标题条**（与顶栏同材质），墨色下沿。 */
+  background: var(--wood);
+  border-bottom: 2px solid var(--ink);
+  box-shadow: var(--bevel);
 }
 .sidebar-toggle {
   flex: none;
-  padding: 3px 8px;
+  padding: 2px 7px;
   font-family: inherit;
   font-size: var(--fs-micro);
-  color: var(--fg-2);
-  background: transparent;
-  border: 1px solid var(--stroke);
-  border-radius: var(--r-sm);
+  font-weight: 700;
+  /* R103：木条上的纸色按钮 + 硬描边（原来是"透明底 + 细边"的现代写法）。 */
+  color: var(--paper-card);
+  background: color-mix(in srgb, var(--ink) 20%, transparent);
+  border: 1px solid var(--paper-card);
+  border-radius: 0;
   cursor: pointer;
-  transition: color var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease);
+  transition: background var(--t-hover) var(--ease);
 }
 .sidebar-toggle:hover {
-  color: var(--fg-0);
-  border-color: var(--stroke-strong);
+  background: color-mix(in srgb, var(--ink) 34%, transparent);
 }
 
 /* ── 体：**两块常驻、上下堆叠、整体滚动**（R99）──────────────────────────────
@@ -103,17 +111,45 @@
   display: none;
 }
 .sidebar-region-title {
-  /* 区块标题：小一号、灰一点，但它现在是**唯一的"这块是什么"**（页签没了）。 */
+  /* 区块标题：**唯一的"这块是什么"**（页签没了），所以做得像标签条。
+     R103：纸面上的区块标题用木色（`--wood` 压纸 = 4.9:1），大写 + 0.10em。 */
   margin: 0 0 var(--s-1);
+  padding-bottom: 2px;
   font-size: var(--fs-micro);
   font-weight: var(--fw-title);
   letter-spacing: var(--tracking-section);
-  color: var(--fg-2);
+  color: var(--wood);
   text-transform: uppercase;
+  border-bottom: 1px solid var(--stroke);
 }
 .sidebar-panel-agents {
   /* 成员行自己会滚会让"上下两块"里出现两条滚动条；这里交给外层统一滚。 */
   overflow: visible;
+}
+
+/* ── 看板 chrome 的**纸色覆盖**（R103）────────────────────────────────────────
+ *
+ * 为什么需要这一段：`board.js::setPalette()` 会把内容库的 `board.*` **内联**写到
+ * `styleRoot`（挂载模式下就是 `#sidebar`）。内容库那套是为**深底**设计的
+ * （`board.bg #121212` / `board.card #2C2C2C` / `board.fg #E0E0E0`），
+ * 而侧边栏现在是米色纸 —— 不覆盖的话就是"纸面板里嵌了一块黑板"。
+ *
+ * ⚠️ 这里**不用 `!important`**：内联样式确实赢不了普通规则，但**继承也赢不了普通规则**。
+ * 变量是在 `#sidebar` 上内联的，我在**它的子元素**（两块真正的容器）上重新声明同名变量，
+ * 子元素自己的声明优先于"从父元素继承来的值"。所以这是干净的作用域覆盖，不是强插。
+ *
+ * 覆盖的只有 **chrome**（底/卡/字/线）。**状态色继续用内容库那套**
+ * （`docs/DESIGN-ui-theme.md` §2.4 的裁决：状态是实心色块，深底语义那套才对）。
+ */
+.sidebar-panel-agents,
+.sidebar-panel-graph {
+  --board-bg: transparent; /* §5.2：图区**不设底色**，直接露出纸面板 */
+  --board-card: var(--paper-card);
+  --board-fg: var(--ink);
+  --board-dim: var(--ink-dim);
+  --board-line: var(--ink-dim);
+  --board-card-line: var(--stroke);
+  --board-select: var(--ink);
 }
 
 /* ── Agent 档：看板的成员栏搬过来（R3）───────────────────────────────────────
@@ -135,6 +171,21 @@
 }
 .sidebar-panel-agents .board-member {
   cursor: pointer;
+  /* R103：部门色竖条（设计文档 §5.2）的**就位钩子**。
+     `--rail` 由 `board.js` 写（成员的部门色）；**没写时是透明的**，卡片外观不变——
+     所以这条现在是无害的空钩子，不是"半成品外观"。
+     为什么不在 CSS 里定颜色：`buildBoardModel()` 的 member 模型不带 `palette`，
+     而"哪个 role 归哪个部门色"是**设计决策**，不该由实现者发明。 */
+  position: relative;
+}
+.sidebar-panel-agents .board-member::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--rail, transparent);
 }
 .sidebar-panel-agents .board-member-head {
   flex: 1 1 100%;
@@ -230,11 +281,14 @@
   display: none;
 }
 .app.is-sidebar-collapsed #sidebar .sidebar-head {
-  /* 只剩一个开关：边框、内边距都收掉，视觉上是一条边而不是一个空面板。 */
+  /* 只剩一个开关：内边距收掉，视觉上是一条木边而不是一个空面板。 */
   justify-content: center;
   padding: var(--s-1) 0;
   border-bottom: none;
+  box-shadow: none;
 }
 .app.is-sidebar-collapsed .sidebar-toggle {
-  border-color: transparent;
+  /* 折叠成窄条时按钮也要收窄，否则它会撑破 34px 的列宽。 */
+  padding: 2px 3px;
+  border-color: var(--paper-card);
 }

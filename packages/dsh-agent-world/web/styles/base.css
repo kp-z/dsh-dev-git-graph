@@ -78,7 +78,11 @@ time {
 }
 
 .warn {
-  color: var(--st-ready);
+  /* R103：原来是橙色文字（纸面上 1.x:1）。现在 = **实心黄块 + 墨字**（8.63）。 */
+  color: var(--st-ready-fg);
+  background: var(--st-ready-bg);
+  border: 1px solid var(--ink);
+  padding: 0 4px;
 }
 
 /* 焦点环统一走 `--glow-accent`：键盘用户看得到、鼠标用户也不会被一圈虚线打扰。 */
