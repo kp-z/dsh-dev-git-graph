@@ -26,6 +26,9 @@ graphflow-out/
 # 插件审计的本地备份与修复脚本（$DSH_HOME 侧 profile 状态快照，不入库）
 .tmp-profile-backup/
 
+# DSH Desktop profile 升级 staging（含 pnpm store 与 node_modules，不入库）
+.tmp-desktop-upgrade/
+
 # 咒语书：数据库是投影 + 本地事件流，不入库
 #   A 区丢了 rebuild 就回来；真正不可重建的 events 用 `node scripts/vault.mjs export` 搬走
 packages/dsh-spellbook/data/
@@ -41,3 +44,7 @@ packages/dsh-spellbook/.build.lock/
 .npmrc
 .backup-web-profile-package.json
 *.tmp.html
+
+# dsh-agent-world 运行时状态（宿主以仓库根为 cwd 时落在这里；是会话数据，不是源码）
+.agent-teams/
+.agent-world/

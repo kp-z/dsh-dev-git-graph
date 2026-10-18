@@ -42,6 +42,30 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R137（Lead）—— 落地方案 A「新一代」：G2 队长 + G2 团队已生效
+
+### 做了什么
+- 验 developer 的 `75ad39e`：只含 `config.ts`/`index.ts`/新测试/PROGRESS；profile 的 lib 已含 `captainSessionId`。
+- 改仓库外 `~/.dsh/profiles/web/cordis.patch.yml`（备份 `.bak-r137-053857`），新增 `- id: agent-world` 块：
+  bundle 自带 4 项原样带上（**patch 的 config 是整块替换**，R38 教训）+ `captainSessionId: agent-world:captain-g2` + `teamName: Agent World G2`。
+- Lead 重启 3080 宿主。
+
+### 生效判据（换了一个）
+developer 建议的判据是启动日志里的「对话后端：…captain-g2…」，但那行**没打到 stdout**。
+改用**会话标签**：新会话 label 为 `agent-teams:agent-world-g2:小铁/小青`；
+`team.json` = `Agent World G2 | agent-world:captain-g2`；成员为全新子会话。✅
+
+### 一处险情
+G2 的团队状态落在**仓库根** `/Users/kp/DEV/dsh-plugins/.agent-teams/agent-world-g2/`（这次宿主 cwd 是仓库根；
+旧团队在 `~/.agent-teams/`，那时 cwd 是 `~`）。它**没被 gitignore** —— 会话数据差点能被 `git add` 带进仓库。
+已在根 `.gitignore` 加 `.agent-teams/` 与 `.agent-world/`。
+⇒ **团队状态位置随宿主 cwd 变**：统计/排查时先确认宿主从哪个目录启动。
+
+### 下一步
+developer 用 R133 的 22 句复测，看新会话里"只想不说"是否降下来（R138）。
+
+---
+
 ## R136（task-22 / developer）—— 方案 A「新一代」的代码部分：队长会话 id 可配置（默认不变）
 
 > Lead 批准 A，写范围扩到 `src/config.ts`、`src/index.ts` 与对应测试。**仓库外的 `cordis.patch.yml` 由 Lead 改、宿主由 Lead 重启**，我没碰。
