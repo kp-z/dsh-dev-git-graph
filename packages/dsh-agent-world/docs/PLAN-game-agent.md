@@ -168,7 +168,7 @@
 > **修仪表比修被测对象更靠前。** 机制：`serverFacing` 每 3s 拉一次（基线冻结），
 > 而"连续两次同签名"在**同一个快照代次内**采两次——那不是两次独立观测。
 | **R9** | 分层 S4：墙/桌/椅/黑板按原版参与 Y 排序（**对照 Godot 原版**） | developer + reviewer | 截图对照 | — | ⚠️ **并行 Agent 已在做**（他们已提交 R78/R79：家具改为可 Y 排序实体、椅子不再压桌面）。**不要重复**；由他们做完后我方只做独立复核（截图对照） |
-| **R10** | 复盘：把前 9 轮的经验写进 `ARCHITECTURE.md`，重排下一批 | Leader | 文档 | R1–R9 | ⬜ |
+| **R10** | 复盘：把前 9 轮的经验写进 `ARCHITECTURE.md`，重排下一批 | Leader | 文档 | R1–R9 | ✅ 完成（R146） |
 | **R11** | **UI 视觉语言重做**（像素 HUD 语言 + 卡片布局）+ 新旧对比 mockup | designer | `docs/DESIGN-ui-theme.md` + `docs/mockup/ui-theme.html` | — | ✅ 完成 |
 | **R11b** | **HUD 四流派同内容对比**（给用户选） | designer | `docs/mockup/ui-hud-styles.html` | R11 | ✅ 完成 |
 | **R12** | 按**方案 A（像素纸 HUD）**实现：先 tokens 后组件 | developer | 代码 + 真机截图 | R11b（**用户已选定 A**） | ✅ 完成（task-12；R104–R105 验收：五条语言全过、`backdrop-filter` 0） |
@@ -178,7 +178,7 @@
 | **R115** | **UI 改造**：header 开关 + 侧边栏两栏 + 对话面板重设计（**夜班主题**） | Lead（设计）+ developer（实现） | 截图 + 五条语言判据 | 用户 R115 反馈 | ✅ 完成（task-17 R116 + task-19 R120/R122：header 开关/两栏/对话面板/图可读性） |
 | **R117** | 设置每 2 小时的**自动化轮次任务** | Lead | 定时任务 + 文档 | — | ✅ 完成（`schedule-dcd11b0a`；prompt 含取活规则/收尾必做/纪律/产品红线） |
 | **R5** | 细节打磨：Map 显示 + Header 图标 + 两档分辨率不溢出 | designer→developer | 改动 + 裁剪判据 | R3 | ✅ 完成（task-21 R123–R124：场景第二行显示工单、标签 10→12px、去重叠） |
-| **R10** | 复盘：把经验写进 `ARCHITECTURE.md`，重排下一批 | Leader | 文档 | R1–R9 | ⬜ |
+| **R10** | 复盘：把经验写进 `ARCHITECTURE.md`，重排下一批 | Leader | 文档 | R1–R9 | ✅ 完成（R146：`ARCHITECTURE.md` §13 七条经验） |
 
 > **取活规则提醒**：上表按"实际完成情况"维护。**每轮开工前先核对任务板（`team_task_list`）**——
 > 表与任务板不一致时**以任务板为准**，并把表改对再取活。
