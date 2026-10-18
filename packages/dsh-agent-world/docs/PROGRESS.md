@@ -42,6 +42,98 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R132（Lead）—— 批准并落地 task-22 推荐修法 ①（仓库外配置），探针通过
+
+### 决定
+- **批准 ①**：`~/.dsh/profiles/web/cordis.patch.yml` 的 `claude-sonnet-4.6` 条目加 `compat: { allowEmptySignature: true }`。
+  理由：R131 证明"答案进思考"与"思考进正文"是**同一机制**——网关产出的无签名 reasoning 被 pi-ai 回放成 text，
+  模型从历史里学会"在正文边想边说"。①直接切断回放转换，配置级、可回滚。
+- **只改 web profile，desktop 不动**：desktop 是用户正在用的 GUI（54184），先在 web 上证明有效。
+- **暂不新开会话**：先单独测 ① 的效果，避免两个变量混在一起分不清谁起作用。
+
+### 落地
+备份 `cordis.patch.yml.bak-r132-051024` → 改条目（附注释说明来源）→ Lead 重启 3080 宿主。
+
+### 探针（判"要不要回滚"，不判"有没有效"）
+对工头阿金 1 句 → `failed`，原因为 ②「想了没说出口」，**不是 turn/end error** ⇒ 网关接受空签名回放，**不回滚**。
+一次探针证明不了比例下降 —— ≥20 轮统计交 developer（R133），目标"只有 reasoning"从 29–32% 降到 <5%。
+
+---
+
+## R131（task-22 / developer）—— 调查结论：mmt/sonnet-4.6 的"思考 vs 正文"两个方向都错，是**同一个机制**：未签名的 reasoning 回放时被转成正文，**污染随会话增长累积**
+
+> 只读调查，**未改任何代码/配置**。推荐修法是**一行配置**，但它在用户的 `~/.dsh/profiles/*/cordis.patch.yml`（仓库外），需 Lead 批准。
+
+### 1. 两种"错位"其实是一回事
+同一成员（工头阿金，成员会话 `c41d29d1…`）两条消息的**原始流**（`assistant/message.data.stream`）：
+
+| | turn 28（"正常"） | turn 31（"只有 reasoning"） |
+|---|---|---|
+| 块数 | **1** | **1** |
+| `block-start.blockType` | `text` | `reasoning` |
+| 内容形态 | `"你好…" — coherent… Answer in one sentence. 一句话：…` | `"现在团队里谁最闲？" — coherent request… 一句话：…` |
+
+内容是**同一种**"边想边答"的单块流，只是**标签**一次是 text、一次是 reasoning。
+⇒「答案只进了 reasoning」与「思考写进了正文」(R128 反向证据) 是**同一现象的两种落点**。
+
+### 2. 这些 reasoning **不是** Anthropic 原生 extended thinking
+- 全部 9 个成员会话 **469 个 reasoning 块，签名全为空**（`thinkingSignature: ''`，0 个有签名）。原生 thinking 一定带签名。
+- DSH **根本没请求 thinking**：38 条 `request/header` 的 config 全是 `{provider: mmt, model: claude-sonnet-4.6, maxTokens: 393216}`，无 thinking/budget/effort。
+- 配置：`mmt` = 公司网关 `llm-gateway.momenta.works`，`api: anthropic-messages`；`claude-sonnet-4.6` 条目**无 `reasoning`、无 `compat`**，
+  且 `contextWindow 1,000,000 / maxTokens 393216` 与 deepseek-v4 系条目一模一样（真 Sonnet 没有这两个数）——像是抄来的条目。
+⇒ 无签名 thinking 块是**网关自己产出/转换的**。
+
+### 3. 机制（读 pi-ai 源码确认）
+`@earendil-works/pi-ai/dist/api/anthropic-messages.js`（从 app.asar 读出）回放历史时：
+```js
+// 1108–1126
+if (!hasThinkingSignature) {
+    blocks.push(allowEmptySignature
+        ? { type: "thinking", thinking, signature: "" }
+        : { type: "text", text: block.thinking });      // ← 无签名的思考 → 当成正文回放
+}
+```
+`allowEmptySignature = model.compat?.allowEmptySignature ?? false`（第 145 行），我们没配 ⇒ **每一块无签名的思考都以"助手说过的正文"回到模型的历史里**。
+模型看到"过去的我在正文里边想边说"，就**照着学**——越来越多地输出单块"边想边答"，网关再随机贴 reasoning/text 标签。
+
+### 4. 证据：污染随会话增长累积
+**按块形态统计**（只看不含工具调用的消息；B = reasoning+正文 正常分块，r = 只有 reasoning，t = 只有正文）：
+
+| 会话 | 只有 reasoning | 正常分块 B 比例，按时间四分位 |
+|---|---|---|
+| captain（`agent-world:captain`） | 57/180 = **32%** | **62% → 8% → 0% → 4%** |
+| 工头阿金（`c41d29d1`） | 16/55 = **29%** | 50% → 20% → 0% → 18% |
+| 小铁（`0258b53d`） | 4/128 = 3% | 33% → 25% → 17% → 15% |
+| 小青 / 小紫 / 小蓝 / 小绿 / 小绯 | **0%** | （会话短，或刚开始） |
+
+正常分块的**上下文中位数**显著更小：工头阿金 23.7k vs 单块 40–47k；captain 47k vs 272k；小铁 125k vs 242–257k。
+⇒ **不是某个成员"人设坏了"，而是会话越长、被回放进历史的"正文化思考"越多，分块就越崩**。
+captain 与工头阿金是最忙、历史最长的两个，所以最先崩。
+
+### 5. 可选修法
+| 方案 | 做法 | 代价 / 风险 |
+|---|---|---|
+| **① 推荐：`compat.allowEmptySignature: true`** | `cordis.patch.yml` 的 `claude-sonnet-4.6` 条目下加两行 `compat: { allowEmptySignature: true }`（dsh-llm-pi-ai 对 `anthropic-messages` **开放**此字段，按模型条目生效，见 `llm-pi-ai/lib/index.js:460,634`） | 纯配置、可回滚；**直接切断机制**；对**已有历史立即生效**（回放是请求时转换的，存的仍是 reasoning 块）。风险：若网关把它透传给真 Anthropic，空签名 thinking 会被 400 拒——但网关自己就在产出空签名块，大概率接受。**需一次探针确认** |
+| ② 人设要求"最终答案必须输出为正文" | 改成员人设 | 治标：污染机制还在，长会话照样会崩；且依赖模型听话 |
+| ③ 给条目加 `reasoning: true` 走显式 thinking | 改配置 | 网关如何响应显式 thinking 未知；不解决"无签名块回放成正文" |
+| ④ 定期新开/压缩成员会话 | 运维 | 只是把污染清零重来，治标 |
+| ⑤ 换模型 | 改默认模型 | 同网关其它模型是否同样行为未验证；代价最大 |
+
+**推荐 ①**：它对准的是机制本身（回放路径），改动最小（两行配置、不动代码），且已有会话立即受益。
+⚠️ 已经以 **text** 块存下的"边想边答"（t 型，约占单块的一半）不会被修复——它们本来就是正文；若要彻底干净，可配合 ④ 对 captain/工头阿金各新开一次会话。
+⚠️ 两个 profile（web、desktop）的 sonnet-4.6 条目都没有 compat；本世界跑在 **web** profile。
+
+### 6. 实施后的验证计划（等批准）
+1. 改 `~/.dsh/profiles/web/cordis.patch.yml` → 请 Lead 重启宿主；
+2. **探针**：对工头阿金连问 1 句——若网关拒空签名，会是一条 `turn/end(error)`（400），立即回滚；
+3. **指标**：captain + 工头阿金 接下来 ≥20 轮，统计"只有 reasoning"比例（基线 29–32%）与 B 比例（基线后半段 0–18%）；
+   验收线：只有 reasoning **< 5%**，且失败文案 ② 出现次数相应下降；全程不把 reasoning 展示给玩家（R128 已保证）。
+
+### 卡住
+- 待 Lead 批准方案 ①（以及是否同步改 desktop profile、是否配合 ④）。task-22 保持 in_progress。
+
+---
+
 ## R130（Lead）—— 验收 R119（task-18）：通过；宿主随子代理退出，已由 Lead 重启复验
 
 ### 核实
