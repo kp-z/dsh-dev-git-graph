@@ -155,7 +155,7 @@
 | **R5** | 细节打磨：Map 显示 + Header 图标 + 两档分辨率不溢出 | designer→developer | 改动 + 裁剪判据 | R3 | ⬜ |
 | **R6** | 交互收敛：按 `DESIGN-interaction.md` + (d) 节决策去重入口（删 💬、再点同一人不关面板） | developer + reviewer | 改动 + 评审 | R1 | 🔄 进行中（task-8） |
 | **R7** | 稳定 S1/S2：帧/状态一致性自检 + 回归 | developer | 测试或页内自检 | — | ✅ 完成（task-3；`R0 F0 D0` + 故障注入 R0→R328 实测） |
-| **R8** | 稳定 S3：卡住的单在界面上有出口 | developer | 改动 + 造场景验证 | — | ⬜ |
+| **R8** | 监控可信：验证 `stalled` 非空显示 + 修「没事发生 ≠ 出事了」 | developer | 造场景 + 两种状态各自的证据 | — | 🔄 进行中（task-14） |
 | **R9** | 分层 S4：墙/桌/椅/黑板按原版参与 Y 排序（**对照 Godot 原版**） | developer + reviewer | 截图对照 | — | ⚠️ **并行 Agent 已在做**（他们已提交 R78/R79：家具改为可 Y 排序实体、椅子不再压桌面）。**不要重复**；由他们做完后我方只做独立复核（截图对照） |
 | **R10** | 复盘：把前 9 轮的经验写进 `ARCHITECTURE.md`，重排下一批 | Leader | 文档 | R1–R9 | ⬜ |
 | **R11** | **UI 视觉语言重做**（像素 HUD 语言 + 卡片布局）+ 新旧对比 mockup | designer | `docs/DESIGN-ui-theme.md` + `docs/mockup/ui-theme.html` | — | ✅ 完成 |
