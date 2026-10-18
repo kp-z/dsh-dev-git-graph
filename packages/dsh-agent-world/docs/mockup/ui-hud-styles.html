@@ -1,0 +1,796 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent World — HUD 风格四选一</title>
+<style>
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * HUD 风格对比：4 种游戏 UI 流派，**同一份内容**分别渲染。
+ *
+ * 硬约束（延续 R101/R11 实测）：
+ *   ① 本文件背景模糊滤镜声明 = 0 处；
+ *   ② 状态色**不做文字色**（R11 实测：米色纸上仅 1.18–2.08:1，不可读）。
+ *      方案 A/B/D 一律「实心色块 + 墨字或白字」；方案 C 是深底，
+ *      亮色文字在深灰上成立（实测 ≥4.9:1），**该做法只在深底成立**，已在说明里注明。
+ *
+ * 内容只写一次：`HUD_DATA` + `renderHud()` 生成同一段 HTML，四块面板共用。
+ * 换风格只换 CSS 变量，所以"同内容可比"是结构保证的，不是靠我手抄四遍。
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 28px 20px 72px;
+  background: #0b0a10;
+  color: #d8d2c4;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.page { max-width: 1180px; margin: 0 auto; }
+
+.page-hd h1 {
+  margin: 0 0 6px;
+  font-size: 16px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: #e6dcc6;
+}
+.page-hd p { margin: 0 0 4px; color: #8d8778; font-size: 12px; max-width: 82ch; }
+.page-hd strong { color: #c9a227; }
+.selfcheck {
+  display: inline-block; margin-top: 10px; padding: 3px 9px;
+  background: #14121c; border: 1px solid #3fd0c9; color: #3fd0c9;
+  font-size: 11px; letter-spacing: .06em;
+}
+
+/* ── 每块的标题区 ──────────────────────────────────────────────────────── */
+.style-block { margin-top: 34px; }
+
+.style-hd { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.style-badge {
+  display: inline-block; padding: 2px 9px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  background: #1c1a26; border: 1px solid #3a3550; color: #cfc7b4;
+}
+.style-badge.rec { background: #d3bf8f; border-color: #b1a077; color: #14121c; }
+.style-name { font-size: 14px; font-weight: 700; color: #e6dcc6; letter-spacing: .04em; }
+.style-src { font-size: 11px; color: #7d7768; }
+
+.style-desc {
+  margin: 0 0 10px;
+  color: #9b9484; font-size: 12px; max-width: 88ch;
+}
+.style-desc b { color: #c9bfa6; font-weight: 600; }
+/* "什么时候选它"：一句话决策 */
+.pick {
+  display: block; margin: 8px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid #c9a227;
+  background: #14121c;
+  color: #d8cfb8; font-size: 12px;
+}
+.pick b { color: #ffd166; letter-spacing: .06em; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   HUD 骨架：四套主题共用同一结构，只换 CSS 变量。
+   变量语义：
+     --panel 面板底 / --card 卡片底 / --line 描边 / --fg 主文字 / --dim 次文字
+     --line2 内层亮描边 / --sh 投影 / --r 圆角 / --field 场景底（示意用）
+   ══════════════════════════════════════════════════════════════════════════ */
+.hud {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  grid-template-rows: 48px minmax(300px, auto) 36px;
+  border-radius: var(--r);
+  overflow: hidden;
+  box-shadow: var(--sh);
+  border: var(--bd-outer, 0 solid transparent);
+  background: var(--field);
+}
+
+.hud-head {
+  grid-column: 1 / -1; grid-row: 1;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 var(--pad-x);
+  background: var(--panel);
+  border-bottom: var(--bd);
+  box-shadow: var(--inset);
+  color: var(--fg);
+}
+.hud-foot {
+  grid-column: 1 / -1; grid-row: 3;
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 var(--pad-x);
+  background: var(--panel);
+  border-top: var(--bd);
+  box-shadow: var(--inset);
+  font-size: 11px;
+  color: var(--dim);
+  overflow: hidden;
+}
+
+.brand { display: flex; align-items: center; gap: 8px; flex: none; }
+.brand-mark {
+  width: 24px; height: 24px; flex: none;
+  display: grid; place-items: center;
+  background: var(--mark-bg);
+  border: var(--mark-bd);
+  border-radius: var(--mark-r);
+  box-shadow: var(--mark-sh);
+  color: var(--mark-fg);
+}
+.brand-mark svg { width: 14px; height: 14px; display: block; }
+.brand-name {
+  font-size: var(--brand-fs); font-weight: var(--brand-fw);
+  letter-spacing: var(--brand-ls);
+  color: var(--brand-fg);
+}
+
+.spacer { flex: 1; }
+
+.cmd-group { display: flex; align-items: center; gap: var(--cmd-gap); flex: none; }
+.cmd {
+  width: 28px; height: 28px; flex: none;
+  display: grid; place-items: center;
+  background: var(--cmd-bg);
+  border: var(--cmd-bd);
+  border-radius: var(--cmd-r);
+  box-shadow: var(--cmd-sh);
+  color: var(--cmd-fg);
+  cursor: pointer;
+  padding: 0;
+}
+.cmd svg { width: 13px; height: 13px; display: block; }
+.cmd:hover { background: var(--cmd-hover-bg); color: var(--cmd-hover-fg); }
+
+/* 场景示意 */
+.hud-field {
+  grid-column: 1; grid-row: 2;
+  position: relative;
+  min-height: 300px;
+  background: var(--field);
+  background-image: var(--field-pattern);
+  overflow: hidden;
+}
+.unit {
+  position: absolute;
+  width: 12px; height: 18px;
+  box-shadow: var(--unit-sh);
+}
+.unit::after {
+  content: attr(data-n);
+  position: absolute; left: 50%; top: -14px;
+  transform: translateX(-50%);
+  font-size: 10px; white-space: nowrap;
+  color: var(--unit-label);
+  letter-spacing: var(--label-ls);
+}
+
+/* 侧边栏 */
+.hud-side {
+  grid-column: 2; grid-row: 2;
+  background: var(--panel);
+  border-left: var(--bd);
+  box-shadow: var(--inset);
+  display: flex; flex-direction: column;
+  min-width: 0;
+}
+.side-hd {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px var(--pad-x);
+  border-bottom: var(--bd);
+  background: var(--side-hd-bg);
+  box-shadow: var(--side-hd-inset);
+}
+.side-title {
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--side-title-fg);
+}
+.side-toggle {
+  margin-left: auto;
+  padding: 1px 7px;
+  font-family: inherit; font-size: 11px;
+  background: var(--toggle-bg);
+  border: var(--bd);
+  border-radius: var(--toggle-r);
+  box-shadow: var(--toggle-sh);
+  color: var(--toggle-fg);
+  cursor: pointer;
+}
+
+.side-body { padding: var(--side-pad); display: flex; flex-direction: column; gap: 12px; }
+
+.region-title {
+  margin: 0 0 6px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim);
+}
+
+/* Agent 卡 */
+.acard {
+  display: flex;
+  background: var(--card);
+  border: var(--bd);
+  border-radius: var(--card-r);
+  box-shadow: var(--card-sh);
+  margin-bottom: var(--card-gap);
+  overflow: hidden;
+  cursor: pointer;
+}
+.acard:hover { background: var(--card-hover); }
+.acard .rail { width: 3px; flex: none; background: var(--rail, transparent); }
+.acard-body { flex: 1; min-width: 0; padding: var(--card-pad); }
+.acard-top { display: flex; align-items: baseline; gap: 6px; }
+.acard-name { font-size: 13px; font-weight: 700; color: var(--fg); }
+.acard-role {
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--dim);
+}
+.acard-task {
+  font-size: 11px; color: var(--dim); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.acard-bot { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+
+/* 状态块 —— 统一「实心 + 对色文字」，色值按主题给 */
+.chip {
+  display: inline-flex; align-items: center;
+  padding: 1px 6px;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  border-radius: var(--chip-r);
+  border: var(--chip-bd);
+  white-space: nowrap;
+}
+.chip.done    { background: var(--st-done-bg);    color: var(--st-done-fg); }
+.chip.run     { background: var(--st-run-bg);     color: var(--st-run-fg); }
+.chip.ready   { background: var(--st-ready-bg);   color: var(--st-ready-fg); }
+.chip.blocked { background: var(--st-blocked-bg); color: var(--st-blocked-fg); }
+.chip.failed  { background: var(--st-failed-bg);  color: var(--st-failed-fg); }
+.acard-count {
+  font-size: 10px; color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 任务图示意 */
+.graph {
+  border: var(--bd);
+  border-radius: var(--card-r);
+  background: var(--graph-bg);
+  box-shadow: var(--graph-sh);
+  padding: 7px;
+}
+.graph-wires { font-size: 10px; color: var(--dim); margin-bottom: 5px; }
+.node {
+  display: inline-block;
+  margin: 0 3px 3px 0;
+  padding: 1px 5px;
+  font-size: 10px;
+  background: var(--node-bg);
+  border: var(--node-bd);
+  border-radius: var(--node-r);
+  color: var(--node-fg);
+  font-variant-numeric: tabular-nums;
+}
+.node.done  { background: var(--node-done-bg); color: var(--node-done-fg); border-color: var(--node-done-bd); }
+.node.run   { background: var(--node-run-bg);  color: var(--node-run-fg);  border-color: var(--node-run-bd); }
+.node.fail  { background: var(--node-fail-bg); color: var(--node-fail-fg); border-color: var(--node-fail-bd); }
+
+/* footer 读数 */
+.readout { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.readout + .readout { padding-left: 10px; border-left: var(--sep); }
+.readout b {
+  font-weight: 700; font-size: 10px;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim);
+}
+.live-dot {
+  width: 7px; height: 7px;
+  background: var(--live);
+  border: var(--live-bd);
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   方案 A —— 像素纸 / 木质面板（Stardew Valley 系）
+   采样：Ancient/tan.png  内芯 #D3BF8F / 内描边 #B1A077 / 外描边 #D9CDAF
+   ══════════════════════════════════════════════════════════════════════════ */
+#tA {
+  --r: 0;
+  --pad-x: 10px;
+  --side-pad: 8px;
+  --card-pad: 5px 7px;
+  --card-gap: 8px;
+  --card-r: 0;
+  --chip-r: 0;
+  --chip-bd: 1px solid #14121c;
+  --node-r: 0;
+  --node-bd: 1px solid #14121c;
+  --toggle-r: 0;
+  --cmd-r: 0;
+  --cmd-gap: 6px;
+  --label-ls: 0;
+  --bd: 1px solid #b1a077;
+  --bd-outer: 1px solid #14121c;
+  --inset: inset 0 0 0 1px #d9cdaf;
+  --sep: 1px solid #a3997f;
+  --panel: #d3bf8f;
+  --card: #ece3ce;
+  --card-hover: #fff8e8;
+  --card-sh: 2px 2px 0 rgba(20, 18, 28, .55);
+  --sh: 3px 3px 0 #14121c;
+  --fg: #14121c;
+  --dim: #6d543a;
+  --field: #1c1a26;
+  --field-pattern: repeating-linear-gradient(90deg, #23212e 0 16px, #1f1d29 16px 32px);
+  --unit-sh: 0 0 0 1px rgba(20, 18, 28, .6);
+  --unit-label: #cfc9bb;
+  --brand-fs: 15px; --brand-fw: 700; --brand-ls: .02em;
+  --brand-fg: #14121c;
+  --mark-bg: #97714a; --mark-bd: 1px solid #14121c; --mark-r: 0;
+  --mark-sh: 2px 2px 0 rgba(20, 18, 28, .55); --mark-fg: #ece3ce;
+  --cmd-bg: #ece3ce; --cmd-bd: 1px solid #14121c; --cmd-sh: 2px 2px 0 rgba(20,18,28,.55);
+  --cmd-fg: #14121c; --cmd-hover-bg: #fff8e8; --cmd-hover-fg: #14121c;
+  --side-hd-bg: #97714a; --side-hd-inset: inset 0 0 0 1px #b7916a;
+  --side-title-fg: #ece3ce;
+  --toggle-bg: #d3bf8f; --toggle-fg: #14121c; --toggle-sh: 2px 2px 0 rgba(20,18,28,.55);
+  --graph-bg: transparent; --graph-sh: inset 0 0 0 1px #d9cdaf;
+  --node-bg: #ece3ce; --node-fg: #14121c;
+  --node-done-bg: #a8d5a2; --node-done-fg: #14121c; --node-done-bd: #14121c;
+  --node-run-bg: #a8c6e8;  --node-run-fg: #14121c;  --node-run-bd: #14121c;
+  --node-fail-bg: #e8a0a0; --node-fail-fg: #14121c; --node-fail-bd: #14121c;
+  --live: #22c55e; --live-bd: 1px solid #14121c;
+  /* 实心色块 + 墨/白字（R11 实测唯一可读的做法） */
+  --st-done-bg: #22c55e;    --st-done-fg: #14121c;
+  --st-run-bg: #3b82f6;     --st-run-fg: #14121c;
+  --st-ready-bg: #f59e0b;   --st-ready-fg: #14121c;
+  --st-blocked-bg: #6b7280; --st-blocked-fg: #ffffff;
+  --st-failed-bg: #ef4444;  --st-failed-fg: #14121c;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   方案 B —— 复古蓝窗（Final Fantasy / Dragon Quest 系）
+   深蓝底 + 白色 2px 双层边框 + 2px 极小圆角 + 大内留白
+   ══════════════════════════════════════════════════════════════════════════ */
+#tB {
+  --r: 2px;
+  --pad-x: 14px;
+  --side-pad: 14px;
+  --card-pad: 8px 10px;
+  --card-gap: 12px;
+  --card-r: 2px;
+  --chip-r: 2px;
+  --chip-bd: 1px solid #0a1240;
+  --node-r: 2px;
+  --node-bd: 1px solid #8fa0e8;
+  --toggle-r: 2px;
+  --cmd-r: 2px;
+  --cmd-gap: 8px;
+  --label-ls: .04em;
+  --bd: 2px solid #f4f4f4;
+  --bd-outer: 2px solid #f4f4f4;
+  --inset: inset 0 0 0 2px #1b2a6b;
+  --sep: 1px solid #4a5aa8;
+  --panel: #1b2a6b;
+  --card: #16215a;
+  --card-hover: #1f2f78;
+  --card-sh: none;
+  --sh: none;
+  --fg: #ffffff;
+  --dim: #a8b4e8;
+  --field: #0c1338;
+  --field-pattern: repeating-linear-gradient(90deg, #101a4a 0 16px, #0d1540 16px 32px);
+  --unit-sh: 0 0 0 1px #f4f4f4;
+  --unit-label: #dfe6ff;
+  --brand-fs: 16px; --brand-fw: 700; --brand-ls: .06em;
+  --brand-fg: #ffffff;
+  --mark-bg: #2f3f8f; --mark-bd: 1px solid #f4f4f4; --mark-r: 2px;
+  --mark-sh: none; --mark-fg: #ffffff;
+  --cmd-bg: #16215a; --cmd-bd: 1px solid #8fa0e8; --cmd-sh: none;
+  --cmd-fg: #ffffff; --cmd-hover-bg: #2f3f8f; --cmd-hover-fg: #ffffff;
+  --side-hd-bg: #0f1a4a; --side-hd-inset: inset 0 0 0 1px #2f3f8f;
+  --side-title-fg: #ffffff;
+  --toggle-bg: #16215a; --toggle-fg: #ffffff; --toggle-sh: none;
+  --graph-bg: #0f1a4a; --graph-sh: none;
+  --node-bg: #16215a; --node-fg: #dfe6ff;
+  --node-done-bg: #2c6b3f; --node-done-fg: #ffffff; --node-done-bd: #7fe0a0;
+  --node-run-bg: #24418f;  --node-run-fg: #ffffff;  --node-run-bd: #8fb4ff;
+  --node-fail-bg: #7a2233; --node-fail-fg: #ffffff; --node-fail-bd: #ff9aa8;
+  --live: #7fe0a0; --live-bd: 1px solid #f4f4f4;
+  /* 深蓝底上仍用「实心块 + 对色字」：白字压深色块，墨字压亮色块 */
+  --st-done-bg: #2c6b3f;    --st-done-fg: #ffffff;
+  --st-run-bg: #24418f;     --st-run-fg: #ffffff;
+  --st-ready-bg: #f59e0b;   --st-ready-fg: #14121c;
+  --st-blocked-bg: #4a4f63; --st-blocked-fg: #ffffff;
+  --st-failed-bg: #7a2233;  --st-failed-fg: #ffffff;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   方案 C —— 现代扁平深色（RimWorld / Prison Architect 系）
+   深灰不透明 + 1px 细线 + 无阴影无圆角
+   ⚠️ 本方案**用亮色文字表示状态**——该做法只在深底成立（实测深灰上 ≥4.9:1）
+   ══════════════════════════════════════════════════════════════════════════ */
+#tC {
+  --r: 0;
+  --pad-x: 12px;
+  --side-pad: 10px;
+  --card-pad: 7px 9px;
+  --card-gap: 10px;
+  --card-r: 0;
+  --chip-r: 0;
+  --chip-bd: 1px solid var(--chip-line, #4a4f58);
+  --node-r: 0;
+  --node-bd: 1px solid #4a4f58;
+  --toggle-r: 0;
+  --cmd-r: 0;
+  --cmd-gap: 4px;
+  --label-ls: .02em;
+  --bd: 1px solid #3a3f47;
+  --bd-outer: 1px solid #3a3f47;
+  --inset: none;
+  --sep: 1px solid #3a3f47;
+  --panel: #22252b;
+  --card: #2a2e35;
+  --card-hover: #32373f;
+  --card-sh: none;
+  --sh: none;
+  --fg: #e8eaed;
+  --dim: #9aa1ab;
+  --field: #1a1d22;
+  --field-pattern: repeating-linear-gradient(90deg, #1f2329 0 16px, #1b1f24 16px 32px);
+  --unit-sh: 0 0 0 1px #111316;
+  --unit-label: #c2c8d0;
+  --brand-fs: 14px; --brand-fw: 600; --brand-ls: .02em;
+  --brand-fg: #e8eaed;
+  --mark-bg: #2f3540; --mark-bd: 1px solid #4a4f58; --mark-r: 0;
+  --mark-sh: none; --mark-fg: #4fa8ff;
+  --cmd-bg: #2a2e35; --cmd-bd: 1px solid #4a4f58; --cmd-sh: none;
+  --cmd-fg: #c2c8d0; --cmd-hover-bg: #363b44; --cmd-hover-fg: #ffffff;
+  --side-hd-bg: #1e2126; --side-hd-inset: none;
+  --side-title-fg: #c2c8d0;
+  --toggle-bg: #2a2e35; --toggle-fg: #c2c8d0; --toggle-sh: none;
+  --graph-bg: #262a31; --graph-sh: none;
+  --node-bg: #2f3540; --node-fg: #c2c8d0;
+  --node-done-bg: #1f3a28; --node-done-fg: #5fd68a; --node-done-bd: #2f6b45;
+  --node-run-bg: #1f2d40;  --node-run-fg: #4fa8ff;  --node-run-bd: #2f5580;
+  --node-fail-bg: #3a1d22; --node-fail-fg: #ff8a8a; --node-fail-bd: #7a2f38;
+  --live: #5fd68a; --live-bd: 1px solid #1a1d22;
+  /* ⚠️ 亮色文字 + 淡底：**只在深底成立** */
+  --st-done-bg: rgba(95, 214, 138, .14);  --st-done-fg: #5fd68a;
+  --st-run-bg: rgba(79, 168, 255, .14);   --st-run-fg: #4fa8ff;
+  --st-ready-bg: rgba(255, 201, 77, .14); --st-ready-fg: #ffc94d;
+  --st-blocked-bg: rgba(255, 138, 76, .12); --st-blocked-fg: #ff8a4c;
+  --st-failed-bg: rgba(255, 107, 107, .14); --st-failed-fg: #ff6b6b;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   方案 D —— 终端 / CRT（监控台）
+   近黑底 + 荧光青绿 + 等宽字 + 极淡扫描线（用 repeating-linear-gradient，非模糊）
+   ══════════════════════════════════════════════════════════════════════════ */
+#tD {
+  --r: 0;
+  --pad-x: 12px;
+  --side-pad: 10px;
+  --card-pad: 6px 9px;
+  --card-gap: 9px;
+  --card-r: 0;
+  --chip-r: 0;
+  --chip-bd: 1px solid #235145;
+  --node-r: 0;
+  --node-bd: 1px solid #3e9b7e;
+  --toggle-r: 0;
+  --cmd-r: 0;
+  --cmd-gap: 6px;
+  --label-ls: .1em;
+  --bd: 1px solid #235145;
+  --bd-outer: 1px solid #3e9b7e;
+  --inset: inset 0 0 0 1px #16241f;
+  --sep: 1px solid #235145;
+  --panel: #0d1512;
+  --card: #12201b;
+  --card-hover: #172b24;
+  --card-sh: none;
+  --sh: none;
+  --fg: #4fe3c1;
+  --dim: #3e9b7e;
+  --field: #0a0e0a;
+  --field-pattern: repeating-linear-gradient(0deg, rgba(79,227,193,.035) 0 2px, transparent 2px 4px),
+                    repeating-linear-gradient(90deg, #10160f 0 16px, #0c110c 16px 32px);
+  --unit-sh: 0 0 0 1px #4fe3c1;
+  --unit-label: #4fe3c1;
+  --brand-fs: 14px; --brand-fw: 700; --brand-ls: .16em;
+  --brand-fg: #4fe3c1;
+  --mark-bg: transparent; --mark-bd: 1px solid #2a7a62; --mark-r: 0;
+  --mark-sh: none; --mark-fg: #4fe3c1;
+  --cmd-bg: transparent; --cmd-bd: 1px solid #2a7a62; --cmd-sh: none;
+  --cmd-fg: #4fe3c1; --cmd-hover-bg: #12201b; --cmd-hover-fg: #7dffd8;
+  --side-hd-bg: #0a1410; --side-hd-inset: inset 0 -1px 0 #1e3a32;
+  --side-title-fg: #4fe3c1;
+  --toggle-bg: transparent; --toggle-fg: #4fe3c1; --toggle-sh: none;
+  --graph-bg: #0a1410; --graph-sh: none;
+  --node-bg: #12201b; --node-fg: #4fe3c1;
+  --node-done-bg: #143a2a; --node-done-fg: #7dffd8; --node-done-bd: #4fe3c1;
+  --node-run-bg: #12303a;  --node-run-fg: #6cf0ff;  --node-run-bd: #3fd0c9;
+  --node-fail-bg: #3a1418; --node-fail-fg: #ff8a8a; --node-fail-bd: #ff6b6b;
+  --live: #4fe3c1; --live-bd: 1px solid #0a0e0a;
+  /* 终端底上的实心块 + 近黑字：荧光色太亮，墨字压上去才读得清 */
+  --st-done-bg: #4fe3c1;    --st-done-fg: #0a0e0a;
+  --st-run-bg: #6cf0ff;     --st-run-fg: #0a0e0a;
+  --st-ready-bg: #ffd166;   --st-ready-fg: #0a0e0a;
+  --st-blocked-bg: #7a4a2a; --st-blocked-fg: #ffe8d0;
+  --st-failed-bg: #ff6b6b;  --st-failed-fg: #0a0e0a;
+}
+/* 终端风格：文字带一点辉光（text-shadow 是文字效果，不是模糊滤镜） */
+#tD .brand-name,
+#tD .side-title,
+#tD .readout b { text-shadow: 0 0 6px rgba(79, 227, 193, .5); }
+#tD .acard-name { text-shadow: 0 0 5px rgba(79, 227, 193, .35); }
+
+/* ── 页尾 ─────────────────────────────────────────────────────────────── */
+.foot-note {
+  margin-top: 40px; padding: 16px 18px;
+  border: 1px solid #2e2b38; background: #131118;
+}
+.foot-note h2 {
+  margin: 0 0 10px;
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  color: #d3bf8f;
+}
+.foot-note table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.foot-note th, .foot-note td {
+  text-align: left; padding: 6px 8px;
+  border-bottom: 1px solid #23212e; vertical-align: top;
+}
+.foot-note th {
+  font-size: 11px; font-weight: 600; color: #8b8578;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.foot-note td { color: #b9b3a6; }
+.foot-note td:first-child { color: #e6dcc6; font-weight: 600; white-space: nowrap; }
+.foot-note .warn { color: #ffb259; }
+</style>
+</head>
+<body>
+<div class="page">
+
+<div class="page-hd">
+  <h1>HUD 风格四选一</h1>
+  <p>下面四块是 <strong>完全相同的界面内容</strong>（同一个品牌头、同样 4 个 Agent、同样任务图、同样状态条），
+     只换视觉语言。挑一个你最顺眼的编号就行。</p>
+  <p>说明：状态一律用「色块」而不是「彩色文字」——除非底色够深（只有方案 C 满足）。</p>
+  <span class="selfcheck" id="selfcheck">自检：背景模糊滤镜 0 处 · 圆角最大 2px · 四块内容同源</span>
+</div>
+
+<!-- ══════════ 方案 A ══════════ -->
+<section class="style-block">
+  <div class="style-hd">
+    <span class="style-badge rec">方案 A · 推荐</span>
+    <span class="style-name">像素纸 / 木质面板</span>
+    <span class="style-src">Stardew Valley · 牧场物语 · 我们自己的 9-slice</span>
+  </div>
+  <p class="style-desc">
+    米色纸面板 <b>#D3BF8F</b> + <b>2px 双层描边</b>（外亮 #D9CDAF / 内暗 #B1A077）+ <b>3px 3px 0</b> 硬阴影 + <b>0 圆角</b>。
+    色值全部从游戏素材 <b>Ancient/tan.png</b> 采样，和场景里的对话气泡是同一套材质。
+  </p>
+  <p class="pick"><b>什么时候选它 →</b> 想让面板看起来<strong>「长在游戏里」</strong>、和像素小人同一世界时。
+     代价：米色纸很亮，和深色场景对比强，这是它的风格特征（不是缺陷）。</p>
+  <div class="hud" id="tA"></div>
+</section>
+
+<!-- ══════════ 方案 B ══════════ -->
+<section class="style-block">
+  <div class="style-hd">
+    <span class="style-badge">方案 B</span>
+    <span class="style-name">复古蓝窗</span>
+    <span class="style-src">Final Fantasy · Dragon Quest 系列</span>
+  </div>
+  <p class="style-desc">
+    深蓝底 <b>#1B2A6B</b> + <b>白色 2px 双层边框</b> + 2px 极小圆角 + 大内留白。
+    一眼就认出是「RPG 菜单」，白色外框是这一派最标志性的特征。
+  </p>
+  <p class="pick"><b>什么时候选它 →</b> 想要<strong>最强烈的「这是游戏」</strong>的第一印象、且能接受信息密度偏低时。
+     代价：白框很抢眼，数据一多会显得"框套框"。</p>
+  <div class="hud" id="tB"></div>
+</section>
+
+<!-- ══════════ 方案 C ══════════ -->
+<section class="style-block">
+  <div class="style-hd">
+    <span class="style-badge">方案 C</span>
+    <span class="style-name">现代扁平深色</span>
+    <span class="style-src">RimWorld · Prison Architect 等模拟经营</span>
+  </div>
+  <p class="style-desc">
+    深灰不透明 <b>#22252B</b> + <b>1px 细线</b> + 无阴影无圆角，最像"工具"。
+    <b>注意：这四块都按你的要求保持了宽松留白</b>，所以 C 只是"最有条件做紧凑"的语言，<b>这里并没有做成紧凑版</b>。
+    <span class="warn">⚠️ 本方案用亮色文字表状态（深灰上实测 ≥4.9:1 可读）——这条只在深底成立，换浅底必须改回色块。</span>
+  </p>
+  <p class="pick"><b>什么时候选它 →</b> 更看重<strong>「看数据、操作快」</strong>而不是"游戏感"时。
+     代价：和像素办公室场景最不像，可能仍然是"网页贴在游戏上"。</p>
+  <div class="hud" id="tC"></div>
+</section>
+
+<!-- ══════════ 方案 D ══════════ -->
+<section class="style-block">
+  <div class="style-hd">
+    <span class="style-badge">方案 D</span>
+    <span class="style-name">终端 / CRT</span>
+    <span class="style-src">赛博朋克 · 系统监控台</span>
+  </div>
+  <p class="style-desc">
+    近黑底 <b>#0A0E0A</b> + 荧光青绿 <b>#4FE3C1</b> + 等宽字 + 极淡扫描线。
+    最像"监控室大屏"，和「盯着团队状态」的定位非常贴。
+  </p>
+  <p class="pick"><b>什么时候选它 →</b> 想强调<strong>「这是监控台」</strong>、追求赛博感的氛围时。
+     代价：和明亮的办公室场景最容易割裂；长时间盯荧光色眼睛会累。</p>
+  <div class="hud" id="tD"></div>
+</section>
+
+<div class="foot-note">
+  <h2>怎么选：一句话对照</h2>
+  <table>
+    <tr><th>方案</th><th>第一印象</th><th>和像素场景的协调度</th><th>信息密度</th><th>一句话</th></tr>
+    <tr><td>A · 像素纸</td><td>「这是游戏」</td><td>最高（同一套素材）</td><td>中</td><td>最推荐：面板像游戏的一部分</td></tr>
+    <tr><td>B · 复古蓝窗</td><td>「这是 RPG」</td><td>高</td><td>偏低</td><td>游戏感最强，但框太抢眼</td></tr>
+    <tr><td>C · 扁平深色</td><td>「这是工具」</td><td>最低</td><td>高（可做最紧凑，本页未做）</td><td>最好用，但最不像游戏</td></tr>
+    <tr><td>D · 终端 CRT</td><td>「这是监控台」</td><td>中</td><td>中</td><td>氛围独特，但容易和场景割裂</td></tr>
+  </table>
+  <p style="margin:10px 0 0;color:#8b8578;font-size:12px">
+    也可以混合：例如 <b style="color:#c9bfa6">A 的面板 + C 的状态色块</b>（用纸面板，但状态块更克制）。
+    告诉我要哪个编号（或怎么混），我再去做实现。
+  </p>
+</div>
+
+</div>
+
+<script>
+/*
+ * 内容只写一次 —— 四块面板共用这一份数据与这一份渲染函数。
+ * 这是"同内容可比"的结构保证：不存在"我手抄 A 的时候少写了一张卡"这种情况。
+ */
+const HUD_DATA = {
+  brand: 'Agent World',
+  agents: [
+    { name: '工头阿金', role: 'lead',       task: '分派 T-1182 给小蓝',        status: 'run',     st: '进行中', count: 3, color: '#ffc94d' },
+    { name: '小蓝',     role: 'engineer',   task: '写 scene-phaser 的点选命中', status: 'run',     st: '进行中', count: 2, color: '#4fa8ff' },
+    { name: '小铁',     role: 'engineer',   task: 'R12 侧边栏两档切换',        status: 'ready',   st: '待开始', count: 1, color: '#7c7cff' },
+    { name: '小紫',     role: 'reviewer',   task: '审 R11 实现',               status: 'blocked', st: '卡住',   count: 1, color: '#b98cff' },
+  ],
+  graph: {
+    wires: 'T-1180 → T-1182 → T-1184',
+    nodes: [
+      { id: 'T-1180', cls: 'done' },
+      { id: 'T-1182', cls: 'run' },
+      { id: 'T-1183', cls: 'fail' },
+      { id: 'T-1184', cls: '' },
+    ],
+  },
+  units: [
+    { n: '工头阿金', x: 70,  y: 110, c: '#ffc94d' },
+    { n: '小蓝',     x: 150, y: 80,  c: '#4fa8ff' },
+    { n: '小铁',     x: 210, y: 170, c: '#7c7cff' },
+    { n: '小紫',     x: 300, y: 120, c: '#b98cff' },
+    { n: '小青',     x: 390, y: 190, c: '#5fd68a' },
+    { n: '小绯',     x: 460, y: 100, c: '#ff8a4c' },
+    { n: '小雯',     x: 130, y: 230, c: '#ff7eb6' },
+  ],
+  footer: [
+    { label: '',       value: '运行中', live: true },
+    { label: 'TICK',   value: '1284' },
+    { label: '事件',   value: '96/s' },
+    { label: 'SEQ',    value: '1284' },
+    { label: '渲染器', value: 'WEBGL' },
+    { label: '精灵',   value: '9' },
+  ],
+};
+
+const CMD_ICONS = {
+  pause: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="3.6" width="2.3" height="8.8"/><rect x="8.7" y="3.6" width="2.3" height="8.8"/></svg>',
+  play:  '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.4v9.2a.6.6 0 0 0 .92.5l7.4-4.6a.6.6 0 0 0 0-1L6.42 2.9a.6.6 0 0 0-.92.5z"/></svg>',
+  fit:   '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6.5V4h2.5M9.5 4H12v2.5M12 9.5V12H9.5M6.5 12H4V9.5"/></svg>',
+  reset: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="4.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"/></svg>',
+  zoomIn:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 4v8M4 8h8"/></svg>',
+};
+
+const STAR_MARK =
+  '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">' +
+  '<path d="M10 3.5 16.5 10 10 16.5 3.5 10Z"/><path d="M3.5 10h13"/>' +
+  '<circle cx="10" cy="3.5" r="2" fill="currentColor" stroke="none"/>' +
+  '<circle cx="16.5" cy="10" r="2" fill="currentColor" stroke="none"/>' +
+  '<circle cx="10" cy="16.5" r="2" fill="currentColor" stroke="none"/>' +
+  '<circle cx="3.5" cy="10" r="2" fill="currentColor" stroke="none"/></svg>';
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+function renderHud(d) {
+  const agents = d.agents.map((a) => `
+      <div class="acard">
+        <i class="rail" style="--rail:${a.color}"></i>
+        <div class="acard-body">
+          <div class="acard-top">
+            <span class="acard-name">${esc(a.name)}</span>
+            <span class="acard-role">${esc(a.role)}</span>
+          </div>
+          <div class="acard-task">${esc(a.task)}</div>
+          <div class="acard-bot">
+            <span class="chip ${a.status}">${esc(a.st)}</span>
+            <span class="acard-count">${a.count} 单</span>
+          </div>
+        </div>
+      </div>`).join('');
+
+  const nodes = d.graph.nodes
+    .map((n) => `<span class="node ${n.cls}">${esc(n.id)}</span>`)
+    .join('');
+
+  const units = d.units.map((u) =>
+    `<div class="unit" data-n="${esc(u.n)}" style="left:${u.x}px;top:${u.y}px;background:${u.c}"></div>`
+  ).join('');
+
+  const reads = d.footer.map((r) => {
+    const dot = r.live ? '<i class="live-dot"></i>' : '';
+    const lab = r.label ? `<b>${esc(r.label)}</b>` : '';
+    return `<span class="readout">${dot}${lab}${esc(r.value)}</span>`;
+  }).join('');
+
+  return `
+    <div class="hud-head">
+      <div class="brand">
+        <span class="brand-mark">${STAR_MARK}</span>
+        <span class="brand-name">${esc(d.brand)}</span>
+      </div>
+      <span class="spacer"></span>
+      <div class="cmd-group">
+        <button class="cmd" title="暂停世界" aria-label="暂停世界">${CMD_ICONS.pause}</button>
+        <button class="cmd" title="继续" aria-label="继续">${CMD_ICONS.play}</button>
+        <button class="cmd" title="放大" aria-label="放大">${CMD_ICONS.zoomIn}</button>
+        <button class="cmd" title="适配视图" aria-label="适配视图">${CMD_ICONS.fit}</button>
+        <button class="cmd" title="复位" aria-label="复位">${CMD_ICONS.reset}</button>
+      </div>
+    </div>
+
+    <div class="hud-field">${units}</div>
+
+    <aside class="hud-side">
+      <div class="side-hd">
+        <span class="side-title">团队</span>
+        <button class="side-toggle">收起</button>
+      </div>
+      <div class="side-body">
+        <div>
+          <h3 class="region-title">Agents</h3>
+          ${agents}
+        </div>
+        <div>
+          <h3 class="region-title">任务图</h3>
+          <div class="graph">
+            <div class="graph-wires">${esc(d.graph.wires)}</div>
+            ${nodes}
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="hud-foot">${reads}</div>
+  `;
+}
+
+for (const id of ['tA', 'tB', 'tC', 'tD']) {
+  const host = document.getElementById(id);
+  if (host) host.innerHTML = renderHud(HUD_DATA);
+}
+</script>
+</body>
+</html>

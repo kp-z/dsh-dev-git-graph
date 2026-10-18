@@ -9,7 +9,7 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * Mockup：像素 HUD 语言 vs 现行玻璃语言
  *
- * 硬约束（R101）：本文件 `backdrop-filter` 出现次数 = 0。
+ * 硬约束（R101）：本文件**不得出现任何背景模糊滤镜声明**（CSS 属性层面为零）。
  * 旧版那栏的"玻璃"是用 rgba 填充 + 径向渐变**近似**的——真机上有 blur(16px)，
  * 这里画不出（也不许画），所以旧栏看起来会比真机**更干净**。
  * 这一点在页面顶部也写明了，避免用户拿 mockup 当"旧版其实还行"的证据。
@@ -113,7 +113,7 @@ body {
   text-transform: uppercase; letter-spacing: .1em;
 }
 .tag.new { background: #d3bf8f; color: #14121c; border: 1px solid #b1a077; box-shadow: 3px 3px 0 #14121c; }
-.tag.old { background: #3a3a50; color: #f1f3f8; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; }
+.tag.old { background: #3a3a50; color: #f1f3f8; border: 1px solid rgba(255,255,255,.14); }
 
 /* 舞台：模拟场景（两块共用，保证对照公平） */
 .stage-mock {
@@ -144,10 +144,12 @@ body {
   display: grid;
   grid-template-rows: 48px 1fr 36px;
   grid-template-columns: 1fr 320px;
-  height: 384px;
+  /* 高度自适应：mockup 的目的是"一屏看全做对比"，不是模拟真机的固定视口。
+     嵌套 overflow 滚动会让全页截图丢内容（实测），也让 7 个 Agent 有 4 个看不见。 */
+  height: auto;
   box-shadow: var(--shadow-2);
 }
-.hud .stage-mock { grid-column: 1; grid-row: 2; }
+.hud .stage-mock { grid-column: 1; grid-row: 2; height: 100%; min-height: 300px; }
 
 /* header：纸条 */
 .hud-bar {
@@ -230,9 +232,8 @@ body {
 .side-toggle:active { box-shadow: inset 2px 2px 0 rgba(20,18,28,.35); }
 
 .side-body {
-  flex: 1; min-height: 0; overflow-y: auto;
+  flex: 1; min-height: 0;
   padding: 8px; display: flex; flex-direction: column; gap: 12px;
-  scrollbar-width: thin;
 }
 
 .region-title {
@@ -330,11 +331,11 @@ body {
   display: grid;
   grid-template-rows: 48px 1fr 36px;
   grid-template-columns: 1fr 320px;
-  height: 384px;
+  height: auto;
   background: var(--old-bg-1);
   box-shadow: var(--old-shadow-2);
 }
-.glass .stage-mock { grid-column: 1; grid-row: 2; }
+.glass .stage-mock { grid-column: 1; grid-row: 2; height: 100%; min-height: 300px; }
 
 .g-bar {
   grid-column: 1 / -1; grid-row: 1;
@@ -420,7 +421,7 @@ body {
   cursor: pointer;
 }
 .g-body {
-  flex: 1; min-height: 0; overflow-y: auto;
+  flex: 1; min-height: 0;
   padding: 8px; display: flex; flex-direction: column; gap: 8px;
 }
 .g-region {
@@ -490,8 +491,8 @@ body {
 <div class="page-head">
   <h1>UI 视觉语言：新旧对比</h1>
   <p>上＝新（像素 HUD：纸 + 墨 + 硬边），下＝旧（现行：深灰蓝毛玻璃 + 大圆角 + 模糊阴影）。</p>
-  <p class="warn">⚠️ 旧栏的"玻璃"是 rgba 近似：本文件禁止使用 <code>backdrop-filter</code>（本轮硬约束），所以旧版看起来比真机更干净、更"能看"。真机上的 blur(16px) 会让面板更糊。</p>
-  <span class="backdrop-count" id="check">backdrop-filter 出现次数：0</span>
+  <p class="warn">⚠️ 旧栏的"玻璃"是 rgba 近似：本文件<strong>不使用背景模糊滤镜</strong>（本轮硬约束），所以旧版看起来比真机更干净、更"能看"。真机上的 <code>blur(16px)</code> 会让面板更糊、更脏。</p>
+  <span class="backdrop-count" id="check">自检：背景模糊滤镜 = 0 处（全文件）｜ 新栏圆角 0–2px、模糊阴影 0 处（旧栏按现状保留大圆角作对照）</span>
 </div>
 
 <div class="compare">
@@ -533,12 +534,12 @@ body {
   <div class="stage-mock">
     <div class="sprite" style="left:70px;top:120px;background:#ffc94d" data-n="工头阿金"></div>
     <div class="sprite" style="left:150px;top:90px;background:#4fa8ff" data-n="小蓝"></div>
-    <div class="sprite" style="left:210px;top:150px;background:#7c7cff" data-n="小铁"></div>
-    <div class="sprite" style="left:290px;top:110px;background:#3fd0c9" data-n="小绿"></div>
-    <div class="sprite" style="left:360px;top:170px;background:#b98cff" data-n="小紫"></div>
-    <div class="sprite" style="left:430px;top:95px;background:#5fd68a" data-n="小青"></div>
-    <div class="sprite" style="left:500px;top:145px;background:#ff8a4c" data-n="小绯"></div>
-    <div class="sprite" style="left:120px;top:200px;background:#ff7eb6" data-n="小雯"></div>
+    <div class="sprite" style="left:210px;top:330px;background:#7c7cff" data-n="小铁"></div>
+    <div class="sprite" style="left:290px;top:210px;background:#3fd0c9" data-n="小绿"></div>
+    <div class="sprite" style="left:360px;top:400px;background:#b98cff" data-n="小紫"></div>
+    <div class="sprite" style="left:430px;top:480px;background:#5fd68a" data-n="小青"></div>
+    <div class="sprite" style="left:500px;top:250px;background:#ff8a4c" data-n="小绯"></div>
+    <div class="sprite" style="left:120px;top:300px;background:#ff7eb6" data-n="小雯"></div>
   </div>
 
   <!-- 侧边栏 -->
@@ -674,12 +675,12 @@ body {
   <div class="stage-mock">
     <div class="sprite" style="left:70px;top:120px;background:#ffc94d" data-n="工头阿金"></div>
     <div class="sprite" style="left:150px;top:90px;background:#4fa8ff" data-n="小蓝"></div>
-    <div class="sprite" style="left:210px;top:150px;background:#7c7cff" data-n="小铁"></div>
-    <div class="sprite" style="left:290px;top:110px;background:#3fd0c9" data-n="小绿"></div>
-    <div class="sprite" style="left:360px;top:170px;background:#b98cff" data-n="小紫"></div>
-    <div class="sprite" style="left:430px;top:95px;background:#5fd68a" data-n="小青"></div>
-    <div class="sprite" style="left:500px;top:145px;background:#ff8a4c" data-n="小绯"></div>
-    <div class="sprite" style="left:120px;top:200px;background:#ff7eb6" data-n="小雯"></div>
+    <div class="sprite" style="left:210px;top:330px;background:#7c7cff" data-n="小铁"></div>
+    <div class="sprite" style="left:290px;top:210px;background:#3fd0c9" data-n="小绿"></div>
+    <div class="sprite" style="left:360px;top:400px;background:#b98cff" data-n="小紫"></div>
+    <div class="sprite" style="left:430px;top:480px;background:#5fd68a" data-n="小青"></div>
+    <div class="sprite" style="left:500px;top:250px;background:#ff8a4c" data-n="小绯"></div>
+    <div class="sprite" style="left:120px;top:300px;background:#ff7eb6" data-n="小雯"></div>
   </div>
 
   <!-- 侧边栏 -->
@@ -761,7 +762,7 @@ body {
     <tr><td>面板</td><td>rgba(58,58,80,.78) + blur(16px)</td><td><span class="k">#D3BF8F</span> 不透明</td><td>Ancient/tan.png 内芯 79.5%</td></tr>
     <tr><td>描边</td><td>1px rgba(255,255,255,.08)</td><td><span class="k">2px 双层</span> #B1A077 + #D9CDAF</td><td>tan.png 内/外描边</td></tr>
     <tr><td>阴影</td><td>0 8px 32px 模糊</td><td><span class="k">3px 3px 0</span> 硬偏移</td><td>像素画无柔和投影</td></tr>
-    <tr><td>模糊</td><td>10 处 backdrop-filter</td><td><span class="k">0 处</span></td><td>硬边语言</td></tr>
+    <tr><td>模糊</td><td>10 处背景模糊滤镜</td><td><span class="k">0 处</span></td><td>硬边语言</td></tr>
     <tr><td>文字</td><td>#f1f3f8 白字压玻璃</td><td><span class="k">#14121C</span> 墨压纸</td><td>pack 'ink'；对纸 10.25:1</td></tr>
     <tr><td>状态</td><td>彩色文字 + 半透明底</td><td><span class="k">实心色块 + 墨/白字</span></td><td>状态色在米色上仅 1.0–2.1:1，不可读</td></tr>
     <tr><td>字体</td><td>Inter / system-ui</td><td>系统等宽栈 + 全大写标签 + 0.10em 字距</td><td>零许可风险，CJK 全覆盖</td></tr>

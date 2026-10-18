@@ -158,8 +158,15 @@
 | **R8** | 稳定 S3：卡住的单在界面上有出口 | developer | 改动 + 造场景验证 | — | ⬜ |
 | **R9** | 分层 S4：墙/桌/椅/黑板按原版参与 Y 排序（**对照 Godot 原版**） | developer + reviewer | 截图对照 | — | ⚠️ **并行 Agent 已在做**（他们已提交 R78/R79：家具改为可 Y 排序实体、椅子不再压桌面）。**不要重复**；由他们做完后我方只做独立复核（截图对照） |
 | **R10** | 复盘：把前 9 轮的经验写进 `ARCHITECTURE.md`，重排下一批 | Leader | 文档 | R1–R9 | ⬜ |
-| **R11** | **UI 视觉语言重做**（像素 HUD 语言 + 卡片布局）+ 新旧对比 mockup | designer | `docs/DESIGN-ui-theme.md` + `docs/mockup/ui-theme.html` | — | 🔄 进行中（task-10） |
-| **R12** | 按 R11 的规范**实现**（tokens / header / sidebar / footer 全面替换） | developer | 代码 + 真机截图 | R11（**需用户看过 mockup 拍板**） | ⬜ |
+| **R11** | **UI 视觉语言重做**（像素 HUD 语言 + 卡片布局）+ 新旧对比 mockup | designer | `docs/DESIGN-ui-theme.md` + `docs/mockup/ui-theme.html` | — | ✅ 完成 |
+| **R11b** | **HUD 四流派同内容对比**（给用户选） | designer | `docs/mockup/ui-hud-styles.html` | R11 | ✅ 完成 |
+| **R12** | 按**方案 A（像素纸 HUD）**实现：先 tokens 后组件 | developer | 代码 + 真机截图 | R11b（**用户已选定 A**） | 🔄 进行中（task-12） |
+
+> **UI 决策（已定，用户 R102 选定）**：采用 **方案 A —— 像素纸 / 木质面板**（Stardew Valley 系）。
+> 理由：面板用的就是**游戏自己的 9-slice 材质**（对话气泡那套 `#D3BF8F`/`#B1A077`），
+> 所以"和游戏协调"是材质上天然的，不是靠配色凑的。
+> **信息密度**：用户确认**保持宽松留白**（不做紧凑版）。
+> **被否掉的三个**：B 复古蓝窗（信息密度低、框套框）、C 扁平深色（和像素场景最不像）、D 终端 CRT（割裂）。
 
 > **R11 的诊断（Lead 已核实）**：用户说"太丑了、和游戏主题不协调"——**问题不是色值，是视觉语言**。
 > 现状 **44 处圆角 + 18 处阴影 + 10 处 `backdrop-filter`**、字体 `system-ui`、深灰蓝玻璃面板；
