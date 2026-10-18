@@ -44,5 +44,13 @@ export function taskPatch(world: World, id: string): Record<string, unknown> {
     owner: t.owner,
     station: t.station,
     estimateTicks: t.estimateTicks,
+    // ⚠️ **`blockedBy` 必须在**（R99 真机抓到）：依赖图是**按前置关系**画连线的，
+    // 而客户端对"新派进来的单"只会走增量路径（`world-update.js` 里就地建出这张单）。
+    // 少了它，那条边的两端里有一端永远没有前置 → 图**少画线却不报错**：
+    // 节点都在、状态都对，只是没有连线，看起来像"这批单本来就没有依赖"。
+    // 这类"看着正常、实际少一半信息"的缺口正是最难查的一种。
+    blockedBy: [...t.blockedBy],
+    // `requires` 同理：卡片上"需要 review"的虚线框读的是它。
+    requires: [...t.requires],
   }
 }

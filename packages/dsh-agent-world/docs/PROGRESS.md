@@ -42,6 +42,145 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R100（Lead）—— 起服务供用户测试 + 验收 task-9 + **重启宿主让服务端修复生效**
+
+### 起因
+用户：「启动下服务我测试下效果」。而 3080 宿主此前已退出。
+
+### 做了什么
+1. **起宿主**（`dsh web`）→ 200；token URL 见汇报。
+2. **发现"改了却没生效"**：developer 改完 `web/ui/sidebar.js`（9882B）**没跑 `copy-web`**，
+   而宿主服务的是 `lib/web/` 的旧版（6575B，还是带 tab 的那版）——页面上看到的仍是**旧侧边栏**。
+   - ⚠️ **我起初误判成"profile 硬链接失效"**：实测 inode 相同、硬链接没问题，
+     **纯粹是 `lib/web/` 没同步**。判据是 `diff -rq web lib/web`（必须无输出）。
+   - 已写进纪律第 4 条：**说"可以测了"之前必须先跑这一条。**
+3. **重启宿主**以加载服务端修复（见下）。
+
+### 验收 task-9（逐条对它的声称）
+| 声称 | 我的核实 | 结论 |
+|---|---|---|
+| 去 tab、两块同时可见 | `#sidebar [role=tablist]` = **0**、`region` = 2；agents 面板 303×461 与 graph 面板 303×406 **同屏** | ✅ |
+| 可折叠 | 折叠按钮在位、`aria-expanded` 如实；320px ↔ 34px（它实测舞台 907↔1193） | ✅ |
+| 折叠→展开后图仍在 | 它给 `svg 242×252` / `path.board-edge ×2`（本轮世界无工单，故我这边图是空的） | ✅（按它数字） |
+| 642/642 | `node --test` = 642 pass / 0 fail | ✅ |
+| `build r99` | 性能条实读 `R0 F0 D? · build r99`，精灵 194 无上涨 | ✅ |
+
+> 附注：我全文档查到 1 个 `[role="tablist"]`，一度以为它漏了——**实际在底部对话面板**
+> （`div.dialogue-modes`，aria-label「超控模式」：对话/移动模式切换），是合理的。
+> **查询范围过宽会制造假阳性**，和 R93 那次（把隐藏面板的行算成"被裁"）是同一类错误。
+
+### ⚠️ 它顺带修了一个真 bug（超出它写范围，已核实）
+**派单后依赖图画不出连线**：`blockedBy` 全空。根因在服务端——
+`src/sim/patches.ts::taskPatch()` 没带 `blockedBy`，而客户端对"新派进来的单"只走增量路径，
+`web/core/world-update.js` 里还把它**写死成 `[]`**。于是节点一个不少、状态也对，**只是图上没有关系**，
+看起来像"这批单本来就没依赖"。**`clipped()` 抓不到、不报错**——正是最难查的那种缺口。
+- 这正是 BACKLOG 里挂着的 **M7-8**（"增量要带 blockedBy/requires"）。
+- 两处都补齐了（`lib/sim/patches.js:35` 已含修复，16:44 编译）。
+- **服务端改动要重启宿主才生效** ⇒ 我重启了宿主（旧 PID 61814 → 新进程），
+  否则用户派单时仍会看到"没有连线"。
+
+### 下一轮从哪继续
+- **R11（UI 视觉语言重做）** 由 designer 进行中（task-10）：token 表 + 新旧对比 mockup，
+  **等用户看过 mockup 拍板**再派 R12 实现。
+- R5（细节打磨）/ R8（卡住的单有出口）待排。
+
+### 假设
+- 用户测试的是**功能**（侧边栏折叠/两档同屏/点行聚焦），视觉美化是另一条线（R11/R12），不冲突。
+
+### 卡住
+- 无。
+
+---
+
+## R99（task-9 / developer）—— 侧边栏：**去 tab（两块同时可见）+ 可折叠**
+
+### 用户原话
+> 「这个侧面板应该是可以折叠展开的，而且不是分成两个 tab，这两个 tab 应该可以同时看到才对」
+
+### 做了什么
+1. **去 tab、两块上下堆叠**（`sidebar.js` / `sidebar.css`）：
+   删掉 `sidebar-tabs` / `setView()` / `panel.hidden` 那套；两块变成常驻的
+   `<section role="region" aria-labelledby=…>`（**不再是** `tablist`/`tabpanel`），各带一个小标题
+   （「团队」「任务图」）。滚动交给 `.sidebar-body` 一处，避免图内/列表各一条滚动条打架。
+2. **折叠/展开**：头部一个按钮，`aria-expanded` 如实反映；折叠 = **CSS 列宽** `--sidebar-w: 34px`
+   （`.app.is-sidebar-collapsed`），舞台自动变宽，引擎的 `Scale.RESIZE` 自己带画布跟——
+   **没有**手调 `game.scale.resize()`。状态记在 `localStorage`（`agentWorld.sidebarCollapsed`）。
+3. **依赖图的高度预算**：`.board-canvas` 给 `clamp(180px, 30vh, 320px)`。
+   两块堆叠后外层是内容高度，图**不能**再靠 `flex: 1` 撑——那会退化成 0，图直接消失，
+   而 `clipped()`/`overflow()` 都看不出来（它确实没被裁，它是没有高度）。
+4. **调试门面**：`showGraph()` 删除（没有"切档"了）；新增 `collapsed()/toggle()/setCollapsed()`
+   与 `__agentWorldBoard.refreshGraph()`。
+
+### ⚠️ 本轮最大坑：0×0 陷阱**换了位置**，而且我踩到了两次
+
+- **第一次**（预料之中）：折叠会让两块容器变成 0×0，所以几何重挑的触发点从"切档"改成"**展开**"。
+- **第二次**（没预料到）：`onExpand` 只挂在 `requestAnimationFrame` 上，而
+  **rAF 在后台标签页里根本不触发**（`main.js` 文件头就记过这条——本面板的典型场景恰恰是
+  "agent 在跑、人不一定在看"）。真机表现：在后台展开侧边栏 → 依赖图**一直是空的**，
+  切回前台也**没有任何东西会再触发重画**。现在 rAF 与 `setTimeout(120ms)` 双保险（`fired` 去重）。
+
+### 顺带修掉一个**真 bug**（不在本轮范围，但它让验收判据无法成立）
+
+派单之后依赖图**画不出连线**：`blockedBy` 全是空的。根因在服务端——
+`src/sim/patches.ts::taskPatch()` **根本没带 `blockedBy`**，而客户端对"新派进来的单"只走增量路径
+（`world/core/world-update.js` 就地建那个对象，且把 `blockedBy: []` **写死**）。
+于是**节点一个不少、状态也对，只是图上没有关系**——看起来像"这批单本来就没依赖"。
+这是典型的"看着正常、实际少一半信息"，`clipped()` 抓不到、不报错。
+两处都补齐（`patches.ts` 补 `blockedBy`/`requires`；`world-update.js` 从载荷取而不是写死）。
+⚠️ 服务端改动**要重启宿主**才生效；本轮验收走的是刷新后的**快照路径**（快照本来就带 `blockedBy`）。
+
+### 验收数字（真机 3080，`build r99`）
+
+**① 两块同时可见**
+| 项 | 1440×900 | 1024×768 |
+|---|---|---|
+| `#sidebar-panel-agents` hidden / 高度 | `false` / **461px** | `false` / **446px** |
+| `#sidebar-panel-graph` hidden / 高度 | `false` / **435px** | `false` / **412px** |
+| `#sidebar [role="tablist"]` 数量 | **0** | **0** |
+| `#sidebar [role="tabpanel"]` 数量 | **0** | **0** |
+| `[role="region"]` 数量 | **2**（各带 `aria-labelledby` 与小标题） | 2 |
+| `.sidebar-body` 可滚 / 横向滚 | `true` / **无** | `true` / **无** |
+| `document.scrollWidth` | 1440 | 1024 |
+| 侧边栏 / 舞台宽 | 320 / 1120 | 272 / 752 |
+
+**② 折叠 → 展开**
+| 状态 | 侧边栏宽 | 舞台宽 | `aria-expanded` |
+|---|---|---|---|
+| 展开 | 320 | 907 | `true` |
+| 折叠 | **34** | **1193** | `false` |
+| 再展开 | 320 | 907 | `true` |
+
+**③ 折叠→展开之后依赖图仍有几何**（这条就是防 0×0 陷阱的判据）
+```
+展开后        svg 242×252 · path.board-edge ×2 · .board-node ×3 · preset medium
+折叠中统计     nodes 3 · paths 2（DOM 保留，容器高度 0 —— 预期）
+再展开后      svg 242×252 · paths 2 · nodes 3 · preset medium   ← 没有退化成 0.4 废图
+```
+
+**④ 持久化**：折叠后刷新，`collapsed: true`、侧边栏宽 **34**（真机复验到——刷新后加载即折叠态，
+这也正是我第一次跑验收时"图为什么是空的"的原因）。
+
+**⑤ 性能条**：`Phaser(WebGL) · 绘制 0（合批） · 精灵 194 · 切换 0 · R0 F0 D? · build r99`
+（精灵数与上一轮 194 一致，无上涨；`D?` 是后台标签未拉快照的如实状态）。
+
+**⑥ 行为未变**：点成员行仍 = 只选中 + 镜头（(d)3）；点任务节点仍出详情；`focusMatrix()` 未改。
+
+### 验证怎么跑的
+`node --check`（`sidebar.js` / `main.js` / `world-update.js`）· `copy-web` 已同步（profile 逐文件 diff 全等）·
+`tsc --noEmit` 绿 · 编译 `lib/` 让服务端补丁生效 · `node --test test/` **642 / 642**。
+
+### 下一轮从哪继续
+- 用户刚提的**「侧边栏/header/footer 的 UIUX 太丑、和游戏主题不协调，要卡片式现代化布局」**
+  是新一轮的活，覆盖本轮的样式；本轮只保证**结构与行为**正确，视觉交给那一轮。
+- 遗留：`sidebar-head` 目前只有折叠按钮。若下一轮要加标题/计数，注意别把 `aria-expanded`
+  与 `aria-controls` 挂到包裹元素上（它们必须在**按钮**上）。
+
+### 卡住
+- 服务端 `patches.ts` 的补丁**需要重启宿主**才在真机生效。本轮没有重启用户的实例（那是他正在跑的世界），
+  验收改走快照路径。**下一轮若要验"运行中派单也能画出连线"，需要重启宿主或等用户重启。**
+
+---
+
 ## R98（Lead）—— 验收 task-8（R6）：全过；**走真实点击路径**验了那条"打字时不能被踢出去"
 
 ### 逐条核实

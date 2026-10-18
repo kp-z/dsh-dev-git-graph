@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent World — UI 视觉语言：新旧对比</title>
+<style>
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Mockup：像素 HUD 语言 vs 现行玻璃语言
+ *
+ * 硬约束（R101）：本文件 `backdrop-filter` 出现次数 = 0。
+ * 旧版那栏的"玻璃"是用 rgba 填充 + 径向渐变**近似**的——真机上有 blur(16px)，
+ * 这里画不出（也不许画），所以旧栏看起来会比真机**更干净**。
+ * 这一点在页面顶部也写明了，避免用户拿 mockup 当"旧版其实还行"的证据。
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+
+/* ══ 新 token（采样见 docs/DESIGN-ui-theme.md §2）══════════════════════════ */
+:root {
+  --paper-0: #ece3ce;   /* white_inlay.png 内芯 */
+  --paper-1: #d3bf8f;   /* tan.png 内芯 */
+  --paper-2: #b1a077;   /* tan.png 内描边 */
+  --paper-3: #d9cdaf;   /* tan.png 外描边 */
+  --paper-wood: #97714a;/* brown.png 内芯 */
+
+  --ink-0: #14121c;     /* pack 'ink' */
+  --ink-1: #6d543a;     /* brown.png 内描边，仅纸面上用 */
+  --ink-2: #a3997f;     /* tan.png 四角 */
+
+  --bg-0: #1c1a26;      /* pack 'ground' */
+
+  --accent: #4fa8ff;
+  --accent-infra: #3fd0c9;
+  --accent-meeting: #b98cff;
+  --accent-commons: #ffb259;
+
+  --st-done: #22c55e;
+  --st-in_progress: #3b82f6;
+  --st-ready: #f59e0b;
+  --st-blocked: #6b7280;
+  --st-failed: #ef4444;
+  --st-pending: #4b5563;
+
+  --shadow-1: 2px 2px 0 rgba(20, 18, 28, .55);
+  --shadow-2: 3px 3px 0 var(--ink-0);
+
+  --ui-font: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace;
+}
+
+/* ══ 旧 token（现状，照抄 web/styles/tokens.css）══════════════════════════ */
+.old {
+  --glass: rgba(58, 58, 80, .78);
+  --glass-strong: rgba(58, 58, 80, .92);
+  --stroke: rgba(255, 255, 255, .08);
+  --stroke-strong: rgba(255, 255, 255, .14);
+  --surface-1: rgba(255, 255, 255, .04);
+  --surface-3: rgba(255, 255, 255, .12);
+  --fg-0: #f1f3f8;
+  --fg-1: #a9b1c3;
+  --fg-2: #6b7489;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --r-pill: 999px;
+  --old-shadow-1: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .25);
+  --old-shadow-2: 0 8px 32px rgba(0, 0, 0, .45);
+  --old-font: Inter, "PingFang SC", "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+  --old-bg-1: #1c1a26;
+  --st-done-o: #5fd68a;
+  --st-prog-o: #4fa8ff;
+  --st-ready-o: #ffc94d;
+  --st-blocked-o: #ff8a4c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #0d0c12;
+  color: #e8e2d4;
+  font-family: var(--ui-font);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 24px 20px 64px;
+}
+
+/* ── 页头 ─────────────────────────────────────────────────────────────── */
+.page-head { max-width: 1180px; margin: 0 auto 8px; }
+.page-head h1 {
+  font-size: 15px; font-weight: 700; margin: 0 0 6px;
+  text-transform: uppercase; letter-spacing: .12em; color: #d3bf8f;
+}
+.page-head p { margin: 0 0 4px; color: #8b8578; font-size: 12px; max-width: 78ch; }
+.page-head .warn { color: #c9a227; }
+.page-head code {
+  background: #1c1a26; padding: 1px 4px; color: #d3bf8f;
+  border: 1px solid #2e2b38;
+}
+
+.backdrop-count {
+  display: inline-block; margin-top: 8px; padding: 2px 8px;
+  background: #1c1a26; border: 1px solid #3fd0c9; color: #3fd0c9;
+  font-size: 11px; letter-spacing: .08em;
+}
+
+/* ── 对比容器 ─────────────────────────────────────────────────────────── */
+.compare { max-width: 1180px; margin: 0 auto; }
+
+.tag {
+  display: inline-block; margin: 24px 0 8px;
+  padding: 2px 8px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .1em;
+}
+.tag.new { background: #d3bf8f; color: #14121c; border: 1px solid #b1a077; box-shadow: 3px 3px 0 #14121c; }
+.tag.old { background: #3a3a50; color: #f1f3f8; border: 1px solid rgba(255,255,255,.14); border-radius: 6px; }
+
+/* 舞台：模拟场景（两块共用，保证对照公平） */
+.stage-mock {
+  height: 300px;
+  position: relative;
+  overflow: hidden;
+  background:
+    repeating-linear-gradient(90deg, #23212e 0 16px, #1f1d29 16px 32px),
+    #1c1a26;
+  background-blend-mode: normal;
+}
+/* 场景里的"小人"：几块像素色块，示意场景不是纯色 */
+.sprite {
+  position: absolute; width: 12px; height: 18px;
+  box-shadow: 0 0 0 1px rgba(20,18,28,.6);
+}
+.sprite::after {
+  content: attr(data-n);
+  position: absolute; left: 50%; top: -13px; transform: translateX(-50%);
+  font-size: 9px; white-space: nowrap; color: #cfc9bb;
+  font-family: var(--ui-font);
+}
+
+/* ══ 新：HUD 外壳（纸卡）══════════════════════════════════════════════════ */
+.hud {
+  border: 1px solid var(--ink-0);
+  background: var(--bg-0);
+  display: grid;
+  grid-template-rows: 48px 1fr 36px;
+  grid-template-columns: 1fr 320px;
+  height: 384px;
+  box-shadow: var(--shadow-2);
+}
+.hud .stage-mock { grid-column: 1; grid-row: 2; }
+
+/* header：纸条 */
+.hud-bar {
+  background: var(--paper-1);
+  border-bottom: 2px solid var(--ink-0);
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 10px;
+  box-shadow: inset 0 0 0 1px var(--paper-3);
+}
+.hud-bar.foot {
+  grid-column: 1 / -1; grid-row: 3;
+  border-bottom: 0; border-top: 2px solid var(--ink-0);
+  box-shadow: inset 0 0 0 1px var(--paper-3);
+  gap: 10px; font-size: 11px; color: var(--ink-1);
+}
+.hud-head { grid-column: 1 / -1; grid-row: 1; }
+
+.brand { display: flex; align-items: center; gap: 8px; }
+.brand-mark {
+  width: 24px; height: 24px; flex: none;
+  display: grid; place-items: center;
+  background: var(--paper-wood);
+  border: 1px solid var(--ink-0);
+  box-shadow: 2px 2px 0 rgba(20,18,28,.55);
+  color: var(--paper-0);
+}
+.brand-mark svg { width: 14px; height: 14px; display: block; }
+.brand-name {
+  font-size: 15px; font-weight: 700; color: var(--ink-0);
+  letter-spacing: .02em;
+  padding: 0 4px; border: 1px solid transparent; cursor: text;
+}
+.brand-name:hover { border-color: var(--paper-2); background: var(--paper-0); }
+
+.hud-spacer { flex: 1; }
+
+/* 命令按钮：小方块纸卡 */
+.cmd {
+  width: 28px; height: 28px; flex: none;
+  display: grid; place-items: center;
+  background: var(--paper-0);
+  border: 1px solid var(--ink-0);
+  box-shadow: var(--shadow-1);
+  color: var(--ink-0);
+  cursor: pointer;
+  font-family: inherit;
+}
+.cmd:hover { background: #fff8e8; }
+.cmd:active { box-shadow: inset 2px 2px 0 rgba(20,18,28,.35); transform: translate(1px, 1px); }
+.cmd:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.cmd svg { width: 13px; height: 13px; display: block; }
+
+/* 侧边栏：纸卡 */
+.hud-side {
+  grid-column: 2; grid-row: 2;
+  background: var(--paper-1);
+  border-left: 2px solid var(--ink-0);
+  box-shadow: inset 1px 0 0 var(--paper-3);
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.side-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--paper-2);
+  background: var(--paper-wood);
+  box-shadow: inset 0 0 0 1px #b7916a;
+}
+.side-title {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .1em; color: var(--paper-0);
+}
+.side-toggle {
+  margin-left: auto;
+  padding: 1px 6px; font-family: inherit; font-size: 11px;
+  background: var(--paper-1); color: var(--ink-0);
+  border: 1px solid var(--ink-0); box-shadow: var(--shadow-1);
+  cursor: pointer;
+}
+.side-toggle:active { box-shadow: inset 2px 2px 0 rgba(20,18,28,.35); }
+
+.side-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 8px; display: flex; flex-direction: column; gap: 12px;
+  scrollbar-width: thin;
+}
+
+.region-title {
+  margin: 0 0 4px; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .1em; color: var(--ink-1);
+}
+
+/* Agent 卡 */
+.acard {
+  display: flex; align-items: stretch; gap: 0;
+  background: var(--paper-0);
+  border: 1px solid var(--ink-0);
+  box-shadow: var(--shadow-1);
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+.acard:hover { background: #fff8e8; }
+.acard:active { box-shadow: inset 2px 2px 0 rgba(20,18,28,.3); transform: translate(1px,1px); }
+.acard.is-sel {
+  /* 选中：外描边换成亮色，且左侧条加宽——不靠蓝色光晕 */
+  box-shadow: 0 0 0 2px var(--accent), var(--shadow-1);
+}
+.acard .rail { width: 3px; flex: none; }
+.acard.is-sel .rail { width: 5px; }
+.acard-body { flex: 1; min-width: 0; padding: 5px 7px; }
+.acard-top { display: flex; align-items: baseline; gap: 6px; }
+.acard-name { font-size: 13px; font-weight: 700; color: var(--ink-0); }
+.acard-role {
+  font-size: 10px; color: var(--ink-1); text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.acard-task {
+  font-size: 11px; color: var(--ink-1); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.acard-bot { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
+
+/* 状态块：实心 + 墨/白字（§3.3）*/
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 5px; font-size: 10px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em;
+  border: 1px solid var(--ink-0);
+}
+.chip.done      { background: var(--st-done);        color: #14121c; }
+.chip.progress  { background: var(--st-in_progress); color: #14121c; }
+.chip.ready     { background: var(--st-ready);       color: #14121c; }
+.chip.failed    { background: var(--st-failed);      color: #14121c; }
+.chip.blocked   { background: var(--st-blocked);     color: #f4efe2; }
+.chip.pending   { background: var(--st-pending);     color: #f4efe2; }
+.chip-count {
+  font-size: 10px; color: var(--ink-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 任务图区（复用 board.js 的产物，这里画示意） */
+.graph {
+  background: transparent;
+  border: 1px solid var(--paper-2);
+  box-shadow: inset 0 0 0 1px var(--paper-3);
+  padding: 6px;
+}
+.gnode {
+  display: inline-block; margin: 2px;
+  padding: 1px 4px; font-size: 10px;
+  background: var(--paper-0); color: var(--ink-0);
+  border: 1px solid var(--ink-0);
+  font-variant-numeric: tabular-nums;
+}
+.gnode.is-done { background: #a8d5a2; }
+.gnode.is-fail { background: #e8a0a0; }
+.gnode.is-run  { background: #a8c6e8; }
+.gwires { margin: 4px 0 2px; font-size: 10px; color: var(--ink-1); }
+
+/* footer 读数 */
+.readout {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+.readout + .readout {
+  padding-left: 10px; border-left: 1px solid var(--ink-2);
+}
+.readout b {
+  font-weight: 700; color: var(--ink-0);
+  text-transform: uppercase; letter-spacing: .1em; font-size: 10px;
+}
+.dot-live {
+  width: 7px; height: 7px; border-radius: 2px;
+  background: var(--st-done); border: 1px solid var(--ink-0);
+  display: inline-block;
+}
+
+/* ══ 旧：玻璃外壳（现行）══════════════════════════════════════════════════ */
+.glass {
+  display: grid;
+  grid-template-rows: 48px 1fr 36px;
+  grid-template-columns: 1fr 320px;
+  height: 384px;
+  background: var(--old-bg-1);
+  box-shadow: var(--old-shadow-2);
+}
+.glass .stage-mock { grid-column: 1; grid-row: 2; }
+
+.g-bar {
+  grid-column: 1 / -1; grid-row: 1;
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 16px;
+  background: var(--glass);
+  border-bottom: 1px solid var(--stroke);
+}
+.g-foot {
+  grid-column: 1 / -1; grid-row: 3;
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 16px;
+  background: var(--glass-strong);
+  border-top: 1px solid var(--stroke);
+  font-size: 11px; color: var(--fg-2);
+}
+.g-brand { display: flex; align-items: center; gap: 8px; }
+.g-mark {
+  width: 24px; height: 24px; flex: none;
+  display: grid; place-items: center;
+  border-radius: var(--r-sm);
+  background: rgba(79, 168, 255, .16);
+  color: var(--accent);
+}
+.g-mark svg { width: 15px; height: 15px; display: block; }
+.g-name {
+  font-family: var(--old-font);
+  font-size: 17px; font-weight: 600; color: var(--fg-0);
+  letter-spacing: .01em;
+}
+.g-board-summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--surface-1);
+  border: 1px solid var(--stroke);
+  font-family: var(--old-font);
+  font-size: 12px; color: var(--fg-1);
+}
+.g-bar-progress {
+  width: 64px; height: 4px; border-radius: var(--r-pill);
+  background: var(--surface-3); overflow: hidden;
+}
+.g-bar-progress i {
+  display: block; height: 100%; width: 62%;
+  border-radius: var(--r-pill); background: var(--accent);
+}
+.g-badge {
+  padding: 0 6px; border-radius: var(--r-pill);
+  background: var(--surface-3); color: var(--fg-0);
+  font-size: 10px;
+}
+.g-cmd {
+  width: 28px; height: 28px; flex: none;
+  display: grid; place-items: center;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  border: 1px solid var(--stroke);
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.g-cmd:hover { background: var(--surface-3); color: var(--fg-0); border-color: var(--stroke-strong); }
+.g-cmd svg { width: 13px; height: 13px; display: block; }
+
+.g-side {
+  grid-column: 2; grid-row: 2;
+  background: var(--glass);
+  border-left: 1px solid var(--stroke);
+  display: flex; flex-direction: column;
+  min-height: 0;
+}
+.g-side-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px; border-bottom: 1px solid var(--stroke);
+  font-family: var(--old-font);
+}
+.g-side-title { font-size: 12px; font-weight: 600; color: var(--fg-1); }
+.g-toggle {
+  margin-left: auto; padding: 3px 8px;
+  font-family: inherit; font-size: 11px;
+  color: var(--fg-2); background: transparent;
+  border: 1px solid var(--stroke); border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.g-body {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 8px; display: flex; flex-direction: column; gap: 8px;
+}
+.g-region {
+  margin: 0 0 4px;
+  font-family: var(--old-font);
+  font-size: 11px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--fg-2);
+}
+.g-card {
+  padding: 6px 8px; margin-bottom: 8px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  border: 1px solid var(--stroke);
+  box-shadow: var(--old-shadow-1);
+}
+.g-card-top { display: flex; align-items: baseline; gap: 6px; font-family: var(--old-font); }
+.g-card-name { font-size: 13px; font-weight: 600; color: var(--fg-0); }
+.g-card-role { font-size: 11px; color: var(--fg-2); }
+.g-card-task { font-family: var(--old-font); font-size: 12px; color: var(--fg-2); margin-top: 2px; }
+.g-card-bot { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-family: var(--old-font); }
+.g-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 0 6px; border-radius: var(--r-pill);
+  font-size: 10px;
+}
+.g-chip.done   { color: var(--st-done-o);    background: rgba(95, 214, 138, .14); }
+.g-chip.run    { color: var(--st-prog-o);    background: rgba(79, 168, 255, .14); }
+.g-chip.ready  { color: var(--st-ready-o);   background: rgba(255, 201, 77, .14); }
+.g-chip.block  { color: var(--st-blocked-o); background: rgba(255, 138, 76, .10); }
+.g-graph {
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  border: 1px solid var(--stroke);
+  padding: 6px;
+}
+.g-gnode {
+  display: inline-block; margin: 2px; padding: 1px 5px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3); color: var(--fg-1);
+  font-size: 10px; font-family: var(--old-font);
+}
+.g-gnode.done { background: rgba(95, 214, 138, .18); color: var(--st-done-o); }
+
+/* ── 说明区 ───────────────────────────────────────────────────────────── */
+.notes {
+  max-width: 1180px; margin: 32px auto 0;
+  border: 1px solid #2e2b38; background: #131118;
+  padding: 14px 16px;
+}
+.notes h2 {
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .12em; color: #d3bf8f; margin: 0 0 10px;
+}
+.notes table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.notes th, .notes td {
+  text-align: left; padding: 5px 8px;
+  border-bottom: 1px solid #23212e; vertical-align: top;
+}
+.notes th { color: #8b8578; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.notes td:first-child { color: #d3bf8f; white-space: nowrap; }
+.notes td { color: #b9b3a6; }
+.notes .k { color: #3fd0c9; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>UI 视觉语言：新旧对比</h1>
+  <p>上＝新（像素 HUD：纸 + 墨 + 硬边），下＝旧（现行：深灰蓝毛玻璃 + 大圆角 + 模糊阴影）。</p>
+  <p class="warn">⚠️ 旧栏的"玻璃"是 rgba 近似：本文件禁止使用 <code>backdrop-filter</code>（本轮硬约束），所以旧版看起来比真机更干净、更"能看"。真机上的 blur(16px) 会让面板更糊。</p>
+  <span class="backdrop-count" id="check">backdrop-filter 出现次数：0</span>
+</div>
+
+<div class="compare">
+
+<!-- ═══════════════ 新 ═══════════════ -->
+<span class="tag new">新 · 像素 HUD</span>
+<div class="hud">
+  <!-- header -->
+  <div class="hud-bar hud-head">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="miter">
+          <path d="M10 3.5 16.5 10 10 16.5 3.5 10Z" />
+          <path d="M3.5 10h13" />
+          <circle cx="10" cy="3.5" r="2" fill="currentColor" stroke="none" />
+          <circle cx="16.5" cy="10" r="2" fill="currentColor" stroke="none" />
+          <circle cx="10" cy="16.5" r="2" fill="currentColor" stroke="none" />
+          <circle cx="3.5" cy="10" r="2" fill="currentColor" stroke="none" />
+        </svg>
+      </span>
+      <span class="brand-name">Agent World</span>
+    </div>
+    <div class="hud-spacer"></div>
+    <button class="cmd" title="暂停世界" aria-label="暂停世界">
+      <svg viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="3.6" width="2.3" height="8.8"/><rect x="8.7" y="3.6" width="2.3" height="8.8"/></svg>
+    </button>
+    <button class="cmd" title="继续" aria-label="继续">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.4v9.2a.6.6 0 0 0 .92.5l7.4-4.6a.6.6 0 0 0 0-1L6.42 2.9a.6.6 0 0 0-.92.5z"/></svg>
+    </button>
+    <button class="cmd" title="适配视图" aria-label="适配视图">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6.5V4h2.5M9.5 4H12v2.5M12 9.5V12H9.5M6.5 12H4V9.5"/></svg>
+    </button>
+    <button class="cmd" title="复位" aria-label="复位">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8" cy="8" r="4.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"/></svg>
+    </button>
+  </div>
+
+  <!-- 场景 -->
+  <div class="stage-mock">
+    <div class="sprite" style="left:70px;top:120px;background:#ffc94d" data-n="工头阿金"></div>
+    <div class="sprite" style="left:150px;top:90px;background:#4fa8ff" data-n="小蓝"></div>
+    <div class="sprite" style="left:210px;top:150px;background:#7c7cff" data-n="小铁"></div>
+    <div class="sprite" style="left:290px;top:110px;background:#3fd0c9" data-n="小绿"></div>
+    <div class="sprite" style="left:360px;top:170px;background:#b98cff" data-n="小紫"></div>
+    <div class="sprite" style="left:430px;top:95px;background:#5fd68a" data-n="小青"></div>
+    <div class="sprite" style="left:500px;top:145px;background:#ff8a4c" data-n="小绯"></div>
+    <div class="sprite" style="left:120px;top:200px;background:#ff7eb6" data-n="小雯"></div>
+  </div>
+
+  <!-- 侧边栏 -->
+  <aside class="hud-side">
+    <div class="side-head">
+      <span class="side-title">团队</span>
+      <button class="side-toggle">收起</button>
+    </div>
+    <div class="side-body">
+      <div>
+        <h3 class="region-title">Agents</h3>
+        <div class="acard">
+          <i class="rail" style="background:#ffc94d"></i>
+          <div class="acard-body">
+            <div class="acard-top"><span class="acard-name">工头阿金</span><span class="acard-role">lead</span></div>
+            <div class="acard-task">分派 T-1182 给小蓝</div>
+            <div class="acard-bot"><span class="chip progress">进行中</span><span class="chip-count">3 单</span></div>
+          </div>
+        </div>
+        <div class="acard">
+          <i class="rail" style="background:#4fa8ff"></i>
+          <div class="acard-body">
+            <div class="acard-top"><span class="acard-name">小蓝</span><span class="acard-role">engineer</span></div>
+            <div class="acard-task">写 scene-phaser 的点选命中</div>
+            <div class="acard-bot"><span class="chip progress">进行中</span><span class="chip-count">2 单</span></div>
+          </div>
+        </div>
+        <div class="acard">
+          <i class="rail" style="background:#7c7cff"></i>
+          <div class="acard-body">
+            <div class="acard-top"><span class="acard-name">小铁</span><span class="acard-role">engineer</span></div>
+            <div class="acard-task">R12 侧边栏两档切换</div>
+            <div class="acard-bot"><span class="chip ready">待开始</span><span class="chip-count">1 单</span></div>
+          </div>
+        </div>
+        <div class="acard">
+          <i class="rail" style="background:#3fd0c9"></i>
+          <div class="acard-body">
+            <div class="acard-top"><span class="acard-name">小绿</span><span class="acard-role">engineer</span></div>
+            <div class="acard-task">M7-9 裁剪判据回归</div>
+            <div class="acard-bot"><span class="chip done">完成</span><span class="chip-count">0 单</span></div>
+          </div>
+        </div>
+        <div class="acard">
+          <i class="rail" style="background:#b98cff"></i>
+          <div class="acard-body">
+            <div class="acard-top"><span class="acard-name">小紫</span><span class="acard-role">reviewer</span></div>
+            <div class="acard-task">审 R11 实现</div>
+            <div class="acard-bot"><span class="chip blocked">卡住</span><span class="chip-count">1 单</span></div>
+          </div>
+        </div>
+        <div class="acard">
+          <i class="rail" style="background:#5fd68a"></i>
+          <div class="acard-body">
+            <div class="acard-top"><span class="acard-name">小青</span><span class="acard-role">researcher</span></div>
+            <div class="acard-task">查 9-slice 采样</div>
+            <div class="acard-bot"><span class="chip done">完成</span><span class="chip-count">0 单</span></div>
+          </div>
+        </div>
+        <div class="acard">
+          <i class="rail" style="background:#ff8a4c"></i>
+          <div class="acard-body">
+            <div class="acard-top"><span class="acard-name">小绯</span><span class="acard-role">ops</span></div>
+            <div class="acard-task">断流告警排查</div>
+            <div class="acard-bot"><span class="chip failed">失败</span><span class="chip-count">1 单</span></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h3 class="region-title">任务图</h3>
+        <div class="graph">
+          <div class="gwires">T-1180 → T-1182 → T-1184</div>
+          <span class="gnode is-done">T-1180</span>
+          <span class="gnode is-run">T-1182</span>
+          <span class="gnode is-fail">T-1183</span>
+          <span class="gnode">T-1184</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- footer -->
+  <div class="hud-bar foot">
+    <span class="readout"><i class="dot-live"></i><b>运行中</b></span>
+    <span class="readout"><b>Tick</b>1284</span>
+    <span class="readout"><b>事件</b>96/s</span>
+    <span class="readout"><b>Seq</b>1284</span>
+    <span class="readout"><b>渲染器</b>WEBGL</span>
+    <span class="readout"><b>精灵</b>9</span>
+  </div>
+</div>
+
+<!-- ═══════════════ 旧 ═══════════════ -->
+<span class="tag old">旧 · 现行玻璃</span>
+<div class="glass old">
+  <!-- header -->
+  <div class="g-bar">
+    <div class="g-brand">
+      <span class="g-mark" aria-hidden="true">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 3.5 16.5 10 10 16.5 3.5 10Z" />
+          <path d="M3.5 10h13" />
+          <circle cx="10" cy="3.5" r="2.1" fill="currentColor" stroke="none" />
+          <circle cx="16.5" cy="10" r="2.1" fill="currentColor" stroke="none" />
+          <circle cx="10" cy="16.5" r="2.1" fill="currentColor" stroke="none" />
+          <circle cx="3.5" cy="10" r="2.1" fill="currentColor" stroke="none" />
+        </svg>
+      </span>
+      <span class="g-name">Agent World</span>
+    </div>
+    <div class="g-board-summary">
+      <span>▤</span>
+      <span class="g-bar-progress"><i></i></span>
+      <span>18/28</span>
+      <span class="g-badge">3 跑</span>
+    </div>
+    <div style="flex:1"></div>
+    <button class="g-cmd" title="暂停" aria-label="暂停">
+      <svg viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="3.6" width="2.3" height="8.8" rx="1.15"/><rect x="8.7" y="3.6" width="2.3" height="8.8" rx="1.15"/></svg>
+    </button>
+    <button class="g-cmd" title="继续" aria-label="继续">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.4v9.2a.6.6 0 0 0 .92.5l7.4-4.6a.6.6 0 0 0 0-1L6.42 2.9a.6.6 0 0 0-.92.5z"/></svg>
+    </button>
+    <button class="g-cmd" title="适配" aria-label="适配">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 6.5V4h2.5M9.5 4H12v2.5M12 9.5V12H9.5M6.5 12H4V9.5"/></svg>
+    </button>
+    <button class="g-cmd" title="复位" aria-label="复位">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="4.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2"/></svg>
+    </button>
+  </div>
+
+  <!-- 场景 -->
+  <div class="stage-mock">
+    <div class="sprite" style="left:70px;top:120px;background:#ffc94d" data-n="工头阿金"></div>
+    <div class="sprite" style="left:150px;top:90px;background:#4fa8ff" data-n="小蓝"></div>
+    <div class="sprite" style="left:210px;top:150px;background:#7c7cff" data-n="小铁"></div>
+    <div class="sprite" style="left:290px;top:110px;background:#3fd0c9" data-n="小绿"></div>
+    <div class="sprite" style="left:360px;top:170px;background:#b98cff" data-n="小紫"></div>
+    <div class="sprite" style="left:430px;top:95px;background:#5fd68a" data-n="小青"></div>
+    <div class="sprite" style="left:500px;top:145px;background:#ff8a4c" data-n="小绯"></div>
+    <div class="sprite" style="left:120px;top:200px;background:#ff7eb6" data-n="小雯"></div>
+  </div>
+
+  <!-- 侧边栏 -->
+  <aside class="g-side">
+    <div class="g-side-head">
+      <span class="g-side-title">团队</span>
+      <button class="g-toggle">收起</button>
+    </div>
+    <div class="g-body">
+      <div>
+        <h3 class="g-region">Agents</h3>
+        <div class="g-card">
+          <div class="g-card-top"><span class="g-card-name">工头阿金</span><span class="g-card-role">lead</span></div>
+          <div class="g-card-task">分派 T-1182 给小蓝</div>
+          <div class="g-card-bot"><span class="g-chip run">进行中</span><span style="font-size:10px;color:var(--fg-2)">3 单</span></div>
+        </div>
+        <div class="g-card">
+          <div class="g-card-top"><span class="g-card-name">小蓝</span><span class="g-card-role">engineer</span></div>
+          <div class="g-card-task">写 scene-phaser 的点选命中</div>
+          <div class="g-card-bot"><span class="g-chip run">进行中</span><span style="font-size:10px;color:var(--fg-2)">2 单</span></div>
+        </div>
+        <div class="g-card">
+          <div class="g-card-top"><span class="g-card-name">小铁</span><span class="g-card-role">engineer</span></div>
+          <div class="g-card-task">R12 侧边栏两档切换</div>
+          <div class="g-card-bot"><span class="g-chip ready">待开始</span><span style="font-size:10px;color:var(--fg-2)">1 单</span></div>
+        </div>
+        <div class="g-card">
+          <div class="g-card-top"><span class="g-card-name">小绿</span><span class="g-card-role">engineer</span></div>
+          <div class="g-card-task">M7-9 裁剪判据回归</div>
+          <div class="g-card-bot"><span class="g-chip done">完成</span><span style="font-size:10px;color:var(--fg-2)">0 单</span></div>
+        </div>
+        <div class="g-card">
+          <div class="g-card-top"><span class="g-card-name">小紫</span><span class="g-card-role">reviewer</span></div>
+          <div class="g-card-task">审 R11 实现</div>
+          <div class="g-card-bot"><span class="g-chip block">卡住</span><span style="font-size:10px;color:var(--fg-2)">1 单</span></div>
+        </div>
+        <div class="g-card">
+          <div class="g-card-top"><span class="g-card-name">小青</span><span class="g-card-role">researcher</span></div>
+          <div class="g-card-task">查 9-slice 采样</div>
+          <div class="g-card-bot"><span class="g-chip done">完成</span><span style="font-size:10px;color:var(--fg-2)">0 单</span></div>
+        </div>
+        <div class="g-card">
+          <div class="g-card-top"><span class="g-card-name">小绯</span><span class="g-card-role">ops</span></div>
+          <div class="g-card-task">断流告警排查</div>
+          <div class="g-card-bot"><span class="g-chip block">失败</span><span style="font-size:10px;color:var(--fg-2)">1 单</span></div>
+        </div>
+      </div>
+      <div>
+        <h3 class="g-region">任务图</h3>
+        <div class="g-graph">
+          <div style="font-size:10px;color:var(--fg-2);margin:4px 0 2px">T-1180 → T-1182 → T-1184</div>
+          <span class="g-gnode done">T-1180</span>
+          <span class="g-gnode">T-1182</span>
+          <span class="g-gnode">T-1183</span>
+          <span class="g-gnode">T-1184</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- footer -->
+  <div class="g-foot">
+    <span>● 运行中</span>
+    <span>TICK 1284</span>
+    <span>事件 96/s</span>
+    <span>SEQ 1284</span>
+    <span>WEBGL</span>
+    <span>SP 9</span>
+  </div>
+</div>
+
+</div><!-- /compare -->
+
+<div class="notes">
+  <h2>这轮改了什么（详见 docs/DESIGN-ui-theme.md）</h2>
+  <table>
+    <tr><th>维度</th><th>旧</th><th>新</th><th>来源</th></tr>
+    <tr><td>圆角</td><td>6 / 10 / 16 / 999px</td><td><span class="k">0px</span>（状态点 2px）</td><td>像素图零圆角</td></tr>
+    <tr><td>面板</td><td>rgba(58,58,80,.78) + blur(16px)</td><td><span class="k">#D3BF8F</span> 不透明</td><td>Ancient/tan.png 内芯 79.5%</td></tr>
+    <tr><td>描边</td><td>1px rgba(255,255,255,.08)</td><td><span class="k">2px 双层</span> #B1A077 + #D9CDAF</td><td>tan.png 内/外描边</td></tr>
+    <tr><td>阴影</td><td>0 8px 32px 模糊</td><td><span class="k">3px 3px 0</span> 硬偏移</td><td>像素画无柔和投影</td></tr>
+    <tr><td>模糊</td><td>10 处 backdrop-filter</td><td><span class="k">0 处</span></td><td>硬边语言</td></tr>
+    <tr><td>文字</td><td>#f1f3f8 白字压玻璃</td><td><span class="k">#14121C</span> 墨压纸</td><td>pack 'ink'；对纸 10.25:1</td></tr>
+    <tr><td>状态</td><td>彩色文字 + 半透明底</td><td><span class="k">实心色块 + 墨/白字</span></td><td>状态色在米色上仅 1.0–2.1:1，不可读</td></tr>
+    <tr><td>字体</td><td>Inter / system-ui</td><td>系统等宽栈 + 全大写标签 + 0.10em 字距</td><td>零许可风险，CJK 全覆盖</td></tr>
+  </table>
+</div>
+
+</body>
+</html>

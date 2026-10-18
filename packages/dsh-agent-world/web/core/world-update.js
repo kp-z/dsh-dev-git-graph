@@ -103,7 +103,21 @@ export function applyEvent(world, event) {
               '这是协议缺陷——事件必须带齐客户端显示所需的字段。',
           )
         }
-        task = { id: payload.id, key: payload.key ?? payload.id, title: payload.title, ordinal: payload.ordinal, progress: 0, owner: null, station: null, blockedBy: [] }
+        task = {
+          id: payload.id,
+          key: payload.key ?? payload.id,
+          title: payload.title,
+          ordinal: payload.ordinal,
+          progress: 0,
+          owner: null,
+          station: null,
+          // R99：`blockedBy` / `requires` **从载荷里取**，不要写死空数组。
+          // 写死的话，新派进来的单永远"没有前置"——依赖图会**少画连线但不报错**：
+          // 节点一个不少、状态也对，只是图上没有关系，看着像"这批单本来就没依赖"。
+          // （快照路径没这个问题，所以只在"世界跑着的时候新派单"时才露出来。）
+          blockedBy: Array.isArray(payload.blockedBy) ? [...payload.blockedBy] : [],
+          requires: Array.isArray(payload.requires) ? [...payload.requires] : [],
+        }
         world.tasks.push(task)
       }
       if (typeof payload.status === 'string') task.status = payload.status

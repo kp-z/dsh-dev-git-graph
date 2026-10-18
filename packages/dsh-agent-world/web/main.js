@@ -50,7 +50,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r97'
+const BUILD = 'build r99'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
@@ -673,6 +673,11 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     geometry: () => board.geometry(),
     /** 当前选中的任务 id（R3：`select()` 是写入口，读入口一直在 board 上没暴露）。 */
     selected: () => board.selected(),
+    /**
+     * 重挑依赖图几何（R99）。核验"折叠→展开之后图还有几何"时直接调它，
+     * 不必依赖 rAF/定时器的时序——那条时序本身就是最容易被环境坑住的地方。
+     */
+    refreshGraph: () => board.refreshGraph(),
     // `clipped()` 由 board.js 自己在同一个宏任务里挂（它先于 app 的门面创建）。
     // R99：`showGraph()` 已删——两块现在**同时可见**，不存在"切到某一档"这个动作。
     // 留一个已经不存在的动作，验收脚本会以为还能用它。

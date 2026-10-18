@@ -122,11 +122,24 @@ export function createSidebar(options = {}) {
     writeCollapsed(collapsed)
     options.onCollapseChange?.(collapsed)
     // ⚠️ 展开必须**等布局落定**再通知：同一帧里量到的高度还是折叠时的 0。
-    // `requestAnimationFrame` 保证在浏览器下一次样式计算/布局之后执行。
+    //
+    // 但**不能只靠 `requestAnimationFrame`**：rAF 在**后台标签页里完全不触发**
+    //（`main.js` 的文件头就记过这条——这个面板的典型场景恰恰是"agent 在跑、人不一定在看"）。
+    // 只挂 rAF 的话，"在后台展开侧边栏"会让依赖图一直是空的，而人切回来时
+    // **没有任何东西会再触发重画**——图就那么空着，看起来像"这批单没有依赖"。
+    //
+    // 所以给一条兜底：rAF 走不到就用 setTimeout 顶一格（定时器在后台会被降频，但会跑）。
     if (collapsed !== true) {
-      const raf = (doc.defaultView ?? globalThis).requestAnimationFrame
-      if (typeof raf === 'function') raf(() => options.onExpand?.())
-      else options.onExpand?.()
+      const win = doc.defaultView ?? globalThis
+      let fired = false
+      const fire = () => {
+        if (fired) return
+        fired = true
+        options.onExpand?.()
+      }
+      if (typeof win.requestAnimationFrame === 'function') win.requestAnimationFrame(fire)
+      // 120ms > 一帧；正常情况 rAF 先到，这条就是一次空跑的 `fired` 检查。
+      win.setTimeout?.(fire, 120)
     }
     return collapsed
   }
