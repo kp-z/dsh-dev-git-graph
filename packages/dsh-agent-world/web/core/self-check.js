@@ -166,6 +166,15 @@ export function createSelfCheck(options = {}) {
 
     // ── 状态漂移：客户端世界 vs 服务端快照 ────────────────────────────────
     let drift = 0
+    /**
+     * **当前**这一采样里有多少个 actor 的朝向与服务端对不上（R112）。
+     *
+     * 为什么它和 `drift` 是两个数：`drift` 是"**又确认了一次**漂移"的**事件**计数
+     *（要跨代次、可能为 0 而世界其实还没好）；而 `nowDrift` 是"**此刻**有多少个对不上"的
+     * **状态**读数。判"现在好不好"只能看后者——用累计值判会得出
+     *「已经修好了但页面还显示 degraded」这种自相矛盾的读数（R111 实锤）。
+     */
+    let nowDrift = 0
     if (serverFacing.size > 0) {
       const nextPending = new Map()
       for (const actor of actors() ?? []) {
@@ -174,6 +183,8 @@ export function createSelfCheck(options = {}) {
         const local = Number(actor?.facing)
         const mismatched = !Number.isFinite(local) || Math.abs(local - authoritative) > FACING_EPSILON
         if (!mismatched) continue
+        // 「此刻对不上」——不论跨不跨代次，先如实记下来。
+        nowDrift += 1
         /**
          * 同一个不一致值要**跨两个快照代次**才记一次漂移（R110）。
          *
@@ -195,7 +206,7 @@ export function createSelfCheck(options = {}) {
       counts.facingDrift += drift
     }
 
-    last = { at: Number.isFinite(at) ? Math.round(at) : 0, sprites: list.length, compared, resets, drift }
+    last = { at: Number.isFinite(at) ? Math.round(at) : 0, sprites: list.length, compared, resets, drift, nowDrift }
 
     // 拉快照：慢档 + 页面可见才拉（后台标签页里没人看，没必要耗请求）。
     if (fetching !== true && hidden() !== true && (Number.isFinite(at) ? at - lastFetchMs >= worldFetchMs : true)) {
