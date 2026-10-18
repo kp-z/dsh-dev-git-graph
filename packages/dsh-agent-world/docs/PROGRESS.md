@@ -42,6 +42,49 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R144（task-20 / developer）—— 可读性漂移守卫：用测试钉住 `NODE_TITLE_PX` 与 CSS 字号一致（纯 `node:fs`，不引 DOM）
+
+> 只加测试 `test/board-layout-readability.test.js`；**未动 `web/core`、未动 tokens.css**。
+
+### ⚠️ 任务书公式有误，按代码已定关系校正（Lead 裁定 A）
+任务书第 3 条写的是 `MIN_SCALE === ceil(READABLE_MIN_PX / NODE_TITLE_PX * 100) / 100` = ceil(76.92)/100 = **0.77**，
+而代码是 **0.8**（`board-layout.js:296` 注释："0.769… → 向上取到 0.8"；R121 的验收数字 10.4px 也按 0.8 测）。
+照字面写这条断言，**现有代码就是红的**。我没有自行放宽，先报 Lead；Lead 裁定：测试钉住代码里已定的关系——
+**`MIN_SCALE === ceil(READABLE_MIN_PX / NODE_TITLE_PX × 10) / 10`**，外加 **`NODE_TITLE_PX × MIN_SCALE ≥ READABLE_MIN_PX`**。
+
+### 守卫怎么解析 CSS
+- 读 `web/styles/*.css`（`node:fs`），去注释，括号配对拆规则（**处理 `@media` 嵌套**）；
+- 找选择器**正好以** `.board-node-title` 结尾的规则（不匹配 `.board-node-title-x` 这种前缀同名）；
+- **顺着 `var()` 走到底**（多层、支持回退值、10 层上限防循环）；
+- **有歧义就失败并说明**，不替人挑一个：字号有多个不同最终值、或**解析链上**的变量被定义成多种值（作用域覆盖）时，报出全部位置。
+
+当前真实链：`components.css: .board-node-title → var(--fs-sub) = 13px`（`--fs-sub: 13px` 唯一定义在 `tokens.css:153`）。
+
+**自己踩到并修掉的一处**：第一版要求**所有**自定义属性都无冲突，结果被 `--sidebar-w`（600px / 520px 的响应式覆盖）误报红——
+那与字号毫无关系。改成**只要求链上用到的变量各处一致**，并加了一条"无关变量多值不许误报"的自检。
+
+### 用例（3 条）
+| 用例 | 内容 |
+|---|---|
+| 解析器自检 | 三层 `var()` + `@media` 内规则 → 12；变量缺失走回退 → 11；前缀同名类不算；**链上**变量两种值 → 报歧义；**无关**变量多值 → 不误报 |
+| ★ 漂移守卫 | `NODE_TITLE_PX === .board-node-title 的真实像素字号`；失败信息写出整条解析链并说明"两处该一起改" |
+| 关系 | `NODE_TITLE_PX × MIN_SCALE ≥ READABLE_MIN_PX`，且 `MIN_SCALE === ceil(READABLE_MIN_PX / NODE_TITLE_PX × 10) / 10` |
+
+### 反证（实际输出）
+1. `NODE_TITLE_PX = 14`（临时改、立即恢复）→ **守卫红**：
+   `NODE_TITLE_PX = 14，但 CSS 里 .board-node-title 的字号是 13px（components.css: .board-node-title → var(--fs-sub) = 13px）。`
+   （此时"关系"那条仍绿——ceil(10/14×10)/10 还是 0.8，取整规则本身没被破坏，由守卫那条抓住，符合预期。）
+2. `MIN_SCALE = 0.77`（改成两位小数取整）→ **"关系"那条红**——有人改取整方式会被抓到。
+3. 恢复 → 3/3 绿；`git diff web/core/board-layout.js` 为空（原样恢复）。
+
+### 验证
+`node --test` **687 / 687**（684 + 3）· `tsc --noEmit` 绿 · 测试只 import `node:*` 与纯模块 `web/core/board-layout.js`，**无浏览器/DOM 依赖**。
+
+### 卡住
+- 无。task-20 完成。
+
+---
+
 ## R143（Lead）—— 验收 R140–R142（task-23）通过；派 task-20
 
 - `642bc90` 只含 teams.ts / 测试 / PROGRESS；684/684；profile lib 与包内一致。Lead 重启宿主，冒烟 agent-3 replied。
