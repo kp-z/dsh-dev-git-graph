@@ -33,6 +33,9 @@ import {
   describeTask,
   fitGraphGeometry,
   graphGeometry,
+  MIN_SCALE,
+  NODE_TITLE_PX,
+  READABLE_MIN_PX,
   layoutDependencyGraph,
   missingBoardTokens,
   UNGROUPED,
@@ -398,9 +401,14 @@ test('三个验收宽度下都放得下（1280 / 1024 / 800 的可用盒）', ()
     const fit = fitGraphGeometry(layout, available)
     const shownW = fit.width * fit.scale
     const shownH = fit.height * fit.scale
-    assert.ok(shownW <= available.width + 1, `${viewport}px：横向放不下（${shownW} > ${available.width}，档位 ${fit.preset}）`)
-    assert.ok(shownH <= available.height + 1, `${viewport}px：纵向放不下（${shownH} > ${available.height}）`)
-    assert.equal(fit.scale >= 0.4, true, '缩放有个下限，免得缩到读不了')
+    // R120：**"装不下"不再是失败**——缩到可读下限之后就该让它滚。
+    // 这里只要求"要么装下，要么已经缩到下限"（后者真机上由画布滚动兜住）。
+    const fits = shownW <= available.width + 1 && shownH <= available.height + 1
+    assert.ok(
+      fits || fit.scale === MIN_SCALE,
+      `${viewport}px：既没装下（${shownW}x${shownH} > ${available.width}x${available.height}）又没到可读下限（scale=${fit.scale}）`,
+    )
+    assert.ok(fit.scale >= MIN_SCALE, '缩放不许低于可读下限')
   }
 })
 
@@ -415,7 +423,10 @@ test('宽度不够就降档；降到底才缩放（先小卡片，后缩放）',
   const tiny = fitGraphGeometry(layout, { width: 300, height: 120 })
   assert.equal(tiny.preset, GEOMETRY_PRESETS[GEOMETRY_PRESETS.length - 1].name, '放不下就退到最紧那一档')
   assert.ok(tiny.scale < 1)
-  assert.ok(tiny.width * tiny.scale <= 300 + 1)
+  // R120：这里**不再断言"装得下"**——300×120 装不下 0.8 的图，那就该滚（真机上画布能滚）。
+  // 断言改成"没有缩过头"：这正是旧判据（只看装不装得下）会放过去的那一类错。
+  assert.equal(tiny.scale, MIN_SCALE, '缩到可读下限就停，不再往下缩')
+  assert.ok(tiny.width * tiny.scale > 300, '这个尺寸下本来就装不下 —— 装不下是对的，让它滚')
 })
 
 test('只有高度受限时也降档（宽得离谱但很矮）', () => {
@@ -688,6 +699,8 @@ test('★ 分组之后，**单条流水线的图回到 scale = 1**（本轮的�
       assert.equal(result.fitted.scale, 1, `${group.name} 在 ${viewport} 没有回到 scale 1（现在 ${result.fitted.scale}）`)
       assert.ok(result.fitsInView, `${group.name} @ ${viewport} 缩放后仍超出可用区`)
     }
+    // ⚠️ R120：这条"装下"的断言**保留**——它是"分组之后图不再拥挤"这个目标的算术版，
+    // 而这些视图**确实**装得下。真正改掉的是**下面那些装不下的**：它们不再算失败。
   }
 
   // 800×700 这一档只给图 729×221，三条流水线里：
@@ -702,17 +715,62 @@ test('★ 分组之后，**单条流水线的图回到 scale = 1**（本轮的�
   assert.ok(swSmall.fitsInView)
   const quickSmall = fitFor(world, { group: 'task.quick-fix' }, '800x700')
   assert.ok(quickSmall.fitted.scale >= 0.7, `quick-fix @800 掉到 ${quickSmall.fitted.scale}`)
-  assert.ok(quickSmall.fitted.scale >= 0.4, `quick-fix @800 触到可读下限了：${quickSmall.fitted.scale}`)
-  assert.ok(quickSmall.fitsInView, 'quick-fix @800 缩放后必须仍然装得下（否则就是被切）')
-  // 这两条是"真机量出来的值"，写死在注释里：数字变了就是有人改了布局或档位，该看一眼。
-  assert.equal(quickSmall.fitted.scale, 0.72)
+  assert.ok(quickSmall.fitted.scale >= MIN_SCALE, `quick-fix @800 触到可读下限了：${quickSmall.fitted.scale}`)
+  // R120：这里原来是 `assert.ok(fitsInView)` + `assert.equal(scale, 0.72)`。
+  // 0.72 是**旧下限(0.4)时代**的真机值。抬到 0.8 之后：raw ≈ 0.37 → **夹到下限 0.8**，
+  // 于是 304×592 缩成 243×474，**纵向溢出 474 > 221** → 真机上就是画布纵向滚动。
+  // 那正是本轮要的行为（"缩到能读，装不下就滚"），所以断言改成**可读**而不是装下。
+  assert.equal(quickSmall.fitted.scale, MIN_SCALE, '缩到可读下限就停（不再往 0.72/0.4 缩）')
+  assert.ok(!quickSmall.fitsInView, '这一档本来就装不下 —— 现在允许它溢出并滚动，不再算失败')
+  assert.ok(
+    NODE_TITLE_PX * quickSmall.fitted.scale >= READABLE_MIN_PX,
+    `标题实际像素高 ${NODE_TITLE_PX * quickSmall.fitted.scale} 低于可读下限 ${READABLE_MIN_PX}`,
+  )
 
-  // 而"全部"在同一档下必须**装得下**（哪怕缩到 0.6）——这条才是 clipped() 归零的算术保证。
+  // 而"全部 28 张"在窄档下**装不下是可接受的**（R120）——只要没缩到读不出。
   for (const viewport of Object.keys(CANVAS_SIZES)) {
     const all = fitFor(world, {}, viewport)
-    assert.ok(all.fitsInView, `默认视图（全部 28 张）在 ${viewport} 装不下`)
-    assert.ok(all.fitted.scale >= 0.4, `全部 @${viewport} 触到可读下限：${all.fitted.scale}`)
+    assert.ok(all.fitted.scale >= MIN_SCALE, `全部 @${viewport} 缩过头了：${all.fitted.scale}`)
+    const shownW = all.fitted.width * all.fitted.scale
+    const shownH = all.fitted.height * all.fitted.scale
+    assert.ok(
+      all.fitsInView || all.fitted.scale === MIN_SCALE,
+      `全部 @${viewport}：既装不下又没到下限（${Math.round(shownW)}x${Math.round(shownH)} vs ${all.size.width}x${all.size.height}，scale=${all.fitted.scale}）`,
+    )
   }
+})
+
+// ── R120：**可读性**判据（"装下了" ≠ "能读"）─────────────────────────────────
+//
+// 同一个判据错误我们犯过两次：R12 缩到 0.65、R120 缩到 0.4，两次都是
+// **拿"几何有没有溢出"当"能不能读"**。所以这里钉的不是某个数值，而是两条**关系**：
+//   ① 缩放**永远不低于**可读下限（无论可用区多小）；
+//   ② 下限与"标题像素高"是**同一个判据的两种说法**。
+
+test('R120：缩放**永远不低于可读下限**（可用区小到 1px 也不许缩过头）', () => {
+  const layout = realisticLayout()
+  const cases = [{ width: 1, height: 1 }, { width: 50, height: 40 }, { width: 120, height: 90 }, { width: 0, height: 0 }]
+  for (const available of cases) {
+    const fit = fitGraphGeometry(layout, available)
+    assert.ok(
+      fit.scale >= MIN_SCALE,
+      `可用区 ${available.width}x${available.height} 把图缩到 ${fit.scale}（低于下限 ${MIN_SCALE}）——这正是 R120 的 bug`,
+    )
+    assert.ok(fit.width * fit.scale > 0 && fit.height * fit.scale > 0, '几何不能退化成 0')
+  }
+})
+
+test('R120：下限与"标题像素高"是**同一个判据的两种说法**', () => {
+  const implied = READABLE_MIN_PX / NODE_TITLE_PX
+  assert.ok(
+    MIN_SCALE >= implied,
+    `MIN_SCALE(${MIN_SCALE}) 低于由字号反推的下限(${implied.toFixed(3)})——那会出现"过了 scale 判据、字却读不出"`,
+  )
+  assert.ok(MIN_SCALE <= implied + 0.1, `MIN_SCALE(${MIN_SCALE}) 比反推值高太多，会白白浪费空间`)
+  assert.ok(
+    NODE_TITLE_PX * MIN_SCALE >= READABLE_MIN_PX,
+    `下限 ${MIN_SCALE} 处标题只有 ${NODE_TITLE_PX * MIN_SCALE}px，低于可读阈值 ${READABLE_MIN_PX}px`,
+  )
 })
 
 test('★ 最坏组合（全部 + 完成 / 全部 + 全部）也要装得下——这是 clipped() 归零的算术版', () => {
@@ -725,9 +783,17 @@ test('★ 最坏组合（全部 + 完成 / 全部 + 全部）也要装得下—�
   for (const view of worst) {
     for (const viewport of Object.keys(CANVAS_SIZES)) {
       const result = fitFor(world, view, viewport)
+      // R120：判据从"装得下"改成"**没缩到读不出**"。
+      // 装不下时真机上是画布滚动——那比一张 0.4 的废图有用得多。
       assert.ok(
-        result.fitsInView,
-        `${view.group}/${view.filter}（${result.tasks} 张）@${viewport}：缩放 ${result.fitted.scale} 后 ${result.fitted.width}x${result.fitted.height} 仍超出 ${result.size.width}x${result.size.height}`,
+        result.fitted.scale >= MIN_SCALE,
+        `${view.group}/${view.filter}（${result.tasks} 张）@${viewport}：缩到 ${result.fitted.scale}，低于可读下限 ${MIN_SCALE}`,
+      )
+      const shownW = result.fitted.width * result.fitted.scale
+      const shownH = result.fitted.height * result.fitted.scale
+      assert.ok(
+        result.fitsInView || result.fitted.scale === MIN_SCALE,
+        `${view.group}/${view.filter}（${result.tasks} 张）@${viewport}：既装不下（${Math.round(shownW)}x${Math.round(shownH)} > ${result.size.width}x${result.size.height}）又没到下限`,
       )
     }
   }

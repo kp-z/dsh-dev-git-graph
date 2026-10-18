@@ -262,6 +262,46 @@ export const GEOMETRY_PRESETS = [
 ]
 
 /**
+ * **可读下限**（R120）——"装下了" ≠ "能读"。
+ *
+ * ## 为什么要有这一组常量
+ *
+ * 同一个判据错误我们已经犯过**两次**：
+ *   · R12：横向排布缩到 **0.65**，`clipped()` 报 **0**（几何上确实没溢出），
+ *     但节点标题只有 ~8px——**看得见、读不出**；
+ *   · R120：侧边栏改成两栏后图区只剩 ~250–300px，32 张单直接缩到 `MIN_SCALE = 0.4`，
+ *     内容"装下了"所以**连滚动条都不出现**，字小到没法读。
+ *
+ * 两次的根子都是：**拿"几何有没有溢出"当"能不能读"**。几何溢出只是**一种**失败，
+ * 另一种是"缩得刚好装下、但缩过头"。
+ *
+ * ## 判据（可算、可判）
+ *
+ * ```
+ * 可读  ⟺  实际缩放 ≥ MIN_SCALE   且   标题的实际像素高 = 标题字号 × 缩放 ≥ READABLE_MIN_PX
+ * ```
+ *
+ * 这两个是**同一件事**的两种说法（`MIN_SCALE = READABLE_MIN_PX / NODE_TITLE_PX`），
+ * 写两个是因为验收时一个用模块常量判、一个用真机 `getComputedStyle` 判——
+ * 真机那一路**不依赖**这里的常量，所以 CSS 字号改了也能抓出来。
+ *
+ * ⚠️ **`NODE_TITLE_PX` 必须与 `.board-node-title` 的 `--fs-sub` 保持一致**
+ *（`web/styles/tokens.css`）。改了一处忘了另一处，这条判据就会说谎——
+ * 真机验收用 `getComputedStyle` 交叉核对，就是为了兜住这个。
+ */
+export const NODE_TITLE_PX = 13
+/** 正文可读的最小像素高（低于这个就不是"小字"，是"读不出来"）。 */
+export const READABLE_MIN_PX = 10
+/**
+ * 缩放下限 = `READABLE_MIN_PX / NODE_TITLE_PX` = 0.769… → **向上取到 0.8**。
+ *
+ * ⚠️ 抬到 0.8 之后，**装不下时不再继续缩**：图会比容器大，于是容器要能滚。
+ * 这是**有意的行为变更**——旧契约是"缩到装下"（哪怕 0.4），
+ * 新契约是"**缩到能读，装不下就滚**"。滚动比"读不出的图"有用得多。
+ */
+export const MIN_SCALE = 0.8
+
+/**
  * 按**可用空间**挑一档几何，实在放不下就缩放。
  *
  * 纯函数（只依赖 layout 与 available）——所以"1280/1024/800 三个宽度下放不放得下"
@@ -303,7 +343,11 @@ export function fitGraphGeometry(layout, available, presets = GEOMETRY_PRESETS, 
   // **向下取整**，不是四舍五入：向上取整会让"缩放后的图"比可用区大最多 0.5%
   //（400px 高的图 → 2px），而那 2px 正好是 `clipped()` 要报的"超出了"。
   // 这一条是 R46 用真机数据算出来的：22 张单在 800×700 下 raw=0.635 → round=0.64 → 溢出 2px。
-  const scale = Math.max(0.4, Math.floor(raw * 100) / 100)
+  //
+  // R120：下限从 0.4 抬到 **MIN_SCALE(0.8)**。抬起来之后，`width/height` 可能**小于**几何尺寸
+  //（即"缩到能读还是装不下"）——**这是允许的**，真机上表现为画布滚动（横向与纵向都要能滚）。
+  // 反过来（继续缩到 0.4 让它装下）会得到一张读不出的图，那比滚动糟得多。
+  const scale = Math.max(MIN_SCALE, Math.floor(raw * 100) / 100)
   return { ...geometry, preset: tightest.name, scale, orientation }
 }
 

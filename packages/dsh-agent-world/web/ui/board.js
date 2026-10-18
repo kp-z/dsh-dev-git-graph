@@ -39,6 +39,8 @@ import {
   describeTask,
   fitGraphGeometry,
   layoutDependencyGraph,
+  MIN_SCALE,
+  READABLE_MIN_PX,
   missingBoardTokens,
   resolveBoardColor,
   shortTaskId,
@@ -638,8 +640,7 @@ export function createBoard(options = {}) {
       parts.graphHint.hidden = !overflowing
       if (overflowing) {
         parts.graphHint.textContent = `（比可见区大 ${Math.max(0, overflow.x)}×${Math.max(0, overflow.y)}px，图内可滚动）`
-      }
-    }
+      }    }
 
     cards.textContent = ''
     cardNodes.clear()
@@ -976,6 +977,60 @@ export function createBoard(options = {}) {
    * @param {{tolerance?: number}} [options] - 容差（默认 1px，抗子像素取整）。
    * @returns {ReadonlyArray<{kind: string, id: string, edges: string[], overflow: object}>}
    */
+  /**
+   * **可读性判据**（R120）：把"能不能读"变成两个可判的数字。
+   *
+   * ## 为什么它必须存在
+   *
+   * 同一个判据错误我们犯过**两次**：
+   *   · R12：横向排布缩到 **0.65**，`clipped()` 报 **0**（几何没溢出），但标题 ~8px 读不出；
+   *   · R120：两栏之后图区 ~250–300px，32 张单缩到 `MIN_SCALE = 0.4`，
+   *     内容"装下了"所以**连滚动条都没有**，字小到没法读。
+   *
+   * 两次的根子都是 `clipped()` 那种**"几何有没有溢出"**——它只能发现"被切掉"，
+   * 发现不了"缩得刚好装下但缩过头"。**装下了 ≠ 能读。**
+   *
+   * ## 数字怎么来
+   *
+   * `titlePx` 用真机 `getComputedStyle` 读（**不写死**）：
+   * `transform: scale()` 会把文字一起缩，而 `fontSize` 返回的是**指定值**、不含缩放，
+   * 所以屏幕上的真实大小是 `titlePx × scale` —— 这一步最容易看漏。
+   *
+   * @returns {object|null} 拿不到画布/标题时返回 null（别编一个看起来正常的读数）
+   */
+  function readability() {
+    if (!ready || fitInfo === null) return null
+    const title = parts.canvas?.querySelector?.('.board-node-title')
+    const view = doc.defaultView ?? globalThis
+    const titlePx = title === null || title === undefined ? null : Number.parseFloat(view.getComputedStyle(title).fontSize)
+    const scale = fitInfo.scale
+    const effectivePx = Number.isFinite(titlePx) ? Math.round(titlePx * scale * 10) / 10 : null
+    const canvas = parts.canvas
+    return {
+      scale,
+      titlePx: Number.isFinite(titlePx) ? titlePx : null,
+      effectivePx,
+      minScale: MIN_SCALE,
+      minPx: READABLE_MIN_PX,
+      /**
+       * 两个条件**都要**满足。用真机字号那一路（`effectivePx`）是主判据——
+       * 它不依赖模块里的 `NODE_TITLE_PX`，所以 CSS 字号改了也抓得出来。
+       */
+      readable: scale >= MIN_SCALE && (effectivePx === null || effectivePx >= READABLE_MIN_PX),
+      /** 滚动读数：图比容器大时真机上应当能滚到内容边缘（横向也要能滚）。 */
+      scroll: canvas === null || canvas === undefined
+        ? null
+        : {
+            clientW: canvas.clientWidth,
+            clientH: canvas.clientHeight,
+            scrollW: canvas.scrollWidth,
+            scrollH: canvas.scrollHeight,
+            canScrollX: canvas.scrollWidth > canvas.clientWidth + 1,
+            canScrollY: canvas.scrollHeight > canvas.clientHeight + 1,
+          },
+    }
+  }
+
   function clipped(options = {}) {
     if (!ready) return []
     const tolerance = Number.isFinite(options.tolerance) ? options.tolerance : 1
@@ -1256,6 +1311,23 @@ export function createBoard(options = {}) {
       content: fitInfo?.content ?? null,
       overflow: fitInfo?.overflow ?? null,
       clipped: clipped().length,
+      /**
+       * **可读性判据**（R120）——"装下了" ≠ "能读"。
+       *
+       * 同一个判据错误我们犯过两次（R12 缩到 0.65、R120 缩到 0.4），两次都是
+       * **拿"几何有没有溢出"当"能不能读"**。所以这里给一个**可判**的读数：
+       *   · `scale` —— 实际缩放；
+       *   · `titlePx` —— 节点标题的**CSS 计算字号**（真机 `getComputedStyle` 读，不写死）；
+       *   · `effectivePx` —— `titlePx × scale`，**这才是屏幕上真正的大小**
+       *     （`transform: scale()` 会把文字一起缩，而 `getComputedStyle().fontSize`
+       *      返回的是**指定值**、不含缩放——这一点最容易看漏）；
+       *   · `readable` —— `scale ≥ MIN_SCALE` **且** `effectivePx ≥ READABLE_MIN_PX`。
+       *
+       * ⚠️ 这两个判据是同一件事的两种说法（`MIN_SCALE = READABLE_MIN_PX / NODE_TITLE_PX`），
+       * 都留着是因为：一个用模块常量判（纯逻辑、可单测），一个用**真机字号**判
+       * （CSS 改了也能抓出来——真机那一路不依赖模块里的常量）。
+       */
+      readability: readability(),
       // 视图（R46）：当前分组/筛选、成员栏开合、一共几条流水线。
       view: { group: viewGroup, filter: viewFilter },
       viewSignature: viewSignature({ group: viewGroup, filter: viewFilter }),

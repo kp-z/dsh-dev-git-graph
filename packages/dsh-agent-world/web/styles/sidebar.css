@@ -143,6 +143,8 @@
       所以当时必须给死高度；两栏之后这个约束消失了。） */
   flex: 1 1 auto;
   min-height: 0;
+  /* 同上：不写的话它会被图撑宽，横向就变成"被裁"而不是"可滚"。 */
+  min-width: 0;
   padding: var(--s-2);
 }
 /*
@@ -153,6 +155,16 @@
 .sidebar-panel-graph .board-canvas {
   flex: 1 1 auto;
   min-height: 120px;
+  /*
+   * ⚠️ `min-width: 0` **不能省**（R120）。
+   *
+   * flex 子项的自动最小尺寸是 `min-width: auto` —— 它**不肯缩到比内容还窄**，
+   * 于是图比栏宽时，是**画布被撑宽**、由外面的 `.sidebar-panel`（`overflow-x: hidden`）
+   * 把右边**裁掉**，而画布自己的横向滚动条**永远不出现**。
+   * 加上 `min-width: 0` 之后画布保持栏宽，内容超出由它自己滚——
+   * 这才是"装不下就滚"，而不是"装不下就切"。
+   */
+  min-width: 0;
 }
 .sidebar-panel-graph .board-graph h3 {
   /* 图头那句"左 → 右：前置解锁后续"在窄栏里换行会占两行，压成一行小字。 */
