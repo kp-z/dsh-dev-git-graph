@@ -95,6 +95,36 @@ export function containsSentText(data: Record<string, unknown>, sentText: string
   return false
 }
 
+/**
+ * "这一轮没有正文"时，告诉玩家**到底是哪一种**（R128，Lead 拍板方案 A）。
+ *
+ * 玩家要能分清"他不理你"和"他想了但没说出来"——两者的下一步完全不同：
+ * 前者换个问法，后者再问一次就行。所以失败要**说真话**，不能都写成"没有发言"。
+ *
+ * 判定全部用**客观信号**，不解析模型思考的内容：
+ *  · `actions`  ——这一轮调过的工具（已有分支：只动手不说话）；
+ *  · `repeated` ——这句话与**上一句逐字相同**（桥自己记的，不靠模型说"重复"）；
+ *  · `thought`  ——这一轮有非空 `reasoning` 块但没有正文（真机：工头阿金 31 轮里 11 轮如此）。
+ *
+ * ⚠️ **不把 reasoning 当回复**（方案 B 已否决）：那会把思维链直接展示给玩家。
+ * 这里只**说明**它想过，不**展示**它想了什么。
+ */
+export function silentReason(
+  memberName: string,
+  signals: { readonly actions: readonly string[]; readonly repeated: boolean; readonly thought: boolean },
+): string {
+  if (signals.actions.length > 0) {
+    return `「${memberName}」这一轮只动了手（${signals.actions.join('、')}），一句话也没说。`
+  }
+  if (signals.repeated) {
+    return `「${memberName}」把这句当成了重复的问题，没有再答（同一句话刚刚问过）。换个说法试试。`
+  }
+  if (signals.thought) {
+    return `「${memberName}」想了，但没说出口——回答只停在了思考里，没有说成话。再问一次试试。`
+  }
+  return `「${memberName}」这一轮没有发言，也没有动手。再问一次，或换个说法。`
+}
+
 /** `ctx.subagents` 里我们用到的部分（官方接口，用来按 label 反查成员会话）。 */
 interface SubagentScope {
   listChildren?(parentSessionId: string, signal?: AbortSignal): Promise<readonly { readonly id: string; readonly label?: string }[]>
@@ -354,6 +384,46 @@ export function createTeamsPort(
 
   /** 角色 id → 最后一次投出去的原话（R119：`waitForReply` 用它认出我们那一轮）。 */
   const lastSentText = new Map<string, string>()
+  /** 角色 id → 最近这一句是否与上一句**逐字相同**（R128：区分「重复不答」）。 */
+  const repeatedSend = new Map<string, boolean>()
+
+  /**
+   * **投递之前就开始录事件**（R126）。
+   *
+   * R125 上线后真机仍失败，会话记录（成员会话 `agent-teams:agent-world:工头阿金`）显示：
+   * 我们那一轮（turn 28）`turn/start → user/message → 回复 → turn/end` **在 +0.0–2.5s 内跑完**，
+   * 而 `waitForReply` 要先异步 `listChildren` 反查会话 id 才订阅——**订阅时那一轮已经结束了**。
+   * 于是"装着原话的 user/message"根本没被看到，`ourTurn` 认不出来。
+   *
+   * 所以：`say()` 在调发送工具**之前**就订阅事件总线、把所有事件缓存下来；
+   * `waitForReply` 先**回放缓存**、再**接着用同一个订阅**往下收——中间没有空窗。
+   * 这不是时间启发式：它只是保证"我们投递之后发生的事件，一条也不漏"。
+   */
+  type Recorder = {
+    readonly events: { sid: string; raw: unknown }[]
+    live: ((sid: string, raw: unknown) => void) | null
+    unsubscribe: () => void
+  }
+  const recorders = new Map<string, Recorder>()
+  /** 缓存上限：一轮对话的事件远少于这个数；超了只丢后面的，免得没人取时无限增长。 */
+  const RECORD_CAP = 2000
+  function stopRecording(characterId: string): void {
+    recorders.get(characterId)?.unsubscribe()
+    recorders.delete(characterId)
+  }
+  function startRecording(characterId: string): void {
+    stopRecording(characterId)
+    if (transport === undefined) return
+    const rec: Recorder = { events: [], live: null, unsubscribe: () => {} }
+    rec.unsubscribe = transport.subscribe((sid, raw) => {
+      if (rec.live !== null) {
+        rec.live(sid, raw)
+        return
+      }
+      if (rec.events.length < RECORD_CAP) rec.events.push({ sid, raw })
+    })
+    recorders.set(characterId, rec)
+  }
 
   return {
     async say(characterId: string, text: string): Promise<TeamsDialogueAck | TeamsDialogueFailure> {
@@ -364,14 +434,22 @@ export function createTeamsPort(
       const signal = new AbortController().signal
       try {
         const name = await ensureMember(characterId, signal)
+        // R126：**先开录、再投递**——否则快的那一轮会在 waitForReply 订阅前就跑完。
+        startRecording(characterId)
         const result = await callTeamTool('agent_teams_send_message', { to: name, content: text }, signal)
         // R119：记下原话——`waitForReply` 靠它在事件流里认出"装着这句话的那一轮"。
-        if (result.isError !== true) lastSentText.set(characterId, text.trim())
+        if (result.isError !== true) {
+          // R128：**客观地**记下"这句是不是和上一句逐字相同"——不去猜模型的思考内容。
+          repeatedSend.set(characterId, lastSentText.get(characterId) === text.trim())
+          lastSentText.set(characterId, text.trim())
+        }
         if (result.isError === true) {
+          stopRecording(characterId)
           return { ok: false, reason: `消息没投出去：${textOf(result) || '工具报错但没给原因'}` }
         }
         return { ok: true }
       } catch (error) {
+        stopRecording(characterId)
         return { ok: false, reason: `套壳 agent-teams 时出错：${error instanceof Error ? error.message : String(error)}` }
       }
     },
@@ -394,6 +472,7 @@ export function createTeamsPort(
         report(`反查成员会话失败：${error instanceof Error ? error.message : String(error)}`)
       }
       if (sessionId === undefined) {
+        stopRecording(characterId)
         return {
           ok: false,
           reason:
@@ -446,6 +525,8 @@ export function createTeamsPort(
         const sentText = lastSentText.get(characterId) ?? ''
         let ourTurn: number | null = null
         let currentTurn: number | null = null
+        /** 我们这一轮里模型有没有"想过"（非空 reasoning 块）——R128 用来区分「想了没说出口」。 */
+        let thoughtInOurTurn = false
         const finish = (result: TeamsDialogueReplyOk | TeamsDialogueFailure): void => {
           if (settled) return
           settled = true
@@ -457,17 +538,22 @@ export function createTeamsPort(
           finish({ ok: false, reason: `等了 ${timeoutMs}ms 还没等到「${memberName}」的回复。` })
         }, timeoutMs)
 
-        const unsubscribe = transport.subscribe((sid, raw) => {
+        let unsubscribe: () => void = () => {}
+        const handle = (sid: string, raw: unknown): void => {
           if (sid !== sessionId) return
           const event = raw as { type?: string; data?: unknown } | undefined
           if (event === undefined || typeof event.type !== 'string') return
           const data = (event.data ?? {}) as Record<string, unknown>
 
-          if (event.type === 'turn/start') {
-            const turn = data['turn']
-            if (typeof turn === 'number') currentTurn = turn
-            return
-          }
+          // R128：**任何带 `data.turn` 的事件**都更新"当前轮次"，不只 `turn/start`。
+          // 真机（小铁 turn 35 / 小青 turn 6）：成员正忙时，我们的话会被**拼进正在跑的那一轮**
+          //（`step/end → agent/inbox/spliced → step/start → user/message`），
+          // 而那一轮的 `turn/start` 早在我们开录之前就过去了——只认 `turn/start` 就永远认不出来，
+          // 结果是 60s 超时。`step/start` 带着轮次号、且紧挨在拼进来的消息前面。
+          // （同一轮里我们这句话**之前**的发言不会混进来：那时 `ourTurn` 还是 null，见 assistant/message。）
+          const eventTurn = data['turn']
+          if (typeof eventTurn === 'number' && event.type !== 'turn/end') currentTurn = eventTurn
+          if (event.type === 'turn/start') return
 
           if (event.type === 'user/message') {
             // 我们发出去的原话会作为一条 user/message 落进会话——认出它，就认出了我们这一轮。
@@ -479,6 +565,12 @@ export function createTeamsPort(
           }
 
           if (event.type === 'assistant/message') {
+            // R126：**只收我们这一轮的发言**。真机实测：我们那一轮(28)已经答对了，
+            // 随后队长发来的下一轮(29)只有 reasoning + 一个**空的** text 块——
+            // 旧代码让它覆盖了正确答案，于是判成「没有发言」。
+            const msgTurn = data['turn']
+            if (ourTurn === null) return
+            if (typeof msgTurn === 'number' && msgTurn !== ourTurn) return
             const message = data['message'] as { content?: unknown } | undefined
             const blocks = Array.isArray(message?.content) ? message?.content : []
             const texts: string[] = []
@@ -486,11 +578,16 @@ export function createTeamsPort(
               if (typeof block !== 'object' || block === null) continue
               const b = block as Record<string, unknown>
               if (b['type'] === 'text' && typeof b['text'] === 'string') texts.push(b['text'])
+              if (b['type'] === 'reasoning' && typeof b['text'] === 'string' && b['text'].trim() !== '') {
+                thoughtInOurTurn = true
+              }
               if (b['type'] === 'tool-call' && typeof b['name'] === 'string') {
                 actions.push({ name: b['name'], ok: true })
               }
             }
-            if (texts.length > 0) text = texts.join('\n\n')
+            // 同一轮多步时，后一步的空 text 块不许抹掉前一步说过的话。
+            const joined = texts.join('\n\n')
+            if (joined.trim() !== '') text = joined
             if (actions.length > 0) onProgress?.(actions.map((a) => ({ ...a })))
             return
           }
@@ -511,16 +608,32 @@ export function createTeamsPort(
             if (text.trim() === '') {
               finish({
                 ok: false,
-                reason:
-                  actions.length === 0
-                    ? `「${memberName}」这一轮没有发言，也没有动手。再问一次，或换个说法。`
-                    : `「${memberName}」这一轮只动了手（${actions.map((a) => a.name).join('、')}），一句话也没说。`,
+                reason: silentReason(memberName, {
+                  actions: actions.map((a) => a.name),
+                  repeated: repeatedSend.get(characterId) === true,
+                  thought: thoughtInOurTurn,
+                }),
               })
               return
             }
             finish({ ok: true, text, actions: actions.map((a) => ({ ...a })) })
           }
-        })
+        }
+
+        // R126：有 say() 开的录制就**回放 + 接管**它；没有（比如没先 say）才现订阅。
+        const rec = recorders.get(characterId)
+        recorders.delete(characterId)
+        if (rec !== undefined) {
+          unsubscribe = rec.unsubscribe
+          for (const e of rec.events) {
+            if (settled) break
+            handle(e.sid, e.raw)
+          }
+          rec.events.length = 0
+          if (!settled) rec.live = handle
+        } else {
+          unsubscribe = transport.subscribe(handle)
+        }
       })
     },
 
@@ -574,6 +687,7 @@ export function createTeamsPort(
 
     async dispose(): Promise<void> {
       disposed = true
+      for (const id of [...recorders.keys()]) stopRecording(id)
       const handle = captain
       captain = undefined
       if (handle !== undefined) {

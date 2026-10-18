@@ -42,6 +42,66 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R128（task-18 / developer）—— 方案 A 落地：「没说话」分清三种；真机又挖出第四个洞（话被拼进正在跑的那一轮）
+
+### A：失败原因说真话（Lead 拍板 A，B 不做，C 另开）
+`teams.ts` 新增导出纯函数 `silentReason()`，"这一轮没有正文"时按**客观信号**分流（优先级从上到下）：
+
+| 情况 | 信号（都不解析思考内容） | 玩家看到的文案 |
+|---|---|---|
+| 只动手不说话 | 这一轮有 tool-call | 「X」这一轮只动了手（…），一句话也没说。 |
+| ③ 重复不答 | 这句话与**上一句逐字相同**（桥自己在 `say()` 里记，不靠模型说"重复"） | 「X」把这句当成了重复的问题，没有再答（同一句话刚刚问过）。换个说法试试。 |
+| ② 想了没说出口 | 这一轮有**非空 reasoning 块**、但没有正文 | 「X」想了，但没说出口——回答只停在了思考里，没有说成话。再问一次试试。 |
+| ① 真没发言 | 都没有 | 「X」这一轮没有发言，也没有动手。再问一次，或换个说法。 |
+
+"他不理你"（③）与"他想了但没说出来"（②）分开了，下一步也不同（换说法 vs 再问一次）。
+**B 不做**：reasoning 只用来**说明**"他想过"，**不展示**想了什么——② 的用例断言失败原因里**不含任何思维链片段**。
+
+### 第四个洞（真机抓到的，R126 没覆盖）：我们的话被**拼进正在跑的那一轮**
+A 上线后 agent-3 / agent-6 **60s 超时**（R126 时它们是 replied）。会话记录：
+```
+小铁 turn 35：turn/start 35（早在投递之前）… step/end 35 → agent/inbox/spliced → step/start 35 → user/message(我们的话) → … → text → turn/end 35
+小青 turn 6 ：同样形态
+```
+成员**正忙**时，消息不会新开一轮，而是**拼进当前轮的下一步**；那一轮的 `turn/start` 在开录之前就过去了。
+R126 只从 `turn/start` 学"当前轮次" → `currentTurn` 为 null → 认不出 `ourTurn` → 超时。
+（R126 真机验 agent-3/6 时它们恰好空闲，所以没暴露。）
+**修**：**任何带 `data.turn` 的事件**（`step/start` 等）都更新当前轮次；同一轮里我们这句话**之前**的发言不会混入（那时 `ourTurn` 仍为 null）。
+
+### 测试（`test/teams-port.test.js`，均为真机回放，各有反证）
+| 用例 | 反证（改坏后） |
+|---|---|
+| ② 想了没说出口（turn 31 原样）+ 不泄露思维链 | `silentReason` 只剩"没发言" → **红** |
+| ③ 重复问题不答（turn 28 答上 → turn 30 同句） | 同上 → **红** |
+| `silentReason` 优先级：动手 > 重复 > 想了没说 > 真没发言 | 同上 → **红** |
+| 话被拼进正在跑的那一轮（小铁 turn 35；且同轮更早的发言不混入） | 只从 `turn/start` 学轮次 → **红**（1.5s 超时） |
+
+`node --test` **677 / 677** · `tsc --noEmit` 绿 · `diff -rq web lib/web` 无输出 · **`web/` 未动**。
+
+### 真机（宿主是我的后台 job，重启两次；现 pid 24464，`dsh web --no-open`）
+| 对象 | 结果 | 会话记录核对 |
+|---|---|---|
+| agent-1 「现在最该先做的是哪件事？」 | failed：**② 想了没说出口** | turn 32 只有 reasoning ✓ |
+| agent-1 「小蓝今天状态怎么样」 | failed：**②** | turn 33 只有 reasoning ✓ |
+| agent-1 同句再问 | failed：**③ 重复不答** | turn 34 只有 reasoning，且逐字重复 ✓ |
+| agent-1 「你收到了吗？」 | **replied** | — |
+| agent-1 「团队现在最缺什么？」（修完拼轮后） | **replied** | — |
+| agent-3 | **thinking → acting ×2 → replied** | （修前：60s 超时，turn 35 拼轮） |
+| agent-6 | **thinking → acting ×2 → replied** | （修前：60s 超时，turn 6 拼轮） |
+
+三个分类文案**逐条与会话记录对上**，不是"看起来对"。
+
+### 交给任务 C（上游输出形态）的两条证据
+1. **reasoning-only**：工头阿金成员会话 31 轮里 11 轮只有 reasoning（`thinkingSignature: ''`）；本轮又见 32/33/34。
+2. **镜像问题——思考写进了正文**：agent-1 的 replied 文本开头是 `"团队现在最缺什么？" — coherent, one sentence. Answer in voice: …`；
+   agent-3 是 `I've sent the message. … Let me report to the user. Actually — I should …`。
+   也就是说 mmt/sonnet-4.6 的"思考 vs 正文"边界**两个方向都会错**——C 需要一起查。
+
+### 卡住
+- 无。task-18 完成。
+
+---
+
 ## R126（task-18 / developer）—— R125 真机没过：查清是**三个错叠在一起**；修了两个，剩一个是**模型输出形态**，需要你拍板
 
 ### 先回答你的两个问题（全部来自真实会话记录）

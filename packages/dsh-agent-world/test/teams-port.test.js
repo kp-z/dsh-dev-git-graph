@@ -314,3 +314,169 @@ test('R119：**认不出我们那一轮**时，宁可超时也不把别人的回
   assert.equal(reply.ok, false, '把别人的回复报成了答案')
   assert.match(reply.reason, /还没等到/)
 })
+
+test('R126：**我们那一轮在 waitForReply 订阅前就跑完了**——仍要认出它（真机 turn 28/29 原样回放）', async () => {
+  // 真机（成员会话 agent-teams:agent-world:工头阿金）：
+  //   turn 28  +0.0s start → +0.2s 我们的原话 → +2.5s 回复「没在忙什么…」 → +2.5s end
+  //   turn 29 +20.8s start → 队长消息**引用**了我们的原话 → 只有 reasoning + 空 text → +28.9s end
+  // R125 的实现：订阅晚于 turn 28 → 认出的是 29（引用）→ 29 的空 text 覆盖答案 → 判「没有发言」。
+  const listeners = []
+  const SENT = { isError: false, value: {}, content: [] }
+  const said = '你好，用一句话告诉我你现在在忙什么。'
+  const um = (text) => ({ type: 'user/message', data: { source: { kind: 'agent-teams' }, content: [{ type: 'text', text } ] } })
+  const am = (turn, blocks) => ({ type: 'assistant/message', data: { turn, message: { role: 'assistant', content: blocks } } })
+  const emit = (ev) => { for (const l of listeners) l('m1', ev) }
+  const port = makePort({
+    tools: fakeTools({
+      agent_teams_create: CREATED,
+      agent_teams_add_member: SENT,
+      // 发送工具还没返回，成员那一轮就已经整轮跑完（这正是真机的时序）。
+      agent_teams_send_message: () => {
+        emit({ type: 'turn/start', data: { turn: 28 } })
+        emit(um(`AgentTeams message from captain:\n\n${said}`))
+        emit(am(28, [{ type: 'text', text: '没在忙什么——手上一张单没有，等玩家开口。' }]))
+        emit({ type: 'turn/end', data: { turn: 28, reason: { kind: 'completed' } } })
+        return SENT
+      },
+    }),
+    subagents: fakeSubagents([{ id: 'm1', label: 'agent-teams:agent-world:成员-agent-1' }]),
+    transport: { subscribe(l) { listeners.push(l); return () => { listeners.splice(listeners.indexOf(l), 1) } } },
+  })
+
+  assert.equal((await port.say('agent-1', said)).ok, true)
+  const pending = port.waitForReply('agent-1', 3000)
+  // 下一轮：引用原话 + 空 text —— 不许被当成我们的
+  await new Promise((r) => setTimeout(r, 5))
+  emit({ type: 'turn/start', data: { turn: 29 } })
+  emit(um(`AgentTeams message from captain:\n\n阿金，你那句答得准。连贯请求：「${said}」——成句。`))
+  emit(am(29, [{ type: 'reasoning', text: '……' }, { type: 'text', text: '' }]))
+  emit({ type: 'turn/end', data: { turn: 29, reason: { kind: 'completed' } } })
+
+  const reply = await pending
+  assert.equal(reply.ok, true, `又被判成没发言：${reply.reason ?? ''}`)
+  assert.equal(reply.text, '没在忙什么——手上一张单没有，等玩家开口。')
+  assert.equal(listeners.length, 0, '结算后必须退订（录制用的那个订阅也要关）')
+})
+
+test('R126：**上一轮残留的发言**不许冒充我们这一轮（我们这轮只动手不说话 ⇒ 仍报失败）', async () => {
+  const listeners = []
+  const SENT = { isError: false, value: {}, content: [] }
+  const said = '把那张单拆一下'
+  const emit = (ev) => { for (const l of listeners) l('m1', ev) }
+  const port = makePort({
+    tools: fakeTools({
+      agent_teams_create: CREATED,
+      agent_teams_add_member: SENT,
+      agent_teams_send_message: () => {
+        // 订阅时上一轮(27)还在收尾：它的发言先到。
+        emit({ type: 'assistant/message', data: { turn: 27, message: { role: 'assistant', content: [{ type: 'text', text: '（上一轮的话）' }] } } })
+        emit({ type: 'turn/end', data: { turn: 27, reason: { kind: 'completed' } } })
+        // 我们这一轮(28)：只调了工具，一句话没说。
+        emit({ type: 'turn/start', data: { turn: 28 } })
+        emit({ type: 'user/message', data: { source: { kind: 'agent-teams' }, content: [{ type: 'text', text: `AgentTeams message from captain:\n\n${said}` }] } })
+        emit({ type: 'assistant/message', data: { turn: 28, message: { role: 'assistant', content: [{ type: 'tool-call', name: 'world_task_split' }] } } })
+        emit({ type: 'turn/end', data: { turn: 28, reason: { kind: 'completed' } } })
+        return SENT
+      },
+    }),
+    subagents: fakeSubagents([{ id: 'm1', label: 'agent-teams:agent-world:成员-agent-1' }]),
+    transport: { subscribe(l) { listeners.push(l); return () => { listeners.splice(listeners.indexOf(l), 1) } } },
+  })
+  await port.say('agent-1', said)
+  const reply = await port.waitForReply('agent-1', 2000)
+  assert.equal(reply.ok, false, `把上一轮的话当成了这一轮的回复：${reply.text ?? ''}`)
+  assert.match(reply.reason, /只动了手/)
+})
+
+/** R128 回放用：一个"发送工具一返回、成员那一轮就已整轮跑完"的端口（真机时序，见 R126）。 */
+function replayPort(turnsBySend) {
+  const listeners = []
+  const SENT = { isError: false, value: {}, content: [] }
+  let n = 0
+  const emit = (ev) => { for (const l of listeners) l('m1', ev) }
+  const port = makePort({
+    tools: fakeTools({
+      agent_teams_create: CREATED,
+      agent_teams_add_member: SENT,
+      agent_teams_send_message: (input) => {
+        const turn = turnsBySend[n++]
+        emit({ type: 'turn/start', data: { turn: turn.turn } })
+        emit({ type: 'user/message', data: { source: { kind: 'agent-teams' }, content: [{ type: 'text', text: `AgentTeams message from captain:\n\n${input.arguments.content}` }] } })
+        emit({ type: 'assistant/message', data: { turn: turn.turn, message: { role: 'assistant', content: turn.blocks } } })
+        emit({ type: 'turn/end', data: { turn: turn.turn, reason: { kind: 'completed' } } })
+        return SENT
+      },
+    }),
+    subagents: fakeSubagents([{ id: 'm1', label: 'agent-teams:agent-world:成员-agent-1' }]),
+    transport: { subscribe(l) { listeners.push(l); return () => { listeners.splice(listeners.indexOf(l), 1) } } },
+  })
+  return port
+}
+
+test('R128 ②：**想了但没说出口**（真机 turn 31：答案整句在 reasoning 里）——文案要说清，且**不泄露思考内容**', async () => {
+  const reasoning = '"现在团队里谁最闲？" — coherent request… 一句话：**全闲，不分先后 —— 五个成员手上一张单都没有。**'
+  const port = replayPort([{ turn: 31, blocks: [{ type: 'reasoning', text: reasoning, thinkingSignature: '' }] }])
+  await port.say('agent-1', '阿金，用一句话说说：现在团队里谁最闲？')
+  const reply = await port.waitForReply('agent-1', 2000)
+  assert.equal(reply.ok, false, '方案 B 已否决：reasoning 不许当回复')
+  assert.match(reply.reason, /想了，但没说出口/)
+  assert.doesNotMatch(reply.reason, /全闲|coherent/, '失败原因里不许出现思维链内容')
+})
+
+test('R128 ③：**重复的问题不答**（真机 turn 30：同一句话刚问过）——文案要和"想了没说"分开', async () => {
+  const said = '你好，用一句话告诉我你现在在忙什么。'
+  const port = replayPort([
+    { turn: 28, blocks: [{ type: 'text', text: '没在忙什么——手上一张单没有，等玩家开口。' }] },
+    { turn: 30, blocks: [{ type: 'reasoning', text: 'This is a repeat of the previous message verbatim… 重复消息，不答。' }] },
+  ])
+  await port.say('agent-1', said)
+  assert.equal((await port.waitForReply('agent-1', 2000)).ok, true, '第一次要能正常答上')
+  await port.say('agent-1', said)
+  const second = await port.waitForReply('agent-1', 2000)
+  assert.equal(second.ok, false)
+  assert.match(second.reason, /重复的问题/)
+  assert.doesNotMatch(second.reason, /想了，但没说出口/, '"他不理你"和"他想了没说"必须分得开')
+})
+
+test('R128：silentReason 的优先级——动手 > 重复 > 想了没说 > 真没发言', async () => {
+  const { silentReason } = await import('../lib/bridge/teams.js')
+  const r = (o) => silentReason('阿金', { actions: [], repeated: false, thought: false, ...o })
+  assert.match(r({ actions: ['world_move'], repeated: true, thought: true }), /只动了手/)
+  assert.match(r({ repeated: true, thought: true }), /重复的问题/)
+  assert.match(r({ thought: true }), /想了，但没说出口/)
+  assert.match(r({}), /没有发言，也没有动手/)
+})
+
+test('R128：**我们的话被拼进正在跑的那一轮**（真机 小铁 turn 35）——没看到 turn/start 也要认出来', async () => {
+  // 真机：turn/start 35 早在投递之前；投递时序是
+  //   step/end 35 → agent/inbox/spliced → step/start 35 → user/message(我们的话)
+  //   → assistant[reasoning, tool-call] → … → assistant[text] → turn/end 35
+  // 只认 turn/start 的实现在这里认不出 ourTurn → 60s 超时（R128 真机复现）。
+  const listeners = []
+  const SENT = { isError: false, value: {}, content: [] }
+  const emit = (ev) => { for (const l of listeners) l('m3', ev) }
+  const port = makePort({
+    tools: fakeTools({
+      agent_teams_create: CREATED,
+      agent_teams_add_member: SENT,
+      agent_teams_send_message: (input) => {
+        // 这一轮更早的一步（属于上一句话）——它的发言不许算进来
+        emit({ type: 'assistant/message', data: { turn: 35, message: { role: 'assistant', content: [{ type: 'text', text: '（上一句话的回答）' }] } } })
+        emit({ type: 'step/end', data: { turn: 35 } })
+        emit({ type: 'agent/inbox/spliced', data: {} })
+        emit({ type: 'step/start', data: { turn: 35 } })
+        emit({ type: 'user/message', data: { source: { kind: 'agent-teams' }, content: [{ type: 'text', text: `AgentTeams message from captain:\n\n${input.arguments.content}` }] } })
+        emit({ type: 'assistant/message', data: { turn: 35, message: { role: 'assistant', content: [{ type: 'reasoning', text: '…' }, { type: 'tool-call', name: 'agent_teams_send_message' }] } } })
+        emit({ type: 'assistant/message', data: { turn: 35, message: { role: 'assistant', content: [{ type: 'text', text: '今天先把 t10 的失败原因查清。' }] } } })
+        emit({ type: 'turn/end', data: { turn: 35, reason: { kind: 'completed' } } })
+        return SENT
+      },
+    }),
+    subagents: fakeSubagents([{ id: 'm3', label: 'agent-teams:agent-world:成员-agent-3' }]),
+    transport: { subscribe(l) { listeners.push(l); return () => { listeners.splice(listeners.indexOf(l), 1) } } },
+  })
+  await port.say('agent-3', '小铁，用一句话说说你今天的计划。')
+  const reply = await port.waitForReply('agent-3', 1500)
+  assert.equal(reply.ok, true, `拼进来的那一轮没认出来：${reply.reason ?? ''}`)
+  assert.equal(reply.text, '今天先把 t10 的失败原因查清。', '同一轮里我们这句话之前的发言不许混进来')
+})
