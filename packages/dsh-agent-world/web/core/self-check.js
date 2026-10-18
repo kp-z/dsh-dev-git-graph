@@ -20,8 +20,14 @@
  * - **纯逻辑，不碰 DOM/Phaser**：所以能在 node 里测（见 test/self-check.test.js）。
  *   取精灵列表、取 actor 列表、拉快照都由调用方注入。
  * - **一次不一致 ≠ 漂移**：`facing` 的变化和服务端推送之间**天然有一两帧的时差**
- *   （增量还没到）。所以漂移要求**连续两次抽样都看到同一个不一致值**才算数。
+ *   （增量还没到）。所以漂移要求**跨两个快照代次**都看到同一个不一致值才算数。
  *   否则这个计数器会被正常时序刷成噪声，那比没有读数更糟——它会教人忽略它。
+ *
+ *   ⚠️ R110 修的就是这条：原先写的是"**连续两次抽样**"，而**没区分那两次是不是同一个基线**。
+ *   `serverFacing` 每 3s 才刷新，两次之间是冻结的——于是"同一个冻结基线内采两次"被当成了
+ *   "两次独立观测"，`D` 开始误报（实测：它报 `last.drift: 1` 时，独立比对 8/8 完全一致）。
+ *   现在绑到 `serverGeneration` 上：**同一代次内采多少次都不累积**。
+ *   这条对**仪表**尤其致命：一个会误报的仪表，会让它之前所有干净的 `D0` 都失去意义。
  * - **没测 ≠ 通过**：快照是异步慢档拉的，还没到手时漂移项根本没比过。
  *   这时摘要写 `D?` 且 `verdict` 是 `unverified`，不许显示成"没问题"。
  */
@@ -102,11 +108,23 @@ export function createSelfCheck(options = {}) {
   let lastAnimKeys = new Map()
   /** 再上一帧的动画键——A→B→A 里的第一个 A 在这里。 */
   let prevAnimKeys = new Map()
-  /** 每个 agent 上一次的朝向不一致（连续两次相同才算漂移）。 */
+  /** 每个 agent 上一次的朝向不一致（**跨快照代次**才算漂移，见 `serverGeneration`）。 */
   let pendingDrift = new Map()
   /** 服务端快照里每个 agent 的 facing（异步拉的，可能是旧的，没关系）。 */
   let serverFacing = new Map()
   let serverFacingAt = 0
+  /**
+   * **服务端快照的代次**（R110）：每成功拉到一次快照就 +1。
+   *
+   * 为什么需要它（这是修一个**我们自己的仪表在说谎**的 bug）：
+   * 原先"连续两次抽样看到同一个不一致值"的判据，**没有区分那两次是不是同一个基线**。
+   * 而 `serverFacing` 每 3s 才刷新一次、两次之间是**冻结的**——于是"在同一个冻结基线内
+   * 采两次"被当成了"两次独立观测"，`D` 就开始误报。
+   *
+   * 判据改成：**只有跨两个不同的代次都看到同一个不一致值，才算一次漂移**。
+   * 同一个代次内无论采多少次，都不累积（那不是两次观测，是同一个基线看了两眼）。
+   */
+  let serverGeneration = 0
   let lastSampleMs = -Infinity
   let lastFetchMs = -Infinity
   let fetching = false
@@ -156,10 +174,22 @@ export function createSelfCheck(options = {}) {
         const local = Number(actor?.facing)
         const mismatched = !Number.isFinite(local) || Math.abs(local - authoritative) > FACING_EPSILON
         if (!mismatched) continue
-        // 连续两次抽样看到**同一个**不一致值才算漂移：单向的时序差会被这里吸收。
+        /**
+         * 同一个不一致值要**跨两个快照代次**才记一次漂移（R110）。
+         *
+         * 三件事被这条判据同时满足：
+         *   ① **单向时序差**被吸收：本地还没追上服务端时，下个代次里本地就跟上了 → 签名消失，不记；
+         *   ② **同一代次内重复采样不算数**：基线没换，采一百次也只是"同一个快照看了两眼"；
+         *   ③ **真漂移仍然抓得住**：本地卡在同一个错值、而服务端基线已经换了一代还说那个值
+         *      → 说明至少隔了一个快照周期（3s）还没追上，那就是真的没在同步。
+         *
+         * ⚠️ 签名里**必须带服务端的值**：只比"本地值没变"是不够的——
+         * 本地值没变但服务端也一直在同一个值上，那是**一致**，压根不会走到这里。
+         */
         const signature = `${Number.isFinite(local) ? local.toFixed(6) : 'NaN'}|${authoritative.toFixed(6)}`
-        if (pendingDrift.get(actor.id) === signature) drift += 1
-        nextPending.set(actor.id, signature)
+        const prev = pendingDrift.get(actor.id)
+        if (prev !== undefined && prev.signature === signature && prev.generation < serverGeneration) drift += 1
+        nextPending.set(actor.id, { signature, generation: serverGeneration })
       }
       pendingDrift = nextPending
       counts.facingDrift += drift
@@ -178,6 +208,10 @@ export function createSelfCheck(options = {}) {
           serverFacing = facingMapOf(snapshot)
           serverFacingAt = Math.round(now())
           fetchState = serverFacing.size > 0 ? 'ok' : 'empty'
+          // R110：**换了一代基线**。漂移判据要求"跨代次"，所以这一步是判据的一部分——
+          // 忘了 +1 的后果是 `D` **永远为 0**（再也不报警），比误报更危险：
+          // 一个永远说"没事"的仪表看起来和"真没事"一模一样。
+          if (serverFacing.size > 0) serverGeneration += 1
         })
         .catch(() => {
           fetchState = 'failed'
@@ -206,7 +240,7 @@ export function createSelfCheck(options = {}) {
       counts: { ...counts },
       last: { ...last },
       sample: { intervalMs, sprites: last.sprites },
-      world: { fetchState, facingCount: serverFacing.size, at: serverFacingAt },
+      world: { fetchState, facingCount: serverFacing.size, at: serverFacingAt, generation: serverGeneration },
       /**
        * `ok` = 两类都**比过且一致**；`degraded` = 真的出过错；
        * `unverified` = 帧比过了、但漂移一项还没比过（快照没到手）。
@@ -219,9 +253,17 @@ export function createSelfCheck(options = {}) {
     sample,
     report,
     counts: () => ({ ...counts }),
-    /** 测试/复验用：直接把服务端朝向塞进来，不必真发请求。 */
+    /**
+     * 测试/复验用：直接把服务端朝向塞进来，不必真发请求。
+     *
+     * ⚠️ 它**也会 +1 代次**（R110）：这是"来了一份新快照"的等价物。
+     * 不 +1 的话调用方会以为自己在换基线，而判据还认为"同一个代次"，于是漂移永远数不出来——
+     * 一个测试辅助函数悄悄让判据失效，是最难查的那种测试污染。
+     */
     setServerFacing: (map) => {
       serverFacing = map instanceof Map ? map : new Map(Object.entries(map ?? {}))
+      serverFacingAt = Math.round(now())
+      if (serverFacing.size > 0) serverGeneration += 1
     },
     reset: () => {
       counts.frameResets = 0

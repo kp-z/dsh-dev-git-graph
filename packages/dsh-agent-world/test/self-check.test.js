@@ -7,7 +7,11 @@
  *
  * - 帧重置：只有**动画在播**时才比（没在播时钉第一帧是 `drawActors` 的有意行为）；
  * - 动画互抢：A→B→A 算，A→B→C 的前进**不算**（一天会换几十次键，那不是故障）；
- * - 状态漂移：**连续两次抽样**看到同一个不一致值才算（单向的推送时差不该被算成漂移）。
+ * - 状态漂移：**跨两个快照代次**都看到同一个不一致值才算（单向的推送时差不该被算成漂移）。
+ *   ⚠️ R110 修：原先写的是"连续两次抽样"，**没区分那两次是不是同一个基线**——
+ *   而 `serverFacing` 每 3s 才刷新、两次之间是冻结的，于是"同一个基线采两次"被当成了
+ *   "两次独立观测"，`D` 开始误报（实测它报 drift:1 时独立比对 8/8 一致）。
+ *   本文件里那两条断言旧判据的用例，就是**这个 bug 能活下来的原因**——判据错了，测试还替它背书。
  */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -110,37 +114,107 @@ test('动画互抢：A→B→A 记一次，A→B→C 的前进不记', async () 
   assert.equal(check.report().counts.frameResets, 0)
 })
 
-test('状态漂移：一次不一致不算，连续两次同一个不一致才算', async () => {
+/**
+ * 造一个**不真发请求**的自检器：基线用 `setServerFacing` 直接给（它等价于"来了一份新快照"，
+ * 并且会 +1 代次），于是"代次"这件事可以被精确控制。
+ */
+function makeGenerationCheck({ actorList = [], clock: now = clock() } = {}) {
+  let actorsRef = actorList
+  const check = createSelfCheck({
+    sprites: () => [],
+    actors: () => actorsRef,
+    fetchWorld: () => new Promise(() => {}), // 永不落地：代次只由 setServerFacing 推进
+    hidden: () => true,
+    now,
+  })
+  return { check, setActors: (next) => { actorsRef = next } }
+}
+
+test('状态漂移：**同一个快照代次内采多少次都不算**（那不是两次观测，是同一个基线看了两眼）', () => {
+  const { check } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 3.0 }] })
+  check.setServerFacing({ 'agent-1': -3.0 }) // 第 1 代基线：本地 3.0 vs 服务端 -3.0
+  for (let i = 0; i < 8; i += 1) check.sample()
+  assert.equal(check.report().counts.facingDrift, 0, '同一代次内采 8 次也不该累积——这正是 R110 的误报来源')
+  assert.equal(check.report().last.drift, 0)
+})
+
+test('状态漂移：**跨两个代次**看到同一个不一致值 → 记一次（真漂移仍抓得住）', () => {
+  const { check } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 3.0 }] })
+  check.setServerFacing({ 'agent-1': -3.0 }) // 第 1 代
+  check.sample()
+  assert.equal(check.report().counts.facingDrift, 0, '只看到一代，还不能下结论')
+  check.setServerFacing({ 'agent-1': -3.0 }) // 第 2 代（基线换了，值没变）
+  check.sample()
+  assert.equal(check.report().counts.facingDrift, 1, '跨代次仍是同一个不一致 → 这是真的没同步')
+  assert.equal(check.report().verdict, 'degraded')
+})
+
+test('反证②：本地**短暂落后又回到原值** → D 必须仍为 0（旧判据在这里会误报）', () => {
+  const { check, setActors } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 1.0 }] })
+  check.setServerFacing({ 'agent-1': 1.0 }) // 第 1 代：一致
+  check.sample()
+  assert.equal(check.report().counts.facingDrift, 0)
+
+  // 本地"落后"（增量还没到）——**同一个代次内**连续采两次看到同一个不一致值。
+  setActors([{ id: 'agent-1', facing: 2.0 }])
+  check.sample()
+  check.sample()
+  assert.equal(
+    check.report().counts.facingDrift,
+    0,
+    '同一代次内的重复采样不是独立观测；旧判据（"连续两次同签名"）会在这里记 1 —— R108 真机上的误报就是它',
+  )
+
+  // 本地追上了 → pending 清空
+  setActors([{ id: 'agent-1', facing: 1.0 }])
+  check.sample()
+  assert.equal(check.report().counts.facingDrift, 0)
+})
+
+test('反证③：**持续漂移**（跨两个以上代次）→ D 必须 > 0（别修成"永远不报警"）', () => {
+  const { check } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 3.0 }] })
+  // 基线换 4 代，本地始终卡在 3.0 —— 服务端一直说 -3.0。
+  for (let gen = 0; gen < 4; gen += 1) {
+    check.setServerFacing({ 'agent-1': -3.0 })
+    check.sample()
+  }
+  const drift = check.report().counts.facingDrift
+  assert.ok(drift > 0, `持续漂移必须被记到，实际 ${drift}`)
+  assert.equal(check.report().verdict, 'degraded')
+})
+
+test('状态漂移：客户端追上之后计数不再涨（代次照换）', () => {
+  const { check, setActors } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 3.0 }] })
+  check.setServerFacing({ 'agent-1': -3.0 })
+  check.sample()
+  check.setServerFacing({ 'agent-1': -3.0 })
+  check.sample()
+  const before = check.report().counts.facingDrift
+  assert.equal(before, 1)
+  // 客户端追上了服务端（增量到了）→ 不一致消失，之后换多少代都不再涨。
+  setActors([{ id: 'agent-1', facing: -3.0 }])
+  for (let i = 0; i < 3; i += 1) {
+    check.setServerFacing({ 'agent-1': -3.0 })
+    check.sample()
+  }
+  assert.equal(check.report().counts.facingDrift, before)
+})
+
+test('真快照落地也会 +1 代次（不能只在 setServerFacing 里加）', async () => {
+  // 用**真 fetch 路径**验一遍：忘了在 fetch 里 +1 的后果是 D 永远为 0（比误报更危险）。
   const { check } = makeCheck({
     spriteList: [],
     actorList: [{ id: 'agent-1', facing: 3.0 }],
     snapshot: { world: { agents: [{ id: 'agent-1', facing: -3.0 }] } },
   })
   check.sample()
-  await flush() // 快照到了：服务端 -3.0，本地 3.0
-  check.sample() // 第一次看到不一致：只记进 pending
-  assert.equal(check.report().counts.facingDrift, 0)
-  check.sample() // 第二次同一个不一致：算一次漂移
-  assert.equal(check.report().counts.facingDrift, 1)
-  assert.equal(check.report().verdict, 'degraded')
-})
-
-test('状态漂移：服务端把自己纠正回来之后不再涨', async () => {
-  const { check, setActors } = makeCheck({
-    spriteList: [],
-    actorList: [{ id: 'agent-1', facing: 3.0 }],
-    snapshot: { world: { agents: [{ id: 'agent-1', facing: -3.0 }] } },
-  })
-  check.sample()
   await flush()
-  check.sample()
-  check.sample()
-  const before = check.report().counts.facingDrift
-  assert.equal(before, 1)
-  // 客户端追上了服务端（增量到了）→ pending 清空，计数不再涨。
-  setActors([{ id: 'agent-1', facing: -3.0 }])
-  for (let i = 0; i < 5; i += 1) check.sample()
-  assert.equal(check.report().counts.facingDrift, before)
+  const gen1 = check.report().world.generation
+  assert.equal(gen1, 1, '快照落地后应该有第 1 代')
+  // 再等一个快照周期（假时钟每次 +1000ms，worldFetchMs 默认 3000）
+  for (let i = 0; i < 3; i += 1) check.sample()
+  await flush()
+  assert.ok(check.report().world.generation >= 2, '第二个快照落地后代次必须继续涨')
 })
 
 test('report() 是可读结构：带一行摘要、明细与取快照状态', async () => {
