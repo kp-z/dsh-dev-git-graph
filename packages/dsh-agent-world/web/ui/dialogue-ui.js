@@ -265,11 +265,6 @@ export function createDialogueUi(options = {}) {
     options.onChanged?.()
   }
 
-  function toggle(agentId) {
-    if (currentAgentId === agentId) close()
-    else open(agentId)
-  }
-
   // ── 超控双模式（对话 / 移动）─────────────────────────────────────────────────
   //
   // 两者**互斥**，根因在"键盘焦点归谁"：
@@ -451,7 +446,6 @@ export function createDialogueUi(options = {}) {
     },
     open,
     close,
-    toggle,
     submit,
     ingest,
     expire,

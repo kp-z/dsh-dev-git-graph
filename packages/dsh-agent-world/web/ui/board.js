@@ -90,8 +90,7 @@ function svgEl(doc, tag) {
  * @param {HTMLElement} [options.styleRoot] - 把 `--board-*` 变量写到哪（挂载模式下是侧边栏）
  * @param {Record<string, string>} [options.palette] - 快照里的 token → 色值。
  * @param {(taskId: string|null) => void} [options.onSelect] - 选中变化（**M7-3 的双向高亮会挂这里**，本轮不接）。
- * @param {(agentId: string) => void} [options.onMemberPick] - 点成员卡上的"对话"按钮（R76：花名册删掉后的对话入口）。
- * @param {(agentId: string) => void} [options.onMemberSelect] - 点成员行本身 = **选中/聚焦**（R3：与上一条语义不同，别合并）。
+ * @param {(agentId: string) => void} [options.onMemberSelect] - 点成员行本身 = **选中/聚焦**（对话由「点场景里的人」或「选中后回车」负责）。
  * @param {Document} [options.document]
  */
 export function createBoard(options = {}) {
@@ -462,28 +461,14 @@ export function createBoard(options = {}) {
         if (stateText !== '') parts.push(stateText)
         item.setAttribute('aria-label', parts.join(' · '))
       }
-      // R76：花名册删掉之后，「点成员对话」的入口移到看板成员卡上——一个独立的小按钮，
-      // 与「点成员选中看任务」分开，避免点谁就弹对话。
-      if (row.member.id !== null && typeof options.onMemberPick === 'function') {
-        const talk = el(doc, 'button', 'board-talk ghost')
-        talk.type = 'button'
-        talk.textContent = '💬'
-        talk.title = `跟 ${row.member.name ?? row.member.id} 说句话`
-        talk.setAttribute('aria-label', talk.title)
-        talk.addEventListener('click', (event) => {
-          event.stopPropagation()
-          options.onMemberPick(row.member.id)
-        })
-        head.append(talk)
-      }
+      // R97：**💬 按钮已删**（用户拍板：它与「点人 + 回车」重复）。
+      // 对话入口现在是两条：点场景里的人（定位 + 开面板）、选中后按回车（开对话档）。
+      // 别再把它加回来——同一个动作有三条路径正是用户要收掉的东西。
       // 行既是"可点的"就该是"可敲的"：给了 `role="button"` + `tabindex` 却不响应
       // 回车/空格，等于对键盘用户撒谎（他 Tab 上来、按下去，什么也不发生）。
       const activate = () => {
         select({ kind: 'member', id: row.member.id })
         // R3：点成员行 → **也**通知外面（侧边栏里点谁就该聚焦谁）。
-        //
-        // ⚠️ 与 `onMemberPick` 是两件事，别合并：`onMemberPick` 是那个 💬 按钮，
-        // 语义是"跟他说话"（开会话面板）；这里是"选中/聚焦"。
         // 这条分工是**用户拍板过的**（`docs/PLAN-game-agent.md` (d) 节）：
         // 列表=定位，点人=定位+开面板，回车=在已选中基础上开对话。别"顺手统一"。
         // 「未分配」那一行 `id === null`（它没有场景实体），不可聚焦。

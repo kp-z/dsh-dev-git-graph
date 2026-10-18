@@ -50,7 +50,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r91'
+const BUILD = 'build r97'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
@@ -187,11 +187,9 @@ const board = createBoard({
   mounts: sidebar.mounts(),
   styleRoot: $('sidebar'),
   palette: {},
-  // ② 💬 按钮：聚焦 + 开面板（"跟他说话"）。
-  onMemberPick: (agentId) => {
-    focusAgent(agentId, 'talk')
-    openDialogueFor(agentId)
-  },
+  // R97：**💬 按钮连同它那条回调一起删了**（用户拍板：与「点人 + 回车」重复）。
+  // 现在只剩两条路：场景点人（聚焦 + 开面板）、成员行（只聚焦）。
+  // 对话的另外两条入口都在 `main.js` 顶层：点场景里的人、选中后按回车。
   // ③ 成员**行**：只聚焦，**不开**面板。侧边栏里点谁，镜头就跟谁。
   onMemberSelect: (agentId) => void focusAgent(agentId, 'member'),
 })
@@ -345,10 +343,34 @@ async function sayToAgent({ agentId, text }) {
   }
 }
 
-/** 点到人之后：再点一次同一个人就关掉（toggle 比"必须找关闭按钮"少一步）。 */
+/**
+ * 点到人之后：确保面板**开在这个人身上**（`docs/PLAN-game-agent.md` (d)4，用户 R97 拍板）。
+ *
+ * ## 为什么不再是 `toggle`
+ *
+ * 用户原话：「已经选中 A、面板开着时，再点一次 A → **不关面板，只是重新聚焦**」。
+ * 旧行为是 `toggle`：再点同一个人会**关掉面板**——于是"想再确认下这个人"的顺手动作，
+ * 反而把面板收走了。
+ *
+ * ## 为什么也**不能**直接 `dialogue.open(agentId)`
+ *
+ * `open()` 会把面板**重置回移动档**，并在对话档时重新聚焦输入框。于是：
+ *   · 正在对话档打字的人，再点一下自己就会**被踢出输入框**（比关掉面板更烦）；
+ *   · 已经切到对话档的人，会被悄悄降回移动档。
+ * 那等于用"重置"来实现"重新聚焦"，副作用比原问题更大。
+ *
+ * ## 正确的三态（也别写成"同一个人就什么都不做"——面板关着时必须开）
+ *
+ * | 当前 | 做什么 |
+ * |---|---|
+ * | 面板关着 | `open(agentId)` → 默认移动档 |
+ * | 开着、同一个人 | **no-op**（保持档位与焦点，不重置） |
+ * | 开着、换人 | `open(新 id)` |
+ */
 function openDialogueFor(agentId) {
   if (agentId === null || agentId === undefined) return
-  dialogue.toggle(agentId)
+  const sameAgentOpen = dialogue.isOpen() === true && dialogue.agentId() === agentId
+  if (!sameAgentOpen) dialogue.open(agentId)
   render(true)
 }
 
@@ -389,7 +411,7 @@ let lastFocusSource = null
  * 用户看到的是"镜头顿一下再走"。聚焦一个已经聚焦的对象本来就该是空操作。
  *
  * @param {string} agentId
- * @param {'scene'|'member'|'talk'} source - 仅埋点
+ * @param {'scene'|'member'} source - 仅埋点。第三种来源（💬 按钮那条）已在 R6 随按钮一并删除，别再把它加回来
  * @returns {boolean} 是否已是聚焦态
  */
 function focusAgent(agentId, source) {
@@ -674,9 +696,10 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
      * 否则下一轮谁都说不清改之前是什么样。这张表就是 DESIGN §6 那张表的运行时版本。
      */
     focusMatrix: () => [
-      { source: 'scene', 选中: true, 开面板: true, 说明: '场景点人：渲染层先 selectAgent，回调再开面板' },
-      { source: 'member', 选中: true, 开面板: false, 说明: '成员行：只聚焦' },
-      { source: 'talk', 选中: true, 开面板: true, 说明: '💬：聚焦 + 开面板' },
+      { source: 'scene', 选中: true, 开面板: true, 说明: '场景点人：渲染层先 selectAgent，回调再开面板（(d)1）' },
+      { source: 'member', 选中: true, 开面板: false, 说明: '成员行：只聚焦（(d)3）' },
+      // R97：`talk`（💬）那条**已删**——按钮与回调一起清掉了，这里也就不该再有它。
+      // 留着一条已不存在入口的"行为表"比没有表更坏：验收会照着它去找一个不存在的按钮。
     ],
   }
   /**

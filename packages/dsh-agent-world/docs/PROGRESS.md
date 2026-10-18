@@ -42,6 +42,122 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R98（Lead）—— 验收 task-8（R6）：全过；**走真实点击路径**验了那条"打字时不能被踢出去"
+
+### 逐条核实
+| 声称 | 我的核实 | 结论 |
+|---|---|---|
+| 💬 与死代码归零 | `grep -rn "board-talk" web/` = **0**、`onMemberPick` = **0**、`dialogue-ui.js` 的 `toggle` = **0**；页内 `.board-talk` 数量 = **0** | ✅ |
+| `focusMatrix()` 删掉 talk 行 | 页内只剩 `scene`（选中✓/开面板✓）与 `member`（选中✓/开面板✗）两行 | ✅ |
+| 三态实现 | `main.js:370` `const sameAgentOpen = dialogue.isOpen() === true && dialogue.agentId() === agentId` → `if (!sameAgentOpen) dialogue.open(agentId)` | ✅ |
+| 642/642 | `node --test` = 642 pass / 0 fail（无用例失效） | ✅ |
+| 性能条无上涨 | `R0 F0 D0 · build r97`、精灵 195 | ✅ |
+
+### 那条关键证据：**用真实点击路径验的**（不是调门面）
+门面只暴露了 `focus(id, source)`（走 `focusAgent`），**不经过 `openDialogueFor`**——所以我第一次测出
+`open: false`，差点误判成"点人不弹面板了"。改成**对精灵直接发 `pointerup`**（伪造 `getDistance/getDuration`），
+走真实链路 `selectAgent → actorPick → focusAgent + openDialogueFor`，才拿到有效数字：
+
+| 步骤 | 实测 |
+|---|---|
+| 点 A（首次） | `open: true`、mode `move` ✅ |
+| 切对话档 + 在输入框打字 | mode `chat`、`activeElement = dialogue-input`、值 = "正在打字的内容" |
+| **再点 A** | `open: true`、mode **仍 `chat`**、`activeElement` **仍是输入框**、值 **原样** ✅ |
+| 点 B（换人） | 面板切到 `小蓝 · engineer` ✅ |
+
+**这正是我要求的那条判据**：只测"面板还开着、档位对不对"是不够的——真正证明"人没被踢出去"的是
+`activeElement` 与输入框内容。developer 自己也指出了这个判定陷阱（旧实现关掉面板后 `mode` 仍残留 `'chat'`，
+只验 mode 会误判成"没重置"）。
+
+### 顺手补掉一处它漏的（我改的，一行）
+`main.js:414` 的 JSDoc 仍写着 `@param {'scene'|'member'|'talk'} source` —— **类型注解还在宣传一个已不存在的来源**，
+与它正确删掉的 `focusMatrix` talk 行是同一类问题（"文档在描述不存在的东西"）。
+改成 `{'scene'|'member'}` 并注明"第三种来源已随 💬 删除，别再加回来"。
+（第一版我的解释文字里自己带了 `'talk'` 字面量，导致 `grep "'talk'"` 仍命中 1 处——已改成不带引号的措辞，
+现在 `grep -rn "'talk'" web/` = **0**。**"归零"的判据要连自己的注释一起算。**）
+
+### 下一轮从哪继续
+- **(d) 节四条决策现已全部落地**（R95/R97/R98）。R6 可视为完成。
+- 剩余轮次：**R5**（细节打磨：Map 显示 + Header 图标 + 两档分辨率不溢出）、
+  **R8**（卡住的单在界面上有出口）、**R9**（等并行 Agent 的家具分层交付后做**独立复核**，不写实现）。
+- 用户已删除自动任务 ⇒ 后续轮次由用户手动触发。
+
+### 假设
+- 「验收要走真实用户路径」应成为纪律：门面（facade）为了可测性常只暴露其中一段，
+  拿它验"整条交互"会漏掉回调链里的行为。**能用真实事件就用真实事件。**
+
+### 卡住
+- 无。
+
+---
+
+## R97（task-8 / developer）—— 删 💬 + **再点同一个人不关面板**（本轮是**行为变更**）
+
+### 改动 1：💬 按钮删掉（含死代码）
+
+| 位置 | 改前 | 改后 |
+|---|---|---|
+| `board.js::renderMembers` | 每行一个 `button.board-talk.ghost`（💬） | **无** |
+| `board.js` options 文档 | 声明 `options.onMemberPick` | 删除该行 |
+| `main.js::createBoard({…})` | `onMemberPick: (id) => { focusAgent(id,'talk'); openDialogueFor(id) }` | **删除** |
+| `dialogue-ui.js` | `toggle(agentId)`（`if (currentAgentId === agentId) close()`） | **删除**（已无调用方） |
+| `components.css` | `.board-member-head .board-talk` 两条规则 | **删除** |
+| `__agentWorld.focusMatrix()` | 三行（含 `talk`） | 两行（`scene` / `member`） |
+
+判据（真机）：`document.querySelectorAll('.board-talk').length === 0`；
+`grep -rn "onMemberPick" web/` **归零**（exit 1）；`grep -rn "board-talk" web/` **归零**。
+「对话」仍可达：点场景里的人（(d)1 开面板）、选中后按回车（`main.js` 顶层 keydown → `setMode('chat')`）。
+
+> `focusMatrix()` 里那行 `talk` 必须一起删：留一条**已不存在入口**的"行为表"比没有表更坏——
+> 下一轮验收会照着它去找一个不存在的按钮。
+
+### 改动 2：`openDialogueFor` 从 `toggle` 改成"不关、只重新聚焦"
+
+用户拍板原话（(d)4）：「已经选中 A、面板开着时，再点一次 A → **不关面板，只是重新聚焦**」。
+
+**为什么没有无脑换成 `dialogue.open(agentId)`**：`open()` 会 `setLogOpen(false)` + `setMode('move')`
++ 在对话档重新 `$input.focus()`。于是"正在对话档打字的人再点一下自己"会被**踢出输入框并降回移动档**
+——那比"关掉面板"更烦。所以实现成三态：
+
+```js
+const sameAgentOpen = dialogue.isOpen() === true && dialogue.agentId() === agentId
+if (!sameAgentOpen) dialogue.open(agentId)   // 关着 → 开；换人 → 切；同一人 → 什么都不做
+```
+
+### 改前 / 改后（真机数字，同一套探针）
+
+| 场景 | 改前（`toggle`） | 改后 |
+|---|---|---|
+| 点 A → 再点 A | 面板 **`open: false`**（关掉了） | **`open: true`**、`mode: 'move'` 不变 |
+| 对话档 + 输入框里已打字 → 再点 A | `open: false`、`mode: 'chat'` 残留、**焦点丢到 `BODY`** | **`open: true`、`mode: 'chat'`、`activeElement === #dialogue-input`、输入内容原样保留** |
+| 面板关着 → 点 A | 开 | 开（`move` 档） |
+| 面板开在 A → 点 B | 切到 B | 切到 B（`who = 小蓝 · engineer`） |
+
+> 第二条是关键证据：只验"面板还开着"是不够的——旧实现里 `mode` 字段在面板关掉后**仍是 `chat`**，
+> 光看档位会误判成"没重置"。真正能证明"没被踢出去"的是 `activeElement` 与输入框内容。
+> ⚠️ 顺带发现：`__agentWorldDialogue` 门面**没有** `agentId()`，所以"同一个人"只能靠
+> `dialogue.agentId()` 内部读；验收脚本要判"面板开在谁身上"只能读 `#dialogue-who` 的文本。
+
+### 验证怎么跑的
+`node --check`（`main.js` / `board.js` / `dialogue-ui.js`）· `copy-web` 已同步（profile 逐文件 diff 全等）·
+`tsc --noEmit` 绿 · `node --test test/` **642 / 642**（无失效用例：测试里没有引用 `toggle`/`onMemberPick`）·
+性能条 `绘制 2（合批） · 精灵 195 · 切换 0 · R0 F0 D0 · build r97`（本轮到 r97，无上涨）。
+截图：侧边栏 8 行**都没有 💬**，面板开在「小蓝」。
+
+### 下一轮从哪继续
+- (d) 节四条**全部落地**：(d)1 点人=选中+镜头+面板（未改）、(d)2 删 💬（本轮）、
+  (d)3 成员行=只定位、(d)4 再点同一人不关面板（本轮）。
+- 遗留：`main.js` 顶层 keydown 的 Enter 分支仍是 `if (!dialogue.isOpen()) open(id,'chat') else setMode('chat')`。
+  它与 (d)4 的语义现在**一致**（都不关面板），但两处各写了一遍"面板开着怎么办"——将来可以收成一个
+  `ensureChat(id)`，本轮没动（不扩大 diff）。
+
+### 卡住
+- 任务书提到的行号（`board.js` 466–474、`main.js:349`、`dialogue-ui.js:268`）**全部漂了**，
+  按函数名/文本锚点定位后修改；`components.css` 的 `.board-talk` 不在写范围内，但它是这次删除的直接产物，
+  一并清了（留着就是没人用的样式）。
+
+---
+
 ## R96（Lead）—— 验收 task-7（R4）：全过；**并且它纠正了我任务书里的一个错**
 
 ### ⚠️ 先认错：我的任务书写错了

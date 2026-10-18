@@ -958,20 +958,6 @@
   font-size: var(--fs-sub);
   color: var(--fg-0);
 }
-/* R76：成员卡上的「对话」小按钮（花名册删掉后的对话入口）。 */
-.board-member-head .board-talk {
-  margin-left: auto;
-  padding: 0 4px;
-  font-size: var(--fs-micro);
-  line-height: 1;
-  border: none;
-  background: none;
-  color: var(--fg-2);
-  cursor: pointer;
-}
-.board-member-head .board-talk:hover {
-  color: var(--accent);
-}
 .board-chips {
   display: flex;
   flex-wrap: wrap;
