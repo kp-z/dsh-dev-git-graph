@@ -293,18 +293,6 @@
   white-space: nowrap;
   color: var(--fg-1);
 }
-.agent-pending {
-  animation: pulse 1.6s var(--ease) infinite;
-}
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.55;
-  }
-}
 
 /* ── 工单：徽章 + 标题 + 元信息 + 进度条 ──────────────────────────────────── */
 .task-row {
