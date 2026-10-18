@@ -60,6 +60,11 @@ import {
   zoomLevels,
 } from '../core/scene-layout.js'
 import { assignColorVariants } from '../core/pixel-recolor.js'
+// R123：头顶工单行的**文本**逻辑住在 `core/`（纯函数、能在 node 里测）。
+// 为什么不能留在本文件：这个文件顶部 `import ... from 'phaser'` 指向浏览器 vendor，
+// **node 加载不了它**——留在这里就等于"这条逻辑永远无法单测"，
+// 而真机上恰好验不到它（真实标题最长 10 字，截断上限 14）。
+import { taskLabelText } from '../core/task-label.js'
 import { createSheetLoader } from './sheet-loader.js'
 
 /**
@@ -76,7 +81,25 @@ export function requestedRenderer(search = globalThis.location?.search ?? '') {
 
 /** 画布里的字体**不能写 CSS 变量**（canvas 不认 `var(...)`）。与 `tokens.css` 同序。 */
 const UI_FONT = 'system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif'
-const LABEL_STYLE = { fontFamily: UI_FONT, fontSize: '10px', color: '#ffffff', stroke: '#000000', strokeThickness: 3 }
+const LABEL_STYLE = { fontFamily: UI_FONT, fontSize: '12px', color: '#ffffff', stroke: '#000000', strokeThickness: 3 }
+/**
+ * 头顶**第二行**：他此刻在做哪张单（R123 / R5 收口）。
+ *
+ * 为什么用 `...LABEL_STYLE` 展开而不是重写一份：色值只能从**内容库**来（D31），
+ * 而 `LABEL_STYLE` 里那两个色（白字 + 黑描边）是**既有的**、已经被这套深色场景验证过。
+ * 展开复用 = 不新增任何字面色值，同时保证两行标签的字形/描边完全一致。
+ * 真正要改的只有字号（第二行要比名字小一号，形成层次）。
+ */
+const TASK_LABEL_STYLE = { ...LABEL_STYLE, fontSize: '11px' }
+/**
+ * 两个人靠得比这个还近（**屏幕上**的像素距离）时，两行工单都藏起来（R123）。
+ *
+ * 取 72px 的依据：一行工单标签（`#46 调研并确定方案 #4`）实测宽约 101px、高 13px，
+ * 而人名标签约 43px 宽——72px 大约是"两个人的标签一定会压在一起"的量级，
+ * 同时不会把"正常并排办公"的人误伤（他们相距通常 > 100px）。
+ * ⚠️ 名字**不参与**这条规则：它永远保留（"谁在哪"是底线信息）。
+ */
+const TASK_LABEL_MIN_GAP_PX = 72
 // R77：头顶气泡的对话框底图——Kenney 像素 UI 包的 9-slice 米色面板（48×48）。
 // 用引擎的 `add.nineslice()` 撑到任意尺寸（游戏引擎成熟方案），不再手画圆角矩形。
 const BUBBLE_PANEL_KEY = 'ui-panel-tan'
@@ -778,6 +801,20 @@ export function createScenePhaser(canvas, options = {}) {
       // 移动由引擎的 Arcade 物理每帧推进（`moveActorTo` 里的 `physics.moveTo`），这里不再手写移动。
       // 只有"名字贴头顶"要在这同步：标签在另一个容器里（永远盖在家具上），物理动的是精灵，
       // 所以每帧把标签钉到精灵脚下 + labelDy——这不是手写物理，是"两个显示对象保持相对位置"。
+      /**
+       * 先摆位置、再**去重叠**（R123）。
+       *
+       * 为什么需要去重叠：真机对比（10px vs 12px）暴露出来——两个人站得近时，
+       * 头顶那行工单会**叠成一团**，而字越大叠得越厉害。
+       * 只调字号解决不了它（这正是那组对比截图的价值：它把"字号"和"排布"两个问题分开了）。
+       *
+       * 规则很保守：**同一屏里两个有工单行的人靠得太近时，两人的工单行都藏起来**，
+       * 名字**永远保留**（"谁在哪"是底线信息，"他在做哪张单"是加分信息）。
+       * 判据用**精灵的屏幕距离**（相机缩放已经算进去了），阈值取"一行工单标签的典型宽度"量级。
+       *
+       * O(n²) 但 n ≤ 8（一个世界的角色数），一帧几十次比较，可以忽略。
+       */
+      const taskLabelSpots = []
       for (const entry of actorNodes.values()) {
         const sprite = entry.sprite
         if (sprite === null || sprite === undefined || sprite.visible !== true) continue
@@ -785,6 +822,29 @@ export function createScenePhaser(canvas, options = {}) {
         if (label !== null && label !== undefined && label.visible === true) {
           label.x = sprite.x
           label.y = sprite.y + (entry.labelDy ?? -16)
+        }
+        // 第二行贴在**名字之上**：顺序读下来是「工单 → 人 → 角色」。
+        // 位置由名字的实测高度决定（`label.height` 随字号/内容变，不能写死行高）。
+        const taskLabel = entry.taskLabel
+        if (taskLabel !== null && taskLabel !== undefined && taskLabel.visible === true && label !== null && label !== undefined) {
+          taskLabel.x = sprite.x
+          taskLabel.y = (sprite.y + (entry.labelDy ?? -16)) - (label.visible === true ? label.height : 0)
+          taskLabelSpots.push({ label: taskLabel, x: sprite.x, y: sprite.y })
+        }
+      }
+      // 相机缩放要算进去：屏幕上挤不挤取决于**缩放后**的距离，不是世界坐标距离。
+      const zoomNow = activeScene.cameras.main.zoom ?? 1
+      for (let i = 0; i < taskLabelSpots.length; i += 1) {
+        for (let j = i + 1; j < taskLabelSpots.length; j += 1) {
+          const a = taskLabelSpots[i]
+          const b = taskLabelSpots[j]
+          const dx = Math.abs(a.x - b.x) * zoomNow
+          const dy = Math.abs(a.y - b.y) * zoomNow
+          // 横向近 **且** 纵向也近才算挤（上下分开的人不会撞标签）。
+          if (dx < TASK_LABEL_MIN_GAP_PX && dy < TASK_LABEL_MIN_GAP_PX) {
+            a.label.setVisible(false)
+            b.label.setVisible(false)
+          }
         }
       }
       // P1：高亮圈跟着选中者的物理精灵贴（和标签同一个道理：两个显示对象保持相对位置）。
@@ -1676,10 +1736,68 @@ export function createScenePhaser(canvas, options = {}) {
     for (const [key, node] of propNodes) if (!wanted.has(key)) node.setVisible(false)
   }
 
+  /**
+   * 头顶第二行（他此刻在做哪张单）——**懒创建、按需隐藏**（R123）。
+   *
+   * ## 三条约束（都是任务书点名的）
+   *
+   * 1. **只对有单的人建**：没单的人**连 Text 对象都不建**（`return` 在最前面）。
+   *    8 个人都挂一行会让头顶变成噪音，而"待命"本身就是**没有第二行**这个信息。
+   * 2. **颜色从内容库来**（D31）：用 `actor.color`——它已经是 `ScenePlan` 解析好的
+   *    内容色（部门色/角色色）。这里**不新增任何字面色值**，样式复用 `LABEL_STYLE` 的
+   *    白字黑描边（既有）。
+   * 3. **文本变了才写**：`label.text !== next` 才赋值——Phaser 的 `Text.text` setter 会
+   *    重新排版并重绘纹理，每帧写一次等于每帧重画 8 张文字贴图。
+   *
+   * ⚠️ 对象**建了就留着**（只 `setVisible(false)`，不 `destroy`）：单子会来回换手，
+   * 建了销毁再建会让"换单"变成一次分配 + 一次纹理重绘的抖动。
+   */
+  function updateTaskLabel(entry, actor, task) {
+    const text = taskLabelText(task)
+    if (text === '') {
+      // 没单：不建、也不留 —— 待命的人头顶就只有一个名字。
+      if (entry.taskLabel !== null && entry.taskLabel !== undefined) entry.taskLabel.setVisible(false)
+      return
+    }
+    if (entry.taskLabel === null || entry.taskLabel === undefined) {
+      const label = activeScene.add.text(0, 0, text, TASK_LABEL_STYLE)
+      label.setOrigin(0.5, 1)
+      // 比名字再高一档：名字 depth 5，它在 4（名字要压在上面，读的顺序才是"先人后单"）。
+      label.setDepth(4)
+      activeScene.layers.labels.add(label)
+      entry.taskLabel = label
+    }
+    const label = entry.taskLabel
+    if (label.text !== text) label.text = text
+    // 色随人走（部门色）——同一张单换手时，标签颜色也跟着换人，一眼看出是谁的活。
+    if (typeof actor.color === 'string' && label.style?.color !== actor.color) label.setColor(actor.color)
+    label.setVisible(true)
+  }
+
   /** 角色：精灵 + 引擎动画（`play`）+ 名字；`setInteractive` 让**整只角色**可点。 */
   function drawActors(worldState, plan, nowMs) {
     const models = new Map((plan?.models ?? []).map((model) => [model.id, model]))
     const actors = [...liveActorsOf(worldState, plan)].sort((a, b) => a.z - b.z)
+    /**
+     * `ownerId → 他此刻在做的那张单`（R123）。
+     *
+     * 为什么在渲染层算而不是让服务端下发：这是**纯投影**——服务端已经有
+     * `tasks[].owner` 与 `tasks[].status`，再加一个"当前单"字段就是同一份真相的第二份拷贝
+     *（D31/D37 的老规矩：能推出来的就别再传一份）。
+     *
+     * **只收未完结的单**：`done`/`failed` 是历史，挂在人头顶没有信息量
+     *（而且会让"待命的人"看起来还在忙）。
+     * 同一人多张未完结单时**优先 `in_progress`**——那才是"他此刻在做的那张"。
+     */
+    const currentTaskByOwner = new Map()
+    for (const task of worldState?.tasks ?? []) {
+      if (typeof task?.owner !== 'string' || task.owner === '') continue
+      if (task.status === 'done' || task.status === 'failed') continue
+      const prev = currentTaskByOwner.get(task.owner)
+      if (prev === undefined || (prev.status !== 'in_progress' && task.status === 'in_progress')) {
+        currentTaskByOwner.set(task.owner, task)
+      }
+    }
     const variants = assignColorVariants(actors)
     const wanted = new Set()
     let spriteCount = 0
@@ -1695,10 +1813,13 @@ export function createScenePhaser(canvas, options = {}) {
         label.setOrigin(0.5, 1)
         label.setDepth(5)
         activeScene.layers.labels.add(label)
-        entry = { sprite: null, label }
+        entry = { sprite: null, label, taskLabel: null }
         actorNodes.set(actor.id, entry)
       }
-      if (entry.label.text !== (actor.name ?? actor.id)) entry.label.text = actor.name ?? actor.id
+      const nameText = actor.name ?? actor.id
+      if (entry.label.text !== nameText) entry.label.text = nameText
+      // 第二行：**只有手上有活的人才画**（8 个人都挂一行就成噪音了）。
+      updateTaskLabel(entry, actor, currentTaskByOwner.get(actor.id))
       const baseKey = sheet === null || typeof model?.url !== 'string' ? null : textureKeyByUrl.get(model.url) ?? null
       const posX = Math.round(actor.x * TILE_PX)
       const posY = Math.round(actor.z * TILE_PX)
@@ -2047,8 +2168,10 @@ export function createScenePhaser(canvas, options = {}) {
       const top = sprite.getTopCenter()
       node.container.setPosition(Math.round(top.x), Math.round(top.y - BUBBLE_GAP - h / 2))
       node.container.setVisible(true)
-      // 二选一：气泡盖掉头顶名字标签。
+      // 二选一：气泡盖掉头顶名字标签——**第二行也一起藏**，
+      // 否则那行工单会孤零零浮在气泡上方，看着像气泡的标题。
       entry.label.setVisible(false)
+      entry.taskLabel?.setVisible(false)
     }
     for (const [id, node] of bubbleNodes) {
       if (seen.has(id)) continue
@@ -2062,6 +2185,10 @@ export function createScenePhaser(canvas, options = {}) {
         entry.label.x = entry.sprite.x
         entry.label.y = entry.sprite.y + (entry.labelDy ?? -16)
         entry.label.setVisible(true)
+        // 第二行跟着回来（位置由下面那帧的跟随逻辑摆正）。
+        if (entry.taskLabel !== null && entry.taskLabel !== undefined && entry.taskLabel.text !== '') {
+          entry.taskLabel.setVisible(true)
+        }
       }
     }
   }
