@@ -33,9 +33,17 @@
 > DSH tab 降级为**第二步可选**（BACKLOG M7-7），不阻塞本轮。
 
 - 现状：`#board` 挂在 `header.topbar` 里（`web/index.html`），与页面其他信息挤在一行。
-- 目标：**侧边栏 = 唯一的"人与团队"交互面**。侧边栏两档视图，同一个组件切换：
+- 目标：**侧边栏 = 唯一的"人与团队"交互面**。侧边栏两档视图：
   - **Agent 列表**：谁在干什么（状态/工单/是否卡住）。
   - **任务流程图**：现有 `board.js` 的依赖图（不重写，搬进去复用）。
+
+> **决策（已定，用户 R99 修正）**：侧边栏**不做 tab**，两档**上下堆叠、同时可见**（整体滚动）；
+> 并且侧边栏**可折叠/展开**（折叠状态要记住）。
+> 用户原话：「这个侧面板应该是可以折叠展开的，而且不是分成两个 tab，这两个 tab 应该可以同时看到才对」。
+> ⚠️ 这**推翻了** R2/R3 时的 tab 实现，也**推翻了 `DESIGN-interaction.md` 里的 tab 假设**——
+> 后续读那份设计文档时，凡涉及"切档/tab"的段落都以本决策为准。
+> ⚠️ 实现上的坑：那条"`hidden` 容器量出 0×0"的陷阱**没消失、只是换了位置**——
+> 折叠侧边栏会让面板再次 0×0。所以依赖图的几何重挑要挂在**"展开之后"**（+ 首次布局），不是"切档"。
 - 红线：**同一份渲染代码**，不许 header 与 sidebar 各写一遍（这正是用户说的"别做两份"）。
 - 渲染方式（`RESEARCH-reuse.md` §0.B）：**复用 `board.js` 的 `createBoard()` 与 `renderMembers()`
   （board.js:363 已是"数组 → ul/li → 每行 click"）**，把它从"只在展开浮层里画"改成"给定容器就画"——
@@ -164,3 +172,15 @@
 4. 改完 `web/` 必须：`node --check` → `scripts/copy-web.mjs` → `tsc --noEmit` → 核对宿主吐出的文件。
 5. **验证优先真机**（3080 + 页内 `__agentWorld*` 调试门面），不要只靠单测。
 6. 每轮结束写 `docs/PROGRESS.md`，格式见文件头。
+7. **验收要走真实用户路径**：门面（facade）为可测性常只暴露链路中间一段，
+   拿它验"整条交互"会漏掉回调链里的行为（R98 实测：`focus()` 不经过开面板那条回调，差点误判）。
+   **能用真实事件（对精灵发 `pointerup` 等）就用真实事件。**
+8. **"归零/清干净"的判据要连注释一起算**（R98：解释文字里自带 `'talk'` 字面量，导致 grep 不为 0）。
+9. **推送走 HTTPS，不要走 SSH**（R99 实测）：
+   `ssh -T git@github.com` → `Connection closed by 20.205.243.166 port 22`（TCP 可达但 SSH 握手被重置；
+   `ssh-agent` 里也没有 key）。而 HTTPS 可用（`curl https://github.com` → 200，`git ls-remote https://…` 成功）。
+   可用的推送命令（**不改 remote 配置**，避免影响并行 Agent）：
+   ```bash
+   git push https://github.com/kp-z/dsh-dev-git-graph.git <branch>:<branch>
+   ```
+   分支 `feat/dsh-agent-world` 已按此推上去（远程 = 本地 `cc34b77`）。
