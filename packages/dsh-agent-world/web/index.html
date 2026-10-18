@@ -67,6 +67,18 @@
           （用户原话「避免同样的功能做两份」）——摘要条与侧边栏会各自算出不同的计数。
         -->
         <div class="commands">
+          <!--
+            R116：侧边栏开关**搬进 header**（用户原话：「侧边栏不是独立的个体，
+            打开按钮应该在 header 里而不是单独一块」）。
+            它现在与暂停/继续同族——都是"对整个工作区做的事"，而不是侧边栏自己的事。
+            `aria-expanded` 由 `main.js` 同步（如实反映展开态）。
+          -->
+          <button id="sidebar-toggle" class="icon-btn" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true" aria-controls="sidebar">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4" />
+              <path d="M6.4 2.8v10.4" />
+            </svg>
+          </button>
           <button id="cmd-pause" class="icon-btn" type="button" title="暂停世界" aria-label="暂停世界">
             <svg viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="3.6" width="2.3" height="8.8" rx="1.15" /><rect x="8.7" y="3.6" width="2.3" height="8.8" rx="1.15" /></svg>
           </button>
@@ -123,16 +135,28 @@
             </div>
             <div class="oc-actions">
               <button id="dialogue-unlock" class="oc-icon oc-icon-text" type="button" title="解锁镜头（Esc）">解锁</button>
-              <button id="dialogue-close" class="oc-icon" type="button" title="收起（Esc）" aria-label="收起面板">×</button>
+              <!--
+                R116：**关闭控件显著化**。用户原话「agent 的对话框没有关闭按钮」——
+                按钮其实一直在，但它是右上角一串小图标里的一个 `×`，没人找得到。
+                现在它是带文字的实心按钮，并且是这一行里视觉最重的一个（`.oc-close`）。
+              -->
+              <button id="dialogue-close" class="oc-close" type="button" title="关闭面板（Esc）" aria-label="关闭面板">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true">
+                  <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+                </svg>
+                <span>关闭</span>
+              </button>
             </div>
           </div>
 
           <div id="dialogue-mode-chat-panel" class="mode-panel" role="tabpanel" aria-labelledby="dialogue-mode-chat">
-            <div class="dialogue-log-head">
-              <button id="dialogue-log-toggle" class="ghost" type="button" title="展开对话记录" aria-expanded="false" aria-controls="dialogue-log">记录</button>
-            </div>
-            <!-- 记录默认收起：回复实时出现在角色头顶气泡里，这里只在想看历史时展开。 -->
-            <ul id="dialogue-log" class="dialogue-log is-collapsed"></ul>
+            <!--
+              R116：对话记录从"默认折叠的次要面板"改成**默认可见的主区域**。
+              原先要按「记录」按钮才展开，而用户想看的恰恰就是回复——
+              一个默认藏起来的主内容，等于没有。
+              现在它按**消息气泡**呈现（自己的话靠右、回复靠左），带发送者与时间（tick）。
+            -->
+            <ul id="dialogue-log" class="dialogue-log" aria-live="polite" aria-label="对话记录"></ul>
             <div id="dialogue-hint" class="dialogue-hint" hidden></div>
             <form id="dialogue-form" class="dialogue-form">
               <textarea id="dialogue-input" rows="1" placeholder="回车发送 · Shift+回车换行"></textarea>

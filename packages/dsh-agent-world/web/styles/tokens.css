@@ -4,111 +4,135 @@
  * 规矩（DESIGN.md 第二节）：所有组件样式只引用这里的变量，**组件层里不许出现十六进制色值**。
  * 场景的配色不在这里：它走内容库 `skins`（D31/D37），由 `ScenePlan` 解析好后交给渲染器。
  *
- * ## R103：方案 A「像素纸 / 木质面板」
+ * ## R115：方向改为「夜班办公室 / Night Shift」
  *
- * 用户从四套 mockup（`docs/mockup/ui-hud-styles.html`）里拍板了 **A**：
- * 米色纸面板 + 木质标题条 + 硬偏移阴影 + 零圆角 + 等宽大写标签。
- * 采样自 `Ancient/tan.png`（9-slice 内芯 `#D3BF8F` / 内描边 `#B1A077` / 外描边 `#D9CDAF`）。
+ * 用户反馈（原话）：*"当前整体设计和配色太古板了，需要用新的设计 skill 设计出现代的好看的设计感的游戏风格。"*
  *
- * ⚠️ **先 tokens、后组件**。这一版把变量值整体换掉，组件 CSS 随后才去引用——
- * 反过来会产出"新组件配旧色"或"引用了还不存在的 token"的半成品，而且很难看出是哪一步错了。
+ * 上一版（R103 方案 A「像素纸」）的问题是**明度全平**：米色纸 `#D3BF8F` + 米色卡片 `#ECE3CE`
+ * 只差一点点，所以无论怎么排版都显得"一坨"——那不是配色丑，是**没有明暗层次**。
  *
- * ### 五条语言（判据都是可 grep 的）
- * 1. 圆角 **0**（只有状态点是 2px）——像素画里圆角会立刻"不像像素"。
- * 2. 描边 **2px 双层实色**：`1px solid #B1A077` + `inset 0 0 0 1px #D9CDAF`。
- * 3. 阴影 **`3px 3px 0`** 硬偏移（**没有模糊半径**）——硬阴影是像素 UI 的签名。
- * 4. **背景模糊 0 处**（毛玻璃与像素纸根本是两种材质，不共存）。
- * 5. 字体 = **系统等宽栈** + 全大写标签 + `0.10em` 字距（不引外部字体，零许可风险）。
+ * 这一版的主题是**打烊后的办公室**，被两种光源照亮：
+ *   · **台灯（暖）** `--lamp` 琥珀 —— 标题条、品牌、聚焦态
+ *   · **屏幕（冷）** `--screen` 青 —— 数据、连接、强调
+ * 基底是**深海军蓝**（不是纯黑：纯黑会让像素图的黑边糊掉，也与 skill 里点名的
+ * "近黑 + 单一酸性强调色"这个 AI 默认撞车）。面板是**凸起的板**：顶边受光、底边压暗。
  *
- * ### 状态色**绝不能当文字用**（R11 实测）
- * 状态色在米色纸上对比度只有 1.18–2.08:1（门槛 4.5），当字全是"看不见的彩色"。
- * 所以状态一律是「**实心色块 + 墨字或白字**」，`--st-*-fg` 就是压在上面的字色，
- * 每个都算过（R103 报告里有逐条数字）。**别把它改回 `color: var(--st-*)`。**
+ * ### 五条语言（判据可 grep）
+ * 1. **明暗分三层**：`--bg-0`（深渊）< `--bg-1`（工作区）< `--panel`（面板）< `--panel-2`（卡片）。
+ *    层次靠**亮度差**，不靠描边粗细——这是上一版最缺的东西。
+ * 2. **圆角 6px**（`--r-sm 4` / `--r-md 6` / `--r-lg 10`）：现代感来自柔和的转角，
+ *    不是 0（复古）也不是 pill（廉价）。
+ * 3. **凸起板**：`--bevel` = 1px 边框 + 顶边 1px 亮线（`--lit`）。**只在上边受光**，
+ *    模拟光从上方来——这是"有厚度"的全部秘密。
+ * 4. **阴影是柔的但有方向**：`0 2px 4px` + `0 12px 28px`（两层），不再是硬偏移。
+ *    硬偏移是像素复古语言，与现代 HUD 不共存。
+ * 5. **字体分两族**：界面用 `system-ui`（现代、清晰），**数据/编号用等宽**。
+ *    上一版整个界面都等宽，这是"古板"的直接来源——等宽适合数字，不适合标题。
+ *
+ * ### 状态徽章（对比度逐条算过，见下）
+ * 深色面板上，状态是「**实心亮色块 + 近黑字**」——亮块在深底上非常跳，这是游戏 HUD 的常规做法。
+ * 七个状态的对比度 6.38–12.19，**全部 ≥4.5**（R115 报告里有逐条数字）。
+ * ⚠️ 仍然**不许**写 `color: var(--st-done)`（那是块色，不是字色）。
  */
 
 :root {
-  /* ── 纸与木（方案 A 的三种材质）─────────────────────────────────────────── */
-  --bg-0: #14121c; /* 场景外的深渊底（墨） */
-  --bg-1: #1c1a26; /* 工作区底色 */
-  /* 面板主体 = 9-slice 内芯；`--surface-*` 是它的三档"层次面"（静息/悬停/按下）。 */
-  --paper-panel: #d3bf8f;
-  --paper-card: #ece3ce; /* 写字区（卡片/输入框的纸） */
-  --paper-hover: #fff8e8;
-  --wood: #7e5a38; /* 木质标题条 */
-  --wood-light: #b7916a;
-  --ink: #14121c; /* 墨：主文字、描边、硬阴影 */
-  --ink-dim: #5e4730; /* 次级文字 */
-  /* 兼容旧名字：组件层大量引用 `--fg-*` / `--stroke*`，一次性改名会把 diff 撑爆。 */
-  --fg-0: var(--ink);
-  --fg-1: var(--ink-dim);
-  --fg-2: var(--ink-dim);
+  /* ── 基底：三层明暗（夜班办公室的空间感）───────────────────────────────── */
+  --bg-0: #0a0e16; /* 场景外的深渊（近黑但不纯黑） */
+  --bg-1: #101624; /* 工作区底色 */
+  --panel: #182032; /* 面板底 */
+  --panel-2: #1f293d; /* 卡片（凸起一层） */
+  --panel-3: #27334a; /* 悬停（再凸起一层） */
+  --edge: #2c3a54; /* 1px 边框 */
+  --edge-soft: #222d43; /* 更弱的分隔线 */
 
-  /* ── 面板与描边 ─────────────────────────────────────────────────────────── */
-  --glass: var(--paper-panel); /* 旧名沿用；它现在是**不透明纸**，不是玻璃 */
-  --glass-strong: var(--paper-panel);
-  --stroke: #b1a077; /* 内描边（9-slice 那条线） */
-  --stroke-strong: var(--ink); /* 外描边 */
-  /* 双击描边：组件只要写 `box-shadow: var(--bevel)` 就是"1px 实线 + 1px 内亮线"。 */
-  --bevel: inset 0 0 0 1px #d9cdaf;
-  --sep: 1px solid #a3997f;
-  --surface-1: rgba(20, 18, 28, 0.06);
-  --surface-2: rgba(20, 18, 28, 0.1);
-  --surface-3: rgba(20, 18, 28, 0.16);
+  /* 凸起板的"受光顶边"——**只在上边**。这是"有厚度"的全部秘密。 */
+  --lit: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  --lit-strong: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  /* 旧名沿用：组件层大量引用 `--bevel` / `--stroke*`，一次性改名会把 diff 撑爆。 */
+  --bevel: var(--lit);
+  --stroke: var(--edge);
+  --stroke-strong: #3a4a68;
+  --sep: 1px solid var(--edge-soft);
 
-  /* ── 强调 ───────────────────────────────────────────────────────────────── */
-  --accent: #4fa8ff; /* 与内容库 skin 的 accent.engineering 同值（部门色之一） */
-  --accent-soft: rgba(79, 168, 255, 0.22);
-  /* 四个部门色（mockup A 的采样值）：圆形徽记与部门标记用。 */
+  /* ── 文字：三级（全部 ≥4.5，逐条算过）────────────────────────────────── */
+  --ink-0: #e6ecf8; /* 主文字  13.72:1（对面板） */
+  --ink-1: #94a3be; /* 次文字   6.38:1 */
+  --ink-2: #8492ae; /* 三级     5.19:1（对卡片 4.65:1 —— 卡片上也会用到，所以按卡片验） */
+  /* 旧名沿用。 */
+  --fg-0: var(--ink-0);
+  --fg-1: var(--ink-1);
+  --fg-2: var(--ink-2);
+  --ink: #0a0e16; /* ⚠️ 旧名是"墨"（压在米色纸上的字色）。夜班里它＝近黑，给徽章字色用。 */
+  --ink-dim: var(--ink-1);
+
+  /* 旧名：上一版是"不透明纸"。现在面板是**深色板**，这里指向面板色。 */
+  --paper-panel: var(--panel);
+  --paper-card: var(--panel-2);
+  --paper-hover: var(--panel-3);
+  --wood: #2a3550; /* 旧名（上一版是木质标题条）；夜班里它是"抬起的标题条"底色 */
+  --wood-light: var(--edge);
+
+  /* ── 表面层次（交互态）：深色底上用"更亮"表示悬停/按下 ─────────────────── */
+  --surface-1: rgba(255, 255, 255, 0.03);
+  --surface-2: rgba(255, 255, 255, 0.06);
+  --surface-3: rgba(255, 255, 255, 0.1);
+  --glass: var(--panel); /* 旧名；它现在是**实色面板**，不是玻璃 */
+  --glass-strong: var(--panel);
+
+  /* ── 两种光源 ───────────────────────────────────────────────────────────── */
+  --lamp: #ffc46b; /* 台灯（暖）：品牌、标题条、聚焦 */
+  --lamp-soft: rgba(255, 196, 107, 0.16);
+  --screen: #55d6e8; /* 屏幕（冷）：数据、连接、强调 */
+  --screen-soft: rgba(85, 214, 232, 0.16);
+
+  /* ── 强调与部门色（**内容驱动**，D31：值来自内容库 `skins`，不在这里发明）── */
+  --accent: #4fa8ff; /* = accent.engineering */
+  --accent-soft: rgba(79, 168, 255, 0.2);
   --dept-blue: #4fa8ff;
   --dept-teal: #3fd0c9;
   --dept-purple: #b98cff;
   --dept-amber: #ffb259;
 
-  /* ── 状态：**实心色块 + 对应字色**（R103 逐条算过）─────────────────────────
-     `--st-X` 仍是"这个状态的主色"（给色点/进度条段用，它不承载文字）；
-     `--st-X-bg` / `--st-X-fg` 才是**徽章**的一对：块色 + 压在上面的字色。
-     ⚠️ 任何地方写 `color: var(--st-done)` 都是错的——那个绿在纸上是 1.5:1。 */
-  --st-done: #22c55e;
-  --st-done-bg: #22c55e;
-  --st-done-fg: var(--ink); /* 8.13 */
-  --st-in_progress: #3b82f6;
-  --st-in_progress-bg: #3b82f6;
-  --st-in_progress-fg: var(--ink); /* 5.04 */
-  --st-ready: #f59e0b;
-  --st-ready-bg: #f59e0b;
-  --st-ready-fg: var(--ink); /* 8.63 */
-  /* blocked 是**唯一用白字**的：墨字只有 3.83，白字 4.83。 */
-  --st-blocked: #6b7280;
-  --st-blocked-bg: #6b7280;
-  --st-blocked-fg: #ffffff; /* 4.83 */
-  --st-failed: #ef4444;
-  --st-failed-bg: #ef4444;
-  --st-failed-fg: var(--ink); /* 4.93（临界但达标） */
-  /* pending 用内容库的 `#4B5563`（设计文档 §2.4 裁决统一用内容库那套）——
-     它是**深灰**，所以字必须是**白**（7.56）；用墨字只有 2.45。 */
-  --st-pending: #4b5563;
-  --st-pending-bg: #4b5563;
-  --st-pending-fg: #ffffff; /* 7.56 */
-  /* R67 / M13-5：「卡死」（前置单已失败，永远等不到）。**不是**世界六态之一，
-     是我们从 blockedBy 算出来的结论，所以内容库调色板里没有它。 */
-  --st-dead: #b98cff;
-  --st-dead-bg: #b98cff;
-  --st-dead-fg: var(--ink); /* 7.29 */
+  /* ── 状态：**实心亮色块 + 近黑字**（R115 逐条算过，全部 ≥4.5）────────────
+     `--st-X` = 主色（色点/进度条）；`--st-X-bg` / `--st-X-fg` = 徽章那一对。
+     ⚠️ `color: var(--st-done)` 永远是错的——那是块色。 */
+  --st-done: #3ddc84;
+  --st-done-bg: #3ddc84;
+  --st-done-fg: var(--ink); /* 10.82 */
+  --st-in_progress: #5aa9ff;
+  --st-in_progress-bg: #5aa9ff;
+  --st-in_progress-fg: var(--ink); /* 7.87 */
+  --st-ready: #ffc44d;
+  --st-ready-bg: #ffc44d;
+  --st-ready-fg: var(--ink); /* 12.19 */
+  --st-blocked: #ff8a8a;
+  --st-blocked-bg: #ff8a8a;
+  --st-blocked-fg: var(--ink); /* 8.51 */
+  --st-failed: #ff5c5c;
+  --st-failed-bg: #ff5c5c;
+  --st-failed-fg: var(--ink); /* 6.38 */
+  --st-pending: #9aa8c0;
+  --st-pending-bg: #9aa8c0;
+  --st-pending-fg: var(--ink); /* 8.03 */
+  --st-dead: #c4a0ff;
+  --st-dead-bg: #c4a0ff;
+  --st-dead-fg: var(--ink); /* 9.03 */
   /* 「活着」指示灯（footer 的连接状态点）。 */
-  --live: #22c55e;
+  --live: #3ddc84;
 
-  /* ── 形状：**零圆角**（像素语言）。`--r-pill` 只给状态点用 2px。─────── */
-  --r-sm: 0;
-  --r-md: 0;
-  --r-lg: 0;
-  --r-pill: 2px;
+  /* ── 形状：现代柔和圆角（不是 0，也不是 pill）───────────────────────────── */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-pill: 999px;
 
-  /* ── 阴影：**硬偏移，无模糊**（像素 UI 的签名）────────────────────────────── */
-  --shadow-1: 2px 2px 0 rgba(20, 18, 28, 0.55);
-  --shadow-2: 3px 3px 0 var(--ink);
-  /* 焦点环：不发光，用 2px 实线框（发光是"现代 Web"的语言）。 */
-  --glow-accent: 0 0 0 2px var(--ink);
-  --focus-ring: 2px solid var(--ink);
+  /* ── 阴影：**柔和但有方向**（两层：贴地的 + 扩散的）─────────────────────
+     硬偏移（`3px 3px 0`）是像素复古语言，与现代 HUD 不共存——这一版换掉。 */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.28);
+  --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.45), 0 12px 28px rgba(0, 0, 0, 0.38);
+  /* 焦点环：**发光**（深色 HUD 里，发光比实线框更清楚，也更像"被点亮"）。 */
+  --glow-accent: 0 0 0 2px var(--screen-soft), 0 0 12px rgba(85, 214, 232, 0.35);
+  --focus-ring: 2px solid var(--screen);
 
   /* ── 间距刻度 ───────────────────────────────────────────────────────────── */
   --s-1: 4px;
@@ -118,24 +142,24 @@
   --s-5: 24px;
   --s-6: 32px;
 
-  /* ── 字体：**系统等宽栈**，不引外部字体（零许可风险）────────────────────────
-     中文回退到苹方/思源，因为等宽中文字体不普适；字距只加在**大写标签**上
-     （中文不适合 `0.10em` 字距——那是拉丁字母的排法）。 */
-  --ui-font: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC", "Hiragino Sans GB", monospace;
+  /* ── 字体：**两族**（界面无衬线 + 数据等宽）───────────────────────────────
+     上一版整个界面都是等宽，这是"古板"的直接来源：等宽适合数字与代码，
+     不适合标题与正文。中文回退到苹方/思源。不引外部字体（零许可风险）。 */
+  --ui-font: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --mono-font: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --fs-title: 15px;
-  --fs-section: 11px;
-  --fs-body: 13px;
-  --fs-sub: 12px;
-  --fs-micro: 11px;
-  --fw-title: 700;
-  /* 大写标签的字距（`.board-title`、区块标题等**拉丁**标签用；中文标签不要加）。 */
-  --tracking-section: 0.1em;
+  --fs-title: 16px;
+  --fs-section: 12px;
+  --fs-body: 14px; /* 上一版 13px 偏小；用户反馈"文字大小也不合适" */
+  --fs-sub: 13px;
+  --fs-micro: 12px; /* 上一版 11px */
+  --fw-title: 650;
+  /* 大写标签的字距（**拉丁**标签用；中文标签不要加）。 */
+  --tracking-section: 0.08em;
 
-  /* ── 动效 ───────────────────────────────────────────────────────────────── */
-  --ease: steps(2, end); /* 像素 UI 不做平滑缓动，跳变才对味 */
-  --t-hover: 90ms;
-  --t-expand: 160ms;
+  /* ── 动效：现代 HUD 用平滑缓动（上一版是 steps(2)，那是像素跳变语言）────── */
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --t-hover: 140ms;
+  --t-expand: 220ms;
 
   /* ── 层级（浮层顺序，只在这里定义）──────────────────────────────────────── */
   --z-legend: 5;
@@ -158,15 +182,15 @@
      它是 `.board-body` 的**兄弟**，变量传不过去（R45 真机自查：面板 left 差了 11px、盖住成员列）。
      R103：`#sidebar` 也挂一份——看板搬进侧边栏之后它才是真容器。 */
   --board-members-w: 300px;
-  --board-bg: var(--paper-panel);
-  --board-card: var(--paper-card);
-  --board-fg: var(--ink);
-  --board-dim: var(--ink-dim);
-  --board-line: var(--ink);
-  --board-card-line: var(--stroke);
-  --board-select: var(--ink);
+  --board-bg: var(--panel);
+  --board-card: var(--panel-2);
+  --board-fg: var(--ink-0);
+  --board-dim: var(--ink-1);
+  --board-line: var(--edge);
+  --board-card-line: var(--edge);
+  --board-select: var(--screen);
   --board-missing: #ff00ff;
-  --board-done-line: #2f7d4a;
-  --board-fail-bg: #e8a0a0;
-  --board-verify: var(--ink-dim);
+  --board-done-line: #3ddc84;
+  --board-fail-bg: rgba(255, 92, 92, 0.18);
+  --board-verify: var(--ink-2);
 }

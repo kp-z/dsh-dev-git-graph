@@ -80,7 +80,6 @@ export function createDialogueUi(options = {}) {
   /** P2：取消锁定按钮（点它解锁镜头，不关对话）。 */
   const $unlock = byId('dialogue-unlock')
   /** 对话记录的展开/收起按钮（记录默认收起，因为回复气泡已经实时展示了）。 */
-  const $logToggle = byId('dialogue-log-toggle')
   /** 超控双模式：两片 tab + 两个面板（同时只亮一个）。 */
   const $modeChat = byId('dialogue-mode-chat')
   const $modeMove = byId('dialogue-mode-move')
@@ -107,20 +106,6 @@ export function createDialogueUi(options = {}) {
     $hint.textContent = text ?? ''
     $hint.className = `dialogue-hint ${tone}`
     $hint.hidden = text === null || text === undefined || text === ''
-  }
-
-  /** 对话记录是否展开。默认收起——回复实时出现在角色头顶气泡里，这里只是历史回看。 */
-  let logOpen = false
-
-  /** 展开/收起对话记录（只切 CSS 类，`renderLog` 照常往里写，展开时内容已经是最新的）。 */
-  function setLogOpen(next) {
-    logOpen = next
-    if ($log !== null) $log.classList.toggle('is-collapsed', !logOpen)
-    if ($logToggle !== null && $logToggle !== undefined) {
-      $logToggle.textContent = logOpen ? '收起记录' : '记录'
-      $logToggle.title = logOpen ? '收起对话记录' : '展开对话记录'
-      $logToggle.setAttribute('aria-expanded', logOpen ? 'true' : 'false')
-    }
   }
 
   /** 把这一轮"刚变过"这件事记下来（气泡靠它决定什么时候淡出）。 */
@@ -242,8 +227,7 @@ export function createDialogueUi(options = {}) {
     $panel.hidden = false
     setHint('')
     lastSignature = null
-    // 每次打开都回到默认：记录收起（回复气泡已经在实时展示，别用历史压着输入框）。
-    setLogOpen(false)
+    // R116：记录**不再有"收起"这回事**——它是面板的主体，永远可见。
     const nextMode = mode === 'chat' ? 'chat' : 'move'
     setMode(nextMode)
     refreshWho()
@@ -401,7 +385,6 @@ export function createDialogueUi(options = {}) {
   }
 
   if (ready) {
-    setLogOpen(false)
     $form.addEventListener('submit', (event) => {
       event.preventDefault()
       void submit()
@@ -423,7 +406,6 @@ export function createDialogueUi(options = {}) {
     $unlock?.addEventListener('click', () => options.onUnlock?.())
     $modeChat?.addEventListener('click', () => setMode('chat'))
     $modeMove?.addEventListener('click', () => setMode('move'))
-    $logToggle?.addEventListener('click', () => setLogOpen(!logOpen))
   }
 
   return {
