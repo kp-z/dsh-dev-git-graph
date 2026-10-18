@@ -23,7 +23,7 @@
  * 而不是静默退回一个看起来"设计就这样"的灰。
  */
 
-import { MEMBERS_TOGGLE_LABEL, VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, agentStateLabel, groupViewLabel, roleLabel, stallReasonLabel, taskStatusLabel } from './labels.js'
+import { MEMBERS_TOGGLE_LABEL, VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, agentStateLabel, agentStateTone, groupViewLabel, roleLabel, stallReasonLabel, taskStatusLabel } from './labels.js'
 import { summarizeTaskOutput } from '../core/task-output.js'
 import {
   applyView,
@@ -65,6 +65,25 @@ function el(doc, tag, className, text) {
   if (className !== undefined) node.className = className
   if (text !== undefined) node.textContent = text
   return node
+}
+
+/**
+ * role → **部门色 token 名**（R106）。
+ *
+ * 映射由 Lead 裁定、写在 `docs/DESIGN-ui-theme.md` §十一，这里**只做查表**：
+ * 按职能族归到内容库既有的 4 个 accent（不新造颜色）。
+ *
+ * ⚠️ 值必须是 **token 名**，不是色值：D31「配色是内容」——JS 里写字面十六进制是红线，
+ *    色值只能经 `resolveBoardColor(palette, token)` 从内容库取。
+ * ⚠️ 未知 role **不猜**（返回 `null`，竖条保持透明）：宁可不画，也不要给一个错色。
+ */
+const ROLE_ACCENT = {
+  engineer: 'accent.engineering',
+  ops: 'accent.infra',
+  reviewer: 'accent.meeting',
+  researcher: 'accent.meeting',
+  lead: 'accent.commons',
+  docs: 'accent.commons',
 }
 
 function svgEl(doc, tag) {
@@ -374,6 +393,35 @@ export function createBoard(options = {}) {
   }
 
   /**
+   * 把"agent 状态"写成一个实心状态块（R106）。
+   *
+   * 文字、`data-status`、`--st` 一次写齐——CSS 那边只认这三样，
+   * 而 `.board-status-block` 是**与任务块共用**的那一套（不另写成员专用样式）。
+   *
+   * 色值仍走内容库：`agentStateTone(state)` 给出与任务状态同名的色调，
+   * 再用 `STATUS_TOKEN` 换成内容库 token。所以**这里没有字面色值**。
+   *
+   * @param {HTMLElement} node - 状态块元素
+   * @param {string|null|undefined} state - `AgentState`
+   */
+  function applyStateBlock(node, state) {
+    const tone = state === null || state === undefined ? null : agentStateTone(state)
+    if (tone === null) {
+      node.textContent = ''
+      node.hidden = true
+      return
+    }
+    node.hidden = false
+    node.textContent = agentStateLabel(state)
+    node.dataset.status = tone
+    const color = resolveBoardColor(palette, STATUS_TOKEN[tone] ?? STATUS_TOKEN.pending)
+    // 缺 token 时**不设** `--st`：CSS 的纸色 fallback 会兜住（可读），
+    // 同时 `board-missing` 那套机制照旧报缺（别静默退回一个"看起来设计就这样"的色）。
+    if (color === null) node.style.removeProperty('--st')
+    else node.style.setProperty('--st', color)
+  }
+
+  /**
    * 收起 / 展开。
    *
    * 收起时**整块 body 一起隐藏**（不只是里面的图与列表）——否则会留下一个空的
@@ -436,6 +484,20 @@ export function createBoard(options = {}) {
       } else {
         item.setAttribute('aria-disabled', 'true')
       }
+      /**
+       * R106：两个**纯展示**钩子，让 CSS 能上色（`board.js` 仍然一个色值都不写）。
+       *
+       * 1. `data-state` —— 成员卡自己的状态块按它取色调（走 `agentStateTone()`，
+       *    与任务块同一套：working→in_progress / walking,talking→ready / blocked→blocked /
+       *    celebrating→done / idle,sleeping→pending）。
+       * 2. `--rail` —— 左侧 3px 部门色竖条。**颜色只从内容库取**（`palette[token]`）；
+       *    未知 role **不设**（CSS 的 `var(--rail, transparent)` 兜住 → 竖条透明，不猜色）。
+       *
+       * ⚠️ 竖条表达"属于哪一族"，**不表达状态**；状态是右边那个块。两者语义不同，别混。
+       */
+      if (row.member.state !== null && row.member.state !== undefined) item.dataset.state = row.member.state
+      const railColor = ROLE_ACCENT[row.member.role] === undefined ? null : resolveBoardColor(palette, ROLE_ACCENT[row.member.role])
+      if (railColor !== null) item.style.setProperty('--rail', railColor)
       const head = el(doc, 'div', 'board-member-head')
       head.append(el(doc, 'b', undefined, memberName))
       // R3：角色/状态**翻成中文**。看板原先直接印 `lead` / `idle`（原始状态码），
@@ -444,12 +506,12 @@ export function createBoard(options = {}) {
       const roleText = roleLabel(row.member.role)
       if (roleText !== '') head.append(el(doc, 'span', 'dim', roleText))
       // 状态是会变的那一半：留下来给 `refreshState()` 就地改文字，不必重建整块列表。
-      const stateSpan = el(
-        doc,
-        'span',
-        'dim',
-        row.member.state === null || row.member.state === undefined ? '' : `· ${agentStateLabel(row.member.state)}`,
-      )
+      //
+      // R106：它现在是**实心状态块**（与任务块共用 `.board-status-block`），
+      // 不再是"灰色小字"——灰色小字既不表达状态、又在纸面上很弱。
+      // 色值与状态一起由下面的 `applyStateBlock()` 写（结构没变时由 `refreshState()` 续上）。
+      const stateSpan = el(doc, 'span', 'board-status-block board-member-state')
+      applyStateBlock(stateSpan, row.member.state)
       head.append(stateSpan)
       memberStateNodes.set(row.member.id ?? '__unowned__', stateSpan)
       // `aria-label` 要在名字/角色/状态都齐了之后拼：只报名字的话，读屏用户听不出
@@ -497,7 +559,7 @@ export function createBoard(options = {}) {
       for (const taskId of row.tasks) {
         const task = model.byId.get(taskId)
         if (task === undefined) continue
-        const chip = el(doc, 'button', 'board-chip')
+        const chip = el(doc, 'button', 'board-chip board-status-block')
         if (selected !== null && selected.kind === 'task' && selected.id === task.id) chip.classList.add('is-selected')
         chip.type = 'button'
         // 状态用**色点**（与看板其它地方同一套语言），id 用短形式，完整信息在 `title`/`aria-label`
@@ -650,10 +712,12 @@ export function createBoard(options = {}) {
 
   /** 只有状态/进度/选中变了：就地改，不重建 DOM。 */
   function refreshState() {
-    // 左栏成员行上的状态文字也要跟着走（成员**结构**没变时不重建列表）。
+    // 左栏成员行上的状态块也要跟着走（成员**结构**没变时不重建列表）。
+    // ⚠️ 文字、`data-status`、`--st` **三样一起**更新：只改文字的话，人从 idle 变成 working
+    // 时字变了而块色没变——那种"半更新"比完全不更新更难发现（颜色看着还挺合理）。
     for (const member of model.members) {
       const node = memberStateNodes.get(member.id)
-      if (node !== undefined) node.textContent = member.state === null ? '' : `· ${agentStateLabel(member.state)}`
+      if (node !== undefined) applyStateBlock(node, member.state)
     }
     for (const task of model.tasks) {
       const entry = cardNodes.get(task.id)

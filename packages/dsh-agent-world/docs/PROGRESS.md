@@ -42,6 +42,150 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R107（Lead）—— 验收 R13 收尾：全过；**并记两条方法论教训（一条是它的，一条是我的）**
+
+### 逐条核实
+| 声称 | 我的核实 | 结论 |
+|---|---|---|
+| 竖条按 §十一 映射 | 真机 8 行逐条读 `--rail`：lead/docs `#FFB259`、engineer ×3 `#4FA8FF`、reviewer `#B98CFF`、researcher `#B98CFF`、ops `#3FD0C9` —— 与映射表**逐条对上** | ✅ |
+| 未知 role 不猜色 | 映射表只列 6 个已知 role，未知走不到分支 → `--rail` 不设 → 透明 | ✅（按实现） |
+| 不写字面十六进制 | `grep -nE "#[0-9A-Fa-f]{6}" web/ui/board.js` = **0**（改前 0、改后 0） | ✅ |
+| 状态块与任务块共用一套 | `board.js:513` 成员状态块用 `.board-status-block board-member-state`；`components.css:1032` 定义一处；`board.js:562` 任务块也用它 | ✅ |
+| `opacity` 弱化已去掉 | `.board-chip.is-done` 只剩 `padding` + 隐藏色点 + `color: inherit`，**无 opacity**；真机状态块 `opacity: 1` | ✅ |
+| 状态块对比度 | 真机实测 白字压 `rgb(75,85,99)` = **7.56:1**（我独立复算 = 7.56，一致） | ✅ |
+| 642/642 | `node --test` = 642 pass / 0 fail | ✅ |
+
+### 教训一（**它自己发现并主动更正**）：`getComputedStyle` 量的是"声明值"，不是"合成后的像素"
+`.board-chip.is-done { opacity: 0.7 }` 会把**底色与字色一起**朝纸面合成，于是：
+`done 8.13→4.17`、`pending 7.56→3.94`、`blocked 4.83→2.97` —— **全部跌破 4.5**。
+它上轮报的 8.13 是**错的**，因为 `getComputedStyle()` 读到的是**指定值**、看不到透明度合成。
+修法：弱化只改内边距、不动透明度；`.is-done .board-chip-id` 的 `--fg-2`（在 done 绿上仅 3.81）改 `inherit`。
+
+> **这条值得单独立规矩**：任何"用 `opacity` 做弱化"的地方，**对比度实测都必须按合成后算**，
+> 不能用 `getComputedStyle` 的读数直接判。这是"量的是声明、不是呈现"——验收里最阴的一类错。
+
+### 教训二（**我自己的错**）：把"明度对比度"用在"色相可区分性"上
+我一度算出竖条两两对比度只有 1.01–1.42:1，据此判"难分辨"。**这是用错指标**：
+对比度衡量**明度差**，而竖条要区分的是**色相**——两个色相不同、明度相同的颜色完全可辨。
+改看真机截图：橙 / 蓝 / 紫 / 青四色**清晰可辨**，判定通过。
+（色相实测：lead 32° · ops 177° · engineer 210° · reviewer 263°。）
+
+> 这是我在本项目里**第 N 次**栽在"判据选错/范围过宽"上（前有：把隐藏面板的行算成"被裁"、
+> 把 `var(--r-sm)` 算成非 0 圆角、把全文档的 tablist 算成侧边栏的）。
+> **共同点：判据的形式和它的语义不匹配。** 已记进纪律：**先问"这个指标测的是不是我真正要判的东西"。**
+
+### 顺手发现（未改，留作候选）
+`.agent-pending { animation: pulse }` 在 `components.css:295` 定义，但 **JS/CSS 里无任何使用** ——
+死代码（旧版成员列表的遗留）。它带一个 `opacity: 0.55` 的关键帧，若将来被复用会**立刻**踩上面的教训一。
+
+### 项目当前状态（本分支）
+- **UI**：方案 A「像素纸 HUD」已上线并验收（R12/R13）；`backdrop-filter` 0、圆角 0/2px、硬偏移阴影、
+  等宽大写、状态全为实心色块（七态对比度 4.83–8.63，全部 ≥4.5）。
+- **交互**：(d) 四条决策全部落地；三入口收成唯一 `focusAgent`；侧边栏两块同屏 + 可折叠（状态持久化）。
+- **稳定**：页内自检 `R0 F0 D0`；依赖图连线修复生效（M7-8）。
+- **分层**：桌椅层级按"有意偏离原版"的方案（R103 复核通过）。
+
+### 下一轮从哪继续
+1. **R5** 细节打磨（Map 显示 / Header 图标 / 两档分辨率不溢出）；
+2. **R8** 卡住的单要有出口（S3）；
+3. 候选：清掉 `.agent-pending` 死代码；底栏"无事件 ≠ 出错"的提示语义。
+
+### 卡住
+- 无。
+
+---
+
+## R106（task-13 / developer）—— 收尾两条：成员卡**部门色竖条** + **状态块**；并修掉 R103 漏掉的一个对比度陷阱
+
+### 改动 1：部门色竖条（按 §十一 的映射，查表不发明）
+
+`board.js` 加一张 **role → token 名**的表（不是色值），色值仍经
+`resolveBoardColor(palette, token)` 从**内容库**取（D31 红线：配色是内容）：
+
+```js
+const ROLE_ACCENT = { engineer: 'accent.engineering', ops: 'accent.infra',
+  reviewer: 'accent.meeting', researcher: 'accent.meeting',
+  lead: 'accent.commons', docs: 'accent.commons' }
+```
+
+真机实测（8 行 / 4 种色，与 §十一 逐条对上）：
+
+| role | 行 | `--rail` 实际渲染 |
+|---|---|---|
+| lead | 工头阿金 | `rgb(255,178,89)` = `#FFB259` accent.commons ✓ |
+| engineer | 小蓝 / 小铁 / 小绿 | `rgb(79,168,255)` = `#4FA8FF` accent.engineering ✓ |
+| reviewer | 小紫 | `rgb(185,140,255)` = `#B98CFF` accent.meeting ✓ |
+| researcher | 小青 | `rgb(185,140,255)` = `#B98CFF` accent.meeting ✓ |
+| ops | 小绯 | `rgb(63,208,201)` = `#3FD0C9` accent.infra ✓ |
+| docs | 小雯 | `rgb(255,178,89)` = `#FFB259` accent.commons ✓ |
+| **未知 role**（合成数据 `mystery`） | — | **不设 `--rail`** → `var(--rail, transparent)` → **透明** ✓（不猜色） |
+
+### 改动 2：成员卡自己的状态块（**复用**任务块那一套）
+
+- `renderMembers` 给成员行加 `data-state="<agent.state>"`；状态 span 从"灰色小字"改成
+  `.board-status-block`（**与任务块同一个类**）。
+- CSS 侧把"实心状态块 + 对色字"从 `.board-chip` **抽成共享类 `.board-status-block`**，
+  `.board-chip` 只留交互（`cursor`/`:hover`）。**没有写第二套成员专用样式**——
+  两处共用一份声明，避免"只改一处"。
+- 色值走 `agentStateTone(state)` → `STATUS_TOKEN[tone]` → 内容库（**JS 里仍然零字面色值**）：
+  working→in_progress / walking,talking→ready / blocked→blocked / celebrating→done / idle,sleeping→pending。
+- ⚠️ 文字、`data-status`、`--st` **三样一起更新**（`applyStateBlock()` 一处写齐）：
+  只改文字的话，人从 idle 变 working 时"字变了块色没变"，那种半更新更难发现。
+
+真机：8 行状态块，对比度 **7.56**（pending，白字压 `#4B5563`）。
+
+### ⚠️ 顺带修掉 R103 漏掉的一个对比度陷阱（**我上轮报告的数字被高估了**）
+
+`.board-chip.is-done { opacity: 0.7 }` —— `opacity` 会把**底色与字色一起**朝纸面合成：
+
+| 状态 | 不透明 | 0.7 合成后 |
+|---|---|---|
+| done | 8.13 | **4.17** ✗ |
+| in_progress | 5.04 | **3.02** ✗ |
+| blocked | 4.83 | **2.97** ✗ |
+| failed | 4.93 | **2.90** ✗ |
+| pending | 7.56 | **3.94** ✗ |
+
+**为什么上轮没抓到**：`getComputedStyle()` 读的是**指定值**，不是合成后的实际像素——
+我上轮量到的 `8.13` 是"不透明时的值"。这类"量的是声明、不是呈现"是验收里最阴的一种错。
+现在弱化只改**内边距**，不动透明度；`.is-done .board-chip-id` 的 `--fg-2`（在 done 绿上只有 **3.81**）
+也改成 `inherit`。修后实测：chip 块 **8.13**、chip-id **8.13**、`opacity: 1`。
+
+### 字面色值前后计数（防"顺手写字面颜色"）
+
+```
+grep -nE "#[0-9A-Fa-f]{6}" web/ui/board.js
+  改前：0 处
+  改后：0 处   ← 本次改动没有新增任何字面色值
+```
+
+### 七态对比度（真机 `getComputedStyle` + 手工合成，全部 ≥4.5）
+
+| 状态 | 块色 | 字色 | 对比度 |
+|---|---|---|---|
+| done | `#22C55E` | 墨 | 8.13 |
+| in_progress | `#3B82F6` | 墨 | 5.04 |
+| ready | `#F59E0B` | 墨 | 8.63 |
+| blocked | `#6B7280` | 白 | 4.83 |
+| failed | `#EF4444` | 墨 | 4.93 |
+| pending | `#4B5563` | 白 | 7.56 |
+| dead | `#B98CFF` | 墨 | 7.29 |
+
+### 行为不回归 / 其余验收
+`[role=tablist]` 0、`.board-talk` 0、`focusMatrix()` 2 条不变；
+`node --check`（`main.js`/`board.js`）· `copy-web` · **`diff -rq web lib/web` 无输出** ✓ ·
+`tsc --noEmit` 绿 · `node --test` **642 / 642** ·
+性能条 `绘制 2（合批） · 精灵 194 · 切换 0 · R0 F0 D0 · build r106`（精灵数与上轮一致，无上涨）。
+
+### 下一轮从哪继续
+- `docs/DESIGN-ui-theme.md` §十一 的映射已**全部落地**，没有遗留。
+- 若将来新增 role：**只加 `ROLE_ACCENT` 一行**即可（未知 role 会保持透明，不会悄悄用错色）。
+
+### 卡住
+- 无。写范围（`web/ui/board.js` + `components.css`）内完成；没有碰 `src/content`。
+
+---
+
 ## R104（task-12 / developer）—— UI 换成**方案 A「像素纸 / 木质面板」**（先 tokens、后组件）
 
 > 编号说明（Lead 核定）：本条原写成 R103，与 Lead 的「R9 独立复核」撞号。

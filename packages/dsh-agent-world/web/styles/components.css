@@ -1000,24 +1000,36 @@
   font-size: var(--fs-sub);
   color: var(--fg-0);
 }
+/* R106：成员卡自己的状态块。**外观全部来自 `.board-status-block`**（与任务块同一套），
+   这里只补它在行内的位置：推到最右，别和名字/角色挤在一起。 */
+.board-member-head .board-member-state {
+  margin-left: auto;
+}
 .board-chips {
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-1);
 }
 /*
- * 任务块 = **实心状态块 + 对色字**（R103）。
+ * **实心状态块 + 对色字**（R103 立、R106 抽成共享类）。
  *
- * `board.js::applyNodeColors()` 会给每个 chip 内联写 `--st`（内容库的状态色），
- * 同时把显示状态写进 `data-status`。于是"哪一态用墨字、哪一态用白字"可以在 CSS 里
- * 按状态分开写——这正是 §2.4 那张对比度表的落地：
+ * 这是**唯一一份**状态块样式，两处共用：
+ *   · 任务块（`.board-chip`，board.js 的 `renderMembers`）
+ *   · 成员卡自己的状态块（`.board-member-state`，R106 新增）
+ * ⚠️ **不要再写第二套**：同一套语义两处各写一遍，迟早只改一处（这正是 R3 收敛过的教训）。
+ *
+ * `board.js` 给每个块内联写 `--st`（内容库的状态色），同时把显示状态写进 `data-status`。
+ * 于是"哪一态用墨字、哪一态用白字"按状态分开写——§2.4 那张对比度表的落地：
  *
  *   done 8.13 / in_progress 5.04 / ready 8.63 / failed 4.93  → 墨字
  *   blocked 4.83 / pending 7.56                              → 白字
  *
  * ⚠️ 不许改回"透明底 + 彩色字"：状态色当文字在纸面上只有 1.18–2.08:1。
+ * ⚠️ **也不许用 `opacity` 做"弱化"**（R106 实测）：`opacity` 会把底色与字色**一起**
+ *    朝纸面合成，done 从 8.13 掉到 **4.17**、pending 从 7.56 掉到 **3.94**——
+ *    整块跌破 4.5。弱化只能改**描边/内边距**，不能改透明度。
  */
-.board-chip {
+.board-status-block {
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
@@ -1039,12 +1051,14 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.06em;
-  cursor: pointer;
 }
 /* 深色块用白字（对比度表里只有这两态需要）。 */
-.board-chip[data-status='blocked'],
-.board-chip[data-status='pending'] {
+.board-status-block[data-status='blocked'],
+.board-status-block[data-status='pending'] {
   color: #ffffff;
+}
+.board-chip {
+  cursor: pointer;
 }
 .board-chip:hover {
   /* 悬停只改描边，不改底色——底色是**状态**，悬停不是状态。 */
@@ -1065,16 +1079,18 @@
   background: currentColor;
 }
 /* 已完成的单：不留色点、收紧内边距（左栏的宽度是稀缺的，而"完成的"是历史）。
-   仍然可点、仍然有 title——**压小不等于隐藏**。 */
+   仍然可点、仍然有 title——**压小不等于隐藏**。
+   ⚠️ R106：这里原来有 `opacity: 0.7`，实测把 done 的对比度从 8.13 压到 **4.17**（跌破 4.5），
+      而 `getComputedStyle` 读的是指定值、**看不出**这个跌落。弱化改用内边距与色点，不用透明度。 */
 .board-chip.is-done {
   padding: 1px 4px;
-  opacity: 0.7;
 }
 .board-chip.is-done > .board-dot {
   display: none;
 }
 .board-chip.is-done .board-chip-id {
-  color: var(--fg-2);
+  /* 跟着块色走（原来写 `--fg-2`，压在 done 绿上只有 3.81）。 */
+  color: inherit;
 }
 /* "图比可见区大"的提示（R45）：可滚动是实话，但要写在图头上，别让用户以为图就这么多。 */
 .board-graph-hint {
