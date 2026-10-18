@@ -42,6 +42,19 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R145（Lead）—— 验收 R144（task-20 漂移守卫）通过
+
+- `eddf4b0` 只含新测试与 PROGRESS；`web/` 无改动；`node --test` **687/687**。
+- 守卫：纯 `node:fs` 解析 CSS（含 `@media` 嵌套），`var()` 顺链解到底；当前链 `.board-node-title → var(--fs-sub) = 13px`。
+- 取整关系：任务书里我写的两位小数公式**有误**（会让现有 0.8 变红），裁定按代码已定的"一位小数向上取"，
+  另加 `NODE_TITLE_PX × MIN_SCALE ≥ READABLE_MIN_PX`。**测试钉的是已定关系，不借测试改判据。**
+- 两条反证各自变红（字号改 14 → 守卫红；MIN_SCALE 改 0.77 → 关系红），恢复后 `git diff` 为空。
+- developer 自己踩并修掉一处判据过宽（要求所有变量单值 → `--sidebar-w` 响应式误报），已加"无关变量不误报"自检。
+
+计划表剩余：**R10 复盘**（Leader，文档）与 **R141 观测**（触发式）。
+
+---
+
 ## R144（task-20 / developer）—— 可读性漂移守卫：用测试钉住 `NODE_TITLE_PX` 与 CSS 字号一致（纯 `node:fs`，不引 DOM）
 
 > 只加测试 `test/board-layout-readability.test.js`；**未动 `web/core`、未动 tokens.css**。
