@@ -322,7 +322,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       subagents,
       feed,
       {
-        captainSessionId: 'agent-world:captain',
+        captainSessionId: resolved.captainSessionId,
         cwd: process.cwd(),
         teamName: resolved.teamName,
         teamDescription: resolved.teamDescription,
@@ -335,7 +335,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         createCaptain,
       },
     )
-    logger.info(`对话后端：agent-teams（队长会话 agent-world:captain，团队「${resolved.teamName}」）`)
+    logger.info(`对话后端：agent-teams（队长会话 ${resolved.captainSessionId}，团队「${resolved.teamName}」）`)
     return { ok: true, port: teamsPort }
   }
   const teamsDialoguePort = {

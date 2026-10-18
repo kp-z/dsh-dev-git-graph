@@ -98,6 +98,16 @@ export const AgentWorldConfig = z.object({
   /** 团队名（会变成 agent-teams 的 teamId）。 */
   teamName: z.string().default('Agent World'),
 
+  /**
+   * 队长会话 id（R136）。agent-teams 里**谁调 `agent_teams_create` 谁就是队长**，
+   * 团队与这个会话绑定；成员子会话也挂在它下面。
+   *
+   * 默认 `agent-world:captain`——不配置时与之前**完全一致**。
+   * 换成别的值 = 起"新一代"队长（全新历史）。⚠️ 必须**同时换 `teamName`**：
+   * 只换队长 id 会因 "team id is taken by another captain" 建队失败（R135 调查）。
+   */
+  captainSessionId: z.string().default('agent-world:captain'),
+
   /** 团队目标，写进每个成员人设的 "Team goal"。 */
   teamDescription: z
     .string()
@@ -126,6 +136,11 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     dialogueBackend: config.dialogueBackend === 'native' ? 'native' : 'agent-teams',
     memberToolPolicy: config.memberToolPolicy ?? 'agent-world-resident',
     teamName: config.teamName ?? 'Agent World',
+    // 空串/空白也退回默认：空 id 的队长会话是建不出来的，别让一个漏填的配置把对话后端打死。
+    captainSessionId:
+      typeof config.captainSessionId === 'string' && config.captainSessionId.trim() !== ''
+        ? config.captainSessionId.trim()
+        : 'agent-world:captain',
     teamDescription:
       config.teamDescription ??
       '一座小镇：每个居民是一个角色，玩家会直接跟他们说话，并让他们把镇上的活干完。',

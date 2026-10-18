@@ -42,6 +42,87 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R136（task-22 / developer）—— 方案 A「新一代」的代码部分：队长会话 id 可配置（默认不变）
+
+> Lead 批准 A，写范围扩到 `src/config.ts`、`src/index.ts` 与对应测试。**仓库外的 `cordis.patch.yml` 由 Lead 改、宿主由 Lead 重启**，我没碰。
+
+### 改了什么
+- `config.ts`：schema 与 `resolveConfig` **两处同时**加 `captainSessionId`，默认 `agent-world:captain`；
+  空串/空白也退回默认（空 id 的队长会话建不出来，别让漏填的配置把对话后端打死）；注释写明**必须同时换 `teamName`**（R135 的两个拒绝点）。
+- `index.ts:325`：`captainSessionId: 'agent-world:captain'`（硬编码）→ `resolved.captainSessionId`；启动日志写出**实际**队长 id。
+
+### 测试（`test/captain-session-config.test.js`，3 条）
+| 用例 | 钉住的关系 |
+|---|---|
+| `resolveConfig` | 不配 = `agent-world:captain`；配了用配置值（含 trim）；空白退回默认 |
+| 装配·不配 | 从 `apply()` 最外面进、经 `/api/say`，`agentLoop.createAgent` 收到的 `sessionId` = `agent-world:captain` |
+| 装配·配了 | 同上，收到的是 `agent-world:captain-g2`，启动日志写出 `agent-world:captain-g2` 与 `Agent World G2` |
+
+**反证**：把 `index.ts` 退回硬编码（配置字段仍在）→「装配·配了」**变红**——这正是"配置解析对了、但没被用上"那类错。恢复 → 绿。
+
+`node --test` **680 / 680**（677 + 3）· `tsc --noEmit` 绿 · `lib` 已重建（`lib/index.js`、`lib/config.js` 含 `captainSessionId`）· `diff -rq web lib/web` 无输出。
+
+### 复测（等 Lead 改配置并重启后补）
+- 待补：同 R133 的 22 句，统计新队长 `agent-world:captain-g2` 与新「工头阿金」会话的 r / B / t，与 R133 对比。
+
+---
+
+## R135（task-22 / developer）—— 方案 A「新开会话」的**机制调查**：四条路，三条走不通或有暗伤；推荐「新一代队长 + 新团队名」，**零删除、零移动**
+
+> 只读调查，**未改任何代码/配置/状态文件**。下面所有结论都来自源码（agent-teams 0.1.25，`~/.dsh/profiles/web/node_modules/@nanmicoder/dsh-agent-teams/lib`）
+> 与真实状态文件（`~/.agent-teams/agent-world/team.json`、`~/.dsh/sessions/`）。
+
+### 先搞清楚：这些会话是怎么绑起来的
+| 对象 | 怎么建 / 怎么找 | 证据 |
+|---|---|---|
+| 队长 | 固定 id `agent-world:captain`，`createCaptain` 惰性建/接 | `src/index.ts:325`（**硬编码**） |
+| 团队 | `teamId = sanitizeKey(teamName)` → `agent-world`；状态在 `<队长 cwd>/.agent-teams/agent-world/team.json` | `tools.js` create；实测 `/Users/kp/.agent-teams/agent-world/` |
+| 成员会话 | **成员的 `id` 就是它的子会话 id**（工头阿金 `id = c41d29d1…`）；`spawnMember` **每次都新开子会话**并把新 id 写回 `member.id` | `members.js:786-816`；team.json 6 个成员 id 与会话目录一一对应 |
+| 找成员会话（我们这边） | `listChildren(队长)` 里 label 以 `:<成员名>` 结尾的那个 | `teams.ts:378` |
+
+### 四条路
+| # | 做法 | 结论 | 原因 |
+|---|---|---|---|
+| D | `remove_member` 再 `add_member` 同名 | ❌ **走不通** | `add_member` 对**所有**用过的名字都拒（含 `status: removed`）：`member name "X" has already been used`（`tools.js:1179`）。名字来自内容库、bridge 也靠它找人，不能换 |
+| C | 移走 `~/.dsh/sessions/` 下的会话目录 | ❌ **不推荐** | 成员：投递会去冷启动一个不存在的子会话，插件**不会重建**（与 R118 摘 team.json 同理）。队长：会得到空历史，但子会话目录挂在队长会话的子目录里——**6 个成员全部失联**（`listChildren` 与投递授权都看队长会话） |
+| B | 用旧队长调 `agent_teams_delete` 归档旧团队，再按同名重建 | ⚠️ **只做一半** | 成员会全新（新团队里名字可重用），但**队长历史不变**——而 captain 正是污染最重的那个（R133：重启后 75%）。另外插件里**没有调用 delete 的代码路径**，要么加代码、要么让队长模型自己调（agent-teams 的提示词明确劝它别这么做） |
+| **A** | **新一代**：换一个队长 id + 换一个团队名 | ✅ **推荐** | 见下 |
+
+### 推荐：A「新一代」
+**改什么**（两处，全部可回滚，**不删不搬任何状态文件**）：
+1. `src/index.ts`：把硬编码的 `captainSessionId: 'agent-world:captain'` 改成读配置
+   （`config.ts` 新增 `captainSessionId`，**默认值不变** = `agent-world:captain`，所以不配置时行为与现在完全一致）+ 一条单测；
+2. web profile 的 `cordis.patch.yml` 给本插件加两项：`captainSessionId: agent-world:captain-g2`、`teamName: Agent World G2`。
+
+**为什么两个都要换**（只换一个都不行）：
+- 只换团队名：同一个队长 `findTeamByParticipant` 会找到旧团队，`agent_teams_create` 报 "you already lead team"——我们的 `ensureTeam` 把这当成"接回"，**又回到旧团队**；
+- 只换队长 id：新队长建同名团队 → `team id "agent-world" is taken by another captain`（`tools.js` create），我们的正则不认 "taken" → 建队失败。
+
+**效果**：全新队长会话 + 全新团队 `agent-world-g2` + 6 个成员在第一次被搭话时按内容库人设**重新 add**（`spawnMember` 必开新子会话）。
+有 R132 的 `allowEmptySignature` 在，新历史不会再被"思考→正文"污染——这正好检验 R133 的"污染换向"推断。
+
+**影响范围**
+- 旧队长、旧团队、旧成员会话**原封不动**留在磁盘上（可读、可回看），只是不再被使用；
+- 团队任务列表从空开始（旧团队 14 张团队任务留在旧 team.json）；
+- ⚠️ 小镇任务的 `externalId` 指向团队任务 id（`t1`…）。新团队的任务 id **也从 t1 起**——若以后重新载入**旧世界存档**（里面有指向旧团队的 `externalId`），同步会把它和新团队的同号任务对上。
+  **当前世界 `world-1nb10jy-b` 里带 `externalId` 的单 = 0**，所以眼下没有冲突；只是别在 G2 下载入旧存档。
+
+**回滚**：删掉 profile 里那两项配置（或改回）→ 你重启宿主 → 插件接回 `agent-world:captain` 与 `agent-world` 团队，一切如前。
+
+**执行顺序（等你批准）**
+1. 我：改 `config.ts`/`index.ts` + 单测，`tsc` + `node --test`，提交（只含这两个源文件 + 测试 + PROGRESS）；
+2. 我：备份 `cordis.patch.yml`（`.bak-r135-<时间>`），加两项配置——**这是仓库外文件**，所以单独报你确认后再动；
+3. 你：重启宿主；
+4. 我：同样 22 句复测工头阿金，统计新 captain + 新阿金会话的 r / B / t，与 R133 对比。
+
+### 顺带
+- `teams.ts:497` 的注释写着"队长会话（`agent-world:captain` = 工头阿金）"——**写错了**：R126 已查明工头阿金是成员会话 `c41d29d1`，与队长是两个会话。放进 task-23 一起改。
+
+### 卡住
+- 等你批准 A（以及"改 `src/` 加一个配置项"是否可以——它不在 task-22 原写范围里）。task-22 保持 in_progress。
+
+---
+
 ## R134（Lead）—— 裁定 R133：修法①只修好一半；下一步新开会话（先查机制）；bridge 新问题另立 task-23
 
 ### R133 的结果（developer 如实报数，目标未达到）
