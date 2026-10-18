@@ -50,7 +50,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r112'
+const BUILD = 'build r116'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
@@ -161,22 +161,50 @@ const scene2d = createScenePhaser(canvas, {
 let boardRef = null
 
 /**
- * 侧边栏（R2 建 / R3 收口 / R99 去 tab + 可折叠）。
+ * 侧边栏（R2 建 / R3 收口 / R99 去 tab + 可折叠 / R116 开关搬进 header）。
  *
- * 这里**只建外壳**（折叠开关 + 两块常驻容器）。内容全部来自看板——同一份
+ * 这里**只建外壳**（两块常驻容器）。内容全部来自看板——同一份
  * `renderMembers` / `renderGraph` 的产物挂进去，所以不存在"侧边栏版"和"看板版"两套渲染。
  *
  * ⚠️ **R99：两个视图不再互斥**（用户：「这两个 tab 应该可以同时看到才对」），
  * 所以原先的 `onViewChange → refreshGraph()` 换成 `onExpand`：折叠期间两块容器是 0×0，
  * 依赖图必须在**展开并且布局落定之后**重挑几何。`onExpand` 已经在下一次 rAF 里，
  * 这里不用再延迟。
+ *
+ * ⚠️ **R116：开关按钮在 header 里，不归这个模块管**。侧边栏只持有"折叠态"这一个真相，
+ * 按钮只是它的一个消费者——所以状态变化走 `onCollapseChange` 广播出去，
+ * 而不是让侧边栏自己去改一个不在它 DOM 里的按钮（那会把"谁是真相"搞乱）。
+ *
+ * ⚠️⚠️ **下面这两样必须声明在 `createSidebar()` 之前**：
+ * `createSidebar()` 在构造期间就会同步广播一次折叠态（读 `localStorage` 的结果），
+ * 于是 `onCollapseChange` 立刻回调。如果按钮引用写成 `const` 放在后面，
+ * 回调读它时它还在**暂时性死区**里 → ReferenceError → **整个 `main.js` 装配中断**
+ *（真机表现：顶栏、侧边栏都在，但场景与所有 `__agentWorld*` 门面全没建）。
+ * 这个坑 R91 踩过一次（当时是 `typeof` 兜不住 TDZ），R116 又踩了一次——
+ * **规律是：任何"构造期间会同步回调"的 options，它的依赖都必须在调用点之前声明。**
  */
+const $sidebarToggle = $('sidebar-toggle')
+function syncSidebarToggle(collapsed) {
+  if ($sidebarToggle === null) return
+  const open = collapsed !== true
+  $sidebarToggle.setAttribute('aria-expanded', String(open))
+  $sidebarToggle.title = open ? '折叠侧边栏' : '展开侧边栏'
+  $sidebarToggle.setAttribute('aria-label', $sidebarToggle.title)
+  $sidebarToggle.classList.toggle('is-active', open)
+}
+
 const sidebar = createSidebar({
   root: $('sidebar'),
   onExpand: () => {
     boardRef?.refreshGraph()
   },
+  onCollapseChange: (collapsed) => syncSidebarToggle(collapsed),
 })
+
+$sidebarToggle?.addEventListener('click', () => sidebar.toggle())
+// 初始态再同步一遍兜底：构造期那次广播已经生效，这里保证"按钮与真实状态一致"
+// 这件事不依赖于广播时序。
+syncSidebarToggle(sidebar.collapsed())
 
 /**
  * 执行看板（M7-1 → R3：从顶栏搬进侧边栏）。

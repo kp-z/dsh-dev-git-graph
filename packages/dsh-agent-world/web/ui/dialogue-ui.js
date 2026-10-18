@@ -163,40 +163,59 @@ export function createDialogueUi(options = {}) {
           doc,
           'li',
           'd-empty',
-          '还没有对话。打字发第一句——回复会经事件流推回来，不会卡在这个页面上等。',
+          '还没有对话。在下面输入开始——回复会经事件流推回来，不会卡在这个页面上等。',
         ),
       )
       return
     }
 
-    for (const turn of turns) {
-      if (turn.said !== '') {
-        const said = el(doc, 'li', 'd-said')
-        said.append(el(doc, 'b', undefined, '我'), el(doc, 'span', undefined, turn.said))
-        $log.append(said)
-      }
+    /**
+     * 一条消息 = **气泡 + 元信息（发送者 · 时间）**（R116）。
+     *
+     * 自己的话靠右、对方的回复靠左：这是"对话"最省认知成本的排法——
+     * 不用读名字就知道哪句是谁说的（名字仍然给出来，供读屏与回看）。
+     *
+     * 时间用 **tick**（世界时钟）而不是墙钟：这个界面里所有时间读数都是 tick
+     * （页脚、任务、纸条），混用两套时间会让"这条是什么时候的"没法互相比较。
+     */
+    const pushBubble = (side, who, tick, body) => {
+      const item = el(doc, 'li', `d-msg d-msg-${side}`)
+      const meta = el(doc, 'div', 'd-meta')
+      meta.append(el(doc, 'b', 'd-who', who))
+      if (Number.isFinite(tick)) meta.append(el(doc, 'i', 'd-tick', `tick ${tick}`))
+      const bubble = el(doc, 'div', 'd-bubble')
+      if (typeof body === 'string') bubble.textContent = body
+      else bubble.append(body)
+      item.append(meta, bubble)
+      $log.append(item)
+      return item
+    }
 
-      const line = el(doc, 'li', `d-reply d-${turn.phase}`)
-      line.append(el(doc, 'b', undefined, nameOf(turn.agentId)))
+    for (const turn of turns) {
+      if (turn.said !== '') pushBubble('me', '我', turn.atTick, turn.said)
+
+      // 回复气泡的内容随阶段变：想/干活是**占位**，回复是正文，失败是原因。
+      const body = el(doc, 'span')
       if (turn.phase === 'thinking' || turn.phase === 'acting') {
         const secs = Math.max(0, Math.floor((nowMs - (turn.uiChangedAt ?? nowMs)) / 1000))
         // `acting` = "他在干活"（工具在跑）；`thinking` = "他在想"。
         // 两者都是**占位**，所以都带秒数——用户要能看出"这件事还在动"。
         const text = turn.phase === 'acting' ? `${actionIcon(null)} ${actingText(turn.actions)}` : '他正在想…'
-        line.append(el(doc, 'span', turn.phase === 'acting' ? 'd-acting' : 'd-thinking', `${text}（${secs}s）`))
+        body.className = turn.phase === 'acting' ? 'd-acting' : 'd-thinking'
+        body.textContent = `${text}（${secs}s）`
       } else if (turn.phase === 'replied') {
-        line.append(el(doc, 'span', undefined, turn.text))
+        body.textContent = turn.text
       } else {
         // 失败**必须带原因**：状态机保证了 `reason` 永远是一句能下手的话。
-        line.append(el(doc, 'span', 'd-reason', `他说不出话：${turn.reason}`))
+        body.className = 'd-reason'
+        body.textContent = `他说不出话：${turn.reason}`
       }
-      if (turn.phase !== 'thinking' && turn.phase !== 'acting') {
-        line.append(el(doc, 'i', 'dim d-tick', `tick ${turn.atTick}`))
-      }
-      // 动作挂在**这条**记录下面：干过的事是这条回复的一部分，分开看就都不完整。
+
+      const item = pushBubble('them', nameOf(turn.agentId), turn.atTick, body)
+      item.classList.add(`d-${turn.phase}`)
+      // 动作挂在**这条**回复下面：干过的事是这条回复的一部分，分开看就都不完整。
       const actionBox = renderActions(turn)
-      if (actionBox !== null) line.append(actionBox)
-      $log.append(line)
+      if (actionBox !== null) item.append(actionBox)
     }
 
     // 滚到最新一条：对话是"越新越重要"的东西，不用手动滑。

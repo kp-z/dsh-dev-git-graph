@@ -58,7 +58,7 @@
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  /* 木条上的字 = 纸色（`#7E5A38` 底上 4.83，达标）。 */
+  /* 标题条上的字：用主题的亮色（`--lamp` 系），对比度由 token 保证。 */
   color: var(--paper-card);
   /* 可编辑标题：不打断顶栏节奏，只在悬停/聚焦时露出"可以改"的边界。 */
   padding: 1px var(--s-1);

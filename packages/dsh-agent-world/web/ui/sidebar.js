@@ -75,12 +75,12 @@ export function createSidebar(options = {}) {
   let collapsed = typeof options.initialCollapsed === 'boolean' ? options.initialCollapsed : readCollapsed()
 
   // ── 骨架（只建一次）─────────────────────────────────────────────────────────
+  //
+  // R116：**这里不再有自己的头**。原先侧边栏顶部有一条 `.sidebar-head`，里面放折叠开关——
+  // 用户的原话是「侧边栏不是独立的个体，打开按钮应该在 header 里而不是单独一块」。
+  // 开关现在住在 `header.topbar`（`index.html`），由 `main.js` 接线；
+  // 侧边栏只负责"被折叠/展开"这个状态本身。
   root.textContent = ''
-  const head = el(doc, 'div', 'sidebar-head')
-  const toggle = el(doc, 'button', 'sidebar-toggle', '团队与任务')
-  toggle.type = 'button'
-  toggle.id = 'sidebar-toggle'
-  head.append(toggle)
   const body = el(doc, 'div', 'sidebar-body')
   body.id = 'sidebar-body'
 
@@ -101,7 +101,7 @@ export function createSidebar(options = {}) {
     body.append(panel)
     panels[region.id] = panel
   }
-  root.append(head, body)
+  root.append(body)
 
   /** 折叠：只切 class，宽度由 CSS 的 `--sidebar-w` 决定（引擎的 `Scale.RESIZE` 自己带画布跟）。 */
   function setCollapsed(next) {
@@ -114,11 +114,8 @@ export function createSidebar(options = {}) {
      * 仍然**只改宽度变量**，不碰 `game.scale.resize()`（那会把真机缩放打回 1×）。
      */
     root.closest?.('.app')?.classList.toggle('is-sidebar-collapsed', collapsed)
-    toggle.setAttribute('aria-expanded', String(collapsed !== true))
-    toggle.setAttribute('aria-controls', 'sidebar-body')
-    toggle.title = collapsed ? '展开侧边栏' : '折叠侧边栏'
-    toggle.setAttribute('aria-label', toggle.title)
-    toggle.textContent = collapsed ? '‹' : '›'
+    // R116：开关按钮在 header 里，**不在这个模块手上**——所以这里只广播状态，
+    // 由 `onCollapseChange` 的接线去更新按钮的 `aria-expanded`（一处真相，两个消费者）。
     writeCollapsed(collapsed)
     options.onCollapseChange?.(collapsed)
     // ⚠️ 展开必须**等布局落定**再通知：同一帧里量到的高度还是折叠时的 0。
@@ -144,8 +141,6 @@ export function createSidebar(options = {}) {
     return collapsed
   }
   setCollapsed(collapsed)
-
-  toggle.addEventListener('click', () => setCollapsed(!collapsed))
 
   /**
    * 溢出判据（M7-9）：盒子必须落在「容器 ∩ 视口」里。

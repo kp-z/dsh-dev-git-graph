@@ -19,7 +19,7 @@
 .app {
   /* 侧边栏宽度：只有这一处定义（窄视口在文件末尾按档收窄）。
      `tokens.css` 是另一个 Agent 也在碰的公共文件，所以这个局部变量就放在使用它的文件里。 */
-  --sidebar-w: 320px;
+  --sidebar-w: 600px;
   /* 列：舞台(1fr) + 侧边栏(固定)。行仍由 layout.css 给（48 / 1fr / 36）。 */
   grid-template-columns: 1fr var(--sidebar-w);
 }
@@ -55,103 +55,38 @@
   --board-card-line: var(--stroke);
 }
 
-/* ── 头：折叠开关（R99 去掉了页签）──────────────────────────────────────────── */
-.sidebar-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  padding: var(--s-2);
-  /* R103：头部 = **木质标题条**（与顶栏同材质），墨色下沿。 */
-  background: var(--wood);
-  border-bottom: 2px solid var(--ink);
-  box-shadow: var(--bevel);
-}
-.sidebar-toggle {
-  flex: none;
-  padding: 2px 7px;
-  font-family: inherit;
-  font-size: var(--fs-micro);
-  font-weight: 700;
-  /* R103：木条上的纸色按钮 + 硬描边（原来是"透明底 + 细边"的现代写法）。 */
-  color: var(--paper-card);
-  background: color-mix(in srgb, var(--ink) 20%, transparent);
-  border: 1px solid var(--paper-card);
-  border-radius: 0;
-  cursor: pointer;
-  transition: background var(--t-hover) var(--ease);
-}
-.sidebar-toggle:hover {
-  background: color-mix(in srgb, var(--ink) 34%, transparent);
-}
+/* ── 体：**左右两栏**（R116）────────────────────────────────────────────────
+   用户原话：「侧边栏任务图和 agent 列表应该是左右分布，不是上下」。
+   左＝Agent 列表（定位人），右＝任务图（看活）——两块是**并列的两个视角**，
+   左右并排才能"扫一眼同时看到"，上下堆叠会把下面那块推到屏幕外。
 
-/* ── 体：**两块常驻、上下堆叠、整体滚动**（R99）──────────────────────────────
-   用户原话：「不是分成两个 tab，这两个 tab 应该可以同时看到才对」。
-   所以不再有 `hidden` 切换——两块永远都在，靠 `.sidebar-body` 统一滚动。
-   折叠侧边栏时整个 body 藏起来（那才会让两块容器量出 0×0，见 sidebar.js 的注释）。 */
+   ⚠️ 两栏**各自独立滚动**（`.sidebar-body` 不再统一滚）：
+   统一滚会让"滚动看任务图"顺手把 Agent 列表也滚走，而它们是两个独立的阅读位置。
+   ⚠️ 折叠时整个 body 藏起来——那才会让两块容器量出 0×0（见 `sidebar.js` 的注释）。 */
 .sidebar-body {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  /* 两列都 `minmax(0, …)`：不加的话 grid 子项会被内容撑破（`1fr` 的最小尺寸是 auto）。 */
+  /* 图区那一栏**更宽一点**：Agent 行很短（名字+角色+状态块），
+     而依赖图的节点有标题，宽度是它最缺的资源。 */
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
   gap: var(--s-2);
   padding: var(--s-2);
+  overflow: hidden;
 }
 .sidebar-panel {
-  /* **不许 flex: 1**：两块平分高度会让图区永远只有几十像素，而图是要能读的。
-     让每块按内容取高，超出的交给 `.sidebar-body` 滚。 */
-  flex: 0 0 auto;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* **每栏自己滚**：这是"两个独立阅读位置"的实现。 */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .sidebar-panel[hidden] {
   display: none;
 }
-.sidebar-region-title {
-  /* 区块标题：**唯一的"这块是什么"**（页签没了），所以做得像标签条。
-     R103：纸面上的区块标题用木色（`--wood` 压纸 = 4.9:1），大写 + 0.10em。 */
-  margin: 0 0 var(--s-1);
-  padding-bottom: 2px;
-  font-size: var(--fs-micro);
-  font-weight: var(--fw-title);
-  letter-spacing: var(--tracking-section);
-  color: var(--wood);
-  text-transform: uppercase;
-  border-bottom: 1px solid var(--stroke);
-}
-.sidebar-panel-agents {
-  /* 成员行自己会滚会让"上下两块"里出现两条滚动条；这里交给外层统一滚。 */
-  overflow: visible;
-}
-
-/* ── 看板 chrome 的**纸色覆盖**（R103）────────────────────────────────────────
- *
- * 为什么需要这一段：`board.js::setPalette()` 会把内容库的 `board.*` **内联**写到
- * `styleRoot`（挂载模式下就是 `#sidebar`）。内容库那套是为**深底**设计的
- * （`board.bg #121212` / `board.card #2C2C2C` / `board.fg #E0E0E0`），
- * 而侧边栏现在是米色纸 —— 不覆盖的话就是"纸面板里嵌了一块黑板"。
- *
- * ⚠️ 这里**不用 `!important`**：内联样式确实赢不了普通规则，但**继承也赢不了普通规则**。
- * 变量是在 `#sidebar` 上内联的，我在**它的子元素**（两块真正的容器）上重新声明同名变量，
- * 子元素自己的声明优先于"从父元素继承来的值"。所以这是干净的作用域覆盖，不是强插。
- *
- * 覆盖的只有 **chrome**（底/卡/字/线）。**状态色继续用内容库那套**
- * （`docs/DESIGN-ui-theme.md` §2.4 的裁决：状态是实心色块，深底语义那套才对）。
- */
-.sidebar-panel-agents,
-.sidebar-panel-graph {
-  --board-bg: transparent; /* §5.2：图区**不设底色**，直接露出纸面板 */
-  --board-card: var(--paper-card);
-  --board-fg: var(--ink);
-  --board-dim: var(--ink-dim);
-  --board-line: var(--ink-dim);
-  --board-card-line: var(--stroke);
-  --board-select: var(--ink);
-}
-
 /* ── Agent 档：看板的成员栏搬过来（R3）───────────────────────────────────────
    `renderMembers()` 的产物本身没变（`.board-members` / `.board-member`），
    这里只把"左栏 300px 固定宽"改成"整宽"，因为侧边栏里没有左右分栏。 */
@@ -203,22 +138,21 @@
   padding: var(--s-2) var(--s-2) 0;
 }
 .sidebar-panel-graph .board-graph {
-  flex: 0 0 auto;
+  /* R116：两栏之后这一栏是**整栏高度**，所以图可以（也应该）撑满剩余空间。
+     （R99 那版是上下堆叠、外层按内容取高，那时 `flex: 1` 会退化成 0，
+      所以当时必须给死高度；两栏之后这个约束消失了。） */
+  flex: 1 1 auto;
+  min-height: 0;
   padding: var(--s-2);
 }
 /*
- * 依赖图的高度预算（R99）。
- *
- * 两块上下堆叠之后，图的画布**不能**再靠 `flex: 1` 去撑——外层现在是内容高度，
- * `flex: 1` 会退化成 0，图直接消失（而 `clipped()`/`overflow()` 都看不出来：它确实没被裁，
- * 它就没有高度）。所以给它一个**确定的**高度区间，超出的部分由 `.board-canvas` 自己的
- * `overflow: auto` 承担（它是可见容器，本来就是为此存在的）。
- *
- * `clamp(...)` 而不是固定值：1024×768 那种矮视口下 320px 会把成员列表挤没。
+ * 画布撑满图区剩下的高度。**超出的部分由它自己滚**（`.board-canvas` 是可见容器，
+ * 本来就是为此存在的），所以 `min-height: 0` 是必须的——否则 flex 子项不肯缩，
+ * 图会把整栏顶高、把 `.sidebar-panel` 的滚动条逼出来。
  */
 .sidebar-panel-graph .board-canvas {
-  flex: 0 0 auto;
-  height: clamp(180px, 30vh, 320px);
+  flex: 1 1 auto;
+  min-height: 120px;
 }
 .sidebar-panel-graph .board-graph h3 {
   /* 图头那句"左 → 右：前置解锁后续"在窄栏里换行会占两行，压成一行小字。 */
@@ -249,23 +183,38 @@
 
 /* ── 窄视口：侧边栏让位 ────────────────────────────────────────────────────── */
 /*
- * 1024×768 是验收线（M7-9 判据）。320px 在 1024 下只剩 704px 给舞台，仍装得下。
- * 这里只**收窄**，不隐藏——隐藏会让"唯一的交互面"在窄屏上直接消失，比拥挤更糟。
+ * R116：两栏之后侧边栏要 580px 才不挤。窄视口分两档收窄：
+ *   · ≤1440：收到 520px（仍够两栏）
+ *   · ≤1200：**改回上下堆叠**——两栏各 250px 谁都读不了，
+ *     而"两块都要看得见"是 R99 定下的红线（不能靠隐藏一栏来省地方）。
+ * 只**收窄/换排**，不隐藏：隐藏会让"唯一的交互面"在窄屏上直接消失，比拥挤更糟。
  */
-@media (max-width: 1200px) {
+@media (max-width: 1280px) {
   .app {
-    --sidebar-w: 272px;
+    --sidebar-w: 520px;
+  }
+}
+@media (max-width: 1080px) {
+  .app {
+    --sidebar-w: 420px;
   }
 }
 @media (max-width: 900px) {
   .app {
-    --sidebar-w: 232px;
+    --sidebar-w: 300px;
+  }
+  .sidebar-body {
+    /* 窄档：两栏并排会各自挤成一条 —— 改回上下，两块仍然同时可见。 */
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(0, 1fr);
   }
 }
 
 /* ── 折叠态（R99）──────────────────────────────────────────────────────────────
  *
- * 折叠 = **整列收成一条窄边**，只留那个开关。用列宽做（而不是 `display: none`），
+ * 折叠 = **整列收成一条窄边**。R116 起开关住在 header 里，所以这条窄边是**纯留白**——
+ * 展开入口在顶栏，不在侧边栏里（用户要的正是"侧边栏不是独立的个体"）。
+ * 用列宽做（而不是 `display: none`），
  * 于是 `.stage` 变宽 → `#town` 父容器变宽 → 引擎的 `Scale.RESIZE` 自己带画布跟。
  *
  * ⚠️ **不许**在这里或别处手调 `game.scale.resize()`：真机上那会把用户刚拖好的缩放
@@ -279,16 +228,4 @@
 }
 .app.is-sidebar-collapsed #sidebar .sidebar-body {
   display: none;
-}
-.app.is-sidebar-collapsed #sidebar .sidebar-head {
-  /* 只剩一个开关：内边距收掉，视觉上是一条木边而不是一个空面板。 */
-  justify-content: center;
-  padding: var(--s-1) 0;
-  border-bottom: none;
-  box-shadow: none;
-}
-.app.is-sidebar-collapsed .sidebar-toggle {
-  /* 折叠成窄条时按钮也要收窄，否则它会撑破 34px 的列宽。 */
-  padding: 2px 3px;
-  border-color: var(--paper-card);
 }
