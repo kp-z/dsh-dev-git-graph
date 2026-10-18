@@ -33,7 +33,6 @@
   min-width: 0;
   min-height: 0;
   background: var(--glass);
-  backdrop-filter: var(--blur);
   border-left: 1px solid var(--stroke);
   z-index: var(--z-drawer);
 

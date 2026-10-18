@@ -25,7 +25,6 @@
   gap: var(--s-4);
   padding: 0 var(--s-4);
   background: var(--glass);
-  backdrop-filter: var(--blur);
   border-bottom: 1px solid var(--stroke);
   position: relative;
   z-index: var(--z-drawer);
@@ -84,7 +83,6 @@
   padding: 0 var(--s-4);
   border-top: 1px solid var(--stroke);
   background: var(--glass-strong);
-  backdrop-filter: var(--blur);
   z-index: var(--z-board);
 }
 .footer .topbar-status {
@@ -160,7 +158,6 @@
   bottom: calc(var(--s-4) + 46px + var(--s-3));
   z-index: var(--z-legend);
   background: var(--glass);
-  backdrop-filter: var(--blur);
   border: 1px solid var(--stroke);
   box-shadow: var(--shadow-1);
 }
@@ -175,7 +172,6 @@
   max-height: min(56vh, 420px);
   padding: var(--s-3);
   background: var(--glass-strong);
-  backdrop-filter: var(--blur);
   border: 1px solid var(--stroke);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2);
@@ -211,7 +207,6 @@
   border: none;
   border-radius: 0;
   box-shadow: none;
-  backdrop-filter: none;
   z-index: auto;
   transition: none;
 }
@@ -238,7 +233,6 @@
   padding: var(--s-3);
   overflow: hidden;
   background: var(--glass-strong);
-  backdrop-filter: var(--blur);
   border: 1px solid var(--stroke-strong);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2);

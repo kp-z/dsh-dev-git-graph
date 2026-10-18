@@ -1,74 +1,112 @@
 /*
- * 设计 token（R32）—— **唯一的色值来源**。
+ * 设计 token —— **唯一的色值来源**。
  *
  * 规矩（DESIGN.md 第二节）：所有组件样式只引用这里的变量，**组件层里不许出现十六进制色值**。
  * 场景的配色不在这里：它走内容库 `skins`（D31/D37），由 `ScenePlan` 解析好后交给渲染器。
  *
- * ## R57：配色**从美术出发**（决策 D52）
+ * ## R103：方案 A「像素纸 / 木质面板」
  *
- * R54 我曾把基底色对齐到 MvizLite（`MvizLiteTheme.less`）。**那条约束已撤销**：
- * 用户明确说"不需要对齐 MvizLite 配色，你自己设计就行，这个和 MvizLite 没关系"。
- * 那套深灰蓝是给数据可视化面板用的，不是给游戏场景用的。
+ * 用户从四套 mockup（`docs/mockup/ui-hud-styles.html`）里拍板了 **A**：
+ * 米色纸面板 + 木质标题条 + 硬偏移阴影 + 零圆角 + 等宽大写标签。
+ * 采样自 `Ancient/tan.png`（9-slice 内芯 `#D3BF8F` / 内描边 `#B1A077` / 外描边 `#D9CDAF`）。
  *
- * 现在这组色与内容库的 `skins` **同族**（偏紫的蓝灰底 + 高饱和强调色）——
- * 而那族底色是**从美术里量出来的**：要用的 26 件家具与角色图的主色就是
- * `#3A3A50` / `#46465E` / `#565972` 这一族。所以"两条线共用同一套语气"这句话
- * 现在有了具体来源：**美术**，而不是某个别的产品的主题文件。
+ * ⚠️ **先 tokens、后组件**。这一版把变量值整体换掉，组件 CSS 随后才去引用——
+ * 反过来会产出"新组件配旧色"或"引用了还不存在的 token"的半成品，而且很难看出是哪一步错了。
+ *
+ * ### 五条语言（判据都是可 grep 的）
+ * 1. 圆角 **0**（只有状态点是 2px）——像素画里圆角会立刻"不像像素"。
+ * 2. 描边 **2px 双层实色**：`1px solid #B1A077` + `inset 0 0 0 1px #D9CDAF`。
+ * 3. 阴影 **`3px 3px 0`** 硬偏移（**没有模糊半径**）——硬阴影是像素 UI 的签名。
+ * 4. **背景模糊 0 处**（毛玻璃与像素纸根本是两种材质，不共存）。
+ * 5. 字体 = **系统等宽栈** + 全大写标签 + `0.10em` 字距（不引外部字体，零许可风险）。
+ *
+ * ### 状态色**绝不能当文字用**（R11 实测）
+ * 状态色在米色纸上对比度只有 1.18–2.08:1（门槛 4.5），当字全是"看不见的彩色"。
+ * 所以状态一律是「**实心色块 + 墨字或白字**」，`--st-*-fg` 就是压在上面的字色，
+ * 每个都算过（R103 报告里有逐条数字）。**别把它改回 `color: var(--st-*)`。**
  */
 
 :root {
-  /* ── 基底与玻璃 ─────────────────────────────────────────────────────────── */
-  --bg-0: #14121c; /* 最底层背景（与内容库 skin 的 ink 同族） */
-  --bg-1: #1c1a26; /* 场景外的工作区底色 */
-  /* 玻璃基色 = 美术那族紫蓝灰（家具本体色 `#3A3A50`）压上透明度。 */
-  --glass: rgba(58, 58, 80, 0.78);
-  --glass-strong: rgba(58, 58, 80, 0.92);
-  --stroke: rgba(255, 255, 255, 0.08);
-  --stroke-strong: rgba(255, 255, 255, 0.14);
-  --blur: blur(16px) saturate(140%);
-  /* 玻璃上的三档"层次面"（静息 / 悬停 / 按下）。有了它们，组件里就不用写 rgba 字面量。 */
-  --surface-1: rgba(255, 255, 255, 0.04);
-  --surface-2: rgba(255, 255, 255, 0.07);
-  --surface-3: rgba(255, 255, 255, 0.12);
+  /* ── 纸与木（方案 A 的三种材质）─────────────────────────────────────────── */
+  --bg-0: #14121c; /* 场景外的深渊底（墨） */
+  --bg-1: #1c1a26; /* 工作区底色 */
+  /* 面板主体 = 9-slice 内芯；`--surface-*` 是它的三档"层次面"（静息/悬停/按下）。 */
+  --paper-panel: #d3bf8f;
+  --paper-card: #ece3ce; /* 写字区（卡片/输入框的纸） */
+  --paper-hover: #fff8e8;
+  --wood: #7e5a38; /* 木质标题条 */
+  --wood-light: #b7916a;
+  --ink: #14121c; /* 墨：主文字、描边、硬阴影 */
+  --ink-dim: #5e4730; /* 次级文字 */
+  /* 兼容旧名字：组件层大量引用 `--fg-*` / `--stroke*`，一次性改名会把 diff 撑爆。 */
+  --fg-0: var(--ink);
+  --fg-1: var(--ink-dim);
+  --fg-2: var(--ink-dim);
 
-  /* ── 文字 ───────────────────────────────────────────────────────────────── */
-  --fg-0: #f1f3f8;
-  --fg-1: #a9b1c3;
-  --fg-2: #6b7489;
+  /* ── 面板与描边 ─────────────────────────────────────────────────────────── */
+  --glass: var(--paper-panel); /* 旧名沿用；它现在是**不透明纸**，不是玻璃 */
+  --glass-strong: var(--paper-panel);
+  --stroke: #b1a077; /* 内描边（9-slice 那条线） */
+  --stroke-strong: var(--ink); /* 外描边 */
+  /* 双击描边：组件只要写 `box-shadow: var(--bevel)` 就是"1px 实线 + 1px 内亮线"。 */
+  --bevel: inset 0 0 0 1px #d9cdaf;
+  --sep: 1px solid #a3997f;
+  --surface-1: rgba(20, 18, 28, 0.06);
+  --surface-2: rgba(20, 18, 28, 0.1);
+  --surface-3: rgba(20, 18, 28, 0.16);
 
   /* ── 强调 ───────────────────────────────────────────────────────────────── */
-  --accent: #4fa8ff; /* 与内容库 skin 的 accent.engineering 同值 */
-  --accent-soft: rgba(79, 168, 255, 0.16);
+  --accent: #4fa8ff; /* 与内容库 skin 的 accent.engineering 同值（部门色之一） */
+  --accent-soft: rgba(79, 168, 255, 0.22);
+  /* 四个部门色（mockup A 的采样值）：圆形徽记与部门标记用。 */
+  --dept-blue: #4fa8ff;
+  --dept-teal: #3fd0c9;
+  --dept-purple: #b98cff;
+  --dept-amber: #ffb259;
 
-  /* ── 状态（与 TaskStatus 一一对应；看板、工单、花名册共用）─────────────── */
-  --st-done: #5fd68a;
-  --st-done-bg: rgba(95, 214, 138, 0.14);
-  --st-in_progress: #4fa8ff;
-  --st-in_progress-bg: rgba(79, 168, 255, 0.14);
-  --st-ready: #ffc94d;
-  --st-ready-bg: rgba(255, 201, 77, 0.14);
-  --st-blocked: #ff8a4c;
-  --st-blocked-bg: rgba(255, 138, 76, 0.1);
-  --st-failed: #ff6b6b;
-  --st-failed-bg: rgba(255, 107, 107, 0.16);
+  /* ── 状态：**实心色块 + 对应字色**（R103 逐条算过）─────────────────────────
+     `--st-X` 仍是"这个状态的主色"（给色点/进度条段用，它不承载文字）；
+     `--st-X-bg` / `--st-X-fg` 才是**徽章**的一对：块色 + 压在上面的字色。
+     ⚠️ 任何地方写 `color: var(--st-done)` 都是错的——那个绿在纸上是 1.5:1。 */
+  --st-done: #22c55e;
+  --st-done-bg: #22c55e;
+  --st-done-fg: var(--ink); /* 8.13 */
+  --st-in_progress: #3b82f6;
+  --st-in_progress-bg: #3b82f6;
+  --st-in_progress-fg: var(--ink); /* 5.04 */
+  --st-ready: #f59e0b;
+  --st-ready-bg: #f59e0b;
+  --st-ready-fg: var(--ink); /* 8.63 */
+  /* blocked 是**唯一用白字**的：墨字只有 3.83，白字 4.83。 */
+  --st-blocked: #6b7280;
+  --st-blocked-bg: #6b7280;
+  --st-blocked-fg: #ffffff; /* 4.83 */
+  --st-failed: #ef4444;
+  --st-failed-bg: #ef4444;
+  --st-failed-fg: var(--ink); /* 4.93（临界但达标） */
   --st-pending: #8b93a7;
-  --st-pending-bg: rgba(139, 147, 167, 0.12);
-  /* R67 / M13-5：「卡死」（前置单已失败，永远等不到）。它**不是**世界的六态之一，
-     是我们从 blockedBy 算出来的结论，所以内容库的调色板里没有它——用设计 token 兜。
-     选紫红而不是纯红：它不是"正在失败"，而是"已经死了、要人处理"。 */
-  --st-dead: #c77dff;
-  --st-dead-bg: rgba(199, 125, 255, 0.16);
+  --st-pending-bg: #8b93a7;
+  --st-pending-fg: var(--ink); /* 6.03 */
+  /* R67 / M13-5：「卡死」（前置单已失败，永远等不到）。**不是**世界六态之一，
+     是我们从 blockedBy 算出来的结论，所以内容库调色板里没有它。 */
+  --st-dead: #b98cff;
+  --st-dead-bg: #b98cff;
+  --st-dead-fg: var(--ink); /* 7.29 */
+  /* 「活着」指示灯（footer 的连接状态点）。 */
+  --live: #22c55e;
 
-  /* ── 形状 ───────────────────────────────────────────────────────────────── */
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 16px;
-  --r-pill: 999px;
+  /* ── 形状：**零圆角**（像素语言）。`--r-pill` 只给状态点用 2px。─────── */
+  --r-sm: 0;
+  --r-md: 0;
+  --r-lg: 0;
+  --r-pill: 2px;
 
-  /* ── 阴影与焦点 ─────────────────────────────────────────────────────────── */
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
-  --shadow-2: 0 8px 32px rgba(0, 0, 0, 0.45);
-  --glow-accent: 0 0 0 3px var(--accent-soft);
+  /* ── 阴影：**硬偏移，无模糊**（像素 UI 的签名）────────────────────────────── */
+  --shadow-1: 2px 2px 0 rgba(20, 18, 28, 0.55);
+  --shadow-2: 3px 3px 0 var(--ink);
+  /* 焦点环：不发光，用 2px 实线框（发光是"现代 Web"的语言）。 */
+  --glow-accent: 0 0 0 2px var(--ink);
+  --focus-ring: 2px solid var(--ink);
 
   /* ── 间距刻度 ───────────────────────────────────────────────────────────── */
   --s-1: 4px;
@@ -78,21 +116,24 @@
   --s-5: 24px;
   --s-6: 32px;
 
-  /* ── 字体与字号层级 ─────────────────────────────────────────────────────── */
-  --ui-font: Inter, "PingFang SC", "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
-  --mono-font: ui-monospace, SFMono-Regular, Menlo, "JetBrains Mono", monospace;
-  --fs-title: 17px;
-  --fs-section: 12px; /* 区块标题：大写字距 .06em */
+  /* ── 字体：**系统等宽栈**，不引外部字体（零许可风险）────────────────────────
+     中文回退到苹方/思源，因为等宽中文字体不普适；字距只加在**大写标签**上
+     （中文不适合 `0.10em` 字距——那是拉丁字母的排法）。 */
+  --ui-font: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "PingFang SC", "Hiragino Sans GB", monospace;
+  --mono-font: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --fs-title: 15px;
+  --fs-section: 11px;
   --fs-body: 13px;
   --fs-sub: 12px;
   --fs-micro: 11px;
-  --fw-title: 600;
-  --tracking-section: 0.06em;
+  --fw-title: 700;
+  /* 大写标签的字距（`.board-title`、区块标题等**拉丁**标签用；中文标签不要加）。 */
+  --tracking-section: 0.1em;
 
   /* ── 动效 ───────────────────────────────────────────────────────────────── */
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --t-hover: 120ms;
-  --t-expand: 220ms;
+  --ease: steps(2, end); /* 像素 UI 不做平滑缓动，跳变才对味 */
+  --t-hover: 90ms;
+  --t-expand: 160ms;
 
   /* ── 层级（浮层顺序，只在这里定义）──────────────────────────────────────── */
   --z-legend: 5;
@@ -109,14 +150,21 @@
    **状态色刻意不兜底**：状态色缺 token 时 board.js 会画内容里的哨兵色（品红），
    连哨兵都没有就挂 `.board-missing` 的虚线描边——**缺东西必须一眼看得出来**，
    静默退回一个"看起来设计就这样"的绿，才是最难查的那种错。 */
-#board {
-  /* 成员列宽度。**必须挂在 #board 上**而不是 `.board-body`：产出阅读面板住在 `.board-detail` 里，
-     它是 `.board-body` 的**兄弟**，变量传不过去（R45 真机自查：面板 left 差了 11px、盖住成员列）。 */
+#board,
+#sidebar {
+  /* 成员列宽度。**必须挂在容器上**而不是 `.board-body`：产出阅读面板住在 `.board-detail` 里，
+     它是 `.board-body` 的**兄弟**，变量传不过去（R45 真机自查：面板 left 差了 11px、盖住成员列）。
+     R103：`#sidebar` 也挂一份——看板搬进侧边栏之后它才是真容器。 */
   --board-members-w: 300px;
-  --board-bg: var(--bg-0);
-  --board-card: var(--bg-1);
-  --board-fg: var(--fg-0);
-  --board-dim: var(--fg-2);
-  --board-line: var(--stroke-strong);
+  --board-bg: var(--paper-panel);
+  --board-card: var(--paper-card);
+  --board-fg: var(--ink);
+  --board-dim: var(--ink-dim);
+  --board-line: var(--ink);
   --board-card-line: var(--stroke);
+  --board-select: var(--ink);
+  --board-missing: #ff00ff;
+  --board-done-line: #2f7d4a;
+  --board-fail-bg: #e8a0a0;
+  --board-verify: var(--ink-dim);
 }

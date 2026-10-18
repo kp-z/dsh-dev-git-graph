@@ -87,7 +87,7 @@
 .segment {
   padding: 5px var(--s-3);
   border: 0;
-  border-radius: calc(var(--r-sm) - 2px);
+  border-radius: 0;
   background: transparent;
   color: var(--fg-1);
   font-size: var(--fs-sub);
@@ -226,9 +226,10 @@
   width: 10px;
   height: 10px;
   flex: none;
-  border-radius: 50%;
+  border-radius: var(--r-pill);
   background: var(--dot, var(--fg-2));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--dot, var(--fg-2)) 22%, transparent);
+  /* R103：原来是 3px 半透明环（像发光）。像素 UI 用 1px 墨色硬环。 */
+  box-shadow: 0 0 0 1px var(--ink);
 }
 .agent-main {
   flex: 1;
@@ -355,7 +356,6 @@
   border: 1px solid var(--stroke);
   border-radius: var(--r-pill);
   background: var(--glass-strong);
-  backdrop-filter: var(--blur);
   box-shadow: var(--shadow-2);
   z-index: var(--z-drawer);
 }
@@ -412,7 +412,7 @@
 .legend-swatch {
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: 0;
   background: var(--swatch, var(--fg-2));
   border: 1px solid var(--stroke-strong);
 }
@@ -437,7 +437,6 @@
   border-radius: var(--r-md);
   border: 1px solid var(--stroke-strong);
   background: var(--glass-strong);
-  backdrop-filter: var(--blur);
   box-shadow: var(--shadow-1);
   font-size: var(--fs-micro);
   line-height: 1.35;
@@ -669,9 +668,10 @@
   width: 6px;
   height: 6px;
   margin-right: 6px;
-  border-radius: 50%;
+  border-radius: var(--r-pill);
   background: var(--accent);
-  box-shadow: 0 0 6px var(--accent);
+  /* R103：原来是 `0 0 6px` 的发光——像素语言里没有光晕，改用 1px 墨色硬描边。 */
+  box-shadow: 0 0 0 1px var(--ink);
   vertical-align: middle;
 }
 
@@ -686,7 +686,7 @@
 }
 .mode-tab {
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: 0;
   border: 1px solid transparent;
   background: var(--surface-2);
   color: var(--fg-2);
@@ -795,7 +795,7 @@
   height: 20px;
   padding: 0 4px;
   margin: 0;
-  border-radius: 4px;
+  border-radius: 0;
   border: 1px solid var(--stroke);
   border-bottom-width: 2px;
   background: var(--surface-2);
@@ -896,7 +896,7 @@
 .board-count-dot {
   width: 9px;
   height: 9px;
-  border-radius: 50%;
+  border-radius: var(--r-pill);
   display: inline-block;
   background: var(--st, currentColor);
 }
