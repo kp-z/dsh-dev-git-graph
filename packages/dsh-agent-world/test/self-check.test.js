@@ -183,6 +183,100 @@ test('反证③：**持续漂移**（跨两个以上代次）→ D 必须 > 0（
   assert.equal(check.report().verdict, 'degraded')
 })
 
+// ── R112：`D` 拆成 now（当前）与 total（历史）─────────────────────────────────
+//
+// 为什么这条关系值得钉：原先一个累计 `D` 同时表达"现在一致吗"和"历史上错过几次"，
+// 于是「已经修好了」与「还坏着」在仪表上**长得一模一样**（R111 实锤）。
+// 这里钉的不是某个数值，而是两条**关系**：
+//   ① `verdict` 只看 now；② `total` 只增不减、且不被 verdict 影响。
+
+test('R112：**verdict 只看 now** —— 持续漂移时 now>0 且 degraded', () => {
+  const { check } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 3.0 }] })
+  for (let gen = 0; gen < 3; gen += 1) {
+    check.setServerFacing({ 'agent-1': -3.0 })
+    check.sample()
+  }
+  const r = check.report()
+  assert.ok(r.last.nowDrift > 0, `此刻确实对不上，nowDrift 应 > 0，实际 ${r.last.nowDrift}`)
+  assert.equal(r.verdict, 'degraded')
+})
+
+test('R112：**停止漂移后 now 回 0、verdict 回 ok，而 total 仍保留**（两个同时成立才算对）', () => {
+  const { check, setActors } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 3.0 }] })
+  // 注入持续漂移：基线换 3 代，本地一直 3.0
+  for (let gen = 0; gen < 3; gen += 1) {
+    check.setServerFacing({ 'agent-1': -3.0 })
+    check.sample()
+  }
+  const totalAfterInjection = check.report().counts.facingDrift
+  assert.ok(totalAfterInjection > 0, '注入期间必须记到漂移')
+
+  // 停止注入（本地追上服务端）——**不重建实例、不刷新**，模拟"世界自己好了"
+  setActors([{ id: 'agent-1', facing: -3.0 }])
+  check.setServerFacing({ 'agent-1': -3.0 })
+  check.sample()
+
+  const after = check.report()
+  assert.equal(after.last.nowDrift, 0, '此刻已经一致 → now 必须回 0')
+  assert.equal(after.verdict, 'ok', 'verdict 只看 now → 必须回 ok')
+  assert.equal(
+    after.counts.facingDrift,
+    totalAfterInjection,
+    '**历史不能被抹掉**：total 要保留刚才的次数（把历史抹掉 = 把仪表变成"只会说好话"）',
+  )
+})
+
+test('R112：total 只增不减，且**正常回流不让它增长**', () => {
+  const { check, setActors } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 1.0 }] })
+  // 正常：一致，来回换几代
+  for (let gen = 0; gen < 4; gen += 1) {
+    check.setServerFacing({ 'agent-1': 1.0 })
+    check.sample()
+  }
+  assert.equal(check.report().counts.facingDrift, 0, '正常回流不该累积 total')
+  assert.equal(check.report().verdict, 'ok')
+
+  // 注入一次漂移 → total 涨
+  setActors([{ id: 'agent-1', facing: 9.9 }])
+  check.setServerFacing({ 'agent-1': 1.0 })
+  check.sample()
+  check.setServerFacing({ 'agent-1': 1.0 })
+  check.sample()
+  const t1 = check.report().counts.facingDrift
+  assert.ok(t1 > 0)
+
+  // 再正常几代 → total 不降（只增不减）
+  setActors([{ id: 'agent-1', facing: 1.0 }])
+  for (let gen = 0; gen < 4; gen += 1) {
+    check.setServerFacing({ 'agent-1': 1.0 })
+    check.sample()
+  }
+  const r = check.report()
+  assert.equal(r.counts.facingDrift, t1, 'total 不该因为恢复正常而减少')
+  assert.equal(r.last.nowDrift, 0)
+  assert.equal(r.verdict, 'ok', 'verdict 只看 now')
+})
+
+test('R112：文本里**当前与历史都看得见**（D 是 now，历史另行标注）', () => {
+  const { check, setActors } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 3.0 }] })
+  check.setServerFacing({ 'agent-1': -3.0 })
+  check.sample()
+  check.setServerFacing({ 'agent-1': -3.0 })
+  check.sample()
+  const degraded = check.report()
+  assert.ok(degraded.text.includes('D1'), `此刻 D 应是 1（当前），实际文本：${degraded.text}`)
+
+  setActors([{ id: 'agent-1', facing: -3.0 }])
+  check.setServerFacing({ 'agent-1': -3.0 })
+  check.sample()
+  const recovered = check.report()
+  assert.ok(recovered.text.startsWith('R0 F0 D0'), `恢复后当前应是 D0，实际：${recovered.text}`)
+  assert.ok(
+    /历史[1-9]/.test(recovered.text),
+    `恢复后**历史必须仍然可见**（不然就是"只会说好话"），实际：${recovered.text}`,
+  )
+})
+
 test('状态漂移：客户端追上之后计数不再涨（代次照换）', () => {
   const { check, setActors } = makeGenerationCheck({ actorList: [{ id: 'agent-1', facing: 3.0 }] })
   check.setServerFacing({ 'agent-1': -3.0 })

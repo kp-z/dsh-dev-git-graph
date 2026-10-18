@@ -50,7 +50,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r110'
+const BUILD = 'build r112'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
@@ -619,8 +619,13 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
      * 返回 `{text, counts, last, world, verdict}`：
      * - `counts.frameResets` 精灵实际帧 ≠ 动画当前帧（有人重置了帧，R85 就是这类）；
      * - `counts.animFlips` 动画键 A→B→A 来回翻（互抢；单向前进不算）；
-     * - `counts.facingDrift` 本地世界与服务端快照的 `facing` 连续两次对不上。
-     * **正常时三个数恒为 0**；不是 0 就说明这一类故障真的发生了。
+     * - **`last.nowDrift`（当前）** 此刻有几个 actor 的 `facing` 与服务端快照对不上；
+     * - **`counts.facingDrift`（历史）** 跨快照代次**确认过**多少次漂移，**只增不减**。
+     *
+     * ⚠️ R112：`verdict` **只看 `nowDrift`**（当前状态），不看历史累计——
+     * 原先只有一个累计数，于是"已经修好了"和"还坏着"在页面上长得一模一样。
+     * 性能条里的 `D0` 是**当前**，历史另外标成 `D0(历史20)`。
+     * **正常时 `nowDrift` 恒为 0**；不是 0 就说明此刻真的对不上。
      */
     selfCheck: () => selfCheck.report(),
     // R77：把气泡绘制也挂出来，页内就能验 9-slice 面板 / 文字 / 状态点 / 名字二选一。

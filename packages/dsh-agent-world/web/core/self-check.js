@@ -28,6 +28,10 @@
  *   "两次独立观测"，`D` 开始误报（实测：它报 `last.drift: 1` 时，独立比对 8/8 完全一致）。
  *   现在绑到 `serverGeneration` 上：**同一代次内采多少次都不累积**。
  *   这条对**仪表**尤其致命：一个会误报的仪表，会让它之前所有干净的 `D0` 都失去意义。
+ *   · **`now` = `last.nowDrift`**（本次采样里有多少个 actor 对不上）→ **`verdict` 只看它**；
+ *   · **`total` = `counts.facingDrift`**（跨代次确认过多少次）→ **只增不减，只作参考**。
+ *   · 文本：`D0` = 现在一致；`D0(历史20)` = 现在一致、但以前错过 20 次。
+ *     **两个读数都要看得见**——把历史抹掉等于把仪表变成"只会说好话"。
  * - **没测 ≠ 通过**：快照是异步慢档拉的，还没到手时漂移项根本没比过。
  *   这时摘要写 `D?` 且 `verdict` 是 `unverified`，不许显示成"没问题"。
  */
@@ -241,19 +245,40 @@ export function createSelfCheck(options = {}) {
    * （后台标签页按设计根本不拉）。这时 `D0` 只意味着"一次都没比过"——和"比过且一致"
    * 长得一模一样，而这正是本任务要消灭的静默形态。所以 `verdict` 分三档，且摘要里
    * 没测过时写 `D?` 而不是 `D0`。
+   *
+   * ## R112：`D` 拆成 **now（当前）** 与 **total（历史）**
+   *
+   * 原先只有一个累计的 `D`，于是**一个数字同时表达了两件事**：
+   *   · "现在一致吗" —— 用户真正要问的；
+   *   · "历史上错过几次" —— 诊断价值，但不是当前状态。
+   * 后果（R111 实锤）：注入漂移 → `D=20`；**停止注入后** `last.drift` 已经回 0（当前确实好了），
+   * 可 `D` 还是 20、`verdict` 还是 `degraded`，**直到刷新页面**——
+   * 「已经好了」和「还坏着」在仪表上长得一模一样。
+   *
+   * 现在：
+   *   · **`now` = `last.nowDrift`**（本次采样里有多少个 actor 对不上）→ **`verdict` 只看它**；
+   *   · **`total` = `counts.facingDrift`**（跨代次确认过多少次）→ **只增不减，只作参考**，
+   *     **不参与 `verdict`**。
+   *   · 文本：`D0` = 现在一致；`D0(历史20)` = 现在一致、但以前错过 20 次。
+   *     **两个读数都要看得见**——把历史抹掉等于把仪表变成"只会说好话"。
    */
   function report() {
     const tested = serverFacing.size > 0
-    const clean = counts.frameResets === 0 && counts.facingDrift === 0
+    const total = counts.facingDrift
+    // ⚠️ `verdict` **只看 now**：历史累计再多，只要此刻一致就是 ok。
+    // 反过来也一样——不能因为"历史上没错过"就把此刻的不一致读成 ok。
+    const clean = counts.frameResets === 0 && last.nowDrift === 0
+    const history = total > 0 ? `(历史${total})` : ''
     return {
-      // 一行给性能条用的短摘要。
-      text: `R${counts.frameResets} F${counts.animFlips} D${tested ? counts.facingDrift : '?'}`,
+      // 一行给性能条用的短摘要：`D` 是**当前**，历史另外标注。
+      text: `R${counts.frameResets} F${counts.animFlips} D${tested ? last.nowDrift : '?'}${tested ? history : ''}`,
       counts: { ...counts },
       last: { ...last },
       sample: { intervalMs, sprites: last.sprites },
       world: { fetchState, facingCount: serverFacing.size, at: serverFacingAt, generation: serverGeneration },
       /**
-       * `ok` = 两类都**比过且一致**；`degraded` = 真的出过错；
+       * `ok` = 两类都**比过且此刻一致**（历史错过的次数不影响它）；
+       * `degraded` = **此刻**有问题（帧重置 / 朝向对不上）；
        * `unverified` = 帧比过了、但漂移一项还没比过（快照没到手）。
        */
       verdict: clean !== true ? 'degraded' : (tested === true ? 'ok' : 'unverified'),
@@ -283,6 +308,9 @@ export function createSelfCheck(options = {}) {
       lastAnimKeys = new Map()
       prevAnimKeys = new Map()
       pendingDrift = new Map()
+      // `nowDrift` 是**状态**读数（下一次采样会重算），清零只是别让"刚 reset 完"
+      // 那一瞬间还挂着上一次的旧状态。
+      last = { ...last, drift: 0, nowDrift: 0 }
     },
   }
 }
