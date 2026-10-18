@@ -76,6 +76,25 @@ interface ToolScope {
   }): Promise<ToolExecutionResult>
 }
 
+/**
+ * 一条 `user/message` 的文本是否**含我们发出去的原话**（R119）。
+ *
+ * 用"包含"而不是"相等"：agent-teams 投递时会包一层信封
+ *（实测：`AgentTeams message from member 工头阿金: …原话…`），所以原话是子串。
+ * 原话为空时一律不匹配——否则空串会"包含于"任何消息，把第一条无关消息认成我们的。
+ */
+export function containsSentText(data: Record<string, unknown>, sentText: string): boolean {
+  if (sentText === '') return false
+  const content = data['content']
+  if (!Array.isArray(content)) return false
+  for (const block of content) {
+    if (typeof block !== 'object' || block === null) continue
+    const b = block as Record<string, unknown>
+    if (b['type'] === 'text' && typeof b['text'] === 'string' && b['text'].includes(sentText)) return true
+  }
+  return false
+}
+
 /** `ctx.subagents` 里我们用到的部分（官方接口，用来按 label 反查成员会话）。 */
 interface SubagentScope {
   listChildren?(parentSessionId: string, signal?: AbortSignal): Promise<readonly { readonly id: string; readonly label?: string }[]>
@@ -333,6 +352,9 @@ export function createTeamsPort(
     return hit.id
   }
 
+  /** 角色 id → 最后一次投出去的原话（R119：`waitForReply` 用它认出我们那一轮）。 */
+  const lastSentText = new Map<string, string>()
+
   return {
     async say(characterId: string, text: string): Promise<TeamsDialogueAck | TeamsDialogueFailure> {
       if (disposed) return { ok: false, reason: '插件已卸载：这句话没有投出去。' }
@@ -343,6 +365,8 @@ export function createTeamsPort(
       try {
         const name = await ensureMember(characterId, signal)
         const result = await callTeamTool('agent_teams_send_message', { to: name, content: text }, signal)
+        // R119：记下原话——`waitForReply` 靠它在事件流里认出"装着这句话的那一轮"。
+        if (result.isError !== true) lastSentText.set(characterId, text.trim())
         if (result.isError === true) {
           return { ok: false, reason: `消息没投出去：${textOf(result) || '工具报错但没给原因'}` }
         }
@@ -382,6 +406,46 @@ export function createTeamsPort(
         const actions: { name: string; detail?: string; ok: boolean }[] = []
         let text = ''
         let settled = false
+        /**
+         * **我们这一轮是第几轮**（R119 / task-18）。
+         *
+         * ## 根因
+         *
+         * 时序是 `say()` **先投递**、`waitForReply()` **后订阅**。旧代码对**任何** `turn/end`
+         * 都直接收尾——如果订阅时会话里已经有一轮在跑，我们会先收到**那一轮的 `turn/end`**
+         *（而它的正文在我们订阅前就发完了），于是立刻判「没有发言，也没有动手」。
+         *
+         * 队长会话（`agent-world:captain` = 工头阿金）实测在 58→67 轮之间**连续转轮**：
+         * `subagent-settled` / `agent-teams` / `runtime-context` 不断注入消息，它几乎从不空闲。
+         * 所以这个误判对 agent-1 是**稳定复现**的（对空闲成员才偶尔看不出来）。
+         *
+         * ## 判据：认出**装着那句话的那一轮**
+         *
+         * 真机会话记录（`~/.dsh/sessions/.../agent-world:captain`）实测，我们发出去的原话
+         * 会作为一条 `user/message` 出现在会话里（`source.kind` 为 `agent-teams`；
+         * character-bridge 那条路是 `user` + `rpcId: agent-world-say:<角色>:<n>`）。
+         * 于是：
+         *
+         *   ① `user/message` 的文本**含我们发出去的原话** ⇒ 记下当前轮次 = **我们这一轮**；
+         *   ② 只有**那一轮**的 `turn/end` 才结算。
+         *
+         * ⚠️ **为什么不用"订阅之后开始的轮次"当判据**（我第一版就是这么写的，被回放测试打回）：
+         * 队长会话里 `subagent-settled` 也会**在订阅之后**开启新的轮次（实测 60/63/64 都是），
+         * 那些轮次同样"订阅后才开始"，于是它们的 `turn/end` 会被误当成我们的——
+         * 把**别人的回复**（如"我先看看团队状态。"）报成答案。
+         * **"订阅后开始"只是必要条件，不是充分条件。**
+         *
+         * ⚠️ **不用时间启发式**（"收到得早所以是陈旧的"）：脆弱、无法测试。
+         * 这里用的是事件里的**内容与轮次号**，两者都可在单测里构造。
+         *
+         * ⚠️ **反向判据同样重要**：真"模型一句话没说"的那一轮**仍会报失败**——
+         * 我们那条 `user/message` 照样会到，`ourTurn` 照样认得出来，
+         * 它的 `turn/end` 照常结算（`text` 为空 → 报「没有发言」）。
+         * 若改成"永远不结算"，就把"坏掉"伪装成"正常"——那比原 bug 更坏。
+         */
+        const sentText = lastSentText.get(characterId) ?? ''
+        let ourTurn: number | null = null
+        let currentTurn: number | null = null
         const finish = (result: TeamsDialogueReplyOk | TeamsDialogueFailure): void => {
           if (settled) return
           settled = true
@@ -398,6 +462,21 @@ export function createTeamsPort(
           const event = raw as { type?: string; data?: unknown } | undefined
           if (event === undefined || typeof event.type !== 'string') return
           const data = (event.data ?? {}) as Record<string, unknown>
+
+          if (event.type === 'turn/start') {
+            const turn = data['turn']
+            if (typeof turn === 'number') currentTurn = turn
+            return
+          }
+
+          if (event.type === 'user/message') {
+            // 我们发出去的原话会作为一条 user/message 落进会话——认出它，就认出了我们这一轮。
+            // 只认**第一次**匹配（同一条消息可能被引用/复述，后面的匹配不是"投递"）。
+            if (ourTurn === null && currentTurn !== null && containsSentText(data, sentText)) {
+              ourTurn = currentTurn
+            }
+            return
+          }
 
           if (event.type === 'assistant/message') {
             const message = data['message'] as { content?: unknown } | undefined
@@ -417,6 +496,13 @@ export function createTeamsPort(
           }
 
           if (event.type === 'turn/end') {
+            // R119：**只结算"装着那句话的那一轮"**。
+            //  · 还没认出我们的轮次 → 任何 `turn/end` 都不结算（宁可等到超时，也不把别人的
+            //    回复报成答案——那正是"工头阿金说不出话"的镜像错误）；
+            //  · 认出来了 → 只有那一轮的 `turn/end` 算数。
+            const endingTurn = data['turn']
+            if (ourTurn === null) return
+            if (typeof endingTurn === 'number' && endingTurn !== ourTurn) return
             const reason = data['reason'] as { kind?: string; error?: { message?: string } } | undefined
             if (reason?.kind === 'error') {
               finish({ ok: false, reason: `这一轮模型报错（${reason.error?.message ?? '没有详情'}）。` })

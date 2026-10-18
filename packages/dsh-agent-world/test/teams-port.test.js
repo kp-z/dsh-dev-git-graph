@@ -118,6 +118,12 @@ test('teams：成员会话 id 按 label 反查（`agent-teams:<teamId>:<成员�
   for (let i = 0; i < 50 && seen.length === 0; i += 1) await new Promise((r) => setTimeout(r, 2))
   assert.equal(seen.length, 1, '必须订阅事件流')
   // 推一条回复：会话 id 必须是反查到的那个。
+  // ⚠️ R119：**必须先 `turn/start` 再 `turn/end`**——真机的流里两者永远成对出现，
+  // 而 `waitForReply` 现在只结算"订阅之后才开始"的轮次（见下面那条反证用例）。
+  // 这条用例原先只推 `turn/end`，等于在替"对任何 turn/end 都收尾"的旧行为背书。
+  seen[0]('member-session-1', { type: 'turn/start', data: { turn: 1 } })
+  // 真机流里我们那句话会作为 user/message 落进这一轮（R119 靠它认出"我们这一轮"）。
+  seen[0]('member-session-1', { type: 'user/message', data: { source: { kind: 'agent-teams' }, content: [{ type: 'text', text: 'AgentTeams message: 你好' }] } })
   seen[0]('member-session-1', {
     type: 'assistant/message',
     data: { message: { role: 'assistant', content: [{ type: 'text', text: '我是成员-agent-5。' }] } },
@@ -171,4 +177,140 @@ test('R43：createTask 带依赖，返回 value.task_id；拿不到 id 时报出
 
   const bad = makePort({ tools: fakeTools({ agent_teams_create: CREATED, agent_teams_create_task: { isError: false, content: [], value: {} } }), transport: { subscribe: () => () => {} } })
   await assert.rejects(bad.createTask({ subject: 'X' }), /task_id/)
+})
+
+test('R119：**订阅前就在跑的轮次**，它的 turn/end 必须被忽略（"工头阿金说不出话"的根因）', async () => {
+  const seen = []
+  const SENT = { isError: false, value: {}, content: [] }
+  const port = makePort({
+    tools: fakeTools({ agent_teams_create: CREATED, agent_teams_add_member: SENT, agent_teams_send_message: SENT }),
+    subagents: fakeSubagents([{ id: 'member-session-1', label: 'agent-teams:agent-world:成员-agent-5' }]),
+    transport: {
+      subscribe(listener) {
+        seen.push(listener)
+        return () => {}
+      },
+    },
+  })
+
+  await port.say('agent-5', '你在忙什么？')
+  const pending = port.waitForReply('agent-5', 5000)
+  for (let i = 0; i < 50 && seen.length === 0; i += 1) await new Promise((r) => setTimeout(r, 2))
+  assert.equal(seen.length, 1)
+
+  // ① 先来一条**陈旧的** turn/end：它属于订阅前就在跑的那一轮（我们从没见过它的 start）。
+  //    正文在订阅前就发完了 —— 这正是真机上把 agent-1 判成"没发言"的那条事件。
+  seen[0]('member-session-1', { type: 'turn/end', data: { turn: 7, reason: { kind: 'completed' } } })
+
+  // ② 我们这条消息触发的轮次：turn/start 在订阅之后到达 → 它的 turn/end 才算数。
+  seen[0]('member-session-1', { type: 'turn/start', data: { turn: 8 } })
+  seen[0]('member-session-1', { type: 'user/message', data: { source: { kind: 'agent-teams' }, content: [{ type: 'text', text: 'AgentTeams message: 你在忙什么？' }] } })
+  seen[0]('member-session-1', {
+    type: 'assistant/message',
+    data: { message: { role: 'assistant', content: [{ type: 'text', text: '我在盯 task-27。' }] } },
+  })
+  seen[0]('member-session-1', { type: 'turn/end', data: { turn: 8, reason: { kind: 'completed' } } })
+
+  const reply = await pending
+  assert.equal(reply.ok, true, `陈旧 turn/end 把这一轮提前结算了：${reply.reason ?? ''}`)
+  assert.equal(reply.text, '我在盯 task-27。')
+})
+
+test('R119：**模型确实没发言**的那一轮仍要报失败（不许退化成"永远不报错"）', async () => {
+  const seen = []
+  const SENT = { isError: false, value: {}, content: [] }
+  const port = makePort({
+    tools: fakeTools({ agent_teams_create: CREATED, agent_teams_add_member: SENT, agent_teams_send_message: SENT }),
+    subagents: fakeSubagents([{ id: 'member-session-1', label: 'agent-teams:agent-world:成员-agent-5' }]),
+    transport: {
+      subscribe(listener) {
+        seen.push(listener)
+        return () => {}
+      },
+    },
+  })
+
+  await port.say('agent-5', '说句话')
+  const pending = port.waitForReply('agent-5', 5000)
+  for (let i = 0; i < 50 && seen.length === 0; i += 1) await new Promise((r) => setTimeout(r, 2))
+
+  // 我们这一轮：start 在订阅之后、**没有 assistant/message**、直接 end。
+  seen[0]('member-session-1', { type: 'turn/start', data: { turn: 3 } })
+  seen[0]('member-session-1', { type: 'user/message', data: { source: { kind: 'agent-teams' }, content: [{ type: 'text', text: 'AgentTeams message: 说句话' }] } })
+  seen[0]('member-session-1', { type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } })
+
+  const reply = await pending
+  assert.equal(reply.ok, false, '没发言必须报失败——否则就是把"坏掉"伪装成"正常"')
+  assert.match(reply.reason, /没有发言/)
+})
+
+test('R119：按**真机实况**回放——队长会话连续转轮时，只有我们那一轮会被结算', async () => {
+  // 事件序列取自真机会话记录 `agent-world:captain`（工头阿金）：
+  // 它在 58→66 轮之间**连续转轮**，中间还夹着 `subagent-settled` / `runtime-context` 触发的轮次，
+  // 而且 turn 64 是 `turn/end(blocked)`、**没有任何 assistant/message**。
+  // 旧代码在这里必然踩到别人的 `turn/end` → 稳定误判「工头阿金没有发言」。
+  const seen = []
+  const SENT = { isError: false, value: {}, content: [] }
+  const port = makePort({
+    tools: fakeTools({ agent_teams_create: CREATED, agent_teams_add_member: SENT, agent_teams_send_message: SENT }),
+    subagents: fakeSubagents([{ id: 'cap-session', label: 'agent-teams:agent-world:成员-agent-1' }]),
+    transport: {
+      subscribe(listener) {
+        seen.push(listener)
+        return () => {}
+      },
+    },
+  })
+
+  await port.say('agent-1', '那张单卡在哪？')
+  const pending = port.waitForReply('agent-1', 5000)
+  for (let i = 0; i < 50 && seen.length === 0; i += 1) await new Promise((r) => setTimeout(r, 2))
+  const emit = seen[0]
+  const to = (turn, reason) => emit('cap-session', { type: 'turn/end', data: { turn, reason: { kind: reason } } })
+  const start = (turn) => emit('cap-session', { type: 'turn/start', data: { turn } })
+
+  // ① 订阅前就在跑的轮次 58/59：它们的 end 先到（正文早在我们订阅前就发完了）。
+  to(58, 'completed')
+  to(59, 'error')
+  // ② 别人的轮次 60/61/62：有 assistant/message，但**不是我们这条消息触发的**。
+  start(60)
+  // 别人的消息（subagent-settled）——不含我们那句话，所以 60 轮**不是**我们的。
+  emit('cap-session', { type: 'user/message', data: { source: { kind: 'subagent-settled' }, content: [{ type: 'text', text: 'Background subagent finished.' }] } })
+  emit('cap-session', { type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: '我先看看团队状态。' }] } } })
+  to(60, 'completed')
+  start(63)
+  to(63, 'completed')
+  // ③ 真机里那个"没有发言"的轮次（blocked）——也不是我们的。
+  start(64)
+  to(64, 'blocked')
+
+  // ④ 我们这条消息触发的轮次：65 → 有回复 → end。
+  start(65)
+  emit('cap-session', { type: 'user/message', data: { source: { kind: 'agent-teams' }, content: [{ type: 'text', text: 'AgentTeams message: 那张单卡在哪？' }] } })
+  emit('cap-session', { type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: '卡在没有工位：research 能力没空位。' }] } } })
+  to(65, 'completed')
+
+  const reply = await pending
+  assert.equal(reply.ok, true, `被前面任何一条 turn/end 提前结算了：${reply.reason ?? ''}`)
+  assert.equal(reply.text, '卡在没有工位：research 能力没空位。')
+})
+
+test('R119：**认不出我们那一轮**时，宁可超时也不把别人的回复报成答案', async () => {
+  const seen = []
+  const SENT = { isError: false, value: {}, content: [] }
+  const port = makePort({
+    tools: fakeTools({ agent_teams_create: CREATED, agent_teams_add_member: SENT, agent_teams_send_message: SENT }),
+    subagents: fakeSubagents([{ id: 's', label: 'agent-teams:agent-world:成员-agent-5' }]),
+    transport: { subscribe(l) { seen.push(l); return () => {} } },
+  })
+  await port.say('agent-5', '只有我知道的这句话')
+  const pending = port.waitForReply('agent-5', 150)
+  for (let i = 0; i < 50 && seen.length === 0; i += 1) await new Promise((r) => setTimeout(r, 2))
+  // 一整轮**别人的**：有回复、有 end，但从没出现过我们那句话。
+  seen[0]('s', { type: 'turn/start', data: { turn: 9 } })
+  seen[0]('s', { type: 'assistant/message', data: { message: { role: 'assistant', content: [{ type: 'text', text: '别人的回复' }] } } })
+  seen[0]('s', { type: 'turn/end', data: { turn: 9, reason: { kind: 'completed' } } })
+  const reply = await pending
+  assert.equal(reply.ok, false, '把别人的回复报成了答案')
+  assert.match(reply.reason, /还没等到/)
 })

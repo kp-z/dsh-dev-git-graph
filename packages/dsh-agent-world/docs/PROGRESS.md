@@ -42,6 +42,96 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R126（Lead）—— 重启宿主做 R119 真机验收：**未通过**，失败形态变了
+
+developer 交来 task-18（轮次门禁：只结算"含我们原话的那一轮"的 turn/end），单测 671/671，等重启。
+3080 的宿主是 Lead 后台任务起的（PID 4915，父为 bash），**不是桌面 GUI（54184）**，可安全重启——已重启。
+
+### 真机结果
+- 宿主加载的确是新代码：profile `lib/bridge/teams.js` 含 `ourTurn`（6 处），与包内**同 inode**。
+- 对 agent-1 搭话：`thinking`(tick 389837) → `failed`(tick 390121，**≈28s 后**)，reason 仍是「没有发言，也没有动手」。
+
+### 判断
+**失败形态变了**：以前是"秒失败"（吃到别人那一轮的 turn/end），现在是**等了 28s 才失败** ⇒
+门禁确实认出并结算了"某一轮"，**但那一轮里没收到文字**。所以单测全绿、真机仍坏——
+**单测钉住的是我们设想的事件序列，不是真实序列**（又一次"测的是声明不是呈现"的同类）。
+
+最可疑的点（已发给 developer 去用真实事件核实）：探针里原话出现在 **captain 会话**，
+而 `waitForReply` 订阅的是**成员会话**；若成员的回复是**以工具调用（agent_teams_send_message）回给队长**，
+成员会话里就只有 tool-call、没有 text block —— 正好被判成"没发言"。
+
+task-18 保持 in_progress，PROGRESS 由 developer 记 R127。
+
+---
+
+## R125（task-18 / developer）—— 修 bridge 轮次关联：工头阿金「说不出话」（**代码已完成，等重启宿主做真机验收**）
+
+### 第一步：可行性确认（按任务书，先查再改）
+**结论：不需要"读会话当前轮次"的 API——事件流自己就带着关联键。**
+（我没找到插件可调用的会话投影读取接口：`turnBoundary` 在 DSH 核心里是 session projection，
+但插件只拿得到 `ctx.subagents.listChildren`；所以"基线方案"走不通，改用下面这条。）
+
+证据来自真机会话记录（`~/.dsh/sessions/--Users-kp--/agent-world~003Acaptain/session.v4.jsonl.zstd`，zstd 解压）：
+
+- **工头阿金 = 队长会话**，它在 58→67 轮之间**连续转轮**；`user/message` 的来源只有
+  `subagent-settled`(64) / `agent-teams`(47) / `runtime-context`(32)——**几乎从不空闲**。
+  所以"订阅时恰好有一轮在跑"对 agent-1 是**常态**，这就是"稳定复现、重启无效"的原因。
+- **真机探针**：对 agent-1 发 `PROBE-R119-1792354277`（`/api/say` → `accepted, turn-2`），
+  解压会话记录后看到它落在：
+  ```
+  turn/start 67
+    user/message  source.kind=agent-teams  「AgentTeams message from member 工头阿金: … PROBE-R119-… 」
+    assistant/message 67      ← 回复
+    user/message  subagent-settled ×2
+  turn/end 67 completed
+  ```
+  ⇒ **我们发出去的原话会作为 `user/message` 出现在被监听的会话里**，它所在的那一轮就是"我们这一轮"。
+
+### 改法（`src/bridge/teams.ts`）
+1. `say()` 投递成功后记下原话：`lastSentText.set(characterId, text.trim())`；
+2. `waitForReply` 跟踪 `turn/start` 的 `turn`；`user/message` 文本**含原话**时 → `ourTurn = currentTurn`
+  （只认第一次匹配；新增导出的 `containsSentText()`，空原话一律不匹配）；
+3. `turn/end`：**`ourTurn` 未认出 → 不结算**；认出后**只结算 `turn === ourTurn` 的那一条**。
+
+**不是时间启发式**：判据只用事件里的**内容与轮次号**，都能在单测里构造。
+
+### ⚠️ 我第一版写错了，被回放测试打回（值得记）
+第一版判据是"只认**订阅之后才 `turn/start`** 的轮次"。按真机实况写的回放测试立刻红了：
+队长会话里 `subagent-settled` 也会在订阅**之后**开新轮（60/63/64），于是 60 轮的
+「我先看看团队状态。」被当成了我们的回答——**把别人的回复报成答案**，是原 bug 的镜像。
+**"订阅后开始"只是必要条件，不是充分条件**；必须认出"装着那句话的那一轮"。
+
+### 测试（`test/teams-port.test.js`，钉的是关系不是数值）
+| 用例 | 钉住的关系 |
+|---|---|
+| 订阅前就在跑的轮次 | 陈旧 `turn/end` 不结算（原 bug） |
+| 真机实况回放（58→65） | 只有含原话的那一轮结算；60/63/64（含 blocked）都不算 |
+| **模型确实没发言** | 我们那一轮 start→end 无正文 ⇒ **仍报「没有发言」**（反向判据） |
+| 认不出我们那一轮 | 宁可超时，也不把别人的回复报成答案 |
+
+原有一条用例只推 `turn/end`、不推 `turn/start` 与 `user/message`——它在替旧行为背书，已按真机流补齐。
+**反证**：去掉轮次门禁（=旧行为）→ **3 条 R119 用例变红**；恢复 → 12/12。"没发言仍报失败"那条两种情况都绿，
+说明修复**不是靠关掉报错**换来的。
+
+### 验证
+`tsc --noEmit` 绿 · `node --test` **671 / 671**（基线 667 + 新增 4）· `copy-web` + `diff -rq web lib/web` 无输出 ·
+`lib/bridge/teams.js` 已重建，profile 副本同 inode（已是新代码）。**`web/` 未动。**
+
+### ⚠️ 卡住：需要重启宿主（我没有自己做）
+3080 由 PID 4915（`dsh-desktop-host/lib/cli.js web`，父进程 4914 是 bash 包装）提供，
+内存里仍是旧模块。它挂在桌面 app 下，我判断自行 kill 有误伤用户会话的风险，**交给 Lead 重启**。
+重启后请验（任务书验收 1–4）：
+1. 起点（旧码）已有证据：R118 的「工头阿金这一轮没有发言，也没有动手」；
+2. `curl -X POST :3080/agent-world/api/say -d '{"agentId":"agent-1","text":"一句话介绍你自己"}'` → SSE 应为 `thinking → replied`；
+3. 反向：临时让它"只调工具不说话" ⇒ 仍应报「没有发言」/「只动了手…一句话也没说」；
+4. agent-3 / agent-6 照常 replied。
+
+### 下一轮从哪继续
+- 同一句话连发两次时，第二次的 `user/message` 可能先匹配上第一次那一轮——目前靠"只认订阅后第一次匹配"
+  且 `say` 与 `waitForReply` 成对调用来规避；若以后允许并发搭话，应改成 say 生成唯一标记（如 rpcId）。
+
+---
+
 ## R124（Lead）—— 验收 R5（task-21）：全过；裁定"去重叠只藏不排"
 
 ### 核实
