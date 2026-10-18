@@ -1,22 +1,35 @@
 /*
- * 侧边栏骨架（R2 建 → R3 收口）—— **页面内的 `<aside>`，不是 DSH 右侧栏 tab**。
+ * 侧边栏骨架（R2 建 → R3 收口 → R99 去 tab + 可折叠）—— **页面内的 `<aside>`**。
  *
  * ## 为什么是这个形态（决定别改）
  *
  * 1. **必须同文档**：列表点击要驱动的是 Phaser 相机（`scene2d.selectAgent`）。
- *    挂 DSH tab 会让"点列表 → 动相机"变成跨文档消息——收益为负（见 `docs/RESEARCH-reuse.md` §1）。
- * 2. **两档 = 同一份数据的两种投影**，不是两个功能（`DESIGN-interaction.md` §4.2）。
+ *    挂 DSH 右侧栏 tab 会让"点列表 → 动相机"变成跨文档消息——收益为负（见 `docs/RESEARCH-reuse.md` §1）。
+ * 2. **两块是同一份数据的两种投影**，不是两个功能（`DESIGN-interaction.md` §4.2）。
  *
- * ## R3 收口：这里**不再有任何渲染逻辑**
+ * ## 本文件**不含任何渲染逻辑**
  *
- * 本文件只负责"两块容器 + 一个页签条"。内容全部由 `board.js` 挂进来：
+ * 内容全部由 `board.js` 挂进来：
  *
- *   `createBoard({ mounts: sidebar.mounts() })` →  `renderMembers()` 落进 Agent 档，
- *                                                 `renderGraph()` 落进任务图档。
+ *   `createBoard({ mounts: sidebar.mounts() })` →  `renderMembers()` 落进「团队」区，
+ *                                                 `renderGraph()` 落进「任务图」区。
  *
- * 上一轮那份 `renderAgentRow` / `renderGraph`（按状态分组的摘要）**已经删掉**。
- * 删的理由就是用户点名的「避免同样的功能做两份」——留着它，同一批任务会有两套渲染，
+ * 曾有过一份 `renderAgentRow` / `renderGraph`（按状态分组的摘要），**已删**。
+ * 理由就是用户点名的「避免同样的功能做两份」——留着它，同一批任务会有两套渲染，
  * 一处改了另一处不改，界面上就是两种真相。**别再加回来。**
+ *
+ * ## R99：为什么去掉页签、改成上下堆叠
+ *
+ * 用户原话：「不是分成两个 tab，这两个 tab 应该可以同时看到才对」。
+ * 页签的隐含前提是"两块内容互斥"，但这里它们**不互斥**——看人时也想看任务图，
+ * 而且"要切回来才能看到另一块"正是页签最烦人的地方（切走之后状态就看不见了）。
+ *
+ * ## ⚠️ 折叠会让两块容器变成 0×0（这是本文件最需要小心的地方）
+ *
+ * 依赖图的几何是**按容器实测尺寸**挑的。折叠侧边栏时两块容器宽高都是 0，
+ * 这时去画会得到一张缩到 0.4 下限的废图；而"展开之后不重画"就会一直停在废图上。
+ * 所以：**折叠时什么都不量，展开之后由 `onExpand` 触发一次重画**。
+ *（同一个坑在 R3 换过一次位置：那时是 `hidden` 的页签，现在是折起来的侧边栏。）
  */
 
 /** 元素工厂（三行函数，比跨模块导出一个更好的内聚边界）。 */
@@ -27,10 +40,18 @@ function el(doc, tag, className, text) {
   return node
 }
 
-/** 两个视图的标识（也是 `role="tab"` 的 id 后缀）。 */
-const VIEWS = [
-  { id: 'agents', title: 'Agent 列表' },
-  { id: 'graph', title: '任务流程图' },
+/**
+ * 折叠状态的记忆键。
+ *
+ * 为什么要记住：用户折叠侧边栏是**为了看场景**，刷新一次又弹回来，他每次都得再点一下。
+ * 用 `localStorage` 而不是服务端：这是**这台机器上这个人**的界面偏好，不是世界状态。
+ */
+const COLLAPSED_KEY = 'agentWorld.sidebarCollapsed'
+
+/** 两块区域的标识（也是 DOM id 后缀）。 */
+const REGIONS = [
+  { id: 'agents', title: '团队' },
+  { id: 'graph', title: '任务图' },
 ]
 
 /**
@@ -38,9 +59,10 @@ const VIEWS = [
  *
  * @param {object} options
  * @param {HTMLElement} options.root - `<aside id="sidebar">`
- * @param {string} [options.initialView] - 初始视图（`agents` | `graph`）
- * @param {(view: string) => void} [options.onViewChange] - 切档后通知（看板据此重量依赖图：
- *   档隐藏时它的画布宽高是 0，画出来的几何是废的，必须在**可见之后**重挑档位）
+ * @param {boolean} [options.initialCollapsed] - 初始折叠态（缺省读 `localStorage`）
+ * @param {(collapsed: boolean) => void} [options.onCollapseChange] - 折叠态变化
+ * @param {() => void} [options.onExpand] - **展开之后**（已在下一帧，布局已落定）。
+ *   依赖图必须在这个时机重挑几何——折叠期间量到的尺寸是 0。
  */
 export function createSidebar(options = {}) {
   const doc = options.root?.ownerDocument ?? globalThis.document
@@ -50,55 +72,67 @@ export function createSidebar(options = {}) {
     return createNullSidebar()
   }
 
-  let view = VIEWS.some((v) => v.id === options.initialView) ? options.initialView : VIEWS[0].id
+  let collapsed = typeof options.initialCollapsed === 'boolean' ? options.initialCollapsed : readCollapsed()
 
   // ── 骨架（只建一次）─────────────────────────────────────────────────────────
   root.textContent = ''
   const head = el(doc, 'div', 'sidebar-head')
-  const tabs = el(doc, 'div', 'sidebar-tabs')
-  tabs.setAttribute('role', 'tablist')
-  tabs.setAttribute('aria-label', '侧边栏视图')
-  head.append(tabs)
+  const toggle = el(doc, 'button', 'sidebar-toggle', '团队与任务')
+  toggle.type = 'button'
+  toggle.id = 'sidebar-toggle'
+  head.append(toggle)
   const body = el(doc, 'div', 'sidebar-body')
-  const agentsPanel = el(doc, 'div', 'sidebar-panel sidebar-panel-agents')
-  agentsPanel.id = 'sidebar-panel-agents'
-  agentsPanel.setAttribute('role', 'tabpanel')
-  const graphPanel = el(doc, 'div', 'sidebar-panel sidebar-panel-graph')
-  graphPanel.id = 'sidebar-panel-graph'
-  graphPanel.setAttribute('role', 'tabpanel')
-  graphPanel.hidden = true
-  body.append(agentsPanel, graphPanel)
+  body.id = 'sidebar-body'
+
+  /** 两块常驻区域：`<section role="region">` + 自己的标题（不再是 tabpanel）。 */
+  const panels = {}
+  const titleIds = {}
+  for (const region of REGIONS) {
+    const panel = el(doc, 'section', `sidebar-panel sidebar-panel-${region.id}`)
+    panel.id = `sidebar-panel-${region.id}`
+    // `region`（而不是 `tabpanel`）：这两块**同时可见**，没有"选中的是哪一个"这回事。
+    panel.setAttribute('role', 'region')
+    const titleId = `sidebar-region-${region.id}`
+    titleIds[region.id] = titleId
+    const title = el(doc, 'h2', 'sidebar-region-title', region.title)
+    title.id = titleId
+    panel.setAttribute('aria-labelledby', titleId)
+    panel.append(title)
+    body.append(panel)
+    panels[region.id] = panel
+  }
   root.append(head, body)
 
-  const tabNodes = new Map()
-  for (const entry of VIEWS) {
-    const tab = el(doc, 'button', 'sidebar-tab', entry.title)
-    tab.type = 'button'
-    tab.id = `sidebar-tab-${entry.id}`
-    tab.setAttribute('role', 'tab')
-    tab.setAttribute('aria-controls', `sidebar-panel-${entry.id}`)
-    tab.addEventListener('click', () => setView(entry.id))
-    tabs.append(tab)
-    tabNodes.set(entry.id, tab)
-  }
-
-  /** 切档：只改可见性与 `aria-selected`（数据由看板那边一份渲染，这里不动）。 */
-  function setView(next) {
-    if (next !== 'agents' && next !== 'graph') return view
-    view = next
-    for (const entry of VIEWS) {
-      const tab = tabNodes.get(entry.id)
-      const active = entry.id === view
-      tab.classList.toggle('is-active', active)
-      tab.setAttribute('aria-selected', active === true ? 'true' : 'false')
-      const panel = entry.id === 'agents' ? agentsPanel : graphPanel
-      panel.hidden = active !== true
+  /** 折叠：只切 class，宽度由 CSS 的 `--sidebar-w` 决定（引擎的 `Scale.RESIZE` 自己带画布跟）。 */
+  function setCollapsed(next) {
+    collapsed = next === true
+    root.classList.toggle('is-collapsed', collapsed)
+    /**
+     * ⚠️ 列宽是**父元素**（`.app`）的 `grid-template-columns`，子元素改不了它。
+     * 两个办法：`:has()` 选择器，或者在这里给父元素补一个 class。选后者——
+     * `:has()` 在旧引擎里静默不生效（"折叠了但侧边栏没变窄"这种半坏最难查）。
+     * 仍然**只改宽度变量**，不碰 `game.scale.resize()`（那会把真机缩放打回 1×）。
+     */
+    root.closest?.('.app')?.classList.toggle('is-sidebar-collapsed', collapsed)
+    toggle.setAttribute('aria-expanded', String(collapsed !== true))
+    toggle.setAttribute('aria-controls', 'sidebar-body')
+    toggle.title = collapsed ? '展开侧边栏' : '折叠侧边栏'
+    toggle.setAttribute('aria-label', toggle.title)
+    toggle.textContent = collapsed ? '‹' : '›'
+    writeCollapsed(collapsed)
+    options.onCollapseChange?.(collapsed)
+    // ⚠️ 展开必须**等布局落定**再通知：同一帧里量到的高度还是折叠时的 0。
+    // `requestAnimationFrame` 保证在浏览器下一次样式计算/布局之后执行。
+    if (collapsed !== true) {
+      const raf = (doc.defaultView ?? globalThis).requestAnimationFrame
+      if (typeof raf === 'function') raf(() => options.onExpand?.())
+      else options.onExpand?.()
     }
-    // 藏在 `hidden` 里的容器量出来是 0×0 —— 依赖图的几何必须**在可见之后**重挑。
-    options.onViewChange?.(view)
-    return view
+    return collapsed
   }
-  setView(view)
+  setCollapsed(collapsed)
+
+  toggle.addEventListener('click', () => setCollapsed(!collapsed))
 
   /**
    * 溢出判据（M7-9）：盒子必须落在「容器 ∩ 视口」里。
@@ -109,8 +143,8 @@ export function createSidebar(options = {}) {
   function overflow(selector = '.board-member') {
     const nodes = [...root.querySelectorAll(selector)]
     const box = body.getBoundingClientRect()
-    const view2 = doc.defaultView ?? globalThis
-    const vw = view2.innerWidth ?? 0
+    const view = doc.defaultView ?? globalThis
+    const vw = view.innerWidth ?? 0
     const clipped = []
     for (const node of nodes) {
       const rect = node.getBoundingClientRect()
@@ -119,24 +153,50 @@ export function createSidebar(options = {}) {
       const overBy = Math.round(Math.max(rect.right - right, left - rect.left))
       if (overBy > 1) clipped.push({ text: (node.textContent ?? '').slice(0, 24), overBy })
     }
-    return { total: nodes.length, clipped, viewport: { w: vw, h: view2.innerHeight ?? 0 } }
+    return { total: nodes.length, clipped, viewport: { w: vw, h: view.innerHeight ?? 0 } }
   }
 
   return {
     /** 给 `createBoard({ mounts })` 的两个容器。 */
-    mounts: () => ({ members: agentsPanel, graph: graphPanel }),
-    view: () => view,
-    setView,
+    mounts: () => ({ members: panels.agents, graph: panels.graph }),
+    collapsed: () => collapsed,
+    setCollapsed,
+    toggle: () => setCollapsed(!collapsed),
     overflow,
-    /** 诊断门面用：当前档位、两档里各有多少内容。 */
+    /**
+     * 诊断：折叠态、两块的高度（**折叠时高度应该是 0，这是预期**）、
+     * 以及两块各自有多少内容（用来判"内容还在不在"）。
+     */
     stats: () => ({
-      view,
-      agents: agentsPanel.querySelectorAll('.board-member').length,
-      taskNodes: graphPanel.querySelectorAll('.board-node').length,
-      edges: graphPanel.querySelectorAll('.board-edge').length,
+      collapsed,
+      agentsHeight: Math.round(panels.agents.getBoundingClientRect().height),
+      graphHeight: Math.round(panels.graph.getBoundingClientRect().height),
+      agents: panels.agents.querySelectorAll('.board-member').length,
+      taskNodes: panels.graph.querySelectorAll('.board-node').length,
+      edges: panels.graph.querySelectorAll('.board-edge').length,
+      tablists: root.querySelectorAll('[role="tablist"]').length,
       visible: root.offsetParent !== null,
     }),
     root,
+  }
+}
+
+/** 读折叠记忆（读不到就当展开——**默认看得见**比默认藏起来安全）。 */
+function readCollapsed() {
+  try {
+    return globalThis.localStorage?.getItem(COLLAPSED_KEY) === '1'
+  } catch {
+    // 隐私模式/被策略禁掉时 `localStorage` 会抛。**展开**是安全默认值。
+    return false
+  }
+}
+
+/** 写折叠记忆（写不进去不影响功能，只是下次要重新点）。 */
+function writeCollapsed(collapsed) {
+  try {
+    globalThis.localStorage?.setItem(COLLAPSED_KEY, collapsed === true ? '1' : '0')
+  } catch {
+    /* 同上：记忆是便利，不是功能。 */
   }
 }
 
@@ -144,10 +204,14 @@ export function createSidebar(options = {}) {
 function createNullSidebar() {
   return {
     mounts: () => ({ members: null, graph: null }),
-    view: () => null,
-    setView: () => null,
+    collapsed: () => false,
+    setCollapsed: () => false,
+    toggle: () => false,
     overflow: () => ({ total: 0, clipped: [], viewport: { w: 0, h: 0 } }),
-    stats: () => ({ view: null, agents: 0, taskNodes: 0, edges: 0, visible: false }),
+    stats: () => ({
+      collapsed: false, agentsHeight: 0, graphHeight: 0,
+      agents: 0, taskNodes: 0, edges: 0, tablists: 0, visible: false,
+    }),
     root: null,
   }
 }

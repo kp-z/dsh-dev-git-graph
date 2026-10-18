@@ -52,49 +52,50 @@
   --board-card-line: var(--stroke);
 }
 
-/* ── 头：两档页签 ──────────────────────────────────────────────────────────── */
+/* ── 头：折叠开关（R99 去掉了页签）──────────────────────────────────────────── */
 .sidebar-head {
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
   padding: var(--s-2);
   border-bottom: 1px solid var(--stroke);
 }
-.sidebar-tabs {
-  display: flex;
-  gap: var(--s-1);
-}
-.sidebar-tab {
-  flex: 1;
-  padding: 5px var(--s-2);
+.sidebar-toggle {
+  flex: none;
+  padding: 3px 8px;
   font-family: inherit;
   font-size: var(--fs-micro);
   color: var(--fg-2);
   background: transparent;
-  border: 1px solid transparent;
+  border: 1px solid var(--stroke);
   border-radius: var(--r-sm);
   cursor: pointer;
-  transition: color var(--t-hover) var(--ease), background var(--t-hover) var(--ease);
+  transition: color var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease);
 }
-.sidebar-tab:hover {
+.sidebar-toggle:hover {
   color: var(--fg-0);
-  background: var(--surface-1);
-}
-.sidebar-tab.is-active {
-  color: var(--fg-0);
-  background: var(--accent-soft);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  border-color: var(--stroke-strong);
 }
 
-/* ── 体：**两档各自滚**，不是整块滚 ────────────────────────────────────────────
-   Agent 档是一列可滚的成员行；任务图档的图有自己的滚动容器（`.board-canvas`），
-   如果外层再滚一次，图里横竖两条滚动条会打架，用户拖起来像"卡住"。 */
+/* ── 体：**两块常驻、上下堆叠、整体滚动**（R99）──────────────────────────────
+   用户原话：「不是分成两个 tab，这两个 tab 应该可以同时看到才对」。
+   所以不再有 `hidden` 切换——两块永远都在，靠 `.sidebar-body` 统一滚动。
+   折叠侧边栏时整个 body 藏起来（那才会让两块容器量出 0×0，见 sidebar.js 的注释）。 */
 .sidebar-body {
   flex: 1 1 auto;
   min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-2);
 }
 .sidebar-panel {
-  flex: 1 1 auto;
+  /* **不许 flex: 1**：两块平分高度会让图区永远只有几十像素，而图是要能读的。
+     让每块按内容取高，超出的交给 `.sidebar-body` 滚。 */
+  flex: 0 0 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -102,9 +103,18 @@
 .sidebar-panel[hidden] {
   display: none;
 }
+.sidebar-region-title {
+  /* 区块标题：小一号、灰一点，但它现在是**唯一的"这块是什么"**（页签没了）。 */
+  margin: 0 0 var(--s-1);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-title);
+  letter-spacing: var(--tracking-section);
+  color: var(--fg-2);
+  text-transform: uppercase;
+}
 .sidebar-panel-agents {
-  overflow: auto;
-  padding: var(--s-2);
+  /* 成员行自己会滚会让"上下两块"里出现两条滚动条；这里交给外层统一滚。 */
+  overflow: visible;
 }
 
 /* ── Agent 档：看板的成员栏搬过来（R3）───────────────────────────────────────
@@ -143,9 +153,22 @@
   padding: var(--s-2) var(--s-2) 0;
 }
 .sidebar-panel-graph .board-graph {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 0 0 auto;
   padding: var(--s-2);
+}
+/*
+ * 依赖图的高度预算（R99）。
+ *
+ * 两块上下堆叠之后，图的画布**不能**再靠 `flex: 1` 去撑——外层现在是内容高度，
+ * `flex: 1` 会退化成 0，图直接消失（而 `clipped()`/`overflow()` 都看不出来：它确实没被裁，
+ * 它就没有高度）。所以给它一个**确定的**高度区间，超出的部分由 `.board-canvas` 自己的
+ * `overflow: auto` 承担（它是可见容器，本来就是为此存在的）。
+ *
+ * `clamp(...)` 而不是固定值：1024×768 那种矮视口下 320px 会把成员列表挤没。
+ */
+.sidebar-panel-graph .board-canvas {
+  flex: 0 0 auto;
+  height: clamp(180px, 30vh, 320px);
 }
 .sidebar-panel-graph .board-graph h3 {
   /* 图头那句"左 → 右：前置解锁后续"在窄栏里换行会占两行，压成一行小字。 */
@@ -188,4 +211,31 @@
   .app {
     --sidebar-w: 232px;
   }
+}
+
+/* ── 折叠态（R99）──────────────────────────────────────────────────────────────
+ *
+ * 折叠 = **整列收成一条窄边**，只留那个开关。用列宽做（而不是 `display: none`），
+ * 于是 `.stage` 变宽 → `#town` 父容器变宽 → 引擎的 `Scale.RESIZE` 自己带画布跟。
+ *
+ * ⚠️ **不许**在这里或别处手调 `game.scale.resize()`：真机上那会把用户刚拖好的缩放
+ * 打回 1×（`scene-phaser.js` 里 2126 行附近有明确记录）。
+ *
+ * ⚠️ 折叠时两块面板的高度是 **0**——这是预期。依赖图的几何必须等**展开之后**再挑
+ *（`sidebar.js` 的 `onExpand` 走 `requestAnimationFrame`，见那边的注释）。
+ */
+.app.is-sidebar-collapsed {
+  --sidebar-w: 34px;
+}
+.app.is-sidebar-collapsed #sidebar .sidebar-body {
+  display: none;
+}
+.app.is-sidebar-collapsed #sidebar .sidebar-head {
+  /* 只剩一个开关：边框、内边距都收掉，视觉上是一条边而不是一个空面板。 */
+  justify-content: center;
+  padding: var(--s-1) 0;
+  border-bottom: none;
+}
+.app.is-sidebar-collapsed .sidebar-toggle {
+  border-color: transparent;
 }

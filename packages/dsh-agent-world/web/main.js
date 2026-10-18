@@ -161,15 +161,19 @@ const scene2d = createScenePhaser(canvas, {
 let boardRef = null
 
 /**
- * 侧边栏（R2 建 / R3 收口）：两档视图（Agent 列表 / 任务流程图）。
+ * 侧边栏（R2 建 / R3 收口 / R99 去 tab + 可折叠）。
  *
- * 这里**只建外壳**（页签 + 两块容器）。内容全部来自看板——同一份 `renderMembers` /
- * `renderGraph` 的产物挂进去，所以不存在"侧边栏版"和"看板版"两套渲染。
+ * 这里**只建外壳**（折叠开关 + 两块常驻容器）。内容全部来自看板——同一份
+ * `renderMembers` / `renderGraph` 的产物挂进去，所以不存在"侧边栏版"和"看板版"两套渲染。
+ *
+ * ⚠️ **R99：两个视图不再互斥**（用户：「这两个 tab 应该可以同时看到才对」），
+ * 所以原先的 `onViewChange → refreshGraph()` 换成 `onExpand`：折叠期间两块容器是 0×0，
+ * 依赖图必须在**展开并且布局落定之后**重挑几何。`onExpand` 已经在下一次 rAF 里，
+ * 这里不用再延迟。
  */
 const sidebar = createSidebar({
   root: $('sidebar'),
-  // 藏在 `hidden` 里的容器量出来是 0×0：切到任务图档之后让看板重挑一次几何。
-  onViewChange: () => {
+  onExpand: () => {
     boardRef?.refreshGraph()
   },
 })
@@ -670,10 +674,8 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     /** 当前选中的任务 id（R3：`select()` 是写入口，读入口一直在 board 上没暴露）。 */
     selected: () => board.selected(),
     // `clipped()` 由 board.js 自己在同一个宏任务里挂（它先于 app 的门面创建）。
-    // R3：`expand()` 已删——看板搬进侧边栏之后没有"展开/收起"，它是常驻的两档。
-    // 留着它只会让核验脚本以为还存在那个状态。
-    /** 切到观察任务图的那一档（= 点「任务流程图」页签的同一条路径）。 */
-    showGraph: () => sidebar.setView('graph'),
+    // R99：`showGraph()` 已删——两块现在**同时可见**，不存在"切到某一档"这个动作。
+    // 留一个已经不存在的动作，验收脚本会以为还能用它。
     // R46：分组/状态过滤（= 界面上那两排 chip 的同一条路径，核验用）。
     setView: (next) => board.setView(next),
     setMembersOpen: (open) => board.setMembersOpen(open),
@@ -709,8 +711,10 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
    */
   globalThis.__agentWorldSidebar = {
     stats: () => sidebar.stats(),
-    view: () => sidebar.view(),
-    setView: (next) => sidebar.setView(next),
+    /** 折叠态与开关（R99：两块同时可见，所以没有"切档"，只有"折叠/展开"）。 */
+    collapsed: () => sidebar.collapsed(),
+    toggle: () => sidebar.toggle(),
+    setCollapsed: (next) => sidebar.setCollapsed(next),
     /** 溢出判据（M7-9）：元素盒子必须落在「最近的可滚祖先 ∩ 视口」里。 */
     overflow: (selector) => sidebar.overflow(selector),
   }
