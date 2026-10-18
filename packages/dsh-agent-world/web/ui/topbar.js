@@ -128,6 +128,7 @@ export function createTopbar(options) {
    * @param {boolean} info.connected
    * @param {number} info.nextSeq
    * @param {number} info.silentForMs
+   * @param {number} [info.staleAfterMs] - 多久没消息算"事件流卡住"（**按心跳节奏算**，见 connection.js）
    * @param {number} info.waiting
    * @param {string} [info.perf] - 3D 的真实计数（由装配处拼好）。
    */
@@ -139,7 +140,23 @@ export function createTopbar(options) {
       .map(([k, v]) => `${agentStateLabel(k)} ${v}`)
       .join(' · ')
     const flying = world.messages.filter((m) => (m.deliverAtTick ?? 0) > tick).length
-    const stale = silentForMs > (info.staleAfterMs ?? 8000)
+    /**
+     * R108：**"没事发生" ≠ "出事了"**。
+     *
+     * 原先这里只有一句 `silentForMs > 8000`，而服务端的心跳间隔是 **15s**——
+     * 于是**健康的连接每 15 秒里也有约 7 秒被判成"过期"**，底栏一直在喊
+     * 「N 秒没收到事件」。用户看到的是"世界一安静就报警"，而真实原因是**阈值比心跳还短**。
+     *
+     * 现在按三种情形分开（判据由 `connection.staleAfterMs()` 给，那是**按实际心跳节奏算的**）：
+     *   ① 断线（`connected === false`）→ 事件流那组的「重连中」报警，这里不重复喊；
+     *   ② 连着、但字节停了（超过心跳窗口的两倍多）→ **真异常**，报警；
+     *   ③ 连着、只是没有变更 → 心跳照常来，`silentForMs` 本来就该在心跳间隔内 → **不报警**。
+     *
+     * ⚠️ ① 与 ② 是**两种不同的故障**（"断了"vs"连着但没数据"），别合并成一个判据。
+     * ⚠️ 也别把阈值改回常数：它必须 ≥ 心跳间隔（R108 的教训）。
+     */
+    const isConnected = connected === true
+    const streamStuck = isConnected && silentForMs > (info.staleAfterMs ?? 8000)
 
     // R65：把这一串读数**分组**——一条信息带要有"哪里是哪里"，而不是一坨小字挤在左边。
     const group = (label, items) => {
@@ -151,8 +168,8 @@ export function createTopbar(options) {
       group('运行', [
         world.paused ? chip('已暂停', 'warn') : chip('运行中', 'ok'),
         chip(`tick <b>${tick}</b>`, 'mono'),
-        // 数据旧了必须说出来：否则"画面不动"会被理解成"世界停了"，而那是两件事。
-        stale ? chip(`${Math.round(silentForMs / 1000)} 秒没收到事件`, 'warn') : '',
+        // R108：只有"连着但字节停了"才在这里报警（"断了"由下面那组的「重连中」负责）。
+        streamStuck ? chip(`事件流 ${Math.round(silentForMs / 1000)} 秒无响应`, 'warn') : '',
       ]),
       group('事件流', [
         connected ? chip('已连接', 'ok') : chip('重连中', 'warn'),

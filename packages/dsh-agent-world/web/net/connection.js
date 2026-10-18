@@ -24,6 +24,23 @@ export const STALE_AFTER_MS = 8000
 const RESYNC_MIN_GAP_MS = 1000
 
 /**
+ * 判"事件流卡住"的**兜底**心跳假设（毫秒）。
+ *
+ * ⚠️ 这是一个**最后手段**的假设值，正常情况下用不到：
+ *   ① 服务端在 `hello` 帧里报 `heartbeatMs` → 用它（最准）；
+ *   ② 没报就**实测**：记下两次 `sync` 之间的间隔，用观测值。
+ * 只有"刚连上、还没观测到任何一次心跳"时才会落到这里。
+ *
+ * 为什么必须有一个远大于心跳的值：R108 的真凶就是**阈值比心跳还短**——
+ * 服务端心跳 15s，而这里原先是 8s，于是**健康连接每 15 秒里必有约 7 秒被判成"过期"**，
+ * 底栏就一直在喊「N 秒没收到事件」。那不是"世界安静"，那是阈值算错了。
+ */
+const ASSUMED_HEARTBEAT_MS = 15_000
+
+/** 判过期的下限：再乐观也不该低于这个（防止把正常的抖动当故障）。 */
+const MIN_STALE_MS = 20_000
+
+/**
  * 建一条连接。
  *
  * @param {object} options
@@ -33,7 +50,7 @@ const RESYNC_MIN_GAP_MS = 1000
  * @param {() => void} [options.onReset] - 服务端明说"补不齐"。
  * @param {(state: object) => void} [options.onState] - 连接状态变化（面板据此重画状态栏）。
  * @param {(error: unknown) => void} [options.onError] - 读快照失败等。
- * @returns {object} `{ start, reload, status, slippedTicks, silentForMs, stop }`
+ * @returns {object} `{ start, reload, status, slippedTicks, silentForMs, staleAfterMs, stop }`
  */
 export function createConnection(options = {}) {
   const snapshotApi = options.snapshotApi ?? './api/world'
@@ -51,10 +68,31 @@ export function createConnection(options = {}) {
   let syncBaseMs = 0
   /** 上一次重拉快照的时刻（给重拉做节流）。 */
   let lastResyncMs = 0
+  /** 服务端在 `hello` 里报的心跳间隔；没报就是 `null`（R108）。 */
+  let heartbeatHintMs = null
+  /** 观测到的最长 `sync` 间隔（服务端没报时的实测兜底）。 */
+  let observedSyncGapMs = 0
+  /** 上一次收到 `sync` 的时刻（算上面那个观测值）。 */
+  let lastSyncAtMs = 0
   let source = null
   let stopped = false
 
   const emitState = () => options.onState?.({ connected, nextSeq, lastMessageMs, syncBaseMs })
+
+  /**
+   * 多久没消息才算"事件流卡住"（R108）。
+   *
+   * 判据是**心跳节奏的两倍多一点**（容忍一次漏跳）：正常时心跳每 N 秒来一次，
+   * 所以"超过 2N 还没动静"才是真的出了问题。
+   *
+   * ⚠️ 这个数**必须大于心跳间隔**——R108 的 bug 就是阈值（8s）比心跳（15s）短，
+   * 于是健康连接也一直被报警。**别再把阈值写成一个与心跳无关的常数。**
+   */
+  function staleAfterMs() {
+    const hint = heartbeatHintMs ?? (observedSyncGapMs > 0 ? observedSyncGapMs : ASSUMED_HEARTBEAT_MS)
+    // 两倍心跳 + 5s 余量：容忍一次漏跳与网络抖动。
+    return Math.max(MIN_STALE_MS, Math.round(hint * 2 + 5000))
+  }
 
   /** 拉一次全量快照。启动时、以及发现 gap/reset 时用。 */
   async function reload() {
@@ -145,7 +183,12 @@ export function createConnection(options = {}) {
 
       if (message.type === 'sync') {
         // 权威时间。校准基准，让本地时钟在两次事件之间自己往前走。
-        syncBaseMs = performance.now()
+        const now = performance.now()
+        // R108：**实测心跳节奏**（服务端没在 `hello` 里报时的兜底）。
+        // 只记"最长间隔"而不是平均：网络抖动会让某一次特别长，用最大值才不会误判。
+        if (lastSyncAtMs > 0) observedSyncGapMs = Math.max(observedSyncGapMs, now - lastSyncAtMs)
+        lastSyncAtMs = now
+        syncBaseMs = now
         connected = true
         options.onSync?.(message)
         emitState()
@@ -162,6 +205,9 @@ export function createConnection(options = {}) {
       if (message.type === 'hello') {
         // 同理：`hello.seq` 是「下一个要分配的号」，不是「最后一条」。
         if (typeof message.seq === 'number') nextSeq = message.seq
+        // R108：服务端可以在这里报自己的心跳间隔，客户端据此定"过期"阈值。
+        // 没报也不要紧——下面会用实测值兜底（所以这条不阻塞任何东西）。
+        if (Number.isFinite(message.heartbeatMs) && message.heartbeatMs > 0) heartbeatHintMs = message.heartbeatMs
         emitState()
       }
     }
@@ -193,5 +239,18 @@ export function createConnection(options = {}) {
     },
     /** 多久没收到任何消息了（含心跳）。数据旧了必须说出来。 */
     silentForMs: () => performance.now() - lastMessageMs,
+    /**
+     * 多久没消息才算"事件流卡住"（R108）。
+     *
+     * **调用方必须用这个，不要自己写常数**：它按服务端的实际心跳节奏算出来，
+     * 而"阈值比心跳短"正是 R108 那个假警报的根因。
+     */
+    staleAfterMs,
+    /** 诊断用：心跳节奏是从哪来的、值多少（验收时要能说清判据）。 */
+    heartbeat: () => ({
+      hintMs: heartbeatHintMs,
+      observedGapMs: observedSyncGapMs,
+      staleAfterMs: staleAfterMs(),
+    }),
   }
 }

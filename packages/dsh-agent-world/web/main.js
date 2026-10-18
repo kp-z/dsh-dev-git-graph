@@ -50,7 +50,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r106'
+const BUILD = 'build r108'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
@@ -290,6 +290,9 @@ function render(force = false) {
     connected: connection.status().connected,
     nextSeq: connection.status().nextSeq,
     silentForMs: connection.silentForMs(),
+    // R108：阈值**按服务端的实际心跳节奏算**（`connection.staleAfterMs()`），
+    // 不再用写死的 8s——那个值比心跳（15s）还短，于是健康连接每 15 秒里也有约 7 秒被判成"过期"。
+    staleAfterMs: connection.staleAfterMs(),
     waiting: dialogue?.thinkingTurns().length ?? 0,
   })
 
@@ -722,6 +725,31 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     setCollapsed: (next) => sidebar.setCollapsed(next),
     /** 溢出判据（M7-9）：元素盒子必须落在「最近的可滚祖先 ∩ 视口」里。 */
     overflow: (selector) => sidebar.overflow(selector),
+  }
+  /**
+   * 连接层的核验入口（R108）。
+   *
+   * 为什么需要它：这一轮的两条判据**互为反证**——
+   *   ① 连接正常、世界安静 → 底栏**不得**报警；
+   *   ② 连接真的断了 → 警告**必须**回来。
+   * 只验①（或只验②）等于没验，而这正是 M17-2 那个"空数组验过、非空没验过"的教训。
+   *
+   * `stop()` 走的是**真路径**：它关掉 EventSource 并把 `connected` 置 false，
+   * 与网络真的掉线是同一条代码路径（不是给 UI 塞一个假的布尔值）。
+   * 于是"断开"这一半可以在真机上按需复现，不必去拔网线。
+   */
+  globalThis.__agentWorldConnection = {
+    status: () => connection.status(),
+    silentForMs: () => connection.silentForMs(),
+    /** 判"事件流卡住"的阈值（按心跳节奏算）——验收要能说清判据从哪来。 */
+    staleAfterMs: () => connection.staleAfterMs(),
+    /** 心跳节奏的来源与实测值（hint 来自服务端 `hello`，observed 是实测兜底）。 */
+    heartbeat: () => connection.heartbeat(),
+    /** **真的**断掉事件流（真路径，可用来验"警告必须回来"）。 */
+    stop: () => connection.stop(),
+    // ⚠️ 这里**故意没有 `start()`**：`connection.stop()` 是**闭锁**（`stopped = true`），
+    // 之后 `start()` 直接返回 null、什么也不做。挂一个"看起来能重连、其实是空操作"的
+    // 接口，正是这个项目一路在防的静默失效——断线演练之后**刷新页面**即可恢复。
   }
 }
 

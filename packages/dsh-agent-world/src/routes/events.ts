@@ -86,7 +86,10 @@ export function eventsRoutes(deps: EventsDeps): RouteEntry[] {
         })
         // 握手：告诉客户端当前 seq 与重连间隔。客户端据此判断自己是不是落后了。
         res.write(sseComment(`agent-world v${PROTOCOL_VERSION}`))
-        res.write(sseFrame({ v: PROTOCOL_VERSION, type: 'hello', seq: world.seq }))
+        // `heartbeatMs` 一并报出去（R108）：客户端用它算"多久没消息才算事件流卡住"。
+        // ⚠️ 不报的话客户端只能**实测**心跳间隔来兜底，而那要先等到两次心跳；
+        //    报出来阈值就是精确的。服务端知道自己的节奏，就别让客户端猜。
+        res.write(sseFrame({ v: PROTOCOL_VERSION, type: 'hello', seq: world.seq, heartbeatMs }))
         res.write(`retry: 3000\n\n`)
 
         // ── gap 自愈的服务端一半 ──
