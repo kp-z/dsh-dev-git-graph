@@ -111,8 +111,18 @@ export function containsSentText(data: Record<string, unknown>, sentText: string
  */
 export function silentReason(
   memberName: string,
-  signals: { readonly actions: readonly string[]; readonly repeated: boolean; readonly thought: boolean },
+  signals: {
+    readonly actions: readonly string[]
+    readonly repeated: boolean
+    readonly thought: boolean
+    /** R140：我们还没得到正文，别人就把话拼进了这一轮（之后的话是回给别人的）。 */
+    readonly splicedBeforeAnswer?: boolean
+  },
 ): string {
+  // R140：放在最前——此时"动手/思考"可能属于任何一方，唯一确定的事实是"轮次被别人插了话"。
+  if (signals.splicedBeforeAnswer === true) {
+    return `「${memberName}」这一轮被别人插了话，回的是别人那句，没回到你这句。再问一次试试。`
+  }
   if (signals.actions.length > 0) {
     return `「${memberName}」这一轮只动了手（${signals.actions.join('、')}），一句话也没说。`
   }
@@ -494,7 +504,7 @@ export function createTeamsPort(
          * 都直接收尾——如果订阅时会话里已经有一轮在跑，我们会先收到**那一轮的 `turn/end`**
          *（而它的正文在我们订阅前就发完了），于是立刻判「没有发言，也没有动手」。
          *
-         * 队长会话（`agent-world:captain` = 工头阿金）实测在 58→67 轮之间**连续转轮**：
+         * 队长会话（`agent-world:captain`；注意它**不是**工头阿金——阿金是成员会话 `c41d29d1…`，R126）实测在 58→67 轮之间**连续转轮**：
          * `subagent-settled` / `agent-teams` / `runtime-context` 不断注入消息，它几乎从不空闲。
          * 所以这个误判对 agent-1 是**稳定复现**的（对空闲成员才偶尔看不出来）。
          *
@@ -527,6 +537,21 @@ export function createTeamsPort(
         let currentTurn: number | null = null
         /** 我们这一轮里模型有没有"想过"（非空 reasoning 块）——R128 用来区分「想了没说出口」。 */
         let thoughtInOurTurn = false
+        /**
+         * **别人拼进了我们这一轮**（R140 / task-23）。
+         *
+         * 真机（旧阿金会话 turn 63）：第 1 步已经正确回答了玩家；随后队长**又把一条消息拼进同一轮**，
+         * 第 2 步回的是队长——旧逻辑取"本轮最后一段正文"，于是玩家拿到「认，两处都认。」。
+         * G2 复测（R138）里同样的事又发生了 2/22 次。
+         *
+         * 判据：认出 `ourTurn` 之后，同一轮里**再出现**任何 `user/message`（`runtime-context` 除外）
+         * ⇒ 那是别人的话；**从这一刻起冻结**——之后的正文、动作、思考都不再算进我们的答案。
+         *  · **不用"含不含原话"判断它是不是我们的**：R126 实测队长会**引用**我们的原话，引用也得冻结；
+         *    而我们的原话在一轮里只投递一次（就是让我们认出 ourTurn 的那条）。
+         *  · `runtime-context` 是 DSH 自己注入的运行时快照（真机每次紧跟在投递之后），不是谁在说话。
+         *  · 不用时间启发式：只看事件的类型、来源与顺序。
+         */
+        let frozenBySplice = false
         const finish = (result: TeamsDialogueReplyOk | TeamsDialogueFailure): void => {
           if (settled) return
           settled = true
@@ -558,9 +583,13 @@ export function createTeamsPort(
           if (event.type === 'user/message') {
             // 我们发出去的原话会作为一条 user/message 落进会话——认出它，就认出了我们这一轮。
             // 只认**第一次**匹配（同一条消息可能被引用/复述，后面的匹配不是"投递"）。
-            if (ourTurn === null && currentTurn !== null && containsSentText(data, sentText)) {
-              ourTurn = currentTurn
+            if (ourTurn === null) {
+              if (currentTurn !== null && containsSentText(data, sentText)) ourTurn = currentTurn
+              return
             }
+            // 已认出我们这一轮：同一轮里再来的消息（运行时快照除外）都是别人的拼入 → 冻结。
+            const source = data['source'] as { kind?: unknown } | undefined
+            if (currentTurn === ourTurn && source?.kind !== 'runtime-context') frozenBySplice = true
             return
           }
 
@@ -571,6 +600,8 @@ export function createTeamsPort(
             const msgTurn = data['turn']
             if (ourTurn === null) return
             if (typeof msgTurn === 'number' && msgTurn !== ourTurn) return
+            // R140：别人拼进来之后，这一轮后面说的话是回给别人的——一个字都不算我们的。
+            if (frozenBySplice) return
             const message = data['message'] as { content?: unknown } | undefined
             const blocks = Array.isArray(message?.content) ? message?.content : []
             const texts: string[] = []
@@ -612,6 +643,7 @@ export function createTeamsPort(
                   actions: actions.map((a) => a.name),
                   repeated: repeatedSend.get(characterId) === true,
                   thought: thoughtInOurTurn,
+                  splicedBeforeAnswer: frozenBySplice,
                 }),
               })
               return

@@ -480,3 +480,92 @@ test('R128：**我们的话被拼进正在跑的那一轮**（真机 小铁 turn
   assert.equal(reply.ok, true, `拼进来的那一轮没认出来：${reply.reason ?? ''}`)
   assert.equal(reply.text, '今天先把 t10 的失败原因查清。', '同一轮里我们这句话之前的发言不许混进来')
 })
+
+/** R140 用：发送工具一返回，成员那一轮的事件就已按给定顺序发生（真机时序，见 R126）。 */
+function splicePort(events) {
+  const listeners = []
+  const SENT = { isError: false, value: {}, content: [] }
+  const emit = (ev) => { for (const l of listeners) l('m1', ev) }
+  return makePort({
+    tools: fakeTools({
+      agent_teams_create: CREATED,
+      agent_teams_add_member: SENT,
+      agent_teams_send_message: (input) => {
+        for (const ev of events(input.arguments.content)) emit(ev)
+        return SENT
+      },
+    }),
+    subagents: fakeSubagents([{ id: 'm1', label: 'agent-teams:agent-world:成员-agent-1' }]),
+    transport: { subscribe(l) { listeners.push(l); return () => { listeners.splice(listeners.indexOf(l), 1) } } },
+  })
+}
+const cap = (text, kind = 'agent-teams') => ({ type: 'user/message', data: { source: { kind }, content: [{ type: 'text', text: `AgentTeams message from captain:\n\n${text}` }] } })
+const say63 = (turn, blocks) => ({ type: 'assistant/message', data: { turn, message: { role: 'assistant', content: blocks } } })
+
+test('R140：**真机 turn 63 原样回放**——别人拼进同一轮后，玩家拿到第 1 步的答案而不是给队长的话', async () => {
+  // 旧阿金会话 c41d29d1 的真实序列（turn/start 63 早在投递之前，见 R128）：
+  //  step 1: 我们的话 → [reasoning, text「派单前加一道前置检查…」]
+  //  step 2: 队长**又拼进一条**「你这条日报里有两处已经过期…」→ [reasoning, text「认，两处都认。…」]
+  //  turn/end 63
+  const port = splicePort((said) => [
+    { type: 'agent/inbox/spliced', data: {} },
+    { type: 'step/start', data: { turn: 63 } },
+    cap(said),
+    { type: 'request/header', data: {} },
+    say63(63, [
+      { type: 'reasoning', text: '"给团队提一个改进建议吧。" — one sentence.' },
+      { type: 'text', text: '一句话：**派单前加一道前置检查——"接单的人手上有没有干这活的工具"；队里四次零改动失败（t2/t4/t7/t10）全是漏了这一条。**' },
+    ]),
+    { type: 'step/end', data: { turn: 63 } },
+    { type: 'agent/inbox/spliced', data: {} },
+    { type: 'step/start', data: { turn: 63 } },
+    cap('阿金，**你这条日报里有两处已经过期——两处都改结论，所以我去纠。**'),
+    say63(63, [
+      { type: 'reasoning', text: 'The captain corrects my daily report. I should accept, and note it. Short.' },
+      { type: 'text', text: '认，两处都认。\n\n**一、"重放"这个标签是我越界了。**' },
+    ]),
+    { type: 'step/end', data: { turn: 63 } },
+    { type: 'turn/end', data: { turn: 63, reason: { kind: 'completed' } } },
+  ])
+  await port.say('agent-1', '阿金，一句话：给团队提一个改进建议吧。')
+  const reply = await port.waitForReply('agent-1', 2000)
+  assert.equal(reply.ok, true, reply.reason)
+  assert.match(reply.text, /派单前加一道前置检查/)
+  assert.doesNotMatch(reply.text, /认，两处都认/, '给队长的话不许当成玩家的答案')
+})
+
+test('R140：**还没答到我们就被插话**——后面的正文是回给别人的，判失败并说清"被插了话"', async () => {
+  const port = splicePort((said) => [
+    { type: 'step/start', data: { turn: 3 } },
+    cap(said),
+    // 还没来得及回我们，队长就拼进来一条（G2 turn 3 的形态）
+    cap('阿金，这条我不照办，理由说清楚：「没有在途工单」不等于「最大的风险」。'),
+    say63(3, [{ type: 'text', text: '队长说得对，我认了。' }]),
+    { type: 'turn/end', data: { turn: 3, reason: { kind: 'completed' } } },
+  ])
+  await port.say('agent-1', '阿金，一句话：如果来了一个紧急 bug，你会派给谁？')
+  const reply = await port.waitForReply('agent-1', 2000)
+  assert.equal(reply.ok, false, `把回给队长的话交给了玩家：${reply.text ?? ''}`)
+  assert.match(reply.reason, /被别人插了话/)
+})
+
+test('R140：**运行时快照不算插话**（真机每次投递后都紧跟一条 runtime-context）', async () => {
+  const port = splicePort((said) => [
+    { type: 'step/start', data: { turn: 5 } },
+    cap(said),
+    { type: 'user/message', data: { source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.' }] } },
+    say63(5, [{ type: 'text', text: '小紫。' }]),
+    { type: 'turn/end', data: { turn: 5, reason: { kind: 'completed' } } },
+  ])
+  await port.say('agent-1', '阿金，一句话：团队里谁最适合做评审？')
+  const reply = await port.waitForReply('agent-1', 2000)
+  assert.equal(reply.ok, true, `运行时快照被当成了插话：${reply.reason ?? ''}`)
+  assert.equal(reply.text, '小紫。')
+})
+
+test('R140：silentReason——"被插了话"排在最前（此时动手/思考可能属于任何一方）', async () => {
+  const { silentReason } = await import('../lib/bridge/teams.js')
+  const r = silentReason('阿金', { actions: ['world_move'], repeated: true, thought: true, splicedBeforeAnswer: true })
+  assert.match(r, /被别人插了话/)
+  assert.match(silentReason('阿金', { actions: [], repeated: false, thought: true }), /想了，但没说出口/, '不传新字段时行为不变')
+})
