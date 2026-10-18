@@ -42,6 +42,29 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R130（Lead）—— 验收 R119（task-18）：通过；宿主随子代理退出，已由 Lead 重启复验
+
+### 核实
+- commit `82ecc11` 只含 `teams.ts` / `teams-port.test.js` / `PROGRESS.md`（干净）；`silentReason` 在位；
+  profile 里 `lib/bridge/teams.js` 与包内一致；`node --test` **677/677**。
+- ⚠️ developer 报"宿主在跑（pid 24464，我的后台 job）"，但我测 3080 是 **000、无监听**——
+  **子代理结束时它的后台任务一起退出了**。⇒ 宿主应由 Lead 的后台任务持有，子代理起的宿主不可依赖。已重启。
+
+### 真机（重启后）
+| 搭话 | 结果 |
+|---|---|
+| agent-3 | thinking → acting → **replied** ✅ |
+| agent-1 | **failed**，文案为 ②「想了，但没说出口——回答只停在了思考里」✅（分类正确，不泄露思维链） |
+
+⇒ bridge 侧已正确：认对轮次、按客观信号分类。agent-1 仍有一部分轮次答不出，**根因在上游**（模型把答案写进
+reasoning；反方向也有：思考写进了正文），归 **task-22（R129）**。
+developer 补充的反方向证据（`"团队现在最缺什么？" — coherent…`、`I've sent the message… Let me report to the user`）已并入 task-22。
+
+### 下一轮从哪继续
+task-22（R129）→ task-20（R122 漂移守卫）→ R10 复盘。
+
+---
+
 ## R128（task-18 / developer）—— 方案 A 落地：「没说话」分清三种；真机又挖出第四个洞（话被拼进正在跑的那一轮）
 
 ### A：失败原因说真话（Lead 拍板 A，B 不做，C 另开）
