@@ -148,9 +148,9 @@ const scene2d = createScenePhaser(canvas, {
 })
 
 /**
- * 看板的引用（R3）。为什么不是直接读 `board`：`createSidebar()` 建完页签会**同步**调一次
- * `setView(初始档)`，于是 `onViewChange` 在下面 `const board = createBoard(...)` 那一行
- * **之前**就跑了。
+ * 看板的引用（R3）。为什么不是直接读 `board`：`createSidebar()` 在装配阶段就会**同步**回调
+ * 一次（R99 起是初始化折叠态，更早是初始化页签），而那时下面 `const board = createBoard(...)`
+ * 那一行**还没跑**。
  *
  * ⚠️ 这里**不能**用 `typeof board === 'undefined'` 兜：`typeof` 只对"从未声明"的标识符安全，
  * 对处在暂时性死区（TDZ）里的 `const` 一样抛 ReferenceError。第一版就是这么写的，
