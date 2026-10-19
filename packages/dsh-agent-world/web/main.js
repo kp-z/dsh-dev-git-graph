@@ -416,7 +416,15 @@ function renderTeamJobs(team) {
   const host = sidebarMounts.jobs
   if (host === null || host === undefined) return
   host.textContent = ''
-  const jobs = Array.isArray(team?.jobs) ? team.jobs : []
+  const explicit = Array.isArray(team?.jobs) ? team.jobs : []
+  // project 没有独立 jobs 时，把 in_progress 的团队任务作为后台任务条展示；
+  // 这是官方任务数据，不另建数据源。
+  const derived = explicit.length > 0
+    ? []
+    : (Array.isArray(team?.tasks) ? team.tasks : [])
+        .filter((task) => task && task.status === 'in_progress')
+        .map((task) => ({ id: task.id, label: `${task.subject ?? ''}${task.ownerName ? ` → ${task.ownerName}` : ''}` }))
+  const jobs = explicit.length > 0 ? explicit : derived
   host.hidden = jobs.length === 0
   if (jobs.length === 0) return
   const now = Date.now()
@@ -431,7 +439,7 @@ function renderTeamJobs(team) {
     label.textContent = typeof job.label === 'string' && job.label !== '' ? job.label : (typeof job.id === 'string' ? job.id : '后台任务')
     const time = doc.createElement('b')
     time.className = 'aw-job-time'
-    time.textContent = formatDuration(now - (typeof job.startedAt === 'number' ? job.startedAt : now))
+    time.textContent = typeof job.startedAt === 'number' ? formatDuration(now - job.startedAt) : '运行中'
     row.append(dot, label, time)
     host.append(row)
   }
