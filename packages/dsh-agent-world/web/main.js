@@ -498,7 +498,11 @@ function setComposerOpen(open) {
 }
 
 function ensureAgentComposer(card) {
-  if (composerBox !== null) return
+  if (composerBox !== null) {
+    // projection 刷新会重写任务面板内容；composer 必须重新挂回，否则按钮在、输入框丢。
+    if (!composerBox.isConnected) card.append(composerBox, composerError)
+    return
+  }
   composerBox = doc.createElement('div')
   composerBox.className = 'aw-composer'
   composerBox.hidden = true
@@ -537,14 +541,14 @@ function ensureAgentComposer(card) {
 }
 
 /**
- * R181：Agent 面板 = 成员列表（board 渲染）+ header 的 ＋（内联新建）。
- * 不再有浏览器弹窗，也不在成员行里重复列任务。
+ * R182：新建任务属于任务面板；Agent 面板只保留团队信息与成员动作。
+ * composer 挂在任务面板内容顶部，＋ 挂在任务面板 header 的 graphActions。
  */
-function renderAgentActions(team) {
-  const card = root.querySelector('#sidebar-official-agents')
+function renderTaskActions(team) {
+  const card = root.querySelector('#sidebar-panel-graph')
   if (card === null) return
   ensureAgentComposer(card)
-  const host = sidebarMounts.agentsActions
+  const host = sidebarMounts.graphActions
   if (host === null || host === undefined) return
   if (host.querySelector('.aw-icon') !== null) return
   const create = doc.createElement('button')
@@ -555,6 +559,11 @@ function renderAgentActions(team) {
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
   host.append(create)
+}
+
+/** Agent 面板当前只承载团队信息；团队级动作后续接这里，不重复任务操作。 */
+function renderAgentActions(team) {
+  void team
 }
 
 /** R181：图节点上的 ✓/↺ → 团队 CAS 更新（失败只写通知行，不弹窗）。 */
@@ -588,6 +597,7 @@ async function assignTeamTask(taskId, member, revision) {
 function renderOfficialTeam(team) {
   if (team === null || team === undefined) return false
   renderOfficialTasks(team)
+  renderTaskActions(team)
   renderAgentActions(team)
   officialTeamRendered = true
   return true
@@ -607,6 +617,7 @@ async function loadTeamPlan() {
       const data = await response.json()
       if (data?.team?.available === true) {
         renderOfficialTasks(data.team)
+        renderTaskActions(data.team)
         renderAgentActions(data.team)
         return
       }
