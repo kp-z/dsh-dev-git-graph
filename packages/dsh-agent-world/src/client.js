@@ -82,6 +82,8 @@ window.__ModuleLoader__.load({
       if (typeof sessionId !== 'string' || sessionId === '') return null;
       try {
         const snapshot = sessions?.list?.getSnapshot?.();
+        globalThis.__awSnapKeys = snapshot === undefined ? null : Object.keys(snapshot);
+        globalThis.__awProjKeys = snapshot?.projectionsBySession === undefined ? null : Object.keys(snapshot.projectionsBySession);
         const team = snapshot?.projectionsBySession?.[sessionId]?.values?.agentTeam;
         return team === undefined ? null : team;
       } catch (e) {
@@ -161,6 +163,7 @@ window.__ModuleLoader__.load({
     /* ── 会话视图：只做容器的生命周期 ─────────────────────────────────────── */
     function AgentWorldView(props) {
       const hostRef = React.useRef(null);
+      const handleRef = React.useRef(null);
       const [phase, setPhase] = React.useState('loading');
       const [error, setError] = React.useState(null);
       const sessionId = props.sessionId;
@@ -186,6 +189,7 @@ window.__ModuleLoader__.load({
             const mod = await import(BASE_URL + '/embed.js');
             if (disposed) return;
             handle = await mod.mountEmbeddedApp(hostRef.current, { baseUrl: BASE_URL, sessionId });
+            handleRef.current = handle;
             if (disposed) {
               handle.dispose();
               handle = null;
@@ -219,6 +223,7 @@ window.__ModuleLoader__.load({
           if (handle !== null) {
             try { handle.dispose(); } catch (e) { /* 页面已经没了 */ }
             handle = null;
+            handleRef.current = null;
           }
           if (typeof sessionId === 'string' && sessionId !== '') deactivateSession();
         };

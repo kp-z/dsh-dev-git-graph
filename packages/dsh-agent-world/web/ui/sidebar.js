@@ -50,8 +50,10 @@ const COLLAPSED_KEY = 'agentWorld.sidebarCollapsed'
 
 /** 两块区域的标识（也是 DOM id 后缀）。 */
 const REGIONS = [
-  { id: 'agents', title: '团队' },
-  { id: 'graph', title: '任务图' },
+  // R180：任务面板在上（后台任务 + 任务依赖树），Agent 列表在下。
+  // 不再有左上角浮卡；所有团队/任务操作都收进这两块常驻侧边栏。
+  { id: 'graph', title: '任务' },
+  { id: 'agents', title: 'Agent 列表' },
 ]
 
 /**
@@ -112,6 +114,25 @@ export function createSidebar(options = {}) {
     head.append(title, meta)
     panel.setAttribute('aria-labelledby', titleId)
     panel.append(head)
+
+    // R180：每块自己的内容容器。任务面板：官方任务板 + 依赖树挂载位；
+    // Agent 面板：新建任务等操作 + 成员列表挂载位。
+    const content = el(doc, 'div', 'sidebar-region-content')
+    if (region.id === 'graph') {
+      const officialTasks = el(doc, 'div', 'sidebar-official-tasks')
+      officialTasks.id = 'sidebar-official-tasks'
+      const graphMount = el(doc, 'div', 'sidebar-task-graph')
+      graphMount.id = 'sidebar-task-graph'
+      content.append(officialTasks, graphMount)
+      panels[`${region.id}Mount`] = graphMount
+      panels.officialTasks = officialTasks
+    } else {
+      const officialAgents = el(doc, 'div', 'sidebar-official-agents')
+      officialAgents.id = 'sidebar-official-agents'
+      content.append(officialAgents)
+      panels.officialAgents = officialAgents
+    }
+    panel.append(content)
     body.append(panel)
     panels[region.id] = panel
     metas[region.id] = meta
@@ -185,7 +206,14 @@ export function createSidebar(options = {}) {
      * 给 `createBoard({ mounts })` 的四块位置：
      * 两块内容容器 + 两块标题旁的计数位（R152）。
      */
-    mounts: () => ({ members: panels.agents, graph: panels.graph, agentsMeta: metas.agents, graphMeta: metas.graph }),
+    mounts: () => ({
+      members: panels.agents,
+      graph: panels.graphMount ?? panels.graph,
+      agentsMeta: metas.agents,
+      graphMeta: metas.graph,
+      officialTasks: panels.officialTasks,
+      officialAgents: panels.officialAgents,
+    }),
     collapsed: () => collapsed,
     setCollapsed,
     toggle: () => setCollapsed(!collapsed),

@@ -1917,3 +1917,29 @@
 .team-plan-error {
   color: var(--danger, #ff9b9b);
 }
+
+/* R180：任务 / Agent 列表全部收进右侧常驻侧边栏，不再有左上角浮卡。 */
+.sidebar-region-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-height: 0;
+}
+.sidebar-official-tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--s-2) 0;
+}
+.sidebar-official-title {
+  color: var(--fg-0);
+  font-size: var(--fs-sub);
+  font-weight: 600;
+}
+.sidebar-official-meta {
+  color: var(--fg-2);
+  font-size: var(--fs-micro);
+}
+.sidebar-task-graph {
+  min-height: 0;
+}

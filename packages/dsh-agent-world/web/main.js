@@ -132,6 +132,8 @@ let meta = null
 let lastRenderMs = -1
 /** 看板里选中的任务（用来高亮抽屉里对应的那一行）。 */
 let boardSelection = null
+/** R180：官方 projection 已渲染时，禁止 host fallback 把它清空。 */
+let officialTeamRendered = false
 /**
  * 调度器诊断（R67 / M13-5）：`runtime.diagnostics`。
  *
@@ -337,76 +339,38 @@ function setWorldSession(info) {
   renderWorldSession(workspaceSessionOverride)
 }
 
-function renderTeamPlan(plan) {
-  if ($brandSession === null) return
-  const stage = canvas?.parentElement ?? root
-  let card = stage?.querySelector('#team-plan')
-  if (plan === null || plan === undefined) {
-    card?.remove()
-    return
+async function postTeamTask(action, extra) {
+  try {
+    const response = await fetch(apiUrl('api/team/task'), {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rootSessionId: sessionId, action, ...extra }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (data?.ok !== true) return { ok: false, error: data?.error ?? `任务写入失败（HTTP ${response.status}）` }
+    return { ok: true, task: data.task }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
-  if (!card) {
-    card = doc.createElement('section')
-    card.id = 'team-plan'
-    card.className = 'team-plan'
-    stage?.append(card)
-  }
-  const members = Array.isArray(plan.members) ? plan.members : []
-  const tasks = Array.isArray(plan.tasks) ? plan.tasks : []
-  const memberNames = members.map((m) => (m && typeof m.name === 'string' ? m.name : '')).filter(Boolean)
-  card.innerHTML = ''
-  const title = doc.createElement('strong')
-  title.textContent = `团队计划 · ${typeof plan.name === 'string' && plan.name !== '' ? plan.name : '待批准'}`
-  const meta = doc.createElement('span')
-  meta.textContent = `${members.length} 成员 · ${tasks.length} 任务 · 只读`
-  const list = doc.createElement('div')
-  list.className = 'team-plan-list'
-  list.textContent = memberNames.length > 0 ? memberNames.join(' / ') : '（暂无成员）'
-  const hint = doc.createElement('small')
-  hint.textContent = '审批在对话的 Pre-run plan review 里进行'
-  card.append(title, meta, list, hint)
 }
 
-function renderTeamRoster(team) {
-  const stage = canvas?.parentElement ?? root
-  let card = stage?.querySelector('#team-plan')
-  if (!card) {
-    card = doc.createElement('section')
-    card.id = 'team-plan'
-    card.className = 'team-plan'
-    stage?.append(card)
-  }
-  const members = Array.isArray(team.members) ? team.members : []
-  const tasks = Array.isArray(team.tasks) ? team.tasks : []
+function renderOfficialTasks(team) {
+  const card = root.querySelector('#sidebar-official-tasks')
+  if (card === null) return
   card.innerHTML = ''
-  const lead = team.lead && typeof team.lead.name === 'string'
-    ? team.lead.name
-    : (members.find((m) => m && m.role === 'lead')?.name ?? 'captain')
-  const title = doc.createElement('strong')
-  title.textContent = `Team · ${lead}`
-  const meta = doc.createElement('span')
-  meta.textContent = `${members.length} 成员 · ${tasks.length} 任务 · 官方 projection`
-  const list = doc.createElement('div')
-  list.className = 'team-plan-list'
-  list.textContent = members.length > 0
-    ? members.map((m) => `${m.name ?? '?'}${m.status ? `（${m.status}）` : m.phase ? `（${m.phase}）` : ''}`).join(' / ')
-    : '（还没有成员）'
-
-  async function write(action, extra) {
-    try {
-      const response = await fetch(apiUrl('api/team/task'), {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rootSessionId: sessionId, action, ...extra }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (data?.ok !== true) throw new Error(data?.error ?? `任务写入失败（HTTP ${response.status}）`)
-      errorNode.textContent = ''
-    } catch (error) {
-      errorNode.textContent = error instanceof Error ? error.message : String(error)
-    }
-  }
+  const tasks = Array.isArray(team.tasks) ? team.tasks : []
+  const members = Array.isArray(team.members) ? team.members : []
+  const errorNode = doc.createElement('small')
+  errorNode.className = 'team-plan-error'
+  const title = doc.createElement('div')
+  title.className = 'sidebar-official-title'
+  title.textContent = `团队任务板 · ${tasks.length} 张`
+  const meta = doc.createElement('div')
+  meta.className = 'sidebar-official-meta'
+  const completed = tasks.filter((task) => task.status === 'completed').length
+  meta.textContent = `${completed} 完成 · 官方 projection`
+  card.append(title, meta)
 
   function actionButton(label, onClick) {
     const button = doc.createElement('button')
@@ -415,9 +379,13 @@ function renderTeamRoster(team) {
     button.textContent = label
     button.addEventListener('click', (event) => {
       event.stopPropagation()
-      onClick()
+      void onClick()
     })
     return button
+  }
+  async function run(action, extra) {
+    const result = await postTeamTask(action, extra)
+    errorNode.textContent = result.ok ? '' : result.error
   }
 
   const taskList = doc.createElement('div')
@@ -425,7 +393,7 @@ function renderTeamRoster(team) {
   if (tasks.length === 0) {
     taskList.textContent = '（还没有任务）'
   } else {
-    for (const task of tasks.slice(0, 6)) {
+    for (const task of tasks.slice(0, 10)) {
       const row = doc.createElement('div')
       row.className = 'team-task-row'
       const label = doc.createElement('span')
@@ -434,52 +402,80 @@ function renderTeamRoster(team) {
       const actions = doc.createElement('span')
       actions.className = 'team-task-actions'
       if (task.status !== 'completed' && task.status !== 'deleted') {
-        actions.append(actionButton('完成', () => { void write('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'complete' }) }))
+        actions.append(actionButton('完成', () => run('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'complete' })))
       }
       if (task.status === 'completed') {
-        actions.append(actionButton('重开', () => { void write('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reopen' }) }))
+        actions.append(actionButton('重开', () => run('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reopen' })))
       }
       if (task.ownerName === undefined || task.ownerName === '') {
-        actions.append(actionButton('领取', () => { void write('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'claim' }) }))
+        actions.append(actionButton('领取', () => run('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'claim' })))
       }
       actions.append(actionButton('指派', () => {
         const names = members.map((m) => m.name).filter((name) => typeof name === 'string' && name !== '')
         const owner = doc.defaultView?.prompt?.(`指派给谁？可选：${names.join(' / ')}`, names[1] ?? names[0] ?? '')
         if (typeof owner !== 'string' || owner.trim() === '') return
-        void write('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reassign', owner: owner.trim() })
+        void run('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reassign', owner: owner.trim() })
       }))
       row.append(label, actions)
       taskList.append(row)
     }
   }
+  card.append(taskList, errorNode)
+  const graphMeta = root.querySelector('#sidebar-region-meta-graph')
+  if (graphMeta !== null) graphMeta.textContent = `${tasks.length} 张 · ${completed} 完成`
+}
 
+function renderAgentActions(team) {
+  const card = root.querySelector('#sidebar-official-agents')
+  if (card === null) return
+  card.innerHTML = ''
+  const members = Array.isArray(team.members) ? team.members : []
+  const errorNode = doc.createElement('small')
+  errorNode.className = 'team-plan-error'
   const create = doc.createElement('button')
   create.type = 'button'
   create.className = 'team-task-create'
   create.textContent = '＋ 新建任务'
-  create.addEventListener('click', () => {
+  create.addEventListener('click', async () => {
     const subject = doc.defaultView?.prompt?.('新任务标题', '') ?? ''
     if (typeof subject !== 'string' || subject.trim() === '') return
     const names = members.map((m) => m.name).filter((name) => typeof name === 'string' && name !== '')
     const owner = doc.defaultView?.prompt?.(`指派给谁？（留空=不指派）可选：${names.join(' / ')}`, '') ?? ''
-    void write('create', { subject: subject.trim(), ...(owner.trim() !== '' ? { owner: owner.trim() } : {}) })
+    const result = await postTeamTask('create', { subject: subject.trim(), ...(owner.trim() !== '' ? { owner: owner.trim() } : {}) })
+    errorNode.textContent = result.ok ? '' : result.error
   })
-
-  const errorNode = doc.createElement('small')
-  errorNode.className = 'team-plan-error'
-  const hint = doc.createElement('small')
-  hint.textContent = '官方 agentTeam projection · 写入走 ctx.agentTeams'
-  card.append(title, meta, list, taskList, create, errorNode, hint)
+  card.append(create, errorNode)
 }
+
 function renderOfficialTeam(team) {
   if (team === null || team === undefined) return false
-  const members = Array.isArray(team.members) ? team.members : []
-  const tasks = Array.isArray(team.tasks) ? team.tasks : []
-  const lead = members.find((m) => m && m.role === 'lead') ?? members[0]
-  renderTeamRoster({ lead, members, tasks })
+  renderOfficialTasks(team)
+  renderAgentActions(team)
+  officialTeamRendered = true
   return true
 }
 
+function renderTeamPlan(plan) {
+  // R180：旧 agent-teams 的 fallback 也只进任务面板，不再开左上角浮卡。
+  const card = root.querySelector('#sidebar-official-tasks')
+  if (card === null) return
+  card.innerHTML = ''
+  if (plan === null || plan === undefined) return
+  const members = Array.isArray(plan.members) ? plan.members : []
+  const tasks = Array.isArray(plan.tasks) ? plan.tasks : []
+  const title = doc.createElement('div')
+  title.className = 'sidebar-official-title'
+  title.textContent = `团队计划 · ${typeof plan.name === 'string' && plan.name !== '' ? plan.name : '待批准'}`
+  const meta = doc.createElement('div')
+  meta.className = 'sidebar-official-meta'
+  meta.textContent = `${members.length} 成员 · ${tasks.length} 任务 · 只读`
+  const list = doc.createElement('div')
+  list.className = 'team-plan-list'
+  list.textContent = members.map((m) => m?.name).filter(Boolean).join(' / ') || '（暂无成员）'
+  const hint = doc.createElement('small')
+  hint.textContent = '审批在对话的 Pre-run plan review 里进行'
+  card.append(title, meta, list, hint)
+}
 async function loadTeamPlan() {
   if (sessionId === null) return
   try {
@@ -487,7 +483,8 @@ async function loadTeamPlan() {
     if (response.ok === true) {
       const data = await response.json()
       if (data?.team?.available === true) {
-        renderTeamRoster(data.team)
+        renderOfficialTasks(data.team)
+        renderAgentActions(data.team)
         return
       }
     }
@@ -819,6 +816,7 @@ const connection = createConnection({
     legend.update({ scene: meta.scene })
     void loadWorldSession()
     void loadTeamPlan()
+    globalThis.setTimeout(() => { void loadTeamPlan() }, 1500)
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
   onEvents: (events) => {
@@ -1133,7 +1131,6 @@ const dispose = () => {
   try { connection.stop() } catch { /* 已经断了 */ }
   globalThis.clearInterval(renderTimer)
   globalThis.clearInterval(planTimer)
-  $('team-plan')?.remove()
   globalThis.removeEventListener('resize', onResize)
   try { scene2d.game?.()?.destroy?.(true) } catch { /* 已经销毁 */ }
 }
