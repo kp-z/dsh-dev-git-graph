@@ -41,6 +41,12 @@ window.__ModuleLoader__.load({
       });
       if (response.ok !== true) {
         const detail = await response.text().catch(() => '');
+        if (response.status === 404) {
+          throw new Error(
+            '宿主还是旧版：没有 /api/activate。请重启 DSH 宿主（或重新安装这个插件）让 Host 与面板版本一致；' +
+            `服务端返回：${detail.slice(0, 200)}`,
+          );
+        }
         throw new Error(`activate 失败（HTTP ${response.status}）${detail === '' ? '' : `：${detail.slice(0, 200)}`}`);
       }
     }
@@ -191,7 +197,7 @@ window.__ModuleLoader__.load({
 
       return h(
         'div',
-        { style: { position: 'relative', width: '100%', height: '100%', overflow: 'hidden' } },
+        { style: { position: 'absolute', inset: 0, overflow: 'hidden' } },
         h('div', { ref: hostRef, style: { position: 'absolute', inset: 0 } }),
         overlay,
       );
