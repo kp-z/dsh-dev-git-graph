@@ -380,7 +380,12 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       activeSessionId = sessionId
       state.world = loadSession(sessionId) ?? build(config.worldName, sessionInitialAgents)
       const captain = state.world.agents[0]
-      if (captain !== undefined && captain.boundAgentId === null) captain.boundAgentId = sessionId
+      if (captain !== undefined) {
+        // R171：队长的显示名固定为 `leader`，不继承内容花名册的人名（工头阿金等），
+        // 避免内容换一版 / 多份花名册时同一个队长出现两个名字。
+        captain.name = 'leader'
+        if (captain.boundAgentId === null) captain.boundAgentId = sessionId
+      }
       return state.world
     },
     deactivate(): void {
@@ -412,7 +417,7 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       if (captain === undefined) {
         wanted.push({
           id: 'agent-1',
-          name: captainSeat?.name ?? '队长',
+          name: 'leader',
           role: captainSeat?.role ?? 'lead',
           palette: captainSeat?.palette ?? '#f2c14e',
           modelId: captainSeat?.appearance ?? scene.agentModel,
@@ -422,7 +427,11 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
           boundAgentId: sessionId,
         })
       } else {
-        wanted.push(captain.boundAgentId === sessionId ? captain : { ...captain, boundAgentId: sessionId })
+        wanted.push(
+          captain.boundAgentId === sessionId && captain.name === 'leader'
+            ? captain
+            : { ...captain, name: 'leader', boundAgentId: sessionId },
+        )
       }
       for (const member of members) {
         const prior = existing.get(member.id)
