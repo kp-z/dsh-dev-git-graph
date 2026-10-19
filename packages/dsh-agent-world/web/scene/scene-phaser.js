@@ -2558,6 +2558,56 @@ export function createScenePhaser(canvas, options = {}) {
         rendererType: renderer?.type ?? null,
       }
     },
+    /**
+     * R159：**遮挡关系自检**——把「深度是不是由位置推出来的」变成可读读数。
+     *
+     * ## 为什么需要它
+     * 遮挡错了**永远不会报错**：画面只是"看着怪"。R152 的椅子就是这样——24 把全被钉在固定深度 15，
+     * 实测 **506 对**"物理上在前、却被画在更后"。那次是靠我临时写脚本逐个比对才发现的，
+     * **一次性脚本不构成防线**：下一个人再引入"某类对象统一固定深度"，仍然只能等用户抱怨。
+     *
+     * ## 判据（与 `depthFor` 的三条规则一一对应）
+     * 除两张平铺层（`FLAT_LAYER_DEPTHS`，固定深度、按设计不参与逐行排序）外，
+     * **每个可见对象的 `depth` 必须能用「它的底边 Y ± 该类偏移」解释**：
+     *   · 椅子 → `depthFor(bottom/TILE_PX) - CHAIR_BIAS`（偏移保留"椅子别盖桌面"的诉求）
+     *   · 其余 → `depthFor(bottom/TILE_PX)`
+     * 只要出现"位置解释不了深度"的对象，就说明有人又用了固定深度。
+     *
+     * ⚠️ 容差 0.05：椅子带 `index * 0.001` 的稳定次序偏移，24 把累计约 0.024，不能卡 0.01。
+     *
+     * @returns `{ ok, total, anomalyCount, anomalies }`；`anomalies` 最多列 20 条，带 delta 便于定位。
+     */
+    occlusionAudit: () => {
+      const scene = activeScene
+      const entities = scene?.layers?.entities
+      if (!entities) return { ok: false, reason: '场景还没建好（entities 层不存在）', total: 0, anomalyCount: 0, anomalies: [] }
+      const isFlat = (key) => key === 'map:layer0' || key === 'map:layer5'
+      const isChair = (key) => key.startsWith('office-chair')
+      const anomalies = []
+      let total = 0
+      for (const node of entities.list ?? []) {
+        if (node.visible === false) continue
+        total += 1
+        const key = String(node.texture?.key ?? '')
+        // 平铺层按设计是固定深度（地板当背景 / 墙上挂件置顶），不参与逐行排序。
+        if (isFlat(key)) continue
+        const originY = node.originY ?? 0.5
+        const bottom = node.y + (node.displayHeight ?? 0) * (1 - originY)
+        const expected = depthFor(bottom / TILE_PX) - (isChair(key) ? CHAIR_BIAS : 0)
+        const actual = node.depth ?? 0
+        if (Math.abs(actual - expected) > 0.05) {
+          anomalies.push({
+            key,
+            x: Math.round(node.x),
+            bottom: Math.round(bottom),
+            actual: Math.round(actual),
+            expected: Math.round(expected),
+            delta: Math.round(actual - expected),
+          })
+        }
+      }
+      return { ok: true, total, anomalyCount: anomalies.length, anomalies: anomalies.slice(0, 20) }
+    },
   }
 
   return {
