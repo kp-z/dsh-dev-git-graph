@@ -68,6 +68,10 @@ export async function mountEmbeddedApp(container, options = {}) {
     setWorldSession(info) {
       handle.setWorldSession(info)
     },
+    /** 官方 agentTeam projection（members/tasks）交给页面。 */
+    setTeamProjection(team) {
+      handle.setTeamProjection(team)
+    },
     dispose() {
       try {
         handle.dispose()

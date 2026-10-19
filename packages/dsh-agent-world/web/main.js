@@ -389,9 +389,30 @@ function renderTeamRoster(team) {
   list.textContent = members.length > 0
     ? members.map((m) => `${m.name ?? '?'}${m.status ? `（${m.status}）` : ''}`).join(' / ')
     : '（还没有成员）'
+  const taskList = doc.createElement('div')
+  taskList.className = 'team-plan-tasks'
+  const rows = tasks.slice(0, 8).map((t) => {
+    const status = typeof t.status === 'string' ? t.status : ''
+    const subject = typeof t.subject === 'string' ? t.subject : ''
+    return `${status} · ${subject}`
+  })
+  taskList.textContent = rows.length > 0 ? rows.join('\n') : '（还没有任务）'
   const hint = doc.createElement('small')
-  hint.textContent = 'experimental agentTeams · 只读'
-  card.append(title, meta, list, hint)
+  hint.textContent = '官方 agentTeam projection · 只读'
+  card.append(title, meta, list, taskList, hint)
+}
+
+/**
+ * 官方 agentTeam projection → 只读卡片。
+ * 数据来自 Session projection，不再走 host `/api/team`（host 只作为 fallback）。
+ */
+function renderOfficialTeam(team) {
+  if (team === null || team === undefined) return false
+  const members = Array.isArray(team.members) ? team.members : []
+  const tasks = Array.isArray(team.tasks) ? team.tasks : []
+  const lead = members.find((m) => m && m.role === 'lead') ?? members[0]
+  renderTeamRoster({ lead, members, tasks })
+  return true
 }
 
 async function loadTeamPlan() {
@@ -1054,7 +1075,7 @@ const dispose = () => {
 scene2d.resize()
 void connection.reload()
 connection.start()
-return { dispose, setWorldSession }
+return { dispose, setWorldSession, setTeamProjection }
 
 }
 

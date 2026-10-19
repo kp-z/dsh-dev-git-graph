@@ -71,6 +71,44 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * 官方 Agent Teams Session projection（R178）。
+     *
+     * 与 better-sidebar 同源：`SessionListState.projectionsBySession[lead]`
+     * `.values.agentTeam`。不轮询 host、不解析 tool call；projection 里直接有
+     * `members`（id/name/role/phase/error）和 `tasks`（id/revision/status/ownerName…）。
+     */
+    function readTeamProjection(sessions, sessionId) {
+      if (typeof sessionId !== 'string' || sessionId === '') return null;
+      try {
+        const snapshot = sessions?.list?.getSnapshot?.();
+        const team = snapshot?.projectionsBySession?.[sessionId]?.values?.agentTeam;
+        return team === undefined ? null : team;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /** 订阅 session 列表，projection 变化时把官方 team 交给页面；立即回调一次。 */
+    function watchTeamProjection(sessions, sessionId, onChange) {
+      let last = null;
+      const emit = () => {
+        const next = readTeamProjection(sessions, sessionId);
+        let fingerprint = 'null';
+        try { fingerprint = next === null ? 'null' : JSON.stringify(next); } catch (e) { fingerprint = String(next); }
+        if (fingerprint === last) return;
+        last = fingerprint;
+        onChange(next);
+      };
+      emit();
+      const list = sessions?.list;
+      if (typeof list?.subscribe !== 'function') return function () {};
+      const dispose = list.subscribe(emit);
+      return function () {
+        try { dispose(); } catch (e) { /* 已经释放 */ }
+      };
+    }
+
     /** 订阅 session 列表（标题改名）并立即回调一次；返回退订函数。 */
     function watchSessionTitle(sessions, sessionId, onChange) {
       let last;
@@ -139,6 +177,7 @@ window.__ModuleLoader__.load({
         let disposed = false;
         let handle = null;
         let stopTitleWatch = null;
+        let stopTeamWatch = null;
         setPhase('loading');
         setError(null);
         (async function () {
@@ -156,6 +195,9 @@ window.__ModuleLoader__.load({
             stopTitleWatch = watchSessionTitle(props.sessions, sessionId, function (info) {
               handle?.setWorldSession(info);
             });
+            stopTeamWatch = watchTeamProjection(props.sessions, sessionId, function (team) {
+              handle?.setTeamProjection(team);
+            });
             setPhase('ready');
           } catch (err) {
             if (!disposed) {
@@ -169,6 +211,10 @@ window.__ModuleLoader__.load({
           if (stopTitleWatch !== null) {
             stopTitleWatch();
             stopTitleWatch = null;
+          }
+          if (stopTeamWatch !== null) {
+            stopTeamWatch();
+            stopTeamWatch = null;
           }
           if (handle !== null) {
             try { handle.dispose(); } catch (e) { /* 页面已经没了 */ }

@@ -1867,3 +1867,13 @@
 .team-plan small {
   color: var(--fg-2);
 }
+
+.team-plan-tasks {
+  display: -webkit-box;
+  max-height: 7.5em;
+  overflow: hidden;
+  color: var(--fg-1);
+  font-family: var(--mono-font);
+  font-size: var(--fs-micro);
+  white-space: pre-line;
+}
