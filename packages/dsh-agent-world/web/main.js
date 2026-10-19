@@ -110,6 +110,9 @@ function trackAnimFlips() {
 
 const canvas = $('town')
 const $hint = $('view-hint')
+/** R162：header 里的“世界对应会话名”。 */
+const $brandSession = $('brand-session')
+let worldSession = null
 
 /** 本地世界（快照起家，之后靠增量维护）。 */
 let world = null
@@ -284,6 +287,37 @@ function currentTick() {
 }
 
 /** 显示一行提示（3D 的问题、读不到世界都在这里说）。 */
+/**
+ * 读这个世界对应的 DSH 会话名（R162）。
+ *
+ * 队长会话的标题在 session 日志里（异步），由宿主的 `/api/session` 端点解析；
+ * 拿不到标题时退回 teamName / captainSessionId，**不编一个看起来像标题的字符串**。
+ * 端点是同源小请求，只在快照到达后取一次；重连（新快照）会再取。
+ */
+async function loadWorldSession() {
+  if ($brandSession === null) return
+  try {
+    const response = await fetch(apiUrl('api/session'), { credentials: 'same-origin' })
+    if (response.ok !== true) return
+    const info = await response.json()
+    worldSession = info ?? null
+    const label = typeof info?.title === 'string' && info.title !== ''
+      ? info.title
+      : typeof info?.teamName === 'string' && info.teamName !== ''
+        ? info.teamName
+        : typeof info?.id === 'string' ? info.id : ''
+    if (label === '') {
+      $brandSession.hidden = true
+      return
+    }
+    $brandSession.textContent = `会话 · ${label}`
+    $brandSession.title = [info?.title, info?.teamName, info?.id].filter((part) => typeof part === 'string' && part !== '').join(' · ')
+    $brandSession.hidden = false
+  } catch {
+    /* 端点不在（headless / 旧宿主）就不显示；这不是错误。 */
+  }
+}
+
 function showHint(text) {
   if ($hint === null) return
   $hint.textContent = text ?? ''
@@ -584,6 +618,7 @@ const connection = createConnection({
     board.setTaskSets?.(snap.taskSets)
     board.update(world, { diagnostics, scene: meta?.scene })
     legend.update({ scene: meta.scene })
+    void loadWorldSession()
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
   onEvents: (events) => {
@@ -785,6 +820,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
    * 与侧边栏/对话面板的相交面积也必须是 0（对话打开时图例整枚让位）。
    * 收起态没有列表盒子（`items: null`），只量那枚胶囊。
    */
+  globalThis.__agentWorldSession = () => worldSession
   globalThis.__agentWorldLegend = {
     collapsed: () => legend.isCollapsed(),
     toggle: () => legend.setCollapsed(!legend.isCollapsed()),

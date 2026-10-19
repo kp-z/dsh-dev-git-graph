@@ -46,7 +46,7 @@ export async function mountEmbeddedApp(container, options = {}) {
   const parsed = new doc.defaultView.DOMParser().parseFromString(html, 'text/html')
   const app = parsed.querySelector('.app')
   if (app === null) throw new Error('Agent World 的 index.html 里找不到 .app（页面结构变了？）')
-  app.querySelector('.topbar')?.remove()
+  // R162：顶栏**保留**（它现在也是会话名的 header），只去掉独立页的底栏状态条。
   app.querySelector('.footer')?.remove()
 
   // ── 2) 样式：tokens 放变量到容器上，其余全部 @scope 在容器内 ────────────────
@@ -122,20 +122,29 @@ function embeddedLayoutCss(rootId) {
   height: 100%;
   padding: 0;
   gap: 0;
-  grid-template-rows: 1fr;
+  grid-template-rows: 48px 1fr;
   grid-template-columns: 1fr var(--sidebar-w);
   --sidebar-w: clamp(320px, 42%, 560px);
   background: var(--bg-0);
 }
-#${rootId} .stage {
+#${rootId} .topbar {
   grid-row: 1;
+  grid-column: 1 / -1;
+  border-radius: 0;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  box-shadow: none;
+}
+#${rootId} .stage {
+  grid-row: 2;
   grid-column: 1;
   border: 0;
   border-radius: 0;
   box-shadow: none;
 }
 #${rootId} #sidebar {
-  grid-row: 1;
+  grid-row: 2;
   grid-column: 2;
   border: 0;
   box-shadow: none;

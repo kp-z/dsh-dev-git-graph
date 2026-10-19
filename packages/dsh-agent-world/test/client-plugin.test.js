@@ -64,3 +64,14 @@ test('Phaser 不再用裸说明符（宿主页面没有 import map）', () => {
   assert.equal(/^\s*import[^\n]*from\s+['"]phaser['"]/m.test(src), false, 'scene-phaser 还在 from \'phaser\'')
   assert.match(src, /import\(new URL\(['"]\.\.\/vendor\/phaser\//, 'Phaser 必须用 import.meta.url 拼绝对 URL')
 })
+
+
+test('R162：header 里的世界会话名（端点 + 页面接线）', () => {
+  const api = read('src/routes/api.ts')
+  assert.match(api, /pattern:\s*['"]\/api\/session['"]/, '缺少 /api/session 端点')
+  assert.match(read('src/index.ts'), /worldSession\s*:/, 'Host 没有提供 worldSession')
+  assert.match(read('web/index.html'), /id="brand-session"/, 'header 里没有会话名的位置')
+  assert.match(read('web/main.js'), /apiUrl\('api\/session'\)/, '页面没有取会话信息')
+  assert.match(read('web/main.js'), /brandSession\.textContent = `会话 · \$\{label\}`/, '页面没有把会话名写进 header')
+  assert.equal(read('web/embed.js').includes("querySelector('.topbar')?.remove()"), false, '嵌入时不能把 header 去掉')
+})

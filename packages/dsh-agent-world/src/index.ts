@@ -429,6 +429,22 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         tickMs: state.tickMs,
         maxLiveSessions: resolved.maxLiveSessions,
         dialogue: activeDialoguePort,
+        // R162：header 要显示"这个世界对应的会话名"。
+        // 队长会话的标题在 session 日志里，异步读；读不到就让前端退回 teamName / id。
+        worldSession: async () => {
+          const id = resolved.captainSessionId
+          const teamName = resolved.teamName
+          try {
+            const query = ctx.get('sessionQuery') as
+              | { readTitle?: (sessionId: string) => Promise<{ title?: string } | undefined> }
+              | undefined
+            const snapshot = typeof query?.readTitle === 'function' ? await query.readTitle(id) : undefined
+            const title = typeof snapshot?.title === 'string' && snapshot.title !== '' ? snapshot.title : null
+            return { id, teamName, title }
+          } catch {
+            return { id, teamName, title: null }
+          }
+        },
       },
       (error, request) => {
         const detail = error instanceof Error ? error.message : String(error)

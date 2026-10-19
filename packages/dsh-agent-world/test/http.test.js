@@ -151,6 +151,25 @@ test('未知路由的 404 要列出已注册的路由（可下手）', async () 
 
 // ── 快照 ────────────────────────────────────────────────────────────────────
 
+test('GET /api/session：返回这个世界对应的会话（有 title 用 title，否则 teamName）', async () => {
+  const service = createPluginState(resolveConfig({ autoStart: false, scene: 'scene.default-town' }))
+  service.ensureWorld()
+  const runtime = createRuntime({ service, tickMs: 100 })
+  const hub = createEventHub()
+  const handler = createHandler(PREFIX, {
+    service,
+    runtime,
+    source: hub,
+    tickMs: 100,
+    worldSession: async () => ({ id: 'agent-world:captain-g2', teamName: 'Agent World G2', title: '夜班小镇' }),
+  })
+  await withServer(handler, async (base) => {
+    const res = await fetch(`${base}${PREFIX}/api/session`)
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), { id: 'agent-world:captain-g2', teamName: 'Agent World G2', title: '夜班小镇' })
+  })
+})
+
 test('GET /api/world：快照里没有事件环形缓冲，但有调色板与运行时诊断', async () => {
   const { handler, runtime } = makeDeps()
   runtime.advance(12)

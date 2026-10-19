@@ -32,6 +32,14 @@ export interface ApiDeps {
   service: WorldServicePort
   runtime: RuntimePort
   tickMs: number
+  /**
+   * 这个世界对应的 DSH 会话（队长会话）的**可读名字**（R162）。
+   *
+   * 为什么不放进快照：标题要异步读 session 日志（`sessionQuery.readTitle`），
+   * 而 `buildSnapshot` 是同步的；单独一个小端点在页面加载后取一次，
+   * 拿不到时调用方退回 teamName / captainSessionId，不编一个假名字。
+   */
+  worldSession?: () => Promise<{ id: string; teamName: string; title: string | null }>
 }
 
 /**
@@ -125,6 +133,16 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
       method: 'POST',
       pattern: '/api/command',
       handler: (request) => applyCommand(deps, request.body),
+    },
+    {
+      method: 'GET',
+      pattern: '/api/session',
+      handler: async () => {
+        if (typeof deps.worldSession !== 'function') {
+          return { id: null, teamName: null, title: null }
+        }
+        return await deps.worldSession()
+      },
     },
   ]
 }

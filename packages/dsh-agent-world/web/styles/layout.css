@@ -95,6 +95,25 @@
   background: color-mix(in srgb, var(--ink) 22%, transparent);
   border-color: var(--lamp);
 }
+/* R162：header 里的会话名（世界名右侧；品牌是台灯色，这里退到次级文字）。 */
+.brand-session {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(360px, 38vw);
+  padding-left: var(--s-2);
+  border-left: 1px solid var(--edge-soft);
+  color: var(--ink-1);
+  font-size: var(--fs-micro);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.brand-session[hidden] {
+  display: none;
+}
 .footer {
   /* R152：底栏也跨两列，与顶栏对称；侧边栏夹在两条横栏之间。 */
   grid-column: 1 / -1;

@@ -160,6 +160,7 @@
 | **R151** | 图例位置优化（**用户新提**） | designer → Lead | 遮挡/重叠数字 + 两档截图 | — | ✅ 完成（task-26 / R151：展开面板越出舞台 624px、裁掉 5 条 → 三档 insideStage=true、相交全 0；`__agentWorldLegend.measure()` + 4 条 CSS 守卫） |
 | **R160** | 团队头像改用 agent 角色贴图；恢复被误染的原色图集 | Lead | 真机读数 + 回归测试 | — | ✅ 完成（R160：头像 `is-sprite` 8/8，裁切不透明像素 828/900；`recolor` 开关修正后 8 个 actor 回 `tex:` 原图；724/724） |
 | **R161** | Agent World 放进 **DSH 侧边栏主面板**（Client half + 可挂载装配） | Lead | 隔离 web profile 真机 + 切页清理 | — | ✅ 完成（R161：`sidebar.panellist` + `main`，无 iframe；18439 真机 8 actors/8 成员/71 节点；切页后残留 0；724/724） |
+| **R162** | header 显示世界对应的会话名 | Lead | 端点 + 真机读数 | — | ✅ 完成（R162：`/api/session` 读队长会话标题，退回 teamName；header `会话 · <名字>`；726/726） |
 | **R141** | 观测：G2 到 ~100 轮或 captain 上下文 >200k 时复量"只想不说" | developer | 同一统计脚本 | R138 | ⬜ 待触发 |
 | **R122** | 可读性漂移守卫：测试钉住 NODE_TITLE_PX 与 CSS 字号一致 | developer | 测试 + 反证 | R120 | ✅ 完成（task-20 R144：CSS 解析守卫 + 取整关系，两条反证） |
 | **R5** | 细节打磨：Map 显示 + Header 图标 + 两档分辨率不溢出 | designer→developer | 改动 + 裁剪判据 | R3 | ⬜ |
