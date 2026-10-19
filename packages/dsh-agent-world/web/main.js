@@ -333,6 +333,14 @@ function renderWorldSession(info) {
  * 它比 `/api/session`（队长会话）优先：header 要显示的是用户眼前的那个会话名，
  * 不是 Agent World 自己的团队会话。
  */
+/**
+ * 官方 agentTeam projection 的入口。embed 的 handle 会调用它；
+ * 必须在这里显式定义，否则会报 "setTeamProjection is not defined"。
+ */
+function setTeamProjection(team) {
+  renderOfficialTeam(team)
+}
+
 function setWorldSession(info) {
   workspaceSessionOverride = info ?? null
   worldSession = workspaceSessionOverride
