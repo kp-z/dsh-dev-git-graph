@@ -45,6 +45,10 @@ export interface ApiDeps {
   activateSession?: (sessionId: string) => World | Promise<World>
   /** 关闭视图时保存并卸下当前会话世界。 */
   deactivateSession?: () => void
+  /** 只读读取该会话最近的 agent-teams staged plan（R175）。 */
+  teamPlan?: (sessionId: string) => Promise<unknown>
+  /** 只读读取 experimental agent-teams roster/tasks（R176）。 */
+  teamRoster?: (sessionId: string) => Promise<unknown>
 }
 
 /**
@@ -157,6 +161,32 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
       handler: () => {
         deps.deactivateSession?.()
         return { ok: true }
+      },
+    },
+    {
+      method: 'GET',
+      pattern: '/api/team',
+      handler: async (request) => {
+        const sessionId = request.query.get('session') ?? ''
+        if (sessionId === '' || typeof deps.teamRoster !== 'function') return { team: null }
+        try {
+          return { team: await deps.teamRoster(sessionId) }
+        } catch (error) {
+          return { team: { available: false, reason: error instanceof Error ? error.message : String(error) } }
+        }
+      },
+    },
+    {
+      method: 'GET',
+      pattern: '/api/team/plan',
+      handler: async (request) => {
+        const sessionId = request.query.get('session') ?? ''
+        if (sessionId === '' || typeof deps.teamPlan !== 'function') return { plan: null }
+        try {
+          return { plan: await deps.teamPlan(sessionId) }
+        } catch {
+          return { plan: null }
+        }
       },
     },
     {

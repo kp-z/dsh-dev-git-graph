@@ -55,6 +55,8 @@ export function mountAgentWorld(options = {}) {
   const doc = options.document ?? globalThis.document
   const root = options.root ?? doc
   const embedded = options.embedded === true
+  /** R175：会话 id，用来读只读 team plan。 */
+  const sessionId = typeof options.sessionId === 'string' && options.sessionId !== '' ? options.sessionId : null
   const rawBase = typeof options.baseUrl === 'string' && options.baseUrl !== '' ? options.baseUrl : '.'
   const baseUrl = rawBase === '.' ? '.' : rawBase.replace(/\/$/, '')
   const apiUrl = (path) => `${baseUrl}/${path}`
@@ -333,6 +335,83 @@ function setWorldSession(info) {
   workspaceSessionOverride = info ?? null
   worldSession = workspaceSessionOverride
   renderWorldSession(workspaceSessionOverride)
+}
+
+function renderTeamPlan(plan) {
+  if ($brandSession === null) return
+  const stage = canvas?.parentElement ?? root
+  let card = stage?.querySelector('#team-plan')
+  if (plan === null || plan === undefined) {
+    card?.remove()
+    return
+  }
+  if (!card) {
+    card = doc.createElement('section')
+    card.id = 'team-plan'
+    card.className = 'team-plan'
+    stage?.append(card)
+  }
+  const members = Array.isArray(plan.members) ? plan.members : []
+  const tasks = Array.isArray(plan.tasks) ? plan.tasks : []
+  const memberNames = members.map((m) => (m && typeof m.name === 'string' ? m.name : '')).filter(Boolean)
+  card.innerHTML = ''
+  const title = doc.createElement('strong')
+  title.textContent = `团队计划 · ${typeof plan.name === 'string' && plan.name !== '' ? plan.name : '待批准'}`
+  const meta = doc.createElement('span')
+  meta.textContent = `${members.length} 成员 · ${tasks.length} 任务 · 只读`
+  const list = doc.createElement('div')
+  list.className = 'team-plan-list'
+  list.textContent = memberNames.length > 0 ? memberNames.join(' / ') : '（暂无成员）'
+  const hint = doc.createElement('small')
+  hint.textContent = '审批在对话的 Pre-run plan review 里进行'
+  card.append(title, meta, list, hint)
+}
+
+function renderTeamRoster(team) {
+  const stage = canvas?.parentElement ?? root
+  let card = stage?.querySelector('#team-plan')
+  if (!card) {
+    card = doc.createElement('section')
+    card.id = 'team-plan'
+    card.className = 'team-plan'
+    stage?.append(card)
+  }
+  const members = Array.isArray(team.members) ? team.members : []
+  const tasks = Array.isArray(team.tasks) ? team.tasks : []
+  card.innerHTML = ''
+  const title = doc.createElement('strong')
+  const lead = team.lead && typeof team.lead.name === 'string' ? team.lead.name : 'captain'
+  title.textContent = `Team · ${lead}`
+  const meta = doc.createElement('span')
+  meta.textContent = `${members.length} 成员 · ${tasks.length} 任务 · 只读`
+  const list = doc.createElement('div')
+  list.className = 'team-plan-list'
+  list.textContent = members.length > 0
+    ? members.map((m) => `${m.name ?? '?'}${m.status ? `（${m.status}）` : ''}`).join(' / ')
+    : '（还没有成员）'
+  const hint = doc.createElement('small')
+  hint.textContent = 'experimental agentTeams · 只读'
+  card.append(title, meta, list, hint)
+}
+
+async function loadTeamPlan() {
+  if (sessionId === null) return
+  try {
+    const response = await fetch(apiUrl(`api/team?session=${encodeURIComponent(sessionId)}`), { credentials: 'same-origin' })
+    if (response.ok === true) {
+      const data = await response.json()
+      if (data?.team?.available === true) {
+        renderTeamRoster(data.team)
+        return
+      }
+    }
+  } catch { /* 继续尝试 plan */ }
+  try {
+    const response = await fetch(apiUrl(`api/team/plan?session=${encodeURIComponent(sessionId)}`), { credentials: 'same-origin' })
+    if (response.ok !== true) return
+    const data = await response.json()
+    renderTeamPlan(data?.plan ?? null)
+  } catch { /* 读不到就不显示 */ }
 }
 
 async function loadWorldSession() {
@@ -653,6 +732,7 @@ const connection = createConnection({
     board.update(world, { diagnostics, scene: meta?.scene })
     legend.update({ scene: meta.scene })
     void loadWorldSession()
+    void loadTeamPlan()
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
   onEvents: (events) => {
@@ -696,6 +776,7 @@ const onResize = () => {
   render(true)
 }
 window.addEventListener('resize', onResize)
+const planTimer = globalThis.setInterval(() => { void loadTeamPlan() }, 10000)
 
 // R3：看板从顶栏搬进侧边栏之后**没有"收起"这回事**了——它常驻在侧边栏里，
 // 两档由页签切换（`setCollapsed` 在挂载模式下是空操作，这里不再调它）。
@@ -965,6 +1046,8 @@ keyTarget.addEventListener('keydown', (event) => {
 const dispose = () => {
   try { connection.stop() } catch { /* 已经断了 */ }
   globalThis.clearInterval(renderTimer)
+  globalThis.clearInterval(planTimer)
+  $('team-plan')?.remove()
   globalThis.removeEventListener('resize', onResize)
   try { scene2d.game?.()?.destroy?.(true) } catch { /* 已经销毁 */ }
 }

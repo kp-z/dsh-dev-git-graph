@@ -92,6 +92,35 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   }
 
   const state = createPluginState(resolved, { externalRoot: contentRoot.root, storeDir })
+  /** R175：sessionQuery 是软依赖；先 inject 捕获，避免请求时 ctx.get 拿不到。 */
+  let sessionQueryService:
+    | { readSession?(id: string): Promise<unknown> }
+    | undefined
+  ctx.inject(['sessionQuery'], (host) => {
+    sessionQueryService = (host as unknown as {
+      sessionQuery?: { readSession?(id: string): Promise<unknown> }
+    }).sessionQuery
+  })
+  let agentsService: { get?(id: string): { id?: string } | undefined } | undefined
+  let agentTeamsService:
+    | {
+        membership?(agent: { id?: string }): unknown
+        listMembers?(agent: { id?: string }): unknown
+        listTasks?(agent: { id?: string }): unknown
+      }
+    | undefined
+  ctx.inject(['agents', 'agentTeams'], (host) => {
+    const h = host as unknown as {
+      agents?: { get?(id: string): { id?: string } | undefined }
+      agentTeams?: {
+        membership?(agent: { id?: string }): unknown
+        listMembers?(agent: { id?: string }): unknown
+        listTasks?(agent: { id?: string }): unknown
+      }
+    }
+    agentsService = h.agents
+    agentTeamsService = h.agentTeams
+  })
 
   // ── D41/R43：把小镇的工单接到 agent-teams 的任务上 ────────────────────────────
   //
@@ -623,6 +652,75 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
             return { id, teamName, title }
           } catch {
             return { id, teamName, title: null }
+          }
+        },
+        teamRoster: async (sessionId: string) => {
+          const lead = agentsService?.get?.(sessionId)
+          if (lead === undefined) return { available: false, reason: 'Lead Agent 不在线：先打开这个会话再试' }
+          const teams = agentTeamsService
+          if (typeof teams?.membership !== 'function' || typeof teams.listMembers !== 'function' || typeof teams.listTasks !== 'function') {
+            return { available: false, reason: 'experimental agentTeams 服务不可用（当前 profile 没装/未激活）' }
+          }
+          try {
+            const membership = teams.membership(lead) as { id?: unknown; name?: unknown; role?: unknown } | undefined
+            const members = teams.listMembers(lead) as readonly Record<string, unknown>[] | undefined
+            const tasks = teams.listTasks(lead) as readonly Record<string, unknown>[] | undefined
+            // 不能把 Agent/service 对象直接序列化（真机：cannot get property "toJSON" without inject）。
+            return {
+              available: true,
+              provider: 'experimental',
+              lead: membership === undefined ? null : {
+                id: String(membership.id ?? ''),
+                name: String(membership.name ?? ''),
+                role: String(membership.role ?? ''),
+              },
+              members: (members ?? []).map((m) => ({
+                id: String(m['id'] ?? ''),
+                name: String(m['name'] ?? ''),
+                role: String(m['role'] ?? ''),
+                status: String(m['status'] ?? ''),
+                description: typeof m['description'] === 'string' ? m['description'] : '',
+                model: typeof m['model'] === 'string' ? m['model'] : '',
+              })),
+              tasks: (tasks ?? []).map((t) => ({
+                id: String(t['id'] ?? ''),
+                subject: String(t['subject'] ?? ''),
+                description: typeof t['description'] === 'string' ? t['description'] : '',
+                status: String(t['status'] ?? ''),
+                ownerName: typeof t['ownerName'] === 'string' ? t['ownerName'] : '',
+                ready: t['ready'] === true,
+              })),
+            }
+          } catch (error) {
+            return { available: false, reason: error instanceof Error ? error.message : String(error) }
+          }
+        },
+        teamPlan: async (sessionId: string) => {
+          const query = sessionQueryService
+          if (typeof query?.readSession !== 'function') return null
+          try {
+            const snapshot = await query.readSession(sessionId) as { events?: readonly { type?: string; data?: Record<string, unknown> }[] } | undefined
+            const events = snapshot?.events ?? []
+            for (let i = events.length - 1; i >= 0; i -= 1) {
+              const event = events[i]
+              if (event?.type !== 'tool/call') continue
+              const data = event.data ?? {}
+              if (data.name !== 'agent_teams_create') continue
+              let args: Record<string, unknown> = {}
+              try { args = JSON.parse(typeof data.arguments === 'string' ? data.arguments : '{}') as Record<string, unknown> } catch { continue }
+              const plan = args.plan as { members?: unknown; tasks?: unknown } | undefined
+              if (plan === undefined) continue
+              return {
+                name: typeof args.name === 'string' ? args.name : '',
+                description: typeof args.description === 'string' ? args.description : '',
+                approval: typeof args.approval === 'string' ? args.approval : 'required',
+                members: Array.isArray(plan.members) ? plan.members : [],
+                tasks: Array.isArray(plan.tasks) ? plan.tasks : [],
+              }
+            }
+            return null
+          } catch {
+            return null
           }
         },
       },

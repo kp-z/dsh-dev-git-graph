@@ -1832,3 +1832,38 @@
     padding: 2px 6px;
   }
 }
+
+/* R175：只读的 team plan 卡片（悬浮在 stage 左上；审批仍归 native Pre-run plan review）。 */
+.team-plan {
+  position: absolute;
+  top: var(--s-3);
+  left: var(--s-3);
+  z-index: var(--z-hint);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 360px;
+  padding: var(--s-3);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-2);
+  color: var(--fg-0);
+  font-size: var(--fs-micro);
+  line-height: 1.45;
+}
+.team-plan strong {
+  color: var(--lamp);
+  font-size: var(--fs-sub);
+}
+.team-plan span {
+  color: var(--fg-1);
+}
+.team-plan-list {
+  color: var(--fg-0);
+  font-family: var(--mono-font);
+  overflow-wrap: anywhere;
+}
+.team-plan small {
+  color: var(--fg-2);
+}

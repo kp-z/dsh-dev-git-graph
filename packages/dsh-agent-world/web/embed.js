@@ -36,6 +36,7 @@ export async function mountEmbeddedApp(container, options = {}) {
   if (container === null || container === undefined) throw new Error('mountEmbeddedApp: container 不能为空')
   const doc = container.ownerDocument ?? globalThis.document
   const baseUrl = normalizeBase(options.baseUrl ?? '/agent-world')
+  const sessionId = typeof options.sessionId === 'string' ? options.sessionId : undefined
   const rootId = container.id === '' ? 'agent-world-root' : container.id
   container.id = rootId
   container.dataset.agentWorld = '1'
@@ -60,7 +61,7 @@ export async function mountEmbeddedApp(container, options = {}) {
 
   // ── 3) 启动装配（main.js 的自动挂载被上面的 flag 关掉）──────────────────────
   const { mountAgentWorld } = await import('./main.js')
-  const handle = mountAgentWorld({ root: container, baseUrl, embedded: true, document: doc })
+  const handle = mountAgentWorld({ root: container, baseUrl, embedded: true, document: doc, sessionId })
 
   return {
     /** 把**左侧工作区当前会话**的名字交给 header（null = 没有选中）。 */

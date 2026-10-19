@@ -146,7 +146,7 @@ window.__ModuleLoader__.load({
             if (typeof sessionId === 'string' && sessionId !== '') await activateSession(sessionId);
             const mod = await import(BASE_URL + '/embed.js');
             if (disposed) return;
-            handle = await mod.mountEmbeddedApp(hostRef.current, { baseUrl: BASE_URL });
+            handle = await mod.mountEmbeddedApp(hostRef.current, { baseUrl: BASE_URL, sessionId });
             if (disposed) {
               handle.dispose();
               handle = null;
