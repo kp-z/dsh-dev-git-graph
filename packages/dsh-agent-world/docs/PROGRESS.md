@@ -67,6 +67,37 @@ Microverse 的角色被整张染色后头发/脸/衣服变成一色，看起来�
 
 ---
 
+## R164（Lead）—— Agent World 从「全局面板」搬进**会话 header 的视图 tab**，跟会话绑定
+
+### 需求
+用户指着会话 header（标题 + 对话/轨迹）说：**Agent World 应该放在这里，和会话绑定**。
+之前的实现是 `sidebar.panellist` + `main` 的全局面板：所有会话共用一个入口，跟当前会话没有关系。
+
+### 做法
+- **移除全局面板**：不再注册 `sidebar.panellist` / `main`。
+- **注册 `conversation.view`**：id `agent-world`、label「Agent World」、order 20。
+  它渲染在「对话 / 轨迹」后面，是**当前会话自己的一个 View**；`conversation.view` 是
+  session-scoped slot，组件直接拿到 `sessionId`。
+- **会话绑定**：`sessionId` → `sessions.list.byId[sessionId].title`，
+  经 `mountEmbeddedApp.setWorldSession()` 交给游戏 header；会话改名会实时更新。
+  没有标题时与左侧行一致显示「未命名」。
+- **生命周期**：视图选中才挂载；切到「对话/轨迹」或切会话就 dispose（停 SSE、销毁 Phaser、移除 @scope style），
+  不常驻后台。
+
+### 边界（明确写下来）
+世界引擎仍是**单实例**（一个 stateDir / 一个世界）。这轮保证的是“入口和展示跟着会话走”，
+不是每个会话有独立世界；真要按 sessionId 分世界，得后端按会话分库，是另一轮。
+
+### 真机
+隔离 web profile（用真实会话日志复制进临时 DSH_HOME）：
+- 会话 header 出现 **对话 / 轨迹 / Agent World** 三个 tab；
+- 点 Agent World → 视图挂载 1154×648，8 actors / 8 成员；
+- 在左侧把会话重命名为「Agent World 小队」→ header 里的 `会话 · …` 立即变成
+  **`会话 · Agent World 小队`**（订阅生效，不是刷新生效）；
+- 左侧「全局面板」里不再有 Agent World 图标；全量 **727 / 727**。
+
+---
+
 ## R162（Lead）—— header 里显示**这个世界对应的会话名**
 
 ### 需求

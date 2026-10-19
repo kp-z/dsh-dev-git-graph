@@ -23,20 +23,20 @@ test('package.json：有 dsh.client、./client 导出，构建会产出 lib/clie
   const pkg = JSON.parse(read('package.json'))
   assert.equal(pkg.dsh?.client?.platform, 'web')
   assert.ok(Array.isArray(pkg.dsh.client.inject) && pkg.dsh.client.inject.includes('slots'))
+  assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-conversation'), 'manifest 没有声明 conversation 依赖')
   assert.equal(pkg.exports?.['./client']?.default, './lib/client.js')
   assert.match(pkg.scripts.build, /cp src\/client\.js lib\/client\.js/)
   assert.ok(existsSync(join(ROOT, 'src/client.js')), 'src/client.js 不存在')
   assert.ok(existsSync(join(ROOT, 'lib/client.js')), 'lib/client.js 不存在（构建没拷？）')
 })
 
-test('client.js：注册 sidebar.panellist 的 id 与 main 的 key 是同一个口径', () => {
+test('client.js：注册 conversation.view（会话 header 的「对话/轨迹」旁），不再是全局面板', () => {
   const src = read('src/client.js')
-  const inPanelList = /ctx\.slots\.inject\(\s*['"]sidebar\.panellist['"]/.test(src)
-  const inMain = /ctx\.slots\.inject\(\s*['"]main['"]/.test(src)
-  assert.ok(inPanelList, '没有注册 sidebar.panellist')
-  assert.ok(inMain, '没有注册 main')
-  assert.match(src, /name:\s*['"]sidebar\.panellist['"]\s*,\s*id:\s*PANEL_KEY/, 'panellist 的 id 必须用 PANEL_KEY')
-  assert.match(src, /name:\s*['"]main['"]\s*,\s*key:\s*PANEL_KEY/, 'main 的 key 必须用 PANEL_KEY（与侧边栏 id 同口径）')
+  assert.match(src, /ctx\.slots\.inject\(\s*['"]conversation\.view['"]/, '没有注册 conversation.view')
+  assert.match(src, /name:\s*['"]conversation\.view['"]\s*,\s*id:\s*VIEW_KEY/, 'view 的 id 必须用 VIEW_KEY')
+  assert.match(src, /label:\s*['"]Agent World['"]/, 'view 没有 label')
+  assert.equal(/ctx\.slots\.inject\(\s*['"]sidebar\.panellist['"]/.test(src), false, '不应再占全局面板图标')
+  assert.equal(/name:\s*['"]main['"]/.test(src), false, '不应再注册全局 main 面板')
 })
 
 test('不把 Host 页面塞 iframe（会把宿主主题/语言切断）', () => {
@@ -77,13 +77,11 @@ test('R162：header 里的世界会话名（端点 + 页面接线）', () => {
 })
 
 
-test('R162b：header 取**左侧工作区当前会话**的名字（不是团队/队长会话）', () => {
+test('R164：conversation.view 拿 sessionId，header 取该会话的标题', () => {
   const client = read('src/client.js')
-  assert.match(client, /uiSession/, 'client 没有读 uiSession 的当前会话绑定')
-  assert.match(client, /adapter\?\.current/, 'client 没有读 adapter.current')
-  assert.match(client, /byId\?\.\[id\]/, 'client 没有从 sessions.list.byId 取标题')
-  assert.match(client, /setWorldSession/, 'client 没有把会话名交给页面')
+  assert.match(client, /props\.sessionId/, 'view 没有用 sessionId')
+  assert.match(client, /sessions\?\.list\?\.getSnapshot\?\.\(\)\?\.byId\?\.\[sessionId\]/, 'view 没有从 sessions.list.byId 取标题')
+  assert.match(client, /setWorldSession/, 'view 没有把会话名交给页面')
   assert.match(read('web/main.js'), /workspaceSessionOverride/, '页面没有“工作区会话优先”的覆盖开关')
-  const pkg = JSON.parse(read('package.json'))
-  assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-session'), 'manifest 没有声明 ui-session 依赖')
+  assert.match(read('web/embed.js'), /setWorldSession/, 'embed 没有透传 setWorldSession')
 })

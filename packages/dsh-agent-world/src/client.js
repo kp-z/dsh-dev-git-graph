@@ -1,20 +1,22 @@
 /*
- * dsh-agent-world 的 **Client half**（R161）—— 把世界放进 DSH 的侧边栏主面板。
+ * dsh-agent-world 的 **Client half**（R164）—— 把世界放进会话的 **conversation.view**。
  *
- * ## 它注册了什么
+ * ## 放在哪里
  *
- * · `sidebar.panellist` / id `agent-world`
- *     侧边栏里的一个全局面板图标。DSH 的约定是：**这个 id 同时就是 main 面板的 key**，
- *     侧边栏自己画按钮、自己解析 label，点击后把 `main` 切到同 id 的面板。
- * · `main` / key `agent-world`
- *     主面板内容。这里渲染一个"宿主容器"，再由 `/agent-world/embed.js` 把
- *     同一套 Phaser 页面挂进去（不是 iframe：悬浮层靠脚本文档拿不到宿主主题）。
+ * 不再占「全局面板」（`sidebar.panellist` + `main`）。注册
+ * `conversation.view` / id `agent-world` / label「Agent World」/ order 20：
+ * 它会出现在每个会话 header 的「对话 / 轨迹」后面，作为**这个会话自己的一个视图**。
+ * 切会话、切视图由 Conversation 自己管；离开视图就 dispose 游戏，不常驻后台。
  *
- * ## 为什么主面板只做一个容器
+ * ## 会话绑定
  *
- * 游戏本体是既有的一整套模块（`web/main.js` + `web/scene/*` + `web/ui/*`），
- * 已经支持"挂到任意 root"（R161 的 `mountAgentWorld`）。Client 这一层只负责
- * 生命周期：加载、挂载、卸载。真正的装配与数据都在那一份代码里，不复制。
+ * `conversation.view` 是 session-scoped slot，组件直接拿到 `sessionId`。
+ * 标题从 `sessions.list.byId[sessionId].title` 读（与左侧工作区行同一份 summary）；
+ * 通过 `setWorldSession({ id, title })` 交给页面 header。切会话/改标题会同步。
+ *
+ * ⚠️ 世界引擎目前仍是**单实例**（一个 stateDir / 一个世界）。这个 view 只保证
+ * “入口和展示跟着会话走”，不等于每个会话有独立世界；独立世界需要后端按 sessionId
+ * 分库，属于另一轮。
  */
 
 window.__ModuleLoader__.load({
@@ -23,93 +25,53 @@ window.__ModuleLoader__.load({
     const React = require('react');
     const h = React.createElement;
 
-    const PANEL_KEY = 'agent-world';
+    const VIEW_KEY = 'agent-world';
     const BASE_URL = (typeof window !== 'undefined' && window.__AGENT_WORLD_BASE__) || '/agent-world';
 
-    /* ── 侧边栏图标：和页面 brand-mark 同源的菱形星座 ─────────────────────── */
-    function AgentWorldIcon(props) {
-      const size = typeof props.size === 'number' ? props.size : 18;
-      return h(
-        'svg',
-        {
-          viewBox: '0 0 24 24',
-          width: size,
-          height: size,
-          fill: 'none',
-          stroke: 'currentColor',
-          strokeWidth: 1.6,
-          strokeLinecap: 'round',
-          strokeLinejoin: 'round',
-          'aria-hidden': true,
-          style: { display: 'block', opacity: props.active === false ? 0.75 : 1 },
-        },
-        h('path', { d: 'M12 3.6 20 12l-8 8.4L4 12Z' }),
-        h('path', { d: 'M4 12h16' }),
-        h('circle', { cx: 12, cy: 3.6, r: 2.2, fill: 'currentColor', stroke: 'none' }),
-        h('circle', { cx: 20, cy: 12, r: 2.2, fill: 'currentColor', stroke: 'none' }),
-        h('circle', { cx: 12, cy: 20.4, r: 2.2, fill: 'currentColor', stroke: 'none' }),
-        h('circle', { cx: 4, cy: 12, r: 2.2, fill: 'currentColor', stroke: 'none' }),
-      );
-    }
-
-    /* ── 左侧工作区当前会话：读 uiSession 的 current binding + sessions 的标题 ── */
-
-    /**
-     * 读当前选中会话的 `{ id, title }`。
-     *
-     * `uiSession.adapter.current` 是 DSH 自己维护的“主视图会话”绑定
-     * （`@deepseek-ai/dsh-client-ui-session` 的 `publishMain()`），`binding.key` 就是 session id。
-     * 标题在 `sessions.list` 的 `byId[id].title`；拿不到就只给 id，由 header 决定怎么显示。
-     */
-    function readWorkspaceSession(sessions, uiSession) {
+    /** 从 sessions 服务的列表快照里取当前会话的标题（拿不到就只给 id）。 */
+    function readSessionTitle(sessions, sessionId) {
+      if (typeof sessionId !== 'string' || sessionId === '') return null;
       try {
-        const binding = uiSession?.adapter?.current?.getSnapshot?.();
-        const id = binding?.key ?? binding?.sessionId;
-        if (typeof id !== 'string' || id === '') return null;
-        const summary = sessions?.list?.getSnapshot?.()?.byId?.[id];
+        const summary = sessions?.list?.getSnapshot?.()?.byId?.[sessionId];
         const title = typeof summary?.title === 'string' && summary.title !== '' ? summary.title : null;
-        return { id, title };
+        return { id: sessionId, title };
       } catch (e) {
-        return null;
+        return { id: sessionId, title: null };
       }
     }
 
-    /**
-     * 订阅“当前会话”的变化（选中别的会话、标题改名），返回退订函数。
-     * 首次会立刻回调一次；没有选中会话时回调 `null`（页面据此隐藏 header 里的会话名）。
-     */
-    function watchWorkspaceSession(sessions, uiSession, onChange) {
-      let last = Symbol('unset');
+    /** 订阅 session 列表（标题改名）并立即回调一次；返回退订函数。 */
+    function watchSessionTitle(sessions, sessionId, onChange) {
+      let last;
       const emit = () => {
-        const next = readWorkspaceSession(sessions, uiSession);
+        const next = readSessionTitle(sessions, sessionId);
         const fingerprint = next === null ? 'null' : `${next.id}\u0000${next.title ?? ''}`;
         if (fingerprint === last) return;
         last = fingerprint;
         onChange(next);
       };
       emit();
-      const disposers = [];
-      const current = uiSession?.adapter?.current;
-      if (typeof current?.subscribe === 'function') disposers.push(current.subscribe(emit));
       const list = sessions?.list;
-      if (typeof list?.subscribe === 'function') disposers.push(list.subscribe(emit));
+      if (typeof list?.subscribe !== 'function') return function () {};
+      const dispose = list.subscribe(emit);
       return function () {
-        for (const dispose of disposers) {
-          try { dispose(); } catch (e) { /* 已经释放 */ }
-        }
+        try { dispose(); } catch (e) { /* 已经释放 */ }
       };
     }
 
-    /* ── 主面板：只做容器的生命周期 ──────────────────────────────────────── */
-    function AgentWorldPanel(props) {
+    /* ── 会话视图：只做容器的生命周期 ─────────────────────────────────────── */
+    function AgentWorldView(props) {
       const hostRef = React.useRef(null);
       const [phase, setPhase] = React.useState('loading');
       const [error, setError] = React.useState(null);
+      const sessionId = props.sessionId;
 
       React.useEffect(function () {
         let disposed = false;
         let handle = null;
-        let stopSessionWatch = null;
+        let stopTitleWatch = null;
+        setPhase('loading');
+        setError(null);
         (async function () {
           try {
             const mod = await import(BASE_URL + '/embed.js');
@@ -120,13 +82,10 @@ window.__ModuleLoader__.load({
               handle = null;
               return;
             }
-            // header 要显示**左侧工作区里当前会话的名字**，不是团队/队长的会话。
-            // 没有选中会话时传 null，页面会把会话名隐藏（而不是退回团队名）。
-            if (props.sessions !== undefined && props.uiSession !== undefined) {
-              stopSessionWatch = watchWorkspaceSession(props.sessions, props.uiSession, function (info) {
-                handle?.setWorldSession(info);
-              });
-            }
+            // 会话视图的 header 名 = 这个会话在左侧工作区里的标题。
+            stopTitleWatch = watchSessionTitle(props.sessions, sessionId, function (info) {
+              handle?.setWorldSession(info);
+            });
             setPhase('ready');
           } catch (err) {
             if (!disposed) {
@@ -137,16 +96,16 @@ window.__ModuleLoader__.load({
         })();
         return function () {
           disposed = true;
-          if (stopSessionWatch !== null) {
-            stopSessionWatch();
-            stopSessionWatch = null;
+          if (stopTitleWatch !== null) {
+            stopTitleWatch();
+            stopTitleWatch = null;
           }
           if (handle !== null) {
             try { handle.dispose(); } catch (e) { /* 页面已经没了 */ }
             handle = null;
           }
         };
-      }, []);
+      }, [sessionId]);
 
       const overlay = phase === 'ready' ? null : h(
         'div',
@@ -175,28 +134,20 @@ window.__ModuleLoader__.load({
 
     return {
       name: 'agent-world-ui',
-      inject: ['slots', 'sessions', 'uiSession'],
+      inject: ['slots', 'sessions'],
       apply(ctx) {
         const sessions = ctx.get('sessions');
-        const uiSession = ctx.get('uiSession');
         ctx.effect(function () {
-          const disposers = [
-            ctx.slots.inject('sidebar.panellist', function () {
-              return ctx.slots.register(
-                { name: 'sidebar.panellist', id: PANEL_KEY, order: 20, label: 'Agent World' },
-                AgentWorldIcon,
-              );
-            }),
-            ctx.slots.inject('main', function () {
-              return ctx.slots.register({ name: 'main', key: PANEL_KEY }, function (slotProps) {
-                return h(AgentWorldPanel, { ...slotProps, sessions: sessions, uiSession: uiSession });
-              });
-            }),
-          ];
+          const dispose = ctx.slots.inject('conversation.view', function () {
+            return ctx.slots.register(
+              { name: 'conversation.view', id: VIEW_KEY, order: 20, label: 'Agent World' },
+              function (slotProps) {
+                return h(AgentWorldView, { ...slotProps, sessions: sessions });
+              },
+            );
+          });
           return function () {
-            for (const dispose of disposers) {
-              if (typeof dispose === 'function') dispose();
-            }
+            if (typeof dispose === 'function') dispose();
           };
         });
       },

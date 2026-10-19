@@ -313,7 +313,7 @@ function renderWorldSession(info) {
     ? info.title
     : typeof info.teamName === 'string' && info.teamName !== ''
       ? info.teamName
-      : typeof info.id === 'string' ? info.id : ''
+      : typeof info.id === 'string' && info.id !== '' ? '未命名' : ''
   if (label === '') {
     $brandSession.hidden = true
     return
