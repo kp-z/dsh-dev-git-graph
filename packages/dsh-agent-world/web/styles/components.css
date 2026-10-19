@@ -391,15 +391,32 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── 图例：视图控制簇里的一枚胶囊 + 向上浮出的图例面板（R151）────────────────────
+ *
+ * 改之前它还是 R65 之前的「舞台左下角浮层」写法（`layout.css` 里
+ * `position: absolute; left/bottom`），而 R65 已经把它塞进 `.view-controls` 簇——
+ * 于是它是相对**簇**再偏 16px / 74px：
+ *   · 收起时悬在缩放按钮上方 33px、左右不对齐，看着像一块补丁；
+ *   · 展开时是一整行 807px（实测 1440×900 / 1024×768 都**越出舞台 624px**），
+ *     被 `.stage` 的 `overflow: hidden` 裁掉——后 5 条图例用户根本看不见。
+ *
+ * 现在的两条规矩：
+ *   · 收起 = 在流里的一枚胶囊，和缩放按钮同高同排（不再有绝对定位）；
+ *   · 展开 = 从胶囊**向上**浮出一张两列纸卡：右边缘对齐胶囊、宽 340px 封顶、
+ *     条目多了给高度上限并滚动。它永远不会越出舞台。
+ * 对话面板打开时整枚图例让位——两者都占舞台底部，见本文件末尾的 `:has` 一条。
+ */
 .legend {
+  /* 展开面板的定位祖先。**不是**浮在舞台上的那一层：收起态必须回到簇的 flex 流里。 */
+  position: relative;
   display: flex;
   align-items: center;
-  gap: var(--s-2);
-  padding: 5px var(--s-2) 5px var(--s-1);
-  border-radius: var(--r-pill);
 }
 .legend-toggle {
-  padding: 3px var(--s-2);
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 var(--s-2);
   border: 1px solid var(--stroke);
   border-radius: var(--r-pill);
   background: var(--surface-2);
@@ -410,14 +427,46 @@
 .legend-toggle:hover {
   color: var(--fg-0);
 }
+/* 收起态不渲染列表（没有 `.is-collapsed` 时也没有别的显示路径——只在展开态给样式）。 */
 .legend-items {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
+  display: none;
+}
+.legend:not(.is-collapsed) .legend-items {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--s-2));
+  z-index: var(--z-legend);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-2) var(--s-3);
+  width: min(340px, calc(100vw - 2 * var(--s-4)));
+  max-height: min(50vh, 360px);
+  overflow: auto;
+  padding: var(--s-3);
+  background: var(--paper-card);
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  box-shadow: var(--shadow-1);
   font-size: var(--fs-micro);
   color: var(--fg-1);
+  animation: legend-in var(--t-expand) var(--ease);
 }
-.legend.is-collapsed .legend-items {
+@keyframes legend-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/*
+ * 对话面板打开时图例让位（R151 实测：面板占着舞台底部中间，展开的图例面板
+ * 会压在它上面；它俩都是"看/聊一个角色"时的浮层，不该抢位置）。
+ * `:has` 让这条只依赖 DOM 状态，不必在 main.js 里再加一处"打开对话要顺手收起图例"的接线。
+ */
+.stage:has(.dialogue:not([hidden])) .legend {
   display: none;
 }
 .legend-item {

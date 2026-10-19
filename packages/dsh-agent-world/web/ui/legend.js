@@ -1,5 +1,5 @@
 /*
- * 图例（R32）—— 左下角一枚可收起的小胶囊。
+ * 图例（R32，位置在 R151 重做）—— 视图控制簇里一枚可收起的小胶囊。
  *
  * 原来那行图例是"调试遗留物"：一直占着一行、颜色写死在 CSS 里、和内容库对不上。
  * 现在它：
@@ -7,6 +7,12 @@
  * · 色值**从当前场景（`ScenePlan`）里取**——图例与画面永远是同一份真相，
  *   换皮肤时图例跟着变，不需要改代码；
  * · 只列画面里真的会出现的东西（没有纸条就不列纸条）。
+ *
+ * R151（用户："图例位置需要优化"）：这个文件只管**开关与内容**，位置全在 CSS——
+ * 它从 R65 起就住在 `.view-controls` 簇里，旧 CSS 却还按"舞台左下角浮层"给它
+ * 绝对定位，展开时整行溢出舞台被裁。现在收起态在簇的流里、展开态向上浮出，
+ * 见 `styles/components.css` 的 `.legend`。这里只补上 disclosure 的语义
+ *（`aria-expanded` / `aria-controls`），让"点开的是什么"对读屏也可读。
  */
 
 function esc(text) {
@@ -31,13 +37,16 @@ export function createLegend(options) {
     const button = doc.createElement('button')
     button.type = 'button'
     button.className = 'legend-toggle'
+    button.setAttribute('aria-controls', 'legend-items')
     button.addEventListener('click', (event) => {
       event.stopPropagation()
       setCollapsed(!collapsed)
     })
     root.append(button)
     const list = doc.createElement('div')
+    list.id = 'legend-items'
     list.className = 'legend-items'
+    list.setAttribute('role', 'list')
     root.append(list)
     setCollapsed(true)
   }
@@ -50,6 +59,8 @@ export function createLegend(options) {
     if (button !== null) {
       button.textContent = collapsed ? '图例' : '图例 ·'
       button.title = collapsed ? '展开图例' : '收起图例'
+      // disclosure 的语义：读屏据此知道"下面这块是不是展开的"。
+      button.setAttribute('aria-expanded', collapsed ? 'false' : 'true')
     }
   }
 
@@ -75,7 +86,7 @@ export function createLegend(options) {
     const list = root.querySelector('.legend-items')
     if (list === null) return
     list.innerHTML = items
-      .map((item) => `<span class="legend-item"><i class="legend-swatch" style="--swatch:${esc(item.color)}"></i>${esc(item.label)}</span>`)
+      .map((item) => `<span class="legend-item" role="listitem"><i class="legend-swatch" style="--swatch:${esc(item.color)}"></i>${esc(item.label)}</span>`)
       .join('')
   }
 

@@ -50,7 +50,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r148'
+const BUILD = 'build r151'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
@@ -744,6 +744,48 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
       // R97：`talk`（💬）那条**已删**——按钮与回调一起清掉了，这里也就不该再有它。
       // 留着一条已不存在入口的"行为表"比没有表更坏：验收会照着它去找一个不存在的按钮。
     ],
+  }
+  /**
+   * 图例的核验入口（R151）——位置这件事必须**量**得出来。
+   *
+   * 判据（与 R150 派单给 designer 的三条一致）：展开态必须**完整落在舞台内**
+   *（`insideStage: true`、`overflowStage` 全 0），与视图控制簇的相交面积必须是 0，
+   * 与侧边栏/对话面板的相交面积也必须是 0（对话打开时图例整枚让位）。
+   * 收起态没有列表盒子（`items: null`），只量那枚胶囊。
+   */
+  globalThis.__agentWorldLegend = {
+    collapsed: () => legend.isCollapsed(),
+    toggle: () => legend.setCollapsed(!legend.isCollapsed()),
+    setCollapsed: (next) => legend.setCollapsed(next),
+    measure: () => {
+      const rectOf = (el) => {
+        const r = el === null || el === undefined ? null : el.getBoundingClientRect()
+        return r === null ? null : { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right), bottom: Math.round(r.bottom) }
+      }
+      const overlap = (a, b) => (a === null || b === null ? 0 : Math.max(0, Math.min(a.right, b.right) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y)))
+      const collapsed = legend.isCollapsed()
+      const legendBox = rectOf(document.querySelector('#legend'))
+      const itemsBox = collapsed ? null : rectOf(document.querySelector('.legend-items'))
+      const stage = rectOf(document.querySelector('#stage'))
+      const cluster = rectOf(document.querySelector('#view-controls'))
+      const sidebar = rectOf(document.querySelector('#sidebar'))
+      const dialogueEl = document.querySelector('#dialogue')
+      const dialogueBox = dialogueEl === null || dialogueEl.hidden ? null : rectOf(dialogueEl)
+      const shown = collapsed ? legendBox : itemsBox
+      return {
+        collapsed,
+        legend: legendBox,
+        items: itemsBox,
+        stage,
+        cluster,
+        itemCount: document.querySelectorAll('.legend-item').length,
+        insideStage: shown === null || stage === null ? null : shown.x >= stage.x && shown.right <= stage.right && shown.y >= stage.y && shown.bottom <= stage.bottom,
+        overflowStage: shown === null || stage === null ? null : { right: Math.max(0, shown.right - stage.right), bottom: Math.max(0, shown.bottom - stage.bottom) },
+        overlapCluster: overlap(itemsBox, cluster),
+        overlapSidebar: overlap(shown, sidebar),
+        overlapDialogue: overlap(shown, dialogueBox),
+      }
+    },
   }
   /**
    * 侧边栏的核验入口（R2）：两档切换与行数——以及**溢出判据**（M7-9：

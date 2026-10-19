@@ -163,18 +163,12 @@
   z-index: var(--z-hint);
 }
 
-/* ── 图例：左下角（抬到看板摘要条之上，收起时正好看得见）────────────────── */
-.legend {
-  position: absolute;
-  left: var(--s-4);
-  bottom: calc(var(--s-4) + 46px + var(--s-3));
-  z-index: var(--z-legend);
-  /* R103：浮层 = **纸卡片**（原来是玻璃）。零圆角 + 墨描边 + 硬偏移阴影。 */
-  background: var(--paper-card);
-  border: 1px solid var(--ink);
-  border-radius: 0;
-  box-shadow: var(--shadow-1);
-}
+/*
+ * 图例不再是"舞台左下角浮层"（R151 删掉了这里的 `position:absolute; left/bottom`）：
+ * 它从 R65 起就住进了 `.view-controls` 簇，却还留着左脚在左下的定位——结果是相对簇
+ * 再偏移，展开时 807px 一行被 `.stage` 裁掉一半。收起态在簇的流里、展开态向上浮出，
+ * 两条都写在 `components.css` 的 `.legend` / `.legend-items` 里（浮层的"包含块"就是那枚胶囊）。
+ */
 
 /* ── 对话：舞台底部中间（R76，用户：点 agent 的聊天对话框放下方中间） ────── */
 .dialogue {
