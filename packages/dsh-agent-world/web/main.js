@@ -654,7 +654,15 @@ function renderTaskActions(team) {
 
 /** Agent 面板当前只承载团队信息；团队级动作后续接这里，不重复任务操作。 */
 function renderAgentActions(team) {
-  void team
+  const card = root.querySelector('#sidebar-official-agents')
+  if (card === null) return
+  card.textContent = ''
+  const members = Array.isArray(team?.members) ? team.members : []
+  const lead = members.find((m) => m && m.role === 'lead') ?? members[0]
+  const summary = doc.createElement('div')
+  summary.className = 'aw-team-summary'
+  summary.textContent = `${lead?.name ?? 'captain'} · ${members.length} 人`
+  card.append(summary)
 }
 
 /** R181：图节点上的 ✓/↺ → 团队 CAS 更新（失败只写通知行，不弹窗）。 */
