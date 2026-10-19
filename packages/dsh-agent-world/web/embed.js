@@ -63,6 +63,10 @@ export async function mountEmbeddedApp(container, options = {}) {
   const handle = mountAgentWorld({ root: container, baseUrl, embedded: true, document: doc })
 
   return {
+    /** 把**左侧工作区当前会话**的名字交给 header（null = 没有选中）。 */
+    setWorldSession(info) {
+      handle.setWorldSession(info)
+    },
     dispose() {
       try {
         handle.dispose()

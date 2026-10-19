@@ -70,23 +70,28 @@ Microverse 的角色被整张染色后头发/脸/衣服变成一色，看起来�
 ## R162（Lead）—— header 里显示**这个世界对应的会话名**
 
 ### 需求
-用户在 DSH 主面板里看到 Agent World 后，要求 header 显示这个世界对应的会话名（不是只有世界名）。
+用户在 DSH 主面板里看到 Agent World 后，要求 header 显示**左侧工作区里当前会话的名字**——
+不是 Agent World 的队长/团队会话，而是用户眼前那个 DSH 会话的标题。
 
 ### 做法
-- **Host 小端点** `GET /api/session`：用 `sessionQuery.readTitle(captainSessionId)` 异步读队长会话标题；
-  读不到时退回 `teamName`（配置里的 `Agent World G2`），再退回 `captainSessionId`。
-  `buildSnapshot` 保持同步，不为了一个标题把整份快照变成异步。
-- **页面 header**：顶栏品牌右侧新增 `#brand-session`（`会话 · <名字>`）。
-  `main.js` 在收到快照后取一次 `/api/session` 并写入；拿不到就隐藏，不编一个像标题的字符串。
-- **嵌入时保留 header**：上一轮为了去重把游戏顶栏删了；这一轮把它**放回来**——DSH 的自定义主面板
-  本身没有 header，顶栏正好承担"世界名 + 会话名 + 暂停/继续/侧边栏开关"。
-  嵌入布局改为 `48px + 1fr` 两行（底栏仍去掉）。
+- **Client 取当前会话**：DSH 的 `@deepseek-ai/dsh-client-ui-session` 维护
+  `uiSession.adapter.current`（主视图绑定，`binding.key` 就是 session id）；
+  标题在 `sessions.list.byId[id].title`。
+- **Client → 页面**：`mountEmbeddedApp` 返回 `setWorldSession({id,title})`；
+  Client 在挂载后读一次并订阅 `adapter.current` 与 `sessions.list`，
+  切换会话/改标题时同步更新；没有选中会话时传 `null`，header 隐藏。
+- **优先级**：工作区会话（Client 显式传入）> `/api/session`（Host 读队长会话标题，
+  退回 teamName/id，只给独立页兜底）。页面的 `workspaceSessionOverride` 保证
+  API 响应晚到也不会覆盖用户眼前的会话名。
+- **页面 header**：顶栏品牌右侧 `#brand-session` 显示 `会话 · <名字>`；
+  嵌入时保留游戏顶栏（DSH 自定义主面板本身没有 header），布局 `48px + 1fr` 两行。
 
 ### 真机
-- 独立页（stub `teamName=Agent World G2`）：`会话 · Agent World G2`。
-- 隔离 web profile 的 DSH 主面板：`会话 · Agent World`（该临时 profile 没有队长会话，
-  `readTitle` 返回 null，按设计退回 teamName；真实 profile 有 `Agent World G2` 时会用它）。
-- 顶栏 48px、场景/团队栏在第二行；8 actors / 8 成员 / 71 节点；全量 **726 / 726**。
+- 隔离 web profile 的 DSH 主面板：Agent World 打开后，左侧工作区当前会话
+  「创建一个 agentteam」的标题原样显示为 **`会话 · 创建一个 agentteam`**；
+  8 actors / 8 成员 / 71 节点。
+- 独立页没有 DSH Client，仍走 `/api/session` 兜底（stub teamName → `会话 · Agent World G2`）。
+- 全量 **727 / 727**。
 
 ---
 

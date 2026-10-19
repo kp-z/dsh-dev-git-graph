@@ -113,6 +113,14 @@ const $hint = $('view-hint')
 /** R162：header 里的“世界对应会话名”。 */
 const $brandSession = $('brand-session')
 let worldSession = null
+/**
+ * 客户端（DSH 侧）显式指定的会话名。
+ *
+ * - `undefined`：客户端没给，页面自己走 `/api/session`（独立页/队长会话兜底）；
+ * - `null`：客户端明确说“当前没有选中工作区会话”，**不要**再拿团队名补上；
+ * - 对象：左侧工作区当前会话的 `{ id, title }`。
+ */
+let workspaceSessionOverride = undefined
 
 /** 本地世界（快照起家，之后靠增量维护）。 */
 let world = null
@@ -294,25 +302,51 @@ function currentTick() {
  * 拿不到标题时退回 teamName / captainSessionId，**不编一个看起来像标题的字符串**。
  * 端点是同源小请求，只在快照到达后取一次；重连（新快照）会再取。
  */
+function renderWorldSession(info) {
+  if ($brandSession === null) return
+  if (info === null || info === undefined) {
+    $brandSession.hidden = true
+    $brandSession.textContent = ''
+    return
+  }
+  const label = typeof info.title === 'string' && info.title !== ''
+    ? info.title
+    : typeof info.teamName === 'string' && info.teamName !== ''
+      ? info.teamName
+      : typeof info.id === 'string' ? info.id : ''
+  if (label === '') {
+    $brandSession.hidden = true
+    return
+  }
+  $brandSession.textContent = `会话 · ${label}`
+  $brandSession.title = [info.title, info.teamName, info.id].filter((part) => typeof part === 'string' && part !== '').join(' · ')
+  $brandSession.hidden = false
+}
+
+/**
+ * DSH Client 调这个：传入**左侧工作区当前选中会话**的 `{ id, title }`（null = 没有选中）。
+ *
+ * 它比 `/api/session`（队长会话）优先：header 要显示的是用户眼前的那个会话名，
+ * 不是 Agent World 自己的团队会话。
+ */
+function setWorldSession(info) {
+  workspaceSessionOverride = info ?? null
+  worldSession = workspaceSessionOverride
+  renderWorldSession(workspaceSessionOverride)
+}
+
 async function loadWorldSession() {
+  // 客户端已经给了工作区会话（或明确“没有”）时，别用队长/团队名覆盖它。
+  if (workspaceSessionOverride !== undefined) return
   if ($brandSession === null) return
   try {
     const response = await fetch(apiUrl('api/session'), { credentials: 'same-origin' })
     if (response.ok !== true) return
     const info = await response.json()
+    // 等响应期间 DSH Client 可能已经送来了“左侧工作区当前会话”；它优先。
+    if (workspaceSessionOverride !== undefined) return
     worldSession = info ?? null
-    const label = typeof info?.title === 'string' && info.title !== ''
-      ? info.title
-      : typeof info?.teamName === 'string' && info.teamName !== ''
-        ? info.teamName
-        : typeof info?.id === 'string' ? info.id : ''
-    if (label === '') {
-      $brandSession.hidden = true
-      return
-    }
-    $brandSession.textContent = `会话 · ${label}`
-    $brandSession.title = [info?.title, info?.teamName, info?.id].filter((part) => typeof part === 'string' && part !== '').join(' · ')
-    $brandSession.hidden = false
+    renderWorldSession(worldSession)
   } catch {
     /* 端点不在（headless / 旧宿主）就不显示；这不是错误。 */
   }
@@ -932,7 +966,7 @@ const dispose = () => {
 scene2d.resize()
 void connection.reload()
 connection.start()
-return { dispose }
+return { dispose, setWorldSession }
 
 }
 

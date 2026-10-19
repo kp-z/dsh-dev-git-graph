@@ -55,6 +55,7 @@
     "client": {
       "platform": "web",
       "inject": [
+        "@deepseek-ai/dsh-client-ui-session",
         "slots"
       ]
     }

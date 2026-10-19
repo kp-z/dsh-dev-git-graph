@@ -75,3 +75,15 @@ test('R162：header 里的世界会话名（端点 + 页面接线）', () => {
   assert.match(read('web/main.js'), /brandSession\.textContent = `会话 · \$\{label\}`/, '页面没有把会话名写进 header')
   assert.equal(read('web/embed.js').includes("querySelector('.topbar')?.remove()"), false, '嵌入时不能把 header 去掉')
 })
+
+
+test('R162b：header 取**左侧工作区当前会话**的名字（不是团队/队长会话）', () => {
+  const client = read('src/client.js')
+  assert.match(client, /uiSession/, 'client 没有读 uiSession 的当前会话绑定')
+  assert.match(client, /adapter\?\.current/, 'client 没有读 adapter.current')
+  assert.match(client, /byId\?\.\[id\]/, 'client 没有从 sessions.list.byId 取标题')
+  assert.match(client, /setWorldSession/, 'client 没有把会话名交给页面')
+  assert.match(read('web/main.js'), /workspaceSessionOverride/, '页面没有“工作区会话优先”的覆盖开关')
+  const pkg = JSON.parse(read('package.json'))
+  assert.ok(pkg.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-session'), 'manifest 没有声明 ui-session 依赖')
+})
