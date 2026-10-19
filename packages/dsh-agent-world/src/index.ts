@@ -222,11 +222,41 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     // D41/R43：每隔一段 tick 把团队状态同步回小镇。**同步返回**（见 onTick 说明），
     // 真正的读与算丢给一个不等待的 promise。
     onTick: (tick) => {
+      if (tick - lastRosterSyncTick >= TEAM_SYNC_INTERVAL_TICKS) {
+        lastRosterSyncTick = tick
+        void syncRoster()
+      }
       if (tick - lastTeamSyncTick < TEAM_SYNC_INTERVAL_TICKS) return
       lastTeamSyncTick = tick
       void syncTeamOnce()
     },
   })
+
+  /**
+   * R166：把**当前会话**的真实 subagent 子会话投影成镇上角色。
+   *
+   * 只读 `subagents.listChildren(sessionId)`；没有子会话时镇上只有队长。
+   * 失败不抛（subagents 服务可能还没挂上）；下一次 tick 再试。
+   */
+  let rosterSyncBusy = false
+  let lastRosterSyncTick = -1
+  const syncRoster = async (): Promise<void> => {
+    const sessionId = state.activeSessionId
+    if (sessionId === null || rosterSyncBusy) return
+    const subagents = (ctx as unknown as { get(name: string): unknown }).get('subagents') as
+      | { listChildren?(parentSessionId: string, signal?: AbortSignal): Promise<readonly { id: string; label?: string }[]> }
+      | undefined
+    if (typeof subagents?.listChildren !== 'function') return
+    rosterSyncBusy = true
+    try {
+      const children = await subagents.listChildren(sessionId)
+      state.syncSubagents(sessionId, children)
+    } catch (error) {
+      logger.warn(`同步 subagent 花名册失败（下次再试）：${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      rosterSyncBusy = false
+    }
+  }
 
   // **先挂清理，再启动。**
   //
@@ -235,6 +265,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   // 而挂清理这一步抛了（比如 ctx 形状不对），定时器就**已经泄漏了**，没有任何人再能停它。
   ctx.effect(() => () => {
     runtime.stop()
+    state.deactivate()
   }, 'agent-world: runtime')
 
   if (resolved.autoStart) runtime.start()
@@ -429,6 +460,18 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         tickMs: state.tickMs,
         maxLiveSessions: resolved.maxLiveSessions,
         dialogue: activeDialoguePort,
+        // R166：一个会话一个世界；同一时刻只有激活的那个在跑。
+        activateSession: (sessionId: string) => {
+          runtime.stop()
+          const world = state.activateSession(sessionId)
+          if (resolved.autoStart) runtime.start()
+          void syncRoster()
+          return world
+        },
+        deactivateSession: () => {
+          runtime.stop()
+          state.deactivate()
+        },
         // R162：header 要显示"这个世界对应的会话名"。
         // 队长会话的标题在 session 日志里，异步读；读不到就让前端退回 teamName / id。
         worldSession: async () => {

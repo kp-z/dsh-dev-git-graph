@@ -28,6 +28,31 @@ window.__ModuleLoader__.load({
     const VIEW_KEY = 'agent-world';
     const BASE_URL = (typeof window !== 'undefined' && window.__AGENT_WORLD_BASE__) || '/agent-world';
 
+    /**
+     * 让 Host 切到**这个会话自己的世界**（R166）。
+     *
+     * 同一时刻只有这一个世界在内存/推进；旧视图的 `deactivate` 会先保存并卸下。
+     */
+    async function activateSession(sessionId) {
+      const response = await fetch(BASE_URL + '/api/activate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      });
+      if (response.ok !== true) {
+        const detail = await response.text().catch(() => '');
+        throw new Error(`activate 失败（HTTP ${response.status}）${detail === '' ? '' : `：${detail.slice(0, 200)}`}`);
+      }
+    }
+
+    function deactivateSession() {
+      try {
+        void fetch(BASE_URL + '/api/deactivate', { method: 'POST', keepalive: true });
+      } catch (e) {
+        // 页面已经在卸载；下一个视图会重新 activate。
+      }
+    }
+
     /** 从 sessions 服务的列表快照里取当前会话的标题（拿不到就只给 id）。 */
     function readSessionTitle(sessions, sessionId) {
       if (typeof sessionId !== 'string' || sessionId === '') return null;
@@ -112,6 +137,7 @@ window.__ModuleLoader__.load({
         setError(null);
         (async function () {
           try {
+            if (typeof sessionId === 'string' && sessionId !== '') await activateSession(sessionId);
             const mod = await import(BASE_URL + '/embed.js');
             if (disposed) return;
             handle = await mod.mountEmbeddedApp(hostRef.current, { baseUrl: BASE_URL });
@@ -142,6 +168,7 @@ window.__ModuleLoader__.load({
             try { handle.dispose(); } catch (e) { /* 页面已经没了 */ }
             handle = null;
           }
+          if (typeof sessionId === 'string' && sessionId !== '') deactivateSession();
         };
       }, [sessionId]);
 

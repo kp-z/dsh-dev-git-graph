@@ -94,3 +94,12 @@ test('R165：Agent World 视图打开时隐藏下方 composer，离开时恢复'
   assert.match(src, /setComposerHidden\(true\)/, '挂载时没有隐藏 composer')
   assert.match(src, /setComposerHidden\(false\)/, '卸载时没有恢复 composer')
 })
+
+
+test('R166：视图打开时 activate 会话世界，关闭时 deactivate', () => {
+  const src = read('src/client.js')
+  assert.match(src, /\/api\/activate/, '没有调用 activate')
+  assert.match(src, /\/api\/deactivate/, '没有调用 deactivate')
+  assert.match(src, /activateSession\(sessionId\)/, '没有用 sessionId 激活世界')
+  assert.match(src, /sessionId/, '视图没有 sessionId')
+})

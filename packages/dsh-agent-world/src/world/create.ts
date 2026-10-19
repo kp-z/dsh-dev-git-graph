@@ -38,6 +38,13 @@ export interface CreateWorldOptions {
   taskSets?: readonly string[]
   /** 同屏角色上限。 */
   maxAgents?: number
+  /**
+   * 开局铺几个角色。
+   *
+   * - `all`（默认）：内容花名册全员，保持旧 demo/测试行为；
+   * - `captain`：只放第一位（队长），其余等真实 subagent 出现再投影（R166）。
+   */
+  initialAgents?: 'all' | 'captain'
 }
 
 /** 世界 id：名字 + 种子，保证可复现（同样输入 → 同样 id）。 */
@@ -68,7 +75,8 @@ export function createWorld(options: CreateWorldOptions): World {
   )
 
   const roster = content.require('rosters', scene.roster, `场景 ${scene.id} 引用的花名册`)
-  const agents = instantiateAgents(roster, scene.spawn, maxAgents, rng, scene.agentModel)
+  const seeded = instantiateAgents(roster, scene.spawn, maxAgents, rng, scene.agentModel)
+  const agents = options.initialAgents === 'captain' ? seeded.slice(0, 1) : seeded
 
   // 导航网格（R64 物理）：从内容的地图派生。**必须在算歇脚点之前**——
   // 歇脚点要避开墙（R75），而墙数据来自这张网格。

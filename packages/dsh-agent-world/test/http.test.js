@@ -151,6 +151,37 @@ test('未知路由的 404 要列出已注册的路由（可下手）', async () 
 
 // ── 快照 ────────────────────────────────────────────────────────────────────
 
+test('POST /api/activate：切到某个会话自己的世界', async () => {
+  const service = createPluginState(resolveConfig({ autoStart: false, scene: 'scene.default-town' }))
+  service.ensureWorld()
+  const runtime = createRuntime({ service, tickMs: 100 })
+  const hub = createEventHub()
+  let activated = null
+  const handler = createHandler(PREFIX, {
+    service,
+    runtime,
+    source: hub,
+    tickMs: 100,
+    activateSession: (sessionId) => {
+      activated = sessionId
+      const world = service.currentWorld()
+      return world
+    },
+    deactivateSession: () => { activated = 'off' },
+  })
+  await withServer(handler, async (base) => {
+    const res = await fetch(`${base}${PREFIX}/api/activate`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: 'session-a' }),
+    })
+    assert.equal(res.status, 200)
+    assert.equal(activated, 'session-a')
+    const off = await fetch(`${base}${PREFIX}/api/deactivate`, { method: 'POST' })
+    assert.equal(off.status, 200)
+    assert.equal(activated, 'off')
+  })
+})
+
 test('GET /api/session：返回这个世界对应的会话（有 title 用 title，否则 teamName）', async () => {
   const service = createPluginState(resolveConfig({ autoStart: false, scene: 'scene.default-town' }))
   service.ensureWorld()

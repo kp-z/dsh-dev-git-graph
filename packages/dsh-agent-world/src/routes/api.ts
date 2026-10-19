@@ -18,6 +18,7 @@ import type {
   SnapshotMessage,
   WorldCommand,
   WorldServicePort,
+  World,
 } from '../protocol/index.js'
 import { buildScenePlan } from '../scene/plan.js'
 import {
@@ -40,6 +41,10 @@ export interface ApiDeps {
    * 拿不到时调用方退回 teamName / captainSessionId，不编一个假名字。
    */
   worldSession?: () => Promise<{ id: string; teamName: string; title: string | null }>
+  /** 切到某个会话自己的世界（R166）；由组合根负责停/起 ticker。 */
+  activateSession?: (sessionId: string) => World | Promise<World>
+  /** 关闭视图时保存并卸下当前会话世界。 */
+  deactivateSession?: () => void
 }
 
 /**
@@ -133,6 +138,26 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
       method: 'POST',
       pattern: '/api/command',
       handler: (request) => applyCommand(deps, request.body),
+    },
+    {
+      method: 'POST',
+      pattern: '/api/activate',
+      handler: async (request) => {
+        const body = request.body as { sessionId?: unknown } | undefined
+        const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : ''
+        if (sessionId === '') throw new HttpError(400, 'activate 需要 {"sessionId":"…"}')
+        if (typeof deps.activateSession !== 'function') throw new HttpError(503, '这个宿主不支持会话级世界')
+        const world = await deps.activateSession(sessionId)
+        return { ok: true, sessionId, worldId: world.id, tick: world.tick, agents: world.agents.length }
+      },
+    },
+    {
+      method: 'POST',
+      pattern: '/api/deactivate',
+      handler: () => {
+        deps.deactivateSession?.()
+        return { ok: true }
+      },
     },
     {
       method: 'GET',

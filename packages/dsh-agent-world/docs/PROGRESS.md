@@ -67,6 +67,43 @@ Microverse 的角色被整张染色后头发/脸/衣服变成一色，看起来�
 
 ---
 
+## R166（Lead）—— Phase A：一个会话一个世界（会话级存储 + 单 active ticker + subagent 投影骨架）
+
+### 这轮解决什么
+之前是**单例 World + 固定花名册 + 固定 captainSessionId**：所有会话共享一座小镇，
+所以“还没派单，8 个 subagent 已经在跑”。
+
+### 已实现（Phase A）
+- `PluginState` 增加会话世界：
+  - `activateSession(sessionId)`：先把上一个世界同步存到 `stateDir/sessions/<编码>/world.json`，
+    再载入/新建这个会话的世界；
+  - `deactivate()`：保存并卸下；
+  - 同一时刻 `state.world` 只有一个，ticker 也只有一个。
+- 客户端 `conversation.view` 打开时 `POST /api/activate {sessionId}`，关闭时 `/api/deactivate`；
+  Host 在 activate 时 `runtime.stop() → 切世界 → runtime.start()`，不会多会话并行。
+- 新会话世界开局 **只有队长**（`initialAgents: 'captain'`），任务板为空；
+  内容花名册只用来提供外观/角色池，不再一次性铺 8 人。
+- `syncSubagents(sessionId, listChildren(sessionId))`：
+  - 只认 `agent-teams:<team>:<名字>` 的 label，名字取最后一段；
+  - 每个子会话投影一个角色（`boundAgentId = child.id`）；
+  - 子会话消失 → 角色退场；
+  - 变化时记 `world.reset`，面板重拉快照（角色增减能实时看到）。
+- Host 在 active 会话的 tick 里每 20 tick 同步一次 subagent 花名册。
+
+### 验证
+- `test/session-world.test.js`：A/B 两会话的 tick 分离且各自恢复；新世界 1 人、0 工单；
+  `agent-teams:` label 才投影、无关子会话不投影、子会话消失后退场。
+- `/api/activate` HTTP 测试；客户端 activate/deactivate 静态守卫。
+- 全量 **733 / 733**。
+
+### 还没做（Phase B/C，明确留口）
+- TeamsPort 仍用固定 `captainSessionId`，`ensureMember()` 仍会在点角色时用内容名字造人；
+- `agent_world_*` 工具还没有按调用者会话定位世界；
+- 因此“对话自己创建的子会话”能投影，但插件自己那套 teams 后端还没完全改成 per-session。
+这三条是下一阶段，不在这轮假装完成。
+
+---
+
 ## R165（Lead）—— 打开 Agent World 时隐藏下方**对话输入面板**（composer）
 
 ### 需求

@@ -29,7 +29,7 @@ import { contentPortOf } from './content/port.js'
 import { instantiateTasks } from './content/instantiate.js'
 import { loadContentPacks } from './content/load-files.js'
 import { DEFAULT_TICK_MS } from './domain/constants.js'
-import type { World } from './domain/types.js'
+import type { Agent, World } from './domain/types.js'
 import type {
   ContentIssue,
   ContentPort,
@@ -37,13 +37,21 @@ import type {
   RestoredFrom,
   WorldServicePort,
 } from './protocol/index.js'
-import { noteTasksAdded } from './sim/journal.js'
-import { loadWorldSync } from './store/index.js'
+import { emitEvent, noteTasksAdded } from './sim/journal.js'
+import { DEFAULT_MIN_GAP, hangoutsForWorld } from './world/hangouts.js'
+import { join } from 'node:path'
+import { createWorldStore, loadWorldSync } from './store/index.js'
 import { reconcileWorld } from './world/reconcile.js'
 import { createWorld } from './world/create.js'
 
 /** 建插件状态的选项。 */
 export interface PluginStateOptions {
+  /**
+   * 开局铺几个角色：`all`（默认，旧 demo/测试）或 `captain`（只放队长，R166）。
+   */
+  initialAgents?: 'all' | 'captain'
+  /** 会话世界开局铺几个：默认 captain（R166）。 */
+  sessionInitialAgents?: 'all' | 'captain'
   /**
    * 外部内容包根目录（**绝对路径**）。null / 不传 = 只加载内置内容。
    *
@@ -73,6 +81,17 @@ export interface PluginState extends WorldServicePort {
   world: World | null
   /** 没有世界就建一个（幂等）。内容有问题时抛错，错误信息可直接给用户看。 */
   ensureWorld(): World
+  /** 当前激活的会话 id；没有激活时 null。 */
+  readonly activeSessionId: string | null
+  /**
+   * 切到某个会话的世界（R166）：先把上一个世界同步存到它自己的目录，再载入/新建这个会话的世界。
+   * 同一时刻只有一个世界在内存里，所以不存在多会话并行推进。
+   */
+  activateSession(sessionId: string): World
+  /** 保存并卸下当前会话世界（关闭 Agent World 视图时）。 */
+  deactivate(): void
+  /** 把真实 subagent 子会话投影成镇上角色（R166）；返回角色是否变了。 */
+  syncSubagents(sessionId: string, children: readonly { id: string; label?: string }[]): boolean
   /** 世界存档目录；没配就是 null。 */
   readonly storeDir: string | null
 }
@@ -87,6 +106,9 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
   const tickMs = config.tickMs > 0 ? config.tickMs : DEFAULT_TICK_MS
   const externalRoot = options.externalRoot ?? null
   const storeDir = options.storeDir ?? null
+  const initialAgents = options.initialAgents ?? 'all'
+  const sessionInitialAgents = options.sessionInitialAgents ?? 'captain'
+  let activeSessionId: string | null = null
   /** 已恢复的世界来源；新开一局时是 null。 */
   let restored: RestoredFrom | null = null
 
@@ -106,7 +128,7 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
 
   const contentPort: ContentPort = contentPortOf(registry, issueList, externalRoot)
 
-  const build = (name: string): World => {
+  const build = (name: string, seeded: 'all' | 'captain' = initialAgents): World => {
     const errors = registry
       .validate()
       .concat(
@@ -131,6 +153,7 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       // 默认不预置工单：让 lead 显式派单，世界开局是干净的。
       // 这一步也让"任务库"立刻有真实消费者（下一轮的 agent_world_dispatch 用它）。
       taskSets: [],
+      initialAgents: seeded,
     })
   }
 
@@ -254,6 +277,36 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
     return reconciled
   }
 
+
+  /** 某会话自己的存档目录（base `storeDir` 下按会话编码分目录）。 */
+  const sessionDir = (sessionId: string): string | null =>
+    storeDir === null ? null : join(storeDir, 'sessions', encodeURIComponent(sessionId))
+
+  /** 载入某个会话自己的世界；没有/坏了就返回 null，由调用方新开一局。 */
+  function loadSession(sessionId: string): World | null {
+    const dir = sessionDir(sessionId)
+    if (dir === null) return null
+    const loaded = loadWorldSync(dir)
+    if (loaded === null || !('ok' in loaded)) return null
+    try {
+      return reconcileWorld(loaded.ok.world, registry).world
+    } catch {
+      return loaded.ok.world
+    }
+  }
+
+  /** 把当前激活的世界同步写回它自己的目录。 */
+  function saveActive(): void {
+    if (storeDir === null || activeSessionId === null || state.world === null) return
+    const dir = sessionDir(activeSessionId)
+    if (dir === null) return
+    try {
+      createWorldStore(dir).saveWorldSync(state.world, contentPort.view().packs)
+    } catch {
+      // 关视图时存不下不能挡切换；诊断留给下次启动的 issue。
+    }
+  }
+
   const state: PluginState = {
     config,
     tickMs,
@@ -315,6 +368,96 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
 
     content: () => contentPort,
     issues: () => issueList,
+
+    // ── 会话世界（R166）──────────────────────────────────────────────────
+    get activeSessionId(): string | null {
+      return activeSessionId
+    },
+    activateSession(sessionId: string): World {
+      if (sessionId.trim() === '') throw new Error('activateSession: sessionId 不能为空')
+      if (activeSessionId === sessionId && state.world !== null) return state.world
+      saveActive()
+      activeSessionId = sessionId
+      state.world = loadSession(sessionId) ?? build(config.worldName, sessionInitialAgents)
+      const captain = state.world.agents[0]
+      if (captain !== undefined && captain.boundAgentId === null) captain.boundAgentId = sessionId
+      return state.world
+    },
+    deactivate(): void {
+      saveActive()
+      activeSessionId = null
+      state.world = null
+    },
+    syncSubagents(sessionId: string, children: readonly { id: string; label?: string }[]): boolean {
+      const world = state.world
+      if (world === null || activeSessionId !== sessionId) return false
+      const scene = registry.require('scenes', config.scene, '同步 subagent 花名册时取场景')
+      const roster = registry.require('rosters', scene.roster, '同步 subagent 花名册时取花名册')
+      const seatAt = (index: number) => roster.seats[index % Math.max(1, roster.seats.length)]
+      const members = children
+        .map((child) => {
+          const label = typeof child.label === 'string' ? child.label : ''
+          if (!label.startsWith('agent-teams:')) return null
+          const name = label.slice(label.lastIndexOf(':') + 1).trim()
+          if (name === '') return null
+          return { id: child.id, name }
+        })
+        .filter((m): m is { id: string; name: string } => m !== null)
+
+      const existing = new Map(world.agents.filter((a) => a.boundAgentId !== null).map((a) => [a.boundAgentId as string, a]))
+      const wanted: Agent[] = []
+      // 队长 = 当前会话本身；外观取花名册第一席。
+      const captainSeat = seatAt(0)
+      const captain = existing.get(sessionId)
+      if (captain === undefined) {
+        wanted.push({
+          id: 'agent-1',
+          name: captainSeat?.name ?? '队长',
+          role: captainSeat?.role ?? 'lead',
+          palette: captainSeat?.palette ?? '#f2c14e',
+          modelId: captainSeat?.appearance ?? scene.agentModel,
+          state: 'idle', position: { ...scene.spawn }, facing: Math.PI / 2,
+          station: null, targetStation: null, path: [], carrying: null, hangout: null,
+          llm: captainSeat?.model ?? { provider: '', model: '', reasoningEffort: null },
+          boundAgentId: sessionId,
+        })
+      } else {
+        wanted.push(captain.boundAgentId === sessionId ? captain : { ...captain, boundAgentId: sessionId })
+      }
+      for (const member of members) {
+        const prior = existing.get(member.id)
+        if (prior !== undefined) {
+          wanted.push(prior.name === member.name ? prior : { ...prior, name: member.name })
+          continue
+        }
+        const index = wanted.length
+        const seat = seatAt(index)
+        wanted.push({
+          id: `agent-${index + 1}`,
+          name: member.name,
+          role: seat?.role ?? 'engineer',
+          palette: seat?.palette ?? '#5aa9e6',
+          modelId: seat?.appearance ?? scene.agentModel,
+          state: 'idle', position: { ...scene.spawn }, facing: Math.PI / 2,
+          station: null, targetStation: null, path: [], carrying: null, hangout: null,
+          llm: seat?.model ?? { provider: '', model: '', reasoningEffort: null },
+          boundAgentId: member.id,
+        })
+      }
+      const before = world.agents.map((a) => `${a.id}:${a.name}:${a.boundAgentId ?? ''}`).join('|')
+      const after = wanted.map((a) => `${a.id}:${a.name}:${a.boundAgentId ?? ''}`).join('|')
+      if (before === after) return false
+      const hangouts = hangoutsForWorld(world.districts, world.stations, wanted.length, DEFAULT_MIN_GAP, world.nav)
+      wanted.forEach((agent, i) => {
+        if (agent.hangout === null && hangouts[i] !== undefined) {
+          agent.hangout = hangouts[i]
+          agent.position = { ...hangouts[i] }
+        }
+      })
+      world.agents = wanted
+      emitEvent(world, 'world.reset', { reason: 'roster', agents: wanted.length })
+      return true
+    },
 
     // ── 组合根用的额外能力 ──
     ensureWorld(): World {

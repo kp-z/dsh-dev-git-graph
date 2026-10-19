@@ -656,6 +656,11 @@ const connection = createConnection({
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
   onEvents: (events) => {
+    // R166：角色花名册由真实 subagent 投影；Host 用 world.reset 通知“重新拉快照”。
+    if (events.some((event) => event.type === 'world.reset')) {
+      void connection.reload()
+      return
+    }
     applyEvents(world, events)
     pruneMessages(world)
     // R3：侧边栏**没有自己的数据路径**了——看板那一份渲染直接挂进了它的两档。
