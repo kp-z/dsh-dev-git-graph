@@ -832,7 +832,15 @@ test('adapter：createDshCharacterBridge 装好之后走完整条链路（假 ct
   // 只碰该碰的服务：没有任何"模型"服务被**直接调用**（角色只会通过 DSH 的会话走模型）。
   // `agentDefaultModel` 是 R30 加的**读**依赖：真宿主上不把模型写进 agent，
   // 组 system prompt 时 `{{model}}` 没有值，整轮报 "prompt variable "{{model}}" has no value"。
-  assert.deepEqual([...new Set(ctx.asked)].sort(), ['agentDefaultModel', 'agentLoop', 'sessionController'])
+  //
+  // R164：`agents` 与 `agentLoop` 是**同一个服务的两个名字**（dsh 0.2.1 从 `agentLoop` 改名成 `agents`），
+  // 适配器会**两个都探**、优先用 `agents`。所以这里多了一个是**预期内**的，不是"多碰了别的服务"。
+  assert.deepEqual([...new Set(ctx.asked)].sort(), [
+    'agentDefaultModel',
+    'agentLoop',
+    'agents',
+    'sessionController',
+  ])
 
   await bridge.disposeAll()
   assert.equal(bridge.liveCount(), 0)

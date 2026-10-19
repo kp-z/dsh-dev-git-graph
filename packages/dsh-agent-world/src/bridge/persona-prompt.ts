@@ -67,12 +67,19 @@ export function ordinalFromAgentId(agentId: string): number | null {
  */
 export function seatForAgent(
   seats: readonly PersonaSeat[],
-  agent: { readonly id: string; readonly name: string },
+  agent: { readonly id: string; readonly name: string; readonly role?: string },
 ): PersonaSeat | undefined {
   const ordinal = ordinalFromAgentId(agent.id)
   if (ordinal !== null) {
     const byOrdinal = seats[ordinal - 1]
     if (byOrdinal !== undefined && byOrdinal.name === agent.name) return byOrdinal
+    // ⚠️ R164：**显示名是可以被改写的**，花名册里的名字不行。
+    // 例：队长的显示名被固定成 `leader`（防分叉，用户要求），而花名册那位还叫「工头阿金」——
+    // 只比名字就永远匹配不上，表现是"他说不出话：花名册里找不到对应的座位"。
+    // 序号本身是权威的（`agent-N` ↔ 第 N 个座位，报错文案里也是这么写的）；
+    // 这里再用**角色**做一道护栏，避免"世界里的顺序与花名册不一致"时悄悄配错人设
+    // （配错的表现是两个人共用一份人设，那是最难查的一类）。
+    if (byOrdinal !== undefined && agent.role !== undefined && byOrdinal.role === agent.role) return byOrdinal
   }
 
   const byName = seats.filter((seat) => seat.name === agent.name)

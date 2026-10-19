@@ -84,8 +84,26 @@ export function normalizeSessionEvent(value: unknown): BridgeSessionEvent | unde
  * @returns 没有 `agentLoop` 服务时 `undefined`。
  */
 export function createAgentFactory(ctx: unknown): AgentFactory | undefined {
-  const agentLoop = getService(ctx, 'agentLoop')
-  const createAgent = pluck(agentLoop, 'createAgent')
+  // ⚠️ R164：这套服务在 dsh 0.2.1 里**改过名**——`agentLoop.createAgent` → `agents.create`。
+  // 两个都要认，否则换个运行时版本就"队长一句话也说不出来"。
+  //
+  // 真机证据（这个排查顺序值得记）：
+  //   1. 用户看到「套壳 agent-teams 时出错：cannot get property "agents" without inject」；
+  //   2. 查 agent-teams@0.1.25，它的 `inject` 里写的正是 **`agents`**，而它能正常加载
+  //      ⇒ **宿主提供的是 `agents`**；
+  //   3. 而这里只要 `agentLoop` ⇒ 拿到 undefined ⇒ 报「拿不到 agentLoop：建不了会话级队长会话」。
+  // 两个报错说的是同一件事：**我们按旧名字找服务**。
+  //
+  // 顺带一条教训：旧名字报的错（"拿不到 X"）看起来像"功能没做"，
+  // 实际是"名字对不上"——**报错信息里应当带上它试过哪些名字**，否则下一个人还要再查一遍。
+  const candidates = [
+    { service: getService(ctx, 'agents'), method: 'create' },
+    { service: getService(ctx, 'agentLoop'), method: 'createAgent' },
+  ]
+  const picked = candidates.find((c) => pluck(c.service, c.method) !== undefined)
+  if (picked === undefined) return undefined
+  const agentLoop = picked.service
+  const createAgent = pluck(agentLoop, picked.method)
   if (createAgent === undefined) return undefined
 
   const resume = pluck(agentLoop, 'resume')
@@ -96,9 +114,22 @@ export function createAgentFactory(ctx: unknown): AgentFactory | undefined {
       // 我第一版猜成"第三个参数"，被自己的测试当场抓住——所以这行有测试守着。
       const { cwd, ...rest } = options
       const payload = cwd === undefined ? rest : { ...rest, meta: { cwd } }
-      const handle = await (
-        createAgent as unknown as (owner: unknown, opts: unknown) => Promise<BridgeAgentHandle>
-      ).call(agentLoop, ctx, payload)
+      // ⚠️ R164：两个名字的**调用形状不一样**，不能同一套参数硬套：
+      //   · 旧 `agentLoop.createAgent(ownerCtx, options)` —— **两个**参数，ownerCtx 用来挂生命周期；
+      //   · 新 `agents.create(options)` —— **一个**参数。
+      // 判据来自真机报错：按旧形状调新服务时，它把我的 **ownerCtx** 当成了 options，
+      // 于是去读 `ctx.sessionId` / `ctx.resumeSessionId`，Cordis 直接抛
+      // `cannot get property "sessionId" without inject` —— 那两个属性名正好是 payload 的字段，
+      // 这就是"参数位置错了"的指纹。
+      const handle =
+        picked.method === 'create'
+          ? await (createAgent as unknown as (opts: unknown) => Promise<BridgeAgentHandle>).call(
+              agentLoop,
+              payload,
+            )
+          : await (
+              createAgent as unknown as (owner: unknown, opts: unknown) => Promise<BridgeAgentHandle>
+            ).call(agentLoop, ctx, payload)
       return handle
     },
 
@@ -107,11 +138,15 @@ export function createAgentFactory(ctx: unknown): AgentFactory | undefined {
       ? {}
       : {
           async resumeAgent(options: BridgeResumeAgentOptions): Promise<BridgeAgentHandle> {
-            return await (resume as unknown as (owner: unknown, opts: unknown) => Promise<BridgeAgentHandle>).call(
-              agentLoop,
-              ctx,
-              options,
-            )
+            // R164：与 `create` 同理——新 `agents.resume(options)` 是**单参数**，
+            // 旧 `agentLoop.resume(ownerCtx, options)` 是双参数。按旧形状调新服务时，
+            // ownerCtx 会被当成 options，去读 `ctx.resumeSessionId` 就抛
+            // `cannot get property "resumeSessionId" without inject`（真机报错原文）。
+            return picked.method === 'create'
+              ? await (resume as unknown as (opts: unknown) => Promise<BridgeAgentHandle>).call(agentLoop, options)
+              : await (
+                  resume as unknown as (owner: unknown, opts: unknown) => Promise<BridgeAgentHandle>
+                ).call(agentLoop, ctx, options)
           },
         }),
   }

@@ -71,7 +71,14 @@
   --fg-0: var(--ink-0);
   --fg-1: var(--ink-1);
   --fg-2: var(--ink-2);
-  --ink: #0a0e16; /* ⚠️ 旧名是"墨"（压在米色纸上的字色）。夜班里它＝近黑，给徽章字色用。 */
+  /* ⚠️ R164：`--ink` 原来被**同时**当成两件事用：
+     ① 压在米色纸上的"墨"（深色）—— 那是 R103 那一版的语义；
+     ② 组件里的**正文色**（`color: var(--ink)` 共 **19 处**）。
+     换到深色主题后两者冲突：19 处正文变成近黑，**在深色面板上根本看不见**
+     （用户真机反馈：「跟他对话的时候不显示文字，文字都是黑的，根本就看不见」）。
+     现在拆开：`--ink` **只表示正文色**（= `--ink-0`），徽章上压的字另给 `--on-badge`。 */
+  --ink: var(--ink-0);
+  --on-badge: #0a0e16; /* 亮色状态块/按钮上压的字色（必须深，浅色块上才看得清） */
   --ink-dim: var(--ink-1);
 
   /* 旧名：上一版是"不透明纸"。现在面板是**深色板**，这里指向面板色。 */
@@ -107,25 +114,25 @@
      ⚠️ `color: var(--st-done)` 永远是错的——那是块色。 */
   --st-done: #3ddc84;
   --st-done-bg: #3ddc84;
-  --st-done-fg: var(--ink); /* 10.82 */
+  --st-done-fg: var(--on-badge); /* 10.82 */
   --st-in_progress: #5aa9ff;
   --st-in_progress-bg: #5aa9ff;
-  --st-in_progress-fg: var(--ink); /* 7.87 */
+  --st-in_progress-fg: var(--on-badge); /* 7.87 */
   --st-ready: #ffc44d;
   --st-ready-bg: #ffc44d;
-  --st-ready-fg: var(--ink); /* 12.19 */
+  --st-ready-fg: var(--on-badge); /* 12.19 */
   --st-blocked: #ff8a8a;
   --st-blocked-bg: #ff8a8a;
-  --st-blocked-fg: var(--ink); /* 8.51 */
+  --st-blocked-fg: var(--on-badge); /* 8.51 */
   --st-failed: #ff5c5c;
   --st-failed-bg: #ff5c5c;
-  --st-failed-fg: var(--ink); /* 6.38 */
+  --st-failed-fg: var(--on-badge); /* 6.38 */
   --st-pending: #9aa8c0;
   --st-pending-bg: #9aa8c0;
-  --st-pending-fg: var(--ink); /* 8.03 */
+  --st-pending-fg: var(--on-badge); /* 8.03 */
   --st-dead: #c4a0ff;
   --st-dead-bg: #c4a0ff;
-  --st-dead-fg: var(--ink); /* 9.03 */
+  --st-dead-fg: var(--on-badge); /* 9.03 */
   /* 「活着」指示灯（footer 的连接状态点）。 */
   --live: #3ddc84;
 
