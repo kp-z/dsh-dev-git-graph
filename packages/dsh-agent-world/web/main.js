@@ -588,7 +588,17 @@ function renderTaskTree(tasks) {
   for (const task of ordered) {
     const row = doc.createElement('div')
     row.className = 'aw-tree-row'
+    row.tabIndex = 0
+    row.setAttribute('role', 'button')
+    row.setAttribute('aria-label', `${task.id ?? ''} ${task.subject ?? ''}`)
     row.style.setProperty('--depth', String(depthOf(task)))
+    row.addEventListener('click', () => board.select(task.id))
+    row.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault()
+        board.select(task.id)
+      }
+    })
     const dot = doc.createElement('i')
     dot.className = 'aw-tree-dot'
     dot.dataset.status = task.status ?? 'pending'

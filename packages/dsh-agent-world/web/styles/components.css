@@ -2234,3 +2234,11 @@
   font-size: var(--aw-fs-meta);
   letter-spacing: 0.02em;
 }
+
+.aw-tree-row {
+  cursor: pointer;
+}
+.aw-tree-row:focus-visible {
+  outline: 2px solid var(--screen);
+  outline-offset: 1px;
+}
