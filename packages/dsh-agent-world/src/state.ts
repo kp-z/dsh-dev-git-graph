@@ -383,7 +383,7 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       if (captain !== undefined) {
         // R171：队长的显示名固定为 `leader`，不继承内容花名册的人名（工头阿金等），
         // 避免内容换一版 / 多份花名册时同一个队长出现两个名字。
-        captain.name = 'leader'
+        captain.name = 'captain'
         // 队长是 UI 的代理角色；agent-teams 的 captain 是另一个派生会话。
         // 因此这里**不绑定**会话 id，点它说话时会按普通成员 ensureMember/发送。
         captain.boundAgentId = null
@@ -415,12 +415,12 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       const wanted: Agent[] = []
       // 队长 = 当前会话本身；外观取花名册第一席。
       const captainSeat = seatAt(0)
-      const previousLeader = world.agents.find((a) => a.boundAgentId === null && a.name === 'leader') ?? world.agents[0]
+      const previousLeader = world.agents.find((a) => a.boundAgentId === null && a.name === 'captain') ?? world.agents[0]
       const captain = previousLeader
       if (captain === undefined) {
         wanted.push({
           id: 'agent-1',
-          name: 'leader',
+          name: 'captain',
           role: captainSeat?.role ?? 'lead',
           palette: captainSeat?.palette ?? '#f2c14e',
           modelId: captainSeat?.appearance ?? scene.agentModel,
@@ -431,13 +431,13 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
         })
       } else {
         wanted.push(
-          captain.name === 'leader' && captain.boundAgentId === null
+          captain.name === 'captain' && captain.boundAgentId === null
             ? captain
-            : { ...captain, name: 'leader', boundAgentId: null },
+            : { ...captain, name: 'captain', boundAgentId: null },
         )
       }
       for (const member of members) {
-        if (member.name === 'leader') continue
+        if (member.name === 'captain') continue
         const prior = existing.get(member.id)
         if (prior !== undefined) {
           wanted.push(prior.name === member.name ? prior : { ...prior, name: member.name })

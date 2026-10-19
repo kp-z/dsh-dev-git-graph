@@ -406,14 +406,14 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
           state.currentWorld()?.agents.find((agent) => agent.id === id)?.name ?? resolveSeat(id).name,
         memberRoleFor: (id) => {
           const actor = state.currentWorld()?.agents.find((agent) => agent.id === id)
-          return actor?.name === 'leader' ? 'lead' : resolveSeat(id).role
+          return actor?.name === 'captain' ? 'lead' : resolveSeat(id).role
         },
         personaFor: (id) => {
           const actor = state.currentWorld()?.agents.find((agent) => agent.id === id)
           // R173：leader 的显示名/成员名固定为 leader，人设也不能再自称内容花名册里的名字
           // （真机回复里冒出了「工头阿金」——名字从 persona 漏回来了）。
-          if (actor?.name === 'leader') {
-            return '你是这个团队的 leader，负责统筹与回答。始终用「leader」自称，不要使用花名册里的其它人名。'
+          if (actor?.name === 'captain') {
+            return '你是这个团队的 leader，负责统筹与回答。始终用「captain」自称，不要使用花名册里的其它人名。'
           }
           return resolveSeat(id).persona
         },
