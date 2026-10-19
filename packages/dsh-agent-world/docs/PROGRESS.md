@@ -119,6 +119,41 @@ task-69 owner agent-3 | state=idle | carrying="task-69" | 0%
 
 ---
 
+## R152（Lead 代收尾）—— 死锁修复（task-25）由 Lead 接手完成并真机验收通过
+
+### 经过
+developer 在 task-25 上**连崩三次**（第一次没改动、第二次改了但留下 1 条红测试、第三次崩在改测试时）。
+按纪律"崩溃通知不是验收结论"，我自己跑判据：`tsc` 绿，`node --test` **710/711**，唯一红的是 D41。
+
+### 判定：修复本身是对的，红的是**测试的前置状态不自洽**
+`recovery.ts::isTaskBeingWorked` 的判据（第 74–83 行）设计正确：
+- `working` 且 `agent.station === task.station` → 在推进；
+- **`walking` 且 `targetStation === task.station` → 也算在推进**（这条关键：真实派单后角色是走向工位，
+  若不算，宽限期一过就会把每张正常单都回收掉）；
+- 其余（idle / 手上不是这张单 / 走错工位）→ 判定卡住，连续 `STALL_MIN_TICKS = 20` tick 后退回 `ready`。
+
+D41 手工设 `agent.state='working'` 却**不设 `agent.station`**，造出真实世界不可能出现的状态，
+于是被回收逻辑**正确地**判成卡住。改的是**前置状态**（补 `agent.station = task.station`），
+**没有放宽任何断言**——D41 那条"live 模式 tick 涨满不算完成"原样保留。
+
+### 真机验收（重启宿主后）
+| 时刻 | 观察 |
+|---|---|
+| 修复前 | 4 张单恒 `in_progress 0%`，owner 全 `idle`、`carrying` 仍指着它，120 tick 不动 |
+| 重启动后 | `task-69` 立即被回收；`task-56/59` 变为 **walking 走向各自工位**、`task-66` 变为 **working 在工位** |
+| 再采样 | `task-66` 0%→61%→**完成**（done 55→56）；`task-59`→15%；`task-56`→3%；新单正常认领 |
+
+⇒ **不单是被回收，而是真的重新进入了干活流程**。
+
+### 顺手修掉 profile 缺文件的坑
+新增 `src/sim/recovery.ts` 后，profile 里缺 `lib/sim/recovery.js`（R89 的硬链坑），已 `cp -l` 补上；
+`.d.ts`/`.map` 运行时不需，未补。
+
+### 未纳入本次提交
+`web/index.html` 是 designer 图例任务的**在途半成品**，按纪律不打包进本次提交。
+
+---
+
 ## R149（Lead）—— 验收 R147/R148（标签错开）通过；恢复世界
 
 核实：`a9bc60b` 五个文件、**697/697**、`web↔lib` 一致、字面色值 **3→3 无新增**、`planTaskLabelStagger` 在 `core/task-label.js`。

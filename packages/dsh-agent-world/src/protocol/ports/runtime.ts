@@ -62,6 +62,17 @@ export interface RuntimeDiagnostics {
    * 两件事的出口不同：那个是"这张单已经死了"，这个是"这张单还活着但此刻派不出去"。
    */
   stalled: readonly StalledTask[]
+  /**
+   * **不变量读数**：有多少张单"在进行中却没人推进它"（R151 / task-25）。
+   *
+   * 与 `stalled` 的区别很重要：
+   *  · `stalled` = 调度器**这一 tick 派不出去**（等工人/等工位），是**正常运行中会出现的**；
+   *  · `stalledInProgress` = 世界**自相矛盾**（单说在进行中，却没有任何人在做），
+   *    **正常应恒为 0**。非 0 就是缺陷，`recovery.ts` 会把它们退回 ready。
+   *
+   * 判据由 `stalledTasksOf(world)` 唯一实现（恢复与读数同一份逻辑），这里只放出口。
+   */
+  stalledInProgress: readonly StalledInProgressRow[]
 }
 
 /** 一张"派不出去"的单（`RuntimeDiagnostics.stalled` 的元素）。 */
@@ -116,4 +127,13 @@ export interface RuntimePort {
    * 队满时**抛错**而不是静默丢弃：静默丢弃会让"我点了暂停它没停"无从解释。
    */
   enqueue(command: WorldCommand): void
+}
+
+/** 不变量读数的一行：哪张单、谁该干、为什么算违例、已经持续多久。 */
+export interface StalledInProgressRow {
+  readonly taskId: string
+  readonly ownerId: string | null
+  readonly reason: string
+  /** 已持续的 tick 数（`0` = 本 tick 才发现）。达到 `STALL_MIN_TICKS` 就会被回收。 */
+  readonly ticks: number
 }

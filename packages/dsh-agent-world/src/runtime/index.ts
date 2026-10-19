@@ -32,6 +32,7 @@ import { STALLED_DIAGNOSTIC_CAP } from '../protocol/index.js'
 import { nullEventSink } from '../protocol/index.js'
 import type { StepResult } from '../sim/index.js'
 import { step } from '../sim/index.js'
+import { stalledTasksOf } from '../sim/recovery.js'
 
 // 诊断计数的形状定义在协议层（`protocol/ports/runtime.ts`）——路由要把它们发给面板，
 // 而 routes 按边界规则不许 import 本模块。这里只转出。
@@ -133,6 +134,8 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     persistErrors: 0,
     // R67：最近一次调度里"派不出去"的单。算它的是 `claimTasks()`，这里只是留一个出口。
     stalled: [],
+    // R151：不变量读数（正常恒 0）。每步之后按 `stalledTasksOf` 刷新。
+    stalledInProgress: [],
   }
 
   /**
@@ -295,6 +298,20 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     // "它派不出去"——而人已经在干了。那比不显示更糟（数据与画面打架）。
     //
     // 上限见 `STALLED_DIAGNOSTIC_CAP`：这里截断，避免"100 张单没工位"时每帧快照都背 100 条。
+    // R151：不变量读数与恢复**共用** `stalledTasksOf`——一处判据，两个出口，
+    // 免得"读数说没违例"和"恢复却回收了单"各说一套。
+    {
+      const world = service.currentWorld()
+      diagnostics.stalledInProgress =
+        world === null
+          ? []
+          : stalledTasksOf(world).map((row) => ({
+              taskId: row.taskId,
+              ownerId: row.ownerId,
+              reason: row.reason,
+              ticks: row.sinceTick === null ? 0 : Math.max(0, world.tick - row.sinceTick),
+            }))
+    }
     diagnostics.stalled = result.stalled.slice(0, STALLED_DIAGNOSTIC_CAP).map((s) => ({
       taskId: s.taskId,
       reason: s.reason,

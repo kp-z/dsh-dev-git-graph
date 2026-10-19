@@ -234,6 +234,19 @@ export interface Task {
   output: string | null
   /** 失败原因（live 模式下由 `taskFail` 落进来）。要能让人下手。 */
   failureReason: string | null
+  /**
+   * 违例起点：这张单**从哪个 tick 起**"在进行中却没人推进"（R151 / task-25）。
+   *
+   * `null`/缺省 = 当前没有违例。`recovery.ts` 每个 tick 维护它：仍在违例且还没有起点就打上
+   * `world.tick`，违例消失或回收后清回 `null`。
+   *
+   * 为什么存进世界状态而不是放模块级 Map：模拟必须是 `(world, commands) → world'` 的**纯函数**，
+   * 重放才能逐 tick 复现。模块级计时器会随宿主重启丢失、也不进存档，等于让"什么时候回收"
+   * 依赖进程寿命——那正是这份代码一直在防的不确定性。
+   *
+   * 可选字段：旧存档没有它也能读（缺省视为"没有违例"），所以不用升存档版本。
+   */
+  stalledSinceTick?: number | null
 }
 
 /** 邮箱消息。它的存在是为了**投递动画**：小镇里一张纸条从 A 飞到 B。 */

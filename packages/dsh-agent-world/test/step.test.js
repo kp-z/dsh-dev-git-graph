@@ -394,6 +394,12 @@ test('D41：taskAssign 把单派给角色；taskComplete 才真的完成（不�
   task.status = 'in_progress'
   agent.carrying = task.id
   agent.state = 'working'
+  // ⚠️ **必须同时把人和单对齐到同一个工位**（R152）：真实世界里"在工位干活"的人一定
+  // `agent.station === task.station`。R151 加了不变量回收：`in_progress` 但 owner 没在推进
+  // （不在工位、也没在走向工位）持续 20 tick 就退回 ready。这里只手工设 `working` 却不设工位，
+  // 造出的是现实中不可能出现的状态，于是被回收逻辑**正确地**判成"卡住"。
+  // 补上工位不是放宽断言，而是让前置状态自洽——下面第 403 行的断言原样保留。
+  if (task.station !== null && task.station !== undefined) agent.station = task.station
 
   // 连推**超过估算时长**的 tick：live 下仍然不许自己完成。
   // （`estimateTicks` 由内容库给，是 600；写死 500 会变成"还没到估算时长"的假绿。）

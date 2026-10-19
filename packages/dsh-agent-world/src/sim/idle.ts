@@ -29,6 +29,7 @@ import { angleTo, distance, stepToward } from '../domain/geometry.js'
 import { idleSlotAt, paceGoal } from './idle-behavior.js'
 import type { IdleBehaviorPlan } from '../protocol/idle.js'
 import type { World } from '../domain/types.js'
+import { holdsUnfinishedTask } from './recovery.js'
 
 /** 一次待命走动的结果。 */
 export interface IdleOutcome {
@@ -82,12 +83,24 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
   // 坐着的（`sleeping`）不在候选里。
   const workWaiting = world.tasks.some((task) => task.status === 'ready')
 
+  const tasksById = new Map(world.tasks.map((task) => [task.id, task]))
   for (const agent of world.agents) {
     // 歇会儿用的 `sleeping` 也由这一段管：它是待命行为的产物，没有别的地方设置它。
     const resting = agent.state === 'sleeping'
     // R69：**没有目标工位的 `walking` 是待命踱步**，主人是这里（判据与 `movement.ts` 成对，
     // 见那边的两个主人表）。认领它，否则刚设成 walking 的人下一 tick 就被当成坏数据修掉。
     const ambientWalking = agent.state === 'walking' && agent.targetStation === null
+    /**
+     * **手上押着一张还在进行中的单的人，不算空闲**（R151 第 1 条 / task-25）。
+     *
+     * 这是 R150 死锁的**第一个门**：`idle.ts` 的入口原先只看 `state`，于是拿着单却没在干活的人
+     * （`interaction.ts` 只认 `state === 'working'`）被待命流程当成空闲的人拉去歇脚点，
+     * 从此永远回不到工位——而调度器又因为 `carrying !== null` 不派新活，两头都堵死。
+     *
+     * 这里**只排除待命流程**，不做恢复：真正的修复由 `recovery.ts` 按不变量把单退回 ready。
+     * 两条一起才闭得住：这条保证"不会再被拉走"，那条保证"已经卡住的能被收回"。
+     */
+    if (holdsUnfinishedTask(agent, tasksById)) continue
     if (agent.state !== 'idle' && !resting && !ambientWalking) continue
 
     const home = agent.hangout

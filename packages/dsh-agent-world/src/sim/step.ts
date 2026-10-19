@@ -42,6 +42,7 @@ import type { WorldCommand } from '../protocol/wire/commands.js'
 import { advanceMovement } from './movement.js'
 import { advanceWork } from './interaction.js'
 import { advanceIdle } from './idle.js'
+import { recoverStalledTasks } from './recovery.js'
 import type { StepContext } from '../protocol/idle.js'
 import { dispatchComms } from './comms.js'
 import type { CommsOutcome } from './comms.js'
@@ -100,6 +101,13 @@ export interface StepResult {
   messages: CommsOutcome['queued']
   /** 本 tick 送达的消息（诊断用；**不发事件**——送达时刻由 `deliverAtTick` 算得出来）。 */
   delivered: DeliverOutcome['delivered']
+  /**
+   * 本 tick 被**不变量修复**退回 ready 的单（R151 / task-25）。
+   *
+   * 放在这里而不是只发事件：真机验收要能"读到"它（`/api/world` 不含 StepResult，
+   * 但测试与诊断可以拿它断言"回收确实发生了、回收了几张"）。
+   */
+  recovered: { taskId: string; ownerId: string | null; stalledTicks: number }[]
 }
 
 function emptyRequests(): StepRequests {
@@ -308,7 +316,7 @@ export function step(
   // 暂停时世界不推进。**注意 `world.tick` 也不加**——tick 是"世界前进了多少"，
   // 暂停期间它不该动，否则 HUD 上会出现"暂停了但时间还在走"。
   if (world.paused) {
-    return { world, events, claims: [], stalled: [], requests, messages: [], delivered: [] }
+    return { world, events, claims: [], stalled: [], requests, messages: [], delivered: [], recovered: [] }
   }
 
   // ── 2. scheduler ──
@@ -336,6 +344,14 @@ export function step(
   // ── 5. mailbox ──
   const mailbox = deliverMessages(world)
 
+  // ── 5.5 不变量修复（R151 / task-25）──
+  // **放在所有阶段之后、`world.tick += 1` 之前**：此时本 tick 的状态已经定格，
+  // "这个人到底在不在推进那张单"才是最终答案（放在中间会被后续阶段改写，造成假报）。
+  //
+  // 这一段的职责是把"在进行中却没人推进"的单**退回 ready**（理由见 `recovery.ts` 头注释）。
+  // 它和 `idle.ts` 入口那条"押着单的人不算空闲"是一对：那条防再犯，这条收已经卡住的。
+  const recovery = recoverStalledTasks(world)
+
   // ── 6. emit ──
   events.push(...emitPhaseEvents(world, { ready, scheduler: scheduled, movement, idle, work, comms }))
 
@@ -351,5 +367,6 @@ export function step(
     requests,
     messages: comms.queued,
     delivered: mailbox.delivered,
+    recovered: recovery.recovered,
   }
 }
