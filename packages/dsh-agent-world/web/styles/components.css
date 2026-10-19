@@ -705,7 +705,8 @@
   opacity: 0.85;
 }
 .d-action.is-failed {
-  color: var(--ink);
+  /* R172：失败动作也是面板上的字，不能用近黑的 `--ink`（真机 1.1:1，看不见）。 */
+  color: var(--fg-0);
   box-shadow: inset 3px 0 0 var(--st-failed);
 }
 .d-failed {
@@ -713,7 +714,8 @@
   border-color: color-mix(in srgb, var(--st-failed) 30%, transparent);
 }
 .d-reason {
-  color: var(--ink);
+  /* R172：错误气泡是深色底；`--ink` 是近黑，整句“他说不出话”直接隐形。 */
+  color: var(--fg-0);
   box-shadow: inset 3px 0 0 var(--st-failed);
 }
 .d-tick {
@@ -736,7 +738,7 @@
 }
 .dialogue-hint.warn {
   background: var(--paper-card);
-  color: var(--ink);
+  color: var(--fg-0);
   box-shadow: inset 4px 0 0 var(--st-ready);
 }
 .dialogue-form {

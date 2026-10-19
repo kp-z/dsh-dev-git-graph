@@ -345,15 +345,9 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   const teamsPorts = new Map<string, TeamsPort>()
   /** 真实服务面优先；有些装配里只有 `ctx.get('agents')` 能拿到。 */
   const captainFor = () => {
-    const scoped = ctx as unknown as {
-      agents?: {
-        get?(id: string): { id?: string } | undefined
-        list?(): readonly { id?: string }[]
-      }
-      get?(name: string): unknown
-    }
-    const direct = scoped.agents
-    if (direct !== undefined) return direct
+    // 只能走 ctx.get()。直接读 ctx.agents 在没有 inject:['agents'] 的插件里会抛
+    // "cannot get property agents without inject"（真机 R172）。
+    const scoped = ctx as unknown as { get?(name: string): unknown }
     return typeof scoped.get === 'function'
       ? (scoped.get('agents') as {
           get?(id: string): { id?: string } | undefined
