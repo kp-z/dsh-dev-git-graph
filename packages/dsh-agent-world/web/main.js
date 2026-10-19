@@ -379,33 +379,98 @@ function renderTeamRoster(team) {
   const members = Array.isArray(team.members) ? team.members : []
   const tasks = Array.isArray(team.tasks) ? team.tasks : []
   card.innerHTML = ''
+  const lead = team.lead && typeof team.lead.name === 'string'
+    ? team.lead.name
+    : (members.find((m) => m && m.role === 'lead')?.name ?? 'captain')
   const title = doc.createElement('strong')
-  const lead = team.lead && typeof team.lead.name === 'string' ? team.lead.name : 'captain'
   title.textContent = `Team · ${lead}`
   const meta = doc.createElement('span')
-  meta.textContent = `${members.length} 成员 · ${tasks.length} 任务 · 只读`
+  meta.textContent = `${members.length} 成员 · ${tasks.length} 任务 · 官方 projection`
   const list = doc.createElement('div')
   list.className = 'team-plan-list'
   list.textContent = members.length > 0
-    ? members.map((m) => `${m.name ?? '?'}${m.status ? `（${m.status}）` : ''}`).join(' / ')
+    ? members.map((m) => `${m.name ?? '?'}${m.status ? `（${m.status}）` : m.phase ? `（${m.phase}）` : ''}`).join(' / ')
     : '（还没有成员）'
+
+  async function write(action, extra) {
+    try {
+      const response = await fetch(apiUrl('api/team/task'), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ rootSessionId: sessionId, action, ...extra }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (data?.ok !== true) throw new Error(data?.error ?? `任务写入失败（HTTP ${response.status}）`)
+      errorNode.textContent = ''
+    } catch (error) {
+      errorNode.textContent = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  function actionButton(label, onClick) {
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.className = 'team-task-action'
+    button.textContent = label
+    button.addEventListener('click', (event) => {
+      event.stopPropagation()
+      onClick()
+    })
+    return button
+  }
+
   const taskList = doc.createElement('div')
   taskList.className = 'team-plan-tasks'
-  const rows = tasks.slice(0, 8).map((t) => {
-    const status = typeof t.status === 'string' ? t.status : ''
-    const subject = typeof t.subject === 'string' ? t.subject : ''
-    return `${status} · ${subject}`
-  })
-  taskList.textContent = rows.length > 0 ? rows.join('\n') : '（还没有任务）'
-  const hint = doc.createElement('small')
-  hint.textContent = '官方 agentTeam projection · 只读'
-  card.append(title, meta, list, taskList, hint)
-}
+  if (tasks.length === 0) {
+    taskList.textContent = '（还没有任务）'
+  } else {
+    for (const task of tasks.slice(0, 6)) {
+      const row = doc.createElement('div')
+      row.className = 'team-task-row'
+      const label = doc.createElement('span')
+      label.className = 'team-task-label'
+      label.textContent = `${task.status ?? '?'} · ${task.subject ?? ''}${task.ownerName ? ` → ${task.ownerName}` : ''}`
+      const actions = doc.createElement('span')
+      actions.className = 'team-task-actions'
+      if (task.status !== 'completed' && task.status !== 'deleted') {
+        actions.append(actionButton('完成', () => { void write('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'complete' }) }))
+      }
+      if (task.status === 'completed') {
+        actions.append(actionButton('重开', () => { void write('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reopen' }) }))
+      }
+      if (task.ownerName === undefined || task.ownerName === '') {
+        actions.append(actionButton('领取', () => { void write('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'claim' }) }))
+      }
+      actions.append(actionButton('指派', () => {
+        const names = members.map((m) => m.name).filter((name) => typeof name === 'string' && name !== '')
+        const owner = doc.defaultView?.prompt?.(`指派给谁？可选：${names.join(' / ')}`, names[1] ?? names[0] ?? '')
+        if (typeof owner !== 'string' || owner.trim() === '') return
+        void write('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reassign', owner: owner.trim() })
+      }))
+      row.append(label, actions)
+      taskList.append(row)
+    }
+  }
 
-/**
- * 官方 agentTeam projection → 只读卡片。
- * 数据来自 Session projection，不再走 host `/api/team`（host 只作为 fallback）。
- */
+  const create = doc.createElement('button')
+  create.type = 'button'
+  create.className = 'team-task-create'
+  create.textContent = '＋ 新建任务'
+  create.addEventListener('click', () => {
+    const subject = doc.defaultView?.prompt?.('新任务标题', '') ?? ''
+    if (typeof subject !== 'string' || subject.trim() === '') return
+    const names = members.map((m) => m.name).filter((name) => typeof name === 'string' && name !== '')
+    const owner = doc.defaultView?.prompt?.(`指派给谁？（留空=不指派）可选：${names.join(' / ')}`, '') ?? ''
+    void write('create', { subject: subject.trim(), ...(owner.trim() !== '' ? { owner: owner.trim() } : {}) })
+  })
+
+  const errorNode = doc.createElement('small')
+  errorNode.className = 'team-plan-error'
+  const hint = doc.createElement('small')
+  hint.textContent = '官方 agentTeam projection · 写入走 ctx.agentTeams'
+  card.append(title, meta, list, taskList, create, errorNode, hint)
+}
 function renderOfficialTeam(team) {
   if (team === null || team === undefined) return false
   const members = Array.isArray(team.members) ? team.members : []

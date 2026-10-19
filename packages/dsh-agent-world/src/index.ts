@@ -111,6 +111,8 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
           caller: { id?: string },
           request: { target: string; content: readonly unknown[]; signal: AbortSignal },
         ): Promise<unknown>
+        createTask?(caller: { id?: string }, request: Record<string, unknown>): Promise<unknown>
+        updateTask?(caller: { id?: string }, request: Record<string, unknown>): Promise<unknown>
       }
     | undefined
   ctx.inject(['agents', 'agentTeams'], (host) => {
@@ -738,6 +740,70 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
             }
           } catch (error) {
             return { available: false, reason: error instanceof Error ? error.message : String(error) }
+          }
+        },
+        teamTask: async (payload: Record<string, unknown>) => {
+          const rootSessionId = typeof payload.rootSessionId === 'string' ? payload.rootSessionId : ''
+          const lead = agentsService?.get?.(rootSessionId)
+          if (lead === undefined) return { ok: false, error: 'Lead Agent 不在线：先打开这个会话再试' }
+          const teams = agentTeamsService
+          if (typeof teams?.createTask !== 'function' || typeof teams.updateTask !== 'function' || typeof teams.listTasks !== 'function') {
+            return { ok: false, error: 'experimental agentTeams 任务服务不可用' }
+          }
+          const action = payload.action
+          try {
+            if (action === 'create') {
+              const subject = typeof payload.subject === 'string' ? payload.subject.trim() : ''
+              if (subject === '') return { ok: false, error: '任务标题不能为空' }
+              const task = await teams.createTask!(lead, {
+                subject,
+                description: typeof payload.description === 'string' && payload.description.trim() !== ''
+                  ? payload.description
+                  : subject,
+              })
+              const owner = typeof payload.owner === 'string' ? payload.owner.trim() : ''
+              if (owner === '') return { ok: true, task }
+              const created = task as { id?: unknown; revision?: unknown }
+              const assigned = await teams.updateTask(lead, {
+                taskId: String(created.id ?? ''),
+                expectedRevision: Number(created.revision ?? 1),
+                action: 'reassign',
+                owner,
+              })
+              return { ok: true, task: assigned }
+            }
+            if (action === 'update') {
+              // projection 的 task 行不总是带 revision（真机 task.revision undefined）。
+              // 缺失时用官方 listTasks 反查当前 revision，再走同一条 CAS。
+              let expectedRevision = payload.expectedRevision
+              if (typeof expectedRevision !== 'number') {
+                const current = await teams.listTasks!(lead) as readonly { id?: unknown; revision?: unknown }[]
+                expectedRevision = current.find((row) => row.id === payload.taskId)?.revision
+              }
+              const doUpdate = async (revision: unknown) => teams.updateTask!(lead, {
+                taskId: payload.taskId,
+                expectedRevision: revision,
+                action: payload.updateAction,
+                ...(typeof payload.owner === 'string' && payload.owner !== '' ? { owner: payload.owner } : {}),
+              })
+              try {
+                const task = await doUpdate(expectedRevision)
+                return { ok: true, task }
+              } catch (error) {
+                // 官方 projection 的 task 行不带 revision 时，服务仍会报出当前 revision。
+                // 只在这种“本来就没有 CAS 基线”的情况下重试一次；不是掩盖真实冲突。
+                const message = error instanceof Error ? error.message : String(error)
+                const match = /current revision is (\d+)/.exec(message)
+                if (match !== null) {
+                  const task = await doUpdate(Number(match[1]))
+                  return { ok: true, task }
+                }
+                throw error
+              }
+            }
+            return { ok: false, error: '未知任务动作' }
+          } catch (error) {
+            return { ok: false, error: error instanceof Error ? error.message : String(error) }
           }
         },
         teamPlan: async (sessionId: string) => {

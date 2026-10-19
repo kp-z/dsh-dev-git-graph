@@ -1877,3 +1877,43 @@
   font-size: var(--fs-micro);
   white-space: pre-line;
 }
+
+.team-task-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: 2px 0;
+  border-top: 1px solid var(--edge);
+}
+.team-task-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.team-task-actions {
+  display: flex;
+  flex: none;
+  gap: 3px;
+}
+.team-task-action,
+.team-task-create {
+  padding: 1px 5px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--fg-0);
+  font: inherit;
+  cursor: pointer;
+}
+.team-task-action:hover,
+.team-task-create:hover {
+  border-color: var(--lamp);
+  color: var(--lamp);
+}
+.team-task-create {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+.team-plan-error {
+  color: var(--danger, #ff9b9b);
+}

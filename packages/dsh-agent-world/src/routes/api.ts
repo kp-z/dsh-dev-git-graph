@@ -49,6 +49,8 @@ export interface ApiDeps {
   teamPlan?: (sessionId: string) => Promise<unknown>
   /** 只读读取 experimental agent-teams roster/tasks（R176）。 */
   teamRoster?: (sessionId: string) => Promise<unknown>
+  /** 官方 agentTeams 任务写入：create / CAS update（R179）。 */
+  teamTask?: (payload: Record<string, unknown>) => Promise<unknown>
 }
 
 /**
@@ -161,6 +163,21 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
       handler: () => {
         deps.deactivateSession?.()
         return { ok: true }
+      },
+    },
+    {
+      method: 'POST',
+      pattern: '/api/team/task',
+      handler: async (request) => {
+        const body = request.body
+        if (typeof body !== 'object' || body === null || typeof deps.teamTask !== 'function') {
+          return { ok: false, error: '任务写入不可用' }
+        }
+        try {
+          return await deps.teamTask(body as Record<string, unknown>)
+        } catch (error) {
+          return { ok: false, error: error instanceof Error ? error.message : String(error) }
+        }
       },
     },
     {
