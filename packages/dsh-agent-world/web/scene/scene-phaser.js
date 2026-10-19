@@ -64,7 +64,7 @@ import { assignColorVariants } from '../core/pixel-recolor.js'
 // 为什么不能留在本文件：这个文件顶部 `import ... from 'phaser'` 指向浏览器 vendor，
 // **node 加载不了它**——留在这里就等于"这条逻辑永远无法单测"，
 // 而真机上恰好验不到它（真实标题最长 10 字，截断上限 14）。
-import { taskLabelText } from '../core/task-label.js'
+import { planTaskLabelStagger, taskLabelText } from '../core/task-label.js'
 import { createSheetLoader } from './sheet-loader.js'
 
 /**
@@ -802,20 +802,25 @@ export function createScenePhaser(canvas, options = {}) {
       // 只有"名字贴头顶"要在这同步：标签在另一个容器里（永远盖在家具上），物理动的是精灵，
       // 所以每帧把标签钉到精灵脚下 + labelDy——这不是手写物理，是"两个显示对象保持相对位置"。
       /**
-       * 先摆位置、再**去重叠**（R123）。
+       * 先摆位置、再**错开**（R123 建 / R148 改成错开）。
        *
-       * 为什么需要去重叠：真机对比（10px vs 12px）暴露出来——两个人站得近时，
-       * 头顶那行工单会**叠成一团**，而字越大叠得越厉害。
-       * 只调字号解决不了它（这正是那组对比截图的价值：它把"字号"和"排布"两个问题分开了）。
+       * ## 为什么从"藏"改成"错开"
        *
-       * 规则很保守：**同一屏里两个有工单行的人靠得太近时，两人的工单行都藏起来**，
-       * 名字**永远保留**（"谁在哪"是底线信息，"他在做哪张单"是加分信息）。
-       * 判据用**精灵的屏幕距离**（相机缩放已经算进去了），阈值取"一行工单标签的典型宽度"量级。
+       * R123 的做法是"两人靠近就把两行都藏起来"。方向（别糊成一团）对，但**降级方式选错了**：
+       * 删信息 vs 挪位置。用户看到某人头顶没有工单行，分不清**他没活**还是**被藏了**——
+       * 信息无声消失。现在改成**纵向错开**，两行都在；只有极端重叠（超过错开层数）才藏，
+       * 且留下的人带 `+N`，明说"这里还有人"。
        *
-       * O(n²) 但 n ≤ 8（一个世界的角色数），一帧几十次比较，可以忽略。
+       * ## 分工
+       *
+       * **怎么错开**全在 `core/task-label.js::planTaskLabelStagger`（纯函数，可单测）；
+       * 这里只做三件事：喂尺寸（屏幕像素）、把屏幕偏移按缩放折算回世界坐标、把 `+N` 写上去。
+       *
+       * 判据用**精灵的屏幕距离**（相机缩放已经算进去了），阈值沿用 72px。
        */
+      const zoomNow = activeScene.cameras.main.zoom ?? 1
       const taskLabelSpots = []
-      for (const entry of actorNodes.values()) {
+      for (const [actorId, entry] of actorNodes) {
         const sprite = entry.sprite
         if (sprite === null || sprite === undefined || sprite.visible !== true) continue
         const label = entry.label
@@ -826,25 +831,47 @@ export function createScenePhaser(canvas, options = {}) {
         // 第二行贴在**名字之上**：顺序读下来是「工单 → 人 → 角色」。
         // 位置由名字的实测高度决定（`label.height` 随字号/内容变，不能写死行高）。
         const taskLabel = entry.taskLabel
-        if (taskLabel !== null && taskLabel !== undefined && taskLabel.visible === true && label !== null && label !== undefined) {
+        // ⚠️ 这里**不能**要求 `taskLabel.visible === true`（R148 踩过）：错开布局是"每帧重新决定可见性"，
+        // 若只把当前可见的收进来，那么被藏过一次的标签就永远进不了布局、永远回不来——**自锁**。
+        // 只排除"被气泡挡住"的那些（那是另一条规则，见 `bubbleHiddenTaskLabels`）。
+        if (taskLabel !== null && taskLabel !== undefined && label !== null && label !== undefined && entry.taskLabelHiddenByBubble !== true) {
           taskLabel.x = sprite.x
           taskLabel.y = (sprite.y + (entry.labelDy ?? -16)) - (label.visible === true ? label.height : 0)
-          taskLabelSpots.push({ label: taskLabel, x: sprite.x, y: sprite.y })
+          taskLabelSpots.push({ id: actorId, label: taskLabel, x: sprite.x, y: sprite.y })
         }
       }
-      // 相机缩放要算进去：屏幕上挤不挤取决于**缩放后**的距离，不是世界坐标距离。
-      const zoomNow = activeScene.cameras.main.zoom ?? 1
-      for (let i = 0; i < taskLabelSpots.length; i += 1) {
-        for (let j = i + 1; j < taskLabelSpots.length; j += 1) {
-          const a = taskLabelSpots[i]
-          const b = taskLabelSpots[j]
-          const dx = Math.abs(a.x - b.x) * zoomNow
-          const dy = Math.abs(a.y - b.y) * zoomNow
-          // 横向近 **且** 纵向也近才算挤（上下分开的人不会撞标签）。
-          if (dx < TASK_LABEL_MIN_GAP_PX && dy < TASK_LABEL_MIN_GAP_PX) {
-            a.label.setVisible(false)
-            b.label.setVisible(false)
-          }
+      /**
+       * 布局在**世界坐标**里算，单位自洽。
+       *
+       * ⚠️ R148 踩过：把位置乘 `zoom` 当"屏幕像素"、却又用世界单位的 `label.width/height`，
+       * 于是步长（屏幕 px）和标签高（世界 px）**不同量纲**——真机上偏移被除以 zoom，
+       * 两行只错开 8.5 世界 px，而标签高 15px，结果**仍然相交**（`getBounds()` 相交数 = 1）。
+       * 正确做法：位置、尺寸、偏移全用世界单位；只有 72px 这个**阈值**是屏幕概念，
+       * 把它换算成世界单位（`/ zoom`）再传进去。
+       */
+      const plan = planTaskLabelStagger(
+        taskLabelSpots.map((spot) => ({
+          id: spot.id,
+          x: spot.x,
+          y: spot.y,
+          width: spot.label.width,
+          height: spot.label.height,
+        })),
+        { minGapPx: TASK_LABEL_MIN_GAP_PX / zoomNow },
+      )
+      const planById = new Map(plan.map((p) => [p.id, p]))
+      for (const spot of taskLabelSpots) {
+        const decision = planById.get(spot.id)
+        if (decision === undefined) continue
+        spot.label.setVisible(decision.hidden !== true)
+        spot.label.y += decision.offsetY
+        // `+N` 只在有隐藏时出现；**基文本单独留着**（见 `updateTaskLabel` 里的 `baseText`），
+        // 否则下一帧会在"已带 +N"的文本上再拼一次，越拼越长。
+        // 文本变了才写：Phaser 的 `text` setter 会重新排版 + 重绘纹理，每帧写等于每帧重画 8 张贴图。
+        const base = spot.label.getData('baseText')
+        if (typeof base === 'string') {
+          const next = decision.hiddenCount > 0 ? `${base} +${decision.hiddenCount}` : base
+          if (spot.label.text !== next) spot.label.text = next
         }
       }
       // P1：高亮圈跟着选中者的物理精灵贴（和标签同一个道理：两个显示对象保持相对位置）。
@@ -1768,10 +1795,17 @@ export function createScenePhaser(canvas, options = {}) {
       entry.taskLabel = label
     }
     const label = entry.taskLabel
-    if (label.text !== text) label.text = text
+    // **基文本**（不含 `+N`）单独存一份：错开布局每帧要按隐藏人数拼后缀，
+    // 若直接在 `label.text` 上拼，下一帧就会在"已带 +N"的文本上再拼一次。
+    if (label.getData('baseText') !== text) {
+      label.setData('baseText', text)
+      // 基文本变了：先写成基文本（不带 `+N`），后缀由错开布局那一帧按当帧的隐藏人数补上。
+      label.text = text
+    }
     // 色随人走（部门色）——同一张单换手时，标签颜色也跟着换人，一眼看出是谁的活。
     if (typeof actor.color === 'string' && label.style?.color !== actor.color) label.setColor(actor.color)
-    label.setVisible(true)
+    // **可见性不在这里决定**（R148）：它归错开布局（每帧按几何算）与气泡标记管。
+    // 这里写 `setVisible(true)` 会在每次换单时把"被错开藏掉的那一行"翻出来，两条规则打架。
   }
 
   /** 角色：精灵 + 引擎动画（`play`）+ 名字；`setInteractive` 让**整只角色**可点。 */
@@ -2170,7 +2204,10 @@ export function createScenePhaser(canvas, options = {}) {
       node.container.setVisible(true)
       // 二选一：气泡盖掉头顶名字标签——**第二行也一起藏**，
       // 否则那行工单会孤零零浮在气泡上方，看着像气泡的标题。
+      // 用**显式标记**而不是靠 `visible`：错开布局每帧会重设第二行的可见性，
+      // 只把它设成 false 会被下一帧翻回来（两条规则打架）。
       entry.label.setVisible(false)
+      entry.taskLabelHiddenByBubble = true
       entry.taskLabel?.setVisible(false)
     }
     for (const [id, node] of bubbleNodes) {
@@ -2185,10 +2222,8 @@ export function createScenePhaser(canvas, options = {}) {
         entry.label.x = entry.sprite.x
         entry.label.y = entry.sprite.y + (entry.labelDy ?? -16)
         entry.label.setVisible(true)
-        // 第二行跟着回来（位置由下面那帧的跟随逻辑摆正）。
-        if (entry.taskLabel !== null && entry.taskLabel !== undefined && entry.taskLabel.text !== '') {
-          entry.taskLabel.setVisible(true)
-        }
+        // 第二行跟着回来（位置与可见性由下面那帧的错开布局摆正）。
+        entry.taskLabelHiddenByBubble = false
       }
     }
   }

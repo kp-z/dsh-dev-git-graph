@@ -50,7 +50,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r123'
+const BUILD = 'build r148'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
