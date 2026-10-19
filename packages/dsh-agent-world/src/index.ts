@@ -10,8 +10,8 @@
  * 落盘与 HTTP/SSE 见 BACKLOG M3，3D 面板见 M4。
  * 架构见 docs/ARCHITECTURE.md，内容模型见 docs/CONTENT.md，协议见 docs/PROTOCOL.md。
  */
-import { appendFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { appendFileSync, existsSync, renameSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
   buildCharacterSystemPrompt,
@@ -76,9 +76,22 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     resolved.persistEveryTicks > 0 ? resolve(process.cwd(), resolved.stateDir) : null
   if (storeDir !== null) logger.info(`世界存档目录：${storeDir}`)
 
-  const state = createPluginState(resolved, { externalRoot: contentRoot.root, storeDir })
+  // R166 Phase C：旧的**全局** world.json 不再参与会话世界。归档它，不删；
+  // 每个会话的世界在 `storeDir/sessions/<会话编码>/world.json`。
+  if (storeDir !== null) {
+    const legacy = join(storeDir, 'world.json')
+    const archive = join(storeDir, 'world.legacy.json')
+    try {
+      if (existsSync(legacy) && !existsSync(archive)) {
+        renameSync(legacy, archive)
+        logger.info(`已归档旧的全局世界：${archive}`)
+      }
+    } catch (error) {
+      logger.warn(`归档旧全局世界失败（不影响会话世界）：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
 
-  registerWorldTools(ctx, state)
+  const state = createPluginState(resolved, { externalRoot: contentRoot.root, storeDir })
 
   // ── D41/R43：把小镇的工单接到 agent-teams 的任务上 ────────────────────────────
   //
@@ -283,6 +296,8 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   // 结果被定死成"没有会话服务"，`/api/say` 从此每条都失败。现在推迟到第一次真正要说话时，
   // 成功后记住；失败则每次都给出**当次**的原因（服务没挂上 / 挂了又掉了，诊断上不是一回事）。
   let liveBridge: CharacterBridge | undefined
+  /** 当前真正打开着 Agent World 视图的会话；null = 没有视图。 */
+  let viewSessionId: string | null = null
   let lastFailureCode: string | undefined
   const dialoguePort = toLazyDialoguePort(() => {
     const wiring = createDshCharacterBridge(ctx, {
@@ -409,22 +424,64 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     teamsPorts.clear()
   }, 'agent-world: agent-teams ports')
 
+  /**
+   * R166 Phase C：工具调用按**调用者会话**定位世界。
+   *
+   * `ctx.agents.currentInitiator()` 是这次工具调用所属的会话 Agent。没有视图时只把世界
+   * 载入内存、**不启动 ticker**（没人看就不跑）；有别的会话的视图开着时直接拒绝，
+   * 避免把别人正在跑的世界换掉。
+   */
+  const currentInitiatorId = (): string | undefined => {
+    const getService = (ctx as unknown as { get?: (name: string) => unknown }).get
+    const agents = (typeof getService === 'function' ? getService.call(ctx, 'agents') : undefined) as
+      | { currentInitiator?(): { id?: unknown } | undefined }
+      | undefined
+    const id = agents?.currentInitiator?.()?.id
+    return typeof id === 'string' && id !== '' ? id : undefined
+  }
+  const ensureCallerSession = (): void => {
+    const caller = currentInitiatorId()
+    if (caller === undefined || state.activeSessionId === caller) return
+    if (viewSessionId !== null && viewSessionId !== caller) {
+      throw new Error(`另一个会话（${viewSessionId}）的 Agent World 正开着；先切回当前会话再操作它的世界。`)
+    }
+    runtime.stop()
+    state.activateSession(caller)
+    // 没有视图就不启动 ticker；下次打开该会话视图时 activate 会重新 start。
+  }
+  const sessionWorld = new Proxy(state as unknown as WorldServicePort, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver)
+      if (typeof value !== 'function') return value
+      return (...args: unknown[]) => {
+        ensureCallerSession()
+        return (value as (...a: unknown[]) => unknown).apply(target, args)
+      }
+    },
+  }) as WorldServicePort
+  registerWorldTools(ctx, sessionWorld)
+
   // ── 派单后立刻在团队里建对应任务（D41，R43）────────────────────────────────
   //
   // 包在 `state.dispatch` 外面而不是改 `state`：`state`（世界服务）不该认识 agent-teams，
   // 那是编排层的事。`state` 的方法全是闭包（`this.` 出现 0 次），所以展开一层是安全的。
-  const teamAwareWorld: WorldServicePort = {
-    ...state,
-    dispatch(taskSet: string): DispatchOutcome {
-      const outcome = state.dispatch(taskSet)
-      void linkNewTasksToTeam(outcome.addedTaskIds).catch((error) => {
-        logger.warn(
-          `在团队里建对应任务失败（小镇的工单照常建好了）：${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
-      return outcome
+  const teamAwareWorld = new Proxy(sessionWorld, {
+    get(target, prop, receiver) {
+      if (prop === 'dispatch') {
+        return (taskSet: string): DispatchOutcome => {
+          ensureCallerSession()
+          const outcome = target.dispatch(taskSet)
+          void linkNewTasksToTeam(outcome.addedTaskIds).catch((error) => {
+            logger.warn(
+              `在团队里建对应任务失败（小镇的工单照常建好了）：${error instanceof Error ? error.message : String(error)}`,
+            )
+          })
+          return outcome
+        }
+      }
+      return Reflect.get(target, prop, receiver)
     },
-  }
+  }) as WorldServicePort
   registerDispatchTool(ctx, teamAwareWorld)
 
   /** 按配置选后端。`native` 是 R24–R36 手写的那套，留作对照与回退。 */
@@ -481,6 +538,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         dialogue: activeDialoguePort,
         // R166：一个会话一个世界；同一时刻只有激活的那个在跑。
         activateSession: (sessionId: string) => {
+          viewSessionId = sessionId
           runtime.stop()
           const world = state.activateSession(sessionId)
           if (resolved.autoStart) runtime.start()
@@ -488,6 +546,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
           return world
         },
         deactivateSession: () => {
+          viewSessionId = null
           runtime.stop()
           state.deactivate()
         },

@@ -67,6 +67,22 @@ Microverse 的角色被整张染色后头发/脸/衣服变成一色，看起来�
 
 ---
 
+## R168（Lead）—— Phase C：工具按调用者会话定位世界 + 旧全局存档归档
+
+### 做法
+- `agent_world_*` 工具拿到的是 `sessionWorld` 代理：
+  - 每次调用先读 `ctx.agents.currentInitiator()?.id`；
+  - 与当前 active 会话不同：**没有视图**时只 `activateSession` 载入世界、不启动 ticker；
+    有别的会话视图开着时直接报错，避免把别人正在跑的世界换掉。
+- `teamAwareWorld` 也包在这层代理外，`dispatch` 仍做团队任务联动。
+- 启动时把旧的全局 `storeDir/world.json` 归档为 `world.legacy.json`（不删除）；
+  新世界只走 `sessions/<会话编码>/world.json`。
+
+### 验证
+- 全量 **733 / 733**；会话 A/B 的 tick/角色隔离测试、activate/deactivate HTTP 测试仍绿。
+- 没做：真正同时开两个浏览器会话的面板双开真机验收（当前受“一个 main panel”限制，
+  但服务端已按 session 隔离）。
+
 ## R167（Lead）—— Phase B：TeamsPort 按会话、队长用会话自己的 live Agent、成员名取投影名
 
 ### 做法

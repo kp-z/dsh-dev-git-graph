@@ -165,6 +165,7 @@
 | **R165** | 打开 Agent World 时隐藏下方对话输入面板（composer） | Lead | 真机几何 | — | ✅ 完成（R165：游戏 648→776px，composer display:none；切回对话恢复 128px；728/728） |
 | **R166** | Phase A：一会话一世界（会话级存储/activate + 单 ticker + subagent 投影骨架） | Lead | 状态/HTTP/真机 | — | ✅ Phase A（733/733；Phase B/C 待做） |
 | **R167** | Phase B：TeamsPort 按会话 + 队长用 live Agent + 投影名 | Lead | 单测/装配 | — | ✅ Phase B（733/733；工具会话定位留 Phase C） |
+| **R168** | Phase C：工具按调用者会话定位 + 旧全局存档归档 | Lead | 单测/装配 | — | ✅ Phase C 核心（733/733；双会话真机待补） |
 | **R141** | 观测：G2 到 ~100 轮或 captain 上下文 >200k 时复量"只想不说" | developer | 同一统计脚本 | R138 | ⬜ 待触发 |
 | **R122** | 可读性漂移守卫：测试钉住 NODE_TITLE_PX 与 CSS 字号一致 | developer | 测试 + 反证 | R120 | ✅ 完成（task-20 R144：CSS 解析守卫 + 取整关系，两条反证） |
 | **R5** | 细节打磨：Map 显示 + Header 图标 + 两档分辨率不溢出 | designer→developer | 改动 + 裁剪判据 | R3 | ⬜ |
