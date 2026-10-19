@@ -134,6 +134,9 @@ let lastRenderMs = -1
 let boardSelection = null
 /** R180：官方 projection 已渲染时，禁止 host fallback 把它清空。 */
 let officialTeamRendered = false
+/** R183：任务面板视图：graph（工作流图）| tree（依赖树）。 */
+let taskView = 'graph'
+let lastOfficialTasks = []
 /**
  * 调度器诊断（R67 / M13-5）：`runtime.diagnostics`。
  *
@@ -443,10 +446,12 @@ function renderTeamJobs(team) {
 function renderOfficialTasks(team) {
   if (team === null || team === undefined) return
   const tasks = Array.isArray(team.tasks) ? team.tasks : []
+  lastOfficialTasks = tasks
   setTasksNotice('')
   // 任务交给看板：它负责节点/边/状态带/图标可用性（图与状态带是同一份数据）。
   board.setTeamTasks(tasks)
   renderTeamJobs(team)
+  if (taskView === 'tree') renderTaskTree(tasks)
 }
 
 /*
@@ -544,6 +549,71 @@ function ensureAgentComposer(card) {
  * R182：新建任务属于任务面板；Agent 面板只保留团队信息与成员动作。
  * composer 挂在任务面板内容顶部，＋ 挂在任务面板 header 的 graphActions。
  */
+/** R183：阻塞依赖树。用 DOM 行 + 缩进，不另开面板；deleted 不画。 */
+function renderTaskTree(tasks) {
+  const graph = root.querySelector('#sidebar-task-graph')
+  if (graph === null) return
+  let tree = root.querySelector('#sidebar-task-tree')
+  if (tree === null) {
+    tree = doc.createElement('div')
+    tree.id = 'sidebar-task-tree'
+    tree.className = 'aw-tree'
+    graph.parentElement?.insertBefore(tree, graph)
+  }
+  graph.hidden = true
+  tree.hidden = false
+  tree.textContent = ''
+  const alive = tasks.filter((t) => t.status !== 'deleted')
+  const byId = new Map(alive.map((t) => [t.id, t]))
+  const depthOf = (task, seen = new Set()) => {
+    if (!Array.isArray(task.blockedBy) || task.blockedBy.length === 0) return 0
+    if (seen.has(task.id)) return 0
+    seen.add(task.id)
+    let depth = 0
+    for (const id of task.blockedBy) {
+      const parent = byId.get(id)
+      if (parent) depth = Math.max(depth, depthOf(parent, seen) + 1)
+    }
+    return depth
+  }
+  const ordered = [...alive].sort((a, b) => depthOf(a) - depthOf(b) || String(a.id).localeCompare(String(b.id)))
+  for (const task of ordered) {
+    const row = doc.createElement('div')
+    row.className = 'aw-tree-row'
+    row.style.setProperty('--depth', String(depthOf(task)))
+    const dot = doc.createElement('i')
+    dot.className = 'aw-tree-dot'
+    dot.dataset.status = task.status ?? 'pending'
+    const label = doc.createElement('span')
+    label.className = 'aw-tree-label'
+    label.textContent = `${task.id ?? ''} ${task.subject ?? ''}`
+    const owner = doc.createElement('b')
+    owner.className = 'aw-tree-owner'
+    owner.textContent = task.ownerName ?? '未分配'
+    row.append(dot, label, owner)
+    tree.append(row)
+  }
+  if (alive.length === 0) {
+    const empty = doc.createElement('div')
+    empty.className = 'aw-empty'
+    empty.textContent = '还没有任务'
+    tree.append(empty)
+  }
+}
+
+function setTaskView(next) {
+  taskView = next === 'tree' ? 'tree' : 'graph'
+  const graph = root.querySelector('#sidebar-task-graph')
+  const tree = root.querySelector('#sidebar-task-tree')
+  if (graph !== null) graph.hidden = taskView === 'tree'
+  if (tree !== null) tree.hidden = taskView !== 'tree'
+  if (taskView === 'tree') renderTaskTree(lastOfficialTasks)
+  else board.refreshGraph?.()
+  for (const button of root.querySelectorAll('[data-task-view]')) {
+    button.classList.toggle('is-active', button.dataset.taskView === taskView)
+  }
+}
+
 function renderTaskActions(team) {
   const card = root.querySelector('#sidebar-panel-graph')
   if (card === null) return
@@ -559,6 +629,19 @@ function renderTaskActions(team) {
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
   host.append(create)
+  for (const [mode, label] of [['graph', '图'], ['tree', '树']]) {
+    if (host.querySelector(`[data-task-view="${mode}"]`) !== null) continue
+    const toggle = doc.createElement('button')
+    toggle.type = 'button'
+    toggle.className = 'aw-icon aw-view-toggle'
+    toggle.dataset.taskView = mode
+    toggle.title = mode === 'graph' ? '工作流图' : '依赖树'
+    toggle.setAttribute('aria-label', toggle.title)
+    toggle.textContent = label
+    toggle.classList.toggle('is-active', taskView === mode)
+    toggle.addEventListener('click', () => setTaskView(mode))
+    host.append(toggle)
+  }
 }
 
 /** Agent 面板当前只承载团队信息；团队级动作后续接这里，不重复任务操作。 */
