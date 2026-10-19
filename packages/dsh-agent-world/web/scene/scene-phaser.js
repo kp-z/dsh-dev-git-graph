@@ -245,31 +245,26 @@ export function createScenePhaser(canvas, options = {}) {
    *
    * 深度只是一个"排号"，层与层之间不会有穿插。
    */
-  const LAYER_KEYS = ['map:layer0', 'map:layer1', 'map:layer2', 'map:layer3', 'map:layer4', 'map:layer5']
-
   /**
-   * **一张统一的绘制顺序表**（深度只是排号，层与层之间不会穿插）。
+   * ## 深度是怎么定的（R158 重写：原 `DRAW_ORDER` 表已删除）
    *
-   * 照抄 `Office.tscn` 的树序 + `z_index`：椅子是**分组穿插**在家具层之间的，不是统一一层 ——
-   * 这正是"椅子盖在桌子上"的根因（之前我把 24 把椅子全塞进同一层，压在所有制之上）。
+   * 原版 `Office.tscn` 靠**树的顺序 + `z_index`** 决定遮挡，并把椅子按组穿插在家具层之间
+   * （ReceptionChair → Furniture0 … BackChairs → Characters）。我们**没有照抄那一套**：
+   * 那张表最后变成了一份**没人引用的常量**，而"椅子统一压在所有家具之下"的固定深度
+   * 就是从它演出来的 —— 后遗症是 24 把椅子完全不参与 Y 排序（R152 实测 506 对前后颠倒）。
    *
-   *   WallAndFloor → ReceptionChair → Furniture0 → Furniture1 → HrChars → FrontChairs
-   *   → Furniture2 → MeetingRoomChairs → Furniture3 → BackChairs → Characters
-   *   → Furniture4（z_index = 1，画在所有 z_index=0 之上）
+   * 现在只有三条规则，判据都是"可量"的：
+   *
+   * 1. **平铺层**只有两张（`FLAT_LAYER_DEPTHS`）：`layer0` 地板/墙兜底压最底、`layer5` 墙上挂件压最上。
+   *    它们是**整张图**，不参与逐行排序。
+   * 2. **其余一切（家具、墙条、角色、椅子）都在 `entities` 同一层，按"自己的底边 Y"取
+   *    `depthFor(bottom)`**，每帧 `sort('depth')` 落地。这就是"靠下的人挡住靠上的人"。
+   * 3. **椅子额外减 `CHAIR_BIAS`**：只为保留用户早先的要求「椅子不该盖在桌面上」。
+   *
+   * ⚠️ **不要再引入"某类对象统一固定深度"**。R152 的 506 对颠倒就是这么来的：
+   * 固定深度与对象自己的位置无关，前后关系必然错。要让椅子沉到桌子下面，用**小偏移**，不要用固定值。
    */
-  const DRAW_ORDER = {
-    layer0: 0, // WallAndFloor
-    ReceptionChair: 10,
-    layer1: 20, // Furniture0
-    layer2: 30, // Furniture1
-    HrChars: 40,
-    FrontChairs: 50,
-    layer3: 60, // Furniture2
-    MeetingRoomChairs: 70,
-    layer4: 80, // Furniture3
-    BackChairs: 90,
-    layer5: 110, // Furniture4（z_index = 1）
-  }
+  const LAYER_KEYS = ['map:layer0', 'map:layer1', 'map:layer2', 'map:layer3', 'map:layer4', 'map:layer5']
   /**
    * 只把**两类**层当整张平铺图，其余（墙 + Furniture0..3）拆成矩形做 Y 排序。
    *
