@@ -287,10 +287,19 @@ export function createScenePhaser(canvas, options = {}) {
    * 所以原版会把椅子像素**盖在桌面/桌沿上**（用户截图里箭头指的就是这个）。
    * 按"参考原版"照抄反而复现了这个毛病，用户明确要求"椅子不应该在桌子上面"。
    *
-   * 家具层最低是 20（Furniture0），所以椅子取 15：在地板之上、在所有家具之下。
-   * 代价：桌子近侧（画面下方）的椅子会被桌子完全挡住 —— 这符合"椅子塞在桌下"的观感。
+   * ## R152：从"固定层级 15"改成"按自己的底边排序 + 小偏移"
+   *
+   * 上一版取固定的 `CHAIR_DEPTH = 15`，前提是"家具层最低是 20（Furniture0）"——
+   * **这个前提早已不成立**：家具现在和角色合并进 `entities`，各自按底边取 `depthFor(...)`。
+   * 于是固定 15 与椅子自己的位置**毫无关系**，真机实测（186 个实体逐个比对 `depth` 与底边 Y）：
+   * 24 把椅子的底边跨度 -240…+280，却全挤在 15 ⇒ **506 对"物理上在前、却被画在更后"**。
+   * 表现是两头都错：前排椅子缩到后排桌子后面（像消失），后排椅子又盖住它前面的桌子。
+   *
+   * 现在仍保留原诉求"椅子别盖在桌面上"：按底边取层级后**减一个小偏移** `CHAIR_BIAS`，
+   * 让塞在桌下的椅子稳定落在所属桌子之下。偏移必须**明显小于一格（16px）**，
+   * 否则会跨到相邻的人/家具前面——椅子本来就贴着桌子，一格之内足够把它压下去。
    */
-  const CHAIR_DEPTH = 15
+  const CHAIR_BIAS = 8
 
   const MAP_OBJECT_TEXTURES = {
     'office-chair-101.png': 'microverse/single-objects/office-chair-101.png',
@@ -1565,8 +1574,11 @@ export function createScenePhaser(canvas, options = {}) {
       const worldX = px[0] + offsetPxX
       const worldY = px[1] + offsetPxY
       node.setPosition(worldX, worldY)
-      // 统一压到家具层之下（见 `CHAIR_DEPTH` 的说明）。索引偏移只保证同深度下次序稳定。
-      node.setDepth(CHAIR_DEPTH + index * 0.001)
+      // R152：**按椅子自己的底边 Y 参与 Y 排序**（与家具/角色同一套口径），再减 `CHAIR_BIAS`
+      // 保留"椅子塞在桌下、不盖桌面"的观感。`index * 0.001` 只保证同深度下次序稳定。
+      // 详见 `CHAIR_BIAS` 的注释：固定层级会让前后关系与位置无关（实测 506 对颠倒）。
+      const chairBottom = worldY + node.displayHeight * (1 - node.originY)
+      node.setDepth(depthFor(chairBottom / TILE_PX) - CHAIR_BIAS + index * 0.001)
       node.setVisible(true)
     })
     for (const [id, node] of objectNodes) if (!wanted.has(id)) node.setVisible(false)
