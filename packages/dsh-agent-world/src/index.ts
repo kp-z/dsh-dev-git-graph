@@ -301,8 +301,22 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     if (typeof subagents?.listChildren !== 'function') return
     rosterSyncBusy = true
     try {
-      const children = await subagents.listChildren(captainSessionIdFor(sessionId))
-      state.syncSubagents(sessionId, children)
+      // experimental 的 Lead 就是会话本身；旧 agent-teams 才用派生队长。
+      const experimental = typeof agentTeamsService?.listMembers === 'function'
+      const parent = experimental ? sessionId : captainSessionIdFor(sessionId)
+      const children = await subagents.listChildren(parent)
+      const merged = [...children]
+      if (experimental) {
+        const lead = agentsService?.get?.(sessionId)
+        const members = lead === undefined ? [] : (agentTeamsService?.listMembers?.(lead) ?? []) as readonly { id?: unknown; name?: unknown }[]
+        const known = new Set(merged.map((child) => child.label?.slice(child.label.lastIndexOf(':') + 1)))
+        for (const member of members) {
+          const name = typeof member.name === 'string' ? member.name : ''
+          if (name === '' || name === 'lead' || name === 'captain' || known.has(name)) continue
+          merged.push({ id: typeof member.id === 'string' ? member.id : name, label: `agent-teams:${name}` })
+        }
+      }
+      state.syncSubagents(sessionId, merged)
     } catch (error) {
       logger.warn(`同步 subagent 花名册失败（下次再试）：${error instanceof Error ? error.message : String(error)}`)
     } finally {
