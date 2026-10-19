@@ -107,6 +107,10 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         membership?(agent: { id?: string }): unknown
         listMembers?(agent: { id?: string }): unknown
         listTasks?(agent: { id?: string }): unknown
+        sendMessage?(
+          caller: { id?: string },
+          request: { target: string; content: readonly unknown[]; signal: AbortSignal },
+        ): Promise<unknown>
       }
     | undefined
   ctx.inject(['agents', 'agentTeams'], (host) => {
@@ -547,6 +551,43 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
    *
    * 没有 active 会话（headless/测试/旧 API）时仍保留旧 teams 后端，避免影响其它入口。
    */
+  /**
+   * R177：experimental profile 没有 staged plan，也没有 agent_teams_*。
+   * 点击已 spawn 的成员时，直接走 TeamService.sendMessage；captain 是对话本身，不能从世界里投递。
+   */
+  const experimentalDialoguePort = {
+    async say(characterId: string, text: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+      const lead = agentsService?.get?.(state.activeSessionId ?? '')
+      if (lead === undefined) return { ok: false, reason: 'experimental：Lead Agent 不在线，先在对话里打开这个会话。' }
+      const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
+      if (actor === undefined) return { ok: false, reason: '没有这个角色：先等成员 spawn 出来。' }
+      if (actor.name === 'captain') {
+        return { ok: false, reason: 'captain 就是这段对话本身；请在对话里直接说，或点已 spawn 的成员。' }
+      }
+      if (typeof agentTeamsService?.sendMessage !== 'function') {
+        return { ok: false, reason: 'experimental agentTeams 服务不可用。' }
+      }
+      try {
+        await agentTeamsService.sendMessage(lead, {
+          target: actor.name,
+          content: [{ type: 'text', text }],
+          signal: new AbortController().signal,
+        })
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+      }
+    },
+    async waitForReply(characterId: string, _timeoutMs?: number, _onProgress?: (actions: readonly { name: string; detail?: string; ok: boolean }[]) => void): Promise<{ ok: true; text: string; actions: [] }> {
+      const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
+      return {
+        ok: true,
+        text: `消息已投递给 ${actor?.name ?? characterId}（experimental team）。回复在对话/Lead 收件箱里，Agent World 暂不回传。`,
+        actions: [],
+      }
+    },
+    liveCount: () => 0,
+  }
   const nativePlanReadOnlyPort = {
     async say(): Promise<{ ok: false; reason: string }> {
       return {
@@ -564,14 +605,18 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   const activeDialoguePort = resolved.dialogueBackend === 'native'
     ? dialoguePort
     : {
-        say: (...args: Parameters<typeof teamsDialoguePort.say>) =>
-          state.activeSessionId !== null
-            ? nativePlanReadOnlyPort.say()
-            : teamsDialoguePort.say(...args),
-        waitForReply: (...args: Parameters<typeof teamsDialoguePort.waitForReply>) =>
-          state.activeSessionId !== null
-            ? nativePlanReadOnlyPort.waitForReply()
-            : teamsDialoguePort.waitForReply(...args),
+        say: (...args: Parameters<typeof teamsDialoguePort.say>) => {
+          if (state.activeSessionId === null) return teamsDialoguePort.say(...args)
+          return typeof agentTeamsService?.sendMessage === 'function'
+            ? experimentalDialoguePort.say(...args)
+            : nativePlanReadOnlyPort.say()
+        },
+        waitForReply: (...args: Parameters<typeof teamsDialoguePort.waitForReply>) => {
+          if (state.activeSessionId === null) return teamsDialoguePort.waitForReply(...args)
+          return typeof agentTeamsService?.sendMessage === 'function'
+            ? experimentalDialoguePort.waitForReply(...args)
+            : nativePlanReadOnlyPort.waitForReply()
+        },
         liveCount: () => (state.activeSessionId !== null ? 0 : teamsDialoguePort.liveCount()),
       }
 
