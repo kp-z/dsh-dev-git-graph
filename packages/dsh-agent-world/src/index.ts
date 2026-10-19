@@ -343,23 +343,50 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
    * （`ctx.agents.get(sessionId)` 的 live agent），不再另建 `agent-world:captain`。
    */
   const teamsPorts = new Map<string, TeamsPort>()
-  const captainFor = (sessionId: string) =>
-    (ctx as unknown as { get(name: string): unknown }).get('agents') as
-      | { get?(id: string): { id?: string } | undefined }
-      | undefined
+  /** 真实服务面优先；有些装配里只有 `ctx.get('agents')` 能拿到。 */
+  const captainFor = () => {
+    const scoped = ctx as unknown as {
+      agents?: {
+        get?(id: string): { id?: string } | undefined
+        list?(): readonly { id?: string }[]
+      }
+      get?(name: string): unknown
+    }
+    const direct = scoped.agents
+    if (direct !== undefined) return direct
+    return typeof scoped.get === 'function'
+      ? (scoped.get('agents') as {
+          get?(id: string): { id?: string } | undefined
+          list?(): readonly { id?: string }[]
+        } | undefined)
+      : undefined
+  }
   const createCaptainBase = createTeamsCaptain(ctx, { cwd: process.cwd() })
+  /**
+   * 队长 = 当前会话本身。
+   *
+   * ⚠️ 这个会话在 UI 里可能正被写句柄占用，**绝不能**用 createAgent/resume 同 id
+   * （真机：session already exists / already owned by an active write handle）。
+   * `agents.get()` 拿不到 live Agent 时，退一个只带 `id` 的 handle；agent_teams_* 工具
+   * 只用 agent.id 定位团队，真正的失败会由工具自己给出原因。
+   */
   const createCaptain = async (sessionId: string, cwd: string) => {
-    const live = captainFor(sessionId)?.get?.(sessionId)
+    const agents = captainFor()
+    const live = agents?.get?.(sessionId) ?? agents?.list?.().find((agent) => agent.id === sessionId)
     if (live !== undefined) {
-      // 会话已经是活的：直接用它的 Agent 当队长，**绝不再 createAgent 同一个 id**。
       return { agent: { id: typeof live.id === 'string' ? live.id : sessionId }, dispose: async () => {} }
     }
-    if (createCaptainBase === undefined) throw new Error('拿不到 agentLoop：这个会话没有活着的队长 Agent')
-    return createCaptainBase(sessionId, cwd)
+    // 没有 active 会话的旧路径（headless/测试）仍允许建配置里的队长。
+    if (sessionId === resolved.captainSessionId && createCaptainBase !== undefined) {
+      return await createCaptainBase(sessionId, cwd)
+    }
+    logger.warn(`会话 ${sessionId} 没有可用的 live Agent，使用 {id} handle 当队长`)
+    return { agent: { id: sessionId }, dispose: async () => {} }
   }
   function acquireTeamsPort(
-    sessionId: string = state.activeSessionId ?? resolved.captainSessionId,
+    conversationId: string = state.activeSessionId ?? resolved.captainSessionId,
   ): { ok: true; port: TeamsPort } | { ok: false; reason: string } {
+    const sessionId = conversationId
     const existing = teamsPorts.get(sessionId)
     if (existing !== undefined) return { ok: true, port: existing }
     const tools = (ctx as unknown as { get(name: string): unknown }).get('tools')
