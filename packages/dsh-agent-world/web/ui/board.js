@@ -44,7 +44,6 @@ import {
   READABLE_MIN_PX,
   missingBoardTokens,
   resolveBoardColor,
-  shortTaskId,
   unlocksIndex,
 } from '../core/board-layout.js'
 
@@ -182,9 +181,22 @@ export function createBoard(options = {}) {
    * 两件事分开显示，因为用户要做的事不同：一个是等，一个是这张单已经死了。
    */
   let stallById = new Map()
-  /** 卡片的 DOM 引用（就地更新用）：taskId → {node, ...}。 */
+  /**
+   * R181：官方 agent-teams 的任务投影（可选）。
+   *
+   * 有它时，任务图与状态带显示**真实团队任务**（id/subject/status/ownerName/revision）；
+   * 没有它（headless / e2e / 没装 agent-teams 的 profile）时退回世界自己的工单，
+   * 图与成员列表照常能用。两者共用同一套渲染——不做第二份"官方任务看板"。
+   */
+  let teamTasks = null
+  /** taskId → `{ revision, ownerName, status }`：图标操作用 revision 做 CAS。 */
+  const teamMeta = new Map()
+  /** 上一次官方任务的指纹：main.js 每 10s 轮询一次，内容没变就不要再重画。 */
+  let lastTeamKey = null
+  /** 卡片上的 DOM 引用（就地更新用）：taskId → {node, ...}。 */
   const cardNodes = new Map()
-  const chipNodes = new Map()
+  /** 状态带段：taskId → `i`（选中/悬停时高亮）。 */
+  const ribbonSegs = new Map()
   /** 成员行里"状态文字"那个节点的引用：agentId → span。 */
   const memberStateNodes = new Map()
   /** 成员整行的引用（`clipped()` 要拿它比可见容器）：agentId → li。 */
@@ -299,7 +311,8 @@ export function createBoard(options = {}) {
     graph.append(canvas)
     body.append(members, graph)
 
-    const detail = el(doc, 'footer', 'board-detail')
+    // R181：挂载模式下这条 footer 是**单行检查器**（`.aw-inspector`），独立模式仍是多行详情。
+    const detail = el(doc, 'footer', mounted === true ? 'board-detail aw-inspector' : 'board-detail')
     // R76：把「展开才看得见」的部分（视图条 + 成员/依赖图 + 详情）包进一个 `.board-panel`。
     // 这样展开浮层是**独立节点**，`#board` 本身（含 `board-head` 摘要条）永远留在顶栏 flex 流内，
     // 展开/收起不再把右侧命令按钮拽移位（此前是整块 `#board` 变 `position:absolute`）。
@@ -307,16 +320,17 @@ export function createBoard(options = {}) {
     panel.append(missing, viewBar, body, detail)
     if (mounted === true) {
       /*
-       * 挂载模式（R3）：同一批节点**分挂**到侧边栏的两档里，`#board` 那份摘要条不建。
+       * 挂载模式（R3 / R181）：同一批节点**分挂**到侧边栏两块里，`#board` 那份摘要条不建。
        *
-       *   成员档 ← `members`（成员行 + 每人在手的单）
-       *   任务图档 ← `missing`（缺 token 的告警）+ `viewBar`（分组/筛选）+ `graph`（依赖图）+ `detail`（选中详情）
+       *   成员档 ← `members`（成员行；任务不再重复挂在成员名下）
+       *   任务档 ← `missing`（缺 token 的告警）+ `graph`（任务图/卡片）+ `detail`（单行检查器）
        *
-       * 为什么 `board-body` 不挂：它是"成员 | 图"左右分栏的容器，而两档是**互斥视图**，
-       * 同时挂上去就成了两份并排（正是要消灭的"做两份"）。
+       * R181：`viewBar`（分组/筛选 chip）**不进侧边栏**：任务真实数量有限，
+       * 一行 chip 会吃掉图的高度，而筛选在"任务图"这种小规模数据上没有收益。
+       * 状态带（ribbon）由外部挂载位提供（`mounts.ribbon`）。
        */
       mounts.members?.append(members)
-      mounts.graph?.append(missing, viewBar, graph, detail)
+      mounts.graph?.append(missing, graph, detail)
     } else {
       root?.append(head, panel)
     }
@@ -326,6 +340,8 @@ export function createBoard(options = {}) {
       // R152：计数位由侧边栏的 region header 提供（挂载模式下非空）。
       agentsMeta: mounts?.agentsMeta ?? null,
       graphMeta: mounts?.graphMeta ?? null,
+      // R181：状态带由侧边栏给挂载位（独立模式没有）。
+      ribbon: mounts?.ribbon ?? null,
     }
     setPalette(palette)
     // 初始状态也要**真的应用**：只改 `collapsed` 的初值、不 paint 的话，
@@ -475,7 +491,6 @@ export function createBoard(options = {}) {
   function renderMembers() {
     const list = parts.membersList
     list.textContent = ''
-    chipNodes.clear()
     memberStateNodes.clear()
     memberRowNodes.clear()
 
@@ -511,6 +526,11 @@ export function createBoard(options = {}) {
       const memberName = row.member.name ?? row.member.id ?? '未分配'
       if (row.member.id !== null) {
         item.dataset.agentId = row.member.id
+        item.setAttribute('role', 'button')
+        item.tabIndex = 0
+      } else if (model.unowned.length > 0) {
+        // R181：「未分配」这一行现在是**指派入口**（点它选中第一张未指派任务），
+        // 所以它也是可点的；只有真的没有未指派任务时才降级成 aria-disabled。
         item.setAttribute('role', 'button')
         item.tabIndex = 0
       } else {
@@ -561,6 +581,8 @@ export function createBoard(options = {}) {
       applyStateBlock(stateSpan, row.member.state)
       head.append(stateSpan)
       memberStateNodes.set(row.member.id ?? '__unowned__', stateSpan)
+      // R181：「未分配」行用一枚计数角标说明"还有几张没人领"，替代原来那一排 chip。
+      if (row.member.id === null) head.append(el(doc, 'b', 'aw-badge', String(row.tasks.length)))
       // `aria-label` 要在名字/角色/状态都齐了之后拼：只报名字的话，读屏用户听不出
       // "这个人在干什么"，而那恰恰是这块列表的全部信息量。
       if (row.member.id !== null) {
@@ -569,6 +591,8 @@ export function createBoard(options = {}) {
         const stateText = agentStateLabel(row.member.state)
         if (stateText !== '') parts.push(stateText)
         item.setAttribute('aria-label', parts.join(' · '))
+      } else if (model.unowned.length > 0) {
+        item.setAttribute('aria-label', `未分配 · ${model.unowned.length} 张任务`)
       }
       // R97：**💬 按钮已删**（用户拍板：它与「点人 + 回车」重复）。
       // 对话入口现在是两条：点场景里的人（定位 + 开面板）、选中后按回车（开对话档）。
@@ -576,17 +600,23 @@ export function createBoard(options = {}) {
       // 行既是"可点的"就该是"可敲的"：给了 `role="button"` + `tabindex` 却不响应
       // 回车/空格，等于对键盘用户撒谎（他 Tab 上来、按下去，什么也不发生）。
       const activate = () => {
+        if (row.member.id === null) {
+          /*
+           * R181：未分配行不是一个人。点它的语义是"开始指派"——选中第一张没人领的任务，
+           * 于是任务检查器出现、每个人的行尾出现 → 指派入口。任务本身只在图里出现一次。
+           */
+          if (model.unowned.length > 0) select({ kind: 'task', id: model.unowned[0] })
+          return
+        }
         select({ kind: 'member', id: row.member.id })
         // R3：点成员行 → **也**通知外面（侧边栏里点谁就该聚焦谁）。
         // 这条分工是**用户拍板过的**（`docs/PLAN-game-agent.md` (d) 节）：
         // 列表=定位，点人=定位+开面板，回车=在已选中基础上开对话。别"顺手统一"。
-        // 「未分配」那一行 `id === null`（它没有场景实体），不可聚焦。
-        if (row.member.id !== null) options.onMemberSelect?.(row.member.id)
+        options.onMemberSelect?.(row.member.id)
       }
       // R152：整行（含头像）都可点——头像不是装饰，它和名字是同一个目标。
-      // 任务 chip 自己 `stopPropagation`，所以点 chip 不会误触"选中这个人"。
       item.addEventListener('click', activate)
-      if (row.member.id !== null) {
+      if (item.getAttribute('role') === 'button') {
         // ⚠️ 监听挂在 `item` 上、不是 `head` 上：`tabindex` 在 `item`，
         // 所以键盘焦点落在 `item`——挂错地方的话 Tab 过来按回车什么也不会发生，
         // 而"属性都在、行为没有"是最难看出来的一种 a11y 假实现。
@@ -602,36 +632,66 @@ export function createBoard(options = {}) {
           activate()
         })
       }
-      item.append(avatar, head)
-
-      const chips = el(doc, 'div', 'board-chips')
-      for (const taskId of row.tasks) {
-        const task = model.byId.get(taskId)
-        if (task === undefined) continue
-        const chip = el(doc, 'button', 'board-chip board-status-block')
-        if (selected !== null && selected.kind === 'task' && selected.id === task.id) chip.classList.add('is-selected')
-        chip.type = 'button'
-        // 状态用**色点**（与看板其它地方同一套语言），id 用短形式，完整信息在 `title`/`aria-label`
-        // 与详情区里。28 张单的世界里，这一条决定了左栏要不要滚（见 `shortTaskId` 的注释）。
-        chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
-        chip.setAttribute('aria-label', chip.title)
-        const chipDot = el(doc, 'i', 'board-dot')
-        applyNodeColors(chipDot, task.displayStatus ?? task.status)
-        chip.append(chipDot, el(doc, 'span', 'board-chip-id', shortTaskId(task.id)))
-        // **已完成的单只留一个短标记**（R46）：真机 28 张里 22 张是 done，每个成员手上 5~7 张，
-        // 全都画成"色点 + 号"会让左栏在 1227×804 这种尺寸下差 45px 装不下（clipped 报 2 行）。
-        // 压小而不是隐藏：这些单仍然可点（点开照样能读产出），只是不再抢左栏的宽度。
-        chip.classList.toggle('is-done', task.status === 'done')
-        chip.addEventListener('click', (event) => {
+      /*
+       * R181：成员行右端只在**选中一张任务**时出现「→ 指派」。
+       *
+       * 为什么不是常驻：一列 5~10 行都挂一个箭头会让列表变成按钮墙；
+       * 而"指派"需要先有指派对象（选中的任务），没有对象时它没有意义。
+       * 真值来自官方 projection（`teamMeta`）——世界自己的模拟工单不归团队管，
+       * 不给它们造一个假的指派入口。
+       */
+      const actions = el(doc, 'div', 'aw-member-actions')
+      const pickedTaskId = selected !== null && selected.kind === 'task' ? selected.id : null
+      if (pickedTaskId !== null && teamMeta.has(pickedTaskId) && row.member.id !== null) {
+        const assign = el(doc, 'button', 'aw-icon', '→')
+        assign.type = 'button'
+        assign.title = `把 ${pickedTaskId} 指派给 ${memberName}`
+        assign.setAttribute('aria-label', assign.title)
+        assign.addEventListener('click', (event) => {
           event.stopPropagation()
-          select({ kind: 'task', id: task.id })
+          options.onAssign?.(pickedTaskId, { id: row.member.id, name: memberName })
         })
-        chips.append(chip)
-        chipNodes.set(task.id, chip)
+        actions.append(assign)
       }
-      if (row.tasks.length === 0) chips.append(el(doc, 'span', 'dim', '（没有在手的单）'))
-      item.append(chips)
+      item.append(avatar, head, actions)
       list.append(item)
+    }
+  }
+
+  /**
+   * R181：任务面板标题下的**状态带**（`.aw-ribbon`，A 的设计稿的签名元素）。
+   *
+   * 每张任务一段、按依赖深度排（布局列 → 行），底色 = 该任务的状态色。
+   * 它是"这班还剩多少"的一句话，同时是选中态的双向指示器：
+   *   点段 → 选中对应卡片；选中卡片 → 对应段描边。
+   * `aria-hidden`：键盘用户走卡片/检查器，不靠一条 6px 的色带（不做假 a11y）。
+   */
+  function renderRibbon() {
+    const host = parts.ribbon
+    if (host === null || host === undefined) return
+    ribbonSegs.clear()
+    host.textContent = ''
+    const tasks = []
+    for (const node of layout?.nodes ?? []) {
+      const task = model?.byId.get(node.id)
+      if (task !== undefined) tasks.push(task)
+    }
+    // 布局里没有的（理论上不会）也补上，保证"段数 == 任务数"这条验收判据成立。
+    for (const task of model?.tasks ?? []) if (!tasks.includes(task)) tasks.push(task)
+    host.hidden = tasks.length === 0
+    for (const task of tasks) {
+      const segment = el(doc, 'i', 'aw-ribbon-seg')
+      segment.dataset.task = task.id
+      segment.dataset.status = task.displayStatus ?? task.status
+      const active = selected !== null && selected.kind === 'task' && selected.id === task.id
+      if (active) segment.classList.add('is-active')
+      segment.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
+      segment.addEventListener('click', () => select({ kind: 'task', id: task.id }))
+      // 悬停段 ↔ 高亮卡片（双向指示器的另一半）；不改变选中态。
+      segment.addEventListener('pointerenter', () => cardNodes.get(task.id)?.card.classList.add('is-hover'))
+      segment.addEventListener('pointerleave', () => cardNodes.get(task.id)?.card.classList.remove('is-hover'))
+      host.append(segment)
+      ribbonSegs.set(task.id, segment)
     }
   }
 
@@ -649,6 +709,89 @@ export function createBoard(options = {}) {
       width: Math.max(0, parts.canvas.clientWidth),
       height: Math.max(0, parts.canvas.clientHeight),
     }
+  }
+
+  /** 建一枚图标按钮（32×32 基座；图节点上由 CSS 收到 24×22）。 */
+  function actionIcon(glyph, label, onClick) {
+    const button = el(doc, 'button', 'aw-icon', glyph)
+    button.type = 'button'
+    button.title = label
+    button.setAttribute('aria-label', label)
+    button.addEventListener('click', (event) => {
+      event.stopPropagation()
+      onClick()
+    })
+    return button
+  }
+
+  /** 图标点击 → 业务回调。**这里不发 HTTP**：写入团队是 main.js 的事。 */
+  function emitTaskAction(taskId, action) {
+    const meta = teamMeta.get(taskId)
+    if (meta === undefined) return
+    options.onTaskAction?.({ taskId, action, revision: meta.revision })
+  }
+
+  /** 方向键在卡片间移动焦点（DOM 顺序 = 布局列 → 行）。 */
+  function focusSiblingCard(card, delta) {
+    const list = [...parts.cards.children]
+    const index = list.indexOf(card)
+    if (index < 0) return
+    const next = list[Math.min(list.length - 1, Math.max(0, index + delta))]
+    if (next !== undefined && typeof next.focus === 'function') next.focus()
+  }
+
+  /**
+   * 官方 agent-teams 状态 → 看板六态。
+   * `deleted` / `cancelled` 返回 null：它们不该出现在图上（不是"待办"，是历史）。
+   */
+  function boardStatusOfTeamTask(task) {
+    const status = typeof task?.status === 'string' ? task.status : ''
+    if (status === 'completed' || status === 'done') return 'done'
+    if (status === 'failed') return 'failed'
+    if (status === 'in_progress' || status === 'active') return 'in_progress'
+    if (status === 'blocked') return 'blocked'
+    if (status === 'deleted' || status === 'cancelled') return null
+    return task?.ready === true ? 'ready' : 'pending'
+  }
+
+  /**
+   * 把官方 projection 的任务折成看板认识的形状（只映射字段，不改语义）。
+   *
+   * 依赖仍来自 `blockedBy`；官方没下发就当作无依赖——图退化成单列，
+   * 这是设计稿 §7 明确允许的形态（"有任务但无依赖时不画空图"）。
+   */
+  function normalizeTeamTasks(tasks) {
+    const list = Array.isArray(tasks) ? tasks : []
+    const known = new Set(list.map((t) => t?.id).filter((id) => typeof id === 'string' && id !== ''))
+    const out = []
+    teamMeta.clear()
+    for (const raw of list) {
+      if (raw === null || typeof raw !== 'object') continue
+      const id = typeof raw.id === 'string' ? raw.id : ''
+      if (id === '') continue
+      const status = boardStatusOfTeamTask(raw)
+      if (status === null) continue
+      const deps = Array.isArray(raw.blockedBy)
+        ? raw.blockedBy
+        : Array.isArray(raw.dependencies) ? raw.dependencies : []
+      out.push({
+        id,
+        key: id,
+        title: typeof raw.subject === 'string' && raw.subject !== '' ? raw.subject : id,
+        status,
+        owner: null,
+        blockedBy: deps.filter((d) => typeof d === 'string' && known.has(d) && d !== id),
+        ...(Number.isFinite(raw.ordinal) ? { ordinal: raw.ordinal } : {}),
+        requires: [],
+        progress: status === 'done' ? 1 : 0,
+      })
+      teamMeta.set(id, {
+        revision: Number.isFinite(raw.revision) ? raw.revision : undefined,
+        ownerName: typeof raw.ownerName === 'string' ? raw.ownerName : '',
+        status,
+      })
+    }
+    return out
   }
 
   function renderGraph() {
@@ -744,8 +887,18 @@ export function createBoard(options = {}) {
       const task = model.byId.get(node.id)
       const pos = fitted.nodes[node.id]
       if (task === undefined || pos === undefined) continue
-      const card = el(doc, 'button', 'board-node')
-      card.type = 'button'
+      /*
+       * R181：节点从 `<button>` 改成 `div[role=button]`。
+       *
+       * 原因是硬约束：卡片里要放「✓ 完成 / ↺ 重开」两个真按钮，而 HTML 不允许
+       * `<button>` 里再嵌套按钮（浏览器会把内层按钮踢出去，点击行为也无法预测）。
+       * 键盘语义由 role + tabIndex + Enter/Space 补齐（与成员行同一套做法）。
+       */
+      const card = el(doc, 'div', 'board-node')
+      card.setAttribute('role', 'button')
+      card.tabIndex = 0
+      card.dataset.task = task.id
+      card.dataset.status = task.displayStatus ?? task.status
       card.style.left = `${pos.x}px`
       card.style.top = `${pos.y}px`
       card.style.width = `${pos.w}px`
@@ -772,9 +925,51 @@ export function createBoard(options = {}) {
       bar.append(fill)
       card.append(top, title, bar)
       if (task.requires.includes('review')) card.classList.add('needs-review')
-      card.addEventListener('click', () => select({ kind: 'task', id: task.id }))
+      /*
+       * R181：操作只走图标（32×32 的样式基座，节点上收到 24×22，因为卡片只有 44–58 高）。
+       * 只有**官方团队任务**才有这两个动作——模拟工单的完成/重开由世界调度器负责，
+       * 从面板直接改会把"面板"变成第二个世界写入方。
+       */
+      const actionBox = el(doc, 'div', 'aw-node-actions')
+      const entry = { card, fill, complete: null, reopen: null }
+      if (teamMeta.has(task.id)) {
+        const complete = actionIcon('✓', `把 ${task.id} 标记完成`, () => emitTaskAction(task.id, 'complete'))
+        const reopen = actionIcon('↺', `重开 ${task.id}`, () => emitTaskAction(task.id, 'reopen'))
+        complete.hidden = true
+        reopen.hidden = true
+        entry.complete = complete
+        entry.reopen = reopen
+        actionBox.append(complete, reopen)
+      }
+      if (entry.complete !== null || entry.reopen !== null) card.append(actionBox)
+      const activate = () => select({ kind: 'task', id: task.id })
+      card.addEventListener('click', (event) => {
+        // 图标按钮自己 stopPropagation；这里再兜一层，避免点到动作区域时重复选中。
+        if (event.target?.closest?.('.aw-node-actions') !== null) return
+        activate()
+      })
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && selected !== null) {
+          event.preventDefault()
+          event.stopPropagation()
+          select(null)
+          card.focus()
+          return
+        }
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          event.stopPropagation()
+          activate()
+          return
+        }
+        // 方向键在卡片间移动焦点（DOM 顺序 = 布局列 → 行），不改变选中。
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+        event.preventDefault()
+        event.stopPropagation()
+        focusSiblingCard(card, event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1)
+      })
       cards.append(card)
-      cardNodes.set(task.id, { card, fill })
+      cardNodes.set(task.id, entry)
     }
     return true
   }
@@ -804,9 +999,8 @@ export function createBoard(options = {}) {
     }
     for (const task of model.tasks) {
       const entry = cardNodes.get(task.id)
-      const chip = chipNodes.get(task.id)
       if (entry !== undefined) {
-        const { card, fill } = entry
+        const { card, fill, complete, reopen } = entry
         card.dataset.status = task.displayStatus ?? task.status
         applyNodeColors(card, task.displayStatus ?? task.status)
         card.classList.toggle('is-done', task.status === 'done')
@@ -815,18 +1009,20 @@ export function createBoard(options = {}) {
         fill.style.width = `${Math.round(Math.min(1, Math.max(0, task.progress)) * 100)}%`
         card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
         card.setAttribute('aria-label', card.title)
-      }
-      if (chip !== undefined) {
-        chip.dataset.status = task.displayStatus ?? task.status
-        applyNodeColors(chip, task.displayStatus ?? task.status)
-        // chip 上是"色点 + 短 id"，状态文字不在这里；完整描述挂在 `title`/`aria-label` 上。
-        chip.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
-        chip.setAttribute('aria-label', chip.title)
-        chip.classList.toggle('is-done', task.status === 'done')
-        // M7-3 双向高亮：点图里的方框 → 左栏成员那边同一张单也亮起来。
-        chip.classList.toggle('is-selected', selected !== null && selected.kind === 'task' && selected.id === task.id)
+        // R181：图标动作的可用性跟着状态走（完成的只剩「重开」，进行中的只剩「完成」）。
+        const meta = teamMeta.get(task.id)
+        if (complete !== null) complete.hidden = meta === undefined || meta.status === 'done' || meta.status === 'failed'
+        if (reopen !== null) reopen.hidden = meta === undefined || meta.status !== 'done'
       }
     }
+    // 状态带：选中/状态都跟着刷新（它和卡片是同一份数据的两面）。
+    for (const [taskId, segment] of ribbonSegs) {
+      const task = model.byId.get(taskId)
+      if (task === undefined) continue
+      segment.dataset.status = task.displayStatus ?? task.status
+      segment.classList.toggle('is-active', selected !== null && selected.kind === 'task' && selected.id === taskId)
+    }
+    // 成员行上的「→ 指派」只在选中任务时存在，所以选中变化要重画成员列表（select() 会做）。
   }
 
   // ── 三段：顶部计数 + 摘要进度条 + 底部详情 ─────────────────────────────────
@@ -835,7 +1031,8 @@ export function createBoard(options = {}) {
     // 正在跑的单子：最多两条 + "还有 N 条"
     if (parts.active !== undefined && parts.active !== null) {
       parts.active.textContent = ''
-      const running = (world?.tasks ?? []).filter((t) => t.status === 'in_progress')
+      // R181：用**当前图的数据源**（官方任务 / 世界工单），不是永远读世界。
+      const running = (model?.tasks ?? []).filter((t) => t.status === 'in_progress')
       for (const task of running.slice(0, 2)) {
         const item = el(doc, 'span', 'board-active-item', `▶ ${task.title}`)
         item.title = task.title
@@ -892,6 +1089,9 @@ export function createBoard(options = {}) {
   }
 
   function renderDetail() {
+    // R181：侧边栏里没有多行"产出/解锁"详情的位置——选中后只给一行检查器。
+    // 独立模式（#board 浮层）仍用原来的多行详情，那段逻辑保留不动。
+    if (mounted === true) return renderInspector()
     const detail = parts.detail
     detail.textContent = ''
     if (selected === null) {
@@ -950,6 +1150,51 @@ export function createBoard(options = {}) {
     const stall = stallById.get(task.id)
     if (stall !== undefined) notes.push(renderStallNote(stall))
     detail.append(renderReadPanel(summarizeTaskOutput(task), notes))
+  }
+
+  /**
+   * R181：单行检查器（侧边栏挂载模式）。
+   *
+   * 选中任务 → `id · 标题 · 负责人 · 状态`，行尾是 ✓/↺ 图标；
+   * 选中成员 → 名字 · 角色 · 在手 N 张。没选中就整条 hidden——
+   * "没有可说的东西时不要占一行"比一句占位提示更重要（它下面就是任务图）。
+   */
+  function renderInspector() {
+    const detail = parts.detail
+    detail.textContent = ''
+    detail.hidden = selected === null
+    if (selected === null) return
+    if (selected.kind === 'member') {
+      const member = model.members.find((m) => m.id === selected.id)
+      const label = member ?? { name: '未分配', role: null, state: null, tasks: model.unowned }
+      detail.append(el(doc, 'b', 'board-detail-id', label.name))
+      const role = roleLabel(label.role)
+      if (role !== '') detail.append(el(doc, 'span', 'aw-inspector-meta', role))
+      detail.append(el(doc, 'span', 'aw-inspector-meta', `在手 ${label.tasks.length} 张`))
+      return
+    }
+    const task = describeTask(model, selected.id)
+    if (task === null) {
+      detail.append(el(doc, 'span', 'aw-inspector-meta', '这张单已经不在世界上了（世界重开过？）。'))
+      return
+    }
+    const dot = el(doc, 'i', 'board-dot')
+    applyNodeColors(dot, task.displayStatus ?? task.status)
+    dot.classList.add('board-count-dot')
+    detail.append(dot, el(doc, 'b', 'board-detail-id', task.id), el(doc, 'span', 'aw-inspector-title', task.title))
+    detail.append(el(doc, 'span', 'aw-inspector-meta', task.ownerName ?? '未分配'))
+    detail.append(el(doc, 'span', 'aw-inspector-meta', taskStatusLabel(task.displayStatus ?? task.status)))
+    const meta = teamMeta.get(task.id)
+    if (meta !== undefined) {
+      const actions = el(doc, 'div', 'aw-inspector-actions')
+      if (meta.status !== 'done' && meta.status !== 'failed') {
+        actions.append(actionIcon('✓', `把 ${task.id} 标记完成`, () => emitTaskAction(task.id, 'complete')))
+      }
+      if (meta.status === 'done') {
+        actions.append(actionIcon('↺', `重开 ${task.id}`, () => emitTaskAction(task.id, 'reopen')))
+      }
+      if (actions.children.length > 0) detail.append(actions)
+    }
   }
 
   /**
@@ -1210,7 +1455,9 @@ export function createBoard(options = {}) {
    * 而不是"在当前筛选下还剩几张"——后者会让分组签随筛选一起变，自己把自己绕进去。
    */
   function renderView() {
-    if (!ready) return
+    // R181：侧边栏挂载模式不再挂视图条（分组/筛选 chip 吃掉图的高度）；
+    // 独立模式仍然有，行为不变。
+    if (!ready || mounted === true) return
     const total = allGroups.reduce((sum, g) => sum + g.total, 0)
     const unfinished = allGroups.reduce((sum, g) => sum + g.unfinished, 0)
     const groups = [{ id: 'all', name: '', total, unfinished }, ...allGroups]
@@ -1279,6 +1526,56 @@ export function createBoard(options = {}) {
   }
 
   /**
+   * R181：官方任务里的 owner 是**名字**（ownerName），看板的成员归属/未分配统计按 **agent id**。
+   *
+   * 这一步把名字对回世界里的角色——世界角色本身就是真实 subagent 的投影
+   *（`src/index.ts` R166 的 `syncRoster`）。对不上就保持"未指派"：**不猜**。
+   */
+  function applyTeamOwners() {
+    if (teamTasks === null || model === null) return
+    const idByName = new Map()
+    for (const agent of Array.isArray(world?.agents) ? world.agents : []) {
+      const name = typeof agent?.name === 'string' ? agent.name : ''
+      if (name !== '' && typeof agent.id === 'string') idByName.set(name, agent.id)
+    }
+    for (const task of model.tasks) {
+      const name = teamMeta.get(task.id)?.ownerName ?? ''
+      task.owner = name === '' ? null : idByName.get(name) ?? null
+      task.ownerName = name === '' ? null : name
+    }
+    // buildBoardModel 是在 owner 对上之前算的成员归属，这里重算一遍。
+    for (const member of model.members) {
+      member.tasks = model.tasks.filter((t) => t.owner === member.id).map((t) => t.id)
+    }
+    model.unowned = model.tasks.filter((t) => t.owner === null).map((t) => t.id)
+  }
+
+  /**
+   * R181：把官方 projection 的任务交给看板（`null` = 退回世界自己的工单）。
+   *
+   * 数据流向只有一条：Client → `setTeamProjection` → main.js → 这里；
+   * 看板不做 HTTP、也不订阅团队服务，所以它仍然是纯渲染层。
+   *
+   * @param {ReadonlyArray<object>|null} tasks
+   */
+  function setTeamTasks(tasks) {
+    const next = tasks === null || tasks === undefined ? null : normalizeTeamTasks(tasks)
+    // 指纹没变就不重画：轮询每 10s 一次，而任务内容多数时候是同一份。
+    const key = next === null
+      ? 'null'
+      : next.map((t) => `${t.id}|${t.title}|${t.status}|${teamMeta.get(t.id)?.ownerName ?? ''}|${teamMeta.get(t.id)?.revision ?? ''}`).join('||')
+    if (key === lastTeamKey) return false
+    lastTeamKey = key
+    teamTasks = next
+    lastState = null
+    lastStructure = null
+    if (!ready) return false
+    // 快照还没到：先记住，等 `update(world)` 时和世界一起画。
+    if (world === null || world === undefined) return false
+    return update(world)
+  }
+
+  /**
    * 用一份世界数据刷新看板。
    *
    * **签名没变就直接返回**：结构没变不重建 DOM（`structureKey`），只有状态/进度变了
@@ -1311,7 +1608,12 @@ export function createBoard(options = {}) {
     // 世界每秒推十几次事件，而"没人改变任务/成员状态"的那种帧是多数——
     // 这一行让那种帧的代价只剩一次字符串拼装。
     // 视图状态进签名：不然用户点了分组/筛选之后，世界下一帧会因为"签名没变"而把图留成旧的。
-    const stateKey = boardSignature(world, { group: viewGroup, filter: viewFilter })
+    // R181：官方任务的 status/revision 不在 `world` 里，必须单独进指纹，
+    // 否则"团队里完成了一张单"会被早退闸门吞掉（界面不动，看起来像没生效）。
+    const teamKey = teamTasks === null
+      ? ''
+      : teamTasks.map((t) => `${t.id}:${t.status}:${teamMeta.get(t.id)?.ownerName ?? ''}:${teamMeta.get(t.id)?.revision ?? ''}`).join('|')
+    const stateKey = boardSignature(world, { group: viewGroup, filter: viewFilter }) + '#' + teamKey
     if (stateKey === lastState) {
       counters.skipped += 1
       return false
@@ -1319,9 +1621,15 @@ export function createBoard(options = {}) {
 
     // 第二道闸门：折出数据（纯函数），比**结构**签名决定"重建"还是"就地改"。
     // 分组统计用**全量**（分组签上的数量与筛选无关），模型用**过滤后**的任务。
-    allGroups = groupTasks(world.tasks, taskSetNames)
-    const viewTasks = applyView(world.tasks, { group: viewGroup, filter: viewFilter })
+    //
+    // R181：官方 projection 已经给了任务时，**任务面板显示真实任务**；
+    // 没有（headless/e2e/没装 agent-teams）就退回世界自己的工单——同一套渲染，不做第二份。
+    const native = teamTasks !== null
+    const sourceTasks = native ? teamTasks : world.tasks
+    allGroups = groupTasks(sourceTasks, taskSetNames)
+    const viewTasks = native ? sourceTasks : applyView(sourceTasks, { group: viewGroup, filter: viewFilter })
     model = buildBoardModel({ ...world, tasks: viewTasks })
+    if (native) applyTeamOwners()
     layout = layoutDependencyGraph(model.tasks)
     // 几何不在这里算：它要按**可见容器的实测尺寸**挑档位，所以由 `renderGraph()` 负责
     //（只有真重画时才需要，跳过/就地改的路径一次都不用量）。
@@ -1343,6 +1651,7 @@ export function createBoard(options = {}) {
       counters.stateRefreshes += 1
       renderCounts()
       renderView()
+      renderRibbon()
       refreshState()
       renderDetail()
       return true
@@ -1355,6 +1664,7 @@ export function createBoard(options = {}) {
     renderView()
     renderMembers()
     renderGraph()
+    renderRibbon()
     refreshState()
     renderDetail()
     return true
@@ -1395,6 +1705,14 @@ export function createBoard(options = {}) {
     refreshGraph,
     select: (taskId) => select(taskId === null || taskId === undefined ? null : { kind: 'task', id: taskId }),
     selected: () => (selected === null ? null : selected.id ?? null),
+    /** R181：新建任务时"负责人 = 当前聚焦的成员行"（没选中人就未指派）。 */
+    selectedMember: () => {
+      if (selected === null || selected.kind !== 'member') return null
+      const member = model?.members.find((m) => m.id === selected.id)
+      return member === undefined ? null : { id: member.id, name: member.name }
+    },
+    /** R181：官方任务（`null` = 退回世界工单）。 */
+    setTeamTasks,
     /** 被切掉的元素（空数组 = 没有东西被裁）。每轮验收的第一行就用它。 */
     clipped,
     /** 诊断用：`updates` 一直在涨而 `structureRebuilds` 不涨，说明就地更新在做它的事。 */
@@ -1437,6 +1755,8 @@ export function createBoard(options = {}) {
       viewSignature: viewSignature({ group: viewGroup, filter: viewFilter }),
       groups: allGroups.map((g) => ({ id: g.id, name: g.name, total: g.total, unfinished: g.unfinished })),
       visibleTasks: model?.tasks.length ?? 0,
+      ribbonSegments: ribbonSegs.size,
+      teamTasks: teamTasks === null ? null : teamTasks.length,
     }),
     /** 只给测试/诊断：看板的模型与布局（DOM 层不导出别的）。 */
     model: () => model,

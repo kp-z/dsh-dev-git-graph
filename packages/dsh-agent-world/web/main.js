@@ -240,6 +240,10 @@ const sidebar = createSidebar({
   onExpand: () => {
     boardRef?.refreshGraph()
   },
+  // R181：单块折叠/展开也要重挑依赖图几何（折叠期间容器是 0×0，量出来的是废图）。
+  onPanelExpand: () => {
+    boardRef?.refreshGraph()
+  },
   onCollapseChange: (collapsed) => syncSidebarToggle(collapsed),
 })
 
@@ -257,10 +261,21 @@ syncSidebarToggle(sidebar.collapsed())
  * 数据仍是**事件驱动**（`board.update(world)`），不进 `render()` 那条 250ms 的路——
  * 这是"看板不拖慢场景"的前提。
  */
+/**
+ * R181：挂载位取一次，`main.js` 里多个 renderer（jobs / header ＋）共用同一批容器。
+ */
+const sidebarMounts = sidebar.mounts()
 const board = createBoard({
-  mounts: sidebar.mounts(),
+  mounts: sidebarMounts,
   styleRoot: $('sidebar'),
   palette: {},
+  // R181：任务图节点上的 ✓/↺ 与成员行上的 → 都在这里落到团队写入（CAS 用 revision）。
+  onTaskAction: (event) => {
+    void runTeamTaskAction(event)
+  },
+  onAssign: (taskId, member, revision) => {
+    void assignTeamTask(taskId, member, revision)
+  },
   // R97：**💬 按钮连同它那条回调一起删了**（用户拍板：与「点人 + 回车」重复）。
   // 现在只剩两条路：场景点人（聚焦 + 开面板）、成员行（只聚焦）。
   // 对话的另外两条入口都在 `main.js` 顶层：点场景里的人、选中后按回车。
@@ -363,96 +378,211 @@ async function postTeamTask(action, extra) {
   }
 }
 
-function renderOfficialTasks(team) {
+/**
+ * R181：任务面板**只放一行通知**（错误 / fallback / 只读计划）。
+ *
+ * 任务本身是图里的节点（`.board-node`），不再是一列"状态 · 标题 → 人 [按钮]".
+ * 这条通知行替代原来的错误块与标题两行——出错时才出现。
+ */
+function setTasksNotice(text, kind = 'notice') {
   const card = root.querySelector('#sidebar-official-tasks')
   if (card === null) return
-  card.innerHTML = ''
-  const tasks = Array.isArray(team.tasks) ? team.tasks : []
-  const members = Array.isArray(team.members) ? team.members : []
-  const errorNode = doc.createElement('small')
-  errorNode.className = 'team-plan-error'
-  const title = doc.createElement('div')
-  title.className = 'sidebar-official-title'
-  title.textContent = `团队任务板 · ${tasks.length} 张`
-  const meta = doc.createElement('div')
-  meta.className = 'sidebar-official-meta'
-  const completed = tasks.filter((task) => task.status === 'completed').length
-  meta.textContent = `${completed} 完成 · 官方 projection`
-  card.append(title, meta)
-
-  function actionButton(label, onClick) {
-    const button = doc.createElement('button')
-    button.type = 'button'
-    button.className = 'team-task-action'
-    button.textContent = label
-    button.addEventListener('click', (event) => {
-      event.stopPropagation()
-      void onClick()
-    })
-    return button
-  }
-  async function run(action, extra) {
-    const result = await postTeamTask(action, extra)
-    errorNode.textContent = result.ok ? '' : result.error
-  }
-
-  const taskList = doc.createElement('div')
-  taskList.className = 'team-plan-tasks'
-  if (tasks.length === 0) {
-    taskList.textContent = '（还没有任务）'
-  } else {
-    for (const task of tasks.slice(0, 10)) {
-      const row = doc.createElement('div')
-      row.className = 'team-task-row'
-      const label = doc.createElement('span')
-      label.className = 'team-task-label'
-      label.textContent = `${task.status ?? '?'} · ${task.subject ?? ''}${task.ownerName ? ` → ${task.ownerName}` : ''}`
-      const actions = doc.createElement('span')
-      actions.className = 'team-task-actions'
-      if (task.status !== 'completed' && task.status !== 'deleted') {
-        actions.append(actionButton('完成', () => run('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'complete' })))
-      }
-      if (task.status === 'completed') {
-        actions.append(actionButton('重开', () => run('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reopen' })))
-      }
-      if (task.ownerName === undefined || task.ownerName === '') {
-        actions.append(actionButton('领取', () => run('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'claim' })))
-      }
-      actions.append(actionButton('指派', () => {
-        const names = members.map((m) => m.name).filter((name) => typeof name === 'string' && name !== '')
-        const owner = doc.defaultView?.prompt?.(`指派给谁？可选：${names.join(' / ')}`, names[1] ?? names[0] ?? '')
-        if (typeof owner !== 'string' || owner.trim() === '') return
-        void run('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reassign', owner: owner.trim() })
-      }))
-      row.append(label, actions)
-      taskList.append(row)
-    }
-  }
-  card.append(taskList, errorNode)
-  const graphMeta = root.querySelector('#sidebar-region-meta-graph')
-  if (graphMeta !== null) graphMeta.textContent = `${tasks.length} 张 · ${completed} 完成`
+  card.textContent = ''
+  if (typeof text !== 'string' || text === '') return
+  const line = doc.createElement('div')
+  line.className = kind === 'error' ? 'aw-error' : 'aw-notice'
+  line.textContent = text
+  card.append(line)
 }
 
+/** 把毫秒折成 `3m12s` / `42s`（后台任务条只给人一个"跑了多久"的量级）。 */
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m${String(seconds % 60).padStart(2, '0')}s`
+}
+
+/**
+ * R181：后台任务条（`.aw-jobs`）。
+ *
+ * 只有 projection 里真有 `team.jobs` 才渲染——没有就整行 `hidden`，
+ * 不占高度、也不写"暂无后台任务"这种占位话（任务图才是主角）。
+ */
+function renderTeamJobs(team) {
+  const host = sidebarMounts.jobs
+  if (host === null || host === undefined) return
+  host.textContent = ''
+  const jobs = Array.isArray(team?.jobs) ? team.jobs : []
+  host.hidden = jobs.length === 0
+  if (jobs.length === 0) return
+  const now = Date.now()
+  for (const job of jobs.slice(0, 3)) {
+    if (job === null || typeof job !== 'object') continue
+    const row = doc.createElement('div')
+    row.className = 'aw-job'
+    const dot = doc.createElement('i')
+    dot.className = 'aw-job-dot'
+    const label = doc.createElement('span')
+    label.className = 'aw-job-label'
+    label.textContent = typeof job.label === 'string' && job.label !== '' ? job.label : (typeof job.id === 'string' ? job.id : '后台任务')
+    const time = doc.createElement('b')
+    time.className = 'aw-job-time'
+    time.textContent = formatDuration(now - (typeof job.startedAt === 'number' ? job.startedAt : now))
+    row.append(dot, label, time)
+    host.append(row)
+  }
+}
+
+/**
+ * R181：官方 projection → **任务图 + 状态带**。
+ *
+ * 原来那一段文字任务行 + 一排文字按钮 + 浏览器弹窗已删：
+ * 操作收进图节点的 ✓/↺ 与成员行的 →，新建改成 Agent 面板里的内联输入框。
+ */
+function renderOfficialTasks(team) {
+  if (team === null || team === undefined) return
+  const tasks = Array.isArray(team.tasks) ? team.tasks : []
+  setTasksNotice('')
+  // 任务交给看板：它负责节点/边/状态带/图标可用性（图与状态带是同一份数据）。
+  board.setTeamTasks(tasks)
+  renderTeamJobs(team)
+}
+
+/*
+ * R181：Agent 面板的内联「新建任务」。
+ *
+ * 只建一次、之后复用：projection 每次刷新都会走 renderAgentActions，
+ * 重建输入框会把用户正在打的字清掉（那是"看起来能用、实际不能用"的一类 bug）。
+ * Enter 创建 / Esc 收起；负责人 = 看板里当前选中的成员行（没选就未指派）。
+ */
+let composerBox = null
+let composerInput = null
+let composerSubmit = null
+let composerError = null
+
+async function submitComposer() {
+  if (composerInput === null || composerSubmit === null) return
+  const subject = composerInput.value.trim()
+  if (subject === '') {
+    composerInput.focus()
+    return
+  }
+  const owner = board.selectedMember()?.name ?? ''
+  composerSubmit.disabled = true
+  const result = await postTeamTask('create', { subject, ...(owner === '' ? {} : { owner }) })
+  composerSubmit.disabled = false
+  if (result.ok !== true) {
+    if (composerError !== null) {
+      composerError.textContent = result.error ?? '任务创建失败'
+      composerError.hidden = false
+    }
+    return
+  }
+  setComposerOpen(false)
+  await loadTeamPlan()
+}
+
+function setComposerOpen(open) {
+  if (composerBox === null) return
+  composerBox.hidden = open !== true
+  if (open === true) {
+    if (composerError !== null) composerError.hidden = true
+    const owner = board.selectedMember()?.name ?? ''
+    composerInput.placeholder = owner === '' ? '新任务标题（Enter 创建）' : `新任务标题（指派给 ${owner}）`
+    composerInput.focus()
+    return
+  }
+  composerInput.value = ''
+  if (composerError !== null) composerError.hidden = true
+}
+
+function ensureAgentComposer(card) {
+  if (composerBox !== null) return
+  composerBox = doc.createElement('div')
+  composerBox.className = 'aw-composer'
+  composerBox.hidden = true
+  composerInput = doc.createElement('input')
+  composerInput.className = 'aw-composer-input'
+  composerInput.type = 'text'
+  composerInput.placeholder = '新任务标题（Enter 创建）'
+  composerInput.setAttribute('aria-label', '新任务标题')
+  composerSubmit = doc.createElement('button')
+  composerSubmit.type = 'button'
+  composerSubmit.className = 'aw-icon'
+  composerSubmit.textContent = '↵'
+  composerSubmit.title = '创建任务'
+  composerSubmit.setAttribute('aria-label', '创建任务')
+  composerSubmit.addEventListener('click', () => void submitComposer())
+  composerBox.append(composerInput, composerSubmit)
+  composerError = doc.createElement('div')
+  composerError.className = 'aw-error'
+  composerError.hidden = true
+  card.append(composerBox, composerError)
+
+  composerInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      // main.js 有个文档级 Enter = "开始对话"；输入框里回车只能用来提交。
+      event.stopPropagation()
+      void submitComposer()
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setComposerOpen(false)
+    }
+  })
+}
+
+/**
+ * R181：Agent 面板 = 成员列表（board 渲染）+ header 的 ＋（内联新建）。
+ * 不再有浏览器弹窗，也不在成员行里重复列任务。
+ */
 function renderAgentActions(team) {
   const card = root.querySelector('#sidebar-official-agents')
   if (card === null) return
-  card.innerHTML = ''
-  const members = Array.isArray(team.members) ? team.members : []
-  const errorNode = doc.createElement('small')
-  errorNode.className = 'team-plan-error'
+  ensureAgentComposer(card)
+  const host = sidebarMounts.agentsActions
+  if (host === null || host === undefined) return
+  if (host.querySelector('.aw-icon') !== null) return
   const create = doc.createElement('button')
   create.type = 'button'
-  create.className = 'team-task-create'
-  create.textContent = '＋ 新建任务'
-  create.addEventListener('click', async () => {
-    const subject = doc.defaultView?.prompt?.('新任务标题', '') ?? ''
-    if (typeof subject !== 'string' || subject.trim() === '') return
-    const names = members.map((m) => m.name).filter((name) => typeof name === 'string' && name !== '')
-    const owner = doc.defaultView?.prompt?.(`指派给谁？（留空=不指派）可选：${names.join(' / ')}`, '') ?? ''
-    const result = await postTeamTask('create', { subject: subject.trim(), ...(owner.trim() !== '' ? { owner: owner.trim() } : {}) })
-    errorNode.textContent = result.ok ? '' : result.error
-  })
-  card.append(create, errorNode)
+  create.className = 'aw-icon'
+  create.textContent = '＋'
+  create.title = '新建任务'
+  create.setAttribute('aria-label', '新建任务')
+  create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
+  host.append(create)
+}
+
+/** R181：图节点上的 ✓/↺ → 团队 CAS 更新（失败只写通知行，不弹窗）。 */
+async function runTeamTaskAction(event) {
+  if (event === null || typeof event !== 'object') return
+  const taskId = typeof event.taskId === 'string' ? event.taskId : ''
+  if (taskId === '') return
+  const updateAction = event.action === 'reopen' ? 'reopen' : 'complete'
+  const result = await postTeamTask('update', { taskId, expectedRevision: event.revision, updateAction })
+  if (result.ok !== true) {
+    setTasksNotice(result.error ?? '任务更新失败', 'error')
+    return
+  }
+  setTasksNotice('')
+  await loadTeamPlan()
+}
+
+/** R181：成员行上的 → → 指派（owner 用名字，与官方 projection 的 ownerName 同口径）。 */
+async function assignTeamTask(taskId, member, revision) {
+  const owner = typeof member?.name === 'string' ? member.name : ''
+  if (typeof taskId !== 'string' || taskId === '' || owner === '') return
+  const result = await postTeamTask('update', { taskId, expectedRevision: revision, updateAction: 'reassign', owner })
+  if (result.ok !== true) {
+    setTasksNotice(result.error ?? '指派失败', 'error')
+    return
+  }
+  setTasksNotice('')
+  await loadTeamPlan()
 }
 
 function renderOfficialTeam(team) {
@@ -463,27 +593,12 @@ function renderOfficialTeam(team) {
   return true
 }
 
-function renderTeamPlan(plan) {
-  // R180：旧 agent-teams 的 fallback 也只进任务面板，不再开左上角浮卡。
-  const card = root.querySelector('#sidebar-official-tasks')
-  if (card === null) return
-  card.innerHTML = ''
-  if (plan === null || plan === undefined) return
-  const members = Array.isArray(plan.members) ? plan.members : []
-  const tasks = Array.isArray(plan.tasks) ? plan.tasks : []
-  const title = doc.createElement('div')
-  title.className = 'sidebar-official-title'
-  title.textContent = `团队计划 · ${typeof plan.name === 'string' && plan.name !== '' ? plan.name : '待批准'}`
-  const meta = doc.createElement('div')
-  meta.className = 'sidebar-official-meta'
-  meta.textContent = `${members.length} 成员 · ${tasks.length} 任务 · 只读`
-  const list = doc.createElement('div')
-  list.className = 'team-plan-list'
-  list.textContent = members.map((m) => m?.name).filter(Boolean).join(' / ') || '（暂无成员）'
-  const hint = doc.createElement('small')
-  hint.textContent = '审批在对话的 Pre-run plan review 里进行'
-  card.append(title, meta, list, hint)
-}
+/**
+ * R181：读官方团队（projection 之外的 HTTP 兜底）。
+ *
+ * 面板首屏与每 10s 轮询都走它：`api/team` 有 projection 就用它；
+ * 没有就退回只读的 staged plan（只写一行通知）。
+ */
 async function loadTeamPlan() {
   if (sessionId === null) return
   try {
@@ -503,6 +618,27 @@ async function loadTeamPlan() {
     const data = await response.json()
     renderTeamPlan(data?.plan ?? null)
   } catch { /* 读不到就不显示 */ }
+}
+
+/**
+ * R181：旧 agent-teams fallback（staged plan）**只写一行只读通知**。
+ *
+ * 不再列成员/任务，也不摆一排文字——计划审批在对话的 Pre-run plan review 里，
+ * 面板重复一份既占高度又会过期。
+ */
+function renderTeamPlan(plan) {
+  renderTeamJobs(null)
+  if (plan === null || plan === undefined) {
+    board.setTeamTasks(null)
+    setTasksNotice('')
+    return
+  }
+  // 没有官方任务可画：退回世界自己的工单，图仍然可用。
+  board.setTeamTasks(null)
+  const members = Array.isArray(plan.members) ? plan.members : []
+  const tasks = Array.isArray(plan.tasks) ? plan.tasks : []
+  const name = typeof plan.name === 'string' && plan.name !== '' ? plan.name : '待批准'
+  setTasksNotice(`团队计划「${name}」· ${members.length} 成员 / ${tasks.length} 任务 · 只读（审批在对话的 Pre-run plan review 里）`)
 }
 
 async function loadWorldSession() {
@@ -982,6 +1118,8 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     stats: () => board.stats(),
     refresh: () => board.update(world, { diagnostics, scene: meta?.scene }),
     select: (taskId) => board.select(taskId),
+    // R181：官方任务投影的入口（验收时可直接喂一份 mock，不必等真团队）。
+    setTeamTasks: (tasks) => board.setTeamTasks(tasks),
     model: () => board.model(),
     layout: () => board.layout(),
     geometry: () => board.geometry(),

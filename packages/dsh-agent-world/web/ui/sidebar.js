@@ -47,6 +47,13 @@ function el(doc, tag, className, text) {
  * 用 `localStorage` 而不是服务端：这是**这台机器上这个人**的界面偏好，不是世界状态。
  */
 const COLLAPSED_KEY = 'agentWorld.sidebarCollapsed'
+/**
+ * R181：**单块面板**的折叠记忆（任务 / Agent 列表各自可折叠）。
+ *
+ * 与整列折叠分开记：整列折叠是"我要看场景"，单块折叠是"这块我现在不看"——
+ * 两者语义不同，合用一个键会让用户点哪块都变成整列收起。
+ */
+const PANEL_COLLAPSED_KEY = 'agentWorld.panelCollapsed'
 
 /** 两块区域的标识（也是 DOM id 后缀）。 */
 const REGIONS = [
@@ -75,6 +82,8 @@ export function createSidebar(options = {}) {
   }
 
   let collapsed = typeof options.initialCollapsed === 'boolean' ? options.initialCollapsed : readCollapsed()
+  /** R181：两块各自可折叠（`{graph, agents}`），状态与整列折叠分开存。 */
+  const panelCollapsed = readPanelCollapsed()
 
   // ── 骨架（只建一次）─────────────────────────────────────────────────────────
   //
@@ -90,7 +99,10 @@ export function createSidebar(options = {}) {
   const panels = {}
   const metas = {}
   const titleIds = {}
+  const carets = {}
+  const regionTitles = {}
   for (const region of REGIONS) {
+    regionTitles[region.id] = region.title
     const panel = el(doc, 'section', `sidebar-panel sidebar-panel-${region.id}`)
     panel.id = `sidebar-panel-${region.id}`
     // `region`（而不是 `tabpanel`）：这两块**同时可见**，没有"选中的是哪一个"这回事。
@@ -111,26 +123,49 @@ export function createSidebar(options = {}) {
     const meta = el(doc, 'div', 'sidebar-region-meta')
     meta.id = `sidebar-region-meta-${region.id}`
     // 不加 `aria-live`：计数随世界持续变化，polite 播报会变成噪音。
-    head.append(title, meta)
+    /*
+     * R181：header 右侧多了一个**操作位**（Agent 面板的 ＋）和折叠开关。
+     * 操作位留给外面接线（`mounts.agentsActions`），侧边栏自己不造按钮语义——
+     * "新建任务"是 main.js 的业务，不是外壳的。
+     */
+    const actions = el(doc, 'div', 'sidebar-region-actions')
+    actions.dataset.region = region.id
+    const caret = el(doc, 'button', 'aw-caret', '⌄')
+    caret.type = 'button'
+    caret.setAttribute('aria-expanded', 'true')
+    caret.addEventListener('click', () => setPanelCollapsed(region.id, panelCollapsed[region.id] !== true))
+    carets[region.id] = caret
+    head.append(title, meta, actions, caret)
     panel.setAttribute('aria-labelledby', titleId)
     panel.append(head)
 
-    // R180：每块自己的内容容器。任务面板：官方任务板 + 依赖树挂载位；
-    // Agent 面板：新建任务等操作 + 成员列表挂载位。
+    // R180：每块自己的内容容器。
+    // R181：任务面板多出状态带（ribbon）与后台任务条（jobs）两个挂载位；
+    // Agent 面板的成员列表单独一个容器，这样"折叠"只收起内容、不收起 header。
     const content = el(doc, 'div', 'sidebar-region-content')
     if (region.id === 'graph') {
+      const ribbon = el(doc, 'div', 'aw-ribbon')
+      ribbon.setAttribute('aria-hidden', 'true')
+      const jobs = el(doc, 'div', 'aw-jobs')
+      jobs.hidden = true
       const officialTasks = el(doc, 'div', 'sidebar-official-tasks')
       officialTasks.id = 'sidebar-official-tasks'
       const graphMount = el(doc, 'div', 'sidebar-task-graph')
       graphMount.id = 'sidebar-task-graph'
-      content.append(officialTasks, graphMount)
-      panels[`${region.id}Mount`] = graphMount
+      content.append(ribbon, jobs, officialTasks, graphMount)
+      panels.graphMount = graphMount
+      panels.ribbon = ribbon
+      panels.jobs = jobs
       panels.officialTasks = officialTasks
+      panels.graphActions = actions
     } else {
       const officialAgents = el(doc, 'div', 'sidebar-official-agents')
       officialAgents.id = 'sidebar-official-agents'
-      content.append(officialAgents)
+      const membersMount = el(doc, 'div', 'sidebar-members')
+      content.append(officialAgents, membersMount)
       panels.officialAgents = officialAgents
+      panels.agentsMount = membersMount
+      panels.agentsActions = actions
     }
     panel.append(content)
     body.append(panel)
@@ -138,6 +173,33 @@ export function createSidebar(options = {}) {
     metas[region.id] = meta
   }
   root.append(body)
+
+  /**
+   * R181：单块折叠（任务 / Agent 列表各自）。
+   *
+   * 只切 `.is-collapsed`：**不隐藏 header**，所以折叠之后仍看得到面板标题、
+   * 计数和展开开关——"折叠"不等于"消失"。展开时回调 `onPanelExpand`，
+   * 让看板重挑一次依赖图几何（折叠期间容器是 0×0，量出来的是废图）。
+   */
+  function setPanelCollapsed(id, next, silent = false) {
+    const panel = panels[id]
+    if (panel === undefined) return false
+    const value = next === true
+    panelCollapsed[id] = value
+    panel.classList.toggle('is-collapsed', value)
+    const caret = carets[id]
+    if (caret !== undefined) {
+      caret.setAttribute('aria-expanded', String(!value))
+      caret.setAttribute('aria-label', `${regionTitles[id]}面板${value ? '展开' : '折叠'}`)
+      caret.title = caret.getAttribute('aria-label')
+      caret.textContent = value ? '›' : '⌄'
+    }
+    writePanelCollapsed(panelCollapsed)
+    if (!value && silent !== true) options.onPanelExpand?.(id)
+    return value
+  }
+  // 构造期按记忆恢复一次；不触发 onPanelExpand（此刻 boardRef 还没建）。
+  for (const region of REGIONS) setPanelCollapsed(region.id, panelCollapsed[region.id] === true, true)
 
   /** 折叠：只切 class，宽度由 CSS 的 `--sidebar-w` 决定（引擎的 `Scale.RESIZE` 自己带画布跟）。 */
   function setCollapsed(next) {
@@ -207,16 +269,24 @@ export function createSidebar(options = {}) {
      * 两块内容容器 + 两块标题旁的计数位（R152）。
      */
     mounts: () => ({
-      members: panels.agents,
+      members: panels.agentsMount ?? panels.agents,
       graph: panels.graphMount ?? panels.graph,
       agentsMeta: metas.agents,
       graphMeta: metas.graph,
-      officialTasks: panels.officialTasks,
-      officialAgents: panels.officialAgents,
+      officialTasks: panels.officialTasks ?? null,
+      officialAgents: panels.officialAgents ?? null,
+      /** R181：状态带 / 后台任务条 / 每块 header 的操作位。 */
+      ribbon: panels.ribbon ?? null,
+      jobs: panels.jobs ?? null,
+      graphActions: panels.graphActions ?? null,
+      agentsActions: panels.agentsActions ?? null,
     }),
     collapsed: () => collapsed,
     setCollapsed,
     toggle: () => setCollapsed(!collapsed),
+    /** R181：单块折叠的读/写（main.js 不直接碰 DOM class）。 */
+    panelCollapsed: (id) => (id === undefined ? { ...panelCollapsed } : panelCollapsed[id] === true),
+    setPanelCollapsed: (id, next) => setPanelCollapsed(id, next),
     overflow,
     /**
      * 诊断：折叠态、两块的高度（**折叠时高度应该是 0，这是预期**）、
@@ -229,6 +299,9 @@ export function createSidebar(options = {}) {
       agents: panels.agents.querySelectorAll('.board-member').length,
       taskNodes: panels.graph.querySelectorAll('.board-node').length,
       edges: panels.graph.querySelectorAll('.board-edge').length,
+      /** R181：状态带的段数应当 == 任务数（验收判据之一）。 */
+      ribbonSegments: panels.ribbon?.querySelectorAll('.aw-ribbon-seg').length ?? 0,
+      collapsedPanels: { graph: panelCollapsed.graph === true, agents: panelCollapsed.agents === true },
       tablists: root.querySelectorAll('[role="tablist"]').length,
       visible: root.offsetParent !== null,
     }),
@@ -258,15 +331,49 @@ function writeCollapsed(collapsed) {
 /** 没有容器时的空实现：接口同形，一律无操作（避免调用点到处判空）。 */
 function createNullSidebar() {
   return {
-    mounts: () => ({ members: null, graph: null, agentsMeta: null, graphMeta: null }),
+    mounts: () => ({
+      members: null, graph: null, agentsMeta: null, graphMeta: null,
+      officialTasks: null, officialAgents: null, ribbon: null, jobs: null,
+      graphActions: null, agentsActions: null,
+    }),
     collapsed: () => false,
     setCollapsed: () => false,
     toggle: () => false,
+    panelCollapsed: () => false,
+    setPanelCollapsed: () => false,
     overflow: () => ({ total: 0, clipped: [], viewport: { w: 0, h: 0 } }),
     stats: () => ({
       collapsed: false, agentsHeight: 0, graphHeight: 0,
       agents: 0, taskNodes: 0, edges: 0, tablists: 0, visible: false,
+      ribbonSegments: 0, collapsedPanels: { graph: false, agents: false },
     }),
     root: null,
+  }
+}
+
+/** R181：读单块折叠记忆（读不到/坏数据都当展开）。 */
+function readPanelCollapsed() {
+  try {
+    const raw = globalThis.localStorage?.getItem(PANEL_COLLAPSED_KEY)
+    if (typeof raw !== 'string' || raw === '') return { graph: false, agents: false }
+    const parsed = JSON.parse(raw)
+    return {
+      graph: parsed?.graph === true,
+      agents: parsed?.agents === true,
+    }
+  } catch {
+    return { graph: false, agents: false }
+  }
+}
+
+/** R181：写单块折叠记忆（写不进去不影响功能，只是下次要重新点）。 */
+function writePanelCollapsed(value) {
+  try {
+    globalThis.localStorage?.setItem(PANEL_COLLAPSED_KEY, JSON.stringify({
+      graph: value?.graph === true,
+      agents: value?.agents === true,
+    }))
+  } catch {
+    /* 隐私模式/被策略禁掉：记忆是便利，不是功能。 */
   }
 }

@@ -76,6 +76,27 @@
   --board-line: var(--stroke-strong);
   --board-card-line: var(--stroke);
 
+  /* ── 本轮局部 token（只挂在 #sidebar 上，不污染 :root）─────────────────────
+     两块面板现在是"上下常驻值班台"（R181 / docs/agent-world-panels-design.md §2）。
+     值都来自既有 token，不新增任何全局色值。 */
+  --aw-gap: 6px;
+  --aw-pad-x: 12px;
+  --aw-pad-y: 10px;
+  --aw-ribbon-h: 6px;
+  --aw-ribbon-gap: 2px;
+  --aw-row-h: 40px;
+  --aw-icon: 16px;
+  --aw-radius: var(--r-md);
+  --aw-card: var(--panel-2);
+  --aw-card-hover: var(--panel-3);
+  --aw-hair: var(--edge-soft);
+  --aw-focus: var(--screen);
+  --aw-danger: var(--st-failed);
+  --aw-fs-card: 12.5px;
+  --aw-fs-meta: 11px;
+  --aw-task-min: 200px;
+  --aw-agents-min: 148px;
+
   /* 侧边栏比舞台更需要"别把东西切掉"：滚到底/滚到边时露出的滚动条也按主题上色。
      （craft floor：浏览器自己的滚动条/选区/焦点环同样是设计的一部分。） */
   scrollbar-width: thin;
@@ -107,27 +128,30 @@
   background: transparent;
 }
 
-/* ── 体：两块值班台（R152）─────────────────────────────────────────────────
-   左＝团队（定位人），右＝任务（看活）。两块横向并排才能"扫一眼同时看到"。
-   ⚠️ 两块**各自独立滚动**：统一滚会让"滚任务图"顺手把成员列表也滚走。
-
-   R152：列比例从 0.9/1.1 收到 **0.86/1.14**——头像+名字/角色/状态那一行在 200–210px
-   就够用，省下的 10–16px 给图（图区的宽度是它最缺的资源）。 */
+/* ── 体：两块值班台**上下常驻**（R181）────────────────────────────────────
+ * 用户/设计稿（docs/agent-world-panels-design.md §3）的形态：任务在上、Agent 列表在下，
+ * 两块同时可见、各自滚动；每块可以单独折叠（header 右侧的 ⌄），折叠只收起内容，
+ * 不改变"另一块还在"这件事。
+ *
+ * 为什么从 grid 两列改成 flex 列：两列在 300px 窄档里每块只剩 ~140px，
+ * 任务节点与成员行都读不了；上下堆叠在窄档反而保住了两块的可读宽度。
+ */
 .sidebar-body {
   flex: 1 1 auto;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
-  gap: var(--s-3);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   /* 不再加内边距：侧边栏卡片要和顶栏/舞台卡片共用同一圈 12px 页边距。 */
   padding: 0;
-  /* 卡片阴影要能露出来：这里不能裁切。滚动由两块卡片内部的滚动区负责。 */
-  overflow: visible;
+  /* 极矮视口下两块的最小高度之和可能超出：让体自己滚，而不是把下面那块裁掉。 */
+  overflow-y: auto;
+  overflow-x: hidden;
   background: transparent;
 }
 
-/* 一块值班台（R152）：**悬浮卡片**（团队 / 任务图各一张）。
-   与 header、舞台、底栏同一套卡面：1px 边 + 圆角 + 一层柔和阴影。 */
+/* 一块值班台（R152 / R181）：**悬浮卡片**（任务 / Agent 列表各一张）。
+   上下比例 56 / 44：任务图需要高度排依赖列，成员行是密集列表。 */
 .sidebar-panel {
   min-width: 0;
   min-height: 0;
@@ -139,21 +163,36 @@
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2);
 }
+.sidebar-panel-graph {
+  flex: 1 1 56%;
+  min-height: var(--aw-task-min);
+}
+.sidebar-panel-agents {
+  flex: 1 1 44%;
+  min-height: var(--aw-agents-min);
+}
+/* 单块折叠：只剩 header（flex 不再分高度），另一块自动吃掉全部高度。 */
+.sidebar-panel.is-collapsed {
+  flex: 0 0 auto;
+  /* 折叠后只剩 header：min-height（200/148）是给展开态的，这里必须放开。 */
+  min-height: 0;
+}
+.sidebar-panel.is-collapsed > .sidebar-region-content {
+  display: none;
+}
 .sidebar-panel[hidden] {
   display: none;
 }
 
-/* 面板头：标题 + 计数。**没有 eyebrow、没有第二层 h3**。 */
+/* 面板头：标题 + 计数 + 操作位 + 折叠。**没有 eyebrow、没有第二层 h3**。 */
 .sidebar-region-head {
   flex: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--s-2);
-  padding: 10px var(--s-3);
-  /* R152：header 就是面板本身，只用一条 1px 线分隔。
-     这里原来写的是 `panel-2 45% + panel` 的混合色——它既不是面板也不是卡片，
-     和两边的底色都差一点，读起来像"没对齐"而不是"有层次"。 */
+  padding: 8px var(--aw-pad-x);
+  /* R152：header 就是面板本身，只用一条 1px 线分隔。 */
   border-bottom: 1px solid var(--console-line-soft);
 }
 .sidebar-region-title {
@@ -162,44 +201,52 @@
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--fg-0);
+  white-space: nowrap;
 }
 .sidebar-region-meta {
-  font-size: 11px;
+  font-size: var(--aw-fs-meta);
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  margin-left: auto;
 }
-
-/* ── 左：团队（成员行整宽、自己滚）────────────────────────────────────────── */
-.sidebar-panel-agents .board-members {
-  width: auto;
+/* header 里的图标操作位 + 折叠开关（R181）。 */
+.sidebar-region-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.sidebar-region-content {
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: var(--s-2);
-  border-right: none;
-}
-/* 媒体查询里那条"成员铺成网格"是给独立模式（#board）的；侧边栏里永远是一条竖列。 */
-#sidebar .board-member-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+  gap: 0;
 }
 
-/* ── 右：任务（视图条 + 图 + 详情）────────────────────────────────────────── */
-.sidebar-panel-graph .board-view {
+/* ── 上：任务（状态带 + 后台任务条 + 图 + 单行检查器）────────────────────── */
+.sidebar-panel-graph .aw-ribbon {
   flex: none;
-  padding: var(--s-2) var(--s-2) 6px;
+  margin: 8px var(--aw-pad-x) 2px;
+}
+.sidebar-panel-graph .aw-jobs {
+  flex: none;
+  margin: 2px var(--aw-pad-x) 0;
+}
+/* 官方任务板的"只有一行通知"（错误 / fallback）：不再是一列文字任务行。 */
+.sidebar-panel-graph .sidebar-official-tasks:empty {
+  display: none;
+}
+.sidebar-panel-graph .sidebar-official-tasks {
+  flex: none;
+  padding: 0 var(--aw-pad-x);
 }
 .sidebar-panel-graph .board-graph {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  padding: var(--s-2);
+  padding: 6px var(--s-2) var(--s-2);
   display: flex;
   flex-direction: column;
 }
@@ -214,17 +261,53 @@
   min-height: 120px;
   min-width: 0;
 }
+/* 检查器是**单行**（选中才出现）：id · 标题 · 负责人 · 状态 + 图标操作。 */
 .sidebar-panel-graph .board-detail {
   flex: none;
-  flex-wrap: wrap;
-  padding: 8px var(--s-3);
+  flex-wrap: nowrap;
+  min-height: 34px;
+  padding: 6px var(--aw-pad-x);
   border-top: 1px solid var(--console-line-soft);
   font-size: 11.5px;
+  overflow: hidden;
 }
 .sidebar-panel-graph .board-missing-note {
   flex: none;
   font-size: var(--fs-micro);
   margin: 0 var(--s-2);
+}
+
+/* ── 下：Agent 列表（内联新建 + 成员行整宽、自己滚）────────────────────────── */
+.sidebar-panel-agents .sidebar-official-agents {
+  flex: none;
+  padding: 6px var(--aw-pad-x) 0;
+}
+.sidebar-panel-agents .sidebar-official-agents:empty {
+  display: none;
+}
+.sidebar-members {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.sidebar-panel-agents .board-members {
+  width: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--s-2);
+  border-right: none;
+}
+/* 侧边栏里成员永远是一条竖列（媒体查询里那条网格是给独立模式的）。 */
+#sidebar .board-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 /* 看板的"缺 token"告警与空状态都靠 `hidden` 收起——统一兜一道，
@@ -233,33 +316,23 @@
   display: none !important;
 }
 
-/* ── 窄视口：侧边栏让位 ────────────────────────────────────────────────────── */
+/* ── 窄视口：侧边栏让位（宽度三档：600 / 520 / 300）────────────────────────── */
 /*
- * R152：两栏布局的断点从 900 抬到 **1080**。
- * 1080 以下侧边栏收到 420px，两栏各只剩 ~180px——头像+名字+状态挤成两行、
- * 图区连一列节点都放不下。这不是"窄一点"，是"两块都读不了"。
- * 所以这一档改回**上下堆叠**（每块各占一半高度、各自滚），而不是藏掉任何一块：
- * 「两块都要看得见」是 R99 定下的红线。
+ * R181：上下堆叠之后不再需要"两栏放不下就改上下"那条断点——形态本身已经是上下。
+ * 只剩宽度要收：1280 收 520，900 收 300。窄档里图标按钮只在 hover/focus/选中行显示。
  */
 @media (max-width: 1280px) {
   .app {
     --sidebar-w: 520px;
   }
 }
-@media (max-width: 1080px) {
-  .app {
-    --sidebar-w: 420px;
-  }
-  .sidebar-body {
-    grid-template-columns: minmax(0, 1fr);
-    /* 上下堆叠时给图多一档：成员行是密集列表，图需要高度才排得下两列。 */
-    grid-template-rows: minmax(0, 0.85fr) minmax(0, 1.15fr);
-    gap: var(--s-2);
-  }
-}
 @media (max-width: 900px) {
   .app {
     --sidebar-w: 300px;
+  }
+  #sidebar {
+    --aw-ribbon-h: 4px;
+    --aw-pad-x: 8px;
   }
 }
 

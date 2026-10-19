@@ -1092,7 +1092,8 @@
  */
 .board-member {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr);
+  /* R181：第三列放「指派」图标（选中任务后才出现），行高不变。 */
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
@@ -1171,13 +1172,12 @@
 .board-member-head .board-member-state {
   margin-left: auto;
 }
-.board-chips {
+/* R181：成员行右端的「指派」图标位（选中任务后出现）。 */
+.aw-member-actions {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  /* 工单 chip 从第二行开始、与名字左对齐（越过头像列）。 */
-  grid-column: 1 / -1;
-  margin-top: 1px;
+  align-items: center;
+  gap: 2px;
 }
 /* 空状态（R152）：不是一块空白，而是一句能照做的话。 */
 .board-empty {
@@ -1205,7 +1205,7 @@
  * **实心状态块 + 对色字**（R103 立、R106 抽成共享类）。
  *
  * 这是**唯一一份**状态块样式，两处共用：
- *   · 任务块（`.board-chip`，board.js 的 `renderMembers`）
+ *   · 成员卡自己的状态块（`.board-member-state`）
  *   · 成员卡自己的状态块（`.board-member-state`，R106 新增）
  * ⚠️ **不要再写第二套**：同一套语义两处各写一遍，迟早只改一处（这正是 R3 收敛过的教训）。
  *
@@ -1266,48 +1266,6 @@
 .board-status-block[data-status='pending'] {
   background: var(--st-pending-bg);
   color: var(--st-pending-fg);
-}
-.board-chip {
-  cursor: pointer;
-}
-.board-chip:hover {
-  /* 悬停只改描边，不改底色——底色是**状态**，悬停不是状态。 */
-  border-color: var(--paper-hover);
-  outline: 1px solid var(--ink);
-}
-.board-chip-id {
-  font-family: var(--mono-font);
-  /* 跟着块色走：默认墨，深块上白。 */
-  color: inherit;
-}
-/* chip 里的状态点：7px 够看出颜色，又不会把 chip 撑宽（左栏宽度是稀缺的）。 */
-/* 实心块已经表达了状态，块内那个色点就多余了——收成 3px 的墨点当分隔符。 */
-.board-chip > .board-dot {
-  width: 3px;
-  height: 3px;
-  flex: 0 0 auto;
-  background: currentColor;
-}
-/* 已完成的单：不留色点、收紧内边距（左栏的宽度是稀缺的，而"完成的"是历史）。
-   仍然可点、仍然有 title——**压小不等于隐藏**。
-   ⚠️ R106：这里原来有 `opacity: 0.7`，实测把 done 的对比度从 8.13 压到 **4.17**（跌破 4.5），
-      而 `getComputedStyle` 读的是指定值、**看不出**这个跌落。弱化改用内边距与色点，不用透明度。 */
-.board-chip.is-done {
-  /*
-   * R152：完成的单改成**空心**（不再是第二排实心绿块）。
-   * 一个成员手上 5~7 张单里多数是 done，实心块会和"在跑的单"抢注意力——
-   * 做完的事只需要还在、还能点，不需要再喊一遍。对比度仍达标：`--ink-1` 对卡片 6.38。
-   */
-  background: transparent;
-  border-color: var(--stroke-strong);
-  color: var(--ink-1);
-  padding: 1px 6px;
-}
-.board-chip.is-done > .board-dot {
-  display: none;
-}
-.board-chip.is-done .board-chip-id {
-  color: inherit;
 }
 .board-graph {
   flex: 1;
@@ -1413,11 +1371,6 @@
 }
 .board-node.is-failed {
   background: var(--board-fail-bg, var(--st-failed-bg));
-}
-/* M7-3 双向高亮：点图里的方框 → 左栏成员那边同一张单也亮起来。 */
-.board-chip.is-selected {
-  outline: 2px solid var(--screen);
-  outline-offset: 1px;
 }
 .board-node.is-selected {
   /* 选中 = 屏幕光的一道边 + 一层很淡的底；不加阴影、不加粗。 */
@@ -1537,7 +1490,6 @@
    没有对应 token——`--st` 在这里由设计 token（`--st-dead`）兜底，JS 里不写色值。
    视觉上与「待办/失败」拉开：虚线边框 + 紫红 + 稍暗的底，并且**只在卡死时**出现。 */
 .board-node.is-dead,
-.board-chip.is-dead,
 .board-count.is-dead {
   --st: var(--st-dead);
 }
@@ -1878,42 +1830,6 @@
   white-space: pre-line;
 }
 
-.team-task-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s-2);
-  padding: 2px 0;
-  border-top: 1px solid var(--edge);
-}
-.team-task-label {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.team-task-actions {
-  display: flex;
-  flex: none;
-  gap: 3px;
-}
-.team-task-action,
-.team-task-create {
-  padding: 1px 5px;
-  border: 1px solid var(--edge);
-  border-radius: var(--r-sm);
-  background: var(--panel-2);
-  color: var(--fg-0);
-  font: inherit;
-  cursor: pointer;
-}
-.team-task-action:hover,
-.team-task-create:hover {
-  border-color: var(--lamp);
-  color: var(--lamp);
-}
-.team-task-create {
-  align-self: flex-start;
-  margin-top: 2px;
-}
 .team-plan-error {
   color: var(--danger, #ff9b9b);
 }
@@ -1942,4 +1858,320 @@
 }
 .sidebar-task-graph {
   min-height: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════
+ * R181：任务面板 / Agent 列表的**值班台组件**
+ * 依据 docs/agent-world-panels-design.md（A 的设计稿）。
+ * 这里只引用 token：状态色一律 `--st-*`，不写十六进制。
+ * ══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── 状态带 `.aw-ribbon`：一段一任务，按依赖深度排 ────────────────────────────
+   它是"这班还剩多少"的一句话，也是选中态的双向指示器。`aria-hidden`——键盘用户
+   走节点/检查器，不靠一条 6px 的色带。 */
+.aw-ribbon {
+  display: flex;
+  align-items: stretch;
+  gap: var(--aw-ribbon-gap, 2px);
+  height: var(--aw-ribbon-h, 6px);
+  min-height: var(--aw-ribbon-h, 6px);
+}
+.aw-ribbon-seg {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: var(--r-pill);
+  background: var(--st-pending);
+  cursor: pointer;
+  transition: outline-color var(--t-hover) var(--ease), opacity var(--t-hover) var(--ease);
+}
+.aw-ribbon-seg:hover {
+  outline: 1px solid var(--screen);
+  outline-offset: 1px;
+}
+.aw-ribbon-seg.is-active {
+  outline: 1px solid var(--screen);
+  outline-offset: 1px;
+}
+.aw-ribbon-seg[data-status='done'] { background: var(--st-done); }
+.aw-ribbon-seg[data-status='in_progress'] { background: var(--st-in_progress); }
+.aw-ribbon-seg[data-status='ready'] { background: var(--st-ready); }
+.aw-ribbon-seg[data-status='blocked'] { background: var(--st-blocked); }
+.aw-ribbon-seg[data-status='failed'] { background: var(--st-failed); }
+.aw-ribbon-seg[data-status='pending'] { background: var(--st-pending); }
+.aw-ribbon-seg[data-status='dead'] { background: var(--st-dead); }
+
+/* ── 后台任务条 `.aw-jobs`：无任务时整行不渲染 ─────────────────────────────── */
+.aw-jobs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 62px;
+  overflow: hidden;
+  font-size: var(--aw-fs-meta, 11px);
+  color: var(--ink-2);
+}
+.aw-job {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.aw-job-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--screen);
+  animation: aw-pulse 1.6s var(--ease) infinite;
+}
+.aw-job-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aw-job-time {
+  margin-left: auto;
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+@keyframes aw-pulse {
+  50% { opacity: 0.35; }
+}
+
+/* ── 图标按钮：32×32（图节点上 24，因为卡片只有 44–58 高）──────────────────── */
+.aw-icon,
+.aw-caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--aw-radius, var(--r-md));
+  background: var(--aw-card, var(--panel-2));
+  color: var(--fg-0);
+  font: 600 13px/1 var(--ui-font);
+  cursor: pointer;
+  transition: background var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease);
+}
+.aw-icon:hover,
+.aw-caret:hover {
+  background: var(--aw-card-hover, var(--panel-3));
+  border-color: var(--edge);
+}
+.aw-icon[disabled],
+.aw-icon[hidden] {
+  display: none;
+}
+.aw-caret {
+  width: 24px;
+  height: 24px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11px;
+}
+.aw-caret:hover {
+  color: var(--fg-0);
+  background: var(--panel-2);
+  border-color: var(--edge-soft);
+}
+/* 图标默认隐身，hover / 选中 / 键盘进到卡片里才出现（鼠标用户不被打扰，键盘用户也看得见）。 */
+.aw-node-actions,
+.board-member .aw-member-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-hover) var(--ease);
+}
+.board-node:hover .aw-node-actions,
+.board-node:focus-within .aw-node-actions,
+.board-node.is-selected .aw-node-actions,
+.board-member:hover .aw-member-actions,
+.board-member:focus-within .aw-member-actions,
+.board-member.active .aw-member-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 图节点上的图标：卡片小，收到 24×24；贴在右上角，不压标题。 */
+.board-node {
+  /* 节点现在是 `div[role=button]`（内部要能放按钮：`<button>` 里不能嵌套按钮）。 */
+  position: absolute;
+}
+.board-node .aw-node-actions {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  display: flex;
+  gap: 1px;
+  z-index: 1;
+}
+.board-node .aw-icon {
+  width: 24px;
+  height: 22px;
+  font-size: 11px;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--panel-2) 86%, transparent);
+}
+.board-node .aw-icon:hover {
+  background: var(--panel-3);
+  border-color: var(--edge);
+}
+
+/* ── 检查器 `.aw-inspector`：选中才出现的单行（44px）────────────────────────── */
+.aw-inspector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  width: 100%;
+  min-width: 0;
+}
+.aw-inspector[hidden] {
+  display: none;
+}
+.aw-inspector-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-0);
+  font-weight: 600;
+}
+.aw-inspector-meta {
+  flex: none;
+  color: var(--ink-1);
+  font-size: var(--aw-fs-meta, 11px);
+  white-space: nowrap;
+}
+.aw-inspector-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* ── 内联新建任务 `.aw-composer`：Enter 建 / Esc 收起 ───────────────────────── */
+.aw-agents-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+}
+.aw-agents-toolbar .aw-toolbar-title {
+  font-size: var(--aw-fs-meta, 11px);
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aw-agents-toolbar .aw-icon {
+  margin-left: auto;
+}
+.aw-composer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.aw-composer[hidden] {
+  display: none;
+}
+.aw-composer-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--aw-radius, var(--r-md));
+  background: var(--panel-2);
+  color: var(--fg-0);
+  font: 12.5px/1 var(--ui-font);
+}
+.aw-composer-input::placeholder {
+  color: var(--ink-2);
+}
+
+/* ── 通知 / 错误 / 空态：各占一行，不弹窗、不占两行 ─────────────────────────── */
+.aw-notice,
+.aw-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  font-size: var(--aw-fs-meta, 11px);
+  color: var(--ink-1);
+}
+.aw-error {
+  color: var(--ink-1);
+}
+.aw-error::before {
+  content: '×';
+  flex: none;
+  color: var(--aw-danger, var(--st-failed));
+  font-weight: 700;
+}
+.aw-empty {
+  padding: 12px 10px;
+  border: 1px dashed var(--edge-soft);
+  border-radius: var(--aw-radius, var(--r-md));
+  color: var(--ink-2);
+  font-size: var(--aw-fs-card, 12.5px);
+  line-height: 1.6;
+  text-align: center;
+}
+.aw-empty small {
+  display: block;
+  color: var(--ink-2);
+  font-size: var(--aw-fs-meta, 11px);
+}
+
+/* 窄档 / 减少动效：状态带、图标、后台条不再做过渡；后台点停转。 */
+@media (max-width: 900px) {
+  .board-node .aw-node-actions {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aw-ribbon-seg,
+  .aw-icon,
+  .aw-caret,
+  .aw-jobs,
+  .aw-composer,
+  .aw-node-actions,
+  .aw-member-actions {
+    transition: none;
+  }
+  .aw-job-dot {
+    animation: none;
+  }
+  #sidebar,
+  #sidebar * {
+    scroll-behavior: auto;
+  }
+}
+
+/* R181：未分配行的数量角标（替代原来那一排任务 chip）。 */
+.aw-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--panel-3);
+  color: var(--fg-0);
+  font-family: var(--mono-font);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+/* 状态带悬停 ↔ 卡片高亮（双向指示器的另一半；不改变选中态）。 */
+.board-node.is-hover {
+  background: var(--panel-3);
+  border-color: var(--stroke-strong);
 }
