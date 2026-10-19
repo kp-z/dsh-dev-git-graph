@@ -262,7 +262,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     if (typeof subagents?.listChildren !== 'function') return
     rosterSyncBusy = true
     try {
-      const children = await subagents.listChildren(sessionId)
+      const children = await subagents.listChildren(captainSessionIdFor(sessionId))
       state.syncSubagents(sessionId, children)
     } catch (error) {
       logger.warn(`同步 subagent 花名册失败（下次再试）：${error instanceof Error ? error.message : String(error)}`)
@@ -343,44 +343,33 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
    * （`ctx.agents.get(sessionId)` 的 live agent），不再另建 `agent-world:captain`。
    */
   const teamsPorts = new Map<string, TeamsPort>()
-  /** 真实服务面优先；有些装配里只有 `ctx.get('agents')` 能拿到。 */
-  const captainFor = () => {
-    // 只能走 ctx.get()。直接读 ctx.agents 在没有 inject:['agents'] 的插件里会抛
-    // "cannot get property agents without inject"（真机 R172）。
-    const scoped = ctx as unknown as { get?(name: string): unknown }
-    return typeof scoped.get === 'function'
-      ? (scoped.get('agents') as {
-          get?(id: string): { id?: string } | undefined
-          list?(): readonly { id?: string }[]
-        } | undefined)
-      : undefined
-  }
-  const createCaptainBase = createTeamsCaptain(ctx, { cwd: process.cwd() })
   /**
-   * 队长 = 当前会话本身。
+   * 每个会话一个**独立的队长会话**，而不是直接拿用户会话当队长。
    *
-   * ⚠️ 这个会话在 UI 里可能正被写句柄占用，**绝不能**用 createAgent/resume 同 id
-   * （真机：session already exists / already owned by an active write handle）。
-   * `agents.get()` 拿不到 live Agent 时，退一个只带 `id` 的 handle；agent_teams_* 工具
-   * 只用 agent.id 定位团队，真正的失败会由工具自己给出原因。
+   * 真机结论：用户会话在 UI 里被写句柄占用，且空闲时没有 live Agent；
+   * 拿它当 agent_teams 的 captain 会撞 already exists/active write handle，
+   * 或拿到的 {id} handle 在工具里读 `agent.header` 直接崩。
    */
+  const captainSessionIdFor = (conversationId: string): string => `agent-world:captain:${conversationId}`
+  /**
+   * 每个会话的团队名必须不同。agent-teams 的 teamId 是从团队名 slug 出来的；
+   * 固定 `Agent World G2` 会被旧队长占用（真机：team id "agent-world-g2" is taken by another captain）。
+   */
+  const teamNameFor = (conversationId: string): string =>
+    conversationId === resolved.captainSessionId
+      ? resolved.teamName
+      : `${resolved.teamName} #${conversationId.slice(-8)}`
+  const createCaptainBase = createTeamsCaptain(ctx, { cwd: process.cwd() })
   const createCaptain = async (sessionId: string, cwd: string) => {
-    const agents = captainFor()
-    const live = agents?.get?.(sessionId) ?? agents?.list?.().find((agent) => agent.id === sessionId)
-    if (live !== undefined) {
-      return { agent: { id: typeof live.id === 'string' ? live.id : sessionId }, dispose: async () => {} }
-    }
-    // 没有 active 会话的旧路径（headless/测试）仍允许建配置里的队长。
-    if (sessionId === resolved.captainSessionId && createCaptainBase !== undefined) {
-      return await createCaptainBase(sessionId, cwd)
-    }
-    logger.warn(`会话 ${sessionId} 没有可用的 live Agent，使用 {id} handle 当队长`)
-    return { agent: { id: sessionId }, dispose: async () => {} }
+    if (createCaptainBase === undefined) throw new Error('拿不到 agentLoop：建不了会话级队长会话')
+    return await createCaptainBase(sessionId, cwd)
   }
   function acquireTeamsPort(
     conversationId: string = state.activeSessionId ?? resolved.captainSessionId,
   ): { ok: true; port: TeamsPort } | { ok: false; reason: string } {
-    const sessionId = conversationId
+    const sessionId = conversationId === resolved.captainSessionId
+      ? resolved.captainSessionId
+      : captainSessionIdFor(conversationId)
     const existing = teamsPorts.get(sessionId)
     if (existing !== undefined) return { ok: true, port: existing }
     const tools = (ctx as unknown as { get(name: string): unknown }).get('tools')
@@ -407,12 +396,23 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       {
         captainSessionId: sessionId,
         cwd: process.cwd(),
-        teamName: resolved.teamName,
+        teamName: teamNameFor(conversationId),
         teamDescription: resolved.teamDescription,
         memberNameFor: (id) =>
           state.currentWorld()?.agents.find((agent) => agent.id === id)?.name ?? resolveSeat(id).name,
-        memberRoleFor: (id) => resolveSeat(id).role,
-        personaFor: (id) => resolveSeat(id).persona,
+        memberRoleFor: (id) => {
+          const actor = state.currentWorld()?.agents.find((agent) => agent.id === id)
+          return actor?.name === 'leader' ? 'lead' : resolveSeat(id).role
+        },
+        personaFor: (id) => {
+          const actor = state.currentWorld()?.agents.find((agent) => agent.id === id)
+          // R173：leader 的显示名/成员名固定为 leader，人设也不能再自称内容花名册里的名字
+          // （真机回复里冒出了「工头阿金」——名字从 persona 漏回来了）。
+          if (actor?.name === 'leader') {
+            return '你是这个团队的 leader，负责统筹与回答。始终用「leader」自称，不要使用花名册里的其它人名。'
+          }
+          return resolveSeat(id).persona
+        },
         toolPolicy: resolved.memberToolPolicy,
         agentOptionsFor: () => readDefaultModelSelection(ctx),
         onError: (reason) => logger.warn(`agent-teams 套壳：${reason}`),

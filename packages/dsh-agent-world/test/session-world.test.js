@@ -36,7 +36,7 @@ test('R166：新会话世界只有队长、任务为空', async () => {
   const world = state.activateSession('session-a')
   assert.equal(world.agents.length, 1)
   assert.equal(world.agents[0].name, 'leader')
-  assert.equal(world.agents[0].boundAgentId, 'session-a')
+  assert.equal(world.agents[0].boundAgentId, null)
   assert.equal(world.tasks.length, 0)
   assert.equal(world.tick, 0)
   state.deactivate()
