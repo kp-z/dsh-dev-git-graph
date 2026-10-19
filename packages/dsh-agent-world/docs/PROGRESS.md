@@ -42,6 +42,38 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R150（Lead）—— 定时轮次：表已空，健康检查里**抓到一个真死锁**；并把用户新提的图例需求派下去
+
+### 取活前先做健康检查（任务书第 1 条）
+推送已同步（`Everything up-to-date`）· 宿主 200 · 世界 `paused:false` · `node --test` 697/697。
+计划表无未完成项；**R141 条件未到**（G2 阿金 28 轮 / 上下文 1.1M cacheRead，未到 100 轮）。
+BACKLOG 无未勾项 ⇒ 按规则从"后续项"找活。
+
+### 发现的真 bug（派 task-25 / R150）
+世界 71 张单里，**4 张永远卡在 `in_progress` 且进度 0%**。两次采样相隔 120 tick **完全不动**，8 个角色全 idle：
+```
+task-56 owner agent-6 | state=idle | carrying="task-56" | 0%
+task-59 owner agent-1 | state=idle | carrying="task-59" | 0%
+task-66 owner agent-2 | state=idle | carrying="task-66" | 0%
+task-69 owner agent-3 | state=idle | carrying="task-69" | 0%
+```
+**三处判据互相扣死**：`scheduler.ts:88` 只认领 `idle && carrying===null`（这 4 人永不被派新活）；
+进度只在 `interaction.ts` 推进且要求人在工位，而 `idle.ts:94` 入口**不看 `carrying`**，把他们当空闲的人拉去歇脚点；
+`interaction.ts:57` 的兜底只在 status/owner 不符时触发，这 4 张恰好都对 ⇒ **没有任何一步会修复它**。
+
+> 这 4 张是 R148 造标签场景时动过的，但**触发原因不重要**——不变量被破坏后**没有任何一方负责修复**才是 bug。
+> 而且**现场是"看起来在干活"**（4 张单显示进行中、4 个人在场景里站着），肉眼完全看不出卡死；只有采样对比才暴露。
+> 派单要求：修不变量（idle 入口尊重 `carrying` + 回收/重驱动 + 可读的自检读数），并要求**先复现、修后贴新读数、做反向判据**。
+
+### 用户新提需求（派 task-26 / R151）
+「图例位置需要优化」——转成任务时要求**先量再改**：遮挡多少、与按钮/对话面板/侧边栏是否重叠、两档分辨率各自如何，
+用 `getBoundingClientRect()` 与相交数字说清"具体哪里不好"，否则改完无法证明变好。派给 designer（developer 正在改 `src/sim/`，写范围不冲突）。
+
+### 下一轮
+验收 task-25（死锁）/ task-26（图例）；R141 仍待触发。
+
+---
+
 ## R149（Lead）—— 验收 R147/R148（标签错开）通过；恢复世界
 
 核实：`a9bc60b` 五个文件、**697/697**、`web↔lib` 一致、字面色值 **3→3 无新增**、`planTaskLabelStagger` 在 `core/task-label.js`。
