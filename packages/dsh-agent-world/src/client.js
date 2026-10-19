@@ -111,6 +111,26 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /**
+     * 调页面 handle 上的**可选 hook**（setWorldSession / setTeamProjection）。
+     *
+     * 这些 hook 是附加信息：页面可能来自另一份构建、team projection 也随宿主版本变化。
+     * 以前这里直接 `handle.setTeamProjection(team)`——只要 handle 上没有这个方法，
+     * 异常就会从 effect 里冒出去，整个 Agent World 直接变成错误浮层（最常见的启动崩溃）。
+     * 所以统一在这里守一次：handle / 方法不存在就跳过，调用抛错也吞掉，
+     * 世界照常启动，只是少了那部分信息。
+     */
+    function callHandleHook(handle, method, value) {
+      if (handle === null || handle === undefined) return;
+      const fn = handle[method];
+      if (typeof fn !== 'function') return;
+      try {
+        fn.call(handle, value);
+      } catch (e) {
+        // 附加 hook 失败只影响展示，不影响世界本身。
+      }
+    }
+
     /** 订阅 session 列表（标题改名）并立即回调一次；返回退订函数。 */
     function watchSessionTitle(sessions, sessionId, onChange) {
       let last;
@@ -188,6 +208,11 @@ window.__ModuleLoader__.load({
             if (typeof sessionId === 'string' && sessionId !== '') await activateSession(sessionId);
             const mod = await import(BASE_URL + '/embed.js');
             if (disposed) return;
+            // 宿主服务的 lib/web 与浏览器缓存可能落后于 client.js：给出可执行的提示，
+            // 而不是一句难以定位的 "xxx is not a function"。
+            if (typeof mod.mountEmbeddedApp !== 'function') {
+              throw new Error('Agent World 的前端资源版本不一致（embed.js 里没有 mountEmbeddedApp）。请重启 DSH 宿主，让插件重新加载后再打开。');
+            }
             handle = await mod.mountEmbeddedApp(hostRef.current, { baseUrl: BASE_URL, sessionId });
             handleRef.current = handle;
             if (disposed) {
@@ -197,10 +222,10 @@ window.__ModuleLoader__.load({
             }
             // 会话视图的 header 名 = 这个会话在左侧工作区里的标题。
             stopTitleWatch = watchSessionTitle(props.sessions, sessionId, function (info) {
-              handle?.setWorldSession(info);
+              callHandleHook(handle, 'setWorldSession', info);
             });
             stopTeamWatch = watchTeamProjection(props.sessions, sessionId, function (team) {
-              handle?.setTeamProjection(team);
+              callHandleHook(handle, 'setTeamProjection', team);
             });
             setPhase('ready');
           } catch (err) {
@@ -221,7 +246,9 @@ window.__ModuleLoader__.load({
             stopTeamWatch = null;
           }
           if (handle !== null) {
-            try { handle.dispose(); } catch (e) { /* 页面已经没了 */ }
+            try {
+              if (typeof handle.dispose === 'function') handle.dispose();
+            } catch (e) { /* 页面已经没了 */ }
             handle = null;
             handleRef.current = null;
           }

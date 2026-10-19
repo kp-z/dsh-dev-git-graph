@@ -30,7 +30,7 @@ const EMBEDDED_FLAG = '__AGENT_WORLD_EMBEDDED__'
  * @param {HTMLElement} container - 宿主给的空容器（会被填满）。
  * @param {object} [options]
  * @param {string} [options.baseUrl] - 插件路由前缀，默认 `/agent-world`。
- * @returns {Promise<{dispose: () => void}>}
+ * @returns {Promise<{setWorldSession: (info: object|null) => void, setTeamProjection: (team: object|null) => void, dispose: () => void}>}
  */
 export async function mountEmbeddedApp(container, options = {}) {
   if (container === null || container === undefined) throw new Error('mountEmbeddedApp: container 不能为空')
@@ -61,24 +61,64 @@ export async function mountEmbeddedApp(container, options = {}) {
 
   // ── 3) 启动装配（main.js 的自动挂载被上面的 flag 关掉）──────────────────────
   const { mountAgentWorld } = await import('./main.js')
-  const handle = mountAgentWorld({ root: container, baseUrl, embedded: true, document: doc, sessionId })
+  const inner = mountAgentWorld({ root: container, baseUrl, embedded: true, document: doc, sessionId })
 
+  return createEmbeddedHandle(inner, function cleanup() {
+    style.remove()
+    container.replaceChildren()
+    delete container.dataset.agentWorld
+  })
+}
+
+/**
+ * 把 `mountAgentWorld` 的返回值包成 **稳定的 handle 契约**。
+ *
+ * 为什么需要这层：`main.js` 与 `embed.js` 是两个独立加载的模块（一个是动态 import 的
+ * 装配代码，一个是宿主侧客户端），版本可能不一致——老页面返回的 handle 里没有
+ * `setTeamProjection`，client 一调用就是 `handle.setTeamProjection is not a function`，
+ * 异常从 React effect 里冒出去，整个 Agent World 变成错误浮层。
+ *
+ * 所以这里保证：**返回对象永远有 setWorldSession / setTeamProjection / dispose**；
+ * 内部 hook 缺失、或页面实现里抛错，都静默降级（会话名与 team projection 只是附加信息，
+ * 不该决定世界能不能起来）。`dispose` 同时做成幂等，React 严格模式/重复清理都安全。
+ *
+ * @param {object|null|undefined} inner - `mountAgentWorld` 的返回值。
+ * @param {() => void} [cleanup] - 宿主容器级清理（样式、DOM）。
+ * @returns {{setWorldSession: (info: object|null) => void, setTeamProjection: (team: object|null) => void, dispose: () => void}}
+ */
+export function createEmbeddedHandle(inner, cleanup = () => {}) {
+  /** 调用 inner 上的可选 hook；不存在或抛错都静默跳过。 */
+  const call = (name, value) => {
+    const fn = inner === null || inner === undefined ? undefined : inner[name]
+    if (typeof fn !== 'function') return
+    try {
+      fn.call(inner, value)
+    } catch (error) {
+      // 附加 hook（会话名 / projection）失败只影响信息展示，不打断世界本身。
+    }
+  }
+
+  let disposed = false
   return {
     /** 把**左侧工作区当前会话**的名字交给 header（null = 没有选中）。 */
     setWorldSession(info) {
-      handle.setWorldSession(info)
+      call('setWorldSession', info)
     },
-    /** 官方 agentTeam projection（members/tasks）交给页面。 */
+    /** 官方 agentTeam projection（members/tasks）交给页面；页面没接就什么都不做。 */
     setTeamProjection(team) {
-      handle.setTeamProjection(team)
+      call('setTeamProjection', team)
     },
     dispose() {
+      if (disposed) return
+      disposed = true
       try {
-        handle.dispose()
+        call('dispose')
       } finally {
-        style.remove()
-        container.replaceChildren()
-        delete container.dataset.agentWorld
+        try {
+          cleanup()
+        } catch (error) {
+          // 容器已经被宿主卸掉时清理会失败；此时没有可恢复的状态。
+        }
       }
     },
   }
