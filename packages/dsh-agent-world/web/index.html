@@ -67,23 +67,23 @@
           （用户原话「避免同样的功能做两份」）——摘要条与侧边栏会各自算出不同的计数。
         -->
         <div class="commands">
+          <button id="cmd-pause" class="icon-btn" type="button" title="暂停世界" aria-label="暂停世界">
+            <svg viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="3.6" width="2.3" height="8.8" rx="1.15" /><rect x="8.7" y="3.6" width="2.3" height="8.8" rx="1.15" /></svg>
+          </button>
+          <button id="cmd-resume" class="icon-btn" type="button" title="继续" aria-label="继续">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.4v9.2a.6.6 0 0 0 .92.5l7.4-4.6a.6.6 0 0 0 0-1L6.42 2.9a.6.6 0 0 0-.92.5z" /></svg>
+          </button>
           <!--
             R116：侧边栏开关**搬进 header**（用户原话：「侧边栏不是独立的个体，
             打开按钮应该在 header 里而不是单独一块」）。
-            它现在与暂停/继续同族——都是"对整个工作区做的事"，而不是侧边栏自己的事。
-            `aria-expanded` 由 `main.js` 同步（如实反映展开态）。
+            R152：再往**最右**挪，与侧边栏那一列的右边缘对齐——它管的是右边那条栏，
+            夹在中间（暂停键左边）会让人看不出它属于谁。`aria-expanded` 由 `main.js` 同步。
           -->
           <button id="sidebar-toggle" class="icon-btn" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true" aria-controls="sidebar">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
               <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4" />
               <path d="M6.4 2.8v10.4" />
             </svg>
-          </button>
-          <button id="cmd-pause" class="icon-btn" type="button" title="暂停世界" aria-label="暂停世界">
-            <svg viewBox="0 0 16 16" fill="currentColor"><rect x="5" y="3.6" width="2.3" height="8.8" rx="1.15" /><rect x="8.7" y="3.6" width="2.3" height="8.8" rx="1.15" /></svg>
-          </button>
-          <button id="cmd-resume" class="icon-btn" type="button" title="继续" aria-label="继续">
-            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.4v9.2a.6.6 0 0 0 .92.5l7.4-4.6a.6.6 0 0 0 0-1L6.42 2.9a.6.6 0 0 0-.92.5z" /></svg>
           </button>
         </div>
       </header>

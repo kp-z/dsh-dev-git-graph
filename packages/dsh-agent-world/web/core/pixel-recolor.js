@@ -252,3 +252,22 @@ export function paletteOfPixels(rgba, options = {}) {
     .map(([hex, count]) => ({ hex, count }))
     .sort((a, b) => (b.count === a.count ? (a.hex < b.hex ? -1 : 1) : b.count - a.count))
 }
+
+
+/**
+ * 角色该用**原图**还是**重上色图**（R160 真机回归）。
+ *
+ * `SceneSheetSpec.recolor` 的缺省是 **false**，含义是"别人画好的美术默认不动"——
+ * 把已经画完的角色按角色色整张重染，会把头发/脸/衣服染成一色，看起来像一块**彩色的框**。
+ * 所以只有内容**显式**声明 `recolor: true` 且重染成功时才用重染纹理；
+ * 其余（包括 `false`、`undefined`、重染失败返回 null）一律回原图。
+ *
+ * @param {{baseKey: string|null, tintedKey: string|null, sheet: object|null|undefined}} input
+ * @returns {string|null}
+ */
+export function actorTextureKey({ baseKey, tintedKey, sheet }) {
+  if (sheet !== null && sheet !== undefined && sheet.recolor === true && typeof tintedKey === 'string' && tintedKey !== '') {
+    return tintedKey
+  }
+  return baseKey ?? null
+}

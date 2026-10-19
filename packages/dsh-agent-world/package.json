@@ -17,7 +17,10 @@
       "default": "./lib/domain/index.js"
     },
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./client": {
+      "default": "./lib/client.js"
+    }
   },
   "files": [
     "lib",
@@ -27,11 +30,11 @@
     "CREDITS.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/copy-web.mjs",
+    "build": "tsc -p tsconfig.json && node scripts/copy-web.mjs && cp src/client.js lib/client.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "tsc -p tsconfig.json && node scripts/copy-web.mjs && node --test test/",
-    "build:web": "node scripts/copy-web.mjs"
+    "build:web": "node scripts/copy-web.mjs && cp src/client.js lib/client.js"
   },
   "keywords": [
     "deepseek",
@@ -48,6 +51,12 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots"
+      ]
     }
   },
   "peerDependencies": {

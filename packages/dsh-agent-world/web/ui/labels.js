@@ -116,14 +116,36 @@ export const UNGROUPED_LABEL = '未分组'
 export const VIEW_FILTERS_ORDER = ['all', 'unfinished', 'failed', 'done']
 export const VIEW_FILTER_LABEL = { all: '全部', unfinished: '未完成', failed: '失败', done: '完成' }
 
-/** 分组签上的文字：`quick-fix · 18 张（6 未完成）`。 */
-export function groupViewLabel(group) {
-  const name = group.id === 'all' ? VIEW_GROUP_ALL : group.name === '' ? UNGROUPED_LABEL : group.name
-  return `${name} · ${group.total} 张${group.unfinished > 0 ? `（${group.unfinished} 未完成）` : ''}`
+/**
+ * 分组签上要显示的**名字**（不含数量）。
+ *
+ * R152：数量从名字里拆出来，做成 chip 右侧的数字徽章——原来整句
+ * `快速修一个 bug · 3 张（3 未完成）` 有 205px 宽，四枚就把图区顶掉 113px。
+ * 名字与数字分开之后，名字可以省略（窄栏截断），数字仍然对齐好读。
+ */
+export function groupDisplayName(group) {
+  return group.id === 'all' ? VIEW_GROUP_ALL : group.name === '' ? UNGROUPED_LABEL : group.name
 }
 
-/** 成员看板的开合按钮文案。 */
-export const MEMBERS_TOGGLE_LABEL = { open: '收起', closed: '展开' }
+/** 分组签上的完整文字（只用于 `title`/`aria-label`，不再直接铺在窄 chip 上）。 */
+export function groupViewLabel(group) {
+  return `${groupDisplayName(group)} · ${group.total} 张${group.unfinished > 0 ? `（${group.unfinished} 未完成）` : ''}`
+}
+
+/**
+ * 成员头像上的那个字（R152）。
+ *
+ * 取"去掉 小/老/阿 这类前缀后的第一个字"：`小蓝` → `蓝`、`工头阿金` → `工`。
+ * 不这样做的话 8 个人里 7 个头像都是「小」，头像就退化成了一个色块。
+ * 空的/没有名字 → `?`（**不猜**，也不渲染空白头像）。
+ */
+export function memberInitial(name) {
+  const text = String(name ?? '').trim()
+  if (text === '') return '?'
+  const stripped = text.replace(/^(小|老|阿)/, '')
+  const char = [...stripped][0] ?? [...text][0]
+  return /[a-z]/.test(char) ? char.toUpperCase() : char
+}
 
 /** 工具的中文名（未知 → 原样返回）。 */
 export function toolLabel(name) {

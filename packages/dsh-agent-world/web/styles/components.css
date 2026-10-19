@@ -50,7 +50,9 @@
   border-radius: 0;
   border: 1px solid var(--ink);
   background: var(--paper-card);
-  color: var(--ink);
+  /* R152：图标色 = 主文字色。原来写 `--ink`（近黑），压在 #1F293D 的按钮底上
+     只有 **1.33:1**：暂停/继续/侧边栏开关/缩放这一整排图标几乎看不见。 */
+  color: var(--fg-0);
   cursor: pointer;
   box-shadow: var(--shadow-1);
   transition: background var(--t-hover) var(--ease);
@@ -491,7 +493,8 @@
   background: var(--paper-card);
   /* R103：原来是"橙色文字压橙底"（纸面上 1.x:1）。现在 = **墨字 + 左侧实心色块**。 */
   box-shadow: inset 4px 0 0 var(--st-ready), var(--shadow-1);
-  color: var(--ink);
+  /* 同上：告警条是深色卡片底，字必须用亮色（原来 `--ink` 是 1.33:1）。 */
+  color: var(--fg-0);
   font-size: var(--fs-sub);
   max-width: 640px;
 }
@@ -1074,45 +1077,92 @@
   padding: var(--s-2);
   border-right: 1px solid var(--stroke);
 }
-.board-members h3,
-.board-graph h3 {
-  display: flex;
-  gap: var(--s-2);
-  align-items: baseline;
-  margin: 0 0 var(--s-1);
-}
 .board-member-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
 }
+/*
+ * 成员行（R152 重做）：头像 + 名字/角色/状态 + 工单 chip。
+ *
+ * 层次只声明一次：**1px 边框 + 一块更亮的底**，没有阴影。
+ * 原来那套"边框 + 双层阴影 + 左侧 3px 彩条"是三层装饰叠在 52px 的行上。
+ */
 .board-member {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
-  gap: 5px;
-  padding: 3px var(--s-2);
-  border-radius: 0;
-  /* R103：成员行 = 纸卡片（双层描边 + 硬阴影）。 */
+  gap: 8px;
+  padding: 7px 8px;
   border: 1px solid var(--stroke);
+  border-radius: var(--r-md);
   background: var(--paper-card);
-  box-shadow: var(--shadow-1), var(--bevel);
+  box-shadow: var(--shadow-1);
   font-size: var(--fs-micro);
+  transition: background var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease);
+}
+.board-member:hover {
+  background: var(--paper-hover);
+  border-color: var(--stroke-strong);
 }
 .board-member.active {
-  /* 选中：**墨色粗描边**（像素语言里"被选中"是加粗边，不是发光）。 */
-  border-color: var(--ink);
-  box-shadow: 0 0 0 1px var(--ink), var(--shadow-1);
+  /* 选中：屏幕光的 1px 环（与舞台里的选中同一套语言），不加阴影、不加粗。 */
+  border-color: var(--screen);
+  background: color-mix(in srgb, var(--screen) 9%, var(--paper-card));
+}
+.board-member.is-unowned {
+  border-style: dashed;
+  background: transparent;
+}
+/* 头像：R157 优先用角色贴图；没有贴图才退回「部门色 + 名字首字」。 */
+.board-member-avatar {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--rail, var(--stroke-strong)) 26%, var(--paper-card));
+  border: 1px solid color-mix(in srgb, var(--rail, var(--stroke-strong)) 55%, transparent);
+  color: var(--fg-0);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+/* 贴图头像：裁头像/肩膀那一块（背景位移由 `core/member-avatar.js` 算）。 */
+.board-member-avatar.is-sprite {
+  background-repeat: no-repeat;
+  background-color: color-mix(in srgb, var(--rail, var(--stroke-strong)) 18%, var(--paper-card));
+  image-rendering: pixelated;
+  background-clip: padding-box;
+}
+.board-member.is-unowned .board-member-avatar {
+  background: transparent;
+  border-style: dashed;
+  border-color: var(--stroke-strong);
+  color: var(--ink-2);
 }
 .board-member-head {
   display: flex;
-  gap: 5px;
+  flex-wrap: wrap;
   align-items: baseline;
+  gap: 2px 6px;
+  min-width: 0;
   cursor: pointer;
 }
-.board-member-head b {
+.board-member-name {
   font-size: var(--fs-sub);
+  font-weight: 600;
   color: var(--fg-0);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-member-role {
+  font-size: 11px;
+  color: var(--ink-2);
+  white-space: nowrap;
 }
 /* R106：成员卡自己的状态块。**外观全部来自 `.board-status-block`**（与任务块同一套），
    这里只补它在行内的位置：推到最右，别和名字/角色挤在一起。 */
@@ -1122,7 +1172,32 @@
 .board-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--s-1);
+  gap: 4px;
+  /* 工单 chip 从第二行开始、与名字左对齐（越过头像列）。 */
+  grid-column: 1 / -1;
+  margin-top: 1px;
+}
+/* 空状态（R152）：不是一块空白，而是一句能照做的话。 */
+.board-empty {
+  padding: 14px 10px;
+  border: 1px dashed var(--stroke);
+  border-radius: var(--r-md);
+  color: var(--ink-2);
+  font-size: var(--fs-micro);
+  line-height: 1.6;
+  text-align: center;
+}
+.board-empty-board {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--ink-2);
+  font-size: var(--fs-micro);
+  text-align: center;
+  pointer-events: none;
 }
 /*
  * **实心状态块 + 对色字**（R103 立、R106 抽成共享类）。
@@ -1147,8 +1222,9 @@
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
-  padding: 1px 5px;
-  border-radius: 0;
+  padding: 1px 6px;
+  /* R152：状态块是**小控件**，用 pill；卡片本身仍然用 r-md（12px 以下的小控件不该跟着变圆）。 */
+  border-radius: var(--r-pill);
   border: 1px solid var(--ink);
   /*
    * ⚠️ fallback 必须是**纸色**，不能是状态色。
@@ -1215,41 +1291,58 @@
    ⚠️ R106：这里原来有 `opacity: 0.7`，实测把 done 的对比度从 8.13 压到 **4.17**（跌破 4.5），
       而 `getComputedStyle` 读的是指定值、**看不出**这个跌落。弱化改用内边距与色点，不用透明度。 */
 .board-chip.is-done {
-  padding: 1px 4px;
+  /*
+   * R152：完成的单改成**空心**（不再是第二排实心绿块）。
+   * 一个成员手上 5~7 张单里多数是 done，实心块会和"在跑的单"抢注意力——
+   * 做完的事只需要还在、还能点，不需要再喊一遍。对比度仍达标：`--ink-1` 对卡片 6.38。
+   */
+  background: transparent;
+  border-color: var(--stroke-strong);
+  color: var(--ink-1);
+  padding: 1px 6px;
 }
 .board-chip.is-done > .board-dot {
   display: none;
 }
 .board-chip.is-done .board-chip-id {
-  /* 跟着块色走（原来写 `--fg-2`，压在 done 绿上只有 3.81）。 */
   color: inherit;
 }
-/* "图比可见区大"的提示（R45）：可滚动是实话，但要写在图头上，别让用户以为图就这么多。 */
-.board-graph-hint {
-  font-weight: 400;
-  font-size: var(--fs-micro);
-}
-
 .board-graph {
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--s-2) var(--s-3) var(--s-3);
+  padding: var(--s-2);
 }
+/*
+ * 图画布（R152）：一块**点阵规划板**。
+ *
+ * 底色不再是透明（透明会让节点像浮在面板上），而是一层比面板更深、带 16px 点阵的面——
+ * 这张图本来就是"依赖地图"，网格是它的材料，不是装饰。
+ * 滚动条由 `sidebar.css` 统一按主题上色；这里只负责"它自己能滚"。
+ */
 .board-canvas {
   position: relative;
   flex: 1;
   min-height: 0;
   overflow: auto;
+  /* R152：画布是"规划板"——空处可拖，拖的时候换成抓取光标。 */
+  cursor: grab;
   scrollbar-gutter: stable;
-  border-radius: 0;
-  /* R103：图区**不设底色**（`docs/DESIGN-ui-theme.md` §5.2）——直接露出纸面板，
-     只有连线和节点有颜色。原来是"墨色 55% 半透明"的深色槽，在纸面板里像一块黑板。 */
+  border-radius: var(--r-md);
   border: 1px solid var(--stroke);
-  background: transparent;
-  box-shadow: var(--bevel);
+  background-color: color-mix(in srgb, var(--bg-0) 55%, var(--bg-1));
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--stroke-strong) 55%, transparent) 1px,
+    transparent 1.1px
+  );
+  background-size: 16px 16px;
+}
+.board-canvas.is-panning {
+  cursor: grabbing;
+  user-select: none;
 }
 .board-fit {
   position: relative;
@@ -1272,58 +1365,90 @@
   stroke: var(--board-done-line, var(--st-done));
   stroke-width: 1.6;
 }
+/* R152：方向靠**箭头**说（取代图头那行「左 → 右：前置解锁后续」）。 */
+.board-arrow {
+  fill: var(--board-line, var(--stroke-strong));
+}
+.board-arrow.done {
+  fill: var(--board-done-line, var(--st-done));
+}
+/*
+ * 任务节点（R152 重做）。
+ *
+ * 改掉的三处：
+ *   · **3px 左侧状态色条** → 编号前一枚 6px 状态点。同一种信息，面积更小，
+ *     也避开"卡片左侧彩色竖条"这个到处都能见到的默认写法；
+ *   · 圆角 0 + 双层阴影 → `--r-sm` + 一条 1px 边（层次只声明一次）；
+ *   · 内容密度按**档位**切换（`data-fit`）：tight 档在屏幕上只有 93×30，
+ *     原来三行内容放不下、被 `overflow:hidden` 切掉 6px。
+ */
 .board-node {
   position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 1px;
   overflow: hidden;
   text-align: left;
-  padding: 5px 7px;
-  border-radius: 0;
-  background: var(--board-card, var(--paper-card));
-  color: var(--board-fg, var(--ink));
-  /* R103：纸卡片 + 双层描边 + 硬偏移阴影；**左侧 3px 状态色**是节点唯一的彩色处。 */
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  /* R152：节点卡用**主题卡片色**（与成员卡一致）。内容库仍然负责状态色/进度/连线，
+     但不再决定卡片底色——同一块面板里"灰卡配蓝卡"就是那时候出现的。 */
+  background: var(--paper-card);
+  color: var(--fg-0);
   border: 1px solid var(--stroke);
-  border-left: 3px solid var(--st, var(--ink));
   box-shadow: var(--shadow-1);
   cursor: pointer;
-  transition: background var(--t-hover) var(--ease);
+  transition: background var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease);
 }
 .board-node:hover {
   background: var(--paper-hover);
+  border-color: var(--stroke-strong);
 }
 .board-node.needs-review {
+  /* 需要 review：虚线边 + 琥珀色。只改"边怎么画"，不再叠一条左边色。 */
   border-style: dashed;
   border-color: var(--board-verify, var(--st-ready));
-  border-left-style: solid;
-  border-left-color: var(--st, currentColor);
 }
 .board-node.is-failed {
   background: var(--board-fail-bg, var(--st-failed-bg));
 }
 /* M7-3 双向高亮：点图里的方框 → 左栏成员那边同一张单也亮起来。 */
 .board-chip.is-selected {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--screen);
   outline-offset: 1px;
 }
 .board-node.is-selected {
-  /* 选中 = **墨色粗框**（像素语言），不是发光。 */
-  border-color: var(--ink);
-  box-shadow: 0 0 0 1px var(--ink), var(--shadow-1);
+  /* 选中 = 屏幕光的一道边 + 一层很淡的底；不加阴影、不加粗。 */
+  border-color: var(--screen);
+  background: color-mix(in srgb, var(--screen) 10%, var(--paper-card));
 }
 .board-node-top {
   display: flex;
-  justify-content: space-between;
-  gap: var(--s-2);
-  font-size: var(--fs-micro);
-  color: var(--board-dim, var(--fg-2));
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--ink-2);
+}
+.board-node-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--st, var(--ink-2));
 }
 .board-node-id {
   font-family: var(--mono-font);
-  color: var(--board-dim, var(--fg-2));
+  font-size: 10px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .board-node-owner {
+  margin-left: auto;
+  font-size: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1334,13 +1459,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--fs-sub);
+  line-height: 1.25;
+  color: var(--fg-0);
 }
 .board-node-progress {
-  height: 4px;
+  height: 2px;
   border-radius: 0;
   overflow: hidden;
-  background: var(--surface-2);
-  border: 1px solid var(--ink);
+  background: color-mix(in srgb, var(--stroke) 60%, transparent);
+  border: 0;
 }
 .board-node-progress-fill {
   display: block;
@@ -1348,18 +1475,59 @@
   width: 0;
   background: var(--st, currentColor);
 }
+/*
+ * 密度档：tight（116×38，真机还要 ×0.8 → 93×30）里执行者让位，
+ * 编号与标题必须都在——那才是"这是哪张单、在干什么"。
+ * 进度条保留（2px）：状态之外，它还回答"做到哪了"。
+ */
+.board-node[data-fit='tight'] {
+  padding: 2px 5px;
+}
+.board-node[data-fit='tight'] .board-node-owner {
+  display: none;
+}
+.board-node[data-fit='tight'] .board-node-top {
+  font-size: 9.5px;
+}
+/*
+ * 详情条（R152）：从两行长句压成一行读数。
+ * 默认只留一句「点一张单或一个人，看详情」；图示说明搬进 `title`。
+ */
 .board-detail {
   display: flex;
   align-items: center;
-  gap: var(--s-3);
+  gap: 6px 10px;
   flex-wrap: wrap;
-  padding: var(--s-2) var(--s-3);
+  min-height: 34px;
+  padding: 8px var(--s-3);
   border-top: 1px solid var(--stroke);
-  font-size: var(--fs-sub);
+  font-size: 11.5px;
   color: var(--fg-1);
   /* 产出面板的定位原点；z-index 让整条详情（含浮起的产出）压在依赖图之上。 */
   position: relative;
   z-index: 2;
+}
+.board-detail-hint {
+  color: var(--ink-2);
+}
+.board-detail-field {
+  color: var(--ink-1);
+  font-variant-numeric: tabular-nums;
+}
+.board-detail-title {
+  color: var(--fg-0);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-detail-id {
+  font-family: var(--mono-font);
+  color: var(--fg-0);
+}
+.board-unlocks {
+  color: var(--st-ready);
 }
 
 /* ── 卡死（R67 / M13-5）：前置单已失败 → 永远等不到 ────────────────────────────
@@ -1374,7 +1542,7 @@
 .board-node.is-dead {
   border-style: dashed;
   border-left-style: solid;
-  background: color-mix(in srgb, var(--st-dead) 10%, var(--board-card, var(--bg-1)));
+  background: color-mix(in srgb, var(--st-dead) 10%, var(--paper-card));
 }
 /* 卡死这一枚从色点到文字**整枚**都得是"死"的味道：
    只染色点的话，标签还是灰的，扫一眼仍然像普通计数（R67 真机自查）。 */
@@ -1474,7 +1642,7 @@
   /* **必须不透明**：`--surface-1` 是 4% 白的玻璃色，本来是叠在不透明底上的。
      直接拿它当背景，下面的依赖图会透出来、和结论正文叠在一起，**根本读不了**
      （R45 真机自查，截图里方框和文字串行）。所以先铺不透明底色，再叠那层玻璃色。 */
-  background-color: var(--board-card);
+  background-color: var(--paper-card);
   background-image: linear-gradient(var(--surface-1), var(--surface-1));
   border: 1px solid var(--stroke-strong);
   border-bottom: none;
@@ -1541,73 +1709,69 @@
 .board.is-collapsed .board-view {
   display: none;
 }
-.board-detail-id {
-  font-family: var(--mono-font);
-  color: var(--fg-0);
-}
-.board-unlocks {
-  color: var(--ink);
-  box-shadow: inset 3px 0 0 var(--st-ready);
-}
-
-/* ── 视图条（R46 · M10-11）：分组签 + 状态过滤，两排 chip 可叠加 ──────────────
-   为什么放在看板里而不是抽屉里：分组/过滤改的是**图**画什么，控件就该挨着图。 */
+/* ── 视图条（R46 · M10-11，R152 重做）─────────────────────────────────────────
+   为什么放在看板里：分组/过滤改的是**图**画什么，控件就该挨着图。
+   R152：两排 chip 各自**单行横向滚动**（不是折行）——原来四枚 205px 的
+   `快速修一个 bug · 3 张（3 未完成）` 在图头顶掉 113px，那是图的高度。
+   现在 chip 只有「名字 + 数字」，放不下就横向滑（`scrollbar-width: none`，仍可滚）。 */
 .board-view {
   display: flex;
-  align-items: center;
-  gap: var(--s-2) var(--s-3);
-  flex-wrap: wrap;
-  /* 这一条是**图的可用高度**的直接来源：8px → 2px 就是让 quick-fix（tight 档 304px）
-     在 1280×900 下回到 scale 1 的那几像素。 */
-  padding: 0 var(--s-3) 2px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 6px var(--s-2);
   border-bottom: 1px solid var(--stroke);
 }
 .board-view-chips {
   display: flex;
   align-items: center;
-  gap: var(--s-1);
+  gap: 4px;
   flex-wrap: wrap;
 }
 .board-view-chip {
-  padding: 1px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 9px;
   border-radius: var(--r-pill);
   border: 1px solid var(--stroke);
   background: transparent;
   color: var(--fg-1);
-  font-size: var(--fs-micro);
+  font-size: 11.5px;
   font-family: var(--ui-font);
   cursor: pointer;
   white-space: nowrap;
+  transition: background var(--t-hover) var(--ease), border-color var(--t-hover) var(--ease);
 }
 .board-view-chip:hover {
   background: var(--surface-2);
+  border-color: var(--stroke-strong);
 }
 /* 选中的那一档要一眼看得出（两排 chip 各自只能有一个 active） */
 .board-view-chip.is-active {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--screen) 16%, transparent);
+  border-color: var(--screen);
+  color: var(--fg-0);
+}
+.board-view-name {
+  min-width: 0;
+  max-width: 132px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board-view-count {
+  font-family: var(--mono-font);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+.board-view-chip.is-active .board-view-count {
   color: var(--fg-0);
 }
 .board-view-filter {
-  font-family: var(--mono-font);
-}
-
-/* 成员看板开合（R46）：窄视口默认收起，把高度让给图。 */
-.board-members-toggle {
-  margin-left: var(--s-2);
-  font-size: var(--fs-micro);
-  padding: 0 6px;
-}
-.board-members.is-collapsed {
-  /* 收起时只留一行标题：这里的每一像素都是**图的高度**（1024×800 下 canvas 298px，
-     而 quick-fix 的 tight 几何要 304px——就差在这 18px 上）。 */
-  padding: 2px var(--s-2) 4px;
-}
-.board-members.is-collapsed h3 {
-  margin-bottom: 0;
-}
-.board-members.is-collapsed .board-member-list {
-  display: none;
+  font-family: var(--ui-font);
 }
 
 /* ── 看板摘要条（收起时可见：段宽 = 状态占比）────────────────────────────── */

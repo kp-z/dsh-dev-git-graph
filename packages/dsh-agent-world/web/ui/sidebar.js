@@ -84,8 +84,9 @@ export function createSidebar(options = {}) {
   const body = el(doc, 'div', 'sidebar-body')
   body.id = 'sidebar-body'
 
-  /** 两块常驻区域：`<section role="region">` + 自己的标题（不再是 tabpanel）。 */
+  /** 两块常驻区域：`<section role="region">` + 自己的标题 + **一行计数位**（R152）。 */
   const panels = {}
+  const metas = {}
   const titleIds = {}
   for (const region of REGIONS) {
     const panel = el(doc, 'section', `sidebar-panel sidebar-panel-${region.id}`)
@@ -94,12 +95,26 @@ export function createSidebar(options = {}) {
     panel.setAttribute('role', 'region')
     const titleId = `sidebar-region-${region.id}`
     titleIds[region.id] = titleId
+    /*
+     * R152：标题与计数住在同一个 header 里。
+     *
+     * 为什么把计数位交给侧边栏、而不是让看板自己再写一行 `h3`：
+     * 原来每块有**两层标题**（侧边栏的「团队」+ 看板里的「成员看板」），
+     * 同一个意思写两遍，还各自占一行纵向空间。现在外壳只给一个位置，
+     * 看板往里写数据（`9 人 · 3 忙碌`），标题不重复、也不多占一行。
+     */
+    const head = el(doc, 'header', 'sidebar-region-head')
     const title = el(doc, 'h2', 'sidebar-region-title', region.title)
     title.id = titleId
+    const meta = el(doc, 'div', 'sidebar-region-meta')
+    meta.id = `sidebar-region-meta-${region.id}`
+    // 不加 `aria-live`：计数随世界持续变化，polite 播报会变成噪音。
+    head.append(title, meta)
     panel.setAttribute('aria-labelledby', titleId)
-    panel.append(title)
+    panel.append(head)
     body.append(panel)
     panels[region.id] = panel
+    metas[region.id] = meta
   }
   root.append(body)
 
@@ -166,7 +181,11 @@ export function createSidebar(options = {}) {
 
   return {
     /** 给 `createBoard({ mounts })` 的两个容器。 */
-    mounts: () => ({ members: panels.agents, graph: panels.graph }),
+    /**
+     * 给 `createBoard({ mounts })` 的四块位置：
+     * 两块内容容器 + 两块标题旁的计数位（R152）。
+     */
+    mounts: () => ({ members: panels.agents, graph: panels.graph, agentsMeta: metas.agents, graphMeta: metas.graph }),
     collapsed: () => collapsed,
     setCollapsed,
     toggle: () => setCollapsed(!collapsed),
@@ -211,7 +230,7 @@ function writeCollapsed(collapsed) {
 /** 没有容器时的空实现：接口同形，一律无操作（避免调用点到处判空）。 */
 function createNullSidebar() {
   return {
-    mounts: () => ({ members: null, graph: null }),
+    mounts: () => ({ members: null, graph: null, agentsMeta: null, graphMeta: null }),
     collapsed: () => false,
     setCollapsed: () => false,
     toggle: () => false,

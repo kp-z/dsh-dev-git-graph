@@ -1,5 +1,5 @@
 /*
- * 侧边栏（R2 建 → R3 收口）—— 页面内 `<aside>`，挤窄舞台而不是浮在上面。
+ * 侧边栏（R2 建 → R3 收口 → R152 重新设计）—— 页面内 `<aside>`，挤窄舞台而不是浮在上面。
  *
  * ## 为什么是 grid 列（而不是 `position:absolute` 浮层）
  *
@@ -12,8 +12,25 @@
  * ⚠️ **不许**在这里、或任何地方，在侧边栏开合时手调 `game.scale.resize()`
  *（`scene-phaser.js:2126-2127`：那会让真机上刚拖好的缩放被打回 1×）。
  *
- * `.app` 的原则是 `layout.css` 的（只定义了行），这里**追加列**——用同一份 grid 容器，
- * 但不在别人的文件里改，避免与并行 Agent 冲突。
+ * ## R152：从"两列平铺"改成"两块值班台"
+ *
+ * 用户原话：「整体都需要重新设计下」。改之前的四个具体问题：
+ *   1. 每块有**两层标题**（侧边栏「团队」+ 看板「成员看板」/「任务依赖图」），
+ *      同一个意思写两遍，还各自占一行纵向空间；
+ *   2. 成员栏有个「收起」按钮——用户明确说**不需要**；
+ *   3. 图头挂着 `（比可见区大 341×0px，图内可滚动）` 这种**调试读数**，
+ *      在 256px 宽的栏里折成两行、吃掉 38px 图高；
+ *   4. 筛选 chip 写着 `快速修一个 bug · 3 张（3 未完成）`，四枚折成 4 行、吃掉 113px。
+ *
+ * 现在是**两块"值班台"面板**：同一块纸面板上并排两个 console，各有固定的 header
+ *（标题 + 一行计数：`9 人 · 3 忙碌` / `10 张 · 8 完成`）和各自独立的滚动区。
+ * 计数由看板写进 header（`mounts.agentsMeta` / `graphMeta`），标题只留一层。
+ *
+ * ## 折叠会让两块容器变成 0×0（这是本文件最需要小心的地方）
+ *
+ * 依赖图的几何是**按容器实测尺寸**挑的。折叠侧边栏时两块容器宽高都是 0，
+ * 这时去画会得到一张缩到 0.4 下限的废图；而"展开之后不重画"就会一直停在废图上。
+ * 所以：**折叠时什么都不量，展开之后由 `onExpand` 触发一次重画**。
  */
 
 .app {
@@ -26,180 +43,203 @@
 
 #sidebar {
   grid-column: 2;
-  /* 跨满三行 = 顶栏以下到底部，视觉上是一条完整的"人"栏。 */
-  grid-row: 1 / -1;
+  /* R152：只占中间那一行（顶栏与底栏之间）——顶栏现在跨两列，侧边栏开关就在它右上角正上方。 */
+  grid-row: 2;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  /* R103：侧边栏 = **纸面板**（原来是半透明玻璃）。左沿墨线分隔舞台。 */
-  background: var(--paper-panel);
-  border-left: 2px solid var(--ink);
-  box-shadow: var(--bevel);
+  /* R152：侧边栏不再是一整块底板——它是**两张悬浮卡片**（团队 / 任务图）的容器。
+     底板透明，露出页面暗底；边框和阴影长在卡片自己身上。 */
+  background: transparent;
+  border: 0;
+  box-shadow: none;
   z-index: var(--z-drawer);
+
+  /* 值班台自己的两条局部色：面板面 + 分隔线。
+     只在这里定义，组件层仍然走 `--board-*` / 状态 token，不新增色值。 */
+  --console-bg: var(--panel);
+  --console-line: var(--edge);
+  --console-line-soft: var(--edge-soft);
+  --console-radius: var(--r-lg);
 
   /* ── 看板 token（R3）──────────────────────────────────────────────────────
      看板原先住在 `#board` 里，它的成员列宽与底色变量挂在 `tokens.css` 的 `#board {}` 上。
-     现在看板挂进侧边栏，那些变量必须能被**两档**继承到，所以在这里重挂一遍。
+     现在看板挂进侧边栏，那些变量必须能被**两块**继承到，所以在这里重挂一遍。
      ⚠️ `--board-members-w: 0` 是必须的：它是"成员列占多宽"，而侧边栏里成员列是**整宽**的
-        （见下方 `.board-members { width: auto }`）。留着 300px 会让成员行只占左边一半、
-        右边空出一条，还顺带把产出阅读面板（`.board-read` 的 `left`）推到错的位置。 */
+        （见下方 `.board-members { width: auto }`）。 */
   --board-members-w: 0px;
-  /* R103：**纸色**（原来是 `--bg-0` 深底）。这里必须跟着 tokens 一起换，
-     否则侧边栏是纸、里面挂的看板还是深色——那正是"新组件配旧色"的半成品。 */
   --board-bg: var(--paper-panel);
   --board-card: var(--paper-card);
-  --board-fg: var(--ink);
-  --board-dim: var(--ink-dim);
-  --board-line: var(--ink);
+  --board-fg: var(--ink-0);
+  --board-dim: var(--ink-2);
+  --board-line: var(--stroke-strong);
   --board-card-line: var(--stroke);
+
+  /* 侧边栏比舞台更需要"别把东西切掉"：滚到底/滚到边时露出的滚动条也按主题上色。
+     （craft floor：浏览器自己的滚动条/选区/焦点环同样是设计的一部分。） */
+  scrollbar-width: thin;
+  scrollbar-color: var(--stroke-strong) transparent;
+}
+#sidebar ::selection {
+  background: var(--screen-soft);
+  color: var(--fg-0);
+}
+#sidebar :focus-visible {
+  outline: 2px solid var(--screen);
+  outline-offset: 2px;
+}
+#sidebar * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--stroke-strong) transparent;
+}
+#sidebar *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+#sidebar *::-webkit-scrollbar-thumb {
+  background: var(--stroke-strong);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-pill);
+}
+#sidebar *::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-/* ── 体：**左右两栏**（R116）────────────────────────────────────────────────
-   用户原话：「侧边栏任务图和 agent 列表应该是左右分布，不是上下」。
-   左＝Agent 列表（定位人），右＝任务图（看活）——两块是**并列的两个视角**，
-   左右并排才能"扫一眼同时看到"，上下堆叠会把下面那块推到屏幕外。
+/* ── 体：两块值班台（R152）─────────────────────────────────────────────────
+   左＝团队（定位人），右＝任务（看活）。两块横向并排才能"扫一眼同时看到"。
+   ⚠️ 两块**各自独立滚动**：统一滚会让"滚任务图"顺手把成员列表也滚走。
 
-   ⚠️ 两栏**各自独立滚动**（`.sidebar-body` 不再统一滚）：
-   统一滚会让"滚动看任务图"顺手把 Agent 列表也滚走，而它们是两个独立的阅读位置。
-   ⚠️ 折叠时整个 body 藏起来——那才会让两块容器量出 0×0（见 `sidebar.js` 的注释）。 */
+   R152：列比例从 0.9/1.1 收到 **0.86/1.14**——头像+名字/角色/状态那一行在 200–210px
+   就够用，省下的 10–16px 给图（图区的宽度是它最缺的资源）。 */
 .sidebar-body {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  /* 两列都 `minmax(0, …)`：不加的话 grid 子项会被内容撑破（`1fr` 的最小尺寸是 auto）。 */
-  /* 图区那一栏**更宽一点**：Agent 行很短（名字+角色+状态块），
-     而依赖图的节点有标题，宽度是它最缺的资源。 */
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
-  gap: var(--s-2);
-  padding: var(--s-2);
-  overflow: hidden;
+  grid-template-columns: minmax(0, 0.86fr) minmax(0, 1.14fr);
+  gap: var(--s-3);
+  /* 不再加内边距：侧边栏卡片要和顶栏/舞台卡片共用同一圈 12px 页边距。 */
+  padding: 0;
+  /* 卡片阴影要能露出来：这里不能裁切。滚动由两块卡片内部的滚动区负责。 */
+  overflow: visible;
+  background: transparent;
 }
+
+/* 一块值班台（R152）：**悬浮卡片**（团队 / 任务图各一张）。
+   与 header、舞台、底栏同一套卡面：1px 边 + 圆角 + 一层柔和阴影。 */
 .sidebar-panel {
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  /* **每栏自己滚**：这是"两个独立阅读位置"的实现。 */
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
+  background: var(--console-bg);
+  border: 1px solid var(--console-line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
 }
 .sidebar-panel[hidden] {
   display: none;
 }
-/* ── Agent 档：看板的成员栏搬过来（R3）───────────────────────────────────────
-   `renderMembers()` 的产物本身没变（`.board-members` / `.board-member`），
-   这里只把"左栏 300px 固定宽"改成"整宽"，因为侧边栏里没有左右分栏。 */
+
+/* 面板头：标题 + 计数。**没有 eyebrow、没有第二层 h3**。 */
+.sidebar-region-head {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: 10px var(--s-3);
+  /* R152：header 就是面板本身，只用一条 1px 线分隔。
+     这里原来写的是 `panel-2 45% + panel` 的混合色——它既不是面板也不是卡片，
+     和两边的底色都差一点，读起来像"没对齐"而不是"有层次"。 */
+  border-bottom: 1px solid var(--console-line-soft);
+}
+.sidebar-region-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--fg-0);
+}
+.sidebar-region-meta {
+  font-size: 11px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── 左：团队（成员行整宽、自己滚）────────────────────────────────────────── */
 .sidebar-panel-agents .board-members {
   width: auto;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: visible;
-  padding: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--s-2);
   border-right: none;
 }
-.sidebar-panel-agents .board-members h3 {
-  /* 档签已经说明这是"Agent 列表"，再来一个「成员看板」小标题是同一句话。
-     但开合按钮（窄视口那张）要留着——它是折叠态的唯一出口。 */
-  font-size: var(--fs-micro);
-  color: var(--fg-2);
-}
-.sidebar-panel-agents .board-member {
-  cursor: pointer;
-  /* R103：部门色竖条（设计文档 §5.2）的**就位钩子**。
-     `--rail` 由 `board.js` 写（成员的部门色）；**没写时是透明的**，卡片外观不变——
-     所以这条现在是无害的空钩子，不是"半成品外观"。
-     为什么不在 CSS 里定颜色：`buildBoardModel()` 的 member 模型不带 `palette`，
-     而"哪个 role 归哪个部门色"是**设计决策**，不该由实现者发明。 */
-  position: relative;
-}
-.sidebar-panel-agents .board-member::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--rail, transparent);
-}
-.sidebar-panel-agents .board-member-head {
-  flex: 1 1 100%;
-  min-width: 0;
-}
-.sidebar-panel-agents .board-member-head b {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/* 媒体查询里那条"成员铺成网格"是给独立模式（#board）的；侧边栏里永远是一条竖列。 */
+#sidebar .board-member-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-/* ── 任务图档：视图条 + 依赖图 + 详情（R3）────────────────────────────────── */
+/* ── 右：任务（视图条 + 图 + 详情）────────────────────────────────────────── */
 .sidebar-panel-graph .board-view {
   flex: none;
-  padding: var(--s-2) var(--s-2) 0;
+  padding: var(--s-2) var(--s-2) 6px;
 }
 .sidebar-panel-graph .board-graph {
-  /* R116：两栏之后这一栏是**整栏高度**，所以图可以（也应该）撑满剩余空间。
-     （R99 那版是上下堆叠、外层按内容取高，那时 `flex: 1` 会退化成 0，
-      所以当时必须给死高度；两栏之后这个约束消失了。） */
   flex: 1 1 auto;
   min-height: 0;
-  /* 同上：不写的话它会被图撑宽，横向就变成"被裁"而不是"可滚"。 */
   min-width: 0;
   padding: var(--s-2);
+  display: flex;
+  flex-direction: column;
 }
 /*
- * 画布撑满图区剩下的高度。**超出的部分由它自己滚**（`.board-canvas` 是可见容器，
- * 本来就是为此存在的），所以 `min-height: 0` 是必须的——否则 flex 子项不肯缩，
- * 图会把整栏顶高、把 `.sidebar-panel` 的滚动条逼出来。
+ * 画布撑满图区剩下的高度。**超出的部分由它自己滚**（`.board-canvas` 是可见容器），
+ * 所以 `min-height: 0` 是必须的——否则 flex 子项不肯缩，图会把整栏顶高。
+ * ⚠️ `min-width: 0` 也不能省（R120）：flex 子项的自动最小尺寸是 `min-width:auto`，
+ * 它不肯缩到比内容窄，于是画布会被内容撑宽、由外面裁掉，而自己永远不出现横向滚动条。
  */
 .sidebar-panel-graph .board-canvas {
   flex: 1 1 auto;
   min-height: 120px;
-  /*
-   * ⚠️ `min-width: 0` **不能省**（R120）。
-   *
-   * flex 子项的自动最小尺寸是 `min-width: auto` —— 它**不肯缩到比内容还窄**，
-   * 于是图比栏宽时，是**画布被撑宽**、由外面的 `.sidebar-panel`（`overflow-x: hidden`）
-   * 把右边**裁掉**，而画布自己的横向滚动条**永远不出现**。
-   * 加上 `min-width: 0` 之后画布保持栏宽，内容超出由它自己滚——
-   * 这才是"装不下就滚"，而不是"装不下就切"。
-   */
   min-width: 0;
-}
-.sidebar-panel-graph .board-graph h3 {
-  /* 图头那句"左 → 右：前置解锁后续"在窄栏里换行会占两行，压成一行小字。 */
-  font-size: var(--fs-micro);
-  color: var(--fg-2);
-}
-.sidebar-panel-graph .board-graph h3 .dim {
-  display: none;
 }
 .sidebar-panel-graph .board-detail {
   flex: none;
-  /* 详情条在窄栏里必须换行：一行排不下"状态/执行者/解锁了…"四段。 */
   flex-wrap: wrap;
-  padding: var(--s-2);
-  border-top: 1px solid var(--stroke);
-  font-size: var(--fs-micro);
+  padding: 8px var(--s-3);
+  border-top: 1px solid var(--console-line-soft);
+  font-size: 11.5px;
 }
 .sidebar-panel-graph .board-missing-note {
   flex: none;
   font-size: var(--fs-micro);
+  margin: 0 var(--s-2);
 }
 
-/* 看板的"缺 token"告警与图头提示都靠 `hidden` 收起——挂载模式下这些节点分散在两档里，
-   统一在这里兜一道，免得漏掉某个容器自己的 `display` 覆盖了 `hidden`。 */
+/* 看板的"缺 token"告警与空状态都靠 `hidden` 收起——统一兜一道，
+   免得某个容器自己的 `display` 覆盖了 `hidden`。 */
 #sidebar [hidden] {
   display: none !important;
 }
 
 /* ── 窄视口：侧边栏让位 ────────────────────────────────────────────────────── */
 /*
- * R116：两栏之后侧边栏要 580px 才不挤。窄视口分两档收窄：
- *   · ≤1440：收到 520px（仍够两栏）
- *   · ≤1200：**改回上下堆叠**——两栏各 250px 谁都读不了，
- *     而"两块都要看得见"是 R99 定下的红线（不能靠隐藏一栏来省地方）。
- * 只**收窄/换排**，不隐藏：隐藏会让"唯一的交互面"在窄屏上直接消失，比拥挤更糟。
+ * R152：两栏布局的断点从 900 抬到 **1080**。
+ * 1080 以下侧边栏收到 420px，两栏各只剩 ~180px——头像+名字+状态挤成两行、
+ * 图区连一列节点都放不下。这不是"窄一点"，是"两块都读不了"。
+ * 所以这一档改回**上下堆叠**（每块各占一半高度、各自滚），而不是藏掉任何一块：
+ * 「两块都要看得见」是 R99 定下的红线。
  */
 @media (max-width: 1280px) {
   .app {
@@ -210,15 +250,16 @@
   .app {
     --sidebar-w: 420px;
   }
+  .sidebar-body {
+    grid-template-columns: minmax(0, 1fr);
+    /* 上下堆叠时给图多一档：成员行是密集列表，图需要高度才排得下两列。 */
+    grid-template-rows: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: var(--s-2);
+  }
 }
 @media (max-width: 900px) {
   .app {
     --sidebar-w: 300px;
-  }
-  .sidebar-body {
-    /* 窄档：两栏并排会各自挤成一条 —— 改回上下，两块仍然同时可见。 */
-    grid-template-columns: minmax(0, 1fr);
-    grid-auto-rows: minmax(0, 1fr);
   }
 }
 
@@ -236,8 +277,10 @@
  *（`sidebar.js` 的 `onExpand` 走 `requestAnimationFrame`，见那边的注释）。
  */
 .app.is-sidebar-collapsed {
-  --sidebar-w: 34px;
+  /* 卡片式之后，折叠 = 侧边栏那个 grid 列整个消失，舞台卡片自动铺满。 */
+  --sidebar-w: 0px;
+  grid-template-columns: 1fr;
 }
-.app.is-sidebar-collapsed #sidebar .sidebar-body {
+.app.is-sidebar-collapsed #sidebar {
   display: none;
 }

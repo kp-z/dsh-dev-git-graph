@@ -42,6 +42,64 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R160（Lead）—— 团队头像改用角色贴图；恢复被误染的原色贴图
+
+### 头像：从字母块换成角色贴图
+团队列表的 `30×30` 头像改为从 `scene.models` 取该 agent 的图集，用 `idle.down` 首帧裁「头 + 肩」。
+纯计算抽到 `web/core/member-avatar.js`（`resolveMemberSprite` / `spriteAvatarStyle`），8 个席位一一对应
+Tom / Lea / Jack / Joe / Stephen / Alice / Grace / Monica；找不到贴图（未分配、场景未到）仍退回名字首字。
+
+真机踩到并修掉的两个坑：
+- `background-size: 30px auto` 把**整张 1792px 图集**压成 30px，一格只剩 ~0.5px → 头像空白。改成 `auto`（原始像素）。
+- 只裁到 `y≈12–42` 时 2/3 是头发、脸只露一条边。窗口下移到 `y≈24–54`：头发下沿 + 整张脸 + 肩膀；
+  裁切区不透明像素从 592/900 提到 **828/900**。
+
+### 原色贴图：不要无条件重上色
+`drawActors` 之前**无条件**调用 `ensureTintedSheet`，把每个 agent 的图集按角色色重染一遍。
+`SceneSheetSpec.recolor` 的缺省是 `false`（“别人画好的美术默认不动”），但代码没看这个开关：
+Microverse 的角色被整张染色后头发/脸/衣服变成一色，看起来像“各种颜色的框”。
+
+修法：只有 `sheet.recolor === true` 才重染，其余（`false` / `undefined` / 重染失败）回原图；
+判定收进 `actorTextureKey({ baseKey, tintedKey, sheet })`（`web/core/pixel-recolor.js`）并加回归测试。
+真机：8 个 actor 的 `texture.key` 从 `tint:microverse/…` 回到 `tex:microverse/…`，`tint = 16777215`。
+
+测试：`member-avatar.test.js`（6 条）+ `pixel-sprite.test.js` 新增重染开关回归，全量 **724 / 724**。
+
+---
+
+## R161（Lead）—— 把 Agent World 放进 **DSH 侧边栏主面板**（Client half + 可挂载装配）
+
+### 为什么之前不在侧边栏
+`dsh-agent-world` 是 Host-only bundle：用 `ctx.inject(['webServer'])` 注册 `/agent-world` 前缀，
+自己吐一整页 HTML（Phaser + 自己的顶栏/底栏/右侧团队栏）。DSH 壳不知道它存在，
+只能在浏览器里单独打开 `/agent-world/`；当前运行的 `desktop` profile 里甚至没装。
+
+### 现在
+- **Client half**：`package.json` 加 `dsh.client`（platform web）与 `./client` 导出；
+  `src/client.js` 注册两处 slot：
+  - `sidebar.panellist` / id `agent-world`：侧边栏里的全局面板图标（label “Agent World”）；
+  - `main` / key `agent-world`：主面板内容。
+- **可挂载装配**：`web/main.js` 导出 `mountAgentWorld({ root, baseUrl, embedded })`，独立页与 DSH 面板共用一份代码；
+  自动挂载只在 `#town` 存在且未嵌入时发生。
+- **嵌入桥**：`web/embed.js` 取 `/agent-world/index.html` 的 `.app`（去掉自己的顶栏/底栏），
+  把五份 CSS 以 `@scope (#agent-world-root)` 注入（tokens 改写到容器上），再调 `mountAgentWorld`。
+  **没有 iframe**：DSH 的 UI 规范明确 iframe 拿不到宿主主题/语言。
+- **Phaser**：从裸说明符 `from 'phaser'` 改为 `import(new URL('../vendor/…', import.meta.url))`，
+  因为宿主页面没有独立页的 import map。
+
+### 真机验证（隔离的 web profile，不碰当前会话）
+在 workspace 里用 `DSH_HOME=.tmp-dsh-home dsh --from-default-profile web --profile awtest …` 起了一个独立 web profile，
+`dsh plugin add file:packages/dsh-agent-world` 安装后 boot 在 `127.0.0.1:18439`：
+- 左侧「全局面板」出现 **Agent World** 图标；
+- 点击后主面板挂载成功：`#agent-world-root` 1120×804，Phaser 8 actors、团队 8 行、任务图 71 节点；
+- 切到「插件」再切回：root / style / actors 全部清 0 后重新挂载成功（无残留、无第二个实例）；
+- 宿主样式未被污染（页面 body 背景/字体仍是 DSH 自己的）。
+
+全量 **724 / 724**。注意：当前 GUI 走的是 `desktop` profile，**没有**装这个插件；
+要让它出现在你正在用的 GUI 里，需要把 bundle 装进 `desktop` 并重启宿主。
+
+---
+
 ## R159（Lead）—— 把一次性遮挡审计做成**页内自检读数** `occlusionAudit()`；顺带救活一次白屏
 
 ### 产出一：可复用的遮挡自检（替代一次性脚本）

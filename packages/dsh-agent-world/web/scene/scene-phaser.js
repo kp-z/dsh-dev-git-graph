@@ -34,7 +34,16 @@
  * 2. **拾取用精灵自己的包围盒**（`getBounds()`，与 `setInteractive` 的命中几何同一份）：
  *    R57 的拾取是"脚下 ±16px 的圆"，实测角色的头/身体 3/4 点不中（R58 查清的死角）。
  */
-import { CANVAS, Cameras, Game, Scale, Scene, WEBGL } from 'phaser'
+/*
+ * Phaser 用**绝对 URL 动态 import**，而不是裸说明符 `phaser`。
+ *
+ * 原因（R161 / DSH 侧边栏集成）：独立页面里有一张 import map 把 `phaser` 指到 vendor，
+ * 但把这个应用挂进 DSH 主面板时，宿主页面**没有这张 import map**——裸说明符会解析失败。
+ * `import.meta.url` 永远指向本文件（`/agent-world/scene/…`），所以 `../vendor/…`
+ * 在独立页与嵌入页里都成立。
+ */
+const PhaserModule = await import(new URL('../vendor/phaser/phaser.esm.min.js', import.meta.url).href)
+const { CANVAS, Cameras, Game, Scale, Scene, WEBGL } = PhaserModule
 
 import { parseRgb } from '../core/ground-tiles.js'
 import {
@@ -59,7 +68,7 @@ import {
   worldFrame,
   zoomLevels,
 } from '../core/scene-layout.js'
-import { assignColorVariants } from '../core/pixel-recolor.js'
+import { actorTextureKey, assignColorVariants } from '../core/pixel-recolor.js'
 // R123：头顶工单行的**文本**逻辑住在 `core/`（纯函数、能在 node 里测）。
 // 为什么不能留在本文件：这个文件顶部 `import ... from 'phaser'` 指向浏览器 vendor，
 // **node 加载不了它**——留在这里就等于"这条逻辑永远无法单测"，
@@ -1865,7 +1874,17 @@ export function createScenePhaser(canvas, options = {}) {
       const posX = Math.round(actor.x * TILE_PX)
       const posY = Math.round(actor.z * TILE_PX)
       if (baseKey !== null && activeScene.textures.exists(baseKey) === true) {
-        const textureKey = ensureTintedSheet(model.url, actor.color, variants.get(actor.id) ?? 0, sheet) ?? baseKey
+        /*
+         * R160：**只有内容显式声明 `recolor: true` 才重上色**。
+         * 之前这里无条件调用 `ensureTintedSheet`，于是 Microverse 这套「已经画好的角色」
+         * 被按角色色整张重染：头发/脸/衣服都变成同一色，看起来像一块**彩色的框**。
+         * `sheet.recolor` 的缺省是 false（内容层 `SheetSpec.recolor` 写明了），
+         * 所以这里必须尊重它，否则每一轮都会把原图“改色”。
+         */
+        const tintedKey = sheet?.recolor === true
+          ? ensureTintedSheet(model.url, actor.color, variants.get(actor.id) ?? 0, sheet)
+          : null
+        const textureKey = actorTextureKey({ baseKey, tintedKey, sheet })
         if (entry.sprite === null) {
           // 用**引擎的 Arcade 物理精灵**：移动交给物理系统（`moveActorTo` 里的 `physics.moveTo`），
           // 不手写每帧补间。物理体负责"朝目标匀速走"，其余（动画/点人/深度）照旧。
@@ -2559,7 +2578,7 @@ export function createScenePhaser(canvas, options = {}) {
       }
     },
     /**
-     * R159：**遮挡关系自检**——把「深度是不是由位置推出来的」变成可读读数。
+     * R160：**遮挡关系自检**——把「深度是不是由位置推出来的」变成可读读数。
      *
      * ## 为什么需要它
      * 遮挡错了**永远不会报错**：画面只是"看着怪"。R152 的椅子就是这样——24 把全被钉在固定深度 15，

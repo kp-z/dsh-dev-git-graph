@@ -23,8 +23,9 @@
  * 而不是静默退回一个看起来"设计就这样"的灰。
  */
 
-import { MEMBERS_TOGGLE_LABEL, VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, agentStateLabel, agentStateTone, groupViewLabel, roleLabel, stallReasonLabel, taskStatusLabel } from './labels.js'
+import { VIEW_FILTERS_ORDER, VIEW_FILTER_LABEL, agentStateLabel, agentStateTone, groupDisplayName, groupViewLabel, memberInitial, roleLabel, stallReasonLabel, taskStatusLabel } from './labels.js'
 import { summarizeTaskOutput } from '../core/task-output.js'
+import { resolveMemberSprite, spriteAvatarStyle } from '../core/member-avatar.js'
 import {
   applyView,
   groupTasks,
@@ -139,6 +140,11 @@ export function createBoard(options = {}) {
   let layout = null
   let geometry = null
   let world = null
+  /**
+   * 场景计划（R157）：成员头像要用的**角色贴图**在 `scene.models` 里。
+   * 由 `update(world, { scene })` 从快照带进来；事件流不带它，所以拿到之后就留着。
+   */
+  let scene = null
   /** 选中的东西：`{kind:'task'|'member', id}`。 */
   let selected = null
   /**
@@ -157,12 +163,12 @@ export function createBoard(options = {}) {
   let viewFilter = 'all'
   /** 全部流水线的分组统计（**不带过滤**：分组签上的数量是这条流水线一共多少张）。 */
   let allGroups = []
-  /** 成员看板开着吗（窄视口默认收起，见 `applyNarrowDefault`）。 */
-  let membersOpen = true
-  /** 用户手动开合过成员栏吗（手动过之后，窗口跨断点就不再替他改）。 */
-  let membersUserSet = false
+  // R152：成员栏**不再有开合**——用户拍板「成员看板不需要收起按钮」。
+  // 所以这里没有 `membersOpen` / `membersUserSet`，也没有"窄视口默认收起"那条分支：
+  // 只有一种状态，永远展开。窄视口靠布局解决（≤1080 两栏改上下），不靠藏东西。
   // R65：默认**收起**。收起 = 一行摘要（标题 + 进度条 + 计数 + "正在跑什么"），
   // 展开才是完整工单列表——用户点「展开」是他的选择，但**默认状态不许占掉场景**。
+  // （这条只属于独立模式/顶栏里的执行看板；侧边栏挂载模式没有这回事。）
   let collapsed = true
   /** 重画统计（诊断用：能说清"看板到底重画了几次"）。 */
   const counters = { updates: 0, structureRebuilds: 0, stateRefreshes: 0, skipped: 0 }
@@ -226,25 +232,53 @@ export function createBoard(options = {}) {
     const body = el(doc, 'div', 'board-body')
     const members = el(doc, 'section', 'board-members')
     const membersList = el(doc, 'ul', 'board-member-list')
-    const membersHead = el(doc, 'h3', undefined, '成员看板')
-    const membersToggle = el(doc, 'button', 'board-members-toggle ghost')
-    membersToggle.type = 'button'
-    membersToggle.addEventListener('click', () => {
-      membersUserSet = true
-      setMembersOpen(!membersOpen)
-    })
-    membersHead.append(membersToggle)
-    members.append(membersHead, membersList)
+    // R152：这里**不再有** `h3`「成员看板」与开合按钮。侧边栏已经在 header 上写了
+    // 「团队」+ 计数；再写一层标题就是同一个意思两遍，开合按钮则是用户点名要去掉的。
+    members.append(membersList)
 
     const graph = el(doc, 'section', 'board-graph')
-    const graphHead = el(doc, 'h3', undefined, '任务依赖图')
-    graphHead.append(el(doc, 'span', 'dim', '左 → 右：前置解锁后续'))
-    // 缩放到可读下限（0.4）**还**装不下时，画布是可滚动的——这件事要说出来，
-    // 不能让用户以为"图就画了这么多"。文字在 `renderGraph` 里按实际算出的溢出量填。
-    const graphHint = el(doc, 'span', 'board-graph-hint warn')
-    graphHint.hidden = true
-    graphHead.append(graphHint)
+    // R152：删掉 `h3`「任务依赖图」与那行「（比可见区大 297×0px，图内可滚动）」。
+    // 后者是调试读数，不是给用户看的话；可滚动这件事交给画布自己（滚动条 + 点阵底）。
     const canvas = el(doc, 'div', 'board-canvas')
+    /*
+     * R152：画布可以**拖**（图比栏宽时，拖着看比找滚动条自然），也可以聚焦后用方向键滚。
+     * 这替代了原来那行「（比可见区大 …，图内可滚动）」的说明——可滚动应该是一种手感，
+     * 不是一句调试读数。
+     */
+    canvas.tabIndex = 0
+    canvas.setAttribute('aria-label', '任务依赖图：可拖动或滚动查看')
+    let pan = null
+    canvas.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0 || event.target?.closest?.('.board-node') !== null) return
+      pan = { id: event.pointerId, x: event.clientX, y: event.clientY, left: canvas.scrollLeft, top: canvas.scrollTop, moved: false }
+      try {
+        canvas.setPointerCapture(event.pointerId)
+      } catch {
+        /* 合成事件/不支持时忽略：拖动仍可用，只是不捕获指针。 */
+      }
+    })
+    canvas.addEventListener('pointermove', (event) => {
+      if (pan === null || event.pointerId !== pan.id) return
+      const dx = event.clientX - pan.x
+      const dy = event.clientY - pan.y
+      if (!pan.moved && Math.abs(dx) <= 3 && Math.abs(dy) <= 3) return
+      pan.moved = true
+      canvas.scrollLeft = pan.left - dx
+      canvas.scrollTop = pan.top - dy
+      canvas.classList.add('is-panning')
+    })
+    const endPan = (event) => {
+      if (pan === null) return
+      pan = null
+      canvas.classList.remove('is-panning')
+      try {
+        canvas.releasePointerCapture(event.pointerId)
+      } catch {
+        /* 同上。 */
+      }
+    }
+    canvas.addEventListener('pointerup', endPan)
+    canvas.addEventListener('pointercancel', endPan)
     // 三层，各有各的职责（M7-9 修的就是这里）：
     //   canvas  —— **可滚动**的可见容器。**它的尺寸由 flex 决定，绝不由内容决定**。
     //              之前把 canvas 自己撑成内容宽度，于是它溢出了父容器、被父容器裁掉，
@@ -258,8 +292,11 @@ export function createBoard(options = {}) {
     const cards = el(doc, 'div', 'board-cards')
     content.append(edges, cards)
     fit.append(content)
-    canvas.append(fit)
-    graph.append(graphHead, canvas)
+    // 没有任务时不要留一块"看起来加载失败"的空画布——给一句能照做的空状态。
+    const empty = el(doc, 'div', 'board-empty-board', '还没有任务。派一张单，这里会长出第一枚卡片。')
+    empty.hidden = true
+    canvas.append(fit, empty)
+    graph.append(canvas)
     body.append(members, graph)
 
     const detail = el(doc, 'footer', 'board-detail')
@@ -285,46 +322,32 @@ export function createBoard(options = {}) {
     }
     parts = {
       counts, bar, active, missing, viewBar, groupChips, filterChips,
-      members, membersList, membersToggle, body, edges, canvas, fit, content, cards, detail, collapse, graphHint, panel,
+      members, membersList, body, edges, canvas, fit, content, cards, detail, collapse, empty, panel,
+      // R152：计数位由侧边栏的 region header 提供（挂载模式下非空）。
+      agentsMeta: mounts?.agentsMeta ?? null,
+      graphMeta: mounts?.graphMeta ?? null,
     }
     setPalette(palette)
     // 初始状态也要**真的应用**：只改 `collapsed` 的初值、不 paint 的话，
     // 展开/收起的类名与隐藏属性都还停在"展开"上（R65 实测到：看板默认占 306px）。
     setCollapsed(collapsed)
-    setMembersOpen(membersOpen)
-    // 挂载模式下没有"上下分空间"这回事（两档互斥），窄视口收起成员栏的默认也就不适用。
-    if (mounted !== true) applyNarrowDefault()
     observeSize()
   }
 
   /**
-   * 窄视口默认**收起成员看板**（R46）。
+   * 区域计数（R152）：写进侧边栏 header 的那个位置。
    *
-   * 为什么：窄档是"成员在上、图在下"的上下分空间，而真机 28 张单时成员区要 206px——
-   * 图只剩 88px，缩放撞到 0.4 下限就把节点切在画布下面（R45 报的那 11 个节点就是它）。
-   * 收起之后图拿回整块高度，**默认视图（全部）才装得下**。
-   * 用户想看成员就点「展开」，那是他自己的选择（那时图会变小甚至可滚动，图头会说）。
-   *
-   * JS 里再写一遍断点是因为"默认值"没法用 CSS 表达（CSS 只能改样式，不能改 JS 的初始状态）。
+   * 为什么计数不写在看板自己身上：标题属于外壳、读数属于看板——外壳给出位置，
+   * 看板把「9 人 · 3 忙碌」写进去。这样标题只有一层，计数也永远不会和内容对不上
+   * （它和 `renderMembers` 读的是同一份 `model`）。
    */
-  function applyNarrowDefault() {
-    if (!ready || membersUserSet) return
-    const narrow = globalThis.matchMedia?.('(max-width: 1200px)')?.matches ?? false
-    setMembersOpen(!narrow)
-    globalThis.matchMedia?.('(max-width: 1200px)')?.addEventListener?.('change', (event) => {
-      if (membersUserSet) return
-      setMembersOpen(!event.matches)
-    })
-  }
-
-  /** 成员看板开合（收起时列表 `display: none`，`clipped()` 会跳过没显示的行）。 */
-  function setMembersOpen(open) {
-    membersOpen = open === true
-    if (!ready) return
-    parts.members.classList.toggle('is-collapsed', !membersOpen)
-    parts.membersToggle.textContent = membersOpen ? MEMBERS_TOGGLE_LABEL.open : MEMBERS_TOGGLE_LABEL.closed
-    parts.membersToggle.setAttribute('aria-expanded', String(membersOpen))
-    // 开合会改"图能分到多少空间"：ResizeObserver 盯着画布与成员栏，会自己重量重挑档位。
+  function renderRegionMeta() {
+    if (!ready || model === null) return
+    const busy = model.members.filter((m) => m.state !== 'idle' && m.state !== 'sleeping').length
+    const done = model.counts?.done ?? 0
+    const total = model.counts?.total ?? model.tasks.length
+    if (parts.agentsMeta !== null) parts.agentsMeta.textContent = `${model.members.length} 人 · ${busy} 忙碌`
+    if (parts.graphMeta !== null) parts.graphMeta.textContent = `${total} 张 · ${done} 完成`
   }
 
   /** 把 token 写进 CSS 自定义属性（缺的不设，交给 `board-missing*` 看得见）。 */
@@ -460,8 +483,15 @@ export function createBoard(options = {}) {
     // 未分配的单也要有地方挂，否则"没人领的单"在左栏看不见（而它正是要处理的那种）。
     if (model.unowned.length > 0) rows.push({ kind: 'unowned', member: { id: null, name: '未分配', role: null, state: null }, tasks: model.unowned })
 
+    // 空状态也是界面：不写的话这里就是一块空白，看起来像"成员加载失败"。
+    if (rows.length === 0) {
+      list.append(el(doc, 'li', 'board-empty', '还没有成员。世界启动后，这里会列出每个人。'))
+      return
+    }
+
     for (const row of rows) {
       const item = el(doc, 'li', 'board-member')
+      if (row.kind === 'unowned') item.classList.add('is-unowned')
       if (selected !== null && selected.kind === 'member' && selected.id === row.member.id) item.classList.add('active')
       memberRowNodes.set(row.member.id ?? '__unowned__', item)
       /**
@@ -487,26 +517,41 @@ export function createBoard(options = {}) {
         item.setAttribute('aria-disabled', 'true')
       }
       /**
-       * R106：两个**纯展示**钩子，让 CSS 能上色（`board.js` 仍然一个色值都不写）。
+       * R106/R152：两个**纯展示**钩子，让 CSS 能上色（`board.js` 仍然一个色值都不写）。
        *
        * 1. `data-state` —— 成员卡自己的状态块按它取色调（走 `agentStateTone()`，
        *    与任务块同一套：working→in_progress / walking,talking→ready / blocked→blocked /
        *    celebrating→done / idle,sleeping→pending）。
-       * 2. `--rail` —— 左侧 3px 部门色竖条。**颜色只从内容库取**（`palette[token]`）；
-       *    未知 role **不设**（CSS 的 `var(--rail, transparent)` 兜住 → 竖条透明，不猜色）。
+       * 2. `--rail` —— 成员所属那一族的颜色。**颜色只从内容库取**（`palette[token]`）；
+       *    未知 role **不设**（CSS 的 `var(--rail, var(--edge))` 兜住 → 中性色，不猜色）。
        *
-       * ⚠️ 竖条表达"属于哪一族"，**不表达状态**；状态是右边那个块。两者语义不同，别混。
+       * R152：它不再画成左边一条 3px 竖条，而是**头像块**的底色——同一个信息用更小的
+       * 面积说清楚，也避开"卡片左侧彩色竖条"这个到处都是的默认写法。
        */
       if (row.member.state !== null && row.member.state !== undefined) item.dataset.state = row.member.state
       const railColor = ROLE_ACCENT[row.member.role] === undefined ? null : resolveBoardColor(palette, ROLE_ACCENT[row.member.role])
       if (railColor !== null) item.style.setProperty('--rail', railColor)
+      /*
+       * R157：头像优先用**角色贴图**（scene.models 的 idle.down 首帧）。
+       * 找不到（程序化模型 / 场景还没到 / 未分配那一行）才退回 R152 的字母头像——
+       * 这样"贴图没加载出来"不会变成一块空白。
+       */
+      const sprite = row.member.id === null ? null : resolveMemberSprite(scene, row.member.id)
+      const avatar = el(doc, 'span', sprite === null ? 'board-member-avatar' : 'board-member-avatar is-sprite', sprite === null ? memberInitial(memberName) : '')
+      avatar.setAttribute('aria-hidden', 'true')
+      if (sprite !== null) {
+        const style = spriteAvatarStyle(sprite)
+        avatar.style.backgroundImage = style.backgroundImage
+        avatar.style.backgroundSize = style.backgroundSize
+        avatar.style.backgroundPosition = style.backgroundPosition
+      }
       const head = el(doc, 'div', 'board-member-head')
-      head.append(el(doc, 'b', undefined, memberName))
+      head.append(el(doc, 'b', 'board-member-name', memberName))
       // R3：角色/状态**翻成中文**。看板原先直接印 `lead` / `idle`（原始状态码），
       // 而 R2 的侧边栏印的是「负责人 · 待命」。共用一份渲染之后只能有一份措辞——
       // 选中文：状态码是给程序看的，界面上印 `idle` 等于没给用户任何信息。
       const roleText = roleLabel(row.member.role)
-      if (roleText !== '') head.append(el(doc, 'span', 'dim', roleText))
+      if (roleText !== '') head.append(el(doc, 'span', 'board-member-role', roleText))
       // 状态是会变的那一半：留下来给 `refreshState()` 就地改文字，不必重建整块列表。
       //
       // R106：它现在是**实心状态块**（与任务块共用 `.board-status-block`），
@@ -538,7 +583,9 @@ export function createBoard(options = {}) {
         // 「未分配」那一行 `id === null`（它没有场景实体），不可聚焦。
         if (row.member.id !== null) options.onMemberSelect?.(row.member.id)
       }
-      head.addEventListener('click', activate)
+      // R152：整行（含头像）都可点——头像不是装饰，它和名字是同一个目标。
+      // 任务 chip 自己 `stopPropagation`，所以点 chip 不会误触"选中这个人"。
+      item.addEventListener('click', activate)
       if (row.member.id !== null) {
         // ⚠️ 监听挂在 `item` 上、不是 `head` 上：`tabindex` 在 `item`，
         // 所以键盘焦点落在 `item`——挂错地方的话 Tab 过来按回车什么也不会发生，
@@ -555,7 +602,7 @@ export function createBoard(options = {}) {
           activate()
         })
       }
-      item.append(head)
+      item.append(avatar, head)
 
       const chips = el(doc, 'div', 'board-chips')
       for (const taskId of row.tasks) {
@@ -618,14 +665,15 @@ export function createBoard(options = {}) {
     // 很多时横向可能更省，所以让算术决定，而不是我们预先猜一个方向。
     const fitted = fitGraphGeometry(layout, available, undefined, 'auto')
     geometry = fitted
-    // 档位 + 缩放之后**还**装不下吗？（缩放有 0.4 的可读下限，真机 28 张单在 800px 宽下会触到）
-    // 这种时候画布是可滚动的（有滚动条），但"可滚动"这件事要**说出来**，不能靠用户自己发现。
+    /*
+     * 溢出量仍然算——它是 `stats().overflow` 里的**诊断读数**（验收/排查用），
+     * 但 R152 起**不再铺成一行文字**。用户原话：去掉「（比可见区大 297×0px，图内可滚动）」
+     * 这种描述。可滚动是画布自己的事（滚动条 + 点阵底），不该由一行调试说明来交代。
+     */
     const overflow = {
       x: Math.round(fitted.width * fitted.scale - available.width),
       y: Math.round(fitted.height * fitted.scale - available.height),
     }
-    // 阈值 4px：1~2px 属于子像素取整/滚动条宽度，为它亮一条警告会让提示变成噪音。
-    const overflowing = overflow.x > 4 || overflow.y > 4
     fitInfo = {
       preset: fitted.preset,
       scale: fitted.scale,
@@ -633,18 +681,38 @@ export function createBoard(options = {}) {
       available,
       content: { width: fitted.width, height: fitted.height },
       overflow,
-      overflowing,
+      overflowing: overflow.x > 4 || overflow.y > 4,
     }
     lastFitSize = available
-    if (parts.graphHint !== null) {
-      parts.graphHint.hidden = !overflowing
-      if (overflowing) {
-        parts.graphHint.textContent = `（比可见区大 ${Math.max(0, overflow.x)}×${Math.max(0, overflow.y)}px，图内可滚动）`
-      }    }
+    // 空图也要有话说（不是"图画不出来"）：派第一张单之后这里会长出卡片。
+    if (parts.empty !== null) parts.empty.hidden = layout.nodes.length > 0
 
     cards.textContent = ''
     cardNodes.clear()
     edgeLayer.textContent = ''
+    /*
+     * R152：方向提示从**标题里的一行字**改成**线上的箭头**。
+     * 「左 → 右：前置解锁后续」占了图头 38px（窄栏里折成两行），而方向本来就是图的内在属性。
+     * 两个 marker（普通/前置已完成）用 token 上色，和线是同一套颜色。
+     */
+    const defs = svgEl(doc, 'defs')
+    for (const [id, cls] of [['board-arrow', 'board-arrow'], ['board-arrow-done', 'board-arrow done']]) {
+      const marker = svgEl(doc, 'marker')
+      marker.setAttribute('id', id)
+      marker.setAttribute('viewBox', '0 0 6 6')
+      marker.setAttribute('refX', '5.4')
+      marker.setAttribute('refY', '3')
+      marker.setAttribute('markerWidth', '6')
+      marker.setAttribute('markerHeight', '6')
+      marker.setAttribute('markerUnits', 'strokeWidth')
+      marker.setAttribute('orient', 'auto')
+      const head = svgEl(doc, 'path')
+      head.setAttribute('d', 'M 0 0 L 6 3 L 0 6 Z')
+      head.setAttribute('class', cls)
+      marker.append(head)
+      defs.append(marker)
+    }
+    edgeLayer.append(defs)
     edgeLayer.setAttribute('width', String(fitted.width))
     edgeLayer.setAttribute('height', String(fitted.height))
     edgeLayer.setAttribute('viewBox', `0 0 ${fitted.width} ${fitted.height}`)
@@ -666,7 +734,9 @@ export function createBoard(options = {}) {
       path.setAttribute('fill', 'none')
       // 前置完成的边用"深绿实线"，其余用淡色（ROADMAP §3.5 的边框语义）。
       // 颜色仍然是 token：class 决定用哪个变量，色值在 CSS 里引用 `--board-*`。
-      path.setAttribute('class', statusOf.get(edge.from) === 'done' ? 'board-edge done' : 'board-edge')
+      const done = statusOf.get(edge.from) === 'done'
+      path.setAttribute('class', done ? 'board-edge done' : 'board-edge')
+      path.setAttribute('marker-end', done ? 'url(#board-arrow-done)' : 'url(#board-arrow)')
       edgeLayer.append(path)
     }
 
@@ -681,8 +751,20 @@ export function createBoard(options = {}) {
       card.style.width = `${pos.w}px`
       card.style.height = `${pos.h}px`
       card.dataset.task = task.id
+      // R152：卡片按**档位**换内容密度。tight 档只有 116×38（还得缩到 0.8 → 屏幕上 93×30），
+      // 原来那三行（编号/执行者 + 标题 + 进度条）在 30px 里放不下，被 `overflow: hidden`
+      // 切掉了 6px——真机实测 `scrollHeight 36 > clientHeight 30`。现在 tight 只显示
+      // 「状态点 + 编号 + 标题」，进度条与执行者让位；舒适档才三样都显示。
+      card.dataset.fit = fitted.preset
+      card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
+      // 卡片内容由三行碎片组成，读屏拼起来是「task-1小青定位问题边界」；用 aria-label 给整句。
+      card.setAttribute('aria-label', card.title)
       const top = el(doc, 'div', 'board-node-top')
-      top.append(el(doc, 'span', 'board-node-id', task.id))
+      // 状态色不再用 3px 左边条（那是"卡片左侧彩条"这个到处都是的默认写法），
+      // 改成编号前的一枚 6px 状态点：面积更小，信息相同。
+      const dot = el(doc, 'i', 'board-dot board-node-dot')
+      applyNodeColors(dot, task.displayStatus ?? task.status)
+      top.append(dot, el(doc, 'span', 'board-node-id', task.id))
       top.append(el(doc, 'span', 'board-node-owner dim', task.ownerName ?? '未分配'))
       const title = el(doc, 'div', 'board-node-title', task.title)
       const bar = el(doc, 'div', 'board-node-progress')
@@ -732,6 +814,7 @@ export function createBoard(options = {}) {
         card.classList.toggle('is-selected', selected !== null && selected.kind === 'task' && selected.id === task.id)
         fill.style.width = `${Math.round(Math.min(1, Math.max(0, task.progress)) * 100)}%`
         card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
+        card.setAttribute('aria-label', card.title)
       }
       if (chip !== undefined) {
         chip.dataset.status = task.displayStatus ?? task.status
@@ -804,22 +887,32 @@ export function createBoard(options = {}) {
       // 成环降级了就必须说出来（见 board-layout.js 里"为什么降级不抛错"）。
       parts.counts.append(el(doc, 'b', 'warn', `依赖里有环：${layout.unresolved.length} 张单排在最后一列`))
     }
+    // R152：侧边栏两块 header 上的计数（「9 人 · 3 忙碌」/「10 张 · 8 完成」）。
+    renderRegionMeta()
   }
 
   function renderDetail() {
     const detail = parts.detail
     detail.textContent = ''
     if (selected === null) {
-      detail.append(el(doc, 'span', 'dim', '点图里的方框（或左边的成员）看详情。连线的绿实线 = 前置已完成；橙色虚线框 = 这张单需要 review 能力。'))
+      /*
+       * R152：默认提示从两行长句压成一句。
+       * 原来那句「点图里的方框（或左边的成员）看详情。连线的绿实线 = …；橙色虚线框 = …」
+       * 用 71px 高度讲了三件互不相关的事，而用户此刻只想点一样东西看详情。
+       * 图示说明搬进 `title`：需要的人悬停能看到，不需要的人不会被它占地方。
+       */
+      detail.title = '绿实线 = 前置已完成 · 橙色虚线框 = 这张单需要 review 能力'
+      detail.append(el(doc, 'span', 'board-detail-hint', '点一张单或一个人，看详情'))
       return
     }
+    detail.removeAttribute?.('title')
     if (selected.kind === 'member') {
       const member = model.members.find((m) => m.id === selected.id)
       const label = member ?? { name: '未分配', role: null, state: null, tasks: model.unowned }
-      detail.append(el(doc, 'b', undefined, label.name))
-      if (label.role !== null && label.role !== undefined) detail.append(el(doc, 'span', 'dim', `· ${roleLabel(label.role)}`))
-      if (label.state !== null && label.state !== undefined) detail.append(el(doc, 'span', 'dim', `· ${agentStateLabel(label.state)}`))
-      detail.append(el(doc, 'span', undefined, `在手的单：${label.tasks.length === 0 ? '（没有）' : label.tasks.join('、')}`))
+      detail.append(el(doc, 'b', 'board-detail-title', label.name))
+      if (label.role !== null && label.role !== undefined) detail.append(el(doc, 'span', 'dim', roleLabel(label.role)))
+      if (label.state !== null && label.state !== undefined) detail.append(el(doc, 'span', 'dim', agentStateLabel(label.state)))
+      detail.append(el(doc, 'span', 'board-detail-field', `在手 ${label.tasks.length === 0 ? '—' : `${label.tasks.length} 张`}`))
       return
     }
 
@@ -831,21 +924,21 @@ export function createBoard(options = {}) {
     const dot = el(doc, 'i', 'board-dot')
     applyNodeColors(dot, task.displayStatus ?? task.status)
     dot.classList.add('board-count-dot')
-    detail.append(dot, el(doc, 'b', 'board-detail-id', task.id), el(doc, 'span', undefined, task.title))
-    detail.append(el(doc, 'span', 'dim', `状态 ${taskStatusLabel(task.displayStatus ?? task.status)}`))
-    detail.append(el(doc, 'span', 'dim', `执行者 ${task.ownerName ?? '未分配'}`))
-    if (task.requires.length > 0) detail.append(el(doc, 'span', 'dim', `需要 ${task.requires.join('/')}`))
+    detail.append(dot, el(doc, 'b', 'board-detail-id', task.id), el(doc, 'span', 'board-detail-title', task.title))
+    detail.append(el(doc, 'span', 'board-detail-field', `状态 ${taskStatusLabel(task.displayStatus ?? task.status)}`))
+    detail.append(el(doc, 'span', 'board-detail-field', `执行者 ${task.ownerName ?? '未分配'}`))
+    if (task.requires.length > 0) detail.append(el(doc, 'span', 'board-detail-field', `需要 ${task.requires.join('/')}`))
     // 参考图里那句 "Unlocks t2,t3"：**从 blockedBy 反向索引来**，不用新数据。
     detail.append(
       el(
         doc,
         'span',
-        task.unlocks.length > 0 ? 'board-unlocks' : 'dim',
-        task.unlocks.length > 0 ? `解锁了 ${task.unlocks.map((u) => u.id).join('、')}` : '没有解锁任何任务（它后面没有依赖它的单）',
+        task.unlocks.length > 0 ? 'board-unlocks' : 'board-detail-field',
+        task.unlocks.length > 0 ? `解锁 ${task.unlocks.map((u) => u.id).join('、')}` : '没有后续',
       ),
     )
     if (task.blockedByTasks.length > 0) {
-      detail.append(el(doc, 'span', 'dim', `被 ${task.blockedByTasks.map((b) => b.id).join('、')} 挡着`))
+      detail.append(el(doc, 'span', 'board-detail-field', `被 ${task.blockedByTasks.map((b) => b.id).join('、')} 挡着`))
     }
     // ① 这张单**已经死了**（前置失败，永远等不到）——先说结论，再说细节
     // ② 调度器**这一轮**为什么不派它（没人 / 没工位）——与 ① 分开写
@@ -1124,13 +1217,20 @@ export function createBoard(options = {}) {
 
     parts.groupChips.textContent = ''
     for (const group of groups) {
-      const chip = el(doc, 'button', 'board-view-chip')
+      const chip = el(doc, 'button', 'board-view-chip board-view-group')
       chip.type = 'button'
-      chip.textContent = groupViewLabel(group)
+      /*
+       * R152：`名字 + 数字徽章`，而不是 `快速修一个 bug · 3 张（3 未完成）`。
+       * 后者一枚就 205px，四枚在图区顶上折成 4 行、吃掉 113px——那是图的高度。
+       * 名字可以截断、数字仍然对齐；完整读数留在 `title`/`aria-label` 里。
+       */
+      chip.append(el(doc, 'span', 'board-view-name', groupDisplayName(group)))
+      chip.append(el(doc, 'span', 'board-view-count', String(group.total)))
       const active = group.id === viewGroup
       chip.classList.toggle('is-active', active)
       chip.setAttribute('aria-pressed', String(active))
-      chip.title = active ? '当前分组' : `只看 ${groupViewLabel(group)}`
+      chip.title = active ? `当前分组：${groupViewLabel(group)}` : `只看 ${groupViewLabel(group)}`
+      chip.setAttribute('aria-label', chip.title)
       chip.addEventListener('click', () => setView({ group: group.id }))
       parts.groupChips.append(chip)
     }
@@ -1189,6 +1289,8 @@ export function createBoard(options = {}) {
   function update(nextWorld, extra = undefined) {
     counters.updates += 1
     world = nextWorld
+    // R157：场景计划只随快照来（事件流不带）。没有就沿用上一次的。
+    if (extra !== undefined && extra !== null && extra.scene !== undefined) scene = extra.scene ?? null
     // 诊断是**显示用**的：先收下（它不进结构签名，也不该被下面的早退闸门吃掉）。
     if (extra !== undefined && extra !== null && extra.diagnostics !== undefined) {
       const stalled = Array.isArray(extra.diagnostics.stalled) ? extra.diagnostics.stalled : []
@@ -1231,7 +1333,10 @@ export function createBoard(options = {}) {
       '#' +
       model.members.map((m) => `${m.id}:${m.name}:${m.role ?? ''}:${m.tasks.join(',')}`).join('|') +
       '#' +
-      model.unowned.join(',')
+      model.unowned.join(',') +
+      '#' +
+      // 场景晚到（快照前先有一次 update）时也要重建成员列表：头像从字母换成贴图。
+      (scene === null ? '' : (scene.actors ?? []).map((a) => `${a.id}:${a.modelId}`).join('|'))
 
     if (structureKey === lastStructure) {
       lastState = stateKey
@@ -1282,7 +1387,6 @@ export function createBoard(options = {}) {
     ready,
     /** 换视图（分组/筛选）——给核验用，也是图里那两个 chip 走的同一条路。 */
     setView,
-    setMembersOpen,
     update,
     setPalette,
     setTaskSets,
@@ -1328,10 +1432,9 @@ export function createBoard(options = {}) {
        * （CSS 改了也能抓出来——真机那一路不依赖模块里的常量）。
        */
       readability: readability(),
-      // 视图（R46）：当前分组/筛选、成员栏开合、一共几条流水线。
+      // 视图（R46）：当前分组/筛选、一共几条流水线。
       view: { group: viewGroup, filter: viewFilter },
       viewSignature: viewSignature({ group: viewGroup, filter: viewFilter }),
-      membersOpen,
       groups: allGroups.map((g) => ({ id: g.id, name: g.name, total: g.total, unfinished: g.unfinished })),
       visibleTasks: model?.tasks.length ?? 0,
     }),

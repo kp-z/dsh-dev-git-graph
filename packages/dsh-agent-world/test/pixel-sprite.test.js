@@ -14,6 +14,7 @@ import { test } from 'node:test'
 
 import {
   BASE_SKIN,
+  actorTextureKey,
   assignColorVariants,
   variantColor,
   DARK_DELTA,
@@ -220,4 +221,18 @@ test('变体色：variant 0 原样、正数错开且互相不同（HTML 色点�
   assert.equal(variantColor('不是颜色', 2), '不是颜色', '认不出就原样返回')
   // 与画布上的阶梯中间调一致
   assert.equal(v1, lightnessLadder('#38BDF8', { variant: 1 })[1])
+})
+
+
+test('R160：sheet.recolor 为 false/缺省时用原图，只有显式 true 才用重染图', () => {
+  const baseKey = 'microverse/characters/Tomx32.png'
+  const tintedKey = 'tint:microverse/characters/Tomx32.png|#FFC94D|0'
+  // 缺省（false / undefined / null）→ 原图：Microverse 是**已经画好的角色**，不能再染。
+  assert.equal(actorTextureKey({ baseKey, tintedKey, sheet: { recolor: false } }), baseKey)
+  assert.equal(actorTextureKey({ baseKey, tintedKey, sheet: { recolor: undefined } }), baseKey)
+  assert.equal(actorTextureKey({ baseKey, tintedKey, sheet: null }), baseKey)
+  // 显式 true → 重染图。
+  assert.equal(actorTextureKey({ baseKey, tintedKey, sheet: { recolor: true } }), tintedKey)
+  // 重染失败（null）→ 退回原图，不画空白。
+  assert.equal(actorTextureKey({ baseKey, tintedKey: null, sheet: { recolor: true } }), baseKey)
 })

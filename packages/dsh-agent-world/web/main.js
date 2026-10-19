@@ -38,9 +38,35 @@ import { createSidebar } from './ui/sidebar.js'
 import { createBoard } from './ui/board.js'
 import { createDialogueUi } from './ui/dialogue-ui.js'
 
-const COMMAND_API = './api/command'
+/**
+ * 把应用挂到**任意容器**里（R161）——DSH 的 `main` 面板与独立页面共用这一份装配。
+ *
+ * `root` 可以是 `document`（独立页）或一个 DOM 元素（DSH 主面板）。
+ * 所有按钮/面板都从 `root` 里查，避免与宿主页面的同名 id 抢元素。
+ *
+ * @param {object} [options]
+ * @param {Document|HTMLElement} [options.root] - 挂载根；缺省 `document`。
+ * @param {Document} [options.document] - 文档（默认 `globalThis.document`）。
+ * @param {string} [options.baseUrl] - 路由前缀。独立页 `.`；DSH 里 `/agent-world`。
+ * @param {boolean} [options.embedded] - 嵌入模式：不建自己的顶栏（宿主已有）。
+ * @returns {{dispose: () => void}}
+ */
+export function mountAgentWorld(options = {}) {
+  const doc = options.document ?? globalThis.document
+  const root = options.root ?? doc
+  const embedded = options.embedded === true
+  const rawBase = typeof options.baseUrl === 'string' && options.baseUrl !== '' ? options.baseUrl : '.'
+  const baseUrl = rawBase === '.' ? '.' : rawBase.replace(/\/$/, '')
+  const apiUrl = (path) => `${baseUrl}/${path}`
+  const assetBase = `${baseUrl}/vendor/`
+  const $ = (id) => root.querySelector(`#${id}`)
+  const scopedDoc = root === doc ? doc : createScopedDocument(root, doc)
+  /** 键盘监听的落点：嵌入时挂在容器上，事件不会跑出主面板。 */
+  const keyTarget = typeof root.addEventListener === 'function' ? root : doc
+
+const COMMAND_API = apiUrl('api/command')
 /** 发话端点（回复走 SSE 的 `dialogue` 帧，见 `src/protocol/dialogue.ts`）。 */
-const SAY_API = './api/say'
+const SAY_API = apiUrl('api/say')
 /** 渲染节流：约 60fps。 */
 const RENDER_MIN_GAP_MS = 16
 /** "他在想…"最多挂多少步（宿主挂了的话 `failed` 永远不会来，面板要有自己的兜底）。 */
@@ -50,7 +76,7 @@ const DIALOGUE_SILENT_TICKS = 300
  * 构建标记（R84）。**故意显示在性能条里**：它回答一个反复困扰我们的问题——
  * "你看的这页到底是不是我刚改的代码"。改完 `web/` 就把它 +1。
  */
-const BUILD = 'build r151'
+const BUILD = 'build r152'
 
 /** 上一帧各精灵的动画键（`trackAnimFlips` 用）。 */
 let lastAnimKeys = null
@@ -82,7 +108,6 @@ function trackAnimFlips() {
   return animFlipCount
 }
 
-const $ = (id) => document.getElementById(id)
 const canvas = $('town')
 const $hint = $('view-hint')
 
@@ -106,8 +131,9 @@ let diagnostics = null
 let dialogue = null
 // ── UI 模块 ───────────────────────────────────────────────────────────────────
 
-const topbar = createTopbar({
-  root: $('topbar'),
+const topbarRoot = embedded ? null : $('topbar')
+const topbar = topbarRoot === null ? null : createTopbar({
+  root: topbarRoot,
   worldName: 'Agent World',
   onCommand: (kind) => void sendCommand(kind),
 })
@@ -131,6 +157,7 @@ const selfCheck = createSelfCheck({
 })
 
 const scene2d = createScenePhaser(canvas, {
+  assetBaseUrl: assetBase,
   renderer: requestedRenderer(),
   // **点击角色的真路径**（R66）：Phaser 的 `setInteractive` + `pointerup` 冒泡上来，
   // "忽略拖拽/长按"由引擎的 Pointer API（`getDistance`/`getDuration`）判断，
@@ -228,6 +255,7 @@ const board = createBoard({
 boardRef = board
 
 dialogue = createDialogueUi({
+  document: scopedDoc,
   send: sayToAgent,
   onChanged: () => {
     render(true)
@@ -310,7 +338,7 @@ function render(force = false) {
   // 抽样自节流（800ms 一次），这条路是 250ms 一跳，加它不会让渲染变慢。
   selfCheck.sample()
   const perf = `${backendName} · 绘制 ${sceneStats.drawCalls}${sceneStats.batched === true ? '（合批）' : ''} · 精灵 ${sceneStats.sprites ?? '-'} · 切换 ${flips} · ${selfCheck.report().text} · ${BUILD}`
-  topbar.render({
+  topbar?.render({
     world,
     meta,
     tick,
@@ -466,11 +494,11 @@ function focusAgent(agentId, source) {
 // ① 把按钮接上去；② 每帧按 `viewState()` 刷新"能不能再放大/缩小"的禁用态与倍数显示；
 // ③ 接口还没就位时**明确禁用**——静默失效最难查（按钮在、点了没反应，看起来像渲染坏了）。
 const viewControls = {
-  zoomIn: document.querySelector('#cmd-zoom-in'),
-  zoomOut: document.querySelector('#cmd-zoom-out'),
-  fit: document.querySelector('#cmd-fit'),
-  reset: document.querySelector('#cmd-reset'),
-  zoomLabel: document.querySelector('#view-zoom'),
+  zoomIn: root.querySelector('#cmd-zoom-in'),
+  zoomOut: root.querySelector('#cmd-zoom-out'),
+  fit: root.querySelector('#cmd-fit'),
+  reset: root.querySelector('#cmd-reset'),
+  zoomLabel: root.querySelector('#view-zoom'),
 }
 
 function viewStateOf() {
@@ -526,6 +554,8 @@ async function sendCommand(command) {
 // ── 连接 ──────────────────────────────────────────────────────────────────────
 
 const connection = createConnection({
+  snapshotApi: apiUrl('api/world'),
+  eventsApi: apiUrl('api/events'),
   onSnapshot: (snap) => {
     // 快照成功拿到 → 之前那句"读不到世界"（通常是启动瞬间宿主的瞬态错误）可以收起来了。
     showHint('')
@@ -543,7 +573,7 @@ const connection = createConnection({
     }
     diagnostics = snap.runtime.diagnostics ?? null
     // 标题跟世界名走（R74）：世界叫什么，顶栏就显示什么——除非用户自己改过。
-    topbar.setWorldName(world.name)
+    topbar?.setWorldName(world.name)
     // 角色的名字只从世界数据来（D37：人设是内容，代码里没有角色名）。
     dialogue.setAgents(world.agents)
     board.setPalette(meta.palette)
@@ -552,7 +582,7 @@ const connection = createConnection({
     // 没有的字段就是 `undefined`——第一版写成 meta.taskSets，于是每次都把目录清空成 {}，
     // 分组签一直显示英文短 id（真机上抓到的）。
     board.setTaskSets?.(snap.taskSets)
-    board.update(world, { diagnostics })
+    board.update(world, { diagnostics, scene: meta?.scene })
     legend.update({ scene: meta.scene })
     render(true) // 首屏**强制**画一次：节流不该让"打开面板"这一步被跳过
   },
@@ -560,7 +590,7 @@ const connection = createConnection({
     applyEvents(world, events)
     pruneMessages(world)
     // R3：侧边栏**没有自己的数据路径**了——看板那一份渲染直接挂进了它的两档。
-    board.update(world, { diagnostics })
+    board.update(world, { diagnostics, scene: meta?.scene })
     render()
   },
   onSync: () => {
@@ -587,17 +617,18 @@ const connection = createConnection({
 
 // ── 生命周期 ──────────────────────────────────────────────────────────────────
 
-window.addEventListener('resize', () => {
+const onResize = () => {
   scene2d.resize()
   render(true)
-})
+}
+window.addEventListener('resize', onResize)
 
 // R3：看板从顶栏搬进侧边栏之后**没有"收起"这回事**了——它常驻在侧边栏里，
 // 两档由页签切换（`setCollapsed` 在挂载模式下是空操作，这里不再调它）。
 
 // 本地时钟的可见部分：每 250ms 重画一次，让"没事件但时间在走"看得见，
 // 也让纸条与气泡在两次事件之间平滑移动。**看板不在这条路上**（它由数据事件驱动）。
-setInterval(render, 250)
+const renderTimer = globalThis.setInterval(render, 250)
 
 // `?debug=1` 时才把核验入口挂出去（跟 `__agentWorldScene3d` 同一个口径）。
 if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
@@ -702,7 +733,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
   }
   globalThis.__agentWorldBoard = {
     stats: () => board.stats(),
-    refresh: () => board.update(world, { diagnostics }),
+    refresh: () => board.update(world, { diagnostics, scene: meta?.scene }),
     select: (taskId) => board.select(taskId),
     model: () => board.model(),
     layout: () => board.layout(),
@@ -719,7 +750,8 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     // 留一个已经不存在的动作，验收脚本会以为还能用它。
     // R46：分组/状态过滤（= 界面上那两排 chip 的同一条路径，核验用）。
     setView: (next) => board.setView(next),
-    setMembersOpen: (open) => board.setMembersOpen(open),
+    // R152：`setMembersOpen` 已删——成员看板没有开合这回事了（用户拍板）。
+    // 留一个已经不存在的动作，验收脚本会以为还能用它。
   }
   /**
    * 聚焦入口的核验面（R4）。
@@ -764,12 +796,12 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
       }
       const overlap = (a, b) => (a === null || b === null ? 0 : Math.max(0, Math.min(a.right, b.right) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.y, b.y)))
       const collapsed = legend.isCollapsed()
-      const legendBox = rectOf(document.querySelector('#legend'))
-      const itemsBox = collapsed ? null : rectOf(document.querySelector('.legend-items'))
-      const stage = rectOf(document.querySelector('#stage'))
-      const cluster = rectOf(document.querySelector('#view-controls'))
-      const sidebar = rectOf(document.querySelector('#sidebar'))
-      const dialogueEl = document.querySelector('#dialogue')
+      const legendBox = rectOf(root.querySelector('#legend'))
+      const itemsBox = collapsed ? null : rectOf(root.querySelector('.legend-items'))
+      const stage = rectOf(root.querySelector('#stage'))
+      const cluster = rectOf(root.querySelector('#view-controls'))
+      const sidebar = rectOf(root.querySelector('#sidebar'))
+      const dialogueEl = root.querySelector('#dialogue')
       const dialogueBox = dialogueEl === null || dialogueEl.hidden ? null : rectOf(dialogueEl)
       const shown = collapsed ? legendBox : itemsBox
       return {
@@ -778,7 +810,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
         items: itemsBox,
         stage,
         cluster,
-        itemCount: document.querySelectorAll('.legend-item').length,
+        itemCount: root.querySelectorAll('.legend-item').length,
         insideStage: shown === null || stage === null ? null : shown.x >= stage.x && shown.right <= stage.right && shown.y >= stage.y && shown.bottom <= stage.bottom,
         overflowStage: shown === null || stage === null ? null : { right: Math.max(0, shown.right - stage.right), bottom: Math.max(0, shown.bottom - stage.bottom) },
         overlapCluster: overlap(itemsBox, cluster),
@@ -832,8 +864,8 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
 //
 // 焦点在输入框里时**不拦**：Enter 要能正常发送、Esc 由输入框自己处理（它会 close + 解锁）。
 // 只有焦点不在文字输入上，这两个键才是"超控面板"的快捷键。
-globalThis.document?.addEventListener('keydown', (event) => {
-  const tag = String(globalThis.document.activeElement?.tagName ?? '').toUpperCase()
+keyTarget.addEventListener('keydown', (event) => {
+  const tag = String(doc.activeElement?.tagName ?? '').toUpperCase()
   if (tag === 'TEXTAREA' || tag === 'INPUT') return
   if (dialogue === null) return
 
@@ -855,6 +887,37 @@ globalThis.document?.addEventListener('keydown', (event) => {
   }
 })
 
+const dispose = () => {
+  try { connection.stop() } catch { /* 已经断了 */ }
+  globalThis.clearInterval(renderTimer)
+  globalThis.removeEventListener('resize', onResize)
+  try { scene2d.game?.()?.destroy?.(true) } catch { /* 已经销毁 */ }
+}
 scene2d.resize()
 void connection.reload()
 connection.start()
+return { dispose }
+
+}
+
+if (typeof globalThis.document !== 'undefined' && globalThis.__AGENT_WORLD_EMBEDDED__ !== true && globalThis.document.getElementById('town') !== null) {
+  mountAgentWorld({ root: globalThis.document, baseUrl: '.', embedded: false })
+}
+
+/** 一个只在本容器内查找元素的 document 视图（给 `createDialogueUi` 这类吃 `document` 的模块）。 */
+function createScopedDocument(root, doc) {
+  const delegate = (name) => (...args) => doc[name](...args)
+  return {
+    getElementById: (id) => root.querySelector(`#${id}`),
+    querySelector: (selector) => root.querySelector(selector),
+    querySelectorAll: (selector) => root.querySelectorAll(selector),
+    createElement: delegate('createElement'),
+    createElementNS: delegate('createElementNS'),
+    createTextNode: delegate('createTextNode'),
+    addEventListener: (...args) => root.addEventListener(...args),
+    removeEventListener: (...args) => root.removeEventListener(...args),
+    get activeElement() { return doc.activeElement },
+    get defaultView() { return doc.defaultView },
+    get body() { return doc.body },
+  }
+}
