@@ -321,15 +321,34 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   // 我们只当队长（队长就是一个普通 DSH 会话，它自己从不需要发言）。
   // 与上面的惰性端口**同样惰性**：加载那一刻 tools/subagents 可能还没挂上（R30 的教训）。
   const resolveSeat = createSeatResolver(state)
-  let teamsPort: TeamsPort | undefined
-  function acquireTeamsPort(): { ok: true; port: TeamsPort } | { ok: false; reason: string } {
-    if (teamsPort !== undefined) return { ok: true, port: teamsPort }
+  /**
+   * R166：TeamsPort 不再是一个全局固定队长，而是**按会话缓存**。
+   *
+   * 打开哪个会话的 Agent World，就只和那个会话的团队说话；队长就是该会话自己
+   * （`ctx.agents.get(sessionId)` 的 live agent），不再另建 `agent-world:captain`。
+   */
+  const teamsPorts = new Map<string, TeamsPort>()
+  const captainFor = (sessionId: string) =>
+    (ctx as unknown as { get(name: string): unknown }).get('agents') as
+      | { get?(id: string): { id?: string } | undefined }
+      | undefined
+  const createCaptainBase = createTeamsCaptain(ctx, { cwd: process.cwd() })
+  const createCaptain = async (sessionId: string, cwd: string) => {
+    const live = captainFor(sessionId)?.get?.(sessionId)
+    if (live !== undefined) {
+      // 会话已经是活的：直接用它的 Agent 当队长，**绝不再 createAgent 同一个 id**。
+      return { agent: { id: typeof live.id === 'string' ? live.id : sessionId }, dispose: async () => {} }
+    }
+    if (createCaptainBase === undefined) throw new Error('拿不到 agentLoop：这个会话没有活着的队长 Agent')
+    return createCaptainBase(sessionId, cwd)
+  }
+  function acquireTeamsPort(
+    sessionId: string = state.activeSessionId ?? resolved.captainSessionId,
+  ): { ok: true; port: TeamsPort } | { ok: false; reason: string } {
+    const existing = teamsPorts.get(sessionId)
+    if (existing !== undefined) return { ok: true, port: existing }
     const tools = (ctx as unknown as { get(name: string): unknown }).get('tools')
     const subagents = (ctx as unknown as { get(name: string): unknown }).get('subagents')
-    const createCaptain = createTeamsCaptain(ctx, { cwd: process.cwd() })
-    if (createCaptain === undefined) {
-      return { ok: false, reason: '拿不到 agentLoop：建不了队长会话，所以没法套壳 agent-teams。' }
-    }
     if (subagents === undefined) {
       return {
         ok: false,
@@ -338,9 +357,6 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
           '确认这个 profile 挂了 dsh-subagent 与 dsh-agent-teams。',
       }
     }
-    // ⚠️ **暂时性失败不许缓存**（R38 真机踩到，与 R30 同一条教训）：事件通道比我们晚挂上时，
-    // 若把"没有事件通道"的端口建好并记住，之后每次搭话都拿不到回复。所以缺它时**不建端口**，下次再试。
-    // 只要 `ctx.on`：套壳路径发话走工具，不需要 `sessionController`（R38：它在 web profile 里一直 pending）。
     const feed = createSessionEventFeed(ctx)
     if (feed === undefined) {
       return {
@@ -348,16 +364,17 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         reason: '拿不到会话事件总线（ctx.on）：能建团队但收不到成员的回复。再搭一次话试试；一直这样说明宿主没有事件总线。',
       }
     }
-    teamsPort = createTeamsPort(
+    const port = createTeamsPort(
       tools,
       subagents,
       feed,
       {
-        captainSessionId: resolved.captainSessionId,
+        captainSessionId: sessionId,
         cwd: process.cwd(),
         teamName: resolved.teamName,
         teamDescription: resolved.teamDescription,
-        memberNameFor: (id) => resolveSeat(id).name,
+        memberNameFor: (id) =>
+          state.currentWorld()?.agents.find((agent) => agent.id === id)?.name ?? resolveSeat(id).name,
         memberRoleFor: (id) => resolveSeat(id).role,
         personaFor: (id) => resolveSeat(id).persona,
         toolPolicy: resolved.memberToolPolicy,
@@ -366,8 +383,9 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         createCaptain,
       },
     )
-    logger.info(`对话后端：agent-teams（队长会话 ${resolved.captainSessionId}，团队「${resolved.teamName}」）`)
-    return { ok: true, port: teamsPort }
+    teamsPorts.set(sessionId, port)
+    logger.info(`对话后端：agent-teams（队长会话 ${sessionId}，团队「${resolved.teamName}」）`)
+    return { ok: true, port }
   }
   const teamsDialoguePort = {
     async say(characterId: string, text: string) {
@@ -384,11 +402,12 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       if (!got.ok) return { ok: false as const, reason: got.reason }
       return got.port.waitForReply(characterId, timeoutMs, onProgress)
     },
-    liveCount: () => teamsPort?.liveCount() ?? 0,
+    liveCount: () => [...teamsPorts.values()].reduce((sum, port) => sum + port.liveCount(), 0),
   }
   ctx.effect(() => () => {
-    void teamsPort?.dispose()
-  }, 'agent-world: agent-teams port')
+    for (const port of teamsPorts.values()) void port.dispose()
+    teamsPorts.clear()
+  }, 'agent-world: agent-teams ports')
 
   // ── 派单后立刻在团队里建对应任务（D41，R43）────────────────────────────────
   //

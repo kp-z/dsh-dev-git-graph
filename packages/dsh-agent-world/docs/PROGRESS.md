@@ -67,6 +67,26 @@ Microverse 的角色被整张染色后头发/脸/衣服变成一色，看起来�
 
 ---
 
+## R167（Lead）—— Phase B：TeamsPort 按会话、队长用会话自己的 live Agent、成员名取投影名
+
+### 做法
+- `TeamsPort` 从单例改为 `Map<sessionId, TeamsPort>`：打开哪个会话的世界，就只和那个会话的团队说话。
+- `createCaptain(sessionId)` 先查 `ctx.agents.get(sessionId)`：
+  - 有 live Agent → 直接把它当队长（`{ agent: { id: sessionId }, dispose: noop }`），**不再 createAgent 同一个 id**；
+  - 没有 → 才回退 `createTeamsCaptain`（旧路径，headless/测试仍走）。
+- `memberNameFor` 改为**读世界投影角色名**（`state.currentWorld()?.agents.find(...)?.name`），
+  退回内容席位名。这样 subagent label 是“小蓝”，点它说话时 agent-teams 用的也是“小蓝”，
+  不再是花名册里另一个固定名字。
+- 仍保留 `ensureMember`（它有大量测试与“接回已有成员”的语义），但现在它拿到的名字来自投影；
+  是否在 Phase C 删掉，等工具会话定位一起动。
+
+### 验证
+- 全量 **733 / 733**；队长会话配置测试仍绿（无 active 会话时回退配置值）。
+- Phase B 剩下的：`agent_world_*` 工具还没有用 `ctx.agents.currentInitiator()` 定位调用者会话；
+  这是 Phase C 的第一项。
+
+---
+
 ## R166（Lead）—— Phase A：一个会话一个世界（会话级存储 + 单 active ticker + subagent 投影骨架）
 
 ### 这轮解决什么
