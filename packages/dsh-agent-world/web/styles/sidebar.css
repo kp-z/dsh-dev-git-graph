@@ -36,7 +36,7 @@
 .app {
   /* 侧边栏宽度：只有这一处定义（窄视口在文件末尾按档收窄）。
      `tokens.css` 是另一个 Agent 也在碰的公共文件，所以这个局部变量就放在使用它的文件里。 */
-  --sidebar-w: 600px;
+  --sidebar-w: 680px;
   /* 列：舞台(1fr) + 侧边栏(固定)。行仍由 layout.css 给（48 / 1fr / 36）。 */
   grid-template-columns: 1fr var(--sidebar-w);
 }
@@ -164,11 +164,11 @@
   box-shadow: var(--shadow-2);
 }
 .sidebar-panel-graph {
-  flex: 1 1 56%;
+  flex: 1 1 62%;
   min-height: var(--aw-task-min);
 }
 .sidebar-panel-agents {
-  flex: 1 1 44%;
+  flex: 1 1 38%;
   min-height: var(--aw-agents-min);
 }
 /* 单块折叠：只剩 header（flex 不再分高度），另一块自动吃掉全部高度。 */
@@ -323,7 +323,7 @@
  */
 @media (max-width: 1280px) {
   .app {
-    --sidebar-w: 520px;
+    --sidebar-w: 560px;
   }
 }
 @media (max-width: 900px) {
