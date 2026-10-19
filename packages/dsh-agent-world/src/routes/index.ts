@@ -70,8 +70,12 @@ function defaultVendorRoot(): string {
  * 放在静态面板**之前**：顺序就是优先级。
  */
 function apiCatchAll(): RouteEntry[] {
+  // R163：**这份清单必须与 `api.ts` 的路由表同步**。原先漏了 `/api/session`，
+  // 于是打它得到一个 404，报错里还"权威地"说自己只注册了四条 —— 我就是照着这条报错
+  // 判定"端点根本没实现"的，白查了一轮（真相是宿主没重启）。
+  // **会误导人的报错比没有报错更贵**：它让人停止怀疑真正的原因。
   const list =
-    'GET /api/world（快照）· POST /api/command（命令）· POST /api/say（搭话）· GET /api/events（事件流）'
+    'GET /api/world（快照）· POST /api/command（命令）· POST /api/say（搭话）· GET /api/events（事件流）· GET /api/session（会话名）'
   const missing = (method: string): RouteEntry => ({
     method,
     pattern: '/api/*',
