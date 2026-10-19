@@ -114,6 +114,8 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
    * 所以先建没有依赖的、记下映射，再建依赖它们的——按 `blockedBy` 的拓扑序建。
    */
   const linkNewTasksToTeam = async (addedTaskIds: readonly string[]): Promise<void> => {
+    // 有 Agent World 视图时不接管团队；团队任务归 native plan。
+    if (state.activeSessionId !== null) return
     const world = state.currentWorld()
     if (world === null || addedTaskIds.length === 0) return
     const port = acquireTeamsPort()
@@ -144,6 +146,8 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
 
   /** 把团队状态同步回小镇。一轮只发一次命令，失败只记日志不打断世界。 */
   const syncTeamOnce = async (): Promise<void> => {
+    // 有 Agent World 视图时不接管团队；世界任务板只显示 native 产物（后续接入）。
+    if (state.activeSessionId !== null) return
     if (teamSyncBusy) return
     const world = state.currentWorld()
     if (world === null) return
@@ -505,8 +509,42 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   }) as WorldServicePort
   registerDispatchTool(ctx, teamAwareWorld)
 
-  /** 按配置选后端。`native` 是 R24–R36 手写的那套，留作对照与回退。 */
-  const activeDialoguePort = resolved.dialogueBackend === 'native' ? dialoguePort : teamsDialoguePort
+  /**
+   * R174：Agent World 打开时，世界是 **dsh-agent-teams staged plan 的只读投影**。
+   *
+   * 不再从游戏里自动建队/加成员（那会绕过 Pre-run plan review，并制造
+   * already exists / team id taken / agent.header 缺失）。团队由对话里的 captain
+   * 走原生 staged plan，批准后成员才 spawn；世界只负责把已 spawn 的 children 画出来。
+   *
+   * 没有 active 会话（headless/测试/旧 API）时仍保留旧 teams 后端，避免影响其它入口。
+   */
+  const nativePlanReadOnlyPort = {
+    async say(): Promise<{ ok: false; reason: string }> {
+      return {
+        ok: false,
+        reason:
+          'Agent World 是只读投影：请先在对话里用 dsh-agent-teams 的 Pre-run plan review 批准团队计划；' +
+          '成员 spawn 后会自动出现在镇上。',
+      }
+    },
+    async waitForReply(): Promise<{ ok: false; reason: string }> {
+      return { ok: false, reason: 'Agent World 是只读投影，不直接向成员发消息。' }
+    },
+    liveCount: () => 0,
+  }
+  const activeDialoguePort = resolved.dialogueBackend === 'native'
+    ? dialoguePort
+    : {
+        say: (...args: Parameters<typeof teamsDialoguePort.say>) =>
+          state.activeSessionId !== null
+            ? nativePlanReadOnlyPort.say()
+            : teamsDialoguePort.say(...args),
+        waitForReply: (...args: Parameters<typeof teamsDialoguePort.waitForReply>) =>
+          state.activeSessionId !== null
+            ? nativePlanReadOnlyPort.waitForReply()
+            : teamsDialoguePort.waitForReply(...args),
+        liveCount: () => (state.activeSessionId !== null ? 0 : teamsDialoguePort.liveCount()),
+      }
 
   // ── 诊断：把宿主侧的 agent 报错**带 stack** 写出来（R31）─────────────────────
   //
