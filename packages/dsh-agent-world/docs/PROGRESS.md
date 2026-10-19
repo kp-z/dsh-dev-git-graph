@@ -67,6 +67,29 @@ Microverse 的角色被整张染色后头发/脸/衣服变成一色，看起来�
 
 ---
 
+## R165（Lead）—— 打开 Agent World 时隐藏下方**对话输入面板**（composer）
+
+### 需求
+用户：打开 Agent World 这个 tab 能不能隐藏下方的对话面板？——让世界铺满会话主体，而不是
+上面游戏、下面还压着 128px 的输入框。
+
+### 做法
+- 不直接改 DSH 组件状态（composer 的 owner props 里没有“当前 view”）；在 **body** 上挂
+  `agent-world-view-active` 类，并注入一条：
+  `body.agent-world-view-active *:has(> [data-slot="conversation.composer"]) { display:none }`
+  命中 composer 的直接父节点 `.composerSeat`（含 128px 高度）。
+- `AgentWorldView` 挂载时加类，卸载/切回「对话/轨迹」时摘类并移除 style。
+- 用 CSS 而不是 inline style：会话重渲染可能重建 seat，类规则会继续命中新节点；
+  inline style 会跟着旧节点一起丢掉。
+
+### 真机
+- 打开 Agent World：`.viewArea` / 游戏从 **648px → 776px**，composer `display:none`；
+  切换回「对话」：游戏卸载、composer `display:flex` 恢复 128px、body 类与 style 都清掉；
+  再切回 Agent World：再次隐藏并铺满。
+- 全量 **728 / 728**。
+
+---
+
 ## R164（Lead）—— Agent World 从「全局面板」搬进**会话 header 的视图 tab**，跟会话绑定
 
 ### 需求

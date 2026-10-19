@@ -85,3 +85,12 @@ test('R164：conversation.view 拿 sessionId，header 取该会话的标题', ()
   assert.match(read('web/main.js'), /workspaceSessionOverride/, '页面没有“工作区会话优先”的覆盖开关')
   assert.match(read('web/embed.js'), /setWorldSession/, 'embed 没有透传 setWorldSession')
 })
+
+
+test('R165：Agent World 视图打开时隐藏下方 composer，离开时恢复', () => {
+  const src = read('src/client.js')
+  assert.match(src, /agent-world-view-active/, '缺少隐藏 composer 的 body 类')
+  assert.match(src, /:has\(> \[data-slot="conversation\.composer"\]\)/, 'CSS 没有命中 composer 的直接父节点')
+  assert.match(src, /setComposerHidden\(true\)/, '挂载时没有隐藏 composer')
+  assert.match(src, /setComposerHidden\(false\)/, '卸载时没有恢复 composer')
+})

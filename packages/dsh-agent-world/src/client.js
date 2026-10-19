@@ -59,12 +59,50 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /**
+     * 打开 Agent World 时隐藏下方的**对话输入面板**（composer），让世界铺满会话主体。
+     *
+     * 不直接改 DSH 组件的状态（composer 的 owner props 里没有“当前 view”），
+     * 而是在 body 上挂一个类 + 一条 :has 规则：命中 `conversation.composer` 的直接父节点
+     * （`.composerSeat`，带 128px 高度）并 `display:none`。离开视图时摘掉类。
+     *
+     * 为什么用 CSS 而不是 `element.style.display`：会话重渲染时 React 可能重建 seat，
+     * 类规则会继续命中新节点；inline style 会跟着旧节点一起消失。
+     */
+    const COMPOSER_HIDE_CLASS = 'agent-world-view-active';
+    const COMPOSER_HIDE_STYLE_ID = 'agent-world-hide-composer';
+
+    function setComposerHidden(hidden) {
+      const doc = globalThis.document;
+      if (doc === undefined || doc.body === null) return;
+      if (hidden) {
+        if (doc.getElementById(COMPOSER_HIDE_STYLE_ID) === null) {
+          const style = doc.createElement('style');
+          style.id = COMPOSER_HIDE_STYLE_ID;
+          style.textContent = `body.${COMPOSER_HIDE_CLASS} *:has(> [data-slot="conversation.composer"]) { display: none !important; }`;
+          doc.head.append(style);
+        }
+        doc.body.classList.add(COMPOSER_HIDE_CLASS);
+      } else {
+        doc.body.classList.remove(COMPOSER_HIDE_CLASS);
+        doc.getElementById(COMPOSER_HIDE_STYLE_ID)?.remove();
+      }
+    }
+
     /* ── 会话视图：只做容器的生命周期 ─────────────────────────────────────── */
     function AgentWorldView(props) {
       const hostRef = React.useRef(null);
       const [phase, setPhase] = React.useState('loading');
       const [error, setError] = React.useState(null);
       const sessionId = props.sessionId;
+
+      // 视图存活期间隐藏 composer；切回「对话/轨迹」时组件卸载，cleanup 会恢复。
+      React.useEffect(function () {
+        setComposerHidden(true);
+        return function () {
+          setComposerHidden(false);
+        };
+      }, [sessionId]);
 
       React.useEffect(function () {
         let disposed = false;
