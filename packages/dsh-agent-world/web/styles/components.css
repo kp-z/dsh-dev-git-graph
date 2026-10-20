@@ -2508,19 +2508,22 @@
 
 /* R229：在独立标签页打开 Agent World；和 header 图标按钮同一视觉重量。 */
 .topbar-standalone {
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--edge);
-  border-radius: var(--r-sm);
-  background: var(--panel-2);
+  width: auto;
+  padding: 0 9px;
+  gap: 6px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  background: var(--paper-card);
+  box-shadow: var(--shadow-1);
   color: var(--fg-0);
   font: 600 var(--fs-micro) / 1 var(--ui-font);
-  text-decoration: none;
-  cursor: pointer;
+  white-space: nowrap;
+}
+.topbar-standalone svg {
+  width: 15px;
+  height: 15px;
 }
 .topbar-standalone:hover {
-  border-color: var(--stroke-strong);
-  color: var(--screen);
+  background: var(--paper-hover);
+  color: var(--fg-0);
 }
