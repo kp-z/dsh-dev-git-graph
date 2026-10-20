@@ -653,3 +653,94 @@
   width: 16px;
   height: 16px;
 }
+
+/* R226：任务看板：按状态分列，横向滚动。 */
+.sidebar-task-board {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px 6px;
+}
+.aw-kanban-column {
+  flex: 1 0 168px;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--bg-0) 45%, transparent);
+}
+.aw-kanban-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--edge-soft);
+  color: var(--fg-1);
+  font-size: 11px;
+  font-weight: 600;
+}
+.aw-kanban-head b {
+  min-width: 18px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
+  color: var(--fg-2);
+  font-size: 10px;
+  text-align: center;
+  line-height: 16px;
+}
+.aw-kanban-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.aw-kanban-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px;
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--fg-1);
+  text-align: left;
+  cursor: pointer;
+}
+.aw-kanban-card:hover,
+.aw-kanban-card:focus-visible {
+  border-color: var(--screen);
+  outline: none;
+}
+.aw-kanban-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-2);
+  font-size: 10px;
+}
+.aw-kanban-owner {
+  margin-left: auto;
+  color: var(--fg-2);
+}
+.aw-kanban-title {
+  color: var(--fg-0);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.aw-kanban-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--fg-2);
+  font-size: 10px;
+  line-height: 1.35;
+}

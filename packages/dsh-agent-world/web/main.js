@@ -521,6 +521,7 @@ function renderOfficialTasks(team) {
   board.setTeamTasks(tasks)
   renderTeamJobs(team)
   if (taskView === 'tree') renderTaskTree(tasks)
+  else if (taskView === 'board') renderTaskBoard(tasks)
 }
 
 /*
@@ -685,19 +686,90 @@ function renderTaskTree(tasks) {
 }
 
 function taskViewIcon(kind) {
+  if (kind === 'board') {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2" y="3" width="3.2" height="10" rx="0.6"/><rect x="6.4" y="3" width="3.2" height="7" rx="0.6"/><rect x="10.8" y="3" width="3.2" height="5" rx="0.6"/></svg>'
+  }
   if (kind === 'tree') {
     return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 3v9M8 6H4v3M8 9h4v3"/><circle cx="8" cy="3" r="1.2"/><rect x="2.6" y="9" width="3" height="3" rx="0.6"/><rect x="10.4" y="9" width="3" height="3" rx="0.6"/></svg>'
   }
   return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 4l4 4 4-4M4 12l4-4 4 4M8 8v5"/><circle cx="4" cy="4" r="1.4"/><circle cx="12" cy="4" r="1.4"/><circle cx="4" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="8" cy="8" r="1.4"/></svg>'
 }
 
+function renderTaskBoard(tasks) {
+  const card = root.querySelector('.sidebar-panel-graph .sidebar-region-content')
+  if (card === null) return
+  let mount = root.querySelector('#sidebar-task-board')
+  if (mount === null) {
+    mount = doc.createElement('div')
+    mount.id = 'sidebar-task-board'
+    mount.className = 'sidebar-task-board'
+    mount.hidden = true
+    root.querySelector('#sidebar-task-graph')?.after(mount)
+  }
+  mount.hidden = taskView !== 'board'
+  const columns = [
+    ['pending', '待办'],
+    ['in_progress', '进行中'],
+    ['completed', '完成'],
+    ['failed', '失败'],
+  ]
+  const statusOf = (task) => {
+    const value = String(task?.status ?? 'pending')
+    if (value === 'done') return 'completed'
+    if (value === 'running' || value === 'active') return 'in_progress'
+    return columns.some(([key]) => key === value) ? value : 'pending'
+  }
+  mount.textContent = ''
+  const list = Array.isArray(tasks) ? tasks : []
+  for (const [key, label] of columns) {
+    const column = doc.createElement('section')
+    column.className = 'aw-kanban-column'
+    column.dataset.status = key
+    const items = list.filter((task) => statusOf(task) === key)
+    const head = doc.createElement('div')
+    head.className = 'aw-kanban-head'
+    head.append(doc.createTextNode(label), Object.assign(doc.createElement('b'), { textContent: String(items.length) }))
+    const body = doc.createElement('div')
+    body.className = 'aw-kanban-body'
+    if (items.length === 0) body.append(Object.assign(doc.createElement('div'), { className: 'aw-empty', textContent: '没有任务' }))
+    for (const task of items) {
+      const item = doc.createElement('button')
+      item.type = 'button'
+      item.className = 'aw-kanban-card'
+      item.dataset.task = task.id
+      item.title = `${task.id} · ${task.subject ?? ''}`
+      const top = doc.createElement('div')
+      top.className = 'aw-kanban-top'
+      const dot = doc.createElement('i')
+      dot.className = 'board-dot board-task-dot'
+      dot.dataset.status = statusOf(task)
+      top.append(dot, Object.assign(doc.createElement('b'), { textContent: task.id ?? '' }))
+      top.append(Object.assign(doc.createElement('span'), { className: 'aw-kanban-owner', textContent: task.ownerName ?? '未分配' }))
+      const title = doc.createElement('div')
+      title.className = 'aw-kanban-title'
+      title.textContent = task.subject ?? ''
+      const desc = doc.createElement('div')
+      desc.className = 'aw-kanban-desc'
+      desc.textContent = task.description ?? ''
+      item.append(top, title, desc)
+      item.addEventListener('click', () => board.select(task.id))
+      body.append(item)
+    }
+    column.append(head, body)
+    mount.append(column)
+  }
+}
+
 function setTaskView(next) {
-  taskView = next === 'tree' ? 'tree' : 'graph'
+  taskView = next === 'board' ? 'board' : next === 'tree' ? 'tree' : 'graph'
   const graph = root.querySelector('#sidebar-task-graph')
   const tree = root.querySelector('#sidebar-task-tree')
-  if (graph !== null) graph.hidden = taskView === 'tree'
+  const kanban = root.querySelector('#sidebar-task-board')
+  if (graph !== null) graph.hidden = taskView !== 'graph'
   if (tree !== null) tree.hidden = taskView !== 'tree'
+  if (kanban !== null) kanban.hidden = taskView !== 'board'
   if (taskView === 'tree') renderTaskTree(lastOfficialTasks)
+  else if (taskView === 'board') renderTaskBoard(lastOfficialTasks)
   else board.refreshGraph?.()
   const button = root.querySelector('.aw-view-button')
   if (button !== null) {
@@ -738,7 +810,7 @@ function renderTaskActions(team) {
     menu.className = 'aw-view-menu'
     menu.setAttribute('role', 'listbox')
     menu.hidden = true
-    for (const [value, label] of [['graph', '图'], ['tree', '树']]) {
+    for (const [value, label] of [['graph', '图'], ['tree', '树'], ['board', '看板']]) {
       const option = doc.createElement('button')
       option.type = 'button'
       option.className = 'aw-view-option'
