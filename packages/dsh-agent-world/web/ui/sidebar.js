@@ -49,6 +49,7 @@ function el(doc, tag, className, text) {
 const COLLAPSED_KEY = 'agentWorld.sidebarCollapsed'
 /** R191：两块面板的排列方式：rows（上下）| columns（左右）。 */
 const LAYOUT_KEY = 'agentWorld.panelLayout'
+const ORDER_KEY = 'agentWorld.panelOrder'
 /**
  * R181：**单块面板**的折叠记忆（任务 / Agent 列表各自可折叠）。
  *
@@ -85,6 +86,7 @@ export function createSidebar(options = {}) {
 
   let collapsed = typeof options.initialCollapsed === 'boolean' ? options.initialCollapsed : readCollapsed()
   let layout = readLayout()
+  let order = readOrder()
   /** R181：两块各自可折叠（`{graph, agents}`），状态与整列折叠分开存。 */
   const panelCollapsed = readPanelCollapsed()
 
@@ -97,12 +99,8 @@ export function createSidebar(options = {}) {
   root.textContent = ''
   const toolbar = el(doc, 'div', 'sidebar-toolbar')
   const toolbarTitle = el(doc, 'span', 'sidebar-toolbar-title', '工作台')
-  const layoutButton = el(doc, 'button', 'aw-icon sidebar-layout-toggle')
-  layoutButton.type = 'button'
-  layoutButton.dataset.layoutToggle = '1'
-  layoutButton.title = '切换左右/上下排列'
-  layoutButton.setAttribute('aria-label', '切换左右/上下排列')
-  toolbar.append(toolbarTitle, layoutButton)
+  const dragHint = el(doc, 'span', 'sidebar-drag-hint', '拖动 ⠿ 排列')
+  toolbar.append(toolbarTitle, dragHint)
 
   const body = el(doc, 'div', 'sidebar-body')
   body.id = 'sidebar-body'
@@ -148,7 +146,52 @@ export function createSidebar(options = {}) {
     caret.addEventListener('click', () => setPanelCollapsed(region.id, panelCollapsed[region.id] !== true))
     carets[region.id] = caret
     head.append(title, meta, actions, caret)
+    const handle = el(doc, 'button', 'aw-drag-handle', '⠿')
+    handle.type = 'button'
+    handle.draggable = true
+    handle.title = '拖动排列'
+    handle.setAttribute('aria-label', `拖动 ${region.title} 面板排列`)
+    handle.addEventListener('dragstart', (event) => {
+      dragId = region.id
+      panel.classList.add('is-dragging')
+      if (event.dataTransfer !== null && event.dataTransfer !== undefined) {
+        event.dataTransfer.effectAllowed = 'move'
+        try { event.dataTransfer.setData('text/plain', region.id) } catch (e) { /* 老浏览器 */ }
+      }
+    })
+    handle.addEventListener('dragend', () => {
+      dragId = null
+      panel.classList.remove('is-dragging')
+      body.removeAttribute('data-drop')
+      for (const item of Object.values(panels)) item.classList?.remove('is-drop-target')
+    })
+    head.prepend(handle)
     panel.setAttribute('aria-labelledby', titleId)
+    panel.addEventListener('dragover', (event) => {
+      if (dragId === null || dragId === region.id) return
+      event.preventDefault()
+      const rect = panel.getBoundingClientRect()
+      const dx = Math.abs(event.clientX - (rect.left + rect.width / 2))
+      const dy = Math.abs(event.clientY - (rect.top + rect.height / 2))
+      body.dataset.drop = dx > dy ? 'columns' : 'rows'
+      panel.classList.add('is-drop-target')
+    })
+    panel.addEventListener('dragleave', () => panel.classList.remove('is-drop-target'))
+    panel.addEventListener('drop', (event) => {
+      if (dragId === null || dragId === region.id) return
+      event.preventDefault()
+      const rect = panel.getBoundingClientRect()
+      const dx = Math.abs(event.clientX - (rect.left + rect.width / 2))
+      const dy = Math.abs(event.clientY - (rect.top + rect.height / 2))
+      const nextLayout = dx > dy ? 'columns' : 'rows'
+      const after = nextLayout === 'columns'
+        ? event.clientX > rect.left + rect.width / 2
+        : event.clientY > rect.top + rect.height / 2
+      arrange(dragId, region.id, nextLayout, after)
+      dragId = null
+      body.removeAttribute('data-drop')
+      panel.classList.remove('is-drop-target')
+    })
     panel.append(head)
 
     // R180：每块自己的内容容器。
@@ -191,15 +234,36 @@ export function createSidebar(options = {}) {
     layout = next === 'columns' ? 'columns' : 'rows'
     body.dataset.layout = layout
     root.dataset.layout = layout
-    layoutButton.textContent = layout === 'columns' ? '上下' : '左右'
-    layoutButton.title = layout === 'columns' ? '切换为上下排列' : '切换为左右排列'
-    layoutButton.setAttribute('aria-label', layoutButton.title)
     try { globalThis.localStorage?.setItem(LAYOUT_KEY, layout) } catch (e) { /* 记忆是便利，不是功能 */ }
     options.onLayoutChange?.(layout)
     return layout
   }
-  layoutButton.addEventListener('click', () => setLayout(layout === 'columns' ? 'rows' : 'columns'))
+  let dragId = null
   setLayout(layout)
+  applyOrder()
+
+  /** R195：拖拽重排。orientation 由指针相对面板中心决定；after 决定插在目标前/后。 */
+  function arrange(fromId, toId, nextLayout, after) {
+    if (fromId === toId) return
+    order = order.filter((id) => id !== fromId)
+    const index = order.indexOf(toId)
+    order.splice(index < 0 ? order.length : (after ? index + 1 : index), 0, fromId)
+    setLayout(nextLayout)
+    applyOrder()
+    writeOrder(order)
+  }
+
+  function applyOrder() {
+    const ids = order.filter((id) => panels[id] !== undefined)
+    for (const id of Object.keys(panels)) {
+      if (id.endsWith('Mount') || id.startsWith('official')) continue
+      if (!ids.includes(id)) ids.push(id)
+    }
+    for (const id of ids) {
+      const panel = panels[id]
+      if (panel?.nodeType === 1) body.append(panel)
+    }
+  }
 
   /**
    * R181：单块折叠（任务 / Agent 列表各自）。
@@ -313,6 +377,7 @@ export function createSidebar(options = {}) {
     toggle: () => setCollapsed(!collapsed),
     /** R181：单块折叠的读/写（main.js 不直接碰 DOM class）。 */
     layout: () => layout,
+    order: () => [...order],
     setLayout,
     toggleLayout: () => setLayout(layout === 'columns' ? 'rows' : 'columns'),
     panelCollapsed: (id) => (id === undefined ? { ...panelCollapsed } : panelCollapsed[id] === true),
@@ -337,6 +402,22 @@ export function createSidebar(options = {}) {
     }),
     root,
   }
+}
+
+/** R195：面板顺序记忆（默认任务在前、Agent 列表在后）。 */
+function readOrder() {
+  try {
+    const parsed = JSON.parse(globalThis.localStorage?.getItem(ORDER_KEY) ?? 'null')
+    if (Array.isArray(parsed)) {
+      const ids = parsed.filter((id) => id === 'graph' || id === 'agents')
+      if (ids.length === 2) return ids
+    }
+  } catch (e) { /* 坏数据回默认 */ }
+  return ['graph', 'agents']
+}
+
+function writeOrder(value) {
+  try { globalThis.localStorage?.setItem(ORDER_KEY, JSON.stringify(value)) } catch (e) { /* 便利不是功能 */ }
 }
 
 /** 读排列记忆（默认上下；坏数据也回上下）。 */

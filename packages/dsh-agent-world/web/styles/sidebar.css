@@ -405,11 +405,37 @@
   padding: 0;
 }
 
-/* R194：布局切换用文字，不用单独箭头（箭头语义不清）。 */
-.sidebar-layout-toggle {
-  width: auto !important;
-  min-width: 0;
-  padding: 0 8px;
-  font-family: var(--ui-font);
+/* R195：拖拽排序；去掉左右/上下按钮。 */
+.sidebar-drag-hint {
+  margin-left: auto;
+  color: var(--fg-2);
   font-size: var(--fs-micro);
+  letter-spacing: 0.02em;
+}
+.aw-drag-handle {
+  flex: none;
+  width: 18px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-2);
+  font: 14px / 1 var(--mono-font);
+  cursor: grab;
+  opacity: 0.55;
+}
+.aw-drag-handle:hover,
+.aw-drag-handle:focus-visible {
+  color: var(--fg-0);
+  opacity: 1;
+}
+.aw-drag-handle:active {
+  cursor: grabbing;
+}
+.sidebar-panel.is-dragging {
+  opacity: 0.55;
+}
+.sidebar-panel.is-drop-target {
+  outline: 2px dashed var(--screen);
+  outline-offset: -3px;
 }
