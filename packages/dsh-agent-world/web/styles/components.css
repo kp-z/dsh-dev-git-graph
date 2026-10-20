@@ -2527,3 +2527,27 @@
   background: var(--paper-hover);
   color: var(--fg-0);
 }
+
+/* R237：团队卡片负载条 + 任务面板完成进度。 */
+.board-member-load {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  color: var(--fg-2);
+  font-size: 9.5px;
+}
+.board-member-load-track {
+  flex: 1;
+  height: 3px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--bg-0) 65%, transparent);
+  overflow: hidden;
+}
+.board-member-load-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--st-done);
+}

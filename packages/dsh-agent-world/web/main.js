@@ -506,6 +506,9 @@ function renderOfficialTasks(team) {
   if (team === null || team === undefined) return
   const tasks = Array.isArray(team.tasks) ? team.tasks : []
   lastOfficialTasks = tasks
+  const done = tasks.filter((task) => task.status === 'completed' || task.status === 'done').length
+  const meta = root.querySelector('#sidebar-region-meta-graph')
+  if (meta !== null) meta.textContent = tasks.length === 0 ? '' : `${done}/${tasks.length} 完成`
   setTasksNotice('')
   // 任务交给看板：它负责节点/边/状态带/图标可用性（图与状态带是同一份数据）。
   board.setTeamTasks(tasks)
@@ -1607,7 +1610,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     {
       symptom: '角色能走上墙 / 上桌子',
       probe: '__agentWorldDebug.audit().airWall',
-      look: 'gapsFilled>0 说明精细碰撞体与 nav 漂移；slotsBlocked 必须为 0',
+      look: 'uncoveredCells 是 nav 与美术几何的差异量（只报不补）；slotsBlocked 必须为 0',
     },
     {
       symptom: '遮挡关系不对（谁压谁）',
@@ -1781,4 +1784,9 @@ function createScopedDocument(root, doc) {
     get defaultView() { return doc.defaultView },
     get body() { return doc.body },
   }
+}
+
+// R233：`?edit=1` 才加载手改碰撞体编辑器（不影响正常页面体积）。
+if (new URLSearchParams(globalThis.location?.search ?? '').has('edit')) {
+  void import('./editor.js')
 }

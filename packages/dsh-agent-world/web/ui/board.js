@@ -589,6 +589,14 @@ export function createBoard(options = {}) {
         .map((id) => model.tasks.find((task) => task.id === id))
         .filter((task) => task !== undefined)
       if (memberTasks.length > 0) {
+        const doneCount = memberTasks.filter((task) => task.status === 'completed' || task.status === 'done').length
+        const load = el(doc, 'div', 'board-member-load')
+        const track = el(doc, 'i', 'board-member-load-track')
+        const fill = el(doc, 'b', 'board-member-load-fill')
+        fill.style.width = `${Math.round((doneCount / memberTasks.length) * 100)}%`
+        track.append(fill)
+        load.append(track, el(doc, 'span', undefined, `${doneCount}/${memberTasks.length} 完成`))
+        head.append(load)
         const taskBox = el(doc, 'div', 'board-member-tasks')
         for (const task of memberTasks.slice(0, 4)) {
           const line = el(doc, 'div', 'board-member-task')
