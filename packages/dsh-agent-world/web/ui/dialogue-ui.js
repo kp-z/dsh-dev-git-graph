@@ -72,6 +72,7 @@ export function createDialogueUi(options = {}) {
   const $panel = byId('dialogue')
   const $who = byId('dialogue-who')
   const $log = byId('dialogue-log')
+  const $history = byId('dialogue-history')
   const $form = byId('dialogue-form')
   const $input = byId('dialogue-input')
   const $send = byId('dialogue-send')
@@ -225,6 +226,42 @@ export function createDialogueUi(options = {}) {
   /** 重画（上层每 250ms 调一次；签名没变时几乎不做事）。 */
   function render(nowMs = 0) {
     renderLog(nowMs)
+    renderHistory()
+  }
+
+  /**
+   * R211：全部 agent 的聊天记录，默认折叠。
+   * 数据来自状态机的 byAgent（每个 agent 最多保留 DEFAULT_MAX_TURNS_PER_AGENT 轮），
+   * 不另建 store；`<details>` 默认 closed。
+   */
+  let lastHistorySig = null
+  function renderHistory() {
+    if ($history === null || $history === undefined) return
+    const groups = []
+    for (const [agentId, turns] of state.byAgent) {
+      const lines = []
+      for (const turn of turns) {
+        if (typeof turn.said === 'string' && turn.said !== '') lines.push(`我：${turn.said}`)
+        if (turn.phase === 'replied' && typeof turn.text === 'string') lines.push(`${nameOf(agentId)}：${turn.text}`)
+        else if (turn.phase === 'failed') lines.push(`${nameOf(agentId)}：说不出话（${turn.reason ?? '未知原因'}）`)
+      }
+      if (lines.length > 0) groups.push({ agentId, name: nameOf(agentId), lines })
+    }
+    const sig = groups.map((g) => `${g.agentId}:${g.lines.length}:${g.lines.join('\u0001')}`).join('||')
+    if (sig === lastHistorySig) return
+    lastHistorySig = sig
+    $history.hidden = groups.length === 0
+    $history.textContent = ''
+    if (groups.length === 0) return
+    const all = el(doc, 'details', 'dialogue-history-all')
+    all.append(el(doc, 'summary', 'dialogue-history-summary', `全部对话记录 · ${groups.length} 人`))
+    for (const group of groups) {
+      const detail = el(doc, 'details', 'dialogue-history-agent')
+      detail.append(el(doc, 'summary', 'dialogue-history-name', `${group.name} · ${group.lines.length}`))
+      for (const line of group.lines) detail.append(el(doc, 'div', 'dialogue-history-line', line))
+      all.append(detail)
+    }
+    $history.append(all)
   }
 
   function refreshWho() {

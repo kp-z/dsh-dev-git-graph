@@ -65,7 +65,8 @@ export function mountAgentWorld(options = {}) {
   const $ = (id) => root.querySelector(`#${id}`)
   const scopedDoc = root === doc ? doc : createScopedDocument(root, doc)
   /** 键盘监听的落点：嵌入时挂在容器上，事件不会跑出主面板。 */
-  const keyTarget = typeof root.addEventListener === 'function' ? root : doc
+  // R211：对话框快捷键绑文档层，团队卡片/工具条点完后焦点不在舞台里也能收到。
+  const keyTarget = doc
 
 const COMMAND_API = apiUrl('api/command')
 /** 发话端点（回复走 SSE 的 `dialogue` 帧，见 `src/protocol/dialogue.ts`）。 */
@@ -310,7 +311,7 @@ const board = createBoard({
   // 现在只剩两条路：场景点人（聚焦 + 开面板）、成员行（只聚焦）。
   // 对话的另外两条入口都在 `main.js` 顶层：点场景里的人、选中后按回车。
   // ③ 成员**行**：只聚焦，**不开**面板。侧边栏里点谁，镜头就跟谁。
-  onMemberSelect: (agentId) => void focusAgent(agentId, 'member'),
+  onMemberSelect: (agentId) => { focusAgent(agentId, 'member'); openDialogueFor(agentId) },
 })
 boardRef = board
 

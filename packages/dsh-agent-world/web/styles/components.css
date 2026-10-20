@@ -2317,3 +2317,34 @@
 .board-node:active {
   transform: scale(0.99);
 }
+
+/* R211：全部聊天记录，默认折叠；只在这个面板里滚动。 */
+.dialogue-history {
+  flex: none;
+  max-height: 150px;
+  overflow: auto;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--edge-soft);
+  background: color-mix(in srgb, var(--bg-0) 55%, var(--panel));
+  font-size: 11px;
+}
+.dialogue-history summary {
+  cursor: pointer;
+  color: var(--fg-1);
+  font-weight: 600;
+  line-height: 1.7;
+}
+.dialogue-history-agent {
+  margin-left: 8px;
+}
+.dialogue-history-name {
+  color: var(--fg-2);
+  font-weight: 500;
+}
+.dialogue-history-line {
+  margin: 2px 0 4px 14px;
+  color: var(--fg-1);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
