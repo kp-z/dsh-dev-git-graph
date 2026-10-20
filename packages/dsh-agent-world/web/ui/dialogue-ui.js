@@ -397,6 +397,12 @@ export function createDialogueUi(options = {}) {
     $modeMove?.setAttribute('aria-selected', String(!isChat))
     if ($chatPanel !== null && $chatPanel !== undefined) $chatPanel.hidden = !isChat
     if ($movePanel !== null && $movePanel !== undefined) $movePanel.hidden = isChat
+    // R219：只有对话态允许拉高；移动态不显示把手，并回到默认高度。
+    if ($resize !== null && $resize !== undefined) $resize.hidden = !isChat
+    if (!isChat && $panel !== null && $panel !== undefined) {
+      $panel.classList.remove('is-resized')
+      $panel.style.height = ''
+    }
     if (isChat === true) {
       // 回对话：焦点给输入框（下一句直接能打字）。
       $input?.focus()
