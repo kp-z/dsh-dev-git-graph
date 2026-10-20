@@ -404,3 +404,12 @@
 .sidebar-region-content .sidebar-official-agents {
   padding: 0;
 }
+
+/* R194：布局切换用文字，不用单独箭头（箭头语义不清）。 */
+.sidebar-layout-toggle {
+  width: auto !important;
+  min-width: 0;
+  padding: 0 8px;
+  font-family: var(--ui-font);
+  font-size: var(--fs-micro);
+}

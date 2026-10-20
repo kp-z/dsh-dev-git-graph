@@ -191,7 +191,7 @@ export function createSidebar(options = {}) {
     layout = next === 'columns' ? 'columns' : 'rows'
     body.dataset.layout = layout
     root.dataset.layout = layout
-    layoutButton.textContent = layout === 'columns' ? '⇅' : '⇄'
+    layoutButton.textContent = layout === 'columns' ? '上下' : '左右'
     layoutButton.title = layout === 'columns' ? '切换为上下排列' : '切换为左右排列'
     layoutButton.setAttribute('aria-label', layoutButton.title)
     try { globalThis.localStorage?.setItem(LAYOUT_KEY, layout) } catch (e) { /* 记忆是便利，不是功能 */ }
