@@ -281,8 +281,10 @@ export function createBoard(options = {}) {
       canvas.scrollTop = pan.top - dy
       canvas.classList.add('is-panning')
     })
+    let suppressCanvasClick = false
     const endPan = (event) => {
       if (pan === null) return
+      if (pan.moved === true) suppressCanvasClick = true
       pan = null
       canvas.classList.remove('is-panning')
       try {
@@ -293,6 +295,12 @@ export function createBoard(options = {}) {
     }
     canvas.addEventListener('pointerup', endPan)
     canvas.addEventListener('pointercancel', endPan)
+    // R243：点图内空白 = 取消选中；拖动过画布则不触发，避免拖图顺手清掉检查器。
+    canvas.addEventListener('click', (event) => {
+      if (suppressCanvasClick) { suppressCanvasClick = false; return }
+      if (event.target?.closest?.('.board-node') !== null) return
+      select(null)
+    })
     // 三层，各有各的职责（M7-9 修的就是这里）：
     //   canvas  —— **可滚动**的可见容器。**它的尺寸由 flex 决定，绝不由内容决定**。
     //              之前把 canvas 自己撑成内容宽度，于是它溢出了父容器、被父容器裁掉，
