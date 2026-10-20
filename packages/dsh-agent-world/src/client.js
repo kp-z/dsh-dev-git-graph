@@ -82,8 +82,6 @@ window.__ModuleLoader__.load({
       if (typeof sessionId !== 'string' || sessionId === '') return null;
       try {
         const snapshot = sessions?.list?.getSnapshot?.();
-        globalThis.__awSnapKeys = snapshot === undefined ? null : Object.keys(snapshot);
-        globalThis.__awProjKeys = snapshot?.projectionsBySession === undefined ? null : Object.keys(snapshot.projectionsBySession);
         const team = snapshot?.projectionsBySession?.[sessionId]?.values?.agentTeam;
         return team === undefined ? null : team;
       } catch (e) {

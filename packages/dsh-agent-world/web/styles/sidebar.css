@@ -393,14 +393,7 @@
   padding: 0;
 }
 
-/* R195：拖拽排序；去掉左右/上下按钮。 */
-.sidebar-drag-hint {
-  margin-left: auto;
-  color: var(--fg-2);
-  font-size: var(--fs-micro);
-  letter-spacing: 0.02em;
-}
-.aw-drag-handle {
+/* R195：拖拽排序；去掉左右/上下按钮。 */.aw-drag-handle {
   flex: none;
   width: 18px;
   height: 24px;
