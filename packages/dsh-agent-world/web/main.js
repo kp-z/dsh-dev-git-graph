@@ -788,6 +788,11 @@ function setTaskView(next) {
     button.innerHTML = taskViewIcon(taskView)
     button.dataset.view = taskView
     button.setAttribute('aria-expanded', 'false')
+    button.title = taskView === 'tree' ? '当前：树' : taskView === 'board' ? '当前：看板' : '当前：图'
+  }
+  for (const option of root.querySelectorAll('.aw-view-option')) {
+    option.classList.toggle('is-active', option.dataset.view === taskView)
+    option.setAttribute('aria-selected', String(option.dataset.view === taskView))
   }
 }
 
@@ -830,6 +835,8 @@ function renderTaskActions(team) {
       option.title = label
       option.setAttribute('role', 'option')
       option.setAttribute('aria-label', label)
+      option.setAttribute('aria-selected', String(value === taskView))
+      option.classList.toggle('is-active', value === taskView)
       option.innerHTML = taskViewIcon(value)
       option.addEventListener('click', () => {
         setTaskView(value)

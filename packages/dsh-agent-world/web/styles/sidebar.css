@@ -766,3 +766,9 @@
   font-size: 11px;
   line-height: 1.5;
 }
+
+/* R245：任务视图下拉的当前项高亮。 */
+.aw-view-option.is-active {
+  background: color-mix(in srgb, var(--screen) 18%, var(--panel-2));
+  color: var(--fg-0);
+}
