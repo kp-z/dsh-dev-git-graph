@@ -95,6 +95,15 @@ export function createSidebar(options = {}) {
   // 开关现在住在 `header.topbar`（`index.html`），由 `main.js` 接线；
   // 侧边栏只负责"被折叠/展开"这个状态本身。
   root.textContent = ''
+  const toolbar = el(doc, 'div', 'sidebar-toolbar')
+  const toolbarTitle = el(doc, 'span', 'sidebar-toolbar-title', '工作台')
+  const layoutButton = el(doc, 'button', 'aw-icon sidebar-layout-toggle')
+  layoutButton.type = 'button'
+  layoutButton.dataset.layoutToggle = '1'
+  layoutButton.title = '切换左右/上下排列'
+  layoutButton.setAttribute('aria-label', '切换左右/上下排列')
+  toolbar.append(toolbarTitle, layoutButton)
+
   const body = el(doc, 'div', 'sidebar-body')
   body.id = 'sidebar-body'
 
@@ -175,17 +184,21 @@ export function createSidebar(options = {}) {
     panels[region.id] = panel
     metas[region.id] = meta
   }
-  root.append(body)
+  root.append(toolbar, body)
 
-  /** R191：两种排列；写进 data-layout，CSS 只认这个属性。 */
+  /** R191：两种排列；全局 header 控制，不放在任何一个面板里。 */
   function setLayout(next) {
     layout = next === 'columns' ? 'columns' : 'rows'
     body.dataset.layout = layout
     root.dataset.layout = layout
+    layoutButton.textContent = layout === 'columns' ? '⇅' : '⇄'
+    layoutButton.title = layout === 'columns' ? '切换为上下排列' : '切换为左右排列'
+    layoutButton.setAttribute('aria-label', layoutButton.title)
     try { globalThis.localStorage?.setItem(LAYOUT_KEY, layout) } catch (e) { /* 记忆是便利，不是功能 */ }
     options.onLayoutChange?.(layout)
     return layout
   }
+  layoutButton.addEventListener('click', () => setLayout(layout === 'columns' ? 'rows' : 'columns'))
   setLayout(layout)
 
   /**

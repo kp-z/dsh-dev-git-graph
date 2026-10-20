@@ -372,3 +372,35 @@
 .app.is-sidebar-collapsed #sidebar {
   display: none;
 }
+
+/* R192：全局侧边栏 header；布局切换属于整个侧边栏，不属于任何一个面板。 */
+.sidebar-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  height: 40px;
+  padding: 0 var(--aw-pad-x);
+  border-bottom: 1px solid var(--console-line);
+}
+.sidebar-toolbar-title {
+  color: var(--fg-2);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* 统一页边距/卡片间距：面板、内容、工具条共享同一圈 12px。 */
+.sidebar-body {
+  gap: 12px;
+  padding: 12px;
+}
+.sidebar-region-content {
+  gap: 10px;
+  padding: 0 12px 10px;
+}
+.sidebar-region-content .sidebar-official-tasks,
+.sidebar-region-content .sidebar-official-agents {
+  padding: 0;
+}

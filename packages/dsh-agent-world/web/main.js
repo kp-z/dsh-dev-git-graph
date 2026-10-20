@@ -513,7 +513,10 @@ function setComposerOpen(open) {
 function ensureAgentComposer(card) {
   if (composerBox !== null) {
     // projection 刷新会重写任务面板内容；composer 必须重新挂回，否则按钮在、输入框丢。
-    if (!composerBox.isConnected) card.append(composerBox, composerError)
+    if (!composerBox.isConnected) {
+      card.prepend(composerError)
+      card.prepend(composerBox)
+    }
     return
   }
   composerBox = doc.createElement('div')
@@ -535,7 +538,8 @@ function ensureAgentComposer(card) {
   composerError = doc.createElement('div')
   composerError.className = 'aw-error'
   composerError.hidden = true
-  card.append(composerBox, composerError)
+  card.prepend(composerError)
+  card.prepend(composerBox)
 
   composerInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
@@ -633,7 +637,7 @@ function setTaskView(next) {
 }
 
 function renderTaskActions(team) {
-  const card = root.querySelector('#sidebar-panel-graph')
+  const card = root.querySelector('.sidebar-panel-graph .sidebar-region-content')
   if (card === null) return
   ensureAgentComposer(card)
   const host = sidebarMounts.graphActions
@@ -647,20 +651,6 @@ function renderTaskActions(team) {
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
   host.append(create)
-  if (host.querySelector('[data-layout-toggle]') === null) {
-    const layout = doc.createElement('button')
-    layout.type = 'button'
-    layout.className = 'aw-icon'
-    layout.dataset.layoutToggle = '1'
-    layout.title = '切换左右/上下排列'
-    layout.setAttribute('aria-label', layout.title)
-    layout.textContent = sidebar.layout?.() === 'columns' ? '⇅' : '⇄'
-    layout.addEventListener('click', () => {
-      const next = sidebar.toggleLayout?.()
-      layout.textContent = next === 'columns' ? '⇅' : '⇄'
-    })
-    host.append(layout)
-  }
   for (const [mode, label] of [['graph', '图'], ['tree', '树']]) {
     if (host.querySelector(`[data-task-view="${mode}"]`) !== null) continue
     const toggle = doc.createElement('button')
