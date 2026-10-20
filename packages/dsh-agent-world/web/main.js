@@ -514,6 +514,11 @@ function renderOfficialTasks(team) {
   if (team === null || team === undefined) return
   const tasks = Array.isArray(team.tasks) ? team.tasks : []
   lastOfficialTasks = tasks
+  const emptyHost = root.querySelector('#sidebar-official-tasks')
+  if (emptyHost !== null) {
+    emptyHost.textContent = tasks.length === 0 ? '还没有任务。点右上角「＋ 任务」创建第一张。' : ''
+    emptyHost.classList.toggle('is-empty', tasks.length === 0)
+  }
   const done = tasks.filter((task) => task.status === 'completed' || task.status === 'done').length
   const meta = root.querySelector('#sidebar-region-meta-graph')
   if (meta !== null) meta.textContent = tasks.length === 0 ? '' : `${done}/${tasks.length} 完成`

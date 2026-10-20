@@ -756,3 +756,13 @@
 .aw-kanban-column[data-status='in_progress'] .aw-kanban-dot { background: var(--st-in_progress); }
 .aw-kanban-column[data-status='completed'] .aw-kanban-dot { background: var(--st-done); }
 .aw-kanban-column[data-status='failed'] .aw-kanban-dot { background: var(--st-failed); }
+
+/* R242：任务面板空态——不要把空白当成“加载中”。 */
+.sidebar-official-tasks.is-empty {
+  padding: 10px 12px;
+  border: 1px dashed var(--edge-soft);
+  border-radius: var(--r-md);
+  color: var(--fg-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
