@@ -36,6 +36,7 @@ import { createTopbar } from './ui/topbar.js'
 import { createLegend } from './ui/legend.js'
 import { createSidebar } from './ui/sidebar.js'
 import { createBoard } from './ui/board.js'
+import { mountDock } from './ui/dock.js'
 import { createDialogueUi } from './ui/dialogue-ui.js'
 
 /**
@@ -312,6 +313,16 @@ const board = createBoard({
   onMemberSelect: (agentId) => void focusAgent(agentId, 'member'),
 })
 boardRef = board
+
+// R208：三张卡（场景/任务/团队）进入同一个 dock，可互相拖到左/右/上/下，split 手柄可调宽。
+const dock = mountDock({
+  root,
+  stage: document.querySelector('.stage'),
+  panels: {
+    task: document.querySelector('#sidebar-panel-graph'),
+    team: document.querySelector('#sidebar-panel-agents'),
+  },
+})
 
 dialogue = createDialogueUi({
   document: scopedDoc,

@@ -450,3 +450,122 @@
   flex-direction: column;
   min-height: 0;
 }
+
+/* R208：dock 工作区。三张卡不再固定在侧边栏列里。 */
+.workspace {
+  --aw-gap: 6px;
+  --aw-pad-x: 12px;
+  --aw-pad-y: 10px;
+  --aw-ribbon-h: 6px;
+  --aw-ribbon-gap: 2px;
+  --aw-row-h: 40px;
+  --aw-icon: 16px;
+  --aw-radius: var(--r-md);
+  --aw-card: var(--panel-2);
+  --aw-card-hover: var(--panel-3);
+  --aw-hair: var(--edge-soft);
+  --aw-focus: var(--screen);
+  --aw-danger: var(--st-failed);
+  --aw-fs-card: 12.5px;
+  --aw-fs-meta: 11px;
+  --aw-task-min: 200px;
+  --aw-agents-min: 148px;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.app.has-dock {
+  grid-template-columns: 1fr;
+  grid-template-rows: 48px 1fr;
+}
+.dock-split {
+  display: flex;
+  flex: 1 1 0%;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+}
+.dock-split-col {
+  flex-direction: column;
+}
+.dock-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.dock-pane > .stage,
+.dock-pane > .sidebar-panel {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.dock-pane > .stage {
+  grid-column: auto;
+  grid-row: auto;
+}
+.dock-resizer {
+  flex: 0 0 6px;
+  position: relative;
+  z-index: 3;
+  border-radius: 3px;
+  background: transparent;
+}
+.dock-resizer-row {
+  cursor: col-resize;
+}
+.dock-resizer-col {
+  flex-basis: 6px;
+  height: 6px;
+  cursor: row-resize;
+}
+.dock-resizer:hover {
+  background: color-mix(in srgb, var(--screen) 35%, transparent);
+}
+.aw-dock-handle {
+  flex: none;
+  width: 18px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-2);
+  font: 14px / 1 var(--mono-font);
+  cursor: grab;
+  opacity: 0.55;
+}
+.aw-dock-handle:hover,
+.aw-dock-handle:focus-visible {
+  color: var(--fg-0);
+  opacity: 1;
+}
+.stage > .aw-dock-handle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 4;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+.dock-pane.is-drop-left::after,
+.dock-pane.is-drop-right::after,
+.dock-pane.is-drop-top::after,
+.dock-pane.is-drop-bottom::after {
+  content: '';
+  position: absolute;
+  z-index: 6;
+  pointer-events: none;
+  border: 2px dashed var(--screen);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--screen) 8%, transparent);
+}
+.dock-pane.is-drop-left::after { left: 0; top: 0; bottom: 0; width: 50%; }
+.dock-pane.is-drop-right::after { right: 0; top: 0; bottom: 0; width: 50%; }
+.dock-pane.is-drop-top::after { left: 0; right: 0; top: 0; height: 50%; }
+.dock-pane.is-drop-bottom::after { left: 0; right: 0; bottom: 0; height: 50%; }
