@@ -880,6 +880,9 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
                 status: String(t['status'] ?? ''),
                 ownerName: typeof t['ownerName'] === 'string' ? t['ownerName'] : '',
                 ready: t['ready'] === true,
+                // R207：依赖/版本是看图与 CAS 的输入，之前被 sanitize 掉了，导致 0 条边。
+                blockedBy: Array.isArray(t['blockedBy']) ? t['blockedBy'].filter((id): id is string => typeof id === 'string') : [],
+                revision: Number.isFinite(t['revision']) ? Number(t['revision']) : undefined,
               })),
             }
           } catch (error) {
