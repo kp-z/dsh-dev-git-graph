@@ -171,6 +171,21 @@
   flex: 1 1 38%;
   min-height: var(--aw-agents-min);
 }
+/* R191：左右排列（两块都能看到更多同一区域）；窄档自动回上下。 */
+.sidebar-body[data-layout="columns"] {
+  flex-direction: row;
+  align-items: stretch;
+}
+.sidebar-body[data-layout="columns"] .sidebar-panel {
+  flex: 1 1 50%;
+  min-width: 0;
+  min-height: 0;
+}
+@media (max-width: 900px) {
+  .sidebar-body[data-layout="columns"] {
+    flex-direction: column;
+  }
+}
 /* 单块折叠：只剩 header（flex 不再分高度），另一块自动吃掉全部高度。 */
 .sidebar-panel.is-collapsed {
   flex: 0 0 auto;

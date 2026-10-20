@@ -647,6 +647,20 @@ function renderTaskActions(team) {
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
   host.append(create)
+  if (host.querySelector('[data-layout-toggle]') === null) {
+    const layout = doc.createElement('button')
+    layout.type = 'button'
+    layout.className = 'aw-icon'
+    layout.dataset.layoutToggle = '1'
+    layout.title = '切换左右/上下排列'
+    layout.setAttribute('aria-label', layout.title)
+    layout.textContent = sidebar.layout?.() === 'columns' ? '⇅' : '⇄'
+    layout.addEventListener('click', () => {
+      const next = sidebar.toggleLayout?.()
+      layout.textContent = next === 'columns' ? '⇅' : '⇄'
+    })
+    host.append(layout)
+  }
   for (const [mode, label] of [['graph', '图'], ['tree', '树']]) {
     if (host.querySelector(`[data-task-view="${mode}"]`) !== null) continue
     const toggle = doc.createElement('button')

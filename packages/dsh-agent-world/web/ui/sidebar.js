@@ -47,6 +47,8 @@ function el(doc, tag, className, text) {
  * 用 `localStorage` 而不是服务端：这是**这台机器上这个人**的界面偏好，不是世界状态。
  */
 const COLLAPSED_KEY = 'agentWorld.sidebarCollapsed'
+/** R191：两块面板的排列方式：rows（上下）| columns（左右）。 */
+const LAYOUT_KEY = 'agentWorld.panelLayout'
 /**
  * R181：**单块面板**的折叠记忆（任务 / Agent 列表各自可折叠）。
  *
@@ -82,6 +84,7 @@ export function createSidebar(options = {}) {
   }
 
   let collapsed = typeof options.initialCollapsed === 'boolean' ? options.initialCollapsed : readCollapsed()
+  let layout = readLayout()
   /** R181：两块各自可折叠（`{graph, agents}`），状态与整列折叠分开存。 */
   const panelCollapsed = readPanelCollapsed()
 
@@ -173,6 +176,17 @@ export function createSidebar(options = {}) {
     metas[region.id] = meta
   }
   root.append(body)
+
+  /** R191：两种排列；写进 data-layout，CSS 只认这个属性。 */
+  function setLayout(next) {
+    layout = next === 'columns' ? 'columns' : 'rows'
+    body.dataset.layout = layout
+    root.dataset.layout = layout
+    try { globalThis.localStorage?.setItem(LAYOUT_KEY, layout) } catch (e) { /* 记忆是便利，不是功能 */ }
+    options.onLayoutChange?.(layout)
+    return layout
+  }
+  setLayout(layout)
 
   /**
    * R181：单块折叠（任务 / Agent 列表各自）。
@@ -285,6 +299,9 @@ export function createSidebar(options = {}) {
     setCollapsed,
     toggle: () => setCollapsed(!collapsed),
     /** R181：单块折叠的读/写（main.js 不直接碰 DOM class）。 */
+    layout: () => layout,
+    setLayout,
+    toggleLayout: () => setLayout(layout === 'columns' ? 'rows' : 'columns'),
     panelCollapsed: (id) => (id === undefined ? { ...panelCollapsed } : panelCollapsed[id] === true),
     setPanelCollapsed: (id, next) => setPanelCollapsed(id, next),
     overflow,
@@ -306,6 +323,16 @@ export function createSidebar(options = {}) {
       visible: root.offsetParent !== null,
     }),
     root,
+  }
+}
+
+/** 读排列记忆（默认上下；坏数据也回上下）。 */
+function readLayout() {
+  try {
+    const raw = globalThis.localStorage?.getItem(LAYOUT_KEY)
+    return raw === 'columns' ? 'columns' : 'rows'
+  } catch {
+    return 'rows'
   }
 }
 
@@ -339,6 +366,9 @@ function createNullSidebar() {
     collapsed: () => false,
     setCollapsed: () => false,
     toggle: () => false,
+    layout: () => 'rows',
+    setLayout: () => 'rows',
+    toggleLayout: () => 'rows',
     panelCollapsed: () => false,
     setPanelCollapsed: () => false,
     overflow: () => ({ total: 0, clipped: [], viewport: { w: 0, h: 0 } }),
