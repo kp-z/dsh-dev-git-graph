@@ -587,3 +587,15 @@
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2), var(--bevel);
 }
+
+/* R210：任务面板的新建按钮给出明确语义，不再只是一个＋。 */
+.aw-task-add {
+  width: auto !important;
+  padding: 0 8px;
+  font-family: var(--ui-font);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+}
+.sidebar-region-title {
+  white-space: nowrap;
+}

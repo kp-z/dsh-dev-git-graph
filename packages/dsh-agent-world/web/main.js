@@ -681,8 +681,8 @@ function renderTaskActions(team) {
   if (host.querySelector('.aw-icon') !== null) return
   const create = doc.createElement('button')
   create.type = 'button'
-  create.className = 'aw-icon'
-  create.textContent = '＋'
+  create.className = 'aw-icon aw-task-add'
+  create.textContent = '＋ 任务'
   create.title = '新建任务'
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
@@ -692,7 +692,7 @@ function renderTaskActions(team) {
     select.className = 'aw-view-select'
     select.title = '图 / 树'
     select.setAttribute('aria-label', '切换任务视图：图或树')
-    for (const [value, icon, label] of [['graph', '▦', '图'], ['tree', '≣', '树']]) {
+    for (const [value, icon, label] of [['graph', '◫', '图'], ['tree', '⑂', '树']]) {
       const option = doc.createElement('option')
       option.value = value
       option.textContent = icon

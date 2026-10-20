@@ -584,6 +584,21 @@ export function createBoard(options = {}) {
       memberStateNodes.set(row.member.id ?? '__unowned__', stateSpan)
       // R181：「未分配」行用一枚计数角标说明"还有几张没人领"，替代原来那一排 chip。
       if (row.member.id === null) head.append(el(doc, 'b', 'aw-badge', String(row.tasks.length)))
+      const memberTasks = (row.tasks ?? [])
+        .map((id) => model.tasks.find((task) => task.id === id))
+        .filter((task) => task !== undefined)
+      if (memberTasks.length > 0) {
+        const taskBox = el(doc, 'div', 'board-member-tasks')
+        for (const task of memberTasks.slice(0, 4)) {
+          const line = el(doc, 'div', 'board-member-task')
+          const dot = el(doc, 'i', 'board-dot board-task-dot')
+          applyNodeColors(dot, task.displayStatus ?? task.status)
+          line.append(dot, el(doc, 'span', undefined, `${task.id} ${task.title}`))
+          line.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
+          taskBox.append(line)
+        }
+        head.append(taskBox)
+      }
       // `aria-label` 要在名字/角色/状态都齐了之后拼：只报名字的话，读屏用户听不出
       // "这个人在干什么"，而那恰恰是这块列表的全部信息量。
       if (row.member.id !== null) {
@@ -811,8 +826,8 @@ export function createBoard(options = {}) {
     // R205：任务卡片要承载状态/依赖/描述，不能为了塞下而退到 tight（38px 装不下）。
     // 允许图比画布大，画布自己滚；可读性优先。
     const richPresets = [
-      { ...GEOMETRY_PRESETS[0], nodeH: 96, cellH: 114 },
-      { ...GEOMETRY_PRESETS[1], nodeH: 84, cellH: 102 },
+      { ...GEOMETRY_PRESETS[0], nodeW: 244, cellW: 286, nodeH: 104, cellH: 126 },
+      { ...GEOMETRY_PRESETS[1], nodeW: 232, cellW: 272, nodeH: 96, cellH: 118 },
     ]
     const fitted = fitGraphGeometry(layout, available, richPresets, 'auto')
     geometry = fitted
@@ -926,9 +941,9 @@ export function createBoard(options = {}) {
       const dot = el(doc, 'i', 'board-dot board-node-dot')
       applyNodeColors(dot, task.displayStatus ?? task.status)
       top.append(dot, el(doc, 'span', 'board-node-id', task.id))
-      top.append(el(doc, 'span', 'board-node-owner dim', task.ownerName ?? '未分配'))
-      if (fitted.preset !== 'tight') top.append(el(doc, 'span', 'board-node-status', taskStatusLabel(task.displayStatus ?? task.status)))
-      if ((task.blockedBy?.length ?? 0) > 0) top.append(el(doc, 'span', 'board-node-status', `←${task.blockedBy.length}`))
+      top.append(el(doc, 'span', 'board-node-owner dim', `◉ ${task.ownerName ?? '未分配'}`))
+      if (fitted.preset !== 'tight') top.append(el(doc, 'span', 'board-node-status', `◷ ${taskStatusLabel(task.displayStatus ?? task.status)}`))
+      if ((task.blockedBy?.length ?? 0) > 0) top.append(el(doc, 'span', 'board-node-status', `⇠ ${task.blockedBy.length}`))
       const ownerMember = model.members.find((member) => member.name === task.ownerName)
       const ownerRole = ownerMember === undefined ? '' : roleLabel(ownerMember.role)
       if (ownerRole !== '') top.append(el(doc, 'span', 'board-node-role', ownerRole))

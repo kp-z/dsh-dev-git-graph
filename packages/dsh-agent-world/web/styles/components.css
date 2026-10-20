@@ -2266,3 +2266,54 @@
   line-height: 1.5;
   white-space: nowrap;
 }
+
+/* R210：团队卡片内显示该 Agent 的任务；任务节点信息/点击反馈。 */
+.board-member-head {
+  flex-wrap: wrap;
+}
+.board-member-tasks {
+  flex: 1 0 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 3px;
+}
+.board-member-task {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--fg-1);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.board-member-task > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-task-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+}
+.board-node-id {
+  flex: none;
+}
+.board-node-top {
+  gap: 4px;
+  min-width: 0;
+}
+.board-node-owner {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-node.is-selected {
+  border-color: var(--screen);
+  box-shadow: 0 0 0 1px var(--screen), 0 0 18px color-mix(in srgb, var(--screen) 35%, transparent);
+}
+.board-node:active {
+  transform: scale(0.99);
+}
