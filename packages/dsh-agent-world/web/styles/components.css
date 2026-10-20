@@ -2602,3 +2602,15 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* R244：成员任务多时在卡片内滚动，避免一张成员卡拉满整个团队面板。 */
+.board-member-tasks {
+  max-height: 118px;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--stroke-strong) transparent;
+}
+.board-member-task {
+  min-height: 17px;
+}
