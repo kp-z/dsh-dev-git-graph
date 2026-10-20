@@ -537,6 +537,8 @@ export function createDialogueUi(options = {}) {
     $resize?.addEventListener('pointerdown', (event) => {
       if ($panel === null || $panel === undefined) return
       event.preventDefault()
+      event.stopPropagation()
+      try { $resize.setPointerCapture?.(event.pointerId) } catch (e) { /* 老浏览器 */ }
       const startY = event.clientY
       const startHeight = $panel.getBoundingClientRect().height
       $panel.classList.add('is-resized')

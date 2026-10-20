@@ -2458,20 +2458,21 @@
   top: 0;
   left: 50%;
   z-index: 5;
-  width: 72px;
-  height: 9px;
-  margin-left: -36px;
+  width: 88px;
+  height: 16px;
+  margin-left: -44px;
   cursor: ns-resize;
   touch-action: none;
+  border-radius: 0 0 var(--r-sm) var(--r-sm);
 }
 .dialogue-resize::after {
   content: '';
   position: absolute;
   left: 50%;
-  top: 3px;
-  width: 32px;
-  height: 3px;
-  margin-left: -16px;
+  top: 5px;
+  width: 42px;
+  height: 4px;
+  margin-left: -21px;
   border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--fg-2) 55%, transparent);
 }
