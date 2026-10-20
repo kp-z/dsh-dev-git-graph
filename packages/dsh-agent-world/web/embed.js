@@ -169,28 +169,27 @@ function embeddedLayoutCss(rootId) {
 }
 #${rootId} .app {
   height: 100%;
-  padding: 0;
-  gap: 0;
+  padding: var(--s-3);
+  gap: var(--s-3);
   grid-template-rows: 48px 1fr;
   grid-template-columns: 1fr var(--sidebar-w);
-  --sidebar-w: clamp(320px, 42%, 560px);
+  --sidebar-w: clamp(420px, 44vw, 620px);
   background: var(--bg-0);
 }
+/* R193：嵌入模式不再压平 header/stage；它们和侧边栏面板一样是悬浮卡片。 */
 #${rootId} .topbar {
   grid-row: 1;
   grid-column: 1 / -1;
-  border-radius: 0;
-  border-top: 0;
-  border-left: 0;
-  border-right: 0;
-  box-shadow: none;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2), var(--bevel);
 }
 #${rootId} .stage {
   grid-row: 2;
   grid-column: 1;
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
 }
 #${rootId} #sidebar {
   grid-row: 2;
