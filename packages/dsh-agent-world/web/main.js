@@ -1156,6 +1156,7 @@ if (stageCard !== null) {
     const dock = event.clientY > rect.top + rect.height * 0.62 ? 'bottom'
       : event.clientX < rect.left + rect.width * 0.45 ? 'left' : 'right'
     appRoot.dataset.stageDrop = dock
+    appRoot.dataset.stageDropLabel = dock === 'bottom' ? '下方' : dock === 'left' ? '左侧' : '右侧'
   })
   appRoot?.addEventListener('dragleave', () => { if (appRoot !== null) delete appRoot.dataset.stageDrop })
   appRoot?.addEventListener('drop', (event) => {
@@ -1167,6 +1168,7 @@ if (stageCard !== null) {
     applyStageDock(dock)
     appRoot.classList.remove('is-stage-dragging')
     delete appRoot.dataset.stageDrop
+    delete appRoot.dataset.stageDropLabel
   })
 }
 

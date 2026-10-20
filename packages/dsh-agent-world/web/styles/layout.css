@@ -358,3 +358,55 @@
 .app.is-stage-bottom .stage { grid-column: 1; grid-row: 3; }
 .app.is-stage-bottom #sidebar { grid-column: 1; grid-row: 2; }
 .app.is-stage-dragging .stage { outline: 2px dashed var(--screen); outline-offset: -4px; }
+
+/* R197：拖拽渲染区时的落点提示（只做视觉，不改几何）。 */
+.app {
+  position: relative;
+}
+.app.is-stage-dragging::before {
+  content: '';
+  position: absolute;
+  z-index: 4;
+  pointer-events: none;
+  border: 2px dashed var(--screen);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--screen) 10%, transparent);
+}
+.app.is-stage-dragging[data-stage-drop="left"]::before {
+  left: 0;
+  top: 60px;
+  width: 46%;
+  bottom: 0;
+}
+.app.is-stage-dragging[data-stage-drop="right"]::before {
+  right: 0;
+  top: 60px;
+  width: 54%;
+  bottom: 0;
+}
+.app.is-stage-dragging[data-stage-drop="bottom"]::before {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 38%;
+}
+.app.is-stage-dragging::after {
+  content: '松手放到' attr(data-stage-drop-label);
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  color: var(--fg-0);
+  font-size: var(--fs-micro);
+  pointer-events: none;
+}
+.stage-drag {
+  width: 28px;
+  height: 28px;
+  font-size: 15px;
+}
