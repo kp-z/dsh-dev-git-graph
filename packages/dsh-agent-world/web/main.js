@@ -833,10 +833,32 @@ function renderTaskActions(team) {
       })
       menu.append(option)
     }
+    const closeMenu = () => {
+      menu.hidden = true
+      button.setAttribute('aria-expanded', 'false')
+    }
     button.addEventListener('click', (event) => {
       event.stopPropagation()
       menu.hidden = !menu.hidden
       button.setAttribute('aria-expanded', String(!menu.hidden))
+      if (!menu.hidden) menu.querySelector('.aw-view-option')?.focus()
+    })
+    button.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeMenu(); button.focus() }
+      if (event.key === 'ArrowDown' && menu.hidden) {
+        event.preventDefault()
+        menu.hidden = false
+        button.setAttribute('aria-expanded', 'true')
+        menu.querySelector('.aw-view-option')?.focus()
+      }
+    })
+    menu.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeMenu(); button.focus() }
+    })
+    doc.addEventListener('click', (event) => {
+      if (menu.hidden) return
+      if (event.target instanceof Node && wrap.contains(event.target)) return
+      closeMenu()
     })
     wrap.append(button, menu)
     host.append(wrap)
