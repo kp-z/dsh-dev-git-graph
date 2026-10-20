@@ -97,11 +97,13 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     | { readSession?(id: string): Promise<unknown> }
     | undefined
   let sessionControllerService:
-    | { prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> }
+    | { prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>
+    inspect?(sessionId: string, signal?: AbortSignal): Promise<{ events?: readonly { type?: string; time?: number; data?: Record<string, unknown> }[] }> }
     | undefined
   ctx.inject(['sessionController'], (host) => {
     sessionControllerService = (host as unknown as {
-      sessionController?: { prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> }
+      sessionController?: { prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<unknown>
+    inspect?(sessionId: string, signal?: AbortSignal): Promise<{ events?: readonly { type?: string; time?: number; data?: Record<string, unknown> }[] }> }
     }).sessionController
   })
   ctx.inject(['sessionQuery'], (host) => {
@@ -617,6 +619,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     ctx.effect(() => () => { (dispose as (() => void) | undefined)?.() })
   }
   const pendingReplies = new Map<string, Promise<string>>()
+  const captainSentAt = new Map<string, number>()
   function replyFor(sessionId: string, timeoutMs = 60_000): Promise<string> {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
@@ -646,11 +649,12 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
           return { ok: false, reason: 'captain 对话通道不可用：拿不到 sessionController。' }
         }
         try {
+          captainSentAt.set(characterId, Date.now())
           pendingReplies.set(characterId, replyFor(sessionId))
           await sessionControllerService.prompt({
             requestId: `agent-world-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             sessionId,
-            mode: 'queue',
+            mode: 'steer',
             content: [{ type: 'text', text }],
           }, new AbortController().signal)
           return { ok: true }
@@ -679,6 +683,43 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     },
     async waitForReply(characterId: string, timeoutMs = 60_000, _onProgress?: (actions: readonly { name: string; detail?: string; ok: boolean }[]) => void): Promise<{ ok: true; text: string; actions: [] } | { ok: false; reason: string }> {
       const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
+      // Lead 的主对话可能在跑别的任务，assistant/message 事件不一定落在 world 的监听里；
+      // 用 sessionController.inspect 直接轮询会话日志兜底。
+      const sentAt = captainSentAt.get(characterId)
+      if (sentAt !== undefined && typeof sessionControllerService?.inspect === 'function') {
+        const deadline = Date.now() + Math.max(1000, timeoutMs)
+        const extract = (data: Record<string, unknown> | undefined): string => {
+          const message = data?.['message'] as { content?: unknown } | undefined
+          const blocks = Array.isArray(message?.content) ? message.content : []
+          return blocks
+            .filter((block): block is { type: string; text: string } => {
+              const b = block as Record<string, unknown>
+              return b?.['type'] === 'text' && typeof b['text'] === 'string' && b['text'].trim() !== ''
+            })
+            .map((block) => block.text)
+            .join('\n\n')
+            .trim()
+        }
+        while (Date.now() < deadline) {
+          try {
+            const inspection = await sessionControllerService.inspect(state.activeSessionId ?? '')
+            for (const event of [...(inspection?.events ?? [])].reverse()) {
+              if (event.type !== 'assistant/message') continue
+              if (typeof event.time === 'number' && event.time < sentAt - 1000) break
+              const text = extract(event.data)
+              if (text !== '') {
+                captainSentAt.delete(characterId)
+                pendingReplies.delete(characterId)
+                return { ok: true, text, actions: [] }
+              }
+            }
+          } catch (error) { /* 继续轮询 */ }
+          await new Promise((resolve) => setTimeout(resolve, 700))
+        }
+        captainSentAt.delete(characterId)
+        pendingReplies.delete(characterId)
+        return { ok: false, reason: `${actor?.name ?? characterId} 没有在超时内回复` }
+      }
       const pending = pendingReplies.get(characterId)
       if (pending === undefined) {
         return { ok: true, text: `已发送给 ${actor?.name ?? characterId}`, actions: [] }
