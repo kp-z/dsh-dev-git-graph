@@ -196,35 +196,30 @@ const scene2d = createScenePhaser(canvas, {
 
 // R201：卡片布局/侧边栏拖拽会改变 stage 尺寸；Phaser 的 RESIZE 在嵌入组合里可能不跟，
 // 真机看到 camera.worldView = 0×0，点角色坐标全废。用 ResizeObserver 兜底。
+let lastSyncedStage = null
 function syncSceneCamera() {
   try {
-    scene2d.resize()
-    const scene = globalThis.__agentWorldPhaser?.scene?.()
-    const camera = scene?.cameras?.main
     const canvas = document.querySelector('#town')
     const stage = document.querySelector('.stage')
-    if (camera !== undefined && camera !== null && canvas !== null && stage !== null) {
-      const rect = stage.getBoundingClientRect()
-      const width = Math.max(1, Math.round(rect.width - 2))
-      const height = Math.max(1, Math.round(rect.height - 2))
-      // 布局变化（dock 拖拽/窗口 resize）后，Phaser 的缓冲区经常还停在旧尺寸：
-      // canvas 内部 468×644 被 CSS 压到 323×642，画面就被横向压扁/下方留黑。
-      // 容器是唯一尺寸源，按容器把引擎和相机一起 resize。
-      const game = scene?.game
-      if (game?.scale && (Math.abs(game.scale.width - width) > 1 || Math.abs(game.scale.height - height) > 1)) {
-        game.scale.setGameSize(width, height)
-      }
-      camera.setSize(width, height)
-      // Phaser 在嵌入布局里不会自动 preRender；worldView 会停在 0×0，导致点不中角色。
-      camera.preRender?.()
-      requestAnimationFrame(() => {
-        try {
-          const next = canvas.getBoundingClientRect()
-          if (next.width > 0 && next.height > 0) camera.setSize(next.width, next.height)
-          camera.preRender?.()
-        } catch (e) { /* 元素已卸载 */ }
-      })
+    if (canvas === null || stage === null) return
+    const rect = stage.getBoundingClientRect()
+    const width = Math.max(1, Math.round(rect.width - 2))
+    const height = Math.max(1, Math.round(rect.height - 2))
+    // 关键：只有容器尺寸真的变了才 resize。700ms 轮询以前会无条件 applyCamera，
+    // 相机每 700ms 重新取景一次，观感就是场景一直在抖。
+    if (lastSyncedStage !== null && Math.abs(width - lastSyncedStage.width) <= 1 && Math.abs(height - lastSyncedStage.height) <= 1) return
+    const scene = globalThis.__agentWorldPhaser?.scene?.()
+    const camera = scene?.cameras?.main
+    if (camera === undefined || camera === null) return
+    lastSyncedStage = { width, height }
+    // Phaser 在嵌入布局里会停在旧缓冲区；容器是唯一尺寸源。
+    const game = scene?.game
+    if (game?.scale && (Math.abs(game.scale.width - width) > 1 || Math.abs(game.scale.height - height) > 1)) {
+      game.scale.setGameSize(width, height)
     }
+    camera.setSize(width, height)
+    camera.preRender?.()
+    scene2d.resize()
   } catch (e) { /* 场景还没 ready */ }
 }
 if (typeof ResizeObserver === 'function') {
