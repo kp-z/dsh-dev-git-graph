@@ -226,8 +226,8 @@
   left: 50%;
   bottom: var(--s-4);
   transform: translateX(-50%);
-  width: min(560px, calc(100% - var(--s-6)));
-  max-height: min(56vh, 420px);
+  width: min(620px, calc(100% - var(--s-6)));
+  max-height: min(62vh, 480px);
   padding: var(--s-3);
   background: var(--paper-panel);
   border: 1px solid var(--ink);
