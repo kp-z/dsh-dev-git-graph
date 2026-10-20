@@ -51,6 +51,8 @@ export interface ApiDeps {
   teamRoster?: (sessionId: string) => Promise<unknown>
   /** 官方 agentTeams 任务写入：create / CAS update（R179）。 */
   teamTask?: (payload: Record<string, unknown>) => Promise<unknown>
+  /** 读取某个 Agent 对应的 DSH 会话历史。 */
+  history?: (agentId: string) => Promise<unknown>
 }
 
 /**
@@ -190,6 +192,19 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
           return { team: await deps.teamRoster(sessionId) }
         } catch (error) {
           return { team: { available: false, reason: error instanceof Error ? error.message : String(error) } }
+        }
+      },
+    },
+    {
+      method: 'GET',
+      pattern: '/api/history',
+      handler: async (request) => {
+        const agentId = request.query.get('agent') ?? ''
+        if (agentId === '' || typeof deps.history !== 'function') return { ok: false, messages: [] }
+        try {
+          return await deps.history(agentId)
+        } catch (error) {
+          return { ok: false, messages: [], error: error instanceof Error ? error.message : String(error) }
         }
       },
     },

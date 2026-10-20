@@ -73,6 +73,7 @@ export function createDialogueUi(options = {}) {
   const $who = byId('dialogue-who')
   const $log = byId('dialogue-log')
   const $history = byId('dialogue-history')
+  const $historyToggle = byId('dialogue-history-toggle')
   const $form = byId('dialogue-form')
   const $input = byId('dialogue-input')
   const $send = byId('dialogue-send')
@@ -235,10 +236,32 @@ export function createDialogueUi(options = {}) {
    * 不另建 store；`<details>` 默认 closed。
    */
   let lastHistorySig = null
+  let historyOpen = false
+  const externalHistory = new Map()
+
+  /** 从 DSH 会话读到的历史（lead 的主对话/成员的会话）。 */
+  function setHistory(agentId, messages) {
+    if (typeof agentId !== 'string' || agentId === '') return
+    externalHistory.set(agentId, Array.isArray(messages) ? messages : [])
+    lastHistorySig = null
+    renderHistory()
+  }
+
+  /**
+   * 全部 agent 的聊天记录，默认折叠。
+   * 优先用 DSH 会话历史（lead 的主对话只存在于这里）；world 侧对话作为兜底。
+   */
   function renderHistory() {
     if ($history === null || $history === undefined) return
     const groups = []
+    for (const [agentId, messages] of externalHistory) {
+      const lines = messages
+        .map((message) => `${message.role === 'user' ? '我' : nameOf(agentId)}：${message.text}`)
+        .filter((line) => line.trim() !== '')
+      if (lines.length > 0) groups.push({ agentId, name: nameOf(agentId), lines })
+    }
     for (const [agentId, turns] of state.byAgent) {
+      if (externalHistory.has(agentId)) continue
       const lines = []
       for (const turn of turns) {
         if (typeof turn.said === 'string' && turn.said !== '') lines.push(`我：${turn.said}`)
@@ -248,12 +271,19 @@ export function createDialogueUi(options = {}) {
       if (lines.length > 0) groups.push({ agentId, name: nameOf(agentId), lines })
     }
     const sig = groups.map((g) => `${g.agentId}:${g.lines.length}:${g.lines.join('\u0001')}`).join('||')
-    if (sig === lastHistorySig) return
+    if (sig === lastHistorySig) {
+      $history.hidden = !historyOpen
+      return
+    }
     lastHistorySig = sig
-    $history.hidden = groups.length === 0
+    $history.hidden = !historyOpen
     $history.textContent = ''
-    if (groups.length === 0) return
+    if (groups.length === 0) {
+      if (historyOpen) $history.append(el(doc, 'div', 'dialogue-history-line dim', '还没有对话记录。'))
+      return
+    }
     const all = el(doc, 'details', 'dialogue-history-all')
+    all.open = true
     all.append(el(doc, 'summary', 'dialogue-history-summary', `全部对话记录 · ${groups.length} 人`))
     for (const group of groups) {
       const detail = el(doc, 'details', 'dialogue-history-agent')
@@ -459,6 +489,11 @@ export function createDialogueUi(options = {}) {
       void submit()
     })
     $close?.addEventListener('click', () => close())
+    $historyToggle?.addEventListener('click', () => {
+      historyOpen = !historyOpen
+      lastHistorySig = null
+      renderHistory()
+    })
     $unlock?.addEventListener('click', () => options.onUnlock?.())
     $modeChat?.addEventListener('click', () => setMode('chat'))
     $modeMove?.addEventListener('click', () => setMode('move'))
@@ -493,6 +528,7 @@ export function createDialogueUi(options = {}) {
     agentId: () => currentAgentId,
     /** 超控模式：`'chat'`（打字）| `'move'`（键盘操控）。 */
     mode: () => currentMode,
+    setHistory,
     setMode,
     turnsFor: (agentId) => turnsFor(state, agentId),
     latestTurn: (agentId) => latestTurn(state, agentId),

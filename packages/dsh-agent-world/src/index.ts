@@ -953,6 +953,39 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
             return { ok: false, error: error instanceof Error ? error.message : String(error) }
           }
         },
+        history: async (agentId: string) => {
+          const world = state.currentWorld()
+          const actor = world?.agents.find((a) => a.id === agentId)
+          const sessionId = actor?.boundAgentId ?? state.activeSessionId
+          if (sessionId === null || sessionId === undefined || typeof sessionControllerService?.inspect !== 'function') {
+            return { ok: false, messages: [] }
+          }
+          try {
+            const inspection = await sessionControllerService.inspect(sessionId)
+            const messages: { role: 'user' | 'assistant'; text: string; time: number }[] = []
+            const extract = (data: Record<string, unknown> | undefined): string => {
+              const message = data?.['message'] as { content?: unknown } | undefined
+              const blocks = Array.isArray(message?.content) ? message.content : []
+              return blocks
+                .filter((block): block is { type: string; text: string } => {
+                  const b = block as Record<string, unknown>
+                  return b?.['type'] === 'text' && typeof b['text'] === 'string' && b['text'].trim() !== ''
+                })
+                .map((block) => block.text)
+                .join('\n\n')
+                .trim()
+            }
+            for (const event of inspection?.events ?? []) {
+              if (event.type !== 'user/message' && event.type !== 'assistant/message') continue
+              const text = extract(event.data)
+              if (text === '') continue
+              messages.push({ role: event.type === 'user/message' ? 'user' : 'assistant', text, time: Number(event.time ?? 0) })
+            }
+            return { ok: true, sessionId, messages: messages.slice(-200) }
+          } catch (error) {
+            return { ok: false, messages: [], error: error instanceof Error ? error.message : String(error) }
+          }
+        },
         teamPlan: async (sessionId: string) => {
           const query = sessionQueryService
           if (typeof query?.readSession !== 'function') return null

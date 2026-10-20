@@ -968,10 +968,21 @@ async function sayToAgent({ agentId, text }) {
  * | 开着、同一个人 | **no-op**（保持档位与焦点，不重置） |
  * | 开着、换人 | `open(新 id)` |
  */
+async function loadAgentHistory(agentId) {
+  try {
+    const response = await fetch(apiUrl(`api/history?agent=${encodeURIComponent(agentId)}`), { credentials: 'same-origin' })
+    if (!response.ok) return
+    const data = await response.json()
+    if (dialogue.agentId() !== agentId) return
+    dialogue.setHistory?.(agentId, Array.isArray(data?.messages) ? data.messages : [])
+  } catch (error) { /* 历史读不到不影响对话 */ }
+}
+
 function openDialogueFor(agentId) {
   if (agentId === null || agentId === undefined) return
   const sameAgentOpen = dialogue.isOpen() === true && dialogue.agentId() === agentId
   if (!sameAgentOpen) dialogue.open(agentId)
+  void loadAgentHistory(agentId)
   render(true)
 }
 
