@@ -643,6 +643,7 @@ export function createBoard(options = {}) {
         if (roleText !== '') parts.push(roleText)
         const stateText = agentStateLabel(row.member.state)
         if (stateText !== '') parts.push(stateText)
+        if (Array.isArray(row.tasks) && row.tasks.length > 0) parts.push(`${row.tasks.length} 张任务`)
         item.setAttribute('aria-label', parts.join(' · '))
       } else if (model.unowned.length > 0) {
         item.setAttribute('aria-label', `未分配 · ${model.unowned.length} 张任务`)
