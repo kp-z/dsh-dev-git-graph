@@ -147,7 +147,12 @@ let boardSelection = null
 /** R180：官方 projection 已渲染时，禁止 host fallback 把它清空。 */
 let officialTeamRendered = false
 /** R183：任务面板视图：graph（工作流图）| tree（依赖树）。 */
-let taskView = 'graph'
+let taskView = (() => {
+  try {
+    const saved = globalThis.localStorage?.getItem('agentWorld.taskView')
+    return saved === 'tree' || saved === 'board' ? saved : 'graph'
+  } catch (e) { return 'graph' }
+})()
 let lastOfficialTasks = []
 /**
  * 调度器诊断（R67 / M13-5）：`runtime.diagnostics`。
@@ -337,6 +342,9 @@ const dock = mountDock({
     team: document.querySelector('#sidebar-panel-agents'),
   },
 })
+
+// 恢复上次任务视图；dock/面板已就绪，树/看板可以安全渲染。
+if (taskView !== 'graph') setTaskView(taskView)
 
 dialogue = createDialogueUi({
   document: scopedDoc,
@@ -769,6 +777,7 @@ function setTaskView(next) {
   if (taskView === 'tree') renderTaskTree(lastOfficialTasks)
   else if (taskView === 'board') renderTaskBoard(lastOfficialTasks)
   else board.refreshGraph?.()
+  try { globalThis.localStorage?.setItem('agentWorld.taskView', taskView) } catch (e) { /* 便利 */ }
   const button = root.querySelector('.aw-view-button')
   if (button !== null) {
     button.innerHTML = taskViewIcon(taskView)
