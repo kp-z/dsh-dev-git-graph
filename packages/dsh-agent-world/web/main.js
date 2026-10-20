@@ -192,6 +192,32 @@ const scene2d = createScenePhaser(canvas, {
   onAgentMoveSettled: (agentId, x, z) => void sendCommand({ kind: 'moveAgent', agentId, x, z }),
 })
 
+// R201：卡片布局/侧边栏拖拽会改变 stage 尺寸；Phaser 的 RESIZE 在嵌入组合里可能不跟，
+// 真机看到 camera.worldView = 0×0，点角色坐标全废。用 ResizeObserver 兜底。
+function syncSceneCamera() {
+  try {
+    scene2d.resize()
+    const scene = globalThis.__agentWorldPhaser?.scene?.()
+    const camera = scene?.cameras?.main
+    const canvas = document.querySelector('#town')
+    if (camera !== undefined && camera !== null && canvas !== null) {
+      const rect = canvas.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) camera.setSize(rect.width, rect.height)
+      // Phaser 在嵌入布局里不会自动 preRender；worldView 会停在 0×0，导致点不中角色。
+      camera.preRender?.()
+    }
+  } catch (e) { /* 场景还没 ready */ }
+}
+if (typeof ResizeObserver === 'function') {
+  const stage = document.querySelector('.stage')
+  if (stage !== null) {
+    const observer = new ResizeObserver(() => syncSceneCamera())
+    observer.observe(stage)
+  }
+}
+globalThis.requestAnimationFrame?.(syncSceneCamera)
+for (const delay of [300, 1000, 2500]) globalThis.setTimeout(syncSceneCamera, delay)
+
 /**
  * 看板的引用（R3）。为什么不是直接读 `board`：`createSidebar()` 在装配阶段就会**同步**回调
  * 一次（R99 起是初始化折叠态，更早是初始化页签），而那时下面 `const board = createBoard(...)`
@@ -1132,19 +1158,33 @@ if (stageCanvas !== null) {
     const camera = scene?.cameras?.main
     if (scene === undefined || scene === null || camera === undefined || camera === null) return
     const rect = stageCanvas.getBoundingClientRect()
-    // 嵌入态 canvas 的 CSS 尺寸 != 游戏内部尺寸，getWorldPoint 会二次缩放；
-    // 直接按 worldView 的比例做逆变换，最稳。
-    const point = {
-      x: camera.worldView.x + ((event.clientX - rect.left) / rect.width) * camera.worldView.width,
-      y: camera.worldView.y + ((event.clientY - rect.top) / rect.height) * camera.worldView.height,
-    }
+    // R201：这个 Phaser 版本里 camera.worldView 常为 0×0，不能拿它做逆变换。
+    // 用引擎的 hitTestPointer：它走相机矩阵，且只返回真正 setInteractive 的精灵。
+    const pointer = scene.input?.activePointer
+    if (pointer === undefined || pointer === null) return
+    pointer.x = event.clientX - rect.left
+    pointer.y = event.clientY - rect.top
+    const hits = typeof scene.input.hitTestPointer === 'function' ? scene.input.hitTestPointer(pointer) : []
     let hit = null
-    for (const object of scene.layers?.entities?.list ?? []) {
-      const id = object.getData?.('actorId')
-      if (typeof id !== 'string') continue
-      const bounds = object.getBounds?.()
-      if (bounds?.contains?.(point.x, point.y) === true) {
-        if (hit === null) hit = id
+    for (const object of hits ?? []) {
+      const id = object?.getData?.('actorId')
+      if (typeof id === 'string') { hit = id; break }
+    }
+    if (hit === null) {
+      // 退路：直接按精灵屏幕 bounds 判（相机 zoom/scroll 由 Phaser 的 getBounds 已折好）。
+      for (const object of scene.layers?.entities?.list ?? []) {
+        const id = object.getData?.('actorId')
+        if (typeof id !== 'string') continue
+        const b = object.getBounds?.()
+        if (b && event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
+          // 没有 camera 世界坐标时，用精灵自身在画布上的渲染矩阵做屏幕命中。
+          const m = object.getWorldTransformMatrix?.()
+          if (m) {
+            const sx = rect.left + (m.tx - object.displayOriginX) * (rect.width / (scene.scale?.width || rect.width))
+            const sy = rect.top + (m.ty - object.displayOriginY) * (rect.height / (scene.scale?.height || rect.height))
+            if (Math.abs(event.clientX - sx) < 40 && Math.abs(event.clientY - sy) < 60) { hit = id; break }
+          }
+        }
       }
     }
     if (hit !== null) {
