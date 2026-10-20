@@ -2451,3 +2451,42 @@
   margin: 8px 0 4px;
   font-size: 1.05em;
 }
+
+/* R218：对话框顶部拖拽把手，向上拉长。 */
+.dialogue-resize {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 5;
+  width: 72px;
+  height: 9px;
+  margin-left: -36px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.dialogue-resize::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 3px;
+  width: 32px;
+  height: 3px;
+  margin-left: -16px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--fg-2) 55%, transparent);
+}
+.dialogue-resize:hover::after {
+  background: var(--fg-1);
+}
+.dialogue.is-resized {
+  max-height: none;
+}
+.dialogue.is-resized .mode-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dialogue.is-resized .dialogue-log {
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
+}

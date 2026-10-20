@@ -71,6 +71,7 @@ export function createDialogueUi(options = {}) {
 
   const byId = (id) => doc.getElementById(id)
   const $panel = byId('dialogue')
+  const $resize = byId('dialogue-resize')
   const $who = byId('dialogue-who')
   const $log = byId('dialogue-log')
   const $history = byId('dialogue-history')
@@ -527,6 +528,24 @@ export function createDialogueUi(options = {}) {
       void submit()
     })
     $close?.addEventListener('click', () => close())
+    $resize?.addEventListener('pointerdown', (event) => {
+      if ($panel === null || $panel === undefined) return
+      event.preventDefault()
+      const startY = event.clientY
+      const startHeight = $panel.getBoundingClientRect().height
+      $panel.classList.add('is-resized')
+      const move = (moveEvent) => {
+        const next = Math.min(globalThis.innerHeight * 0.86, Math.max(120, startHeight + (startY - moveEvent.clientY)))
+        $panel.style.height = `${Math.round(next)}px`
+        syncBottomButton()
+      }
+      const up = () => {
+        globalThis.removeEventListener('pointermove', move)
+        globalThis.removeEventListener('pointerup', up)
+      }
+      globalThis.addEventListener('pointermove', move)
+      globalThis.addEventListener('pointerup', up)
+    })
     $expand?.addEventListener('click', () => setExpanded(!expanded))
     $bottom?.addEventListener('click', () => { $log.scrollTop = $log.scrollHeight; syncBottomButton() })
     $log.addEventListener('scroll', syncBottomButton)
