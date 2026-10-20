@@ -131,6 +131,7 @@
           · 去掉「超控」大标题与大段说明——面板是 HUD，不是文档。
         -->
         <section id="dialogue" class="dialogue" hidden>
+          <div id="dialogue-resize" class="dialogue-resize" title="拖动调整高度"></div>
           <div class="oc-head">
             <span class="oc-name" id="dialogue-who">—</span>
             <div class="dialogue-modes" role="tablist" aria-label="超控模式">
@@ -154,7 +155,6 @@
           </div>
 
           <div id="dialogue-mode-chat-panel" class="mode-panel" role="tabpanel" aria-labelledby="dialogue-mode-chat">
-            <div id="dialogue-resize" class="dialogue-resize" title="拖动调整高度"></div>
             <!--
               R116：对话记录从"默认折叠的次要面板"改成**默认可见的主区域**。
               原先要按「记录」按钮才展开，而用户想看的恰恰就是回复——

@@ -534,8 +534,11 @@ export function createDialogueUi(options = {}) {
       void submit()
     })
     $close?.addEventListener('click', () => close())
-    $resize?.addEventListener('pointerdown', (event) => {
-      if ($panel === null || $panel === undefined) return
+    let resizing = false
+    const beginResize = (event) => {
+      if ($panel === null || $panel === undefined || resizing === true) return
+      if (event.button !== undefined && event.button !== 0) return
+      resizing = true
       event.preventDefault()
       event.stopPropagation()
       try { $resize.setPointerCapture?.(event.pointerId) } catch (e) { /* 老浏览器 */ }
@@ -548,12 +551,19 @@ export function createDialogueUi(options = {}) {
         syncBottomButton()
       }
       const up = () => {
+        resizing = false
         globalThis.removeEventListener('pointermove', move)
         globalThis.removeEventListener('pointerup', up)
+        globalThis.removeEventListener('mousemove', move)
+        globalThis.removeEventListener('mouseup', up)
       }
       globalThis.addEventListener('pointermove', move)
       globalThis.addEventListener('pointerup', up)
-    })
+      globalThis.addEventListener('mousemove', move)
+      globalThis.addEventListener('mouseup', up)
+    }
+    $resize?.addEventListener('pointerdown', beginResize)
+    $resize?.addEventListener('mousedown', beginResize)
     $expand?.addEventListener('click', () => setExpanded(!expanded))
     $bottom?.addEventListener('click', () => { $log.scrollTop = $log.scrollHeight; syncBottomButton() })
     $log.addEventListener('scroll', syncBottomButton)
