@@ -2253,3 +2253,16 @@
   font-size: 10px;
   line-height: 1.35;
 }
+
+/* R206：任务卡片上的负责人角色角标（主代理/工程/审查…）。 */
+.board-node-role {
+  margin-left: auto;
+  padding: 0 4px;
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r-sm);
+  color: var(--fg-2);
+  font-family: var(--mono-font);
+  font-size: 8.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+}
