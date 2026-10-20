@@ -598,7 +598,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
       return {
         ok: true,
-        text: `消息已投递给 ${actor?.name ?? characterId}（experimental team）。回复在对话/Lead 收件箱里，Agent World 暂不回传。`,
+        text: `已发送给 ${actor?.name ?? characterId}`,
         actions: [],
       }
     },
