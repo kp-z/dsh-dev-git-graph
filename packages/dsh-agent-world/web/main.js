@@ -69,6 +69,7 @@ export function mountAgentWorld(options = {}) {
       const url = new URL(`${baseUrl === '.' ? '' : baseUrl}/`, globalThis.location.origin)
       const token = new URLSearchParams(globalThis.location.search).get('token')
       if (token !== null) url.searchParams.set('token', token)
+      if (typeof sessionId === 'string' && sessionId !== '') url.searchParams.set('session', sessionId)
       globalThis.open?.(url.href, '_blank', 'noopener')
     } catch (e) { /* 独立打开失败不影响面板 */ }
   })
@@ -1752,7 +1753,28 @@ return { dispose, setWorldSession, setTeamProjection }
 }
 
 if (typeof globalThis.document !== 'undefined' && globalThis.__AGENT_WORLD_EMBEDDED__ !== true && globalThis.document.getElementById('town') !== null) {
-  mountAgentWorld({ root: globalThis.document, baseUrl: '.', embedded: false })
+  const params = new URLSearchParams(globalThis.location.search)
+  const standaloneSession = params.get('session')
+  const boot = async () => {
+    if (standaloneSession !== null && standaloneSession !== '') {
+      try {
+        const response = await fetch(`./api/activate`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId: standaloneSession }),
+        })
+        if (!response.ok) {
+          const status = document.querySelector('#status')
+          if (status !== null) status.textContent = `激活会话失败（HTTP ${response.status}）`
+        }
+      } catch (error) {
+        const status = document.querySelector('#status')
+        if (status !== null) status.textContent = `激活会话失败：${error instanceof Error ? error.message : String(error)}`
+      }
+    }
+    mountAgentWorld({ root: globalThis.document, baseUrl: '.', embedded: false, ...(standaloneSession === null || standaloneSession === '' ? {} : { sessionId: standaloneSession }) })
+  }
+  void boot()
 }
 
 /** 一个只在本容器内查找元素的 document 视图（给 `createDialogueUi` 这类吃 `document` 的模块）。 */
