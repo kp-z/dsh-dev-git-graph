@@ -744,9 +744,11 @@ function renderTaskBoard(tasks) {
       const title = doc.createElement('div')
       title.className = 'aw-kanban-title'
       title.textContent = task.subject ?? ''
+      title.title = title.textContent
       const desc = doc.createElement('div')
       desc.className = 'aw-kanban-desc'
       desc.textContent = task.description ?? ''
+      desc.title = desc.textContent
       item.append(top, title, desc)
       item.addEventListener('click', () => board.select(task.id))
       body.append(item)

@@ -568,7 +568,9 @@ export function createBoard(options = {}) {
         avatar.style.backgroundPosition = style.backgroundPosition
       }
       const head = el(doc, 'div', 'board-member-head')
-      head.append(el(doc, 'b', 'board-member-name', memberName))
+      const nameNode = el(doc, 'b', 'board-member-name', memberName)
+      nameNode.title = memberName
+      head.append(nameNode)
       // R3：角色/状态**翻成中文**。看板原先直接印 `lead` / `idle`（原始状态码），
       // 而 R2 的侧边栏印的是「负责人 · 待命」。共用一份渲染之后只能有一份措辞——
       // 选中文：状态码是给程序看的，界面上印 `idle` 等于没给用户任何信息。
@@ -965,6 +967,7 @@ export function createBoard(options = {}) {
       const ownerRole = ownerMember === undefined ? '' : roleLabel(ownerMember.role)
       if (ownerRole !== '') top.append(el(doc, 'span', 'board-node-role', ownerRole))
       const title = el(doc, 'div', 'board-node-title', task.title)
+      title.title = task.title
       const bar = el(doc, 'div', 'board-node-progress')
       const fill = el(doc, 'i', 'board-node-progress-fill')
       bar.append(fill)

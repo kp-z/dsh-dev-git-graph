@@ -2551,3 +2551,54 @@
   border-radius: inherit;
   background: var(--st-done);
 }
+
+/* R238：团队/任务面板的 overflow 审计。
+   统一规则：可收缩的文本容器必须 min-width:0；截断必须配 title（JS 侧）或可读的全文入口。 */
+.board-member-head {
+  min-width: 0;
+}
+.board-member-name {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.board-member-role,
+.board-member-state {
+  flex: none;
+}
+.board-member-load span {
+  flex: none;
+  white-space: nowrap;
+}
+.aw-kanban-top {
+  min-width: 0;
+}
+.aw-kanban-owner {
+  min-width: 0;
+  max-width: 58%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aw-kanban-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.aw-tree-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aw-tree-owner {
+  flex: none;
+  max-width: 34%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
