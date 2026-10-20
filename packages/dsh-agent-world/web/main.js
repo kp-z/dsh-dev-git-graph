@@ -668,15 +668,15 @@ function renderTaskActions(team) {
 
 /** Agent 面板当前只承载团队信息；团队级动作后续接这里，不重复任务操作。 */
 function renderAgentActions(team) {
+  // 团队摘要属于 header 的 meta，不占内容区；否则和左侧 AGENT 列表标题错一行。
+  const meta = root.querySelector('#sidebar-region-meta-agents')
+  if (meta !== null) {
+    const members = Array.isArray(team?.members) ? team.members : []
+    const lead = members.find((m) => m && m.role === 'lead') ?? members[0]
+    meta.textContent = `${lead?.name ?? 'captain'} · ${members.length} 人`
+  }
   const card = root.querySelector('#sidebar-official-agents')
-  if (card === null) return
-  card.textContent = ''
-  const members = Array.isArray(team?.members) ? team.members : []
-  const lead = members.find((m) => m && m.role === 'lead') ?? members[0]
-  const summary = doc.createElement('div')
-  summary.className = 'aw-team-summary'
-  summary.textContent = `${lead?.name ?? 'captain'} · ${members.length} 人`
-  card.append(summary)
+  if (card !== null) card.textContent = ''
 }
 
 /** R181：图节点上的 ✓/↺ → 团队 CAS 更新（失败只写通知行，不弹窗）。 */

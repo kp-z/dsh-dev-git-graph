@@ -96,6 +96,14 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   let sessionQueryService:
     | { readSession?(id: string): Promise<unknown> }
     | undefined
+  let sessionControllerService:
+    | { prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> }
+    | undefined
+  ctx.inject(['sessionController'], (host) => {
+    sessionControllerService = (host as unknown as {
+      sessionController?: { prompt?(request: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> }
+    }).sessionController
+  })
   ctx.inject(['sessionQuery'], (host) => {
     sessionQueryService = (host as unknown as {
       sessionQuery?: { readSession?(id: string): Promise<unknown> }
@@ -629,7 +637,24 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
       if (actor === undefined) return { ok: false, reason: '没有这个角色：先等成员 spawn 出来。' }
       if (actor.name === 'captain') {
-        return { ok: false, reason: 'captain 就是这段对话本身；请在对话里直接说，或点已 spawn 的成员。' }
+        // R198：captain 就是当前会话的 Lead；通过 sessionController.prompt 把话送进对话，
+        // 回复仍由 session/event 桥接回场景气泡。
+        const sessionId = state.activeSessionId ?? ''
+        if (sessionId === '' || typeof sessionControllerService?.prompt !== 'function') {
+          return { ok: false, reason: 'captain 对话通道不可用：拿不到 sessionController。' }
+        }
+        try {
+          pendingReplies.set(characterId, replyFor(sessionId))
+          await sessionControllerService.prompt({
+            requestId: `agent-world-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            sessionId,
+            mode: 'queue',
+            content: [{ type: 'text', text }],
+          }, new AbortController().signal)
+          return { ok: true }
+        } catch (error) {
+          return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+        }
       }
       if (typeof agentTeamsService?.sendMessage !== 'function') {
         return { ok: false, reason: 'experimental agentTeams 服务不可用。' }

@@ -2228,15 +2228,6 @@
   border-color: var(--lamp);
 }
 
-/* R186：团队面板顶部只读摘要（角色/人数），动作仍在成员行。 */
-.aw-team-summary {
-  padding: 2px 0 4px;
-  color: var(--fg-1);
-  font-family: var(--mono-font);
-  font-size: var(--aw-fs-meta);
-  letter-spacing: 0.02em;
-}
-
 .aw-tree-row {
   cursor: pointer;
 }
