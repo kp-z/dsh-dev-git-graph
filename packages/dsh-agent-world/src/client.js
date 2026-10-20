@@ -41,9 +41,12 @@ window.__ModuleLoader__.load({
       });
       if (response.ok !== true) {
         const detail = await response.text().catch(() => '');
-        if (response.status === 404) {
+        if (response.status === 404 || response.status === 405) {
           throw new Error(
-            '宿主还是旧版：没有 /api/activate。请重启 DSH 宿主（或重新安装这个插件）让 Host 与面板版本一致；' +
+            (response.status === 405
+              ? '宿主里 Agent World 路由没有注册（插件未激活），POST 被静态兜底拒成 405。'
+              : '宿主还是旧版：没有 /api/activate。') +
+            '请重启 DSH 宿主；如果仍失败，重装 dsh-agent-world（确保 lib 里的新文件一起进 profile）；' +
             `服务端返回：${detail.slice(0, 200)}`,
           );
         }
