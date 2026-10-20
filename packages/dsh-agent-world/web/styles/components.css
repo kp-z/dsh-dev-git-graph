@@ -1123,6 +1123,7 @@
 .board-member-avatar {
   width: 30px;
   height: 30px;
+  align-self: start;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2503,4 +2504,23 @@
   background: var(--panel-2);
   color: var(--fg-0);
   outline: none;
+}
+
+/* R228：独立页/嵌入页的登录入口；和 header 图标按钮同一视觉重量。 */
+.topbar-login {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--fg-0);
+  font: 600 var(--fs-micro) / 1 var(--ui-font);
+  text-decoration: none;
+  cursor: pointer;
+}
+.topbar-login:hover {
+  border-color: var(--stroke-strong);
+  color: var(--screen);
 }

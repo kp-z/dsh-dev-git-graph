@@ -117,6 +117,7 @@ function svgEl(doc, tag) {
  */
 export function createBoard(options = {}) {
   const doc = options.document ?? globalThis.document
+  const assetBase = typeof options.assetBase === 'string' && options.assetBase !== '' ? options.assetBase : './vendor/'
   const root = options.root ?? null
   /** 挂载模式：产物分挂到外部容器（侧边栏两档）。 */
   const mounts = options.mounts ?? null
@@ -557,7 +558,7 @@ export function createBoard(options = {}) {
        * 找不到（程序化模型 / 场景还没到 / 未分配那一行）才退回 R152 的字母头像——
        * 这样"贴图没加载出来"不会变成一块空白。
        */
-      const sprite = row.member.id === null ? null : resolveMemberSprite(scene, row.member.id)
+      const sprite = row.member.id === null ? null : resolveMemberSprite(scene, row.member.id, assetBase)
       const avatar = el(doc, 'span', sprite === null ? 'board-member-avatar' : 'board-member-avatar is-sprite', sprite === null ? memberInitial(memberName) : '')
       avatar.setAttribute('aria-hidden', 'true')
       if (sprite !== null) {

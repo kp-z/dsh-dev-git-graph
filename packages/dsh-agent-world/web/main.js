@@ -63,6 +63,8 @@ export function mountAgentWorld(options = {}) {
   const apiUrl = (path) => `${baseUrl}/${path}`
   const assetBase = `${baseUrl}/vendor/`
   const $ = (id) => root.querySelector(`#${id}`)
+  const loginButton = root.querySelector?.('#topbar-login')
+  loginButton?.addEventListener('click', () => globalThis.location?.assign('/login'))
   const scopedDoc = root === doc ? doc : createScopedDocument(root, doc)
   /** 键盘监听的落点：嵌入时挂在容器上，事件不会跑出主面板。 */
   // R211：对话框快捷键绑文档层，团队卡片/工具条点完后焦点不在舞台里也能收到。
@@ -317,6 +319,7 @@ const sidebarMounts = sidebar.mounts()
 const board = createBoard({
   mounts: sidebarMounts,
   styleRoot: $('sidebar'),
+  assetBase,
   palette: {},
   // R181：任务图节点上的 ✓/↺ 与成员行上的 → 都在这里落到团队写入（CAS 用 revision）。
   onTaskAction: (event) => {

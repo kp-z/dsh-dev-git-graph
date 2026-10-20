@@ -30,10 +30,10 @@ export const AVATAR_PX = 30
 export const AVATAR_CROP_Y = 24
 
 /** 相对资源根（面板的 `./vendor/`）与绝对 URL 的判定，和 `scene/sheet-loader.js` 同一口径。 */
-function assetUrl(url) {
+function assetUrl(url, baseUrl = './vendor/') {
   if (typeof url !== 'string' || url === '') return null
   if (/^(https?:)?\/\//.test(url) || url.startsWith('/') || url.startsWith('.')) return url
-  return `./vendor/${url}`
+  return `${baseUrl}${url}`
 }
 
 /**
@@ -44,7 +44,7 @@ function assetUrl(url) {
  * @returns {{url: string, col: number, row: number, cellW: number, cellH: number}|null}
  *   找不到（没有场景 / 没有这个 actor / 没声明图集 / 没有动画）时返回 null，调用方退回字母头像。
  */
-export function resolveMemberSprite(scene, agentId) {
+export function resolveMemberSprite(scene, agentId, baseUrl = './vendor/') {
   if (scene === null || scene === undefined || typeof agentId !== 'string' || agentId === '') return null
   const actors = Array.isArray(scene.actors) ? scene.actors : []
   const actor = actors.find((a) => a !== null && a.id === agentId)
@@ -54,7 +54,7 @@ export function resolveMemberSprite(scene, agentId) {
   if (model === undefined || model.sheet === null || model.sheet === undefined) return null
   const sheet = model.sheet
   if (!Number.isFinite(sheet.cellW) || !Number.isFinite(sheet.cellH) || sheet.cellW <= 0 || sheet.cellH <= 0) return null
-  const url = assetUrl(model.url)
+  const url = assetUrl(model.url, baseUrl)
   if (url === null) return null
   const animations = sheet.animations ?? {}
   const anim = animations['idle.down'] ?? animations.idle ?? Object.values(animations)[0]
