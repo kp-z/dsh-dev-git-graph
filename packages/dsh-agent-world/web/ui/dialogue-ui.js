@@ -184,11 +184,12 @@ export function createDialogueUi(options = {}) {
      * 时间用 **tick**（世界时钟）而不是墙钟：这个界面里所有时间读数都是 tick
      * （页脚、任务、纸条），混用两套时间会让"这条是什么时候的"没法互相比较。
      */
-    const pushBubble = (side, who, tick, body) => {
+    const pushBubble = (side, who, tick, body, clock = '') => {
       const item = el(doc, 'li', `d-msg d-msg-${side}`)
       const meta = el(doc, 'div', 'd-meta')
       meta.append(el(doc, 'b', 'd-who', who))
-      if (Number.isFinite(tick)) meta.append(el(doc, 'i', 'd-tick', `tick ${tick}`))
+      if (clock !== '') meta.append(el(doc, 'i', 'd-tick', clock))
+      else if (Number.isFinite(tick)) meta.append(el(doc, 'i', 'd-tick', `tick ${tick}`))
       const bubble = el(doc, 'div', 'd-bubble')
       if (typeof body === 'string') bubble.textContent = body
       else bubble.append(body)
@@ -198,7 +199,10 @@ export function createDialogueUi(options = {}) {
     }
 
     for (const message of external) {
-      pushBubble(message.role === 'user' ? 'me' : 'them', message.role === 'user' ? '我' : nameOf(currentAgentId), undefined, message.text)
+      const clock = Number.isFinite(message.time) && message.time > 0
+        ? new Date(message.time).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+        : ''
+      pushBubble(message.role === 'user' ? 'me' : 'them', message.role === 'user' ? '我' : nameOf(currentAgentId), undefined, message.text, clock)
     }
     for (const turn of turns) {
       if (turn.said !== '' && !externalUser.has(turn.said)) pushBubble('me', '我', turn.atTick, turn.said)
