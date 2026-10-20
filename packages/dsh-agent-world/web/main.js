@@ -684,6 +684,13 @@ function renderTaskTree(tasks) {
   }
 }
 
+function taskViewIcon(kind) {
+  if (kind === 'tree') {
+    return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 3v9M8 6H4v3M8 9h4v3"/><circle cx="8" cy="3" r="1.2"/><rect x="2.6" y="9" width="3" height="3" rx="0.6"/><rect x="10.4" y="9" width="3" height="3" rx="0.6"/></svg>'
+  }
+  return '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M4 4l4 4 4-4M4 12l4-4 4 4M8 8v5"/><circle cx="4" cy="4" r="1.4"/><circle cx="12" cy="4" r="1.4"/><circle cx="4" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="8" cy="8" r="1.4"/></svg>'
+}
+
 function setTaskView(next) {
   taskView = next === 'tree' ? 'tree' : 'graph'
   const graph = root.querySelector('#sidebar-task-graph')
@@ -692,8 +699,12 @@ function setTaskView(next) {
   if (tree !== null) tree.hidden = taskView !== 'tree'
   if (taskView === 'tree') renderTaskTree(lastOfficialTasks)
   else board.refreshGraph?.()
-  const select = root.querySelector('.aw-view-select')
-  if (select !== null) select.value = taskView
+  const button = root.querySelector('.aw-view-button')
+  if (button !== null) {
+    button.innerHTML = taskViewIcon(taskView)
+    button.dataset.view = taskView
+    button.setAttribute('aria-expanded', 'false')
+  }
 }
 
 function renderTaskActions(team) {
@@ -711,21 +722,45 @@ function renderTaskActions(team) {
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
   host.append(create)
-  if (host.querySelector('.aw-view-select') === null) {
-    const select = doc.createElement('select')
-    select.className = 'aw-view-select'
-    select.title = '图 / 树'
-    select.setAttribute('aria-label', '切换任务视图：图或树')
-    for (const [value, icon, label] of [['graph', '◫', '图'], ['tree', '⑂', '树']]) {
-      const option = doc.createElement('option')
-      option.value = value
-      option.textContent = icon
+  if (host.querySelector('.aw-view-wrap') === null) {
+    const wrap = doc.createElement('div')
+    wrap.className = 'aw-view-wrap'
+    const button = doc.createElement('button')
+    button.type = 'button'
+    button.className = 'aw-view-select aw-view-button'
+    button.innerHTML = taskViewIcon(taskView)
+    button.dataset.view = taskView
+    button.title = '切换任务视图'
+    button.setAttribute('aria-label', '切换任务视图：图或树')
+    button.setAttribute('aria-haspopup', 'listbox')
+    button.setAttribute('aria-expanded', 'false')
+    const menu = doc.createElement('div')
+    menu.className = 'aw-view-menu'
+    menu.setAttribute('role', 'listbox')
+    menu.hidden = true
+    for (const [value, label] of [['graph', '图'], ['tree', '树']]) {
+      const option = doc.createElement('button')
+      option.type = 'button'
+      option.className = 'aw-view-option'
+      option.dataset.view = value
       option.title = label
-      select.append(option)
+      option.setAttribute('role', 'option')
+      option.setAttribute('aria-label', label)
+      option.innerHTML = taskViewIcon(value)
+      option.addEventListener('click', () => {
+        setTaskView(value)
+        menu.hidden = true
+        button.setAttribute('aria-expanded', 'false')
+      })
+      menu.append(option)
     }
-    select.value = taskView
-    select.addEventListener('change', () => setTaskView(select.value))
-    host.append(select)
+    button.addEventListener('click', (event) => {
+      event.stopPropagation()
+      menu.hidden = !menu.hidden
+      button.setAttribute('aria-expanded', String(!menu.hidden))
+    })
+    wrap.append(button, menu)
+    host.append(wrap)
   }
 }
 

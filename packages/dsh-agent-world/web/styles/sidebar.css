@@ -599,3 +599,57 @@
 .sidebar-region-title {
   white-space: nowrap;
 }
+
+/* R221：图/树下拉用真实语义图标，开合菜单只在图标下面。 */
+.aw-view-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.aw-view-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.aw-view-select svg {
+  width: 16px;
+  height: 16px;
+}
+.aw-view-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  box-shadow: var(--shadow-2);
+}
+.aw-view-menu[hidden] {
+  display: none;
+}
+.aw-view-option {
+  width: 30px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.aw-view-option:hover,
+.aw-view-option:focus-visible {
+  background: var(--panel-2);
+  color: var(--fg-0);
+}
+.aw-view-option[data-view='graph'] svg,
+.aw-view-option[data-view='tree'] svg {
+  width: 16px;
+  height: 16px;
+}
