@@ -961,11 +961,16 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
             return { ok: false, messages: [] }
           }
           try {
-            const inspection = await sessionControllerService.inspect(sessionId)
+            // sessionQuery 的日志含 user/message；sessionController.inspect 在真机上只回 assistant。
+            const query = sessionQueryService
+            const inspection = typeof query?.readSession === 'function'
+              ? await query.readSession(sessionId) as { events?: readonly { type?: string; time?: number; data?: Record<string, unknown> }[] }
+              : await sessionControllerService.inspect(sessionId)
             const messages: { role: 'user' | 'assistant'; text: string; time: number }[] = []
             const extract = (data: Record<string, unknown> | undefined): string => {
               const message = data?.['message'] as { content?: unknown } | undefined
-              const blocks = Array.isArray(message?.content) ? message.content : []
+              const direct = data?.['content']
+              const blocks = Array.isArray(direct) ? direct : Array.isArray(message?.content) ? message.content : []
               return blocks
                 .filter((block): block is { type: string; text: string } => {
                   const b = block as Record<string, unknown>
@@ -979,6 +984,8 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
               if (event.type !== 'user/message' && event.type !== 'assistant/message') continue
               const text = extract(event.data)
               if (text === '') continue
+              // 上下文注入/调度提醒不是用户说的话，不能当成聊天气泡。
+              if (/^(Current runtime context\.|This snapshot supersedes|\[SCHEDULE REMINDER|<system-reminder>|Time sampled while preparing turn|【灵枢最近记忆】)/.test(text) || text.includes('【灵枢最近记忆】')) continue
               messages.push({ role: event.type === 'user/message' ? 'user' : 'assistant', text, time: Number(event.time ?? 0) })
             }
             return { ok: true, sessionId, messages: messages.slice(-200) }

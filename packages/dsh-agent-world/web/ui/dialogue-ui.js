@@ -155,12 +155,15 @@ export function createDialogueUi(options = {}) {
   function renderLog(nowMs, force = false) {
     if (!ready) return
     const turns = turnsFor(state, currentAgentId)
-    const sig = signature(turns, nowMs)
+    const external = externalHistory.get(currentAgentId) ?? []
+    const externalUser = new Set(external.filter((message) => message.role === 'user').map((message) => message.text))
+    const externalAssistant = new Set(external.filter((message) => message.role === 'assistant').map((message) => message.text))
+    const sig = `${signature(turns, nowMs)}|ext:${external.map((m) => `${m.role}:${m.text}`).join('\u0001')}`
     if (!force && sig === lastSignature) return
     lastSignature = sig
 
     $log.textContent = ''
-    if (turns.length === 0) {
+    if (turns.length === 0 && external.length === 0) {
       $log.append(
         el(
           doc,
@@ -194,8 +197,11 @@ export function createDialogueUi(options = {}) {
       return item
     }
 
+    for (const message of external) {
+      pushBubble(message.role === 'user' ? 'me' : 'them', message.role === 'user' ? '我' : nameOf(currentAgentId), undefined, message.text)
+    }
     for (const turn of turns) {
-      if (turn.said !== '') pushBubble('me', '我', turn.atTick, turn.said)
+      if (turn.said !== '' && !externalUser.has(turn.said)) pushBubble('me', '我', turn.atTick, turn.said)
 
       // 回复气泡的内容随阶段变：想/干活是**占位**，回复是正文，失败是原因。
       const body = el(doc, 'span')
@@ -214,6 +220,7 @@ export function createDialogueUi(options = {}) {
         body.textContent = `他说不出话：${turn.reason}`
       }
 
+      if (turn.phase === 'replied' && externalAssistant.has(turn.text)) continue
       const item = pushBubble('them', nameOf(turn.agentId), turn.atTick, body)
       item.classList.add(`d-${turn.phase}`)
       // 动作挂在**这条**回复下面：干过的事是这条回复的一部分，分开看就都不完整。
@@ -337,7 +344,6 @@ export function createDialogueUi(options = {}) {
     $panel.hidden = false
     setHint('')
     lastSignature = null
-    setExpanded(false)
     // R116：记录**不再有"收起"这回事**——它是面板的主体，永远可见。
     const nextMode = mode === 'chat' ? 'chat' : 'move'
     setMode(nextMode)
