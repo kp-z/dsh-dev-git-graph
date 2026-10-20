@@ -75,18 +75,6 @@
           <button id="cmd-resume" class="icon-btn" type="button" title="继续" aria-label="继续">
             <svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 3.4v9.2a.6.6 0 0 0 .92.5l7.4-4.6a.6.6 0 0 0 0-1L6.42 2.9a.6.6 0 0 0-.92.5z" /></svg>
           </button>
-          <!--
-            R116：侧边栏开关**搬进 header**（用户原话：「侧边栏不是独立的个体，
-            打开按钮应该在 header 里而不是单独一块」）。
-            R152：再往**最右**挪，与侧边栏那一列的右边缘对齐——它管的是右边那条栏，
-            夹在中间（暂停键左边）会让人看不出它属于谁。`aria-expanded` 由 `main.js` 同步。
-          -->
-          <button id="sidebar-toggle" class="icon-btn" type="button" title="折叠侧边栏" aria-label="折叠侧边栏" aria-expanded="true" aria-controls="sidebar">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="1.8" y="2.8" width="12.4" height="10.4" rx="1.4" />
-              <path d="M6.4 2.8v10.4" />
-            </svg>
-          </button>
           <button id="topbar-standalone" class="icon-btn topbar-standalone" type="button" title="在独立标签页打开 Agent World" aria-label="在独立标签页打开 Agent World">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M9.2 2.5h4.3v4.3M13.5 2.5 7.4 8.6" />

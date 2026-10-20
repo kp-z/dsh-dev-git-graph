@@ -284,16 +284,6 @@ let boardRef = null
  * 这个坑 R91 踩过一次（当时是 `typeof` 兜不住 TDZ），R116 又踩了一次——
  * **规律是：任何"构造期间会同步回调"的 options，它的依赖都必须在调用点之前声明。**
  */
-const $sidebarToggle = $('sidebar-toggle')
-function syncSidebarToggle(collapsed) {
-  if ($sidebarToggle === null) return
-  const open = collapsed !== true
-  $sidebarToggle.setAttribute('aria-expanded', String(open))
-  $sidebarToggle.title = open ? '折叠侧边栏' : '展开侧边栏'
-  $sidebarToggle.setAttribute('aria-label', $sidebarToggle.title)
-  $sidebarToggle.classList.toggle('is-active', open)
-}
-
 const sidebar = createSidebar({
   root: $('sidebar'),
   onExpand: () => {
@@ -303,13 +293,7 @@ const sidebar = createSidebar({
   onPanelExpand: () => {
     boardRef?.refreshGraph()
   },
-  onCollapseChange: (collapsed) => syncSidebarToggle(collapsed),
 })
-
-$sidebarToggle?.addEventListener('click', () => sidebar.toggle())
-// 初始态再同步一遍兜底：构造期那次广播已经生效，这里保证"按钮与真实状态一致"
-// 这件事不依赖于广播时序。
-syncSidebarToggle(sidebar.collapsed())
 
 /**
  * 执行看板（M7-1 → R3：从顶栏搬进侧边栏）。
