@@ -1121,6 +1121,55 @@ const connection = createConnection({
   onState: () => render(),
 })
 
+// ── R196：渲染区也可作为卡片拖到左侧/右侧/下方 ────────────────────────────────
+const stageCard = document.querySelector('.stage')
+if (stageCard !== null) {
+  const handle = doc.createElement('button')
+  handle.type = 'button'
+  handle.className = 'stage-drag'
+  handle.textContent = '⠿'
+  handle.draggable = true
+  handle.title = '拖动场景：左/右/下'
+  handle.setAttribute('aria-label', '拖动场景到左侧、右侧或下方')
+  stageCard.append(handle)
+  const appRoot = document.querySelector('.app')
+  const STAGE_DOCK_KEY = 'agentWorld.stageDock'
+  function applyStageDock(dock) {
+    if (appRoot === null) return
+    appRoot.classList.toggle('is-stage-right', dock === 'right')
+    appRoot.classList.toggle('is-stage-bottom', dock === 'bottom')
+    try { globalThis.localStorage?.setItem(STAGE_DOCK_KEY, dock ?? 'left') } catch (e) { /* 便利 */ }
+  }
+  try { applyStageDock(globalThis.localStorage?.getItem(STAGE_DOCK_KEY) ?? 'left') } catch (e) { applyStageDock('left') }
+  handle.addEventListener('dragstart', (event) => {
+    if (event.dataTransfer !== null && event.dataTransfer !== undefined) {
+      event.dataTransfer.effectAllowed = 'move'
+      try { event.dataTransfer.setData('text/plain', 'stage') } catch (e) { /* 老浏览器 */ }
+    }
+    appRoot?.classList.add('is-stage-dragging')
+  })
+  handle.addEventListener('dragend', () => appRoot?.classList.remove('is-stage-dragging'))
+  appRoot?.addEventListener('dragover', (event) => {
+    if (!appRoot.classList.contains('is-stage-dragging')) return
+    event.preventDefault()
+    const rect = appRoot.getBoundingClientRect()
+    const dock = event.clientY > rect.top + rect.height * 0.62 ? 'bottom'
+      : event.clientX < rect.left + rect.width * 0.45 ? 'left' : 'right'
+    appRoot.dataset.stageDrop = dock
+  })
+  appRoot?.addEventListener('dragleave', () => { if (appRoot !== null) delete appRoot.dataset.stageDrop })
+  appRoot?.addEventListener('drop', (event) => {
+    if (!appRoot.classList.contains('is-stage-dragging')) return
+    event.preventDefault()
+    const rect = appRoot.getBoundingClientRect()
+    const dock = event.clientY > rect.top + rect.height * 0.62 ? 'bottom'
+      : event.clientX < rect.left + rect.width * 0.45 ? 'left' : 'right'
+    applyStageDock(dock)
+    appRoot.classList.remove('is-stage-dragging')
+    delete appRoot.dataset.stageDrop
+  })
+}
+
 // ── 生命周期 ──────────────────────────────────────────────────────────────────
 
 const onResize = () => {

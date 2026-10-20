@@ -97,11 +97,6 @@ export function createSidebar(options = {}) {
   // 开关现在住在 `header.topbar`（`index.html`），由 `main.js` 接线；
   // 侧边栏只负责"被折叠/展开"这个状态本身。
   root.textContent = ''
-  const toolbar = el(doc, 'div', 'sidebar-toolbar')
-  const toolbarTitle = el(doc, 'span', 'sidebar-toolbar-title', '工作台')
-  const dragHint = el(doc, 'span', 'sidebar-drag-hint', '拖动 ⠿ 排列')
-  toolbar.append(toolbarTitle, dragHint)
-
   const body = el(doc, 'div', 'sidebar-body')
   body.id = 'sidebar-body'
 
@@ -145,7 +140,7 @@ export function createSidebar(options = {}) {
     caret.setAttribute('aria-expanded', 'true')
     caret.addEventListener('click', () => setPanelCollapsed(region.id, panelCollapsed[region.id] !== true))
     carets[region.id] = caret
-    head.append(title, meta, actions, caret)
+    head.append(title, meta, caret)
     const handle = el(doc, 'button', 'aw-drag-handle', '⠿')
     handle.type = 'button'
     handle.draggable = true
@@ -207,7 +202,7 @@ export function createSidebar(options = {}) {
       officialTasks.id = 'sidebar-official-tasks'
       const graphMount = el(doc, 'div', 'sidebar-task-graph')
       graphMount.id = 'sidebar-task-graph'
-      content.append(ribbon, jobs, officialTasks, graphMount)
+      content.append(actions, ribbon, jobs, officialTasks, graphMount)
       panels.graphMount = graphMount
       panels.ribbon = ribbon
       panels.jobs = jobs
@@ -217,7 +212,7 @@ export function createSidebar(options = {}) {
       const officialAgents = el(doc, 'div', 'sidebar-official-agents')
       officialAgents.id = 'sidebar-official-agents'
       const membersMount = el(doc, 'div', 'sidebar-members')
-      content.append(officialAgents, membersMount)
+      content.append(actions, officialAgents, membersMount)
       panels.officialAgents = officialAgents
       panels.agentsMount = membersMount
       panels.agentsActions = actions
@@ -227,7 +222,7 @@ export function createSidebar(options = {}) {
     panels[region.id] = panel
     metas[region.id] = meta
   }
-  root.append(toolbar, body)
+  root.append(body)
 
   /** R191：两种排列；全局 header 控制，不放在任何一个面板里。 */
   function setLayout(next) {
@@ -254,15 +249,12 @@ export function createSidebar(options = {}) {
   }
 
   function applyOrder() {
-    const ids = order.filter((id) => panels[id] !== undefined)
-    for (const id of Object.keys(panels)) {
-      if (id.endsWith('Mount') || id.startsWith('official')) continue
-      if (!ids.includes(id)) ids.push(id)
+    // 只移动真正的 panel；graphActions/ribbon 等挂载位还在 panel 内部，不能被提到 body。
+    const ids = order.filter((id) => panels[id]?.classList?.contains('sidebar-panel'))
+    for (const id of ['graph', 'agents']) {
+      if (!ids.includes(id) && panels[id] !== undefined) ids.push(id)
     }
-    for (const id of ids) {
-      const panel = panels[id]
-      if (panel?.nodeType === 1) body.append(panel)
-    }
+    for (const id of ids) body.append(panels[id])
   }
 
   /**

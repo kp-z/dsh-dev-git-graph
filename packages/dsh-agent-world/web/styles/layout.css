@@ -329,3 +329,32 @@
     display: none; /* 极窄时先让位给场景与看板 */
   }
 }
+
+/* R196：渲染区作为卡片可拖到右侧/下方；面板组留在另一侧。 */
+.stage-drag {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: var(--z-hint);
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--fg-2);
+  font: 14px / 1 var(--mono-font);
+  cursor: grab;
+  opacity: 0.65;
+}
+.stage-drag:hover { opacity: 1; color: var(--fg-0); }
+.app.is-stage-right { grid-template-columns: var(--sidebar-w) 1fr; }
+.app.is-stage-right .stage { grid-column: 2; grid-row: 2; }
+.app.is-stage-right #sidebar { grid-column: 1; grid-row: 2; }
+.app.is-stage-bottom {
+  grid-template-columns: 1fr;
+  grid-template-rows: 48px minmax(180px, 1fr) minmax(180px, 1fr);
+}
+.app.is-stage-bottom .stage { grid-column: 1; grid-row: 3; }
+.app.is-stage-bottom #sidebar { grid-column: 1; grid-row: 2; }
+.app.is-stage-dragging .stage { outline: 2px dashed var(--screen); outline-offset: -4px; }
