@@ -39,6 +39,7 @@ import {
   buildBoardModel,
   describeTask,
   fitGraphGeometry,
+  GEOMETRY_PRESETS,
   layoutDependencyGraph,
   MIN_SCALE,
   READABLE_MIN_PX,
@@ -778,6 +779,7 @@ export function createBoard(options = {}) {
         id,
         key: id,
         title: typeof raw.subject === 'string' && raw.subject !== '' ? raw.subject : id,
+        ...(typeof raw.description === 'string' && raw.description.trim() !== '' ? { description: raw.description.trim() } : {}),
         status,
         owner: null,
         blockedBy: deps.filter((d) => typeof d === 'string' && known.has(d) && d !== id),
@@ -806,7 +808,13 @@ export function createBoard(options = {}) {
     // R3：方向交给 `'auto'` —— 侧边栏是"窄而高"（~290×600），横向排布在那里只能缩到 0.65，
     // 标题变 8px（看得见、读不了，`clipped()` 还报不出来）。竖向通常赢，但某条流水线并行
     // 很多时横向可能更省，所以让算术决定，而不是我们预先猜一个方向。
-    const fitted = fitGraphGeometry(layout, available, undefined, 'auto')
+    // R205：任务卡片要承载状态/依赖/描述，不能为了塞下而退到 tight（38px 装不下）。
+    // 允许图比画布大，画布自己滚；可读性优先。
+    const richPresets = [
+      { ...GEOMETRY_PRESETS[0], nodeH: 96, cellH: 114 },
+      { ...GEOMETRY_PRESETS[1], nodeH: 84, cellH: 102 },
+    ]
+    const fitted = fitGraphGeometry(layout, available, richPresets, 'auto')
     geometry = fitted
     /*
      * 溢出量仍然算——它是 `stats().overflow` 里的**诊断读数**（验收/排查用），
@@ -919,11 +927,17 @@ export function createBoard(options = {}) {
       applyNodeColors(dot, task.displayStatus ?? task.status)
       top.append(dot, el(doc, 'span', 'board-node-id', task.id))
       top.append(el(doc, 'span', 'board-node-owner dim', task.ownerName ?? '未分配'))
+      if (fitted.preset !== 'tight') top.append(el(doc, 'span', 'board-node-status', taskStatusLabel(task.displayStatus ?? task.status)))
+      if ((task.blockedBy?.length ?? 0) > 0) top.append(el(doc, 'span', 'board-node-status', `←${task.blockedBy.length}`))
       const title = el(doc, 'div', 'board-node-title', task.title)
       const bar = el(doc, 'div', 'board-node-progress')
       const fill = el(doc, 'i', 'board-node-progress-fill')
       bar.append(fill)
-      card.append(top, title, bar)
+      const desc = task.description !== undefined && fitted.preset !== 'tight'
+        ? el(doc, 'div', 'board-node-desc', task.description)
+        : null
+      if (desc !== null) desc.title = task.description
+      card.append(top, title, ...(desc === null ? [] : [desc]), bar)
       if (task.requires.includes('review')) card.classList.add('needs-review')
       /*
        * R181：操作只走图标（32×32 的样式基座，节点上收到 24×22，因为卡片只有 44–58 高）。

@@ -657,9 +657,8 @@ function setTaskView(next) {
   if (tree !== null) tree.hidden = taskView !== 'tree'
   if (taskView === 'tree') renderTaskTree(lastOfficialTasks)
   else board.refreshGraph?.()
-  for (const button of root.querySelectorAll('[data-task-view]')) {
-    button.classList.toggle('is-active', button.dataset.taskView === taskView)
-  }
+  const select = root.querySelector('.aw-view-select')
+  if (select !== null) select.value = taskView
 }
 
 function renderTaskActions(team) {
@@ -677,18 +676,21 @@ function renderTaskActions(team) {
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
   host.append(create)
-  for (const [mode, label] of [['graph', '图'], ['tree', '树']]) {
-    if (host.querySelector(`[data-task-view="${mode}"]`) !== null) continue
-    const toggle = doc.createElement('button')
-    toggle.type = 'button'
-    toggle.className = 'aw-icon aw-view-toggle'
-    toggle.dataset.taskView = mode
-    toggle.title = mode === 'graph' ? '工作流图' : '依赖树'
-    toggle.setAttribute('aria-label', toggle.title)
-    toggle.textContent = label
-    toggle.classList.toggle('is-active', taskView === mode)
-    toggle.addEventListener('click', () => setTaskView(mode))
-    host.append(toggle)
+  if (host.querySelector('.aw-view-select') === null) {
+    const select = doc.createElement('select')
+    select.className = 'aw-view-select'
+    select.title = '图 / 树'
+    select.setAttribute('aria-label', '切换任务视图：图或树')
+    for (const [value, icon, label] of [['graph', '▦', '图'], ['tree', '≣', '树']]) {
+      const option = doc.createElement('option')
+      option.value = value
+      option.textContent = icon
+      option.title = label
+      select.append(option)
+    }
+    select.value = taskView
+    select.addEventListener('change', () => setTaskView(select.value))
+    host.append(select)
   }
 }
 

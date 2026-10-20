@@ -426,3 +426,27 @@
   padding-top: 0;
   padding-bottom: 0;
 }
+
+/* R205：任务视图下拉：只显示图标，不占两枚按钮。 */
+.aw-view-select {
+  width: 34px;
+  height: 26px;
+  padding: 0 2px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--fg-0);
+  font: 13px / 1 var(--mono-font);
+  text-align: center;
+  cursor: pointer;
+}
+.aw-view-select:focus-visible {
+  outline: 2px solid var(--screen);
+  outline-offset: 1px;
+}
+.sidebar-task-graph {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
