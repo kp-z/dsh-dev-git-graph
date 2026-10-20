@@ -571,6 +571,57 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
    * R177：experimental profile 没有 staged plan，也没有 agent_teams_*。
    * 点击已 spawn 的成员时，直接走 TeamService.sendMessage；captain 是对话本身，不能从世界里投递。
    */
+  /**
+   * R189：experimental 成员回复桥。
+   *
+   * TeamService.sendMessage 只保证投递，回复落在成员自己的 session 里。
+   * 这里监听 `session/event` 的 assistant/message，按成员 session id 把第一条
+   * 非空文本回传给 waitForReply；超时/无回复由调用方按失败处理。
+   */
+  const replyWaiters = new Map<string, { resolve(text: string): void; timer: ReturnType<typeof setTimeout> }[]>()
+  const listen = (ctx as unknown as {
+    on?: (name: string, handler: (session: { id?: string }, event: { type?: string; data?: Record<string, unknown> }) => void) => unknown
+  }).on
+  if (typeof listen === 'function') {
+    const dispose = listen('session/event', (session, event) => {
+      if (event.type !== 'assistant/message') return
+      const sessionId = typeof session?.id === 'string' ? session.id : ''
+      const waiters = replyWaiters.get(sessionId)
+      if (waiters === undefined || waiters.length === 0) return
+      const message = event.data?.['message'] as { content?: unknown } | undefined
+      const blocks = Array.isArray(message?.content) ? message.content : []
+      const texts = blocks
+        .filter((block): block is { type: string; text: string } => {
+          const b = block as Record<string, unknown>
+          return b?.['type'] === 'text' && typeof b['text'] === 'string' && b['text'].trim() !== ''
+        })
+        .map((block) => block.text)
+      const text = texts.join('\n\n').trim()
+      if (text === '') return
+      const waiter = waiters.shift()
+      if (waiter === undefined) return
+      clearTimeout(waiter.timer)
+      waiter.resolve(text)
+      if (waiters.length === 0) replyWaiters.delete(sessionId)
+    })
+    ctx.effect(() => () => { (dispose as (() => void) | undefined)?.() })
+  }
+  const pendingReplies = new Map<string, Promise<string>>()
+  function replyFor(sessionId: string, timeoutMs = 60_000): Promise<string> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const waiters = replyWaiters.get(sessionId) ?? []
+        const index = waiters.findIndex((w) => w.resolve === resolve)
+        if (index >= 0) waiters.splice(index, 1)
+        if (waiters.length === 0) replyWaiters.delete(sessionId)
+        resolve('')
+      }, timeoutMs)
+      const waiter = { resolve, timer }
+      const waiters = replyWaiters.get(sessionId) ?? []
+      waiters.push(waiter)
+      replyWaiters.set(sessionId, waiters)
+    })
+  }
   const experimentalDialoguePort = {
     async say(characterId: string, text: string): Promise<{ ok: true } | { ok: false; reason: string }> {
       const lead = agentsService?.get?.(state.activeSessionId ?? '')
@@ -584,6 +635,11 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         return { ok: false, reason: 'experimental agentTeams 服务不可用。' }
       }
       try {
+        const members = agentTeamsService.listMembers?.(lead) as readonly { id?: unknown; name?: unknown }[] | undefined
+        const memberId = (members ?? []).find((m) => m.name === actor.name)?.id
+        if (typeof memberId === 'string' && memberId !== '') {
+          pendingReplies.set(characterId, replyFor(memberId))
+        }
         await agentTeamsService.sendMessage(lead, {
           target: actor.name,
           content: [{ type: 'text', text }],
@@ -594,13 +650,19 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         return { ok: false, reason: error instanceof Error ? error.message : String(error) }
       }
     },
-    async waitForReply(characterId: string, _timeoutMs?: number, _onProgress?: (actions: readonly { name: string; detail?: string; ok: boolean }[]) => void): Promise<{ ok: true; text: string; actions: [] }> {
+    async waitForReply(characterId: string, timeoutMs = 60_000, _onProgress?: (actions: readonly { name: string; detail?: string; ok: boolean }[]) => void): Promise<{ ok: true; text: string; actions: [] } | { ok: false; reason: string }> {
       const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
-      return {
-        ok: true,
-        text: `已发送给 ${actor?.name ?? characterId}`,
-        actions: [],
+      const pending = pendingReplies.get(characterId)
+      if (pending === undefined) {
+        return { ok: true, text: `已发送给 ${actor?.name ?? characterId}`, actions: [] }
       }
+      pendingReplies.delete(characterId)
+      const text = await Promise.race([
+        pending,
+        new Promise<string>((resolve) => setTimeout(() => resolve(''), Math.max(1000, timeoutMs))),
+      ])
+      if (text === '') return { ok: false, reason: `${actor?.name ?? characterId} 没有在超时内回复` }
+      return { ok: true, text, actions: [] }
     },
     liveCount: () => 0,
   }
