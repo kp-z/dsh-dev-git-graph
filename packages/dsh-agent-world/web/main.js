@@ -771,7 +771,8 @@ function renderAgentActions(team) {
   if (meta !== null) {
     const members = Array.isArray(team?.members) ? team.members : []
     const lead = members.find((m) => m && m.role === 'lead') ?? members[0]
-    meta.textContent = `${lead?.name ?? 'captain'} · ${members.length} 人`
+    const taskCount = Array.isArray(lastOfficialTasks) ? lastOfficialTasks.length : 0
+    meta.textContent = `${lead?.name ?? 'lead'} · ${members.length} 人 · ${taskCount} 任务`
   }
   const card = root.querySelector('#sidebar-official-agents')
   if (card !== null) card.textContent = ''
