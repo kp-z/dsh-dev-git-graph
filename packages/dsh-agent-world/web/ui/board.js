@@ -566,6 +566,16 @@ export function createBoard(options = {}) {
         avatar.style.backgroundImage = style.backgroundImage
         avatar.style.backgroundSize = style.backgroundSize
         avatar.style.backgroundPosition = style.backgroundPosition
+        // 资源 404 / 加载失败时退回字母头像，绝不把成员卡留成空白。
+        const probe = globalThis.Image === undefined ? null : new globalThis.Image()
+        if (probe !== null) {
+          probe.addEventListener('error', () => {
+            avatar.classList.remove('is-sprite')
+            avatar.style.backgroundImage = ''
+            avatar.textContent = memberInitial(memberName)
+          })
+          probe.src = style.backgroundImage.slice(5, -2)
+        }
       }
       const head = el(doc, 'div', 'board-member-head')
       const nameNode = el(doc, 'b', 'board-member-name', memberName)
