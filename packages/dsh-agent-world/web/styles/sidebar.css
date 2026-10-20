@@ -420,3 +420,9 @@
   outline: 2px dashed var(--screen);
   outline-offset: -3px;
 }
+
+/* R202：右侧卡片与左侧舞台卡片顶部/底部对齐；只保留左右内边距。 */
+.sidebar-body {
+  padding-top: 0;
+  padding-bottom: 0;
+}
