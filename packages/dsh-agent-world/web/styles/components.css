@@ -2506,8 +2506,8 @@
   outline: none;
 }
 
-/* R228：独立页/嵌入页的登录入口；和 header 图标按钮同一视觉重量。 */
-.topbar-login {
+/* R229：在独立标签页打开 Agent World；和 header 图标按钮同一视觉重量。 */
+.topbar-standalone {
   display: inline-flex;
   align-items: center;
   height: 28px;
@@ -2520,7 +2520,7 @@
   text-decoration: none;
   cursor: pointer;
 }
-.topbar-login:hover {
+.topbar-standalone:hover {
   border-color: var(--stroke-strong);
   color: var(--screen);
 }

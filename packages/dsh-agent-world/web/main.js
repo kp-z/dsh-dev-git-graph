@@ -63,8 +63,15 @@ export function mountAgentWorld(options = {}) {
   const apiUrl = (path) => `${baseUrl}/${path}`
   const assetBase = `${baseUrl}/vendor/`
   const $ = (id) => root.querySelector(`#${id}`)
-  const loginButton = root.querySelector?.('#topbar-login')
-  loginButton?.addEventListener('click', () => globalThis.location?.assign('/login'))
+  const standaloneButton = root.querySelector?.('#topbar-standalone')
+  standaloneButton?.addEventListener('click', () => {
+    try {
+      const url = new URL(`${baseUrl === '.' ? '' : baseUrl}/`, globalThis.location.origin)
+      const token = new URLSearchParams(globalThis.location.search).get('token')
+      if (token !== null) url.searchParams.set('token', token)
+      globalThis.open?.(url.href, '_blank', 'noopener')
+    } catch (e) { /* 独立打开失败不影响面板 */ }
+  })
   const scopedDoc = root === doc ? doc : createScopedDocument(root, doc)
   /** 键盘监听的落点：嵌入时挂在容器上，事件不会跑出主面板。 */
   // R211：对话框快捷键绑文档层，团队卡片/工具条点完后焦点不在舞台里也能收到。
@@ -1594,6 +1601,112 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     // ⚠️ 这里**故意没有 `start()`**：`connection.stop()` 是**闭锁**（`stopped = true`），
     // 之后 `start()` 直接返回 null、什么也不做。挂一个"看起来能重连、其实是空操作"的
     // 接口，正是这个项目一路在防的静默失效——断线演练之后**刷新页面**即可恢复。
+  }
+
+  /**
+   * R227：**给 AI 与人的调试总入口**。
+   *
+   * ## 为什么需要它
+   * 这个项目的门面已经有十几个（`__agentWorldPhaser` / `...Board` / `...Scene2d` …），
+   * 但"用户说了一句话 → 我该看哪个门面的哪个字段"这一步，每次都靠人记。
+   * 所以这里做两件事：
+   * 1. `help()`：**症状 → 探针**的固定对照表（数据，不是散文）；
+   * 2. `snapshot()` / `audit()` / `explain(id)`：把最常用的三条路收成一次调用。
+   *
+   * 判据：任何人（或 AI）拿到一句模糊反馈，能在**一次** `help()` 里定位到该跑哪条探针。
+   */
+  const DEBUG_HELP = [
+    {
+      symptom: '角色能走上墙 / 上桌子',
+      probe: '__agentWorldDebug.audit().airWall',
+      look: 'gapsFilled>0 说明精细碰撞体与 nav 漂移；slotsBlocked 必须为 0',
+    },
+    {
+      symptom: '遮挡关系不对（谁压谁）',
+      probe: '__agentWorldPhaser.occlusionAudit() + overlayAudit()',
+      look: 'occlusion.anomalyCount 应为 0；overlay 三层必须 ordered:true',
+    },
+    {
+      symptom: '某个站点 / 角色位置怪',
+      probe: '__agentWorldDebug.explain("<station.id 或 agent.id>")',
+      look: 'footprint 是否落在 blocked 格、base 是否等于底边、slot 是否可走',
+    },
+    {
+      symptom: '场景比例一直跳 / 镜头不对',
+      probe: '__agentWorldScene2d.camera() + viewState()',
+      look: 'zoom 是否是整数档；scroll 是否稳定；resize 是否在反复触发',
+    },
+    {
+      symptom: '世界不动 / 数据不更新',
+      probe: '__agentWorldDebug.snapshot()',
+      look: 'world.tick 是否推进、paused、diagnostics.errors、connection',
+    },
+    {
+      symptom: '页面白屏 / 门面全空',
+      probe: '__agentWorldDebug.snapshot().facades',
+      look: '长度为 0 基本是模块图断了：跑 node scripts/sync-profile.mjs',
+    },
+    {
+      symptom: '看板数据不对',
+      probe: '__agentWorldBoard.stats()',
+      look: '计数口径只有一处；与 world.tasks 对照',
+    },
+  ]
+
+  const spaceOf = () => meta?.scene?.space ?? null
+  const navOf = () => spaceOf()?.nav ?? world?.nav ?? null
+
+  /** 世界坐标是否落在 blocked 格（调试用；与 sim 的判据同义）。 */
+  const blockedAt = (x, z) => {
+    const nav = navOf()
+    if (nav === null || nav === undefined) return null
+    const col = Math.round((x - nav.originX) / nav.unitsPerCell - 0.5)
+    const row = Math.round((z - nav.originZ) / nav.unitsPerCell - 0.5)
+    if (col < 0 || col >= nav.width || row < 0 || row >= nav.height) return true
+    return nav.blocked[row * nav.width + col] === true
+  }
+
+  globalThis.__agentWorldDebug = {
+    help: () => DEBUG_HELP,
+    snapshot: () => ({
+      build: typeof BUILD === 'string' ? BUILD : null,
+      world: world === null ? null : {
+        id: world.id,
+        tick: world.tick,
+        paused: world.paused,
+        mode: world.mode,
+        agents: (world.agents ?? []).map((a) => ({ id: a.id, name: a.name, state: a.state, position: a.position })),
+        tasks: (world.tasks ?? []).length,
+      },
+      scene: meta?.scene === undefined || meta?.scene === null ? null : {
+        props: (meta.scene.props ?? []).length,
+        actors: (meta.scene.actors ?? []).length,
+        space: spaceOf()?.audit ?? null,
+      },
+      runtime: diagnostics,
+      connection: connection.status(),
+      facades: Object.keys(globalThis).filter((key) => key.startsWith('__agentWorld')),
+    }),
+    audit: () => ({
+      space: spaceOf()?.audit ?? null,
+      airWall: globalThis.__agentWorldPhaser?.airWallAudit?.() ?? null,
+      occlusion: globalThis.__agentWorldPhaser?.occlusionAudit?.() ?? null,
+      overlay: globalThis.__agentWorldPhaser?.overlayAudit?.() ?? null,
+    }),
+    explain: (id) => {
+      const space = spaceOf()
+      const entity = space?.entities?.find((item) => item.id === id) ?? null
+      const agent = (world?.agents ?? []).find((item) => item.id === id) ?? null
+      if (entity === null && agent === null) return null
+      return {
+        id,
+        kind: entity !== null ? 'station' : 'agent',
+        entity,
+        agent,
+        footprintBlocked: entity === null ? null : blockedAt(entity.footprint.x + entity.footprint.w / 2, entity.footprint.z + entity.footprint.h / 2),
+        slotsBlocked: entity === null ? null : entity.slots.filter((slot) => blockedAt(slot.x, slot.z) === true),
+      }
+    },
   }
 }
 
