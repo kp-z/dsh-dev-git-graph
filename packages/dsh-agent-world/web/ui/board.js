@@ -595,6 +595,14 @@ export function createBoard(options = {}) {
           applyNodeColors(dot, task.displayStatus ?? task.status)
           line.append(dot, el(doc, 'span', undefined, `${task.id} ${task.title}`))
           line.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
+          line.tabIndex = 0
+          line.setAttribute('role', 'button')
+          line.setAttribute('aria-label', `选中 ${task.id} ${task.title}`)
+          const activateTask = () => select({ kind: 'task', id: task.id })
+          line.addEventListener('click', (event) => { event.stopPropagation(); activateTask() })
+          line.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activateTask() }
+          })
           taskBox.append(line)
         }
         head.append(taskBox)

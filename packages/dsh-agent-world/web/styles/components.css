@@ -2491,3 +2491,15 @@
   flex: 1 1 auto;
   min-height: 0;
 }
+
+/* R222：成员卡里的任务行可点，选中对应节点。 */
+.board-member-task {
+  cursor: pointer;
+  border-radius: 3px;
+}
+.board-member-task:hover,
+.board-member-task:focus-visible {
+  background: var(--panel-2);
+  color: var(--fg-0);
+  outline: none;
+}
