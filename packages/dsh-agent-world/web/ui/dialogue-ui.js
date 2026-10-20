@@ -23,6 +23,7 @@
  */
 
 import { actionCountText, actionIcon, actionText, actingText } from './labels.js'
+import { renderMarkdown } from './markdown.js'
 import {
   applyDialogueEvents,
   beginLocalTurn,
@@ -191,7 +192,7 @@ export function createDialogueUi(options = {}) {
       if (clock !== '') meta.append(el(doc, 'i', 'd-tick', clock))
       else if (Number.isFinite(tick)) meta.append(el(doc, 'i', 'd-tick', `tick ${tick}`))
       const bubble = el(doc, 'div', 'd-bubble')
-      if (typeof body === 'string') bubble.textContent = body
+      if (typeof body === 'string') bubble.append(renderMarkdown(doc, body))
       else bubble.append(body)
       item.append(meta, bubble)
       $log.append(item)
@@ -279,6 +280,8 @@ export function createDialogueUi(options = {}) {
     if (typeof agentId !== 'string' || agentId === '') return
     externalHistory.set(agentId, Array.isArray(messages) ? messages : [])
     lastHistorySig = null
+    // 历史来自异步请求；必须让下一次 renderLog 重画，否则会停在空的旧签名上。
+    lastSignature = null
     renderHistory()
   }
 

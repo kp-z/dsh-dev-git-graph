@@ -1597,6 +1597,7 @@ function createScopedDocument(root, doc) {
     createElement: delegate('createElement'),
     createElementNS: delegate('createElementNS'),
     createTextNode: delegate('createTextNode'),
+    createDocumentFragment: delegate('createDocumentFragment'),
     addEventListener: (...args) => root.addEventListener(...args),
     removeEventListener: (...args) => root.removeEventListener(...args),
     get activeElement() { return doc.activeElement },
