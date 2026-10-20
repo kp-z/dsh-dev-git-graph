@@ -91,7 +91,7 @@ export interface PluginState extends WorldServicePort {
   /** 保存并卸下当前会话世界（关闭 Agent World 视图时）。 */
   deactivate(): void
   /** 把真实 subagent 子会话投影成镇上角色（R166）；返回角色是否变了。 */
-  syncSubagents(sessionId: string, children: readonly { id: string; label?: string }[]): boolean
+  syncSubagents(sessionId: string, children: readonly { id: string; label?: string }[], leadName?: string): boolean
   /** 世界存档目录；没配就是 null。 */
   readonly storeDir: string | null
 }
@@ -381,8 +381,11 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       state.world = loadSession(sessionId) ?? build(config.worldName, sessionInitialAgents)
       const captain = state.world.agents[0]
       if (captain !== undefined) {
-        // R171：队长的显示名固定为 `leader`，不继承内容花名册的人名（工头阿金等），
+        // R171：队长的显示名固定为 `captain`，不继承内容花名册的人名（工头阿金等），
         // 避免内容换一版 / 多份花名册时同一个队长出现两个名字。
+        // ⚠️ R165 试过改成 `leader`，但 agent-teams 里 `captain` 是**保留名**，
+        // 改成 leader 后成员名对不上、加成员直接报
+        // `member name "captain" is reserved for the captain` —— 所以维持 `captain`。
         captain.name = 'captain'
         // 队长是 UI 的代理角色；agent-teams 的 captain 是另一个派生会话。
         // 因此这里**不绑定**会话 id，点它说话时会按普通成员 ensureMember/发送。
@@ -395,7 +398,7 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       activeSessionId = null
       state.world = null
     },
-    syncSubagents(sessionId: string, children: readonly { id: string; label?: string }[]): boolean {
+    syncSubagents(sessionId: string, children: readonly { id: string; label?: string }[], leadName?: string): boolean {
       const world = state.world
       if (world === null || activeSessionId !== sessionId) return false
       const scene = registry.require('scenes', config.scene, '同步 subagent 花名册时取场景')
@@ -415,29 +418,31 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       const wanted: Agent[] = []
       // 队长 = 当前会话本身；外观取花名册第一席。
       const captainSeat = seatAt(0)
-      const previousLeader = world.agents.find((a) => a.boundAgentId === null && a.name === 'captain') ?? world.agents[0]
+      // 强制名只作为旧后端兜底；experimental 由主对话成员的真实 name 覆盖。
+      const wantedName = typeof leadName === 'string' && leadName.trim() !== '' ? leadName.trim() : 'captain'
+      const previousLeader = world.agents.find((a) => a.boundAgentId === null) ?? world.agents[0]
       const captain = previousLeader
       if (captain === undefined) {
         wanted.push({
           id: 'agent-1',
-          name: 'captain',
+          name: wantedName,
           role: captainSeat?.role ?? 'lead',
           palette: captainSeat?.palette ?? '#f2c14e',
           modelId: captainSeat?.appearance ?? scene.agentModel,
           state: 'idle', position: { ...scene.spawn }, facing: Math.PI / 2,
           station: null, targetStation: null, path: [], carrying: null, hangout: null,
           llm: captainSeat?.model ?? { provider: '', model: '', reasoningEffort: null },
-          boundAgentId: sessionId,
+          boundAgentId: null,
         })
       } else {
         wanted.push(
-          captain.name === 'captain' && captain.boundAgentId === null
+          captain.name === wantedName && captain.boundAgentId === null
             ? captain
-            : { ...captain, name: 'captain', boundAgentId: null },
+            : { ...captain, name: wantedName, boundAgentId: null },
         )
       }
       for (const member of members) {
-        if (member.name === 'captain') continue
+        if (member.name === wantedName) continue
         const prior = existing.get(member.id)
         if (prior !== undefined) {
           wanted.push(prior.name === member.name ? prior : { ...prior, name: member.name })

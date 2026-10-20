@@ -324,7 +324,9 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
           merged.push({ id: typeof member.id === 'string' ? member.id : name, label: `agent-teams:${name}` })
         }
       }
-      state.syncSubagents(sessionId, merged)
+      const leadMember = experimental ? (agentTeamsService?.listMembers?.(agentsService?.get?.(sessionId)!) as readonly { role?: unknown; name?: unknown }[] | undefined)?.find((m) => m.role === 'lead') : undefined
+      const leadName = typeof leadMember?.name === 'string' ? leadMember.name : undefined
+      state.syncSubagents(sessionId, merged, leadName)
     } catch (error) {
       logger.warn(`同步 subagent 花名册失败（下次再试）：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -463,14 +465,14 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
           state.currentWorld()?.agents.find((agent) => agent.id === id)?.name ?? resolveSeat(id).name,
         memberRoleFor: (id) => {
           const actor = state.currentWorld()?.agents.find((agent) => agent.id === id)
-          return actor?.name === 'captain' ? 'lead' : resolveSeat(id).role
+          return actor !== undefined && (actor as { boundAgentId?: string | null }).boundAgentId === null ? 'lead' : resolveSeat(id).role
         },
         personaFor: (id) => {
           const actor = state.currentWorld()?.agents.find((agent) => agent.id === id)
           // R173：leader 的显示名/成员名固定为 leader，人设也不能再自称内容花名册里的名字
           // （真机回复里冒出了「工头阿金」——名字从 persona 漏回来了）。
-          if (actor?.name === 'captain') {
-            return '你是这个团队的 leader，负责统筹与回答。始终用「captain」自称，不要使用花名册里的其它人名。'
+          if (actor !== undefined && (actor as { boundAgentId?: string | null }).boundAgentId === null) {
+            return '你是这个团队的 leader，负责统筹与回答。始终用「lead」自称，不要使用花名册里的其它人名。'
           }
           return resolveSeat(id).persona
         },
@@ -636,7 +638,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       if (lead === undefined) return { ok: false, reason: 'experimental：Lead Agent 不在线，先在对话里打开这个会话。' }
       const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
       if (actor === undefined) return { ok: false, reason: '没有这个角色：先等成员 spawn 出来。' }
-      if (actor.name === 'captain') {
+      if ((actor as { boundAgentId?: string | null }).boundAgentId === null) {
         // R198：captain 就是当前会话的 Lead；通过 sessionController.prompt 把话送进对话，
         // 回复仍由 session/event 桥接回场景气泡。
         const sessionId = state.activeSessionId ?? ''
