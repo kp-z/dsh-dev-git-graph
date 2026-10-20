@@ -202,11 +202,28 @@ function syncSceneCamera() {
     const scene = globalThis.__agentWorldPhaser?.scene?.()
     const camera = scene?.cameras?.main
     const canvas = document.querySelector('#town')
-    if (camera !== undefined && camera !== null && canvas !== null) {
-      const rect = canvas.getBoundingClientRect()
-      if (rect.width > 0 && rect.height > 0) camera.setSize(rect.width, rect.height)
+    const stage = document.querySelector('.stage')
+    if (camera !== undefined && camera !== null && canvas !== null && stage !== null) {
+      const rect = stage.getBoundingClientRect()
+      const width = Math.max(1, Math.round(rect.width - 2))
+      const height = Math.max(1, Math.round(rect.height - 2))
+      // 布局变化（dock 拖拽/窗口 resize）后，Phaser 的缓冲区经常还停在旧尺寸：
+      // canvas 内部 468×644 被 CSS 压到 323×642，画面就被横向压扁/下方留黑。
+      // 容器是唯一尺寸源，按容器把引擎和相机一起 resize。
+      const game = scene?.game
+      if (game?.scale && (Math.abs(game.scale.width - width) > 1 || Math.abs(game.scale.height - height) > 1)) {
+        game.scale.setGameSize(width, height)
+      }
+      camera.setSize(width, height)
       // Phaser 在嵌入布局里不会自动 preRender；worldView 会停在 0×0，导致点不中角色。
       camera.preRender?.()
+      requestAnimationFrame(() => {
+        try {
+          const next = canvas.getBoundingClientRect()
+          if (next.width > 0 && next.height > 0) camera.setSize(next.width, next.height)
+          camera.preRender?.()
+        } catch (e) { /* 元素已卸载 */ }
+      })
     }
   } catch (e) { /* 场景还没 ready */ }
 }
@@ -218,7 +235,13 @@ if (typeof ResizeObserver === 'function') {
   }
 }
 globalThis.requestAnimationFrame?.(syncSceneCamera)
+globalThis.addEventListener?.('resize', () => syncSceneCamera())
+globalThis.addEventListener?.('agentworld:layout-change', () => syncSceneCamera())
+globalThis.visualViewport?.addEventListener?.('resize', () => syncSceneCamera())
 for (const delay of [300, 1000, 2500]) globalThis.setTimeout(syncSceneCamera, delay)
+// 兜底轮询：dock 的 flex 尺寸变化在部分嵌入宿主里不触发 ResizeObserver；
+// 舞台尺寸是唯一尺寸源，发现不一致就同步，避免窗口调整后画面被压扁/留黑。
+globalThis.setInterval?.(syncSceneCamera, 700)
 
 /**
  * 看板的引用（R3）。为什么不是直接读 `board`：`createSidebar()` 在装配阶段就会**同步**回调

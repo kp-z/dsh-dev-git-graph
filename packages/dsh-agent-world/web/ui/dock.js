@@ -208,11 +208,13 @@ export function mountDock(options = {}) {
         node.ratio = Math.min(0.82, Math.max(0.18, ratio))
         a.style.flex = `${node.ratio} 1 0%`
         b.style.flex = `${1 - node.ratio} 1 0%`
+        globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
       }
       const up = () => {
         doc.removeEventListener('pointermove', move)
         doc.removeEventListener('pointerup', up)
         writeTree(tree)
+        globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
       }
       doc.addEventListener('pointermove', move)
       doc.addEventListener('pointerup', up)
@@ -246,6 +248,7 @@ export function mountDock(options = {}) {
 
   function render() {
     workspace.replaceChildren(renderNode(tree))
+    globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
   }
 
   render()
