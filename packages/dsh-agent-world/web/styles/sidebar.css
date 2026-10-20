@@ -569,3 +569,21 @@
 .dock-pane.is-drop-right::after { right: 0; top: 0; bottom: 0; width: 50%; }
 .dock-pane.is-drop-top::after { left: 0; right: 0; top: 0; height: 50%; }
 .dock-pane.is-drop-bottom::after { left: 0; right: 0; bottom: 0; height: 50%; }
+
+/* R209：dock 把面板搬出 #sidebar 后，--console-* 丢了，面板变成透明。
+   这里把三张卡（header / 场景 / 任务 / 团队）统一到同一套卡片材质：
+   --panel 面、--stroke-strong 边框、--r-lg 圆角、--shadow-2 + bevel 悬浮。 */
+.workspace {
+  --console-bg: var(--panel);
+  --console-line: var(--stroke-strong);
+  --console-line-soft: var(--edge-soft);
+  --console-radius: var(--r-lg);
+}
+.app.has-dock .topbar,
+.app.has-dock .stage,
+.workspace .sidebar-panel {
+  background: var(--panel);
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2), var(--bevel);
+}

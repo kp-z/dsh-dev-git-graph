@@ -180,14 +180,14 @@ function embeddedLayoutCss(rootId) {
 #${rootId} .topbar {
   grid-row: 1;
   grid-column: 1 / -1;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--stroke-strong);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2), var(--bevel);
 }
 #${rootId} .stage {
   grid-row: 2;
   grid-column: 1;
-  border: 1px solid var(--edge);
+  border: 1px solid var(--stroke-strong);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2);
 }
