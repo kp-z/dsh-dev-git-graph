@@ -73,7 +73,8 @@ export function createDialogueUi(options = {}) {
   const $who = byId('dialogue-who')
   const $log = byId('dialogue-log')
   const $history = byId('dialogue-history')
-  const $historyToggle = byId('dialogue-history-toggle')
+  const $expand = byId('dialogue-expand')
+  const $bottom = byId('dialogue-bottom')
   const $form = byId('dialogue-form')
   const $input = byId('dialogue-input')
   const $send = byId('dialogue-send')
@@ -222,6 +223,7 @@ export function createDialogueUi(options = {}) {
 
     // 滚到最新一条：对话是"越新越重要"的东西，不用手动滑。
     $log.scrollTop = $log.scrollHeight
+    syncBottomButton()
   }
 
   /** 重画（上层每 250ms 调一次；签名没变时几乎不做事）。 */
@@ -237,7 +239,29 @@ export function createDialogueUi(options = {}) {
    */
   let lastHistorySig = null
   let historyOpen = false
+  let expanded = false
   const externalHistory = new Map()
+
+  function syncBottomButton() {
+    if ($bottom === null || $bottom === undefined) return
+    const atBottom = $log.scrollTop + $log.clientHeight >= $log.scrollHeight - 8
+    $bottom.hidden = false
+    $bottom.classList.toggle('is-at-bottom', atBottom)
+  }
+
+  function setExpanded(next) {
+    expanded = next === true
+    historyOpen = expanded
+    $panel?.classList.toggle('is-expanded', expanded)
+    if ($expand !== null && $expand !== undefined) {
+      $expand.textContent = expanded ? '收起' : '展开'
+      $expand.setAttribute('aria-expanded', String(expanded))
+      $expand.title = expanded ? '收起对话记录' : '展开对话记录'
+    }
+    lastHistorySig = null
+    renderHistory()
+    if (expanded) globalThis.setTimeout(() => { $log.scrollTop = $log.scrollHeight; syncBottomButton() }, 0)
+  }
 
   /** 从 DSH 会话读到的历史（lead 的主对话/成员的会话）。 */
   function setHistory(agentId, messages) {
@@ -313,6 +337,7 @@ export function createDialogueUi(options = {}) {
     $panel.hidden = false
     setHint('')
     lastSignature = null
+    setExpanded(false)
     // R116：记录**不再有"收起"这回事**——它是面板的主体，永远可见。
     const nextMode = mode === 'chat' ? 'chat' : 'move'
     setMode(nextMode)
@@ -489,11 +514,9 @@ export function createDialogueUi(options = {}) {
       void submit()
     })
     $close?.addEventListener('click', () => close())
-    $historyToggle?.addEventListener('click', () => {
-      historyOpen = !historyOpen
-      lastHistorySig = null
-      renderHistory()
-    })
+    $expand?.addEventListener('click', () => setExpanded(!expanded))
+    $bottom?.addEventListener('click', () => { $log.scrollTop = $log.scrollHeight; syncBottomButton() })
+    $log.addEventListener('scroll', syncBottomButton)
     $unlock?.addEventListener('click', () => options.onUnlock?.())
     $modeChat?.addEventListener('click', () => setMode('chat'))
     $modeMove?.addEventListener('click', () => setMode('move'))

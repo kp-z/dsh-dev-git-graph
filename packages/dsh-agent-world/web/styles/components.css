@@ -2348,3 +2348,38 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* R213：对话记录展开、回到底部、leader 状态点层级。 */
+.dialogue-bottom {
+  position: absolute;
+  right: 18px;
+  bottom: 66px;
+  z-index: 3;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--fg-1);
+  font: 500 11px / 1 var(--ui-font);
+  box-shadow: var(--shadow-2);
+  cursor: pointer;
+}
+.dialogue-bottom:hover {
+  color: var(--fg-0);
+  border-color: var(--stroke-strong);
+}
+#dialogue-mode-chat-panel {
+  position: relative;
+}
+.oc-name::before {
+  position: relative;
+  z-index: 3;
+}
+.dialogue {
+  isolation: isolate;
+}
+
+.dialogue-bottom.is-at-bottom {
+  opacity: 0.55;
+}

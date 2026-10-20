@@ -410,3 +410,25 @@
   height: 28px;
   font-size: 15px;
 }
+
+/* R213：对话卡展开态。默认高度不变；展开后变高并在内部滚动。 */
+.dialogue {
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.dialogue.is-expanded {
+  height: min(78vh, 680px);
+  max-height: min(78vh, 680px);
+}
+.dialogue.is-expanded .mode-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dialogue.is-expanded .dialogue-log {
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dialogue.is-expanded .dialogue-history {
+  max-height: 38%;
+}
