@@ -1121,6 +1121,39 @@ const connection = createConnection({
   onState: () => render(),
 })
 
+// ── R200：点角色的 canvas 兜底 ────────────────────────────────────────────────
+// Phaser 的 sprite pointerup 在嵌入/缩放组合下会漏命中（真机：dialogue 根本不打开）。
+// 这里直接用相机把点击换算成世界坐标，再按精灵 bounds 命中，最后走同一条
+// focusAgent/openDialogueFor；不改变拖地图/拖场景的逻辑。
+const stageCanvas = document.querySelector('#town')
+if (stageCanvas !== null) {
+  stageCanvas.addEventListener('click', (event) => {
+    const scene = globalThis.__agentWorldPhaser?.scene?.()
+    const camera = scene?.cameras?.main
+    if (scene === undefined || scene === null || camera === undefined || camera === null) return
+    const rect = stageCanvas.getBoundingClientRect()
+    // 嵌入态 canvas 的 CSS 尺寸 != 游戏内部尺寸，getWorldPoint 会二次缩放；
+    // 直接按 worldView 的比例做逆变换，最稳。
+    const point = {
+      x: camera.worldView.x + ((event.clientX - rect.left) / rect.width) * camera.worldView.width,
+      y: camera.worldView.y + ((event.clientY - rect.top) / rect.height) * camera.worldView.height,
+    }
+    let hit = null
+    for (const object of scene.layers?.entities?.list ?? []) {
+      const id = object.getData?.('actorId')
+      if (typeof id !== 'string') continue
+      const bounds = object.getBounds?.()
+      if (bounds?.contains?.(point.x, point.y) === true) {
+        if (hit === null) hit = id
+      }
+    }
+    if (hit !== null) {
+      focusAgent(hit, 'scene')
+      openDialogueFor(hit)
+    }
+  })
+}
+
 // ── R196：渲染区也可作为卡片拖到左侧/右侧/下方 ────────────────────────────────
 const stageCard = document.querySelector('.stage')
 if (stageCard !== null) {
