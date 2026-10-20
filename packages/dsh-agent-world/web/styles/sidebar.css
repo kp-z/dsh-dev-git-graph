@@ -744,3 +744,15 @@
   font-size: 10px;
   line-height: 1.35;
 }
+
+.aw-kanban-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-2);
+  flex: none;
+}
+.aw-kanban-column[data-status='pending'] .aw-kanban-dot { background: var(--st-pending); }
+.aw-kanban-column[data-status='in_progress'] .aw-kanban-dot { background: var(--st-in_progress); }
+.aw-kanban-column[data-status='completed'] .aw-kanban-dot { background: var(--st-done); }
+.aw-kanban-column[data-status='failed'] .aw-kanban-dot { background: var(--st-failed); }

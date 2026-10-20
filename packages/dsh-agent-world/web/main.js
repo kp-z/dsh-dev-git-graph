@@ -718,7 +718,10 @@ function renderTaskBoard(tasks) {
     const items = list.filter((task) => statusOf(task) === key)
     const head = doc.createElement('div')
     head.className = 'aw-kanban-head'
-    head.append(doc.createTextNode(label), Object.assign(doc.createElement('b'), { textContent: String(items.length) }))
+    const marker = doc.createElement('i')
+    marker.className = 'aw-kanban-dot'
+    marker.dataset.status = key
+    head.append(marker, doc.createTextNode(label), Object.assign(doc.createElement('b'), { textContent: String(items.length) }))
     const body = doc.createElement('div')
     body.className = 'aw-kanban-body'
     if (items.length === 0) body.append(Object.assign(doc.createElement('div'), { className: 'aw-empty', textContent: '没有任务' }))
