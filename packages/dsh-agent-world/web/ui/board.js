@@ -706,6 +706,18 @@ export function createBoard(options = {}) {
           options.onAssign?.(pickedTaskId, { id: row.member.id, name: memberName })
         })
         actions.append(assign)
+      } else if (row.member.id !== null && model.unowned.length > 0) {
+        // R248：没有选中任务时也给一个常驻入口，指派第一张未分配任务。
+        const taskId = model.unowned[0]
+        const assign = el(doc, 'button', 'aw-icon', '⇥')
+        assign.type = 'button'
+        assign.title = `把 ${taskId} 指派给 ${memberName}`
+        assign.setAttribute('aria-label', assign.title)
+        assign.addEventListener('click', (event) => {
+          event.stopPropagation()
+          options.onAssign?.(taskId, { id: row.member.id, name: memberName })
+        })
+        actions.append(assign)
       }
       item.append(avatar, head, actions)
       list.append(item)
