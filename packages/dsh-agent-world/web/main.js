@@ -750,7 +750,10 @@ function renderTaskBoard(tasks) {
       item.className = 'aw-kanban-card'
       item.dataset.task = task.id
       item.dataset.status = statusOf(task)
-      item.title = `${task.id} · ${task.subject ?? ''} · ${columns.find(([key]) => key === statusOf(task))?.[1] ?? ''}`
+      const descHint = typeof task.description === 'string' && task.description.trim() !== ''
+        ? ` · ${task.description.trim().slice(0, 120)}`
+        : ''
+      item.title = `${task.id} · ${task.subject ?? ''} · ${columns.find(([key]) => key === statusOf(task))?.[1] ?? ''}${descHint}`
       item.setAttribute('aria-label', item.title)
       const top = doc.createElement('div')
       top.className = 'aw-kanban-top'
