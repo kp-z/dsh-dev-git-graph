@@ -5,5 +5,7 @@
  * 这里只有派生逻辑：把世界 + 调色板 + 主题算成"要摆什么"。
  */
 export { buildScenePlan } from './plan.js'
+export { buildSceneSpace } from './space.js'
+export type { BuildSceneSpaceInput, FineRect } from './space.js'
 export type { SceneActor, SceneGround, ScenePlan, SceneProp } from '../protocol/scene.js'
 export { resolveColor } from '../protocol/scene.js'

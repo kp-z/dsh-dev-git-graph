@@ -109,7 +109,7 @@ function gridOf(nav: NavGrid): number[][] {
 }
 
 /** 从 `cell` 出发按环形扩散找最近的可行走格（确定性：按格子序号取最小）。 */
-function nearestWalkable(nav: NavGrid, cell: Cell): Cell | null {
+export function nearestWalkable(nav: NavGrid, cell: Cell): Cell | null {
   if (isWalkable(nav, cell)) return cell
   const maxR = Math.max(nav.width, nav.height)
   for (let radius = 1; radius < maxR; radius++) {

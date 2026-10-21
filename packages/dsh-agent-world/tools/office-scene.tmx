@@ -1,0 +1,3053 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.10" tiledversion="1.12.2" orientation="orthogonal" renderorder="right-down" width="37" height="21" tilewidth="32" tileheight="32" infinite="0" nextlayerid="5" nextobjectid="251">
+ <imagelayer id="1" name="reference" opacity="0.35">
+  <image source="../src/vendor/microverse/scene/office.png" width="1184" height="672"/>
+ </imagelayer>
+ <objectgroup id="2" name="sortable">
+  <object id="1" name="tile:0" x="32" y="0" width="384" height="32">
+   <properties>
+    <property name="id" value="tile:0"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="0"/>
+    <property name="sw" type="float" value="384"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="2" name="tile:1" x="448" y="0" width="256" height="32">
+   <properties>
+    <property name="id" value="tile:1"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="448"/>
+    <property name="sy" type="float" value="0"/>
+    <property name="sw" type="float" value="256"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="3" name="tile:2" x="736" y="0" width="320" height="32">
+   <properties>
+    <property name="id" value="tile:2"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="736"/>
+    <property name="sy" type="float" value="0"/>
+    <property name="sw" type="float" value="320"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="4" name="tile:3" x="1120" y="0" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:3"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1120"/>
+    <property name="sy" type="float" value="0"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="5" name="tile:4" x="32" y="32" width="224" height="32">
+   <properties>
+    <property name="id" value="tile:4"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="32"/>
+    <property name="sw" type="float" value="224"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="6" name="tile:5" x="288" y="32" width="352" height="32">
+   <properties>
+    <property name="id" value="tile:5"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="288"/>
+    <property name="sy" type="float" value="32"/>
+    <property name="sw" type="float" value="352"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="7" name="tile:6" x="672" y="32" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:6"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="32"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="8" name="tile:7" x="736" y="32" width="416" height="32">
+   <properties>
+    <property name="id" value="tile:7"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="736"/>
+    <property name="sy" type="float" value="32"/>
+    <property name="sw" type="float" value="416"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="9" name="tile:8" x="64" y="64" width="128" height="32">
+   <properties>
+    <property name="id" value="tile:8"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="64"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="128"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="10" name="tile:9" x="288" y="64" width="352" height="32">
+   <properties>
+    <property name="id" value="tile:9"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="288"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="352"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="11" name="tile:10" x="672" y="64" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:10"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="12" name="tile:11" x="864" y="64" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:11"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="864"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="13" name="tile:12" x="1056" y="64" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:12"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="14" name="tile:13" x="320" y="96" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:13"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="320"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="15" name="tile:14" x="416" y="96" width="224" height="32">
+   <properties>
+    <property name="id" value="tile:14"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="416"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="224"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="16" name="tile:15" x="352" y="128" width="256" height="32">
+   <properties>
+    <property name="id" value="tile:15"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="352"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="256"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="17" name="tile:16" x="1024" y="128" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:16"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1024"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="18" name="tile:17" x="352" y="160" width="256" height="32">
+   <properties>
+    <property name="id" value="tile:17"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="352"/>
+    <property name="sy" type="float" value="160"/>
+    <property name="sw" type="float" value="256"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="19" name="tile:18" x="1024" y="160" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:18"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1024"/>
+    <property name="sy" type="float" value="160"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="20" name="tile:19" x="1088" y="192" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:19"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1088"/>
+    <property name="sy" type="float" value="192"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="21" name="tile:20" x="320" y="224" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:20"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="320"/>
+    <property name="sy" type="float" value="224"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="22" name="tile:21" x="448" y="224" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:21"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="448"/>
+    <property name="sy" type="float" value="224"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="23" name="tile:22" x="608" y="224" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:22"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="608"/>
+    <property name="sy" type="float" value="224"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="24" name="tile:23" x="1088" y="224" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:23"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1088"/>
+    <property name="sy" type="float" value="224"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="25" name="tile:24" x="128" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:24"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="128"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="26" name="tile:25" x="192" y="256" width="224" height="32">
+   <properties>
+    <property name="id" value="tile:25"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="192"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="224"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="27" name="tile:26" x="448" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:26"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="448"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="28" name="tile:27" x="512" y="256" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:27"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="512"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="29" name="tile:28" x="608" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:28"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="608"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="30" name="tile:29" x="1088" y="256" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:29"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1088"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="31" name="tile:30" x="128" y="288" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:30"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="128"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="32" name="tile:31" x="192" y="288" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:31"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="192"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="33" name="tile:32" x="448" y="288" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:32"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="448"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="34" name="tile:33" x="512" y="288" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:33"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="512"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="35" name="tile:34" x="256" y="320" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:34"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="256"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="36" name="tile:35" x="608" y="320" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:35"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="608"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="37" name="tile:36" x="320" y="352" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:36"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="320"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="38" name="tile:37" x="448" y="352" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:37"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="448"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="39" name="tile:38" x="544" y="352" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:38"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="544"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="40" name="tile:39" x="320" y="384" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:39"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="320"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="41" name="tile:40" x="448" y="384" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:40"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="448"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="42" name="tile:41" x="544" y="384" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:41"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="544"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="43" name="tile:42" x="64" y="416" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:42"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="64"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="44" name="tile:43" x="192" y="416" width="384" height="32">
+   <properties>
+    <property name="id" value="tile:43"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="192"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="384"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="45" name="tile:44" x="704" y="416" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:44"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="46" name="tile:45" x="928" y="416" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:45"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="928"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="47" name="tile:46" x="1056" y="416" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:46"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="48" name="tile:47" x="64" y="448" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:47"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="64"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="49" name="tile:48" x="192" y="448" width="384" height="32">
+   <properties>
+    <property name="id" value="tile:48"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="192"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="384"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="50" name="tile:49" x="608" y="448" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:49"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="608"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="51" name="tile:50" x="704" y="448" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:50"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="52" name="tile:51" x="896" y="448" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:51"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="896"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="53" name="tile:52" x="1024" y="448" width="128" height="32">
+   <properties>
+    <property name="id" value="tile:52"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1024"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="128"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="54" name="tile:53" x="192" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:53"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="192"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="55" name="tile:54" x="256" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:54"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="256"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="56" name="tile:55" x="320" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:55"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="320"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="57" name="tile:56" x="608" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:56"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="608"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="58" name="tile:57" x="704" y="480" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:57"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="59" name="tile:58" x="896" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:58"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="896"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="60" name="tile:59" x="960" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:59"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="960"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="61" name="tile:60" x="1024" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:60"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1024"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="62" name="tile:61" x="1120" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:61"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1120"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="63" name="tile:62" x="192" y="512" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:62"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="192"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="64" name="tile:63" x="384" y="512" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:63"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="384"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="65" name="tile:64" x="640" y="512" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:64"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="640"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="66" name="tile:65" x="864" y="512" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:65"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="864"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="67" name="tile:66" x="1056" y="512" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:66"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="68" name="tile:67" x="192" y="544" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:67"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="192"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="69" name="tile:68" x="384" y="544" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:68"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="384"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="70" name="tile:69" x="640" y="544" width="128" height="32">
+   <properties>
+    <property name="id" value="tile:69"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="640"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="128"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="71" name="tile:70" x="864" y="544" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:70"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="864"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="72" name="tile:71" x="1056" y="544" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:71"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="73" name="tile:72" x="320" y="576" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:72"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="320"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="74" name="tile:73" x="384" y="576" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:73"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="384"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="75" name="tile:74" x="640" y="576" width="192" height="32">
+   <properties>
+    <property name="id" value="tile:74"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="640"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="192"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="76" name="tile:75" x="1056" y="576" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:75"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="77" name="tile:76" x="1120" y="576" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:76"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="1120"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="78" name="tile:77" x="704" y="608" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:77"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer1.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="608"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="79" name="tile:78" x="672" y="96" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:78"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="80" name="tile:79" x="768" y="96" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:79"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="768"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="81" name="tile:80" x="864" y="96" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:80"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="864"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="82" name="tile:81" x="960" y="96" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:81"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="960"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="83" name="tile:82" x="1024" y="96" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:82"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="1024"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="84" name="tile:83" x="672" y="128" width="320" height="32">
+   <properties>
+    <property name="id" value="tile:83"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="320"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="85" name="tile:84" x="1024" y="128" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:84"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="1024"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="86" name="tile:85" x="672" y="160" width="320" height="32">
+   <properties>
+    <property name="id" value="tile:85"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="160"/>
+    <property name="sw" type="float" value="320"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="87" name="tile:86" x="640" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:86"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="640"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="88" name="tile:87" x="736" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:87"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="736"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="89" name="tile:88" x="832" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:88"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="832"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="90" name="tile:89" x="928" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:89"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="928"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="91" name="tile:90" x="1024" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:90"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="1024"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="92" name="tile:91" x="32" y="288" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:91"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="93" name="tile:92" x="384" y="288" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:92"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="384"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="94" name="tile:93" x="480" y="288" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:93"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="480"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="95" name="tile:94" x="640" y="288" width="416" height="32">
+   <properties>
+    <property name="id" value="tile:94"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="640"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="416"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="96" name="tile:95" x="32" y="320" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:95"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="97" name="tile:96" x="384" y="320" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:96"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="384"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="98" name="tile:97" x="640" y="320" width="416" height="32">
+   <properties>
+    <property name="id" value="tile:97"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="640"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="416"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="99" name="tile:98" x="352" y="352" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:98"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="352"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="100" name="tile:99" x="416" y="352" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:99"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="416"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="101" name="tile:100" x="352" y="384" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:100"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="352"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="102" name="tile:101" x="416" y="384" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:101"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="416"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="103" name="tile:102" x="512" y="384" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:102"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="512"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="104" name="tile:103" x="128" y="416" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:103"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="128"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="105" name="tile:104" x="128" y="448" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:104"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="128"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="106" name="tile:105" x="896" y="448" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:105"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="896"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="107" name="tile:106" x="128" y="480" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:106"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="128"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="108" name="tile:107" x="896" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:107"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="896"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="109" name="tile:108" x="1088" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:108"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="1088"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="110" name="tile:109" x="736" y="512" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:109"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="736"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="111" name="tile:110" x="864" y="512" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:110"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="864"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="112" name="tile:111" x="1056" y="512" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:111"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="113" name="tile:112" x="32" y="544" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:112"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="114" name="tile:113" x="256" y="544" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:113"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="256"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="115" name="tile:114" x="736" y="544" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:114"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="736"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="116" name="tile:115" x="864" y="544" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:115"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="864"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="117" name="tile:116" x="1056" y="544" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:116"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="118" name="tile:117" x="32" y="576" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:117"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="119" name="tile:118" x="256" y="576" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:118"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="256"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="120" name="tile:119" x="672" y="576" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:119"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="121" name="tile:120" x="1056" y="576" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:120"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer2.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="122" name="tile:121" x="32" y="64" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:121"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="123" name="tile:122" x="32" y="96" width="160" height="32">
+   <properties>
+    <property name="id" value="tile:122"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="160"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="124" name="tile:123" x="704" y="96" width="288" height="32">
+   <properties>
+    <property name="id" value="tile:123"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="288"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="125" name="tile:124" x="32" y="128" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:124"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="126" name="tile:125" x="704" y="128" width="288" height="32">
+   <properties>
+    <property name="id" value="tile:125"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="288"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="127" name="tile:126" x="704" y="160" width="288" height="32">
+   <properties>
+    <property name="id" value="tile:126"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="160"/>
+    <property name="sw" type="float" value="288"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="128" name="tile:127" x="672" y="256" width="384" height="32">
+   <properties>
+    <property name="id" value="tile:127"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="384"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="129" name="tile:128" x="672" y="288" width="384" height="32">
+   <properties>
+    <property name="id" value="tile:128"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="384"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="130" name="tile:129" x="672" y="320" width="384" height="32">
+   <properties>
+    <property name="id" value="tile:129"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="384"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="131" name="tile:130" x="1120" y="352" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:130"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="1120"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="132" name="tile:131" x="1120" y="384" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:131"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="1120"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="133" name="tile:132" x="768" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:132"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="768"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="134" name="tile:133" x="896" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:133"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="896"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="135" name="tile:134" x="768" y="512" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:134"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="768"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="136" name="tile:135" x="896" y="512" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:135"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer3.png"/>
+    <property name="sx" type="float" value="896"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="137" name="tile:136" x="32" y="64" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:136"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="138" name="tile:137" x="32" y="96" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:137"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="139" name="tile:138" x="704" y="96" width="96" height="32">
+   <properties>
+    <property name="id" value="tile:138"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="140" name="tile:139" x="32" y="128" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:139"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="141" name="tile:140" x="704" y="128" width="288" height="32">
+   <properties>
+    <property name="id" value="tile:140"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="288"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="142" name="tile:141" x="32" y="160" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:141"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="160"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="143" name="tile:142" x="704" y="160" width="288" height="32">
+   <properties>
+    <property name="id" value="tile:142"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="160"/>
+    <property name="sw" type="float" value="288"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="144" name="tile:143" x="672" y="288" width="384" height="32">
+   <properties>
+    <property name="id" value="tile:143"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="384"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="145" name="tile:144" x="672" y="320" width="384" height="32">
+   <properties>
+    <property name="id" value="tile:144"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="672"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="384"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="146" name="tile:145" x="1120" y="352" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:145"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="1120"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="147" name="tile:146" x="1120" y="384" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:146"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="1120"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="148" name="tile:147" x="896" y="512" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:147"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="896"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="149" name="tile:148" x="864" y="544" width="64" height="32">
+   <properties>
+    <property name="id" value="tile:148"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="864"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="150" name="tile:149" x="1088" y="544" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:149"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="1088"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="151" name="tile:150" x="864" y="576" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:150"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="864"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="152" name="tile:151" x="1088" y="576" width="32" height="32">
+   <properties>
+    <property name="id" value="tile:151"/>
+    <property name="kind" value="tile"/>
+    <property name="texture" value="office-layer4.png"/>
+    <property name="sx" type="float" value="1088"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="153" name="wall:0" x="416" y="0" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:0"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="416"/>
+    <property name="sy" type="float" value="0"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="154" name="wall:1" x="704" y="0" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:1"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="704"/>
+    <property name="sy" type="float" value="0"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="155" name="wall:2" x="1056" y="0" width="64" height="32">
+   <properties>
+    <property name="id" value="wall:2"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1056"/>
+    <property name="sy" type="float" value="0"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="156" name="wall:3" x="0" y="32" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:3"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="32"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="157" name="wall:4" x="1152" y="32" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:4"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="32"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="158" name="wall:5" x="0" y="64" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:5"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="159" name="wall:6" x="1152" y="64" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:6"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="64"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="160" name="wall:7" x="0" y="96" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:7"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="161" name="wall:8" x="384" y="96" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:8"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="384"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="162" name="wall:9" x="1152" y="96" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:9"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="96"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="163" name="wall:10" x="0" y="128" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:10"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="164" name="wall:11" x="1152" y="128" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:11"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="128"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="165" name="wall:12" x="0" y="160" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:12"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="160"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="166" name="wall:13" x="1152" y="160" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:13"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="160"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="167" name="wall:14" x="0" y="192" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:14"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="192"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="168" name="wall:15" x="1152" y="192" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:15"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="192"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="169" name="wall:16" x="0" y="224" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:16"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="224"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="170" name="wall:17" x="416" y="224" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:17"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="416"/>
+    <property name="sy" type="float" value="224"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="171" name="wall:18" x="480" y="224" width="128" height="32">
+   <properties>
+    <property name="id" value="wall:18"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="480"/>
+    <property name="sy" type="float" value="224"/>
+    <property name="sw" type="float" value="128"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="172" name="wall:19" x="1152" y="224" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:19"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="224"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="173" name="wall:20" x="0" y="256" width="128" height="32">
+   <properties>
+    <property name="id" value="wall:20"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="128"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="174" name="wall:21" x="1152" y="256" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:21"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="256"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="175" name="wall:22" x="0" y="288" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:22"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="176" name="wall:23" x="1152" y="288" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:23"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="288"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="177" name="wall:24" x="0" y="320" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:24"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="178" name="wall:25" x="1152" y="320" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:25"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="320"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="179" name="wall:26" x="0" y="352" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:26"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="180" name="wall:27" x="1152" y="352" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:27"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="352"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="181" name="wall:28" x="0" y="384" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:28"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="182" name="wall:29" x="1152" y="384" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:29"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="384"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="183" name="wall:30" x="0" y="416" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:30"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="184" name="wall:31" x="96" y="416" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:31"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="96"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="185" name="wall:32" x="576" y="416" width="96" height="32">
+   <properties>
+    <property name="id" value="wall:32"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="576"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="96"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="186" name="wall:33" x="800" y="416" width="128" height="32">
+   <properties>
+    <property name="id" value="wall:33"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="800"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="128"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="187" name="wall:34" x="1024" y="416" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:34"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1024"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="188" name="wall:35" x="1120" y="416" width="64" height="32">
+   <properties>
+    <property name="id" value="wall:35"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1120"/>
+    <property name="sy" type="float" value="416"/>
+    <property name="sw" type="float" value="64"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="189" name="wall:36" x="0" y="448" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:36"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="190" name="wall:37" x="1152" y="448" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:37"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="448"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="191" name="wall:38" x="0" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:38"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="192" name="wall:39" x="1152" y="480" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:39"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="480"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="193" name="wall:40" x="0" y="512" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:40"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="194" name="wall:41" x="1152" y="512" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:41"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="512"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="195" name="wall:42" x="0" y="544" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:42"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="196" name="wall:43" x="1152" y="544" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:43"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="544"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="197" name="wall:44" x="0" y="576" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:44"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="0"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="198" name="wall:45" x="1152" y="576" width="32" height="32">
+   <properties>
+    <property name="id" value="wall:45"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="1152"/>
+    <property name="sy" type="float" value="576"/>
+    <property name="sw" type="float" value="32"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="199" name="wall:46" x="32" y="608" width="672" height="32">
+   <properties>
+    <property name="id" value="wall:46"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="32"/>
+    <property name="sy" type="float" value="608"/>
+    <property name="sw" type="float" value="672"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="200" name="wall:47" x="736" y="608" width="416" height="32">
+   <properties>
+    <property name="id" value="wall:47"/>
+    <property name="kind" value="wall"/>
+    <property name="texture" value="office-walls.png"/>
+    <property name="sx" type="float" value="736"/>
+    <property name="sy" type="float" value="608"/>
+    <property name="sw" type="float" value="416"/>
+    <property name="sh" type="float" value="32"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="201" name="chair:0" x="64" y="0" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:0"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="202" name="chair:1" x="120" y="0" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:1"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="203" name="chair:2" x="736" y="32" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:2"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="204" name="chair:3" x="832" y="32" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:3"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="205" name="chair:4" x="928" y="32" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:4"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="206" name="chair:5" x="128" y="64" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:5"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-106.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="207" name="chair:6" x="736" y="120" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:6"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-106.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="208" name="chair:7" x="832" y="120" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:7"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-106.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="209" name="chair:8" x="928" y="120" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:8"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-106.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="210" name="chair:9" x="704" y="192" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:9"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="211" name="chair:10" x="800" y="192" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:10"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="212" name="chair:11" x="896" y="192" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:11"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="213" name="chair:12" x="992" y="192" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:12"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="214" name="chair:13" x="704" y="280" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:13"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-106.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="215" name="chair:14" x="800" y="280" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:14"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-106.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="216" name="chair:15" x="896" y="280" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:15"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-106.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="217" name="chair:16" x="992" y="280" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:16"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-106.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="218" name="chair:17" x="864" y="416" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:17"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-110.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="219" name="chair:18" x="264" y="424" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:18"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-101.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="220" name="chair:19" x="352" y="464" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:19"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-110.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="221" name="chair:20" x="512" y="464" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:20"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-110.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="222" name="chair:21" x="1056" y="480" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:21"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-110.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="223" name="chair:22" x="352" y="520" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:22"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-110.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+  <object id="224" name="chair:23" x="512" y="520" width="64" height="96">
+   <properties>
+    <property name="id" value="chair:23"/>
+    <property name="kind" value="chair"/>
+    <property name="texture" value="office-chair-110.png"/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="-8"/>
+   </properties>
+  </object>
+ </objectgroup>
+ <objectgroup id="3" name="stations">
+  <object id="225" name="station:station.seat-01" x="272" y="488" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-01"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="226" name="station:station.seat-02" x="128" y="64" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-02"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="227" name="station:station.seat-03" x="72" y="64" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-03"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="228" name="station:station.seat-04" x="1000" y="256" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-04"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="229" name="station:station.seat-05" x="904" y="256" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-05"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="230" name="station:station.seat-06" x="808" y="256" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-06"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="231" name="station:station.seat-07" x="712" y="256" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-07"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="232" name="station:station.seat-08" x="744" y="96" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-08"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="233" name="station:station.seat-09" x="840" y="96" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-09"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="234" name="station:station.seat-10" x="936" y="96" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-10"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="235" name="station:station.seat-11" x="376" y="504" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-11"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="236" name="station:station.seat-12" x="376" y="560" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-12"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="237" name="station:station.seat-13" x="536" y="504" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-13"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="238" name="station:station.seat-14" x="536" y="560" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-14"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="239" name="station:station.seat-15" x="1000" y="344" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-15"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="240" name="station:station.seat-16" x="904" y="344" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-16"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="241" name="station:station.seat-17" x="808" y="344" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-17"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="242" name="station:station.seat-18" x="712" y="344" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-18"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="243" name="station:station.seat-19" x="744" y="184" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-19"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="244" name="station:station.seat-20" x="840" y="184" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-20"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="245" name="station:station.seat-21" x="936" y="184" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-21"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="246" name="station:station.seat-22" x="136" y="128" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-22"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="247" name="station:station.seat-23" x="1080" y="520" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-23"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+  <object id="248" name="station:station.seat-24" x="888" y="456" width="16" height="16">
+   <properties>
+    <property name="id" value="station:station.seat-24"/>
+    <property name="kind" value="station"/>
+    <property name="texture" value=""/>
+    <property name="sort" value="sortable"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+ </objectgroup>
+ <objectgroup id="4" name="above">
+  <object id="249" name="above:full" x="0" y="0" width="1184" height="672">
+   <properties>
+    <property name="id" value="above:full"/>
+    <property name="kind" value="above"/>
+    <property name="texture" value="office-layer5.png"/>
+    <property name="sort" value="above"/>
+    <property name="depthBias" type="float" value="0"/>
+   </properties>
+  </object>
+ </objectgroup>
+</map>

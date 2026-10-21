@@ -17,7 +17,7 @@
  * ```
  */
 import type { MapEntry } from '../content/kinds.js'
-import type { NavGrid } from '../domain/types.js'
+import type { NavGrid, Vec2 } from '../domain/types.js'
 
 /** 把 `maps` 条目变成 `NavGrid`；条目没带 `walkable` 就返回 null（退回直线走）。 */
 export function navFromMap(map: MapEntry | null | undefined): NavGrid | null {
@@ -34,4 +34,41 @@ export function navFromMap(map: MapEntry | null | undefined): NavGrid | null {
     originZ: -(map.height * unitsPerCell) / 2,
     blocked: walkable.map((v) => v !== true),
   }
+}
+
+/**
+ * 离 `p` 最近的可行走格中心（确定性：同半径按格序号取最小）。
+ *
+ * 用途：地图更新后，存档里可能有人正站在"现在不能走"的格上（R229 的家具占位就是这样
+ * 把 leader 所在格变成不可走的）。不修的话，他会被物理体卡在桌子里。返回 null =
+ * 整张图没有可走格（内容坏了），调用方应当保留原位置而不是瞎挪。
+ */
+export function nearestWalkablePoint(nav: NavGrid, p: Vec2): Vec2 | null {
+  const col = Math.round((p.x - nav.originX) / nav.unitsPerCell - 0.5)
+  const row = Math.round((p.z - nav.originZ) / nav.unitsPerCell - 0.5)
+  const walkable = (c: number, r: number): boolean => {
+    if (c < 0 || c >= nav.width || r < 0 || r >= nav.height) return false
+    return nav.blocked[r * nav.width + c] !== true
+  }
+  if (walkable(col, row)) return { x: p.x, z: p.z }
+  const maxR = Math.max(nav.width, nav.height)
+  for (let radius = 1; radius < maxR; radius += 1) {
+    let best: { c: number; r: number } | null = null
+    for (let dr = -radius; dr <= radius; dr += 1) {
+      for (let dc = -radius; dc <= radius; dc += 1) {
+        if (Math.abs(dr) !== radius && Math.abs(dc) !== radius) continue
+        const c = col + dc
+        const r = row + dr
+        if (!walkable(c, r)) continue
+        if (best === null || r * nav.width + c < best.r * nav.width + best.c) best = { c, r }
+      }
+    }
+    if (best !== null) {
+      return {
+        x: nav.originX + (best.c + 0.5) * nav.unitsPerCell,
+        z: nav.originZ + (best.r + 0.5) * nav.unitsPerCell,
+      }
+    }
+  }
+  return null
 }

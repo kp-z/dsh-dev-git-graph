@@ -94,3 +94,43 @@ test('moveAgent：坏坐标/不存在的角色一律拒（不许把 NaN 写进�
   assert.deepEqual(agent.position, before, '被拒的命令不许改动位置')
   assert.ok(Number.isFinite(agent.position.x) && Number.isFinite(agent.position.z))
 })
+
+test('moveAgent：服务端不再按 nav 格夹回（R229：物理由精细几何负责）', () => {
+  const world = makeWorld()
+  const agent = world.agents[0]
+  assert.ok(agent, '这个世界里应当至少有一个角色')
+
+  // nav 说中间格不可走，但服务端**不再**用粗网格改写客户端落点：
+  // 按格夹回会在视觉是地板的位置把人拽回来，那正是"空气墙错位"。
+  world.nav = {
+    width: 3,
+    height: 1,
+    unitsPerCell: 1,
+    originX: -1.5,
+    originZ: -0.5,
+    blocked: [false, true, false],
+  }
+
+  const result = step(world, [{ kind: 'moveAgent', agentId: agent.id, x: 0, z: 0 }])
+  assert.deepEqual(agent.position, { x: 0, z: 0 }, '落点要原样写进世界')
+  const moved = result.events.find((event) => event.type === 'agent.moved')
+  assert.equal(moved.payload.source, 'manual')
+})
+
+test('moveAgent：落点可走时保持原坐标（不误伤正常操控）', () => {
+  const world = makeWorld()
+  const agent = world.agents[0]
+  world.nav = {
+    width: 3,
+    height: 1,
+    unitsPerCell: 1,
+    originX: -1.5,
+    originZ: -0.5,
+    blocked: [false, true, false],
+  }
+
+  const result = step(world, [{ kind: 'moveAgent', agentId: agent.id, x: 1, z: 0 }])
+  assert.deepEqual(agent.position, { x: 1, z: 0 })
+  const moved = result.events.find((event) => event.type === 'agent.moved')
+  assert.equal(moved.payload.source, 'manual')
+})

@@ -216,6 +216,102 @@ export interface SceneMap {
   cellPx: number
   /** 一格等于多少世界单位（渲染器据此把图缩放到世界坐标）。 */
   unitsPerCell: number
+  /** 美术占位格（`row*width+col`）：画面上是家具、但原版物理多边形漏掉的格子。 */
+  occupancy?: readonly number[]
+  /** 小而独立的美术连通块整块外接矩形（地图像素），让碰撞体包住整件物体。 */
+  occupancyRects?: readonly (readonly [number, number, number, number])[]
+}
+
+/**
+ * 世界单位下的一个矩形（x/z 是左上角，w/h 是宽高；z 对应屏幕 y）。
+ *
+ * 为什么统一用**世界单位**而不是像素：渲染器、寻路、审计三方都要读，
+ * 像素只在最后一刻（乘 `TILE_PX`）出现。两套单位混着用，就是"差 16 倍"这类错。
+ */
+export interface SceneRect {
+  x: number
+  z: number
+  w: number
+  h: number
+}
+
+/**
+ * 一个物理障碍（R227 统一实体模型）。
+ *
+ * 来源两种，**都对应画面上真实存在的东西**：
+ * - `fine`：从美术 alpha 轮廓算出的精细碰撞体（与底图同源）；
+ * - `art`：美术占位格（家具层下半部分明显有东西，但原版物理多边形漏了），整格。
+ *
+ * R229 删除过 `cell`（按 nav 整格补）——那种"画面上没东西"的补格会造出看不见的墙。
+ * 渲染器**只认这一份**：不再自己去 fetch `*-colliders.json`，也不再拿 nav 二次拼。
+ */
+export interface SceneObstacle extends SceneRect {
+  source: 'fine' | 'art'
+}
+
+/** 一个会挡路/有占地的实体（站点/家具），用于审计与调试。 */
+export interface SceneSpaceEntity {
+  id: string
+  kind: 'station'
+  /** 占地：一格（站点锚点所在格）。 */
+  footprint: SceneRect
+  /** 深度基准：底边的世界 z（渲染器据此排序，不再按"类别"给固定深度）。 */
+  base: number
+  /** 可站立的吸附点（必须都在可走格里）。 */
+  slots: readonly { x: number; z: number }[]
+}
+
+/** 一套空间数据的自检读数（`airWallAudit()` 直接读它）。 */
+export interface SceneSpaceAudit {
+  /** nav 里 blocked 的格数。 */
+  blockedCells: number
+  /** 精细碰撞体条数（换算到世界单位后）。 */
+  fineRects: number
+  /**
+   * nav 说不能走、但精细几何的格中心没盖住的格数。
+   *
+   * **只用于审计**，不再补整格（R229 纠正：补整格会造出"看不见的墙"）。
+   * 它回答的是"两份数据差多少"，不是"要补多少"。
+   */
+  uncoveredCells: number
+  /** 最终障碍条数（fine + art）。 */
+  obstacles: number
+  /** 按美术占位补的整格数（画面上确实有家具）。 */
+  artCells: number
+  /** 是否在读手改覆盖（覆盖时自动推导全部停用）。 */
+  override?: boolean
+  entities: number
+  slots: number
+  /** 落在 blocked 格里的吸附点——**必须为 0**，否则人会被吸进墙里。 */
+  slotsBlocked: number
+}
+
+/**
+ * **舞台空间的单一权威**（R227）。
+ *
+ * 以前"能不能站 / 怎么挡 / 谁在前"由三份互不校验的数据决定：
+ * `nav.blocked`（寻路）、`*-colliders.json`（物理）、站点外观 + 深度（渲染）。
+ * 实测漂移：248 个 blocked 格里 55 格没有碰撞体 → 人能上墙、上桌子。
+ *
+ * 现在这三件事从**同一个结构**读：
+ * 1. `nav.blocked` —— 能否站（寻路、手动落点、审计）；
+ * 2. `obstacles` —— 物理挡什么（`fine` ∪ 按格补的缺口）；
+ * 3. `entities[].base` —— 深度基准（底边世界 z）+ `slots`（可站吸附点）。
+ *
+ * 渲染器、服务端、调试门面都只认它；任何一处不一致都会被 `audit` 或测试抓住。
+ */
+export interface SceneSpace {
+  nav: {
+    width: number
+    height: number
+    unitsPerCell: number
+    originX: number
+    originZ: number
+    blocked: readonly boolean[]
+  }
+  obstacles: readonly SceneObstacle[]
+  entities: readonly SceneSpaceEntity[]
+  audit: SceneSpaceAudit
 }
 
 export interface ScenePlan {
@@ -238,6 +334,13 @@ export interface ScenePlan {
   actions: SceneAction[]
   /** 场景底图；null = 没有底图，渲染器按分区铺色（老行为）。 */
   map: SceneMap | null
+  /**
+   * 舞台空间（nav + 障碍 + 实体占地/吸附）。null = 没有地图/老内容。
+   *
+   * 可选是为了让测试与老计划继续能用；**新路径下渲染器优先读它**，
+   * 读不到才退回旧的 `fetch(*-colliders.json)`。
+   */
+  space?: SceneSpace | null
   /**
    * 本场景引用到的模型（`SceneProp.modelId` 与 `SceneActor.modelId` 在这张表里查）。
    *

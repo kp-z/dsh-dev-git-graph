@@ -145,6 +145,64 @@ web/
 - 移动文件时**测试的 import 路径跟着改**，`test/boundaries.test.js` 的 web 规则（只许 import protocol）仍然成立；
 - `scripts/copy-web.mjs` 是递归复制，子目录无需改构建。
 
+## 五之二、场景遮挡（层序 + 排序）
+
+舞台由**五个 Phaser 容器**组成，加入显示列表的顺序就是跨层顺序（后加的盖前面的）：
+
+| 顺序 | 容器 | 装什么 | 排序方式 |
+|---|---|---|---|
+| 1 | `ground` | 地块地面/底图 | 固定，不排序 |
+| 2 | `entities` | 平铺层（`layer0` 背景 / `layer5` 墙上挂件）、墙条、家具、椅子、角色、选中环 | **每帧 `sort('depth')`**，深度 = 底边 Y × 16；椅子额外 `-8`（`CHAIR_BIAS`） |
+| 3 | `notes` | 飞行中的纸条 | 层内按 `OVERLAY_DEPTHS.note` |
+| 4 | `labels` | 角色名（`name`）、头顶工单行（`task`） | 层内 `sort('depth')`：名字 5 > 工单 4 |
+| 5 | `bubbles` | 对话气泡（9-slice 面板 + 尾巴 + 文字 + 状态点） | 层内 `sort('depth')`，`OVERLAY_DEPTHS.bubble` 永远最高 |
+
+三条不可违反的规则：
+
+1. **`entities` 里不许有"某类对象统一固定深度"**——深度必须由对象自己的底边解释（R152 的 506 对颠倒就是固定深度造成的）。唯一例外是两张平铺层：`layer0` 固定 `-10000`（地板当背景）、`layer5` 固定 `1000`（墙上挂件置顶）。
+2. **覆盖层的深度带只从 `OVERLAY_DEPTHS` 取**（`web/core/scene-layout.js`），不在渲染器里写字面量；新增一类覆盖物必须先在表里登记，再在渲染器里 `sort`。
+3. **Container 默认按插入顺序渲染**——子对象的 `depth` 不排序就不生效。所以标签/纸条/气泡三层都要显式 `sort('depth')`，否则"名字压工单行"只是注释里的意图。
+
+审计门面（`?debug=1`）：
+
+- `__agentWorldPhaser.occlusionAudit()` → `{ total, anomalyCount, anomalies }`，判"每个实体深度能不能由底边解释"；
+- `__agentWorldPhaser.overlayAudit()` → 三层各自的 `{ total, ordered, anomalyCount }`，判"标签/纸条/气泡有没有按深度带排"。
+
+---
+
+## 五之三、空气墙与实体（两套数据、两种职责）
+
+**R229 纠正**：R226/R227 曾把 `nav.blocked` 当成"物理唯一权威"，把 nav 说不能走、精细几何没盖住的格子**补成整格碰撞体**。这造出了一批"看不见的墙"——墙的美术只占格子的一部分（office 实测 113 个 blocked 格是 10%–95% 的部分覆盖），补整格就挡到了视觉上是地板的位置。用户报的"空气墙和显示错位"就是它。
+
+正确的分工是**两套数据、两种职责**：
+
+| 数据 | 是什么 | 谁用 | 权威性 |
+|---|---|---|---|
+| **精细几何 + 美术占位** `space.obstacles` | `fine` = 按美术 alpha 轮廓算的矩形；`art` = 家具层下半明显有东西、但原版物理多边形漏掉的区域（按**小连通块整块 bbox**，不是单格） | 客户端 Arcade 物理、手动操控 | **物理真相**：和人看到的一致 |
+| **导航网格** `space.nav.blocked` | 原版 Godot 图块的整格物理多边形 | 服务端 A* 寻路、待命落点 | **保守的路由网格**：允许比视觉更保守 |
+
+两者不一致是**已知事实**，不再擅自"修"。`space.audit.uncoveredCells` 只报差异量（office 当前 55），不生成碰撞体。
+
+### 四条实现规则
+
+1. **物理不补格，除非画面上真有东西**：碰撞体来自精细几何；只有当美术占位格（家具层下半 60% alpha ≥ 30%）确实画着家具时，才补整格——这种格**看得见**，不是空气墙。office 当前 7 格（`office-occupancy.ts`）。
+2. **手动操控是客户端权威**：位移由精细碰撞体挡；服务端只拒绝 `NaN/Infinity`，不再按 nav 格夹回（那会在离墙半格处把人拽回来）。
+3. **自动寻路走 nav**：角色多绕一点可以接受；"撞空气"不可接受。站点 slot 必须落在 nav 可走格（`slotsBlocked = 0`）。
+4. **深度跟脚底**：`entities` 里每个对象的 `depth` 必须能由它自己的**底边 Y** 解释；覆盖层走 `OVERLAY_DEPTHS`（见五之二）。
+
+### 审计门面（`?debug=1`）
+
+- `__agentWorldPhaser.airWallAudit()` → `{ blockedCells, fineRects, uncoveredCells, obstacles, slotsBlocked }`；
+- `__agentWorldPhaser.occlusionAudit()` → 实体深度是否都能由底边解释；
+- `__agentWorldPhaser.overlayAudit()` → 标签/纸条/气泡是否按深度带排。
+
+### 给内容作者（和模型）的约束
+
+新增一个会挡路的东西时，**必须同时**提供三件事：
+① 它在**精细几何**里占哪些像素（美术 alpha 或 collider rects）；② 它在场景里的底边位置（决定深度）；③ 它的可站立吸附点（slot，且必须在 nav 可走格里）。缺一项就会出现"人站进桌子 / 撞空气 / 遮挡反了"里的一个。
+
+---
+
 ## 六、验收（两条线都要过）
 
 1. `typecheck` + `pnpm test` 全绿；

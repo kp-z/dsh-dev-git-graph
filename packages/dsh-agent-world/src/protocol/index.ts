@@ -22,6 +22,23 @@ export { LIBRARY_KINDS, LIBRARY_LAYERS } from './library-kinds.js'
 export type { Compatibility } from './version.js'
 export { PROTOCOL_VERSION, checkCompatibility } from './version.js'
 
+// 契约登记表（CONTRACTS.md 的代码侧单一真相）。测试会与文档双向比对。
+export type {
+  ContractDomain,
+  ContractKind,
+  ContractMeta,
+  ContractStability,
+} from './contracts/index.js'
+export {
+  CONTRACTS,
+  CONTRACT_DOMAINS,
+  CONTRACT_STABILITIES,
+  contractById,
+  contractsByDomain,
+  isContractVerify,
+  lintContracts,
+} from './contracts/index.js'
+
 export type {
   BoundaryExemption,
   BoundaryRule,

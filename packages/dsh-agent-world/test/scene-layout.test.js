@@ -15,6 +15,9 @@ import { test } from 'node:test'
 import {
   ANCHOR_LIFT_PX,
   MAX_ZOOM,
+  OVERLAY_DEPTHS,
+  overlayDepthOf,
+  obstacleRectToPixels,
   fitZoom,
   steppedZoom,
   zoomLevels,
@@ -382,4 +385,22 @@ test('换档：当前值不在阶梯上时**先归到最近一档再走**', () =
 test('换档：没有可用档位时**不动**（不动比乱动安全）', () => {
   assert.equal(steppedZoom(3, 1, []), 3)
   assert.equal(steppedZoom(3, 1, null), 3)
+})
+
+test('覆盖层深度带：名字压住工单行，气泡永远最高', () => {
+  // 覆盖层的排序规则（scene-phaser 每帧 sort('depth')）依赖这三个大小关系；
+  // 改数值时如果破坏了它们，标签就会互相盖住，而画面不会报错。
+  assert.ok(OVERLAY_DEPTHS.name > OVERLAY_DEPTHS.task, '名字必须在工单行之上')
+  assert.ok(OVERLAY_DEPTHS.bubble > OVERLAY_DEPTHS.name, '气泡必须高于所有标签')
+  assert.ok(OVERLAY_DEPTHS.note > 0, '纸条不能沉到 0（会跟未设深度的对象混在一起）')
+
+  assert.equal(overlayDepthOf('name'), OVERLAY_DEPTHS.name)
+  assert.equal(overlayDepthOf('task'), OVERLAY_DEPTHS.task)
+  assert.throws(() => overlayDepthOf('不存在的种类'), /未知的覆盖层种类/)
+})
+
+test('障碍坐标：世界单位 → 像素只乘一次 TILE_PX（防差 16 倍）', () => {
+  // 世界 (-0.5..0.5) 的一格，TILE_PX=16 → 像素 (-8..8)，中心 (0,0)。
+  const rect = obstacleRectToPixels({ x: -0.5, z: -0.5, w: 1, h: 1 }, 16)
+  assert.deepEqual(rect, { x: 0, y: 0, w: 16, h: 16 })
 })
