@@ -746,7 +746,9 @@ function renderTaskBoard(tasks) {
       item.type = 'button'
       item.className = 'aw-kanban-card'
       item.dataset.task = task.id
-      item.title = `${task.id} · ${task.subject ?? ''}`
+      item.dataset.status = statusOf(task)
+      item.title = `${task.id} · ${task.subject ?? ''} · ${columns.find(([key]) => key === statusOf(task))?.[1] ?? ''}`
+      item.setAttribute('aria-label', item.title)
       const top = doc.createElement('div')
       top.className = 'aw-kanban-top'
       const dot = doc.createElement('i')
