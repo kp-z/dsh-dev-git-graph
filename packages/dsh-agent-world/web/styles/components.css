@@ -1985,9 +1985,14 @@
 /* 图标默认隐身，hover / 选中 / 键盘进到卡片里才出现（鼠标用户不被打扰，键盘用户也看得见）。 */
 .aw-node-actions,
 .board-member .aw-member-actions {
-  opacity: 0;
-  pointer-events: none;
+  /* R252：常显淡态，避免“只有 hover 才知道能指派”；hover/焦点再提亮。 */
+  opacity: 0.42;
+  pointer-events: auto;
   transition: opacity var(--t-hover) var(--ease);
+}
+.board-member:hover .aw-member-actions,
+.board-member:focus-within .aw-member-actions {
+  opacity: 1;
 }
 .board-node:hover .aw-node-actions,
 .board-node:focus-within .aw-node-actions,
