@@ -616,6 +616,8 @@ export function createBoard(options = {}) {
         fill.style.width = `${Math.round((doneCount / memberTasks.length) * 100)}%`
         track.append(fill)
         load.append(track, el(doc, 'span', undefined, `${doneCount}/${memberTasks.length} 完成`))
+        load.title = `${memberName}：${doneCount}/${memberTasks.length} 任务完成`
+        load.setAttribute('aria-label', load.title)
         head.append(load)
         const taskBox = el(doc, 'div', 'board-member-tasks')
         for (const task of memberTasks.slice(0, 4)) {
