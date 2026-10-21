@@ -984,7 +984,10 @@ export function createBoard(options = {}) {
       // 切掉了 6px——真机实测 `scrollHeight 36 > clientHeight 30`。现在 tight 只显示
       // 「状态点 + 编号 + 标题」，进度条与执行者让位；舒适档才三样都显示。
       card.dataset.fit = fitted.preset
-      card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
+      const descHint = typeof task.description === 'string' && task.description.trim() !== ''
+        ? ` · ${task.description.trim().slice(0, 120)}`
+        : ''
+      card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}${descHint}`
       // 卡片内容由三行碎片组成，读屏拼起来是「task-1小青定位问题边界」；用 aria-label 给整句。
       card.setAttribute('aria-label', card.title)
       const top = el(doc, 'div', 'board-node-top')
@@ -1092,7 +1095,10 @@ export function createBoard(options = {}) {
         card.classList.toggle('is-failed', task.status === 'failed')
         card.classList.toggle('is-selected', selected !== null && selected.kind === 'task' && selected.id === task.id)
         fill.style.width = `${Math.round(Math.min(1, Math.max(0, task.progress)) * 100)}%`
-        card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}`
+        const descHint = typeof task.description === 'string' && task.description.trim() !== ''
+        ? ` · ${task.description.trim().slice(0, 120)}`
+        : ''
+      card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}${descHint}`
         card.setAttribute('aria-label', card.title)
         // R181：图标动作的可用性跟着状态走（完成的只剩「重开」，进行中的只剩「完成」）。
         const meta = teamMeta.get(task.id)
