@@ -589,3 +589,21 @@ test('R46：快照带 taskSets 目录（id → 中文名），前端不必猜中
   assert.equal(quick.name, '快速修一个 bug', '名字来自内容库，不在前端写死（红线）')
   assert.ok(snap.taskSets.length >= 3, '三套内置流水线都该在目录里')
 })
+
+test('R227：快照带统一空间（nav + 障碍 + 实体），且吸附点没有落进墙里', () => {
+  const service = createPluginState(resolveConfig({ autoStart: false, scene: 'scene.office' }))
+  service.open('空间小镇')
+  const runtime = createRuntime({ service, tickMs: 100 })
+  const snap = buildSnapshot({ service, runtime, tickMs: 100 })
+  const space = snap.scene.space
+  assert.ok(space, '有底图的场景必须下发 space（渲染器不再自己 fetch 碰撞体）')
+  assert.ok(space.audit.blockedCells > 0, 'office 场景必须有 blocked 格')
+  assert.ok(space.audit.fineRects > 0, '精细碰撞体应当被读进来')
+  assert.ok(space.obstacles.length >= space.audit.fineRects, '障碍 = 精细碰撞体 + 补格')
+  assert.equal(space.audit.slotsBlocked, 0, '吸附点不能落在 blocked 格里')
+  if (space.audit.override !== true) {
+    assert.ok(space.audit.artCells > 0, 'office 有美术占位格（家具层明显有东西）')
+  }
+  assert.ok(space.obstacles.length >= space.audit.fineRects + space.audit.artCells, '障碍 = 精细几何 + 美术占位')
+  assert.ok(space.entities.length >= 20, '站点应当被收进实体表')
+})
