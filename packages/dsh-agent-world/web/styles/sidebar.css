@@ -781,3 +781,9 @@
 .aw-kanban-card[data-status='in_progress'] { border-left-color: var(--st-in_progress); }
 .aw-kanban-card[data-status='completed'] { border-left-color: var(--st-done); }
 .aw-kanban-card[data-status='failed'] { border-left-color: var(--st-failed); }
+
+/* R250：看板卡片的键盘焦点必须可见（鼠标 hover 之外的另一条交互路径）。 */
+.aw-kanban-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--screen);
+}
