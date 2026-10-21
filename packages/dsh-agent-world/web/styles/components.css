@@ -2619,3 +2619,15 @@
 .board-member-task {
   min-height: 17px;
 }
+
+/* R257：任务图节点 hover 的触感反馈；transform 只影响绘制，不改布局。 */
+.board-node {
+  transition: border-color var(--t-hover) var(--ease), box-shadow var(--t-hover) var(--ease), transform var(--t-hover) var(--ease);
+}
+.board-node:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-1);
+}
+.board-node:active {
+  transform: translateY(0) scale(0.99);
+}
