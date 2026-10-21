@@ -630,7 +630,11 @@ export function explainSayFailure(failure) {
     return `请求没能送到宿主（${describeError(f.error)}）。看宿主进程还在不在，以及页面是不是从 ./agent-world/ 打开的（POST ./api/say）。`
   }
   if (status === 404 || status === 405 || status === 501) {
-    return `宿主还没有对话端点：POST ./api/say 返回 HTTP ${status}${reasonTail}。这是 M6-3 那一半——宿主侧要加 /api/say 路由与 SSE 的 dialogue 事件；面板这边请求已经发出去了，端点一上线就能用。`
+    if (status === 404 || status === 405) {
+      return `宿主里没有 Agent World 的对话路由（POST ./api/say → HTTP ${status}${reasonTail}）。` +
+        '405 通常是插件未激活：重启 DSH 宿主；仍失败就重装 dsh-agent-world（确保 lib 里的新文件一起进 profile）。'
+    }
+    return `发话失败：POST ./api/say 返回 HTTP ${status}${reasonTail}。宿主可能有异常，先看宿主日志。`
   }
   if (status === 400 || status === 422) {
     return `宿主拒了这次发话（HTTP ${status}）${reasonTail || '，而且它没给 reason'}。多半是说空了、或说话的对象不存在。`

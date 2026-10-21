@@ -395,8 +395,8 @@ test('clearDialogue 能清干净（重开一局时显式调）', () => {
 
 test('失败提示必须能直接下手（不是"失败"两个字）', () => {
   const cases = [
-    { failure: { status: 404 }, must: ['404', '/api/say', 'M6-3'] },
-    { failure: { status: 405 }, must: ['405'] },
+    { failure: { status: 404 }, must: ['404', '/api/say', '重启'] },
+    { failure: { status: 405 }, must: ['405', '插件未激活'] },
     { failure: { status: 0, error: new TypeError('fetch failed') }, must: ['fetch failed', '宿主'] },
     {
       // 我们自己 10 秒中止的那一种：端点可能存在，但在 HTTP 里等了模型。
