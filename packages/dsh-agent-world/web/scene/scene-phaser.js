@@ -238,7 +238,7 @@ export function createScenePhaser(canvas, options = {}) {
    * 改服务端 `Cache-Control` **不会**让已缓存的条目失效。表现是"文件明明换了、画面没变"，
    * 而且 curl 校验完全正常，极难归因。把版本写进 URL 才能确定性地换掉它。
    */
-  const MAP_ASSET_VERSION = '2026-10-18-10'
+  const MAP_ASSET_VERSION = '2026-10-21-1625'
 
   /** 地图对象贴图：`office-objects.json` 里的 `texture` 字段就是这里的键。 */
   /** 墙体图层（透明 PNG，只含墙格）。 */
