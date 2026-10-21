@@ -525,6 +525,9 @@ function renderOfficialTasks(team) {
   setTasksNotice('')
   // 任务交给看板：它负责节点/边/状态带/图标可用性（图与状态带是同一份数据）。
   board.setTeamTasks(tasks)
+  const graphHost = root.querySelector('#sidebar-task-graph')
+  if (graphHost !== null) graphHost.hidden = tasks.length === 0 || taskView !== 'graph'
+  if (tasks.length > 0 && taskView === 'graph') board.refreshGraph?.()
   renderTeamJobs(team)
   if (taskView === 'tree') renderTaskTree(tasks)
   else if (taskView === 'board') renderTaskBoard(tasks)
