@@ -850,6 +850,7 @@ function renderTaskActions(team) {
         setTaskView(value)
         menu.hidden = true
         button.setAttribute('aria-expanded', 'false')
+        button.focus()
       })
       menu.append(option)
     }
