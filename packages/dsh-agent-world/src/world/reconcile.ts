@@ -62,7 +62,7 @@ import { slotsFor } from '../domain/constants.js'
 import { distance } from '../domain/geometry.js'
 import type { Agent, District, Station, World } from '../domain/types.js'
 import { DEFAULT_MIN_GAP, hangoutsForWorld } from './hangouts.js'
-import { navFromMap } from './nav.js'
+import { navFromMap, nearestWalkablePoint } from './nav.js'
 
 /** "他确实停在旧落点上"的容差（世界单位）。理由见文件头。 */
 export const HANGOUT_MOVE_EPSILON = 0.25
@@ -293,6 +293,23 @@ export function reconcileWorld(world: World, content: ContentRegistry): Reconcil
     // 有在途意图、或不在旧落点上 → 只改落点，位置是历史。
     agents.push({ ...withLook, hangout: next })
   })
+
+  // R229：地图新增了"美术占位"格时，存档里可能有人正站在上面。
+  // 只挪**站在不可走格上**的人（其余位置是历史，不动）。
+  if (nav !== null) {
+    for (let i = 0; i < agents.length; i += 1) {
+      const agent = agents[i]
+      if (agent === undefined) continue
+      const col = Math.round((agent.position.x - nav.originX) / nav.unitsPerCell - 0.5)
+      const row = Math.round((agent.position.z - nav.originZ) / nav.unitsPerCell - 0.5)
+      const inside = col >= 0 && col < nav.width && row >= 0 && row < nav.height
+      if (inside && nav.blocked[row * nav.width + col] !== true) continue
+      const near = nearestWalkablePoint(nav, agent.position)
+      if (near === null) continue
+      agents[i] = { ...agent, position: near, hangout: agent.hangout ?? near, path: [] }
+      movedIdle.push(agent.name)
+    }
+  }
 
   if (appearanceChanged > 0) {
     changes.push(`角色外观已按当前花名册重算：${appearanceChanged} 个角色换了形象或配色`)

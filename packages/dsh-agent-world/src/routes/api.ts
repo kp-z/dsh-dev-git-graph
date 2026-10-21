@@ -11,6 +11,9 @@
  * "该不该暂停""谁去做哪张单"都是模拟内核的事——传输层多一句判断，
  * 以后经工具走的那条路就会和它漂移。
  */
+import { readFileSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { RouteEntry } from './router.js'
 import { HttpError } from './router.js'
 import type {
@@ -21,6 +24,8 @@ import type {
   World,
 } from '../protocol/index.js'
 import { buildScenePlan } from '../scene/plan.js'
+import { buildSceneSpace } from '../scene/space.js'
+import type { FineRect } from '../scene/space.js'
 import {
   PROTOCOL_VERSION,
   WORLD_COMMAND_KINDS,
@@ -61,6 +66,72 @@ export interface ApiDeps {
  * **刻意丢掉 `world.events`**：面板要轮询它，带上最近 500 条事件会让一个快照到几百 KB，
  * 而面板根本不需要历史——历史由 `events` 增量推（M3-4）。
  */
+/**
+ * 精细碰撞体缓存：`地图 url` → `rects`。
+ *
+ * 文件与底图同源（`office.png` ↔ `office-colliders.json`），放在 `src/vendor/`。
+ * 读不到就返回 null（没有精细数据时 `buildSceneSpace` 会按整格补，行为仍然正确）。
+ */
+const fineRectCache = new Map<string, { mtime: number; rects: readonly FineRect[] | null }>()
+
+/** 手改碰撞体的覆盖文件：与 `*-colliders.json` 同目录，存在就**完全替代**自动数据。 */
+function overridePathFor(mapUrl: string, root = join(dirname(fileURLToPath(import.meta.url)), '../vendor')): string {
+  return join(root, mapUrl.replace(/\.png$/i, '-colliders-override.json'))
+}
+
+function readOverride(mapUrl: string): readonly FineRect[] | null {
+  try {
+    const raw = JSON.parse(readFileSync(overridePathFor(mapUrl), 'utf8')) as { rects?: unknown }
+    if (!Array.isArray(raw.rects)) return null
+    const rects = raw.rects.filter((r): r is FineRect =>
+      Array.isArray(r) && r.length >= 4 && r.every((v) => Number.isFinite(v)) && r[2] > 0 && r[3] > 0,
+    )
+    return rects.length > 0 ? rects : null
+  } catch {
+    return null
+  }
+}
+
+function fineRectsFor(mapUrl: string): readonly FineRect[] | null {
+  const override = readOverride(mapUrl)
+  if (override !== null) return override
+  const vendorRoot = join(dirname(fileURLToPath(import.meta.url)), '../vendor')
+  const file = join(vendorRoot, mapUrl.replace(/\.png$/i, '-colliders.json'))
+  let mtime = 0
+  try { mtime = statSync(file).mtimeMs } catch { mtime = 0 }
+  const cached = fineRectCache.get(mapUrl)
+  if (cached !== undefined && cached.mtime === mtime) return cached.rects
+  let rects: readonly FineRect[] | null = null
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as { rects?: unknown }
+    if (Array.isArray(raw.rects)) rects = raw.rects as FineRect[]
+  } catch {
+    rects = null
+  }
+  fineRectCache.set(mapUrl, { mtime, rects })
+  return rects
+}
+
+/**
+ * 手改碰撞体保存（`?edit=1` 的编辑器 → 这里）。
+ *
+ * 写两份：
+ * - 宿主实际读取的 `lib/vendor/...`（`import.meta.url` 旁边）；
+ * - 仓库源码 `src/vendor/...`（`cwd` 下，存在才写），下次构建不会丢。
+ *
+ * 只接受**当前场景的地图**，避免变成任意路径写文件。
+ */
+function saveOverride(mapUrl: string, rects: readonly FineRect[]): number {
+  const source = join(process.cwd(), 'packages/dsh-agent-world/src/vendor', mapUrl.replace(/\.png$/i, '-colliders-override.json'))
+  const host = overridePathFor(mapUrl)
+  const payload = JSON.stringify({ rects, savedAt: new Date().toISOString() })
+  for (const target of new Set([source, host])) {
+    try { writeFileSync(target, payload) } catch { /* 源码目录不存在就算了，宿主那份必须写 */ }
+  }
+  fineRectCache.clear()
+  return rects.length
+}
+
 export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
   const world = deps.service.currentWorld()
   if (world === null) {
@@ -79,16 +150,34 @@ export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
     palette: { ...content.colors() },
     // 渲染就绪的"要摆什么"。**这是渲染层的唯一输入**：2D canvas 画它，
     // 将来的 three.js（不管是我们写的还是现成场景）也画它。
-    scene: buildScenePlan(
-      world,
-      content.colors(),
-      content.themeFor(world.origin.scene),
-      (id) => content.modelOf(id),
-      // 状态 → 动作（R60）：**来自内容库**，渲染器不许自己写死这条映射。
-      () => content.actions(),
-      // 场景底图（R62）：按场景取——只有声明了底图的场景才有（否则 null，按分区铺色）。
-      () => content.map(world.origin.scene),
-    ),
+    scene: (() => {
+      const mapEntry = content.map(world.origin.scene)
+      const plan = buildScenePlan(
+        world,
+        content.colors(),
+        content.themeFor(world.origin.scene),
+        (id) => content.modelOf(id),
+        // 状态 → 动作（R60）：**来自内容库**，渲染器不许自己写死这条映射。
+        () => content.actions(),
+        // 场景底图（R62）：按场景取——只有声明了底图的场景才有（否则 null，按分区铺色）。
+        () => mapEntry,
+      )
+      // R227：把「nav + 精细碰撞体 + 站点」合成**一套**空间数据，随快照一次下发。
+      // 渲染器不再自己 fetch `*-colliders.json`，也不再拿 nav 二次拼——三份数据从此同源。
+      //
+      // R233：手改覆盖存在时，**完全以覆盖为准**（连美术占位也关掉），
+      // 编辑器保存什么就是什么，不再被自动推导"补"回来。
+      const override = mapEntry === null || mapEntry.url === null ? null : readOverride(mapEntry.url)
+      plan.space = buildSceneSpace({
+        nav: world.nav,
+        fineRects: override ?? (mapEntry === null || mapEntry.url === null ? null : fineRectsFor(mapEntry.url)),
+        stations: world.stations,
+        occupancyCells: override === null && mapEntry !== null ? mapEntry.occupancy ?? null : null,
+        occupancyRects: override === null && mapEntry !== null ? mapEntry.occupancyRects ?? null : null,
+        override: override !== null,
+      })
+      return plan
+    })(),
     runtime: {
       running: deps.runtime.running,
       pending: deps.runtime.pending,
@@ -146,6 +235,30 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
       method: 'POST',
       pattern: '/api/command',
       handler: (request) => applyCommand(deps, request.body),
+    },
+    {
+      method: 'POST',
+      pattern: '/api/space-override',
+      handler: (request) => {
+        const body = request.body as { mapUrl?: unknown; rects?: unknown } | undefined
+        const mapUrl = typeof body?.mapUrl === 'string' ? body.mapUrl : ''
+        if (!/^[a-z0-9/_-]+\.png$/i.test(mapUrl)) throw new HttpError(400, 'mapUrl 形如 microverse/scene/office.png')
+        const raw = body?.rects
+        if (!Array.isArray(raw)) throw new HttpError(400, 'rects 必须是数组')
+        const rects: FineRect[] = []
+        for (const item of raw) {
+          if (!Array.isArray(item) || item.length < 4) throw new HttpError(400, '每条 rect 形如 [x,y,w,h]')
+          const x = Number(item[0] ?? NaN)
+          const y = Number(item[1] ?? NaN)
+          const w = Number(item[2] ?? NaN)
+          const h = Number(item[3] ?? NaN)
+          if (![x, y, w, h].every((v) => Number.isFinite(v))) throw new HttpError(400, 'rect 必须是有限数')
+          if (!(w > 0) || !(h > 0)) throw new HttpError(400, 'rect 的 w/h 必须 > 0')
+          rects.push([Math.round(x), Math.round(y), Math.round(w), Math.round(h)])
+        }
+        const count = saveOverride(mapUrl, rects)
+        return { ok: true, count }
+      },
     },
     {
       method: 'POST',

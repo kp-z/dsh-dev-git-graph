@@ -56,6 +56,16 @@
   内容包怎么写、三种操作（新增 / 替换 / 切换）、校验规则、一个完整的资产替换示例、常见错误对照表。
 * [`docs/PROTOCOL.md`](docs/PROTOCOL.md) —— **模块协议规范**。三层协议（端口 / 线协议 / 边界规则）、
   模块边界表、加模块与加消息的步骤、为什么现在不做 protobuf、常见错误对照表。
+* [`docs/CONTRACTS.md`](docs/CONTRACTS.md) —— **契约制度**。什么算契约（六要素 + 四件套）、
+  稳定性分级与版本规则、失败语义总表、48 条契约目录、扩展清单与治理流程。**改任何契约前先读它。**
+* [`docs/STAGE-ACTIONS.md`](docs/STAGE-ACTIONS.md) —— **舞台动作与反应协议**。状态是基线、
+  动作是叠加；13 条动作 + 5 条反应的触发/通道/优先级/降级，以及可跑的验收门面。
+* [`docs/AGENT-MODEL.md`](docs/AGENT-MODEL.md) —— **Agent 长期模型**。两层身份（人↔身体）、
+  profile、经验账本与等级派生、专属知识库、任务集与派单；三条跨域纪律与失败降级。
+* [`docs/AI-DEBUG.md`](docs/AI-DEBUG.md) —— **AI 调试手册**。`?debug=1` 门面目录、
+  「症状 → 探针」对照表、`SceneSpace` 的不变量、改代码时的检查清单。
+* [`docs/PLAN-stage-render.md`](docs/PLAN-stage-render.md) —— **舞台渲染与空气墙优化计划**。
+  现状基线、按域的优化项（P0/P1/P2）、四期路线与可跑验收指标。
 * [`docs/ASSETS.md`](docs/ASSETS.md) —— **资产、库与美术方向**（一手来源核验，2026-10-14）。
 * [`docs/REFERENCES.md`](docs/REFERENCES.md) —— **参考实现地图**（2026-10-15）。
   把 M4 的"难实现"逐条映射到本机可借鉴的具体文件（相机模式切换、实例化、样式收敛、标签、

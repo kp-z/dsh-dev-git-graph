@@ -525,6 +525,16 @@ export interface MapEntry {
    * 可选：没有它就没有碰撞（退回直线走），那是老内容的回退路径。
    */
   walkable?: readonly boolean[]
+  /**
+   * **美术占位格**（R229）：像素图里明显是家具/台面、但原版物理多边形没挡的格子。
+   *
+   * 用途：① 并进 `walkable`（别走上去）；② 交给 `SceneSpace` 生成整格碰撞体
+   *（这些格子**画面上确实有东西**，所以不是"看不见的墙"）。来源见
+   * `office-occupancy.ts` 的生成脚本说明。
+   */
+  occupancy?: readonly number[]
+  /** 小而独立的美术连通块整块外接矩形（地图像素），用于让碰撞体包住整件物体。 */
+  occupancyRects?: readonly (readonly [number, number, number, number])[]
 }
 
 /** 皮肤库条目：一堆命名色 token。 */

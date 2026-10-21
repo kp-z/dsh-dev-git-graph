@@ -51,6 +51,8 @@ import {
   animationCandidates,
   bandOfState,
   FIT,
+  OVERLAY_DEPTHS,
+  obstacleRectToPixels,
   MAX_ZOOM,
   TILE_PX,
   animationFrameList,
@@ -346,6 +348,19 @@ export function createScenePhaser(canvas, options = {}) {
   /** 墙体由哪份 nav 建出来的（scene + 网格参数）；变了才重建。 */
   let wallKey = null
   /**
+   * 最近一次落进世界快照的导航网格。手动操控要拿它做"抬脚之前先问一句"，
+   * 不能只靠物理碰撞体——两份数据本来就会漂移（见 `SceneSpace.audit`）。
+   */
+  let navGrid = null
+  /** 最近一次建墙的覆盖率读数（`airWallAudit()` 直接读它）。 */
+  let lastWallCoverage = null
+  /** `?debug=1&walls=1` 时叠加的几何视图（nav / 障碍 / 占地 / 吸附点）。 */
+  let wallsDebugVisible = new URLSearchParams(globalThis.location?.search ?? '').has('walls')
+  let wallsDebugLayer = null
+  let wallsDebugKey = ''
+  /** R232 诊断：最近一次建墙时 actorNodes 里有多少 sprite/body、挂上几个 collider。 */
+  let lastWallAttach = { actors: 0, sprites: 0, bodies: 0, colliders: 0 }
+  /**
    * 精细碰撞体（与底图**同一次**生成）：`{ cellPx, rects: [[x,y,w,h]...] }`，地图像素坐标。
    *
    * 为什么需要它：`nav.blocked` 是按**整格**算的，而格子里的家具往往只占一半 ——
@@ -368,6 +383,9 @@ export function createScenePhaser(canvas, options = {}) {
    * 拆矩形的理由见 `drawTiles`。
    */
   let mapTiles = null
+  /** R234：Tiled 对象覆盖（id → sort/depthBias/x/y），由导入器生成。 */
+  let objectOverrides = null
+  let objectOverridesUrl = ''
   let mapTilesUrl = null
   const tileNodes = new Map()
   let tileNodesKey = null
@@ -387,6 +405,41 @@ export function createScenePhaser(canvas, options = {}) {
         if (lastRenderInput !== null) render(lastRenderInput)
       })
       .catch(() => { /* 没有对象数据也能跑 */ })
+  }
+
+  /**
+   * 读 `*-objects-override.json`（Tiled 对象导出的 sort/depthBias/位置）。
+   * 没有文件就静默跳过——场景照旧按默认规则排。
+   */
+  function loadObjectOverrides(mapUrl) {
+    if (typeof mapUrl !== 'string' || mapUrl === '') return
+    if (objectOverridesUrl === mapUrl) return
+    objectOverridesUrl = mapUrl
+    objectOverrides = null
+    const url = String(mapUrl).replace(/\.png$/i, '-objects-override.json')
+    const base = options.assetBaseUrl ?? './vendor/'
+    void fetch(`${base}${withAssetVersion(url)}`)
+      .then((res) => (res.ok === true ? res.json() : null))
+      .then((data) => {
+        if (objectOverridesUrl !== mapUrl) return
+        objectOverrides = data?.objects ?? null
+        if (lastRenderInput !== null) render(lastRenderInput)
+      })
+      .catch(() => { /* 没有覆盖文件也能跑 */ })
+  }
+
+  /** 某个对象 id 的覆盖；没有就 null。 */
+  function overrideOf(id) {
+    return objectOverrides !== null && objectOverrides[id] !== undefined ? objectOverrides[id] : null
+  }
+
+  /** 统一算深度：floor/above 固定，sortable = 底边 + bias。 */
+  function overrideDepth(id, baseZ, fallback) {
+    const ov = overrideOf(id)
+    if (ov === null) return fallback
+    if (ov.sort === 'floor') return -10000
+    if (ov.sort === 'above') return 1000
+    return depthFor(baseZ) + (Number.isFinite(ov.depthBias) ? ov.depthBias : 0)
   }
 
   function loadMapTiles(mapUrl) {
@@ -1296,6 +1349,9 @@ export function createScenePhaser(canvas, options = {}) {
     if (anyDown(moveKeys.up)) vy -= 1
     if (anyDown(moveKeys.down)) vy += 1
 
+    // ⚠️ R229：这里**不再用 nav 格子预挡**。nav 是保守的整格网格，而墙的美术只占一部分；
+    // 按格子挡会在离墙还有半格的地方停下（用户报的"错位"）。手动操控交给精细碰撞体
+    // （`space.obstacles` 建的 Arcade 静态体）——它按美术轮廓挡，和人看到的一致。
     if (vx === 0 && vy === 0) {
       lastManualReason = 'no-direction'
       body.setVelocity(0, 0)
@@ -1378,12 +1434,25 @@ export function createScenePhaser(canvas, options = {}) {
    */
   function rebuildWalls(worldState) {
     if (activeScene === null) return
-    const nav = worldState?.nav ?? null
+    // ⚠️ **客户端 world 里没有 nav**（`world-update` 只存渲染需要的字段），
+    // 唯一可靠来源是快照里的 `plan.space.nav`。之前只看 `worldState.nav` →
+    // 客户端拿到 null → 清掉旧墙后直接 return，一堵墙都没建（R232 真机"完全失效"）。
+    const space = state.plan?.space ?? null
+    const nav = worldState?.nav ?? space?.nav ?? null
     const sceneId = String(worldState?.origin?.scene ?? '')
     // 网格参数 + 场景 id 一起当签名：换场景、换地图时就要重建。
+    // ⚠️ 签名必须包含**空间数据是否已到**。
+    //
+    // 页面启动时 `world` 和 `scene plan` 是两条异步线：第一帧往往只有 world.nav、
+    // 还没有 `plan.space`。旧签名只看 nav，于是第一帧就"建完"（此时精细体可能还没
+    // fetch 回来 → 零碰撞体），等 `space` 到达时签名没变 → **直接 return，永不重建**。
+    // R229 删掉客户端 nav 预挡后，这个洞就表现为"墙完全失效"。
+    const spaceSig = state.plan?.space
+      ? `${state.plan.space.obstacles.length}:${state.plan.space.audit.artCells}`
+      : 'none'
     const key = nav === null
-      ? `${sceneId}|none`
-      : `${sceneId}|${nav.width}x${nav.height}@${nav.unitsPerCell}|${nav.originX},${nav.originZ}`
+      ? `${sceneId}|none|${spaceSig}`
+      : `${sceneId}|${nav.width}x${nav.height}@${nav.unitsPerCell}|${nav.originX},${nav.originZ}|${spaceSig}`
     if (key === wallKey) return
     wallKey = key
 
@@ -1408,9 +1477,48 @@ export function createScenePhaser(canvas, options = {}) {
       if (owner !== null && owner !== undefined) owner.destroy()
       else world.disableBody(body)
     }
+    // `owner.destroy()` 不一定会把静态体从 `staticBodies` 池里摘掉（R232 实测：
+    // 两次重建后池里留着 418 个 = 209×2）。池里残留的旧体会继续参与碰撞。
+    // 墙是这张图里唯一的静态体，直接清池最稳。
+    world.staticBodies.clear()
     if (nav === null || nav.width <= 0 || nav.height <= 0) return
 
     wallGroup = activeScene.physics.add.staticGroup()
+
+    // ── R227：优先用快照里那份**统一空间**（obstacles 已把精细碰撞体与 nav 缺口合过）──
+    // 这样客户端不再有第二份碰撞数据，"能上墙/上桌子"的漂移从机制上消失。
+    if (space !== null && space.obstacles.length > 0) {
+      // `obstacles` 的坐标**已经是世界单位**（origin 已含在内），这里只乘 TILE_PX。
+      // 再加一次 origin 就是差 16 倍的经典错——偏移量只能有一个来源。
+      for (const obstacle of space.obstacles) {
+        const rect = obstacleRectToPixels(obstacle, TILE_PX)
+        if (!(rect.w > 0) || !(rect.h > 0)) continue
+        const body = activeScene.add.rectangle(rect.x, rect.y, rect.w, rect.h, 0x000000, 0)
+        body.setVisible(false)
+        wallGroup.add(body)
+      }
+      lastWallAttach = { actors: actorNodes.size, sprites: 0, bodies: 0, colliders: 0 }
+      for (const entry of actorNodes.values()) {
+        const sprite = entry.sprite
+        if (sprite === null || sprite === undefined) continue
+        lastWallAttach.sprites += 1
+        if (sprite.body === null || sprite.body === undefined) continue
+        lastWallAttach.bodies += 1
+        entry.collider = activeScene.physics.add.collider(sprite, wallGroup)
+        lastWallAttach.colliders += 1
+      }
+      // `add.collider` 只是进 pending 队列；如果这一帧的 world.update 已经跑过
+      //（或页面在后台、RAF 停着），碰撞要等到下一次 update 才生效。这里立刻冲一次，
+      // 保证"建完墙的同一刻"碰撞就是活的。
+      activeScene.physics.world.colliders.update(0, 0)
+      lastWallCoverage = {
+        source: 'space',
+        blockedCells: space.audit.blockedCells,
+        fineRects: space.audit.fineRects,
+        uncoveredCells: space.audit.uncoveredCells,
+      }
+      return
+    }
 
     // ── 优先：与底图同源的精细碰撞体（地图像素坐标 → 世界像素，只差一个原点偏移）──
     // 底图 url 在**场景计划**上（`plan.map.url`），不是 world.scene（那只是一个 id 字符串）。
@@ -1429,6 +1537,16 @@ export function createScenePhaser(canvas, options = {}) {
         body.setVisible(false)
         wallGroup.add(body)
       }
+      // ⚠️ R229 纠正：这里**不再补整格**。R226 曾按"格中心没被精细碰撞体盖住"补整格，
+      // 但墙的美术本来只占格子的一部分（office 实测 113 个 blocked 格是 10%–95% 覆盖），
+      // 补整格就会在视觉是地板的位置造出"看不见的墙"——用户报的错位就是这个。
+      // 物理真相 = 精细几何；nav 只用于寻路，不再拿来生成碰撞体。
+      lastWallCoverage = {
+        source: 'fine',
+        blockedCells: nav.blocked.reduce((sum, blocked) => sum + (blocked === true ? 1 : 0), 0),
+        fineRects: fine.rects.length,
+        gapsFilled: 0,
+      }
       for (const entry of actorNodes.values()) {
         const sprite = entry.sprite
         if (sprite === null || sprite === undefined) continue
@@ -1440,6 +1558,12 @@ export function createScenePhaser(canvas, options = {}) {
 
     const cellPx = Number(nav.unitsPerCell) * TILE_PX
     if (!(cellPx > 0)) { wallGroup = null; return }
+    lastWallCoverage = {
+      source: 'coarse',
+      blockedCells: nav.blocked.reduce((sum, blocked) => sum + (blocked === true ? 1 : 0), 0),
+      fineRects: 0,
+      gapsFilled: 0,
+    }
     const originPxX = Number(nav.originX) * TILE_PX
     const originPxY = Number(nav.originZ) * TILE_PX
 
@@ -1564,7 +1688,7 @@ export function createScenePhaser(canvas, options = {}) {
       if (activeScene.textures.exists(textureKey) !== true) return
       const px = Array.isArray(chair.px) ? chair.px : null
       if (px === null || px.length < 2) return
-      const id = `${index}:${textureKey}`
+      const id = `chair:${index}`
       wanted.add(id)
       let node = objectNodes.get(id)
       if (node === undefined) {
@@ -1574,15 +1698,15 @@ export function createScenePhaser(canvas, options = {}) {
         objectNodes.set(id, node)
       }
       node.setTexture(textureKey)
-      // 地图像素 → 世界像素（图左上角 = (-halfW,-halfH)）
-      const worldX = px[0] + offsetPxX
-      const worldY = px[1] + offsetPxY
+      const ov = overrideOf(id)
+      // Tiled 的对象矩形是左上角；椅子图原点是中心 → x/y 要加半宽高。
+      const worldX = offsetPxX + (ov !== null && Number.isFinite(ov.x) ? ov.x + node.displayWidth / 2 : px[0])
+      const worldY = offsetPxY + (ov !== null && Number.isFinite(ov.y) ? ov.y + node.displayHeight / 2 : px[1])
       node.setPosition(worldX, worldY)
       // R152：**按椅子自己的底边 Y 参与 Y 排序**（与家具/角色同一套口径），再减 `CHAIR_BIAS`
       // 保留"椅子塞在桌下、不盖桌面"的观感。`index * 0.001` 只保证同深度下次序稳定。
-      // 详见 `CHAIR_BIAS` 的注释：固定层级会让前后关系与位置无关（实测 506 对颠倒）。
       const chairBottom = worldY + node.displayHeight * (1 - node.originY)
-      node.setDepth(depthFor(chairBottom / TILE_PX) - CHAIR_BIAS + index * 0.001)
+      node.setDepth(overrideDepth(id, chairBottom / TILE_PX, depthFor(chairBottom / TILE_PX) - CHAIR_BIAS + index * 0.001))
       node.setVisible(true)
     })
     for (const [id, node] of objectNodes) if (!wanted.has(id)) node.setVisible(false)
@@ -1677,9 +1801,12 @@ export function createScenePhaser(canvas, options = {}) {
       }
       node.setTexture(key, tileFrame(key, rx, ry, rw, rh))
       node.setOrigin(0, 0)
-      node.setPosition(offsetPxX + rx, offsetPxY + ry)
+      const ov = overrideOf(`tile:${index}`)
+      const px = offsetPxX + (ov !== null && Number.isFinite(ov.x) ? ov.x : rx)
+      const py = offsetPxY + (ov !== null && Number.isFinite(ov.y) ? ov.y : ry)
+      node.setPosition(px, py)
       // 深度 = 该行**底边**的世界 z。`depthFor` 乘回 TILE_PX，所以这里就是像素值本身。
-      node.setDepth(depthFor((offsetPxY + ry + rh) / TILE_PX))
+      node.setDepth(overrideDepth(`tile:${index}`, (py + rh) / TILE_PX, depthFor((offsetPxY + ry + rh) / TILE_PX)))
       node.setVisible(true)
     })
     for (const [id, node] of tileNodes) if (!wanted.has(id)) node.setVisible(false)
@@ -1706,7 +1833,7 @@ export function createScenePhaser(canvas, options = {}) {
       if (Array.isArray(rect) !== true || rect.length < 4) return
       const [rx, ry, rw, rh] = rect
       if (!(rw > 0) || !(rh > 0)) return
-      const id = `${index}`
+      const id = `wall:${index}`
       wanted.add(id)
       let node = wallNodes.get(id)
       if (node === undefined) {
@@ -1717,8 +1844,11 @@ export function createScenePhaser(canvas, options = {}) {
       }
       node.setTexture(WALLS_KEY, tileFrame(WALLS_KEY, rx, ry, rw, rh))
       node.setOrigin(0, 0)
-      node.setPosition(offsetPxX + rx, offsetPxY + ry)
-      node.setDepth(depthFor((offsetPxY + ry + rh) / TILE_PX))
+      const ov = overrideOf(id)
+      const px = offsetPxX + (ov !== null && Number.isFinite(ov.x) ? ov.x : rx)
+      const py = offsetPxY + (ov !== null && Number.isFinite(ov.y) ? ov.y : ry)
+      node.setPosition(px, py)
+      node.setDepth(overrideDepth(id, (py + rh) / TILE_PX, depthFor((offsetPxY + ry + rh) / TILE_PX)))
       node.setVisible(true)
     })
     for (const [id, node] of wallNodes) if (!wanted.has(id)) node.setVisible(false)
@@ -1728,6 +1858,10 @@ export function createScenePhaser(canvas, options = {}) {
 
   function drawProps(plan) {
     const models = new Map((plan?.models ?? []).map((model) => [model.id, model]))
+    // R227：深度基准优先读统一空间里的 `entities[].base`（站点锚点世界 z）。
+    // 读不到才退回 `prop.z`——两条路数值相同，但"谁说了算"只能有一条。
+    const baseByEntity = new Map((plan?.space?.entities ?? []).map((entity) => [entity.id, entity.base]))
+    const baseOf = (prop) => baseByEntity.get(prop.id) ?? prop.z
     const wanted = new Set()
     for (const prop of plan?.props ?? []) {
       const parts = [...(prop.parts ?? [])].sort((a, b) => (a.dz ?? 0) - (b.dz ?? 0))
@@ -1742,7 +1876,7 @@ export function createScenePhaser(canvas, options = {}) {
         let node = propNodes.get(nodeKey)
         if (node === undefined) {
           node = activeScene.add.sprite(0, 0, key)
-          node.setDepth(depthFor(prop.z + (part.dz ?? 0)))
+          node.setDepth(depthFor(baseOf(prop) + (part.dz ?? 0)))
           activeScene.layers.entities.add(node)
           propNodes.set(nodeKey, node)
         }
@@ -1753,7 +1887,7 @@ export function createScenePhaser(canvas, options = {}) {
         if (firstAnim !== undefined) node.setFrame(animationFrameList(sheet, firstAnim, perRowByUrl.get(model.url) ?? 1)[0] ?? 0)
         node.setOrigin(ox, oy)
         node.setPosition(Math.round((prop.x + (part.dx ?? 0)) * TILE_PX), Math.round((prop.z + (part.dz ?? 0)) * TILE_PX))
-        node.setDepth(depthFor(prop.z + (part.dz ?? 0)))
+        node.setDepth(depthFor(baseOf(prop) + (part.dz ?? 0)))
         node.setVisible(true)
         spriteCount += 1
       })
@@ -1767,12 +1901,12 @@ export function createScenePhaser(canvas, options = {}) {
         const size = (prop.capacity > 1 ? 18 : 13)
         if (node === undefined) {
           node = activeScene.add.rectangle(0, 0, size, size, colorOf(prop.color), 1)
-          node.setDepth(depthFor(prop.z))
+          node.setDepth(depthFor(baseOf(prop)))
           activeScene.layers.entities.add(node)
           propNodes.set(nodeKey, node)
         }
         node.setPosition(Math.round(prop.x * TILE_PX), Math.round(prop.z * TILE_PX))
-        node.setDepth(depthFor(prop.z))
+        node.setDepth(depthFor(baseOf(prop)))
         node.setVisible(true)
       }
     }
@@ -1805,8 +1939,8 @@ export function createScenePhaser(canvas, options = {}) {
     if (entry.taskLabel === null || entry.taskLabel === undefined) {
       const label = activeScene.add.text(0, 0, text, TASK_LABEL_STYLE)
       label.setOrigin(0.5, 1)
-      // 比名字再高一档：名字 depth 5，它在 4（名字要压在上面，读的顺序才是"先人后单"）。
-      label.setDepth(4)
+      // 比名字低一档：名字压在上面，读的顺序才是"先人后单"（见 OVERLAY_DEPTHS）。
+      label.setDepth(OVERLAY_DEPTHS.task)
       activeScene.layers.labels.add(label)
       entry.taskLabel = label
     }
@@ -1861,7 +1995,7 @@ export function createScenePhaser(canvas, options = {}) {
       if (entry === undefined) {
         const label = activeScene.add.text(0, 0, actor.name ?? actor.id, LABEL_STYLE)
         label.setOrigin(0.5, 1)
-        label.setDepth(5)
+        label.setDepth(OVERLAY_DEPTHS.name)
         activeScene.layers.labels.add(label)
         entry = { sprite: null, label, taskLabel: null }
         actorNodes.set(actor.id, entry)
@@ -2099,7 +2233,7 @@ export function createScenePhaser(canvas, options = {}) {
       let node = noteNodes.get(key)
       if (node === undefined) {
         node = activeScene.add.rectangle(0, 0, 6, 5, colorOf(plan?.noteColors?.[message.kind] ?? '#FF00FF'), 1)
-        node.setDepth(4)
+        node.setDepth(OVERLAY_DEPTHS.note)
         activeScene.layers.notes.add(node)
         noteNodes.set(key, node)
       }
@@ -2142,7 +2276,7 @@ export function createScenePhaser(canvas, options = {}) {
 
   function makeBubbleNode() {
     const container = activeScene.add.container(0, 0)
-    container.setDepth(1000)
+    container.setDepth(OVERLAY_DEPTHS.bubble)
     // 底图：优先 9-slice 美术面板；纹理没载好时退回 Graphics（不让气泡整块消失）。
     const usePanel = activeScene.textures.exists(BUBBLE_PANEL_KEY) === true
     const bg = usePanel
@@ -2256,12 +2390,72 @@ export function createScenePhaser(canvas, options = {}) {
 
   // ── 画一帧 ───────────────────────────────────────────────────────────────
 
+  /**
+   * R229：**几何可视化**（`?debug=1&walls=1`）。
+   *
+   * 空气墙错位是"看着不对但说不清哪一格"的典型问题。所以直接把三层画出来：
+   * - 红色半透明格 = nav 说不能走（保守路由）；
+   * - 绿色描边 = 精细几何障碍（物理真相，客户端实际挡的）；
+   * - 蓝色描边 = 站点占地；青色点 = 可站吸附点。
+   *
+   * 判据：绿色框应该贴着**看得见的墙/桌子**；如果它出现在地板上，就是错位。
+   */
+  function drawWallsDebug(plan, nav) {
+    if (wallsDebugVisible !== true || activeScene === null) {
+      if (wallsDebugLayer !== null) wallsDebugLayer.setVisible(false)
+      return
+    }
+    const space = plan?.space ?? null
+    const key = nav === null
+      ? 'none'
+      : `${nav.width}x${nav.height}:${space?.obstacles.length ?? 0}:${space?.entities.length ?? 0}`
+    if (wallsDebugLayer === null) {
+      wallsDebugLayer = activeScene.add.container(0, 0)
+      wallsDebugLayer.setDepth(2000)
+    }
+    wallsDebugLayer.setVisible(true)
+    if (key === wallsDebugKey) return
+    wallsDebugKey = key
+    wallsDebugLayer.removeAll(true)
+    const g = activeScene.add.graphics()
+    wallsDebugLayer.add(g)
+
+    // nav：整格红
+    if (nav !== null) {
+      const cell = nav.unitsPerCell * TILE_PX
+      g.fillStyle(0xff3b30, 0.16)
+      for (let row = 0; row < nav.height; row += 1) {
+        for (let col = 0; col < nav.width; col += 1) {
+          if (nav.blocked[row * nav.width + col] !== true) continue
+          g.fillRect(nav.originX * TILE_PX + col * cell, nav.originZ * TILE_PX + row * cell, cell, cell)
+        }
+      }
+    }
+
+    // 物理障碍：绿描边
+    for (const obstacle of space?.obstacles ?? []) {
+      const rect = obstacleRectToPixels(obstacle, TILE_PX)
+      g.lineStyle(1, 0x34c759, 0.9)
+      g.strokeRect(rect.x - rect.w / 2, rect.y - rect.h / 2, rect.w, rect.h)
+    }
+
+    // 站点占地：蓝；吸附点：青
+    for (const entity of space?.entities ?? []) {
+      const footprint = entity.footprint
+      g.lineStyle(1, 0x0a84ff, 0.9)
+      g.strokeRect(footprint.x * TILE_PX, footprint.z * TILE_PX, footprint.w * TILE_PX, footprint.h * TILE_PX)
+      g.fillStyle(0x64d2ff, 1)
+      for (const slot of entity.slots) g.fillCircle(slot.x * TILE_PX, slot.z * TILE_PX, 2)
+    }
+  }
+
   function render(input = {}) {
     lastRenderInput = input
     const { world: worldState, scene: plan, tick, messageDeliveryTicks } = input
     if (worldState === null || worldState === undefined || plan === null || plan === undefined) return
     state.world = worldState
     state.plan = plan
+    navGrid = worldState.nav ?? null
     state.tick = tick ?? 0
     state.messageDeliveryTicks = messageDeliveryTicks ?? 10
     state.nowMs = Number.isFinite(input.nowMs) ? input.nowMs : (globalThis.performance?.now?.() ?? 0)
@@ -2289,18 +2483,26 @@ export function createScenePhaser(canvas, options = {}) {
     loadFineColliders(plan?.map?.url ?? null)
     loadMapObjects(plan?.map?.url ?? null)
     loadMapTiles(plan?.map?.url ?? null)
+    loadObjectOverrides(plan?.map?.url ?? null)
     rebuildWalls(worldState)
     // 分层图齐了就按"地板背景 + 可排序对象"铺；否则退回合成底图 + 整格墙。
     const layered = drawLayers()
     // 墙**始终**参与 Y 排序：layer0 那张平铺图里的墙只是兜底（在最底层），
     // 真正决定遮挡的是这些按行取深度的墙条 —— 角色站到墙后才会被挡住。
     drawWalls()
+    drawWallsDebug(plan, worldState?.nav ?? null)
     drawTiles()
     drawMapObjects()
     drawActors(worldState, plan, state.nowMs)
     // 家具与角色都进了同一层，且深度跟着世界 z 走 → 每帧按深度重排一次，遮挡才正确。
     activeScene.layers.entities.sort('depth')
     drawNotes(worldState, plan, state.tick, messageDeliveryTicks)
+    // 覆盖层也要显式排序：Phaser 的 Container **默认按插入顺序渲染**，子对象的 `depth`
+    // 只有在调用过 `sort('depth')` 后才生效。不排的话「名字压工单行」只是注释里的意图，
+    // 实际顺序取决于谁先被创建（先出现的工单标签可能反而盖住名字）。
+    activeScene.layers.labels.sort('depth')
+    activeScene.layers.notes.sort('depth')
+    activeScene.layers.bubbles.sort('depth')
     applyCamera()
     // 绘制次数不在这里数：那是**引擎自己那一帧**的事，挂在它的帧钩子上（见下），
     // 手动多渲染一遍只会让这一帧画两次。
@@ -2567,6 +2769,11 @@ export function createScenePhaser(canvas, options = {}) {
   globalThis.__agentWorldPhaser = {
     game: () => game,
     scene: () => activeScene,
+    /** `?edit=1` 的编辑器读它：当前统一空间（世界单位）。 */
+    space: () => state.plan?.space ?? null,
+    /** R234：Tiled 对象覆盖（id → sort/depthBias/x/y）。 */
+    objectOverrides: () => objectOverrides,
+    mapUrl: () => state.plan?.map?.url ?? null,
     counterWrapped: () => {
       const renderer = game?.renderer
       return {
@@ -2626,6 +2833,91 @@ export function createScenePhaser(canvas, options = {}) {
         }
       }
       return { ok: true, total, anomalyCount: anomalies.length, anomalies: anomalies.slice(0, 20) }
+    },
+    /**
+     * R226：**空气墙覆盖率自检**——nav 说不能走的格，物理层是不是都挡住了。
+     *
+     * 判据不是"看起来走不过去"，而是数据：本次建墙用了精细碰撞体还是整格，
+     * 精细数据漏掉多少 blocked 格、补了多少整格。`gapsFilled > 0` 本身就是
+     * "两份碰撞数据在漂移"的证据（office 实测 55 格）。
+     */
+    /** 叠加/关闭几何视图（默认由 `?walls=1` 打开）。 */
+    setWallsDebug: (on) => {
+      wallsDebugVisible = on === true
+      wallsDebugKey = ''
+      if (wallsDebugLayer !== null) wallsDebugLayer.setVisible(wallsDebugVisible)
+      return wallsDebugVisible
+    },
+    airWallAudit: () => {
+      const nav = navGrid
+      if (nav === null) return { ok: false, reason: '没有导航网格（老内容/无地图场景）' }
+      const spaceAudit = state.plan?.space?.audit ?? null
+      if (spaceAudit !== null) {
+        return {
+          ok: true,
+          source: 'space',
+          blockedCells: spaceAudit.blockedCells,
+          fineRects: spaceAudit.fineRects,
+          uncoveredCells: spaceAudit.uncoveredCells,
+          artCells: spaceAudit.artCells,
+          obstacles: spaceAudit.obstacles,
+          bodies: activeScene?.physics?.world?.staticBodies?.getArray?.().length ?? 0,
+          attach: lastWallAttach,
+          entities: spaceAudit.entities,
+          slots: spaceAudit.slots,
+          slotsBlocked: spaceAudit.slotsBlocked,
+        }
+      }
+      const blockedCells = nav.blocked.reduce((sum, blocked) => sum + (blocked === true ? 1 : 0), 0)
+      const coverage = lastWallCoverage
+      if (coverage === null) return { ok: false, reason: '墙体还没建（场景未就绪）', blockedCells }
+      return {
+        ok: true,
+        blockedCells,
+        source: coverage.source,
+        fineRects: coverage.fineRects,
+        uncoveredCells: coverage.gapsFilled,
+        uncovered: 0,
+      }
+    },
+    /**
+     * R225：**覆盖层分层自检**——标签 / 纸条 / 气泡有没有按 `OVERLAY_DEPTHS` 排。
+     *
+     * ## 为什么单独一条
+     * `occlusionAudit()` 只覆盖 `entities`（地板、家具、角色）。覆盖层在另外三个容器里，
+     * 而 Phaser 的 Container **默认按插入顺序渲染**：子对象的 `depth` 只有在调用过
+     * `sort('depth')` 后才有意义。所以"名字压工单行"以前只是注释里的意图，
+     * 实际顺序取决于谁先被创建——这类错**不会报错**，只会让文字偶尔叠在一起。
+     *
+     * 判据：
+     * - 标签层的可见对象深度只能是 `task` / `name` 两档；
+     * - 纸条只能是 `note`；气泡只能是 `bubble`；
+     * - 每层按 depth 非递减排列（排过序）。
+     *
+     * @returns `{ ok, labels, notes, bubbles }`，每层 `{ total, ordered, anomalyCount, anomalies }`。
+     */
+    overlayAudit: () => {
+      const layers = activeScene?.layers
+      if (!layers) return { ok: false, reason: '场景还没建好（layers 不存在）' }
+      const audit = (layer, allowed) => {
+        const nodes = (layer?.list ?? []).filter((node) => node.visible !== false)
+        const anomalies = []
+        let previous = -Infinity
+        let ordered = true
+        for (const node of nodes) {
+          const depth = Number(node.depth ?? 0)
+          if (!allowed.includes(depth)) anomalies.push({ key: String(node.texture?.key ?? node.type), depth, allowed })
+          if (depth < previous - 1e-6) ordered = false
+          previous = depth
+        }
+        return { total: nodes.length, ordered, anomalyCount: anomalies.length, anomalies: anomalies.slice(0, 10) }
+      }
+      return {
+        ok: true,
+        labels: audit(layers.labels, [OVERLAY_DEPTHS.task, OVERLAY_DEPTHS.name]),
+        notes: audit(layers.notes, [OVERLAY_DEPTHS.note]),
+        bubbles: audit(layers.bubbles, [OVERLAY_DEPTHS.bubble]),
+      }
     },
   }
 

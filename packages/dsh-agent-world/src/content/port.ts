@@ -219,7 +219,15 @@ export function contentPortOf(
       const entry = registry.get('maps', mapId)
       if (entry === undefined) return null
       const m = entry.data
-      return { url: m.url, width: m.width, height: m.height, cellPx: m.cellPx, unitsPerCell: m.unitsPerCell }
+      return {
+        url: m.url,
+        width: m.width,
+        height: m.height,
+        cellPx: m.cellPx,
+        unitsPerCell: m.unitsPerCell,
+        ...(m.occupancy === undefined ? {} : { occupancy: m.occupancy }),
+        ...(m.occupancyRects === undefined ? {} : { occupancyRects: m.occupancyRects }),
+      }
     },
     /**
      * 状态 → 动作的映射（R60）。**渲染器不许自己写死这条映射**——

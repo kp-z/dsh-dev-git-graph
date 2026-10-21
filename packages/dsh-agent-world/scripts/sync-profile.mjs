@@ -24,7 +24,7 @@
  * 找 profile 的顺序：`--profile` > `$DSH_PROFILE` > `~/.dsh/profiles/web`。
  * 找不到就**说清楚为什么跳过**并退出 0（别的机器上没有这个 profile 是正常情况，不该红）。
  */
-import { copyFile, link, readdir, stat } from 'node:fs/promises'
+import { copyFile, link, mkdir, readdir, stat, unlink } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { homedir } from 'node:os'
@@ -86,10 +86,20 @@ async function main() {
 
   const missing = [...source].filter((f) => !target.has(f))
   const extra = [...target].filter((f) => !source.has(f))
+  // 同名文件也可能**内容不一致**：profile 里若是早期"复制"而非硬链，`tsc` 更新工作区
+  // 不会透过去（R230 真机：`scene-phaser.js` 还是旧的，页面报 missing export）。
+  // 判据：大小不同，或源文件比目标新 1.5s 以上（硬链的 mtime 相同，不会被误判）。
+  const stale = []
+  for (const f of source) {
+    if (!target.has(f)) continue
+    const a = await stat(join(sourceLib, f))
+    const b = await stat(join(profileLib, f))
+    if (a.size !== b.size || a.mtimeMs > b.mtimeMs + 1500) stale.push(f)
+  }
   // 只声明"需要运行时"的类型：`.d.ts` / `.map` 缺了不影响运行，不刷噪音。
   const runtimeMissing = missing.filter((f) => f.endsWith('.js'))
 
-  if (missing.length === 0 && extra.length === 0) {
+  if (missing.length === 0 && extra.length === 0 && stale.length === 0) {
     console.log(`✓ profile 与包内 lib 一致（${source.size} 个文件）。`)
     return
   }
@@ -103,6 +113,10 @@ async function main() {
 
   console.log(`\n${fix ? '补齐' : '缺失'} ${missing.length} 个文件（其中 ${runtimeMissing.length} 个是运行时 .js）：`)
   for (const f of missing) console.log(`    - ${f}`)
+  if (stale.length > 0) {
+    console.log(`${fix ? '更新' : '过期'} ${stale.length} 个内容不一致的文件：`)
+    for (const f of stale.slice(0, 20)) console.log(`    ~ ${f}`)
+  }
 
   if (runtimeMissing.length > 0 && !fix) {
     console.error(
@@ -114,9 +128,16 @@ async function main() {
 
   if (!fix) return
 
-  for (const f of missing) {
+  for (const f of [...missing, ...stale]) {
     const from = join(sourceLib, f)
     const to = join(profileLib, f)
+    // 新增**子目录**时目标目录还不存在（R225 拆 contracts/ 时踩到）：
+    // 不建目录的话 copyFile 直接 ENOENT，而错误信息只报文件、不报目录，很难一眼归因。
+    await mkdir(dirname(to), { recursive: true })
+    if (stale.includes(f)) {
+      // 旧副本必须先删：硬链不能覆盖已有文件。
+      try { await unlink(to) } catch { /* 不存在就算了 */ }
+    }
     try {
       await link(from, to)
     } catch {

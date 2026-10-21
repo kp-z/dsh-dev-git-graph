@@ -167,9 +167,19 @@ function ingest(
         if (agent === undefined) break
         // 坏坐标直接拒：NaN 一旦写进位置，寻路/渲染/快照全都会跟着坏掉。
         if (!Number.isFinite(command.x) || !Number.isFinite(command.z)) break
-        agent.position = { x: command.x, z: command.z }
+
+        // ⚠️ R229 纠正：这里**不再按 nav 格夹回**。
+        //
+        // R226 用"整格不可走"把手动落点夹到最近格中心。但 nav 是保守的整格网格，
+        // 而墙/家具的美术只占格子的一部分（office 248 个 blocked 格里 113 个是部分覆盖），
+        // 按格夹回会在视觉是地板的地方把人拽回来——用户报的"空气墙错位"。
+        //
+        // 物理真相是**精细几何**（客户端 Arcade 静态体，按美术轮廓建）。手动操控本来就是
+        // 客户端权威；服务端只负责拒绝坏坐标（NaN/Infinity），不再用粗网格二次判定。
+        const landed = { x: command.x, z: command.z }
+        agent.position = { x: landed.x, z: landed.z }
         // 待命踱步以 `hangout` 为锚：不跟着走的话，下一 tick 待命逻辑会把他往旧歇脚点拽。
-        agent.hangout = { x: command.x, z: command.z }
+        agent.hangout = { x: landed.x, z: landed.z }
         // 清掉在途状态：路径、目标工位、在站标记——他现在就是"玩家放下的人"。
         agent.path = []
         agent.targetStation = null
@@ -177,7 +187,7 @@ function ingest(
         agent.state = 'idle'
         out.push({
           type: 'agent.moved',
-          payload: { id: agent.id, x: command.x, z: command.z, source: 'manual' },
+          payload: { id: agent.id, x: landed.x, z: landed.z, source: 'manual' },
         })
         break
       }

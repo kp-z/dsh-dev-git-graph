@@ -22,6 +22,10 @@
 import type { ContentPack, DistrictEntry, StationEntry, MapEntry, SceneEntry } from '../kinds.js'
 import { OFFICE_BACKGROUND, OFFICE_DISTRICTS, OFFICE_STATIONS } from './office-scene.js'
 import { OFFICE_MAP } from './office-map.js'
+import { OFFICE_OCCUPANCY, OFFICE_OCCUPANCY_RECTS } from './office-occupancy.js'
+
+/** 美术占位格：并进 walkable（不能站），同时留给 `SceneSpace` 生成整格碰撞体。 */
+const OCCUPIED = new Set(OFFICE_OCCUPANCY)
 
 /** 底图（整张办公室，1184×672）。 */
 const MAP: MapEntry = {
@@ -33,7 +37,11 @@ const MAP: MapEntry = {
   cellPx: OFFICE_BACKGROUND.cellPx,
   unitsPerCell: OFFICE_BACKGROUND.unitsPerCell,
   // 原版图块的物理多边形解出来的可行走网格（248/777 格是墙或家具）。
-  walkable: OFFICE_MAP.walkable,
+  // R229：再并上"美术明显是家具、但物理多边形没挡"的 7 格——它们**画面上有东西**，
+  // 挡上去不是空气墙，是不让人站在台面上。
+  walkable: OFFICE_MAP.walkable.map((value, index) => (value === true && OCCUPIED.has(index) ? false : value)),
+  occupancy: OFFICE_OCCUPANCY,
+  occupancyRects: OFFICE_OCCUPANCY_RECTS,
 }
 
 /**

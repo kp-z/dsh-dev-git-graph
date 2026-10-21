@@ -298,6 +298,52 @@ export function tilePhasePx(input = {}) {
 }
 
 /**
+ * 覆盖层（头顶标签 / 纸条 / 气泡）的**深度带**。
+ *
+ * ## 为什么单独列出来
+ *
+ * 场景主体（地板、家具、墙、角色、椅子）都在 `entities` 一个容器里按"底边 Y"排序；
+ * 覆盖层在**另外三个容器**里。Phaser 的跨容器顺序 = **容器加入显示列表的顺序**，
+ * 容器内部的顺序 = 子对象插入顺序（除非显式 `sort('depth')`）。
+ *
+ * 所以覆盖层的"谁压谁"只有两条规则，必须写死、可审计：
+ * 1. **跨层**：`ground < entities < notes < labels < bubbles`（加入顺序，见 scene-phaser）；
+ * 2. **层内**：深度带决定标签的相对顺序（名字压工单行，气泡永远最高）。
+ *
+ * 这些值以前散在渲染器里当字面量（4/5/1000），既看不出意图，也没法测。
+ */
+export const OVERLAY_DEPTHS = {
+  /** 头顶工单行：先读人，再读单。 */
+  task: 4,
+  /** 角色名：压住工单行。 */
+  name: 5,
+  /** 飞行中的纸条；不与标签争，位置本来就分开。 */
+  note: 4,
+  /** 对话气泡：永远最上层（它是"当前正在说的话"）。 */
+  bubble: 1000,
+}
+
+/** 覆盖层深度带的取值。未知种类直接抛——静默给 0 会让它沉到最底下。 */
+export function overlayDepthOf(kind) {
+  const depth = OVERLAY_DEPTHS[kind]
+  if (depth === undefined) throw new Error(`未知的覆盖层种类：${String(kind)}`)
+  return depth
+}
+
+/**
+ * 把 `SceneSpace.obstacle`（**世界单位**）换算成 Phaser 的矩形参数（像素）。
+ *
+ * 这是一个只有三行的函数，但它防的是经典的"差 16 倍"：`obstacle.x` 已经含了
+ * `originX`，所以这里只乘 `TILE_PX`，**不许再加一次原点**。
+ * R227 第一版就在渲染器里加了两次，被这条测试拦住。
+ */
+export function obstacleRectToPixels(obstacle, tilePx = TILE_PX) {
+  const w = obstacle.w * tilePx
+  const h = obstacle.h * tilePx
+  return { x: obstacle.x * tilePx + w / 2, y: obstacle.z * tilePx + h / 2, w, h }
+}
+
+/**
  * 俯视图要画的角色：**实时位姿**（`world.agents`）+ **内容里的外观**（`scene.actors`）。
  *
  * 这也不是引擎的活：引擎不知道"世界"和"内容计划"是两份数据。

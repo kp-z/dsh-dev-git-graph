@@ -42,6 +42,511 @@ dsh plugin --profile web add file:$PWD
 
 ---
 
+## R235（Lead）—— Tiled 里显示真实图块：`office-tilemap.tmx`
+
+### 用户反馈
+
+"没明白，你这些元素显示的是 Polygon 不是对应的实体？"
+
+### 原因
+
+Tiled 的 **object layer 只能画矩形/多边形**，不能给每个对象挂任意图片；R234 的
+`office-scene.tmx` 因此只有框。想看到"实体"，必须用 **tileset + tile layer**，
+对象层只放碰撞/椅子/站点这类覆盖物。
+
+### 产出
+
+`scripts/gen-tiled-tilemap.py` 从 `office-map.ts` 的 `layers[].cells` 还原：
+
+- `tools/tilesets/*.tsx`：8 个图集（`16_Office` / `Modern_Office` / `Room_Builder` …）；
+- `tools/tilesets/chairs.png/.tsx`：3 张椅子合成的小图集；
+- `tools/office-tilemap.tmx`：6 个**真实图块层**（WallAndFloor / Furniture0-4）+
+  `colliders`（矩形）+ `chairs`（**tile object**，显示真椅子）+ `stations`（标记）。
+
+这样 Tiled 里看到的是图块和椅子本身，不再是 Polygon/矩形框。
+
+### 两个文件的分工
+
+- `office-tilemap.tmx`：**看/改美术与图层**（真实图块）；
+- `office-scene.tmx`：**改运行时遮挡覆盖**（`sort` / `depthBias` / 位置），对象只显示框；
+  两者通过 `id` 对应，不冲突。
+
+---
+
+## R234（Lead）—— 所有元素成为对象：Tiled 里可直接改层级/遮挡
+
+### 用户需求
+
+"下面我想编辑里面的层级关系，例如墙和 agent 的遮挡关系应该怎么编辑" → "你来搞一下，把所有元素都搞成对象。"
+
+### 对象化
+
+`tools/office-scene.tmx`（生成物，`scripts/gen-scene-objects.py`）现在包含 **249 个对象**：
+
+| 层 | 数量 | 内容 |
+|---|---|---|
+| `sortable` | 152 + 48 + 24 | 家具 tile 矩形、墙矩形、椅子 |
+| `stations` | 24 | 站点标记（**不参与渲染**，只用于对位/改站点） |
+| `above` | 1 | layer5 整块（永远在角色之上） |
+
+每个对象都带同一套自定义属性：
+
+```
+id / kind / texture / sx,sy,sw,sh / sort / depthBias
+```
+
+`sort` 三值：`floor`（永远最底）、`sortable`（按底边 Y）、`above`（永远最上）。
+`depthBias` 是同底边时的微调（椅子默认 -8，沿用 `CHAIR_BIAS`）。
+
+### 运行时读回
+
+`scripts/import-scene-objects.mjs` → `office-objects-override.json`（id → `{sort,depthBias,x,y}`），
+渲染器在 `drawTiles` / `drawWalls` / `drawMapObjects` 里按 id 读：
+
+- `sort=above` → depth 1000；`floor` → -10000；`sortable` → `depthFor(底边) + bias`；
+- `x/y` 存在时按 Tiled 对象的位置摆（地图像素）；
+- 没有覆盖文件 → 完全退回原规则（零行为变化）。
+
+### 流程
+
+1. Tiled 打开 `tools/office-scene.tmx`；
+2. 选对象，右侧属性里改 `sort` / `depthBias`（或拖动矩形改位置）；
+3. `Cmd+S` 保存；
+4. `node scripts/import-scene-objects.mjs tools/office-scene.tmx`；
+5. 刷新页面。
+
+### 验证
+
+- 覆盖文件 249 条，页面加载后 `objectOverrides` 249 条；
+- 截图目检：家具/墙/椅子位置与遮挡无回归，角色正常；
+- 全量 **754 / 754**。
+
+### 边界
+
+- 这一步只统一**渲染排序**；碰撞仍由 `colliders` 对象层/覆盖文件单独管。
+  移动视觉对象**不会**移动碰撞体（下一步可把两者用同一个对象 id 绑起来）。
+- `stations` 层目前只是标记；站点逻辑仍来自内容包。
+
+---
+
+## R233（Lead）—— 手动编辑场景：碰撞体可视化编辑器 + 覆盖文件
+
+### 用户需求
+
+"还是有大量错误的空气墙……AI 调整的方案不太靠谱，我能不能手动编辑这个场景。"
+
+自动推导（nav / alpha / 美术连通块）在这张图上已经证明会判断错，而且每次修都要重新猜。
+所以给一条**人可以直接改**的路，不再依赖推测。
+
+### 数据：覆盖文件优先
+
+- 文件：`src/vendor/microverse/scene/office-colliders-override.json`（地图像素 `[[x,y,w,h],…]`）；
+- 存在时**完全替代**自动数据：`fineRects` 用它，`occupancyCells/occupancyRects` 关掉
+  （不再被自动补格"修"回去）；
+- 保存时同时写**宿主 profile 的 `lib/vendor`** 与**仓库 `src/vendor`**，重启/构建都不丢。
+
+### 编辑器：`?edit=1`
+
+- 打开：在 Agent World URL 后加 `&edit=1`（独立页同理）；
+- 初始显示当前全部碰撞体（209 块，绿框）；
+- **拖拽** = 加一块（4px 吸附）；**Alt/右键点击** = 删一块；**撤销/清空**；**保存**（Ctrl+S）；
+- 保存 → `POST /api/space-override` → 写覆盖文件 → 页面刷新，新碰撞体立即生效。
+
+### 边界（说清楚，避免下一次误解）
+
+- 覆盖只影响**物理碰撞**；`nav` 仍然是寻路网格。删掉碰撞体后，手动操控能过，但自动寻路
+  仍可能绕开那块（要连寻路一起改，需要另开"编辑 nav"的能力）；
+- 覆盖存在期间，自动推导（含 R230/R231 的美术占位）**全部停用**——这是"人说了算"的语义。
+
+---
+
+## R232（Lead）—— 空气墙"完全失效"：客户端没有 nav，墙根本没建
+
+### 用户报告
+
+"现在空气墙完全失效，完全错误了。"
+
+### 根因（两层，都是同一类：**建墙的输入在客户端是空的**）
+
+1. **`rebuildWalls` 只看 `worldState.nav`**，但客户端 `world-update` 根本不存 `nav`
+   （`grep nav web/core/world-update.js` 为空）。于是第一次重建：清掉旧组 → `nav === null`
+   → **直接 return**，一堵墙都没建。真机读数：`space.obstacles = 209`，`physics.staticBodies = 0`。
+2. 建墙签名只含 nav 尺寸，不含"`space` 是否已到"。页面启动时 world 与 scene plan 是两条
+   异步线，第一帧往往没 `space`；等 `space` 到了签名没变 → **永不重建**。
+
+另有一个放大问题：`physics.add.collider` 只把碰撞器放进 **pending 队列**，
+如果建墙发生在这一帧 `world.update` 之后（或页面在后台、RAF 停着），碰撞器要等下一帧才生效；
+真机在后台标签页里会一直 pending。
+
+### 改动
+
+| 位置 | 改动 |
+|---|---|
+| `rebuildWalls` | `nav = worldState.nav ?? plan.space.nav`——唯一可靠来源是快照里的统一空间 |
+| 建墙签名 | 加 `spaceSig = obstacles.length:artCells`；`space` 晚到会触发重建 |
+| 建墙后 | 立刻 `world.colliders.update(0,0)`，把 pending 碰撞器冲成 active |
+| 清理 | 重建时 `world.staticBodies.clear()`（`owner.destroy()` 不一定摘池，实测残留 418=209×2） |
+| 审计 | `airWallAudit()` 增加 `bodies`（静态体数）与 `attach`（actors/sprites/bodies/colliders） |
+
+### 验证（真机，非推断）
+
+- `bodies = 209`、`colliders = 1` 且 `active`、墙组 209 个 body；
+- 物理实测：把角色放在墙下方 `y=-280`、以 `-120 px/s` 向上推 45 帧，身体停在
+  `top = -304`（墙底边）——**没有穿过去**；
+- 全量 **754 / 754**。
+
+### 教训
+
+"没建墙"和"墙位置错"是两类问题，但现象都像"空气墙不对"。以后 `airWallAudit`
+必须同时报 `obstacles` 与 `bodies`：**数量对不上就是没建**，不要再从坐标开始猜。
+
+---
+
+## R231（Lead）—— "只覆盖了一半的墙体"：占位要按**整个连通块**，不是单格
+
+### 用户截图
+
+"这里明显是不对的只覆盖了一半的墙体。" 绿框只包住柜台的上半截，下半截露在框外。
+
+### 原因
+
+R230 的占位格标的是 **3×3 格美术块中的一格**（180/181）。`SceneSpace` 只按这一格补了
+32×32 的 `art` 矩形；而那件柜台的实际 alpha 连通块是 **52×54**（跨 2 格宽、2 格高），
+所以绿框只盖住一半——**数据没错，粒度错了**。
+
+### 改动
+
+1. `office-occupancy.ts` 新增 `OFFICE_OCCUPANCY_RECTS`：占位格所属**小连通块**（≤3×3 格）
+   的整块外接矩形。office 共 2 块：`(1030,116,52,54)`、`(1120,372,32,44)`；
+2. `SceneSpace`：占位格若落在某个整块矩形里，就用整块（`source:'art'`），不再补单格；
+   大块（整排工位/墙带）不生成外接矩形，仍按格，避免吞走道；
+3. 新增 `scripts/derive-occupancy.py`：从 `office-layer1..4` 的 alpha 重新算占位格与整块矩形，
+   可复算、可 review（这一步之前只写在注释里）。
+
+### 验证
+
+- 全量 **754 / 754**（新增：整块矩形覆盖测试）。
+- 真机（重启后 PID 58610）：`artCells = 6`、`obstacles = 209`、`slotsBlocked = 0`；
+- 截图核对：右侧带绿植的柜台，绿框已包住整件物体，只剩柜体下方约 **5%** 是**地面阴影**
+  （画在 layer0 的地板层，不是墙体实体）——这 5% 不该挡人。
+
+---
+
+## R230（Lead）—— 站到台面上：从**美术层**派生占位格（美术有东西才挡）
+
+### 用户截图与核对
+
+用户发来截图："如图发现还是会在墙上走"。核对真机世界 + 地图数据：
+
+- leader 的位置 `(28.6, -11.34)` → 格 **(col 32, row 4)**；
+- 该格 `nav.blocked=false`（原版物理多边形认为能走）；
+- `office-colliders.json` 在该格及其周边**没有任何矩形**（精细几何漏了）；
+- `office-layer1/2` 在该格**画着家具**（台面/桌沿，tan 色）。
+
+⇒ 不是空气墙，是**反过来的缺口**：画面上有桌子，但两份碰撞数据都没挡。
+
+### 判定"美术有东西"的规则（可复算）
+
+对 `office-layer1..4`（家具层，不含地板/墙贴图）逐格统计**下半 60%** 的 alpha 覆盖率：
+
+| 阈值 | 判为占位的格数 |
+|---|---|
+| ≥ 0.1 | 141（太多：墙的悬挑也在里面） |
+| ≥ 0.2 | 87 |
+| **≥ 0.3** | **7**（真正"能站上去"的台面/桌沿，含 leader 所在格） |
+
+### 改动
+
+1. 新增生成物 `src/content/packs/office-occupancy.ts`：7 个占位格 `[75,112,180,181,392,395,479]`
+   （`row*37+col`），并写明判据与重生成方法；
+2. `office.ts`：`walkable` 并入这 7 格（不能站），`MapEntry.occupancy` 带出；
+3. `SceneSpace`：`obstacles` 新增 `source:'art'` 整格障碍（仅当精细几何没盖住格中心）；
+   `audit.artCells` 可读；
+4. **位置自愈**：`createWorld` / `reconcileWorld` 发现角色站在不可走格上时，用
+   `nearestWalkablePoint` 挪到最近可走格——否则 leader 会被自己的碰撞体卡在桌子里。
+
+### 验证
+
+- 全量 **753 / 753**（新增：美术占位补格；快照断言 `artCells > 0`）。
+- 数据：office walkable 由 248 → **255** blocked；`artCells = 7`；`slotsBlocked = 0`。
+
+### 真机阻塞（这次是真的）
+
+3080 的独立页现在**模块图是断的**：`/agent-world/web/core/member-avatar.js`、
+`web/ui/dock.js`、`web/ui/markdown.js` 都 **404**，所以 `__agentWorld*` 门面为空。
+用户截图里的页面是**旧代码加载进内存后继续跑**的实例，R229/R230 的改动根本没生效。
+必须先：
+
+```bash
+node scripts/sync-profile.mjs --fix
+# 然后重启宿主（新 content 文件也要进 profile）
+```
+
+---
+
+## R229（Lead）—— 纠正空气墙错位：**精细几何是物理真相，nav 只是路由网格**
+
+### 用户报的现象
+
+"你加的空气墙跟实际显示的不一致，有错位。"
+
+### 诊断（数据）
+
+对 office 场景逐格量"blocked 格里被精细几何盖住多少"：
+
+| 覆盖比例 | 格数 |
+|---|---|
+| 100%（几乎全覆盖） | 131 |
+| 10%–95%（**部分覆盖**） | **113** |
+| < 10% | 4 |
+
+R226/R227 的规则是"nav 说不能走、**格中心**没被盖住 → 补一整格碰撞体"，共补了 **55 格**。
+墙的美术本来就只占格子的一部分（上半部分是墙体/透明），补整格就把**视觉上是地板**的区域挡住了
+——这就是错位的来源。客户端手动操控还按 nav 整格预挡（离墙半格就停），服务端再按格夹回，三处叠加。
+
+### 纠正（R229）
+
+| 位置 | 改动 |
+|---|---|
+| `src/scene/space.ts` | **不再补格**：`obstacles` 只来自精细几何（203 条）；nav 与几何的差异只记 `uncoveredCells`（55） |
+| `web/scene/scene-phaser.js` | 删除客户端按 nav 格的预挡（交给精细碰撞体）；删除补格碰撞体；`airWallAudit` 返回 `uncoveredCells` |
+| `src/sim/step.ts` | **删除服务端按 nav 格夹回**：手动操控本来就是客户端权威，服务端只拒 NaN/Infinity |
+| `src/protocol/scene.ts` | `SceneObstacle.source` 只剩 `'fine'`（`cell` 变体删除，防止有人再把补格加回来） |
+| 文档 | DESIGN 五之三、AI-DEBUG、PLAN 全部改成"两套数据两种职责" |
+
+### 现在的模型
+
+- **物理真相 = 精细几何**（按美术 alpha）：和人看到的一致；
+- **路由网格 = nav**（原版整格多边形）：服务端 A* 用，保守一点可以接受；
+- 两者不一致是**已知事实**，`uncoveredCells` 只报不修。
+
+### 验证
+
+- 全量 **752 / 752**（space 测试改成"不补格、只报 uncoveredCells"；moveAgent 测试改成"不再按格夹回"）。
+- 新增几何可视化：`?debug=1&walls=1`（红=nav 格、绿=精细障碍、蓝=站点占地、青点=吸附点），
+  用来直接核对"空气墙和画面对不对齐"。
+- 数据面：obstacles = 203（= fine rects），`uncoveredCells = 55`，`slotsBlocked = 0`。
+- **真机待验**：需 `node scripts/sync-profile.mjs --fix` + 重启宿主（新 API 才下发 `space`），
+  然后看 `__agentWorldDebug.audit().airWall` 与画面里的墙是否对齐。
+
+### 下一轮
+
+1. 真机确认错位消失（重点看墙根、桌沿、门洞）；
+2. 若仍有 1–2px 级偏差，再核对 `obstacles` 与底图的像素原点（现在是 `nav.origin*TILE_PX + rect`，
+   与旧渲染路径同源）；
+3. 合并精细矩形（只合并，不补格）以减静态体。
+
+---
+
+## R228（Lead）—— 舞台渲染与空气墙 · 优化计划（设计轮，零代码）
+
+用户："优化舞台渲染里的所有元素和空气墙，给我一个优化计划，利用现在的最佳时间来进行设计。"
+
+产出 [`PLAN-stage-render.md`](PLAN-stage-render.md)：
+
+- **目标四条**：走不进去 / 前后对 / 不闪不跳 / 加东西不改代码（外加 AI 可定位）；
+- **现状基线**：248 blocked、203 精细体 + 55 补格 = 258 障碍、24 站点 / 24 slot / 0 slotBlocked、
+  5 个 Phaser 容器、场景数据 250ms 更新一次；
+- **优化项分 7 域**：空气墙（6）、深度遮挡（5）、元素逐个（11）、相机布局（3）、性能（4）、
+  内容契约（3）、调试 AI（5），每项带优先级 / 做法 / 验收 / 成本；
+- **四期路线**：Phase 0 验收与止血 → Phase 1 几何契约 → Phase 2 渲染与性能 → Phase 3 元素打磨；
+- **验收指标**：airWall.uncovered=0、slotsBlocked=0、slot 可达 100%、occlusion=0、
+  overlay ordered、相机 10s 零漂移、render p95 < 8ms、静态体 < 200。
+
+### 关键判断
+
+- R227 的 `SceneSpace` 是这次优化的地基：**先加读数，再改画面**；
+- 最该先做的是 Phase 0（真机验收 + 相机证据 + B1 家具深度），因为它决定后面几期的做法；
+- 明确不做：换引擎、3D、骨骼、tilemap 重构、外部物理引擎。
+
+---
+
+## R227（Lead）—— 三套空间数据收拢成 `SceneSpace`；渲染器只执行；AI 调试总入口
+
+### 用户口径
+
+"把这三套收拢成一套，并用现在的游戏引擎让它正常运行、正常排布。以后对 AI 编程要足够友好，
+最好有 debug 模式，让 AI 能快速定位和理解人类的需求。"
+
+### 收拢成什么
+
+新契约 `SceneSpace`（`src/protocol/scene.ts`，随快照 `scene.space` 下发）：
+
+| 字段 | 回答什么 | 消费者 |
+|---|---|---|
+| `nav.blocked` | 能不能站 | 服务端寻路、手动落点、审计 |
+| `obstacles` | 物理挡什么（`fine` 精细碰撞体 ∪ `cell` 补格） | Phaser Arcade 物理 |
+| `entities[].base` / `.slots` | 深度基准（底边世界 z）+ 可站吸附点 | 渲染深度、站点审计、调试 |
+| `audit` | `{ blockedCells, fineRects, gapCells, obstacles, slotsBlocked }` | `airWallAudit()` / `__agentWorldDebug` |
+
+**构建只在一处**：`src/scene/space.ts`（纯函数，node 可测）；`routes/api.ts` 读一次
+`*-colliders.json`（缓存），把 nav + 精细碰撞体 + 站点合成 space 塞进 scene plan。
+渲染器**不再自己 fetch 碰撞体**：`rebuildWalls` 优先读 `plan.space.obstacles`，
+`drawProps` 的深度基准读 `entities[].base`，`airWallAudit()` 直接返回 `space.audit`。
+
+### AI 调试模式
+
+新增 `__agentWorldDebug`（`?debug=1`）：
+
+- `.help()`：**症状 → 探针 → 判据**的固定对照表（数据，不是散文）；
+- `.snapshot()`：build / world / scene / runtime / connection / 已挂门面列表；
+- `.audit()`：space + airWall + occlusion + overlay 四份审计；
+- `.explain(id)`：站点/角色的占地是否 blocked、`base`、哪些 slot 不可走。
+
+配套文档 [`AI-DEBUG.md`](AI-DEBUG.md)：入口、门面目录、不变量、改代码检查清单。
+
+### 验证
+
+- 全量 **753 / 753**。新增：`space.test.js`（5 条：补缺口/精细覆盖/实体吸附/无 nav/可复现）、
+  `http.test.js` 的"快照带统一 space"、`obstacleRectToPixels` 防差 16 倍。
+- 数据面：office 场景 `248 blocked / 55 缺口 / 24 站点 / slotsBlocked 0`。
+- **真机未验**：宿主进程还在跑旧代码，且 profile 缺新文件（`web/ui/dock.js` 等）。
+  需要：① `node scripts/sync-profile.mjs --fix`；② 重启宿主（新 API 才会下发 `space`）。
+
+### 下一轮
+
+1. 真机跑 `__agentWorldDebug.audit()`，确认 `airWall.source==='space'`、`gapCells>0`、
+   `slotsBlocked===0`、`occlusion`/`overlay` 全绿；
+2. 把"地图 walkable"也纳入同一份生成链（现在它仍是 space 的输入之一，但已不再有第二份消费方）；
+3. 接入 P1 舞台动作 A 批。
+
+---
+
+## R226（Lead）—— 空气墙：nav 成为唯一权威；服务端夹回 + 客户端先问 + 碰撞体补缺口
+
+### 用户报的现象
+
+"角色可以走上墙、可以上桌子，遮挡关系也不正确；这是个 2D 游戏，这点比较重要。"
+要求"让 AI 正确精确地理解和安排空气墙与各种实体的关系"。
+
+### 诊断（有数字，不是猜）
+
+场景里与"能不能站"有关的数据有**三份、无同步机制**：
+
+| 数据 | 来源 | 实测 |
+|---|---|---|
+| `nav.blocked` | 原版 Godot 图块物理多边形 | 37×21，**248 个 blocked 格** |
+| 精细碰撞体 `office-colliders.json` | 离线按每格美术 alpha 算 | **203 个矩形** |
+| 站点外观 / slot | 内容库 | 24 个站点；**slot 全部可走（0 个在 blocked 格）** |
+
+**关键读数：248 个 blocked 格里有 55 格没有任何碰撞体（22%）**。手动操控只靠物理挡，
+所以这 55 格就是"能上墙、能上桌子"的入口。另外 `moveAgent` 在服务端**直接写坐标**，
+客户端挡不住时世界也照收。
+
+### 改动
+
+1. **服务端兜底**（`src/sim/step.ts`）：`moveAgent` 落点先过 `nav`；不可走 → `nearestWalkable`
+   夹到最近可行走格中心，`agent.moved.source = 'clamped'`。整图无可走格时**宁可不动**。
+2. **客户端先问**（`scene-phaser.js`）：手动操控设速度前，用 0.4 格小步探测 nav；
+   该轴下一格不可走就清零该轴速度（沿墙滑动）。人已在 blocked 格里时先放他出来，不锁死。
+3. **碰撞体补缺口**（`scene-phaser.js` + `core/scene-layout.js` 的 `uncoveredBlockedCells`）：
+   精细碰撞体盖不住的 blocked 格，按整格补静态矩形。
+4. **新增 `__agentWorldPhaser.airWallAudit()`**：`{ blockedCells, source, fineRects, gapsFilled, uncovered }`。
+5. `docs/DESIGN.md` 新增「五之三、空气墙与实体」：三份数据的来源、四条实现规则、
+   给内容作者的"三件套"（footprint / 底边 / slot）、三个审计门面。
+
+### 验证
+
+- 全量 **746 / 746**（新增：`moveAgent` 夹回 + 正常落点不误伤 + `uncoveredBlockedCells` 缺口计算）。
+- 真机数据面：0 个 station slot 落在 blocked 格；当前 1 个 agent 不在 blocked 格。
+- **真机画面仍未验**：profile 缺新文件（`web/ui/dock.js` 等），需要用户跑一次
+  `node scripts/sync-profile.mjs --fix`（沙箱不允许我写 `~/.dsh`）。
+
+### 下一轮
+
+1. 真机确认 `airWallAudit().gapsFilled` 与 `overlayAudit().ordered`；
+2. **结构性收口**：把"实体描述"（footprint + 底边 + slot）做成内容/协议契约，
+   让 nav、碰撞体、深度三份数据从此**同源生成**——现在的修法是"nav 权威 + 补缺口"，
+   还没做到"新增实体不会产生缺口"。
+
+---
+
+## R225（Lead）—— 遮挡关系收口：覆盖层也排序 + `overlayAudit()`；修 profile 同步脚本
+
+### 用户问题与核对结论
+
+用户问："舞台上当前使用实体包括哪些，整个场景的遮挡关系理清楚了吗？"
+
+核对后的结论（**不是**全部清楚）：
+
+- **主体清楚**：`entities` 一层里有平铺层、墙条、家具、椅子、角色、选中环，按"底边 Y"排序；
+  三条规则 + `occlusionAudit()` 有防线，R159 实测 **186 实体 / 0 异常**（反证：把一把椅子改回固定深度立刻报 1 条）。
+- **覆盖层没理清**：标签 / 纸条 / 气泡在另外三个容器里，靠**容器插入顺序**渲染；
+  Phaser 的 Container 默认不按 `depth` 排，子对象上那些 `setDepth(4/5/1000)` **从来没生效**——
+  "名字压工单行"只是注释里的意图。`occlusionAudit()` 也只覆盖 `entities`，不覆盖这三层。
+
+### 改动
+
+1. `web/core/scene-layout.js` 新增 `OVERLAY_DEPTHS` + `overlayDepthOf()`：
+   `task 4 / name 5 / note 4 / bubble 1000`，未知种类直接抛（静默给 0 会沉底）。
+2. `web/scene/scene-phaser.js`：字面量换成常量；每帧对 `labels` / `notes` / `bubbles` 调
+   `sort('depth')`；新增 `__agentWorldPhaser.overlayAudit()`（深度带是否合法 + 是否有序）。
+3. `scripts/sync-profile.mjs --fix`：目标子目录不存在时先 `mkdir -p`
+   （拆 `contracts/` 后第一次跑直接 ENOENT，错误信息只报文件不报目录）。
+4. `docs/DESIGN.md` 新增「五之二、场景遮挡」：五层容器 + 三条不可违反的规则 + 两个审计门面。
+
+### 验证
+
+- `pnpm run build` 绿；`test/scene-layout.test.js` **34/34**；全量 **743 / 743**。
+- **真机没验成**：profile 里缺 `web/ui/dock.js`、`web/ui/markdown.js` 等新文件
+  （`sync-profile.mjs` 已报缺），页面因此断模块图、`__agentWorld*` 门面为空。
+  沙箱不允许写 `~/.dsh`，需要用户跑一次 `node scripts/sync-profile.mjs --fix`（现在已支持新建子目录）。
+
+### 下一轮
+
+1. profile 同步后真机确认 `overlayAudit()` 三层 `ordered:true`；
+2. 接 P1 舞台动作 A 批（`StageActionSpec` + 推导器 + pickup/arrive/deliver/fail + `__agentWorldStage`）。
+
+---
+
+## R210（Lead）—— 契约制度设计（文档轮，**零代码改动**）
+
+用户：舞台要一套**完整的契约制度**（动作、反应、游戏里所有东西）+ Agent 长期设计
+（等级 / profile / 专属知识库 / 任务集），最关键的是**可扩展性与稳定性**。
+
+### 产出（三份新文档）
+
+| 文档 | 内容 |
+|---|---|
+| [`CONTRACTS.md`](CONTRACTS.md) | 契约定义（六要素 + 四件套）、四级稳定性与版本规则、**失败语义总表**、单写者与时间纪律、**68 条契约目录**、扩展清单、治理流程、P0–P4 路线 |
+| **代码侧登记表** | `src/protocol/contracts/`（一域一文件；`types.ts` + `lint.ts` + `index.ts`）+ `test/contracts.test.js`（文档↔代码双向比对，8 条） |
+| [`STAGE-ACTIONS.md`](STAGE-ACTIONS.md) | 舞台动作与反应：14 条动作 + 5 条反应、六通道（主/overlay 子槽）、优先级/抢占/冷却、素材缺失降级、`__agentWorldStage` 验收门面 |
+| [`AGENT-MODEL.md`](AGENT-MODEL.md) | 两层身份（person ↔ body）、profile、经验账本与等级派生、专属知识库（写入/检索/遗忘/冲突）、任务集与派单、失败降级 |
+
+### 红队评审（同日）与 v1.1 修订
+
+三份文档被一轮独立红队评审打回 5 个 P0 / 8 个 P1 / 2 个 P2，**已全部处理**（见 CONTRACTS §十、
+AGENT-MODEL §十二）。四个最关键的坑：
+
+- `Agent.id` 是座位序号（`agent-${index+1}`），新成员会撞在役 id；改成三层身份 + 一次性铸造；
+- 等级进派单必须把等级拷进 `World` → **v1 等级不参与派单**；
+- 反应用"同通道优先级"会被同事件的高优先级动作**永久压死** → 通道拆主子槽，反应只走 overlay；
+- live 模式发 `task.assigned/completed/failed`，客户端 `default:return` 静默吞 → 新增 `wire.event.coverage`。
+
+### 下一轮从哪继续
+
+**登记表已落地**（`src/protocol/contracts/` 一域一文件 + `test/contracts.test.js`，全量 **742 / 742**）。
+P0 只剩**四个前置修复**（身份铸造 / 等级不入调度 / 反应子槽 / live 事件覆盖）——
+修完才允许把相关契约转 frozen。两条候选：
+
+1. **P0 收尾**：修上面四处（其中 live 事件覆盖是舞台验收的前提）；
+2. **P1 舞台 A 批**：`web/core/stage-actions.js` 推导器 + `task.pickup/arrive/deliver/fail` + `__agentWorldStage` 门面 + 单测。
+
+### 关键决定（后续必须遵守）
+
+- 动作**客户端推导**，不新增每帧事件；宿主与 `sim/` 零改动。
+- **账本是事实、等级是派生**，永不双写；改曲线不迁移数据。
+- 档案挂 `personId`，`sessionId` 只是"当前这具身体"；世界里的 `Agent.id` 仍是会话 id。
+- 知识冲突**保留两版**并降置信度，不静默覆盖。
+- 长期状态（档案/账本/知识）全部在模拟内核之外；投影进世界只带 tick。
+
+### 未做
+
+- 没有改任何代码、没有 commit、没有动 `PROGRESS` 之外的台账。
+- 舞台视觉素材（talk 带、celebrate 帧）仍是缺口，见 STAGE-ACTIONS §八。
+
+---
+
 ## R160（Lead）—— 团队头像改用角色贴图；恢复被误染的原色贴图
 
 ### 头像：从字母块换成角色贴图

@@ -20,7 +20,7 @@ import { angleTo } from '../domain/geometry.js'
 import { createRng, seedFromString } from '../domain/rng.js'
 import type { Task, World } from '../domain/types.js'
 import { DEFAULT_MIN_GAP, hangoutsForWorld } from './hangouts.js'
-import { navFromMap } from './nav.js'
+import { navFromMap, nearestWalkablePoint } from './nav.js'
 
 /** 建世界的选项。 */
 export interface CreateWorldOptions {
@@ -108,6 +108,19 @@ export function createWorld(options: CreateWorldOptions): World {
       agent.facing = angleTo(hangout, { x: 0, z: 0 })
     }
   })
+
+  // R229：地图可能新增了"美术占位"格（家具/台面）。出生点若正好落在里面，
+  // 先挪到最近可走格——否则人会一开局就被自己的碰撞体卡在桌子里。
+  if (nav !== null) {
+    for (const agent of agents) {
+      const col = Math.round((agent.position.x - nav.originX) / nav.unitsPerCell - 0.5)
+      const row = Math.round((agent.position.z - nav.originZ) / nav.unitsPerCell - 0.5)
+      const inside = col >= 0 && col < nav.width && row >= 0 && row < nav.height
+      if (inside && nav.blocked[row * nav.width + col] !== true) continue
+      const near = nearestWalkablePoint(nav, agent.position)
+      if (near !== null) agent.position = near
+    }
+  }
 
   // 任务集按顺序实例化。`startIndex` 接着上一批的号往下排，保证跨集合也不撞 id。
   const taskSets = [...(options.taskSets ?? [])]
