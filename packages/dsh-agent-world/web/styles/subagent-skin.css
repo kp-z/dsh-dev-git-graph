@@ -153,3 +153,11 @@
 .aw-subagent-view-host .bs-dot[data-state="warning"] { background: var(--st-ready); }
 .aw-subagent-view-host .bs-dot[data-state="error"] { background: var(--st-failed); }
 .aw-subagent-view-host .bs-icon { opacity: 0.55; }
+
+/* R282：归属拆分——成员面板只留 agent 拓扑；TeamBoard 属于任务面板。 */
+.aw-subagent-view-host .tasks_graph_teamBoard {
+  display: none !important;
+}
+.aw-subagent-view-host .SubagentView_subagentHeader {
+  display: none !important;
+}
