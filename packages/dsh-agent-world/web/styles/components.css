@@ -3456,3 +3456,10 @@
   background: var(--st-done);
   box-shadow: 0 0 4px color-mix(in srgb, var(--st-done) 55%, transparent);
 }
+
+.aw-team-refresh {
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  font-size: 12px;
+}
