@@ -951,7 +951,86 @@ function renderTaskActions(team) {
   }
 }
 
-/** Agent 面板当前只承载团队信息；团队级动作后续接这里，不重复任务操作。 */
+let teamView = (() => {
+  try { return globalThis.localStorage?.getItem('agentWorld.teamView') === 'topology' ? 'topology' : 'list' } catch (e) { return 'list' }
+})()
+let lastTeam = null
+
+function agentStateText(state) {
+  return ({ working: '干活', talking: '对话中', walking: '走动', idle: '待命', sleeping: '休息', blocked: '阻塞', celebrating: '完成' })[state] ?? state ?? '待命'
+}
+
+function ensureTeamTopology() {
+  let mount = root.querySelector('#sidebar-team-topology')
+  if (mount !== null) return mount
+  const content = root.querySelector('.sidebar-panel-agents .sidebar-region-content')
+  if (content === null) return null
+  mount = doc.createElement('div')
+  mount.id = 'sidebar-team-topology'
+  mount.className = 'aw-topology'
+  mount.hidden = true
+  content.append(mount)
+  return mount
+}
+
+function setTeamView(next) {
+  teamView = next === 'topology' ? 'topology' : 'list'
+  try { globalThis.localStorage?.setItem('agentWorld.teamView', teamView) } catch (e) { /* 便利 */ }
+  const mount = ensureTeamTopology()
+  const members = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
+  if (members !== null && members !== undefined) members.hidden = teamView === 'topology'
+  if (mount !== null) mount.hidden = teamView !== 'topology'
+  for (const button of root.querySelectorAll('[data-team-view]')) button.classList.toggle('is-active', button.dataset.teamView === teamView)
+  if (teamView === 'topology') renderTeamTopology(lastTeam)
+}
+
+function renderTeamTopology(team) {
+  const mount = ensureTeamTopology()
+  if (mount === null) return
+  mount.hidden = teamView !== 'topology'
+  mount.textContent = ''
+  const members = Array.isArray(team?.members) ? team.members : []
+  const tasks = Array.isArray(team?.tasks) ? team.tasks : []
+  const actors = applyTeamActivity(world)?.agents ?? []
+  const leadMember = members.find((member) => member.role === 'lead') ?? members[0]
+  const leadActor = actors.find((actor) => actor.boundAgentId === null) ?? actors[0]
+  const rootName = leadMember?.name ?? leadActor?.name ?? 'lead'
+  const rootId = leadActor?.id ?? null
+  const roleText = (role) => role === 'lead' ? '负责人' : role === 'teammate' ? '成员' : (role ?? '')
+  const makeNode = (name, role, state, id, count, isRoot = false) => {
+    const node = doc.createElement('button')
+    node.type = 'button'
+    node.className = isRoot ? 'aw-topology-node is-root' : 'aw-topology-node'
+    node.title = `${name} · ${agentStateText(state)}${count > 0 ? ` · ${count} 任务` : ''}`
+    const dot = doc.createElement('i')
+    dot.className = 'aw-topology-dot'
+    dot.dataset.state = state ?? 'idle'
+    const title = doc.createElement('b')
+    title.textContent = name
+    const meta = doc.createElement('span')
+    meta.textContent = `${roleText(role)} · ${agentStateText(state)}${count > 0 ? ` · ${count} 任务` : ''}`
+    node.append(dot, title, meta)
+    if (typeof id === 'string') {
+      node.addEventListener('click', () => { focusAgent(id, 'member'); openDialogueFor(id) })
+    }
+    return node
+  }
+  const root = makeNode(rootName, leadMember?.role ?? 'lead', leadActor?.state, rootId,
+    tasks.filter((task) => task.ownerName === rootName).length, true)
+  const children = members.filter((member) => member !== leadMember)
+  const branch = doc.createElement('div')
+  branch.className = 'aw-topology-branch'
+  for (const member of children) {
+    const actor = actors.find((candidate) => candidate.name === member.name)
+    branch.append(makeNode(member.name, member.role, actor?.state, actor?.id,
+      tasks.filter((task) => task.ownerName === member.name).length))
+  }
+  const trunk = doc.createElement('div')
+  trunk.className = 'aw-topology-trunk'
+  mount.append(root, trunk, branch)
+}
+
+/** Agent 面板：列表 / agent 拓扑两种查看方式。 */
 function renderAgentActions(team) {
   // 团队摘要属于 header 的 meta，不占内容区；否则和左侧 AGENT 列表标题错一行。
   const meta = root.querySelector('#sidebar-region-meta-agents')
@@ -961,8 +1040,35 @@ function renderAgentActions(team) {
     const taskCount = Array.isArray(lastOfficialTasks) ? lastOfficialTasks.length : 0
     meta.textContent = `${lead?.name ?? 'lead'} · ${members.length} 人 · ${taskCount} 任务`
   }
+  lastTeam = team
   const card = root.querySelector('#sidebar-official-agents')
   if (card !== null) card.textContent = ''
+  const host = sidebarMounts.agentsActions
+  if (host !== null && host !== undefined && host.querySelector('.aw-team-view') === null) {
+    const wrap = doc.createElement('div')
+    wrap.className = 'aw-team-view'
+    for (const [value, label, icon] of [['list', '列表', '☰'], ['topology', '拓扑', '⑂']]) {
+      const button = doc.createElement('button')
+      button.type = 'button'
+      button.className = 'aw-icon aw-team-view-button'
+      button.dataset.teamView = value
+      button.textContent = icon
+      button.title = `${label}视图`
+      button.setAttribute('aria-label', `${label}视图`)
+      button.addEventListener('click', () => setTeamView(value))
+      wrap.append(button)
+    }
+    host.append(wrap)
+  }
+  const membersMount = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
+  if (membersMount !== null && membersMount !== undefined) membersMount.hidden = teamView === 'topology'
+  ensureTeamTopology()
+  if (teamView === 'topology') renderTeamTopology(team)
+  else {
+    const mount = root.querySelector('#sidebar-team-topology')
+    if (mount !== null) mount.hidden = true
+  }
+  setTeamView(teamView)
 }
 
 /** R181：图节点上的 ✓/↺ → 团队 CAS 更新（失败只写通知行，不弹窗）。 */
