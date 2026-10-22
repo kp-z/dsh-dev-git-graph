@@ -2870,3 +2870,24 @@
   color: var(--fg-2);
   font-size: 11px;
 }
+
+.aw-topology-avatar {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--stroke-strong);
+  background: var(--panel-3, var(--panel-2));
+  color: var(--fg-1);
+  font-size: 9px;
+  font-weight: 700;
+}
+.aw-team-detail-status {
+  margin-left: auto;
+  flex: none;
+  color: var(--fg-2);
+  font-size: 9px;
+  font-style: normal;
+}

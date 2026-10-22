@@ -27,6 +27,7 @@
 import { applyEvents, pruneMessages } from './core/world-update.js'
 import { createSelfCheck } from './core/self-check.js'
 import { dialogueEventsFromFrame } from './core/dialogue-state.js'
+import { buildTeamGraph } from './core/team-graph.js'
 import { createConnection } from './net/connection.js'
 // R58：2D 渲染器 = **Phaser**（唯一实现）。`?renderer=canvas` 映射到 `type: Phaser.CANVAS`；
 // 缺省 `Phaser.AUTO` = WebGL 优先、**canvas 自动回退**（我们自己写的那套回退已删）。
@@ -434,6 +435,12 @@ function renderWorldSession(info) {
  */
 function setTeamProjection(team) {
   renderOfficialTeam(team)
+}
+
+/** DSH session 树（R273）：团队拓扑的真实父子来源。 */
+function setSessionGraph(graph) {
+  sessionGraph = graph
+  if (teamView === 'topology') renderTeamTopology(lastTeam)
 }
 
 function setWorldSession(info) {
@@ -955,6 +962,7 @@ let teamView = (() => {
   try { return globalThis.localStorage?.getItem('agentWorld.teamView') === 'topology' ? 'topology' : 'list' } catch (e) { return 'list' }
 })()
 let lastTeam = null
+let sessionGraph = null
 
 function agentStateText(state) {
   return ({ working: '干活', talking: '对话中', walking: '走动', idle: '待命', sleeping: '休息', blocked: '阻塞', celebrating: '完成' })[state] ?? state ?? '待命'
@@ -996,7 +1004,7 @@ function showTeamDetail(name, role, state, id, tasks) {
   const title = doc.createElement('b')
   title.textContent = name
   const stateTag = doc.createElement('span')
-  const roleLabel = role === 'lead' ? '负责人' : role === 'teammate' ? '成员' : (role ?? '')
+  const roleLabel = role === 'lead' ? '负责人' : role === 'teammate' || role === 'member' ? '成员' : role === 'subagent' ? '子代理' : (role ?? '')
   stateTag.textContent = `${roleLabel} · ${agentStateText(state)}`
   const close = doc.createElement('button')
   close.type = 'button'
@@ -1019,7 +1027,15 @@ function showTeamDetail(name, role, state, id, tasks) {
     const label = doc.createElement('span')
     label.textContent = `${task.id ?? ''} ${task.subject ?? ''}`
     label.title = label.textContent
-    line.append(dot, label)
+    const status = doc.createElement('em')
+    status.className = 'aw-team-detail-status'
+    status.textContent = task.status === 'completed' || task.status === 'done' ? '完成' : task.status === 'in_progress' ? '进行中' : '待办'
+    line.append(dot, label, status)
+    line.tabIndex = 0
+    line.setAttribute('role', 'button')
+    line.title = `${label.textContent} · 点击在任务面板中选中`
+    line.addEventListener('click', () => { board.select(task.id) })
+    line.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); board.select(task.id) } })
     list.append(line)
   }
   host.append(list)
@@ -1053,25 +1069,40 @@ function renderTeamTopology(team) {
   const members = Array.isArray(team?.members) ? team.members : []
   const tasks = Array.isArray(team?.tasks) ? team.tasks : []
   const actors = applyTeamActivity(world)?.agents ?? []
+  const roleText = (role) => role === 'lead' ? '负责人' : role === 'teammate' || role === 'member' ? '成员' : role === 'subagent' ? '子代理' : (role ?? '')
+  const actorFor = (name, sessionId) => actors.find((actor) => actor.name === name)
+    ?? (typeof sessionId === 'string' ? actors.find((actor) => actor.boundAgentId === sessionId) : undefined)
+  const graph = sessionGraph !== null
+    ? buildTeamGraph({ rootId: sessionGraph.rootId, byId: sessionGraph.byId, catalogs: sessionGraph.catalogs, team })
+    : null
+  const rootNode = graph?.nodes.find((node) => node.parentId === null)
+  const graphChildren = rootNode === undefined ? [] : graph.nodes.filter((node) => node.parentId === rootNode.id)
+  const useGraph = rootNode !== undefined && graph.nodes.length > 1 && graphChildren.length > 0
+
   const leadMember = members.find((member) => member.role === 'lead') ?? members[0]
   const leadActor = actors.find((actor) => actor.boundAgentId === null) ?? actors[0]
-  const rootName = leadMember?.name ?? leadActor?.name ?? 'lead'
-  const rootId = leadActor?.id ?? null
-  const roleText = (role) => role === 'lead' ? '负责人' : role === 'teammate' ? '成员' : (role ?? '')
-  const makeNode = (name, role, state, id, count, isRoot = false) => {
+  const rootName = useGraph ? (rootNode.label ?? rootNode.title ?? 'lead') : (leadMember?.name ?? leadActor?.name ?? 'lead')
+  const rootActor = useGraph ? actorFor(rootName, rootNode.id) : leadActor
+  const rootState = useGraph ? (rootActor?.state ?? rootNode.state) : leadActor?.state
+  const rootTasks = useGraph ? rootNode.tasks : tasks.filter((task) => task.ownerName === rootName)
+
+  const makeNode = (name, role, state, actorId, ownTasks, isRoot = false) => {
     const node = doc.createElement('button')
     node.type = 'button'
     node.className = isRoot ? 'aw-topology-node is-root' : 'aw-topology-node is-child'
-    node.title = `${name} · ${agentStateText(state)}${count > 0 ? ` · ${count} 任务` : ''}`
+    node.title = `${name} · ${agentStateText(state)}${ownTasks.length > 0 ? ` · ${ownTasks.length} 任务` : ''}`
+    const avatar = doc.createElement('span')
+    avatar.className = 'aw-topology-avatar'
+    avatar.textContent = (name ?? '?').trim().slice(0, 1).toUpperCase()
+    avatar.setAttribute('aria-hidden', 'true')
     const dot = doc.createElement('i')
     dot.className = 'aw-topology-dot'
     dot.dataset.state = state ?? 'idle'
     const title = doc.createElement('b')
     title.textContent = name
     const meta = doc.createElement('span')
-    meta.textContent = `${roleText(role)} · ${agentStateText(state)}${count > 0 ? ` · ${count} 任务` : ''}`
-    const ownTasks = tasks.filter((task) => task.ownerName === name)
-    node.append(dot, title, meta)
+    meta.textContent = `${roleText(role)} · ${agentStateText(state)}${ownTasks.length > 0 ? ` · ${ownTasks.length} 任务` : ''}`
+    node.append(avatar, dot, title, meta)
     for (const task of ownTasks) {
       const taskLine = doc.createElement('small')
       taskLine.className = 'aw-topology-task'
@@ -1082,28 +1113,33 @@ function renderTeamTopology(team) {
       taskLine.title = taskLine.textContent
       node.append(taskLine)
     }
-
-    if (typeof id === 'string') {
+    if (typeof actorId === 'string') {
       node.addEventListener('click', () => {
-        focusAgent(id, 'member')
-        showTeamDetail(name, role, state, id, ownTasks)
+        focusAgent(actorId, 'member')
+        showTeamDetail(name, role, state, actorId, ownTasks)
       })
-      node.addEventListener('dblclick', () => { focusAgent(id, 'member'); openDialogueFor(id) })
+      node.addEventListener('dblclick', () => { focusAgent(actorId, 'member'); openDialogueFor(actorId) })
     }
     return node
   }
-  const root = makeNode(rootName, leadMember?.role ?? 'lead', leadActor?.state, rootId,
-    tasks.filter((task) => task.ownerName === rootName).length, true)
-  const children = members.filter((member) => member !== leadMember)
+
+  const root = makeNode(rootName, useGraph ? rootNode.kind : (leadMember?.role ?? 'lead'), rootState, rootActor?.id ?? null, rootTasks, true)
   const branch = doc.createElement('div')
   branch.className = 'aw-topology-branch'
-  if (children.length === 0) {
+  const childEntries = useGraph
+    ? graphChildren.map((node) => {
+        const actor = actorFor(node.label, node.id)
+        return { name: node.label ?? node.title ?? node.id, role: node.kind, state: actor?.state ?? node.state, actorId: actor?.id ?? null, tasks: node.tasks }
+      })
+    : members.filter((member) => member !== leadMember).map((member) => {
+        const actor = actors.find((candidate) => candidate.name === member.name)
+        return { name: member.name, role: member.role, state: actor?.state, actorId: actor?.id ?? null, tasks: tasks.filter((task) => task.ownerName === member.name) }
+      })
+  if (childEntries.length === 0) {
     branch.append(Object.assign(doc.createElement('div'), { className: 'aw-topology-empty', textContent: '暂无子代理' }))
   }
-  for (const member of children) {
-    const actor = actors.find((candidate) => candidate.name === member.name)
-    branch.append(makeNode(member.name, member.role, actor?.state, actor?.id,
-      tasks.filter((task) => task.ownerName === member.name).length))
+  for (const entry of childEntries) {
+    branch.append(makeNode(entry.name, entry.role, entry.state, entry.actorId, entry.tasks))
   }
   const trunk = doc.createElement('div')
   trunk.className = 'aw-topology-trunk'
@@ -2043,7 +2079,7 @@ const dispose = () => {
 scene2d.resize()
 void connection.reload()
 connection.start()
-return { dispose, setWorldSession, setTeamProjection }
+return { dispose, setWorldSession, setTeamProjection, setSessionGraph }
 
 }
 

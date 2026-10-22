@@ -30,7 +30,7 @@ const EMBEDDED_FLAG = '__AGENT_WORLD_EMBEDDED__'
  * @param {HTMLElement} container - 宿主给的空容器（会被填满）。
  * @param {object} [options]
  * @param {string} [options.baseUrl] - 插件路由前缀，默认 `/agent-world`。
- * @returns {Promise<{setWorldSession: (info: object|null) => void, setTeamProjection: (team: object|null) => void, dispose: () => void}>}
+ * @returns {Promise<{setWorldSession: (info: object|null) => void, setTeamProjection: (team: object|null) => void, setSessionGraph: (graph: object|null) => void, dispose: () => void}>}
  */
 export async function mountEmbeddedApp(container, options = {}) {
   if (container === null || container === undefined) throw new Error('mountEmbeddedApp: container 不能为空')
@@ -107,6 +107,10 @@ export function createEmbeddedHandle(inner, cleanup = () => {}) {
     /** 官方 agentTeam projection（members/tasks）交给页面；页面没接就什么都不做。 */
     setTeamProjection(team) {
       call('setTeamProjection', team)
+    },
+    /** DSH 的 session 树；页面用它画真实父子拓扑。 */
+    setSessionGraph(graph) {
+      call('setSessionGraph', graph)
     },
     dispose() {
       if (disposed) return
