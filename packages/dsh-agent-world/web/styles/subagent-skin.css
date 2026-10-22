@@ -1,0 +1,155 @@
+/*
+ * R281：原生 SubagentView 的 Agent World 皮肤。
+ *
+ * 只覆盖“外观”：布局、折叠、任务板、popover 仍由 better-sidebar 的组件负责。
+ * 选择器统一挂在 `.aw-subagent-view-host` 下，优先级别高于它自己的单类规则。
+ */
+
+.aw-subagent-view-host {
+  --dsw-alias-bg-base: var(--bg-1);
+  --dsw-alias-bg-layer-1: var(--panel);
+  --dsw-alias-bg-layer-2: var(--panel-2);
+  --dsw-alias-bg-layer-3: var(--panel-3, var(--panel-2));
+  --dsw-alias-border-l1: var(--edge);
+  --dsw-alias-border-l2: var(--stroke-strong);
+  --dsw-alias-label-primary: var(--fg-0);
+  --dsw-alias-label-secondary: var(--fg-1);
+  --dsw-alias-label-tertiary: var(--fg-2);
+  --dsw-alias-interactive-bg-hover: var(--paper-hover);
+  --dsw-alias-interactive-bg-active: color-mix(in srgb, var(--screen) 12%, transparent);
+  --dsw-alias-interactive-bg-hover-accent: color-mix(in srgb, var(--screen) 14%, transparent);
+  --dsw-alias-state-business-primary: var(--screen);
+  --dsw-alias-state-warn-primary: var(--st-ready);
+  --dsw-alias-state-error-primary: var(--st-failed);
+  --dsw-font-family: var(--ui-font);
+  --dsw-font-xxs-12: 11px/1.4 var(--ui-font);
+  --dsw-font-xxs-strong-12: 650 11px/1.4 var(--ui-font);
+  --dsw-font-xxxs-11: 10px/1.4 var(--ui-font);
+  --dsw-font-xxxs-strong-11: 650 10px/1.4 var(--ui-font);
+  --dsw-font-xs-13: 12px/1.45 var(--ui-font);
+  color: var(--fg-1);
+}
+
+/* Shell：不要第二层“页面边框”，团队卡本身就是面板。 */
+.aw-subagent-view-host .SubagentView_subagent {
+  background: transparent;
+  color: var(--fg-1);
+  font: 11px/1.45 var(--ui-font);
+}
+.aw-subagent-view-host .SubagentView_subagentHeader {
+  height: 30px;
+  padding: 0 2px 0 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--stroke-strong) 45%, transparent);
+  background: transparent;
+}
+.aw-subagent-view-host .SubagentView_subagentTitle {
+  color: var(--fg-2);
+  font: 650 9.5px/1.2 var(--ui-font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.aw-subagent-view-host .SubagentView_subagentSubject {
+  color: var(--fg-1);
+  font: 11px/1.3 var(--ui-font);
+}
+.aw-subagent-view-host .SubagentView_subagentCount {
+  color: var(--screen);
+  font: 650 9.5px/18px var(--ui-font);
+  padding: 0 6px;
+  border: 1px solid color-mix(in srgb, var(--screen) 28%, var(--edge));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--screen) 8%, transparent);
+}
+
+/* 图卡：沿用主面板的渐变卡片和圆角。 */
+.aw-subagent-view-host .tasks_graph_card {
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--stroke-strong) 62%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 4%, var(--paper-card)), var(--paper-card));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent),
+    var(--shadow-1);
+  color: var(--fg-0);
+  font: 11px/1.35 var(--ui-font);
+}
+.aw-subagent-view-host .tasks_graph_card:hover {
+  border-color: color-mix(in srgb, var(--screen) 55%, transparent);
+}
+.aw-subagent-view-host .tasks_graph_cardName {
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.aw-subagent-view-host .tasks_graph_cardMeta,
+.aw-subagent-view-host .tasks_graph_cardBar {
+  color: var(--fg-2);
+  font-size: 9.5px;
+}
+.aw-subagent-view-host .tasks_graph_canvas {
+  background:
+    radial-gradient(120% 55% at 50% 0%, color-mix(in srgb, var(--screen) 7%, transparent), transparent 70%);
+}
+
+/* 任务条 / 头 / 状态，全部收敛到当前面板的紧凑密度。 */
+.aw-subagent-view-host .tasks_graph_bar {
+  border-radius: 7px;
+  border-color: color-mix(in srgb, var(--stroke-strong) 45%, transparent);
+  background: color-mix(in srgb, var(--paper-card) 70%, transparent);
+}
+.aw-subagent-view-host .tasks_graph_bar:hover {
+  background: var(--paper-hover);
+}
+.aw-subagent-view-host .tasks_graph_barFold {
+  border-radius: 6px;
+}
+.aw-subagent-view-host .tasks_graph_controls,
+.aw-subagent-view-host .tasks_graph_jobsDrawerBar {
+  border-color: color-mix(in srgb, var(--stroke-strong) 40%, transparent);
+  background: var(--panel);
+  border-radius: 8px;
+}
+.aw-subagent-view-host .tasks_graph_controlBtn {
+  border-radius: 5px;
+  color: var(--fg-1);
+}
+.aw-subagent-view-host .tasks_graph_controlBtnActive {
+  color: var(--screen);
+  background: color-mix(in srgb, var(--screen) 10%, transparent);
+}
+
+/* Host primitives 的本地 shim：给它们最小但一致的可见样式。 */
+.aw-subagent-view-host .bs-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--fg-1);
+  font: 10.5px/1 var(--ui-font);
+  cursor: pointer;
+}
+.aw-subagent-view-host .bs-button:hover {
+  border-color: var(--stroke-strong);
+  color: var(--fg-0);
+}
+.aw-subagent-view-host .bs-tag {
+  padding: 1px 5px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  color: var(--fg-2);
+  font-size: 9px;
+}
+.aw-subagent-view-host .bs-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-2);
+}
+.aw-subagent-view-host .bs-dot[data-state="done"] { background: var(--st-done); }
+.aw-subagent-view-host .bs-dot[data-state="ongoing"] { background: var(--st-in_progress); }
+.aw-subagent-view-host .bs-dot[data-state="warning"] { background: var(--st-ready); }
+.aw-subagent-view-host .bs-dot[data-state="error"] { background: var(--st-failed); }
+.aw-subagent-view-host .bs-icon { opacity: 0.55; }
