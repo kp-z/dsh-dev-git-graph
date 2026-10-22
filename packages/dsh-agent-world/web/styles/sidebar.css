@@ -809,3 +809,19 @@
   height: 20px;
   font-size: 11px;
 }
+
+.aw-tree-actions {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  opacity: 0.5;
+}
+.aw-tree-row:hover .aw-tree-actions,
+.aw-tree-row:focus-within .aw-tree-actions {
+  opacity: 1;
+}
+.aw-tree-actions .aw-icon {
+  width: 22px;
+  height: 20px;
+  font-size: 11px;
+}
