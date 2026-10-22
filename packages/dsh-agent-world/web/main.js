@@ -1100,6 +1100,14 @@ function workflowMemberRow(member, run) {
   return row
 }
 
+function formatWorkflowDuration(run) {
+  const start = Number(run.startedAt)
+  const end = Number.isFinite(run.finishedAt) ? Number(run.finishedAt) : Date.now()
+  if (!Number.isFinite(start)) return ''
+  const ms = Math.max(0, end - start)
+  return ms >= 60000 ? `${Math.floor(ms / 60000)}m${Math.round((ms % 60000) / 1000)}s` : `${Math.round(ms / 1000)}s`
+}
+
 function renderWorkflowRuns(runs, error) {
   const mount = ensureTeamTopology()
   if (mount === null) return
@@ -1132,7 +1140,8 @@ function renderWorkflowRuns(runs, error) {
     status.textContent = workflowStatusText(run.status)
     const meta = doc.createElement('span')
     meta.className = 'aw-workflow-meta'
-    meta.textContent = `${run.phases.reduce((sum, phase) => sum + phase.members.length, 0)} 成员`
+    const memberCount = run.phases.reduce((sum, phase) => sum + phase.members.length, 0)
+    meta.textContent = `${memberCount} 成员 · ${formatWorkflowDuration(run)}`
     head.append(name, status, meta)
     card.append(head)
     for (const phase of run.phases ?? []) {
