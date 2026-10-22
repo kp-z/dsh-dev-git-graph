@@ -29,6 +29,29 @@ window.__ModuleLoader__.load({
     const BASE_URL = (typeof window !== 'undefined' && window.__AGENT_WORLD_BASE__) || '/agent-world';
 
     /**
+     * R279：把 better-sidebar 的 SubagentView bundle 挂进页面容器。
+     *
+     * 这不是重画：bundle 由 scripts/build-subagent-view.mjs 从
+     * dsh-better-sidebar/src/client/SubagentView.tsx 直接打包，数据仍走它自己的
+     * ctx/sessions/jobs 路径。宿主 primitives 用本地 shim，视觉细节由它自带 CSS。
+     */
+    function mountSubagentView(container, sessionId, pluginCtx) {
+      if (container === null || container === undefined) return Promise.reject(new Error('没有挂载容器'));
+      return import(BASE_URL + '/subagent-view.js').then((mod) => {
+        if (typeof mod.mount !== 'function') throw new Error('subagent-view bundle 没有 mount');
+        const linkId = 'aw-subagent-view-css';
+        if (document.getElementById(linkId) === null) {
+          const link = document.createElement('link');
+          link.id = linkId;
+          link.rel = 'stylesheet';
+          link.href = BASE_URL + '/subagent-view.css';
+          document.head.append(link);
+        }
+        return mod.mount(container, pluginCtx, sessionId);
+      });
+    }
+
+    /**
      * 让 Host 切到**这个会话自己的世界**（R166）。
      *
      * 同一时刻只有这一个世界在内存/推进；旧视图的 `deactivate` 会先保存并卸下。
@@ -303,6 +326,8 @@ window.__ModuleLoader__.load({
             stopGraphWatch = watchSessionGraph(props.sessions, sessionId, function (graph) {
               callHandleHook(handle, 'setSessionGraph', graph);
             });
+            const mountNative = (container) => mountSubagentView(container, sessionId, props.pluginCtx);
+            globalThis.__awMountSubagentView = mountNative;
             setPhase('ready');
           } catch (err) {
             if (!disposed) {
@@ -371,7 +396,7 @@ window.__ModuleLoader__.load({
             return ctx.slots.register(
               { name: 'conversation.view', id: VIEW_KEY, order: 20, label: 'Agent World' },
               function (slotProps) {
-                return h(AgentWorldView, { ...slotProps, sessions: sessions });
+                return h(AgentWorldView, { ...slotProps, sessions: sessions, pluginCtx: ctx });
               },
             );
           });

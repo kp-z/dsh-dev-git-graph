@@ -3141,3 +3141,16 @@
 .aw-topology-node .aw-topology-task {
   margin-left: 0;
 }
+
+/* R279：原生 SubagentView 挂载容器。 */
+.aw-subagent-view-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.aw-subagent-view-host > * {
+  min-height: 0;
+}
