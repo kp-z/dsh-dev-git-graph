@@ -2862,3 +2862,11 @@
 .aw-task-mark[data-status='in_progress'], .aw-task-mark[data-status='running'] { background: var(--st-in_progress); }
 .aw-task-mark[data-status='completed'], .aw-task-mark[data-status='done'] { background: var(--st-done); }
 .aw-task-mark[data-status='failed'] { background: var(--st-failed); }
+
+.aw-topology-empty {
+  grid-column: 1 / -1;
+  padding: 12px;
+  text-align: center;
+  color: var(--fg-2);
+  font-size: 11px;
+}
