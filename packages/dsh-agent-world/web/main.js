@@ -1104,14 +1104,21 @@ function renderWorkflowRuns(runs, error) {
   const mount = ensureTeamTopology()
   if (mount === null) return
   mount.textContent = ''
-  if (error !== null) {
-    mount.append(Object.assign(doc.createElement('div'), { className: 'aw-team-empty', textContent: `workflow 数据不可用：${error}` }))
-    return
+  const emptyWithRetry = (message) => {
+    const box = doc.createElement('div')
+    box.className = 'aw-team-empty'
+    const text = doc.createElement('div')
+    text.textContent = message
+    const retry = doc.createElement('button')
+    retry.type = 'button'
+    retry.className = 'aw-workflow-retry'
+    retry.textContent = '重新加载'
+    retry.addEventListener('click', () => { void loadWorkflowRuns() })
+    box.append(text, retry)
+    mount.append(box)
   }
-  if (!Array.isArray(runs) || runs.length === 0) {
-    mount.append(Object.assign(doc.createElement('div'), { className: 'aw-team-empty', textContent: '还没有 workflow 运行。' }))
-    return
-  }
+  if (error !== null) { emptyWithRetry(`workflow 数据不可用：${error}`); return }
+  if (!Array.isArray(runs) || runs.length === 0) { emptyWithRetry('还没有 workflow 运行。'); return }
   for (const run of runs) {
     const card = doc.createElement('div')
     card.className = 'aw-workflow-run'

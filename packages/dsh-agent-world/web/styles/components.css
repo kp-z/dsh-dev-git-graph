@@ -3427,3 +3427,15 @@
   font-size: 9px;
   font-style: normal;
 }
+
+.aw-workflow-retry {
+  margin-top: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--fg-1);
+  font-size: 10px;
+  cursor: pointer;
+}
+.aw-workflow-retry:hover { border-color: var(--screen); color: var(--fg-0); }
