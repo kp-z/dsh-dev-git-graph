@@ -161,3 +161,8 @@
 .aw-subagent-view-host .SubagentView_subagentHeader {
   display: none !important;
 }
+
+/* R283：Jobs 也归任务面板；成员面板不重复展示任务运行信息。 */
+.aw-subagent-view-host .tasks_graph_jobsDrawer {
+  display: none !important;
+}
