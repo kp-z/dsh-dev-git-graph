@@ -620,7 +620,7 @@ export function createBoard(options = {}) {
         load.setAttribute('aria-label', load.title)
         head.append(load)
         const taskBox = el(doc, 'div', 'board-member-tasks')
-        for (const task of memberTasks.slice(0, 4)) {
+        for (const task of memberTasks) {
           const line = el(doc, 'div', 'board-member-task')
           const dot = el(doc, 'i', 'board-dot board-task-dot')
           applyNodeColors(dot, task.displayStatus ?? task.status)
@@ -637,6 +637,20 @@ export function createBoard(options = {}) {
           taskBox.append(line)
         }
         head.append(taskBox)
+        if (memberTasks.length > 3) {
+          const more = el(doc, 'button', 'board-member-more', `+${memberTasks.length - 3}`)
+          more.type = 'button'
+          more.title = `展开其余 ${memberTasks.length - 3} 张任务`
+          more.setAttribute('aria-expanded', 'false')
+          more.addEventListener('click', (event) => {
+            event.stopPropagation()
+            const open = item.classList.toggle('is-expanded')
+            more.setAttribute('aria-expanded', String(open))
+            more.textContent = open ? '收起' : `+${memberTasks.length - 3}`
+            more.title = open ? '收起任务' : `展开其余 ${memberTasks.length - 3} 张任务`
+          })
+          head.append(more)
+        }
       }
       // `aria-label` 要在名字/角色/状态都齐了之后拼：只报名字的话，读屏用户听不出
       // "这个人在干什么"，而那恰恰是这块列表的全部信息量。
