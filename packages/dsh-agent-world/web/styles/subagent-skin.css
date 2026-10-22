@@ -210,3 +210,9 @@
   background: var(--paper-card) !important;
   background-image: none !important;
 }
+
+/* R292：外层拓扑容器也必须是卡片底色，否则原生视图透出的仍是渐变。 */
+#sidebar-team-topology.aw-topology {
+  background: var(--paper-card);
+  background-image: none;
+}
