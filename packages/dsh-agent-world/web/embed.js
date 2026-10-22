@@ -21,7 +21,7 @@
  * 全部收进闭包（它已经是闭包，但 `globalThis.__agentWorld*` 门面是单例）。
  */
 
-const STYLE_FILES = ['tokens', 'base', 'components', 'layout', 'sidebar']
+const STYLE_FILES = ['tokens', 'base', 'components', 'layout', 'sidebar', 'subagent-skin']
 const EMBEDDED_FLAG = '__AGENT_WORLD_EMBEDDED__'
 
 /**
