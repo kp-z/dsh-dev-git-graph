@@ -1098,11 +1098,14 @@ function renderTeamTopology(team) {
     const dot = doc.createElement('i')
     dot.className = 'aw-topology-dot'
     dot.dataset.state = state ?? 'idle'
+    const badge = doc.createElement('em')
+    badge.className = 'aw-topology-badge'
+    badge.textContent = roleText(role)
     const title = doc.createElement('b')
     title.textContent = name
     const meta = doc.createElement('span')
-    meta.textContent = `${roleText(role)} · ${agentStateText(state)}${ownTasks.length > 0 ? ` · ${ownTasks.length} 任务` : ''}`
-    node.append(avatar, dot, title, meta)
+    meta.textContent = `${agentStateText(state)}${ownTasks.length > 0 ? ` · ${ownTasks.length} 任务` : ''}`
+    node.append(avatar, dot, title, badge, meta)
     for (const task of ownTasks) {
       const taskLine = doc.createElement('small')
       taskLine.className = 'aw-topology-task'

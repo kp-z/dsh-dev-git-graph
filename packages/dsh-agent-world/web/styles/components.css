@@ -2891,3 +2891,14 @@
   font-size: 9px;
   font-style: normal;
 }
+
+.aw-topology-badge {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  color: var(--fg-2);
+  font-size: 8.5px;
+  font-style: normal;
+  line-height: 14px;
+}
