@@ -28,6 +28,7 @@ import { applyEvents, pruneMessages } from './core/world-update.js'
 import { createSelfCheck } from './core/self-check.js'
 import { dialogueEventsFromFrame } from './core/dialogue-state.js'
 import { buildTeamGraph } from './core/team-graph.js'
+import { resolveMemberSprite, spriteAvatarStyle } from './core/member-avatar.js'
 import { createConnection } from './net/connection.js'
 // R58：2D 渲染器 = **Phaser**（唯一实现）。`?renderer=canvas` 映射到 `type: Phaser.CANVAS`；
 // 缺省 `Phaser.AUTO` = WebGL 优先、**canvas 自动回退**（我们自己写的那套回退已删）。
@@ -53,6 +54,8 @@ import { createDialogueUi } from './ui/dialogue-ui.js'
  * @param {boolean} [options.embedded] - 嵌入模式：不建自己的顶栏（宿主已有）。
  * @returns {{dispose: () => void}}
  */
+let spriteAssetBase = './vendor/'
+
 export function mountAgentWorld(options = {}) {
   const doc = options.document ?? globalThis.document
   const root = options.root ?? doc
@@ -63,6 +66,7 @@ export function mountAgentWorld(options = {}) {
   const baseUrl = rawBase === '.' ? '.' : rawBase.replace(/\/$/, '')
   const apiUrl = (path) => `${baseUrl}/${path}`
   const assetBase = `${baseUrl}/vendor/`
+  spriteAssetBase = assetBase
   const $ = (id) => root.querySelector(`#${id}`)
   const standaloneButton = root.querySelector?.('#topbar-standalone')
   standaloneButton?.addEventListener('click', () => {
@@ -1095,6 +1099,14 @@ function renderTeamTopology(team) {
     avatar.className = 'aw-topology-avatar'
     avatar.textContent = (name ?? '?').trim().slice(0, 1).toUpperCase()
     avatar.setAttribute('aria-hidden', 'true')
+    const sprite = typeof actorId === 'string' ? resolveMemberSprite(meta?.scene, actorId, spriteAssetBase) : null
+    if (sprite !== null) {
+      const style = spriteAvatarStyle(sprite)
+      avatar.classList.add('is-sprite')
+      avatar.style.backgroundImage = style.backgroundImage
+      avatar.style.backgroundSize = style.backgroundSize
+      avatar.style.backgroundPosition = style.backgroundPosition
+    }
     const dot = doc.createElement('i')
     dot.className = 'aw-topology-dot'
     dot.dataset.state = state ?? 'idle'
@@ -1103,9 +1115,9 @@ function renderTeamTopology(team) {
     badge.textContent = roleText(role)
     const title = doc.createElement('b')
     title.textContent = name
-    const meta = doc.createElement('span')
-    meta.textContent = `${agentStateText(state)}${ownTasks.length > 0 ? ` · ${ownTasks.length} 任务` : ''}`
-    node.append(avatar, dot, title, badge, meta)
+    const metaLine = doc.createElement('span')
+    metaLine.textContent = `${agentStateText(state)}${ownTasks.length > 0 ? ` · ${ownTasks.length} 任务` : ''}`
+    node.append(avatar, dot, title, badge, metaLine)
     for (const task of ownTasks) {
       const taskLine = doc.createElement('small')
       taskLine.className = 'aw-topology-task'
