@@ -616,7 +616,15 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       waiter.resolve(text)
       if (waiters.length === 0) replyWaiters.delete(sessionId)
     })
-    ctx.effect(() => () => { (dispose as (() => void) | undefined)?.() })
+    // 会话 feed 可能在插件已失活后才被创建（例如新建会话立刻开工）。
+    // cordis 会拒绝在 inactive context 上注册 effect；此时不需要 cleanup，
+    // 直接释放订阅即可，不能让一个开工按钮被 cleanup 注册失败打断。
+    try {
+      ctx.effect(() => () => { (dispose as (() => void) | undefined)?.() })
+    } catch (error) {
+      if (!(error instanceof Error) || !/inactive context/i.test(error.message)) throw error
+      ;(dispose as (() => void) | undefined)?.()
+    }
   }
   const pendingReplies = new Map<string, Promise<string>>()
   const captainSentAt = new Map<string, number>()
