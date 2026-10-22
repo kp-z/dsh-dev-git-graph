@@ -973,6 +973,7 @@ let lastTeam = null
 let sessionGraph = null
 let currentSessionId = null
 let workflowLoadToken = 0
+let workflowLoading = false
 
 function agentStateText(state) {
   return ({ working: '干活', talking: '对话中', walking: '走动', idle: '待命', sleeping: '休息', blocked: '阻塞', celebrating: '完成' })[state] ?? state ?? '待命'
@@ -1075,7 +1076,7 @@ function workflowStatusText(status) {
   return ({ running: '运行中', completed: '已完成', cancelled: '已取消', failed: '失败' })[status] ?? status
 }
 
-function workflowMemberRow(member, run) {
+function workflowMemberRow(member) {
   const row = doc.createElement('button')
   row.type = 'button'
   row.className = 'aw-workflow-member'
@@ -1148,7 +1149,7 @@ function renderWorkflowRuns(runs, error) {
       const phaseBox = doc.createElement('div')
       phaseBox.className = 'aw-workflow-phase'
       if (phase.title !== undefined) phaseBox.append(Object.assign(doc.createElement('div'), { className: 'aw-workflow-phase-title', textContent: phase.title }))
-      for (const member of phase.members ?? []) phaseBox.append(workflowMemberRow(member, run))
+      for (const member of phase.members ?? []) phaseBox.append(workflowMemberRow(member))
       card.append(phaseBox)
     }
     mount.append(card)
@@ -1161,6 +1162,8 @@ async function loadWorkflowRuns() {
   if (mount.textContent === '') mount.append(Object.assign(doc.createElement('div'), { className: 'aw-team-empty', textContent: '正在加载 workflow…' }))
   const rootId = sessionGraph?.rootId ?? currentSessionId
   if (typeof rootId !== 'string' || rootId === '') { renderWorkflowRuns([], '没有当前会话'); return }
+  if (workflowLoading) return
+  workflowLoading = true
   const token = ++workflowLoadToken
   try {
     const response = await fetch('/sidebar/api/workflows.list', {
@@ -1176,6 +1179,8 @@ async function loadWorkflowRuns() {
   } catch (error) {
     if (token !== workflowLoadToken) return
     renderWorkflowRuns([], error instanceof Error ? error.message : String(error))
+  } finally {
+    workflowLoading = false
   }
 }
 
@@ -1187,133 +1192,6 @@ function renderTeamTopology(team) {
   void loadWorkflowRuns()
   return
 
-  const members = Array.isArray(team?.members) ? team.members : []
-  const tasks = Array.isArray(team?.tasks) ? team.tasks : []
-  const actors = applyTeamActivity(world)?.agents ?? []
-  const roleText = (role) => role === 'lead' ? '负责人' : role === 'teammate' || role === 'member' ? '成员' : role === 'subagent' ? '子代理' : (role ?? '')
-  const actorFor = (name, sessionId) => actors.find((actor) => actor.name === name)
-    ?? (typeof sessionId === 'string' ? actors.find((actor) => actor.boundAgentId === sessionId) : undefined)
-
-  const graph = sessionGraph !== null
-    ? buildTeamGraph({ rootId: sessionGraph.rootId, byId: sessionGraph.byId, catalogs: sessionGraph.catalogs, team })
-    : null
-  let nodes = graph?.nodes ?? []
-  if (nodes.length === 0) {
-    const lead = members.find((member) => member.role === 'lead') ?? members[0]
-    nodes = (lead === undefined ? [] : [lead, ...members.filter((member) => member !== lead)]).map((member, index) => ({
-      id: member.id ?? `member-${index}`,
-      parentId: index === 0 ? null : (lead?.id ?? 'root'),
-      depth: index === 0 ? 0 : 1,
-      kind: member.role === 'lead' ? 'lead' : 'member',
-      label: member.name,
-      state: actorFor(member.name)?.state ?? 'idle',
-      tasks: tasks.filter((task) => task.ownerName === member.name).map((task) => ({ id: task.id, subject: task.subject ?? '', status: task.status ?? 'pending' })),
-    }))
-  }
-
-  if (nodes.length === 0) {
-    const empty = doc.createElement('div')
-    empty.className = 'aw-team-empty'
-    empty.textContent = '还没有团队成员。'
-    mount.append(empty)
-    return
-  }
-
-  const taskText = (task) => `${task.id ?? ''} ${task.subject ?? ''}`.trim()
-  const selectNode = (node, actor, nodeTasks) => {
-    for (const card of mount.querySelectorAll('.aw-team-node')) card.classList.toggle('is-selected', card.dataset.nodeId === node.id)
-    if (actor !== undefined) focusAgent(actor.id, 'member')
-    showTeamDetail(node.label ?? node.title ?? node.id, node.kind, actor?.state ?? node.state, actor?.id ?? null, nodeTasks)
-  }
-
-  const renderNode = (node, depth) => {
-    const actor = actorFor(node.label, node.id)
-    const state = actor?.state ?? node.state ?? 'idle'
-    const nodeTasks = Array.isArray(node.tasks) ? node.tasks : tasks.filter((task) => task.ownerName === node.label).map((task) => ({ id: task.id, subject: task.subject ?? '', status: task.status }))
-    const card = doc.createElement('div')
-    card.className = depth === 0 ? 'aw-team-node is-root' : 'aw-team-node'
-    card.dataset.nodeId = node.id
-    card.tabIndex = 0
-    card.setAttribute('role', 'button')
-    card.setAttribute('aria-label', `${node.label ?? node.id} · ${roleText(node.kind)} · ${agentStateText(state)}`)
-    if (actor === undefined) card.classList.add('is-static')
-
-    const avatar = doc.createElement('span')
-    avatar.className = 'aw-team-avatar'
-    avatar.textContent = (node.label ?? '?').trim().slice(0, 1).toUpperCase()
-    const sprite = actor === undefined ? null : resolveMemberSprite(meta?.scene, actor.id, spriteAssetBase)
-    if (sprite !== null) {
-      const style = spriteAvatarStyle(sprite)
-      avatar.classList.add('is-sprite')
-      avatar.style.backgroundImage = style.backgroundImage
-      avatar.style.backgroundSize = style.backgroundSize
-      avatar.style.backgroundPosition = style.backgroundPosition
-    }
-
-    const body = doc.createElement('div')
-    body.className = 'aw-team-node-body'
-    const top = doc.createElement('div')
-    top.className = 'aw-team-node-top'
-    const name = doc.createElement('b')
-    name.textContent = node.label ?? node.title ?? node.id
-    name.title = name.textContent
-    const badge = doc.createElement('span')
-    badge.className = 'aw-team-badge'
-    badge.textContent = roleText(node.kind)
-    const stateTag = doc.createElement('span')
-    stateTag.className = 'aw-team-state'
-    stateTag.dataset.state = state
-    stateTag.textContent = agentStateText(state)
-    const sessionTag = doc.createElement('span')
-    sessionTag.className = 'aw-team-session'
-    sessionTag.textContent = String(node.id).slice(-8)
-    sessionTag.title = `session ${node.id}`
-    if (actor?.boundAgentId !== undefined && actor?.boundAgentId !== null) {
-      const linkDot = doc.createElement('i')
-      linkDot.className = 'aw-team-link-dot'
-      linkDot.title = '已绑定会话'
-      sessionTag.prepend(linkDot)
-    }
-    const count = doc.createElement('span')
-    count.className = 'aw-team-count'
-    count.textContent = String(nodeTasks.length)
-    count.title = `${nodeTasks.length} 张任务`
-    top.append(name, sessionTag, badge, stateTag, count)
-    body.append(top)
-    for (const task of nodeTasks.slice(0, 2)) {
-      const line = doc.createElement('div')
-      line.className = 'aw-team-task'
-      const mark = doc.createElement('i')
-      mark.className = 'aw-task-mark'
-      mark.dataset.status = String(task.status ?? 'pending')
-      const text = doc.createElement('span')
-      text.textContent = taskText(task)
-      text.title = text.textContent
-      line.append(mark, text)
-      body.append(line)
-    }
-    card.append(avatar, body)
-    card.addEventListener('click', () => selectNode(node, actor, nodeTasks))
-    card.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectNode(node, actor, nodeTasks) }
-    })
-    card.addEventListener('dblclick', () => {
-      if (actor !== undefined) { focusAgent(actor.id, 'member'); openDialogueFor(actor.id) }
-    })
-
-    const children = nodes.filter((candidate) => candidate.parentId === node.id)
-    if (children.length === 0) return card
-    const wrap = doc.createElement('div')
-    wrap.className = 'aw-team-children'
-    for (const child of children) wrap.append(renderNode(child, depth + 1))
-    const branch = doc.createElement('div')
-    branch.className = 'aw-team-branch'
-    branch.append(card, wrap)
-    return branch
-  }
-
-  const graphRoot = nodes.find((node) => node.parentId === null) ?? nodes[0]
-  mount.append(renderNode(graphRoot, 0))
 }
 
 /** Agent 面板：列表 / agent 拓扑两种查看方式。 */
