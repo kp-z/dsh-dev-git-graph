@@ -830,3 +830,81 @@
   opacity: 0.4;
   cursor: wait;
 }
+
+/* R275：任务看板也走同一套“分层仪表盘”语言。 */
+.sidebar-task-board {
+  gap: 9px;
+  padding: 6px 4px 8px;
+}
+.aw-kanban-column {
+  border-radius: 11px;
+  border-color: color-mix(in srgb, var(--stroke-strong) 45%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-0) 34%, var(--panel-2)), color-mix(in srgb, var(--bg-0) 58%, transparent));
+}
+.aw-kanban-column[data-status='pending'] {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--st-pending) 7%, var(--panel-2)), color-mix(in srgb, var(--st-pending) 2%, transparent));
+}
+.aw-kanban-column[data-status='in_progress'] {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--st-in_progress) 9%, var(--panel-2)), color-mix(in srgb, var(--st-in_progress) 3%, transparent));
+}
+.aw-kanban-column[data-status='completed'] {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--st-done) 8%, var(--panel-2)), color-mix(in srgb, var(--st-done) 2%, transparent));
+}
+.aw-kanban-head {
+  padding: 7px 9px;
+  border-bottom-color: color-mix(in srgb, var(--stroke-strong) 35%, transparent);
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.aw-kanban-head b {
+  min-width: 20px;
+  height: 17px;
+  line-height: 17px;
+  background: color-mix(in srgb, var(--fg-0) 7%, transparent);
+  color: var(--fg-1);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+.aw-kanban-body {
+  padding: 7px;
+  gap: 7px;
+}
+.aw-kanban-card {
+  gap: 4px;
+  padding: 8px 8px 7px;
+  border-radius: 8px;
+  border-color: color-mix(in srgb, var(--stroke-strong) 55%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 4%, var(--panel-2)), var(--panel-2));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent),
+    var(--shadow-1);
+  transition:
+    border-color var(--t-hover) var(--ease),
+    transform var(--t-hover) var(--ease),
+    box-shadow var(--t-hover) var(--ease);
+}
+.aw-kanban-card:hover,
+.aw-kanban-card:focus-visible {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--st, var(--screen)) 58%, var(--stroke-strong));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent),
+    0 7px 18px color-mix(in srgb, #000 24%, transparent);
+  outline: none;
+}
+.aw-kanban-title {
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 550;
+}
+.aw-kanban-desc {
+  font-size: 9.5px;
+  line-height: 1.45;
+}

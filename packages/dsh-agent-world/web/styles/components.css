@@ -2902,3 +2902,218 @@
   font-style: normal;
   line-height: 14px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * R275：团队/任务面板视觉重做
+ * - 卡片是“分层仪表盘”，不是白描边框：底色有极轻的纵向渐变，边界靠 inset 高光。
+ * - 颜色只出现在头像、状态点和任务状态线上；其余保持中性，避免彩色噪音。
+ * - 所有抬升只用 1px + 柔影，保证密集面板里不糊。
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+.board-member {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--stroke-strong) 62%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--paper-hover) 78%, transparent), var(--paper-card) 72%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent),
+    var(--shadow-1);
+  transition:
+    background var(--t-hover) var(--ease),
+    border-color var(--t-hover) var(--ease),
+    box-shadow var(--t-hover) var(--ease),
+    transform var(--t-hover) var(--ease);
+}
+.board-member:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--rail, var(--screen)) 38%, var(--stroke-strong));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 7%, transparent),
+    0 6px 18px color-mix(in srgb, #000 22%, transparent);
+}
+.board-member.active {
+  border-color: color-mix(in srgb, var(--screen) 72%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--screen) 14%, var(--paper-card)), color-mix(in srgb, var(--screen) 6%, var(--paper-card)));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--screen) 18%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--screen) 10%, transparent);
+}
+.board-member-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border-color: color-mix(in srgb, var(--rail, var(--stroke-strong)) 70%, transparent);
+  background:
+    radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--rail, var(--stroke-strong)) 40%, transparent), transparent 62%),
+    color-mix(in srgb, var(--rail, var(--stroke-strong)) 22%, var(--paper-card));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #fff 10%, transparent),
+    0 0 14px color-mix(in srgb, var(--rail, transparent) 18%, transparent);
+  font-size: 15px;
+}
+.board-member[data-state='working'] .board-member-avatar {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, #fff 14%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--st-in_progress, var(--st)) 32%, transparent),
+    0 0 16px color-mix(in srgb, var(--st-in_progress, var(--st)) 26%, transparent);
+}
+.board-member-name {
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.board-member-role {
+  padding: 1px 5px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 4px;
+  color: var(--fg-2);
+  font-size: 9px;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+}
+.board-member-tasks {
+  margin-top: 3px;
+  gap: 3px;
+}
+.board-member-task {
+  border-radius: 5px;
+  padding: 2px 4px;
+  transition: background var(--t-hover) var(--ease), color var(--t-hover) var(--ease);
+}
+.board-member-task:hover {
+  background: color-mix(in srgb, var(--rail, var(--screen)) 12%, transparent);
+  color: var(--fg-0);
+}
+
+/* 拓扑：主卡是“指挥台”，子卡是“席位”。 */
+.aw-topology {
+  padding: 12px 10px 16px;
+  background:
+    radial-gradient(120% 60% at 50% 0%, color-mix(in srgb, var(--screen) 8%, transparent), transparent 70%);
+}
+.aw-topology-node {
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--stroke-strong) 55%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--paper-hover) 72%, transparent), var(--panel-2) 78%);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent),
+    var(--shadow-1);
+  padding: 8px 9px;
+  gap: 6px;
+  transition: border-color var(--t-hover) var(--ease), box-shadow var(--t-hover) var(--ease), transform var(--t-hover) var(--ease);
+}
+.aw-topology-node:hover,
+.aw-topology-node:focus-visible {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--screen) 62%, transparent);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 7%, transparent),
+    0 8px 22px color-mix(in srgb, #000 24%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--screen) 8%, transparent);
+}
+.aw-topology-node.is-root {
+  background:
+    radial-gradient(140% 120% at 50% 0%, color-mix(in srgb, var(--screen) 18%, transparent), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--screen) 10%, var(--panel-2)), var(--panel-2));
+  border-color: color-mix(in srgb, var(--screen) 55%, transparent);
+  padding: 10px 11px;
+}
+.aw-topology-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--screen) 32%, transparent), transparent 65%),
+    var(--panel-2);
+  border-color: color-mix(in srgb, var(--screen) 35%, var(--stroke-strong));
+  font-size: 10px;
+}
+.aw-topology-node b {
+  font-size: 12px;
+  font-weight: 650;
+}
+.aw-topology-badge {
+  border-color: color-mix(in srgb, var(--screen) 22%, var(--edge));
+  color: color-mix(in srgb, var(--screen) 55%, var(--fg-1));
+  background: color-mix(in srgb, var(--screen) 6%, transparent);
+}
+.aw-topology-task {
+  border-left: 2px solid color-mix(in srgb, var(--screen) 25%, transparent);
+  padding-left: 5px;
+  color: var(--fg-1);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+.aw-topology-trunk {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--screen) 40%, transparent), var(--edge));
+}
+.aw-topology-branch {
+  border-top-color: color-mix(in srgb, var(--screen) 18%, var(--edge));
+}
+
+/* R275：任务图节点与面板标题的最后一段统一。 */
+.board-node {
+  border-radius: 8px;
+  border-color: color-mix(in srgb, var(--stroke-strong) 55%, transparent);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, #fff 4%, var(--paper-card)), var(--paper-card));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 4%, transparent),
+    var(--shadow-1);
+}
+.board-node.is-selected {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--screen) 28%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--screen) 10%, transparent),
+    0 8px 20px color-mix(in srgb, #000 24%, transparent);
+}
+.sidebar-region-head {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--fg-0) 3%, transparent), transparent);
+}
+.sidebar-region-title {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+/* R276：成员卡默认只露 3 条任务，其余用 +N 展开，卡片高度不再差太多。 */
+.board-member-tasks .board-member-task:nth-child(n + 4) {
+  display: none;
+}
+.board-member.is-expanded .board-member-tasks .board-member-task:nth-child(n + 4) {
+  display: flex;
+}
+.board-member-tasks {
+  max-height: none;
+  overflow: visible;
+  gap: 2px;
+}
+.board-member-task {
+  line-height: 1.5;
+  padding: 2px 0;
+  align-items: baseline;
+}
+.board-member-more {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 0 5px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-2);
+  font-size: 9px;
+  line-height: 16px;
+  cursor: pointer;
+}
+.board-member-more:hover,
+.board-member-more:focus-visible {
+  color: var(--fg-0);
+  border-color: var(--stroke-strong);
+  outline: none;
+}
