@@ -172,3 +172,15 @@
 .aw-subagent-view-host .tasks_graph_controls button[aria-label*='图'] {
   display: none !important;
 }
+
+/* R286：流程视图不要自己的画布底色，直接透出团队面板。 */
+.aw-subagent-view-host,
+.aw-subagent-view-host .SubagentView_subagent,
+.aw-subagent-view-host .tasks_graph_graphView,
+.aw-subagent-view-host .tasks_graph_canvas,
+.aw-subagent-view-host .tasks_graph_canvasInner,
+.aw-subagent-view-host .tasks_graph_view {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
