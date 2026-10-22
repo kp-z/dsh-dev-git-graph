@@ -1097,6 +1097,9 @@ function renderTeamTopology(team) {
   const children = members.filter((member) => member !== leadMember)
   const branch = doc.createElement('div')
   branch.className = 'aw-topology-branch'
+  if (children.length === 0) {
+    branch.append(Object.assign(doc.createElement('div'), { className: 'aw-topology-empty', textContent: '暂无子代理' }))
+  }
   for (const member of children) {
     const actor = actors.find((candidate) => candidate.name === member.name)
     branch.append(makeNode(member.name, member.role, actor?.state, actor?.id,
