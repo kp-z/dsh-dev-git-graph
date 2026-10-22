@@ -2638,3 +2638,97 @@
   outline: 2px solid var(--screen);
   outline-offset: 2px;
 }
+
+/* R268：团队面板 agent 拓扑。 */
+.aw-team-view {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.aw-team-view-button {
+  opacity: 0.55;
+}
+.aw-team-view-button.is-active {
+  opacity: 1;
+  border-color: var(--screen);
+  color: var(--screen);
+}
+.aw-topology {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+.aw-topology-node {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: min(100%, 260px);
+  padding: 6px 8px;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+  color: var(--fg-0);
+  text-align: left;
+  cursor: pointer;
+}
+.aw-topology-node:hover,
+.aw-topology-node:focus-visible {
+  border-color: var(--screen);
+  outline: none;
+}
+.aw-topology-node.is-root {
+  border-color: var(--stroke-strong);
+}
+.aw-topology-node b {
+  font-size: 12px;
+  flex: none;
+}
+.aw-topology-node span {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+  font-size: 10px;
+}
+.aw-topology-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--st-pending);
+}
+.aw-topology-dot[data-state='working'] { background: var(--st-in_progress); }
+.aw-topology-dot[data-state='talking'] { background: var(--st-ready); }
+.aw-topology-dot[data-state='blocked'] { background: var(--st-failed); }
+.aw-topology-dot[data-state='idle'] { background: var(--st-pending); }
+.aw-topology-trunk {
+  width: 1px;
+  height: 16px;
+  flex: none;
+  background: var(--edge);
+}
+.aw-topology-branch {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--edge);
+}
+.aw-topology-branch::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1px;
+  height: 8px;
+  background: var(--edge);
+}
