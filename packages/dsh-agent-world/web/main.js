@@ -1132,6 +1132,7 @@ function renderWorkflowRuns(runs, error) {
   for (const run of runs) {
     const card = doc.createElement('div')
     card.className = 'aw-workflow-run'
+    card.title = `${run.runId} · ${run.status}`
     const head = doc.createElement('div')
     head.className = 'aw-workflow-head'
     const name = doc.createElement('b')
