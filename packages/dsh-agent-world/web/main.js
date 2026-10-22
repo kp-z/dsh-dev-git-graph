@@ -1091,6 +1091,27 @@ function renderTeamTopology(team) {
       if (actor !== undefined) focusAgent(actor.id, 'member')
     })
     mount.append(host)
+    const leadName = (lastTeam?.members ?? []).find((member) => member.role === 'lead')?.name ?? 'lead'
+    const relabelMainAgent = () => {
+      const walker = globalThis.document.createTreeWalker(host, NodeFilter.SHOW_TEXT)
+      const hits = []
+      while (walker.nextNode()) {
+        const value = walker.currentNode.nodeValue ?? ''
+        if (/^(Main agent|主代理)\s*$/.test(value.trim())) hits.push(walker.currentNode)
+      }
+      for (const node of hits) {
+        node.nodeValue = node.nodeValue.replace(/Main agent|主代理/, leadName)
+      }
+      for (const card of host.querySelectorAll('[data-graph-node]')) {
+        const label = card.getAttribute('aria-label')
+        if (typeof label === 'string' && /^(Main agent|主代理)\b/.test(label)) {
+          card.setAttribute('aria-label', label.replace(/Main agent|主代理/, leadName))
+        }
+      }
+    }
+    relabelMainAgent()
+    const labelObserver = new MutationObserver(relabelMainAgent)
+    labelObserver.observe(host, { childList: true, subtree: true, characterData: true })
     nativeTeamViewActive = true
     void globalThis.__awMountSubagentView(host).catch(() => {
       nativeTeamViewActive = false
