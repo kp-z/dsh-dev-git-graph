@@ -1,0 +1,13 @@
+# dsh-feishu：把飞书任务与文档接进 profile 的层栈。
+#
+# host 半体：feishu-sync-cli 封装（任务/文档同步）、定时、模型工具、
+#            HTTP 路由（/dsh-feishu/panel 面板 + /dsh-feishu/api/* 接口）
+# client 半体：在右侧栏注册「飞书」页签
+#
+# 依赖全部由 base / web-app bundle 备好，本插件只消费、不重复挂载：
+#   - tools / webServer（dsh-base，web 组合）
+#   - agents / sessionController（dsh-web-app，仅「开工」用到，缺失时降级报错）
+- insert:
+    - id: feishu
+      name: dsh-feishu
+      config: {}
