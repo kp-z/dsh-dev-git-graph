@@ -154,6 +154,16 @@ let taskView = (() => {
   } catch (e) { return 'graph' }
 })()
 let lastOfficialTasks = []
+/** 官方团队任务 → actor 状态覆盖（owner 有进行中任务 = working）。 */
+let teamActivity = new Map()
+
+function applyTeamActivity(source) {
+  if (teamActivity.size === 0 || source === null) return source
+  return {
+    ...source,
+    agents: source.agents.map((agent) => teamActivity.has(agent.id) ? { ...agent, state: 'working' } : agent),
+  }
+}
 /**
  * 调度器诊断（R67 / M13-5）：`runtime.diagnostics`。
  *
@@ -514,6 +524,14 @@ function renderOfficialTasks(team) {
   if (team === null || team === undefined) return
   const tasks = Array.isArray(team.tasks) ? team.tasks : []
   lastOfficialTasks = tasks
+  const byName = new Map((world?.agents ?? []).map((agent) => [agent.name, agent.id]))
+  teamActivity = new Map()
+  for (const task of tasks) {
+    const status = String(task.status ?? '')
+    if (status !== 'in_progress' && status !== 'running' && status !== 'active') continue
+    const id = byName.get(task.ownerName)
+    if (typeof id === 'string') teamActivity.set(id, task.id)
+  }
   const emptyHost = root.querySelector('#sidebar-official-tasks')
   if (emptyHost !== null) {
     emptyHost.textContent = tasks.length === 0 ? '还没有任务。点右上角「＋ 任务」创建第一张。' : ''
@@ -525,6 +543,7 @@ function renderOfficialTasks(team) {
   setTasksNotice('')
   // 任务交给看板：它负责节点/边/状态带/图标可用性（图与状态带是同一份数据）。
   board.setTeamTasks(tasks)
+  if (world !== null) board.update(applyTeamActivity(world), { diagnostics, scene: meta?.scene })
   const graphHost = root.querySelector('#sidebar-task-graph')
   if (graphHost !== null) graphHost.hidden = tasks.length === 0 || taskView !== 'graph'
   if (tasks.length > 0 && taskView === 'graph') board.refreshGraph?.()
@@ -1079,7 +1098,7 @@ function render(force = false) {
   lastRenderMs = now
   const tick = currentTick()
 
-  scene2d.render({ world, scene: meta.scene, tick, messageDeliveryTicks: meta.messageDeliveryTicks })
+  scene2d.render({ world: applyTeamActivity(world), scene: meta.scene, tick, messageDeliveryTicks: meta.messageDeliveryTicks })
 
   // 把渲染器的**真实计数**显示出来——"不卡"要能被看见，否则只是承诺（R57）。
   // 报 Phaser 用哪个渲染器、这一帧提交了几次 GL 绘制、画了多少个对象。
@@ -1350,7 +1369,7 @@ const connection = createConnection({
     // 没有的字段就是 `undefined`——第一版写成 meta.taskSets，于是每次都把目录清空成 {}，
     // 分组签一直显示英文短 id（真机上抓到的）。
     board.setTaskSets?.(snap.taskSets)
-    board.update(world, { diagnostics, scene: meta?.scene })
+    board.update(applyTeamActivity(world), { diagnostics, scene: meta?.scene })
     legend.update({ scene: meta.scene })
     void loadWorldSession()
     void loadTeamPlan()
@@ -1366,7 +1385,7 @@ const connection = createConnection({
     applyEvents(world, events)
     pruneMessages(world)
     // R3：侧边栏**没有自己的数据路径**了——看板那一份渲染直接挂进了它的两档。
-    board.update(world, { diagnostics, scene: meta?.scene })
+    board.update(applyTeamActivity(world), { diagnostics, scene: meta?.scene })
     render()
   },
   onSync: () => {
@@ -1557,7 +1576,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
   }
   globalThis.__agentWorldBoard = {
     stats: () => board.stats(),
-    refresh: () => board.update(world, { diagnostics, scene: meta?.scene }),
+    refresh: () => board.update(applyTeamActivity(world), { diagnostics, scene: meta?.scene }),
     select: (taskId) => board.select(taskId),
     // R181：官方任务投影的入口（验收时可直接喂一份 mock，不必等真团队）。
     setTeamTasks: (tasks) => board.setTeamTasks(tasks),
