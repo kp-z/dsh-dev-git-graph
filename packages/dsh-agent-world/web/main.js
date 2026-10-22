@@ -1315,7 +1315,7 @@ function renderAgentActions(team) {
     const select = doc.createElement('select')
     select.className = 'aw-view-select aw-team-select'
     select.title = '团队显示模式'
-    select.setAttribute('aria-label', '切换团队显示模式：列表或拓扑')
+    select.setAttribute('aria-label', '切换团队显示模式：树或流程')
     for (const [value, icon, label] of [['tree', '☰', '树'], ['workflow', '⑂', '流程']]) {
       const option = doc.createElement('option')
       option.value = value
