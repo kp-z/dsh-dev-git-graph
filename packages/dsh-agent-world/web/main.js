@@ -1090,6 +1090,7 @@ function workflowMemberRow(member) {
   const state = doc.createElement('em')
   state.textContent = member.outcome ?? '运行中'
   row.append(dot, label, state)
+  row.setAttribute('aria-label', `${member.label || member.childId} · ${(member.outcome ?? 'running')}`)
   row.addEventListener('click', () => {
     const actor = (world?.agents ?? []).find((candidate) => candidate.boundAgentId === member.childId)
       ?? (world?.agents ?? []).find((candidate) => candidate.name === member.label)
