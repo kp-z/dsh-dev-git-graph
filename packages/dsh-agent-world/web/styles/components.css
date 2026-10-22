@@ -2732,3 +2732,12 @@
   height: 8px;
   background: var(--edge);
 }
+
+.aw-topology-task {
+  flex: 1 0 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-2);
+  font-size: 9.5px;
+}
