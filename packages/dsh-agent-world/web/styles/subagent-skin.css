@@ -200,3 +200,13 @@
   background: transparent !important;
   background-image: none !important;
 }
+
+/* R290：workflow 容器直接用卡片底色，和成员/任务卡一致。 */
+.aw-subagent-view-host,
+.aw-subagent-view-host .SubagentView_subagent,
+.aw-subagent-view-host .tasks_graph_graphView,
+.aw-subagent-view-host .tasks_graph_canvas,
+.aw-subagent-view-host .tasks_graph_canvasInner {
+  background: var(--paper-card) !important;
+  background-image: none !important;
+}
