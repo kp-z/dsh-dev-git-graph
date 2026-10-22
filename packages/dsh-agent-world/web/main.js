@@ -1335,7 +1335,17 @@ function renderAgentActions(team) {
     }
     select.value = teamView
     select.addEventListener('change', () => setTeamView(select.value))
-    host.append(select)
+    const refresh = doc.createElement('button')
+    refresh.type = 'button'
+    refresh.className = 'aw-icon aw-team-refresh'
+    refresh.textContent = '↻'
+    refresh.title = '刷新团队'
+    refresh.setAttribute('aria-label', '刷新团队')
+    refresh.addEventListener('click', () => {
+      if (teamView === 'workflow') void loadWorkflowRuns()
+      else board.refresh()
+    })
+    host.append(select, refresh)
   }
   const membersMount = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
   if (membersMount !== null && membersMount !== undefined) membersMount.hidden = teamView === 'workflow'
