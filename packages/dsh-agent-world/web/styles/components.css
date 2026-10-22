@@ -3121,3 +3121,23 @@
   border-color: var(--stroke-strong);
   outline: none;
 }
+
+/* R278：拓扑头像固定在卡片左上，不参与文字换行。 */
+.aw-topology-node {
+  position: relative;
+  padding-left: 44px;
+}
+.aw-topology-node .aw-topology-avatar {
+  position: absolute;
+  left: 9px;
+  top: 9px;
+}
+.aw-topology-node .aw-topology-dot {
+  position: absolute;
+  left: 30px;
+  top: 24px;
+  box-shadow: 0 0 0 2px var(--panel-2);
+}
+.aw-topology-node .aw-topology-task {
+  margin-left: 0;
+}
