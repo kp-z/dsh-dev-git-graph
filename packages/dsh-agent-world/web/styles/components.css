@@ -2632,3 +2632,9 @@
 .board-node:active {
   transform: translateY(0) scale(0.99);
 }
+
+/* R265：成员行键盘焦点可见，和任务卡/看板一致。 */
+.board-member:focus-visible {
+  outline: 2px solid var(--screen);
+  outline-offset: 2px;
+}
