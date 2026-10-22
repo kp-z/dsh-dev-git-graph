@@ -3439,3 +3439,20 @@
   cursor: pointer;
 }
 .aw-workflow-retry:hover { border-color: var(--screen); color: var(--fg-0); }
+
+.aw-team-session {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--fg-2);
+  opacity: 0.42;
+  font: 8px/1 var(--mono-font);
+}
+.aw-team-link-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--st-done);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--st-done) 55%, transparent);
+}

@@ -1255,11 +1255,21 @@ function renderTeamTopology(team) {
     stateTag.className = 'aw-team-state'
     stateTag.dataset.state = state
     stateTag.textContent = agentStateText(state)
+    const sessionTag = doc.createElement('span')
+    sessionTag.className = 'aw-team-session'
+    sessionTag.textContent = String(node.id).slice(-8)
+    sessionTag.title = `session ${node.id}`
+    if (actor?.boundAgentId !== undefined && actor?.boundAgentId !== null) {
+      const linkDot = doc.createElement('i')
+      linkDot.className = 'aw-team-link-dot'
+      linkDot.title = '已绑定会话'
+      sessionTag.prepend(linkDot)
+    }
     const count = doc.createElement('span')
     count.className = 'aw-team-count'
     count.textContent = String(nodeTasks.length)
     count.title = `${nodeTasks.length} 张任务`
-    top.append(name, badge, stateTag, count)
+    top.append(name, sessionTag, badge, stateTag, count)
     body.append(top)
     for (const task of nodeTasks.slice(0, 2)) {
       const line = doc.createElement('div')
