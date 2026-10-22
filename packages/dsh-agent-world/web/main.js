@@ -62,6 +62,7 @@ export function mountAgentWorld(options = {}) {
   const embedded = options.embedded === true
   /** R175：会话 id，用来读只读 team plan。 */
   const sessionId = typeof options.sessionId === 'string' && options.sessionId !== '' ? options.sessionId : null
+  currentSessionId = sessionId
   const rawBase = typeof options.baseUrl === 'string' && options.baseUrl !== '' ? options.baseUrl : '.'
   const baseUrl = rawBase === '.' ? '.' : rawBase.replace(/\/$/, '')
   const apiUrl = (path) => `${baseUrl}/${path}`
@@ -970,6 +971,8 @@ let teamView = (() => {
 })()
 let lastTeam = null
 let sessionGraph = null
+let currentSessionId = null
+let workflowLoadToken = 0
 
 function agentStateText(state) {
   return ({ working: '干活', talking: '对话中', walking: '走动', idle: '待命', sleeping: '休息', blocked: '阻塞', celebrating: '完成' })[state] ?? state ?? '待命'
@@ -1068,12 +1071,105 @@ function setTeamView(next) {
   if (teamView === 'workflow') renderTeamTopology(lastTeam)
 }
 
+function workflowStatusText(status) {
+  return ({ running: '运行中', completed: '已完成', cancelled: '已取消', failed: '失败' })[status] ?? status
+}
+
+function workflowMemberRow(member, run) {
+  const row = doc.createElement('button')
+  row.type = 'button'
+  row.className = 'aw-workflow-member'
+  const dot = doc.createElement('i')
+  dot.className = 'aw-workflow-dot'
+  dot.dataset.state = member.outcome === undefined ? 'running' : member.outcome === 'completed' ? 'done' : member.outcome === 'failed' ? 'error' : 'idle'
+  const label = doc.createElement('span')
+  label.className = 'aw-workflow-label'
+  label.textContent = member.label || member.childId
+  label.title = label.textContent
+  const state = doc.createElement('em')
+  state.textContent = member.outcome ?? '运行中'
+  row.append(dot, label, state)
+  row.addEventListener('click', () => {
+    const actor = (world?.agents ?? []).find((candidate) => candidate.boundAgentId === member.childId)
+      ?? (world?.agents ?? []).find((candidate) => candidate.name === member.label)
+    if (actor !== undefined) {
+      focusAgent(actor.id, 'member')
+      showTeamDetail(actor.name, 'member', actor.state, actor.id, [])
+    }
+  })
+  return row
+}
+
+function renderWorkflowRuns(runs, error) {
+  const mount = ensureTeamTopology()
+  if (mount === null) return
+  mount.textContent = ''
+  if (error !== null) {
+    mount.append(Object.assign(doc.createElement('div'), { className: 'aw-team-empty', textContent: `workflow 数据不可用：${error}` }))
+    return
+  }
+  if (!Array.isArray(runs) || runs.length === 0) {
+    mount.append(Object.assign(doc.createElement('div'), { className: 'aw-team-empty', textContent: '还没有 workflow 运行。' }))
+    return
+  }
+  for (const run of runs) {
+    const card = doc.createElement('div')
+    card.className = 'aw-workflow-run'
+    const head = doc.createElement('div')
+    head.className = 'aw-workflow-head'
+    const name = doc.createElement('b')
+    name.textContent = run.name || run.runId
+    const status = doc.createElement('span')
+    status.className = 'aw-workflow-status'
+    status.dataset.status = run.status
+    status.textContent = workflowStatusText(run.status)
+    const meta = doc.createElement('span')
+    meta.className = 'aw-workflow-meta'
+    meta.textContent = `${run.phases.reduce((sum, phase) => sum + phase.members.length, 0)} 成员`
+    head.append(name, status, meta)
+    card.append(head)
+    for (const phase of run.phases ?? []) {
+      const phaseBox = doc.createElement('div')
+      phaseBox.className = 'aw-workflow-phase'
+      if (phase.title !== undefined) phaseBox.append(Object.assign(doc.createElement('div'), { className: 'aw-workflow-phase-title', textContent: phase.title }))
+      for (const member of phase.members ?? []) phaseBox.append(workflowMemberRow(member, run))
+      card.append(phaseBox)
+    }
+    mount.append(card)
+  }
+}
+
+async function loadWorkflowRuns() {
+  const mount = ensureTeamTopology()
+  if (mount === null) return
+  if (mount.textContent === '') mount.append(Object.assign(doc.createElement('div'), { className: 'aw-team-empty', textContent: '正在加载 workflow…' }))
+  const rootId = sessionGraph?.rootId ?? currentSessionId
+  if (typeof rootId !== 'string' || rootId === '') { renderWorkflowRuns([], '没有当前会话'); return }
+  const token = ++workflowLoadToken
+  try {
+    const response = await fetch('/sidebar/api/workflows.list', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ sessionId: currentSessionId ?? rootId, rootSessionId: rootId }),
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const envelope = await response.json()
+    if (token !== workflowLoadToken) return
+    if (envelope?.ok !== true) throw new Error(envelope?.error?.message ?? '返回格式错误')
+    renderWorkflowRuns(envelope.value?.runs ?? [], null)
+  } catch (error) {
+    if (token !== workflowLoadToken) return
+    renderWorkflowRuns([], error instanceof Error ? error.message : String(error))
+  }
+}
+
 function renderTeamTopology(team) {
   const mount = ensureTeamTopology()
   if (mount === null) return
   mount.hidden = teamView !== 'workflow'
-  mount.textContent = ''
   if (teamView !== 'workflow') return
+  void loadWorkflowRuns()
+  return
 
   const members = Array.isArray(team?.members) ? team.members : []
   const tasks = Array.isArray(team?.tasks) ? team.tasks : []
