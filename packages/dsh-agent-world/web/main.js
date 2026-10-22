@@ -554,8 +554,21 @@ function renderOfficialTasks(team) {
   }
   const emptyHost = root.querySelector('#sidebar-official-tasks')
   if (emptyHost !== null) {
-    emptyHost.textContent = tasks.length === 0 ? '还没有任务。点右上角「＋ 任务」创建第一张。' : ''
+    emptyHost.textContent = ''
     emptyHost.classList.toggle('is-empty', tasks.length === 0)
+    if (tasks.length === 0) {
+      const box = doc.createElement('div')
+      box.className = 'aw-task-empty'
+      const text = doc.createElement('span')
+      text.textContent = '还没有任务。'
+      const create = doc.createElement('button')
+      create.type = 'button'
+      create.className = 'aw-task-empty-create'
+      create.textContent = '＋ 新建任务'
+      create.addEventListener('click', () => setComposerOpen(true))
+      box.append(text, create)
+      emptyHost.append(box)
+    }
   }
   const done = tasks.filter((task) => task.status === 'completed' || task.status === 'done').length
   const meta = root.querySelector('#sidebar-region-meta-graph')

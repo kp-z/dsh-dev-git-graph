@@ -3463,3 +3463,24 @@
   margin-left: 2px;
   font-size: 12px;
 }
+
+.aw-task-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px dashed var(--stroke);
+  border-radius: 8px;
+  color: var(--fg-2);
+  font-size: 10.5px;
+}
+.aw-task-empty-create {
+  padding: 2px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--fg-1);
+  font-size: 10px;
+  cursor: pointer;
+}
+.aw-task-empty-create:hover { border-color: var(--screen); color: var(--fg-0); }
