@@ -521,7 +521,7 @@ function renderOfficialTasks(team) {
   }
   const done = tasks.filter((task) => task.status === 'completed' || task.status === 'done').length
   const meta = root.querySelector('#sidebar-region-meta-graph')
-  if (meta !== null) meta.textContent = tasks.length === 0 ? '' : `${done}/${tasks.length} 完成`
+  if (meta !== null) meta.textContent = tasks.length === 0 ? '' : `✓ ${done}/${tasks.length} 完成`
   setTasksNotice('')
   // 任务交给看板：它负责节点/边/状态带/图标可用性（图与状态带是同一份数据）。
   board.setTeamTasks(tasks)
