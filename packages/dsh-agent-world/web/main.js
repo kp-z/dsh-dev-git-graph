@@ -1113,6 +1113,14 @@ function renderTeamTopology(team) {
     const labelObserver = new MutationObserver(relabelMainAgent)
     labelObserver.observe(host, { childList: true, subtree: true, characterData: true })
     nativeTeamViewActive = true
+    // 没有子代理时原生 workflow 可能只剩一张空画布；退回团队卡，别给一块空白。
+    globalThis.setTimeout(() => {
+      if (!nativeTeamViewActive || !host.isConnected) return
+      if (host.querySelectorAll('[data-graph-node]').length > 0) return
+      nativeTeamViewActive = false
+      nativeTeamViewFailed = true
+      renderTeamTopology(team)
+    }, 2200)
     void globalThis.__awMountSubagentView(host).catch(() => {
       nativeTeamViewActive = false
       nativeTeamViewFailed = true
