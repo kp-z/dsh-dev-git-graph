@@ -158,10 +158,18 @@ let lastOfficialTasks = []
 let teamActivity = new Map()
 
 function applyTeamActivity(source) {
-  if (teamActivity.size === 0 || source === null) return source
+  if (source === null) return source
+  const talkId = dialogue !== null && dialogue.isOpen() === true && dialogue.mode() === 'chat'
+    ? dialogue.agentId()
+    : null
+  const talking = talkId !== null && (dialogue?.thinkingTurns?.().length ?? 0) > 0
+  if (teamActivity.size === 0 && !talking) return source
   return {
     ...source,
-    agents: source.agents.map((agent) => teamActivity.has(agent.id) ? { ...agent, state: 'working' } : agent),
+    agents: source.agents.map((agent) => {
+      if (talking && agent.id === talkId) return { ...agent, state: 'talking' }
+      return teamActivity.has(agent.id) ? { ...agent, state: 'working' } : agent
+    }),
   }
 }
 /**
