@@ -184,3 +184,19 @@
   background-image: none !important;
   box-shadow: none !important;
 }
+
+/* R288：workflow 底部控制条整体移除；树/流程切换只在面板顶部。 */
+.aw-subagent-view-host .tasks_graph_controls {
+  display: none !important;
+}
+
+/* R288：画布点阵也去掉，真正透出面板底色。 */
+.aw-subagent-view-host .tasks_graph_canvas {
+  background: none !important;
+  background-image: none !important;
+}
+.aw-subagent-view-host .tasks_graph_graphView,
+.aw-subagent-view-host .tasks_graph_canvasInner {
+  background: transparent !important;
+  background-image: none !important;
+}
