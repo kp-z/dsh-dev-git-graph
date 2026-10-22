@@ -1120,7 +1120,7 @@ function renderTeamTopology(team) {
       nativeTeamViewActive = false
       nativeTeamViewFailed = true
       renderTeamTopology(team)
-    }, 2200)
+    }, 800)
     void globalThis.__awMountSubagentView(host).catch(() => {
       nativeTeamViewActive = false
       nativeTeamViewFailed = true
