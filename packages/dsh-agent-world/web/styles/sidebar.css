@@ -787,3 +787,25 @@
   outline: none;
   box-shadow: 0 0 0 2px var(--screen);
 }
+
+/* R260：看板卡片右上角完成/重开，不打断卡片选中。 */
+.aw-kanban-card {
+  position: relative;
+}
+.aw-kanban-actions {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  gap: 2px;
+  opacity: 0.55;
+}
+.aw-kanban-card:hover .aw-kanban-actions,
+.aw-kanban-card:focus-within .aw-kanban-actions {
+  opacity: 1;
+}
+.aw-kanban-actions .aw-icon {
+  width: 22px;
+  height: 20px;
+  font-size: 11px;
+}

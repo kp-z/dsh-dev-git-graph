@@ -745,9 +745,10 @@ function renderTaskBoard(tasks) {
     body.className = 'aw-kanban-body'
     if (items.length === 0) body.append(Object.assign(doc.createElement('div'), { className: 'aw-empty', textContent: '没有任务' }))
     for (const task of items) {
-      const item = doc.createElement('button')
-      item.type = 'button'
+      const item = doc.createElement('div')
       item.className = 'aw-kanban-card'
+      item.tabIndex = 0
+      item.setAttribute('role', 'button')
       item.dataset.task = task.id
       item.dataset.status = statusOf(task)
       const descHint = typeof task.description === 'string' && task.description.trim() !== ''
@@ -771,7 +772,42 @@ function renderTaskBoard(tasks) {
       desc.textContent = task.description ?? ''
       desc.title = desc.textContent
       item.append(top, title, desc)
-      item.addEventListener('click', () => board.select(task.id))
+      const activate = () => board.select(task.id)
+      item.addEventListener('click', (event) => {
+        if (event.target?.closest?.('.aw-kanban-actions') !== null) return
+        activate()
+      })
+      item.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate() }
+      })
+      const actions = doc.createElement('div')
+      actions.className = 'aw-kanban-actions'
+      if (statusOf(task) === 'completed') {
+        const reopen = doc.createElement('button')
+        reopen.type = 'button'
+        reopen.className = 'aw-icon'
+        reopen.textContent = '↺'
+        reopen.title = `重开 ${task.id}`
+        reopen.setAttribute('aria-label', reopen.title)
+        reopen.addEventListener('click', (event) => {
+          event.stopPropagation()
+          void postTeamTask('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reopen' }).then(() => loadTeamPlan())
+        })
+        actions.append(reopen)
+      } else {
+        const complete = doc.createElement('button')
+        complete.type = 'button'
+        complete.className = 'aw-icon'
+        complete.textContent = '✓'
+        complete.title = `完成 ${task.id}`
+        complete.setAttribute('aria-label', complete.title)
+        complete.addEventListener('click', (event) => {
+          event.stopPropagation()
+          void postTeamTask('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'complete' }).then(() => loadTeamPlan())
+        })
+        actions.append(complete)
+      }
+      item.append(actions)
       body.append(item)
     }
     column.append(head, body)
