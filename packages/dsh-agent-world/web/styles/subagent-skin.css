@@ -166,3 +166,9 @@
 .aw-subagent-view-host .tasks_graph_jobsDrawer {
   display: none !important;
 }
+
+/* R284：视图切换收口到团队面板顶部（树/流程）；隐藏原生内部图/树切换。 */
+.aw-subagent-view-host .tasks_graph_controls button[aria-label*='树'],
+.aw-subagent-view-host .tasks_graph_controls button[aria-label*='图'] {
+  display: none !important;
+}
