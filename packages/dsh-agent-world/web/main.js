@@ -444,7 +444,7 @@ function setTeamProjection(team) {
 /** DSH session 树（R273）：团队拓扑的真实父子来源。 */
 function setSessionGraph(graph) {
   sessionGraph = graph
-  if (teamView === 'topology') renderTeamTopology(lastTeam)
+  if (teamView === 'workflow') renderTeamTopology(lastTeam)
 }
 
 function setWorldSession(info) {
@@ -963,7 +963,10 @@ function renderTaskActions(team) {
 }
 
 let teamView = (() => {
-  try { return globalThis.localStorage?.getItem('agentWorld.teamView') === 'topology' ? 'topology' : 'list' } catch (e) { return 'list' }
+  try {
+    const saved = globalThis.localStorage?.getItem('agentWorld.teamView')
+    return saved === 'workflow' || saved === 'topology' ? 'workflow' : 'tree'
+  } catch (e) { return 'tree' }
 })()
 let lastTeam = null
 let sessionGraph = null
@@ -1054,15 +1057,15 @@ function showTeamDetail(name, role, state, id, tasks) {
 }
 
 function setTeamView(next) {
-  teamView = next === 'topology' ? 'topology' : 'list'
+  teamView = next === 'workflow' ? 'workflow' : 'tree'
   try { globalThis.localStorage?.setItem('agentWorld.teamView', teamView) } catch (e) { /* 便利 */ }
   const mount = ensureTeamTopology()
   const members = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
-  if (members !== null && members !== undefined) members.hidden = teamView === 'topology'
-  if (mount !== null) mount.hidden = teamView !== 'topology'
+  if (members !== null && members !== undefined) members.hidden = teamView === 'workflow'
+  if (mount !== null) mount.hidden = teamView !== 'workflow'
   const selector = root.querySelector('.aw-team-select')
-  if (selector !== null) { selector.value = teamView; selector.title = teamView === 'topology' ? '当前：拓扑' : '当前：列表' }
-  if (teamView === 'topology') renderTeamTopology(lastTeam)
+  if (selector !== null) { selector.value = teamView; selector.title = teamView === 'workflow' ? '当前：流程' : '当前：树' }
+  if (teamView === 'workflow') renderTeamTopology(lastTeam)
 }
 
 let nativeTeamViewActive = false
@@ -1071,12 +1074,22 @@ let nativeTeamViewFailed = false
 function renderTeamTopology(team) {
   const mount = ensureTeamTopology()
   if (mount === null) return
-  mount.hidden = teamView !== 'topology'
+  mount.hidden = teamView !== 'workflow'
   if (nativeTeamViewActive) return
   if (!nativeTeamViewFailed && typeof globalThis.__awMountSubagentView === 'function') {
     mount.textContent = ''
     const host = doc.createElement('div')
     host.className = 'aw-subagent-view-host'
+    host.addEventListener('click', (event) => {
+      const card = event.target?.closest?.('[data-graph-node]')
+      if (card === null || card === undefined) return
+      const nodeId = card.getAttribute('data-graph-node')
+      if (typeof nodeId !== 'string' || nodeId === '') return
+      const member = (lastTeam?.members ?? []).find((candidate) => candidate.id === nodeId)
+      const actor = (world?.agents ?? []).find((candidate) => candidate.boundAgentId === nodeId)
+        ?? (member === undefined ? undefined : (world?.agents ?? []).find((candidate) => candidate.name === member.name))
+      if (actor !== undefined) focusAgent(actor.id, 'member')
+    })
     mount.append(host)
     nativeTeamViewActive = true
     void globalThis.__awMountSubagentView(host).catch(() => {
@@ -1197,7 +1210,7 @@ function renderAgentActions(team) {
     select.className = 'aw-view-select aw-team-select'
     select.title = '团队显示模式'
     select.setAttribute('aria-label', '切换团队显示模式：列表或拓扑')
-    for (const [value, icon, label] of [['list', '☰', '列表'], ['topology', '⑂', '拓扑']]) {
+    for (const [value, icon, label] of [['tree', '☰', '树'], ['workflow', '⑂', '流程']]) {
       const option = doc.createElement('option')
       option.value = value
       option.textContent = icon
@@ -1209,9 +1222,9 @@ function renderAgentActions(team) {
     host.append(select)
   }
   const membersMount = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
-  if (membersMount !== null && membersMount !== undefined) membersMount.hidden = teamView === 'topology'
+  if (membersMount !== null && membersMount !== undefined) membersMount.hidden = teamView === 'workflow'
   ensureTeamTopology()
-  if (teamView === 'topology') renderTeamTopology(team)
+  if (teamView === 'workflow') renderTeamTopology(team)
   else {
     const mount = root.querySelector('#sidebar-team-topology')
     if (mount !== null) mount.hidden = true
