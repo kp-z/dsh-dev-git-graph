@@ -3174,3 +3174,10 @@
   scrollbar-width: thin;
   scrollbar-color: var(--stroke-strong) transparent;
 }
+
+/* R285：树/流程是可读模式，不只靠图标。 */
+.aw-team-select {
+  width: auto;
+  min-width: 64px;
+  padding-right: 16px;
+}

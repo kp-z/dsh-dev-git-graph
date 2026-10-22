@@ -1213,7 +1213,7 @@ function renderAgentActions(team) {
     for (const [value, icon, label] of [['tree', '☰', '树'], ['workflow', '⑂', '流程']]) {
       const option = doc.createElement('option')
       option.value = value
-      option.textContent = icon
+      option.textContent = `${icon} ${label}`
       option.title = label
       select.append(option)
     }
