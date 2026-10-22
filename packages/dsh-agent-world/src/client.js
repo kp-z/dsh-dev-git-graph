@@ -92,6 +92,77 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * DSH session 树（R273）：只取画拓扑要用的字段，避免把整个 snapshot 塞给页面。
+     *
+     * - byId：会话 summary 的 parentId/title/displayTitle/running；
+     * - catalogs：每层 parent 的 subagentCatalog entries（id/label/mode）。
+     * 页面用 web/core/team-graph.js 把两者组装成 TeamGraph。
+     */
+    function readSessionGraph(sessions, sessionId) {
+      if (typeof sessionId !== 'string' || sessionId === '') return null;
+      try {
+        const snapshot = sessions?.list?.getSnapshot?.();
+        if (snapshot === null || snapshot === undefined) return null;
+        const byId = {};
+        for (const [id, summary] of Object.entries(snapshot.byId ?? {})) {
+          if (summary === null || typeof summary !== 'object') continue;
+          byId[id] = {
+            id,
+            parentId: typeof summary.parentId === 'string' ? summary.parentId : null,
+            title: typeof summary.title === 'string' ? summary.title : null,
+            displayTitle: typeof summary.displayTitle === 'string' ? summary.displayTitle : null,
+            running: summary.running === true,
+            mode: typeof summary.mode === 'string' ? summary.mode : null,
+          };
+        }
+        const catalogs = {};
+        for (const [id, projection] of Object.entries(snapshot.projectionsBySession ?? {})) {
+          const catalog = projection?.values?.subagentCatalog;
+          if (catalog === null || catalog === undefined) continue;
+          if (catalog.state !== 'ready' || !Array.isArray(catalog.entries)) continue;
+          catalogs[id] = {
+            entries: catalog.entries.map((entry) => ({
+              id: typeof entry?.id === 'string' ? entry.id : '',
+              label: typeof entry?.label === 'string' ? entry.label : '',
+              mode: typeof entry?.mode === 'string' ? entry.mode : null,
+            })).filter((entry) => entry.id !== ''),
+          };
+        }
+        return { rootId: sessionId, byId, catalogs };
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /** 订阅 session 列表，图变化时把 session 树交给页面；立即回调一次。 */
+    function watchSessionGraph(sessions, sessionId, onChange) {
+      let last = null;
+      let timer = null;
+      const emit = () => {
+        if (timer !== null) return;
+        timer = setTimeout(() => {
+          timer = null;
+          const next = readSessionGraph(sessions, sessionId);
+          let fingerprint = 'null';
+          try { fingerprint = next === null ? 'null' : JSON.stringify(next); } catch (e) { fingerprint = String(next); }
+          if (fingerprint === last) return;
+          last = fingerprint;
+          onChange(next);
+        }, 120);
+      };
+      emit();
+      const list = sessions?.list;
+      if (typeof list?.subscribe !== 'function') {
+        return function () { if (timer !== null) clearTimeout(timer); };
+      }
+      const dispose = list.subscribe(emit);
+      return function () {
+        if (timer !== null) clearTimeout(timer);
+        try { dispose(); } catch (e) { /* 已经释放 */ }
+      };
+    }
+
     /** 订阅 session 列表，projection 变化时把官方 team 交给页面；立即回调一次。 */
     function watchTeamProjection(sessions, sessionId, onChange) {
       let last = null;
@@ -202,6 +273,7 @@ window.__ModuleLoader__.load({
         let handle = null;
         let stopTitleWatch = null;
         let stopTeamWatch = null;
+        let stopGraphWatch = null;
         setPhase('loading');
         setError(null);
         (async function () {
@@ -228,6 +300,9 @@ window.__ModuleLoader__.load({
             stopTeamWatch = watchTeamProjection(props.sessions, sessionId, function (team) {
               callHandleHook(handle, 'setTeamProjection', team);
             });
+            stopGraphWatch = watchSessionGraph(props.sessions, sessionId, function (graph) {
+              callHandleHook(handle, 'setSessionGraph', graph);
+            });
             setPhase('ready');
           } catch (err) {
             if (!disposed) {
@@ -245,6 +320,10 @@ window.__ModuleLoader__.load({
           if (stopTeamWatch !== null) {
             stopTeamWatch();
             stopTeamWatch = null;
+          }
+          if (stopGraphWatch !== null) {
+            stopGraphWatch();
+            stopGraphWatch = null;
           }
           if (handle !== null) {
             try {
