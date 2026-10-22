@@ -2795,3 +2795,70 @@
   padding: 0 10px;
   font-size: 11px;
 }
+
+/* R271：拓扑改成主卡 + 子卡网格，贴近侧边栏 agent 拓扑的形态。 */
+.aw-topology {
+  align-items: stretch;
+  gap: 0;
+}
+.aw-topology-node.is-root {
+  align-self: center;
+  width: min(100%, 300px);
+  padding: 8px 10px;
+  border-color: var(--screen);
+  background: color-mix(in srgb, var(--screen) 8%, var(--panel-2));
+}
+.aw-topology-branch {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 8px;
+  width: 100%;
+  align-items: start;
+  border-top: 1px solid var(--edge);
+  padding-top: 16px;
+}
+.aw-topology-node {
+  align-items: flex-start;
+  flex-wrap: wrap;
+  width: 100%;
+  min-height: 86px;
+  max-height: 170px;
+  overflow: auto;
+}
+.aw-topology-node.is-child::before {
+  content: '';
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  width: 1px;
+  height: 16px;
+  background: var(--edge);
+}
+.aw-topology-node.is-child {
+  position: relative;
+}
+.aw-topology-node b {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aw-topology-node span {
+  margin-left: 0;
+  flex: 1 0 100%;
+}
+.aw-topology-task {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.aw-task-mark {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--st-pending);
+}
+.aw-task-mark[data-status='in_progress'], .aw-task-mark[data-status='running'] { background: var(--st-in_progress); }
+.aw-task-mark[data-status='completed'], .aw-task-mark[data-status='done'] { background: var(--st-done); }
+.aw-task-mark[data-status='failed'] { background: var(--st-failed); }

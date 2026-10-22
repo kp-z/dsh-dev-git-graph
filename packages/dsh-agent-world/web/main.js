@@ -1061,7 +1061,7 @@ function renderTeamTopology(team) {
   const makeNode = (name, role, state, id, count, isRoot = false) => {
     const node = doc.createElement('button')
     node.type = 'button'
-    node.className = isRoot ? 'aw-topology-node is-root' : 'aw-topology-node'
+    node.className = isRoot ? 'aw-topology-node is-root' : 'aw-topology-node is-child'
     node.title = `${name} · ${agentStateText(state)}${count > 0 ? ` · ${count} 任务` : ''}`
     const dot = doc.createElement('i')
     dot.className = 'aw-topology-dot'
@@ -1072,14 +1072,17 @@ function renderTeamTopology(team) {
     meta.textContent = `${roleText(role)} · ${agentStateText(state)}${count > 0 ? ` · ${count} 任务` : ''}`
     const ownTasks = tasks.filter((task) => task.ownerName === name)
     node.append(dot, title, meta)
-    for (const task of ownTasks.slice(0, 3)) {
+    for (const task of ownTasks) {
       const taskLine = doc.createElement('small')
       taskLine.className = 'aw-topology-task'
-      taskLine.textContent = `${task.id ?? ''} ${task.subject ?? ''}`.trim()
+      const mark = doc.createElement('i')
+      mark.className = 'aw-task-mark'
+      mark.dataset.status = String(task.status ?? 'pending')
+      taskLine.append(mark, doc.createTextNode(`${task.id ?? ''} ${task.subject ?? ''}`.trim()))
       taskLine.title = taskLine.textContent
       node.append(taskLine)
     }
-    if (ownTasks.length > 3) node.append(Object.assign(doc.createElement('small'), { className: 'aw-topology-task dim', textContent: `+${ownTasks.length - 3} 更多` }))
+
     if (typeof id === 'string') {
       node.addEventListener('click', () => {
         focusAgent(id, 'member')
