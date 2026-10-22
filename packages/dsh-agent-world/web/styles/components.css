@@ -3154,3 +3154,23 @@
 .aw-subagent-view-host > * {
   min-height: 0;
 }
+
+/* R280：原生 SubagentView 的容器适配。 */
+.aw-subagent-view-host {
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+.aw-subagent-view-host > div {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.aw-subagent-view-host * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--stroke-strong) transparent;
+}
