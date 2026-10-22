@@ -1009,7 +1009,16 @@ function renderTeamTopology(team) {
     title.textContent = name
     const meta = doc.createElement('span')
     meta.textContent = `${roleText(role)} · ${agentStateText(state)}${count > 0 ? ` · ${count} 任务` : ''}`
-    node.append(dot, title, meta)
+    const firstTask = tasks.find((task) => task.ownerName === name)
+    if (firstTask !== undefined) {
+      const taskLine = doc.createElement('small')
+      taskLine.className = 'aw-topology-task'
+      taskLine.textContent = firstTask.subject ?? firstTask.id ?? ''
+      taskLine.title = taskLine.textContent
+      node.append(dot, title, meta, taskLine)
+    } else {
+      node.append(dot, title, meta)
+    }
     if (typeof id === 'string') {
       node.addEventListener('click', () => { focusAgent(id, 'member'); openDialogueFor(id) })
     }
