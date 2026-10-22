@@ -973,6 +973,66 @@ function ensureTeamTopology() {
   return mount
 }
 
+function teamDetailHost() {
+  let host = root.querySelector('#sidebar-team-detail')
+  if (host !== null) return host
+  const content = root.querySelector('.sidebar-panel-agents .sidebar-region-content')
+  if (content === null) return null
+  host = doc.createElement('div')
+  host.id = 'sidebar-team-detail'
+  host.className = 'aw-team-detail'
+  host.hidden = true
+  content.append(host)
+  return host
+}
+
+function showTeamDetail(name, role, state, id, tasks) {
+  const host = teamDetailHost()
+  if (host === null) return
+  host.textContent = ''
+  host.hidden = false
+  const head = doc.createElement('div')
+  head.className = 'aw-team-detail-head'
+  const title = doc.createElement('b')
+  title.textContent = name
+  const stateTag = doc.createElement('span')
+  const roleLabel = role === 'lead' ? '负责人' : role === 'teammate' ? '成员' : (role ?? '')
+  stateTag.textContent = `${roleLabel} · ${agentStateText(state)}`
+  const close = doc.createElement('button')
+  close.type = 'button'
+  close.className = 'aw-icon'
+  close.textContent = '×'
+  close.title = '关闭详情'
+  close.setAttribute('aria-label', '关闭详情')
+  close.addEventListener('click', () => { host.hidden = true })
+  head.append(title, stateTag, close)
+  host.append(head)
+  const list = doc.createElement('div')
+  list.className = 'aw-team-detail-tasks'
+  if (tasks.length === 0) list.append(Object.assign(doc.createElement('div'), { className: 'dim', textContent: '这个 agent 还没有任务。' }))
+  for (const task of tasks) {
+    const line = doc.createElement('div')
+    line.className = 'aw-team-detail-task'
+    const dot = doc.createElement('i')
+    dot.className = 'aw-topology-dot'
+    dot.dataset.state = task.status === 'completed' || task.status === 'done' ? 'idle' : task.status === 'in_progress' ? 'working' : 'idle'
+    const label = doc.createElement('span')
+    label.textContent = `${task.id ?? ''} ${task.subject ?? ''}`
+    label.title = label.textContent
+    line.append(dot, label)
+    list.append(line)
+  }
+  host.append(list)
+  if (typeof id === 'string') {
+    const talk = doc.createElement('button')
+    talk.type = 'button'
+    talk.className = 'btn btn-primary aw-team-detail-talk'
+    talk.textContent = '对话'
+    talk.addEventListener('click', () => { focusAgent(id, 'member'); openDialogueFor(id) })
+    host.append(talk)
+  }
+}
+
 function setTeamView(next) {
   teamView = next === 'topology' ? 'topology' : 'list'
   try { globalThis.localStorage?.setItem('agentWorld.teamView', teamView) } catch (e) { /* 便利 */ }
@@ -980,7 +1040,8 @@ function setTeamView(next) {
   const members = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
   if (members !== null && members !== undefined) members.hidden = teamView === 'topology'
   if (mount !== null) mount.hidden = teamView !== 'topology'
-  for (const button of root.querySelectorAll('[data-team-view]')) button.classList.toggle('is-active', button.dataset.teamView === teamView)
+  const selector = root.querySelector('.aw-team-select')
+  if (selector !== null) { selector.value = teamView; selector.title = teamView === 'topology' ? '当前：拓扑' : '当前：列表' }
   if (teamView === 'topology') renderTeamTopology(lastTeam)
 }
 
@@ -1009,18 +1070,22 @@ function renderTeamTopology(team) {
     title.textContent = name
     const meta = doc.createElement('span')
     meta.textContent = `${roleText(role)} · ${agentStateText(state)}${count > 0 ? ` · ${count} 任务` : ''}`
-    const firstTask = tasks.find((task) => task.ownerName === name)
-    if (firstTask !== undefined) {
+    const ownTasks = tasks.filter((task) => task.ownerName === name)
+    node.append(dot, title, meta)
+    for (const task of ownTasks.slice(0, 3)) {
       const taskLine = doc.createElement('small')
       taskLine.className = 'aw-topology-task'
-      taskLine.textContent = firstTask.subject ?? firstTask.id ?? ''
+      taskLine.textContent = `${task.id ?? ''} ${task.subject ?? ''}`.trim()
       taskLine.title = taskLine.textContent
-      node.append(dot, title, meta, taskLine)
-    } else {
-      node.append(dot, title, meta)
+      node.append(taskLine)
     }
+    if (ownTasks.length > 3) node.append(Object.assign(doc.createElement('small'), { className: 'aw-topology-task dim', textContent: `+${ownTasks.length - 3} 更多` }))
     if (typeof id === 'string') {
-      node.addEventListener('click', () => { focusAgent(id, 'member'); openDialogueFor(id) })
+      node.addEventListener('click', () => {
+        focusAgent(id, 'member')
+        showTeamDetail(name, role, state, id, ownTasks)
+      })
+      node.addEventListener('dblclick', () => { focusAgent(id, 'member'); openDialogueFor(id) })
     }
     return node
   }
@@ -1053,21 +1118,21 @@ function renderAgentActions(team) {
   const card = root.querySelector('#sidebar-official-agents')
   if (card !== null) card.textContent = ''
   const host = sidebarMounts.agentsActions
-  if (host !== null && host !== undefined && host.querySelector('.aw-team-view') === null) {
-    const wrap = doc.createElement('div')
-    wrap.className = 'aw-team-view'
-    for (const [value, label, icon] of [['list', '列表', '☰'], ['topology', '拓扑', '⑂']]) {
-      const button = doc.createElement('button')
-      button.type = 'button'
-      button.className = 'aw-icon aw-team-view-button'
-      button.dataset.teamView = value
-      button.textContent = icon
-      button.title = `${label}视图`
-      button.setAttribute('aria-label', `${label}视图`)
-      button.addEventListener('click', () => setTeamView(value))
-      wrap.append(button)
+  if (host !== null && host !== undefined && host.querySelector('.aw-team-select') === null) {
+    const select = doc.createElement('select')
+    select.className = 'aw-view-select aw-team-select'
+    select.title = '团队显示模式'
+    select.setAttribute('aria-label', '切换团队显示模式：列表或拓扑')
+    for (const [value, icon, label] of [['list', '☰', '列表'], ['topology', '⑂', '拓扑']]) {
+      const option = doc.createElement('option')
+      option.value = value
+      option.textContent = icon
+      option.title = label
+      select.append(option)
     }
-    host.append(wrap)
+    select.value = teamView
+    select.addEventListener('change', () => setTeamView(select.value))
+    host.append(select)
   }
   const membersMount = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
   if (membersMount !== null && membersMount !== undefined) membersMount.hidden = teamView === 'topology'
