@@ -2613,6 +2613,7 @@
   max-height: 118px;
   overflow-y: auto;
   padding-right: 2px;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--stroke-strong) transparent;
 }
