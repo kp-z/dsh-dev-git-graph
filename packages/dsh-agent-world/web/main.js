@@ -791,6 +791,7 @@ function renderTaskBoard(tasks) {
         reopen.setAttribute('aria-label', reopen.title)
         reopen.addEventListener('click', (event) => {
           event.stopPropagation()
+          reopen.disabled = true
           void postTeamTask('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'reopen' }).then((result) => { if (result.ok !== true) { setTasksNotice(result.error ?? '重开失败', 'error'); return } void loadTeamPlan() })
         })
         actions.append(reopen)
@@ -803,6 +804,7 @@ function renderTaskBoard(tasks) {
         complete.setAttribute('aria-label', complete.title)
         complete.addEventListener('click', (event) => {
           event.stopPropagation()
+          complete.disabled = true
           void postTeamTask('update', { taskId: task.id, expectedRevision: task.revision, updateAction: 'complete' }).then((result) => { if (result.ok !== true) { setTasksNotice(result.error ?? '完成失败', 'error'); return } void loadTeamPlan() })
         })
         actions.append(complete)
