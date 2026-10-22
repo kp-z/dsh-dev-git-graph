@@ -1127,7 +1127,7 @@ function renderWorkflowRuns(runs, error) {
     mount.append(box)
   }
   if (error !== null) { emptyWithRetry(`workflow 数据不可用：${error}`); return }
-  if (!Array.isArray(runs) || runs.length === 0) { emptyWithRetry('还没有 workflow 运行。'); return }
+  if (!Array.isArray(runs) || runs.length === 0) { emptyWithRetry('还没有 workflow 运行。workflow 启动后会按 run 显示在这里。'); return }
   for (const run of runs) {
     const card = doc.createElement('div')
     card.className = 'aw-workflow-run'
