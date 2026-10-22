@@ -1065,10 +1065,27 @@ function setTeamView(next) {
   if (teamView === 'topology') renderTeamTopology(lastTeam)
 }
 
+let nativeTeamViewActive = false
+let nativeTeamViewFailed = false
+
 function renderTeamTopology(team) {
   const mount = ensureTeamTopology()
   if (mount === null) return
   mount.hidden = teamView !== 'topology'
+  if (nativeTeamViewActive) return
+  if (!nativeTeamViewFailed && typeof globalThis.__awMountSubagentView === 'function') {
+    mount.textContent = ''
+    const host = doc.createElement('div')
+    host.className = 'aw-subagent-view-host'
+    mount.append(host)
+    nativeTeamViewActive = true
+    void globalThis.__awMountSubagentView(host).catch(() => {
+      nativeTeamViewActive = false
+      nativeTeamViewFailed = true
+      renderTeamTopology(team)
+    })
+    return
+  }
   mount.textContent = ''
   const members = Array.isArray(team?.members) ? team.members : []
   const tasks = Array.isArray(team?.tasks) ? team.tasks : []
