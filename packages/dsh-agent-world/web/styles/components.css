@@ -3494,3 +3494,46 @@
     flex-wrap: wrap;
   }
 }
+
+/* R307：header 面板开关。 */
+.panel-switch {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.panel-switch-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 132px;
+  padding: 4px;
+  border: 1px solid var(--stroke-strong);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 12px 28px color-mix(in srgb, #000 38%, transparent);
+}
+.panel-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  color: var(--fg-1);
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.panel-switch-row:hover {
+  background: var(--paper-hover);
+  color: var(--fg-0);
+}
+.panel-switch-row input {
+  accent-color: var(--screen);
+}
+.dock-pane[hidden] {
+  display: none !important;
+}
+.dock-split:has(> .dock-pane[hidden]) > .dock-resizer {
+  display: none;
+}

@@ -90,6 +90,7 @@ export function mountDock(options = {}) {
 
   let tree = readTree()
   let dragId = null
+  const visibility = { task: true, team: true }
 
   const workspace = doc.createElement('div')
   workspace.className = 'workspace'
@@ -252,5 +253,27 @@ export function mountDock(options = {}) {
   }
 
   render()
-  return { layout: () => tree, render }
+
+  /** 由 header 的面板开关调用；hidden pane 仍然留在布局树里，只是不占位。 */
+  function setPanelVisible(id, visible) {
+    if (id !== 'task' && id !== 'team') return
+    visibility[id] = visible === true
+    const pane = workspace.querySelector(`.dock-pane[data-pane="${id}"]`)
+    if (pane !== null) pane.hidden = !visibility[id]
+    globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
+  }
+
+  function applyVisibility() {
+    for (const id of ['task', 'team']) {
+      const pane = workspace.querySelector(`.dock-pane[data-pane="${id}"]`)
+      if (pane !== null) pane.hidden = !visibility[id]
+    }
+  }
+
+  return {
+    layout: () => tree,
+    render: () => { render(); applyVisibility() },
+    setPanelVisible,
+    visible: () => ({ ...visibility }),
+  }
 }
