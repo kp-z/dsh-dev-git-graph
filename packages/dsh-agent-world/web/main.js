@@ -55,6 +55,7 @@ import { createDialogueUi } from './ui/dialogue-ui.js'
  * @returns {{dispose: () => void}}
  */
 let spriteAssetBase = './vendor/'
+let currentSessionId = null
 
 export function mountAgentWorld(options = {}) {
   const doc = options.document ?? globalThis.document
@@ -984,7 +985,6 @@ let teamView = (() => {
 })()
 let lastTeam = null
 let sessionGraph = null
-let currentSessionId = null
 let workflowLoadToken = 0
 let workflowLoading = false
 
