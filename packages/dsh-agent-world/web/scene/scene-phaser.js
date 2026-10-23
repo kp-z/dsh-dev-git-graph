@@ -49,6 +49,7 @@ import { parseRgb } from '../core/ground-tiles.js'
 import {
   ANCHOR_LIFT_PX,
   animationCandidates,
+  bandForActor,
   bandOfState,
   FIT,
   OVERLAY_DEPTHS,
@@ -2105,7 +2106,7 @@ export function createScenePhaser(canvas, options = {}) {
         const animName = resolveAnimationKey((name) => activeScene.anims.exists(animKeyFor(textureKey, name)) === true, {
           // **带由内容库给**（`ScenePlan.actions`）：working → sit，其余按库里的声明。
           // 渲染器不自己编这套映射——那正是"坐着干活的人站着"那类错藏身的地方。
-          band: bandOfState(plan?.actions, actor.state),
+          band: bandForActor(plan?.actions, actor),
           direction: directionOf(actor.facing),
         })
         // 钉帧必须钉**解析出来的那条动画**的首帧。

@@ -166,6 +166,8 @@ export interface SceneActor {
   carryingTaskId: string | null
   /** 角色用哪个模型条目（`models` 库的 id，由场景条目声明）。 */
   modelId: string
+  /** 所在/目标站点的种类；没有站点时为 null。渲染器据此挑动作带。 */
+  stationKind?: string | null
 }
 
 /**
