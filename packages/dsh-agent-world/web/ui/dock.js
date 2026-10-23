@@ -224,6 +224,7 @@ export function mountDock(options = {}) {
 
   function renderNode(node) {
     if (isLeaf(node)) {
+      if ((node.id === 'task' || node.id === 'team') && visibility[node.id] !== true) return null
       const pane = doc.createElement('div')
       pane.className = 'dock-pane'
       pane.dataset.pane = node.id
@@ -235,6 +236,8 @@ export function mountDock(options = {}) {
     split.className = `dock-split dock-split-${node.dir}`
     const a = renderNode(node.a)
     const b = renderNode(node.b)
+    if (a === null) return b
+    if (b === null) return a
     a.style.flex = `${node.ratio} 1 0%`
     b.style.flex = `${1 - node.ratio} 1 0%`
     const resizer = doc.createElement('div')
@@ -248,7 +251,8 @@ export function mountDock(options = {}) {
   }
 
   function render() {
-    workspace.replaceChildren(renderNode(tree))
+    const next = renderNode(tree)
+    workspace.replaceChildren(...(next === null ? [] : [next]))
     globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
   }
 
@@ -258,21 +262,13 @@ export function mountDock(options = {}) {
   function setPanelVisible(id, visible) {
     if (id !== 'task' && id !== 'team') return
     visibility[id] = visible === true
-    const pane = workspace.querySelector(`.dock-pane[data-pane="${id}"]`)
-    if (pane !== null) pane.hidden = !visibility[id]
+    render()
     globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
-  }
-
-  function applyVisibility() {
-    for (const id of ['task', 'team']) {
-      const pane = workspace.querySelector(`.dock-pane[data-pane="${id}"]`)
-      if (pane !== null) pane.hidden = !visibility[id]
-    }
   }
 
   return {
     layout: () => tree,
-    render: () => { render(); applyVisibility() },
+    render: () => render(),
     setPanelVisible,
     visible: () => ({ ...visibility }),
   }
