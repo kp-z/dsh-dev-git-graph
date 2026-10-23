@@ -970,7 +970,7 @@ function renderTaskActions(team) {
     button.innerHTML = taskViewIcon(taskView)
     button.dataset.view = taskView
     button.title = '切换任务视图'
-    button.setAttribute('aria-label', '切换任务视图：图或树')
+    button.setAttribute('aria-label', '切换任务视图：图、树或看板')
     button.setAttribute('aria-haspopup', 'listbox')
     button.setAttribute('aria-expanded', 'false')
     const menu = doc.createElement('div')
