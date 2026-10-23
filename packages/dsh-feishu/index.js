@@ -76,7 +76,7 @@ const DEFAULT_SETTINGS = {
   /* off=不自动开工；tagged=只开任务里标了 auto 的；all=所有新任务都开 */
   autoStartMode: 'off',
   autoStartPrompt:
-    '你有一条来自飞书的任务：\n标题：{{title}}\n开始：{{start}}\n截止：{{end}}\n链接：{{url}}\n\n{{description}}\n\n请先复述你的理解，再开始处理。任务说明里若要求写回评论，再写。',
+    '你有一条来自飞书的任务：\n标题：{{title}}\n开始：{{start}}\n截止：{{end}}\n链接：{{url}}\n文档：\n{{docs}}\n\n{{description}}\n\n请先复述你的理解，再开始处理。任务说明里若要求写回评论，再写。',
   maxAutoStartPerRun: 1,
   /* 生成飞书文档时给模型的写作要求（面板可编辑）。 */
   docPrompt:
@@ -1086,14 +1086,27 @@ function createSyncEngine(ctx) {
     return { ok: true, count: docs.length }
   }
 
+  /** 任务上绑定的文档 → 投给会话的一段文字（标题 + 链接）。 */
+  function docLines(task) {
+    const docs = (Array.isArray(task?.docs) ? task.docs : []).filter((doc) => doc?.url)
+    if (!docs.length) return '（这条任务没有绑定文档）'
+    return docs
+      .map((doc) => (doc.title && doc.title !== doc.url ? `- ${doc.title}：${doc.url}` : `- ${doc.url}`))
+      .join('\n')
+  }
+
   function renderPrompt(task) {
-    return settings.autoStartPrompt
+    const template = settings.autoStartPrompt
+    const filled = template
       .replaceAll('{{title}}', task.title)
       .replaceAll('{{start}}', task.start || '未设置')
       .replaceAll('{{end}}', task.end || '未设置')
       .replaceAll('{{due}}', task.end || task.due || '无截止日期')
       .replaceAll('{{url}}', task.url || '（无链接）')
       .replaceAll('{{description}}', task.description || '（无描述）')
+    if (filled.includes('{{docs}}')) return filled.replaceAll('{{docs}}', docLines(task))
+    /* 老的自定义模板（没写 {{docs}}）也要能拿到文档：追加到末尾，不改人家原来的措辞。 */
+    return `${filled}\n\n任务文档：\n${docLines(task)}`
   }
 
   /**
@@ -2707,7 +2720,7 @@ function registerTools(ctx, engine) {
   register(
     textTool(
       'feishu_tasks',
-      '列出已同步到本地的飞书任务（只读；数据来自插件定时同步的本地快照）。' +
+      '列出已同步到本地的飞书任务（只读；数据来自插件定时同步的本地快照），含任务已绑定的飞书文档链接。' +
         '用户问「我飞书里有哪些待办 / 这条任务状态」时用它。' +
         '加 refresh=true 会先跑一次同步再返回，可能耗时十几秒。',
       {
@@ -2729,7 +2742,11 @@ function registerTools(ctx, engine) {
           const meta = [task.due ? `截止 ${task.due}` : '无截止', task.started ? `已开工 ${task.sessionId}` : '', task.done ? '已完成' : '']
             .filter(Boolean)
             .join(' · ')
-          return `${index + 1}. ${task.title}${meta ? `\n   ${meta}` : ''}${task.url ? `\n   ${task.url}` : ''}${task.description ? `\n   ${task.description.slice(0, 200)}` : ''}`
+          const docs = (Array.isArray(task.docs) ? task.docs : []).filter((doc) => doc?.url)
+          const docPart = docs.length
+            ? `\n   文档：${docs.map((doc) => (doc.title && doc.title !== doc.url ? `${doc.title} ${doc.url}` : doc.url)).join('；')}`
+            : ''
+          return `${index + 1}. ${task.title}${meta ? `\n   ${meta}` : ''}${task.url ? `\n   ${task.url}` : ''}${docPart}${task.description ? `\n   ${task.description.slice(0, 200)}` : ''}`
         })
         return `${head}\n\n${lines.join('\n')}`
       },
