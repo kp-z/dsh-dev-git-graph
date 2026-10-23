@@ -500,6 +500,12 @@ function setSessionGraph(graph) {
   if (teamView === 'workflow') renderTeamTopology(lastTeam)
 }
 
+globalThis.addEventListener?.('agentworld:layout-change', () => {
+  if (teamView !== 'workflow') return
+  const host = doc.querySelector('#sidebar-team-topology')
+  if (host !== null && host.offsetParent !== null) void loadWorkflowRuns()
+})
+
 function setWorldSession(info) {
   workspaceSessionOverride = info ?? null
   worldSession = workspaceSessionOverride
@@ -1280,7 +1286,7 @@ async function loadWorkflowRuns() {
   } finally {
     workflowLoading = false
     if (workflowPollTimer !== null) globalThis.clearTimeout(workflowPollTimer)
-    if (teamView === 'workflow') workflowPollTimer = globalThis.setTimeout(() => { workflowPollTimer = null; void loadWorkflowRuns() }, 5000)
+    if (teamView === 'workflow' && mount.offsetParent !== null) workflowPollTimer = globalThis.setTimeout(() => { workflowPollTimer = null; void loadWorkflowRuns() }, 5000)
   }
 }
 
