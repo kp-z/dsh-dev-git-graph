@@ -135,6 +135,7 @@ export function buildScenePlan(
     // 每个角色自己的外观（R51）。`world.agentModel` 只是**默认值**，
     // 已经由 `instantiateAgents` 填进 `a.modelId` 了。
     modelId: a.modelId,
+    stationKind: world.stations.find((station) => station.id === (a.station ?? a.targetStation))?.kind ?? null,
   }))
 
   // 纸条配色也从内容来。遍历 domain 里的 MESSAGE_KINDS 而不是在这里手写一份清单：

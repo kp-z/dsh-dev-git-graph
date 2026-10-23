@@ -79,6 +79,15 @@ export function bandOfState(actions, state) {
   return state === 'walking' ? 'walk' : 'idle'
 }
 
+/** R316：站点类型覆盖动作带——同一 working，会议桌站、工位坐、休息区坐。 */
+export function bandForActor(actions, actor) {
+  const kind = actor?.stationKind
+  if (kind === 'meeting' && actor?.state === 'working') return 'idle'
+  if (kind === 'mailroom' && actor?.state === 'working') return 'idle'
+  if (kind === 'breakroom' && actor?.state === 'working') return 'sit'
+  return bandOfState(actions, actor?.state)
+}
+
 /** 状态 → 动作名（**没有动作库时的老规则**；有 `actions` 请用 `bandOfState`）。 */
 export function actionOf(state) {
   return state === 'walking' ? 'walk' : 'idle'
