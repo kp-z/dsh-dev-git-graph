@@ -13,6 +13,7 @@ import {
   adoptPreviousState,
   describeTask,
   progressCommentBody,
+  turnFailureOf,
   deriveTaskDraft,
   docFieldValue,
   docxIdOf,
@@ -259,6 +260,24 @@ check('docxIdOf：空值不抛', docxIdOf(undefined), '')
   const long = progressCommentBody('x'.repeat(900), {}, now)
   check('超长正文截断并标注', long.includes('已截断') && long.length < 900, true)
 }
+
+/* ---------- turn/end 的失败判定 ---------- */
+
+check('reason=null 不算失败', turnFailureOf(null).failed, false)
+check('reason 缺失不算失败', turnFailureOf(undefined).failed, false)
+check('kind=stop 不算失败', turnFailureOf({ kind: 'stop' }).failed, false)
+check('kind=max-tokens 不算失败', turnFailureOf({ kind: 'max-tokens' }).failed, false)
+check(
+  'kind=error 才算失败且带出消息',
+  turnFailureOf({ kind: 'error', error: { message: 'tool timeout' } }),
+  { failed: true, text: 'tool timeout' },
+)
+check(
+  'kind=error 没消息时给兜底文案',
+  turnFailureOf({ kind: 'error' }).failed && turnFailureOf({ kind: 'error' }).text === '未知错误',
+  true,
+)
+check('传布尔也不炸', turnFailureOf(true).failed, false)
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)
