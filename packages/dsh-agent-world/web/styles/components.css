@@ -3574,3 +3574,15 @@
     0 0 0 2px #ff9f45,
     0 8px 22px color-mix(in srgb, #ff9f45 24%, transparent);
 }
+
+/* R328：恢复“任务 / 团队”静态标题行；不是可折叠 header，高度固定。 */
+.sidebar-region-head {
+  display: flex !important;
+  min-height: 34px;
+  align-items: center;
+}
+.sidebar-region-title {
+  display: block !important;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
