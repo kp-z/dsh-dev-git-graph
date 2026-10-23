@@ -368,6 +368,54 @@ const dock = mountDock({
   },
 })
 
+// R307：header 面板开关——只控制 task/team 两张卡是否显示，不改布局树。
+const panelVisibility = (() => {
+  try {
+    const saved = JSON.parse(globalThis.localStorage?.getItem('agentWorld.panelVisibility') ?? 'null')
+    return { team: saved?.team !== false, task: saved?.task !== false }
+  } catch (e) { return { team: true, task: true } }
+})()
+const panelSwitchButton = root.querySelector?.('#cmd-panels')
+const panelSwitchMenu = root.querySelector?.('#panel-switch-menu')
+const panelChecks = [...(root.querySelectorAll?.('[data-panel]') ?? [])]
+function writePanelVisibility() {
+  try { globalThis.localStorage?.setItem('agentWorld.panelVisibility', JSON.stringify(panelVisibility)) } catch (e) { /* 便利 */ }
+  for (const input of panelChecks) input.checked = panelVisibility[input.dataset.panel] === true
+  dock.setPanelVisible('team', panelVisibility.team)
+  dock.setPanelVisible('task', panelVisibility.task)
+  if (panelSwitchButton !== null && panelSwitchButton !== undefined) {
+    const visibleCount = Number(panelVisibility.team) + Number(panelVisibility.task)
+    panelSwitchButton.title = visibleCount === 0 ? '显示面板（当前全部隐藏）' : `显示面板（${visibleCount}/2）`
+    panelSwitchButton.setAttribute('aria-label', panelSwitchButton.title)
+  }
+}
+function setPanelMenu(open) {
+  if (panelSwitchMenu === null || panelSwitchMenu === undefined) return
+  panelSwitchMenu.hidden = open !== true
+  panelSwitchButton?.setAttribute('aria-expanded', String(open === true))
+}
+panelSwitchButton?.addEventListener('click', (event) => {
+  event.stopPropagation()
+  setPanelMenu(panelSwitchMenu?.hidden === true)
+})
+for (const input of panelChecks) {
+  input.addEventListener('change', () => {
+    const id = input.dataset.panel
+    if (id !== 'task' && id !== 'team') return
+    panelVisibility[id] = input.checked
+    writePanelVisibility()
+  })
+}
+doc.addEventListener?.('click', (event) => {
+  if (panelSwitchMenu === null || panelSwitchMenu === undefined || panelSwitchMenu.hidden) return
+  if (event.target instanceof Node && (panelSwitchMenu.contains(event.target) || panelSwitchButton?.contains(event.target))) return
+  setPanelMenu(false)
+})
+doc.addEventListener?.('keydown', (event) => {
+  if (event.key === 'Escape') setPanelMenu(false)
+})
+writePanelVisibility()
+
 // 恢复上次任务视图；dock/面板已就绪，树/看板可以安全渲染。
 if (taskView !== 'graph') setTaskView(taskView)
 
