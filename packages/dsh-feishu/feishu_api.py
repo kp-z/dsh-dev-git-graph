@@ -248,6 +248,22 @@ def run_actions(token, actions):
                 errors.append('drive: ' + str(res.get('msg') or res.get('code'))[:160])
                 results.append({'op': op, 'ok': False, 'title': title,
                                 'error': '；'.join(errors)[:300]})
+            elif op in ('task_comments', 'task_subtasks', 'task_attachments'):
+                # 任务的评论 / 子任务 / 附件：都要额外 scope（task:comment:read 等），
+                # 没授权时把错误原样带回，调用方降级成「（需要权限）」而不是整条失败。
+                task = action['task']
+                # 评论 / 附件是资源型接口（/task/v2/comments?resource_type=task&resource_id=...），
+                # 子任务才是挂在任务下面的路径；走错会直接 404。
+                path = {
+                    'task_comments': f'/task/v2/comments?resource_type=task&resource_id={task}&page_size=50',
+                    'task_attachments': f'/task/v2/attachments?resource_type=task&resource_id={task}&page_size=50',
+                    'task_subtasks': f'/task/v2/tasks/{task}/subtasks?page_size=50',
+                }[op]
+                res = call(token, path)
+                ok = res.get('code') == 0
+                items = ((res.get('data') or {}).get('items') or []) if ok else []
+                results.append({'op': op, 'ok': ok, 'items': items,
+                                'error': None if ok else (res.get('msg') or '')[:200]})
             elif op == 'set_custom_field':
                 fields = call(token, f"/task/v2/custom_fields?resource_type=tasklist&resource_id={action['tasklist']}&page_size=50")
                 items = ((fields.get('data') or {}).get('items') or [])

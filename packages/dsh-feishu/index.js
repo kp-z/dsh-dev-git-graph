@@ -120,8 +120,12 @@ const DEFAULT_SETTINGS = {
   /* off=不自动开工；tagged=只开任务里标了 auto 的；all=所有新任务都开 */
   autoStartMode: 'off',
   autoStartPrompt:
-    '你有一条来自飞书的任务：\n标题：{{title}}\n开始：{{start}}\n截止：{{end}}\n链接：{{url}}\n文档：\n{{docs}}\n\n{{description}}\n\n请先复述你的理解，再开始处理。任务说明里若要求写回评论，再写。',
+    '你有一条来自飞书的任务：\n\n{{task}}\n\n任务说明：\n{{description}}\n\n请先复述你的理解，再开始处理。任务说明里若要求写回评论，再写。',
   maxAutoStartPerRun: 1,
+  /* 绑定任务时把「任务档案」注入会话（按需打开，默认关）。 */
+  contextInjection: false,
+  /* 任务有实质变化时推给绑定会话（默认关：每次推送都会消耗一个 turn）。 */
+  pushChanges: false,
   /* 生成飞书文档时给模型的写作要求（面板可编辑）。 */
   docPrompt:
     '把给你的任务材料整理成一份给工程师看的正式文档。硬性要求：\n' +
@@ -132,6 +136,12 @@ const DEFAULT_SETTINGS = {
     '5. 材料里没有的信息写“待补充”，不要编造。\n' +
     '直接输出 Markdown 正文。',
 }
+
+/* 历史上两版默认提示词：升级成「任务档案」版时只替换这两份原文，改过的保留。 */
+const LEGACY_AUTO_START_PROMPTS = [
+  '你有一条来自飞书的任务：\n标题：{{title}}\n开始：{{start}}\n截止：{{end}}\n链接：{{url}}\n\n{{description}}\n\n请先复述你的理解，再开始处理。任务说明里若要求写回评论，再写。',
+  '你有一条来自飞书的任务：\n标题：{{title}}\n开始：{{start}}\n截止：{{end}}\n链接：{{url}}\n文档：\n{{docs}}\n\n{{description}}\n\n请先复述你的理解，再开始处理。任务说明里若要求写回评论，再写。',
+]
 
 const DEFAULT_STATE = {
   auth: { ok: false, checkedAt: 0, detail: '尚未检查' },
@@ -215,6 +225,57 @@ export function docFieldValue(task) {
   return urls.join('\n')
 }
 
+/** 状态枚举 → 人话。 */
+const STATUS_TEXT = { todo: '待办', done: '已完成', in_progress: '进行中', completed: '已完成' }
+
+/**
+ * 把一条任务渲染成「任务档案」：模型一眼看全的结构化摘要。
+ *
+ * 提示词（开工时）和 feishu_task_detail（按需）共用这一份渲染，
+ * 免得两处字段对不上——以前提示词只有标题/截止/链接，工具又只有另一套摘要。
+ */
+export function describeTask(task, options = {}) {
+  const lines = []
+  const add = (key, value) => {
+    const text = asString(value).trim()
+    if (text) lines.push(`- ${key}：${text}`)
+  }
+  const members = Array.isArray(task?.members) ? task.members : []
+  const people = (list) => list.map((item) => item.name || item.id).filter(Boolean).join('、')
+  const assignees = members.filter((item) => item.role === 'assignee')
+  const followers = members.filter((item) => item.role !== 'assignee')
+
+  add('标题', task?.title)
+  add('状态', task?.done ? '已完成' : (STATUS_TEXT[asString(task?.status)] ?? asString(task?.status)))
+  add('清单', task?.listName)
+  add('负责人', people(assignees))
+  add('关注人', people(followers))
+  if (task?.creator?.name || task?.creator?.id) add('创建人', task.creator.name || task.creator.id)
+  add('开始', task?.start)
+  add('截止', task?.end || task?.due)
+  if (task?.completedAt) add('完成于', formatDay(task.completedAt))
+  if (task?.createdAt) add('创建于', formatDay(task.createdAt))
+  for (const field of Array.isArray(task?.customFields) ? task.customFields : []) {
+    if (field?.value) add(field.name || '字段', field.value)
+  }
+  if (task?.subtaskCount) add('子任务', `${task.subtaskCount} 条`)
+  if (task?.isMilestone) add('里程碑', '是')
+  if (task?.dependencyCount) add('前置任务', `${task.dependencyCount} 条`)
+  if (task?.origin?.title) add('来源', task.origin.title)
+  if (task?.repeatRule) add('重复', task.repeatRule)
+  const docs = options.includeDocs === false ? [] : (Array.isArray(task?.docs) ? task.docs : []).filter((doc) => doc?.url)
+  if (docs.length) {
+    add('文档', docs.map((doc) => (doc.title && doc.title !== doc.url ? `${doc.title}（${doc.url}）` : doc.url)).join('；'))
+  }
+  add('任务链接', task?.url)
+  if (options.includeDescription && task?.description) {
+    const text = asString(task.description)
+    const limit = options.descriptionLimit ?? 2000
+    lines.push('', '任务说明：', text.length > limit ? `${text.slice(0, limit)}…（已截断，原文 ${text.length} 字）` : text)
+  }
+  return lines.join('\n')
+}
+
 /** 从链接里取 docx 的 document_id；wiki / sheets / docs 这类返回空串。 */
 export function docxIdOf(url) {
   const match = /\/docx\/([A-Za-z0-9_-]+)/.exec(asString(url))
@@ -282,6 +343,8 @@ function sanitizeSettings(input, base) {
     autoStartMode: normalizeAutoStartMode(next, base),
     autoStartPrompt: asString(next.autoStartPrompt) || base.autoStartPrompt,
     maxAutoStartPerRun: clampInt(next.maxAutoStartPerRun, 1, 10, 1),
+    contextInjection: next.contextInjection === true,
+    pushChanges: next.pushChanges === true,
     docPrompt:
       typeof next.docPrompt === 'string' && next.docPrompt.trim().length > 0
         ? next.docPrompt.slice(0, 4000)
@@ -619,6 +682,11 @@ function createSyncEngine(ctx) {
   async function load() {
     const savedSettings = await readJson(SETTINGS_FILE, {})
     settings = sanitizeSettings(savedSettings, DEFAULT_SETTINGS)
+    /* 提示词模板升级：只把「原封不动的旧默认」换成新默认，用户自己改过的一律不动。 */
+    if (LEGACY_AUTO_START_PROMPTS.includes(settings.autoStartPrompt)) {
+      settings.autoStartPrompt = DEFAULT_SETTINGS.autoStartPrompt
+      await writeJson(SETTINGS_FILE, settings)
+    }
     let savedState = await readJson(stateFile, {})
     /* 换端口重启后这里是空的：继承上一份带绑定的状态，别让卡片集体掉线。 */
     if (!Array.isArray(savedState?.tasks) || savedState.tasks.length === 0) {
@@ -639,9 +707,22 @@ function createSyncEngine(ctx) {
     await writeJson(stateFile, state)
   }
 
+  const settingsHooks = []
+  /** 注册「设置变了」回调：提示词段要不要挂、挂哪一段，靠它跟着开关走。 */
+  function onSettingsChange(fn) {
+    settingsHooks.push(fn)
+  }
+
   async function saveSettings(patch) {
     settings = sanitizeSettings(patch, settings)
     await writeJson(SETTINGS_FILE, settings)
+    for (const fn of settingsHooks) {
+      try {
+        fn()
+      } catch {
+        /* 回调失败不影响保存 */
+      }
+    }
     return settings
   }
 
@@ -846,6 +927,9 @@ function createSyncEngine(ctx) {
         const id = asString(member?.id)
         if (id && !cached(remoteCache.users, id, REMOTE_TTL.users)) wantUsers.add(id)
       }
+      /* 创建人也要姓名头像：不能只查成员，很多任务是别人建的。 */
+      const creator = asString(raw?.creator?.id)
+      if (creator && !cached(remoteCache.users, creator, REMOTE_TTL.users)) wantUsers.add(creator)
       for (const list of raw?.tasklists ?? []) {
         const guid = asString(list?.tasklist_guid)
         if (!guid) continue
@@ -946,17 +1030,35 @@ function createSyncEngine(ctx) {
       }
     }
 
+    const creatorId = asString(raw?.creator?.id)
+    const creatorUser = cached(remoteCache.users, creatorId, REMOTE_TTL.users)
+    const origin = raw?.origin ?? {}
+
     return {
       id: asString(raw?.guid) || asString(raw?.task_id),
       title: asString(raw?.summary) || '（无标题任务）',
       meta,
       listName,
       tasklistGuid: listGuid,
+      sectionGuid: asString(raw?.tasklists?.[0]?.section_guid),
       members,
+      creator: { id: creatorId, name: creatorUser?.name ?? '' },
       customFields,
       description: asString(raw?.description),
       done: asString(raw?.completed_at) !== '0' && Boolean(raw?.completed_at),
       status: asString(raw?.status),
+      createdAt: Number(raw?.created_at) || 0,
+      completedAt: Number(raw?.completed_at) || 0,
+      subtaskCount: Number(raw?.subtask_count) || 0,
+      parentTaskGuid: asString(raw?.parent_task_guid),
+      origin: {
+        title: asString(origin?.href?.title),
+        url: asString(origin?.href?.url),
+        platform: asString(origin?.platform_i18n_name?.zh_cn),
+      },
+      repeatRule: asString(raw?.repeat_rule),
+      isMilestone: raw?.is_milestone === true,
+      dependencyCount: Array.isArray(raw?.dependencies) ? raw.dependencies.length : 0,
       due: formatDay(dueTs),
       dueTs,
       start: formatStamp(startTs, raw?.start?.is_all_day !== false),
@@ -1009,6 +1111,7 @@ function createSyncEngine(ctx) {
         }
         return docs.slice(0, 8)
       })(),
+      notifiedSignature: previousTask?.notifiedSignature ?? '',
       updatedAt: Number(raw?.updated_at) || 0,
       localUpdatedAt: Number(previousTask?.localUpdatedAt) || 0,
       error: null,
@@ -1084,6 +1187,7 @@ function createSyncEngine(ctx) {
     renumberTasks(kept)
     state.tasks = kept
     await backfillDocTitles(kept).catch(() => undefined)
+    await pushTaskChanges(previous, kept).catch(() => undefined)
 
     /* 一次性把历史标题迁到 `T<n>-<标题>`：只做一轮，之后新任务走正常改名路径。 */
     /* 历史遗留的「会话没挂进项目」在每轮同步时补一次（幂等，已挂的会跳过）。 */
@@ -1149,6 +1253,8 @@ function createSyncEngine(ctx) {
 
   function renderPrompt(task) {
     const template = settings.autoStartPrompt
+    const hasArchive = template.includes('{{task}}')
+    const hasDocs = template.includes('{{docs}}')
     const filled = template
       .replaceAll('{{title}}', task.title)
       .replaceAll('{{start}}', task.start || '未设置')
@@ -1156,9 +1262,11 @@ function createSyncEngine(ctx) {
       .replaceAll('{{due}}', task.end || task.due || '无截止日期')
       .replaceAll('{{url}}', task.url || '（无链接）')
       .replaceAll('{{description}}', task.description || '（无描述）')
-    if (filled.includes('{{docs}}')) return filled.replaceAll('{{docs}}', docLines(task))
-    /* 老的自定义模板（没写 {{docs}}）也要能拿到文档：追加到末尾，不改人家原来的措辞。 */
-    return `${filled}\n\n任务文档：\n${docLines(task)}`
+      .replaceAll('{{docs}}', docLines(task))
+    if (hasArchive) return filled.replaceAll('{{task}}', describeTask(task))
+    /* 老的自定义模板（没写 {{task}}）：整段档案追加到末尾，不改人家原来的措辞；
+       模板里已经有 {{docs}} 的不再重复列文档。 */
+    return `${filled}\n\n任务档案：\n${describeTask(task, { includeDocs: !hasDocs })}`
   }
 
   /**
@@ -1216,6 +1324,76 @@ function createSyncEngine(ctx) {
     await renameSession(sessionId, task.title)
     log(ctx, 'info', `[manual] 任务在当前会话开工：${task.title.slice(0, 40)} → ${sessionId}`)
     return { ok: true, sessionId, note: '已在当前会话开工' }
+  }
+
+  /** 往一条会话里补一条消息（不加严格任务、不开新会话，只补上下文）。 */
+  async function notifySession(sessionId, text) {
+    const sessions = await awaitService(ctx, 'sessionController')
+    if (!sessions || typeof sessions.prompt !== 'function') return { ok: false, error: '宿主没有会话服务' }
+    try {
+      await sessions.prompt(
+        {
+          requestId: `feishu:note:${sessionId}:${nowMs().toString(36)}`,
+          sessionId,
+          mode: 'queue',
+          content: [{ type: 'text', text }],
+        },
+        new AbortController().signal,
+      )
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  /* 推送频控：同一会话 5 分钟内最多推一条，单轮同步最多推一条。 */
+  const lastPushAt = new Map()
+
+  /** 任务「实质变化」的签名：标题/状态/截止/文档集合/描述长度。 */
+  function taskSignature(task) {
+    const docs = (Array.isArray(task?.docs) ? task.docs : []).map((doc) => doc?.url).filter(Boolean).sort().join('|')
+    return [task?.title, task?.status, task?.done ? 1 : 0, task?.end ?? '', docs, asString(task?.description).length].join('\u0001')
+  }
+
+  /**
+   * 任务有实质变化时推给绑定会话。
+   *
+   * 默认关：每次推送都会真实消耗一个 turn，不能自作主张打扰正在干活的人。
+   * 打开后也只推「标题/状态/新增文档」这类人关心的变化，且一轮最多一条。
+   */
+  async function pushTaskChanges(previous, tasks) {
+    if (settings.pushChanges !== true) return []
+    const pushed = []
+    for (const task of tasks) {
+      if (pushed.length >= 1) break
+      if (!task.sessionId || task.started !== true) continue
+      const before = previous.get(task.id)
+      if (!before) continue
+      const signature = taskSignature(task)
+      if (task.notifiedSignature === signature) continue
+      const changes = []
+      if (before.title !== task.title) changes.push(`标题改为「${task.title}」`)
+      if (before.status !== task.status) {
+        changes.push(`状态 ${STATUS_TEXT[asString(before.status)] ?? before.status} → ${STATUS_TEXT[asString(task.status)] ?? task.status}`)
+      }
+      const beforeDocs = (before.docs ?? []).map((doc) => doc?.url)
+      const added = (task.docs ?? []).filter((doc) => doc?.url && !beforeDocs.includes(doc.url))
+      if (added.length) changes.push(`新增文档：${added.map((doc) => doc.title || doc.url).join('、')}`)
+      task.notifiedSignature = signature
+      if (!changes.length) continue
+      const last = lastPushAt.get(task.sessionId) ?? 0
+      if (nowMs() - last < 5 * 60_000) continue
+      const sent = await notifySession(
+        task.sessionId,
+        `飞书任务「${task.title}」有变化：\n- ${changes.join('\n- ')}\n\n需要最新全量数据（含评论/子任务/附件）用 feishu_task_detail。`,
+      )
+      if (sent.ok) {
+        lastPushAt.set(task.sessionId, nowMs())
+        pushed.push({ taskId: task.id, changes })
+      }
+    }
+    if (pushed.length) await persistState()
+    return pushed
   }
 
   async function startTask(taskId, source, options = {}) {
@@ -1364,6 +1542,13 @@ function createSyncEngine(ctx) {
     task.localUpdatedAt = nowMs()
     await persistState()
     const renamed = await renameSession(id, task.title)
+    /* 按需：绑定即把任务档案投进会话，省得人再贴一遍。默认关。 */
+    if (settings.contextInjection === true) {
+      await notifySession(
+        id,
+        `已把飞书任务「${task.title}」绑定到本会话：\n\n${describeTask(task)}\n\n需要评论/子任务/附件时调 feishu_task_detail（不传 taskId 就是这条任务）。`,
+      ).catch(() => undefined)
+    }
     return { ok: true, task, sessionRenamed: renamed.ok }
   }
 
@@ -2186,6 +2371,102 @@ function createSyncEngine(ctx) {
       docField: settings.taskFields.doc || '文档',
     }
   }
+  /* 任务详情（评论/子任务/附件）带缓存：这三样要额外打三次飞书接口，不必每次工具调用都拉。 */
+  const detailCache = new Map()
+  const DETAIL_TTL = 120_000
+
+  /**
+   * 拉一条任务的「全部数据」：state 里的本体 + 评论 / 子任务 / 附件。
+   *
+   * 本体走本地快照（同步时一直在更新），这三样走补充通道、带 120s 缓存。
+   * 任何一项失败都不影响其它项：失败原因进 errors，面板/工具里显示成「需要权限」。
+   */
+  async function loadTaskDetail(taskId, options = {}) {
+    const task = state.tasks.find((item) => item.id === taskId)
+    if (!task) return { ok: false, error: '没找到这条任务' }
+    const hit = detailCache.get(taskId)
+    if (options.refresh !== true && hit && nowMs() - hit.at < DETAIL_TTL) {
+      return { ok: true, task, detail: hit.value, cached: true }
+    }
+    const python = resolvePython(resolveCli(settings.cliPath))
+    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）', task }
+    const result = await runBridge(python, {
+      actions: [
+        { op: 'task_comments', task: taskId },
+        { op: 'task_subtasks', task: taskId },
+        { op: 'task_attachments', task: taskId },
+      ],
+    })
+    const byOp = (name) => (result.actions ?? []).find((item) => item.op === name)
+    const nameOf = (id) => cached(remoteCache.users, asString(id), REMOTE_TTL.users)?.name || asString(id)
+    const pick = (name, mapItem) => {
+      const item = byOp(name)
+      const errors = item?.ok ? [] : [item?.error || '未知错误']
+      return { ok: item?.ok === true, items: (item?.items ?? []).map(mapItem), errors }
+    }
+
+    const comments = pick('task_comments', (raw) => ({
+      id: asString(raw?.id),
+      content: asString(raw?.content),
+      authorId: asString(raw?.creator?.id ?? raw?.creator_id),
+      createdAt: Number(raw?.created_at) || 0,
+    }))
+    /* 评论人可能不是任务成员（没在 enrich 里露过面）：补查一次姓名，别让输出全是 ou_xxx。 */
+    const unknownAuthors = [...new Set(comments.items.map((item) => item.authorId))]
+      .filter((id) => id && !cached(remoteCache.users, id, REMOTE_TTL.users))
+    if (unknownAuthors.length > 0) {
+      try {
+        const extra = await runBridge(python, { users: unknownAuthors })
+        const stamp = nowMs()
+        for (const [id, user] of Object.entries(extra?.users ?? {})) {
+          remoteCache.users.set(id, { at: stamp, value: user })
+        }
+      } catch {
+        /* 查不到就退回显示 id */
+      }
+    }
+    for (const item of comments.items) item.author = nameOf(item.authorId)
+    const subtasks = pick('task_subtasks', (raw) => ({
+      id: asString(raw?.guid ?? raw?.task_guid),
+      title: asString(raw?.summary),
+      done: Boolean(raw?.completed_at) && asString(raw?.completed_at) !== '0',
+      status: asString(raw?.status),
+    }))
+    const attachments = pick('task_attachments', (raw) => ({
+      id: asString(raw?.guid ?? raw?.file_token),
+      name: asString(raw?.name ?? raw?.filename),
+      size: Number(raw?.size) || 0,
+      createdAt: Number(raw?.uploaded_at ?? raw?.created_at) || 0,
+    }))
+    const value = { comments, subtasks, attachments }
+    detailCache.set(taskId, { at: nowMs(), value })
+    return { ok: true, task, detail: value }
+  }
+
+  /** 详情组装成人读/模型读的文本。 */
+  function formatTaskDetail(task, detail) {
+    const parts = [describeTask(task, { includeDescription: false })]
+    const block = (title, section, render, empty) => {
+      if (!section.ok) {
+        parts.push(`${title}：（读取失败：${section.errors.join('；').slice(0, 160)}）`)
+        return
+      }
+      if (!section.items.length) {
+        parts.push(`${title}：${empty}`)
+        return
+      }
+      parts.push(`${title}（${section.items.length}）`, ...section.items.map(render))
+    }
+    block('评论', detail.comments, (item) => `- ${item.createdAt ? formatDay(item.createdAt) + ' ' : ''}${item.author}：${item.content.slice(0, 400)}`, '（暂无评论）')
+    block('子任务', detail.subtasks, (item) => `- ${item.done ? '✓' : '○'} ${item.title}`, '（无子任务）')
+    block('附件', detail.attachments, (item) => `- ${item.name}${item.size ? `（${Math.round(item.size / 1024)} KB）` : ''}`, '（无附件）')
+    if (task.description) {
+      const text = asString(task.description)
+      parts.push('', '任务说明：', text.length > 4000 ? `${text.slice(0, 4000)}…（已截断）` : text)
+    }
+    return parts.join('\n')
+  }
+
   /**
    * 在统一目录里给一条任务生成飞书文档。
    *
@@ -2440,6 +2721,8 @@ function createSyncEngine(ctx) {
     createTaskDoc,
     bindTaskDoc,
     editTaskDoc,
+    loadTaskDetail,
+    formatTaskDetail,
     syncTaskFields,
     syncSessionTitles,
     archiveSessionForTask,
@@ -2447,6 +2730,7 @@ function createSyncEngine(ctx) {
     persistState,
     sync,
     getSettings: () => settings,
+    onSettingsChange,
     getState: () => state,
     /* 定时器用：有没有到点该开工的「按时执行」任务。 */
     dueScheduledNow() {
@@ -2757,8 +3041,10 @@ function textTool(name, description, parameters, run) {
       schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: String(value) }],
     },
-    async execute(args) {
-      return run(args ?? {})
+    async execute(args, exec) {
+      /* exec 里有 { agent, signal }：agent.id 就是当前会话。
+         以前这里只传了 args，于是 feishu_task_session / report 全都「拿不到当前会话」。 */
+      return run(args ?? {}, exec)
     },
   }
 }
@@ -2791,16 +3077,55 @@ function registerTools(ctx, engine) {
         const head = `飞书任务 ${list.length} 条${state.lastSyncAt ? `（同步于 ${formatDay(state.lastSyncAt)}）` : '（还没同步过）'}`
         if (list.length === 0) return `${head}\n\n没有符合条件的任务。`
         const lines = list.map((task, index) => {
-          const meta = [task.due ? `截止 ${task.due}` : '无截止', task.started ? `已开工 ${task.sessionId}` : '', task.done ? '已完成' : '']
+          const assignees = (Array.isArray(task.members) ? task.members : [])
+            .filter((member) => member.role === 'assignee')
+            .map((member) => member.name || member.id)
             .filter(Boolean)
+            .join('、')
+          const status = task.done ? '已完成' : (STATUS_TEXT[asString(task.status)] ?? asString(task.status))
+          const meta = [
+            status,
+            task.due ? `截止 ${task.due}` : '无截止',
+            assignees ? `负责人 ${assignees}` : '',
+            task.started ? `已开工 ${task.sessionId}` : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
+          const fields = (Array.isArray(task.customFields) ? task.customFields : [])
+            .filter((field) => field?.value)
+            .slice(0, 4)
+            .map((field) => `${field.name} ${field.value}`)
             .join(' · ')
           const docs = (Array.isArray(task.docs) ? task.docs : []).filter((doc) => doc?.url)
           const docPart = docs.length
             ? `\n   文档：${docs.map((doc) => (doc.title && doc.title !== doc.url ? `${doc.title} ${doc.url}` : doc.url)).join('；')}`
             : ''
-          return `${index + 1}. ${task.title}${meta ? `\n   ${meta}` : ''}${task.url ? `\n   ${task.url}` : ''}${docPart}${task.description ? `\n   ${task.description.slice(0, 200)}` : ''}`
+          return `${index + 1}. ${task.title}${meta ? `\n   ${meta}` : ''}${fields ? `\n   ${fields}` : ''}${task.url ? `\n   ${task.url}` : ''}${docPart}${task.description ? `\n   ${task.description.slice(0, 200)}` : ''}`
         })
         return `${head}\n\n${lines.join('\n')}`
+      },
+    ),
+  )
+
+  register(
+    textTool(
+      'feishu_task_detail',
+      '读一条飞书任务的完整数据（默认取当前会话绑定的那条）：状态、负责人/关注人/创建人、时间、' +
+        '清单自定义字段、文档、评论、子任务、附件。用户问「这个任务的详情 / 有哪些评论 / 子任务做到哪了」时用它；' +
+        '文档正文另用 feishu_doc_read。',
+      {
+        taskId: { type: 'string', description: '任务 guid；不传则用当前会话绑定的任务。' },
+        refresh: { type: 'boolean', description: '跳过 120 秒缓存，强制重新拉评论/子任务/附件。' },
+      },
+      async (args, exec) => {
+        const state = engine.getState()
+        const current = asString(exec?.agent?.id)
+        const bound = current ? state.tasks.find((task) => task.sessionId === current) : undefined
+        const taskId = asString(args.taskId) || asString(bound?.id)
+        if (!taskId) return '需要 taskId：当前会话没有绑定飞书任务（可以先用 feishu_tasks 查到 guid 再传进来）。'
+        const result = await engine.loadTaskDetail(taskId, { refresh: args.refresh === true })
+        if (!result.ok) return `读取失败：${result.error}`
+        return engine.formatTaskDetail(result.task, result.detail)
       },
     ),
   )
@@ -3084,6 +3409,34 @@ export function apply(ctx, config = {}) {
     const engine = createSyncEngine(ctx)
     const schedule = installSchedule(ctx, engine)
 
+    /* 「按需打开」的任务上下文提示：默认不挂，面板里打开开关才注入。
+       只写一段很短的引导（几行），全量数据靠 feishu_task_detail 按需取。 */
+    let disposeSection
+    const syncTaskSection = () => {
+      if (typeof disposeSection === 'function') {
+        try {
+          disposeSection()
+        } catch {
+          /* 卸载失败忽略 */
+        }
+        disposeSection = undefined
+      }
+      if (engine.getSettings?.()?.contextInjection !== true) return
+      try {
+        disposeSection = ctx.systemPrompt?.section?.({
+          name: 'feishu:task-context',
+          order: 160,
+          text:
+            '## 飞书任务上下文\n' +
+            '本会话可能绑定了飞书任务。要拿任务的全部数据（状态、负责人、清单自定义字段、文档、评论、子任务、附件）时，' +
+            '调用 `feishu_task_detail`（不传 taskId 就是当前会话绑定的那条）；不要凭记忆猜任务细节。\n',
+        })
+      } catch {
+        /* 宿主没有 systemPrompt 服务就跳过 */
+      }
+    }
+    engine.onSettingsChange?.(syncTaskSection)
+
     /* 插件卸载/热重载时要注销自己注册的东西：路由和工具都会返回 disposer，
        以前这里丢掉了它们，于是旧实例的 HTTP 路由一直挂在已失效的 fiber 上对外服务。 */
     const owned = []
@@ -3094,6 +3447,7 @@ export function apply(ctx, config = {}) {
         await engine.saveSettings(config)
       }
       await engine.probeCli().catch(() => undefined)
+      syncTaskSection()
       // 启动时顺手体检一次授权：面板一打开就该知道「能用」还是「该去授权」。
       void engine.checkAuth().catch(() => undefined)
       const disposeRoutes = mountRoutes(ctx, engine)
@@ -3116,6 +3470,13 @@ export function apply(ctx, config = {}) {
           }
         }
         schedule.dispose()
+        if (typeof disposeSection === 'function') {
+          try {
+            disposeSection()
+          } catch {
+            /* 忽略 */
+          }
+        }
       }
     })
   } catch (error) {
