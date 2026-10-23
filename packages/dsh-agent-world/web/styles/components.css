@@ -3556,3 +3556,12 @@
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+
+/* R317：站点动作词比“干活/待命”长，状态块不换行、略缩字。 */
+.board-member-state {
+  white-space: nowrap;
+  font-size: 9.5px;
+  max-width: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
