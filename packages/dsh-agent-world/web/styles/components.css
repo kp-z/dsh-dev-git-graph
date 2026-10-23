@@ -3484,3 +3484,13 @@
   cursor: pointer;
 }
 .aw-task-empty-create:hover { border-color: var(--screen); color: var(--fg-0); }
+
+/* R305：极窄团队面板优先保留姓名/状态/任务数，session 尾巴让位。 */
+@media (max-width: 300px) {
+  .aw-team-session {
+    display: none;
+  }
+  .aw-team-node-top {
+    flex-wrap: wrap;
+  }
+}
