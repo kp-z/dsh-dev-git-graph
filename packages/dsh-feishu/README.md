@@ -82,8 +82,10 @@
 
 面板会拿到宿主推来的「当前会话 id」（`postMessage: dsh-feishu:context`），把它绑定的那张任务卡单独标出来：
 
-- 描边换成主题强调色，带一个 2.4s 的呼吸动画（`task-current-pulse`）
-- **底色也换**：强调色自上而下淡出（`linear-gradient(var(--p-accent-weak), transparent 72%)`）压在卡片底色上，正文对比度不受影响
+- 描边换成**橙色**（`--p-select`，浅色 `#ea6a12` / 深色 `#ff9f45`），带 2s 呼吸动画（`task-current-pulse`）
+- **底色也换**：橙色自上而下淡出（`linear-gradient(var(--p-select-weak), transparent 72%)`）压在卡片底色上，
+  和一堆白卡拉开距离，正文对比度不受影响
+- 「当前对话」徽标是橙底白字，不跟强调蓝混在一起
 - 标题行右侧多一个「当前对话」徽标
 - `prefers-reduced-motion` 下保留描边、关掉动画
 

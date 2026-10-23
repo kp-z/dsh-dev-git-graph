@@ -23,6 +23,10 @@
     --p-accent-text: #2f4bc8;
     --p-accent-weak: rgba(59, 91, 219, 0.10);
     --p-accent-line: rgba(59, 91, 219, 0.24);
+    /* 选中态用橙色：和强调蓝拉开距离，扫一眼就能在一堆白卡里认出来 */
+    --p-select: #ea6a12;
+    --p-select-weak: rgba(234, 106, 18, 0.12);
+    --p-select-line: rgba(234, 106, 18, 0.55);
     --p-ok: #0f7b55;
     --p-ok-weak: rgba(15, 123, 85, 0.10);
     --p-ok-line: rgba(15, 123, 85, 0.22);
@@ -53,6 +57,9 @@
     --p-accent-text: #9db0ff;
     --p-accent-weak: rgba(120, 145, 255, 0.14);
     --p-accent-line: rgba(120, 145, 255, 0.30);
+    --p-select: #ff9f45;
+    --p-select-weak: rgba(255, 159, 69, 0.16);
+    --p-select-line: rgba(255, 159, 69, 0.60);
     --p-ok: #4dc38d;
     --p-ok-weak: rgba(77, 195, 141, 0.12);
     --p-ok-line: rgba(77, 195, 141, 0.28);
@@ -1046,28 +1053,30 @@
 
   /* ---------- 当前对话绑定的任务卡 ---------- */
   .task.task-current {
-    border-color: var(--p-accent-line);
-    /* 底色也换掉：强调色自上而下淡出，压在白/深色卡片底上，不抢正文对比度 */
+    border-color: var(--p-select);
+    /* 2px 观感但不改盒模型：描边 + 一圈内发光 */
+    box-shadow: var(--p-shadow), 0 0 0 1px var(--p-select);
+    /* 底色：橙色自上而下淡出，压在白/深色卡片底上，不抢正文对比度 */
     background:
-      linear-gradient(180deg, var(--p-accent-weak), rgba(0, 0, 0, 0) 72%),
+      linear-gradient(180deg, var(--p-select-weak), rgba(0, 0, 0, 0) 72%),
       var(--p-card);
-    animation: task-current-pulse 2.4s ease-in-out infinite;
+    animation: task-current-pulse 2s ease-in-out infinite;
   }
 
   @keyframes task-current-pulse {
     0%, 100% {
-      box-shadow: var(--p-shadow), 0 0 0 1px var(--p-accent-line);
+      box-shadow: var(--p-shadow), 0 0 0 1px var(--p-select);
     }
     50% {
-      box-shadow: var(--p-shadow), 0 0 0 3px var(--p-accent-weak), 0 2px 12px var(--p-accent-weak);
+      box-shadow: var(--p-shadow), 0 0 0 2px var(--p-select), 0 2px 14px var(--p-select-line);
     }
   }
 
   .badge.badge-current {
-    color: var(--p-accent-text);
-    border: 1px solid var(--p-accent-line);
-    background: var(--p-accent-weak);
-    font-weight: 500;
+    color: #fff;
+    border: 1px solid var(--p-select);
+    background: var(--p-select);
+    font-weight: 600;
   }
 
   .task.task-current .task-title {
@@ -1293,7 +1302,7 @@
     /* 选中态保留描边，但不做呼吸动画 */
     .task.task-current {
       animation: none;
-      box-shadow: var(--p-shadow), 0 0 0 2px var(--p-accent-line);
+      box-shadow: var(--p-shadow), 0 0 0 2px var(--p-select);
     }
 
     .spinner { animation-duration: 1.6s; }
