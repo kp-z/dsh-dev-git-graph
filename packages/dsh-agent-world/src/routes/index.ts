@@ -75,7 +75,7 @@ function apiCatchAll(): RouteEntry[] {
   // 判定"端点根本没实现"的，白查了一轮（真相是宿主没重启）。
   // **会误导人的报错比没有报错更贵**：它让人停止怀疑真正的原因。
   const list =
-    'GET /api/world（快照）· POST /api/command（命令）· POST /api/say（搭话）· GET /api/events（事件流）· GET /api/session（会话名）· POST /api/activate（切换会话世界）· POST /api/deactivate（收起会话世界）'
+    'GET /api/world（快照）· POST /api/command（命令）· POST /api/say（搭话）· GET /api/events（事件流）· GET /api/scene（AI 场景资源）· POST /api/scene/command（AI 场景编辑）· GET /api/session（会话名）· POST /api/activate（切换会话世界）· POST /api/deactivate（收起会话世界）'
   const missing = (method: string): RouteEntry => ({
     method,
     pattern: '/api/*',

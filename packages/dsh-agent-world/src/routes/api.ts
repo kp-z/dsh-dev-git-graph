@@ -26,6 +26,7 @@ import type {
 import { buildScenePlan } from '../scene/plan.js'
 import { buildSceneSpace } from '../scene/space.js'
 import type { FineRect } from '../scene/space.js'
+import type { SceneMap, SceneSpace } from '../protocol/scene.js'
 import {
   PROTOCOL_VERSION,
   WORLD_COMMAND_KINDS,
@@ -132,6 +133,108 @@ function saveOverride(mapUrl: string, rects: readonly FineRect[]): number {
   return rects.length
 }
 
+
+/**
+ * R311：AI 场景工具。
+ *
+ * AI 需要的是**可枚举、可断言、像素对齐**的数据，而不是一张截图：
+ * - `GET /api/scene` 返回地图/网格/实体/障碍/命令契约；
+ * - `POST /api/scene/command` 用 nudge / set / add / delete 改碰撞矩形，
+ *   统一按 `snap`（默认 8 源像素）取整并夹在地图内，然后一次性写 override。
+ *
+ * 注释只服务实现者；字段名和 `commands` 是给模型读的协议。
+ */
+interface SceneToolCommand {
+  op?: unknown
+  index?: unknown
+  rect?: unknown
+  dx?: unknown
+  dy?: unknown
+  snap?: unknown
+  dryRun?: unknown
+}
+
+function sceneToolPayload(deps: ApiDeps): Record<string, unknown> {
+  const snap = buildSnapshot(deps)
+  const scene = snap.scene as unknown as { map?: SceneMap | null; space?: SceneSpace | null } | null
+  const map = scene?.map ?? null
+  const space = scene?.space ?? null
+  const mapUrl = typeof map?.url === 'string' ? map.url : null
+  const width = Number(map?.width ?? 0) * Number(map?.cellPx ?? 0)
+  const height = Number(map?.height ?? 0) * Number(map?.cellPx ?? 0)
+  const obstacles = Array.isArray(space?.obstacles) ? space.obstacles : []
+  const entities = Array.isArray(space?.entities) ? space.entities : []
+  return {
+    tool: 'agent-world.scene/v1',
+    note: 'Coordinates are source-map pixels. Snap to `grid.snapSource`; run validate before saving.',
+    map: map === null ? null : { url: mapUrl, width, height, cellPx: map.cellPx, unitsPerCell: map.unitsPerCell },
+    grid: { tileSourcePx: Number(map?.cellPx ?? 32), snapSource: 8, worldPerSource: Number(map?.unitsPerCell ?? 2) },
+    summary: {
+      obstacles: obstacles.length,
+      entities: entities.length,
+      audit: space?.audit ?? null,
+    },
+    obstacles: obstacles.map((rect, index) => ({ index, ...(rect as Record<string, unknown>) })),
+    entities,
+    commands: [
+      { op: 'nudge', params: { index: 'number', dx: 'number', dy: 'number', snap: 'number?' } },
+      { op: 'set', params: { index: 'number', rect: '[x,y,w,h]', snap: 'number?' } },
+      { op: 'add', params: { rect: '[x,y,w,h]', snap: 'number?' } },
+      { op: 'delete', params: { index: 'number' } },
+      { op: 'any', params: { dryRun: 'boolean?', snap: 'number?' } },
+    ],
+  }
+}
+
+function applySceneToolCommand(deps: ApiDeps, body: SceneToolCommand): Record<string, unknown> {
+  const snap = buildSnapshot(deps)
+  const scene = snap.scene as unknown as { map?: SceneMap | null } | null
+  const map = scene?.map ?? null
+  const mapUrl = typeof map?.url === 'string' ? map.url : ''
+  if (mapUrl === '') throw new HttpError(400, '当前场景没有底图，无法编辑碰撞体。')
+  const width = Math.round(Number(map?.width ?? 0) * Number(map?.cellPx ?? 0))
+  const height = Math.round(Number(map?.height ?? 0) * Number(map?.cellPx ?? 0))
+  const snapSize = Math.max(1, Math.round(Number(body.snap ?? 8)))
+  const clamp = (value: number, max: number) => Math.min(max, Math.max(0, Math.round(value / snapSize) * snapSize))
+  const rects = [...(fineRectsFor(mapUrl) ?? [])].map((rect) => [rect[0], rect[1], rect[2], rect[3]] as [number, number, number, number])
+  const readRect = (value: unknown): [number, number, number, number] => {
+    if (!Array.isArray(value) || value.length < 4) throw new HttpError(400, 'rect 必须是 [x,y,w,h]')
+    const nums = value.slice(0, 4).map((v) => Number(v))
+    const x = nums[0] ?? NaN
+    const y = nums[1] ?? NaN
+    const w = nums[2] ?? NaN
+    const h = nums[3] ?? NaN
+    if (![x, y, w, h].every((v) => Number.isFinite(v)) || w <= 0 || h <= 0) throw new HttpError(400, 'rect 的四个值必须有限且 w/h > 0')
+    return [clamp(x, width), clamp(y, height), clamp(w, Math.max(0, width - clamp(x, width))), clamp(h, Math.max(0, height - clamp(y, height)))]
+  }
+  const op = typeof body.op === 'string' ? body.op : ''
+  if (op === 'add') {
+    rects.push(readRect(body.rect))
+  } else if (op === 'delete') {
+    const index = Number(body.index)
+    if (!Number.isInteger(index) || index < 0 || index >= rects.length) throw new HttpError(400, `index 越界（0..${Math.max(0, rects.length - 1)}）`)
+    rects.splice(index, 1)
+  } else if (op === 'set' || op === 'nudge') {
+    const index = Number(body.index)
+    if (!Number.isInteger(index) || index < 0 || index >= rects.length) throw new HttpError(400, `index 越界（0..${Math.max(0, rects.length - 1)}）`)
+    if (op === 'set') rects[index] = readRect(body.rect)
+    else {
+      const dx = Number(body.dx ?? 0)
+      const dy = Number(body.dy ?? 0)
+      if (!Number.isFinite(dx) || !Number.isFinite(dy)) throw new HttpError(400, 'dx/dy 必须是有限数')
+      const [x, y, w, h] = rects[index]!
+      rects[index] = [clamp(x + dx, width - w), clamp(y + dy, height - h), w, h]
+    }
+  } else {
+    throw new HttpError(400, `未知 op ${JSON.stringify(op)}；可用：add / delete / set / nudge`)
+  }
+  if (body.dryRun === true) {
+    return { ok: true, dryRun: true, op, count: rects.length, rects, grid: { snapSource: snapSize, width, height } }
+  }
+  const count = saveOverride(mapUrl, rects)
+  return { ok: true, op, count, rects, grid: { snapSource: snapSize, width, height } }
+}
+
 export function buildSnapshot(deps: ApiDeps): SnapshotMessage {
   const world = deps.service.currentWorld()
   if (world === null) {
@@ -235,6 +338,16 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
       method: 'POST',
       pattern: '/api/command',
       handler: (request) => applyCommand(deps, request.body),
+    },
+    {
+      method: 'GET',
+      pattern: '/api/scene',
+      handler: () => sceneToolPayload(deps),
+    },
+    {
+      method: 'POST',
+      pattern: '/api/scene/command',
+      handler: (request) => applySceneToolCommand(deps, (request.body ?? {}) as SceneToolCommand),
     },
     {
       method: 'POST',
