@@ -496,6 +496,7 @@ function setTeamProjection(team) {
 /** DSH session 树（R273）：团队拓扑的真实父子来源。 */
 function setSessionGraph(graph) {
   sessionGraph = graph
+  if (workflowPollTimer !== null) { globalThis.clearTimeout(workflowPollTimer); workflowPollTimer = null }
   if (teamView === 'workflow') renderTeamTopology(lastTeam)
 }
 
@@ -1037,6 +1038,7 @@ let lastTeam = null
 let sessionGraph = null
 let workflowLoadToken = 0
 let workflowLoading = false
+let workflowPollTimer = null
 
 function agentStateText(state) {
   return ({ working: '干活', talking: '对话中', walking: '走动', idle: '待命', sleeping: '休息', blocked: '阻塞', celebrating: '完成' })[state] ?? state ?? '待命'
@@ -1125,6 +1127,7 @@ function showTeamDetail(name, role, state, id, tasks) {
 
 function setTeamView(next) {
   teamView = next === 'workflow' ? 'workflow' : 'tree'
+  if (workflowPollTimer !== null) { globalThis.clearTimeout(workflowPollTimer); workflowPollTimer = null }
   try { globalThis.localStorage?.setItem('agentWorld.teamView', teamView) } catch (e) { /* 便利 */ }
   const mount = ensureTeamTopology()
   const members = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
@@ -1246,6 +1249,8 @@ async function loadWorkflowRuns() {
     renderWorkflowRuns([], error instanceof Error ? error.message : String(error))
   } finally {
     workflowLoading = false
+    if (workflowPollTimer !== null) globalThis.clearTimeout(workflowPollTimer)
+    if (teamView === 'workflow') workflowPollTimer = globalThis.setTimeout(() => { workflowPollTimer = null; void loadWorkflowRuns() }, 5000)
   }
 }
 
