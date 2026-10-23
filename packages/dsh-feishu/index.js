@@ -254,6 +254,19 @@ export function progressCommentBody(text, meta = {}, now = Date.now()) {
   return `${head}\n\n这一轮没有产出文本${meta.reason ? `，原因：${asString(meta.reason).slice(0, 200)}` : ''}`
 }
 
+/**
+ * `turn/end` 的 reason 是**对象**（`{ kind: 'stop' | 'max-tokens' | 'error', error?: { message } }`），
+ * 不是布尔。以前直接 `Boolean(reason)` 判断，于是每一轮都被标成「本轮失败」——
+ * 真实评论里看到「【进度 · 本轮失败】」但那一轮其实好好的，就是这个 bug。
+ */
+export function turnFailureOf(reason) {
+  if (!reason || typeof reason !== 'object' || Array.isArray(reason)) return { failed: false, text: '' }
+  const kind = asString(reason.kind)
+  if (kind !== 'error') return { failed: false, text: kind }
+  const message = asString(reason.error?.message ?? reason.failure?.message ?? reason.error ?? '')
+  return { failed: true, text: message || '未知错误' }
+}
+
 /** 状态枚举 → 人话。 */
 const STATUS_TEXT = { todo: '待办', done: '已完成', in_progress: '进行中', completed: '已完成' }
 
@@ -3561,13 +3574,14 @@ export function apply(ctx, config = {}) {
           if (type === 'turn/end') {
             const text = progressText.get(sessionId) ?? ''
             progressText.delete(sessionId)
+            const failure = turnFailureOf(event?.data?.reason)
             void engine
               .flushPendingProgress()
               .catch(() => undefined)
               .then(() =>
                 engine.commentProgress(sessionId, text, {
-                  failed: Boolean(event?.data?.reason),
-                  reason: asString(event?.data?.reason),
+                  failed: failure.failed,
+                  reason: failure.text,
                 }),
               )
               .catch(() => undefined)
