@@ -48,6 +48,7 @@ import { dispatchComms } from './comms.js'
 import type { CommsOutcome } from './comms.js'
 import type { DeliverOutcome } from './mailbox.js'
 import { deliverMessages } from './mailbox.js'
+import { queueAutoReplies } from './auto-reply.js'
 import { emitPhaseEvents } from './emit.js'
 import { emitEvent } from './journal.js'
 import { recomputeReady } from './ready.js'
@@ -353,6 +354,8 @@ export function step(
 
   // ── 5. mailbox ──
   const mailbox = deliverMessages(world)
+  const autoReplies = queueAutoReplies(world, mailbox.delivered)
+  const allMessages = { queued: [...comms.queued, ...autoReplies] }
 
   // ── 5.5 不变量修复（R151 / task-25）──
   // **放在所有阶段之后、`world.tick += 1` 之前**：此时本 tick 的状态已经定格，
@@ -363,7 +366,7 @@ export function step(
   const recovery = recoverStalledTasks(world)
 
   // ── 6. emit ──
-  events.push(...emitPhaseEvents(world, { ready, scheduler: scheduled, movement, idle, work, comms }))
+  events.push(...emitPhaseEvents(world, { ready, scheduler: scheduled, movement, idle, work, comms: allMessages }))
 
   // tick 在最后自增：上面所有阶段的 `world.tick` 读到的都是"这一步的编号"，
   // 事件的时间戳也因此一致。放在开头加会让事件落在下一个 tick 上，差一帧。
@@ -375,7 +378,7 @@ export function step(
     claims: scheduled.claims,
     stalled: scheduled.stalled,
     requests,
-    messages: comms.queued,
+    messages: [...comms.queued, ...autoReplies],
     delivered: mailbox.delivered,
     recovered: recovery.recovered,
   }
