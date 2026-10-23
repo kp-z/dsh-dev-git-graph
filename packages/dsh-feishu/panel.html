@@ -1047,6 +1047,10 @@
   /* ---------- 当前对话绑定的任务卡 ---------- */
   .task.task-current {
     border-color: var(--p-accent-line);
+    /* 底色也换掉：强调色自上而下淡出，压在白/深色卡片底上，不抢正文对比度 */
+    background:
+      linear-gradient(180deg, var(--p-accent-weak), rgba(0, 0, 0, 0) 72%),
+      var(--p-card);
     animation: task-current-pulse 2.4s ease-in-out infinite;
   }
 
