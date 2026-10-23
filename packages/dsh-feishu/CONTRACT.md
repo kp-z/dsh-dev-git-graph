@@ -206,6 +206,23 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 - 响应：`{ "ok": true, "url": "https://.../docx/新", "previousUrl": "...", "title": "...", "field": { "ok": true }, "docField": "文档" }`。
   非法链接返回 400 `{ ok:false, error }`。
 
+### 设置里的两个新开关
+
+`POST /dsh-feishu/api/settings` 接受：
+
+| 字段 | 默认 | 作用 |
+| --- | --- | --- |
+| `contextInjection` | `false` | 绑定任务时把「任务档案」投进会话，并挂一段几行的 system prompt 提示 |
+| `pushChanges` | `false` | 同步发现标题/状态/新增文档变化时，往绑定会话投一条通知（同会话 5 分钟最多一条） |
+
+### 模型工具 `feishu_task_detail`
+
+`{ taskId?, refresh? }`：不传 `taskId` 就用**当前会话绑定的任务**（`exec.agent.id` 反查）。
+返回任务全量档案 + 评论/子任务/附件（补充通道，120s 缓存）。缺 scope 时对应段落是「（读取失败：…）」。
+
+> 注意：工具实现必须用 `execute(args, exec)` 把 exec 透传下去——`exec.agent.id` 就是当前会话 id，
+> 早期版本只传了 args，导致 `feishu_task_session bind` / `feishu_task_report` 全都「拿不到当前会话」。
+
 ### `POST /dsh-feishu/api/tasks/create-doc`
 
 给这条任务生成 / 更新一篇飞书文档（统一目录 `DSH 任务文档 / <T<n>-任务名> /`），

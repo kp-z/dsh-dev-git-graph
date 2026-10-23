@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   adoptPreviousState,
+  describeTask,
   deriveTaskDraft,
   docFieldValue,
   docxIdOf,
@@ -196,6 +197,47 @@ check('docxIdOf：空值不抛', docxIdOf(undefined), '')
   const none = await adoptPreviousState(oldFile)
   check('本端口的文件自己有绑定时不乱继承', none, null)
   await rm(dir, { recursive: true, force: true })
+}
+
+/* ---------- 任务档案渲染 ---------- */
+
+{
+  const task = {
+    title: 'T7-做点事',
+    status: 'todo',
+    done: false,
+    listName: '主线任务',
+    members: [
+      { id: 'ou_1', role: 'assignee', name: '张三' },
+      { id: 'ou_2', role: 'follower', name: '李四' },
+    ],
+    creator: { id: 'ou_3', name: '王五' },
+    start: '2026-10-20 10:00',
+    due: '2026-10-25',
+    createdAt: 1792691144226,
+    customFields: [
+      { name: '工作区', value: 'DSH 插件开发' },
+      { name: '文档', value: '' },
+    ],
+    docs: [{ url: 'https://x.feishu.cn/docx/AAA', title: '设计稿' }],
+    url: 'https://applink.feishu.cn/client/todo/detail?guid=1',
+    subtaskCount: 3,
+    origin: { title: 'deep-research' },
+    repeatRule: '',
+    description: '这里是说明',
+  }
+  const text = describeTask(task)
+  check('档案含负责人/关注人/创建人', ['负责人：张三', '关注人：李四', '创建人：王五'].every((line) => text.includes(line)), true)
+  check(
+    '档案含自定义字段、空值字段不占行',
+    text.includes('工作区：DSH 插件开发') && !text.split('\n').includes('- 文档：'),
+    true,
+  )
+  check('档案含文档与子任务', text.includes('设计稿（https://x.feishu.cn/docx/AAA）') && text.includes('子任务：3 条'), true)
+  check('档案默认不带描述', text.includes('这里是说明'), false)
+  check('includeDescription 才带描述', describeTask(task, { includeDescription: true }).includes('任务说明'), true)
+  check('includeDocs:false 时不列文档', describeTask(task, { includeDocs: false }).includes('设计稿'), false)
+  check('已完成任务状态显示已完成', describeTask({ ...task, done: true }).includes('状态：已完成'), true)
 }
 
 if (failures > 0) {
