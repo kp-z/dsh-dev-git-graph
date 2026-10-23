@@ -214,6 +214,8 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 | --- | --- | --- |
 | `contextInjection` | `false` | 绑定任务时把「任务档案」投进会话，并挂一段几行的 system prompt 提示 |
 | `pushChanges` | `false` | 同步发现标题/状态/新增文档变化时，往绑定会话投一条通知（同会话 5 分钟最多一条） |
+| `autoComment` | `true` | 每个 turn 结束把本轮结论写进绑定任务的飞书评论 |
+| `autoCommentMinSeconds` | `45` | 同一会话两条进度评论的最小间隔（10–3600 秒） |
 
 ### 模型工具 `feishu_task_detail`
 
