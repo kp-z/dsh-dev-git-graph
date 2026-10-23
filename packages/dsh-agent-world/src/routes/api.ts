@@ -152,6 +152,32 @@ interface SceneToolCommand {
   dy?: unknown
   snap?: unknown
   dryRun?: unknown
+  objectId?: unknown
+  object?: unknown
+}
+
+function objectOverridePathFor(mapUrl: string, source = false): string {
+  const suffix = mapUrl.replace(/\.png$/i, '-objects-override.json')
+  return source
+    ? join(process.cwd(), 'packages/dsh-agent-world/src/vendor', suffix)
+    : join(dirname(fileURLToPath(import.meta.url)), '../vendor', suffix)
+}
+
+function readObjectOverride(mapUrl: string): Record<string, unknown> {
+  try {
+    const raw = JSON.parse(readFileSync(objectOverridePathFor(mapUrl), 'utf8')) as { objects?: unknown }
+    return raw.objects !== null && typeof raw.objects === 'object' ? raw.objects as Record<string, unknown> : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveObjectOverride(mapUrl: string, objects: Record<string, unknown>): number {
+  const payload = JSON.stringify({ objects, savedAt: new Date().toISOString() })
+  for (const target of new Set([objectOverridePathFor(mapUrl, true), objectOverridePathFor(mapUrl)])) {
+    try { writeFileSync(target, payload) } catch { /* 源码目录不存在不阻塞宿主 */ }
+  }
+  return Object.keys(objects).length
 }
 
 function sceneToolPayload(deps: ApiDeps): Record<string, unknown> {
@@ -176,11 +202,14 @@ function sceneToolPayload(deps: ApiDeps): Record<string, unknown> {
     },
     obstacles: obstacles.map((rect, index) => ({ index, ...(rect as Record<string, unknown>) })),
     entities,
+    objects: Object.entries(mapUrl === null ? {} : readObjectOverride(mapUrl)).map(([id, value]) => ({ id, ...(value as Record<string, unknown>) })),
     commands: [
       { op: 'nudge', params: { index: 'number', dx: 'number', dy: 'number', snap: 'number?' } },
       { op: 'set', params: { index: 'number', rect: '[x,y,w,h]', snap: 'number?' } },
       { op: 'add', params: { rect: '[x,y,w,h]', snap: 'number?' } },
       { op: 'delete', params: { index: 'number' } },
+      { op: 'object-set', params: { objectId: 'string', object: '{x,y,depthBias?,sort?}', snap: 'number?' } },
+      { op: 'object-delete', params: { objectId: 'string' } },
       { op: 'any', params: { dryRun: 'boolean?', snap: 'number?' } },
     ],
   }
@@ -225,8 +254,31 @@ function applySceneToolCommand(deps: ApiDeps, body: SceneToolCommand): Record<st
       const [x, y, w, h] = rects[index]!
       rects[index] = [clamp(x + dx, width - w), clamp(y + dy, height - h), w, h]
     }
+  } else if (op === 'object-set' || op === 'object-delete') {
+    const objectId = typeof body.objectId === 'string' ? body.objectId : ''
+    if (objectId === '') throw new HttpError(400, 'objectId 不能为空')
+    const objects = readObjectOverride(mapUrl)
+    if (op === 'object-delete') {
+      if (objects[objectId] === undefined) throw new HttpError(404, `没有对象 ${objectId}`)
+      delete objects[objectId]
+    } else {
+      const raw = body.object
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'object 必须是 {x,y,depthBias?,sort?} 对象')
+      const patch = raw as Record<string, unknown>
+      const x = clamp(Number(patch.x), width)
+      const y = clamp(Number(patch.y), height)
+      if (!Number.isFinite(Number(patch.x)) || !Number.isFinite(Number(patch.y))) throw new HttpError(400, 'object.x/y 必须是有限数')
+      const previous = (objects[objectId] ?? {}) as Record<string, unknown>
+      const sort = typeof patch.sort === 'string' ? patch.sort : previous.sort
+      if (sort !== undefined && sort !== 'sortable' && sort !== 'floor' && sort !== 'above') throw new HttpError(400, 'sort 只能是 sortable / floor / above')
+      const depthBias = patch.depthBias === undefined ? previous.depthBias : Number(patch.depthBias)
+      if (depthBias !== undefined && !Number.isFinite(depthBias)) throw new HttpError(400, 'depthBias 必须是有限数')
+      objects[objectId] = { ...previous, ...(sort === undefined ? {} : { sort }), ...(depthBias === undefined ? {} : { depthBias }), x, y }
+    }
+    if (body.dryRun === true) return { ok: true, dryRun: true, op, count: Object.keys(objects).length, objects }
+    return { ok: true, op, count: saveObjectOverride(mapUrl, objects), objects }
   } else {
-    throw new HttpError(400, `未知 op ${JSON.stringify(op)}；可用：add / delete / set / nudge`)
+    throw new HttpError(400, `未知 op ${JSON.stringify(op)}；可用：add / delete / set / nudge / object-set / object-delete`)
   }
   if (body.dryRun === true) {
     return { ok: true, dryRun: true, op, count: rects.length, rects, grid: { snapSource: snapSize, width, height } }
