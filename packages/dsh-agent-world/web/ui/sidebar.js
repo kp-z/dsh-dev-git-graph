@@ -87,8 +87,8 @@ export function createSidebar(options = {}) {
   let collapsed = typeof options.initialCollapsed === 'boolean' ? options.initialCollapsed : readCollapsed()
   let layout = readLayout()
   let order = readOrder()
-  /** R181：两块各自可折叠（`{graph, agents}`），状态与整列折叠分开存。 */
-  const panelCollapsed = readPanelCollapsed()
+  /** R327：单块面板不再折叠——两块永远展开，只保留整列侧边栏的开合。 */
+  const panelCollapsed = {}
 
   // ── 骨架（只建一次）─────────────────────────────────────────────────────────
   //
@@ -104,7 +104,6 @@ export function createSidebar(options = {}) {
   const panels = {}
   const metas = {}
   const titleIds = {}
-  const carets = {}
   const regionTitles = {}
   for (const region of REGIONS) {
     regionTitles[region.id] = region.title
@@ -135,12 +134,7 @@ export function createSidebar(options = {}) {
      */
     const actions = el(doc, 'div', 'sidebar-region-actions')
     actions.dataset.region = region.id
-    const caret = el(doc, 'button', 'aw-caret', '⌄')
-    caret.type = 'button'
-    caret.setAttribute('aria-expanded', 'true')
-    caret.addEventListener('click', () => setPanelCollapsed(region.id, panelCollapsed[region.id] !== true))
-    carets[region.id] = caret
-    head.append(title, meta, caret)
+    head.append(title, meta)
     const handle = el(doc, 'button', 'aw-drag-handle', '⠿')
     handle.type = 'button'
     handle.draggable = true
@@ -264,25 +258,11 @@ export function createSidebar(options = {}) {
    * 计数和展开开关——"折叠"不等于"消失"。展开时回调 `onPanelExpand`，
    * 让看板重挑一次依赖图几何（折叠期间容器是 0×0，量出来的是废图）。
    */
+  /** R327：保留 API 形状，但不再支持单块折叠（历史调用一律 no-op）。 */
   function setPanelCollapsed(id, next, silent = false) {
-    const panel = panels[id]
-    if (panel === undefined) return false
-    const value = next === true
-    panelCollapsed[id] = value
-    panel.classList.toggle('is-collapsed', value)
-    const caret = carets[id]
-    if (caret !== undefined) {
-      caret.setAttribute('aria-expanded', String(!value))
-      caret.setAttribute('aria-label', `${regionTitles[id]}面板${value ? '展开' : '折叠'}`)
-      caret.title = caret.getAttribute('aria-label')
-      caret.textContent = value ? '›' : '⌄'
-    }
-    writePanelCollapsed(panelCollapsed)
-    if (!value && silent !== true) options.onPanelExpand?.(id)
-    return value
+    void id; void next; void silent
+    return false
   }
-  // 构造期按记忆恢复一次；不触发 onPanelExpand（此刻 boardRef 还没建）。
-  for (const region of REGIONS) setPanelCollapsed(region.id, panelCollapsed[region.id] === true, true)
 
   /** 折叠：只切 class，宽度由 CSS 的 `--sidebar-w` 决定（引擎的 `Scale.RESIZE` 自己带画布跟）。 */
   function setCollapsed(next) {
@@ -373,7 +353,7 @@ export function createSidebar(options = {}) {
     setLayout,
     toggleLayout: () => setLayout(layout === 'columns' ? 'rows' : 'columns'),
     panelCollapsed: (id) => (id === undefined ? { ...panelCollapsed } : panelCollapsed[id] === true),
-    setPanelCollapsed: (id, next) => setPanelCollapsed(id, next),
+    setPanelCollapsed: () => false,
     overflow,
     /**
      * 诊断：折叠态、两块的高度（**折叠时高度应该是 0，这是预期**）、
@@ -388,7 +368,7 @@ export function createSidebar(options = {}) {
       edges: panels.graph.querySelectorAll('.board-edge').length,
       /** R181：状态带的段数应当 == 任务数（验收判据之一）。 */
       ribbonSegments: panels.ribbon?.querySelectorAll('.aw-ribbon-seg').length ?? 0,
-      collapsedPanels: { graph: panelCollapsed.graph === true, agents: panelCollapsed.agents === true },
+      collapsedPanels: { graph: false, agents: false },
       tablists: root.querySelectorAll('[role="tablist"]').length,
       visible: root.offsetParent !== null,
     }),
@@ -468,28 +448,3 @@ function createNullSidebar() {
 }
 
 /** R181：读单块折叠记忆（读不到/坏数据都当展开）。 */
-function readPanelCollapsed() {
-  try {
-    const raw = globalThis.localStorage?.getItem(PANEL_COLLAPSED_KEY)
-    if (typeof raw !== 'string' || raw === '') return { graph: false, agents: false }
-    const parsed = JSON.parse(raw)
-    return {
-      graph: parsed?.graph === true,
-      agents: parsed?.agents === true,
-    }
-  } catch {
-    return { graph: false, agents: false }
-  }
-}
-
-/** R181：写单块折叠记忆（写不进去不影响功能，只是下次要重新点）。 */
-function writePanelCollapsed(value) {
-  try {
-    globalThis.localStorage?.setItem(PANEL_COLLAPSED_KEY, JSON.stringify({
-      graph: value?.graph === true,
-      agents: value?.agents === true,
-    }))
-  } catch {
-    /* 隐私模式/被策略禁掉：记忆是便利，不是功能。 */
-  }
-}
