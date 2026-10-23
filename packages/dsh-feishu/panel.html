@@ -1874,6 +1874,16 @@
 
     var tasks = (app.snap && app.snap.tasks) || [];
     if (!Array.isArray(tasks)) tasks = [];
+    /* 当前对话绑定的那条任务置顶：翻面板时第一眼就是「我现在干的这条」。
+       只换顺序、不动数据（slice 一份再排，别把快照本身改了）。 */
+    var currentId = String(app.currentSessionId || '');
+    if (currentId) {
+      tasks = tasks.slice().sort(function (a, b) {
+        var ac = a && a.sessionId === currentId ? 1 : 0;
+        var bc = b && b.sessionId === currentId ? 1 : 0;
+        return bc - ac;
+      });
+    }
 
     $('taskCount').textContent = String(tasks.length);
 
