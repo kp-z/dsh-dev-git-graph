@@ -62,8 +62,8 @@ const PANEL_COLLAPSED_KEY = 'agentWorld.panelCollapsed'
 const REGIONS = [
   // R180：任务面板在上（后台任务 + 任务依赖树），Agent 列表在下。
   // 不再有左上角浮卡；所有团队/任务操作都收进这两块常驻侧边栏。
-  { id: 'graph', title: '☑ 任务', icon: '☑' },
-  { id: 'agents', title: '◉ 团队', icon: '◉' },
+  { id: 'graph', title: '任务', icon: '☑' },
+  { id: 'agents', title: '团队', icon: '◉' },
 ]
 
 /**
