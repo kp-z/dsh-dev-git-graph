@@ -1044,6 +1044,21 @@ function agentStateText(state) {
   return ({ working: '干活', talking: '对话中', walking: '走动', idle: '待命', sleeping: '休息', blocked: '阻塞', celebrating: '完成' })[state] ?? state ?? '待命'
 }
 
+/** R314：把 agent 的工位能力翻译成动作词；没有 world/station 时退回状态词。 */
+function agentActivityText(actor, state) {
+  if (actor === null || actor === undefined) return agentStateText(state)
+  const stationId = actor.station ?? actor.targetStation
+  const station = (world?.stations ?? []).find((candidate) => candidate.id === stationId)
+  const kind = station?.kind
+  if (state === 'working') {
+    return ({ desk: '写代码', meeting: '开会', breakroom: '休息', lab: '研究', server: '算力', mailroom: '收发' })[kind] ?? '干活'
+  }
+  if (state === 'walking') {
+    return ({ desk: '去工位', meeting: '去开会', breakroom: '去休息', lab: '去实验台', server: '去机柜', mailroom: '去收发室' })[kind] ?? '走动'
+  }
+  return agentStateText(state)
+}
+
 function ensureTeamTopology() {
   let mount = root.querySelector('#sidebar-team-topology')
   if (mount !== null) return mount
