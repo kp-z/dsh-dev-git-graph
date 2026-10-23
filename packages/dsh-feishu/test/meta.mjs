@@ -13,6 +13,7 @@ import {
   adoptPreviousState,
   describeTask,
   progressCommentBody,
+  progressDigest,
   turnFailureOf,
   deriveTaskDraft,
   docFieldValue,
@@ -278,6 +279,49 @@ check(
   true,
 )
 check('传布尔也不炸', turnFailureOf(true).failed, false)
+
+/* ---------- 进展评论：只认硬证据 ---------- */
+
+{
+  const now = Date.UTC(2026, 9, 23, 12, 0, 0)
+  check('只有闲聊的轮次不写评论', progressDigest({ text: '好的，我看了一下。' }, now), '')
+  check(
+    '改文件才算进展',
+    progressDigest({ text: '改好了', edits: ['packages/dsh-feishu/index.js'] }, now).includes('我改了 1 个文件'),
+    true,
+  )
+  check(
+    '标明是 AI 写的',
+    progressDigest({ text: '', edits: ['a.js'] }, now).startsWith('🤖 AI 进度'),
+    true,
+  )
+  check(
+    '正文里的 commit 短码会被识别',
+    progressDigest({ text: '已提交 5d2d362，收工。', edits: ['a.js'] }, now).includes('5d2d362'),
+    true,
+  )
+  check(
+    '没有 提交/commit 字样时不当哈希',
+    progressDigest({ text: '版本 1234567abc', edits: ['a.js'] }, now).includes('我提交了 commit'),
+    false,
+  )
+  check(
+    '跑测试也算进展',
+    progressDigest({ text: '测试通过', commands: ['node test/meta.mjs'] }, now).includes('我跑了测试'),
+    true,
+  )
+  check(
+    'git commit 命令即使没解析到哈希也算',
+    progressDigest({ text: '', commands: ['git commit -m "x"'] }, now).includes('git commit'),
+    true,
+  )
+  check(
+    '失败轮次带标注',
+    progressDigest({ text: '', edits: ['a.js'], failed: true }, now).includes('出错了'),
+    true,
+  )
+  check('超长正文截断', progressDigest({ text: 'x'.repeat(900), edits: ['a.js'] }, now).length <= 720, true)
+}
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)

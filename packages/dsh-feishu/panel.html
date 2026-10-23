@@ -1463,8 +1463,8 @@
 
       <div class="row">
         <div class="row-text">
-          <label for="autoComment">每轮进展写回任务评论</label>
-          <div class="hint">绑定了任务的会话，每个 turn 结束把这一轮的结论写进飞书任务评论（去掉代码块、最多 600 字）；失败下次补发一次。同事在飞书上能看到进展</div>
+          <label for="autoComment">有实际进展才写回任务评论</label>
+          <div class="hint">只有改了文件 / 产生了 commit / 跑了测试的轮次才写（闲聊轮次不写）；以「🤖 AI 进度」开头、用第一人称，同事一眼看出是 AI 写的。失败下次补发一次</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="autoComment" class="switch" data-setting="1">

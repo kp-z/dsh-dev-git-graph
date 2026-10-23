@@ -267,6 +267,55 @@ export function turnFailureOf(reason) {
   return { failed: true, text: message || '未知错误' }
 }
 
+/**
+ * 一轮里的「实际进展」→ 一条第一人称的 AI 进度评论。
+ *
+ * 为什么要判据：以前每轮都写，模型只是回了一句话也会留下一条评论，评论列表很快变成噪音。
+ * 现在只认这三种硬证据：改了文件、产生了 commit、跑了测试。都没有就返回空串（不写评论）。
+ *
+ * 产出带 `🤖 AI 进度` 前缀，正文用第一人称（「我改了…」「我提交了…」），别人一眼知道是 AI 写的。
+ */
+export function progressDigest(input = {}, now = Date.now()) {
+  const text = asString(input.text)
+  const edits = [...new Set((input.edits ?? []).map((item) => asString(item)).filter(Boolean))].slice(0, 6)
+  const commands = [...new Set((input.commands ?? []).map((item) => asString(item)).filter(Boolean))]
+  const commits = new Set((input.commits ?? []).map((item) => asString(item)).filter(Boolean))
+
+  /* 正文里出现的短码：只有上下文提到 commit/提交 时才算数，避免把随机十六进制当哈希 */
+  if (/(commit|提交)/i.test(text)) {
+    for (const raw of text.match(/\b[0-9a-f]{7,40}\b/gi) ?? []) commits.add(raw.slice(0, 7))
+  }
+
+  const testCmds = commands.filter((cmd) => /\b(test|pytest|jest|vitest)\b|node\s+--test/i.test(cmd))
+  const gitCmds = commands.filter((cmd) => /\bgit\s+commit\b/i.test(cmd))
+  const failed = input.failed === true
+
+  /* 空转轮次（只是说了几句话）不写评论 */
+  if (!edits.length && !commits.size && !testCmds.length && !gitCmds.length) return ''
+
+  const time = new Date(now).toLocaleTimeString('zh-CN', { hour12: false })
+  const lines = [failed ? `🤖 AI 进度 · ${time}（这一轮出错了）` : `🤖 AI 进度 · ${time}`]
+  const bullets = []
+  if (edits.length) {
+    const shown = edits.slice(0, 3).map((file) => file.split('/').pop() || file).join('、')
+    bullets.push(`- 我改了 ${edits.length} 个文件：${shown}${edits.length > 3 ? ' 等' : ''}`)
+  }
+  if (commits.size) bullets.push(`- 我提交了 commit：${[...commits].slice(0, 3).join('、')}`)
+  if (testCmds.length) bullets.push(`- 我跑了测试：${testCmds.slice(0, 2).map((cmd) => cmd.slice(0, 60)).join('；')}`)
+  if (!commits.size && gitCmds.length) bullets.push('- 我执行了 git commit')
+  if (bullets.length) lines.push('', ...bullets)
+
+  const summary = text
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  if (summary) lines.push('', `这一轮的结论：${summary.slice(0, 240)}${summary.length > 240 ? '…' : ''}`)
+
+  const body = lines.join('\n')
+  return body.length > 700 ? `${body.slice(0, 700)}…（已截断）` : body
+}
+
 /** 状态枚举 → 人话。 */
 const STATUS_TEXT = { todo: '待办', done: '已完成', in_progress: '进行中', completed: '已完成' }
 
@@ -1454,7 +1503,7 @@ function createSyncEngine(ctx) {
     if (settings.autoComment !== true) return { ok: false, skipped: '自动评论关闭' }
     const task = state.tasks.find((item) => item.sessionId === sessionId)
     if (!task) return { ok: false, skipped: '这条会话没有绑定任务' }
-    const body = progressCommentBody(text, meta)
+    const body = asString(meta.body) || progressCommentBody(text, meta)
     if (!body) return { ok: false, skipped: '这一轮没有可写的进展' }
     const last = lastProgressAt.get(sessionId) ?? 0
     if (nowMs() - last < settings.autoCommentMinSeconds * 1000) return { ok: false, skipped: '间隔不足' }
@@ -3538,6 +3587,8 @@ export function apply(ctx, config = {}) {
      * 一个 turn 里模型可能吐好几段，评论只该有一条。
      */
     const progressText = new Map()
+    /* 一轮里「实际做了什么」：改过哪些文件、跑过哪些命令。只在有硬证据时才写评论。 */
+    const turnEvidence = new Map()
     let warnedSessionShape = false
     const sessionIdOf = (session, event) =>
       asString(session?.id ?? session?.sessionId ?? session?.header?.id ?? event?.data?.sessionId)
@@ -3559,6 +3610,28 @@ export function apply(ctx, config = {}) {
           }
           if (type === 'turn/start') {
             progressText.delete(sessionId)
+            turnEvidence.delete(sessionId)
+            return
+          }
+          if (type === 'tool/call') {
+            const data = event?.data ?? {}
+            const name = asString(data.name ?? data.toolName ?? data.tool?.name ?? data.call?.name)
+            const args = data.args ?? data.arguments ?? data.input ?? data.tool?.args ?? {}
+            const evidence = turnEvidence.get(sessionId) ?? { edits: [], commands: [] }
+            if (/(^|[^a-z])(write|edit|multi_edit|apply_patch)/i.test(name)) {
+              const direct = [args.file_path, args.path, args.filePath, args.target]
+                .map((item) => asString(item))
+                .filter(Boolean)
+              const nested = (Array.isArray(args.edits) ? args.edits : [])
+                .map((item) => asString(item?.file_path ?? item?.path))
+                .filter(Boolean)
+              evidence.edits.push(...direct, ...nested)
+            }
+            if (/(bash|shell|exec|terminal|run_command)/i.test(name)) {
+              const command = asString(args.command ?? args.cmd ?? args.script)
+              if (command) evidence.commands.push(command)
+            }
+            turnEvidence.set(sessionId, evidence)
             return
           }
           if (type === 'assistant/message') {
@@ -3573,8 +3646,18 @@ export function apply(ctx, config = {}) {
           }
           if (type === 'turn/end') {
             const text = progressText.get(sessionId) ?? ''
+            const evidence = turnEvidence.get(sessionId) ?? { edits: [], commands: [] }
             progressText.delete(sessionId)
+            turnEvidence.delete(sessionId)
             const failure = turnFailureOf(event?.data?.reason)
+            /* 只有改了文件 / 有 commit / 跑了测试的轮次才值得写一条评论。 */
+            const digest = progressDigest({
+              text,
+              edits: evidence.edits,
+              commands: evidence.commands,
+              failed: failure.failed,
+            })
+            if (!digest) return
             void engine
               .flushPendingProgress()
               .catch(() => undefined)
@@ -3582,6 +3665,7 @@ export function apply(ctx, config = {}) {
                 engine.commentProgress(sessionId, text, {
                   failed: failure.failed,
                   reason: failure.text,
+                  body: digest,
                 }),
               )
               .catch(() => undefined)
