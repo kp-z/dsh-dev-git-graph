@@ -1,6 +1,6 @@
 {
   "name": "dsh-feishu",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "private": true,
   "type": "module",
   "description": "飞书同步插件：配置个人授权，定时把飞书任务与文档同步到本地，任务可直接开成 DSH 会话。",

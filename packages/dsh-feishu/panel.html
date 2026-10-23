@@ -1044,6 +1044,32 @@
 
   .chip-doc:hover { text-decoration: underline; }
 
+  /* ---------- 当前对话绑定的任务卡 ---------- */
+  .task.task-current {
+    border-color: var(--p-accent-line);
+    animation: task-current-pulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes task-current-pulse {
+    0%, 100% {
+      box-shadow: var(--p-shadow), 0 0 0 1px var(--p-accent-line);
+    }
+    50% {
+      box-shadow: var(--p-shadow), 0 0 0 3px var(--p-accent-weak), 0 2px 12px var(--p-accent-weak);
+    }
+  }
+
+  .badge.badge-current {
+    color: var(--p-accent-text);
+    border: 1px solid var(--p-accent-line);
+    background: var(--p-accent-weak);
+    font-weight: 500;
+  }
+
+  .task.task-current .task-title {
+    font-weight: 600;
+  }
+
   /* ---------- 任务卡上的文档行 ---------- */
   .task-docs {
     display: flex;
@@ -1260,6 +1286,12 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    /* 选中态保留描边，但不做呼吸动画 */
+    .task.task-current {
+      animation: none;
+      box-shadow: var(--p-shadow), 0 0 0 2px var(--p-accent-line);
+    }
+
     .spinner { animation-duration: 1.6s; }
     .toast,
     .switch,
@@ -1861,7 +1893,13 @@
   }
 
   function taskNode(t) {
-    var item = el('div', { 'class': 'task' });
+    /* 当前对话绑定的那张卡单独标出来：描边 + 呼吸动画 + 「当前对话」徽标。 */
+    var isCurrent = !!(t.sessionId && app.currentSessionId && t.sessionId === app.currentSessionId);
+    var item = el('div', { 'class': isCurrent ? 'task task-current' : 'task' });
+    if (isCurrent) {
+      item.setAttribute('aria-current', 'true');
+      item.setAttribute('data-session', String(t.sessionId));
+    }
     var main = el('div', { 'class': 'task-main' });
     /* 会话 id 要同时用于标题行的小角标和下面的动作行，先取一次。 */
     var sid = t.sessionId || app.sessions[t.id];
@@ -1900,6 +1938,7 @@
     if (t.boundOnly && !t.started) meta.appendChild(el('span', { 'class': 'badge', text: '已绑定' }));
     if (t.started) meta.appendChild(el('span', { 'class': 'badge badge-ok', text: '已开工' }));
     if (t.done) meta.appendChild(el('span', { 'class': 'badge badge-done', text: '已完成' }));
+    if (isCurrent) meta.appendChild(el('span', { 'class': 'badge badge-current', text: '当前对话' }));
     /* 触发条件与工作区统一用下面的 chip 表达（不论来自清单字段还是旧描述），这里不再出徽标。 */
     main.appendChild(meta);
 
