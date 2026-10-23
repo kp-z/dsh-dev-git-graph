@@ -370,9 +370,11 @@ export function createBoard(options = {}) {
   function renderRegionMeta() {
     if (!ready || model === null) return
     const busy = model.members.filter((m) => m.state !== 'idle' && m.state !== 'sleeping').length
+    const meetingStations = new Set((world?.stations ?? []).filter((station) => station.kind === 'meeting').map((station) => station.id))
+    const meeting = (world?.agents ?? []).filter((agent) => agent.state === 'working' && meetingStations.has(agent.station)).length
     const done = model.counts?.done ?? 0
     const total = model.counts?.total ?? model.tasks.length
-    if (parts.agentsMeta !== null) parts.agentsMeta.textContent = `${model.members.length} 人 · ${busy} 忙碌`
+    if (parts.agentsMeta !== null) parts.agentsMeta.textContent = `${model.members.length} 人 · ${busy} 忙碌${meeting > 0 ? ` · ${meeting} 开会` : ''}`
     if (parts.graphMeta !== null) parts.graphMeta.textContent = `${total} 张 · ${done} 完成`
   }
 
