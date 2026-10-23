@@ -1415,6 +1415,27 @@
           <input type="checkbox" id="pushChanges" class="switch" data-setting="1">
         </div>
       </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="autoComment">每轮进展写回任务评论</label>
+          <div class="hint">绑定了任务的会话，每个 turn 结束把这一轮的结论写进飞书任务评论（去掉代码块、最多 600 字）；失败下次补发一次。同事在飞书上能看到进展</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="checkbox" id="autoComment" class="switch" data-setting="1">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="autoCommentGap">进度评论最小间隔</label>
+          <div class="hint">同一会话两条进度评论之间至少隔多久，防止一个短 turn 刷一条</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="number" id="autoCommentGap" data-setting="1" min="10" max="3600" step="5" inputmode="numeric">
+          <span class="unit">秒</span>
+        </div>
+      </div>
     </div>
 
     <div class="card-foot">
@@ -1791,6 +1812,8 @@
     $('maxAutoStart').value = st.maxAutoStartPerRun != null ? st.maxAutoStartPerRun : 1;
     $('contextInjection').checked = st.contextInjection === true;
     $('pushChanges').checked = st.pushChanges === true;
+    $('autoComment').checked = st.autoComment !== false;
+    $('autoCommentGap').value = st.autoCommentMinSeconds != null ? st.autoCommentMinSeconds : 45;
   }
 
   /* ---------------- 渲染：任务 ---------------- */
@@ -2597,7 +2620,9 @@
       autoStartMode: $('autoStartMode').value,
       maxAutoStartPerRun: toInt($('maxAutoStart').value, 1, 1, 20),
       contextInjection: $('contextInjection').checked,
-      pushChanges: $('pushChanges').checked
+      pushChanges: $('pushChanges').checked,
+      autoComment: $('autoComment').checked,
+      autoCommentMinSeconds: toInt($('autoCommentGap').value, 45, 10, 3600)
     };
 
     api('settings', payload).then(function (data) {
@@ -2862,7 +2887,7 @@
   function markDirty() { app.settingsDirty = true; }
 
   function wire() {
-    var settingIds = ['autoSync', 'syncInterval', 'includeCompleted', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges'];
+    var settingIds = ['autoSync', 'syncInterval', 'includeCompleted', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap'];
     for (var i = 0; i < settingIds.length; i++) {
       var node = $(settingIds[i]);
       if (!node) continue;

@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import {
   adoptPreviousState,
   describeTask,
+  progressCommentBody,
   deriveTaskDraft,
   docFieldValue,
   docxIdOf,
@@ -238,6 +239,25 @@ check('docxIdOf：空值不抛', docxIdOf(undefined), '')
   check('includeDescription 才带描述', describeTask(task, { includeDescription: true }).includes('任务说明'), true)
   check('includeDocs:false 时不列文档', describeTask(task, { includeDocs: false }).includes('设计稿'), false)
   check('已完成任务状态显示已完成', describeTask({ ...task, done: true }).includes('状态：已完成'), true)
+}
+
+/* ---------- 进度评论正文 ---------- */
+
+{
+  const now = Date.UTC(2026, 9, 23, 9, 0, 0)
+  const body = progressCommentBody('做完了 A\n\n```js\ncode()\n```\n\n还有 B', {}, now)
+  check('进度评论去掉代码块', body.includes('code()'), false)
+  check('进度评论保留正文', body.includes('做完了 A') && body.includes('还有 B'), true)
+  check('进度评论带时间戳', body.includes('【进度】'), true)
+  check('空的正常轮次不写评论', progressCommentBody('   ', {}), '')
+  check(
+    '失败轮次写原因',
+    progressCommentBody('', { failed: true, reason: 'tool timeout' }).includes('本轮失败') &&
+      progressCommentBody('', { failed: true, reason: 'tool timeout' }).includes('tool timeout'),
+    true,
+  )
+  const long = progressCommentBody('x'.repeat(900), {}, now)
+  check('超长正文截断并标注', long.includes('已截断') && long.length < 900, true)
 }
 
 if (failures > 0) {

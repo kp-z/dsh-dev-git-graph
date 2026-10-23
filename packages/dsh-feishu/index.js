@@ -20,7 +20,7 @@
  * 不是「少了个功能」。所以初始化里的异步动作全部 fire-and-forget，失败只写进 state.lastError。
  */
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -126,6 +126,10 @@ const DEFAULT_SETTINGS = {
   contextInjection: false,
   /* 任务有实质变化时推给绑定会话（默认关：每次推送都会消耗一个 turn）。 */
   pushChanges: false,
+  /* 每个 turn 结束把进展写回任务评论（用户要求的「进展同步」）。 */
+  autoComment: true,
+  /* 同一会话两条进度评论的最小间隔（秒），防止一个 turn 刷一条。 */
+  autoCommentMinSeconds: 45,
   /* 生成飞书文档时给模型的写作要求（面板可编辑）。 */
   docPrompt:
     '把给你的任务材料整理成一份给工程师看的正式文档。硬性要求：\n' +
@@ -223,6 +227,31 @@ export function docFieldValue(task) {
     urls.push(url)
   }
   return urls.join('\n')
+}
+
+
+/**
+ * 一轮进展 → 评论正文。
+ *
+ * 去掉代码围栏（评论里贴大段代码没有意义）与 dsh-ui 组件块，压掉多余空行，
+ * 正文最多 600 字；这一轮失败时单独标出来，没文本但有失败原因就写原因。
+ */
+export function progressCommentBody(text, meta = {}, now = Date.now()) {
+  const raw = asString(text)
+  const cleaned = raw
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  const time = new Date(now).toLocaleTimeString('zh-CN', { hour12: false })
+  const head = meta.failed ? `【进度 · 本轮失败】${time}` : `【进度】${time}`
+  const limit = 600
+  if (cleaned) {
+    const body = cleaned.length > limit ? `${cleaned.slice(0, limit)}…（已截断，原文 ${cleaned.length} 字）` : cleaned
+    return `${head}\n\n${body}`
+  }
+  if (!meta.failed) return ''
+  return `${head}\n\n这一轮没有产出文本${meta.reason ? `，原因：${asString(meta.reason).slice(0, 200)}` : ''}`
 }
 
 /** 状态枚举 → 人话。 */
@@ -345,6 +374,8 @@ function sanitizeSettings(input, base) {
     maxAutoStartPerRun: clampInt(next.maxAutoStartPerRun, 1, 10, 1),
     contextInjection: next.contextInjection === true,
     pushChanges: next.pushChanges === true,
+    autoComment: next.autoComment !== false,
+    autoCommentMinSeconds: clampInt(next.autoCommentMinSeconds, 10, 3600, 45),
     docPrompt:
       typeof next.docPrompt === 'string' && next.docPrompt.trim().length > 0
         ? next.docPrompt.slice(0, 4000)
@@ -1394,6 +1425,49 @@ function createSyncEngine(ctx) {
     }
     if (pushed.length) await persistState()
     return pushed
+  }
+
+  /* 进度评论的节流与失败重试队列（只在下一次 turn 结束时补一次，不做无限重试）。 */
+  const lastProgressAt = new Map()
+  const pendingProgress = []
+
+  /**
+   * 把一轮的进展写回「这条会话绑定的任务」的评论里。
+   *
+   * 内容取这一轮最后一段助手文本，去掉代码围栏/组件块后截断 600 字；
+   * 失败时只记日志并挂进 pendingProgress，下一次 turn 结束补发一次。
+   */
+  async function commentProgress(sessionId, text, meta = {}) {
+    if (settings.autoComment !== true) return { ok: false, skipped: '自动评论关闭' }
+    const task = state.tasks.find((item) => item.sessionId === sessionId)
+    if (!task) return { ok: false, skipped: '这条会话没有绑定任务' }
+    const body = progressCommentBody(text, meta)
+    if (!body) return { ok: false, skipped: '这一轮没有可写的进展' }
+    const last = lastProgressAt.get(sessionId) ?? 0
+    if (nowMs() - last < settings.autoCommentMinSeconds * 1000) return { ok: false, skipped: '间隔不足' }
+
+    const path = resolveCli(settings.cliPath)
+    const result = await runCli(path, ['task', 'comment', task.id, body], { timeoutMs: 60_000 })
+    if (!result.ok) {
+      log(ctx, 'warn', `[comment] 进度写回失败：${(result.detail ?? '').slice(-200)}`)
+      if (pendingProgress.length < 5) pendingProgress.push({ taskId: task.id, sessionId, body, at: nowMs() })
+      return { ok: false, error: '写评论失败' }
+    }
+    lastProgressAt.set(sessionId, nowMs())
+    task.lastCommentAt = nowMs()
+    await persistState()
+    return { ok: true, taskId: task.id, body }
+  }
+
+  /** 补发上一条失败的进度评论（每次 turn 结束最多补一条）。 */
+  async function flushPendingProgress() {
+    if (settings.autoComment !== true) return { ok: false }
+    const item = pendingProgress.shift()
+    if (!item) return { ok: false, skipped: '没有待补发' }
+    const path = resolveCli(settings.cliPath)
+    const result = await runCli(path, ['task', 'comment', item.taskId, item.body], { timeoutMs: 60_000 })
+    if (result.ok) lastProgressAt.set(item.sessionId, nowMs())
+    return { ok: result.ok }
   }
 
   async function startTask(taskId, source, options = {}) {
@@ -2731,6 +2805,8 @@ function createSyncEngine(ctx) {
     sync,
     getSettings: () => settings,
     onSettingsChange,
+    commentProgress,
+    flushPendingProgress,
     getState: () => state,
     /* 定时器用：有没有到点该开工的「按时执行」任务。 */
     dueScheduledNow() {
@@ -3440,6 +3516,72 @@ export function apply(ctx, config = {}) {
     /* 插件卸载/热重载时要注销自己注册的东西：路由和工具都会返回 disposer，
        以前这里丢掉了它们，于是旧实例的 HTTP 路由一直挂在已失效的 fiber 上对外服务。 */
     const owned = []
+
+    /**
+     * 每个 turn 结束把进展写回任务评论（「会话有任何进展都同步到飞书」）。
+     *
+     * 宿主把会话事件统一从 `session/event` 发出来：`turn/start` → `assistant/message`
+     * → `turn/end`。这里只缓存本轮的助手文本，到 `turn/end` 才写一条评论——
+     * 一个 turn 里模型可能吐好几段，评论只该有一条。
+     */
+    const progressText = new Map()
+    let warnedSessionShape = false
+    const sessionIdOf = (session, event) =>
+      asString(session?.id ?? session?.sessionId ?? session?.header?.id ?? event?.data?.sessionId)
+    try {
+      const disposeEvents = ctx.on('session/event', (session, event) => {
+        try {
+          const type = event?.type
+          const sessionId = sessionIdOf(session, event)
+          if (!sessionId) {
+            if (!warnedSessionShape) {
+              warnedSessionShape = true
+              log(
+                ctx,
+                'warn',
+                `[comment] 事件里没有会话 id，进度评论跳过（session keys=${session ? Object.keys(session).slice(0, 12).join(',') : 'null'}）`,
+              )
+            }
+            return
+          }
+          if (type === 'turn/start') {
+            progressText.delete(sessionId)
+            return
+          }
+          if (type === 'assistant/message') {
+            const blocks = event?.data?.message?.content ?? event?.data?.content ?? []
+            const text = (Array.isArray(blocks) ? blocks : [])
+              .filter((block) => block?.type === 'text' && typeof block.text === 'string')
+              .map((block) => block.text)
+              .join('\n')
+              .trim()
+            if (text) progressText.set(sessionId, text)
+            return
+          }
+          if (type === 'turn/end') {
+            const text = progressText.get(sessionId) ?? ''
+            progressText.delete(sessionId)
+            void engine
+              .flushPendingProgress()
+              .catch(() => undefined)
+              .then(() =>
+                engine.commentProgress(sessionId, text, {
+                  failed: Boolean(event?.data?.reason),
+                  reason: asString(event?.data?.reason),
+                }),
+              )
+              .catch(() => undefined)
+          }
+        } catch {
+          /* 事件处理不能往外抛 */
+        }
+      })
+      if (typeof disposeEvents === 'function') owned.push(disposeEvents)
+    } catch {
+      /* 宿主不提供事件总线就当没有这个功能 */
+    }
+
+
 
     const boot = async () => {
       await engine.load()
