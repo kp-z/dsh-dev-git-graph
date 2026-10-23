@@ -6,7 +6,11 @@
  *
  * 跑法：node test/meta.mjs
  */
+import { mkdtemp, writeFile, utimes, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
+  adoptPreviousState,
   deriveTaskDraft,
   docFieldValue,
   docxIdOf,
@@ -171,6 +175,28 @@ check('docxIdOf：docx 链接', docxIdOf('https://x.feishu.cn/docx/Oj8ZdoWRFonRf
 check('docxIdOf：docx 链接带查询串', docxIdOf('https://x.feishu.cn/docx/abc123?from=chat'), 'abc123')
 check('docxIdOf：wiki 链接返回空串', docxIdOf('https://x.feishu.cn/wiki/WikcnAbc'), '')
 check('docxIdOf：空值不抛', docxIdOf(undefined), '')
+
+/* ---------- 换端口重启：状态继承 ---------- */
+
+{
+  const dir = await mkdtemp(join(tmpdir(), 'dsh-feishu-adopt-'))
+  const oldFile = join(dir, 'state-11111.json')
+  const newerFile = join(dir, 'state-22222.json')
+  const currentFile = join(dir, 'state-33333.json')
+  await writeFile(oldFile, JSON.stringify({ tasks: [{ id: 'a', sessionId: 's-1' }, { id: 'b' }] }))
+  await writeFile(newerFile, JSON.stringify({ tasks: [{ id: 'a', sessionId: null }] }))
+  await writeFile(currentFile, JSON.stringify({}))
+  const past = new Date(Date.now() - 600_000)
+  await utimes(oldFile, past, past)
+
+  const adopted = await adoptPreviousState(currentFile)
+  check('换端口后继承上一份带会话绑定的状态', adopted?.file, oldFile)
+  check('不会被空绑定的新状态顶掉', adopted?.bound, 1)
+
+  const none = await adoptPreviousState(oldFile)
+  check('本端口的文件自己有绑定时不乱继承', none, null)
+  await rm(dir, { recursive: true, force: true })
+}
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)

@@ -21,9 +21,9 @@
  */
 import { execFile, spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const name = 'feishu'
@@ -63,6 +63,50 @@ function stateFileFor(ctx) {
     if (/^\d+$/.test(fromArgv ?? '')) key = fromArgv
   }
   return join(DATA_DIR, `state-${key}.json`)
+}
+
+/**
+ * 本端口的 state 文件还没有内容时，从同目录继承一份最近的旧状态。
+ *
+ * 为什么需要它：DSH 每次重启都会挑一个**不同的端口**（不是固定端口），而状态文件按端口分，
+ * 于是重启一次就等于换了一个空状态——表现就是「任务卡片全部掉绑定」「自动开工又给同一条任务
+ * 开一条新会话」。这里在首次加载时挑一份最新的、带会话绑定的 `state-*.json` 继承下来，
+ * 端口分文件的隔离性保留（两个实例仍然各写各的），只是不再因为换端口而丢历史。
+ */
+export async function adoptPreviousState(currentFile) {
+  const dir = dirname(currentFile)
+  let names = []
+  try {
+    names = await readdir(dir)
+  } catch {
+    return null
+  }
+  const candidates = []
+  for (const name of names) {
+    if (!/^state-.+\.json$/.test(name)) continue
+    const file = join(dir, name)
+    if (file === currentFile) continue
+    let data
+    try {
+      data = await readJson(file, {})
+    } catch {
+      continue
+    }
+    const tasks = Array.isArray(data?.tasks) ? data.tasks : []
+    const bound = tasks.filter((task) => task?.sessionId).length
+    if (!bound) continue
+    let mtimeMs = 0
+    try {
+      mtimeMs = (await stat(file)).mtimeMs
+    } catch {
+      /* 拿不到时间就按最旧排 */
+    }
+    candidates.push({ file, mtimeMs, data, bound })
+  }
+  if (!candidates.length) return null
+  /* 先看时间（最近用过的那份最接近当前现实），时间相同再看绑定数量。 */
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs || b.bound - a.bound)
+  return candidates[0]
 }
 
 const DEFAULT_SETTINGS = {
@@ -575,7 +619,15 @@ function createSyncEngine(ctx) {
   async function load() {
     const savedSettings = await readJson(SETTINGS_FILE, {})
     settings = sanitizeSettings(savedSettings, DEFAULT_SETTINGS)
-    const savedState = await readJson(stateFile, {})
+    let savedState = await readJson(stateFile, {})
+    /* 换端口重启后这里是空的：继承上一份带绑定的状态，别让卡片集体掉线。 */
+    if (!Array.isArray(savedState?.tasks) || savedState.tasks.length === 0) {
+      const adopted = await adoptPreviousState(stateFile)
+      if (adopted) {
+        savedState = adopted.data
+        log(ctx, 'info', `[state] 本端口还没有状态，继承 ${basename(adopted.file)}（任务 ${adopted.data.tasks?.length ?? 0} 条）`)
+      }
+    }
     state = { ...DEFAULT_STATE, ...savedState }
     state.syncing = false
     state.tasks = Array.isArray(savedState.tasks) ? savedState.tasks : []
