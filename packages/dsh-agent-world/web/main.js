@@ -1097,7 +1097,8 @@ function showTeamDetail(name, role, state, id, tasks) {
   title.textContent = name
   const stateTag = doc.createElement('span')
   const roleLabel = role === 'lead' ? '负责人' : role === 'teammate' || role === 'member' ? '成员' : role === 'subagent' ? '子代理' : (role ?? '')
-  stateTag.textContent = `${roleLabel} · ${agentStateText(state)}`
+  const detailActor = (world?.agents ?? []).find((candidate) => candidate.id === id)
+  stateTag.textContent = `${roleLabel} · ${agentActivityText(detailActor, state)}`
   const close = doc.createElement('button')
   close.type = 'button'
   close.className = 'aw-icon'
