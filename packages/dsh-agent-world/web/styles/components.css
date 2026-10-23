@@ -3537,3 +3537,22 @@
 .dock-split:has(> .dock-pane[hidden]) > .dock-resizer {
   display: none;
 }
+
+.aw-heartbeat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 6px 0;
+  padding: 5px 6px;
+  border-left: 2px solid var(--screen);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--screen) 7%, transparent);
+  color: var(--fg-2);
+  font-size: 9px;
+}
+.aw-heartbeat b {
+  color: var(--screen);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}

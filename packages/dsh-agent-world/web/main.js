@@ -1037,6 +1037,7 @@ let teamView = (() => {
 let lastTeam = null
 let sessionGraph = null
 let workflowLoadToken = 0
+const heartbeatIntents = new Map()
 let workflowLoading = false
 let workflowPollTimer = null
 
@@ -1130,6 +1131,19 @@ function showTeamDetail(name, role, state, id, tasks) {
     list.append(line)
   }
   host.append(list)
+  const intent = typeof id === 'string' ? heartbeatIntents.get(id) : null
+  if (intent !== null && intent !== undefined) {
+    const box = doc.createElement('div')
+    box.className = 'aw-heartbeat'
+    const title = doc.createElement('b')
+    title.textContent = `heartbeat · ${intent.decision ?? 'idle'}`
+    const needs = doc.createElement('span')
+    needs.textContent = `needs ${Array.isArray(intent.needs) && intent.needs.length > 0 ? intent.needs.join(', ') : '—'}`
+    const wants = doc.createElement('span')
+    wants.textContent = `wants ${Array.isArray(intent.wants) && intent.wants.length > 0 ? intent.wants.join(', ') : '—'}`
+    box.append(title, needs, wants)
+    host.append(box)
+  }
   if (typeof id === 'string') {
     const talk = doc.createElement('button')
     talk.type = 'button'
@@ -1754,6 +1768,11 @@ const connection = createConnection({
     if (events.some((event) => event.type === 'world.reset')) {
       void connection.reload()
       return
+    }
+    for (const event of events) {
+      if (event?.type === 'agent.intent' && event.payload && typeof event.payload.agentId === 'string') {
+        heartbeatIntents.set(event.payload.agentId, event.payload)
+      }
     }
     applyEvents(world, events)
     pruneMessages(world)
