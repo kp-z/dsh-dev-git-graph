@@ -412,7 +412,9 @@ doc.addEventListener?.('click', (event) => {
   setPanelMenu(false)
 })
 doc.addEventListener?.('keydown', (event) => {
-  if (event.key === 'Escape') setPanelMenu(false)
+  if (event.key !== 'Escape') return
+  setPanelMenu(false)
+  if (panelSwitchMenu?.hidden === true) panelSwitchButton?.focus()
 })
 writePanelVisibility()
 
