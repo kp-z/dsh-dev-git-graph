@@ -1120,6 +1120,8 @@ export function createBoard(options = {}) {
         const isSelected = selected !== null && selected.kind === 'task' && selected.id === task.id
         card.classList.toggle('is-selected', isSelected)
         card.setAttribute('aria-selected', isSelected ? 'true' : 'false')
+        // R330：调度器卡住（没人/没工位）直接在卡上标出来，不用先点开详情。
+        card.toggleAttribute('data-stalled', stallById.has(task.id))
         fill.style.width = `${Math.round(Math.min(1, Math.max(0, task.progress)) * 100)}%`
         const descHint = typeof task.description === 'string' && task.description.trim() !== ''
         ? ` · ${task.description.trim().slice(0, 120)}`
