@@ -1635,6 +1635,15 @@ export function createBoard(options = {}) {
     lastState = null
     renderDetail()
     refreshState()
+    // R324：选中的 task card 自动置顶并滚进视野，避免在长图里“选中了却看不到”。
+    if (selected !== null && selected.kind === 'task') {
+      const entry = cardNodes.get(selected.id)
+      if (entry !== undefined) {
+        for (const other of cardNodes.values()) other.card.style.zIndex = ''
+        entry.card.style.zIndex = '4'
+        entry.card.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+      }
+    }
     // 左栏的 active 行要跟着变（成员选中）。
     if (model !== null) renderMembers()
     options.onSelect?.(next === null || next.kind !== 'task' ? null : next.id)
