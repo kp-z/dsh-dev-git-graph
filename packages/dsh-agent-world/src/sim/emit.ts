@@ -128,6 +128,9 @@ export function emitPhaseEvents(world: World, outcomes: PhaseOutcomes): WorldEve
     push('task.changed', { id: done.taskId, ...taskPatch(world, done.taskId) })
     push('agent.state', { id: done.agentId, ...agentPatch(world, done.agentId), reason: 'task-done' })
   }
+  for (const fix of outcomes.work.repaired) {
+    push('agent.state', { id: fix.agentId, ...agentPatch(world, fix.agentId), reason: 'repaired', repair: fix.reason })
+  }
 
   // 5) 消息：**在"开始飞"的那一刻发，而不是送达时发。**
   //

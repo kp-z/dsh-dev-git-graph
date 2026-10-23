@@ -33,6 +33,8 @@ export interface WorkOutcome {
   progressed: { taskId: string; agentId: string; progress: number; delta: number }[]
   /** 本 tick 完工的（任务, 角色）。 */
   completed: { taskId: string; agentId: string; stationId: string | null }[]
+  /** 本 tick 被修复的“自相矛盾 working”角色。 */
+  repaired: { agentId: string; reason: 'no-task' | 'stale-task' }[]
 }
 
 /**
@@ -46,17 +48,31 @@ export function advanceWork(world: World): WorkOutcome {
   const tasks = new Map(world.tasks.map((t) => [t.id, t]))
   const progressed: WorkOutcome['progressed'] = []
   const completed: WorkOutcome['completed'] = []
+  const repaired: WorkOutcome['repaired'] = []
 
   for (const agent of world.agents) {
     if (agent.state !== 'working') continue
     const taskId = agent.carrying
-    if (taskId === null) continue
+    // R329：working 却手上没单：这是“到站了但没有任何工单”的残留状态。
+    // 不修就会永远占着工位——调度器不会再派活，idle 也不会认领 working。
+    if (taskId === null) {
+      agent.state = 'idle'
+      agent.station = null
+      agent.targetStation = null
+      agent.path = []
+      repaired.push({ agentId: agent.id, reason: 'no-task' })
+      continue
+    }
 
     const task = tasks.get(taskId)
     // 状态自相矛盾（任务没了 / 不是他的 / 不在进行中）：把人放回 idle，别让他僵着。
     if (task === undefined || task.status !== 'in_progress' || task.owner !== agent.id) {
       agent.carrying = null
+      agent.station = null
+      agent.targetStation = null
+      agent.path = []
       agent.state = 'idle'
+      repaired.push({ agentId: agent.id, reason: 'stale-task' })
       continue
     }
 
@@ -105,5 +121,5 @@ export function advanceWork(world: World): WorkOutcome {
     }
   }
 
-  return { progressed, completed }
+  return { progressed, completed, repaired }
 }
