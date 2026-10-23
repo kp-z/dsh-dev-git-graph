@@ -1,0 +1,3021 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>飞书 · DSH</title>
+<style>
+  /* ---------- 主题变量（宿主令牌优先，自有变量兜底） ---------- */
+  :root {
+    color-scheme: light;
+    --p-page: #f6f7f9;
+    --p-card: #ffffff;
+    --p-sub: #f1f3f6;
+    --p-text: #14141a;
+    --p-text-2: #5f6470;
+    --p-text-3: #8a8f99;
+    --p-line: #e8e9ee;
+    --p-line-strong: #d7dae1;
+    --p-line-hover: #c3c7d1;
+    --p-accent: #3b5bdb;
+    --p-accent-hover: #324fc4;
+    --p-accent-text: #2f4bc8;
+    --p-accent-weak: rgba(59, 91, 219, 0.10);
+    --p-accent-line: rgba(59, 91, 219, 0.24);
+    /* 选中态用橙色：和强调蓝拉开距离，扫一眼就能在一堆白卡里认出来 */
+    --p-select: #ea6a12;
+    --p-select-weak: rgba(234, 106, 18, 0.12);
+    --p-select-line: rgba(234, 106, 18, 0.55);
+    --p-ok: #0f7b55;
+    --p-ok-weak: rgba(15, 123, 85, 0.10);
+    --p-ok-line: rgba(15, 123, 85, 0.22);
+    --p-warn: #a45d09;
+    --p-warn-weak: rgba(164, 93, 9, 0.10);
+    --p-warn-line: rgba(164, 93, 9, 0.24);
+    --p-danger: #c0261b;
+    --p-danger-weak: rgba(192, 38, 27, 0.09);
+    --p-danger-line: rgba(192, 38, 27, 0.22);
+    --p-toast-bg: #1e2126;
+    --p-toast-fg: #f7f8fa;
+    --p-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+  }
+
+  body.dark {
+    color-scheme: dark;
+    --p-page: #131418;
+    --p-card: #1b1d22;
+    --p-sub: #222429;
+    --p-text: #e9eaee;
+    --p-text-2: #a7abb4;
+    --p-text-3: #7b808a;
+    --p-line: #2a2d34;
+    --p-line-strong: #3a3e47;
+    --p-line-hover: #4a4f59;
+    --p-accent: #4a63e0;
+    --p-accent-hover: #5a72ec;
+    --p-accent-text: #9db0ff;
+    --p-accent-weak: rgba(120, 145, 255, 0.14);
+    --p-accent-line: rgba(120, 145, 255, 0.30);
+    --p-select: #ff9f45;
+    --p-select-weak: rgba(255, 159, 69, 0.16);
+    --p-select-line: rgba(255, 159, 69, 0.60);
+    --p-ok: #4dc38d;
+    --p-ok-weak: rgba(77, 195, 141, 0.12);
+    --p-ok-line: rgba(77, 195, 141, 0.28);
+    --p-warn: #e0a458;
+    --p-warn-weak: rgba(224, 164, 88, 0.12);
+    --p-warn-line: rgba(224, 164, 88, 0.28);
+    --p-danger: #ff7a70;
+    --p-danger-weak: rgba(255, 122, 112, 0.12);
+    --p-danger-line: rgba(255, 122, 112, 0.28);
+    --p-toast-bg: #2b2f37;
+    --p-toast-fg: #f2f3f5;
+    --p-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  }
+
+  /* ---------- 基础 ---------- */
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    background: var(--dsw-alias-bg-base, var(--p-page));
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    color: var(--dsw-alias-label-primary, var(--p-text));
+  }
+
+  .card {
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 12px;
+    padding: 14px;
+    box-shadow: var(--p-shadow);
+    min-width: 0;
+  }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+
+  .push { margin-left: auto; }
+
+  /* ---------- 状态条 ---------- */
+  .statusbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 16px;
+    padding: 2px 2px 4px;
+    font-size: 12px;
+    color: var(--dsw-alias-label-secondary, var(--p-text-2));
+    min-width: 0;
+  }
+
+  .stat {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .stat .k { color: var(--p-text-3); }
+
+  .stat .val {
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    font-weight: 500;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex: 0 0 auto;
+    background: var(--p-text-3);
+  }
+
+  .dot.ok {
+    background: var(--p-ok);
+    box-shadow: 0 0 0 3px var(--p-ok-weak);
+  }
+
+  .dot.warn {
+    background: var(--p-warn);
+    box-shadow: 0 0 0 3px var(--p-warn-weak);
+  }
+
+  .dot.err {
+    background: var(--p-danger);
+    box-shadow: 0 0 0 3px var(--p-danger-weak);
+  }
+
+  .spinner {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    border: 1.5px solid var(--p-line-strong);
+    border-top-color: var(--p-accent);
+    animation: dsh-feishu-spin 0.8s linear infinite;
+  }
+
+  @keyframes dsh-feishu-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .stat.syncing { color: var(--p-accent-text); }
+
+  .stat.danger { color: var(--p-danger); }
+
+  .stat.danger .val { color: var(--p-danger); }
+
+  /* ---------- 授权 ---------- */
+  .callout {
+    border: 1px solid var(--p-line);
+    border-radius: 9px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.55;
+    background: var(--p-sub);
+  }
+
+  .callout.warn {
+    background: var(--p-warn-weak);
+    border-color: var(--p-warn-line);
+  }
+
+  .callout-title {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--p-warn);
+    margin-bottom: 2px;
+  }
+
+  .callout-desc {
+    color: var(--dsw-alias-label-secondary, var(--p-text-2));
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .auth-ok {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--p-ok);
+  }
+
+  .muted {
+    margin: 6px 0 0;
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--dsw-alias-label-secondary, var(--p-text-2));
+    word-break: break-word;
+  }
+
+  .muted.small {
+    font-size: 11.5px;
+    color: var(--p-text-3);
+  }
+
+  .auth-link {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--dsw-alias-label-secondary, var(--p-text-2));
+    word-break: break-all;
+  }
+
+  .link {
+    color: var(--dsw-alias-brand-primary, var(--p-accent-text));
+    text-decoration: none;
+    font-weight: 500;
+  }
+
+  .link:hover { text-decoration: underline; }
+
+  /* ---------- 按钮 ---------- */
+  .btn {
+    -webkit-appearance: none;
+    appearance: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 28px;
+    padding: 0 11px;
+    margin: 0;
+    border: 1px solid var(--dsw-alias-line-strong, var(--p-line-strong));
+    border-radius: 7px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease;
+  }
+
+  .btn:hover { border-color: var(--p-line-hover); }
+
+  .btn:active { background: var(--p-sub); }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--p-accent);
+    outline-offset: 1px;
+  }
+
+  .btn[disabled] {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  .btn-primary {
+    background: var(--dsw-alias-brand-primary, var(--p-accent));
+    border-color: transparent;
+    color: var(--dsw-alias-label-onbrand, #ffffff);
+  }
+
+  .btn-primary:hover {
+    background: var(--dsw-alias-brand-primary-hover, var(--p-accent-hover));
+    border-color: transparent;
+  }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: var(--dsw-alias-line-base, var(--p-line));
+  }
+
+  .btn-ghost:hover { background: var(--p-sub); }
+
+  .btn-sm {
+    height: 26px;
+    padding: 0 9px;
+    border-radius: 6px;
+    font-size: 11.5px;
+  }
+
+  .btnrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .badge-ok {
+    background: var(--p-ok-weak);
+    border-color: var(--p-ok-line);
+    color: var(--p-ok);
+  }
+
+  .badge-warn {
+    background: var(--p-warn-weak);
+    border-color: var(--p-warn-line);
+    color: var(--p-warn);
+  }
+
+  .badge-new {
+    background: var(--p-accent-weak);
+    border-color: var(--p-accent-line);
+    color: var(--p-accent-text);
+  }
+
+  .badge-done {
+    background: var(--p-sub);
+    border-color: var(--p-line);
+    color: var(--p-text-3);
+  }
+
+  .count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    border: 1px solid var(--p-line);
+    background: var(--p-sub);
+    color: var(--p-text-2);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  /* ---------- 表单 ---------- */
+  .rows { display: flex; flex-direction: column; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    padding: 9px 0;
+    border-top: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    min-width: 0;
+  }
+
+  .row:first-child { border-top: 0; padding-top: 0; }
+  .row:last-child { padding-bottom: 0; }
+
+  .row-text {
+    flex: 1 1 200px;
+    min-width: 0;
+  }
+
+  .row-text label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    cursor: pointer;
+  }
+
+  .row-text .hint {
+    margin-top: 1px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--p-text-3);
+  }
+
+  .row-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    margin-left: auto;
+    min-width: 0;
+  }
+
+  .row-ctrl.grow {
+    flex: 1 1 200px;
+    max-width: 320px;
+  }
+
+  .row-ctrl.grow input { max-width: none; }
+
+  .unit {
+    font-size: 11.5px;
+    color: var(--p-text-3);
+    white-space: nowrap;
+  }
+
+  input[type="text"],
+  input[type="number"],
+  input[type="url"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 320px;
+    height: 30px;
+    padding: 0 9px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    background: var(--p-sub);
+    border: 1px solid var(--p-line-strong);
+    border-radius: 7px;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+
+  input[type="number"] { max-width: 88px; }
+
+  input[type="text"]:hover,
+  input[type="number"]:hover,
+  input[type="url"]:hover { border-color: var(--p-line-hover); }
+
+  input[type="text"]:focus,
+  input[type="number"]:focus,
+  input[type="url"]:focus {
+    outline: 0;
+    border-color: var(--p-accent);
+    box-shadow: 0 0 0 3px var(--p-accent-weak);
+  }
+
+  input::placeholder { color: var(--p-text-3); }
+
+  /* 开关 */
+  .switch {
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    width: 34px;
+    height: 20px;
+    margin: 0;
+    padding: 0;
+    flex: 0 0 auto;
+    border: 0;
+    border-radius: 999px;
+    background: var(--p-line-strong);
+    cursor: pointer;
+    transition: background 0.16s ease;
+  }
+
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: transform 0.16s ease;
+  }
+
+  .switch:checked { background: var(--dsw-alias-brand-primary, var(--p-accent)); }
+  .switch:checked::after { transform: translateX(14px); }
+
+  .switch:focus-visible {
+    outline: 2px solid var(--p-accent);
+    outline-offset: 2px;
+  }
+
+  body.dark .switch::after { background: #f2f3f5; }
+
+  .card-foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--dsw-alias-line-base, var(--p-line));
+  }
+
+  .saved {
+    font-size: 11.5px;
+    color: var(--p-ok);
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+
+  .saved.show { opacity: 1; }
+
+  /* ---------- 列表 ---------- */
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  /* 任务：一张一张的独立卡片（不再用分割线连成列表） */
+  .task {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 7px 10px 8px;
+    border: 1px solid var(--p-line);
+    border-radius: 9px;
+    background: var(--p-card);
+    box-shadow: var(--p-shadow);
+    min-width: 0;
+    transition: border-color .12s ease, box-shadow .12s ease;
+  }
+
+  .task:hover {
+    border-color: var(--p-line-hover);
+    box-shadow: 0 2px 8px rgba(17, 24, 39, .07);
+  }
+
+  /* 文档：保持轻量列表行 */
+  .doc {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 0;
+    border-top: 1px solid var(--p-line);
+    min-width: 0;
+  }
+
+  .doc:first-child { border-top: 0; padding-top: 2px; }
+  .doc:last-child { padding-bottom: 0; }
+
+  .task-body {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  /* 底部「同步到飞书任务」按钮卡 */
+  .sync-card {
+    border-top: 1px dashed var(--p-line);
+    padding-top: 6px;
+  }
+
+  .sync-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 8px;
+    border: 1px solid var(--p-line);
+    border-radius: 7px;
+    background: var(--p-sub);
+    color: var(--p-text-2);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+  }
+
+  .sync-btn:hover {
+    border-color: var(--p-line-hover);
+    color: var(--p-text);
+  }
+
+  .sync-ico { font-size: 12px; }
+
+  .sync-form {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .sync-form textarea {
+    width: 100%;
+    min-height: 52px;
+    padding: 6px 8px;
+    border: 1px solid var(--p-line);
+    border-radius: 7px;
+    background: var(--p-card);
+    color: var(--p-text);
+    font: inherit;
+    font-size: 11.5px;
+    line-height: 1.5;
+    resize: vertical;
+  }
+
+  .sync-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+  }
+
+  .task-main,
+  .doc-main {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .task-title,
+  .doc-title {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    font-size: 12.5px;
+    font-weight: 500;
+    line-height: 1.4;
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .doc-title { font-size: 12.5px; }
+
+  .task-meta,
+  .doc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    margin-top: 4px;
+    font-size: 11px;
+    gap: 5px 8px;
+    margin-top: 5px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--p-text-3);
+    word-break: break-word;
+  }
+
+  .doc-meta { display: block; margin-top: 3px; }
+
+  .task-err,
+  .doc-err {
+    margin-top: 5px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--p-danger);
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+
+  .task-session {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    max-width: 100%;
+    margin-top: 5px;
+    padding: 2px 6px;
+    border: 1px solid var(--p-line);
+    border-radius: 6px;
+    background: var(--p-sub);
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--p-text-2);
+  }
+
+  .task-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    min-width: 0;
+  }
+
+  .task-head .task-title { flex: 1 1 auto; min-width: 0; }
+
+  .prompt-area {
+    width: 100%;
+    min-height: 96px;
+    padding: 6px 8px;
+    border: 1px solid var(--p-line);
+    border-radius: 7px;
+    background: var(--p-card);
+    color: var(--p-text);
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.55;
+    resize: vertical;
+  }
+
+  .prompt-area:focus { outline: none; box-shadow: 0 0 0 2px var(--p-accent-weak); }
+
+  .title-edit {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .title-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 2px 6px;
+    border: 1px solid var(--p-accent-line);
+    border-radius: 6px;
+    background: var(--p-card);
+    color: var(--p-text);
+    font: inherit;
+    font-size: 12.5px;
+    line-height: 1.4;
+  }
+
+  .title-input:focus { outline: none; box-shadow: 0 0 0 2px var(--p-accent-weak); }
+
+  .sess-inline {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    max-width: 18ch;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--p-text-3);
+    font: inherit;
+    font-size: 10px;
+    line-height: 1.4;
+    opacity: .72;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sess-inline:hover {
+    opacity: 1;
+    color: var(--p-accent-text);
+    text-decoration: underline;
+  }
+
+  .dot.idle {
+    background: var(--p-text-3);
+    opacity: .6;
+  }
+
+  .dot.sm {
+    width: 5px;
+    height: 5px;
+    box-shadow: 0 0 0 2px var(--p-ok-weak, transparent);
+  }
+
+  .sess-link {
+    max-width: 18ch;
+    padding: 0 2px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--p-text-2);
+    font: inherit;
+    font-size: 10.5px;
+    line-height: 1.5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .sess-link:hover {
+    color: var(--p-accent-text);
+    background: var(--p-accent-weak);
+    text-decoration: underline;
+  }
+
+  .btn-ico {
+    padding: 0 5px;
+    font-size: 11px;
+    line-height: 1.6;
+    color: var(--p-text-2);
+  }
+
+  .btn-ico:hover { color: var(--p-text); }
+
+  .task-session .sess-state {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .task-session .sess-id {
+    min-width: 0;
+    max-width: 12ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    word-break: normal;
+    opacity: .8;
+  }
+
+
+
+  .badge-auto {
+    color: var(--p-accent, #0b5fd8);
+    border-color: currentColor;
+    opacity: .9;
+  }
+
+  .badge-warn {
+    color: var(--p-warn, #b25e00);
+    border-color: currentColor;
+  }
+
+  .hint-sub {
+    margin-top: 3px;
+    color: var(--p-text-3, #8a8a92);
+    font-size: 10.5px;
+    line-height: 1.5;
+  }
+
+  .hint code {
+    padding: 0 3px;
+    border-radius: 3px;
+    background: var(--p-sub);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10.5px;
+  }
+
+  .people-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .people-label {
+    flex: 0 0 auto;
+    margin-right: 1px;
+    font-size: 10px;
+    color: var(--p-text-3);
+  }
+
+  .people-label::after { content: '：'; }
+
+  .avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: var(--p-sub);
+    border: 1px solid var(--p-line);
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--p-text-2);
+    flex: 0 0 auto;
+  }
+
+  .avatar.lead { border-color: var(--p-accent, #0b5fd8); }
+
+  .avatar.more { font-weight: 500; }
+
+  .avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .people-names {
+    margin-left: 2px;
+    font-size: 10.5px;
+    color: var(--p-text-2);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chip {
+    max-width: 100%;
+    padding: 0 6px;
+    border-radius: 999px;
+    border: 1px solid var(--p-line);
+    background: var(--p-sub);
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--p-text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sync-first {
+    border-color: var(--p-accent-line);
+    background: var(--p-accent-weak);
+  }
+
+  .sync-first.sync-idle {
+    border-color: var(--p-line);
+    background: var(--p-card);
+  }
+
+  .sync-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
+    font-size: 12px;
+    color: var(--p-text);
+  }
+
+  .sync-title { font-weight: 600; }
+
+  .sync-id {
+    font-size: 10.5px;
+    color: var(--p-text-2);
+  }
+
+  .sync-task {
+    margin-top: 3px;
+    font-size: 11.5px;
+    color: var(--p-text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .sync-cta {
+    width: 100%;
+    margin-top: 6px;
+    padding: 4px 8px;
+    border: 1px dashed var(--p-line-strong);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--p-text-2);
+    font: inherit;
+    font-size: 11.5px;
+    line-height: 1.6;
+    cursor: pointer;
+  }
+
+  .sync-cta:hover:not(:disabled) {
+    border-color: var(--p-accent-line);
+    color: var(--p-accent-text);
+    background: var(--p-accent-weak);
+  }
+
+  .sync-cta:disabled {
+    opacity: .55;
+    cursor: not-allowed;
+  }
+
+  .sess-current {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    margin-bottom: 6px;
+    font-size: 11.5px;
+    color: var(--p-text-2);
+  }
+
+  .sess-current .muted {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--p-text-3);
+  }
+
+  .sess-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--p-text-2);
+    cursor: pointer;
+  }
+
+  .title-sub {
+    margin-left: 2px;
+    font-size: 10.5px;
+    font-weight: 400;
+    color: var(--p-text-3);
+    max-width: 46%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .chip-doc {
+    cursor: pointer;
+    color: var(--p-accent-text);
+    border-color: var(--p-accent-line);
+    background: var(--p-accent-weak);
+  }
+
+  .chip-doc:hover { text-decoration: underline; }
+
+  /* ---------- 当前对话绑定的任务卡 ---------- */
+  .task.task-current {
+    border-color: var(--p-select);
+    /* 2px 观感但不改盒模型：描边 + 一圈内发光 */
+    box-shadow: var(--p-shadow), 0 0 0 1px var(--p-select);
+    /* 底色：橙色自上而下淡出，压在白/深色卡片底上，不抢正文对比度 */
+    background:
+      linear-gradient(180deg, var(--p-select-weak), rgba(0, 0, 0, 0) 72%),
+      var(--p-card);
+    animation: task-current-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes task-current-pulse {
+    0%, 100% {
+      box-shadow: var(--p-shadow), 0 0 0 1px var(--p-select);
+    }
+    50% {
+      box-shadow: var(--p-shadow), 0 0 0 2px var(--p-select), 0 2px 14px var(--p-select-line);
+    }
+  }
+
+  .badge.badge-current {
+    color: #fff;
+    border: 1px solid var(--p-select);
+    background: var(--p-select);
+    font-weight: 600;
+  }
+
+  .task.task-current .task-title {
+    font-weight: 600;
+  }
+
+  /* ---------- 任务卡上的文档行 ---------- */
+  .task-docs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin-top: 5px;
+  }
+
+  .doc-chip-group {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    border: 1px solid var(--p-accent-line);
+    border-radius: 999px;
+    background: var(--p-accent-weak);
+    overflow: hidden;
+  }
+
+  .doc-chip-group .doc-link-input {
+    width: 250px;
+    max-width: 100%;
+  }
+
+  .doc-chip-group .doc-open {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    max-width: 240px;
+  }
+
+  .doc-chip-group .doc-open:hover { text-decoration: underline; }
+
+  .doc-tool {
+    flex: 0 0 auto;
+    padding: 0 5px;
+    border: 0;
+    background: transparent;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--p-text-3);
+    cursor: pointer;
+  }
+
+  .doc-tool:hover { color: var(--p-text-1); background: var(--p-hover, transparent); }
+  .doc-tool:disabled { opacity: 0.45; cursor: default; }
+  .doc-tool-del:hover { color: var(--p-danger); }
+
+  .chip-doc-add {
+    padding: 0 7px;
+    border: 1px dashed var(--p-line);
+    border-radius: 999px;
+    background: transparent;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--p-text-3);
+    cursor: pointer;
+  }
+
+  .chip-doc-add:hover {
+    color: var(--p-accent-text);
+    border-color: var(--p-accent-line);
+    background: var(--p-accent-weak);
+  }
+
+  .chip-doc-add:disabled { opacity: 0.45; cursor: default; }
+
+  .doc-bind {
+    display: inline-flex;
+    flex: 1 1 220px;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .doc-bind-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 22px;
+    padding: 0 7px;
+    border: 1px solid var(--p-line);
+    border-radius: 6px;
+    background: var(--p-input-bg, var(--p-bg));
+    color: var(--p-text-1);
+    font-size: 11px;
+    font-family: inherit;
+  }
+
+  .doc-bind-input:focus {
+    outline: none;
+    border-color: var(--p-accent-line);
+  }
+
+  .doc-bind .btn { flex: 0 0 auto; }
+
+  .chip-trigger { font-weight: 500; }
+  .chip-auto { color: var(--p-accent-text); border-color: var(--p-accent-line); background: var(--p-accent-weak); }
+  .chip-scheduled { color: var(--p-warn); border-color: var(--p-warn-line); background: var(--p-warn-weak); }
+  .chip-manual { color: var(--p-text-2); }
+  .chip-time { font-variant-numeric: tabular-nums; }
+
+  .chip-list {
+    color: var(--p-text-1);
+    font-weight: 500;
+  }
+
+  .btn-xs {
+    padding: 1px 7px;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px;
+  }
+
+  .task-actions,
+  .doc-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* ---------- 文档监听 ---------- */
+  .doc-add {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+
+  .doc-field {
+    flex: 1 1 260px;
+    min-width: 0;
+  }
+
+  .doc-field label {
+    display: block;
+    margin-bottom: 5px;
+    font-size: 11.5px;
+    color: var(--dsw-alias-label-secondary, var(--p-text-2));
+  }
+
+  .doc-field input { max-width: none; width: 100%; }
+
+  .doc-add .btn { height: 30px; }
+
+  .form-error {
+    margin: 8px 0 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--p-danger);
+    word-break: break-word;
+  }
+
+  .empty {
+    padding: 12px 0 4px;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--p-text-3);
+    word-break: break-word;
+  }
+
+  /* ---------- Toast ---------- */
+  .toast {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    z-index: 50;
+    max-width: min(92vw, 520px);
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: var(--p-toast-bg);
+    color: var(--p-toast-fg);
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -8px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+
+  .toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  /* ---------- 窄屏 ---------- */
+  @media (max-width: 520px) {
+    .task,
+    .doc {
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .task-actions,
+    .doc-actions { align-self: flex-end; }
+  }
+
+  @media (max-width: 420px) {
+    .row-ctrl.grow {
+      flex: 1 1 100%;
+      max-width: none;
+    }
+
+    .doc-add .btn { width: 100%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    /* 选中态保留描边，但不做呼吸动画 */
+    .task.task-current {
+      animation: none;
+      box-shadow: var(--p-shadow), 0 0 0 2px var(--p-select);
+    }
+
+    .spinner { animation-duration: 1.6s; }
+    .toast,
+    .switch,
+    .switch::after,
+    .btn,
+    .saved { transition: none; }
+  }
+</style>
+</head>
+<body>
+<script>
+  /* URL ?theme=dark → body.dark；postMessage 切换见下方主脚本 */
+  (function () {
+    try {
+      var m = /[?&]theme=([^&#]*)/.exec(location.search || '');
+      if (m && decodeURIComponent(m[1]).toLowerCase() === 'dark') {
+        document.body.classList.add('dark');
+      }
+    } catch (e) { /* 忽略 */ }
+  })();
+</script>
+
+<div id="toast" class="toast" role="status" aria-live="polite"><span id="toastText"></span></div>
+
+<main class="wrap">
+  <!-- 1. 状态条 -->
+  <div id="statusbar" class="statusbar" aria-live="polite"></div>
+
+  <!-- 3. 任务列表 -->
+  <section class="card" aria-labelledby="tasksTitle">
+    <div class="card-head">
+      <h2 id="tasksTitle">任务</h2>
+      <span id="taskListName" class="title-sub"></span>
+      <span id="taskCount" class="count">0</span>
+      <button type="button" id="syncNow" class="btn btn-ghost btn-sm push">立即同步</button>
+    </div>
+    <div id="taskList" class="list"></div>
+  </section>
+
+  <!-- 3. 授权卡 -->
+  <section class="card" aria-labelledby="docPromptTitle">
+    <div class="card-head">
+      <h2 id="docPromptTitle">文档生成 Prompt</h2>
+      <span id="docPromptState" class="push muted"></span>
+    </div>
+    <textarea id="docPrompt" class="prompt-area" rows="7" spellcheck="false"></textarea>
+    <div class="sess-controls">
+      <button id="saveDocPrompt" class="btn btn-primary btn-sm" type="button">保存</button>
+      <button id="resetDocPrompt" class="btn btn-ghost btn-sm" type="button">恢复默认</button>
+    </div>
+    <div class="hint">生成文档时用这段要求重写内容；默认要求「零废话、主体用表格、结构用 Mermaid」。</div>
+  </section>
+
+  <section class="card" aria-labelledby="authTitle">
+    <div class="card-head">
+      <h2 id="authTitle">飞书授权</h2>
+      <span id="authBadge" class="push"></span>
+    </div>
+    <div id="authBody"></div>
+  </section>
+
+  <!-- 4. 同步设置 -->
+  <section class="card" aria-labelledby="settingsTitle">
+    <div class="card-head">
+      <h2 id="settingsTitle">同步设置</h2>
+    </div>
+
+    <div class="rows">
+      <div class="row">
+        <div class="row-text">
+          <label for="autoSync">自动同步</label>
+          <div class="hint">按间隔把飞书任务与文档拉到本地</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="checkbox" id="autoSync" class="switch" data-setting="1">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="syncInterval">同步间隔</label>
+          <div class="hint">单位分钟，最小 1</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="number" id="syncInterval" data-setting="1" min="1" max="1440" step="1" inputmode="numeric">
+          <span class="unit">分钟</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="includeCompleted">包含已完成任务</label>
+          <div class="hint">关闭时只同步未完成任务</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="checkbox" id="includeCompleted" class="switch" data-setting="1">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="keyword">任务关键词</label>
+          <div class="hint">只同步命中关键词的任务，留空为全部</div>
+        </div>
+        <div class="row-ctrl grow">
+          <input type="text" id="keyword" data-setting="1" autocomplete="off" spellcheck="false" placeholder="如：周报">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="autoStartMode">自动开工</label>
+          <div class="hint">清单字段：<code>工作区</code> + <code>触发条件</code>（人工触发 / 自动执行 / 按时执行）
+            <div id="wsHint" class="hint-sub"></div>
+          </div>
+        </div>
+        <div class="row-ctrl">
+          <select id="autoStartMode" data-setting="1">
+            <option value="off">关闭</option>
+            <option value="tagged">只开标注过的</option>
+            <option value="all">所有新任务</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="maxAutoStart">每轮自动开工上限</label>
+          <div class="hint">每次同步最多自动开工几个任务</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="number" id="maxAutoStart" data-setting="1" min="1" max="20" step="1" inputmode="numeric">
+          <span class="unit">个</span>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="contextInjection">绑定任务时注入任务档案</label>
+          <div class="hint">按需打开：绑定时把状态/人员/清单字段/文档投进会话，并给模型一条「先读详情」的提示；关着也随时能用 feishu_task_detail</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="checkbox" id="contextInjection" class="switch" data-setting="1">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="pushChanges">任务变化推送到会话</label>
+          <div class="hint">默认关：飞书上改了标题/状态、新加了文档时，往绑定会话投一条通知（会消耗一个 turn，同一会话 5 分钟最多一条）</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="checkbox" id="pushChanges" class="switch" data-setting="1">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="autoComment">有实际进展才写回任务评论</label>
+          <div class="hint">只有改了文件 / 产生了 commit / 跑了测试的轮次才写（闲聊轮次不写）；以「🤖 AI 进度」开头、用第一人称，同事一眼看出是 AI 写的。失败下次补发一次</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="checkbox" id="autoComment" class="switch" data-setting="1">
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
+          <label for="autoCommentGap">进度评论最小间隔</label>
+          <div class="hint">同一会话两条进度评论之间至少隔多久，防止一个短 turn 刷一条</div>
+        </div>
+        <div class="row-ctrl">
+          <input type="number" id="autoCommentGap" data-setting="1" min="10" max="3600" step="5" inputmode="numeric">
+          <span class="unit">秒</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card-foot">
+      <button type="button" id="saveSettings" class="btn btn-primary">保存设置</button>
+      <span id="saveHint" class="saved" role="status" aria-live="polite"></span>
+    </div>
+  </section>
+
+
+  <!-- 5. 文档监听 -->
+  <section class="card" aria-labelledby="docsTitle">
+    <div class="card-head">
+      <h2 id="docsTitle">文档监听</h2>
+    </div>
+
+    <div class="doc-add">
+      <div class="doc-field">
+        <label for="docUrl">文档链接</label>
+        <input type="url" id="docUrl" autocomplete="off" spellcheck="false"
+          placeholder="https://xxx.feishu.cn/wiki/…">
+      </div>
+      <button type="button" id="docAdd" class="btn btn-primary">添加监听</button>
+    </div>
+
+    <div id="docHint" class="form-error" role="status" aria-live="polite" hidden></div>
+    <div id="docList" class="list"></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------------- 常量与状态 ---------------- */
+
+  var API_BASE = (function () {
+    // /dsh-feishu/panel → /dsh-feishu/api/
+    // /dsh-feishu/ 或 /dsh-feishu → 也解析成 /dsh-feishu/api/
+    var p = String(location.pathname || '/').replace(/\/+$/, '');
+    var m = /\/(?:panel|index\.html)$/i.exec(p);
+    if (m) p = p.slice(0, p.length - m[0].length);
+    return p + '/api/';
+  })();
+
+  var app = {
+    settings: null,       // GET /api/state → settings
+    snap: {},             // GET /api/state → state
+    loaded: false,
+    skew: 0,              // 宿主时间 - 本机时间
+    loginUrl: null,
+    loginNote: '',
+    sessions: {},         // task.id → sessionId（开工后立刻显示）
+    currentSessionId: '', // 宿主当前会话（client 半体 postMessage 进来）
+    workspaces: [],       // GET /api/state → 已登记工作区
+    busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false },
+    busyTask: {},
+    settingsDirty: false,
+    pollTimer: null,
+    savedTimer: null,
+    toastTimer: null,
+    statusKey: ''
+  };
+
+  /* ---------------- 小工具 ---------------- */
+
+  function $(id) { return document.getElementById(id); }
+
+  function clear(node) {
+    while (node && node.firstChild) node.removeChild(node.firstChild);
+  }
+
+  function el(tag, attrs, kids) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      for (var k in attrs) {
+        if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+        var v = attrs[k];
+        if (v === null || v === undefined) continue;
+        if (k === 'class') node.className = v;
+        else if (k === 'text') node.textContent = String(v);
+        else node.setAttribute(k, String(v));
+      }
+    }
+    if (kids) {
+      for (var i = 0; i < kids.length; i++) {
+        var c = kids[i];
+        if (c === null || c === undefined) continue;
+        node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+      }
+    }
+    return node;
+  }
+
+  function nowMs() { return Date.now() + (app.skew || 0); }
+
+  function pad2(n) { return n < 10 ? '0' + n : String(n); }
+
+  function fmtAbs(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+      ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+  }
+
+  function fmtDate(ts) { return fmtAbs(ts).slice(0, 16); }
+
+  // < 1 分钟 → 刚刚；之后 N 分钟前 / N 小时前 / YYYY-MM-DD HH:mm
+  function fmtRel(ts) {
+    if (!ts) return '—';
+    var t = new Date(ts).getTime();
+    if (isNaN(t)) return '—';
+    var diff = nowMs() - t;
+    if (!isFinite(diff) || diff < 60000) return '刚刚';
+    var min = Math.floor(diff / 60000);
+    if (min < 60) return min + ' 分钟前';
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + ' 小时前';
+    return fmtDate(t);
+  }
+
+  function toInt(v, def, min, max) {
+    var n = parseInt(v, 10);
+    if (!isFinite(n)) n = def;
+    if (typeof min === 'number' && n < min) n = min;
+    if (typeof max === 'number' && n > max) n = max;
+    return n;
+  }
+
+  function toast(msg) {
+    if (!msg) return;
+    $('toastText').textContent = String(msg);
+    $('toast').classList.add('show');
+    if (app.toastTimer) clearTimeout(app.toastTimer);
+    app.toastTimer = setTimeout(function () {
+      $('toast').classList.remove('show');
+    }, 3000);
+  }
+
+  function showSaved(msg) {
+    var n = $('saveHint');
+    n.textContent = msg || '已保存';
+    n.classList.add('show');
+    if (app.savedTimer) clearTimeout(app.savedTimer);
+    app.savedTimer = setTimeout(function () {
+      n.classList.remove('show');
+      n.textContent = '';
+    }, 2200);
+  }
+
+  function emptyNode(text) {
+    return el('div', { 'class': 'empty', text: text });
+  }
+
+  function statChip(dotClass, text, title) {
+    var n = el('span', { 'class': 'stat', title: title ? String(title) : null });
+    if (dotClass) n.appendChild(el('span', { 'class': 'dot ' + dotClass }));
+    n.appendChild(el('span', { text: text }));
+    return n;
+  }
+
+  function makeButton(label, cls, busyLabel, disabled, onClick) {
+    var b = el('button', { type: 'button', 'class': cls });
+    b.textContent = disabled && busyLabel ? busyLabel : label;
+    b.disabled = !!disabled;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  /* ---------------- 接口封装 ---------------- */
+
+  // GET 时省略 body；opts.silent 只用于轮询，避免断网时每 20 秒弹一次 toast。
+  function api(path, body, opts) {
+    var silent = !!(opts && opts.silent);
+    var init = { method: body === undefined ? 'GET' : 'POST', cache: 'no-store', headers: {} };
+    if (body !== undefined) {
+      init.headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(body);
+    }
+
+    return fetch(API_BASE + path, init).then(function (res) {
+      return res.text().then(function (txt) {
+        var data = null;
+        if (txt) {
+          try { data = JSON.parse(txt); } catch (e) { data = null; }
+        }
+        if (!res.ok) {
+          var msg = (data && (data.error || data.message)) || ('请求失败（HTTP ' + res.status + '）');
+          if (!silent) toast(msg);
+          var err = new Error(msg);
+          err.handled = true;
+          throw err;
+        }
+        if (data && data.ok === false) {
+          var msg2 = data.error || data.message || '操作失败';
+          if (!silent) toast(msg2);
+          var err2 = new Error(msg2);
+          err2.handled = true;
+          throw err2;
+        }
+        return data;
+      });
+    }, function () {
+      if (!silent) toast('连不上宿主服务，请确认插件已启动');
+      var err = new Error('network');
+      err.handled = true;
+      throw err;
+    });
+  }
+
+  /* ---------------- 渲染：状态条 ---------------- */
+
+  function renderStatus() {
+    var s = app.snap || {};
+    var auth = s.auth || {};
+    var cliText;
+    if (s.cli && typeof s.cli === 'object') {
+      cliText = s.cli.found ? ('CLI ' + (s.cli.version || '已安装')) : 'CLI 未就绪';
+    } else {
+      cliText = 'CLI 未知';
+    }
+    var syncText = s.lastSyncAt ? fmtRel(s.lastSyncAt) : '尚未同步';
+    var key = [
+      auth.ok ? '1' : '0', auth.detail || '',
+      cliText, syncText, s.syncing ? '1' : '0', s.lastError || ''
+    ].join('\u0001');
+    if (key === app.statusKey) return;
+    app.statusKey = key;
+
+    var box = $('statusbar');
+    clear(box);
+
+    box.appendChild(statChip(auth.ok ? 'ok' : 'warn',
+      auth.ok ? '授权可用' : '需要授权', auth.detail));
+
+    box.appendChild(statChip(null, cliText, s.cli && s.cli.path));
+
+    var syncEl = el('span', { 'class': 'stat' });
+    syncEl.appendChild(el('span', { 'class': 'k', text: '上次同步' }));
+    if (s.lastSyncAt) {
+      syncEl.appendChild(el('span', {
+        'class': 'val',
+        title: fmtAbs(s.lastSyncAt),
+        text: syncText
+      }));
+    } else {
+      syncEl.appendChild(el('span', { 'class': 'val', text: '尚未同步' }));
+    }
+    box.appendChild(syncEl);
+
+    if (s.syncing) {
+      var sp = el('span', { 'class': 'stat syncing' });
+      sp.appendChild(el('span', { 'class': 'spinner' }));
+      sp.appendChild(el('span', { text: '同步中…' }));
+      box.appendChild(sp);
+    }
+
+    if (s.lastError) {
+      var er = el('span', { 'class': 'stat danger', title: String(s.lastError) });
+      er.appendChild(el('span', { 'class': 'dot err' }));
+      er.appendChild(el('span', { text: '上次同步出错' }));
+      box.appendChild(er);
+    }
+  }
+
+  /* ---------------- 渲染：授权卡 ---------------- */
+
+  function renderAuth() {
+    var auth = (app.snap && app.snap.auth) || {};
+    var ok = !!auth.ok;
+
+    var badge = $('authBadge');
+    clear(badge);
+    badge.appendChild(el('span', {
+      'class': 'badge ' + (ok ? 'badge-ok' : 'badge-warn'),
+      text: ok ? '已授权' : '需要授权'
+    }));
+
+    var body = $('authBody');
+    clear(body);
+
+    if (!ok) {
+      var callout = el('div', { 'class': 'callout warn' });
+      callout.appendChild(el('div', { 'class': 'callout-title', text: '需要授权' }));
+      callout.appendChild(el('div', {
+        'class': 'callout-desc',
+        text: auth.detail || '个人令牌不可用或已过期，请完成一次飞书授权。'
+      }));
+      body.appendChild(callout);
+
+      var row = el('div', { 'class': 'btnrow' });
+      row.appendChild(makeButton('开始授权', 'btn btn-primary',
+        '请求中…', app.busy.login, onLogin));
+      row.appendChild(makeButton('检查授权', 'btn btn-ghost',
+        '检查中…', app.busy.check, onCheck));
+      body.appendChild(row);
+
+      if (app.loginNote) {
+        body.appendChild(el('p', { 'class': 'muted', text: app.loginNote }));
+      }
+
+      if (app.loginUrl) {
+        var linkRow = el('div', { 'class': 'auth-link' });
+        linkRow.appendChild(el('span', { text: '授权链接：' }));
+        linkRow.appendChild(el('a', {
+          'class': 'link',
+          href: app.loginUrl,
+          target: '_blank',
+          rel: 'noreferrer',
+          title: app.loginUrl,
+          text: '打开飞书授权页'
+        }));
+        body.appendChild(linkRow);
+
+        var row2 = el('div', { 'class': 'btnrow' });
+        row2.appendChild(makeButton('我已完成授权', 'btn',
+          '检查中…', app.busy.check, onCheck));
+        body.appendChild(row2);
+      }
+    } else {
+      var lead = el('div', { 'class': 'auth-ok' });
+      lead.appendChild(el('span', { 'class': 'dot ok' }));
+      lead.appendChild(el('span', { text: '个人令牌可用' }));
+      body.appendChild(lead);
+
+      if (auth.detail) {
+        body.appendChild(el('p', { 'class': 'muted', text: auth.detail }));
+      }
+      if (auth.checkedAt) {
+        var checked = el('p', { 'class': 'muted small' });
+        checked.appendChild(el('span', { text: '最近检查：' }));
+        checked.appendChild(el('span', {
+          title: fmtAbs(auth.checkedAt),
+          text: fmtRel(auth.checkedAt)
+        }));
+        body.appendChild(checked);
+      }
+
+      var row3 = el('div', { 'class': 'btnrow' });
+      row3.appendChild(makeButton('检查授权', 'btn',
+        '检查中…', app.busy.check, onCheck));
+      body.appendChild(row3);
+    }
+  }
+
+  /* ---------------- 渲染：设置 ---------------- */
+
+  function isEditingSetting() {
+    var a = document.activeElement;
+    return !!(a && a.getAttribute && a.getAttribute('data-setting') === '1');
+  }
+
+  function renderWorkspaceHint() {
+    var node = $('wsHint');
+    if (!node) return;
+    var list = app.workspaces || [];
+    if (!Array.isArray(list) || list.length === 0) {
+      node.textContent = '当前还没有登记工作区';
+      return;
+    }
+    node.textContent = '可用工作区：' + list.slice(0, 8).map(function (w) { return w.title; }).join('、');
+  }
+
+  function renderSettings(force) {
+    if (!force && (app.settingsDirty || isEditingSetting())) return;
+    var st = app.settings || {};
+    var tst = st.tasks || {};
+    $('autoSync').checked = !!st.autoSync;
+    $('syncInterval').value = st.syncIntervalMinutes != null ? st.syncIntervalMinutes : 30;
+    $('includeCompleted').checked = !!tst.includeCompleted;
+    $('keyword').value = tst.keyword || '';
+    $('autoStartMode').value = st.autoStartMode === 'all' || st.autoStartMode === 'tagged' ? st.autoStartMode : 'off';
+    renderWorkspaceHint();
+    $('maxAutoStart').value = st.maxAutoStartPerRun != null ? st.maxAutoStartPerRun : 1;
+    $('contextInjection').checked = st.contextInjection === true;
+    $('pushChanges').checked = st.pushChanges === true;
+    $('autoComment').checked = st.autoComment !== false;
+    $('autoCommentGap').value = st.autoCommentMinSeconds != null ? st.autoCommentMinSeconds : 45;
+  }
+
+  /* ---------------- 渲染：任务 ---------------- */
+
+  function renderTasks() {
+    /* 正在就地编辑（任务标题 / 文档标题 / 贴链接）时不要重建：
+       面板每 20s 轮询一次，一重建就把输入框和已输入的内容一起丢掉（实测踩过）。 */
+    if (app.titleEditing || app.docEditing || app.docBinding) return;
+    app.docEditing = false;
+    app.docBinding = false;
+    var list = $('taskList');
+    clear(list);
+
+    var tasks = (app.snap && app.snap.tasks) || [];
+    if (!Array.isArray(tasks)) tasks = [];
+    /* 当前对话绑定的那条任务置顶：翻面板时第一眼就是「我现在干的这条」。
+       只换顺序、不动数据（slice 一份再排，别把快照本身改了）。 */
+    var currentId = String(app.currentSessionId || '');
+    if (currentId) {
+      tasks = tasks.slice().sort(function (a, b) {
+        var ac = a && a.sessionId === currentId ? 1 : 0;
+        var bc = b && b.sessionId === currentId ? 1 : 0;
+        return bc - ac;
+      });
+    }
+
+    $('taskCount').textContent = String(tasks.length);
+
+    /* 所有任务同属一个清单时，把清单名提到标题旁，卡片里就不再每张重复一遍。 */
+    var listNames = [];
+    for (var li = 0; li < tasks.length; li++) {
+      var ln = tasks[li] && tasks[li].listName;
+      if (ln && listNames.indexOf(ln) === -1) listNames.push(ln);
+    }
+    app.sharedList = listNames.length === 1 ? listNames[0] : '';
+    var listNode = $('taskListName');
+    if (listNode) listNode.textContent = app.sharedList;
+
+    var syncBtn = $('syncNow');
+    syncBtn.disabled = !!app.busy.sync;
+    syncBtn.textContent = app.busy.sync ? '同步中…' : '立即同步';
+
+    /* 会话未绑定任务时，第一张卡是「当前会话 → 飞书任务」。 */
+    var syncNode = sessionSyncNode();
+    if (syncNode) list.appendChild(syncNode);
+
+    if (!tasks.length) {
+      list.appendChild(emptyNode('还没有同步到任务'));
+      return;
+    }
+
+    for (var i = 0; i < tasks.length; i++) {
+      list.appendChild(taskNode(tasks[i] || {}));
+    }
+  }
+
+  function taskNode(t) {
+    /* 当前对话绑定的那张卡单独标出来：描边 + 呼吸动画 + 「当前对话」徽标。 */
+    var isCurrent = !!(t.sessionId && app.currentSessionId && t.sessionId === app.currentSessionId);
+    var item = el('div', { 'class': isCurrent ? 'task task-current' : 'task' });
+    if (isCurrent) {
+      item.setAttribute('aria-current', 'true');
+      item.setAttribute('data-session', String(t.sessionId));
+    }
+    var main = el('div', { 'class': 'task-main' });
+    /* 会话 id 要同时用于标题行的小角标和下面的动作行，先取一次。 */
+    var sid = t.sessionId || app.sessions[t.id];
+
+    var title = el('div', {
+      'class': 'task-title',
+      title: t.title ? String(t.title) : null
+    });
+    title.textContent = t.title ? String(t.title) : '(无标题任务)';
+
+    /* 标题行：标题 + 一个很浅的会话 id；绑定成功且会话活着时前面亮一个绿灯。 */
+    var headRow = el('div', { 'class': 'task-head' });
+    headRow.appendChild(title);
+    /* 双击标题 → 就地改名，旁边带一个 AI 起名。 */
+    title.addEventListener('dblclick', function (event) {
+      event.preventDefault();
+      startTitleEdit(t, title, headRow);
+    });
+    if (sid) {
+      var sessChip = el('button', {
+        type: 'button',
+        'class': 'sess-inline',
+        title: String(sid) + (t.sessionAlive === true ? '（运行中）' : '（已结束）') + ' — 点击打开这条对话'
+      });
+      /* 会话活着 → 绿灯；只是已结束 → 灰点（不是错误，不该报警）。 */
+      sessChip.appendChild(el('span', { 'class': 'dot sm ' + (t.sessionAlive === true ? 'ok' : 'idle') }));
+      sessChip.appendChild(el('span', { text: shortSession(sid) }));
+      sessChip.addEventListener('click', function () { onOpenSession(sid); });
+      headRow.appendChild(sessChip);
+    }
+    main.appendChild(headRow);
+
+    var meta = el('div', { 'class': 'task-meta' });
+    if (t.due) meta.appendChild(el('span', { 'class': 'due', text: '截止 ' + t.due }));
+    if (t.isNew) meta.appendChild(el('span', { 'class': 'badge badge-new', text: '新' }));
+    if (t.boundOnly && !t.started) meta.appendChild(el('span', { 'class': 'badge', text: '已绑定' }));
+    if (t.started) meta.appendChild(el('span', { 'class': 'badge badge-ok', text: '已开工' }));
+    if (t.done) meta.appendChild(el('span', { 'class': 'badge badge-done', text: '已完成' }));
+    if (isCurrent) meta.appendChild(el('span', { 'class': 'badge badge-current', text: '当前对话' }));
+    /* 触发条件与工作区统一用下面的 chip 表达（不论来自清单字段还是旧描述），这里不再出徽标。 */
+    main.appendChild(meta);
+
+    /* 人员与便签都并进同一行信息区：横向排布、自动折行，卡片高度只跟内容行数走。 */
+    var members = Array.isArray(t.members) ? t.members : [];
+    var assignees = members.filter(function (m) { return m.role === 'assignee'; });
+    var assigneeIds = {};
+    for (var ai = 0; ai < assignees.length; ai++) assigneeIds[assignees[ai].id] = true;
+    var followers = members.filter(function (m) { return m.role !== 'assignee' && !assigneeIds[m.id]; });
+
+    function personGroup(label, list) {
+      if (!list.length) return null;
+      var group = el('span', { 'class': 'people-group' });
+      group.appendChild(el('span', { 'class': 'people-label', text: label }));
+      var shown = list.slice(0, 4);
+      for (var i = 0; i < shown.length; i++) {
+        (function (m) {
+          var who = m.name || m.id || '';
+          var av = el('span', { 'class': 'avatar', title: who });
+          if (m.avatar) {
+            av.appendChild(el('img', { src: m.avatar, alt: who, loading: 'lazy' }));
+          } else {
+            av.textContent = (who || '?').trim().slice(0, 1).toUpperCase();
+          }
+          group.appendChild(av);
+        })(shown[i]);
+      }
+      if (list.length > shown.length) {
+        group.appendChild(el('span', {
+          'class': 'avatar more',
+          text: '+' + (list.length - shown.length),
+          title: list.slice(shown.length).map(function (m) { return m.name || m.id; }).join('、')
+        }));
+      }
+      var names = list.map(function (m) { return m.name || ''; }).filter(Boolean).slice(0, 2).join('、');
+      if (names) group.appendChild(el('span', { 'class': 'people-names', text: names }));
+      return group;
+    }
+
+    var assigneeGroup = personGroup('负责人', assignees);
+    var followerGroup = personGroup('关注人', followers);
+    if (assigneeGroup) meta.appendChild(assigneeGroup);
+    if (followerGroup) meta.appendChild(followerGroup);
+
+    /* 便签：清单名 + 触发条件 + 时间 + 清单自定义字段，全部横向排在信息行里。 */
+    var trigger = (t.meta || {}).trigger;
+    var TRIGGER_TEXT = { manual: '人工触发', auto: '自动执行', scheduled: '按时执行' };
+    if (t.listName && t.listName !== app.sharedList) {
+      meta.appendChild(el('span', { 'class': 'chip chip-list', text: String(t.listName) }));
+    }
+    if (trigger && TRIGGER_TEXT[trigger]) {
+      meta.appendChild(el('span', { 'class': 'chip chip-trigger chip-' + trigger, text: TRIGGER_TEXT[trigger] }));
+    }
+    if (t.start) meta.appendChild(el('span', { 'class': 'chip chip-time', text: '开始 ' + t.start }));
+    if (t.end) meta.appendChild(el('span', { 'class': 'chip chip-time', text: '结束 ' + t.end }));
+
+    var fields = Array.isArray(t.customFields) ? t.customFields : [];
+    var fieldCfg = (app.settings && app.settings.taskFields) || {};
+    var cfg = [fieldCfg.workspace, fieldCfg.trigger, fieldCfg.legacyAuto, fieldCfg.doc].filter(Boolean);
+    for (var fi = 0; fi < fields.length && fi < 4; fi++) {
+      var f = fields[fi] || {};
+      if (!f.value) continue;
+      var name = String(f.name || '');
+      if (cfg.indexOf(name) !== -1) continue;
+      if (f.type === 'datetime' && /开始|结束/.test(name)) continue;
+      meta.appendChild(el('span', { 'class': 'chip chip-field', text: (name ? name + ' ' : '') + f.value, title: f.type || '' }));
+    }
+    var docs = [];
+    var seenDoc = {};
+    (Array.isArray(t.docs) ? t.docs : []).forEach(function (d) {
+      if (!d || !d.url || seenDoc[d.url]) return;
+      seenDoc[d.url] = true;
+      docs.push(d);
+    });
+    /* 文档单独一行：chip 可点开，✎ 改标题，✕ 从任务解绑，「＋ 文档」手动贴链接。
+       解绑 / 绑定 / 改名都会立刻写回飞书，不只是改本地。 */
+    var docRow = el('div', { 'class': 'task-docs' });
+    for (var di = 0; di < docs.length; di++) {
+      docRow.appendChild(docChipNode(t, docs[di]));
+    }
+    /* 已经绑了文档就不再给「＋ 文档」：一条任务一篇文档，换/删走 chip 上的 ✎ ✕。 */
+    if (!docs.length) docRow.appendChild(docAddNode(t));
+    main.appendChild(docRow);
+
+    if (t.workspaceName) {
+      var resolved = String(t.workspaceTitle || t.workspaceName);
+      meta.appendChild(el('span', { 'class': 'chip chip-field', text: resolved, title: t.workspacePath || '' }));
+    }
+
+    if (t.workspaceError) {
+      main.appendChild(el('div', { 'class': 'task-err', text: String(t.workspaceError) }));
+    }
+
+    if (t.error) {
+      main.appendChild(el('div', { 'class': 'task-err', text: String(t.error) }));
+    }
+
+    var sid = t.sessionId || app.sessions[t.id];
+    if (sid) {
+      var sess = el('div', { 'class': 'task-session' });
+      /* 三个动作都直接作用于飞书任务 + 会话本身：
+         完成＝飞书置完成 + 归档会话；删除＝归档/删除会话（不动任务状态）；解绑＝只清关系。 */
+      sess.appendChild(makeButton('完成', 'btn btn-ghost btn-xs', '完成中…', !!app.busyTask[t.id] || t.done,
+        function () { onComplete(t); })).title = '在飞书把任务置为完成，并归档这条会话';
+      sess.appendChild(makeButton('删除', 'btn btn-ghost btn-xs', null, !!app.busyTask[t.id],
+        function () { onDeleteSession(t); })).title = '删除（归档）这条会话，任务状态不变';
+      sess.appendChild(makeButton('解绑', 'btn btn-ghost btn-xs', null, !!app.busyTask[t.id],
+        function () { onUnlink(t); })).title = '只解除任务↔会话关系，任务回到未开工';
+      var hasOwnDoc = (t.docs || []).some(function (d) { return d && d.source === '生成'; });
+      sess.appendChild(makeButton('同步', 'btn btn-ghost btn-xs', '同步中…', !!app.busyTask[t.id],
+        function () { onSyncTask(t); })).title = '按最后修改时间决定：本地新则写回飞书字段，否则从飞书拉取';
+      sess.appendChild(makeButton(hasOwnDoc ? '更新文档' : '生成文档', 'btn btn-ghost btn-xs',
+        hasOwnDoc ? '更新中…' : '生成中…', !!app.busyTask[t.id],
+        function () { onMakeDoc(t); })).title = hasOwnDoc
+        ? '用任务最新内容重写这条任务已绑定的文档'
+        : '在「DSH 任务文档」目录下为这条任务新建飞书文档';
+      main.appendChild(sess);
+    }
+
+    var actions = el('div', { 'class': 'task-actions' });
+    var busy = !!app.busyTask[t.id];
+    /* 已开工的卡不再给「开工」；只是绑定了会话（没开工）的卡仍然可以开工。
+       「绑定」只在还没绑会话时出现。 */
+    if (!sid || t.boundOnly) {
+      var startBtn = makeButton('开工',
+        'btn btn-primary btn-sm', '开工中…', busy, function () { onStart(t); });
+      startBtn.title = t.boundOnly
+        ? '把任务描述投递进已绑定的那条会话'
+        : app.currentSessionId
+          ? '在当前会话开工（任务绑定到这条对话）'
+          : '新建一条会话开工';
+      actions.appendChild(startBtn);
+
+      /* 「绑定」：只建立任务↔当前会话的关系并同步名字，不投递、不开工。 */
+      if (!sid) {
+        /* busyLabel 传 null：禁用时不能显示成「绑定中…」（那是真在发请求）。 */
+        var bindBtn = makeButton('绑定', 'btn btn-ghost btn-sm', null, busy || !app.currentSessionId,
+          function () { onBind(t); });
+        bindBtn.title = app.currentSessionId
+          ? '把当前会话绑定到这条任务并同步名称，但不开始工作'
+          : '需要从右侧栏的会话里打开面板才能绑定';
+        actions.appendChild(bindBtn);
+      }
+    }
+
+    if (!sid) {
+      var hasDoc = (t.docs || []).some(function (d) { return d && d.source === '生成'; });
+      actions.appendChild(makeButton(hasDoc ? '更新文档' : '生成文档', 'btn btn-ghost btn-sm',
+        hasDoc ? '更新中…' : '生成中…', busy, function () { onMakeDoc(t); }));
+    }
+
+    var body = el('div', { 'class': 'task-body' });
+    body.appendChild(main);
+    body.appendChild(actions);
+    item.appendChild(body);
+
+    return item;
+  }
+
+
+
+  /* ---------------- 渲染：任务卡上的文档行 ---------------- */
+
+  /* 一颗文档 chip：[📄 标题] 打开，✎ 改标题，✕ 从任务解绑。 */
+  function docChipNode(t, doc) {
+    var group = el('span', { 'class': 'doc-chip-group' });
+    /* 没标题的（清单字段里只有链接）也别只写「文档」：带上链接尾号，至少能区分是哪篇。 */
+    var label = doc.title
+      ? String(doc.title)
+      : '文档 · ' + String(doc.url || '').split('/').pop().slice(-6);
+    var open = el('button', {
+      type: 'button',
+      'class': 'chip chip-doc doc-open',
+      text: '📄 ' + label,
+      title: String(doc.url)
+    });
+    open.addEventListener('click', function () { openDoc(String(doc.url)); });
+    group.appendChild(open);
+
+    var pen = el('button', {
+      type: 'button', 'class': 'doc-tool', text: '✎', title: '改文档链接（改完立刻同步到飞书「文档」字段）'
+    });
+    pen.disabled = !!app.busyTask[t.id];
+    pen.addEventListener('click', function () { startDocLinkEdit(t, doc, group); });
+    group.appendChild(pen);
+
+    var del = el('button', {
+      type: 'button', 'class': 'doc-tool doc-tool-del', text: '✕', title: '从这条任务解绑（不删除飞书里的文档）'
+    });
+    del.disabled = !!app.busyTask[t.id];
+    del.addEventListener('click', function () { onUnbindDoc(t, doc); });
+    group.appendChild(del);
+    return group;
+  }
+
+  /* 「＋ 文档」：点了就地展开一个链接输入框，回车即绑。 */
+  function docAddNode(t) {
+    var wrap = el('span', { 'class': 'doc-bind' });
+    var add = el('button', {
+      type: 'button',
+      'class': 'chip chip-doc-add',
+      text: '＋ 文档',
+      title: '手动把一篇飞书文档绑到这条任务；绑完立刻写回飞书「文档」字段'
+    });
+    add.disabled = !!app.busyTask[t.id];
+    add.addEventListener('click', function () { startDocBind(t, wrap); });
+    wrap.appendChild(add);
+    return wrap;
+  }
+
+  function startDocBind(t, wrap) {
+    if (app.docBinding) return;
+    app.docBinding = true;
+    clear(wrap);
+    var input = el('input', {
+      type: 'url',
+      'class': 'doc-bind-input',
+      placeholder: '粘贴飞书文档链接，回车绑定',
+      spellcheck: 'false'
+    });
+    var okBtn = makeButton('绑定', 'btn btn-primary btn-xs', '绑定中…', false, function () { submit(); });
+    var cancel = makeButton('取消', 'btn btn-ghost btn-xs', null, false, function () {
+      app.docBinding = false;
+      renderTasks();
+    });
+    /* 按钮不抢焦点：抢了会触发 blur 把输入框关掉。 */
+    okBtn.addEventListener('mousedown', function (event) { event.preventDefault(); });
+    cancel.addEventListener('mousedown', function (event) { event.preventDefault(); });
+    wrap.appendChild(input);
+    wrap.appendChild(okBtn);
+    wrap.appendChild(cancel);
+    input.focus();
+
+    var done = false;
+    function submit() {
+      if (done) return;
+      var url = String(input.value || '').trim();
+      if (!/^https?:\/\//.test(url)) {
+        toast('文档链接需要以 http(s):// 开头');
+        input.focus();
+        return;
+      }
+      done = true;
+      input.disabled = true;
+      okBtn.disabled = true;
+      okBtn.textContent = '绑定中…';
+      api('tasks/bind-doc', { taskId: t.id, url: url }).then(function (data) {
+        var field = (data && data.field) || {};
+        var name = (data && data.docField) || '文档';
+        app.docBinding = false;
+        toast(field.ok
+          ? '已绑定文档，并写回飞书「' + name + '」字段'
+          : '已绑定文档，但写回飞书「' + name + '」字段失败：' + (field.error || '未知原因'));
+        load({ quiet: true });
+      }, function () {
+        /* 失败原因 api() 已经 toast 过，这里只把输入框放回来让人改。 */
+        done = false;
+        input.disabled = false;
+        okBtn.disabled = false;
+        okBtn.textContent = '绑定';
+        input.focus();
+      });
+    }
+
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); submit(); }
+      else if (event.key === 'Escape') {
+        event.preventDefault();
+        app.docBinding = false;
+        renderTasks();
+      }
+    });
+  }
+
+  /* 就地改文档链接：换成另一篇文档，标题按新链接重新问一次，然后重写飞书「文档」字段。 */
+  function startDocLinkEdit(t, doc, group) {
+    if (app.docEditing) return;
+    app.docEditing = true;
+    clear(group);
+
+    var input = el('input', { type: 'url', 'class': 'doc-bind-input doc-link-input', spellcheck: 'false' });
+    input.value = String(doc.url || '');
+    var saveBtn = makeButton('保存', 'btn btn-primary btn-xs', '保存中…', false, function () { save(); });
+    var cancel = makeButton('取消', 'btn btn-ghost btn-xs', null, false, function () { finish(); });
+    saveBtn.addEventListener('mousedown', function (event) { event.preventDefault(); });
+    cancel.addEventListener('mousedown', function (event) { event.preventDefault(); });
+    group.appendChild(input);
+    group.appendChild(saveBtn);
+    group.appendChild(cancel);
+    input.focus();
+    input.select();
+
+    var finished = false;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      app.docEditing = false;
+      renderTasks();
+    }
+    function save() {
+      var nextUrl = String(input.value || '').trim();
+      if (!nextUrl || nextUrl === String(doc.url || '')) { finish(); return; }
+      if (!/^https?:\/\//.test(nextUrl)) {
+        toast('文档链接需要以 http(s):// 开头');
+        input.focus();
+        return;
+      }
+      finished = true;
+      app.docEditing = false;
+      input.disabled = true;
+      saveBtn.disabled = true;
+      saveBtn.textContent = '保存中…';
+      api('tasks/edit-doc', { taskId: t.id, url: doc.url, nextUrl: nextUrl }).then(function (data) {
+        var field = (data && data.field) || {};
+        var name = (data && data.docField) || '文档';
+        toast(field.ok
+          ? '链接已更新，并写回飞书「' + name + '」字段'
+          : '链接已更新，但写回飞书「' + name + '」字段失败：' + (field.error || '未知原因'));
+        load({ quiet: true });
+      }, function () {
+        finished = false;
+        app.docEditing = false;
+        input.disabled = false;
+        saveBtn.disabled = false;
+        saveBtn.textContent = '保存';
+        input.focus();
+      });
+    }
+
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); save(); }
+      else if (event.key === 'Escape') { event.preventDefault(); finish(); }
+    });
+  }
+
+  /* ---------------- 渲染：文档 ---------------- */
+
+  function renderDocs() {
+    var list = $('docList');
+    clear(list);
+
+    var docs = (app.snap && app.snap.docs) || [];
+    if (!Array.isArray(docs)) docs = [];
+
+    var addBtn = $('docAdd');
+    addBtn.disabled = !!app.busy.doc;
+
+    if (!docs.length) {
+      list.appendChild(emptyNode('把 wiki 或文档链接贴进来，定时同步时会抓取标题和摘要'));
+      return;
+    }
+
+    for (var i = 0; i < docs.length; i++) {
+      list.appendChild(docNode(docs[i] || {}));
+    }
+  }
+
+  function docNode(d) {
+    var item = el('div', { 'class': 'doc' });
+    var main = el('div', { 'class': 'doc-main' });
+    var label = d.title ? String(d.title) : (d.url ? String(d.url) : '(无标题文档)');
+
+    var title = el('div', {
+      'class': 'doc-title',
+      title: d.title ? String(d.title) : (d.url ? String(d.url) : null)
+    });
+    title.textContent = label;
+    main.appendChild(title);
+
+    var meta = el('div', { 'class': 'doc-meta' });
+    if (d.lastModified) {
+      meta.appendChild(el('span', {
+        title: fmtAbs(d.lastModified),
+        text: '最后修改 ' + fmtRel(d.lastModified)
+      }));
+    } else {
+      meta.appendChild(el('span', { text: '未记录修改时间' }));
+    }
+    main.appendChild(meta);
+
+    if (d.error) {
+      main.appendChild(el('div', { 'class': 'doc-err', text: String(d.error) }));
+    }
+
+    var actions = el('div', { 'class': 'doc-actions' });
+    var href = d.url ? String(d.url) : '';
+    if (/^https?:\/\//i.test(href)) {
+      actions.appendChild(el('a', {
+        'class': 'btn btn-ghost btn-sm',
+        href: href,
+        target: '_blank',
+        rel: 'noreferrer',
+        title: href,
+        text: '打开'
+      }));
+    }
+    actions.appendChild(makeButton('移除', 'btn btn-ghost btn-sm',
+      null, !!app.busy.doc, function () { onRemoveDoc(d); }));
+
+    item.appendChild(main);
+    item.appendChild(actions);
+    return item;
+  }
+
+  /* ---------------- 渲染入口 ---------------- */
+
+  var DEFAULT_DOC_PROMPT =
+    '把给你的任务材料整理成一份给工程师看的正式文档。硬性要求：\n' +
+    '1. 除标题外，正文尽量只由「表格」和「Mermaid 图」组成，不要写叙述性段落；确实要说一句就控制在一行内。\n' +
+    '2. 结论、指标、改动清单、风险、验证方式全部做成 Markdown 表格（2-5 列，单元格简短）。\n' +
+    '3. 流程/时序/状态/依赖关系用 mermaid 代码块（graph TD/LR、sequenceDiagram、stateDiagram-v2）。\n' +
+    '4. 标题最多三级、12 字以内；不写“本文档旨在/综上/背景介绍”这类废话。\n' +
+    '5. 材料里没有的信息写“待补充”，不要编造。\n' +
+    '直接输出 Markdown 正文。';
+
+  function renderDocPrompt() {
+    var area = $('docPrompt');
+    if (!area) return;
+    var value = (app.settings && app.settings.docPrompt) || DEFAULT_DOC_PROMPT;
+    if (document.activeElement !== area) area.value = value;
+  }
+
+  function wireDocPrompt() {
+    var save = $('saveDocPrompt');
+    var reset = $('resetDocPrompt');
+    if (save) save.addEventListener('click', function () {
+      var value = String($('docPrompt').value || '').trim();
+      if (!value) { toast('prompt 不能为空'); return; }
+      save.disabled = true;
+      api('settings', { docPrompt: value }).then(function () {
+        $('docPromptState').textContent = '已保存';
+        save.disabled = false;
+        load({ quiet: true });
+      }, function () { save.disabled = false; });
+    });
+    if (reset) reset.addEventListener('click', function () {
+      $('docPrompt').value = DEFAULT_DOC_PROMPT;
+      $('docPromptState').textContent = '已恢复默认（记得保存）';
+    });
+  }
+
+  function renderAll() {
+    renderStatus();
+    renderDocPrompt();
+    renderAuth();
+    renderSettings(false);
+    renderTasks();
+    renderDocs();
+  }
+
+  /* ---------------- 渲染：当前会话（任务卡里的第一张） ---------------- */
+
+  function shortSession(sid) {
+    var text = String(sid || '');
+    return text.length > 22 ? text.slice(0, 10) + '…' + text.slice(-6) : text;
+  }
+
+  /**
+   * 任务面板的第一张卡：把「当前会话」变成一条飞书任务。
+   *
+   * 状态机（刻意做成一件事一个态）：
+   *   会话未绑定任何任务 → 显示这张卡；
+   *   点「同步为飞书任务」     → 往当前会话投一条整理指令，AI 生成标题/描述后调 feishu_task_create；
+   *   会话被绑定（新建或「开工（当前会话）」）→ 这张卡不再渲染，任务以普通卡片出现在列表里。
+   */
+  function sessionSyncNode() {
+    var sid = app.currentSessionId || '';
+    var tasks = (app.snap && app.snap.tasks) || [];
+
+    /* 已绑定 → 这张卡退场，任务以普通卡片出现。 */
+    if (sid) {
+      for (var i = 0; i < tasks.length; i++) {
+        if (tasks[i] && tasks[i].sessionId === sid) return null;
+      }
+    }
+
+    var card = el('div', { 'class': 'task sync-first' + (sid ? '' : ' sync-idle') });
+    var main = el('div', { 'class': 'task-main' });
+
+    var head = el('div', { 'class': 'sync-head' });
+    head.appendChild(el('span', { 'class': 'sync-title', text: '当前会话' }));
+    if (sid) head.appendChild(el('span', { 'class': 'mono sync-id', text: shortSession(sid), title: sid }));
+    main.appendChild(head);
+
+    /* 整宽虚线按钮：不解释、不提示，点就是同步。 */
+    main.appendChild(makeButton('同步为飞书任务', 'btn sync-cta', null, !sid, onPromoteSession));
+
+    card.appendChild(main);
+    return card;
+  }
+
+  /**
+   * 双击标题后的就地编辑：Enter 保存、Esc 取消、失焦取消。
+   * 旁边的「AI 起名」调后端生成正式标题，只填进输入框，仍由人确认再保存。
+   */
+  function startTitleEdit(t, titleNode, headRow) {
+    if (app.titleEditing) return;
+    app.titleEditing = true;
+
+    var wrap = el('div', { 'class': 'title-edit' });
+    var input = el('input', { type: 'text', 'class': 'title-input' });
+    input.value = String(t.title || '');
+    var aiBtn = makeButton('AI 起名', 'btn btn-ghost btn-xs', null, false, function () {
+      aiBtn.disabled = true;
+      aiBtn.textContent = '生成中…';
+      api('tasks/suggest-title', { taskId: t.id }).then(function (data) {
+        if (data && data.title) {
+          input.value = data.title;
+          if (data.ai) {
+            toast('已生成正式标题，回车保存');
+          } else {
+            /* AI 失败不要糊成「已用默认标题」——把原因说清楚，人还能自己改。 */
+            toast('AI 命名失败：' + (data.reason || '模型不可用') + '（可手动修改后回车）');
+          }
+        }
+        aiBtn.disabled = false;
+        aiBtn.textContent = 'AI 起名';
+        input.focus();
+      }, function () {
+        aiBtn.disabled = false;
+        aiBtn.textContent = 'AI 起名';
+      });
+    });
+    var saveBtn = makeButton('保存', 'btn btn-primary btn-xs', null, false, function () { save(); });
+    /* 两个按钮都别抢输入框焦点：抢了会触发 blur，把编辑器关掉。 */
+    aiBtn.addEventListener('mousedown', function (event) { event.preventDefault(); });
+    saveBtn.addEventListener('mousedown', function (event) { event.preventDefault(); });
+    wrap.appendChild(input);
+    wrap.appendChild(aiBtn);
+    wrap.appendChild(saveBtn);
+
+    titleNode.style.display = 'none';
+    headRow.appendChild(wrap);
+    input.focus();
+    input.select();
+
+    var finished = false;
+    function close() {
+      if (finished) return;
+      finished = true;
+      app.titleEditing = false;
+      wrap.remove();
+      titleNode.style.display = '';
+    }
+    function save() {
+      var next = String(input.value || '').trim();
+      if (!next || next === String(t.title || '')) { close(); return; }
+      finished = true;
+      app.titleEditing = false;
+      input.disabled = true;
+      api('tasks/rename', { taskId: t.id, title: next }).then(function (data) {
+        toast(data && data.sessionRenamed ? '已改名（会话同步改名）' : '已改名');
+        wrap.remove();
+        load({ quiet: true });
+      }, function (error) {
+        var detail = (error && (error.message || error.error)) || '改名失败';
+        close();
+        toast(String(detail).slice(0, 120));
+      });
+    }
+
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); save(); }
+      else if (event.key === 'Escape') { event.preventDefault(); close(); }
+    });
+    /* 失焦不自动保存：点「AI 起名」会短暂抢焦点，自动保存会用旧值把新标题盖掉（实测踩过）。 */
+    input.addEventListener('blur', function () {
+      setTimeout(function () { if (!finished) close(); }, 200);
+    });
+  }
+
+  function onPromoteSession() {
+    var sid = app.currentSessionId;
+    if (!sid) return;
+    var buttons = document.querySelectorAll('.sync-first .btn');
+    var restore = [];
+    for (var i = 0; i < buttons.length; i++) {
+      restore.push(buttons[i].textContent);
+      buttons[i].disabled = true;
+    }
+    if (buttons[0]) buttons[0].textContent = '已投递，等 AI 整理…';
+    function done() {
+      for (var j = 0; j < buttons.length; j++) {
+        buttons[j].disabled = false;
+        if (restore[j] !== undefined) buttons[j].textContent = restore[j];
+      }
+    }
+    api('sessions/promote', { sessionId: sid }).then(function () {
+      toast('已把整理指令投递到当前会话，稍后会出现任务卡');
+      done();
+      load({ quiet: true });
+    }, done);
+  }
+
+
+  /* ---------------- 数据加载与轮询 ---------------- */
+
+  function load(opts) {
+    var quiet = !!(opts && opts.quiet);
+    return api('state', undefined, { silent: quiet }).then(function (data) {
+      var next = (data && data.state) || {};
+      app.settings = (data && data.settings) || {};
+      app.snap = next;
+      app.workspaces = Array.isArray(data && data.workspaces) ? data.workspaces : [];
+      app.loaded = true;
+      if (typeof (data && data.now) === 'number') app.skew = data.now - Date.now();
+      if (next.auth && next.auth.ok) {
+        app.loginUrl = null;
+        app.loginNote = '';
+      }
+      renderAll();
+    }, function () {
+      /* api() 已按 silent 决定是否 toast */
+    });
+  }
+
+  function schedulePoll() {
+    if (app.pollTimer) clearTimeout(app.pollTimer);
+    var delay = (app.snap && app.snap.syncing) ? 3000 : 20000;
+    app.pollTimer = setTimeout(function () {
+      app.pollTimer = null;
+      if (document.hidden) {
+        schedulePoll();
+        return;
+      }
+      load({ quiet: true }).then(schedulePoll);
+    }, delay);
+  }
+
+  /* ---------------- 授权动作 ---------------- */
+
+  function onLogin() {
+    if (app.busy.login) return;
+    app.busy.login = true;
+    app.loginNote = '';
+    renderAuth();
+
+    api('auth/login', {}).then(function (data) {
+      app.busy.login = false;
+      if (data && data.url) {
+        app.loginUrl = String(data.url);
+      } else {
+        app.loginUrl = null;
+        app.loginNote = '没有拿到授权链接，请在终端查看 feishu-sync-cli 的输出。';
+        toast('未拿到授权链接');
+      }
+      renderAuth();
+      load({ quiet: true });
+    }, function () {
+      app.busy.login = false;
+      renderAuth();
+    });
+  }
+
+  function onCheck() {
+    if (app.busy.check) return;
+    app.busy.check = true;
+    renderAuth();
+
+    api('auth/check', {}).then(function (data) {
+      app.busy.check = false;
+      if (data && data.auth) {
+        app.snap.auth = data.auth;
+        if (data.auth.ok) {
+          app.loginUrl = null;
+          app.loginNote = '';
+          toast('授权已生效');
+        } else if (data.auth.detail) {
+          toast(data.auth.detail);
+        }
+      }
+      renderStatus();
+      renderAuth();
+      load({ quiet: true });
+    }, function () {
+      app.busy.check = false;
+      renderAuth();
+    });
+  }
+
+  /* ---------------- 同步 / 设置动作 ---------------- */
+
+  function onSync() {
+    if (app.busy.sync) return;
+    app.busy.sync = true;
+    renderTasks();
+
+    api('sync', {}).then(function (data) {
+      app.busy.sync = false;
+      if (data && data.started === false && data.reason === 'syncing') {
+        toast('已在同步中，请稍候');
+      } else {
+        toast('已开始同步');
+      }
+      renderTasks();
+      // 同步期间改用 3 秒快轮询，及时看到 syncing 结束
+      load({ quiet: true }).then(schedulePoll);
+    }, function () {
+      app.busy.sync = false;
+      renderTasks();
+    });
+  }
+
+  function onSave() {
+    if (app.busy.save) return;
+    app.busy.save = true;
+    var btn = $('saveSettings');
+    btn.disabled = true;
+    btn.textContent = '保存中…';
+
+    var payload = {
+      autoSync: $('autoSync').checked,
+      syncIntervalMinutes: toInt($('syncInterval').value, 30, 1, 1440),
+      tasks: {
+        includeCompleted: $('includeCompleted').checked,
+        keyword: String($('keyword').value || '').trim()
+      },
+      autoStartMode: $('autoStartMode').value,
+      maxAutoStartPerRun: toInt($('maxAutoStart').value, 1, 1, 20),
+      contextInjection: $('contextInjection').checked,
+      pushChanges: $('pushChanges').checked,
+      autoComment: $('autoComment').checked,
+      autoCommentMinSeconds: toInt($('autoCommentGap').value, 45, 10, 3600)
+    };
+
+    api('settings', payload).then(function (data) {
+      app.busy.save = false;
+      btn.disabled = false;
+      btn.textContent = '保存设置';
+      if (data && data.settings) app.settings = data.settings;
+      app.settingsDirty = false;
+      renderSettings(true);
+      showSaved('设置已保存');
+      load({ quiet: true });
+    }, function () {
+      app.busy.save = false;
+      btn.disabled = false;
+      btn.textContent = '保存设置';
+    });
+  }
+
+  /* ---------------- 任务动作 ---------------- */
+
+  function onStart(t) {
+    if (!t.id || app.busyTask[t.id]) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+
+    var payload = { id: t.id };
+    if (app.currentSessionId) payload.sessionId = app.currentSessionId;
+    api('tasks/start', payload).then(function (data) {
+      delete app.busyTask[t.id];
+      if (data && data.sessionId) app.sessions[t.id] = String(data.sessionId);
+      renderTasks();
+      if (data && data.note) toast(data.note);
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+  /* 请宿主把这条会话切到前台。不在 iframe 里（新窗口打开）时退化成复制 ID。 */
+  function onOpenSession(sid) {
+    if (!sid) return;
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'dsh-feishu:open-session', sessionId: String(sid) }, '*');
+      return;
+    }
+    onCopySession(sid, '已复制会话 ID（当前不是嵌入视图，去左侧栏粘贴搜索）');
+  }
+
+  function onCopySession(sid, message) {
+    var text = String(sid || '');
+    if (!text) return;
+    var done = function () { toast(message || '会话 ID 已复制'); };
+    var fail = function () { toast('复制失败：' + text); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, fail);
+        return;
+      }
+    } catch (e) { /* 落到 fallback */ }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      done();
+    } catch (e) { fail(); }
+  }
+
+  function openDoc(url) {
+    if (!url) return;
+    var win = null;
+    try { win = window.open(url, '_blank', 'noopener'); } catch (e) { win = null; }
+    if (!win) {
+      try { navigator.clipboard.writeText(url); toast('链接已复制：' + url.slice(0, 40)); }
+      catch (e) { toast(url); }
+    }
+  }
+
+  function onSyncTask(t) {
+    if (!t.id || app.busyTask[t.id]) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+    api('tasks/sync', { taskId: t.id }).then(function (data) {
+      delete app.busyTask[t.id];
+      var map = { push: '已写回飞书字段', pull: '已从飞书拉取最新', none: '没有可同步的改动' };
+      toast(map[(data && data.direction) || 'pull'] || '已同步');
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+  function onMakeDoc(t) {
+    if (!t.id || app.busyTask[t.id]) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+    api('tasks/create-doc', { taskId: t.id }).then(function (data) {
+      delete app.busyTask[t.id];
+      toast('文档已生成：' + String((data && data.url) || '').slice(-12));
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+  /* 从任务上解绑一篇文档：解绑的同时把飞书「文档」字段重写一遍。 */
+  function onUnbindDoc(t, doc) {
+    if (!t.id || !doc || !doc.url || app.busyTask[t.id]) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+    api('tasks/bind-doc', { taskId: t.id, url: doc.url, remove: true }).then(function (data) {
+      delete app.busyTask[t.id];
+      var field = (data && data.field) || {};
+      var name = (data && data.docField) || '文档';
+      toast(field.ok
+        ? '已解绑文档，飞书「' + name + '」字段已更新'
+        : '已解绑文档，但写回飞书「' + name + '」字段失败：' + (field.error || '未知原因'));
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+  function onBind(t) {
+    var sid = app.currentSessionId;
+    if (!sid || app.busyTask[t.id]) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+    api('tasks/link', { taskId: t.id, sessionId: sid }).then(function (data) {
+      delete app.busyTask[t.id];
+      toast(data && data.sessionRenamed ? '已绑定，会话名同步为任务名' : '已绑定（未开工）');
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+  function onComplete(t) {
+    if (!t.id || app.busyTask[t.id] || t.done) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+    api('tasks/complete', { taskId: t.id }).then(function (data) {
+      delete app.busyTask[t.id];
+      toast(data && data.archived ? '任务已完成，会话已归档' : '任务已完成');
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+  function onDeleteSession(t) {
+    if (!t.id || app.busyTask[t.id]) return;
+    if (!window.confirm('删除这条会话？会话会从侧边栏消失（日志仍在磁盘，可恢复），飞书任务状态不变。')) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+    api('tasks/delete-session', { taskId: t.id }).then(function (data) {
+      delete app.busyTask[t.id];
+      toast(data && data.archived ? '会话已删除（已归档）' : '已删除会话');
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+  function onUnlink(t) {
+    if (!t.id || app.busyTask[t.id]) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+    api('tasks/unlink', { id: t.id }).then(function () {
+      delete app.busyTask[t.id];
+      toast('已解绑会话');
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+
+
+  function onDismiss(t) {
+    if (!t.id || app.busyTask[t.id]) return;
+    app.busyTask[t.id] = true;
+    renderTasks();
+
+    api('tasks/dismiss', { id: t.id }).then(function () {
+      delete app.busyTask[t.id];
+      load({ quiet: true });
+    }, function () {
+      delete app.busyTask[t.id];
+      renderTasks();
+    });
+  }
+
+  /* ---------------- 文档动作 ---------------- */
+
+  function showDocHint(msg) {
+    var n = $('docHint');
+    n.textContent = msg;
+    n.hidden = false;
+  }
+
+  function hideDocHint() {
+    var n = $('docHint');
+    n.textContent = '';
+    n.hidden = true;
+  }
+
+  function onAddDoc() {
+    if (app.busy.doc) return;
+    var input = $('docUrl');
+    var url = String(input.value || '').trim();
+
+    if (!/^https?:\/\/\S+$/i.test(url)) {
+      showDocHint('链接需要以 http:// 或 https:// 开头');
+      input.focus();
+      return;
+    }
+    hideDocHint();
+
+    app.busy.doc = true;
+    renderDocs();
+
+    api('docs/watch', { url: url, remove: false }).then(function () {
+      app.busy.doc = false;
+      input.value = '';
+      renderDocs();
+      load({ quiet: true });
+    }, function () {
+      app.busy.doc = false;
+      renderDocs();
+    });
+  }
+
+  function onRemoveDoc(d) {
+    if (!d.url || app.busy.doc) return;
+    app.busy.doc = true;
+    renderDocs();
+
+    api('docs/watch', { url: String(d.url), remove: true }).then(function () {
+      app.busy.doc = false;
+      load({ quiet: true });
+    }, function () {
+      app.busy.doc = false;
+      renderDocs();
+    });
+  }
+
+  /* ---------------- 事件绑定 ---------------- */
+
+  function markDirty() { app.settingsDirty = true; }
+
+  function wire() {
+    var settingIds = ['autoSync', 'syncInterval', 'includeCompleted', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap'];
+    for (var i = 0; i < settingIds.length; i++) {
+      var node = $(settingIds[i]);
+      if (!node) continue;
+      node.addEventListener('input', markDirty);
+      node.addEventListener('change', markDirty);
+    }
+
+    $('saveSettings').addEventListener('click', onSave);
+    $('syncNow').addEventListener('click', onSync);
+    $('docAdd').addEventListener('click', onAddDoc);
+
+    $('docUrl').addEventListener('input', hideDocHint);
+    $('docUrl').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        onAddDoc();
+      }
+    });
+
+    window.addEventListener('message', function (e) {
+      var d = e && e.data;
+      if (!d || typeof d !== 'object') return;
+      if (d.type === 'dsh-feishu:theme') {
+        if (d.dark) document.body.classList.add('dark');
+        else document.body.classList.remove('dark');
+        return;
+      }
+      if (d.type === 'dsh-feishu:open-session-result') {
+        if (d.ok) toast('已切换会话');
+        else toast('跳转失败：' + (d.reason || '宿主未响应'));
+        return;
+      }
+      if (d.type === 'dsh-feishu:context') {
+        var next = typeof d.sessionId === 'string' ? d.sessionId : '';
+        if (next !== app.currentSessionId) {
+          app.currentSessionId = next;
+          renderTasks();
+        }
+      }
+    });
+
+    /* 刚加载时可能错过父级推的 context：主动要，并在 0.5s / 1.5s 各补一次。 */
+    function askContext() {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({ type: 'dsh-feishu:request-context' }, '*');
+        }
+      } catch (e) { /* 独立窗口里没有父级 */ }
+    }
+    askContext();
+    setTimeout(askContext, 500);
+    setTimeout(askContext, 1500);
+
+    wireDocPrompt();
+
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) load({ quiet: true }).then(schedulePoll);
+    });
+  }
+
+  /* ---------------- 启动 ---------------- */
+
+  wire();
+  renderAll();  // 先渲染空态，避免白屏
+  load().then(schedulePoll);
+})();
+</script>
+</body>
+</html>
