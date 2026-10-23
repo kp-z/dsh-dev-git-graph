@@ -1183,7 +1183,7 @@ function workflowMemberRow(member) {
   label.textContent = member.label || member.childId
   label.title = label.textContent
   const state = doc.createElement('em')
-  state.textContent = member.outcome ?? '运行中'
+  state.textContent = ({ completed: '完成', failed: '失败', cancelled: '取消' })[member.outcome] ?? '运行中'
   row.append(dot, label, state)
   row.setAttribute('aria-label', `${member.label || member.childId} · ${(member.outcome ?? 'running')}`)
   row.addEventListener('click', () => {
