@@ -455,7 +455,17 @@ export function createBoard(options = {}) {
    * @param {HTMLElement} node - 状态块元素
    * @param {string|null|undefined} state - `AgentState`
    */
-  function applyStateBlock(node, state) {
+  function activityLabelFor(agentId, state) {
+    const actor = (world?.agents ?? []).find((candidate) => candidate.id === agentId)
+    if (actor === undefined) return null
+    const station = (world?.stations ?? []).find((candidate) => candidate.id === (actor.station ?? actor.targetStation))
+    const kind = station?.kind
+    if (state === 'working') return ({ desk: '写代码', meeting: '开会', breakroom: '休息', lab: '研究', server: '算力', mailroom: '收发' })[kind] ?? null
+    if (state === 'walking') return ({ desk: '去工位', meeting: '去开会', breakroom: '去休息', lab: '去实验台', server: '去机柜', mailroom: '去收发室' })[kind] ?? null
+    return null
+  }
+
+  function applyStateBlock(node, state, activity = null) {
     const tone = state === null || state === undefined ? null : agentStateTone(state)
     if (tone === null) {
       node.textContent = ''
@@ -463,7 +473,7 @@ export function createBoard(options = {}) {
       return
     }
     node.hidden = false
-    node.textContent = agentStateLabel(state)
+    node.textContent = activity ?? agentStateLabel(state)
     node.dataset.status = tone
     const color = resolveBoardColor(palette, STATUS_TOKEN[tone] ?? STATUS_TOKEN.pending)
     // 缺 token 时**不设** `--st`：CSS 的纸色 fallback 会兜住（可读），
@@ -600,7 +610,7 @@ export function createBoard(options = {}) {
       // 不再是"灰色小字"——灰色小字既不表达状态、又在纸面上很弱。
       // 色值与状态一起由下面的 `applyStateBlock()` 写（结构没变时由 `refreshState()` 续上）。
       const stateSpan = el(doc, 'span', 'board-status-block board-member-state')
-      applyStateBlock(stateSpan, row.member.state)
+      applyStateBlock(stateSpan, row.member.state, row.member.id === null ? null : activityLabelFor(row.member.id, row.member.state))
       head.append(stateSpan)
       memberStateNodes.set(row.member.id ?? '__unowned__', stateSpan)
       // R181：「未分配」行用一枚计数角标说明"还有几张没人领"，替代原来那一排 chip。
@@ -1097,7 +1107,7 @@ export function createBoard(options = {}) {
     // 时字变了而块色没变——那种"半更新"比完全不更新更难发现（颜色看着还挺合理）。
     for (const member of model.members) {
       const node = memberStateNodes.get(member.id)
-      if (node !== undefined) applyStateBlock(node, member.state)
+      if (node !== undefined) applyStateBlock(node, member.state, activityLabelFor(member.id, member.state))
     }
     for (const task of model.tasks) {
       const entry = cardNodes.get(task.id)
