@@ -1117,7 +1117,9 @@ export function createBoard(options = {}) {
         applyNodeColors(card, task.displayStatus ?? task.status)
         card.classList.toggle('is-done', task.status === 'done')
         card.classList.toggle('is-failed', task.status === 'failed')
-        card.classList.toggle('is-selected', selected !== null && selected.kind === 'task' && selected.id === task.id)
+        const isSelected = selected !== null && selected.kind === 'task' && selected.id === task.id
+        card.classList.toggle('is-selected', isSelected)
+        card.setAttribute('aria-selected', isSelected ? 'true' : 'false')
         fill.style.width = `${Math.round(Math.min(1, Math.max(0, task.progress)) * 100)}%`
         const descHint = typeof task.description === 'string' && task.description.trim() !== ''
         ? ` · ${task.description.trim().slice(0, 120)}`
