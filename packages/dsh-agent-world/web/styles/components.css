@@ -3756,3 +3756,14 @@
   background: color-mix(in srgb, var(--avatar-color, var(--screen)) 24%, transparent);
   color: var(--avatar-color, var(--screen));
 }
+
+/* R358：Agent 列表的等级徽标。 */
+.board-member-level {
+  flex: none;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, #f2c14e 18%, transparent);
+  color: #f2c14e;
+  font-size: 8px;
+  line-height: 1.5;
+}
