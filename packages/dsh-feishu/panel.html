@@ -2088,15 +2088,30 @@
       startTitleEdit(t, title, headRow);
     });
     if (sid) {
+      var alive = t.sessionAlive === true;
       var sessChip = el('button', {
         type: 'button',
         'class': 'sess-inline',
-        title: String(sid) + (t.sessionAlive === true ? '（运行中）' : '（已结束）') + ' — 点击打开这条对话'
+        title: isCurrent
+          ? '这就是当前对话'
+          : String(sid) + (alive ? '（运行中）' : '（已结束）') +
+            (alive ? ' — 点击打开这条对话' : ' — 已结束的对话无法跳转，点击复制 ID')
       });
       /* 会话活着 → 绿灯；只是已结束 → 灰点（不是错误，不该报警）。 */
-      sessChip.appendChild(el('span', { 'class': 'dot sm ' + (t.sessionAlive === true ? 'ok' : 'idle') }));
+      sessChip.appendChild(el('span', { 'class': 'dot sm ' + (alive ? 'ok' : 'idle') }));
       sessChip.appendChild(el('span', { text: shortSession(sid) }));
-      sessChip.addEventListener('click', function () { onOpenSession(sid); });
+      sessChip.addEventListener('click', function () {
+        /* 当前对话这张卡再「跳到」它会话没意义，反而容易跳到别处——直接提示一下。 */
+        if (isCurrent) {
+          toast('这就是当前对话');
+          return;
+        }
+        if (!alive) {
+          onCopySession(sid, '对话已结束（宿主重启过就不在了），已复制 ID');
+          return;
+        }
+        onOpenSession(sid);
+      });
       headRow.appendChild(sessChip);
     }
     main.appendChild(headRow);
