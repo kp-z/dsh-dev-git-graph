@@ -1317,13 +1317,39 @@ function renderAgentActions(team) {
   if (card !== null) card.textContent = ''
   const host = sidebarMounts.agentsActions
   if (host !== null && host !== undefined && host.querySelector('.aw-team-select') === null) {
+    const hireWrap = doc.createElement('div')
+    hireWrap.className = 'aw-hire-wrap'
     const hire = doc.createElement('button')
     hire.type = 'button'
     hire.className = 'aw-icon aw-team-hire'
     hire.textContent = '＋'
-    hire.title = '新建 Agent（engineer）'
+    hire.title = '新建 Agent'
     hire.setAttribute('aria-label', '新建 Agent')
-    hire.addEventListener('click', () => { void sendCommand({ kind: 'hire', role: 'engineer', name: null }) })
+    hire.setAttribute('aria-haspopup', 'menu')
+    hire.setAttribute('aria-expanded', 'false')
+    const hireMenu = doc.createElement('div')
+    hireMenu.className = 'aw-hire-menu'
+    hireMenu.role = 'menu'
+    hireMenu.hidden = true
+    for (const role of ['lead', 'engineer', 'researcher', 'reviewer', 'ops', 'docs']) {
+      const item = doc.createElement('button')
+      item.type = 'button'
+      item.role = 'menuitem'
+      item.textContent = role
+      item.addEventListener('click', () => {
+        hireMenu.hidden = true
+        hire.setAttribute('aria-expanded', 'false')
+        void sendCommand({ kind: 'hire', role, name: null })
+      })
+      hireMenu.append(item)
+    }
+    hire.addEventListener('click', (event) => {
+      event.stopPropagation()
+      hireMenu.hidden = !hireMenu.hidden
+      hire.setAttribute('aria-expanded', String(!hireMenu.hidden))
+    })
+    doc.addEventListener('click', () => { hireMenu.hidden = true; hire.setAttribute('aria-expanded', 'false') })
+    hireWrap.append(hire, hireMenu)
     const select = doc.createElement('select')
     select.className = 'aw-view-select aw-team-select'
     select.title = '团队显示模式'
@@ -1347,7 +1373,7 @@ function renderAgentActions(team) {
       if (teamView === 'workflow') void loadWorkflowRuns()
       else board.refresh()
     })
-    host.append(hire, select, refresh)
+    host.append(hireWrap, select, refresh)
   }
   const membersMount = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
   if (membersMount !== null && membersMount !== undefined) membersMount.hidden = teamView === 'workflow'
