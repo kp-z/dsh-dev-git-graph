@@ -160,6 +160,36 @@ window.__ModuleLoader__.load({
     /* 最近一次已知的会话 id：面板主动索取上下文时用它回填。 */
     var lastSessionId = "";
 
+    /** 读回宿主当前选中的会话；读不到就返回空串（表示「无法核对」）。 */
+    function currentSelection(ui) {
+      try {
+        var snap = ui && ui.selection && typeof ui.selection.getSnapshot === "function"
+          ? ui.selection.getSnapshot()
+          : null;
+        if (snap && typeof snap.sessionId === "string") return snap.sessionId;
+      } catch (e) {
+        /* 读不到就算了 */
+      }
+      return "";
+    }
+
+    /** 等一帧再核对：openSession 可能异步落库，立刻读会读到旧值。 */
+    function verifyOpened(ui, wanted, reply) {
+      if (!ui || !ui.selection) {
+        reply(true, "");
+        return;
+      }
+      var settle = typeof setTimeout === "function" ? setTimeout : null;
+      var check = function () {
+        var actual = currentSelection(ui);
+        if (!actual) reply(true, "");
+        else if (actual === wanted) reply(true, "");
+        else reply(false, "宿主实际切到了 " + actual + "，不是 " + wanted);
+      };
+      if (settle) settle(check, 200);
+      else check();
+    }
+
     /* 面板发来的「打开会话」：交给宿主的 uiWorkspace.openSession。 */
     function installSessionBridge(ctx) {
       function onMessage(event) {
@@ -211,7 +241,11 @@ window.__ModuleLoader__.load({
           }
           try {
             ui.openSession(sessionId);
-            reply(true, "");
+            /* openSession 是「尽力而为」的：宿主解析不到这条会话时不一定抛错，
+               而是把主视图切到它以为对的那条上——表现就是「点了 A 跳到 B」。
+               所以这里读回宿主真正的选择，和目标不一致就把真相报回面板，
+               别让用户以为按钮没反应。 */
+            verifyOpened(ui, sessionId, reply);
           } catch (error) {
             reply(false, error && error.message ? error.message : String(error));
           }

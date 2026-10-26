@@ -1555,6 +1555,14 @@
       </div>
     </div>
 
+    <div class="row">
+      <div class="row-main">
+        <label for="cleanOrphans">清理孤儿会话</label>
+        <div class="hint">插件开出来、但没有任何任务再指向它的会话（重复开工留下的）。先扫描，再决定是否归档。</div>
+      </div>
+      <button type="button" id="cleanOrphans" class="btn btn-ghost btn-sm">扫描</button>
+    </div>
+
     <div class="card-foot">
       <button type="button" id="saveSettings" class="btn btn-primary">保存设置</button>
       <span id="saveHint" class="saved" role="status" aria-live="polite"></span>
@@ -2422,6 +2430,27 @@
       });
     }
 
+    /* AI 起名的落库：改完立刻关编辑器、刷新，并在 toast 里带上原标题方便对照。 */
+    function applyRename(next, source) {
+      var previous = String(t.title || '');
+      if (!next || next === previous) { close(); return; }
+      finished = true;
+      app.titleEditing = false;
+      input.disabled = true;
+      api('tasks/rename', { taskId: t.id, title: next }).then(function (data) {
+        wrap.remove();
+        toast((source || '已改名') + '：' + ((data && data.title) || next) + '（原「' + previous + '」）');
+        load({ quiet: true });
+      }, function (error) {
+        /* 失败要把编辑器还回去，别让人以为改完了 */
+        finished = false;
+        app.titleEditing = true;
+        input.disabled = false;
+        var detail = (error && (error.message || error.error)) || '改名失败';
+        toast(String(detail).slice(0, 120));
+      });
+    }
+
     input.addEventListener('keydown', function (event) {
       if (event.key === 'Enter') { event.preventDefault(); submit(); }
       else if (event.key === 'Escape') {
@@ -2664,18 +2693,21 @@
       aiBtn.disabled = true;
       aiBtn.textContent = '生成中…';
       api('tasks/suggest-title', { taskId: t.id }).then(function (data) {
-        if (data && data.title) {
-          input.value = data.title;
-          if (data.ai) {
-            toast('已生成正式标题，回车保存');
-          } else {
-            /* AI 失败不要糊成「已用默认标题」——把原因说清楚，人还能自己改。 */
-            toast('AI 命名失败：' + (data.reason || '模型不可用') + '（可手动修改后回车）');
-          }
-        }
         aiBtn.disabled = false;
         aiBtn.textContent = 'AI 起名';
-        input.focus();
+        if (!data || !data.title) {
+          toast('AI 命名失败：' + ((data && data.reason) || '模型不可用') + '（可手动改后回车）');
+          return;
+        }
+        if (data.ai !== true) {
+          /* 模型没吐出可用标题：只把草稿填进输入框，绝不自动写回飞书 */
+          input.value = data.title;
+          toast('AI 没给出可用标题（' + (data.reason || '模型返回空') + '），已填入草稿');
+          input.focus();
+          return;
+        }
+        /* 生成即写回：以前只是填进输入框、还要再按回车，容易被当成「没生效」。 */
+        applyRename(data.title, 'AI 起名');
       }, function () {
         aiBtn.disabled = false;
         aiBtn.textContent = 'AI 起名';
@@ -3191,6 +3223,48 @@
         renderTasks();
       });
     }
+    /* 清理孤儿会话：先扫描（列出前几条让用户确认），再归档。 */
+    var cleanBtn = $('cleanOrphans');
+    if (cleanBtn) {
+      cleanBtn.addEventListener('click', function () {
+        cleanBtn.disabled = true;
+        cleanBtn.textContent = '扫描中…';
+        api('sessions/orphans', {}).then(function (data) {
+          cleanBtn.disabled = false;
+          cleanBtn.textContent = '扫描';
+          var orphAns = (data && data.orphans) || [];
+          if (!orphAns.length) {
+            toast('没有孤儿会话');
+            return;
+          }
+          var preview = orphAns.slice(0, 6).map(function (o) {
+            return '· ' + shortSession(o.id) + '（' + (o.where || '未知') + '）';
+          }).join('\n');
+          var more = orphAns.length > 6 ? '\n…共 ' + orphAns.length + ' 条' : '';
+          if (!window.confirm('发现 ' + orphAns.length + ' 条孤儿会话（没有任何任务指向）：\n\n' + preview + more + '\n\n归档它们？（只是移入归档，不删数据）')) {
+            return;
+          }
+          cleanBtn.disabled = true;
+          cleanBtn.textContent = '归档中…';
+          api('sessions/orphans/archive', { ids: orphAns.map(function (o) { return o.id; }) }).then(function (res) {
+            cleanBtn.disabled = false;
+            cleanBtn.textContent = '扫描';
+            var failed = (res && res.failed) || [];
+            toast('已归档 ' + ((res && res.archived) || 0) + ' 条' + (failed.length ? '，失败 ' + failed.length + ' 条' : ''));
+            load({ quiet: true });
+          }, function () {
+            cleanBtn.disabled = false;
+            cleanBtn.textContent = '扫描';
+            toast('归档失败，稍后再试');
+          });
+        }, function () {
+          cleanBtn.disabled = false;
+          cleanBtn.textContent = '扫描';
+          toast('扫描失败，稍后再试');
+        });
+      });
+    }
+
     var filterToggle = $('filterToggle');
     if (filterToggle) {
       filterToggle.addEventListener('click', function () {
@@ -3222,7 +3296,7 @@
         return;
       }
       if (d.type === 'dsh-feishu:open-session-result') {
-        if (d.ok) toast('已切换会话');
+        if (d.ok) toast('已切到 ' + shortSession(d.sessionId));
         else toast('跳转失败：' + (d.reason || '宿主未响应'));
         return;
       }
