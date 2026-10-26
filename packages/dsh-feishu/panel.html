@@ -561,6 +561,14 @@
     transition: border-color .12s ease, box-shadow .12s ease;
   }
 
+  /* ---------- 每张卡片一个主题色 ----------
+     色相由任务编号按黄金角散开（编号稳定 → 颜色稳定），几十条以内都不会撞色。
+     表现是「左侧 3px 色条 + 边框染成同色系」，比整圈重色描边克制，列表里又能一眼分辨。 */
+  .task[data-tone] {
+    border-color: color-mix(in srgb, var(--tone, var(--p-line-strong)) 40%, var(--p-line));
+    box-shadow: inset 3px 0 0 var(--tone, var(--p-line-strong));
+  }
+
   .task:hover {
     border-color: var(--p-line-hover);
     box-shadow: 0 2px 8px rgba(17, 24, 39, .07);
@@ -2116,10 +2124,26 @@
     }
   }
 
+  /* 任务 → 主题色。用黄金角把色相摊开：相邻编号的颜色差得远，且不会周期性撞色。 */
+  function toneForTask(t) {
+    var no = Number(t && t.no) || 0;
+    if (!no) {
+      /* 没编号（极少数临时卡片）用 id 的哈希兜底，别一片灰 */
+      var text = String((t && t.id) || '');
+      var hash = 0;
+      for (var i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) % 360;
+      return 'hsl(' + hash + ' 55% 55%)';
+    }
+    return 'hsl(' + Math.round((no * 137.508) % 360) + ' 60% 55%)';
+  }
+
   function taskNode(t) {
     /* 当前对话绑定的那张卡单独标出来：描边 + 呼吸动画 + 「当前对话」徽标。 */
     var isCurrent = !!(t.sessionId && app.currentSessionId && t.sessionId === app.currentSessionId);
     var item = el('div', { 'class': isCurrent ? 'task task-current' : 'task' });
+    /* 主题色：按编号算色相，黄金角散开；编号稳定，所以颜色也不会变。 */
+    item.setAttribute('data-tone', '1');
+    item.style.setProperty('--tone', toneForTask(t));
     if (isCurrent) {
       item.setAttribute('aria-current', 'true');
       item.setAttribute('data-session', String(t.sessionId));
