@@ -22,6 +22,7 @@ import {
   stripLeadingEmoji,
   leadingEmojiOf,
   stripTaskNo,
+  taskNoInTitle,
   sanitizeTaskDescription,
   evaluateAutoStart,
   parseAutoFlag,
@@ -349,6 +350,10 @@ check('带变体选择符的表情也能去掉', stripLeadingEmoji('🗂️ 整�
   check('新格式（表情在前）剥掉表情和编号', stripTaskNo('🐛 T8-开发游戏场景'), '开发游戏场景')
   check('没有编号时原样保留', stripTaskNo('开发游戏场景'), '开发游戏场景')
 }
+
+check('标题编号解析：新格式', taskNoInTitle('🐛 T8-开发游戏'), 8)
+check('标题编号解析：旧格式', taskNoInTitle('T3-🐛 开发游戏'), 3)
+check('标题编号解析：没有编号', taskNoInTitle('开发游戏'), 0)
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)
