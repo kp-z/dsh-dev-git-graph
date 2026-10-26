@@ -2125,7 +2125,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     {
       symptom: '遮挡关系不对（谁压谁）',
       probe: '__agentWorldPhaser.occlusionAudit() + overlayAudit()',
-      look: 'occlusion.anomalyCount 应为 0；overlay 三层必须 ordered:true',
+      look: 'occlusion.anomalyCount 与 pairAnomalyCount 都应为 0；overlay 三层必须 ordered:true',
     },
     {
       symptom: '某个站点 / 角色位置怪',
