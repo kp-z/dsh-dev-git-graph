@@ -568,6 +568,56 @@
     gap: 6px;
   }
 
+  /* 左右两栏：左边文字、右边迷你图表；展开的清单横跨整宽 */
+  .insight-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 128px;
+    gap: 10px;
+    align-items: start;
+  }
+
+  .insight-left {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .insight-mini {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .insight-mini .mini-label {
+    font-size: 9.5px;
+    color: var(--p-text-3);
+    line-height: 1.2;
+  }
+
+  .mini-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 26px;
+  }
+
+  .mini-bars i {
+    flex: 1 1 0;
+    min-height: 2px;
+    border-radius: 1.5px 1.5px 0 0;
+    background: var(--p-ok);
+    opacity: 0.85;
+  }
+
+  .mini-line svg { width: 100%; height: 24px; display: block; }
+
+  .mini-donut { display: flex; align-items: center; gap: 6px; }
+  .mini-donut svg { width: 34px; height: 34px; flex: 0 0 auto; }
+  .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 1px; font-size: 9.5px; color: var(--p-text-3); }
+  .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
+
   .insight-head {
     display: flex;
     align-items: center;
@@ -1633,20 +1683,25 @@
 
   <!-- 2.5 Insight：早会视图（本地指标秒出，AI 诊断按需） -->
   <section id="insightCard" class="card insight-card" aria-labelledby="insightTitle" hidden>
-    <div class="insight-head">
-      <span class="insight-avatar" aria-hidden="true">🤖</span>
-      <div class="insight-title-wrap">
-        <strong id="insightTitle">今日洞察</strong>
-        <span id="insightStats" class="insight-stats"></span>
+    <div class="insight-top">
+      <div class="insight-left">
+        <div class="insight-head">
+          <span class="insight-avatar" aria-hidden="true">🤖</span>
+          <div class="insight-title-wrap">
+            <strong id="insightTitle">今日洞察</strong>
+            <span id="insightStats" class="insight-stats"></span>
+          </div>
+          <button type="button" id="insightGear" class="btn btn-ghost btn-xs" title="洞察设置（Prompt / 快捷键）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
+        </div>
+        <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
+        <div class="insight-actions">
+          <button type="button" id="insightMorning" class="btn btn-ghost btn-xs">早会同步</button>
+          <button type="button" id="insightRefresh" class="btn btn-ghost btn-xs" title="让 AI 重新诊断（会消耗 token）">诊断</button>
+          <button type="button" id="insightExport" class="btn btn-ghost btn-xs" title="把早会摘要写成飞书任务评论">写入评论</button>
+          <button type="button" id="insightToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="insightBody">展开</button>
+        </div>
       </div>
-      <button type="button" id="insightRefresh" class="btn btn-ghost btn-xs" title="让 AI 重新诊断（会消耗 token）">诊断</button>
-      <button type="button" id="insightGear" class="btn btn-ghost btn-xs" title="洞察设置（Prompt / 快捷键）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
-      <button type="button" id="insightToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="insightBody">展开</button>
-    </div>
-    <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
-    <div class="insight-actions">
-      <button type="button" id="insightMorning" class="btn btn-ghost btn-xs">早会同步</button>
-      <button type="button" id="insightExport" class="btn btn-ghost btn-xs">写入任务评论</button>
+      <div id="insightMini" class="insight-mini" aria-label="近 14 天趋势"></div>
     </div>
     <div id="insightSettingsPanel" class="insight-settings" hidden>
       <label class="insight-settings-label" for="insightPromptInput">诊断 Prompt</label>
@@ -3063,6 +3118,113 @@
     body.appendChild(insightBlock('本地数据', metrics));
   }
 
+
+  /* ---------------- 右栏迷你图表（不展开也常驻） ---------------- */
+
+  function renderInsightMini() {
+    var box = $('insightMini');
+    if (!box) return;
+    clear(box);
+    var stats = app.insightStats;
+    if (!stats || !stats.series || !stats.series.length) {
+      box.appendChild(el('div', { 'class': 'mini-label', text: '趋势加载中…' }));
+      return;
+    }
+
+    /* ① 近 7 天完成数（柱） */
+    var barsWrap = el('div');
+    barsWrap.appendChild(el('div', { 'class': 'mini-label', text: '完成 · 7 天' }));
+    var series = stats.series.slice(-7);
+    var max = 1;
+    series.forEach(function (d) { max = Math.max(max, d.done || 0); });
+    var bars = el('div', { 'class': 'mini-bars' });
+    series.forEach(function (d) {
+      var bar = el('i');
+      bar.style.height = Math.round(((d.done || 0) / max) * 100) + '%';
+      bar.title = d.day + ' 完成 ' + (d.done || 0);
+      bars.appendChild(bar);
+    });
+    barsWrap.appendChild(bars);
+    box.appendChild(barsWrap);
+
+    /* ② 近 14 天 WIP（折线） */
+    var points = (stats.series || []).filter(function (d) { return typeof d.wip === 'number'; });
+    if (points.length >= 2) {
+      var lineWrap = el('div', { 'class': 'mini-line' });
+      var head = el('div', { 'class': 'mini-label', text: '在跑 ' + points[points.length - 1].wip });
+      lineWrap.appendChild(head);
+      var w = 100, h = 24;
+      var hi = Math.max.apply(null, points.map(function (d) { return d.wip || 0; }).concat([1]));
+      var step = w / (points.length - 1);
+      var dPath = points.map(function (d, i) {
+        var x = i * step;
+        var y = h - ((d.wip || 0) / hi) * (h - 4) - 2;
+        return (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+      }).join(' ');
+      var svgNs = 'http://www.w3.org/2000/svg';
+      var svg = document.createElementNS(svgNs, 'svg');
+      svg.setAttribute('viewBox', '0 0 100 24');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      var path = document.createElementNS(svgNs, 'path');
+      path.setAttribute('d', dPath);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', 'var(--p-accent)');
+      path.setAttribute('stroke-width', '1.4');
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
+      svg.appendChild(path);
+      lineWrap.appendChild(svg);
+      box.appendChild(lineWrap);
+    }
+
+    /* ③ 状态分布（迷你环） */
+    var dist = stats.distribution || [];
+    var states = [
+      ['done', '完成', 'var(--p-ok)'],
+      ['started', '在跑', 'var(--p-accent)'],
+      ['idle', '未开始', 'var(--p-line-strong)']
+    ];
+    var total = dist.reduce(function (sum, d) { return sum + d.count; }, 0);
+    if (!total) return;
+    var donutWrap = el('div', { 'class': 'mini-donut' });
+    var svgNs2 = 'http://www.w3.org/2000/svg';
+    var svg2 = document.createElementNS(svgNs2, 'svg');
+    svg2.setAttribute('viewBox', '0 0 40 40');
+    var angle = -Math.PI / 2;
+    states.forEach(function (item) {
+      var count = 0;
+      dist.forEach(function (d) { if (d.state === item[0]) count += d.count; });
+      if (!count) return;
+      var span = (count / total) * Math.PI * 2;
+      var rIn = 7, rOut = 13, cx = 20, cy = 20;
+      var x1 = cx + rOut * Math.cos(angle), y1 = cy + rOut * Math.sin(angle);
+      var x2 = cx + rOut * Math.cos(angle + span), y2 = cy + rOut * Math.sin(angle + span);
+      var x3 = cx + rIn * Math.cos(angle + span), y3 = cy + rIn * Math.sin(angle + span);
+      var x4 = cx + rIn * Math.cos(angle), y4 = cy + rIn * Math.sin(angle);
+      var large = span > Math.PI ? 1 : 0;
+      var node = document.createElementNS(svgNs2, 'path');
+      node.setAttribute('d',
+        'M' + x1.toFixed(2) + ' ' + y1.toFixed(2)
+        + ' A' + rOut + ' ' + rOut + ' 0 ' + large + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2)
+        + ' L' + x3.toFixed(2) + ' ' + y3.toFixed(2)
+        + ' A' + rIn + ' ' + rIn + ' 0 ' + large + ' 0 ' + x4.toFixed(2) + ' ' + y4.toFixed(2) + ' Z');
+      node.setAttribute('fill', item[2]);
+      svg2.appendChild(node);
+      angle += span;
+    });
+    donutWrap.appendChild(svg2);
+    var legend = el('div', { 'class': 'mini-legend' });
+    states.forEach(function (item) {
+      var count = 0;
+      dist.forEach(function (d) { if (d.state === item[0]) count += d.count; });
+      var row = el('span');
+      row.appendChild(el('i', { style: 'background:' + item[2] }));
+      row.appendChild(el('span', { text: item[1] + ' ' + count }));
+      legend.appendChild(row);
+    });
+    donutWrap.appendChild(legend);
+    box.appendChild(donutWrap);
+  }
+
   /* ---------------- 早会同步（合并今天/昨天/推荐 + 趋势图） ---------------- */
 
   function renderMorning(body, local, ai) {
@@ -3097,19 +3259,6 @@
     if (!recNodes.length) recNodes.push(el('div', { 'class': 'insight-empty', text: '没有待推进的任务。' }));
     body.appendChild(insightBlock('今天先做这些', recNodes));
 
-    /* ④ 趋势（近 14 天） */
-    var stats = app.insightStats;
-    if (stats && stats.series && stats.series.length) {
-      var charts = el('div', { 'class': 'insight-charts' });
-      charts.appendChild(chartBars(stats.series.slice(-7)));
-      charts.appendChild(chartLine(stats.series));
-      charts.appendChild(chartSunburst(stats.distribution || [], stats.board || {}));
-      body.appendChild(insightBlock('趋势（近 14 天）', [charts]));
-    } else {
-      body.appendChild(insightBlock('趋势（近 14 天）', [
-        el('div', { 'class': 'insight-empty', text: '还在攒数据，明天开始就能看到趋势。' }),
-      ]));
-    }
   }
 
   /* 柱状图：近 7 天「完成 / 新开工」 */
@@ -3256,7 +3405,7 @@
     return api('insight/stats?days=14', undefined, { silent: true }).then(function (data) {
       app.insightStatsLoading = false;
       app.insightStats = (data && data.stats) || null;
-      if (app.insightOpen && app.insightTab === 'morning') renderInsightBody();
+      renderInsightMini();
       return app.insightStats;
     }, function () {
       app.insightStatsLoading = false;
@@ -4201,6 +4350,8 @@
   wire();
   wireInsight();
   loadInsight();
+  /* 迷你图表在收起状态下也要显示，所以开局就拉一次趋势 */
+  loadInsightStats();
   renderAll();  // 先渲染空态，避免白屏
   load().then(schedulePoll);
 })();
