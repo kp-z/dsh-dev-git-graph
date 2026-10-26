@@ -173,20 +173,39 @@ window.__ModuleLoader__.load({
       return "";
     }
 
-    /** 等一帧再核对：openSession 可能异步落库，立刻读会读到旧值。 */
-    function verifyOpened(ui, wanted, reply) {
-      if (!ui || !ui.selection) {
-        reply(true, "");
-        return;
-      }
+    /**
+     * 等一帧再核对是否真的切过去了。
+     *
+     * 两道检查：
+     * 1. `uiWorkspace.selection` 能读就比 session id（最准）；
+     * 2. 读不到 selection 时退回窗口标题：会话名默认 = 任务名，标题对不上说明切到了别处。
+     *    这一步只做「对不上就报告」，不做纠正——宿主侧怎么解析是它的事。
+     */
+    function verifyOpened(ui, wanted, expectedTitle, reply) {
       var settle = typeof setTimeout === "function" ? setTimeout : null;
       var check = function () {
         var actual = currentSelection(ui);
-        if (!actual) reply(true, "");
-        else if (actual === wanted) reply(true, "");
-        else reply(false, "宿主实际切到了 " + actual + "，不是 " + wanted);
+        if (actual) {
+          if (actual === wanted) reply(true, "");
+          else reply(false, "宿主实际切到了 " + actual + "，不是 " + wanted);
+          return;
+        }
+        var snippet = String(expectedTitle || "").replace(/\s+/g, "").slice(0, 8);
+        var docTitle = "";
+        try {
+          docTitle = typeof document !== "undefined" && document.title ? String(document.title) : "";
+        } catch (e) {
+          docTitle = "";
+        }
+        if (!snippet || !docTitle) {
+          reply(true, "");
+          return;
+        }
+        var normalized = docTitle.replace(/\s+/g, "");
+        if (normalized.indexOf(snippet) !== -1) reply(true, "");
+        else reply(false, "窗口标题是「" + docTitle.slice(0, 28) + "」，和这张卡的任务名对不上");
       };
-      if (settle) settle(check, 200);
+      if (settle) settle(check, 260);
       else check();
     }
 
@@ -208,6 +227,7 @@ window.__ModuleLoader__.load({
           }
           if (data.type !== "dsh-feishu:open-session") return;
           var sessionId = typeof data.sessionId === "string" ? data.sessionId : "";
+          var expectedTitle = typeof data.expectedTitle === "string" ? data.expectedTitle : "";
           if (!sessionId) return;
           /* 回执发给「发消息的那个窗口」，而不是重新 query 一个 iframe：
              面板未必带 dfe-frame 这个 class，重新查会查空，回执就静默丢了——
@@ -245,7 +265,7 @@ window.__ModuleLoader__.load({
                而是把主视图切到它以为对的那条上——表现就是「点了 A 跳到 B」。
                所以这里读回宿主真正的选择，和目标不一致就把真相报回面板，
                别让用户以为按钮没反应。 */
-            verifyOpened(ui, sessionId, reply);
+            verifyOpened(ui, sessionId, expectedTitle, reply);
           } catch (error) {
             reply(false, error && error.message ? error.message : String(error));
           }

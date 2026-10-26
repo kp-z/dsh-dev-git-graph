@@ -2191,7 +2191,7 @@
           onCopySession(sid, '对话已结束（宿主重启过就不在了），已复制 ID');
           return;
         }
-        onOpenSession(sid);
+        onOpenSession(sid, t.title);
       });
       headRow.appendChild(sessChip);
     }
@@ -2312,6 +2312,12 @@
         function () { onDeleteSession(t); })).title = '删除（归档）这条会话，任务状态不变';
       sess.appendChild(makeButton('解绑', 'btn btn-ghost btn-xs', null, !!app.busyTask[t.id],
         function () { onUnlink(t); })).title = '只解除任务↔会话关系，任务回到未开工';
+      /* 绑错了怎么办：解绑再绑太绕，这里直接给一个「换绑」；
+         只有当当前会话不是它绑的那条时才出现。 */
+      if (app.currentSessionId && String(app.currentSessionId) !== String(sid)) {
+        sess.appendChild(makeButton('换绑', 'btn btn-ghost btn-xs', null, !!app.busyTask[t.id],
+          function () { onBind(t); })).title = '把当前这条对话换成这条任务绑定的会话';
+      }
       var hasOwnDoc = (t.docs || []).some(function (d) { return d && d.source === '生成'; });
       sess.appendChild(makeButton('同步', 'btn btn-ghost btn-xs', '同步中…', !!app.busyTask[t.id],
         function () { onSyncTask(t); })).title = '按最后修改时间决定：本地新则写回飞书字段，否则从飞书拉取';
@@ -2989,10 +2995,15 @@
   }
 
   /* 请宿主把这条会话切到前台。不在 iframe 里（新窗口打开）时退化成复制 ID。 */
-  function onOpenSession(sid) {
+  function onOpenSession(sid, expectedTitle) {
     if (!sid) return;
     if (window.parent && window.parent !== window) {
-      window.parent.postMessage({ type: 'dsh-feishu:open-session', sessionId: String(sid) }, '*');
+      window.parent.postMessage({
+        type: 'dsh-feishu:open-session',
+        sessionId: String(sid),
+        /* 带上这张卡的标题：宿主跳完可以拿窗口标题核对，跳错了一眼能看出来 */
+        expectedTitle: String(expectedTitle || '')
+      }, '*');
       return;
     }
     onCopySession(sid, '已复制会话 ID（当前不是嵌入视图，去左侧栏粘贴搜索）');
