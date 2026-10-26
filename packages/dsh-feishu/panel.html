@@ -596,9 +596,9 @@
   .insight-buttons {
     display: flex;
     gap: 4px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    flex-wrap: nowrap;
     margin-left: auto;
+    flex: 0 0 auto;
   }
 
   /* 详细文字默认不占地方：一行提示，鼠标悬浮由 title 给出完整结论 + AI 判断 + 三个分 */
@@ -661,6 +661,40 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    white-space: nowrap;
+    min-width: 0;
+  }
+
+  .insight-head::-webkit-scrollbar { display: none; }
+
+  .insight-title {
+    flex: 0 0 auto;
+    font-size: 12.5px;
+    color: var(--p-text-1);
+  }
+
+  .insight-gear { flex: 0 0 auto; }
+
+  .insight-meta {
+    font-size: 10px;
+    color: var(--p-text-3);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .insight-extra {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--p-text-3);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
   }
 
   .insight-avatar {
@@ -692,7 +726,7 @@
 
   .insight-line {
     display: -webkit-box;
-    -webkit-line-clamp: 4;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
     font-size: 11.5px;
@@ -1771,18 +1805,17 @@
     <!-- 顶栏：整行保留；动作按钮在右上角 -->
     <div class="insight-head">
       <span class="insight-avatar" aria-hidden="true">💡</span>
-      <div class="insight-title-wrap">
-        <strong id="insightTitle">今日洞察</strong>
-        <span id="insightStats" class="insight-stats"></span>
-      </div>
+      <strong id="insightTitle" class="insight-title">今日洞察</strong>
       <div id="insightButtons" class="insight-buttons"></div>
-      <button type="button" id="insightGear" class="btn btn-ghost btn-xs" title="洞察设置（按钮 / Prompt / 快捷键）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
+      <button type="button" id="insightGear" class="btn btn-ghost btn-xs insight-gear" title="洞察设置（按钮 / Prompt / 快捷键）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
     </div>
 
     <!-- 中间块：左文字（含「展开」） / 右饼图，左右等高 -->
     <div class="insight-mid">
       <div class="insight-text">
+        <div id="insightMeta" class="insight-meta"></div>
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
+        <div id="insightExtra" class="insight-extra"></div>
         <div class="insight-text-foot">
           <button type="button" id="insightToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="insightBody">展开</button>
         </div>
@@ -3117,65 +3150,66 @@
 
     var today = local.today || {};
     var board = local.board || {};
-    var stats = [];
-    if (typeof board.total === 'number') {
-      stats.push('共 ' + board.total);
-      stats.push('在跑 ' + (board.started || 0));
-      stats.push('未开始 ' + (board.idle || 0));
-    }
-    stats.push('今日完成 ' + (today.doneCount || 0));
-    if (typeof today.completion === 'number') stats.push('完成度 ' + today.completion + '%');
-    $('insightStats').textContent = stats.join(' · ');
-
-    var line = $('insightLine');
-    line.classList.remove('is-warn', 'is-idle');
     var ai = app.insightAI;
+
+    /* 统计从顶栏挪进文字块：顶栏只留标题 + 按钮，腾地方给按钮，也让顶栏不换行 */
+    var meta = $('insightMeta');
+    if (meta) {
+      var bits = [];
+      if (typeof board.total === 'number') {
+        bits.push('共 ' + board.total);
+        bits.push('在跑 ' + (board.started || 0));
+        bits.push('未开始 ' + (board.idle || 0));
+      }
+      bits.push('今日完成 ' + (today.doneCount || 0));
+      if (typeof today.completion === 'number') bits.push('完成度 ' + today.completion + '%');
+      if (today.deviationLevel) bits.push('偏离 ' + today.deviationLevel);
+      meta.textContent = bits.join(' · ');
+    }
+
+    /* 正文给到 3 行以上：AI 的结论 + 一句判断 + 建议；没有 AI 就摊开本地事实 */
+    var line = $('insightLine');
+    var extra = $('insightExtra');
+    line.classList.remove('is-warn', 'is-idle');
     if (app.insightLoading) {
       line.classList.add('is-idle');
       line.textContent = 'AI 正在看你今天的任务…';
+      if (extra) extra.textContent = '';
     } else if (ai && ai.headline) {
       line.textContent = ai.headline;
-    } else if ((local.stalled || []).length) {
-      line.classList.add('is-warn');
-      line.textContent = '卡住的：' + local.stalled.map(insightTaskLabel).join('；');
-    } else if ((local.recommend || []).length) {
-      line.textContent = '建议先做：' + local.recommend.map(insightTaskLabel).join('；');
-    } else {
-      line.classList.add('is-idle');
-      line.textContent = '今天还没有可评估的推进。';
-    }
-
-    /* AI 自己想说的一句（模型给的 commentary），放在文字栏里 */
-    var commentary = $('insightCommentary');
-    if (commentary) {
-      var note = (ai && ai.commentary) || '';
-      commentary.textContent = note;
-      commentary.hidden = !note;
-    }
-
-    /* 详细文字走 hover：结论全文 + AI 的判断 + 三个粗分 */
-    var mid = document.querySelector('.insight-mid');
-    var hint = $('insightHint');
-    if (mid) {
-      var detail = [];
-      if (ai && ai.headline) detail.push(ai.headline);
-      if (ai && ai.commentary) detail.push(ai.commentary);
-      if (ai && ai.advice) detail.push('建议：' + ai.advice);
-      if (ai && ai.score) {
+      if (extra) {
         var parts = [];
-        if (ai.score.focus !== null && ai.score.focus !== undefined) parts.push('专注 ' + ai.score.focus);
-        if (ai.score.throughput !== null && ai.score.throughput !== undefined) parts.push('产出 ' + ai.score.throughput);
-        if (ai.score.hygiene !== null && ai.score.hygiene !== undefined) parts.push('收尾 ' + ai.score.hygiene);
-        if (parts.length) detail.push(parts.join(' · '));
+        if (ai.commentary) parts.push(ai.commentary);
+        if (ai.advice) parts.push('建议：' + ai.advice);
+        if (ai.score) {
+          var scores = [];
+          if (ai.score.focus !== null && ai.score.focus !== undefined) scores.push('专注 ' + ai.score.focus);
+          if (ai.score.throughput !== null && ai.score.throughput !== undefined) scores.push('产出 ' + ai.score.throughput);
+          if (ai.score.hygiene !== null && ai.score.hygiene !== undefined) scores.push('收尾 ' + ai.score.hygiene);
+          if (scores.length) parts.push(scores.join(' · '));
+        }
+        extra.textContent = parts.join('\n');
       }
-      if (detail.length) {
-        mid.title = detail.join('\n');
-        mid.style.cursor = 'help';
+    } else {
+      var facts = [];
+      if ((local.stalled || []).length) {
+        line.classList.add('is-warn');
+        facts.push('卡住 ' + local.stalled.length + ' 条：' + local.stalled.map(insightTaskLabel).join('；'));
       } else {
-        mid.removeAttribute('title');
-        mid.style.cursor = '';
+        facts.push('今天活跃 ' + (today.activeCount || 0) + ' 条任务，完成 ' + (today.doneCount || 0) + ' 条。');
       }
-      if (hint) hint.hidden = !detail.length;
+      if ((local.noOutput || []).length) {
+        facts.push('开工两天以上但没有产出：' + local.noOutput.map(insightTaskLabel).join('；'));
+      }
+      if ((local.recommend || []).length) {
+        facts.push('今天建议先做：' + local.recommend.map(function (item) {
+          return insightTaskLabel(item) + '（' + (item.reasons || []).slice(0, 1).join('') + '）';
+        }).join('；'));
+      }
+      if (!facts.length) facts.push('今天还没有可评估的推进。');
+      line.classList.add('is-idle');
+      line.textContent = facts[0];
+      if (extra) extra.textContent = facts.slice(1).join('\n');
     }
 
     renderInsightCharts();
