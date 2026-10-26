@@ -179,12 +179,20 @@ window.__ModuleLoader__.load({
           if (data.type !== "dsh-feishu:open-session") return;
           var sessionId = typeof data.sessionId === "string" ? data.sessionId : "";
           if (!sessionId) return;
+          /* 回执发给「发消息的那个窗口」，而不是重新 query 一个 iframe：
+             面板未必带 dfe-frame 这个 class，重新查会查空，回执就静默丢了——
+             面板于是永远等不到结果，用户只看到「没反应」。 */
+          var source = event.source;
           function reply(ok, reason) {
             try {
-              var frame = typeof document !== "undefined" && document.querySelector
-                ? document.querySelector("iframe.dfe-frame")
-                : null;
-              frame && frame.contentWindow && frame.contentWindow.postMessage(
+              var target = source;
+              if (!target) {
+                var frame = typeof document !== "undefined" && document.querySelector
+                  ? document.querySelector("iframe.dfe-frame")
+                  : null;
+                target = frame && frame.contentWindow;
+              }
+              target && target.postMessage(
                 { type: "dsh-feishu:open-session-result", sessionId: sessionId, ok: ok, reason: reason || "" },
                 "*",
               );
