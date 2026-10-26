@@ -2974,7 +2974,7 @@ function createSyncEngine(ctx) {
   function insightSummaryText() {
     const local = insightLocal()
     const ai = state.insight
-    const lines = [`🤖 AI 早会摘要 · ${new Date().toLocaleString('zh-CN', { hour12: false })}`]
+    const lines = [`💡 AI 早会摘要 · ${new Date().toLocaleString('zh-CN', { hour12: false })}`]
     if (ai?.headline) lines.push('', `结论：${ai.headline}`)
     lines.push('', `今日：活跃 ${local.today.activeCount} · 完成 ${local.today.doneCount} · 新开工 ${local.today.startedCount} · 文档 ${local.today.docsCount}`)
     if (local.stalled.length) {
