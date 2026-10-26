@@ -2472,6 +2472,41 @@ function createSyncEngine(ctx) {
   }
 
   /**
+   * 把已有任务名规整到统一规则（表情 + T<n>- + 标题）。
+   *
+   * 「起名链路统一」只保证**新**名字一致；历史任务名里有的没表情、有的编号和 no 不符，
+   * 得跑一次这个补上。只改「算出来的标题和现在不一样」的任务，可重复执行。
+   */
+  async function normalizeTaskTitles() {
+    const path = resolveCli(settings.cliPath)
+    const planned = []
+    for (const task of state.tasks) {
+      const want = buildTaskTitle(task.title, taskNo(task), task.description ?? '')
+      if (!want || want === task.title) continue
+      planned.push({ task, want })
+    }
+    if (!planned.length) return { ok: true, changed: 0, items: [] }
+    let changed = 0
+    const items = []
+    for (const { task, want } of planned) {
+      const result = await runCli(path, ['task', 'update', task.id, `--summary=${want}`], { timeoutMs: 60_000 })
+      if (!result.ok) {
+        items.push({ id: task.id, from: task.title, to: want, ok: false })
+        continue
+      }
+      items.push({ id: task.id, from: task.title, to: want, ok: true })
+      task.title = want
+      task.localUpdatedAt = nowMs()
+      changed += 1
+    }
+    if (changed > 0) {
+      await persistState()
+      log(ctx, 'info', `[naming] 已规整 ${changed} 条任务名`)
+    }
+    return { ok: true, changed, items }
+  }
+
+  /**
    * 找出「插件开出来、但没有任何任务再指向它」的会话。
    *
    * 为什么会有：早期按端口分状态 + 两个实例各自开工，同一条任务被开过好几条会话；
@@ -3307,6 +3342,7 @@ function createSyncEngine(ctx) {
     persistState,
     sync,
     getSettings: () => settings,
+    normalizeTaskTitles,
     orphanSessions,
     archiveOrphans,
     onSettingsChange,
@@ -3523,6 +3559,12 @@ function mountRoutes(ctx, engine) {
             const body = await readBody(req)
             const result = await engine.renameTask(asString(body.taskId ?? body.id), asString(body.title))
             sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (route === '/api/tasks/normalize-titles' && req.method === 'POST') {
+            const result = await engine.normalizeTaskTitles()
+            sendJson(res, 200, result)
             return
           }
 
