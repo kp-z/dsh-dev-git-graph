@@ -3671,3 +3671,32 @@
   scrollbar-width: none;
 }
 .board-view-chips::-webkit-scrollbar { display: none; }
+
+/* R349：游戏目标 HUD。 */
+.quest-hud {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 4;
+  width: 196px;
+  padding: 8px 10px;
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--paper-card) 88%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-1);
+  color: var(--fg-1);
+  font-size: 10px;
+}
+.quest-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; }
+.quest-head b { color: var(--fg-0); font-size: 11px; letter-spacing: 0.04em; }
+.quest-score { color: var(--screen); font-variant-numeric: tabular-nums; }
+.quest-list { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.quest-row { display: grid; grid-template-columns: 12px 1fr auto; gap: 2px 5px; align-items: center; }
+.quest-check { color: var(--ink-2); font-style: normal; text-align: center; }
+.quest-row.is-done .quest-check { color: #65d98a; }
+.quest-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quest-detail { color: var(--ink-2); font-style: normal; font-size: 9px; }
+.quest-bar { grid-column: 2 / 4; height: 2px; border-radius: 999px; background: var(--edge-soft); overflow: hidden; }
+.quest-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--screen); transition: width 240ms ease; }
+.quest-row.is-done .quest-bar > span { background: #65d98a; }
