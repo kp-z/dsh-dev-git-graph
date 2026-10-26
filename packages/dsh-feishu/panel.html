@@ -1120,29 +1120,34 @@
 
   /* ---------- 当前对话绑定的任务卡 ---------- */
   .task.task-current {
-    border-color: var(--p-select);
-    /* 2px 观感但不改盒模型：描边 + 一圈内发光 */
-    box-shadow: var(--p-shadow), 0 0 0 1px var(--p-select);
-    /* 底色：橙色自上而下淡出，压在白/深色卡片底上，不抢正文对比度 */
+    /* 高亮跟随这张卡自己的主题色（--tone），不再是清一色橙——
+       否则一列里每张卡都是不同颜色，唯独第一张永远是橙的，看着像另立一套规则。 */
+    --current: var(--tone, var(--p-select));
+    border-color: var(--current);
+    /* 2px 观感但不改盒模型：描边 + 一圈同色内发光 */
+    box-shadow: var(--p-shadow), 0 0 0 1px var(--current);
+    /* 底色：同色系自上而下淡出，压在白/深色卡片底上，不抢正文对比度 */
     background:
-      linear-gradient(180deg, var(--p-select-weak), rgba(0, 0, 0, 0) 72%),
+      linear-gradient(180deg, color-mix(in srgb, var(--current) 12%, transparent), rgba(0, 0, 0, 0) 72%),
       var(--p-card);
     animation: task-current-pulse 2s ease-in-out infinite;
   }
 
   @keyframes task-current-pulse {
     0%, 100% {
-      box-shadow: var(--p-shadow), 0 0 0 1px var(--p-select);
+      box-shadow: var(--p-shadow), 0 0 0 1px var(--current);
     }
     50% {
-      box-shadow: var(--p-shadow), 0 0 0 2px var(--p-select), 0 2px 14px var(--p-select-line);
+      box-shadow: var(--p-shadow), 0 0 0 2px var(--current),
+        0 2px 14px color-mix(in srgb, var(--current) 40%, transparent);
     }
   }
 
   .badge.badge-current {
-    color: #fff;
-    border: 1px solid var(--p-select);
-    background: var(--p-select);
+    /* 底色用同色系的淡染，字色不动：浅色相（比如黄绿）配白字会糊。 */
+    color: var(--p-text-1);
+    border: 1px solid color-mix(in srgb, var(--current, var(--p-select)) 55%, transparent);
+    background: color-mix(in srgb, var(--current, var(--p-select)) 16%, transparent);
     font-weight: 600;
   }
 
@@ -1369,7 +1374,7 @@
     /* 选中态保留描边，但不做呼吸动画 */
     .task.task-current {
       animation: none;
-      box-shadow: var(--p-shadow), 0 0 0 2px var(--p-select);
+      box-shadow: var(--p-shadow), 0 0 0 2px var(--current);
     }
 
     .spinner { animation-duration: 1.6s; }
