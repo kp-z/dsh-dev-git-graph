@@ -109,6 +109,15 @@ export async function adoptPreviousState(currentFile) {
   return candidates[0]
 }
 
+/** 插件版本：面板顶部要显示，好让人一眼知道当前跑的是哪一版。 */
+const PLUGIN_VERSION = (() => {
+  try {
+    return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version ?? ''
+  } catch {
+    return ''
+  }
+})()
+
 const DEFAULT_SETTINGS = {
   autoSync: true,
   syncIntervalMinutes: 30,
@@ -348,6 +357,21 @@ export function pickTaskEmoji(text) {
 /** 去掉标题开头的表情，避免反复命名把表情叠成一串。 */
 export function stripLeadingEmoji(text) {
   return asString(text).replace(LEADING_EMOJI, '').trim()
+}
+
+/** 去掉标题里的 `T<n>-` 编号与 `Task-xxxxxx` 短码，以及编号前后的表情。 */
+export function stripTaskNo(title) {
+  const once = stripLeadingEmoji(asString(title))
+    .replace(/^\s*Task-[0-9a-z]{6}\s*[-—·]?\s*/i, '')
+    .replace(/\s*[·\-—]\s*Task-[0-9a-z]{6}\s*$/i, '')
+    .replace(/^\s*T\d+\s*[-.、·：:]\s*/i, '')
+  /* 「T8-🐛 标题」这种旧格式：编号剥掉之后表情才露出来，再剥一次。 */
+  return stripLeadingEmoji(once).trim()
+}
+
+/** 取标题开头的表情（没有就返回空串）。 */
+export function leadingEmojiOf(text) {
+  return (asString(text).match(LEADING_EMOJI) ?? [''])[0].trim()
 }
 
 /** 状态枚举 → 人话。 */
@@ -885,6 +909,7 @@ function createSyncEngine(ctx) {
   function snapshot() {
     const live = liveSessionIds()
     return {
+      version: PLUGIN_VERSION,
       settings,
       workspaces: workspaces(),
       state: {
@@ -2186,19 +2211,17 @@ function createSyncEngine(ctx) {
   }
 
   /** 去掉标题里已有的 T<n>- 前缀，避免重复叠加。 */
-  function stripTaskNo(title) {
-    return asString(title)
-      .replace(/^\s*Task-[0-9a-z]{6}\s*[-—·]?\s*/i, '')
-      .replace(/\s*[·\-—]\s*Task-[0-9a-z]{6}\s*$/i, '')
-      .replace(/^\s*T\d+\s*[-.、·：:]\s*/i, '')
-      .trim()
-  }
 
   /** 把 `T<n>-` 前缀拼到标题上。 */
-  function withTaskNo(title, task) {
+  function withTaskNo(title, task, emoji = '') {
     const no = taskNo(task)
+    /* 用户自己打的表情优先；没打就用传进来的（改名时沿用原表情）。 */
+    const typed = leadingEmojiOf(title)
     const text = stripTaskNo(title)
-    return text ? `T${no}-${text}` : `T${no}-未命名任务`
+    const body = text || '未命名任务'
+    const lead = typed || emoji
+    /* 表情排最前：列表里扫一眼先看到类型，再看到编号。 */
+    return lead ? `${lead} T${no}-${body}` : `T${no}-${body}`
   }
 
   async function suggestTaskTitle(taskId) {
@@ -2208,11 +2231,11 @@ function createSyncEngine(ctx) {
     const result = await suggestTitleFrom(material, asString(task.title))
     /* 表情前缀：按「标题 + 材料」挑，已有前缀先摘掉再加，避免叠成一串。 */
     const bare = stripLeadingEmoji(stripTaskNo(result.title))
-    const decorated = `${pickTaskEmoji(`${bare} ${material}`)} ${bare}`.trim()
+    const emoji = pickTaskEmoji(`${bare} ${material}`)
     return {
       ok: true,
-      title: withTaskNo(decorated, task),
-      raw: decorated,
+      title: withTaskNo(bare, task, emoji),
+      raw: `${emoji} ${bare}`.trim(),
       ai: result.ai,
       reason: result.reason,
       no: taskNo(task),
@@ -2222,7 +2245,7 @@ function createSyncEngine(ctx) {
   async function renameTask(taskId, nextTitle) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
-    const title = withTaskNo(nextTitle, task)
+    const title = withTaskNo(nextTitle, task, leadingEmojiOf(task.title))
     if (!asString(nextTitle).trim()) return { ok: false, error: '标题不能为空' }
     if (title === task.title) return { ok: true, title, unchanged: true }
 
@@ -3084,6 +3107,7 @@ function mountRoutes(ctx, engine) {
             const snap = engine.snapshot()
             sendJson(res, 200, {
               ok: true,
+              version: snap.version,
               settings: snap.settings,
               state: snap.state,
               workspaces: snap.workspaces,
