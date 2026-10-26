@@ -586,17 +586,14 @@
     justify-content: flex-start;
   }
 
-  /* 「展开 / 收起」只是一行小字，不是按钮 */
-  .insight-more {
-    font-size: 11px;
-    color: var(--p-accent);
+  .btn.is-busy { opacity: 0.75; }
+
+  /* 点文字块本身展开/收起：不额外占一行 */
+  .insight-text {
     cursor: pointer;
-    user-select: none;
-    margin-top: 2px;
-    width: fit-content;
   }
 
-  .insight-more:hover { text-decoration: underline; }
+  .insight-text:hover .insight-extra { color: var(--p-text-2); }
 
   .insight-buttons {
     display: flex;
@@ -1828,11 +1825,10 @@
 
     <!-- 中间块：左文字（含「展开」） / 右饼图，左右等高 -->
     <div class="insight-mid">
-      <div class="insight-text">
+      <div class="insight-text" id="insightText" role="button" tabindex="0" aria-expanded="false" aria-controls="insightBody" title="点击展开 / 收起详情">
         <div id="insightMeta" class="insight-meta"></div>
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
         <div id="insightExtra" class="insight-extra"></div>
-        <div id="insightToggle" class="insight-more" role="button" tabindex="0" aria-expanded="false" aria-controls="insightBody">展开</div>
       </div>
       <div id="insightCharts" class="insight-charts" aria-label="AI 选的图表"></div>
     </div>
@@ -2099,6 +2095,7 @@
     insightOpen: false,
     insightTab: 'diagnose',
     insightLoading: false,
+    insightBusyId: '',
     insightStats: null,
     insightStatsLoading: false,
     filterOpen: false, // 过滤条是否展开（头部「筛选」按钮控制）
@@ -3651,9 +3648,13 @@
     if (!box) return;
     clear(box);
     insightButtons().forEach(function (btn) {
-      var node = makeButton(btn.label, 'btn btn-ghost btn-xs', null, false, function () {
+      var busy = app.insightLoading && app.insightBusyId === btn.id;
+      var label = busy ? '生成中…' : btn.label;
+      var node = makeButton(label, 'btn btn-ghost btn-xs', null, false, function () {
         handleInsightButton(btn);
       });
+      if (app.insightLoading) node.disabled = true;
+      if (busy) node.classList.add('is-busy');
       if (btn.prompt) node.title = btn.prompt.slice(0, 200);
       if (btn.kind === 'morning') node.classList.add('btn-soft');
       box.appendChild(node);
@@ -3669,7 +3670,7 @@
       loadInsightStats();
       renderInsightBody();
       /* 只在按钮上写了 prompt 时才真的调模型；否则纯本地视图，点一次才花一次 token */
-      if (btn.prompt) onInsightDiagnose(btn.prompt);
+      if (btn.prompt) onInsightDiagnose(btn.prompt, btn.id);
       return;
     }
     if (btn.kind === 'export') {
@@ -3677,31 +3678,34 @@
       return;
     }
     /* kind === 'ai'：用这个按钮自己的 prompt 跑一次诊断 */
-    onInsightDiagnose(btn.prompt || '');
+    onInsightDiagnose(btn.prompt || '', btn.id);
   }
 
   function syncToggleLabel() {
-    var toggle = $('insightToggle');
-    if (!toggle) return;
-    toggle.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
-    toggle.textContent = app.insightOpen ? '收起' : '展开';
+    var text = $('insightText');
+    if (!text) return;
+    text.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
   }
 
-  function onInsightDiagnose(prompt) {
+  function onInsightDiagnose(prompt, buttonId) {
     if (app.insightLoading) return;
     app.insightLoading = true;
+    app.insightBusyId = buttonId || '';
     app.insightTab = 'diagnose';
     app.insightOpen = true;
     syncToggleLabel();
     renderInsight();
+    if (!app.insightAI) toast('正在让 AI 看一眼…');
     api('insight/diagnose', { force: true, prompt: prompt || '' }).then(function (data) {
       app.insightLoading = false;
+      app.insightBusyId = '';
       app.insightAI = (data && data.data) || null;
       if (!app.insightAI) toast('AI 诊断没有结果：' + ((data && data.reason) || '模型不可用'));
       renderInsight();
       if (app.insightAI && app.insightAI.headline) toast('诊断完成');
     }, function (error) {
       app.insightLoading = false;
+      app.insightBusyId = '';
       var detail = (error && (error.error || error.message)) || '诊断失败';
       toast(String(detail).slice(0, 120));
       renderInsight();
@@ -3855,12 +3859,19 @@
 
   
   function wireInsight() {
-    var toggle = $('insightToggle');
-    if (toggle) {
-      toggle.addEventListener('click', function () {
+    var text = $('insightText');
+    if (text) {
+      var toggle = function () {
         app.insightOpen = !app.insightOpen;
         syncToggleLabel();
         renderInsightBody();
+      };
+      text.addEventListener('click', toggle);
+      text.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggle();
+        }
       });
     }
     wireInsightSettings();
