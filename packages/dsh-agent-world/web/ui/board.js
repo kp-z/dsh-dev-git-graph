@@ -1029,6 +1029,7 @@ export function createBoard(options = {}) {
       const ownerMember = model.members.find((member) => member.name === task.ownerName)
       const ownerRole = ownerMember === undefined ? '' : roleLabel(ownerMember.role)
       if (ownerRole !== '') top.append(el(doc, 'span', 'board-node-role', ownerRole))
+      card.style.setProperty('--task-accent', taskAccentOf(task))
       const title = el(doc, 'div', 'board-node-title', task.title)
       title.title = task.title
       const bar = el(doc, 'div', 'board-node-progress')
