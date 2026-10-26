@@ -312,6 +312,35 @@ def run_actions(token, actions):
                                  'update_fields': ['custom_fields']})
                 ok = res.get('code') == 0
                 results.append({'op': op, 'ok': ok, 'error': None if ok else (res.get('msg') or '')[:160]})
+            elif op == 'ensure_select_options':
+                # 把本地工作区名补进单选字段的选项里。**必须带 guid**：整表重写而不传 guid，
+                # 飞书会把所有选项重建，已有任务上的旧值立刻失效。
+                fields = call(token, f"/task/v2/custom_fields?resource_type=tasklist&resource_id={action['tasklist']}&page_size=100")
+                target = next((f for f in ((fields.get('data') or {}).get('items') or [])
+                               if f.get('name') == action['name']), None)
+                if not target:
+                    results.append({'op': op, 'ok': False, 'error': f"没有名为 {action['name']} 的字段"})
+                    continue
+                if target.get('type') not in ('single_select', 'multi_select'):
+                    results.append({'op': op, 'ok': True, 'added': [], 'skipped': 'not_select'})
+                    continue
+                settings_key = 'single_select_setting' if target.get('type') == 'single_select' else 'multi_select_setting'
+                visible = [o for o in ((target.get(settings_key) or {}).get('options') or [])
+                           if not o.get('is_hidden')]
+                names = {o.get('name') for o in visible}
+                missing = [n for n in action.get('options') or [] if n and n not in names]
+                if not missing:
+                    results.append({'op': op, 'ok': True, 'added': []})
+                    continue
+                merged = [{'guid': o.get('guid'), 'name': o.get('name'),
+                           'color_index': o.get('color_index', 0)} for o in visible]
+                merged.extend({'name': n} for n in missing)
+                patched = call(token, f"/task/v2/custom_fields/{target['guid']}", method='PATCH',
+                               body={'custom_field': {settings_key: {'options': merged}},
+                                     'update_fields': [settings_key]})
+                ok = patched.get('code') == 0
+                results.append({'op': op, 'ok': ok, 'added': missing if ok else [],
+                                'error': None if ok else (patched.get('msg') or '')[:160]})
             elif op == 'delete_custom_field':
                 # 注意路径：不是 DELETE /task/v2/custom_fields/{guid}（那个是 404，v2 没这路由），
                 # 而是 POST .../{guid}/remove，body 带 resource_type/resource_id。
