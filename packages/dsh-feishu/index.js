@@ -132,12 +132,17 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
  "today":"一句话说今天实际做了什么（不超过 50 字，基于任务与对话摘要，不要编造）",
  "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字）","evidence":"一句话证据（不超过 40 字）"}],
  "advice":"下一步建议（不超过 60 字）",
+ "commentary":"你自己想补充的一句判断（不超过 80 字，可以说趋势/风险/悖论）",
+ "charts":[{"type":"bar|line|pie|sunburst","dataset":"done_by_day_7|started_by_day_7|wip_by_day_14|state_distribution|workspace_distribution","title":"图表标题（不超过 14 字）","why":"为什么用这张图（不超过 20 字）"}],
+
  "score":{"focus":0-100,"throughput":0-100,"hygiene":0-100}}
 
 规则：
 - 只依据给到的信息，不要编造没出现的任务或数字。
 - issues 最多 3 条，优先「卡住 / 长时间没动 / 反复返工」的。
 - focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
+- charts 选 1-3 张，type 与 dataset 只能从给定枚举里选；**不要自己编数字**，数值由系统按 dataset 渲染。
+  挑最有说服力的：比如「堆活」用 wip_by_day_14 折线，「注意力分散」用 workspace_distribution 旭日/饼图。
 - 中文，句子短，不说场面话。`
 
 const DEFAULT_SETTINGS = {
@@ -560,6 +565,21 @@ function normalizeAutoStartMode(next, base) {
   return base.autoStartMode ?? 'off'
 }
 
+/**
+ * 提示词的一次性升级。
+ *
+ * 新版要求模型额外给 `charts` / `commentary`；旧版默认提示词里没有这两个字段，
+ * 而它被原样存进了 settings，于是新代码拿到的还是旧提示词（模型自然不吐图表）。
+ * 只替换「明显是旧默认」的那份：不含 charts/commentary 的提示词一律按旧默认处理并升级；
+ * 用户自己写的提示词如果也缺这两个字段，会被覆盖一次——这是刻意的取舍，升级后由面板可改回。
+ */
+function migrateInsightPrompt(value, fallback) {
+  const text = asString(value).slice(0, 4000)
+  if (!text) return fallback
+  if (!text.includes('"charts"') && !text.includes('"commentary"')) return fallback
+  return text
+}
+
 /** 快捷键规范化：只接受 `Modifier+...+Key` 这种形状，认不出就退回默认值。 */
 function normalizeHotkey(value, fallback) {
   const raw = asString(value).trim()
@@ -606,7 +626,7 @@ function sanitizeSettings(input, base) {
     pushChanges: next.pushChanges === true,
     autoComment: next.autoComment !== false,
     autoCommentMinSeconds: clampInt(next.autoCommentMinSeconds, 10, 3600, 45),
-    insightPrompt: asString(next.insightPrompt).slice(0, 4000) || base.insightPrompt,
+    insightPrompt: migrateInsightPrompt(asString(next.insightPrompt), base.insightPrompt),
     insightHotkeys: {
       morning: normalizeHotkey(next.insightHotkeys?.morning, base.insightHotkeys.morning),
       diagnose: normalizeHotkey(next.insightHotkeys?.diagnose, base.insightHotkeys.diagnose),
@@ -2733,7 +2753,17 @@ function createSyncEngine(ctx) {
     }
     const context = await insightContext()
     if (!context.trim()) return { ok: false, reason: '还没有可评估的任务' }
-    const asked = await askModelForInsight(asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT, context)
+    const datasets = insightDataset()
+    const dataBrief = [
+      `近 7 天完成：${datasets.done_by_day_7.values.join(',')}（${datasets.done_by_day_7.days.map((d) => d.slice(5)).join(',')}）`,
+      `近 7 天新开工：${datasets.started_by_day_7.values.join(',')}`,
+      `近 14 天在跑 WIP：${datasets.wip_by_day_14.values.join(',')}`,
+      `状态分布：已完成 ${datasets.state_distribution.values[0]} / 在跑 ${datasets.state_distribution.values[1]} / 未开始 ${datasets.state_distribution.values[2]}`,
+      `工作区分布：${datasets.workspace_distribution.labels.map((label, i) => `${label}=${datasets.workspace_distribution.values[i]}`).join('；')}`,
+      `周期样本：${datasets.cycle_days.median === null ? '暂无已完成任务' : `${datasets.cycle_days.samples} 条，中位数 ${datasets.cycle_days.median} 天`}`,
+    ].join('\n')
+    const promptText = `${context}\n\n可用图表数据集（挑图表时用这些 key，不要另造）：\n${dataBrief}`
+    const asked = await askModelForInsight(asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT, promptText)
     const parsed = parseJson(asked.text)
     if (!parsed || typeof parsed !== 'object') {
       return { ok: false, reason: asked.reason || '模型返回的不是 JSON' }
@@ -2748,6 +2778,17 @@ function createSyncEngine(ctx) {
         evidence: asString(item?.evidence).slice(0, 120),
       })),
       advice: asString(parsed.advice).slice(0, 160),
+      commentary: asString(parsed.commentary).slice(0, 200),
+      charts: (Array.isArray(parsed.charts) ? parsed.charts : [])
+        .filter((item) => INSIGHT_CHART_TYPES.includes(asString(item?.type))
+          && INSIGHT_DATASETS.includes(asString(item?.dataset)))
+        .slice(0, 3)
+        .map((item) => ({
+          type: asString(item.type),
+          dataset: asString(item.dataset),
+          title: asString(item.title).slice(0, 24),
+          why: asString(item.why).slice(0, 40),
+        })),
       score: {
         focus: clampScore(parsed?.score?.focus),
         throughput: clampScore(parsed?.score?.throughput),
@@ -2857,6 +2898,43 @@ function createSyncEngine(ctx) {
       board: insightLocal().board,
       lastRecordAt: Number(state.metricsAt ?? 0),
       file: METRICS_FILE,
+    }
+  }
+
+  /**
+   * 交给 AI 的「图表数据集」白名单。
+   *
+   * 关键取舍：**数字不让模型编**。模型只能从这几个具名数据集里挑，并决定用哪种图展示；
+   * 具体数值永远由本地算好再渲染。这样既保留了「AI 自己选图」的灵活性，又不会出现假数据。
+   */
+  const INSIGHT_DATASETS = ['done_by_day_7', 'started_by_day_7', 'wip_by_day_14', 'state_distribution', 'workspace_distribution']
+  const INSIGHT_CHART_TYPES = ['bar', 'line', 'pie', 'sunburst']
+
+  /** 给模型看的紧凑数据（也是面板渲染的来源）。 */
+  function insightDataset() {
+    const stats = insightStats(14)
+    const last7 = stats.series.slice(-7)
+    const byDay = (key) => last7.map((item) => item[key] ?? 0)
+    const stateCount = { done: 0, started: 0, idle: 0 }
+    const workspaceCount = {}
+    for (const item of stats.distribution) {
+      stateCount[item.state] = (stateCount[item.state] ?? 0) + item.count
+      workspaceCount[item.workspace] = (workspaceCount[item.workspace] ?? 0) + item.count
+    }
+    const cycles = state.tasks
+      .filter((task) => task.done && Number(task.completedAt) > 0 && Number(task.startedAt) > 0)
+      .map((task) => Number(((Number(task.completedAt) - Number(task.startedAt)) / DAY_MS).toFixed(2)))
+      .sort((a, b) => a - b)
+    return {
+      done_by_day_7: { days: last7.map((item) => item.day), values: byDay('done') },
+      started_by_day_7: { days: last7.map((item) => item.day), values: byDay('started') },
+      wip_by_day_14: { days: stats.series.map((item) => item.day), values: stats.series.map((item) => item.wip ?? 0) },
+      state_distribution: { labels: ['已完成', '在跑', '未开始'], values: [stateCount.done, stateCount.started, stateCount.idle] },
+      workspace_distribution: {
+        labels: Object.keys(workspaceCount),
+        values: Object.values(workspaceCount),
+      },
+      cycle_days: { median: cycles.length ? cycles[Math.floor(cycles.length / 2)] : null, samples: cycles.length },
     }
   }
 
@@ -3799,6 +3877,7 @@ function createSyncEngine(ctx) {
     insightLocal,
     /* 面板打开时带上的「今天那份诊断」：只要还在同一天就给，任务变动不该让结论凭空消失 */
     insightStats,
+    insightDataset,
     recordDailyMetrics,
     cachedInsight: () => (state.insight && Number(state.insight.at ?? 0) >= dayStart(0) ? state.insight : null),
     diagnoseInsight,
@@ -4031,7 +4110,11 @@ function mountRoutes(ctx, engine) {
 
           if (route === '/api/insight/stats' && req.method === 'GET') {
             await engine.recordDailyMetrics(false).catch(() => undefined)
-            sendJson(res, 200, { ok: true, stats: engine.insightStats(Number(url.searchParams.get('days') || 14)) })
+            const span = Number(url.searchParams.get('days') || 14)
+            sendJson(res, 200, {
+              ok: true,
+              stats: { ...engine.insightStats(span), datasets: engine.insightDataset() },
+            })
             return
           }
 
