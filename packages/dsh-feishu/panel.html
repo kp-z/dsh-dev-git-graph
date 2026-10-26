@@ -571,10 +571,10 @@
   /* 中间块：左文字 / 右图表。顶部那一行（今日洞察 + 统计）保持整行。 */
   .insight-mid {
     display: grid;
-    /* 饼图至少占一半宽 */
+    /* 饼图至少占一半宽；两栏等高 */
     grid-template-columns: minmax(0, 1fr) minmax(50%, 1fr);
     gap: 10px;
-    align-items: center;
+    align-items: stretch;
   }
 
   .insight-text {
@@ -582,6 +582,23 @@
     flex-direction: column;
     gap: 6px;
     min-width: 0;
+    /* 和右侧图表等高：文字在上、展开按钮贴底 */
+    justify-content: space-between;
+  }
+
+  .insight-text-foot {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-top: auto;
+  }
+
+  .insight-buttons {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-left: auto;
   }
 
   /* 详细文字默认不占地方：一行提示，鼠标悬浮由 title 给出完整结论 + AI 判断 + 三个分 */
@@ -675,7 +692,7 @@
 
   .insight-line {
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 4;
     -webkit-box-orient: vertical;
     overflow: hidden;
     font-size: 11.5px;
@@ -740,6 +757,48 @@
   .insight-empty {
     font-size: 11.5px;
     color: var(--p-text-3);
+  }
+
+  /* 洞察设置面板 */
+  .insight-buttons-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .insight-button-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 6px;
+    align-items: center;
+    padding: 6px;
+    border: 1px solid var(--p-line);
+    border-radius: 6px;
+  }
+
+  .insight-button-row input {
+    height: 24px;
+    padding: 0 6px;
+    border: 1px solid var(--p-line);
+    border-radius: 5px;
+    background: var(--p-bg, var(--p-card));
+    color: var(--p-text-1);
+    font-size: 11px;
+    font-family: inherit;
+  }
+
+  .insight-button-row textarea {
+    grid-column: 1 / -1;
+    min-height: 44px;
+    padding: 5px 6px;
+    border: 1px solid var(--p-line);
+    border-radius: 5px;
+    background: var(--p-bg, var(--p-card));
+    color: var(--p-text-1);
+    font-size: 11px;
+    line-height: 1.45;
+    font-family: inherit;
+    resize: vertical;
   }
 
   /* 洞察设置面板 */
@@ -1709,35 +1768,35 @@
 
   <!-- 2.5 Insight：早会视图（本地指标秒出，AI 诊断按需） -->
   <section id="insightCard" class="card insight-card" aria-labelledby="insightTitle" hidden>
-    <!-- 顶栏：整行保留 -->
+    <!-- 顶栏：整行保留；动作按钮在右上角 -->
     <div class="insight-head">
       <span class="insight-avatar" aria-hidden="true">🤖</span>
       <div class="insight-title-wrap">
         <strong id="insightTitle">今日洞察</strong>
         <span id="insightStats" class="insight-stats"></span>
       </div>
-      <button type="button" id="insightGear" class="btn btn-ghost btn-xs" title="洞察设置（Prompt / 快捷键）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
+      <div id="insightButtons" class="insight-buttons"></div>
+      <button type="button" id="insightGear" class="btn btn-ghost btn-xs" title="洞察设置（按钮 / Prompt / 快捷键）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
     </div>
 
-    <!-- 中间块：左文字 / 右图表 -->
+    <!-- 中间块：左文字（含「展开」） / 右饼图，左右等高 -->
     <div class="insight-mid">
       <div class="insight-text">
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
-        <div id="insightCommentary" class="insight-commentary" hidden></div>
-        <div id="insightHint" class="insight-hint">悬浮看细节</div>
+        <div class="insight-text-foot">
+          <button type="button" id="insightToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="insightBody">展开</button>
+        </div>
       </div>
       <div id="insightCharts" class="insight-charts" aria-label="AI 选的图表"></div>
     </div>
 
-    <div class="insight-actions">
-      <button type="button" id="insightMorning" class="btn btn-ghost btn-xs">早会同步</button>
-      <button type="button" id="insightRefresh" class="btn btn-ghost btn-xs" title="让 AI 重新诊断并选图（会消耗 token）">诊断</button>
-      <button type="button" id="insightExport" class="btn btn-ghost btn-xs" title="把早会摘要写成飞书任务评论">写入评论</button>
-      <button type="button" id="insightToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="insightBody">展开</button>
-    </div>
     <div id="insightSettingsPanel" class="insight-settings" hidden>
       <label class="insight-settings-label" for="insightPromptInput">诊断 Prompt</label>
       <textarea id="insightPromptInput" rows="6" spellcheck="false" placeholder="留空 = 用内置默认提示词"></textarea>
+      <div class="insight-settings-label">按钮（可增删；每个按钮可带自己的 Prompt）</div>
+      <div id="insightButtonsEditor" class="insight-buttons-editor"></div>
+      <div><button type="button" id="insightAddButton" class="btn btn-ghost btn-xs">+ 添加按钮</button></div>
+
       <div class="insight-settings-label">快捷键（点输入框后按组合键，Esc 清除）</div>
       <div class="insight-hk-grid">
         <label for="hkMorning">早会同步</label><input id="hkMorning" readonly placeholder="未绑定">
@@ -3048,6 +3107,8 @@
 
   function renderInsight() {
     renderInsightSettings();
+    renderInsightButtons();
+    syncToggleLabel();
     var card = $('insightCard');
     if (!card) return;
     var local = app.insightLocal;
@@ -3525,6 +3586,60 @@
     });
   }
 
+
+  /* ---------------- 右上角按钮（来自 settings.insightButtons） ---------------- */
+
+  var DEFAULT_INSIGHT_BUTTONS = [
+    { id: 'morning', label: '早会同步', prompt: '', kind: 'morning' },
+    { id: 'diagnose', label: '诊断', prompt: '', kind: 'ai' },
+    { id: 'export', label: '写入评论', prompt: '', kind: 'export' }
+  ];
+
+  function insightButtons() {
+    var list = (app.settings && app.settings.insightButtons) || [];
+    return Array.isArray(list) && list.length ? list : DEFAULT_INSIGHT_BUTTONS;
+  }
+
+  function renderInsightButtons() {
+    var box = $('insightButtons');
+    if (!box) return;
+    clear(box);
+    insightButtons().forEach(function (btn) {
+      var node = makeButton(btn.label, 'btn btn-ghost btn-xs', null, false, function () {
+        handleInsightButton(btn);
+      });
+      if (btn.prompt) node.title = btn.prompt.slice(0, 200);
+      if (btn.kind === 'morning') node.classList.add('btn-soft');
+      box.appendChild(node);
+    });
+  }
+
+  function handleInsightButton(btn) {
+    if (!btn) return;
+    if (btn.kind === 'morning') {
+      app.insightTab = 'morning';
+      app.insightOpen = true;
+      syncToggleLabel();
+      loadInsightStats();
+      renderInsightBody();
+      ensureInsightAI();
+      return;
+    }
+    if (btn.kind === 'export') {
+      onInsightExport();
+      return;
+    }
+    /* kind === 'ai'：用这个按钮自己的 prompt 跑一次诊断 */
+    onInsightDiagnose(btn.prompt || '');
+  }
+
+  function syncToggleLabel() {
+    var toggle = $('insightToggle');
+    if (!toggle) return;
+    toggle.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
+    toggle.textContent = app.insightOpen ? '收起' : '展开';
+  }
+
   /* 没有 AI 结论时才调用；有就复用（state 里按天缓存） */
   function ensureInsightAI() {
     if (app.insightAI || app.insightLoading) return Promise.resolve(app.insightAI);
@@ -3542,24 +3657,21 @@
     });
   }
 
-  function onInsightDiagnose() {
+  function onInsightDiagnose(prompt) {
     if (app.insightLoading) return;
     app.insightLoading = true;
     app.insightTab = 'diagnose';
     app.insightOpen = true;
-    var btn = $('insightRefresh');
-    if (btn) { btn.disabled = true; btn.textContent = '诊断中…'; }
+    syncToggleLabel();
     renderInsight();
-    api('insight/diagnose', { force: true }).then(function (data) {
+    api('insight/diagnose', { force: true, prompt: prompt || '' }).then(function (data) {
       app.insightLoading = false;
       app.insightAI = (data && data.data) || null;
-      if (btn) { btn.disabled = false; btn.textContent = '诊断'; }
       if (!app.insightAI) toast('AI 诊断没有结果：' + ((data && data.reason) || '模型不可用'));
       renderInsight();
       if (app.insightAI && app.insightAI.headline) toast('诊断完成');
     }, function (error) {
       app.insightLoading = false;
-      if (btn) { btn.disabled = false; btn.textContent = '诊断'; }
       var detail = (error && (error.error || error.message)) || '诊断失败';
       toast(String(detail).slice(0, 120));
       renderInsight();
@@ -3595,7 +3707,59 @@
     ['export', 'hkExport']
   ];
 
+
+  /* 按钮编辑器：草稿态，点「保存」才写回设置 */
+  function insightDraftButtons() {
+    if (!app.insightDraft) {
+      app.insightDraft = insightButtons().map(function (btn) {
+        return { id: btn.id, label: btn.label, prompt: btn.prompt || '', kind: btn.kind || 'ai' };
+      });
+    }
+    return app.insightDraft;
+  }
+
+  function renderButtonsEditor() {
+    var box = $('insightButtonsEditor');
+    if (!box) return;
+    clear(box);
+    var list = insightDraftButtons();
+    list.forEach(function (btn, index) {
+      var row = el('div', { 'class': 'insight-button-row' });
+      var input = el('input', { type: 'text', value: btn.label, placeholder: '按钮文字', maxlength: '12' });
+      input.addEventListener('input', function () { btn.label = input.value; });
+      row.appendChild(input);
+
+      var del = makeButton('删除', 'btn btn-ghost btn-xs', null, list.length <= 1, function () {
+        var current = insightDraftButtons();
+        var at = current.indexOf(btn);
+        if (at >= 0) current.splice(at, 1);
+        renderButtonsEditor();
+      });
+      row.appendChild(del);
+
+      var prompt = el('textarea', {
+        rows: '2',
+        placeholder: '这个按钮的 Prompt（留空 = 用上面的诊断 Prompt）'
+      });
+      prompt.value = btn.prompt || '';
+      prompt.addEventListener('input', function () { btn.prompt = prompt.value; });
+      row.appendChild(prompt);
+      box.appendChild(row);
+    });
+  }
+
+  function addInsightButton() {
+    var list = insightDraftButtons();
+    if (list.length >= 6) {
+      toast('最多 6 个按钮');
+      return;
+    }
+    list.push({ id: 'btn' + (Date.now() % 100000), label: '新按钮', prompt: '', kind: 'ai' });
+    renderButtonsEditor();
+  }
+
   function renderInsightSettings() {
+    renderButtonsEditor();
     var prompt = (app.settings && app.settings.insightPrompt) || '';
     var node = $('insightPromptInput');
     if (node && document.activeElement !== node) node.value = prompt;
@@ -3611,6 +3775,7 @@
     var gear = $('insightGear');
     if (!panel) return;
     var open = typeof force === 'boolean' ? force : panel.hidden;
+    if (open) app.insightDraft = null;
     panel.hidden = !open;
     if (gear) gear.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) renderInsightSettings();
@@ -3650,11 +3815,17 @@
       });
     });
 
+    var addBtn = $('insightAddButton');
+    if (addBtn) addBtn.addEventListener('click', addInsightButton);
+
     var save = $('insightSettingsSave');
     if (save) {
       save.addEventListener('click', function () {
         var patch = {
           insightPrompt: String(($('insightPromptInput') || {}).value || '').trim(),
+          insightButtons: insightDraftButtons().map(function (btn) {
+            return { id: btn.id, label: btn.label, prompt: btn.prompt, kind: btn.kind };
+          }),
           insightHotkeys: {
             morning: String(($('hkMorning') || {}).value || '').trim(),
             diagnose: String(($('hkDiagnose') || {}).value || '').trim(),
@@ -3665,6 +3836,8 @@
         api('settings', patch).then(function (data) {
           save.disabled = false;
           app.settings = (data && data.settings) || app.settings;
+          app.insightDraft = null;
+          renderInsightButtons();
           var hint = $('insightSettingsHint');
           if (hint) hint.textContent = '已保存';
           renderInsightSettings();
@@ -3724,27 +3897,10 @@
     if (toggle) {
       toggle.addEventListener('click', function () {
         app.insightOpen = !app.insightOpen;
-        toggle.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
-        toggle.textContent = app.insightOpen ? '收起' : '展开';
+        syncToggleLabel();
         renderInsightBody();
       });
     }
-    var refresh = $('insightRefresh');
-    if (refresh) refresh.addEventListener('click', onInsightDiagnose);
-    var morningBtn = $('insightMorning');
-    if (morningBtn) {
-      morningBtn.addEventListener('click', function () {
-        app.insightTab = 'morning';
-        app.insightOpen = true;
-        if (toggle) { toggle.setAttribute('aria-expanded', 'true'); toggle.textContent = '收起'; }
-        loadInsightStats();
-        renderInsightBody();
-        /* 今天还没诊断过就顺手让 AI 出结论与图表（每个自然日最多一次，结果会缓存） */
-        ensureInsightAI();
-      });
-    }
-    var exportBtn = $('insightExport');
-    if (exportBtn) exportBtn.addEventListener('click', onInsightExport);
     wireInsightSettings();
   }
 
