@@ -24,6 +24,8 @@ import {
   stripTaskNo,
   taskNoInTitle,
   assignTaskNumbers,
+  buildTaskTitle,
+  formatTaskTitle,
   sanitizeTaskDescription,
   evaluateAutoStart,
   parseAutoFlag,
@@ -380,6 +382,16 @@ check('标题编号解析：没有编号', taskNoInTitle('开发游戏'), 0)
   assignTaskNumbers(clash, {})
   check('撞号时后者顺延', clash.map((t) => t.no), [5, 1])
 }
+
+/* ---------- 统一命名：创建 / AI 起名 / 改名同一套 ---------- */
+
+check('构建标题：表情在最前', buildTaskTitle('修复登录接口报错', 12), '🐛 T12-修复登录接口报错')
+check('构建标题：自带的编号会被剥掉', buildTaskTitle('T3-同步主分支', 3).includes('T3-'), true)
+check('构建标题：不重复自带编号', (buildTaskTitle('T3-同步主分支', 3).match(/T3-/g) || []).length, 1)
+check('构建标题：用户自带表情优先', buildTaskTitle('🐛 修复登录', 5), '🐛 T5-修复登录')
+check('构建标题：不会叠两个表情', (buildTaskTitle('🐛 修复登录', 5).match(/🐛/g) || []).length, 1)
+check('构建标题：材料参与挑表情', buildTaskTitle('部署检查', 9, '发布上线').startsWith('🚀'), true)
+check('格式化：无表情时纯编号', formatTaskTitle('做事', 2), 'T2-做事')
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)

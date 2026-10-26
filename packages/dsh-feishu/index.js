@@ -404,6 +404,27 @@ export function taskNoInTitle(title) {
   return match ? Number(match[1]) : 0
 }
 
+/** 拼成最终标题：`🐛 T8-修复登录`。 */
+export function formatTaskTitle(text, no, emoji = '') {
+  const body = asString(text) || '未命名任务'
+  const lead = asString(emoji)
+  return lead ? `${lead} T${no}-${body}` : `T${no}-${body}`
+}
+
+/**
+ * 统一的「任务命名」：表情 + 编号。
+ *
+ * 创建（「同步为飞书任务」）、AI 起名、改名都走这里。以前创建那条链路自己拼编号、
+ * 漏掉表情，于是同一条产品里两种名字观感不一致——现在只有这一处决定标题长什么样。
+ * 用户自己打了表情就以他打的为准，不会叠两遍。
+ */
+export function buildTaskTitle(rawTitle, no, material = '') {
+  const typed = leadingEmojiOf(rawTitle)
+  const bare = stripTaskNo(rawTitle)
+  const emoji = typed || pickTaskEmoji(`${bare} ${asString(material)}`)
+  return formatTaskTitle(bare, no, emoji)
+}
+
 /** 去掉标题里的 `T<n>-` 编号与 `Task-xxxxxx` 短码，以及编号前后的表情。 */
 export function stripTaskNo(title) {
   const once = stripLeadingEmoji(asString(title))
@@ -1976,9 +1997,9 @@ function createSyncEngine(ctx) {
     const guid = asString(parsed?.guid)
     if (!guid) return { ok: false, error: '创建成功但没解析出任务 guid' }
 
-    /* 新建任务也套上 T<n>- 前缀，和面板改名的规则保持一致。 */
+    /* 新建任务也套上 T<n>- 前缀和表情，和面板改名、AI 起名保持同一套规则。 */
     const draftNo = taskNo(undefined)
-    let finalTitle = withTaskNo(summary, { no: draftNo })
+    let finalTitle = decorateTitle(summary, { no: draftNo }, description)
     if (finalTitle !== summary) {
       const renamed = await runCli(path, ['task', 'update', guid, `--summary=${finalTitle}`], { timeoutMs: 30_000 })
       if (!renamed.ok) finalTitle = summary
@@ -2311,6 +2332,16 @@ function createSyncEngine(ctx) {
   /** 去掉标题里已有的 T<n>- 前缀，避免重复叠加。 */
 
   /** 把 `T<n>-` 前缀拼到标题上。 */
+  /**
+   * 统一的「任务命名」出口：表情 + 编号。
+   *
+   * 创建（「同步为飞书任务」）、AI 起名、改名都走这里。以前创建那条链路自己拼
+   * `withTaskNo(summary)`，漏了表情，于是同一条产品里两种名字观感不一致。
+   */
+  function decorateTitle(rawTitle, task, material = '') {
+    return buildTaskTitle(rawTitle, taskNo(task), material)
+  }
+
   function withTaskNo(title, task, emoji = '') {
     const no = taskNo(task)
     /* 用户自己打的表情优先；没打就用传进来的（改名时沿用原表情）。 */
@@ -2328,11 +2359,11 @@ function createSyncEngine(ctx) {
     const material = await taskMaterial(task)
     const result = await suggestTitleFrom(material, asString(task.title))
     /* 表情前缀：按「标题 + 材料」挑，已有前缀先摘掉再加，避免叠成一串。 */
-    const bare = stripLeadingEmoji(stripTaskNo(result.title))
-    const emoji = pickTaskEmoji(`${bare} ${material}`)
+    const emoji = leadingEmojiOf(result.title) || pickTaskEmoji(`${stripTaskNo(result.title)} ${material}`)
+    const bare = stripTaskNo(result.title)
     return {
       ok: true,
-      title: withTaskNo(bare, task, emoji),
+      title: decorateTitle(result.title, task, material),
       raw: `${emoji} ${bare}`.trim(),
       ai: result.ai,
       reason: result.reason,
