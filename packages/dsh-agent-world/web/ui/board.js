@@ -606,7 +606,11 @@ export function createBoard(options = {}) {
       head.append(nameNode)
       const memberPersona = row.member.id === null ? null : personas.get(row.member.id)
       if (memberPersona !== null && memberPersona !== undefined) {
-        head.append(el(doc, 'span', 'board-member-level', `Lv.${memberPersona.level ?? 1}`))
+        const levelNode = el(doc, 'span', 'board-member-level', `Lv.${memberPersona.level ?? 1}`)
+        const level = Math.max(1, Number(memberPersona.level) || 1)
+        const nextXp = 100 * level * (level + 1) / 2
+        levelNode.title = `${memberPersona.xp ?? 0} XP · 下一级 ${nextXp} XP`
+        head.append(levelNode)
       }
       // R3：角色/状态**翻成中文**。看板原先直接印 `lead` / `idle`（原始状态码），
       // 而 R2 的侧边栏印的是「负责人 · 待命」。共用一份渲染之后只能有一份措辞——
