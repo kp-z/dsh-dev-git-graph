@@ -23,6 +23,7 @@ import {
   leadingEmojiOf,
   stripTaskNo,
   taskNoInTitle,
+  assignTaskNumbers,
   sanitizeTaskDescription,
   evaluateAutoStart,
   parseAutoFlag,
@@ -354,6 +355,31 @@ check('带变体选择符的表情也能去掉', stripLeadingEmoji('🗂️ 整�
 check('标题编号解析：新格式', taskNoInTitle('🐛 T8-开发游戏'), 8)
 check('标题编号解析：旧格式', taskNoInTitle('T3-🐛 开发游戏'), 3)
 check('标题编号解析：没有编号', taskNoInTitle('开发游戏'), 0)
+
+/* ---------- 编号分配：要能跨「任务掉出列表」活下来 ---------- */
+
+{
+  const numbers = {}
+  const first = [{ id: 'a' }, { id: 'b' }]
+  assignTaskNumbers(first, numbers)
+  check('新任务从 1 开始编号', first.map((t) => t.no), [1, 2])
+  check('编号写回表里', numbers, { a: 1, b: 2 })
+
+  /* b 掉出列表（被删/被过滤），再来一条新任务：应该拿 3，而不是顶替 b 的 2 */
+  const second = [{ id: 'a' }, { id: 'c' }]
+  assignTaskNumbers(second, numbers)
+  check('新任务不复用仍在册任务的号', second.map((t) => t.no), [1, 2])
+
+  /* b 回来了：应该拿回原来的编号 */
+  const third = [{ id: 'a' }, { id: 'b' }]
+  assignTaskNumbers(third, numbers)
+  check('掉出去再回来能拿回原编号', third.find((t) => t.id === 'b').no, 2)
+
+  /* 冲突：两个任务都自称 5 —— 第二个必须顺延，不能撞号 */
+  const clash = [{ id: 'x', no: 5 }, { id: 'y', no: 5 }]
+  assignTaskNumbers(clash, {})
+  check('撞号时后者顺延', clash.map((t) => t.no), [5, 1])
+}
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)
