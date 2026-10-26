@@ -316,6 +316,40 @@ export function progressDigest(input = {}, now = Date.now()) {
   return body.length > 700 ? `${body.slice(0, 700)}…（已截断）` : body
 }
 
+/**
+ * 自动命名用的表情前缀。
+ *
+ * 目的不是卖萌，是让人在任务列表里一眼分得出「这是修复 / 新功能 / 文档 / 测试」。
+ * 先按关键词挑，挑不到就用标题哈希落在一个固定集合里——同一标题永远同一个表情，不会每次刷新都变。
+ */
+const TASK_EMOJI_RULES = [
+  { emoji: '🐛', re: /(修复|修掉|bug|故障|报错|异常|crash|hotfix)/i },
+  { emoji: '🧪', re: /(测试|联调|验证|回归|test|qa)/i },
+  { emoji: '📄', re: /(文档|说明|readme|doc|手册)/i },
+  { emoji: '🎮', re: /(游戏|场景|仿真|渲染|mviz|game|sim|render)/i },
+  { emoji: '📊', re: /(数据|指标|报表|统计|性能|perf|metric|data)/i },
+  { emoji: '🔍', re: /(排查|定位|分析|调研|review|investigate)/i },
+  { emoji: '🚀', re: /(发布|上线|部署|release|deploy)/i },
+  { emoji: '🔧', re: /(重构|优化|调整|配置|接入|refactor|tune|config)/i },
+  { emoji: '✨', re: /(新增|实现|开发|支持|feature|add|build)/i },
+]
+const TASK_EMOJI_FALLBACK = ['📌', '🗂️', '🧩', '🛠️', '📎', '🎯']
+/* 已有的表情前缀（含变体选择符与零宽连接符） */
+const LEADING_EMOJI = /^(?:\p{Extended_Pictographic}|\uFE0F|\u200D)+\s*/u
+
+export function pickTaskEmoji(text) {
+  const value = asString(text)
+  for (const rule of TASK_EMOJI_RULES) if (rule.re.test(value)) return rule.emoji
+  let hash = 0
+  for (const ch of value) hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) % 1_000_003
+  return TASK_EMOJI_FALLBACK[hash % TASK_EMOJI_FALLBACK.length]
+}
+
+/** 去掉标题开头的表情，避免反复命名把表情叠成一串。 */
+export function stripLeadingEmoji(text) {
+  return asString(text).replace(LEADING_EMOJI, '').trim()
+}
+
 /** 状态枚举 → 人话。 */
 const STATUS_TEXT = { todo: '待办', done: '已完成', in_progress: '进行中', completed: '已完成' }
 
@@ -1277,9 +1311,16 @@ function createSyncEngine(ctx) {
     const next = list.map((raw) => normalizeTask(raw, previous)).filter((task) => task.id)
     const marked = new Set(filterTasks(next).map((task) => task.id))
     const kept = next.filter((task) => marked.has(task.id)).map(enrichWorkspace)
+    /* 任务没声明工作区时，按绑定会话反查一次项目名：卡片上要显示、字段里也要补。 */
+    for (const task of kept) {
+      if (task.workspaceTitle || !task.sessionId) continue
+      const label = await workspaceFromSession(task.sessionId)
+      if (label) task.workspaceTitle = label
+    }
     renumberTasks(kept)
     state.tasks = kept
     await backfillDocTitles(kept).catch(() => undefined)
+    await fillWorkspaceFields(kept).catch(() => undefined)
     await pushTaskChanges(previous, kept).catch(() => undefined)
 
     /* 一次性把历史标题迁到 `T<n>-<标题>`：只做一轮，之后新任务走正常改名路径。 */
@@ -1415,6 +1456,8 @@ function createSyncEngine(ctx) {
     }
     /* 绑到已有会话时同样对齐名字：任务名 = 会话名。 */
     await renameSession(sessionId, task.title)
+    /* 开工就把工作区写回飞书字段，别等下一轮同步。 */
+    await fillWorkspaceFields([task]).catch(() => undefined)
     log(ctx, 'info', `[manual] 任务在当前会话开工：${task.title.slice(0, 40)} → ${sessionId}`)
     return { ok: true, sessionId, note: '已在当前会话开工' }
   }
@@ -1620,6 +1663,7 @@ function createSyncEngine(ctx) {
       /* 任务名 = 会话名：新开的会话直接叫任务名。 */
       const named = await renameSession(sessionId, task.title)
       log(ctx, 'info', `[rename] ${named.ok ? '已改名' : '未改名：' + named.reason}（${sessionId}）`)
+      await fillWorkspaceFields([task]).catch(() => undefined)
       log(ctx, 'info', `[${source}] 任务已开工：${task.title.slice(0, 40)} → ${sessionId}`)
       return { ok: true, sessionId, note: '已开工' }
     } catch (error) {
@@ -1679,6 +1723,7 @@ function createSyncEngine(ctx) {
     await persistState()
     const renamed = await renameSession(id, task.title)
     /* 按需：绑定即把任务档案投进会话，省得人再贴一遍。默认关。 */
+    await fillWorkspaceFields([task]).catch(() => undefined)
     if (settings.contextInjection === true) {
       await notifySession(
         id,
@@ -2161,10 +2206,13 @@ function createSyncEngine(ctx) {
     if (!task) return { ok: false, error: '没找到这条任务' }
     const material = await taskMaterial(task)
     const result = await suggestTitleFrom(material, asString(task.title))
+    /* 表情前缀：按「标题 + 材料」挑，已有前缀先摘掉再加，避免叠成一串。 */
+    const bare = stripLeadingEmoji(stripTaskNo(result.title))
+    const decorated = `${pickTaskEmoji(`${bare} ${material}`)} ${bare}`.trim()
     return {
       ok: true,
-      title: withTaskNo(result.title, task),
-      raw: stripTaskNo(result.title),
+      title: withTaskNo(decorated, task),
+      raw: decorated,
       ai: result.ai,
       reason: result.reason,
       no: taskNo(task),
@@ -2687,6 +2735,103 @@ function createSyncEngine(ctx) {
       updated: Boolean(existingId),
       tables: doc.tables ?? 0,
     }
+  }
+
+  /**
+   * 会话 → 项目名（任务没写工作区时的兜底）。
+   *
+   * 先查工作区登记表里的 sessionIds：这份表是落盘的，宿重重启过、会话不活着也能查到；
+   * 查不到再退回「inspect 会话拿 cwd → 反查项目」。
+   */
+  async function workspaceFromSession(sessionId) {
+    const id = asString(sessionId)
+    if (!id) return ''
+    const registry = await awaitService(ctx, 'workspaceRegistry')
+    try {
+      for (const workspace of registry?.list?.() ?? []) {
+        if (Array.isArray(workspace?.sessionIds) && workspace.sessionIds.includes(id) && workspace.title) {
+          return workspace.title
+        }
+      }
+    } catch {
+      /* 登记表读不到就退回 inspect */
+    }
+    const sessions = await awaitService(ctx, 'sessionController')
+    if (!sessions?.inspect || !registry?.resolveByPath) return ''
+    try {
+      const inspection = await sessions.inspect(id)
+      const cwd = inspection?.session?.cwd || inspection?.header?.cwd || ''
+      if (!cwd) return ''
+      const workspace = await registry.resolveByPath(cwd)
+      return workspace?.title ?? ''
+    } catch {
+      return ''
+    }
+  }
+
+  /** 解析「这条任务该落在哪个工作区」：先看任务自己声明的，再按绑定会话反查。 */
+  async function workspaceLabelOf(task) {
+    const declared = asString(task?.workspaceTitle || task?.workspaceName)
+    if (declared) return declared
+    return workspaceFromSession(task?.sessionId)
+  }
+
+  /**
+   * 把解析出来的工作区补写进任务的「工作区」字段。
+   *
+   * 以前工作区只在面板上算给人看（`enrichWorkspace`），要么手动点「同步」才写回；
+   * 于是默认清单里的任务一直空着这个字段，飞书上打开任务根本不知道它跑在哪个项目。
+   * 现在每轮同步补一次：**只填空值**（用户自己填过的不覆盖），一轮最多补 5 条，
+   * 免得同步被一堆写回拖慢。
+   */
+  async function fillWorkspaceFields(tasks) {
+    const fieldName = settings.taskFields.workspace.trim() || '工作区'
+    const pending = []
+    for (const task of tasks) {
+      if (pending.length >= 5) break
+      const current = (task.customFields || []).find((field) => field.name === fieldName)?.value || ''
+      if (current) continue
+      const label = await workspaceLabelOf(task)
+      if (!label) continue
+      const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+      if (!listGuid) continue
+      pending.push({ task, listGuid, label })
+    }
+    if (!pending.length) return 0
+    const python = resolvePython(resolveCli(settings.cliPath))
+    if (!python) return 0
+    const result = await runBridge(python, {
+      actions: pending.map(({ task, listGuid, label }) => ({
+        op: 'set_custom_field',
+        task: task.id,
+        tasklist: listGuid,
+        name: fieldName,
+        value: label,
+      })),
+    })
+    let filled = 0
+    for (let i = 0; i < pending.length; i += 1) {
+      const item = (result.actions ?? [])[i]
+      const entry = pending[i]
+      if (!item?.ok) {
+        log(ctx, 'info', `[workspace] 写回失败：${entry.task.title.slice(0, 20)} ${(item?.error ?? '').slice(0, 80)}`)
+        continue
+      }
+      const field = (entry.task.customFields || []).find((item2) => item2.name === fieldName)
+      if (field) field.value = entry.label
+      else {
+        entry.task.customFields = [
+          ...(entry.task.customFields || []),
+          { guid: '', name: fieldName, type: 'text', value: entry.label },
+        ]
+      }
+      filled += 1
+    }
+    if (filled > 0) {
+      await persistState()
+      log(ctx, 'info', `[workspace] 已补写 ${filled} 条任务的「${fieldName}」字段`)
+    }
+    return filled
   }
 
   /**

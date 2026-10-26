@@ -18,6 +18,8 @@ import {
   deriveTaskDraft,
   docFieldValue,
   docxIdOf,
+  pickTaskEmoji,
+  stripLeadingEmoji,
   sanitizeTaskDescription,
   evaluateAutoStart,
   parseAutoFlag,
@@ -322,6 +324,18 @@ check('传布尔也不炸', turnFailureOf(true).failed, false)
   )
   check('超长正文截断', progressDigest({ text: 'x'.repeat(900), edits: ['a.js'] }, now).length <= 720, true)
 }
+
+/* ---------- 自动命名的表情前缀 ---------- */
+
+check('修复类任务给 bug 表情', pickTaskEmoji('修复登录接口报错'), '🐛')
+check('测试类任务给试管', pickTaskEmoji('联调自动开工链路验证'), '🧪')
+check('文档类任务给文档', pickTaskEmoji('更新 README 说明'), '📄')
+check('游戏场景给手柄', pickTaskEmoji('DSH Agent world 游戏场景开发'), '🎮')
+check('同一标题表情稳定', pickTaskEmoji('随便一个任务'), pickTaskEmoji('随便一个任务'))
+check('未知类型也落在固定集合里', ['📌','🗂️','🧩','🛠️','📎','🎯'].includes(pickTaskEmoji('zzz')), true)
+check('去掉已有表情前缀', stripLeadingEmoji('🐛 修复登录'), '修复登录')
+check('没有表情时原样返回', stripLeadingEmoji('修复登录'), '修复登录')
+check('带变体选择符的表情也能去掉', stripLeadingEmoji('🗂️ 整理文档'), '整理文档')
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)

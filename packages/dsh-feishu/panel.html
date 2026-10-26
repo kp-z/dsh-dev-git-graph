@@ -1051,6 +1051,45 @@
 
   .chip-doc:hover { text-decoration: underline; }
 
+  /* ---------- 任务过滤条 ---------- */
+  .task-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 8px 0 2px;
+  }
+
+  .task-filter .filter-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .task-filter select,
+  .task-filter input {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 26px;
+    padding: 0 7px;
+    border: 1px solid var(--p-line);
+    border-radius: 6px;
+    background: var(--p-bg, var(--p-card));
+    color: var(--p-text-1);
+    font-size: 11.5px;
+    font-family: inherit;
+  }
+
+  .task-filter select:focus,
+  .task-filter input:focus {
+    outline: none;
+    border-color: var(--p-accent-line);
+  }
+
+  .task-filter #filterReset {
+    flex: 0 0 auto;
+    height: 26px;
+  }
+
   /* ---------- 当前对话绑定的任务卡 ---------- */
   .task.task-current {
     border-color: var(--p-select);
@@ -1341,6 +1380,22 @@
       <span id="taskCount" class="count">0</span>
       <button type="button" id="syncNow" class="btn btn-ghost btn-sm push">立即同步</button>
     </div>
+    <div class="task-filter" role="search">
+      <div class="filter-row">
+        <select id="filterWorkspace" aria-label="按工作区过滤">
+          <option value="">全部工作区</option>
+        </select>
+        <select id="filterStatus" aria-label="按状态过滤">
+          <option value="open">未完成</option>
+          <option value="all">全部状态</option>
+          <option value="done">已完成</option>
+        </select>
+      </div>
+      <div class="filter-row">
+        <input type="search" id="filterKeyword" placeholder="按标题 / 描述筛选" aria-label="关键词筛选" spellcheck="false">
+        <button type="button" id="filterReset" class="btn btn-ghost btn-sm">重置</button>
+      </div>
+    </div>
     <div id="taskList" class="list"></div>
   </section>
 
@@ -1534,6 +1589,8 @@
     loginNote: '',
     sessions: {},         // task.id → sessionId（开工后立刻显示）
     currentSessionId: '', // 宿主当前会话（client 半体 postMessage 进来）
+    /* 任务过滤条件：工作区 / 状态 / 关键词；存在 localStorage，刷新后还在 */
+    filter: { workspace: '', status: 'open', keyword: '' },
     workspaces: [],       // GET /api/state → 已登记工作区
     busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false },
     busyTask: {},
@@ -1863,6 +1920,86 @@
 
   /* ---------------- 渲染：任务 ---------------- */
 
+  /* ---------------- 过滤 ---------------- */
+
+  var FILTER_STORE = 'dsh-feishu:filter';
+
+  function loadFilter() {
+    try {
+      var raw = window.localStorage && localStorage.getItem(FILTER_STORE);
+      if (!raw) return;
+      var saved = JSON.parse(raw);
+      if (!saved || typeof saved !== 'object') return;
+      app.filter = {
+        workspace: typeof saved.workspace === 'string' ? saved.workspace : '',
+        status: saved.status === 'all' || saved.status === 'done' ? saved.status : 'open',
+        keyword: typeof saved.keyword === 'string' ? saved.keyword : '',
+      };
+    } catch (e) {
+      /* 隐私模式禁 localStorage 就算了 */
+    }
+  }
+
+  function saveFilter() {
+    try {
+      if (window.localStorage) localStorage.setItem(FILTER_STORE, JSON.stringify(app.filter));
+    } catch (e) {
+      /* 忽略 */
+    }
+  }
+
+  function workspaceOf(t) {
+    return String((t && (t.workspaceTitle || t.workspaceName)) || '');
+  }
+
+  /* 按当前条件筛；工作区为空串表示「全部」。 */
+  function filterTasksForPanel(list) {
+    var f = app.filter || {};
+    var keyword = String(f.keyword || '').trim().toLowerCase();
+    var status = f.status || 'open';
+    return list.filter(function (t) {
+      if (!t) return false;
+      if (status === 'open' && t.done) return false;
+      if (status === 'done' && !t.done) return false;
+      if (f.workspace && workspaceOf(t) !== f.workspace) return false;
+      if (keyword) {
+        var hay = (String(t.title || '') + '\n' + String(t.description || '')).toLowerCase();
+        if (hay.indexOf(keyword) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  /* 工作区下拉：按当前快照里出现过的值填充，保留已选项。 */
+  function renderFilterOptions(list) {
+    var select = $('filterWorkspace');
+    if (!select) return;
+    var seen = [];
+    for (var i = 0; i < list.length; i++) {
+      var name = workspaceOf(list[i]);
+      if (name && seen.indexOf(name) === -1) seen.push(name);
+    }
+    seen.sort();
+    var want = app.filter.workspace || '';
+    var signature = seen.join('\u0001');
+    if (select.getAttribute('data-sig') !== signature) {
+      select.setAttribute('data-sig', signature);
+      clear(select);
+      select.appendChild(el('option', { value: '', text: '全部工作区' }));
+      for (var j = 0; j < seen.length; j++) {
+        select.appendChild(el('option', { value: seen[j], text: seen[j] }));
+      }
+    }
+    select.value = seen.indexOf(want) === -1 ? '' : want;
+    if (select.value !== want) {
+      app.filter.workspace = select.value;
+    }
+    var keywordNode = $('filterKeyword');
+    if (keywordNode && keywordNode.value !== (app.filter.keyword || '')) keywordNode.value = app.filter.keyword || '';
+    var statusNode = $('filterStatus');
+    if (statusNode) statusNode.value = app.filter.status || 'open';
+  }
+
   function renderTasks() {
     /* 正在就地编辑（任务标题 / 文档标题 / 贴链接）时不要重建：
        面板每 20s 轮询一次，一重建就把输入框和已输入的内容一起丢掉（实测踩过）。 */
@@ -1885,7 +2022,11 @@
       });
     }
 
-    $('taskCount').textContent = String(tasks.length);
+    var allTasks = tasks;
+    tasks = filterTasksForPanel(allTasks);
+    renderFilterOptions(allTasks);
+    $('taskCount').textContent =
+      tasks.length === allTasks.length ? String(allTasks.length) : tasks.length + '/' + allTasks.length;
 
     /* 所有任务同属一个清单时，把清单名提到标题旁，卡片里就不再每张重复一遍。 */
     var listNames = [];
@@ -1906,7 +2047,7 @@
     if (syncNode) list.appendChild(syncNode);
 
     if (!tasks.length) {
-      list.appendChild(emptyNode('还没有同步到任务'));
+      list.appendChild(emptyNode(allTasks.length ? '没有符合筛选条件的任务（点「重置」看全部）' : '还没有同步到任务'));
       return;
     }
 
@@ -2959,6 +3100,40 @@
 
     $('saveSettings').addEventListener('click', onSave);
     $('syncNow').addEventListener('click', onSync);
+
+    /* 过滤条：改任何一项都立即重排，并把条件记到 localStorage。 */
+    var filterWorkspace = $('filterWorkspace');
+    var filterStatus = $('filterStatus');
+    var filterKeyword = $('filterKeyword');
+    var filterReset = $('filterReset');
+    if (filterWorkspace) {
+      filterWorkspace.addEventListener('change', function () {
+        app.filter.workspace = this.value || '';
+        saveFilter();
+        renderTasks();
+      });
+    }
+    if (filterStatus) {
+      filterStatus.addEventListener('change', function () {
+        app.filter.status = this.value || 'open';
+        saveFilter();
+        renderTasks();
+      });
+    }
+    if (filterKeyword) {
+      filterKeyword.addEventListener('input', function () {
+        app.filter.keyword = this.value || '';
+        saveFilter();
+        renderTasks();
+      });
+    }
+    if (filterReset) {
+      filterReset.addEventListener('click', function () {
+        app.filter = { workspace: '', status: 'open', keyword: '' };
+        saveFilter();
+        renderTasks();
+      });
+    }
     $('docAdd').addEventListener('click', onAddDoc);
 
     $('docUrl').addEventListener('input', hideDocHint);
@@ -3012,6 +3187,7 @@
 
   /* ---------------- 启动 ---------------- */
 
+  loadFilter();
   wire();
   renderAll();  // 先渲染空态，避免白屏
   load().then(schedulePoll);
