@@ -126,7 +126,7 @@ function pluginVersion() {
  * 输出固定 JSON，面板直接渲染，不做二次解析。
  */
 /* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
-export const PROMPT_REV = 4
+export const PROMPT_REV = 5
 
 export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根据给你的任务清单与最近对话摘要，输出一个 JSON 对象，
 不要解释、不要 markdown 代码块，格式严格如下：
@@ -146,8 +146,10 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
 - focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
 - charts 选 1-3 张，type 与 dataset 只能从给定枚举里选；**不要自己编数字**，数值由系统按 dataset 渲染。
   挑最有说服力的：比如「堆活」用 wip_by_day_14 折线，「注意力分散」用 workspace_distribution 旭日/饼图。
-- **不要在 headline / commentary 里罗列任务计数**（共几个、几个在跑、几个没动、完成几个）——
-  这些数字上方统计行已经给了。直接给判断与原因，需要举例时用任务号（T8、T12）。
+- **不要在 headline / commentary 里罗列任务计数**。卡片上方已经有一行统计（共几个 / 已绑定几个 /
+  未开始几个 / 今日完成几个 / 完成度），你说的「7 个任务在跑、0 个收尾」就是在抄那行数字。
+  headline 写**判断与原因**（为什么慢、卡在哪、该动哪根杠杆），不要写「N 个…」这种句式；
+  需要举例就用任务号（T8、T12）。
 - 中文，句子短，不说场面话。`
 
 const DEFAULT_SETTINGS = {
@@ -174,8 +176,6 @@ const DEFAULT_SETTINGS = {
   /* 早会诊断的系统提示（面板可改）。 */
   insightPrompt: DEFAULT_INSIGHT_PROMPT,
   insightPromptRev: PROMPT_REV,
-  /* Insight 卡片的快捷键：动作 → 组合键（空串表示不绑定）。 */
-  insightHotkeys: { morning: 'Alt+Shift+M', diagnose: 'Alt+Shift+D', export: 'Alt+Shift+E' },
   /* Insight 卡片右上角的按钮：可增删、每个按钮可带自己的 prompt。
      kind: morning=本地早会视图 · export=写评论 · ai=跑一次诊断（用自己的 prompt） */
   insightButtons: [
@@ -635,11 +635,6 @@ function sanitizeSettings(input, base) {
       : (asString(next.insightPrompt).slice(0, 4000) || base.insightPrompt),
     insightPromptRev: PROMPT_REV,
     insightButtons: sanitizeInsightButtons(next.insightButtons, base.insightButtons),
-    insightHotkeys: {
-      morning: normalizeHotkey(next.insightHotkeys?.morning, base.insightHotkeys.morning),
-      diagnose: normalizeHotkey(next.insightHotkeys?.diagnose, base.insightHotkeys.diagnose),
-      export: normalizeHotkey(next.insightHotkeys?.export, base.insightHotkeys.export),
-    },
     docPrompt:
       typeof next.docPrompt === 'string' && next.docPrompt.trim().length > 0
         ? next.docPrompt.slice(0, 4000)
@@ -2772,7 +2767,11 @@ function createSyncEngine(ctx) {
       `工作区分布：${datasets.workspace_distribution.labels.map((label, i) => `${label}=${datasets.workspace_distribution.values[i]}`).join('；')}`,
       `周期样本：${datasets.cycle_days.median === null ? '暂无已完成任务' : `${datasets.cycle_days.samples} 条，中位数 ${datasets.cycle_days.median} 天`}`,
     ].join('\n')
-    const promptText = `${context}\n\n可用图表数据集（挑图表时用这些 key，不要另造）：\n${dataBrief}`
+    const local = insightLocal()
+    const statLine = `共 ${local.board.total} · 已绑定 ${local.board.started} · 未开始 ${local.board.idle}`
+      + ` · 今日完成 ${local.today.doneCount} · 完成度 ${local.today.completion === null ? '—' : `${local.today.completion}%`}`
+    const promptText = `${context}\n\n卡片上方已经显示的统计（**不要重复这些数字**）：${statLine}`
+      + `\n\n可用图表数据集（挑图表时用这些 key，不要另造）：\n${dataBrief}`
     const systemPrompt = custom || asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT
     const asked = await askModelForInsight(systemPrompt, promptText)
     const parsed = parseJson(asked.text)
