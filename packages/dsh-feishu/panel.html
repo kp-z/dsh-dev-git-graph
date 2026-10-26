@@ -1589,6 +1589,7 @@
     loginNote: '',
     sessions: {},         // task.id → sessionId（开工后立刻显示）
     currentSessionId: '', // 宿主当前会话（client 半体 postMessage 进来）
+    version: '', // 插件版本（/api/state 顶层，显示在 CLI chip 上）
     /* 任务过滤条件：工作区 / 状态 / 关键词；存在 localStorage，刷新后还在 */
     filter: { workspace: '', status: 'open', keyword: '' },
     workspaces: [],       // GET /api/state → 已登记工作区
@@ -1760,7 +1761,8 @@
       cliText = 'CLI 未知';
     }
     /* 插件版本跟 CLI 挂在同一个 chip 上：一行看完「插件哪版 + CLI 什么状态」。 */
-    var versionText = s.version ? 'v' + String(s.version) : 'v—';
+    var version = app.version || s.version || '';
+    var versionText = version ? 'v' + String(version) : 'v—';
     var cliChipText = versionText + ' · ' + cliText;
     var syncText = s.lastSyncAt ? fmtRel(s.lastSyncAt) : '尚未同步';
     var key = [
@@ -2709,6 +2711,8 @@
       var next = (data && data.state) || {};
       app.settings = (data && data.settings) || {};
       app.snap = next;
+      /* 版本在响应的顶层（不是 state 里），单独存一份 */
+      app.version = (data && data.version) || '';
       app.workspaces = Array.isArray(data && data.workspaces) ? data.workspaces : [];
       app.loaded = true;
       if (typeof (data && data.now) === 'number') app.skew = data.now - Date.now();
