@@ -25,6 +25,7 @@ import {
   toLazyDialoguePort,
 } from './bridge/index.js'
 import type { DispatchOutcome, WorldServicePort } from './protocol/index.js'
+import type { World } from './domain/types.js'
 import type { TeamsPort } from './bridge/index.js'
 import type { CharacterBridge } from './bridge/index.js'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
@@ -292,12 +293,38 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       if (tick - lastRosterSyncTick >= TEAM_SYNC_INTERVAL_TICKS) {
         lastRosterSyncTick = tick
         void syncRoster()
+        syncPersonaProgress(state.currentWorld() ?? ({ agents: [], tasks: [] } as never))
       }
       if (tick - lastTeamSyncTick < TEAM_SYNC_INTERVAL_TICKS) return
       lastTeamSyncTick = tick
       void syncTeamOnce()
     },
   })
+
+  /**
+   * R353：任务完成 → Persona 关联 + XP。
+   *
+   * 只在“这张单第一次进入 persona.taskIds”时结算，所以刷新/重放不会重复加经验。
+   * 数据仍在 personaStore 里，不另造一套成就表。
+   */
+  function syncPersonaProgress(world: World): void {
+    for (const agent of world.agents) {
+      const key = agent.boundAgentId ?? agent.id
+      if (personaStore.get(key) === null) {
+        personaStore.upsert({ id: key, name: agent.name, role: agent.role, skills: [agent.role] })
+      }
+    }
+    for (const task of world.tasks) {
+      if (task.status !== 'done' || task.owner === null) continue
+      const agent = world.agents.find((candidate) => candidate.id === task.owner)
+      if (agent === undefined) continue
+      const key = agent.boundAgentId ?? agent.id
+      const persona = personaStore.get(key)
+      if (persona === null || persona.taskIds.includes(task.id)) continue
+      personaStore.linkTask(key, task.id)
+      personaStore.addXp(key, 40)
+    }
+  }
 
   /**
    * R166：把**当前会话**的真实 subagent 子会话投影成镇上角色。
