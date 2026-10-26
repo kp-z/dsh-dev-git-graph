@@ -42,11 +42,6 @@ const MOUNT = '/dsh-feishu'
 const LOGIN_URL_HINT = /https:\/\/accounts\.feishu\.cn\/open-apis\/authen\/v1\/authorize\?[^\s"'\\]+/
 
 /**
- * 同一台机器可能同时跑多个 profile（desktop 一个、测试 profile 一个）。
- * 它们共用 DSH_HOME，如果都写同一个 state.json，就会互相覆盖对方刚绑好的会话。
- * 所以状态文件按「这个实例在哪个端口服务」分开；设置仍然共用一份。
- */
-/**
  * 状态文件只有一份。
  *
  * 以前按端口分（`state-<port>.json`），本意是「多个 DSH 实例别互相踩」，实际踩的坑更大：
@@ -62,12 +57,12 @@ function stateFileFor() {
 }
 
 /**
- * 本端口的 state 文件还没有内容时，从同目录继承一份最近的旧状态。
+ * 首次切到单文件状态时，从同目录里挑一份最近的旧状态迁移过来。
  *
- * 为什么需要它：DSH 每次重启都会挑一个**不同的端口**（不是固定端口），而状态文件按端口分，
- * 于是重启一次就等于换了一个空状态——表现就是「任务卡片全部掉绑定」「自动开工又给同一条任务
- * 开一条新会话」。这里在首次加载时挑一份最新的、带会话绑定的 `state-*.json` 继承下来，
- * 端口分文件的隔离性保留（两个实例仍然各写各的），只是不再因为换端口而丢历史。
+ * 历史包袱：状态文件以前按端口分（`state-<port>.json`），DSH 每次重启端口都变，
+ * 于是重启一次就换一份空状态——「任务卡片掉绑定」「同一条任务被开两条会话」都是这么来的。
+ * 现在只有 `state.json`；这个函数只在它不存在（或为空）时跑一次，把带会话绑定的最新那份继承过来。
+ * 旧文件不删，留作备份。
  */
 export async function adoptPreviousState(currentFile) {
   const dir = dirname(currentFile)
@@ -176,6 +171,8 @@ const DEFAULT_STATE = {
   numbers: {},
   /* taskId → 绑定快照：任务暂时掉出列表（被过滤/被归档）时绑定关系别跟着丢，见 persistState。 */
   bindings: {},
+  /* 已经归档过的孤儿会话：归档不删目录，不记一笔扫描会一直重复报同一批。 */
+  archivedOrphans: [],
 }
 
 /* ────────────────────────────── 小工具 ────────────────────────────── */
@@ -2443,6 +2440,78 @@ function createSyncEngine(ctx) {
     }
   }
 
+  /**
+   * 找出「插件开出来、但没有任何任务再指向它」的会话。
+   *
+   * 为什么会有：早期按端口分状态 + 两个实例各自开工，同一条任务被开过好几条会话；
+   * 状态修好之后这些会话仍留在磁盘和侧栏里，没人清理，越攒越多。
+   * 只认 `feishu-` 前缀——那是本插件建会话时用的命名，不碰用户自己的会话。
+   */
+  async function orphanSessions() {
+    const bound = new Set()
+    for (const task of state.tasks) if (task.sessionId) bound.add(task.sessionId)
+    for (const binding of Object.values(state.bindings ?? {})) {
+      if (binding?.sessionId) bound.add(binding.sessionId)
+    }
+    const found = new Map()
+    const registry = await awaitService(ctx, 'workspaceRegistry')
+    try {
+      for (const workspace of registry?.list?.() ?? []) {
+        for (const id of workspace?.sessionIds ?? []) {
+          const sessionId = asString(id)
+          if (!sessionId.startsWith('feishu-') || bound.has(sessionId)) continue
+          found.set(sessionId, asString(workspace?.title) || '未命名工作区')
+        }
+      }
+    } catch {
+      /* 登记表读不到就只靠磁盘扫 */
+    }
+    try {
+      for (const project of await readdir(join(HOME, 'sessions'))) {
+        let entries = []
+        try {
+          entries = await readdir(join(HOME, 'sessions', project))
+        } catch {
+          continue
+        }
+        for (const id of entries) {
+          if (!id.startsWith('feishu-') || bound.has(id) || found.has(id)) continue
+          found.set(id, project)
+        }
+      }
+    } catch {
+      /* 没有 sessions 目录就算了 */
+    }
+    /* 已经归档过的别再列出来：归档只把会话移进归档集，目录还在磁盘上，
+       不记一笔的话扫描会一直把同一批当成孤儿。 */
+    const archived = new Set(Array.isArray(state.archivedOrphans) ? state.archivedOrphans : [])
+    return [...found.entries()]
+      .filter(([id]) => !archived.has(id))
+      .map(([id, where]) => ({ id, where }))
+      .sort((a, b) => a.id.localeCompare(b.id))
+  }
+
+  /** 归档这些孤儿会话（不删数据，只是从侧栏挪进归档）。 */
+  async function archiveOrphans(ids) {
+    const list = Array.isArray(ids) && ids.length ? ids.map((id) => asString(id)).filter(Boolean) : null
+    const targets = list ?? (await orphanSessions()).map((item) => item.id)
+    let ok = 0
+    const failed = []
+    for (const id of targets) {
+      const result = await archiveSessionForTask(id)
+      if (result.ok) ok += 1
+      else failed.push({ id, error: result.error })
+    }
+    if (ok > 0) {
+      const archived = new Set(Array.isArray(state.archivedOrphans) ? state.archivedOrphans : [])
+      for (const id of targets) archived.add(id)
+      state.archivedOrphans = [...archived]
+      await persistState()
+      log(ctx, 'info', `[cleanup] 归档孤儿会话 ${ok} 条`)
+    }
+    return { ok: true, archived: ok, failed }
+  }
+
   /** 「完成」：飞书置完成 + 归档会话。 */
   async function completeTask(taskId) {
     const task = state.tasks.find((item) => item.id === taskId)
@@ -3207,6 +3276,8 @@ function createSyncEngine(ctx) {
     persistState,
     sync,
     getSettings: () => settings,
+    orphanSessions,
+    archiveOrphans,
     onSettingsChange,
     commentProgress,
     flushPendingProgress,
@@ -3421,6 +3492,19 @@ function mountRoutes(ctx, engine) {
             const body = await readBody(req)
             const result = await engine.renameTask(asString(body.taskId ?? body.id), asString(body.title))
             sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (route === '/api/sessions/orphans' && req.method === 'POST') {
+            const orphans = await engine.orphanSessions()
+            sendJson(res, 200, { ok: true, orphans })
+            return
+          }
+
+          if (route === '/api/sessions/orphans/archive' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.archiveOrphans(body.ids)
+            sendJson(res, 200, result)
             return
           }
 
