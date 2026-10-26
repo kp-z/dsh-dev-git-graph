@@ -561,6 +561,111 @@
     transition: border-color .12s ease, box-shadow .12s ease;
   }
 
+  /* ---------- Insight 卡片（早会视图） ---------- */
+  .insight-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .insight-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .insight-avatar {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  .insight-title-wrap {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .insight-title-wrap strong {
+    font-size: 12.5px;
+    color: var(--p-text-1);
+  }
+
+  .insight-stats {
+    font-size: 11px;
+    color: var(--p-text-3);
+    font-variant-numeric: tabular-nums;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .insight-line {
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--p-text-2);
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--p-sub, rgba(127, 127, 127, 0.08));
+    border-left: 2px solid var(--p-accent-line);
+  }
+
+  .insight-line.is-warn { border-left-color: var(--p-warn); }
+  .insight-line.is-idle { color: var(--p-text-3); border-left-color: var(--p-line-strong); }
+
+  .insight-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .insight-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 4px;
+    border-top: 1px dashed var(--p-line);
+  }
+
+  .insight-body[hidden] { display: none; }
+
+  .insight-block-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--p-text-3);
+    letter-spacing: 0.04em;
+  }
+
+  .insight-item {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--p-text-2);
+  }
+
+  .insight-item .tag {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    background: var(--p-sub, rgba(127, 127, 127, 0.1));
+    color: var(--p-text-2);
+  }
+
+  .insight-scores {
+    display: flex;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--p-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .insight-empty {
+    font-size: 11.5px;
+    color: var(--p-text-3);
+  }
+
   /* ---------- 卡片主题色 ----------
      色相由任务编号按黄金角散开（编号稳定 → 颜色稳定，几十条内不撞色）。
      **平时不显色**：未选中的卡片保持中性描边，只有选中（当前对话）那张才用它自己的颜色，
@@ -1402,6 +1507,26 @@
   <!-- 1. 状态条 -->
   <div id="statusbar" class="statusbar" aria-live="polite"></div>
 
+  <!-- 2.5 Insight：早会视图（本地指标秒出，AI 诊断按需） -->
+  <section id="insightCard" class="card insight-card" aria-labelledby="insightTitle" hidden>
+    <div class="insight-head">
+      <span class="insight-avatar" aria-hidden="true">🤖</span>
+      <div class="insight-title-wrap">
+        <strong id="insightTitle">今日洞察</strong>
+        <span id="insightStats" class="insight-stats"></span>
+      </div>
+      <button type="button" id="insightRefresh" class="btn btn-ghost btn-xs" title="让 AI 重新诊断（会消耗 token）">诊断</button>
+      <button type="button" id="insightToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="insightBody">展开</button>
+    </div>
+    <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
+    <div class="insight-actions">
+      <button type="button" id="insightYesterday" class="btn btn-ghost btn-xs">昨天做了什么</button>
+      <button type="button" id="insightToday" class="btn btn-ghost btn-xs">今天做哪些</button>
+      <button type="button" id="insightExport" class="btn btn-ghost btn-xs">写入任务评论</button>
+    </div>
+    <div id="insightBody" class="insight-body" hidden></div>
+  </section>
+
   <!-- 3. 任务列表 -->
   <section class="card" aria-labelledby="tasksTitle">
     <div class="card-head">
@@ -1635,6 +1760,12 @@
     version: '', // 插件版本（/api/state 顶层，显示在 CLI chip 上）
     /* 任务过滤条件：工作区 / 状态 / 关键词；存在 localStorage，刷新后还在 */
     filter: { workspace: '', status: 'open', keyword: '' },
+    /* Insight 卡片：本地指标、AI 诊断结果、展开/分页状态 */
+    insightLocal: null,
+    insightAI: null,
+    insightOpen: false,
+    insightTab: 'diagnose',
+    insightLoading: false,
     filterOpen: false, // 过滤条是否展开（头部「筛选」按钮控制）
     workspaces: [],       // GET /api/state → 已登记工作区
     busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false },
@@ -2668,7 +2799,216 @@
     });
   }
 
+
+  /* ---------------- Insight 卡片（早会视图） ---------------- */
+
+  function loadInsight() {
+    return api('insight', undefined, { silent: true }).then(function (data) {
+      app.insightLocal = (data && data.local) || null;
+      if (data && data.ai) app.insightAI = data.ai;
+      renderInsight();
+    }, function () {
+      /* 拿不到就保持空态，不影响任务列表 */
+    });
+  }
+
+  function insightTaskLabel(item) {
+    /* 标题里本来就有「🐛 T8-」，别和前面的编号重复一遍 */
+    var text = String((item && item.title) || '').replace(/^[^T]*T\d+\s*-\s*/u, '').slice(0, 16);
+    return 'T' + (item && item.no ? item.no : '?') + ' ' + text;
+  }
+
+  function renderInsight() {
+    var card = $('insightCard');
+    if (!card) return;
+    var local = app.insightLocal;
+    card.hidden = !local;
+    if (!local) return;
+
+    var today = local.today || {};
+    var stats = ['活跃 ' + (today.activeCount || 0), '完成 ' + (today.doneCount || 0), '新开工 ' + (today.startedCount || 0)];
+    if (typeof today.completion === 'number') stats.push('完成度 ' + today.completion + '%');
+    stats.push('偏离 ' + (today.deviationLevel || '低'));
+    $('insightStats').textContent = stats.join(' · ');
+
+    var line = $('insightLine');
+    line.classList.remove('is-warn', 'is-idle');
+    var ai = app.insightAI;
+    if (app.insightLoading) {
+      line.classList.add('is-idle');
+      line.textContent = 'AI 正在看你今天的任务…';
+    } else if (ai && ai.headline) {
+      line.textContent = ai.headline;
+    } else if ((local.stalled || []).length) {
+      line.classList.add('is-warn');
+      line.textContent = '卡住的：' + local.stalled.map(insightTaskLabel).join('；');
+    } else if ((local.recommend || []).length) {
+      line.textContent = '建议先做：' + local.recommend.map(insightTaskLabel).join('；');
+    } else {
+      line.classList.add('is-idle');
+      line.textContent = '今天还没有可评估的推进。';
+    }
+
+    renderInsightBody();
+  }
+
+  function insightBlock(title, nodes) {
+    var wrap = el('div', { 'class': 'insight-block' });
+    wrap.appendChild(el('div', { 'class': 'insight-block-title', text: title }));
+    for (var i = 0; i < nodes.length; i++) wrap.appendChild(nodes[i]);
+    return wrap;
+  }
+
+  function insightRow(text, tag) {
+    var row = el('div', { 'class': 'insight-item' });
+    if (tag) row.appendChild(el('span', { 'class': 'tag', text: tag }));
+    row.appendChild(el('span', { text: text }));
+    return row;
+  }
+
+  function renderInsightBody() {
+    var body = $('insightBody');
+    if (!body) return;
+    body.hidden = !app.insightOpen;
+    if (!app.insightOpen) return;
+    clear(body);
+    var local = app.insightLocal || {};
+    var ai = app.insightAI;
+
+    if (app.insightTab === 'yesterday') {
+      var done = (local.yesterday && local.yesterday.done) || [];
+      var progress = (local.yesterday && local.yesterday.progress) || [];
+      var nodes = [];
+      done.forEach(function (item) { nodes.push(insightRow(insightTaskLabel(item), '完成')); });
+      progress.forEach(function (item) { nodes.push(insightRow(insightTaskLabel(item), '推进')); });
+      body.appendChild(insightBlock('昨天做了什么', nodes.length ? nodes : [el('div', { 'class': 'insight-empty', text: '昨天没有记录到推进。' })]));
+      return;
+    }
+
+    if (app.insightTab === 'today') {
+      var rec = local.recommend || [];
+      var rows = rec.map(function (item) {
+        return insightRow(insightTaskLabel(item) + '　' + (item.reasons || []).join('、'), '先做');
+      });
+      body.appendChild(insightBlock('今天做哪些', rows.length ? rows : [el('div', { 'class': 'insight-empty', text: '没有待推进的任务。' })]));
+      return;
+    }
+
+    /* 默认：AI 诊断 */
+    var diag = [];
+    if (ai && (ai.issues || []).length) {
+      ai.issues.forEach(function (issue) {
+        diag.push(insightRow((issue.text || '') + (issue.evidence ? '（' + issue.evidence + '）' : ''), 'T' + (issue.taskNo || '?')));
+      });
+    } else if (ai && ai.headline) {
+      diag.push(insightRow(ai.headline));
+    } else {
+      diag.push(el('div', { 'class': 'insight-empty', text: '点右上角「诊断」，让 AI 看一眼今天的任务。' }));
+    }
+    if (ai && ai.advice) diag.push(insightRow('建议：' + ai.advice));
+    body.appendChild(insightBlock('AI 诊断', diag));
+
+    if (ai && ai.score && (ai.score.focus !== null || ai.score.throughput !== null)) {
+      var scores = el('div', { 'class': 'insight-scores' });
+      if (ai.score.focus !== null) scores.appendChild(el('span', { text: '专注 ' + ai.score.focus }));
+      if (ai.score.throughput !== null) scores.appendChild(el('span', { text: '产出 ' + ai.score.throughput }));
+      if (ai.score.hygiene !== null) scores.appendChild(el('span', { text: '收尾 ' + ai.score.hygiene }));
+      body.appendChild(scores);
+    }
+
+    var metrics = [];
+    metrics.push(insightRow('今日活跃 ' + ((local.today && local.today.activeCount) || 0)
+      + ' · 完成 ' + ((local.today && local.today.doneCount) || 0)
+      + ' · 文档 ' + ((local.today && local.today.docsCount) || 0)));
+    if ((local.stalled || []).length) {
+      metrics.push(insightRow('停滞：' + local.stalled.map(insightTaskLabel).join('；')));
+    }
+    if ((local.noOutput || []).length) {
+      metrics.push(insightRow('开工超过两天但没产出：' + local.noOutput.map(insightTaskLabel).join('；')));
+    }
+    body.appendChild(insightBlock('本地数据', metrics));
+  }
+
+  function onInsightDiagnose() {
+    if (app.insightLoading) return;
+    app.insightLoading = true;
+    app.insightTab = 'diagnose';
+    app.insightOpen = true;
+    var btn = $('insightRefresh');
+    if (btn) { btn.disabled = true; btn.textContent = '诊断中…'; }
+    renderInsight();
+    api('insight/diagnose', { force: true }).then(function (data) {
+      app.insightLoading = false;
+      app.insightAI = (data && data.data) || null;
+      if (btn) { btn.disabled = false; btn.textContent = '诊断'; }
+      if (!app.insightAI) toast('AI 诊断没有结果：' + ((data && data.reason) || '模型不可用'));
+      renderInsight();
+      if (app.insightAI && app.insightAI.headline) toast('诊断完成');
+    }, function (error) {
+      app.insightLoading = false;
+      if (btn) { btn.disabled = false; btn.textContent = '诊断'; }
+      var detail = (error && (error.error || error.message)) || '诊断失败';
+      toast(String(detail).slice(0, 120));
+      renderInsight();
+    });
+  }
+
+  function onInsightExport() {
+    var tasks = (app.snap && app.snap.tasks) || [];
+    var current = String(app.currentSessionId || '');
+    var target = null;
+    for (var i = 0; i < tasks.length; i++) {
+      if (current && tasks[i].sessionId === current) { target = tasks[i]; break; }
+    }
+    if (!target && (app.insightLocal && app.insightLocal.recommend || []).length) {
+      var first = app.insightLocal.recommend[0];
+      for (var j = 0; j < tasks.length; j++) if (tasks[j].id === first.id) { target = tasks[j]; break; }
+    }
+    if (!target) { toast('没有可写的任务（先绑定一条）'); return; }
+    api('insight/export', { taskId: target.id }).then(function () {
+      toast('早会摘要已写进「' + String(target.title || '').slice(0, 16) + '」的评论');
+    }, function (error) {
+      var detail = (error && (error.error || error.message)) || '写入失败';
+      toast(String(detail).slice(0, 120));
+    });
+  }
+
+  function wireInsight() {
+    var toggle = $('insightToggle');
+    if (toggle) {
+      toggle.addEventListener('click', function () {
+        app.insightOpen = !app.insightOpen;
+        toggle.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
+        toggle.textContent = app.insightOpen ? '收起' : '展开';
+        renderInsightBody();
+      });
+    }
+    var refresh = $('insightRefresh');
+    if (refresh) refresh.addEventListener('click', onInsightDiagnose);
+    var yesterday = $('insightYesterday');
+    if (yesterday) {
+      yesterday.addEventListener('click', function () {
+        app.insightTab = 'yesterday';
+        app.insightOpen = true;
+        if (toggle) { toggle.setAttribute('aria-expanded', 'true'); toggle.textContent = '收起'; }
+        renderInsightBody();
+      });
+    }
+    var todayBtn = $('insightToday');
+    if (todayBtn) {
+      todayBtn.addEventListener('click', function () {
+        app.insightTab = 'today';
+        app.insightOpen = true;
+        if (toggle) { toggle.setAttribute('aria-expanded', 'true'); toggle.textContent = '收起'; }
+        renderInsightBody();
+      });
+    }
+    var exportBtn = $('insightExport');
+    if (exportBtn) exportBtn.addEventListener('click', onInsightExport);
+  }
+
   function renderAll() {
+    renderInsight();
     renderStatus();
     renderDocPrompt();
     renderAuth();
@@ -3398,6 +3738,8 @@
 
   loadFilter();
   wire();
+  wireInsight();
+  loadInsight();
   renderAll();  // 先渲染空态，避免白屏
   load().then(schedulePoll);
 })();

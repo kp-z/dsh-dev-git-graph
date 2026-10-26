@@ -173,6 +173,9 @@ const DEFAULT_STATE = {
   bindings: {},
   /* 已经归档过的孤儿会话：归档不删目录，不记一笔扫描会一直重复报同一批。 */
   archivedOrphans: [],
+  /* 早会诊断：{ at, headline, issues, advice, score } + 生成时的任务签名 */
+  insight: null,
+  insightSignature: '',
 }
 
 /* ────────────────────────────── 小工具 ────────────────────────────── */
@@ -2149,6 +2152,26 @@ function createSyncEngine(ctx) {
   }
 
   /** 正式风格的标题提示词：书面语、动宾结构、不带标点与人称。 */
+  /**
+   * 早会诊断的系统提示。
+   *
+   * 只给「任务 + 最近对话摘要」，所以要求模型**不许编造**没出现的任务/数字；
+   * 输出固定 JSON，面板直接渲染，不做二次解析。
+   */
+  const INSIGHT_SYSTEM_PROMPT = `你是团队早会的诊断助手。根据给你的任务清单与最近对话摘要，输出一个 JSON 对象，
+不要解释、不要 markdown 代码块，格式严格如下：
+
+{"headline":"一句话总结当前推进状态（不超过 40 字）",
+ "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字）","evidence":"一句话证据（不超过 40 字）"}],
+ "advice":"下一步建议（不超过 60 字）",
+ "score":{"focus":0-100,"throughput":0-100,"hygiene":0-100}}
+
+规则：
+- 只依据给到的信息，不要编造没出现的任务或数字。
+- issues 最多 3 条，优先「卡住 / 长时间没动 / 反复返工」的。
+- focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
+- 中文，句子短，不说场面话。`
+
   const TITLE_SYSTEM_PROMPT =
     '你是任务命名助手。根据用户给出的工作记录，生成一条正式、专业的中文任务名：' +
     '12-20 个字，动宾结构，使用书面语，准确概括工作内容与目标。' +
@@ -2469,6 +2492,282 @@ function createSyncEngine(ctx) {
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
+  }
+
+  /* ---------------- Insight（早会视图） ---------------- */
+
+  const DAY_MS = 86_400_000
+
+  /** 本地某一天的 0 点（offset=-1 就是昨天）。 */
+  function dayStart(offset = 0) {
+    const d = new Date(nowMs())
+    d.setHours(0, 0, 0, 0)
+    d.setDate(d.getDate() + offset)
+    return d.getTime()
+  }
+
+  /** 一条任务「最后一次动」的时间：开工 / 本地更新 / 完成 / 进展评论取最大。 */
+  function taskActivityAt(task) {
+    return Math.max(
+      Number(task?.lastPushAt ?? 0),
+      Number(task?.startedAt ?? 0),
+      Number(task?.localUpdatedAt ?? 0),
+      Number(task?.completedAt ?? 0),
+      Number(task?.firstSeenAt ?? 0),
+    )
+  }
+
+  /**
+   * 早会视图的本地指标 —— 纯计算，不花 token。
+   *
+   * 口径都写在这里，别处不要再算一遍：面板只负责显示。
+   */
+  function insightLocal() {
+    const now = nowMs()
+    const todayStart = dayStart(0)
+    const tomorrow = todayStart + DAY_MS
+    const yesterdayStart = dayStart(-1)
+    const inToday = (ts) => ts >= todayStart && ts < tomorrow
+    const inYesterday = (ts) => ts >= yesterdayStart && ts < todayStart
+
+    const tasks = state.tasks.filter((task) => task && !task.syncFirst)
+    const engaged = tasks.filter((task) => task.started || task.sessionId || task.done)
+
+    const doneToday = tasks.filter((task) => inToday(Number(task.completedAt ?? 0)))
+    const startedToday = tasks.filter((task) => inToday(Number(task.startedAt ?? 0)))
+    const newToday = tasks.filter((task) => inToday(Number(task.firstSeenAt ?? 0)))
+    const activeToday = tasks.filter((task) => inToday(taskActivityAt(task)))
+
+    const doneYesterday = tasks.filter((task) => inYesterday(Number(task.completedAt ?? 0)))
+    const activeYesterday = tasks.filter((task) => inYesterday(taskActivityAt(task)) && !inToday(taskActivityAt(task)))
+
+    /* 停滞：开过工、没完成、两天没动 */
+    const stalled = engaged
+      .filter((task) => !task.done && now - taskActivityAt(task) > 2 * DAY_MS)
+      .sort((a, b) => taskActivityAt(a) - taskActivityAt(b))
+
+    /* 无产出：开工超过两天，既没文档也没进展评论 */
+    const noOutput = engaged.filter((task) => !task.done && Number(task.startedAt ?? 0) > 0
+      && now - Number(task.startedAt ?? 0) > 2 * DAY_MS
+      && !(Array.isArray(task.docs) && task.docs.length)
+      && !task.lastPushAt)
+
+    const docsToday = (state.docs ?? []).filter((doc) => inToday(Number(doc?.at ?? 0))).length
+    const pushedToday = tasks.filter((task) => inToday(Number(task.lastPushAt ?? 0))).length
+
+    /* 完成度 = 今日完成 ÷ 今日活跃（活跃为 0 时不显示成 0%，标 null 让面板省略） */
+    const completion = activeToday.length ? Math.round((doneToday.length / activeToday.length) * 100) : null
+
+    /* 偏离度：开工超过两天、期间没有任何产出的比例（粗粒度，只分高中低三档） */
+    const drifting = new Set(noOutput.map((task) => task.id))
+    const deviation = engaged.length ? Math.round((drifting.size / engaged.length) * 100) : 0
+
+    /* 今日推荐：延续性 > 自动触发 > 停滞最久 > 编号小 */
+    const scored = engaged
+      .filter((task) => !task.done)
+      .map((task) => {
+        let score = 0
+        const reasons = []
+        if (inYesterday(taskActivityAt(task))) {
+          score += 40
+          reasons.push('昨天在推进但还没收尾')
+        }
+        if (task.meta?.trigger === 'auto' && !task.started) {
+          score += 30
+          reasons.push('标了自动触发，还没开工')
+        }
+        if (stalled.some((item) => item.id === task.id)) {
+          score += 20
+          reasons.push(`已经 ${Math.floor((now - taskActivityAt(task)) / DAY_MS)} 天没动`)
+        }
+        if (!task.started && !task.sessionId) {
+          score += 10
+          reasons.push('还没开工')
+        }
+        if (!reasons.length) {
+          const idleDays = Math.floor((now - taskActivityAt(task)) / DAY_MS)
+          reasons.push(idleDays >= 1 ? `已经 ${idleDays} 天没动，先收尾` : '未收尾，今天适合清掉')
+        }
+        score += Math.max(0, 12 - (taskNo(task) ?? 0)) / 2
+        return { task, score, reasons }
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3)
+
+    return {
+      generatedAt: now,
+      today: {
+        newCount: newToday.length,
+        startedCount: startedToday.length,
+        doneCount: doneToday.length,
+        activeCount: activeToday.length,
+        docsCount: docsToday,
+        pushedCount: pushedToday,
+        completion,
+        deviation,
+        deviationLevel: deviation >= 50 ? '高' : deviation >= 25 ? '中' : '低',
+      },
+      yesterday: {
+        done: doneYesterday.map((task) => ({
+          id: task.id, no: taskNo(task), title: task.title, completedAt: task.completedAt ?? 0,
+        })),
+        progress: activeYesterday.map((task) => ({
+          id: task.id, no: taskNo(task), title: task.title,
+          lastAt: taskActivityAt(task), pushed: Boolean(task.lastPushAt),
+        })),
+      },
+      stalled: stalled.slice(0, 3).map((task) => ({
+        id: task.id, no: taskNo(task), title: task.title, lastAt: taskActivityAt(task),
+      })),
+      noOutput: noOutput.slice(0, 3).map((task) => ({
+        id: task.id, no: taskNo(task), title: task.title,
+      })),
+      recommend: scored.map(({ task, reasons }) => ({
+        id: task.id, no: taskNo(task), title: task.title,
+        workspace: task.workspaceTitle || task.workspaceName || '',
+        started: Boolean(task.started), reasons,
+      })),
+    }
+  }
+
+
+  /** 组装喂给模型的上下文：只发摘要，不发代码、不发完整对话。 */
+  async function insightContext() {
+    const sessions = await awaitService(ctx, 'sessionController')
+    const now = nowMs()
+    const lines = []
+    for (const task of state.tasks.slice(0, 15)) {
+      const status = task.done ? '已完成' : task.started ? '已开工' : task.sessionId ? '已绑定未开工' : '未开始'
+      const bits = [`T${taskNo(task)} ${task.title}`, status]
+      const workspace = task.workspaceTitle || task.workspaceName
+      if (workspace) bits.push(`工作区=${workspace}`)
+      const idle = Math.floor((now - taskActivityAt(task)) / DAY_MS)
+      bits.push(`最后活动=${idle <= 0 ? '今天' : `${idle} 天前`}`)
+      if (Array.isArray(task.docs) && task.docs.length) bits.push(`文档=${task.docs.length}`)
+      if (task.lastPushAt) bits.push('有进展评论')
+      if (sessions && typeof sessions.inspect === 'function' && task.sessionId) {
+        try {
+          const inspection = await sessions.inspect(task.sessionId)
+          const text = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ')
+          if (text) bits.push(`最近对话=${text.slice(0, 200)}`)
+        } catch {
+          /* 会话读不到就只给任务自身信息 */
+        }
+      }
+      lines.push(bits.join(' | '))
+    }
+    return lines.join('\n')
+  }
+
+  /** 任务状态签名：同一天里任务没变就不重复问模型。 */
+  function insightSignature() {
+    const raw = state.tasks
+      .map((task) => `${task.id}:${task.title}:${task.done ? 1 : 0}:${taskActivityAt(task)}`)
+      .join('|')
+    let hash = 0
+    for (let i = 0; i < raw.length; i += 1) hash = (hash * 31 + raw.charCodeAt(i)) % 2_147_483_647
+    return `${dayStart(0)}-${hash}`
+  }
+
+  /** AI 诊断：一句话结论 + 3 条问题 + 三个粗分。失败返回 null，由面板降级。 */
+  async function diagnoseInsight(force = false) {
+    const signature = insightSignature()
+    /* 结果落在 state 里：热重载/重启之后「今天已经诊断过」这件事不该丢 */
+    if (!force && state.insight && state.insightSignature === signature) {
+      return { ok: true, data: state.insight, cached: true }
+    }
+    const context = await insightContext()
+    if (!context.trim()) return { ok: false, reason: '还没有可评估的任务' }
+    const asked = await askModelForInsight(INSIGHT_SYSTEM_PROMPT, context)
+    const parsed = parseJson(asked.text)
+    if (!parsed || typeof parsed !== 'object') {
+      return { ok: false, reason: asked.reason || '模型返回的不是 JSON' }
+    }
+    const data = {
+      headline: asString(parsed.headline).slice(0, 120),
+      issues: (Array.isArray(parsed.issues) ? parsed.issues : []).slice(0, 3).map((item) => ({
+        taskNo: Number(item?.taskNo) || 0,
+        level: item?.level === 'warn' ? 'warn' : item?.level === 'bad' ? 'bad' : 'info',
+        text: asString(item?.text).slice(0, 80),
+        evidence: asString(item?.evidence).slice(0, 120),
+      })),
+      advice: asString(parsed.advice).slice(0, 160),
+      score: {
+        focus: clampScore(parsed?.score?.focus),
+        throughput: clampScore(parsed?.score?.throughput),
+        hygiene: clampScore(parsed?.score?.hygiene),
+      },
+      at: nowMs(),
+    }
+    state.insight = data
+    state.insightSignature = signature
+    await persistState()
+    return { ok: true, data, cached: false }
+  }
+
+  /** 早会摘要的纯文本版：导出到飞书评论用。 */
+  function insightSummaryText() {
+    const local = insightLocal()
+    const ai = state.insight
+    const lines = [`🤖 AI 早会摘要 · ${new Date().toLocaleString('zh-CN', { hour12: false })}`]
+    if (ai?.headline) lines.push('', `结论：${ai.headline}`)
+    lines.push('', `今日：活跃 ${local.today.activeCount} · 完成 ${local.today.doneCount} · 新开工 ${local.today.startedCount} · 文档 ${local.today.docsCount}`)
+    if (local.stalled.length) {
+      lines.push(`卡住：${local.stalled.map((item) => `T${item.no} ${item.title.slice(0, 18)}`).join('；')}`)
+    }
+    if (local.recommend.length) {
+      lines.push(`今天建议先做：${local.recommend.map((item) => `T${item.no}`).join('、')}`)
+    }
+    if (ai?.advice) lines.push('', `建议：${ai.advice}`)
+    return lines.join('\n')
+  }
+
+  /** 把早会摘要写成一条飞书任务评论。 */
+  async function exportInsight(taskId, text) {
+    const task = state.tasks.find((item) => item.id === taskId)
+    if (!task) return { ok: false, error: '没找到这条任务' }
+    const body = asString(text).trim() || insightSummaryText()
+    if (!body) return { ok: false, error: '没有可写的内容' }
+    const path = resolveCli(settings.cliPath)
+    const result = await runCli(path, ['task', 'comment', task.id, body], { timeoutMs: 60_000 })
+    if (!result.ok) return { ok: false, error: `写评论失败：${(result.detail ?? '').slice(-160)}` }
+    task.lastCommentAt = nowMs()
+    await persistState()
+    return { ok: true, taskId: task.id }
+  }
+
+  function clampScore(value) {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return null
+    return Math.max(0, Math.min(100, Math.round(n)))
+  }
+
+  async function askModelForInsight(system, text) {
+    const llm = await awaitService(ctx, 'llm')
+    const models = await awaitService(ctx, 'agentDefaultModel')
+    const selection = typeof models?.currentSelection === 'function' ? models.currentSelection() : undefined
+    if (!llm || typeof llm.stream !== 'function' || !selection?.provider || !selection?.model) {
+      return { text: '', reason: '没有可用的模型' }
+    }
+    let lastError = ''
+    for (const budget of [900, 2000]) {
+      try {
+        const stream = llm.stream({
+          provider: selection.provider,
+          model: selection.model,
+          system,
+          messages: [{ role: 'user', content: [{ type: 'text', text: asString(text).slice(0, 6000) }] }],
+          maxTokens: budget,
+          temperature: 0.2,
+          purpose: 'insight',
+        })
+        const out = await collectText(stream)
+        if (out) return { text: out }
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error)
+      }
+    }
+    return { text: '', reason: lastError || '模型返回空' }
   }
 
   /**
@@ -3342,6 +3641,11 @@ function createSyncEngine(ctx) {
     persistState,
     sync,
     getSettings: () => settings,
+    insightLocal,
+    /* 面板打开时带上的「今天那份诊断」：只要还在同一天就给，任务变动不该让结论凭空消失 */
+    cachedInsight: () => (state.insight && Number(state.insight.at ?? 0) >= dayStart(0) ? state.insight : null),
+    diagnoseInsight,
+    exportInsight,
     normalizeTaskTitles,
     orphanSessions,
     archiveOrphans,
@@ -3558,6 +3862,26 @@ function mountRoutes(ctx, engine) {
           if (route === '/api/tasks/rename' && req.method === 'POST') {
             const body = await readBody(req)
             const result = await engine.renameTask(asString(body.taskId ?? body.id), asString(body.title))
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (route === '/api/insight' && req.method === 'GET') {
+            /* 连同「今天已经诊断过的那份」一起给，刷新面板不用重新烧 token */
+            sendJson(res, 200, { ok: true, local: engine.insightLocal(), ai: engine.cachedInsight() })
+            return
+          }
+
+          if (route === '/api/insight/diagnose' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.diagnoseInsight(body.force === true)
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (route === '/api/insight/export' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.exportInsight(asString(body.taskId), asString(body.text))
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }
