@@ -449,6 +449,16 @@ export const defaultPack: ContentPack = {
         ],
       },
       {
+        // R332：真正使用 `converse` 的会议流程。meeting 站点此前没有任务会选它。
+        id: 'task.team-sync',
+        name: '开一次同步会',
+        description: '去会议桌同步进展，散会后整理结论并交付。',
+        tasks: [
+          { key: 'meet', title: '开一次同步会', description: '到作战室同步当前进展、阻塞与下一步。', requires: ['converse'], dependsOn: [], acceptance: '会议结论写清现状、阻塞与下一步', estimateTicks: 240, role: 'lead' },
+          { key: 'notes', title: '整理会议结论', description: '把会议结论整理成可执行的三段式记录。', requires: ['deliver'], dependsOn: ['meet'], acceptance: '结论含现状、阻塞、下一步', estimateTicks: 180, role: 'ops' },
+        ],
+      },
+      {
         // ⚠️ 同 `task.software-feature`：需要代码工具，当前能力面下走不完（见 D46）。
         id: 'task.quick-fix',
         name: '快速修一个 bug',
