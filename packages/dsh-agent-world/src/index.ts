@@ -30,6 +30,7 @@ import type { CharacterBridge } from './bridge/index.js'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
 import { resolveContentRoot } from './content/load-files.js'
 import { createHandler } from './routes/index.js'
+import type { DialogueChannel } from './routes/dialogue.js'
 import { createEventHub, createRuntime } from './runtime/index.js'
 import { planTeamSync } from './sim/index.js'
 import { createWorldStore } from './store/index.js'
@@ -626,6 +627,61 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       ;(dispose as (() => void) | undefined)?.()
     }
   }
+  /**
+   * R340：主会话事件 → 世界的对话气泡。
+   *
+   * 场景里搭话走 `/api/say`，但用户在**主界面**直接对话时没有经过这条链；
+   * 这里把同一个 active session（以及 subagent session）的 user/assistant 消息
+   * 注入 dialogue SSE，气泡/状态就不再只对场景搭话生效。
+   */
+  let mainDialogueChannel: DialogueChannel | null = null
+  let mainTurnSeq = 0
+  const turnBySession = new Map<string, string>()
+  if (typeof listen === 'function') {
+    const disposeDialogue = listen('session/event', (session, event) => {
+      if (mainDialogueChannel === null) return
+      if (event.type !== 'user/message' && event.type !== 'assistant/message') return
+      const world = state.currentWorld()
+      if (world === null) return
+      const sessionId = typeof session?.id === 'string' ? session.id : ''
+      const lead = world.agents.find((agent) => agent.boundAgentId === null)
+      const actor = world.agents.find((agent) => agent.boundAgentId === sessionId)
+        ?? (sessionId === state.activeSessionId ? lead : undefined)
+      if (actor === undefined) return
+      const message = event.data?.['message'] as { content?: unknown } | undefined
+      const blocks = Array.isArray(message?.content) ? message.content : []
+      const text = blocks
+        .filter((block): block is { type: string; text: string } => {
+          const b = block as Record<string, unknown>
+          return b?.['type'] === 'text' && typeof b['text'] === 'string' && b['text'].trim() !== ''
+        })
+        .map((block) => block.text).join('\n\n').trim()
+      if (text === '') return
+      const tick = world.tick
+      if (event.type === 'user/message') {
+        const turnId = `main-${String(++mainTurnSeq)}`
+        turnBySession.set(sessionId, turnId)
+        mainDialogueChannel.publish({
+          turnId, tick, phase: 'thinking',
+          from: { kind: 'god' }, to: { kind: 'agent', id: actor.id }, text,
+        })
+        return
+      }
+      const replyTurn = turnBySession.get(sessionId) ?? `main-${String(++mainTurnSeq)}`
+      turnBySession.delete(sessionId)
+      mainDialogueChannel.publish({
+        turnId: replyTurn,
+        tick, phase: 'replied',
+        from: { kind: 'agent', id: actor.id }, to: { kind: 'god' }, text,
+      })
+    })
+    try {
+      ctx.effect(() => () => { (disposeDialogue as (() => void) | undefined)?.() })
+    } catch (error) {
+      if (!(error instanceof Error) || !/inactive context/i.test(error.message)) throw error
+      ;(disposeDialogue as (() => void) | undefined)?.()
+    }
+  }
   const pendingReplies = new Map<string, Promise<string>>()
   const captainSentAt = new Map<string, number>()
   function replyFor(sessionId: string, timeoutMs = 60_000): Promise<string> {
@@ -823,6 +879,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         tickMs: state.tickMs,
         maxLiveSessions: resolved.maxLiveSessions,
         dialogue: activeDialoguePort,
+        onDialogueChannel: (channel) => { mainDialogueChannel = channel },
         // R166：一个会话一个世界；同一时刻只有激活的那个在跑。
         activateSession: (sessionId: string) => {
           viewSessionId = sessionId

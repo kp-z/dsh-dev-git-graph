@@ -12,6 +12,7 @@ import type { RouteEntry } from './router.js'
 import { apiRoutes } from './api.js'
 import type { ApiDeps } from './api.js'
 import { createDialogueChannel, dialogueRoutes } from './dialogue.js'
+import type { DialogueChannel } from './dialogue.js'
 import type { DialoguePort } from './dialogue.js'
 import { eventsRoutes } from './events.js'
 import { panelRoutes } from './panel.js'
@@ -36,6 +37,8 @@ export interface HttpDeps extends ApiDeps {
   maxLiveSessions?: number
   /** 等模型回复的超时（ms）；测试调短用。 */
   replyTimeoutMs?: number
+  /** R340：把建好的对话通道交出去，供主会话事件注入。 */
+  onDialogueChannel?: (channel: DialogueChannel) => void
   /** SSE 心跳间隔（ms）。默认 15 秒；测试会调短。 */
   heartbeatMs?: number
   /** 面板静态文件的根目录；默认取 `lib/web`（由 `scripts/copy-web.mjs` 从 `web/` 同步）。 */
@@ -95,6 +98,8 @@ export function buildRoutes(deps: HttpDeps): RouteEntry[] {
     ...(deps.maxLiveSessions === undefined ? {} : { maxLiveSessions: deps.maxLiveSessions }),
     ...(deps.replyTimeoutMs === undefined ? {} : { replyTimeoutMs: deps.replyTimeoutMs }),
   })
+
+  deps.onDialogueChannel?.(dialogue)
 
   return [
     ...eventsRoutes({
