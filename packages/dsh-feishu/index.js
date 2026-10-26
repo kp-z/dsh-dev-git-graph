@@ -128,6 +128,31 @@ function pluginVersion() {
 /* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
 export const PROMPT_REV = 5
 
+/**
+ * 早会同步专用提示词。
+ *
+ * 和「诊断」不同：诊断回答「现在有什么问题」，早会回答「今天先做哪一件」。
+ * 复用同一套 JSON 字段，只是语义错位映射（headline=今天的一件事、issues=今天的三步排期、
+ * advice=最可能翻车的地方、today=昨天实际推进），这样面板不用为它写第二套解析。
+ */
+export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。根据任务清单与最近对话摘要，输出一个 JSON 对象，
+不要解释、不要 markdown 代码块，格式严格如下：
+
+{"headline":"今天最该做的一件事（不超过 30 字，要具体到任务号）",
+ "today":"昨天实际推进了什么（不超过 50 字；没有推进就直说，不要美化）",
+ "issues":[{"taskNo":12,"level":"info","text":"为什么先做它（不超过 26 字）","evidence":"第一步具体动作（不超过 30 字）"}],
+ "advice":"今天最可能翻车的地方（不超过 50 字）",
+ "commentary":"一句提醒同事的话（不超过 60 字）",
+ "charts":[{"type":"bar|line|pie|sunburst","dataset":"done_by_day_7|started_by_day_7|wip_by_day_14|state_distribution|workspace_distribution","title":"图表标题（不超过 14 字）","why":"为什么用这张图（不超过 20 字）"}],
+ "score":{"focus":0-100,"throughput":0-100,"hygiene":0-100}}
+
+规则：
+- issues 最多 3 条，按优先级排，就是今天的排期。
+- 不要罗列任务计数（共几个、几个在跑、完成几个），卡片上方已有统计。
+- 只依据给到的信息，不编造任务与数字；需要举例用任务号（T8、T12）。
+- charts 选 1 张最有说服力的；type/dataset 只能从枚举里选。
+- 中文，句子短，不喊口号。`
+
 export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根据给你的任务清单与最近对话摘要，输出一个 JSON 对象，
 不要解释、不要 markdown 代码块，格式严格如下：
 
@@ -838,20 +863,27 @@ function runCli(command, args, { timeoutMs = 180_000 } = {}) {
 function parseJson(text) {
   const raw = asString(text).trim()
   if (!raw) return undefined
-  try {
-    return JSON.parse(raw)
-  } catch {
-    /* 日志混在 stdout 里时，退一步找第一个 JSON 起点 */
+  const candidates = [raw]
+  /* 模型常把 JSON 包在 ```json 围栏里 */
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence) candidates.push(fence[1].trim())
+  /* 前后夹了解释文字：取第一个 { 到最后一个 }（数组同理） */
+  const firstBrace = raw.indexOf('{')
+  const lastBrace = raw.lastIndexOf('}')
+  if (firstBrace >= 0 && lastBrace > firstBrace) candidates.push(raw.slice(firstBrace, lastBrace + 1))
+  const firstBracket = raw.indexOf('[')
+  const lastBracket = raw.lastIndexOf(']')
+  if (firstBracket >= 0 && lastBracket > firstBracket) candidates.push(raw.slice(firstBracket, lastBracket + 1))
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate)
+    } catch {
+      /* 试下一个候选 */
+    }
   }
-  const starts = [raw.indexOf('['), raw.indexOf('{')].filter((i) => i >= 0)
-  if (starts.length === 0) return undefined
-  const from = Math.min(...starts)
-  try {
-    return JSON.parse(raw.slice(from))
-  } catch {
-    return undefined
-  }
+  return undefined
 }
+
 
 /* ────────────────────── 补充通道（自定义字段 / 人员 / 清单名） ────────────────────── */
 
@@ -2748,9 +2780,10 @@ function createSyncEngine(ctx) {
   }
 
   /** AI 诊断：一句话结论 + 3 条问题 + 三个粗分。失败返回 null，由面板降级。 */
-  async function diagnoseInsight(force = false, promptOverride = '') {
+  async function diagnoseInsight(force = false, promptOverride = '', mode = '') {
     const custom = asString(promptOverride).trim()
-    const signature = custom ? `${insightSignature()}:${custom.length}:${custom.slice(0, 24)}` : insightSignature()
+    const scope = custom ? `${custom.length}:${custom.slice(0, 24)}` : (mode || 'default')
+    const signature = `${insightSignature()}:${scope}`
     /* 结果落在 state 里：热重载/重启之后「今天已经诊断过」这件事不该丢 */
     if (!force && state.insight && state.insightSignature === signature
       && Number(state.insight.promptRev ?? 0) === PROMPT_REV) {
@@ -2772,11 +2805,28 @@ function createSyncEngine(ctx) {
       + ` · 今日完成 ${local.today.doneCount} · 完成度 ${local.today.completion === null ? '—' : `${local.today.completion}%`}`
     const promptText = `${context}\n\n卡片上方已经显示的统计（**不要重复这些数字**）：${statLine}`
       + `\n\n可用图表数据集（挑图表时用这些 key，不要另造）：\n${dataBrief}`
-    const systemPrompt = custom || asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT
-    const asked = await askModelForInsight(systemPrompt, promptText)
-    const parsed = parseJson(asked.text)
+    /* 按钮上的 prompt 是「额外要求」，不是整份提示词的替代品——
+       否则用户随手写的一句「忽略某些任务」会把 JSON 格式要求整个顶掉，模型就不吐 JSON 了。 */
+    const basePrompt = mode === 'morning'
+      ? DEFAULT_MORNING_PROMPT
+      : (asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT)
+    const systemPrompt = custom ? `${basePrompt}\n\n额外要求（在满足上面的格式前提下优先遵守）：\n${custom}` : basePrompt
+    /* 输出被 maxTokens 截断时文本非空但 JSON 不完整，所以要按「能否解析」决定是否加预算重试 */
+    let asked = { text: '', reason: '' }
+    let parsed
+    for (const budget of [900, 2200, 3600]) {
+      asked = await askModelForInsight(systemPrompt, promptText, budget)
+      parsed = parseJson(asked.text)
+      if (parsed && typeof parsed === 'object') break
+      if (!asString(asked.text).trim() && asked.reason) break
+    }
     if (!parsed || typeof parsed !== 'object') {
-      return { ok: false, reason: asked.reason || '模型返回的不是 JSON' }
+      /* 把原文前 160 字带回去，排查时不用再去翻日志 */
+      return {
+        ok: false,
+        reason: asked.reason || '模型返回的不是 JSON',
+        raw: asString(asked.text).slice(0, 160),
+      }
     }
     const data = {
       headline: asString(parsed.headline).slice(0, 120),
@@ -2986,7 +3036,7 @@ function createSyncEngine(ctx) {
     return Math.max(0, Math.min(100, Math.round(n)))
   }
 
-  async function askModelForInsight(system, text) {
+  async function askModelForInsight(system, text, maxTokens = 900) {
     const llm = await awaitService(ctx, 'llm')
     const models = await awaitService(ctx, 'agentDefaultModel')
     const selection = typeof models?.currentSelection === 'function' ? models.currentSelection() : undefined
@@ -2994,7 +3044,7 @@ function createSyncEngine(ctx) {
       return { text: '', reason: '没有可用的模型' }
     }
     let lastError = ''
-    for (const budget of [900, 2000]) {
+    for (const budget of [maxTokens, Math.max(maxTokens, 2400)]) {
       try {
         const stream = llm.stream({
           provider: selection.provider,
@@ -4135,7 +4185,7 @@ function mountRoutes(ctx, engine) {
 
           if (route === '/api/insight/diagnose' && req.method === 'POST') {
             const body = await readBody(req)
-            const result = await engine.diagnoseInsight(body.force === true, asString(body.prompt))
+            const result = await engine.diagnoseInsight(body.force === true, asString(body.prompt), asString(body.mode))
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }
