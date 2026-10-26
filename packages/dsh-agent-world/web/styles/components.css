@@ -3641,3 +3641,19 @@
   cursor: pointer;
 }
 .aw-hire-menu button:hover { background: var(--panel-2); color: var(--fg-0); }
+
+/* R345：新建 Agent 的可选名称输入。 */
+.aw-hire-menu .aw-hire-name {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 3px;
+  padding: 3px 6px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 4px;
+  background: var(--panel-1);
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 10px;
+  outline: none;
+}
+.aw-hire-menu .aw-hire-name:focus { border-color: var(--screen); }

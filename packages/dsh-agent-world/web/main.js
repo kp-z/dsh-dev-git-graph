@@ -1331,6 +1331,16 @@ function renderAgentActions(team) {
     hireMenu.className = 'aw-hire-menu'
     hireMenu.role = 'menu'
     hireMenu.hidden = true
+    const hireName = doc.createElement('input')
+    hireName.type = 'text'
+    hireName.className = 'aw-hire-name'
+    hireName.placeholder = '名称（可选）'
+    hireName.setAttribute('aria-label', '新 Agent 名称')
+    hireName.addEventListener('click', (event) => event.stopPropagation())
+    hireName.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') event.preventDefault()
+    })
+    hireMenu.append(hireName)
     for (const role of ['lead', 'engineer', 'researcher', 'reviewer', 'ops', 'docs']) {
       const item = doc.createElement('button')
       item.type = 'button'
@@ -1339,7 +1349,7 @@ function renderAgentActions(team) {
       item.addEventListener('click', () => {
         hireMenu.hidden = true
         hire.setAttribute('aria-expanded', 'false')
-        void sendCommand({ kind: 'hire', role, name: null })
+        void sendCommand({ kind: 'hire', role, name: hireName.value.trim() === '' ? null : hireName.value.trim() })
       })
       hireMenu.append(item)
     }
@@ -1347,8 +1357,13 @@ function renderAgentActions(team) {
       event.stopPropagation()
       hireMenu.hidden = !hireMenu.hidden
       hire.setAttribute('aria-expanded', String(!hireMenu.hidden))
+      if (!hireMenu.hidden) hireName.focus()
     })
-    doc.addEventListener('click', () => { hireMenu.hidden = true; hire.setAttribute('aria-expanded', 'false') })
+    doc.addEventListener('click', (event) => {
+      if (hireWrap.contains(event.target)) return
+      hireMenu.hidden = true
+      hire.setAttribute('aria-expanded', 'false')
+    })
     hireWrap.addEventListener('keydown', (event) => {
       if (event.key !== 'Escape' || hireMenu.hidden) return
       event.stopPropagation()
