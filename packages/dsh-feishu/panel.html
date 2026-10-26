@@ -582,16 +582,21 @@
     flex-direction: column;
     gap: 6px;
     min-width: 0;
-    /* 和右侧图表等高：文字在上、展开按钮贴底 */
-    justify-content: space-between;
+    /* 文字从上往下排，「展开」跟在最后一行后面 */
+    justify-content: flex-start;
   }
 
-  .insight-text-foot {
-    display: flex;
-    gap: 6px;
-    align-items: center;
-    margin-top: auto;
+  /* 「展开 / 收起」只是一行小字，不是按钮 */
+  .insight-more {
+    font-size: 11px;
+    color: var(--p-accent);
+    cursor: pointer;
+    user-select: none;
+    margin-top: 2px;
+    width: fit-content;
   }
+
+  .insight-more:hover { text-decoration: underline; }
 
   .insight-buttons {
     display: flex;
@@ -1827,9 +1832,7 @@
         <div id="insightMeta" class="insight-meta"></div>
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
         <div id="insightExtra" class="insight-extra"></div>
-        <div class="insight-text-foot">
-          <button type="button" id="insightToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="insightBody">展开</button>
-        </div>
+        <div id="insightToggle" class="insight-more" role="button" tabindex="0" aria-expanded="false" aria-controls="insightBody">展开</div>
       </div>
       <div id="insightCharts" class="insight-charts" aria-label="AI 选的图表"></div>
     </div>
@@ -3137,7 +3140,6 @@
   function loadInsight() {
     return api('insight', undefined, { silent: true }).then(function (data) {
       app.insightLocal = (data && data.local) || null;
-      if (data && data.ai) app.insightAI = data.ai;
       renderInsight();
     }, function () {
       /* 拿不到就保持空态，不影响任务列表 */
@@ -3666,9 +3668,8 @@
       syncToggleLabel();
       loadInsightStats();
       renderInsightBody();
-      /* 按钮上写了 prompt 就按它跑一次；没写就复用当天的诊断 */
+      /* 只在按钮上写了 prompt 时才真的调模型；否则纯本地视图，点一次才花一次 token */
       if (btn.prompt) onInsightDiagnose(btn.prompt);
-      else ensureInsightAI();
       return;
     }
     if (btn.kind === 'export') {
@@ -3684,23 +3685,6 @@
     if (!toggle) return;
     toggle.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
     toggle.textContent = app.insightOpen ? '收起' : '展开';
-  }
-
-  /* 没有 AI 结论时才调用；有就复用（state 里按天缓存） */
-  function ensureInsightAI() {
-    if (app.insightAI || app.insightLoading) return Promise.resolve(app.insightAI);
-    app.insightLoading = true;
-    renderInsight();
-    return api('insight/diagnose', {}).then(function (data) {
-      app.insightLoading = false;
-      app.insightAI = (data && data.data) || null;
-      renderInsight();
-      return app.insightAI;
-    }, function () {
-      app.insightLoading = false;
-      renderInsight();
-      return null;
-    });
   }
 
   function onInsightDiagnose(prompt) {
@@ -4617,7 +4601,6 @@
   loadInsight();
   /* 收起状态也要看到图表与结论，所以开局就把趋势和当天那份 AI 结论拉回来 */
   loadInsightStats();
-  ensureInsightAI();
   renderAll();  // 先渲染空态，避免白屏
   load().then(schedulePoll);
 })();
