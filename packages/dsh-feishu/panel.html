@@ -571,9 +571,10 @@
   /* 中间块：左文字 / 右图表。顶部那一行（今日洞察 + 统计）保持整行。 */
   .insight-mid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 152px;
+    /* 饼图至少占一半宽 */
+    grid-template-columns: minmax(0, 1fr) minmax(50%, 1fr);
     gap: 10px;
-    align-items: start;
+    align-items: center;
   }
 
   .insight-text {
@@ -583,19 +584,20 @@
     min-width: 0;
   }
 
-  .insight-commentary {
-    font-size: 11px;
-    line-height: 1.5;
+  /* 详细文字默认不占地方：一行提示，鼠标悬浮由 title 给出完整结论 + AI 判断 + 三个分 */
+  .insight-hint {
+    font-size: 10px;
     color: var(--p-text-3);
-    padding-left: 2px;
+    cursor: help;
+    user-select: none;
   }
 
-  .insight-commentary[hidden] { display: none; }
+  .insight-commentary { display: none; }
 
   .insight-charts {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    align-items: center;
+    justify-content: center;
     min-width: 0;
   }
 
@@ -633,9 +635,9 @@
 
   .mini-line svg { width: 100%; height: 24px; display: block; }
 
-  .mini-donut { display: flex; align-items: center; gap: 6px; }
-  .mini-donut svg { width: 34px; height: 34px; flex: 0 0 auto; }
-  .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 1px; font-size: 9.5px; color: var(--p-text-3); }
+  .mini-donut { display: flex; align-items: center; gap: 8px; }
+  .mini-donut svg { width: 96px; height: 96px; flex: 0 0 auto; }
+  .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--p-text-2); }
   .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
 
   .insight-head {
@@ -672,8 +674,12 @@
   }
 
   .insight-line {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
     font-size: 11.5px;
-    line-height: 1.55;
+    line-height: 1.5;
     color: var(--p-text-2);
     padding: 6px 8px;
     border-radius: 6px;
@@ -1718,6 +1724,7 @@
       <div class="insight-text">
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
         <div id="insightCommentary" class="insight-commentary" hidden></div>
+        <div id="insightHint" class="insight-hint">悬浮看细节</div>
       </div>
       <div id="insightCharts" class="insight-charts" aria-label="AI 选的图表"></div>
     </div>
@@ -3085,6 +3092,31 @@
       commentary.hidden = !note;
     }
 
+    /* 详细文字走 hover：结论全文 + AI 的判断 + 三个粗分 */
+    var mid = document.querySelector('.insight-mid');
+    var hint = $('insightHint');
+    if (mid) {
+      var detail = [];
+      if (ai && ai.headline) detail.push(ai.headline);
+      if (ai && ai.commentary) detail.push(ai.commentary);
+      if (ai && ai.advice) detail.push('建议：' + ai.advice);
+      if (ai && ai.score) {
+        var parts = [];
+        if (ai.score.focus !== null && ai.score.focus !== undefined) parts.push('专注 ' + ai.score.focus);
+        if (ai.score.throughput !== null && ai.score.throughput !== undefined) parts.push('产出 ' + ai.score.throughput);
+        if (ai.score.hygiene !== null && ai.score.hygiene !== undefined) parts.push('收尾 ' + ai.score.hygiene);
+        if (parts.length) detail.push(parts.join(' · '));
+      }
+      if (detail.length) {
+        mid.title = detail.join('\n');
+        mid.style.cursor = 'help';
+      } else {
+        mid.removeAttribute('title');
+        mid.style.cursor = '';
+      }
+      if (hint) hint.hidden = !detail.length;
+    }
+
     renderInsightCharts();
     renderInsightBody();
   }
@@ -3167,6 +3199,11 @@
    * AI 只决定「用哪种图 + 用哪个数据集 + 标题」，数值一律来自本地 datasets——
    * 既保留 AI 选图的灵活度，又保证图上没有一个编出来的数字。
    */
+  /**
+   * 图表区：**只放一张饼图**（宽 ≥50%），类型固定为 pie/donut。
+   * AI 仍然决定「用哪份数据 + 标题 + 理由」，但不再决定图的形状——
+   * 一张卡里塞三种图会把「今天该干什么」这件事本身淹掉。
+   */
   function renderInsightCharts() {
     var box = $('insightCharts');
     if (!box) return;
@@ -3178,11 +3215,20 @@
     }
     var ai = app.insightAI;
     var specs = (ai && Array.isArray(ai.charts) && ai.charts.length) ? ai.charts : FALLBACK_CHARTS;
-    specs.slice(0, 3).forEach(function (spec) {
-      var data = datasets[spec.dataset];
-      if (!data) return;
-      box.appendChild(renderOneChart(spec, data));
-    });
+    /* 优先挑能画成饼的那张：状态分布 / 工作区分布；AI 选了时间序列就退回状态分布 */
+    var pick = null;
+    for (var i = 0; i < specs.length; i++) {
+      var data = datasets[specs[i].dataset];
+      if (data && data.labels && data.values) { pick = specs[i]; break; }
+    }
+    if (!pick) pick = { dataset: 'state_distribution', title: '状态分布' };
+    var chosen = datasets[pick.dataset];
+    var wrap = el('div', { 'class': 'insight-chart' });
+    var title = el('div', { 'class': 'chart-title', text: pick.title || '' });
+    if (pick.why) title.title = pick.why;
+    wrap.appendChild(title);
+    wrap.appendChild(chartDonutCanvas(chosen, true));
+    box.appendChild(wrap);
   }
 
   function renderOneChart(spec, data) {
@@ -3281,7 +3327,7 @@
     });
     wrap.appendChild(svg);
     var legend = el('div', { 'class': 'mini-legend' });
-    labels.slice(0, 3).forEach(function (label, index) {
+    labels.slice(0, 4).forEach(function (label, index) {
       var row = el('span');
       row.appendChild(el('i', { style: 'background:' + palette[index % palette.length] }));
       row.appendChild(el('span', { text: String(label).slice(0, 8) + ' ' + values[index] }));

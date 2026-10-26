@@ -137,10 +137,11 @@
 
 接口：`GET /api/insight`、`GET /api/insight/stats?days=14`、`POST /api/insight/diagnose`、`POST /api/insight/export`。
 
-**布局**：顶栏（今日洞察 + 统计）整行保留；中间块再分左右——左边文字（结论 + AI 补一句判断），
-右边 152px 图表常驻（收起也看得见）；展开的清单横跨整宽。
+**布局**：顶栏（今日洞察 + 统计）整行保留；中间块左右各半——左边一行结论（超出省略，**悬浮看全文 +
+AI 判断 + 三个分**），右边**一张饼图，宽度至少 50%**；展开的清单横跨整宽。
 
-**图表由 AI 选**：诊断时模型返回 `charts:[{type,dataset,title,why}]`，`type` 限 `bar/line/pie/sunburst`，
+**图表由 AI 选数据、形状固定为饼图**：诊断时模型返回 `charts:[{type,dataset,title,why}]`（`type` 支持
+`bar/line/pie/sunburst`，卡片里统一按饼图渲染——一张卡塞三种图会淹没重点），
 `dataset` 限五个本地数据集（近 7 天完成、近 7 天开工、近 14 天 WIP、状态分布、工作区分布）。
 **数字永远来自本地**，模型只决定「用哪种图、展示哪份数据、标题怎么写」——既 AI 化，又不会出现编造的数值。
 
