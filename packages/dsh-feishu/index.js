@@ -109,14 +109,24 @@ export async function adoptPreviousState(currentFile) {
   return candidates[0]
 }
 
-/** 插件版本：面板顶部要显示，好让人一眼知道当前跑的是哪一版。 */
-const PLUGIN_VERSION = (() => {
+/**
+ * 插件版本：面板顶部要显示，好让人一眼知道当前跑的是哪一版。
+ *
+ * 懒读 + 5s 缓存：热重载时 Node 的 ESM 模块缓存可能还留着旧模块，模块级常量会一直是旧版本号；
+ * 每次请求现读 package.json（走文件系统缓存）既能立刻反映新版本，也不会每次请求都真的读盘。
+ */
+let versionCache = { at: 0, value: '' }
+function pluginVersion() {
+  const now = Date.now()
+  if (versionCache.value && now - versionCache.at < 5000) return versionCache.value
   try {
-    return JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version ?? ''
+    const value = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version ?? ''
+    versionCache = { at: now, value }
+    return value
   } catch {
-    return ''
+    return versionCache.value
   }
-})()
+}
 
 const DEFAULT_SETTINGS = {
   autoSync: true,
@@ -909,7 +919,7 @@ function createSyncEngine(ctx) {
   function snapshot() {
     const live = liveSessionIds()
     return {
-      version: PLUGIN_VERSION,
+      version: pluginVersion(),
       settings,
       workspaces: workspaces(),
       state: {
