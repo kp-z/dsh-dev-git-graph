@@ -1349,6 +1349,13 @@ function renderAgentActions(team) {
       hire.setAttribute('aria-expanded', String(!hireMenu.hidden))
     })
     doc.addEventListener('click', () => { hireMenu.hidden = true; hire.setAttribute('aria-expanded', 'false') })
+    hireWrap.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || hireMenu.hidden) return
+      event.stopPropagation()
+      hireMenu.hidden = true
+      hire.setAttribute('aria-expanded', 'false')
+      hire.focus()
+    })
     hireWrap.append(hire, hireMenu)
     const select = doc.createElement('select')
     select.className = 'aw-view-select aw-team-select'
