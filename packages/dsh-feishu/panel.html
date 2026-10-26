@@ -793,6 +793,15 @@
     color: var(--p-text-3);
   }
 
+  /* 设置页：独立一页，不和内容同屏 */
+  .insight-settings-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 2px;
+  }
+
   /* 洞察设置面板 */
   .insight-buttons-editor {
     display: flex;
@@ -1802,12 +1811,14 @@
 
   <!-- 2.5 Insight：早会视图（本地指标秒出，AI 诊断按需） -->
   <section id="insightCard" class="card insight-card" aria-labelledby="insightTitle" hidden>
+    <!-- 内容页 -->
+    <div id="insightContent">
     <!-- 顶栏：整行保留；动作按钮在右上角 -->
     <div class="insight-head">
       <span class="insight-avatar" aria-hidden="true">💡</span>
       <strong id="insightTitle" class="insight-title">今日洞察</strong>
       <div id="insightButtons" class="insight-buttons"></div>
-      <button type="button" id="insightGear" class="btn btn-ghost btn-xs insight-gear" title="洞察设置（按钮 / Prompt / 快捷键）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
+      <button type="button" id="insightGear" class="btn btn-ghost btn-xs insight-gear" title="洞察设置（按钮 / Prompt）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
     </div>
 
     <!-- 中间块：左文字（含「展开」） / 右饼图，左右等高 -->
@@ -1823,26 +1834,27 @@
       <div id="insightCharts" class="insight-charts" aria-label="AI 选的图表"></div>
     </div>
 
+    <div id="insightBody" class="insight-body" hidden></div>
+    </div>
+
+    <!-- 设置页：和内容不同时出现 -->
     <div id="insightSettingsPanel" class="insight-settings" hidden>
+      <div class="insight-settings-head">
+        <strong class="insight-title">洞察设置</strong>
+        <button type="button" id="insightSettingsDone" class="btn btn-primary btn-xs">完成</button>
+      </div>
       <label class="insight-settings-label" for="insightPromptInput">诊断 Prompt</label>
       <textarea id="insightPromptInput" rows="6" spellcheck="false" placeholder="留空 = 用内置默认提示词"></textarea>
       <div class="insight-settings-label">按钮（可增删；每个按钮可带自己的 Prompt）</div>
       <div id="insightButtonsEditor" class="insight-buttons-editor"></div>
       <div><button type="button" id="insightAddButton" class="btn btn-ghost btn-xs">+ 添加按钮</button></div>
 
-      <div class="insight-settings-label">快捷键（点输入框后按组合键，Esc 清除）</div>
-      <div class="insight-hk-grid">
-        <label for="hkMorning">早会同步</label><input id="hkMorning" readonly placeholder="未绑定">
-        <label for="hkDiagnose">AI 诊断</label><input id="hkDiagnose" readonly placeholder="未绑定">
-        <label for="hkExport">写入评论</label><input id="hkExport" readonly placeholder="未绑定">
-      </div>
       <div class="insight-actions">
         <button type="button" id="insightSettingsSave" class="btn btn-primary btn-xs">保存</button>
         <button type="button" id="insightSettingsReset" class="btn btn-ghost btn-xs">恢复默认 Prompt</button>
         <span id="insightSettingsHint" class="insight-empty"></span>
       </div>
     </div>
-    <div id="insightBody" class="insight-body" hidden></div>
   </section>
 
   <!-- 3. 任务列表 -->
@@ -3139,7 +3151,7 @@
   }
 
   function renderInsight() {
-    renderInsightSettings();
+    if (!app.insightSettingsOpen) renderInsightSettings();
     renderInsightButtons();
     syncToggleLabel();
     var card = $('insightCard');
@@ -3735,13 +3747,6 @@
 
   /* ---------------- 洞察设置（Prompt / 快捷键） ---------------- */
 
-  var HK_FIELDS = [
-    ['morning', 'hkMorning'],
-    ['diagnose', 'hkDiagnose'],
-    ['export', 'hkExport']
-  ];
-
-
   /* 按钮编辑器：草稿态，点「保存」才写回设置 */
   function insightDraftButtons() {
     if (!app.insightDraft) {
@@ -3797,11 +3802,6 @@
     var prompt = (app.settings && app.settings.insightPrompt) || '';
     var node = $('insightPromptInput');
     if (node && document.activeElement !== node) node.value = prompt;
-    var keys = (app.settings && app.settings.insightHotkeys) || {};
-    HK_FIELDS.forEach(function (pair) {
-      var input = $(pair[1]);
-      if (input && document.activeElement !== input) input.value = keys[pair[0]] || '';
-    });
   }
 
   function toggleInsightSettings(force) {
@@ -3810,47 +3810,21 @@
     if (!panel) return;
     var open = typeof force === 'boolean' ? force : panel.hidden;
     if (open) app.insightDraft = null;
+    /* 设置和内容是两个页面，绝不同时出现 */
+    app.insightSettingsOpen = open;
+    var content = $('insightContent');
+    if (content) content.hidden = open;
     panel.hidden = !open;
     if (gear) gear.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) renderInsightSettings();
   }
 
   /* 把 KeyboardEvent 变成 `Alt+Shift+M` 这样的字符串；返回 '' 表示不合法。 */
-  function comboOf(event) {
-    var mods = [];
-    if (event.altKey) mods.push('alt');
-    if (event.shiftKey) mods.push('shift');
-    if (event.ctrlKey) mods.push('ctrl');
-    if (event.metaKey) mods.push('meta');
-    var key = String(event.key || '');
-    if (!/^[a-z0-9]$/i.test(key) || !mods.length) return '';
-    return mods.join('+') + '+' + key.toUpperCase();
-  }
-
   function wireInsightSettings() {
     var gear = $('insightGear');
     if (gear) {
       gear.addEventListener('click', function () { toggleInsightSettings(); });
     }
-
-    HK_FIELDS.forEach(function (pair) {
-      var input = $(pair[1]);
-      if (!input) return;
-      input.addEventListener('keydown', function (event) {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          input.value = '';
-          return;
-        }
-        var combo = comboOf(event);
-        if (!combo) return;
-        event.preventDefault();
-        input.value = combo;
-      });
-    });
-
-    var addBtn = $('insightAddButton');
-    if (addBtn) addBtn.addEventListener('click', addInsightButton);
 
     var save = $('insightSettingsSave');
     if (save) {
@@ -3860,11 +3834,6 @@
           insightButtons: insightDraftButtons().map(function (btn) {
             return { id: btn.id, label: btn.label, prompt: btn.prompt, kind: btn.kind };
           }),
-          insightHotkeys: {
-            morning: String(($('hkMorning') || {}).value || '').trim(),
-            diagnose: String(($('hkDiagnose') || {}).value || '').trim(),
-            export: String(($('hkExport') || {}).value || '').trim()
-          }
         };
         save.disabled = true;
         api('settings', patch).then(function (data) {
@@ -3883,6 +3852,12 @@
       });
     }
 
+    var doneBtn = $('insightSettingsDone');
+    if (doneBtn) doneBtn.addEventListener('click', function () { toggleInsightSettings(false); });
+
+    var addBtn = $('insightAddButton');
+    if (addBtn) addBtn.addEventListener('click', addInsightButton);
+
     var reset = $('insightSettingsReset');
     if (reset) {
       reset.addEventListener('click', function () {
@@ -3892,40 +3867,9 @@
       });
     }
 
-    document.addEventListener('keydown', onInsightHotkey);
   }
 
-  /* 全局快捷键：只在面板聚焦时生效，输入框里打字不拦截。 */
-  function onInsightHotkey(event) {
-    var keys = (app.settings && app.settings.insightHotkeys) || {};
-    if (!keys.morning && !keys.diagnose && !keys.export) return;
-    var target = event.target;
-    var tag = target && target.tagName ? target.tagName.toLowerCase() : '';
-    if (tag === 'input' || tag === 'textarea' || (target && target.isContentEditable)) return;
-    var combo = comboOf(event);
-    if (!combo) return;
-    if (keys.morning && combo === keys.morning) {
-      event.preventDefault();
-      app.insightTab = 'morning';
-      app.insightOpen = true;
-      var toggle = $('insightToggle');
-      if (toggle) { toggle.setAttribute('aria-expanded', 'true'); toggle.textContent = '收起'; }
-      loadInsightStats();
-      renderInsight();
-      toast('早会同步');
-      return;
-    }
-    if (keys.diagnose && combo === keys.diagnose) {
-      event.preventDefault();
-      onInsightDiagnose();
-      return;
-    }
-    if (keys.export && combo === keys.export) {
-      event.preventDefault();
-      onInsightExport();
-    }
-  }
-
+  
   function wireInsight() {
     var toggle = $('insightToggle');
     if (toggle) {
