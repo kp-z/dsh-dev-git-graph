@@ -360,6 +360,9 @@ export function createScenePhaser(canvas, options = {}) {
   let wallsDebugVisible = new URLSearchParams(globalThis.location?.search ?? '').has('walls')
   let wallsDebugLayer = null
   let wallsDebugKey = ''
+  /** R335：`?ysort=1` 时画每个实体的底边线，直接看谁该挡谁。 */
+  let ysortDebugVisible = new URLSearchParams(globalThis.location?.search ?? '').has('ysort')
+  let ysortDebugLayer = null
   /** R232 诊断：最近一次建墙时 actorNodes 里有多少 sprite/body、挂上几个 collider。 */
   let lastWallAttach = { actors: 0, sprites: 0, bodies: 0, colliders: 0 }
   /**
@@ -2451,6 +2454,37 @@ export function createScenePhaser(canvas, options = {}) {
     }
   }
 
+
+  /**
+   * R335：Y 排序可视层。每条短线 = 实体的底边；青=角色，橙=家具，绿=椅子。
+   * 排序正确时：线更靠下的实体应画在线更靠上的实体前面。
+   */
+  function drawYSortDebug() {
+    if (ysortDebugVisible !== true || activeScene === null) {
+      if (ysortDebugLayer !== null) ysortDebugLayer.setVisible(false)
+      return
+    }
+    if (ysortDebugLayer === null) {
+      ysortDebugLayer = activeScene.add.container(0, 0)
+      ysortDebugLayer.setDepth(2001)
+    }
+    ysortDebugLayer.setVisible(true)
+    ysortDebugLayer.removeAll(true)
+    const g = activeScene.add.graphics()
+    ysortDebugLayer.add(g)
+    const entities = activeScene.layers?.entities?.list ?? []
+    for (const node of entities) {
+      if (node.visible === false) continue
+      const key = String(node.texture?.key ?? '')
+      if (key === 'map:layer0' || key === 'map:layer5') continue
+      const originY = node.originY ?? 0.5
+      const bottom = node.y + (node.displayHeight ?? 0) * (1 - originY)
+      const color = node.getData?.('actorId') != null ? 0x45d6ff : key.startsWith('office-chair') ? 0x65d98a : 0xffa94d
+      g.lineStyle(1, color, 0.9)
+      g.lineBetween(node.x - 7, bottom, node.x + 7, bottom)
+    }
+  }
+
   function render(input = {}) {
     lastRenderInput = input
     const { world: worldState, scene: plan, tick, messageDeliveryTicks } = input
@@ -2493,6 +2527,7 @@ export function createScenePhaser(canvas, options = {}) {
     // 真正决定遮挡的是这些按行取深度的墙条 —— 角色站到墙后才会被挡住。
     drawWalls()
     drawWallsDebug(plan, worldState?.nav ?? null)
+    drawYSortDebug()
     drawTiles()
     drawMapObjects()
     drawActors(worldState, plan, state.nowMs)
@@ -2865,6 +2900,12 @@ export function createScenePhaser(canvas, options = {}) {
       wallsDebugKey = ''
       if (wallsDebugLayer !== null) wallsDebugLayer.setVisible(wallsDebugVisible)
       return wallsDebugVisible
+    },
+    /** R335：底边可视层开关（也支持 `?ysort=1`）。 */
+    setYSortDebug: (on) => {
+      ysortDebugVisible = on === true
+      if (ysortDebugLayer !== null) ysortDebugLayer.setVisible(ysortDebugVisible)
+      return ysortDebugVisible
     },
     airWallAudit: () => {
       const nav = navGrid
