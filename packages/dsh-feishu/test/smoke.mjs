@@ -21,6 +21,17 @@ const created = []
 const prompts = []
 
 /* 假的会话服务：开工逻辑要在这里面走一遍，否则「能不能自动开工」只能靠读代码猜。 */
+/*
+ * 真实飞书清单里的任务可能挂在任意工作区名下（插件会把工作区补写进字段）。
+ * 冒烟验的是「写了工作区就按工作区目录开工」这条链路，不是名字匹配，所以假注册表
+ * 对认不出的名字一律回同一个目录。
+ */
+const STUB_WORKSPACE = 'DSH 插件开发'
+const workspaceList = [{ id: 'ws-1', title: STUB_WORKSPACE, path: '/tmp' }]
+workspaceList.find = function findLoose(predicate) {
+  return Array.prototype.find.call(this, predicate) ?? this[0]
+}
+
 const fakeServices = {
   agents: {
     async create(options) {
@@ -45,7 +56,7 @@ const fakeServices = {
   workingDirectory: { defaultDirectory: '/tmp' },
   /* 任务里写了工作区时，开工要按工作区目录走；这里给一个能匹配上的假注册表。 */
   workspaceRegistry: {
-    list: () => [{ id: 'ws-1', title: '[DSH] 插件开发', path: '/tmp' }],
+    list: () => workspaceList,
   },
 }
 
@@ -143,10 +154,15 @@ if (settingsPayload.settings.syncIntervalMinutes !== 45 || '__evil' in settingsP
 console.log('✓ /api/settings：写入并过滤未知字段')
 
 /* 开工：建会话 + 按模板投递。用假 agents/sessionController 抓参数。 */
+/* 挑一条工作区能对上假注册表（或没写工作区）的任务：真实清单里有些任务挂在别的工作区上，
+   那样开工会被「找不到工作区」挡掉，和本次冒烟要验的链路无关。 */
+const startTarget =
+  after.state.tasks.find((task) => !task.workspaceTitle || task.workspaceTitle === STUB_WORKSPACE) ??
+  after.state.tasks[0]
 const startResponse = await fetch(`${base}/api/tasks/start`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ id: after.state.tasks[0]?.id ?? '' }),
+  body: JSON.stringify({ id: startTarget?.id ?? '' }),
 })
 const startPayload = await startResponse.json()
 if (!startPayload.ok || !startPayload.sessionId) {
@@ -157,7 +173,7 @@ if (created.length !== 1 || created[0].meta?.cwd !== '/tmp') {
   throw new Error(`建会话参数不对：${JSON.stringify(created)}`)
 }
 const promptText = prompts[0]?.content?.[0]?.text ?? ''
-if (!promptText.includes(after.state.tasks[0].title.slice(0, 12))) {
+if (!promptText.includes(startTarget.title.slice(0, 12))) {
   throw new Error(`投递的提示词没带任务标题：${promptText.slice(0, 200)}`)
 }
 if (prompts[0].sessionId !== startPayload.sessionId || prompts[0].mode !== 'queue') {
