@@ -1557,6 +1557,14 @@
 
     <div class="row">
       <div class="row-main">
+        <label for="normalizeNames">统一任务命名</label>
+        <div class="hint">把已有任务名规整成「表情 + T&lt;n&gt;- + 标题」：漏表情的补上、编号和 no 不符的改正。可重复执行。</div>
+      </div>
+      <button type="button" id="normalizeNames" class="btn btn-ghost btn-sm">执行</button>
+    </div>
+
+    <div class="row">
+      <div class="row-main">
         <label for="cleanOrphans">清理孤儿会话</label>
         <div class="hint">插件开出来、但没有任何任务再指向它的会话（重复开工留下的）。先扫描，再决定是否归档。</div>
       </div>
@@ -3223,6 +3231,27 @@
         renderTasks();
       });
     }
+    /* 统一任务命名：把历史标题按同一规则规整（只改不一致的）。 */
+    var normBtn = $('normalizeNames');
+    if (normBtn) {
+      normBtn.addEventListener('click', function () {
+        normBtn.disabled = true;
+        normBtn.textContent = '执行中…';
+        api('tasks/normalize-titles', {}).then(function (res) {
+          normBtn.disabled = false;
+          normBtn.textContent = '执行';
+          var items = (res && res.items) || [];
+          var failed = items.filter(function (x) { return !x.ok; }).length;
+          toast((res && res.changed) ? ('已规整 ' + res.changed + ' 条任务名' + (failed ? '，失败 ' + failed + ' 条' : '')) : '任务名都已经统一了');
+          load({ quiet: true });
+        }, function () {
+          normBtn.disabled = false;
+          normBtn.textContent = '执行';
+          toast('规整失败，稍后再试');
+        });
+      });
+    }
+
     /* 清理孤儿会话：先扫描（列出前几条让用户确认），再归档。 */
     var cleanBtn = $('cleanOrphans');
     if (cleanBtn) {
