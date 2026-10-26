@@ -191,6 +191,8 @@ export function createBoard(options = {}) {
    * 图与成员列表照常能用。两者共用同一套渲染——不做第二份"官方任务看板"。
    */
   let teamTasks = null
+  /** R354：agentId → Persona（等级徽标）。 */
+  let personas = new Map()
   /** taskId → `{ revision, ownerName, status }`：图标操作用 revision 做 CAS。 */
   const teamMeta = new Map()
   /** 上一次官方任务的指纹：main.js 每 10s 轮询一次，内容没变就不要再重画。 */
@@ -1024,6 +1026,8 @@ export function createBoard(options = {}) {
       applyNodeColors(dot, task.displayStatus ?? task.status)
       top.append(dot, el(doc, 'span', 'board-node-id', task.id))
       top.append(el(doc, 'span', 'board-node-owner dim', `◉ ${task.ownerName ?? '未分配'}`))
+      const ownerPersona = task.owner === null ? null : personas.get(task.owner)
+      if (ownerPersona !== undefined && ownerPersona !== null) top.append(el(doc, 'span', 'board-node-level', `Lv.${ownerPersona.level ?? 1}`))
       if (fitted.preset !== 'tight') top.append(el(doc, 'span', 'board-node-status', `◷ ${taskStatusLabel(task.displayStatus ?? task.status)}`))
       if ((task.blockedBy?.length ?? 0) > 0) top.append(el(doc, 'span', 'board-node-status', `⇠ ${task.blockedBy.length}`))
       const ownerMember = model.members.find((member) => member.name === task.ownerName)
@@ -1834,6 +1838,7 @@ export function createBoard(options = {}) {
     update,
     setPalette,
     setTaskSets,
+    setPersonas: (next) => { personas = next instanceof Map ? next : new Map(); lastStructure = null },
     setCollapsed,
     /** R3：切到任务图档之后重挑几何（挂载模式下它常常是"数据变了但这档藏着"）。 */
     refreshGraph,

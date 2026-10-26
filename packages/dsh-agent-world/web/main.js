@@ -1108,6 +1108,11 @@ async function loadPersonas() {
     for (const persona of Array.isArray(body.personas) ? body.personas : []) {
       if (typeof persona?.id === 'string') personaByKey.set(persona.id, persona)
     }
+    for (const agent of world?.agents ?? []) {
+      const persona = personaByKey.get(agent.boundAgentId ?? '') ?? personaByKey.get(agent.id)
+      if (persona !== undefined) personaByKey.set(agent.id, persona)
+    }
+    boardRef?.setPersonas?.(personaByKey)
   } catch (error) { /* 旧宿主没有 persona API */ }
 }
 
