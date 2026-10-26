@@ -1362,6 +1362,7 @@ function createSyncEngine(ctx) {
     state.tasks = kept
     await backfillDocTitles(kept).catch(() => undefined)
     await repairTitleNumbers(kept).catch(() => undefined)
+    await ensureWorkspaceOptions(kept).catch(() => undefined)
     await fillWorkspaceFields(kept).catch(() => undefined)
     await pushTaskChanges(previous, kept).catch(() => undefined)
 
@@ -2814,6 +2815,48 @@ function createSyncEngine(ctx) {
     const declared = asString(task?.workspaceTitle || task?.workspaceName)
     if (declared) return declared
     return workspaceFromSession(task?.sessionId)
+  }
+
+  /**
+   * 把本地工作区自动补进「工作区」单选字段的选项里。
+   *
+   * 需求是「工作区能按本地绑定的对话自动识别」：值那一步由 `fillWorkspaceFields` 负责，
+   * 但单选字段还有个前提——选项里得先有这个名字。所以同步时把
+   * 「登记表里的工作区 ∪ 任务上出现过的名字」和字段现有选项比一次，缺的补上。
+   *
+   * 只在缺的时候才发请求（稳态下只是一次内存比较）；字段不存在或还是文本类型就什么都不做。
+   */
+  async function ensureWorkspaceOptions(tasks) {
+    const fieldName = settings.taskFields.workspace.trim() || '工作区'
+    const listGuid = tasks[0]?.tasklistGuid || defaultsFromState().tasklistGuid
+    if (!listGuid) return 0
+    const defs = cached(remoteCache.fields, listGuid, REMOTE_TTL.fields) ?? []
+    const def = defs.find((item) => item.name === fieldName)
+    if (!def || (def.type !== 'single_select' && def.type !== 'multi_select')) return 0
+    const existing = new Set(Object.values(def.options ?? {}))
+    const wanted = new Set()
+    for (const workspace of workspaces()) if (workspace.title) wanted.add(workspace.title)
+    for (const task of tasks) {
+      for (const label of [task.workspaceTitle, task.workspaceName]) if (label) wanted.add(label)
+    }
+    const missing = [...wanted].filter((name) => !existing.has(name))
+    if (!missing.length) return 0
+    const python = resolvePython(resolveCli(settings.cliPath))
+    if (!python) return 0
+    const result = await runBridge(python, {
+      actions: [{ op: 'ensure_select_options', tasklist: listGuid, name: fieldName, options: missing.slice(0, 20) }],
+    })
+    const action = (result.actions ?? [])[0]
+    if (!action?.ok) {
+      log(ctx, 'info', `[workspace] 补选项失败：${(action?.error ?? '').slice(0, 120)}`)
+      return 0
+    }
+    if (action.added?.length) {
+      /* 定义缓存作废，下一轮重新读，避免拿着旧选项表反复判断 */
+      remoteCache.fields.delete(listGuid)
+      log(ctx, 'info', `[workspace] 已补 ${action.added.length} 个工作区选项：${action.added.join('、')}`)
+    }
+    return action.added?.length ?? 0
   }
 
   /**
