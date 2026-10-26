@@ -561,13 +561,10 @@
     transition: border-color .12s ease, box-shadow .12s ease;
   }
 
-  /* ---------- 每张卡片一个主题色 ----------
-     色相由任务编号按黄金角散开（编号稳定 → 颜色稳定），几十条以内都不会撞色。
-     表现是「左侧 3px 色条 + 边框染成同色系」，比整圈重色描边克制，列表里又能一眼分辨。 */
-  .task[data-tone] {
-    border-color: color-mix(in srgb, var(--tone, var(--p-line-strong)) 40%, var(--p-line));
-    box-shadow: inset 3px 0 0 var(--tone, var(--p-line-strong));
-  }
+  /* ---------- 卡片主题色 ----------
+     色相由任务编号按黄金角散开（编号稳定 → 颜色稳定，几十条内不撞色）。
+     **平时不显色**：未选中的卡片保持中性描边，只有选中（当前对话）那张才用它自己的颜色，
+     一列卡片的边框五颜六色会把「选中」这件事本身淹掉。 */
 
   .task:hover {
     border-color: var(--p-line-hover);
