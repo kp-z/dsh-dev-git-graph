@@ -87,6 +87,8 @@ export interface DialogueChannel {
   awakeCount(): number
   /** 世界重开 / 插件卸载时清空登记。 */
   reset(): void
+  /** R340：把主会话里已经发生的对话帧推进同一条 SSE（主界面对话 → 场景气泡）。 */
+  publish(event: DialogueEvent): void
 }
 
 /** 上限的兜底值，与 `config.ts` 的 schema default 保持一致。 */
@@ -358,6 +360,10 @@ export function createDialogueChannel(deps: DialogueDeps): DialogueChannel {
     reset() {
       awake.clear()
       turnSeq = 0
+    },
+
+    publish(event) {
+      emit(event)
     },
   }
 }
