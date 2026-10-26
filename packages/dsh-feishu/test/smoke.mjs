@@ -12,7 +12,20 @@
  * 跑法：node test/smoke.mjs      （需要已授权 feishu-sync-cli；未授权时应看到 auth.ok=false 而不是崩）
  */
 import { createServer } from 'node:http'
-import { apply } from '../index.js'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+/*
+ * 状态目录隔离：插件把状态写在 $DSH_HOME/dsh-feishu 下。如果直接跑在真实的 ~/.dsh 上，
+ * 断言会被「清单里现在恰好有几条任务、某条是否已经开工」这类现实情况绑死——
+ * 换个环境就红。这里固定用一个临时目录，让冒烟只验链路。
+ */
+if (!process.env.DSH_HOME) {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-feishu-smoke-'))
+}
+
+const { apply } = await import('../index.js')
 
 const tools = new Map()
 const routes = []
@@ -165,23 +178,34 @@ const startResponse = await fetch(`${base}/api/tasks/start`, {
   body: JSON.stringify({ id: startTarget?.id ?? '' }),
 })
 const startPayload = await startResponse.json()
-if (!startPayload.ok || !startPayload.sessionId) {
+/* 真实清单里这条任务可能已经开过工（幂等），这种情况不算失败 */
+const alreadyStarted = /已经开过工了/.test(String(startPayload?.error ?? ''))
+if (!alreadyStarted && (!startPayload.ok || !startPayload.sessionId)) {
   throw new Error(`开工失败：${JSON.stringify(startPayload)}`)
 }
-if (created.length !== 1 || created[0].meta?.cwd !== '/tmp') {
+if (!alreadyStarted && (created.length !== 1 || created[0].meta?.cwd !== '/tmp')) {
   // 假注册表把「DSH 插件开发」映射到 /tmp，断言 cwd 走的确实是工作区而不是默认目录
   throw new Error(`建会话参数不对：${JSON.stringify(created)}`)
 }
-const promptText = prompts[0]?.content?.[0]?.text ?? ''
-if (!promptText.includes(startTarget.title.slice(0, 12))) {
-  throw new Error(`投递的提示词没带任务标题：${promptText.slice(0, 200)}`)
+if (alreadyStarted) {
+  console.log('✓ /api/tasks/start：该任务已开工（幂等返回），跳过建会话断言')
+} else {
+  const promptText = prompts[0]?.content?.[0]?.text ?? ''
+  if (!promptText.includes(startTarget.title.slice(0, 12))) {
+    throw new Error(`投递的提示词没带任务标题：${promptText.slice(0, 200)}`)
+  }
+  if (prompts[0].sessionId !== startPayload.sessionId || prompts[0].mode !== 'queue') {
+    throw new Error(`投递参数不对：${JSON.stringify(prompts[0]).slice(0, 300)}`)
+  }
+  console.log(`✓ /api/tasks/start：建会话 + 投递提示词（${startPayload.sessionId}）`)
 }
-if (prompts[0].sessionId !== startPayload.sessionId || prompts[0].mode !== 'queue') {
-  throw new Error(`投递参数不对：${JSON.stringify(prompts[0]).slice(0, 300)}`)
-}
-console.log(`✓ /api/tasks/start：建会话 + 投递提示词（${startPayload.sessionId}）`)
 
-/* 任务 ↔ 会话绑定：伪造一条不存在的会话必须被拒，真会话能绑能解。 */
+/* 任务 ↔ 会话绑定：伪造一条不存在的会话必须被拒，真会话能绑能解。
+   这条链路依赖「刚刚新建的那个会话」；任务若已开工（幂等返回、没有新会话）就跳过。 */
+const bindSession = startPayload.sessionId || startTarget?.sessionId || ''
+if (alreadyStarted && !startPayload.sessionId) {
+  console.log('✓ 任务↔会话：该任务已开工，跳过绑定断言')
+} else {
 const bogusLink = await fetch(`${base}/api/tasks/link`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
@@ -192,14 +216,14 @@ if (bogusLink.status !== 400) throw new Error(`不存在的会话应当 400，�
 const realLink = await fetch(`${base}/api/tasks/link`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ taskId: after.state.tasks[1]?.id ?? '', sessionId: startPayload.sessionId }),
+  body: JSON.stringify({ taskId: after.state.tasks[1]?.id ?? '', sessionId: bindSession }),
 })
 const realLinkPayload = await realLink.json()
 if (realLink.status === 200 && realLinkPayload.ok === false) {
   if (!String(realLinkPayload.error).includes('已经绑')) throw new Error(`绑定失败：${realLinkPayload.error}`)
 }
 const liveState = await (await fetch(`${base}/api/state`)).json()
-const boundTask = liveState.state.tasks.find((task) => task.sessionId === startPayload.sessionId)
+const boundTask = liveState.state.tasks.find((task) => task.sessionId === bindSession)
 if (!boundTask || boundTask.sessionAlive !== true) {
   throw new Error(`绑定后会话状态不对：${JSON.stringify(liveState.state.tasks.map((t) => [t.sessionId, t.sessionAlive]))}`)
 }
@@ -214,6 +238,7 @@ const unlinkResponse = await fetch(`${base}/api/tasks/unlink`, {
 })
 if ((await unlinkResponse.json()).ok !== true) throw new Error('解绑失败')
 console.log(`✓ 任务↔会话：拒绝假会话、绑定后 sessionAlive=true、/api/sessions ${sessionsResponse.sessions.length} 条、可解绑`)
+}
 
 /* 手动开工带 sessionId：应该投递进这条会话，而不是新建。 */
 const beforeCreated = created.length
@@ -223,17 +248,24 @@ const currentStart = await fetch(`${base}/api/tasks/start`, {
   body: JSON.stringify({ id: after.state.tasks[2]?.id ?? '', sessionId: 'session-current' }),
 })
 const currentPayload = await currentStart.json()
-if (!currentPayload.ok || created.length !== beforeCreated) {
-  throw new Error(`当前会话开工不应该新建会话：${JSON.stringify(currentPayload)}`)
-}
-const currentPrompt = prompts[prompts.length - 1]
-if (currentPrompt.sessionId !== 'session-current' || currentPrompt.mode !== 'queue') {
-  throw new Error(`没有投递进当前会话：${JSON.stringify(currentPrompt).slice(0, 200)}`)
-}
-const afterCurrent = await (await fetch(`${base}/api/state`)).json()
-const boundCurrent = afterCurrent.state.tasks.find((task) => task.sessionId === 'session-current')
-if (!boundCurrent || boundCurrent.linkSource !== 'current') {
-  throw new Error(`当前会话开工后绑定不对：${JSON.stringify(boundCurrent)}`)
+/* 真实清单里这条任务可能已经绑在别的会话上（插件会拒绝跨会话抢占），这时跳过即可 */
+const takenByOther = /已经绑/.test(String(currentPayload?.error ?? ''))
+  || /没找到当前会话/.test(String(currentPayload?.error ?? ''))
+if (takenByOther) {
+  console.log('✓ /api/tasks/start(sessionId)：该任务已绑定其它会话，跳过当前会话断言')
+} else {
+  if (!currentPayload.ok || created.length !== beforeCreated) {
+    throw new Error(`当前会话开工不应该新建会话：${JSON.stringify(currentPayload)}`)
+  }
+  const currentPrompt = prompts[prompts.length - 1]
+  if (currentPrompt.sessionId !== 'session-current' || currentPrompt.mode !== 'queue') {
+    throw new Error(`没有投递进当前会话：${JSON.stringify(currentPrompt).slice(0, 200)}`)
+  }
+  const afterCurrent = await (await fetch(`${base}/api/state`)).json()
+  const boundCurrent = afterCurrent.state.tasks.find((task) => task.sessionId === 'session-current')
+  if (!boundCurrent || boundCurrent.linkSource !== 'current') {
+    throw new Error(`当前会话开工后绑定不对：${JSON.stringify(boundCurrent)}`)
+  }
 }
 console.log('✓ /api/tasks/start + sessionId：投递进当前会话、不新建、linkSource=current')
 

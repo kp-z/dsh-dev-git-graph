@@ -3666,7 +3666,9 @@
       syncToggleLabel();
       loadInsightStats();
       renderInsightBody();
-      ensureInsightAI();
+      /* 按钮上写了 prompt 就按它跑一次；没写就复用当天的诊断 */
+      if (btn.prompt) onInsightDiagnose(btn.prompt);
+      else ensureInsightAI();
       return;
     }
     if (btn.kind === 'export') {
