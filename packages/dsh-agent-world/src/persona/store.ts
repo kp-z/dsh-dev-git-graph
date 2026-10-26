@@ -10,6 +10,7 @@ export interface PersonaInput {
   xp?: number
   skills?: string[]
   taskIds?: string[]
+  awardedTaskIds?: string[]
   prompt?: string
 }
 
@@ -19,6 +20,7 @@ export interface PersonaStore {
   upsert(input: PersonaInput): Persona
   addXp(id: string, amount: number): Persona | null
   linkTask(id: string, taskId: string): Persona | null
+  awardTask(id: string, taskId: string, xp: number): Persona | null
   save(): void
 }
 
@@ -32,6 +34,7 @@ function make(input: PersonaInput, previous: Persona | undefined): Persona {
     xp,
     skills: Array.isArray(input.skills) ? [...new Set(input.skills.filter((s) => typeof s === 'string' && s.trim() !== ''))] : (previous?.skills ?? []),
     taskIds: Array.isArray(input.taskIds) ? [...new Set(input.taskIds.filter((s) => typeof s === 'string' && s !== ''))] : (previous?.taskIds ?? []),
+    awardedTaskIds: Array.isArray(input.awardedTaskIds) ? [...new Set(input.awardedTaskIds.filter((s) => typeof s === 'string' && s !== ''))] : (previous?.awardedTaskIds ?? []),
     prompt: input.prompt ?? previous?.prompt ?? '',
     updatedAt: Date.now(),
   }
@@ -73,7 +76,23 @@ export function createPersonaStore(path: string): PersonaStore {
     linkTask(id, taskId) {
       const current = file.personas[id]
       if (current === undefined || typeof taskId !== 'string' || taskId === '') return null
+      if (current.taskIds.includes(taskId)) return current
       const next = make({ id, taskIds: [...current.taskIds, taskId] }, current)
+      file.personas[id] = next
+      save()
+      return next
+    },
+    awardTask(id, taskId, xp) {
+      const current = file.personas[id]
+      if (current === undefined || typeof taskId !== 'string' || taskId === '') return null
+      if (current.awardedTaskIds.includes(taskId)) return current
+      const linked = current.taskIds.includes(taskId) ? current.taskIds : [...current.taskIds, taskId]
+      const next = make({
+        id,
+        taskIds: linked,
+        awardedTaskIds: [...current.awardedTaskIds, taskId],
+        xp: current.xp + (Number.isFinite(xp) ? Math.max(0, Math.floor(xp)) : 0),
+      }, current)
       file.personas[id] = next
       save()
       return next
