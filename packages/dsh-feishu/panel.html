@@ -753,6 +753,8 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
     padding-top: 4px;
     border-top: 1px dashed var(--p-line);
   }
@@ -2093,7 +2095,7 @@
     insightLocal: null,
     insightAI: null,
     insightOpen: false,
-    insightTab: 'diagnose',
+    insightTab: 'morning',
     insightLoading: false,
     insightBusyId: '',
     insightStats: null,
@@ -3445,8 +3447,23 @@
 
   function renderMorning(body, local, ai) {
     var today = local.today || {};
+    var aiMorning = ai && (ai.headline || ai.issues || ai.today);
 
-    /* ① 今天 */
+    /* ① AI 版早会（用自己的 prompt 生成；没点过按钮就没有这块） */
+    if (aiMorning) {
+      var planNodes = [];
+      if (ai.headline) planNodes.push(insightRow('今天先做：' + ai.headline, '早会'));
+      (ai.issues || []).forEach(function (issue) {
+        planNodes.push(insightRow((issue.text || '')
+          + (issue.evidence ? '　第一步：' + issue.evidence : ''), 'T' + (issue.taskNo || '?')));
+      });
+      if (ai.today) planNodes.push(insightRow('昨天：' + ai.today));
+      if (ai.advice) planNodes.push(insightRow('可能翻车：' + ai.advice));
+      if (ai.commentary) planNodes.push(insightRow(ai.commentary));
+      body.appendChild(insightBlock('早会', planNodes));
+    }
+
+    /* ② 本地明细：今天做了什么 */
     var doneRows = (local.todayDone || []).map(function (item) { return insightRow(insightTaskLabel(item), '完成'); });
     var progRows = (local.todayProgress || []).map(function (item) {
       var note = [];
@@ -3455,26 +3472,28 @@
       if (!note.length) note.push(item.started ? '已开工' : '已绑定');
       return insightRow(insightTaskLabel(item) + '　' + note.join(' · '), '推进');
     });
-    var todayNodes = [];
-    if (ai && ai.today) todayNodes.push(insightRow('AI：' + ai.today));
-    todayNodes = todayNodes.concat(doneRows, progRows);
-    if (!todayNodes.length) todayNodes.push(el('div', { 'class': 'insight-empty', text: '今天还没有记录到推进。' }));
-    body.appendChild(insightBlock('今天做了什么', todayNodes));
+    var todayNodes = doneRows.concat(progRows);
+    body.appendChild(insightBlock('今天做了什么', todayNodes.length
+      ? todayNodes
+      : [el('div', { 'class': 'insight-empty', text: '今天还没有记录到推进。' })]));
 
-    /* ② 昨天 */
+    /* ③ 昨天做了什么 */
     var yDone = ((local.yesterday || {}).done || []).map(function (item) { return insightRow(insightTaskLabel(item), '完成'); });
     var yProg = ((local.yesterday || {}).progress || []).map(function (item) { return insightRow(insightTaskLabel(item), '推进'); });
     var yNodes = yDone.concat(yProg);
-    if (!yNodes.length) yNodes.push(el('div', { 'class': 'insight-empty', text: '昨天没有记录到推进。' }));
-    body.appendChild(insightBlock('昨天做了什么', yNodes));
+    body.appendChild(insightBlock('昨天做了什么', yNodes.length
+      ? yNodes
+      : [el('div', { 'class': 'insight-empty', text: '昨天没有记录到推进。' })]));
 
-    /* ③ 今天先做 */
-    var recNodes = (local.recommend || []).map(function (item) {
-      return insightRow(insightTaskLabel(item) + '　' + (item.reasons || []).join('、'), '先做');
-    });
-    if (!recNodes.length) recNodes.push(el('div', { 'class': 'insight-empty', text: '没有待推进的任务。' }));
-    body.appendChild(insightBlock('今天先做这些', recNodes));
-
+    /* ④ 今天建议先做（本地排序，AI 版没给的时候兜底） */
+    if (!aiMorning) {
+      var recNodes = (local.recommend || []).map(function (item) {
+        return insightRow(insightTaskLabel(item) + '　' + (item.reasons || []).join('、'), '先做');
+      });
+      body.appendChild(insightBlock('今天先做这些', recNodes.length
+        ? recNodes
+        : [el('div', { 'class': 'insight-empty', text: '没有待推进的任务。' })]));
+    }
   }
 
   /* 柱状图：近 7 天「完成 / 新开工」 */
@@ -3669,8 +3688,8 @@
       syncToggleLabel();
       loadInsightStats();
       renderInsightBody();
-      /* 只在按钮上写了 prompt 时才真的调模型；否则纯本地视图，点一次才花一次 token */
-      if (btn.prompt) onInsightDiagnose(btn.prompt, btn.id);
+      /* 早会用自己的提示词（mode=morning），走不到「诊断」的 prompt */
+      onInsightDiagnose(btn.prompt || '', btn.id, 'morning');
       return;
     }
     if (btn.kind === 'export') {
@@ -3678,6 +3697,7 @@
       return;
     }
     /* kind === 'ai'：用这个按钮自己的 prompt 跑一次诊断 */
+    app.insightTab = 'diagnose';
     onInsightDiagnose(btn.prompt || '', btn.id);
   }
 
@@ -3687,16 +3707,17 @@
     text.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
   }
 
-  function onInsightDiagnose(prompt, buttonId) {
+  function onInsightDiagnose(prompt, buttonId, mode) {
     if (app.insightLoading) return;
     app.insightLoading = true;
     app.insightBusyId = buttonId || '';
-    app.insightTab = 'diagnose';
+    /* 早会按钮跑出来的东西属于「早会」页，不要丢进 AI 诊断页 */
+    app.insightTab = mode === 'morning' ? 'morning' : 'diagnose';
     app.insightOpen = true;
     syncToggleLabel();
     renderInsight();
     if (!app.insightAI) toast('正在让 AI 看一眼…');
-    api('insight/diagnose', { force: true, prompt: prompt || '' }).then(function (data) {
+    api('insight/diagnose', { force: true, prompt: prompt || '', mode: mode || '' }).then(function (data) {
       app.insightLoading = false;
       app.insightBusyId = '';
       app.insightAI = (data && data.data) || null;
@@ -3863,6 +3884,8 @@
     if (text) {
       var toggle = function () {
         app.insightOpen = !app.insightOpen;
+        /* 展开看的是「文字背后的明细」；AI 诊断只在点诊断按钮后出现 */
+        if (app.insightOpen && app.insightTab === 'diagnose' && !app.insightAI) app.insightTab = 'morning';
         syncToggleLabel();
         renderInsightBody();
       };
