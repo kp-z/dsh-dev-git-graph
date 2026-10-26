@@ -20,6 +20,8 @@ import {
   docxIdOf,
   pickTaskEmoji,
   stripLeadingEmoji,
+  leadingEmojiOf,
+  stripTaskNo,
   sanitizeTaskDescription,
   evaluateAutoStart,
   parseAutoFlag,
@@ -336,6 +338,17 @@ check('未知类型也落在固定集合里', ['📌','🗂️','🧩','🛠️'
 check('去掉已有表情前缀', stripLeadingEmoji('🐛 修复登录'), '修复登录')
 check('没有表情时原样返回', stripLeadingEmoji('修复登录'), '修复登录')
 check('带变体选择符的表情也能去掉', stripLeadingEmoji('🗂️ 整理文档'), '整理文档')
+
+/* ---------- 表情排在最前 + 改名不丢表情 ---------- */
+
+{
+  /* withTaskNo 没导出，用 suggestTaskTitle 的同构断言：stripTaskNo 认得两种旧格式 */
+  check('能取到开头的表情', leadingEmojiOf('🐛 T8-开发游戏场景'), '🐛')
+  check('没有表情返回空串', leadingEmojiOf('T8-开发游戏场景'), '')
+  check('旧格式（编号在前）也能剥掉编号', stripTaskNo('T8-🐛 开发游戏场景'), '开发游戏场景')
+  check('新格式（表情在前）剥掉表情和编号', stripTaskNo('🐛 T8-开发游戏场景'), '开发游戏场景')
+  check('没有编号时原样保留', stripTaskNo('开发游戏场景'), '开发游戏场景')
+}
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)

@@ -1051,6 +1051,27 @@
 
   .chip-doc:hover { text-decoration: underline; }
 
+  /* ---------- 插件标识 ---------- */
+  .plugin-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 2px 2px 0;
+  }
+
+  .plugin-head .plugin-name {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--p-text-2);
+  }
+
+  .plugin-head .plugin-ver {
+    font-size: 11px;
+    color: var(--p-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
   /* ---------- 任务过滤条 ---------- */
   .task-filter {
     display: flex;
@@ -1369,6 +1390,11 @@
 <div id="toast" class="toast" role="status" aria-live="polite"><span id="toastText"></span></div>
 
 <main class="wrap">
+  <!-- 0. 插件标识：一眼看出这是哪个插件、哪一版 -->
+  <div class="plugin-head">
+    <span class="plugin-name">dsh-feishu</span>
+    <span id="pluginVersion" class="plugin-ver">v—</span>
+  </div>
   <!-- 1. 状态条 -->
   <div id="statusbar" class="statusbar" aria-live="polite"></div>
 
@@ -2544,7 +2570,16 @@
     });
   }
 
+  /* 顶部插件标识：版本来自宿主 /api/state 的 version（package.json 现读）。 */
+  function renderPluginHead() {
+    var node = $('pluginVersion');
+    if (!node) return;
+    var version = app.snap && app.snap.version ? String(app.snap.version) : '';
+    node.textContent = version ? 'v' + version : 'v—';
+  }
+
   function renderAll() {
+    renderPluginHead();
     renderStatus();
     renderDocPrompt();
     renderAuth();
