@@ -369,6 +369,12 @@ export function stripLeadingEmoji(text) {
   return asString(text).replace(LEADING_EMOJI, '').trim()
 }
 
+/** 标题里写的编号（`🐛 T8-xxx` → 8）；没有就返回 0。 */
+export function taskNoInTitle(title) {
+  const match = /^\s*T(\d+)\s*[-.、·：:]\s*/i.exec(stripLeadingEmoji(asString(title)))
+  return match ? Number(match[1]) : 0
+}
+
 /** 去掉标题里的 `T<n>-` 编号与 `Task-xxxxxx` 短码，以及编号前后的表情。 */
 export function stripTaskNo(title) {
   const once = stripLeadingEmoji(asString(title))
@@ -1355,6 +1361,7 @@ function createSyncEngine(ctx) {
     renumberTasks(kept)
     state.tasks = kept
     await backfillDocTitles(kept).catch(() => undefined)
+    await repairTitleNumbers(kept).catch(() => undefined)
     await fillWorkspaceFields(kept).catch(() => undefined)
     await pushTaskChanges(previous, kept).catch(() => undefined)
 
@@ -2807,6 +2814,36 @@ function createSyncEngine(ctx) {
     const declared = asString(task?.workspaceTitle || task?.workspaceName)
     if (declared) return declared
     return workspaceFromSession(task?.sessionId)
+  }
+
+  /**
+   * 标题里的 `T<n>-` 和任务真实编号不一致时改回来。
+   *
+   * 为什么会不一致：早期的一次批量改名（titlesMigrated）和几次手工改名叠在一起，
+   * 出现过 `no=8` 但标题写着 `T1-` 的情况——飞书上看着像另一条任务。
+   * 这里只在**不一致**时才动，一轮最多修 3 条，避免又变成一次批量改名。
+   */
+  async function repairTitleNumbers(tasks) {
+    const broken = tasks
+      .filter((task) => taskNoInTitle(task.title) > 0 && taskNoInTitle(task.title) !== taskNo(task))
+      .slice(0, 3)
+    if (!broken.length) return 0
+    const path = resolveCli(settings.cliPath)
+    let fixed = 0
+    for (const task of broken) {
+      const title = withTaskNo(task.title, task, leadingEmojiOf(task.title))
+      const result = await runCli(path, ['task', 'update', task.id, `--summary=${title}`], { timeoutMs: 60_000 })
+      if (!result.ok) {
+        log(ctx, 'info', `[repair] 改编号失败：${task.title.slice(0, 24)} ${(result.detail ?? '').slice(-80)}`)
+        continue
+      }
+      log(ctx, 'info', `[repair] 编号对齐：${task.title.slice(0, 24)} → ${title.slice(0, 24)}`)
+      task.title = title
+      task.localUpdatedAt = nowMs()
+      fixed += 1
+    }
+    if (fixed > 0) await persistState()
+    return fixed
   }
 
   /**

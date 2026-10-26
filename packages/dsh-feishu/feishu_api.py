@@ -312,6 +312,13 @@ def run_actions(token, actions):
                                  'update_fields': ['custom_fields']})
                 ok = res.get('code') == 0
                 results.append({'op': op, 'ok': ok, 'error': None if ok else (res.get('msg') or '')[:160]})
+            elif op == 'delete_custom_field':
+                # 注意路径：不是 DELETE /task/v2/custom_fields/{guid}（那个是 404，v2 没这路由），
+                # 而是 POST .../{guid}/remove，body 带 resource_type/resource_id。
+                res = call(token, f"/task/v2/custom_fields/{action['guid']}/remove", method='POST',
+                           body={'resource_type': 'tasklist', 'resource_id': action['tasklist']})
+                ok = res.get('code') == 0
+                results.append({'op': op, 'ok': ok, 'error': None if ok else (res.get('msg') or '')[:160]})
             elif op == 'delete_file':
                 res = call(token, f"/drive/v1/files/{action['token']}?type={action.get('type', 'docx')}",
                            method='DELETE')
