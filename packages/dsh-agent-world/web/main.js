@@ -167,10 +167,11 @@ let teamActivity = new Map()
 
 function applyTeamActivity(source) {
   if (source === null) return source
+  const thinking = dialogue?.thinkingTurns?.() ?? []
   const talkId = dialogue !== null && dialogue.isOpen() === true && dialogue.mode() === 'chat'
     ? dialogue.agentId()
-    : null
-  const talking = talkId !== null && (dialogue?.thinkingTurns?.().length ?? 0) > 0
+    : (thinking.length > 0 ? thinking[thinking.length - 1].agentId : null)
+  const talking = talkId !== null && thinking.length > 0
   if (teamActivity.size === 0 && !talking) return source
   return {
     ...source,
