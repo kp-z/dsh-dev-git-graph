@@ -2124,7 +2124,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     },
     {
       symptom: '遮挡关系不对（谁压谁）',
-      probe: '__agentWorldPhaser.occlusionAudit() + overlayAudit()',
+      probe: '__agentWorldDebug.audit().occlusion + __agentWorldDebug.ysort(true)',
       look: 'occlusion.anomalyCount 与 pairAnomalyCount 都应为 0；overlay 三层必须 ordered:true',
     },
     {
@@ -2188,6 +2188,8 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
       connection: connection.status(),
       facades: Object.keys(globalThis).filter((key) => key.startsWith('__agentWorld')),
     }),
+    /** R336：底边可视层开关；返回当前状态，方便脚本断言。 */
+    ysort: (on) => globalThis.__agentWorldPhaser?.setYSortDebug?.(on === true) ?? false,
     audit: () => ({
       space: spaceOf()?.audit ?? null,
       airWall: globalThis.__agentWorldPhaser?.airWallAudit?.() ?? null,
