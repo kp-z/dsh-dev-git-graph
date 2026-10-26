@@ -32,6 +32,7 @@ http://127.0.0.1:3080/agent-world/?debug=1&walls=1   # 叠加几何视图
 | `.snapshot()` | 构建号、world（tick/agents/tasks）、scene（props/actors/space 审计）、runtime 诊断、连接状态、**已挂门面列表** | 先确认"世界在跑、场景有东西、门面在" |
 | `.audit()` | `space` / `airWall` / `occlusion` / `overlay` 四份审计 | 任何"看起来不对"的第一站 |
 | `.explain(id)` | 站点/角色的：占地格是否 blocked、`base`（深度基准）、哪些吸附点不可走 | "这个人/这个桌子位置怪" |
+| `.ysort(on)` | 底边可视层开关（同 `?ysort=1`）；返回当前状态 | 判断谁该挡谁，配合 `audit().occlusion.pairAnomalies` |
 
 一句 One-liner：
 
@@ -48,7 +49,7 @@ http://127.0.0.1:3080/agent-world/?debug=1&walls=1   # 叠加几何视图
 | 症状 | 探针 | 判据 |
 |---|---|---|
 | 角色能走上墙 / 上桌子 | `audit().airWall` | `artCells` = 按美术占位补的整格（画面上确实有家具）；`slotsBlocked` 必须为 0 |
-| 遮挡关系不对 | `__agentWorldPhaser.occlusionAudit()` + `overlayAudit()` | `anomalyCount` 为 0；overlay 三层 `ordered: true` |
+| 遮挡关系不对 | `__agentWorldDebug.audit().occlusion` + `__agentWorldDebug.ysort(true)` | `anomalyCount` 与 `pairAnomalyCount` 都为 0；底边线（青=角色/橙=家具/绿=椅子）更靠下者应在前面 |
 | 站点 / 角色位置怪 | `explain(id)` | `footprintBlocked` 是否符合预期；`slotsBlocked` 必须为空 |
 | 场景比例一直跳 / 镜头不对 | `__agentWorldScene2d.camera()` + `viewState()` | `zoom` 是否整数档、`scroll` 是否稳定 |
 | 世界不动 / 数据不更新 | `snapshot()` | `world.tick` 是否推进、`paused`、`diagnostics.errors` |
