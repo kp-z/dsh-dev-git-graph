@@ -1014,7 +1014,7 @@ export function createBoard(options = {}) {
       const descHint = typeof task.description === 'string' && task.description.trim() !== ''
         ? ` · ${task.description.trim().slice(0, 120)}`
         : ''
-      card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}${descHint}`
+      card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}${descHint}${taskSetNames[task.set] ? ` · ${taskSetNames[task.set]}` : ''}`
       // 卡片内容由三行碎片组成，读屏拼起来是「task-1小青定位问题边界」；用 aria-label 给整句。
       card.setAttribute('aria-label', card.title)
       const top = el(doc, 'div', 'board-node-top')
@@ -1130,7 +1130,7 @@ export function createBoard(options = {}) {
         const descHint = typeof task.description === 'string' && task.description.trim() !== ''
         ? ` · ${task.description.trim().slice(0, 120)}`
         : ''
-      card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}${descHint}`
+      card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}${descHint}${taskSetNames[task.set] ? ` · ${taskSetNames[task.set]}` : ''}`
         card.setAttribute('aria-label', card.title)
         // R181：图标动作的可用性跟着状态走（完成的只剩「重开」，进行中的只剩「完成」）。
         const meta = teamMeta.get(task.id)
