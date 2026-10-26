@@ -3170,7 +3170,7 @@
       var bits = [];
       if (typeof board.total === 'number') {
         bits.push('共 ' + board.total);
-        bits.push('在跑 ' + (board.started || 0));
+        bits.push('已绑定 ' + (board.started || 0));
         bits.push('未开始 ' + (board.idle || 0));
       }
       bits.push('今日完成 ' + (today.doneCount || 0));
@@ -3278,17 +3278,15 @@
       body.appendChild(scores);
     }
 
+    /* 统计只在上方那行出现一次；这里只讲「为什么」，不重复报数 */
     var metrics = [];
-    metrics.push(insightRow('今日活跃 ' + ((local.today && local.today.activeCount) || 0)
-      + ' · 完成 ' + ((local.today && local.today.doneCount) || 0)
-      + ' · 文档 ' + ((local.today && local.today.docsCount) || 0)));
     if ((local.stalled || []).length) {
       metrics.push(insightRow('停滞：' + local.stalled.map(insightTaskLabel).join('；')));
     }
     if ((local.noOutput || []).length) {
       metrics.push(insightRow('开工超过两天但没产出：' + local.noOutput.map(insightTaskLabel).join('；')));
     }
-    body.appendChild(insightBlock('本地数据', metrics));
+    if (metrics.length) body.appendChild(insightBlock('本地发现', metrics));
   }
 
 

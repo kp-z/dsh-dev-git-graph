@@ -125,6 +125,9 @@ function pluginVersion() {
  * 只给「任务 + 最近对话摘要」，所以要求模型**不许编造**没出现的任务/数字；
  * 输出固定 JSON，面板直接渲染，不做二次解析。
  */
+/* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
+export const PROMPT_REV = 4
+
 export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根据给你的任务清单与最近对话摘要，输出一个 JSON 对象，
 不要解释、不要 markdown 代码块，格式严格如下：
 
@@ -143,6 +146,8 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
 - focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
 - charts 选 1-3 张，type 与 dataset 只能从给定枚举里选；**不要自己编数字**，数值由系统按 dataset 渲染。
   挑最有说服力的：比如「堆活」用 wip_by_day_14 折线，「注意力分散」用 workspace_distribution 旭日/饼图。
+- **不要在 headline / commentary 里罗列任务计数**（共几个、几个在跑、几个没动、完成几个）——
+  这些数字上方统计行已经给了。直接给判断与原因，需要举例时用任务号（T8、T12）。
 - 中文，句子短，不说场面话。`
 
 const DEFAULT_SETTINGS = {
@@ -168,6 +173,7 @@ const DEFAULT_SETTINGS = {
   autoCommentMinSeconds: 45,
   /* 早会诊断的系统提示（面板可改）。 */
   insightPrompt: DEFAULT_INSIGHT_PROMPT,
+  insightPromptRev: PROMPT_REV,
   /* Insight 卡片的快捷键：动作 → 组合键（空串表示不绑定）。 */
   insightHotkeys: { morning: 'Alt+Shift+M', diagnose: 'Alt+Shift+D', export: 'Alt+Shift+E' },
   /* Insight 卡片右上角的按钮：可增删、每个按钮可带自己的 prompt。
@@ -572,37 +578,6 @@ function normalizeAutoStartMode(next, base) {
   return base.autoStartMode ?? 'off'
 }
 
-/**
- * 提示词的一次性升级。
- *
- * 新版要求模型额外给 `charts` / `commentary`；旧版默认提示词里没有这两个字段，
- * 而它被原样存进了 settings，于是新代码拿到的还是旧提示词（模型自然不吐图表）。
- * 只替换「明显是旧默认」的那份：不含 charts/commentary 的提示词一律按旧默认处理并升级；
- * 用户自己写的提示词如果也缺这两个字段，会被覆盖一次——这是刻意的取舍，升级后由面板可改回。
- */
-function migrateInsightPrompt(value, fallback) {
-  const text = asString(value).slice(0, 4000)
-  if (!text) return fallback
-  if (!text.includes('"charts"') && !text.includes('"commentary"')) return fallback
-  return text
-}
-
-/** 快捷键规范化：只接受 `Modifier+...+Key` 这种形状，认不出就退回默认值。 */
-function normalizeHotkey(value, fallback) {
-  const raw = asString(value).trim()
-  if (!raw) return ''
-  const parts = raw.split('+').map((part) => part.trim()).filter(Boolean)
-  if (parts.length < 2) return fallback
-  const key = parts[parts.length - 1]
-  const mods = parts.slice(0, -1).map((part) => part.toLowerCase())
-  const allowed = new Set(['alt', 'shift', 'ctrl', 'meta', 'cmd', 'control'])
-  if (!mods.every((mod) => allowed.has(mod))) return fallback
-  if (!/^[a-z0-9]$/i.test(key)) return fallback
-  const canon = mods.map((mod) => (mod === 'cmd' ? 'meta' : mod === 'control' ? 'ctrl' : mod))
-  const unique = [...new Set(canon)]
-  return [...unique, key.toUpperCase()].join('+')
-}
-
 /** 按钮列表规范化：限 6 个、label 必填、id 唯一。 */
 function sanitizeInsightButtons(input, fallback) {
   const list = Array.isArray(input) ? input : fallback
@@ -655,7 +630,10 @@ function sanitizeSettings(input, base) {
     pushChanges: next.pushChanges === true,
     autoComment: next.autoComment !== false,
     autoCommentMinSeconds: clampInt(next.autoCommentMinSeconds, 10, 3600, 45),
-    insightPrompt: migrateInsightPrompt(asString(next.insightPrompt), base.insightPrompt),
+    insightPrompt: (Number(next.insightPromptRev) || 0) < PROMPT_REV
+      ? base.insightPrompt
+      : (asString(next.insightPrompt).slice(0, 4000) || base.insightPrompt),
+    insightPromptRev: PROMPT_REV,
     insightButtons: sanitizeInsightButtons(next.insightButtons, base.insightButtons),
     insightHotkeys: {
       morning: normalizeHotkey(next.insightHotkeys?.morning, base.insightHotkeys.morning),
@@ -2779,7 +2757,8 @@ function createSyncEngine(ctx) {
     const custom = asString(promptOverride).trim()
     const signature = custom ? `${insightSignature()}:${custom.length}:${custom.slice(0, 24)}` : insightSignature()
     /* 结果落在 state 里：热重载/重启之后「今天已经诊断过」这件事不该丢 */
-    if (!force && state.insight && state.insightSignature === signature) {
+    if (!force && state.insight && state.insightSignature === signature
+      && Number(state.insight.promptRev ?? 0) === PROMPT_REV) {
       return { ok: true, data: state.insight, cached: true }
     }
     const context = await insightContext()
@@ -2827,6 +2806,7 @@ function createSyncEngine(ctx) {
         hygiene: clampScore(parsed?.score?.hygiene),
       },
       at: nowMs(),
+      promptRev: PROMPT_REV,
     }
     state.insight = data
     state.insightSignature = signature
@@ -3911,7 +3891,11 @@ function createSyncEngine(ctx) {
     insightStats,
     insightDataset,
     recordDailyMetrics,
-    cachedInsight: () => (state.insight && Number(state.insight.at ?? 0) >= dayStart(0) ? state.insight : null),
+    cachedInsight: () => (state.insight
+      && Number(state.insight.at ?? 0) >= dayStart(0)
+      && Number(state.insight.promptRev ?? 0) === PROMPT_REV
+      ? state.insight
+      : null),
     diagnoseInsight,
     exportInsight,
     normalizeTaskTitles,
