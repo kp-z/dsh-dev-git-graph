@@ -34,7 +34,7 @@ export const inject = ['tools', 'webServer']
 const HERE = dirname(fileURLToPath(import.meta.url))
 const HOME = process.env.DSH_HOME || join(homedir(), '.dsh')
 const DATA_DIR = join(HOME, 'dsh-feishu')
-/* 设置共用一份（只在你点保存时写）；状态按实例分文件，见 stateFileFor()。 */
+/* 设置和状态各一份（状态见 stateFileFor：整个 DSH_HOME 共用，不按端口分）。 */
 const SETTINGS_FILE = join(DATA_DIR, 'settings.json')
 const MOUNT = '/dsh-feishu'
 
@@ -46,23 +46,19 @@ const LOGIN_URL_HINT = /https:\/\/accounts\.feishu\.cn\/open-apis\/authen\/v1\/a
  * 它们共用 DSH_HOME，如果都写同一个 state.json，就会互相覆盖对方刚绑好的会话。
  * 所以状态文件按「这个实例在哪个端口服务」分开；设置仍然共用一份。
  */
-function stateFileFor(ctx) {
-  let key = 'default'
-  try {
-    const origin = ctx?.webServer?.getOrigin?.()
-    if (typeof origin === 'string' && origin) {
-      const port = new URL(origin).port
-      if (port) key = port
-    }
-  } catch {
-    /* 拿不到 origin 就用参数兜底 */
-  }
-  if (key === 'default') {
-    const index = process.argv.indexOf('--port')
-    const fromArgv = index >= 0 ? process.argv[index + 1] : ''
-    if (/^\d+$/.test(fromArgv ?? '')) key = fromArgv
-  }
-  return join(DATA_DIR, `state-${key}.json`)
+/**
+ * 状态文件只有一份。
+ *
+ * 以前按端口分（`state-<port>.json`），本意是「多个 DSH 实例别互相踩」，实际踩的坑更大：
+ * 换个端口就换一份状态，靠 `adoptPreviousState` 猜「最新那份」来继承——两个实例同时活着时，
+ * 各自以为任务没开工，于是同一条任务被开了两条会话（真实发生过：`feishu-…-mvj61noh` 与
+ * `…-mvjqvxny`），跳转也会指到对方那条上。
+ *
+ * 任务清单在飞书那边是全局的，绑定关系也应该全局：一个 DSH_HOME 一份状态。
+ * 旧的多份文件不删（留着当备份），首次启动时把最新那份继承过来。
+ */
+function stateFileFor() {
+  return join(DATA_DIR, 'state.json')
 }
 
 /**
@@ -176,6 +172,10 @@ const DEFAULT_STATE = {
   docs: [],
   /* url → { title, at }；问过但没标题的记 null，避免每轮同步重复问。 */
   docTitles: {},
+  /* taskId → 编号：任务掉出列表再回来时靠它拿回原来的 T<n>，见 assignTaskNumbers。 */
+  numbers: {},
+  /* taskId → 绑定快照：任务暂时掉出列表（被过滤/被归档）时绑定关系别跟着丢，见 persistState。 */
+  bindings: {},
 }
 
 /* ────────────────────────────── 小工具 ────────────────────────────── */
@@ -367,6 +367,38 @@ export function pickTaskEmoji(text) {
 /** 去掉标题开头的表情，避免反复命名把表情叠成一串。 */
 export function stripLeadingEmoji(text) {
   return asString(text).replace(LEADING_EMOJI, '').trim()
+}
+
+/**
+ * 分配任务编号（`T<n>`），并把结果记进 `numbers`（taskId → n）。
+ *
+ * 编号必须比「这一轮同步到的任务列表」活得更久：任务被删/被归档/被关键词过滤掉时，
+ * 它就从 `state.tasks` 里消失了；等它回来（或重新同步到）如果重新分配，就会：
+ *   1) 自己换了个编号，标题被 `repairTitleNumbers` 改写；
+ *   2) 占掉别的任务原本的号，两个任务撞号。
+ * 所以用一张 id→编号 的表兜底，任务回来时优先拿回原来的号。
+ */
+export function assignTaskNumbers(tasks, numbers = {}) {
+  let changed = false
+  const used = new Set()
+  let next = 1
+  for (const task of tasks) {
+    if (!task || !task.id) continue
+    const remembered = numbers[task.id]
+    const current = Number.isInteger(task.no) && task.no > 0 ? task.no : 0
+    let no = current || (Number.isInteger(remembered) && remembered > 0 ? remembered : 0)
+    if (!no || used.has(no)) {
+      while (used.has(next)) next += 1
+      no = next
+    }
+    if (task.no !== no) {
+      task.no = no
+      changed = true
+    }
+    used.add(no)
+    if (numbers[task.id] !== no) numbers[task.id] = no
+  }
+  return changed
 }
 
 /** 标题里写的编号（`🐛 T8-xxx` → 8）；没有就返回 0。 */
@@ -840,7 +872,7 @@ export function deriveTaskDraft(text, sessionId = '') {
 /* ─────────────────────────── 同步引擎 ─────────────────────────── */
 
 function createSyncEngine(ctx) {
-  const stateFile = stateFileFor(ctx)
+  const stateFile = stateFileFor()
   let settings = { ...DEFAULT_SETTINGS }
   let state = { ...DEFAULT_STATE }
   let inFlight = null
@@ -871,6 +903,24 @@ function createSyncEngine(ctx) {
   }
 
   async function persistState() {
+    /* 绑定快照：在场任务的当前状态写进去；不在场的条目留着（等它回来接上）；
+       在场但已解绑的条目删掉。 */
+    const bindings = { ...(state.bindings ?? {}) }
+    for (const task of state.tasks) {
+      if (!task?.id) continue
+      if (!task.sessionId) {
+        delete bindings[task.id]
+        continue
+      }
+      bindings[task.id] = {
+        sessionId: task.sessionId,
+        started: task.started === true,
+        startedAt: task.startedAt ?? null,
+        boundOnly: task.boundOnly === true,
+        linkSource: task.linkSource ?? null,
+      }
+    }
+    state.bindings = bindings
     await writeJson(stateFile, state)
   }
 
@@ -1164,6 +1214,7 @@ function createSyncEngine(ctx) {
     const startTs = Number(raw?.start?.timestamp) || 0
     const dueTs = Number(raw?.due?.timestamp) || 0
     const previousTask = previous.get(asString(raw?.guid))
+    const savedBinding = state.bindings?.[asString(raw?.guid)]
     const listGuid = asString(raw?.tasklists?.[0]?.tasklist_guid)
     const listName = cached(remoteCache.tasklists, listGuid, REMOTE_TTL.tasklists) ?? ''
     const defs = cached(remoteCache.fields, listGuid, REMOTE_TTL.fields) ?? []
@@ -1247,12 +1298,15 @@ function createSyncEngine(ctx) {
               }
               return max + 1
             })(),
-      boundOnly: previousTask?.boundOnly === true && !previousTask.started,
+      boundOnly: (previousTask?.boundOnly ?? savedBinding?.boundOnly) === true
+        && !(previousTask?.started ?? savedBinding?.started),
       isNew: previousTask ? previousTask.isNew === true && !previousTask.started : true,
-      started: previousTask?.started === true,
-      sessionId: previousTask?.sessionId ?? null,
-      startedAt: previousTask?.startedAt ?? null,
-      linkSource: previousTask?.linkSource ?? null,
+      started: (previousTask?.started ?? savedBinding?.started) === true,
+      /* 绑定关系比「这一轮同步到的任务列表」活得更久：任务被过滤掉/归档后回来，
+         靠 bindings 快照把会话接回去，否则卡片会变成「未开工」，再点时又开一条新会话。 */
+      sessionId: previousTask?.sessionId ?? savedBinding?.sessionId ?? null,
+      startedAt: previousTask?.startedAt ?? savedBinding?.startedAt ?? null,
+      linkSource: previousTask?.linkSource ?? savedBinding?.linkSource ?? null,
       /* 错误是「这一轮」的信息：上次开工失败不该永远挂在卡片上，下一轮同步即清。 */
       docs: (() => {
         /* 本地记下的文档（生成 / 手动绑定）要跨同步保留；清单字段和描述里的链接每轮重算。
@@ -1358,7 +1412,9 @@ function createSyncEngine(ctx) {
       const label = await workspaceFromSession(task.sessionId)
       if (label) task.workspaceTitle = label
     }
+    const audited = auditBindings(kept)
     renumberTasks(kept)
+    if (audited) await persistState()
     state.tasks = kept
     await backfillDocTitles(kept).catch(() => undefined)
     await repairTitleNumbers(kept).catch(() => undefined)
@@ -1785,6 +1841,8 @@ function createSyncEngine(ctx) {
     task.started = false
     task.startedAt = null
     task.linkSource = null
+    /* boundOnly 也要清：否则解绑后卡片会继续挂「已绑定」徽标，自动开工也会被它挡掉。 */
+    task.boundOnly = false
     await persistState()
     return { ok: true, previous, task }
   }
@@ -2201,18 +2259,43 @@ function createSyncEngine(ctx) {
    * 编号去重：老状态里可能都拿到同一个号（按 state 算最大值的坑），这里按列表顺序重新补齐。
    * 已经唯一的号保持不动，尽量避免标题变动。
    */
-  function renumberTasks(tasks) {
-    const used = new Set()
-    let next = 1
+  /**
+   * 绑定关系自检：同一会话被多条任务指着时，只留「最近开工的那条」。
+   *
+   * 正常路径上 `linkTask` / `startInSession` 都挡了重复绑定，这里兜的是脏数据：
+   * 旧的多份状态文件互相继承过、或手工改过 state 之后，可能出现一条会话挂着两条任务——
+   * 那两条任务会同时显示「当前对话」、同时往同一条会话写进展。
+   */
+  function auditBindings(tasks) {
+    const bySession = new Map()
+    let changed = false
     for (const task of tasks) {
-      if (Number.isInteger(task.no) && task.no > 0 && !used.has(task.no)) {
-        used.add(task.no)
+      if (!task?.sessionId) continue
+      const previous = bySession.get(task.sessionId)
+      if (!previous) {
+        bySession.set(task.sessionId, task)
         continue
       }
-      while (used.has(next)) next += 1
-      task.no = next
-      used.add(next)
+      const keepNewer = (task.startedAt ?? 0) > (previous.startedAt ?? 0)
+      const keep = keepNewer ? task : previous
+      const drop = keepNewer ? previous : task
+      bySession.set(task.sessionId, keep)
+      drop.sessionId = null
+      drop.started = false
+      drop.boundOnly = false
+      drop.startedAt = null
+      drop.linkSource = null
+      drop.isNew = false
+      changed = true
+      log(ctx, 'info', `[audit] 会话 ${String(keep.sessionId).slice(0, 28)} 同时绑了多条任务，`
+        + `保留「${keep.title.slice(0, 20)}」，清掉「${drop.title.slice(0, 20)}」`)
     }
+    return changed
+  }
+
+  function renumberTasks(tasks) {
+    const changed = assignTaskNumbers(tasks, state.numbers ?? (state.numbers = {}))
+    return changed
   }
 
   /**
