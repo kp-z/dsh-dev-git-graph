@@ -1440,6 +1440,7 @@ function createSyncEngine(ctx) {
     await backfillDocTitles(kept).catch(() => undefined)
     await repairTitleNumbers(kept).catch(() => undefined)
     await ensureWorkspaceOptions(kept).catch(() => undefined)
+    await recordDailyMetrics(false).catch(() => undefined)
     await fillWorkspaceFields(kept).catch(() => undefined)
     await pushTaskChanges(previous, kept).catch(() => undefined)
 
@@ -2162,6 +2163,7 @@ function createSyncEngine(ctx) {
 不要解释、不要 markdown 代码块，格式严格如下：
 
 {"headline":"一句话总结当前推进状态（不超过 40 字）",
+ "today":"一句话说今天实际做了什么（不超过 50 字，基于任务与对话摘要，不要编造）",
  "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字）","evidence":"一句话证据（不超过 40 字）"}],
  "advice":"下一步建议（不超过 60 字）",
  "score":{"focus":0-100,"throughput":0-100,"hygiene":0-100}}
@@ -2498,6 +2500,13 @@ function createSyncEngine(ctx) {
 
   const DAY_MS = 86_400_000
 
+  /** 本地日期键 `YYYY-MM-DD`（不能用 toISOString：东八区会退到前一天）。 */
+  function dayKey(offset = 0) {
+    const d = new Date(dayStart(offset))
+    const pad = (n) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  }
+
   /** 本地某一天的 0 点（offset=-1 就是昨天）。 */
   function dayStart(offset = 0) {
     const d = new Date(nowMs())
@@ -2607,6 +2616,26 @@ function createSyncEngine(ctx) {
         deviation,
         deviationLevel: deviation >= 50 ? '高' : deviation >= 25 ? '中' : '低',
       },
+      todayDone: doneToday.map((task) => ({
+        id: task.id, no: taskNo(task), title: task.title,
+        completedAt: task.completedAt ?? 0, workspace: task.workspaceTitle || task.workspaceName || '',
+      })),
+      todayProgress: activeToday
+        .filter((task) => !task.completedAt || Number(task.completedAt) < todayStart)
+        .map((task) => ({
+          id: task.id, no: taskNo(task), title: task.title,
+          lastAt: taskActivityAt(task),
+          pushed: Boolean(task.lastPushAt),
+          docs: Array.isArray(task.docs) ? task.docs.length : 0,
+          started: Boolean(task.started),
+        })),
+      /* 全局面板的状态分布：一眼看出「多少在跑、多少还没开始」 */
+      board: {
+        total: tasks.length,
+        done: tasks.filter((task) => task.done).length,
+        started: tasks.filter((task) => !task.done && (task.started || task.sessionId)).length,
+        idle: tasks.filter((task) => !task.done && !task.started && !task.sessionId).length,
+      },
       yesterday: {
         done: doneYesterday.map((task) => ({
           id: task.id, no: taskNo(task), title: task.title, completedAt: task.completedAt ?? 0,
@@ -2685,6 +2714,7 @@ function createSyncEngine(ctx) {
     }
     const data = {
       headline: asString(parsed.headline).slice(0, 120),
+      today: asString(parsed.today).slice(0, 160),
       issues: (Array.isArray(parsed.issues) ? parsed.issues : []).slice(0, 3).map((item) => ({
         taskNo: Number(item?.taskNo) || 0,
         level: item?.level === 'warn' ? 'warn' : item?.level === 'bad' ? 'bad' : 'info',
@@ -2703,6 +2733,105 @@ function createSyncEngine(ctx) {
     state.insightSignature = signature
     await persistState()
     return { ok: true, data, cached: false }
+  }
+
+  /** 每日指标快照文件：一个 DSH_HOME 一份，便于外部脚本跟踪与校准。 */
+  const METRICS_FILE = join(DATA_DIR, 'metrics.jsonl')
+
+  /**
+   * 记录「今天」的指标快照。
+   *
+   * 为什么落文件：图表要跨天看趋势，而 state 里只有「此刻」。地图口径见 docs/KNOWLEDGE-task-completion.md：
+   * WIP / 吞吐 / 周期时间中位数与 85 分位，都是能从本地时间戳算出来的，不猜。
+   */
+  async function recordDailyMetrics(force = false) {
+    const day = dayKey(0)
+    /* 今天还没记过就必须记（跨天第一件事），否则 5 分钟内不重复写 */
+    if (!force && state.metricsByDay?.[day] && nowMs() - Number(state.metricsAt ?? 0) < 5 * 60_000) return null
+    const local = insightLocal()
+    const cycles = state.tasks
+      .filter((task) => task.done && Number(task.completedAt) > 0 && Number(task.startedAt) > 0)
+      .map((task) => (Number(task.completedAt) - Number(task.startedAt)) / DAY_MS)
+      .sort((a, b) => a - b)
+    const pick = (list, p) => (list.length ? list[Math.min(list.length - 1, Math.floor(list.length * p))] : null)
+    const record = {
+      day,
+      done: local.today.doneCount,
+      started: local.today.startedCount,
+      created: local.today.newCount,
+      active: local.today.activeCount,
+      wip: local.board.started,
+      idle: local.board.idle,
+      docs: local.today.docsCount,
+      completion: local.today.completion,
+      deviation: local.today.deviation,
+      cycleMedianDays: pick(cycles, 0.5),
+      cycleP85Days: pick(cycles, 0.85),
+      at: nowMs(),
+    }
+    state.metricsByDay = { ...(state.metricsByDay ?? {}), [day]: record }
+    state.metricsAt = nowMs()
+    await persistState()
+    try {
+      const days = Object.keys(state.metricsByDay).sort()
+      const text = days.map((key) => JSON.stringify(state.metricsByDay[key])).join('\n') + '\n'
+      await writeFile(METRICS_FILE, text, 'utf8')
+    } catch (error) {
+      log(ctx, 'warn', `[metrics] 写 metrics.jsonl 失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+    return record
+  }
+
+  /** 趋势数据：补齐缺失的日期（没记录的按 0 显示，而不是断开）。 */
+  function insightStats(days = 14) {
+    const span = Math.max(3, Math.min(60, Number(days) || 14))
+    const map = state.metricsByDay ?? {}
+    const series = []
+    for (let i = span - 1; i >= 0; i -= 1) {
+      const day = dayKey(-i)
+      const from = dayStart(-i)
+      const to = from + DAY_MS
+      /* 历史天数没有快照也能算：完成/开工/新增都落在任务的时间戳上；WIP 用「当天结束时还没完成」还原。
+         这样第一天装上插件就能看到过去两周的形状，而不是等两周攒数据。 */
+      const done = state.tasks.filter((task) => Number(task.completedAt ?? 0) >= from && Number(task.completedAt ?? 0) < to).length
+      const started = state.tasks.filter((task) => Number(task.startedAt ?? 0) >= from && Number(task.startedAt ?? 0) < to).length
+      const created = state.tasks.filter((task) => Number(task.firstSeenAt ?? 0) >= from && Number(task.firstSeenAt ?? 0) < to).length
+      const wip = state.tasks.filter((task) => {
+        const startedAt = Number(task.startedAt ?? 0)
+        if (!startedAt || startedAt >= to) return false
+        const completedAt = Number(task.completedAt ?? 0)
+        return !completedAt || completedAt >= to
+      }).length
+      const saved = map[day]
+      series.push({
+        day,
+        done: Math.max(done, saved?.done ?? 0),
+        started: Math.max(started, saved?.started ?? 0),
+        created: Math.max(created, saved?.created ?? 0),
+        active: saved?.active ?? done + started,
+        wip: saved?.wip ?? wip,
+        docs: saved?.docs ?? 0,
+        cycleMedianDays: saved?.cycleMedianDays ?? null,
+      })
+    }
+    /* 状态 × 工作区：旭日图的内外两环都靠它 */
+    const buckets = new Map()
+    for (const task of state.tasks) {
+      const stateKey = task.done ? 'done' : (task.started || task.sessionId) ? 'started' : 'idle'
+      const workspace = task.workspaceTitle || task.workspaceName || '未分配'
+      const key = `${stateKey}\u0001${workspace}`
+      buckets.set(key, (buckets.get(key) ?? 0) + 1)
+    }
+    return {
+      series,
+      distribution: [...buckets.entries()].map(([key, count]) => {
+        const [stateKey, workspace] = key.split('\u0001')
+        return { state: stateKey, workspace, count }
+      }),
+      board: insightLocal().board,
+      lastRecordAt: Number(state.metricsAt ?? 0),
+      file: METRICS_FILE,
+    }
   }
 
   /** 早会摘要的纯文本版：导出到飞书评论用。 */
@@ -3643,6 +3772,8 @@ function createSyncEngine(ctx) {
     getSettings: () => settings,
     insightLocal,
     /* 面板打开时带上的「今天那份诊断」：只要还在同一天就给，任务变动不该让结论凭空消失 */
+    insightStats,
+    recordDailyMetrics,
     cachedInsight: () => (state.insight && Number(state.insight.at ?? 0) >= dayStart(0) ? state.insight : null),
     diagnoseInsight,
     exportInsight,
@@ -3869,6 +4000,12 @@ function mountRoutes(ctx, engine) {
           if (route === '/api/insight' && req.method === 'GET') {
             /* 连同「今天已经诊断过的那份」一起给，刷新面板不用重新烧 token */
             sendJson(res, 200, { ok: true, local: engine.insightLocal(), ai: engine.cachedInsight() })
+            return
+          }
+
+          if (route === '/api/insight/stats' && req.method === 'GET') {
+            await engine.recordDailyMetrics(false).catch(() => undefined)
+            sendJson(res, 200, { ok: true, stats: engine.insightStats(Number(url.searchParams.get('days') || 14)) })
             return
           }
 
