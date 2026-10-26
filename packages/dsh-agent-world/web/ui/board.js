@@ -609,7 +609,10 @@ export function createBoard(options = {}) {
         const levelNode = el(doc, 'span', 'board-member-level', `Lv.${memberPersona.level ?? 1}`)
         const level = Math.max(1, Number(memberPersona.level) || 1)
         const nextXp = 100 * level * (level + 1) / 2
-        levelNode.title = `${memberPersona.xp ?? 0} XP · 下一级 ${nextXp} XP`
+        const prevXp = 100 * (level - 1) * level / 2
+        const pct = nextXp > prevXp ? Math.max(0, Math.min(100, ((memberPersona.xp ?? 0) - prevXp) / (nextXp - prevXp) * 100)) : 0
+        levelNode.style.setProperty('--xp-pct', `${Math.round(pct)}%`)
+        levelNode.title = `${memberPersona.xp ?? 0} XP · 下一级 ${nextXp} XP（${Math.round(pct)}%）`
         head.append(levelNode)
       }
       // R3：角色/状态**翻成中文**。看板原先直接印 `lead` / `idle`（原始状态码），

@@ -3767,3 +3767,8 @@
   font-size: 8px;
   line-height: 1.5;
 }
+
+/* R360：等级徽标内的经验进度。 */
+.board-member-level {
+  background: linear-gradient(90deg, color-mix(in srgb, #f2c14e 34%, transparent) var(--xp-pct, 0%), color-mix(in srgb, #f2c14e 12%, transparent) 0);
+}
