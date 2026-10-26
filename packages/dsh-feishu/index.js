@@ -170,6 +170,13 @@ const DEFAULT_SETTINGS = {
   insightPrompt: DEFAULT_INSIGHT_PROMPT,
   /* Insight 卡片的快捷键：动作 → 组合键（空串表示不绑定）。 */
   insightHotkeys: { morning: 'Alt+Shift+M', diagnose: 'Alt+Shift+D', export: 'Alt+Shift+E' },
+  /* Insight 卡片右上角的按钮：可增删、每个按钮可带自己的 prompt。
+     kind: morning=本地早会视图 · export=写评论 · ai=跑一次诊断（用自己的 prompt） */
+  insightButtons: [
+    { id: 'morning', label: '早会同步', prompt: '', kind: 'morning' },
+    { id: 'diagnose', label: '诊断', prompt: '', kind: 'ai' },
+    { id: 'export', label: '写入评论', prompt: '', kind: 'export' },
+  ],
   /* 生成飞书文档时给模型的写作要求（面板可编辑）。 */
   docPrompt:
     '把给你的任务材料整理成一份给工程师看的正式文档。硬性要求：\n' +
@@ -596,6 +603,28 @@ function normalizeHotkey(value, fallback) {
   return [...unique, key.toUpperCase()].join('+')
 }
 
+/** 按钮列表规范化：限 6 个、label 必填、id 唯一。 */
+function sanitizeInsightButtons(input, fallback) {
+  const list = Array.isArray(input) ? input : fallback
+  const out = []
+  const seen = new Set()
+  for (const raw of list) {
+    const label = asString(raw?.label).slice(0, 12).trim()
+    if (!label) continue
+    let id = asString(raw?.id).replace(/[^a-z0-9_-]/gi, '').slice(0, 24)
+    if (!id || seen.has(id)) id = `btn${out.length + 1}`
+    seen.add(id)
+    out.push({
+      id,
+      label,
+      prompt: asString(raw?.prompt).slice(0, 2000),
+      kind: ['morning', 'export', 'ai'].includes(raw?.kind) ? raw.kind : 'ai',
+    })
+    if (out.length >= 6) break
+  }
+  return out.length ? out : fallback
+}
+
 function sanitizeSettings(input, base) {
   const next = mergeDeep(base, input)
   return {
@@ -627,6 +656,7 @@ function sanitizeSettings(input, base) {
     autoComment: next.autoComment !== false,
     autoCommentMinSeconds: clampInt(next.autoCommentMinSeconds, 10, 3600, 45),
     insightPrompt: migrateInsightPrompt(asString(next.insightPrompt), base.insightPrompt),
+    insightButtons: sanitizeInsightButtons(next.insightButtons, base.insightButtons),
     insightHotkeys: {
       morning: normalizeHotkey(next.insightHotkeys?.morning, base.insightHotkeys.morning),
       diagnose: normalizeHotkey(next.insightHotkeys?.diagnose, base.insightHotkeys.diagnose),
@@ -2745,8 +2775,9 @@ function createSyncEngine(ctx) {
   }
 
   /** AI 诊断：一句话结论 + 3 条问题 + 三个粗分。失败返回 null，由面板降级。 */
-  async function diagnoseInsight(force = false) {
-    const signature = insightSignature()
+  async function diagnoseInsight(force = false, promptOverride = '') {
+    const custom = asString(promptOverride).trim()
+    const signature = custom ? `${insightSignature()}:${custom.length}:${custom.slice(0, 24)}` : insightSignature()
     /* 结果落在 state 里：热重载/重启之后「今天已经诊断过」这件事不该丢 */
     if (!force && state.insight && state.insightSignature === signature) {
       return { ok: true, data: state.insight, cached: true }
@@ -2763,7 +2794,8 @@ function createSyncEngine(ctx) {
       `周期样本：${datasets.cycle_days.median === null ? '暂无已完成任务' : `${datasets.cycle_days.samples} 条，中位数 ${datasets.cycle_days.median} 天`}`,
     ].join('\n')
     const promptText = `${context}\n\n可用图表数据集（挑图表时用这些 key，不要另造）：\n${dataBrief}`
-    const asked = await askModelForInsight(asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT, promptText)
+    const systemPrompt = custom || asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT
+    const asked = await askModelForInsight(systemPrompt, promptText)
     const parsed = parseJson(asked.text)
     if (!parsed || typeof parsed !== 'object') {
       return { ok: false, reason: asked.reason || '模型返回的不是 JSON' }
@@ -4120,7 +4152,7 @@ function mountRoutes(ctx, engine) {
 
           if (route === '/api/insight/diagnose' && req.method === 'POST') {
             const body = await readBody(req)
-            const result = await engine.diagnoseInsight(body.force === true)
+            const result = await engine.diagnoseInsight(body.force === true, asString(body.prompt))
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }
