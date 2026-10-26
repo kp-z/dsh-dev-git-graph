@@ -1025,6 +1025,9 @@ export function createBoard(options = {}) {
       const dot = el(doc, 'i', 'board-dot board-node-dot')
       applyNodeColors(dot, task.displayStatus ?? task.status)
       top.append(dot, el(doc, 'span', 'board-node-id', task.id))
+      if (task.ownerName !== null && task.ownerName !== undefined && task.ownerName !== '') {
+        top.append(el(doc, 'span', 'board-node-avatar', memberInitial(task.ownerName)))
+      }
       top.append(el(doc, 'span', 'board-node-owner dim', `◉ ${task.ownerName ?? '未分配'}`))
       const ownerPersona = task.owner === null ? null : personas.get(task.owner)
       if (ownerPersona !== undefined && ownerPersona !== null) top.append(el(doc, 'span', 'board-node-level', `Lv.${ownerPersona.level ?? 1}`))

@@ -3734,3 +3734,19 @@
   font-size: 8px;
   line-height: 1.5;
 }
+
+/* R355：任务卡负责人头像（首字）。 */
+.board-node-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--screen) 22%, transparent);
+  color: var(--screen);
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+}
