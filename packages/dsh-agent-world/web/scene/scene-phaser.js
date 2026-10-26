@@ -51,6 +51,7 @@ import {
   animationCandidates,
   bandForActor,
   bandOfState,
+  pairwiseOcclusionAnomalies,
   FIT,
   OVERLAY_DEPTHS,
   obstacleRectToPixels,
@@ -2811,6 +2812,7 @@ export function createScenePhaser(canvas, options = {}) {
       const isFlat = (key) => key === 'map:layer0' || key === 'map:layer5'
       const isChair = (key) => key.startsWith('office-chair')
       const anomalies = []
+      const pairNodes = []
       let total = 0
       for (const node of entities.list ?? []) {
         if (node.visible === false) continue
@@ -2818,6 +2820,12 @@ export function createScenePhaser(canvas, options = {}) {
         const key = String(node.texture?.key ?? '')
         // 平铺层按设计是固定深度（地板当背景 / 墙上挂件置顶），不参与逐行排序。
         if (isFlat(key)) continue
+        pairNodes.push({
+          key,
+          bottom: node.y + (node.displayHeight ?? 0) * (1 - (node.originY ?? 0.5)),
+          // 撤销有意的椅子 bias，否则成对审计会把“椅子塞桌下”误报成错序。
+          depth: (node.depth ?? 0) + (isChair(key) ? CHAIR_BIAS : 0),
+        })
         const originY = node.originY ?? 0.5
         const bottom = node.y + (node.displayHeight ?? 0) * (1 - originY)
         const expected = depthFor(bottom / TILE_PX) - (isChair(key) ? CHAIR_BIAS : 0)
@@ -2833,7 +2841,16 @@ export function createScenePhaser(canvas, options = {}) {
           })
         }
       }
-      return { ok: true, total, anomalyCount: anomalies.length, anomalies: anomalies.slice(0, 20) }
+      const pairs = pairwiseOcclusionAnomalies(pairNodes, { limit: 20 })
+      return {
+        ok: true,
+        total,
+        anomalyCount: anomalies.length,
+        anomalies: anomalies.slice(0, 20),
+        pairAnomalyCount: pairs.anomalies.length,
+        pairAnomalies: pairs.anomalies,
+        pairsChecked: pairs.checked,
+      }
     },
     /**
      * R226：**空气墙覆盖率自检**——nav 说不能走的格，物理层是不是都挡住了。

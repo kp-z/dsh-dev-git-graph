@@ -379,3 +379,46 @@ export function liveActors(world, scene) {
     modelId: byId.get(a.id)?.modelId ?? null,
   }))
 }
+
+/**
+ * R333：成对遮挡审计——不只问“深度能不能被底边解释”，而是问“A 是否真的该挡住 B”。
+ *
+ * 输入节点必须已把底边换算到**同一坐标**（屏幕像素），并带实际 depth。
+ * 规则：底边更靠下（bottom 更大）的实体应在前（depth 更大/相等）。
+ * 排除 flat 层（地板/墙面挂件按设计固定深度）和有意的 chair bias：
+ * chair 通过 `bias` 参与比较，bias 只影响与桌子的观感，不改变底边先后。
+ *
+ * @param {Array<{key:string,bottom:number,depth:number,flat?:boolean}>} nodes
+ * @param {{limit?:number}} [options]
+ * @returns {{checked:number, anomalies:Array<{back:string,front:string,backBottom:number,frontBottom:number,backDepth:number,frontDepth:number}>, total:number}}
+ */
+export function pairwiseOcclusionAnomalies(nodes, options = {}) {
+  const limit = Number.isFinite(options.limit) ? Math.max(1, Math.floor(options.limit)) : 20
+  const list = (Array.isArray(nodes) ? nodes : [])
+    .filter((node) => node && node.flat !== true && Number.isFinite(node.bottom) && Number.isFinite(node.depth))
+    .sort((a, b) => a.bottom - b.bottom || String(a.key).localeCompare(String(b.key)))
+  const anomalies = []
+  let checked = 0
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = i + 1; j < list.length; j += 1) {
+      const back = list[i]
+      const front = list[j]
+      if (Math.abs(back.bottom - front.bottom) < 0.5) continue
+      checked += 1
+      // 后面的实体如果 depth 反而更大，就是“画反了”。
+      if (back.depth > front.depth + 0.05) {
+        if (anomalies.length < limit) {
+          anomalies.push({
+            back: back.key,
+            front: front.key,
+            backBottom: Math.round(back.bottom),
+            frontBottom: Math.round(front.bottom),
+            backDepth: Math.round(back.depth * 100) / 100,
+            frontDepth: Math.round(front.depth * 100) / 100,
+          })
+        }
+      }
+    }
+  }
+  return { checked, anomalies, total: list.length }
+}
