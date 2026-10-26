@@ -271,9 +271,44 @@ def run_actions(token, actions):
                 if not target:
                     results.append({'op': op, 'ok': False, 'error': f"没有名为 {action['name']} 的字段"})
                     continue
+                want = str(action['value'] or '')
+                ftype = target.get('type')
+                if ftype in ('single_select', 'multi_select'):
+                    # 单选/多选要传选项 guid，不是文本；选项不存在就**带着现有 guid**追加一个，
+                    # 显式传 guid 才不会把已有选项重建（重建会让所有任务上的旧值失效）。
+                    visible = [o for o in ((target.get('single_select_setting') or {}).get('options') or [])
+                               if not o.get('is_hidden')]
+                    by_name = {o.get('name'): o.get('guid') for o in visible}
+                    guid = by_name.get(want)
+                    if not guid:
+                        merged = [{'guid': o.get('guid'), 'name': o.get('name'),
+                                   'color_index': o.get('color_index', 0)} for o in visible]
+                        merged.append({'name': want})
+                        patched = call(token, f"/task/v2/custom_fields/{target['guid']}", method='PATCH',
+                                       body={'custom_field': {'single_select_setting': {'options': merged}},
+                                             'update_fields': ['single_select_setting']})
+                        if patched.get('code') != 0:
+                            results.append({'op': op, 'ok': False,
+                                            'error': ('追加选项失败：' + str(patched.get('msg')))[:160]})
+                            continue
+                        after = (((patched.get('data') or {}).get('custom_field') or {})
+                                 .get('single_select_setting') or {}).get('options') or []
+                        guid = next((o.get('guid') for o in after if o.get('name') == want), None)
+                        if not guid:
+                            results.append({'op': op, 'ok': False, 'error': '追加选项后没拿到 guid'})
+                            continue
+                    value = ({'single_select_value': guid} if ftype == 'single_select'
+                             else {'multi_select_value': [guid]})
+                    res = call(token, f"/task/v2/tasks/{action['task']}?user_id_type=open_id", method='PATCH',
+                               body={'task': {'custom_fields': [dict(guid=target['guid'], type=ftype, **value)]},
+                                     'update_fields': ['custom_fields']})
+                    ok = res.get('code') == 0
+                    results.append({'op': op, 'ok': ok, 'option': want,
+                                    'error': None if ok else (res.get('msg') or '')[:160]})
+                    continue
                 res = call(token, f"/task/v2/tasks/{action['task']}?user_id_type=open_id", method='PATCH',
                            body={'task': {'custom_fields': [{'guid': target['guid'], 'type': target['type'],
-                                                             'text_value': action['value']}]},
+                                                             'text_value': want}]},
                                  'update_fields': ['custom_fields']})
                 ok = res.get('code') == 0
                 results.append({'op': op, 'ok': ok, 'error': None if ok else (res.get('msg') or '')[:160]})
