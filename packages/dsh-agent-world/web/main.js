@@ -382,6 +382,52 @@ const panelVisibility = (() => {
     return { team: saved?.team !== false, task: saved?.task !== false }
   } catch (e) { return { team: true, task: true } }
 })()
+const gameToggle = root.querySelector?.('#cmd-game')
+let gameModeEnabled = false
+
+async function loadGameMode() {
+  if (gameToggle === null || gameToggle === undefined) return
+  try {
+    const res = await fetch(apiUrl('api/game-mode'))
+    if (!res.ok) return
+    const body = await res.json().catch(() => ({}))
+    setGameModeUi(body.enabled === true)
+  } catch (error) { /* 宿主旧版本没有这个端点：保持关闭 */ }
+}
+
+function setGameModeUi(enabled) {
+  gameModeEnabled = enabled === true
+  if (gameToggle === null || gameToggle === undefined) return
+  gameToggle.classList.toggle('is-on', gameModeEnabled)
+  gameToggle.setAttribute('aria-pressed', String(gameModeEnabled))
+  gameToggle.title = gameModeEnabled ? '游戏模式：开' : '游戏模式：关'
+  gameToggle.setAttribute('aria-label', gameToggle.title)
+}
+
+if (gameToggle !== null && gameToggle !== undefined) {
+  gameToggle.addEventListener('click', () => { void toggleGameMode() })
+}
+
+async function toggleGameMode() {
+  const next = !gameModeEnabled
+  setGameModeUi(next)
+  try {
+    const res = await fetch(apiUrl('api/game-mode'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: next }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || body.enabled !== next) {
+      setGameModeUi(!next)
+      showHint(`游戏模式切换失败：${body.error ?? res.status}`)
+    }
+  } catch (error) {
+    setGameModeUi(!next)
+    showHint(`游戏模式切换失败：${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 const panelSwitchButton = root.querySelector?.('#cmd-panels')
 const panelSwitchMenu = root.querySelector?.('#panel-switch-menu')
 const panelChecks = [...(root.querySelectorAll?.('[data-panel]') ?? [])]
@@ -1051,6 +1097,24 @@ let lastTeam = null
 let sessionGraph = null
 let workflowLoadToken = 0
 const heartbeatIntents = new Map()
+const personaByKey = new Map()
+
+async function loadPersonas() {
+  try {
+    const res = await fetch(apiUrl('api/personas'))
+    if (!res.ok) return
+    const body = await res.json().catch(() => ({}))
+    personaByKey.clear()
+    for (const persona of Array.isArray(body.personas) ? body.personas : []) {
+      if (typeof persona?.id === 'string') personaByKey.set(persona.id, persona)
+    }
+  } catch (error) { /* 旧宿主没有 persona API */ }
+}
+
+function personaFor(actor) {
+  if (actor === null || actor === undefined) return null
+  return personaByKey.get(actor.boundAgentId ?? '') ?? personaByKey.get(actor.id) ?? null
+}
 let workflowLoading = false
 let workflowPollTimer = null
 
@@ -1157,6 +1221,19 @@ function showTeamDetail(name, role, state, id, tasks) {
     wants.textContent = `wants ${Array.isArray(intent.wants) && intent.wants.length > 0 ? intent.wants.join(', ') : '—'}`
     box.append(title, needs, wants)
     host.append(box)
+  }
+  const detailPersona = personaFor(detailActor)
+  if (detailPersona !== null) {
+    const growth = doc.createElement('div')
+    growth.className = 'aw-persona'
+    const level = doc.createElement('b')
+    level.textContent = `Lv.${detailPersona.level ?? 1}`
+    const xp = doc.createElement('span')
+    xp.textContent = `${detailPersona.xp ?? 0} XP`
+    const skills = doc.createElement('span')
+    skills.textContent = Array.isArray(detailPersona.skills) && detailPersona.skills.length > 0 ? detailPersona.skills.join(' · ') : '尚未学习技能'
+    growth.append(level, xp, skills)
+    host.append(growth)
   }
   if (typeof id === 'string') {
     const talk = doc.createElement('button')

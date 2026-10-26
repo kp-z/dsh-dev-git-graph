@@ -29,6 +29,8 @@ export const AgentWorldConfig = z.object({
    * 位置对了之后把这里翻成 `true` 就能把待命行为按原样加回来（内容侧一行都不用动）。
    */
   idleActionsEnabled: z.boolean().default(false),
+  /** R350：游戏模式；开启后 subagent 的人设注入游戏行为约束。 */
+  gameMode: z.boolean().default(false),
 
   /**
    * 每多少 tick 落一次盘（快照 + 事件）。`0` = 不落盘，世界只活在内存里。
@@ -123,6 +125,7 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     tickMs: config.tickMs && config.tickMs > 0 ? config.tickMs : 100,
     autoStart: config.autoStart ?? true,
     idleActionsEnabled: config.idleActionsEnabled ?? false,
+    gameMode: config.gameMode ?? false,
     persistEveryTicks: config.persistEveryTicks ?? 100,
     maxAgents: config.maxAgents && config.maxAgents > 0 ? config.maxAgents : 24,
     worldName: config.worldName ?? 'Agent World',

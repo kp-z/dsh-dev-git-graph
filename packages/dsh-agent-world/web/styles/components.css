@@ -3700,3 +3700,26 @@
 .quest-bar { grid-column: 2 / 4; height: 2px; border-radius: 999px; background: var(--edge-soft); overflow: hidden; }
 .quest-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--screen); transition: width 240ms ease; }
 .quest-row.is-done .quest-bar > span { background: #65d98a; }
+
+/* R350：游戏模式开关的“开启”态。 */
+.game-toggle.is-on {
+  color: #65d98a;
+  border-color: color-mix(in srgb, #65d98a 45%, var(--edge-soft));
+  background: color-mix(in srgb, #65d98a 12%, transparent);
+}
+
+/* R352：团队详情里的 Persona 等级/技能。 */
+.aw-persona {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 1px 6px;
+  margin: 6px 0;
+  padding: 5px 6px;
+  border-left: 2px solid #f2c14e;
+  border-radius: 4px;
+  background: color-mix(in srgb, #f2c14e 7%, transparent);
+  color: var(--fg-2);
+  font-size: 9px;
+}
+.aw-persona b { color: #f2c14e; font-size: 11px; }
+.aw-persona span:last-child { grid-column: 1 / 3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

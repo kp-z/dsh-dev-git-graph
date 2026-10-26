@@ -35,6 +35,7 @@ import { createEventHub, createRuntime } from './runtime/index.js'
 import { planTeamSync } from './sim/index.js'
 import { createWorldStore } from './store/index.js'
 import { createPluginState } from './state.js'
+import { createPersonaStore } from './persona/store.js'
 import { registerDispatchTool } from './tools/dispatch.js'
 import { registerWorldTools } from './tools/world.js'
 
@@ -61,6 +62,9 @@ function this_agentId(record: Record<string, unknown>): string | undefined {
 
 export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): void {
   const resolved = resolveConfig(config)
+  /** R350：游戏模式（可在主对话 header 切换，不需要重启插件）。 */
+  let gameModeEnabled = resolved.gameMode
+  const personaStore = createPersonaStore(join(resolved.stateDir, 'personas.json'))
   const logger = ctx.logger('agent-world')
 
   // 外部内容目录的解析结果要**原样打出来**：用户配了 contentDir 却没生效时，
@@ -367,7 +371,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   let lastFailureCode: string | undefined
   const dialoguePort = toLazyDialoguePort(() => {
     const wiring = createDshCharacterBridge(ctx, {
-      systemPromptFor: createPersonaResolver(state),
+      systemPromptFor: createPersonaResolver(state, () => gameModeEnabled, personaStore),
       // 角色只许看世界、读内容、派单（D35）。**不给 agent_world_open**：那会让一个角色重开整个世界。
       characterTools: ['agent_world_status', 'agent_world_content', 'agent_world_dispatch'],
       maxLiveSessions: resolved.maxLiveSessions,
@@ -879,6 +883,13 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         tickMs: state.tickMs,
         maxLiveSessions: resolved.maxLiveSessions,
         dialogue: activeDialoguePort,
+        gameMode: { get: () => gameModeEnabled, set: (enabled) => { gameModeEnabled = enabled } },
+        personas: {
+          list: () => personaStore.list() as unknown as Record<string, unknown>[],
+          upsert: (input) => personaStore.upsert(input as never) as unknown as Record<string, unknown>,
+          addXp: (id, amount) => personaStore.addXp(id, amount) as unknown as Record<string, unknown> | null,
+          linkTask: (id, taskId) => personaStore.linkTask(id, taskId) as unknown as Record<string, unknown> | null,
+        },
         onDialogueChannel: (channel) => { mainDialogueChannel = channel },
         // R166：一个会话一个世界；同一时刻只有激活的那个在跑。
         activateSession: (sessionId: string) => {
@@ -1220,9 +1231,30 @@ function createSeatResolver(state: ReturnType<typeof createPluginState>): (chara
 }
 
 /** 旧签名（人设正文）：套壳路径之外的调用方还在用。 */
-function createPersonaResolver(state: ReturnType<typeof createPluginState>): (characterId: string) => string {
+function createPersonaResolver(state: ReturnType<typeof createPluginState>, gameMode: () => boolean, personas: ReturnType<typeof createPersonaStore>): (characterId: string) => string {
   const resolve = createSeatResolver(state)
-  return (characterId) => resolve(characterId).persona
+  const GAME_PROMPT = [
+    '你现在在一个可玩的办公室里，而不是只做文本问答。',
+    '保持角色人设；回复简短、有动作感，优先用一句话说明你要去做什么。',
+    '你拥有 level / skills / preferences 的游戏化设定：升级靠完成任务，技能决定你更适合工位、会议还是休息。',
+    '每次行动要能在场景里对应到工作 / 开会 / 休息；不知道做什么时，先看世界状态再决定。',
+  ].join('\n')
+  return (characterId) => {
+    const seat = resolve(characterId)
+    if (!gameMode()) return seat.persona
+    const world = state.currentWorld()
+    const actor = world?.agents.find((agent) => agent.id === characterId)
+    const key = actor?.boundAgentId ?? actor?.id ?? characterId
+    const saved = personas.get(key) ?? personas.upsert({ id: key, name: actor?.name ?? key, role: actor?.role ?? 'engineer', prompt: seat.persona })
+    // 把等级/技能/任务关联注入，让 subagent 不只是“知道人设”，还知道自己的成长与手头关系。
+    const growth = [
+      `Level ${saved.level} / XP ${saved.xp}`,
+      saved.skills.length > 0 ? `Skills: ${saved.skills.join(', ')}` : 'Skills: 尚未学习',
+      saved.taskIds.length > 0 ? `Linked tasks: ${saved.taskIds.slice(-5).join(', ')}` : 'Linked tasks: 无',
+      saved.prompt.trim() !== '' ? `Persona note: ${saved.prompt}` : '',
+    ].filter(Boolean).join('\n')
+    return `${seat.persona}\n\n${GAME_PROMPT}\n\n${growth}`
+  }
 }
 
 /**

@@ -59,6 +59,15 @@ export interface ApiDeps {
   teamTask?: (payload: Record<string, unknown>) => Promise<unknown>
   /** 读取某个 Agent 对应的 DSH 会话历史。 */
   history?: (agentId: string) => Promise<unknown>
+  /** R350：游戏模式开关（主对话 → subagent 注入）。 */
+  gameMode?: { readonly get: () => boolean; readonly set: (enabled: boolean) => void }
+  /** R351：Persona 档案（持久化在插件 stateDir）。 */
+  personas?: {
+    readonly list: () => readonly Record<string, unknown>[]
+    readonly upsert: (input: Record<string, unknown>) => Record<string, unknown>
+    readonly addXp: (id: string, amount: number) => Record<string, unknown> | null
+    readonly linkTask: (id: string, taskId: string) => Record<string, unknown> | null
+  }
 }
 
 /**
@@ -390,6 +399,53 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
       method: 'POST',
       pattern: '/api/command',
       handler: (request) => applyCommand(deps, request.body),
+    },
+    {
+      method: 'GET',
+      pattern: '/api/personas',
+      handler: () => ({ personas: deps.personas?.list() ?? [] }),
+    },
+    {
+      method: 'POST',
+      pattern: '/api/personas',
+      handler: (request) => {
+        const body = request.body as Record<string, unknown> | undefined
+        if (typeof body?.id !== 'string' || body.id.trim() === '') throw new HttpError(400, 'persona 需要 id')
+        const id = body.id.trim()
+        const action = typeof body.action === 'string' ? body.action : 'upsert'
+        if (action === 'addXp') {
+          const amount = Number(body.amount ?? 0)
+          if (!Number.isFinite(amount) || amount < 0) throw new HttpError(400, 'amount 必须是非负数')
+          const persona = deps.personas?.addXp(id, amount) ?? null
+          if (persona === null) throw new HttpError(404, `没有 persona ${id}`)
+          return { ok: true, persona }
+        }
+        if (action === 'linkTask') {
+          const taskId = typeof body.taskId === 'string' ? body.taskId : ''
+          if (taskId === '') throw new HttpError(400, 'linkTask 需要 taskId')
+          const persona = deps.personas?.linkTask(id, taskId) ?? null
+          if (persona === null) throw new HttpError(404, `没有 persona ${id}`)
+          return { ok: true, persona }
+        }
+        const persona = deps.personas?.upsert(body) ?? null
+        if (persona === null) throw new HttpError(503, 'Persona 存储未启用')
+        return { ok: true, persona }
+      },
+    },
+    {
+      method: 'GET',
+      pattern: '/api/game-mode',
+      handler: () => ({ enabled: deps.gameMode?.get() === true }),
+    },
+    {
+      method: 'POST',
+      pattern: '/api/game-mode',
+      handler: (request) => {
+        const body = request.body as { enabled?: unknown } | undefined
+        if (typeof body?.enabled !== 'boolean') throw new HttpError(400, '请求体要形如 {"enabled":true}')
+        deps.gameMode?.set(body.enabled)
+        return { ok: true, enabled: deps.gameMode?.get() === true }
+      },
     },
     {
       method: 'GET',

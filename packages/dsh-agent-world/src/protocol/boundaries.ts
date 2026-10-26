@@ -30,6 +30,7 @@ export type ModuleName =
   | 'scene'
   | 'sim'
   | 'store'
+  | 'persona'
   | 'runtime'
   | 'bridge'
   | 'tools'
@@ -124,6 +125,15 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
       '这是"换一套内容不用改模拟逻辑"的前提，也是全表最该守住的一条。',
   },
   {
+    module: 'persona',
+    mayImport: [],
+    mayImportTypes: [],
+    forbidden: ['three', '@deepseek-ai/', 'protocol', 'domain', 'content', 'world', 'sim', 'bridge'],
+    rationale:
+      'Persona 是 subagent 的长期档案（等级/技能/任务关联），只做数据与文件持久化；' +
+      '它不认识世界、模拟或渲染，避免游戏成长逻辑反向耦合进内核。node: 允许（fs 是它的本职）。',
+  },
+  {
     module: 'store',
     mayImport: ['protocol', 'domain'],
     mayImportTypes: ['protocol', 'domain'],
@@ -180,6 +190,7 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
       'scene',
       'sim',
       'store',
+      'persona',
       'runtime',
       'bridge',
       'tools',
@@ -193,6 +204,7 @@ export const BOUNDARY_RULES: readonly BoundaryRule[] = [
       'scene',
       'sim',
       'store',
+      'persona',
       'runtime',
       'bridge',
       'tools',
