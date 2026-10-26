@@ -2283,28 +2283,24 @@
 
     var actions = el('div', { 'class': 'task-actions' });
     var busy = !!app.busyTask[t.id];
-    /* 已开工的卡不再给「开工」；只是绑定了会话（没开工）的卡仍然可以开工。
-       「绑定」只在还没绑会话时出现。 */
-    if (!sid || t.boundOnly) {
+    /* 绑了会话就是已经开工了，不再给「开工」——那按钮的语义是「开一条会话干活」。
+       只有还没绑会话的卡才出现「开工」和「绑定」。 */
+    if (!sid) {
       var startBtn = makeButton('开工',
         'btn btn-primary btn-sm', '开工中…', busy, function () { onStart(t); });
-      startBtn.title = t.boundOnly
-        ? '把任务描述投递进已绑定的那条会话'
-        : app.currentSessionId
-          ? '在当前会话开工（任务绑定到这条对话）'
-          : '新建一条会话开工';
+      startBtn.title = app.currentSessionId
+        ? '在当前会话开工（任务绑定到这条对话）'
+        : '新建一条会话开工';
       actions.appendChild(startBtn);
 
       /* 「绑定」：只建立任务↔当前会话的关系并同步名字，不投递、不开工。 */
-      if (!sid) {
-        /* busyLabel 传 null：禁用时不能显示成「绑定中…」（那是真在发请求）。 */
-        var bindBtn = makeButton('绑定', 'btn btn-ghost btn-sm', null, busy || !app.currentSessionId,
-          function () { onBind(t); });
-        bindBtn.title = app.currentSessionId
-          ? '把当前会话绑定到这条任务并同步名称，但不开始工作'
-          : '需要从右侧栏的会话里打开面板才能绑定';
-        actions.appendChild(bindBtn);
-      }
+      /* busyLabel 传 null：禁用时不能显示成「绑定中…」（那是真在发请求）。 */
+      var bindBtn = makeButton('绑定', 'btn btn-ghost btn-sm', null, busy || !app.currentSessionId,
+        function () { onBind(t); });
+      bindBtn.title = app.currentSessionId
+        ? '把当前会话绑定到这条任务并同步名称，但不开始工作'
+        : '需要从右侧栏的会话里打开面板才能绑定';
+      actions.appendChild(bindBtn);
     }
 
     if (!sid) {
