@@ -3750,3 +3750,9 @@
   font-weight: 700;
   line-height: 1;
 }
+
+/* R356：头像按成员 palette 上色。 */
+.board-node-avatar {
+  background: color-mix(in srgb, var(--avatar-color, var(--screen)) 24%, transparent);
+  color: var(--avatar-color, var(--screen));
+}

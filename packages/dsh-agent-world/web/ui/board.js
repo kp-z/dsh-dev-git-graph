@@ -1019,6 +1019,7 @@ export function createBoard(options = {}) {
       card.title = `${task.id} · ${task.title} · ${taskStatusLabel(task.displayStatus ?? task.status)}${descHint}${taskSetNames[task.set] ? ` · ${taskSetNames[task.set]}` : ''}`
       // 卡片内容由三行碎片组成，读屏拼起来是「task-1小青定位问题边界」；用 aria-label 给整句。
       card.setAttribute('aria-label', card.title)
+      const ownerMember = model.members.find((member) => member.name === task.ownerName)
       const top = el(doc, 'div', 'board-node-top')
       // 状态色不再用 3px 左边条（那是"卡片左侧彩条"这个到处都是的默认写法），
       // 改成编号前的一枚 6px 状态点：面积更小，信息相同。
@@ -1026,14 +1027,17 @@ export function createBoard(options = {}) {
       applyNodeColors(dot, task.displayStatus ?? task.status)
       top.append(dot, el(doc, 'span', 'board-node-id', task.id))
       if (task.ownerName !== null && task.ownerName !== undefined && task.ownerName !== '') {
-        top.append(el(doc, 'span', 'board-node-avatar', memberInitial(task.ownerName)))
+        const avatar = el(doc, 'span', 'board-node-avatar', memberInitial(task.ownerName))
+        if (typeof ownerMember?.palette === 'string' && ownerMember.palette !== '') {
+          avatar.style.setProperty('--avatar-color', ownerMember.palette)
+        }
+        top.append(avatar)
       }
       top.append(el(doc, 'span', 'board-node-owner dim', `◉ ${task.ownerName ?? '未分配'}`))
       const ownerPersona = task.owner === null ? null : personas.get(task.owner)
       if (ownerPersona !== undefined && ownerPersona !== null) top.append(el(doc, 'span', 'board-node-level', `Lv.${ownerPersona.level ?? 1}`))
       if (fitted.preset !== 'tight') top.append(el(doc, 'span', 'board-node-status', `◷ ${taskStatusLabel(task.displayStatus ?? task.status)}`))
       if ((task.blockedBy?.length ?? 0) > 0) top.append(el(doc, 'span', 'board-node-status', `⇠ ${task.blockedBy.length}`))
-      const ownerMember = model.members.find((member) => member.name === task.ownerName)
       const ownerRole = ownerMember === undefined ? '' : roleLabel(ownerMember.role)
       if (ownerRole !== '') top.append(el(doc, 'span', 'board-node-role', ownerRole))
       card.style.setProperty('--task-accent', taskAccentOf(task))
