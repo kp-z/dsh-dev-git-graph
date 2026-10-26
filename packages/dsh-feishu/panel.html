@@ -1051,33 +1051,34 @@
 
   .chip-doc:hover { text-decoration: underline; }
 
-  /* ---------- 任务过滤条 ---------- */
+  /* ---------- 任务过滤条（一行，点「筛选」才展开） ---------- */
   .task-filter {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin: 8px 0 2px;
+    align-items: center;
+    gap: 4px;
+    margin: 6px 0 2px;
   }
 
-  .task-filter .filter-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .task-filter[hidden] {
+    display: none;
   }
 
   .task-filter select,
   .task-filter input {
-    flex: 1 1 0;
     min-width: 0;
-    height: 26px;
-    padding: 0 7px;
+    height: 24px;
+    padding: 0 5px;
     border: 1px solid var(--p-line);
-    border-radius: 6px;
+    border-radius: 5px;
     background: var(--p-bg, var(--p-card));
     color: var(--p-text-1);
-    font-size: 11.5px;
+    font-size: 11px;
     font-family: inherit;
   }
+
+  .task-filter #filterWorkspace { flex: 1.4 1 0; }
+  .task-filter #filterStatus { flex: 0.9 1 0; }
+  .task-filter #filterKeyword { flex: 1.6 1 0; }
 
   .task-filter select:focus,
   .task-filter input:focus {
@@ -1085,9 +1086,27 @@
     border-color: var(--p-accent-line);
   }
 
-  .task-filter #filterReset {
+  .task-filter .filter-reset {
     flex: 0 0 auto;
-    height: 26px;
+    height: 24px;
+    padding: 0 6px;
+  }
+
+  /* 有筛选条件时按钮上挂一个小点，收起来也知道自己筛过 */
+  .filter-toggle.is-active {
+    color: var(--p-accent-text);
+    border-color: var(--p-accent-line);
+  }
+
+  .filter-toggle.is-active::after {
+    content: '';
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-left: 4px;
+    border-radius: 50%;
+    background: var(--p-select, var(--p-accent));
+    vertical-align: middle;
   }
 
   /* ---------- 当前对话绑定的任务卡 ---------- */
@@ -1378,23 +1397,20 @@
       <h2 id="tasksTitle">任务</h2>
       <span id="taskListName" class="title-sub"></span>
       <span id="taskCount" class="count">0</span>
+      <button type="button" id="filterToggle" class="btn btn-ghost btn-sm filter-toggle" aria-expanded="false" aria-controls="taskFilterBar" title="筛选任务">筛选</button>
       <button type="button" id="syncNow" class="btn btn-ghost btn-sm push">立即同步</button>
     </div>
-    <div class="task-filter" role="search">
-      <div class="filter-row">
-        <select id="filterWorkspace" aria-label="按工作区过滤">
-          <option value="">全部工作区</option>
-        </select>
-        <select id="filterStatus" aria-label="按状态过滤">
-          <option value="open">未完成</option>
-          <option value="all">全部状态</option>
-          <option value="done">已完成</option>
-        </select>
-      </div>
-      <div class="filter-row">
-        <input type="search" id="filterKeyword" placeholder="按标题 / 描述筛选" aria-label="关键词筛选" spellcheck="false">
-        <button type="button" id="filterReset" class="btn btn-ghost btn-sm">重置</button>
-      </div>
+    <div id="taskFilterBar" class="task-filter" role="search" hidden>
+      <select id="filterWorkspace" aria-label="按工作区过滤">
+        <option value="">全部工作区</option>
+      </select>
+      <select id="filterStatus" aria-label="按状态过滤">
+        <option value="open">未完成</option>
+        <option value="all">全部</option>
+        <option value="done">已完成</option>
+      </select>
+      <input type="search" id="filterKeyword" placeholder="标题 / 描述" aria-label="关键词筛选" spellcheck="false">
+      <button type="button" id="filterReset" class="btn btn-ghost btn-xs filter-reset" title="清空筛选">✕</button>
     </div>
     <div id="taskList" class="list"></div>
   </section>
@@ -1592,6 +1608,7 @@
     version: '', // 插件版本（/api/state 顶层，显示在 CLI chip 上）
     /* 任务过滤条件：工作区 / 状态 / 关键词；存在 localStorage，刷新后还在 */
     filter: { workspace: '', status: 'open', keyword: '' },
+    filterOpen: false, // 过滤条是否展开（头部「筛选」按钮控制）
     workspaces: [],       // GET /api/state → 已登记工作区
     busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false },
     busyTask: {},
@@ -1940,6 +1957,7 @@
         status: saved.status === 'all' || saved.status === 'done' ? saved.status : 'open',
         keyword: typeof saved.keyword === 'string' ? saved.keyword : '',
       };
+      app.filterOpen = saved.open === true;
     } catch (e) {
       /* 隐私模式禁 localStorage 就算了 */
     }
@@ -1947,7 +1965,14 @@
 
   function saveFilter() {
     try {
-      if (window.localStorage) localStorage.setItem(FILTER_STORE, JSON.stringify(app.filter));
+      if (window.localStorage) {
+        localStorage.setItem(FILTER_STORE, JSON.stringify({
+          workspace: app.filter.workspace,
+          status: app.filter.status,
+          keyword: app.filter.keyword,
+          open: app.filterOpen === true,
+        }));
+      }
     } catch (e) {
       /* 忽略 */
     }
@@ -1973,6 +1998,18 @@
       }
       return true;
     });
+  }
+
+  /* 过滤条要不要展开 + 「筛选」按钮上的小点（有生效条件时亮）。 */
+  function renderFilterToggle() {
+    var bar = $('taskFilterBar');
+    var toggle = $('filterToggle');
+    if (bar) bar.hidden = !app.filterOpen;
+    if (!toggle) return;
+    toggle.setAttribute('aria-expanded', app.filterOpen ? 'true' : 'false');
+    var active = !!(app.filter.workspace || (app.filter.keyword || '').trim() || (app.filter.status || 'open') !== 'open');
+    if (active) toggle.classList.add('is-active');
+    else toggle.classList.remove('is-active');
   }
 
   /* 工作区下拉：按当前快照里出现过的值填充，保留已选项。 */
@@ -2003,6 +2040,7 @@
     if (keywordNode && keywordNode.value !== (app.filter.keyword || '')) keywordNode.value = app.filter.keyword || '';
     var statusNode = $('filterStatus');
     if (statusNode) statusNode.value = app.filter.status || 'open';
+    renderFilterToggle();
   }
 
   function renderTasks() {
@@ -3154,6 +3192,18 @@
         app.filter = { workspace: '', status: 'open', keyword: '' };
         saveFilter();
         renderTasks();
+      });
+    }
+    var filterToggle = $('filterToggle');
+    if (filterToggle) {
+      filterToggle.addEventListener('click', function () {
+        app.filterOpen = !app.filterOpen;
+        saveFilter();
+        renderFilterToggle();
+        if (app.filterOpen) {
+          var ws = $('filterWorkspace');
+          ws && ws.focus();
+        }
       });
     }
     $('docAdd').addEventListener('click', onAddDoc);
