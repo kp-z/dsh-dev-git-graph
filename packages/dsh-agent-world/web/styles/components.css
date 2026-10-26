@@ -3662,3 +3662,12 @@
 .board-node[style*="--task-accent"] {
   box-shadow: inset 2px 0 0 var(--task-accent), var(--shadow-1);
 }
+
+/* R348：视图 chips 单行横向滚动，不换行吃掉任务图高度。 */
+.board-view-chips {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.board-view-chips::-webkit-scrollbar { display: none; }
