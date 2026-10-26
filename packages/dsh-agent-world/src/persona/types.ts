@@ -7,6 +7,8 @@ export interface Persona {
   xp: number
   skills: string[]
   taskIds: string[]
+  /** 已经结算过 XP 的任务，防止重复加经验。 */
+  awardedTaskIds: string[]
   prompt: string
   updatedAt: number
 }

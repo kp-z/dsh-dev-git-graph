@@ -315,14 +315,15 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       }
     }
     for (const task of world.tasks) {
-      if (task.status !== 'done' || task.owner === null) continue
+      if (task.owner === null) continue
       const agent = world.agents.find((candidate) => candidate.id === task.owner)
       if (agent === undefined) continue
       const key = agent.boundAgentId ?? agent.id
-      const persona = personaStore.get(key)
-      if (persona === null || persona.taskIds.includes(task.id)) continue
       personaStore.linkTask(key, task.id)
-      personaStore.addXp(key, 40)
+      const persona = personaStore.get(key)
+      if (task.status === 'done' && persona !== null && !persona.awardedTaskIds.includes(task.id)) {
+        personaStore.awardTask(key, task.id, 40)
+      }
     }
   }
 
