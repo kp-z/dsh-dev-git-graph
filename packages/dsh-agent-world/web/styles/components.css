@@ -3657,3 +3657,8 @@
   outline: none;
 }
 .aw-hire-menu .aw-hire-name:focus { border-color: var(--screen); }
+
+/* R346：每张任务卡一条稳定主题色，区分流水线；不改变状态色语义。 */
+.board-node[style*="--task-accent"] {
+  box-shadow: inset 2px 0 0 var(--task-accent), var(--shadow-1);
+}
