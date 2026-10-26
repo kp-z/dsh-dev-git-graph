@@ -1317,6 +1317,13 @@ function renderAgentActions(team) {
   if (card !== null) card.textContent = ''
   const host = sidebarMounts.agentsActions
   if (host !== null && host !== undefined && host.querySelector('.aw-team-select') === null) {
+    const hire = doc.createElement('button')
+    hire.type = 'button'
+    hire.className = 'aw-icon aw-team-hire'
+    hire.textContent = '＋'
+    hire.title = '新建 Agent（engineer）'
+    hire.setAttribute('aria-label', '新建 Agent')
+    hire.addEventListener('click', () => { void sendCommand({ kind: 'hire', role: 'engineer', name: null }) })
     const select = doc.createElement('select')
     select.className = 'aw-view-select aw-team-select'
     select.title = '团队显示模式'
@@ -1340,7 +1347,7 @@ function renderAgentActions(team) {
       if (teamView === 'workflow') void loadWorkflowRuns()
       else board.refresh()
     })
-    host.append(select, refresh)
+    host.append(hire, select, refresh)
   }
   const membersMount = sidebarMounts.agentsMount ?? root.querySelector('.sidebar-members')
   if (membersMount !== null && membersMount !== undefined) membersMount.hidden = teamView === 'workflow'
