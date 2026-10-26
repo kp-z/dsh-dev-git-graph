@@ -2843,7 +2843,7 @@ export function createScenePhaser(canvas, options = {}) {
       }
       const pairs = pairwiseOcclusionAnomalies(pairNodes, { limit: 20 })
       return {
-        ok: true,
+        ok: anomalies.length === 0 && pairs.anomalies.length === 0,
         total,
         anomalyCount: anomalies.length,
         anomalies: anomalies.slice(0, 20),
