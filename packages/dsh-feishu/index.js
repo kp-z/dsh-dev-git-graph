@@ -119,6 +119,27 @@ function pluginVersion() {
   }
 }
 
+/**
+ * 早会诊断的系统提示（默认值；面板可改，改了存 settings.insightPrompt）。
+ *
+ * 只给「任务 + 最近对话摘要」，所以要求模型**不许编造**没出现的任务/数字；
+ * 输出固定 JSON，面板直接渲染，不做二次解析。
+ */
+export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根据给你的任务清单与最近对话摘要，输出一个 JSON 对象，
+不要解释、不要 markdown 代码块，格式严格如下：
+
+{"headline":"一句话总结当前推进状态（不超过 40 字）",
+ "today":"一句话说今天实际做了什么（不超过 50 字，基于任务与对话摘要，不要编造）",
+ "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字）","evidence":"一句话证据（不超过 40 字）"}],
+ "advice":"下一步建议（不超过 60 字）",
+ "score":{"focus":0-100,"throughput":0-100,"hygiene":0-100}}
+
+规则：
+- 只依据给到的信息，不要编造没出现的任务或数字。
+- issues 最多 3 条，优先「卡住 / 长时间没动 / 反复返工」的。
+- focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
+- 中文，句子短，不说场面话。`
+
 const DEFAULT_SETTINGS = {
   autoSync: true,
   syncIntervalMinutes: 30,
@@ -140,6 +161,10 @@ const DEFAULT_SETTINGS = {
   autoComment: true,
   /* 同一会话两条进度评论的最小间隔（秒），防止一个 turn 刷一条。 */
   autoCommentMinSeconds: 45,
+  /* 早会诊断的系统提示（面板可改）。 */
+  insightPrompt: DEFAULT_INSIGHT_PROMPT,
+  /* Insight 卡片的快捷键：动作 → 组合键（空串表示不绑定）。 */
+  insightHotkeys: { morning: 'Alt+Shift+M', diagnose: 'Alt+Shift+D', export: 'Alt+Shift+E' },
   /* 生成飞书文档时给模型的写作要求（面板可编辑）。 */
   docPrompt:
     '把给你的任务材料整理成一份给工程师看的正式文档。硬性要求：\n' +
@@ -535,6 +560,22 @@ function normalizeAutoStartMode(next, base) {
   return base.autoStartMode ?? 'off'
 }
 
+/** 快捷键规范化：只接受 `Modifier+...+Key` 这种形状，认不出就退回默认值。 */
+function normalizeHotkey(value, fallback) {
+  const raw = asString(value).trim()
+  if (!raw) return ''
+  const parts = raw.split('+').map((part) => part.trim()).filter(Boolean)
+  if (parts.length < 2) return fallback
+  const key = parts[parts.length - 1]
+  const mods = parts.slice(0, -1).map((part) => part.toLowerCase())
+  const allowed = new Set(['alt', 'shift', 'ctrl', 'meta', 'cmd', 'control'])
+  if (!mods.every((mod) => allowed.has(mod))) return fallback
+  if (!/^[a-z0-9]$/i.test(key)) return fallback
+  const canon = mods.map((mod) => (mod === 'cmd' ? 'meta' : mod === 'control' ? 'ctrl' : mod))
+  const unique = [...new Set(canon)]
+  return [...unique, key.toUpperCase()].join('+')
+}
+
 function sanitizeSettings(input, base) {
   const next = mergeDeep(base, input)
   return {
@@ -565,6 +606,12 @@ function sanitizeSettings(input, base) {
     pushChanges: next.pushChanges === true,
     autoComment: next.autoComment !== false,
     autoCommentMinSeconds: clampInt(next.autoCommentMinSeconds, 10, 3600, 45),
+    insightPrompt: asString(next.insightPrompt).slice(0, 4000) || base.insightPrompt,
+    insightHotkeys: {
+      morning: normalizeHotkey(next.insightHotkeys?.morning, base.insightHotkeys.morning),
+      diagnose: normalizeHotkey(next.insightHotkeys?.diagnose, base.insightHotkeys.diagnose),
+      export: normalizeHotkey(next.insightHotkeys?.export, base.insightHotkeys.export),
+    },
     docPrompt:
       typeof next.docPrompt === 'string' && next.docPrompt.trim().length > 0
         ? next.docPrompt.slice(0, 4000)
@@ -2153,27 +2200,6 @@ function createSyncEngine(ctx) {
   }
 
   /** 正式风格的标题提示词：书面语、动宾结构、不带标点与人称。 */
-  /**
-   * 早会诊断的系统提示。
-   *
-   * 只给「任务 + 最近对话摘要」，所以要求模型**不许编造**没出现的任务/数字；
-   * 输出固定 JSON，面板直接渲染，不做二次解析。
-   */
-  const INSIGHT_SYSTEM_PROMPT = `你是团队早会的诊断助手。根据给你的任务清单与最近对话摘要，输出一个 JSON 对象，
-不要解释、不要 markdown 代码块，格式严格如下：
-
-{"headline":"一句话总结当前推进状态（不超过 40 字）",
- "today":"一句话说今天实际做了什么（不超过 50 字，基于任务与对话摘要，不要编造）",
- "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字）","evidence":"一句话证据（不超过 40 字）"}],
- "advice":"下一步建议（不超过 60 字）",
- "score":{"focus":0-100,"throughput":0-100,"hygiene":0-100}}
-
-规则：
-- 只依据给到的信息，不要编造没出现的任务或数字。
-- issues 最多 3 条，优先「卡住 / 长时间没动 / 反复返工」的。
-- focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
-- 中文，句子短，不说场面话。`
-
   const TITLE_SYSTEM_PROMPT =
     '你是任务命名助手。根据用户给出的工作记录，生成一条正式、专业的中文任务名：' +
     '12-20 个字，动宾结构，使用书面语，准确概括工作内容与目标。' +
@@ -2707,7 +2733,7 @@ function createSyncEngine(ctx) {
     }
     const context = await insightContext()
     if (!context.trim()) return { ok: false, reason: '还没有可评估的任务' }
-    const asked = await askModelForInsight(INSIGHT_SYSTEM_PROMPT, context)
+    const asked = await askModelForInsight(asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT, context)
     const parsed = parseJson(asked.text)
     if (!parsed || typeof parsed !== 'object') {
       return { ok: false, reason: asked.reason || '模型返回的不是 JSON' }
