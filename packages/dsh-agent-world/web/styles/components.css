@@ -3723,3 +3723,14 @@
 }
 .aw-persona b { color: #f2c14e; font-size: 11px; }
 .aw-persona span:last-child { grid-column: 1 / 3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* R354：任务卡负责人等级。 */
+.board-node-level {
+  flex: none;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, #f2c14e 18%, transparent);
+  color: #f2c14e;
+  font-size: 8px;
+  line-height: 1.5;
+}
