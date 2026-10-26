@@ -372,9 +372,10 @@ export function createBoard(options = {}) {
     const busy = model.members.filter((m) => m.state !== 'idle' && m.state !== 'sleeping').length
     const meetingStations = new Set((world?.stations ?? []).filter((station) => station.kind === 'meeting').map((station) => station.id))
     const meeting = (world?.agents ?? []).filter((agent) => agent.state === 'working' && meetingStations.has(agent.station)).length
+    const reports = (world?.messages ?? []).filter((message) => message.kind === 'report' && message.deliveredAtTick !== null).length
     const done = model.counts?.done ?? 0
     const total = model.counts?.total ?? model.tasks.length
-    if (parts.agentsMeta !== null) parts.agentsMeta.textContent = `${model.members.length} 人 · ${busy} 忙碌${meeting > 0 ? ` · ${meeting} 开会` : ''}`
+    if (parts.agentsMeta !== null) parts.agentsMeta.textContent = `${model.members.length} 人 · ${busy} 忙碌${meeting > 0 ? ` · ${meeting} 开会` : ''}${reports > 0 ? ` · ${reports} 报告` : ''}`
     if (parts.graphMeta !== null) parts.graphMeta.textContent = `${total} 张 · ${done} 完成`
   }
 
