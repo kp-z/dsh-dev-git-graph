@@ -590,15 +590,39 @@
 
   .btn.is-busy { opacity: 0.75; }
 
-  /* 当前选中的洞察按钮 */
-  .insight-buttons .btn.is-active {
+  /* tab 行：平铺文字 + 选中项下划线，不抢视觉 */
+  .insight-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-left: auto;
+    flex-wrap: nowrap;
+    flex: 0 0 auto;
+  }
+
+  .insight-tabs .btn {
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    padding: 3px 8px 4px;
+    border-radius: 6px 6px 0 0;
+    border-bottom: 2px solid transparent;
+    color: var(--p-text-3);
+    font-weight: 500;
+  }
+
+  .insight-tabs .btn:hover { color: var(--p-text-1); background: transparent; }
+
+  .insight-tabs .btn.is-active {
     color: var(--p-accent);
-    border-color: var(--p-accent);
-    background: color-mix(in srgb, var(--p-accent) 12%, transparent);
+    border-bottom-color: var(--p-accent);
+    background: transparent;
     font-weight: 600;
   }
 
-  .insight-regen { margin-right: 2px; opacity: 0.85; }
+  .insight-regen-row { display: flex; }
+  .insight-regen-row .btn { padding: 0 6px; height: 20px; opacity: 0.9; }
+  .insight-regen-row .btn:hover { opacity: 1; }
 
   /* 点文字块本身展开/收起：不额外占一行 */
   .insight-text {
@@ -1899,13 +1923,16 @@
     <div class="insight-head">
       <span class="insight-avatar" aria-hidden="true">💡</span>
       <strong id="insightTitle" class="insight-title">今日洞察</strong>
-      <div id="insightButtons" class="insight-buttons"></div>
+      <div id="insightButtons" class="insight-tabs" role="tablist"></div>
       <button type="button" id="insightGear" class="btn btn-ghost btn-xs insight-gear" title="洞察设置（按钮 / Prompt）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
     </div>
 
     <!-- 中间块：左文字（含「展开」） / 右饼图，左右等高 -->
     <div class="insight-mid">
       <div class="insight-text" id="insightText" role="button" tabindex="0" aria-expanded="false" aria-controls="insightBody" title="点击展开 / 收起详情">
+        <div class="insight-regen-row">
+          <button type="button" id="insightRegen" class="btn btn-ghost btn-xs" title="用当前 tab 自己的 prompt 重新生成">↻ 重新生成</button>
+        </div>
         <div id="insightMeta" class="insight-meta"></div>
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
         <div id="insightExtra" class="insight-extra"></div>
@@ -3722,16 +3749,6 @@
       app.insightActiveId = list[0] ? list[0].id : '';
     }
 
-    /* 「重新生成」在最左边：只做一件事——用当前按钮的 prompt 重新跑一次 */
-    var regen = makeButton(app.insightLoading ? '生成中…' : '重新生成', 'btn btn-ghost btn-xs insight-regen', null, false, function () {
-      var active = list.find(function (btn) { return btn.id === app.insightActiveId; }) || list[0];
-      if (!active) return;
-      runInsightButton(active);
-    });
-    regen.title = '用当前按钮自己的 prompt 重新生成';
-    if (app.insightLoading) regen.disabled = true;
-    box.appendChild(regen);
-
     list.forEach(function (btn) {
       var busy = app.insightLoading && app.insightBusyId === btn.id;
       var active = btn.id === app.insightActiveId;
@@ -3741,10 +3758,19 @@
       });
       if (app.insightLoading) node.disabled = true;
       if (busy) node.classList.add('is-busy');
+      node.setAttribute('role', 'tab');
+      node.setAttribute('aria-selected', active ? 'true' : 'false');
       if (active) node.classList.add('is-active');
       if (btn.prompt) node.title = btn.prompt.slice(0, 200);
       box.appendChild(node);
     });
+
+    /* 真正的按钮：用当前 tab 的 prompt 重跑一次 */
+    var regen = $('insightRegen');
+    if (regen) {
+      regen.disabled = Boolean(app.insightLoading);
+      regen.textContent = app.insightLoading ? '↻ 生成中…' : '↻ 重新生成';
+    }
   }
 
   /* 点击按钮 = 切换视图；已有结果就不重跑。想重跑点「重新生成」。 */
@@ -4056,6 +4082,15 @@
           event.preventDefault();
           toggle();
         }
+      });
+    }
+    var regen = $('insightRegen');
+    if (regen) {
+      regen.addEventListener('click', function (event) {
+        event.stopPropagation();   /* 别触发文字块的展开/收起 */
+        var list = insightButtons();
+        var active = list.find(function (btn) { return btn.id === app.insightActiveId; }) || list[0];
+        if (active) runInsightButton(active);
       });
     }
     wireInsightSettings();
