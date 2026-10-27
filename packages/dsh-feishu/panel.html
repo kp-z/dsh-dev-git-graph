@@ -797,7 +797,7 @@
 
   .mini-donut { display: flex; align-items: center; gap: 4px; }
   .mini-donut svg { width: 148px; height: 148px; flex: 0 0 auto; }
-  .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 1px; font-size: 9.5px; line-height: 1.25; color: var(--p-text-3); }
+  .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10px; line-height: 1.3; color: var(--p-text-2); }
   .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
 
   .insight-head {
@@ -886,22 +886,37 @@
   }
 
   /* 收起状态：只有一段总结，超出内部滚动，高度与右侧图表对齐 */
+  /* 左侧是一句「AI 对我说的话」：做成对话气泡，尾巴朝左上角的灯泡 */
   .insight-text {
     position: relative;
     height: 156px;
-    /* 灰底和左侧竖线放在整块上：这样右下角的「展开」也在块内，不会看起来掉在外面 */
-    padding: 8px 10px 26px;
+    padding: 12px 14px 28px;
     box-sizing: border-box;
-    background: var(--p-sub, rgba(127, 127, 127, 0.08));
-    border-left: 2px solid var(--p-accent-line);
-    border-radius: 8px;
-    overflow: hidden;
+    /* 气泡底色用一个变量，尾巴直接复用同一色，避免半透明叠加后看不出来 */
+    --p-bubble: color-mix(in srgb, var(--p-accent) 8%, var(--p-card, #fff));
+    background: var(--p-bubble);
+    border-radius: 14px 14px 14px 4px;
+    /* 不能用 hidden：会把左上角的尾巴裁掉 */
+    overflow: visible;
+  }
+
+  .insight-text::before {
+    content: '';
+    position: absolute;
+    left: 16px;
+    top: -6px;
+    width: 14px;
+    height: 14px;
+    background: var(--p-bubble);
+    border-radius: 3px;
+    transform: rotate(45deg);
+    z-index: 0;
   }
 
   .insight-line.is-summary {
     display: block;
     -webkit-line-clamp: unset;
-    max-height: 100%;
+    max-height: 116px;
     overflow-y: auto;
     font-size: 11.5px;
     line-height: 1.6;
@@ -945,39 +960,54 @@
     flex-wrap: wrap;
   }
 
+  /* 展开后是一张详情卡片：白底、描边、圆角，和上面的气泡区分开 */
   .insight-body {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
     box-sizing: border-box;
-    padding-top: 4px;
-    border-top: 1px dashed var(--p-line);
+    margin-top: 10px;
+    padding: 12px 14px;
+    background: var(--p-card, #fff);
+    border: 1px solid var(--p-line);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   }
 
   .insight-body[hidden] { display: none; }
 
   .insight-block-title {
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 600;
     color: var(--p-text-3);
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 2px;
   }
 
   .insight-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 0;
     font-size: 11.5px;
     line-height: 1.5;
     color: var(--p-text-2);
+    border-top: 1px solid transparent;
   }
+
+  .insight-item + .insight-item { border-top-color: var(--p-line-soft, rgba(127, 127, 127, 0.10)); }
 
   .insight-item .tag {
     display: inline-block;
-    margin-right: 6px;
-    padding: 0 5px;
-    border-radius: 4px;
-    font-size: 10.5px;
-    background: var(--p-sub, rgba(127, 127, 127, 0.1));
-    color: var(--p-text-2);
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 600;
+    background: color-mix(in srgb, var(--p-accent) 18%, transparent);
+    color: color-mix(in srgb, var(--p-accent) 80%, #000 20%);
   }
 
   .insight-scores {
