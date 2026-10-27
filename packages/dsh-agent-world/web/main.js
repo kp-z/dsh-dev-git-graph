@@ -375,6 +375,14 @@ if (questRoot !== null && questHost !== null) questHost.prepend(questRoot)
 const questHud = createQuestHud({ root: questRoot, doc })
 const storyBanner = doc.createElement('div')
 storyBanner.className = 'story-banner'
+const storyText = doc.createElement('span')
+storyText.className = 'story-text'
+const storyTrack = doc.createElement('span')
+storyTrack.className = 'story-track'
+const storyFill = doc.createElement('i')
+storyFill.className = 'story-fill'
+storyTrack.append(storyFill)
+storyBanner.append(storyText, storyTrack)
 questRoot?.prepend(storyBanner)
 
 // R208：三张卡（场景/任务/团队）进入同一个 dock，可互相拖到左/右/上/下，split 手柄可调宽。
@@ -1783,7 +1791,8 @@ function render(force = false) {
   const story = buildStory(renderWorld)
   if (storyBanner !== null && storyBanner !== undefined) {
     storyBanner.dataset.tone = story.tone
-    storyBanner.textContent = `${story.act} · ${story.title} — ${story.hint}`
+    storyText.textContent = `${story.act} · ${story.title} — ${story.hint}`
+    storyFill.style.width = `${story.progress}%`
     storyBanner.title = `${story.act} · ${story.title}\n${story.hint}`
   }
 

@@ -3993,3 +3993,24 @@
 .story-banner[data-tone='done'] { border-color: #65d98a; background: color-mix(in srgb, #65d98a 10%, transparent); }
 .story-banner[data-tone='danger'] { border-color: #ff6b6b; background: color-mix(in srgb, #ff6b6b 10%, transparent); }
 .story-banner[data-tone='ready'] { border-color: #f2c14e; background: color-mix(in srgb, #f2c14e 10%, transparent); }
+
+/* R419：故事线的交付进度。 */
+.story-banner .story-text { display: block; }
+.story-banner .story-track {
+  display: block;
+  height: 2px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg-2) 18%, transparent);
+  overflow: hidden;
+}
+.story-banner .story-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--screen);
+  transition: width var(--t-expand) var(--ease);
+}
+.story-banner[data-tone='done'] .story-fill { background: #65d98a; }
+.story-banner[data-tone='danger'] .story-fill { background: #ff6b6b; }
