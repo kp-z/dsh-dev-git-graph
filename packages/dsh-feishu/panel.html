@@ -904,7 +904,7 @@
     background: var(--p-bubble);
     border: 1px solid var(--p-bubble-line, #e4e7f0);
     box-shadow: 0 1px 2px rgba(20, 24, 36, 0.04);
-    border-radius: 14px 14px 14px 4px;
+    border-radius: 12px;
     /* 不能用 hidden：会把左上角的尾巴裁掉 */
     overflow: visible;
   }
@@ -926,8 +926,8 @@
   }
 
   .cat {
-    width: 34px;
-    height: 34px;
+    width: 28px;
+    height: 28px;
     flex: 0 0 auto;
     filter: drop-shadow(0 2px 3px rgba(20, 24, 36, 0.16));
     /* 呼吸 + 轻轻左右摇，配合静态贴图也有活物的感觉 */
@@ -954,8 +954,8 @@
     content: '';
     position: absolute;
     left: -7px;
-    /* 垂直位置对准左边猫头的中心（猫底对齐、高 34px） */
-    bottom: 17px;
+    /* 垂直位置对准左边猫头的中心（猫底对齐、高 28px） */
+    bottom: 13px;
     width: 14px;
     height: 14px;
     /* 不描边：同色方块盖住气泡边框的那一小段，看起来才是「长出来的」 */
