@@ -2194,10 +2194,15 @@ export function createScenePhaser(canvas, options = {}) {
         // 动画按纹理分开命名（重上色纹理有它自己的一套），否则换色会串回原图。
         const override = actionOverrides.get(actor.id)
         const overrideAction = override === undefined ? null : (plan?.actions ?? []).find((action) => action.id === override) ?? null
+        // R414：物理已经到点、但服务端这一 tick 还是 walking 时，不要再播 walk；
+        // 否则人会站在目标点上原地踏步，看起来像动画卡死。
+        const arrivedAtTarget = entry.moveTarget !== null && entry.moveTarget !== undefined
+          && Math.hypot(entry.moveTarget.x - entry.sprite.x, entry.moveTarget.y - entry.sprite.y) < 2
+        const animationActor = arrivedAtTarget && actor.state === 'walking' ? { ...actor, state: 'idle' } : actor
         const animName = resolveAnimationKey((name) => activeScene.anims.exists(animKeyFor(textureKey, name)) === true, {
           // **带由内容库给**（`ScenePlan.actions`）：working → sit，其余按库里的声明。
           // 渲染器不自己编这套映射——那正是"坐着干活的人站着"那类错藏身的地方。
-          band: overrideAction?.band ?? bandForActor(plan?.actions, actor),
+          band: overrideAction?.band ?? bandForActor(plan?.actions, animationActor),
           direction: directionOf(actor.facing),
         })
         // 钉帧必须钉**解析出来的那条动画**的首帧。
