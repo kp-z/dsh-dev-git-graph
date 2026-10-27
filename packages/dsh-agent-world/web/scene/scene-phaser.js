@@ -2072,8 +2072,11 @@ export function createScenePhaser(canvas, options = {}) {
           ? ensureTintedSheet(model.url, actor.color, variants.get(actor.id) ?? 0, sheet)
           : null
         const textureKey = actorTextureKey({ baseKey, tintedKey, sheet })
-        // R401：贴图晚到时要能把 Rectangle 兜底升级成真正的精灵，否则它一辈子无动画地滑。
-        if (entry.sprite !== null && entry.sprite.type === 'Rectangle') {
+        // R401/R405：贴图晚到时要能把无纹理兜底升级成真正的精灵；不只认 Rectangle，
+        // 任何缺失/占位纹理都重建，否则新 hire 的 agent 会永远 texture:null、无动画地滑。
+        const spriteTexture = entry.sprite?.texture?.key
+        const invalidTexture = entry.sprite !== null && (entry.sprite.type === 'Rectangle' || spriteTexture === undefined || spriteTexture === '__MISSING' || spriteTexture === '__DEFAULT')
+        if (invalidTexture) {
           entry.collider?.destroy?.()
           entry.collider = null
           entry.sprite.destroy()
