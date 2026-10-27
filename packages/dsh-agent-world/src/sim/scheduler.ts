@@ -115,10 +115,10 @@ export function claimTasks(world: World): SchedulerOutcome {
     if (world.briefingForTick !== newest) {
       const meeting = world.stations.find((station) => station.kind === 'meeting' && occupancyOf(world, station.id) < station.capacity)
       if (meeting !== undefined) {
-        const room = meeting.capacity - occupancyOf(world, meeting.id)
-        const attendees = world.agents.filter((agent) => agent.state === 'idle' && agent.carrying === null).slice(0, room)
-        for (const agent of attendees) {
-          const slot = stationSlot(meeting, occupancyOf(world, meeting.id))
+        // 开工会议是全员同步，不受 meeting capacity 限制；座位按顺序吸附，超出容量的会靠近最后一席。
+        const attendees = world.agents.filter((agent) => agent.state === 'idle' && agent.carrying === null)
+        for (const [index, agent] of attendees.entries()) {
+          const slot = stationSlot(meeting, index)
           const path = findPath(world.nav, agent.position, slot)
           if (path.length === 0) continue
           agent.state = 'walking'
