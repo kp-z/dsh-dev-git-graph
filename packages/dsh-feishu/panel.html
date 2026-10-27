@@ -2951,7 +2951,17 @@
     var keywordNode = $('filterKeyword');
     if (keywordNode && keywordNode.value !== (app.filter.keyword || '')) keywordNode.value = app.filter.keyword || '';
     var statusNode = $('filterStatus');
-    if (statusNode) statusNode.value = app.filter.status || 'open';
+    if (statusNode) {
+      /* 关掉「包含已完成任务」时，同步压根不拉已完成的任务，
+         「已完成」这个筛选项必然是空的——直接藏掉，别让人点了以为坏了。 */
+      var withDone = Boolean(app.settings && app.settings.tasks && app.settings.tasks.includeCompleted);
+      var doneOpt = statusNode.querySelector('option[value="done"]');
+      if (doneOpt) {
+        /* 选项保留（不然用户不知道为什么没有它），但在没开同步时标一下 */
+        doneOpt.textContent = withDone ? '已完成' : '已完成（未同步）';
+      }
+      statusNode.value = app.filter.status || 'open';
+    }
     renderFilterToggle();
   }
 
@@ -3002,7 +3012,12 @@
     if (syncNode) list.appendChild(syncNode);
 
     if (!tasks.length) {
-      list.appendChild(emptyNode(allTasks.length ? '没有符合筛选条件的任务（点「重置」看全部）' : '还没有同步到任务'));
+      /* 「已完成」筛出来是空的，绝大多数情况是同步压根没拉已完成的任务 */
+      var doneFiltered = app.filter.status === 'done'
+        && !(app.settings && app.settings.tasks && app.settings.tasks.includeCompleted);
+      list.appendChild(emptyNode(doneFiltered
+        ? '同步默认只拉未完成任务，所以这里看不到已完成的。去 ⚙ 设置里勾上「包含已完成任务」，再点「立即同步」。'
+        : allTasks.length ? '没有符合筛选条件的任务（点「重置」看全部）' : '还没有同步到任务'));
       return;
     }
 
