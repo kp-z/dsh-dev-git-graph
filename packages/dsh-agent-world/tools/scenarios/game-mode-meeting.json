@@ -1,0 +1,8 @@
+{
+  "ticks": 240,
+  "agents": 6,
+  "taskSet": "task.quick-fix",
+  "gameMode": true,
+  "scene": "scene.office",
+  "seed": 2
+}

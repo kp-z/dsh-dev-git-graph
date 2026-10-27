@@ -1,0 +1,8 @@
+{
+  "ticks": 900,
+  "agents": 4,
+  "taskSet": "task.quick-fix",
+  "gameMode": false,
+  "scene": "scene.default-town",
+  "seed": 1
+}
