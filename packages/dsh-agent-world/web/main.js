@@ -396,7 +396,8 @@ let dialogueDocked = (() => {
 function applyDialogueDock() {
   if (dialogueDockToggle === null || dialogueDockToggle === undefined || dialogueElement === null || dialogueElement === undefined) return
   const dockHandle = dialogueDockHost?.querySelector?.('.aw-dock-handle') ?? null
-  if (dialogueDocked) {
+  const shouldShow = dialogueDocked && dialogue?.isOpen?.() === true
+  if (dialogueDocked && shouldShow) {
     dialogueDockHost?.append(dialogueElement)
     // R379：手柄放回对话头，用户才看得到可拖的位置。
     if (dockHandle !== null) dialogueElement.querySelector('.oc-head')?.prepend(dockHandle)
@@ -405,10 +406,13 @@ function applyDialogueDock() {
     dialogueDockToggle.textContent = '悬浮'
     dialogueDockToggle.title = '恢复舞台悬浮'
   } else {
-    dialogueStage?.append(dialogueElement)
-    if (dockHandle !== null && dialogueDockHost !== null) dialogueDockHost.append(dockHandle)
-    dialogueElement.classList.remove('is-docked')
-    dock?.setPanelVisible?.('chat', false)
+    // 未选中 agent 时把对话卡彻底撤掉（chat pane 折叠），恢复原布局。
+    if (dialogueDocked) dock?.setPanelVisible?.('chat', false)
+    else {
+      dialogueStage?.append(dialogueElement)
+      if (dockHandle !== null && dialogueDockHost !== null) dialogueDockHost.append(dockHandle)
+      dialogueElement.classList.remove('is-docked')
+    }
     dialogueDockToggle.textContent = '停靠'
     dialogueDockToggle.title = '停靠到侧边'
   }
@@ -464,6 +468,8 @@ function setGameModeUi(enabled) {
 
 if (gameToggle !== null && gameToggle !== undefined) {
   gameToggle.addEventListener('click', () => { void toggleGameMode() })
+  // R387：启动时读取宿主状态；之前只定义没调用，导致默认 true 仍显示关闭。
+  void loadGameMode()
 }
 
 async function toggleGameMode() {
@@ -536,6 +542,7 @@ dialogue = createDialogueUi({
   document: scopedDoc,
   send: sayToAgent,
   onChanged: () => {
+    applyDialogueDock()
     render(true)
   },
   // P2：点「取消锁定」→ 解锁镜头（不关对话，只解除选中/跟随）。
@@ -1712,11 +1719,33 @@ function compactBubbleText(text, limit) {
   return value.length > limit ? `${value.slice(0, Math.max(1, limit - 1))}…` : value
 }
 
+function keyConclusion(text) {
+  const value = compactBubbleText(text, 400)
+  const match = /(?:结论|总结|结果)[:：]\s*([^。！？\n]+)/.exec(value)
+  const source = match === null ? value.split(/[。！？]/)[0] : match[1]
+  return compactBubbleText(source, gameModeEnabled ? 24 : 34) || '完成'
+}
+
+function statusForActor(actor) {
+  if (actor.state === 'walking') return '正在移动'
+  if (actor.state === 'working') {
+    if (actor.stationKind === 'desk') return '正在写代码'
+    if (actor.stationKind === 'lab') return '正在查信息'
+    if (actor.stationKind === 'server') return '正在计算'
+    if (actor.stationKind === 'meeting') return '正在讨论'
+    return '正在工作'
+  }
+  if (actor.state === 'talking') return '正在讨论'
+  if (actor.state === 'sleeping') return '休息中'
+  return null
+}
+
 function bubbleTextFor(bubble) {
   if (bubble.phase === 'thinking') return '思考中…'
   if (bubble.phase === 'acting') return '执行中…'
   if (bubble.phase === 'failed') return '出错了'
-  return compactBubbleText(bubble.text, gameModeEnabled ? 44 : 90)
+  if (bubble.phase === 'status') return bubble.text
+  return keyConclusion(bubble.text)
 }
 
 function updateBubbles() {
@@ -1728,6 +1757,13 @@ function updateBubbles() {
     if (agent === undefined) continue
     // 气泡只做“状态/摘要”，完整 Markdown 在对话面板里看。
     enriched.push({ agentId: bubble.agentId, phase: bubble.phase, text: bubbleTextFor(bubble) })
+  }
+  // 没有对话气泡的 agent，用头顶短状态代替中间过程。
+  const withBubble = new Set(enriched.map((bubble) => bubble.agentId))
+  for (const actor of world?.agents ?? []) {
+    if (withBubble.has(actor.id)) continue
+    const status = statusForActor(actor)
+    if (status !== null) enriched.push({ agentId: actor.id, phase: 'status', text: status })
   }
   scene2d.renderBubbles(enriched)
 }

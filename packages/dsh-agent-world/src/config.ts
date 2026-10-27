@@ -30,7 +30,7 @@ export const AgentWorldConfig = z.object({
    */
   idleActionsEnabled: z.boolean().default(false),
   /** R350：游戏模式；开启后 subagent 的人设注入游戏行为约束。 */
-  gameMode: z.boolean().default(false),
+  gameMode: z.boolean().default(true),
 
   /**
    * 每多少 tick 落一次盘（快照 + 事件）。`0` = 不落盘，世界只活在内存里。
@@ -125,7 +125,7 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     tickMs: config.tickMs && config.tickMs > 0 ? config.tickMs : 100,
     autoStart: config.autoStart ?? true,
     idleActionsEnabled: config.idleActionsEnabled ?? false,
-    gameMode: config.gameMode ?? false,
+    gameMode: config.gameMode ?? true,
     persistEveryTicks: config.persistEveryTicks ?? 100,
     maxAgents: config.maxAgents && config.maxAgents > 0 ? config.maxAgents : 24,
     worldName: config.worldName ?? 'Agent World',
