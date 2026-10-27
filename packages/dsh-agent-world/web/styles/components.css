@@ -4014,3 +4014,23 @@
 }
 .story-banner[data-tone='done'] .story-fill { background: #65d98a; }
 .story-banner[data-tone='danger'] .story-fill { background: #ff6b6b; }
+
+/* R420：故事线 5 节点章节轨。 */
+.story-banner .story-rail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+}
+.story-banner .story-rail i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg-2) 26%, transparent);
+}
+.story-banner .story-rail i.is-current {
+  width: 7px;
+  height: 7px;
+  background: var(--screen);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--screen) 18%, transparent);
+}

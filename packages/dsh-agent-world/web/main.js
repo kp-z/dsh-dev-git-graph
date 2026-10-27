@@ -382,7 +382,11 @@ storyTrack.className = 'story-track'
 const storyFill = doc.createElement('i')
 storyFill.className = 'story-fill'
 storyTrack.append(storyFill)
-storyBanner.append(storyText, storyTrack)
+const storyRail = doc.createElement('span')
+storyRail.className = 'story-rail'
+storyRail.setAttribute('aria-hidden', 'true')
+for (let index = 0; index < 5; index += 1) storyRail.append(doc.createElement('i'))
+storyBanner.append(storyText, storyTrack, storyRail)
 questRoot?.prepend(storyBanner)
 
 // R208：三张卡（场景/任务/团队）进入同一个 dock，可互相拖到左/右/上/下，split 手柄可调宽。
@@ -1793,6 +1797,8 @@ function render(force = false) {
     storyBanner.dataset.tone = story.tone
     storyText.textContent = `${story.act} · ${story.title} — ${story.hint}`
     storyFill.style.width = `${story.progress}%`
+    const chapter = { prologue: 0, 'act-1': 1, 'act-2': 2, 'act-3': 3, epilogue: 4, 'epilogue-fail': 4 }[story.id] ?? 0
+    for (const [index, node] of [...storyRail.children].entries()) node.classList.toggle('is-current', index === chapter)
     storyBanner.title = `${story.act} · ${story.title}\n${story.hint}`
   }
 
