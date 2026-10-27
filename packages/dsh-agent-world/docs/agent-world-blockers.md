@@ -2,6 +2,14 @@
 
 更新时间：2026-10-27
 
+## 已结案
+
+- 11 个 desk anchor 落在不可走格 → 已用 `nearestWalkable` 修正，`office-layout.test.js` 锁定。
+- `taskAccentOf is not defined` → 已改为 `statusColor()`，截图复核无报错。
+- hire 只计数不落世界 → 已落世界并广播 `agent.hired`，新 agent 有贴图/动画。
+- 占位精灵永不升级 → 无有效纹理即重建，新 hire 动画正常。
+- 步行 0.06/tick 太慢 → 0.18，场景流程可在合理时间推进。
+
 ## 1. 官方 projection 成员重名
 
 3082 当前官方 roster 返回 `captain / Ann / Ann`（meta 显示 3 人），两个 Ann 是不同成员但同名。
