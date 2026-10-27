@@ -38,6 +38,7 @@ export function createQuestHud({ root, doc = globalThis.document } = {}) {
   mount.append(head, list)
 
   let lastKey = ''
+  const doneIds = new Set()
   function update(state) {
     if (state === null || state === undefined) return
     const key = JSON.stringify(state)
@@ -48,6 +49,11 @@ export function createQuestHud({ root, doc = globalThis.document } = {}) {
       const row = rows.get(quest.id)
       if (row === undefined) continue
       row.li.classList.toggle('is-done', quest.done)
+      if (quest.done && !doneIds.has(quest.id)) {
+        doneIds.add(quest.id)
+        row.li.classList.add('quest-pop')
+        setTimeout(() => row.li.classList.remove('quest-pop'), 900)
+      }
       row.check.textContent = quest.done ? '✓' : '○'
       row.label.textContent = quest.title
       row.detail.textContent = quest.detail

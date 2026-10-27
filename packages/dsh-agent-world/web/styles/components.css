@@ -3772,3 +3772,10 @@
 .board-member-level {
   background: linear-gradient(90deg, color-mix(in srgb, #f2c14e 34%, transparent) var(--xp-pct, 0%), color-mix(in srgb, #f2c14e 12%, transparent) 0);
 }
+
+/* R361：目标完成时的一次性高亮。 */
+@keyframes quest-pop {
+  0% { background: color-mix(in srgb, #65d98a 28%, transparent); }
+  100% { background: transparent; }
+}
+.quest-row.quest-pop { animation: quest-pop 900ms ease-out; }
