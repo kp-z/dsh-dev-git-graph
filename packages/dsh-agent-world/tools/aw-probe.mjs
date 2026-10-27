@@ -106,9 +106,10 @@ try {
     for (const actor of value?.trace ?? []) {
       if (actor.texture === null || actor.textureKey === null) issues.push(`${actor.id}: 无贴图`)
       if (actor.anim === null) issues.push(`${actor.id}: 无动画`)
-      const moving = actor.target !== null && (Math.abs(actor.target.x - actor.x) > 0.5 || Math.abs(actor.target.y - actor.y) > 0.5)
-      if (actor.anim !== null && !actor.anim.includes('walk-') && moving) issues.push(`${actor.id}: 有目标但播的不是 walk 动画（${actor.anim}）`)
-      if (actor.anim !== null && actor.anim.includes('walk-') && !moving) issues.push(`${actor.id}: 已到目标但仍在播 walk`)
+      const distance = actor.target === null ? null : Math.hypot(actor.target.x - actor.x, actor.target.y - actor.y)
+      // 边缘 2~4px 不判：物理/帧同步会有亚像素差，渲染器按自己的 2px 阈值切 idle。
+      if (actor.anim !== null && !actor.anim.includes('walk-') && distance !== null && distance > 4) issues.push(`${actor.id}: 有目标但播的不是 walk 动画（${actor.anim}）`)
+      if (actor.anim !== null && actor.anim.includes('walk-') && distance !== null && distance < 1) issues.push(`${actor.id}: 已到目标但仍在播 walk`)
       if (['working', 'talking', 'sleeping'].includes(actor.state) === true && ['desk', 'meeting', 'breakroom'].includes(actor.stationKind) === true && actor.seat === null) {
         issues.push(`${actor.id}: ${actor.state}@${actor.stationKind} 没有绑定椅子`)
       }
