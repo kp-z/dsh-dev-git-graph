@@ -581,7 +581,7 @@ export function createBoard(options = {}) {
        * 找不到（程序化模型 / 场景还没到 / 未分配那一行）才退回 R152 的字母头像——
        * 这样"贴图没加载出来"不会变成一块空白。
        */
-      const sprite = row.member.id === null ? null : resolveMemberSprite(scene, row.member.id, assetBase)
+      const sprite = row.member.id === null ? null : resolveMemberSprite(scene, row.member.id, assetBase, row.member.role)
       const avatar = el(doc, 'span', sprite === null ? 'board-member-avatar' : 'board-member-avatar is-sprite', sprite === null ? memberInitial(memberName) : '')
       avatar.setAttribute('aria-hidden', 'true')
       if (sprite !== null) {

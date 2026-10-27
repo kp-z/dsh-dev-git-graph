@@ -908,3 +908,9 @@
   font-size: 9.5px;
   line-height: 1.45;
 }
+
+/* R382：检查器未选中时必须真正消失；`display:flex` 会压过 UA 的 [hidden]。 */
+.sidebar-panel-graph .board-detail[hidden],
+.sidebar-panel-graph .aw-inspector[hidden] {
+  display: none;
+}
