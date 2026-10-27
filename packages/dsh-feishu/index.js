@@ -2996,6 +2996,8 @@ function createSyncEngine(ctx) {
       promptRev: PROMPT_REV,
       /* 让面板能显示「这次到底用了哪份提示词」，不用猜 */
       promptSource,
+      /* 这份结果是用哪种 tab 生成的（morning / diagnose），面板据此挂到对应 tab 下 */
+      mode: mode === 'morning' ? 'morning' : 'diagnose',
       promptHead: asString(systemPrompt).replace(/\s+/g, ' ').slice(0, 60),
       ctxStats: { tasks: ctxPack.tasks, unbound: ctxPack.unbound, chars: context.length },
     }
