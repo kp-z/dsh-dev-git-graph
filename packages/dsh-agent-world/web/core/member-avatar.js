@@ -53,6 +53,9 @@ export function resolveMemberSprite(scene, agentId, baseUrl = './vendor/', role 
   if (actor === undefined && typeof role === 'string' && role !== '') {
     actor = actors.find((a) => a !== null && a.role === role)
   }
+  // 官方 projection 的成员可能完全不在场景 actor 里；仍要显示头像而不是字母，
+  // 所以最后退到任意一个声明了模型的 actor（只影响头像，不改身份）。
+  if (actor === undefined) actor = actors.find((a) => a !== null && typeof a.modelId === 'string')
   if (actor === undefined) return null
   const models = Array.isArray(scene.models) ? scene.models : []
   const model = models.find((m) => m !== null && m.id === actor.modelId)

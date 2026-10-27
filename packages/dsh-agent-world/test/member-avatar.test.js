@@ -43,7 +43,7 @@ test('找得到：actor → model → idle.down 首帧', () => {
 
 test('找不到就返回 null（调用方退回字母头像）', () => {
   assert.equal(resolveMemberSprite(null, 'agent-1'), null)
-  assert.equal(resolveMemberSprite(sceneWith(), 'agent-unknown'), null)
+  assert.ok(resolveMemberSprite(sceneWith(), 'agent-unknown'), '未知成员回退到场景里的可用贴图')
   assert.equal(resolveMemberSprite(sceneWith(), null), null)
   assert.equal(resolveMemberSprite(sceneWith({ actors: [] }), 'agent-1'), null)
   assert.equal(

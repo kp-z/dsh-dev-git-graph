@@ -585,7 +585,7 @@ export function createBoard(options = {}) {
        * 这样"贴图没加载出来"不会变成一块空白。
        */
       const sprite = row.member.id === null ? null : resolveMemberSprite(scene, row.member.id, assetBase, row.member.role)
-      const avatar = el(doc, 'span', sprite === null ? 'board-member-avatar' : 'board-member-avatar is-sprite', sprite === null ? memberInitial(memberName) : '')
+      const avatar = el(doc, 'span', sprite === null ? 'board-member-avatar is-generic' : 'board-member-avatar is-sprite', sprite === null ? '👤' : '')
       avatar.setAttribute('aria-hidden', 'true')
       if (sprite !== null) {
         const style = spriteAvatarStyle(sprite)
@@ -598,7 +598,8 @@ export function createBoard(options = {}) {
           probe.addEventListener('error', () => {
             avatar.classList.remove('is-sprite')
             avatar.style.backgroundImage = ''
-            avatar.textContent = memberInitial(memberName)
+            // R395：贴图失败也不再回退字母；留一个中性的头像块。
+            avatar.textContent = '👤'
           })
           probe.src = style.backgroundImage.slice(5, -2)
         }

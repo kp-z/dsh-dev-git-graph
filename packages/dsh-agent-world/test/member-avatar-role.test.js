@@ -12,6 +12,7 @@ test('成员不在 actors 时按角色复用贴图', () => {
   assert.equal(sprite.url, './vendor/chars.png')
 })
 
-test('没有同角色仍返回 null', () => {
-  assert.equal(resolveMemberSprite(scene, 'new-member', './vendor/', 'designer'), null)
+test('没有同角色也回退到场景可用贴图，不显示字母', () => {
+  const sprite = resolveMemberSprite(scene, 'new-member', './vendor/', 'designer')
+  assert.equal(sprite.url, './vendor/chars.png')
 })

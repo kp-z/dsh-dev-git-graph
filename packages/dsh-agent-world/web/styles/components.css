@@ -3953,3 +3953,28 @@
 .board-node-state-icon[data-status='in_progress'] { color: var(--st-in_progress, var(--screen)); }
 .board-node-state-icon[data-status='done'] { color: var(--st-done, #65d98a); }
 .board-node-state-icon[data-status='failed'] { color: var(--st-failed, #ff6b6b); }
+
+/* R395：成员卡任务标题必须单行省略，不能越过卡片边界。 */
+.board-member-tasks {
+  min-width: 0;
+  overflow: hidden;
+}
+.board-member-task {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+.board-member-task > span {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board-member-avatar.is-generic {
+  color: var(--ink-2);
+  font-size: 14px;
+}
