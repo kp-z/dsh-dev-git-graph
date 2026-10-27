@@ -135,19 +135,23 @@ export const PROMPT_REV = 5
  * 复用同一套 JSON 字段，只是语义错位映射（headline=今天的一件事、issues=今天的三步排期、
  * advice=最可能翻车的地方、today=昨天实际推进），这样面板不用为它写第二套解析。
  */
-export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。只讲事实：昨天做了什么、今天做什么。不写客套话、不写评估、不写趋势分析。
+export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。今天要说两件事：昨天做了什么、今天做什么。不写客套话、不写评估分数、不写趋势分析。
 
 输出一个 JSON 对象，不要解释、不要 markdown 代码块：
 {"headline":"今天最该做的一件事（不超过 30 字，带任务号）",
- "today":"昨天做了哪些事（不超过 60 字，按任务号逐条列；昨天没推进就直说「昨天没有推进」）",
- "issues":[{"taskNo":12,"level":"info","text":"为什么今天做它（不超过 26 字）","evidence":"第一步具体做什么（不超过 30 字）"}],
- "advice":"","commentary":"","charts":[]}
+ "today":"昨天做了哪些事（不超过 70 字，按任务号逐条列，每条一句结果）",
+ "issues":[{"taskNo":12,"level":"info","text":"为什么今天做它 / 现在做它的理由（不超过 28 字）","evidence":"第一步具体做什么（不超过 30 字）"}],
+ "advice":"今天不建议碰什么，以及原因（不超过 50 字）",
+ "commentary":"","charts":[]}
 
 规则：
-- 只回答两件事：昨天做了什么、今天做什么。别的废话一律不写。
-- issues 最多 3 条，就是今天的三件事，按先后顺序排。
+- 「昨天做了什么」按事实写：有推进就写清是哪条、做到哪一步；确实没有记录才写「昨天没有记录到推进」。
+- 「今天做什么」必须是**你的判断**：从待办里挑出今天最该推进的 1-3 件，说明为什么是它、
+  现在做的理由（例如「只差验收」「卡住别人」「已经拖了 3 天」）。**不要**因为「今天还没开始」就说今天没事可做，
+  也不要把「还没做」当成结论。
+- issues 最多 3 条，按先后顺序排，就是今天的排期。
 - 不要罗列任务计数（共几个、几个在跑、完成几个）。
-- 只依据给到的信息，不编造任务与数字。
+- 只依据给到的信息，不编造任务与数字；需要举例用任务号（T9、T12）。
 - 中文，短句。`
 
 /* 上一版早会默认提示词的最后一行：用来把「旧默认 + 用户追加句子」迁移成「新默认 + 用户追加句子」 */
@@ -2881,10 +2885,14 @@ function createSyncEngine(ctx) {
     const promptText = `${context}\n\n卡片上方已经显示的统计（**不要重复这些数字**）：${statLine}`
       + `\n\n可用图表数据集（挑图表时用这些 key，不要另造）：\n${dataBrief}`
     /* 一个按钮一份提示词：写了就用它，整份替换（用户要的是「直接改提示词」，不是再叠一层） */
-    const systemPrompt = custom
+    const ignoreWords = (settings.insightIgnore ?? []).map((item) => asString(item)).filter(Boolean)
+    const ignoreNotice = ignoreWords.length
+      ? `\n\n注意：任务清单里已经过滤掉与「${ignoreWords.join('、')}」相关的工作，你也不要主动提起这类工作。`
+      : ''
+    const systemPrompt = (custom
       || (mode === 'morning' ? DEFAULT_MORNING_PROMPT : '')
       || asString(settings.insightPrompt)
-      || DEFAULT_INSIGHT_PROMPT
+      || DEFAULT_INSIGHT_PROMPT) + ignoreNotice
     const promptSource = custom ? 'custom'
       : mode === 'morning' ? 'morning-default'
         : asString(settings.insightPrompt) ? 'settings' : 'default'
