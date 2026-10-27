@@ -620,9 +620,25 @@
     font-weight: 600;
   }
 
-  .insight-regen-row { display: flex; }
-  .insight-regen-row .btn { padding: 0 6px; height: 20px; opacity: 0.9; }
-  .insight-regen-row .btn:hover { opacity: 1; }
+  /* 重新生成：真正的按钮，排在 tab 之后 */
+  .insight-regen {
+    flex: 0 0 auto;
+    height: 22px;
+    padding: 0 7px;
+    border-radius: 6px;
+    border: 1px solid var(--p-line);
+    color: var(--p-text-2);
+  }
+
+  .insight-regen:hover { color: var(--p-accent); border-color: var(--p-accent); }
+
+  /* 侧栏很窄时（<560px）把 tab 行放到第二行，避免被标题挤掉 */
+  @media (max-width: 560px) {
+    .insight-head { flex-wrap: wrap; overflow-x: visible; }
+    .insight-title { flex: 1 1 auto; }
+    .insight-tabs { order: 3; width: 100%; margin-left: 0; justify-content: flex-start; }
+    .insight-regen { order: 4; }
+  }
 
   /* 点文字块本身展开/收起：不额外占一行 */
   .insight-text {
@@ -1924,15 +1940,13 @@
       <span class="insight-avatar" aria-hidden="true">💡</span>
       <strong id="insightTitle" class="insight-title">今日洞察</strong>
       <div id="insightButtons" class="insight-tabs" role="tablist"></div>
+      <button type="button" id="insightRegen" class="btn btn-ghost btn-xs insight-regen" title="用当前 tab 自己的 prompt 重新生成">↻ 重新生成</button>
       <button type="button" id="insightGear" class="btn btn-ghost btn-xs insight-gear" title="洞察设置（按钮 / Prompt）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
     </div>
 
     <!-- 中间块：左文字（含「展开」） / 右饼图，左右等高 -->
     <div class="insight-mid">
       <div class="insight-text" id="insightText" role="button" tabindex="0" aria-expanded="false" aria-controls="insightBody" title="点击展开 / 收起详情">
-        <div class="insight-regen-row">
-          <button type="button" id="insightRegen" class="btn btn-ghost btn-xs" title="用当前 tab 自己的 prompt 重新生成">↻ 重新生成</button>
-        </div>
         <div id="insightMeta" class="insight-meta"></div>
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
         <div id="insightExtra" class="insight-extra"></div>
@@ -3301,6 +3315,13 @@
         extra.textContent = brief.join('\n');
       }
     } else {
+      /* 还没生成过：只给一句提示，不再铺本地流水账 */
+      line.classList.add('is-idle');
+      line.textContent = '还没有生成洞察：点右上角 ↻ 重新生成。';
+      if (extra) extra.textContent = '';
+      renderInsightCharts();
+      renderInsightBody();
+      return;
       var facts = [];
       if ((local.stalled || []).length) {
         line.classList.add('is-warn');
@@ -3354,37 +3375,8 @@
       return;
     }
 
-    /* 默认：AI 诊断 */
-    var diag = [];
-    if (ai && (ai.issues || []).length) {
-      ai.issues.forEach(function (issue) {
-        diag.push(insightRow((issue.text || '') + (issue.evidence ? '（' + issue.evidence + '）' : ''), 'T' + (issue.taskNo || '?')));
-      });
-    } else if (ai && ai.headline) {
-      diag.push(insightRow(ai.headline));
-    } else {
-      diag.push(el('div', { 'class': 'insight-empty', text: '点右上角「诊断」，让 AI 看一眼今天的任务。' }));
-    }
-    if (ai && ai.advice) diag.push(insightRow('建议：' + ai.advice));
-    body.appendChild(insightBlock('AI 诊断', diag));
-
-    if (ai && ai.score && (ai.score.focus !== null || ai.score.throughput !== null)) {
-      var scores = el('div', { 'class': 'insight-scores' });
-      if (ai.score.focus !== null) scores.appendChild(el('span', { text: '专注 ' + ai.score.focus }));
-      if (ai.score.throughput !== null) scores.appendChild(el('span', { text: '产出 ' + ai.score.throughput }));
-      if (ai.score.hygiene !== null) scores.appendChild(el('span', { text: '收尾 ' + ai.score.hygiene }));
-      body.appendChild(scores);
-    }
-
-    /* 统计只在上方那行出现一次；这里只讲「为什么」，不重复报数 */
-    var metrics = [];
-    if ((local.stalled || []).length) {
-      metrics.push(insightRow('停滞：' + local.stalled.map(insightTaskLabel).join('；')));
-    }
-    if ((local.noOutput || []).length) {
-      metrics.push(insightRow('开工超过两天但没产出：' + local.noOutput.map(insightTaskLabel).join('；')));
-    }
-    if (metrics.length) body.appendChild(insightBlock('本地发现', metrics));
+    /* 诊断 tab 与早会 tab 共用同一套展开内容：只看「第一步怎么做」 */
+    renderMorning(body, local, ai);
   }
 
 
@@ -3557,20 +3549,10 @@
       return;
     }
 
-    /* 还没点过按钮：只给事实，不假装有结论 */
-    var yDone = ((local.yesterday || {}).done || []).map(function (item) { return insightRow(insightTaskLabel(item), '完成'); });
-    var yProg = ((local.yesterday || {}).progress || []).map(function (item) { return insightRow(insightTaskLabel(item), '推进'); });
-    var yNodes = yDone.concat(yProg);
-    body.appendChild(insightBlock('昨天做了什么', yNodes.length
-      ? yNodes
-      : [el('div', { 'class': 'insight-empty', text: '昨天没有记录到推进。' })]));
-
-    var recNodes = (local.recommend || []).map(function (item) {
-      return insightRow(insightTaskLabel(item) + '　' + (item.reasons || []).join('、'), '先做');
-    });
-    body.appendChild(insightBlock('今天做什么', recNodes.length
-      ? recNodes
-      : [el('div', { 'class': 'insight-empty', text: '点上面的按钮，让 AI 规划今天。' })]));
+    /* 还没生成过：只给一句提示，不铺流水账 */
+    body.appendChild(insightBlock('还没有生成', [
+      el('div', { 'class': 'insight-empty', text: '点右上角的 ↻ 重新生成，用当前 tab 的 prompt 生成一份。' }),
+    ]));
   }
 
   /* 柱状图：近 7 天「完成 / 新开工」 */
@@ -3787,10 +3769,13 @@
       renderInsight();
       return;
     }
+
+    /* 只有「这张卡一次都还没生成过」才自动生成；之后切 tab 一律不跑模型 */
+    var hasAnyResult = Object.keys(app.insightResults || {}).length > 0;
     app.insightAI = null;
     renderInsight();
     if (btn.kind === 'export') { onInsightExport(); return; }
-    runInsightButton(btn);
+    if (!hasAnyResult) runInsightButton(btn);
   }
 
   function syncToggleLabel() {

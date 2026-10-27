@@ -126,7 +126,7 @@ function pluginVersion() {
  * 输出固定 JSON，面板直接渲染，不做二次解析。
  */
 /* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
-export const PROMPT_REV = 5
+export const PROMPT_REV = 6
 
 /**
  * 早会同步专用提示词。
@@ -163,7 +163,7 @@ const LEGACY_MORNING_MARKER = '- 中文，句子短，不喊口号。'
 export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根据给你的任务清单与最近对话摘要，输出一个 JSON 对象，
 不要解释、不要 markdown 代码块，格式严格如下：
 
-{"headline":"一句话总结当前推进状态（不超过 40 字）",
+{"summary":"一段话总结（2-3 句，不超过 70 字）：现在最该注意的是什么、为什么","headline":"一句话总结当前推进状态（不超过 24 字）",
  "today":"一句话说今天实际做了什么（不超过 50 字，基于任务与对话摘要，不要编造）",
  "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字）","evidence":"一句话证据（不超过 40 字）"}],
  "advice":"下一步建议（不超过 60 字）",
@@ -178,6 +178,8 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
 - focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
 - charts 选 1-3 张，type 与 dataset 只能从给定枚举里选；**不要自己编数字**，数值由系统按 dataset 渲染。
   挑最有说服力的：比如「堆活」用 wip_by_day_14 折线，「注意力分散」用 workspace_distribution 旭日/饼图。
+- **summary 是收起卡片时唯一会显示的内容**：2-3 句、不超过 70 字，说清最该注意什么、为什么。
+- 全部内容要能在卡片上 8 行内显示完，宁可少说，不要堆字。
 - **不要在 headline / commentary 里罗列任务计数**。卡片上方已经有一行统计（共几个 / 已绑定几个 /
   未开始几个 / 今日完成几个 / 完成度），你说的「7 个任务在跑、0 个收尾」就是在抄那行数字。
   headline 写**判断与原因**（为什么慢、卡在哪、该动哪根杠杆），不要写「N 个…」这种句式；
