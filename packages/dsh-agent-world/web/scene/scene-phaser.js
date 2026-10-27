@@ -3088,6 +3088,7 @@ export function createScenePhaser(canvas, options = {}) {
         speed: body === null ? null : Math.round(body.speed * 100) / 100,
         depth: entry.sprite.depth,
         seat: seatAssignments.get(id) ?? null,
+        stationKind: (state.plan?.actors ?? []).find((actor) => actor.id === id)?.stationKind ?? null,
         anim: entry.sprite.anims?.currentAnim?.key ?? null,
         playing: entry.sprite.anims?.isPlaying === true,
         texture: entry.sprite.texture?.key ?? null,

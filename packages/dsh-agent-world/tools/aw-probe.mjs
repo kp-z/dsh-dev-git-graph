@@ -87,7 +87,37 @@ try {
   await sleep(wait)
   const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
   if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text ?? 'evaluate failed')
-  console.log(typeof result.result?.value === 'string' ? result.result.value : JSON.stringify(result.result?.value ?? null, null, 2))
+  const raw = result.result?.value
+  const value = typeof raw === 'string' ? JSON.parse(raw) : raw
+  if (args.check === true) {
+    const issues = []
+    if (value?.occlusion?.ok !== true) issues.push('occlusion 审计未通过')
+    if ((value?.occlusion?.anomalyCount ?? 0) > 0) issues.push(`occlusion ${value.occlusion.anomalyCount} 个异常`)
+    if ((value?.occlusion?.pairAnomalyCount ?? 0) > 0) issues.push(`pair occlusion ${value.occlusion.pairAnomalyCount} 个异常`)
+    if ((value?.chairs?.duplicates?.length ?? 0) > 0) issues.push(`椅子重复 ${value.chairs.duplicates.length}`)
+    if ((value?.stats?.actorFallbacks ?? 0) > 0) issues.push(`actor fallback ${value.stats.actorFallbacks}`)
+    for (const actor of value?.trace ?? []) {
+      if (actor.texture === null || actor.textureKey === null) issues.push(`${actor.id}: 无贴图`)
+      if (actor.anim === null) issues.push(`${actor.id}: 无动画`)
+      if (actor.anim !== null && actor.anim.includes('walk-') !== true && actor.target !== null && (actor.target.x !== actor.x || actor.target.y !== actor.y)) {
+        issues.push(`${actor.id}: 有目标但播的不是 walk 动画（${actor.anim}）`)
+      }
+      if (actor.anim !== null && actor.anim.includes('walk-') === true && actor.target !== null && actor.target.x === actor.x && actor.target.y === actor.y) {
+        issues.push(`${actor.id}: 已到目标但仍在播 walk`)
+      }
+      if (['working', 'talking', 'sleeping'].includes(actor.state) === true && ['desk', 'meeting', 'breakroom'].includes(actor.stationKind) === true && actor.seat === null) {
+        issues.push(`${actor.id}: ${actor.state}@${actor.stationKind} 没有绑定椅子`)
+      }
+    }
+    if (issues.length > 0) {
+      console.error(`scene check: ${issues.length} issues\n  - ${issues.join('\n  - ')}`)
+      process.exitCode = 1
+    } else {
+      console.log('scene check OK')
+    }
+  } else {
+    console.log(typeof raw === 'string' ? raw : JSON.stringify(raw ?? null, null, 2))
+  }
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
   process.exitCode = 1
