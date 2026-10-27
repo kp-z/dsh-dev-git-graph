@@ -672,7 +672,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   if (typeof listen === 'function') {
     const disposeDialogue = listen('session/event', (session, event) => {
       if (mainDialogueChannel === null) return
-      if (event.type !== 'user/message' && event.type !== 'assistant/message') return
+      if (event.type !== 'user/message' && event.type !== 'assistant/message' && event.type !== 'tool/result') return
       const world = state.currentWorld()
       if (world === null) return
       const sessionId = typeof session?.id === 'string' ? session.id : ''
@@ -682,6 +682,15 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       if (actor === undefined) return
       const message = event.data?.['message'] as { content?: unknown } | undefined
       const blocks = Array.isArray(message?.content) ? message.content : []
+      // R364：工具调用 → 去工位；tool/result → 收工。只在游戏模式里映射，普通 profile 不被扰动。
+      if (gameModeEnabled) {
+        if (event.type === 'assistant/message') {
+          const hasToolCall = blocks.some((block) => (block as Record<string, unknown>)?.['type'] === 'tool-call')
+          if (hasToolCall) runtime.enqueue({ kind: 'agentActivity', agentId: actor.id, activity: 'work', ticks: 60 })
+        } else if (event.type === 'tool/result') {
+          runtime.enqueue({ kind: 'agentActivity', agentId: actor.id, activity: 'idle', ticks: 0 })
+        }
+      }
       const text = blocks
         .filter((block): block is { type: string; text: string } => {
           const b = block as Record<string, unknown>

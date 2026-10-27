@@ -52,7 +52,9 @@ import { runHeartbeats } from './heartbeat.js'
 import { emitPhaseEvents } from './emit.js'
 import { emitEvent } from './journal.js'
 import { recomputeReady } from './ready.js'
-import { claimTasks } from './scheduler.js'
+import { claimTasks, occupancyOf } from './scheduler.js'
+import { findPath } from './pathfind.js'
+import { stationSlot } from '../domain/geometry.js'
 import type { Claim, Stalled } from './scheduler.js'
 
 /**
@@ -162,6 +164,32 @@ function ingest(
       case 'taskLink':
         requests.external.push(command)
         break
+      case 'agentActivity': {
+        const agent = world.agents.find((item) => item.id === command.agentId)
+        if (agent === undefined) break
+        if (command.activity === 'idle') {
+          agent.state = 'idle'
+          agent.station = null
+          agent.targetStation = null
+          agent.path = []
+          delete agent.activityKind
+          delete agent.activityUntil
+          break
+        }
+        const wants = command.activity === 'meet' ? ['converse'] : command.activity === 'rest' ? ['rest'] : ['code', 'review', 'compute', 'research']
+        const station = world.stations.find((candidate) =>
+          candidate.capabilities.some((capability) => wants.includes(capability)) && occupancyOf(world, candidate.id) < candidate.capacity)
+        if (station === undefined) break
+        const path = findPath(world.nav, agent.position, stationSlot(station, occupancyOf(world, station.id)))
+        if (path.length === 0) break
+        agent.state = 'walking'
+        agent.station = null
+        agent.targetStation = station.id
+        agent.path = path
+        agent.activityKind = command.activity
+        agent.activityUntil = world.tick + Math.max(5, Math.round(command.ticks))
+        break
+      }
       case 'moveAgent': {
         // 键盘操控落地（P4）。**服务端权威**：位置写进世界，客户端才不会被同步拽回去。
         const agent = world.agents.find((item) => item.id === command.agentId)

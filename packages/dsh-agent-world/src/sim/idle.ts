@@ -86,7 +86,7 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
   const tasksById = new Map(world.tasks.map((task) => [task.id, task]))
   for (const agent of world.agents) {
     // R363：主动开会/休息驻留：到点散会，清站点，回 idle。
-    if (agent.activityUntil !== undefined && (agent.state === 'talking' || agent.state === 'sleeping')) {
+    if (agent.activityUntil !== undefined && (agent.state === 'talking' || agent.state === 'sleeping' || (agent.state === 'working' && agent.activityKind === 'work'))) {
       if (world.tick < agent.activityUntil) continue
       agent.state = 'idle'
       agent.station = null

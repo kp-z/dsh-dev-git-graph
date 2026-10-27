@@ -56,6 +56,8 @@ export function advanceWork(world: World): WorkOutcome {
     // R329：working 却手上没单：这是“到站了但没有任何工单”的残留状态。
     // 不修就会永远占着工位——调度器不会再派活，idle 也不会认领 working。
     if (taskId === null) {
+      // R364：工具调用映射的“在工位 work”也是带期限的活动，不是坏数据。
+      if (agent.activityKind === 'work' && agent.activityUntil !== undefined && world.tick < agent.activityUntil) continue
       agent.state = 'idle'
       agent.station = null
       agent.targetStation = null
