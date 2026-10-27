@@ -4025,6 +4025,11 @@ function mountRoutes(ctx, engine) {
               ok: true,
               version: snap.version,
               settings: snap.settings,
+              /* 面板设置页要「预填默认提示词」，所以把两份默认值一起发过去 */
+              promptDefaults: {
+                morning: DEFAULT_MORNING_PROMPT,
+                insight: DEFAULT_INSIGHT_PROMPT,
+              },
               state: snap.state,
               workspaces: snap.workspaces,
               now: nowMs(),
