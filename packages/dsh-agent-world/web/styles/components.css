@@ -3819,3 +3819,23 @@
 .dock-pane[data-pane="chat"] > .dialogue-dock-host > .dialogue {
   flex: 1 1 auto;
 }
+
+/* R374：动作库选择器。 */
+.oc-action-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-2);
+  font-size: 9px;
+}
+.oc-action-pick select {
+  max-width: 96px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 4px;
+  background: var(--panel-1);
+  color: var(--fg-0);
+  font: inherit;
+  font-size: 9px;
+}
