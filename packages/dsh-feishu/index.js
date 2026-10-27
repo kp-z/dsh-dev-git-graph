@@ -135,23 +135,23 @@ export const PROMPT_REV = 5
  * 复用同一套 JSON 字段，只是语义错位映射（headline=今天的一件事、issues=今天的三步排期、
  * advice=最可能翻车的地方、today=昨天实际推进），这样面板不用为它写第二套解析。
  */
-export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。根据任务清单与最近对话摘要，输出一个 JSON 对象，
-不要解释、不要 markdown 代码块，格式严格如下：
+export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。只讲事实：昨天做了什么、今天做什么。不写客套话、不写评估、不写趋势分析。
 
-{"headline":"今天最该做的一件事（不超过 30 字，要具体到任务号）",
- "today":"昨天实际推进了什么（不超过 50 字；没有推进就直说，不要美化）",
- "issues":[{"taskNo":12,"level":"info","text":"为什么先做它（不超过 26 字）","evidence":"第一步具体动作（不超过 30 字）"}],
- "advice":"今天最可能翻车的地方（不超过 50 字）",
- "commentary":"一句提醒同事的话（不超过 60 字）",
- "charts":[{"type":"bar|line|pie|sunburst","dataset":"done_by_day_7|started_by_day_7|wip_by_day_14|state_distribution|workspace_distribution","title":"图表标题（不超过 14 字）","why":"为什么用这张图（不超过 20 字）"}],
- "score":{"focus":0-100,"throughput":0-100,"hygiene":0-100}}
+输出一个 JSON 对象，不要解释、不要 markdown 代码块：
+{"headline":"今天最该做的一件事（不超过 30 字，带任务号）",
+ "today":"昨天做了哪些事（不超过 60 字，按任务号逐条列；昨天没推进就直说「昨天没有推进」）",
+ "issues":[{"taskNo":12,"level":"info","text":"为什么今天做它（不超过 26 字）","evidence":"第一步具体做什么（不超过 30 字）"}],
+ "advice":"","commentary":"","charts":[]}
 
 规则：
-- issues 最多 3 条，按优先级排，就是今天的排期。
-- 不要罗列任务计数（共几个、几个在跑、完成几个），卡片上方已有统计。
-- 只依据给到的信息，不编造任务与数字；需要举例用任务号（T8、T12）。
-- charts 选 1 张最有说服力的；type/dataset 只能从枚举里选。
-- 中文，句子短，不喊口号。`
+- 只回答两件事：昨天做了什么、今天做什么。别的废话一律不写。
+- issues 最多 3 条，就是今天的三件事，按先后顺序排。
+- 不要罗列任务计数（共几个、几个在跑、完成几个）。
+- 只依据给到的信息，不编造任务与数字。
+- 中文，短句。`
+
+/* 上一版早会默认提示词的最后一行：用来把「旧默认 + 用户追加句子」迁移成「新默认 + 用户追加句子」 */
+const LEGACY_MORNING_MARKER = '- 中文，句子短，不喊口号。'
 
 export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根据给你的任务清单与最近对话摘要，输出一个 JSON 对象，
 不要解释、不要 markdown 代码块，格式严格如下：
@@ -198,6 +198,8 @@ const DEFAULT_SETTINGS = {
   autoComment: true,
   /* 同一会话两条进度评论的最小间隔（秒），防止一个 turn 刷一条。 */
   autoCommentMinSeconds: 45,
+  /* 交给模型前先过滤掉的任务关键词（工作区名/标题命中即跳过）。比在提示词里写「忽略 X」可靠。 */
+  insightIgnore: [],
   /* 早会诊断的系统提示（面板可改）。 */
   insightPrompt: DEFAULT_INSIGHT_PROMPT,
   insightPromptRev: PROMPT_REV,
@@ -618,6 +620,11 @@ function sanitizeInsightButtons(input, fallback) {
     let prompt = asString(raw?.prompt).slice(0, 4000)
     /* 旧版把按钮 prompt 当「额外要求」存（通常是一句话）。现在是一份完整提示词，
        直接把短句当提示词会让模型不吐 JSON，所以迁移时把它接到默认提示词后面。 */
+    /* 早会默认提示词改版：把「旧默认 + 用户追加句子」重建成「新默认 + 同一句」 */
+    if (kind === 'morning' && prompt.includes(LEGACY_MORNING_MARKER)) {
+      const tail = prompt.slice(prompt.indexOf(LEGACY_MORNING_MARKER) + LEGACY_MORNING_MARKER.length).trim()
+      prompt = tail ? `${DEFAULT_MORNING_PROMPT}\n\n${tail}` : DEFAULT_MORNING_PROMPT
+    }
     if (prompt && prompt.length < 300 && !/json/i.test(prompt)) {
       const base = kind === 'morning' ? DEFAULT_MORNING_PROMPT : DEFAULT_INSIGHT_PROMPT
       prompt = `${base}\n\n${prompt}`
@@ -662,6 +669,9 @@ function sanitizeSettings(input, base) {
       ? base.insightPrompt
       : (asString(next.insightPrompt).slice(0, 4000) || base.insightPrompt),
     insightPromptRev: PROMPT_REV,
+    insightIgnore: Array.isArray(next.insightIgnore)
+      ? next.insightIgnore.map((item) => asString(item).slice(0, 24)).filter(Boolean).slice(0, 10)
+      : base.insightIgnore,
     insightButtons: sanitizeInsightButtons(next.insightButtons, base.insightButtons),
     docPrompt:
       typeof next.docPrompt === 'string' && next.docPrompt.trim().length > 0
@@ -2749,7 +2759,13 @@ function createSyncEngine(ctx) {
     const sessions = await awaitService(ctx, 'sessionController')
     const now = nowMs()
     const lines = []
-    for (const task of state.tasks.slice(0, 15)) {
+    const ignore = (settings.insightIgnore ?? []).map((item) => asString(item).toLowerCase()).filter(Boolean)
+    const kept = state.tasks.filter((task) => {
+      if (!ignore.length) return true
+      const hay = `${task.title ?? ''} ${task.workspaceTitle ?? ''} ${task.workspaceName ?? ''}`.toLowerCase()
+      return !ignore.some((word) => hay.includes(word))
+    })
+    for (const task of kept.slice(0, 15)) {
       const status = task.done ? '已完成' : task.started ? '已开工' : task.sessionId ? '已绑定未开工' : '未开始'
       const bits = [`T${taskNo(task)} ${task.title}`, status]
       const workspace = task.workspaceTitle || task.workspaceName

@@ -910,6 +910,19 @@
     letter-spacing: 0.02em;
   }
 
+  .insight-ignore-input {
+    width: 100%;
+    height: 26px;
+    padding: 0 6px;
+    border: 1px solid var(--p-line);
+    border-radius: 5px;
+    background: var(--p-bg, var(--p-card));
+    color: var(--p-text-1);
+    font-size: 11px;
+    font-family: inherit;
+    box-sizing: border-box;
+  }
+
   .insight-settings textarea {
     width: 100%;
     min-height: 96px;
@@ -1887,6 +1900,9 @@
         <strong class="insight-title">洞察设置</strong>
         <button type="button" id="insightSettingsDone" class="btn btn-primary btn-xs">完成</button>
       </div>
+      <div class="insight-settings-label">忽略的任务关键词（逗号分隔；命中标题或工作区名就不发给 AI）</div>
+      <input id="insightIgnoreInput" class="insight-ignore-input" type="text" placeholder="例如：DSH, 插件开发">
+
       <div class="insight-settings-label">按钮与各自的 Prompt（每个按钮一份，可直接编辑；「恢复默认」回到内置版本）</div>
       <div id="insightButtonsEditor" class="insight-buttons-editor"></div>
       <div><button type="button" id="insightAddButton" class="btn btn-ghost btn-xs">+ 添加按钮</button></div>
@@ -3898,6 +3914,10 @@
 
   function renderInsightSettings() {
     /* 提示词只有「每个按钮各自一份」，不再有全局那个重复的「诊断 Prompt」 */
+    var ignore = $('insightIgnoreInput');
+    if (ignore && document.activeElement !== ignore) {
+      ignore.value = ((app.settings && app.settings.insightIgnore) || []).join(', ');
+    }
     renderButtonsEditor();
   }
 
@@ -3927,6 +3947,10 @@
     if (save) {
       save.addEventListener('click', function () {
         var patch = {
+          insightIgnore: String(($('insightIgnoreInput') || {}).value || '')
+            .split(/[,，]/)
+            .map(function (item) { return item.trim(); })
+            .filter(Boolean),
           insightButtons: insightDraftButtons().map(function (btn) {
             var text = String(btn.prompt || '').trim();
             /* 与默认一致就存空：以后默认提示词升级，按钮能自动跟上 */
