@@ -1719,11 +1719,24 @@ function compactBubbleText(text, limit) {
   return value.length > limit ? `${value.slice(0, Math.max(1, limit - 1))}…` : value
 }
 
+function bubbleSafeLine(source, limit) {
+  const value = compactBubbleText(source, 120)
+  if (value === '') return null
+  // 代码 / JSON / 日志 / 路径 / URL 一律不准上头顶；这些只配留在对话面板。
+  if (/[{}[\]<>]|=>|\b(?:const|let|var|function|import|class|def|return)\b/.test(value)) return null
+  if (/\b\d+\s*[:：]\s*['"]/.test(value)) return null
+  if (/['"]\s*:|:\s*['"]|#\/|\/\/|\.(?:py|js|ts|json|yaml|yml|md)\b/.test(value)) return null
+  if (/https?:\/\//.test(value)) return null
+  if (!/[\u4e00-\u9fa5A-Za-z]/.test(value)) return null
+  return compactBubbleText(value, limit)
+}
+
 function keyConclusion(text) {
-  const value = compactBubbleText(text, 400)
-  const match = /(?:结论|总结|结果)[:：]\s*([^。！？\n]+)/.exec(value)
-  const source = match === null ? value.split(/[。！？]/)[0] : match[1]
-  return compactBubbleText(source, gameModeEnabled ? 24 : 34) || '完成'
+  const raw = String(text ?? '')
+  const match = /(?:结论|总结|结果)[:：]\s*([^。！？\n]+)/.exec(raw)
+  // 只认显式结论；没有结论就不猜，交给状态词。
+  if (match === null) return null
+  return bubbleSafeLine(match[1], gameModeEnabled ? 24 : 34)
 }
 
 function statusForActor(actor) {
@@ -1755,8 +1768,14 @@ function updateBubbles() {
   for (const bubble of list) {
     const agent = world?.agents.find((a) => a.id === bubble.agentId)
     if (agent === undefined) continue
-    // 气泡只做“状态/摘要”，完整 Markdown 在对话面板里看。
-    enriched.push({ agentId: bubble.agentId, phase: bubble.phase, text: bubbleTextFor(bubble) })
+    // 气泡只做“状态/摘要”，完整 Markdown 在对话面板里看；代码/日志不显示。
+    const text = bubbleTextFor(bubble)
+    if (text === null || text === undefined) {
+      const status = statusForActor(agent)
+      enriched.push({ agentId: bubble.agentId, phase: 'status', text: status ?? '完成' })
+    } else {
+      enriched.push({ agentId: bubble.agentId, phase: bubble.phase, text })
+    }
   }
   // 没有对话气泡的 agent，用头顶短状态代替中间过程。
   const withBubble = new Set(enriched.map((bubble) => bubble.agentId))
