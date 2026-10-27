@@ -38,3 +38,14 @@ test('gameMode 关闭：heartbeat 不改变位置/站点', () => {
   assert.equal(w.agents[0].state, 'idle')
   assert.equal(w.agents[0].targetStation, null)
 })
+
+test('gameMode：每 180 tick 召集一次同一会场的同步会', () => {
+  const w = world()
+  w.tick = 180
+  w.agents.push({ ...w.agents[0], id: 'b' })
+  runHeartbeats(w, [])
+  const walking = w.agents.filter((a) => a.state === 'walking')
+  assert.ok(walking.length >= 1)
+  assert.ok(walking.every((a) => a.targetStation === 'meeting'))
+  assert.equal(new Set(walking.map((a) => a.activityUntil)).size, 1)
+})
