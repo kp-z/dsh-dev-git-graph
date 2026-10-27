@@ -218,8 +218,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.1",
     "anchor": {
-      "x": -28.5,
-      "z": -16.5
+      "x": -30,
+      "z": -18
     },
     "capacity": 1,
     "capabilities": [
@@ -240,8 +240,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.1",
     "anchor": {
-      "x": -32,
-      "z": -16.5
+      "x": -34,
+      "z": -18
     },
     "capacity": 1,
     "capabilities": [
@@ -262,8 +262,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.4",
     "anchor": {
-      "x": 26,
-      "z": -4.5
+      "x": 24,
+      "z": -6
     },
     "capacity": 1,
     "capabilities": [
@@ -284,8 +284,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.4",
     "anchor": {
-      "x": 20,
-      "z": -4.5
+      "x": 18,
+      "z": -6
     },
     "capacity": 1,
     "capabilities": [
@@ -306,8 +306,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.4",
     "anchor": {
-      "x": 14,
-      "z": -4.5
+      "x": 12,
+      "z": -6
     },
     "capacity": 1,
     "capabilities": [
@@ -328,8 +328,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.4",
     "anchor": {
-      "x": 8,
-      "z": -4.5
+      "x": 6,
+      "z": -6
     },
     "capacity": 1,
     "capabilities": [
@@ -350,8 +350,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.4",
     "anchor": {
-      "x": 10,
-      "z": -14.5
+      "x": 8,
+      "z": -16
     },
     "capacity": 1,
     "capabilities": [
@@ -372,8 +372,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.4",
     "anchor": {
-      "x": 16,
-      "z": -14.5
+      "x": 14,
+      "z": -16
     },
     "capacity": 1,
     "capabilities": [
@@ -394,8 +394,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.4",
     "anchor": {
-      "x": 22,
-      "z": -14.5
+      "x": 20,
+      "z": -16
     },
     "capacity": 1,
     "capabilities": [
@@ -672,8 +672,8 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.3",
     "anchor": {
-      "x": 31,
-      "z": 12
+      "x": 30,
+      "z": 10
     },
     "capacity": 1,
     "capabilities": [
@@ -693,7 +693,7 @@ export const OFFICE_STATIONS: readonly OfficeSceneStation[] = [
     "kind": "desk",
     "district": "district.3",
     "anchor": {
-      "x": 19,
+      "x": 18,
       "z": 8
     },
     "capacity": 1,

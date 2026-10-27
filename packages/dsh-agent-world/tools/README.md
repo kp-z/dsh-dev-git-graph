@@ -24,3 +24,12 @@ node tools/aw-lab.mjs live command --url http://127.0.0.1:3082 --token <token> \
 
 - 只读 lib/ 的纯模拟，不启动 webServer、不写盘。
 - 同一参数两次输出必须一致；不确定的行为先写进 `docs/agent-world-blockers.md`。
+
+## layout
+
+```bash
+node tools/aw-lab.mjs layout
+node tools/aw-lab.mjs layout --json
+```
+
+检查每个站点的 slot 是否可走、是否从出生点可达、slot 是否重复、容量是否小于 slot 数。

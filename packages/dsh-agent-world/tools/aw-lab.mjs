@@ -15,6 +15,7 @@
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { createWorld } from '../lib/world/create.js'
 import { step } from '../lib/sim/step.js'
+import { cellOf, findPath, isWalkable } from '../lib/sim/pathfind.js'
 
 function parseArgs(argv) {
   const out = { _: [] }
@@ -42,10 +43,10 @@ function buildContent() {
   return content
 }
 
-function makeWorld(content, { taskSet, agents, gameMode, seed }) {
+function makeWorld(content, { taskSet, agents, gameMode, seed, scene = 'scene.default-town' }) {
   const world = createWorld({
     content,
-    scene: 'scene.default-town',
+    scene,
     name: `lab-${seed}`,
     createdAt: '2026-01-01T00:00:00.000Z',
     taskSets: taskSet === null ? [] : [taskSet],
@@ -137,6 +138,40 @@ function audit(world, trace) {
   }
 }
 
+function layoutAudit(world) {
+  const issues = []
+  const slots = []
+  if (world.nav === null) {
+    issues.push('没有导航网格（nav=null）：无法判断可达性')
+  }
+  for (const station of world.stations) {
+    if (!Array.isArray(station.slots) || station.slots.length === 0) {
+      issues.push(`${station.id}: 没有 slots`)
+      continue
+    }
+    if (station.slots.length < station.capacity) {
+      issues.push(`${station.id}: slots ${station.slots.length} < capacity ${station.capacity}`)
+    }
+    for (const [index, slot] of station.slots.entries()) {
+      const point = { x: station.anchor.x + slot.x, z: station.anchor.z + slot.z }
+      const walkable = world.nav === null ? null : isWalkable(world.nav, cellOf(world.nav, point))
+      if (walkable === false) issues.push(`${station.id} slot#${index}: 落在不可走格 (${point.x},${point.z})`)
+      slots.push({ station: station.id, index, x: point.x, z: point.z })
+      if (world.nav !== null) {
+        const path = findPath(world.nav, world.agents[0]?.position ?? { x: 0, z: 0 }, point)
+        if (path.length === 0) issues.push(`${station.id} slot#${index}: 从出生点不可达`)
+      }
+    }
+  }
+  const seen = new Map()
+  for (const slot of slots) {
+    const key = `${slot.x.toFixed(2)},${slot.z.toFixed(2)}`
+    if (seen.has(key)) issues.push(`slot 重复：${seen.get(key)} 与 ${slot.station}#${slot.index}`)
+    else seen.set(key, `${slot.station}#${slot.index}`)
+  }
+  return { issues, slots: slots.length, stations: world.stations.length, agentSpawn: world.agents[0]?.position ?? null }
+}
+
 function simulate(options) {
   const content = buildContent()
   const world = makeWorld(content, options)
@@ -204,6 +239,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2))
   if (args.help === true || args._.length === 0) {
     console.log('用法: node tools/aw-lab.mjs sim [--ticks 1200] [--agents 4] [--task-set task.quick-fix] [--game-mode] [--seed 1] [--json]')
+    console.log('      node tools/aw-lab.mjs layout [--agents 4] [--json]')
     console.log('      node tools/aw-lab.mjs live snapshot --url http://127.0.0.1:3082 --token <token> [--session <id>]')
     console.log('      node tools/aw-lab.mjs live command --url ... --token ... --command \'{"kind":"dispatch","taskSet":"task.quick-fix"}\'')
     process.exitCode = args.help === true ? 0 : 1
@@ -217,12 +253,31 @@ async function main() {
       taskSet: typeof args['task-set'] === 'string' ? args['task-set'] : 'task.quick-fix',
       gameMode: args['game-mode'] === true,
       seed: Math.max(1, Math.floor(num(args.seed, 1))),
+      scene: typeof args.scene === 'string' ? args.scene : 'scene.default-town',
     }
     const result = simulate(options)
     if (args.json === true) console.log(JSON.stringify({ options, audit: result.audit, trace: result.trace }, null, 2))
     else {
       console.log(summarize(result))
       if (result.audit.issues.length > 0) process.exitCode = 1
+    }
+    return
+  }
+  if (mode === 'layout') {
+    const content = buildContent()
+    const world = makeWorld(content, {
+      taskSet: null,
+      agents: Math.max(1, Math.floor(num(args.agents, 4))),
+      gameMode: false,
+      seed: Math.max(1, Math.floor(num(args.seed, 1))),
+      scene: typeof args.scene === 'string' ? args.scene : 'scene.office',
+    })
+    const result = layoutAudit(world)
+    if (args.json === true) console.log(JSON.stringify(result, null, 2))
+    else {
+      console.log(`stations ${result.stations} · slots ${result.slots} · spawn ${JSON.stringify(result.agentSpawn)}`)
+      console.log(result.issues.length === 0 ? 'layout OK' : `layout ${result.issues.length} issues:\n  - ${result.issues.join('\n  - ')}`)
+      if (result.issues.length > 0) process.exitCode = 1
     }
     return
   }
