@@ -64,3 +64,11 @@ node tools/aw-probe.mjs --url '<agent-world?debug=1&token=...>' --wait 5000 --ch
 
 断言：occlusion 0 异常、0 fallback、每个 actor 有贴图/动画、有目标时播 walk、到目标不播 walk、
 desk/meeting 工作时有绑定椅子。
+
+## 连续采样
+
+```bash
+node tools/aw-probe.mjs --url ... --wait 2000 --samples 6 --interval 800 --check
+```
+
+`--samples` 会连续采样，能抓到“到点仍播 walk”“走路中遮挡异常”这类只在过程中出现的状态。

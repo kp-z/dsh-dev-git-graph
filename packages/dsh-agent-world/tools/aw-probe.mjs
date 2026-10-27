@@ -28,6 +28,8 @@ function parse(argv) {
 const args = parse(process.argv.slice(2))
 const url = args.url
 const wait = Math.max(1000, Number(args.wait) || 5000)
+const samples = Math.max(1, Math.min(30, Math.floor(Number(args.samples) || 1)))
+const interval = Math.max(200, Number(args.interval) || 1000)
 const expression = typeof args.expr === 'string' && args.expr !== ''
   ? args.expr
   : `JSON.stringify({
@@ -85,11 +87,16 @@ try {
   await send('Runtime.enable')
   await send('Page.navigate', { url })
   await sleep(wait)
-  const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
-  if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text ?? 'evaluate failed')
-  const raw = result.result?.value
-  const value = typeof raw === 'string' ? JSON.parse(raw) : raw
-  if (args.check === true) {
+  const collected = []
+  for (let index = 0; index < samples; index += 1) {
+    if (index > 0) await sleep(interval)
+    const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+    if (result.exceptionDetails !== undefined) throw new Error(result.exceptionDetails.text ?? 'evaluate failed')
+    const raw = result.result?.value
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw
+    collected.push(value)
+  }
+  const checkScene = (value) => {
     const issues = []
     if (value?.occlusion?.ok !== true) issues.push('occlusion 审计未通过')
     if ((value?.occlusion?.anomalyCount ?? 0) > 0) issues.push(`occlusion ${value.occlusion.anomalyCount} 个异常`)
@@ -99,23 +106,27 @@ try {
     for (const actor of value?.trace ?? []) {
       if (actor.texture === null || actor.textureKey === null) issues.push(`${actor.id}: 无贴图`)
       if (actor.anim === null) issues.push(`${actor.id}: 无动画`)
-      if (actor.anim !== null && actor.anim.includes('walk-') !== true && actor.target !== null && (actor.target.x !== actor.x || actor.target.y !== actor.y)) {
-        issues.push(`${actor.id}: 有目标但播的不是 walk 动画（${actor.anim}）`)
-      }
-      if (actor.anim !== null && actor.anim.includes('walk-') === true && actor.target !== null && actor.target.x === actor.x && actor.target.y === actor.y) {
-        issues.push(`${actor.id}: 已到目标但仍在播 walk`)
-      }
+      const moving = actor.target !== null && (Math.abs(actor.target.x - actor.x) > 0.5 || Math.abs(actor.target.y - actor.y) > 0.5)
+      if (actor.anim !== null && !actor.anim.includes('walk-') && moving) issues.push(`${actor.id}: 有目标但播的不是 walk 动画（${actor.anim}）`)
+      if (actor.anim !== null && actor.anim.includes('walk-') && !moving) issues.push(`${actor.id}: 已到目标但仍在播 walk`)
       if (['working', 'talking', 'sleeping'].includes(actor.state) === true && ['desk', 'meeting', 'breakroom'].includes(actor.stationKind) === true && actor.seat === null) {
         issues.push(`${actor.id}: ${actor.state}@${actor.stationKind} 没有绑定椅子`)
       }
     }
+    return issues
+  }
+  if (args.check === true) {
+    const issues = collected.flatMap((value, index) => checkScene(value).map((issue) => `#${index + 1} ${issue}`))
     if (issues.length > 0) {
       console.error(`scene check: ${issues.length} issues\n  - ${issues.join('\n  - ')}`)
       process.exitCode = 1
     } else {
-      console.log('scene check OK')
+      console.log(`scene check OK（${samples} 个采样）`)
     }
+  } else if (samples > 1) {
+    console.log(JSON.stringify(collected, null, 2))
   } else {
+    const raw = collected[0]
     console.log(typeof raw === 'string' ? raw : JSON.stringify(raw ?? null, null, 2))
   }
 } catch (error) {
