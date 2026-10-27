@@ -1709,7 +1709,10 @@ export function createBoard(options = {}) {
     for (const raw of teamMembers) {
       const name = typeof raw?.name === 'string' ? raw.name : ''
       if (name === '') continue
-      const known = model.members.find((member) => member.name === name) ?? (typeof raw.id === 'string' ? model.members.find((member) => member.id === raw.id) : undefined)
+      // R402：projection 的 lead 就是世界里的 captain/lead；不要因为名字不同再加一行。
+      const known = raw.role === 'lead'
+        ? model.members.find((member) => member.role === 'lead')
+        : model.members.find((member) => member.name === name) ?? (typeof raw.id === 'string' ? model.members.find((member) => member.id === raw.id) : undefined)
       if (known !== undefined) {
         if (typeof raw.state === 'string') known.state = raw.state
         if (typeof raw.role === 'string') known.role = raw.role
@@ -1732,6 +1735,12 @@ export function createBoard(options = {}) {
     for (const member of model.members) {
       const name = typeof member?.name === 'string' ? member.name : ''
       if (name !== '' && typeof member.id === 'string') idByName.set(name, member.id)
+    }
+    // projection 把队长叫 lead，世界叫 captain；两个名字都指向同一行。
+    const leadMember = model.members.find((member) => member.role === 'lead')
+    if (leadMember !== undefined) {
+      idByName.set('lead', leadMember.id)
+      idByName.set('captain', leadMember.id)
     }
     for (const task of model.tasks) {
       const name = teamMeta.get(task.id)?.ownerName ?? ''
