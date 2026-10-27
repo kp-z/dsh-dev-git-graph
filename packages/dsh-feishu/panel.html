@@ -900,11 +900,12 @@
     overflow: visible;
   }
 
+  /* 尾巴放在左下角、朝左（像一条从左边递过来的消息） */
   .insight-text::before {
     content: '';
     position: absolute;
-    left: 16px;
-    top: -6px;
+    left: -5px;
+    bottom: 12px;
     width: 14px;
     height: 14px;
     background: var(--p-bubble);
