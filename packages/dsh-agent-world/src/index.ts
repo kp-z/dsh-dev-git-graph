@@ -749,7 +749,12 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   const experimentalDialoguePort = {
     async say(characterId: string, text: string): Promise<{ ok: true } | { ok: false; reason: string }> {
       const lead = agentsService?.get?.(state.activeSessionId ?? '')
-      if (lead === undefined) return { ok: false, reason: 'experimental：Lead Agent 不在线，先在对话里打开这个会话。' }
+      if (lead === undefined) {
+        if (state.activeSessionId === null) {
+          return { ok: false, reason: '当前是独立 Agent World 页，未绑定 DSH 会话。请从 DSH 对话里的 Agent World 面板打开，或用 ?session=<会话id> 打开。' }
+        }
+        return { ok: false, reason: `会话 ${state.activeSessionId} 没有在线 Lead：先回到该会话把它打开，再试。` }
+      }
       const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
       if (actor === undefined) return { ok: false, reason: '没有这个角色：先等成员 spawn 出来。' }
       if ((actor as { boundAgentId?: string | null }).boundAgentId === null) {
@@ -951,7 +956,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         // R162：header 要显示"这个世界对应的会话名"。
         // 队长会话的标题在 session 日志里，异步读；读不到就让前端退回 teamName / id。
         worldSession: async () => {
-          const id = resolved.captainSessionId
+          const id = state.activeSessionId ?? resolved.captainSessionId
           const teamName = resolved.teamName
           try {
             const query = ctx.get('sessionQuery') as
