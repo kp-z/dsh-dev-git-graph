@@ -718,12 +718,18 @@
     padding: 0;
   }
 
+  .chart-stage {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    max-width: 100%;
+  }
+
   .chart-canvas {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 100%;
-    height: 100%;
   }
 
   .chart-nav {
@@ -744,8 +750,8 @@
   }
 
   .chart-nav:hover { opacity: 1; color: var(--p-accent); }
-  .chart-nav-prev { left: -2px; }
-  .chart-nav-next { right: -2px; }
+  .chart-nav-prev { left: -23px; }
+  .chart-nav-next { right: -23px; }
 
   .chart-dots {
     position: absolute;
@@ -945,10 +951,10 @@
   .insight-text::before {
     content: '';
     position: absolute;
-    left: 5px;
-    top: -7px;
-    width: 14px;
-    height: 14px;
+    left: 7px;
+    top: -5px;
+    width: 10px;
+    height: 10px;
     /* 不描边：同色方块盖住气泡边框的那一小段，看起来才是「长出来的」 */
     background: var(--p-bubble);
     border-radius: 2px;
@@ -3727,6 +3733,9 @@
       return;
     }
 
+    /* 舞台只包住「图 + 两个箭头」：箭头贴在图的左右边，而不是贴着整个卡片边 */
+    var stage = el('div', { 'class': 'chart-stage' });
+
     /* 有图才给箭头；只有一张时不显示 */
     if (specs.length > 1) {
       var prev = el('button', { type: 'button', 'class': 'chart-nav chart-nav-prev', 'aria-label': '上一张图表' });
@@ -3736,7 +3745,7 @@
         app.insightChartIndex = (index - 1 + specs.length) % specs.length;
         renderInsightCharts();
       });
-      wrap.appendChild(prev);
+      stage.appendChild(prev);
     }
 
     var canvas = el('div', { 'class': 'chart-canvas' });
@@ -3744,7 +3753,8 @@
     else if (spec.type === 'line') canvas.appendChild(chartLineCanvas(data));
     else if (spec.type === 'sunburst') canvas.appendChild(chartDonutCanvas(data, true));
     else canvas.appendChild(chartDonutCanvas(data, false));
-    wrap.appendChild(canvas);
+    stage.appendChild(canvas);
+    wrap.appendChild(stage);
 
     if (specs.length > 1) {
       var next = el('button', { type: 'button', 'class': 'chart-nav chart-nav-next', 'aria-label': '下一张图表' });
@@ -3754,7 +3764,7 @@
         app.insightChartIndex = (index + 1) % specs.length;
         renderInsightCharts();
       });
-      wrap.appendChild(next);
+      stage.appendChild(next);
     }
 
     /* 小圆点：当前在第几张（不占高度，绝对定位在底部） */
