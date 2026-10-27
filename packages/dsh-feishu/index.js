@@ -126,7 +126,7 @@ function pluginVersion() {
  * 输出固定 JSON，面板直接渲染，不做二次解析。
  */
 /* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
-export const PROMPT_REV = 7
+export const PROMPT_REV = 8
 
 /**
  * 早会同步专用提示词。
@@ -140,7 +140,12 @@ export const PROMPT_REV = 7
  * 说明：这是给模型的参考材料，不是对用户的话术模板——它约束「怎么判断」和「怎么开口」。
  * 用户可在设置里覆盖（settings.insightPlaybook），留空则用这份默认。
  */
-export const INSIGHT_PLAYBOOK = `【判断框架】按优先级从高到低：
+export const INSIGHT_PLAYBOOK = `【先记住两个定义】
+- 「开工」= 这条任务已经有一条会话在推进（有 sessionId），不要求写了代码、也不看飞书的 started 标记。
+  绑了会话但最近没有产出，不是「零开工」，而是「在推进但没收口」。
+- 「收口」= 产出已经可以被验收（提交、文档、可运行结果），和「有没有在聊」是两回事。
+
+【判断框架】按优先级从高到低：
 1. 收尾优先于开工：已经做到 80% 的活，价值只有交付才兑现；先问「这条离验收还差什么」。
 2. WIP 限制：同时在跑超过 3 条就是排队成本，先砍不是因为紧急，而是因为切换成本。
 3. 依赖先行：卡着别人下一步的那条，优先级天然更高。
@@ -2842,7 +2847,11 @@ function createSyncEngine(ctx) {
       return !ignore.some((word) => hay.includes(word))
     })
     for (const task of kept.slice(0, 15)) {
-      const status = task.done ? '已完成' : task.started ? '已开工' : task.sessionId ? '已绑定未开工' : '未开始'
+      /* 开工 = 已经有一条会话在推进这条任务（有 sessionId）。
+         飞书那边的 started 标记经常没打上，不能拿它当唯一依据，否则「正在聊」会被判成「零开工」。 */
+      const status = task.done
+        ? '已完成'
+        : (task.started || task.sessionId) ? '进行中（已有会话在推进）' : '未开始（还没有会话）'
       const bits = [`T${taskNo(task)} ${task.title}`, status]
       const workspace = task.workspaceTitle || task.workspaceName
       if (workspace) bits.push(`工作区=${workspace}`)
