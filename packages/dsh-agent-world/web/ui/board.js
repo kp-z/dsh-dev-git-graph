@@ -1037,6 +1037,13 @@ export function createBoard(options = {}) {
       const dot = el(doc, 'i', 'board-dot board-node-dot')
       applyNodeColors(dot, task.displayStatus ?? task.status)
       top.append(dot, el(doc, 'span', 'board-node-id', task.id))
+      const status = task.displayStatus ?? task.status
+      const statusIcon = status === 'done' ? '✓' : status === 'failed' ? '✕' : status === 'blocked' ? '⊘' : status === 'in_progress' ? '◐' : '○'
+      const stateIcon = el(doc, 'i', 'board-node-state-icon', statusIcon)
+      stateIcon.setAttribute('aria-hidden', 'true')
+      stateIcon.title = taskStatusLabel(status)
+      stateIcon.dataset.status = status
+      top.append(stateIcon)
       if (task.ownerName !== null && task.ownerName !== undefined && task.ownerName !== '') {
         const avatar = el(doc, 'span', 'board-node-avatar', memberInitial(task.ownerName))
         if (typeof ownerMember?.palette === 'string' && ownerMember.palette !== '') {
