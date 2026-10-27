@@ -385,7 +385,16 @@ storyTrack.append(storyFill)
 const storyRail = doc.createElement('span')
 storyRail.className = 'story-rail'
 storyRail.setAttribute('aria-hidden', 'true')
-for (let index = 0; index < 5; index += 1) storyRail.append(doc.createElement('i'))
+const storyNames = ['序章', '集结', '执行', '验收', '终章']
+for (const name of storyNames) {
+  const dot = doc.createElement('i')
+  dot.title = name
+  dot.setAttribute('aria-label', name)
+  dot.setAttribute('role', 'listitem')
+  storyRail.append(dot)
+}
+storyRail.setAttribute('role', 'list')
+storyRail.removeAttribute('aria-hidden')
 storyBanner.append(storyText, storyTrack, storyRail)
 questRoot?.prepend(storyBanner)
 
