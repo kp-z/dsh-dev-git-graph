@@ -1126,6 +1126,7 @@ export function createScenePhaser(canvas, options = {}) {
   function moveActorTo(entry, tx, ty) {
     const sprite = entry.sprite
     if (sprite === null || sprite === undefined) return
+    entry.moveTarget = { x: tx, y: ty }
     const label = entry.label
     const labelDy = entry.labelDy ?? -16
     const labelY = ty + labelDy
@@ -3062,10 +3063,33 @@ export function createScenePhaser(canvas, options = {}) {
     },
   }
 
+  function actorTrace(agentId = null) {
+    const out = []
+    for (const [id, entry] of actorNodes) {
+      if (agentId !== null && id !== agentId) continue
+      if (entry.sprite === null || entry.sprite === undefined) continue
+      const body = entry.sprite.body
+      out.push({
+        id,
+        x: Math.round(entry.sprite.x * 100) / 100,
+        y: Math.round(entry.sprite.y * 100) / 100,
+        target: entry.moveTarget ?? null,
+        velocity: body === null ? null : { x: Math.round(body.velocity.x * 100) / 100, y: Math.round(body.velocity.y * 100) / 100 },
+        speed: body === null ? null : Math.round(body.speed * 100) / 100,
+        depth: entry.sprite.depth,
+        seat: seatAssignments.get(id) ?? null,
+        anim: entry.sprite.anims?.currentAnim?.key ?? null,
+        playing: entry.sprite.anims?.isPlaying === true,
+      })
+    }
+    return agentId === null ? out : (out[0] ?? null)
+  }
+
   return {
     resize,
     render,
     pick,
+    actorTrace,
     /** R374：动作库（供对话面板的动作下拉使用）。 */
     listActions: () => listActions(),
     chairAudit: () => ({ total: chairSeats.length, duplicates: duplicateSeatIndices(chairSeats) }),
