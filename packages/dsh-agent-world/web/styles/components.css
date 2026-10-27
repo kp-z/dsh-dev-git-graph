@@ -3863,3 +3863,46 @@
 .dock-split {
   gap: 8px;
 }
+
+/* R379：停靠对话的内容自适应 + 可拖动。 */
+.dialogue.is-docked {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.dialogue.is-docked .oc-head {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.dialogue.is-docked .oc-name {
+  flex: 1 1 90px;
+}
+.dialogue.is-docked .dialogue-log {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+}
+.dialogue.is-docked .mode-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.dialogue.is-docked .dialogue-form {
+  flex: none;
+  min-width: 0;
+}
+.dialogue.is-docked .dialogue-form textarea {
+  min-width: 0;
+  width: 100%;
+}
+.dialogue.is-docked .oc-head .aw-dock-handle {
+  flex: none;
+}
+.dialogue.is-docked .oc-head > .aw-dock-handle {
+  width: 16px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-2);
+  cursor: grab;
+}

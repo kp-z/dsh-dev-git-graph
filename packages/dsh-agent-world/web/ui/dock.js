@@ -23,7 +23,7 @@ const DEFAULT_TREE = {
   b: {
     type: 'split', dir: 'col', ratio: 0.56,
     a: leaf('task'),
-    b: { type: 'split', dir: 'col', ratio: 0.52, a: leaf('team'), b: leaf('chat') },
+    b: { type: 'split', dir: 'col', ratio: 0.45, a: leaf('team'), b: leaf('chat') },
   },
 }
 
@@ -42,7 +42,7 @@ function readTree() {
     const unique = new Set(ids)
     // R370：旧布局只有 3 leaf；迁移时把 chat 挂到 team 下面。
     if (unique.size === 3 && ['stage', 'task', 'team'].every((id) => unique.has(id))) {
-      return replaceLeaf(value, 'team', { type: 'split', dir: 'col', ratio: 0.52, a: leaf('team'), b: leaf('chat') })
+      return replaceLeaf(value, 'team', { type: 'split', dir: 'col', ratio: 0.45, a: leaf('team'), b: leaf('chat') })
     }
     if (unique.size !== 4 || !['stage', 'task', 'team', 'chat'].every((id) => unique.has(id))) return DEFAULT_TREE
     return value
@@ -140,6 +140,10 @@ export function mountDock(options = {}) {
   }
 
   bindHandle(stage, 'stage')
+  // R379：对话卡也有拖拽手柄；挂在对话头里，不占内容区。
+  const chatHead = elements.chat.querySelector?.('.oc-head')
+  if (chatHead !== null && chatHead !== undefined) bindHandle(chatHead, 'chat')
+  else bindHandle(elements.chat, 'chat')
   for (const [id, panel] of [['task', elements.task], ['team', elements.team]]) {
     const head = panel.querySelector('.sidebar-region-head')
     if (head !== null) head.prepend((() => {

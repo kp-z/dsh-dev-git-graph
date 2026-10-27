@@ -390,14 +390,18 @@ let dialogueDocked = (() => {
 
 function applyDialogueDock() {
   if (dialogueDockToggle === null || dialogueDockToggle === undefined || dialogueElement === null || dialogueElement === undefined) return
+  const dockHandle = dialogueDockHost?.querySelector?.('.aw-dock-handle') ?? null
   if (dialogueDocked) {
     dialogueDockHost?.append(dialogueElement)
+    // R379：手柄放回对话头，用户才看得到可拖的位置。
+    if (dockHandle !== null) dialogueElement.querySelector('.oc-head')?.prepend(dockHandle)
     dialogueElement.classList.add('is-docked')
     dock?.setPanelVisible?.('chat', true)
     dialogueDockToggle.textContent = '悬浮'
     dialogueDockToggle.title = '恢复舞台悬浮'
   } else {
     dialogueStage?.append(dialogueElement)
+    if (dockHandle !== null && dialogueDockHost !== null) dialogueDockHost.append(dockHandle)
     dialogueElement.classList.remove('is-docked')
     dock?.setPanelVisible?.('chat', false)
     dialogueDockToggle.textContent = '停靠'
