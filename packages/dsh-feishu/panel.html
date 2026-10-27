@@ -2344,15 +2344,6 @@
         </div>
       </div>
 
-      <div class="row">
-        <div class="row-text">
-          <label for="includeCompleted">包含已完成任务</label>
-          <div class="hint">关闭时只同步未完成任务</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="includeCompleted" class="switch" data-setting="1">
-        </div>
-      </div>
 
       <div class="row">
         <div class="row-text">
@@ -2841,7 +2832,6 @@
     var tst = st.tasks || {};
     $('autoSync').checked = !!st.autoSync;
     $('syncInterval').value = st.syncIntervalMinutes != null ? st.syncIntervalMinutes : 30;
-    $('includeCompleted').checked = !!tst.includeCompleted;
     $('keyword').value = tst.keyword || '';
     $('autoStartMode').value = st.autoStartMode === 'all' || st.autoStartMode === 'tagged' ? st.autoStartMode : 'off';
     renderWorkspaceHint();
@@ -2954,12 +2944,6 @@
     if (statusNode) {
       /* 关掉「包含已完成任务」时，同步压根不拉已完成的任务，
          「已完成」这个筛选项必然是空的——直接藏掉，别让人点了以为坏了。 */
-      var withDone = Boolean(app.settings && app.settings.tasks && app.settings.tasks.includeCompleted);
-      var doneOpt = statusNode.querySelector('option[value="done"]');
-      if (doneOpt) {
-        /* 选项保留（不然用户不知道为什么没有它），但在没开同步时标一下 */
-        doneOpt.textContent = withDone ? '已完成' : '已完成（未同步）';
-      }
       statusNode.value = app.filter.status || 'open';
     }
     renderFilterToggle();
@@ -3012,11 +2996,8 @@
     if (syncNode) list.appendChild(syncNode);
 
     if (!tasks.length) {
-      /* 「已完成」筛出来是空的，绝大多数情况是同步压根没拉已完成的任务 */
-      var doneFiltered = app.filter.status === 'done'
-        && !(app.settings && app.settings.tasks && app.settings.tasks.includeCompleted);
-      list.appendChild(emptyNode(doneFiltered
-        ? '同步默认只拉未完成任务，所以这里看不到已完成的。去 ⚙ 设置里勾上「包含已完成任务」，再点「立即同步」。'
+      list.appendChild(emptyNode(app.filter.status === 'done'
+        ? '还没有本地完成的任务。飞书的已完成历史不会再同步，这里只显示你在面板里标完成的。'
         : allTasks.length ? '没有符合筛选条件的任务（点「重置」看全部）' : '还没有同步到任务'));
       return;
     }
@@ -4886,7 +4867,8 @@
       autoSync: $('autoSync').checked,
       syncIntervalMinutes: toInt($('syncInterval').value, 30, 1, 1440),
       tasks: {
-        includeCompleted: $('includeCompleted').checked,
+        /* 已完成不再从飞书同步：这个字段只为兼容旧配置保留，恒为 false */
+        includeCompleted: false,
         keyword: String($('keyword').value || '').trim()
       },
       autoStartMode: $('autoStartMode').value,
@@ -5164,7 +5146,7 @@
   function markDirty() { app.settingsDirty = true; }
 
   function wire() {
-    var settingIds = ['autoSync', 'syncInterval', 'includeCompleted', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap'];
+    var settingIds = ['autoSync', 'syncInterval', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap'];
     for (var i = 0; i < settingIds.length; i++) {
       var node = $(settingIds[i]);
       if (!node) continue;
