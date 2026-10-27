@@ -697,8 +697,18 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: stretch;
     min-width: 0;
+    height: 100%;
+  }
+
+  /* 图表撑满整块并贴底：下边缘和左侧「展开」按钮齐平 */
+  .insight-charts .insight-chart {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
     height: 100%;
   }
 
