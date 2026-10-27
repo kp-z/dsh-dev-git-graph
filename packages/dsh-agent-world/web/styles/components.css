@@ -4034,3 +4034,8 @@
   background: var(--screen);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--screen) 18%, transparent);
 }
+
+/* R422：章节轨当前点跟随章节情绪色。 */
+.story-banner[data-tone='done'] .story-rail i.is-current { background: #65d98a; box-shadow: 0 0 0 2px color-mix(in srgb, #65d98a 18%, transparent); }
+.story-banner[data-tone='danger'] .story-rail i.is-current { background: #ff6b6b; box-shadow: 0 0 0 2px color-mix(in srgb, #ff6b6b 18%, transparent); }
+.story-banner[data-tone='ready'] .story-rail i.is-current { background: #f2c14e; box-shadow: 0 0 0 2px color-mix(in srgb, #f2c14e 18%, transparent); }
