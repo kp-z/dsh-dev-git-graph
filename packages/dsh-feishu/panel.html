@@ -624,16 +624,47 @@
   }
 
   /* 重新生成：真正的按钮，排在 tab 之后 */
-  .insight-regen {
-    flex: 0 0 auto;
-    height: 22px;
-    padding: 0 7px;
-    border-radius: 6px;
-    border: 1px solid var(--p-line);
-    color: var(--p-text-2);
+  /* tab = 文字 + 自带的重生成图标 */
+  .insight-tab {
+    display: inline-flex;
+    align-items: center;
+    border-bottom: 2px solid transparent;
+    border-radius: 6px 6px 0 0;
   }
 
-  .insight-regen:hover { color: var(--p-accent); border-color: var(--p-accent); }
+  .insight-tab.is-active { border-bottom-color: var(--p-accent); }
+
+  .insight-tab-label {
+    border: none;
+    background: transparent;
+    padding: 5px 2px 5px 8px;
+    color: var(--p-text-3);
+    font-size: 11px;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .insight-tab.is-active .insight-tab-label {
+    color: var(--p-accent);
+    font-weight: 600;
+  }
+
+  .insight-tab-label:hover { color: var(--p-text-1); }
+
+  .insight-tab-regen {
+    border: none;
+    background: transparent;
+    padding: 5px 7px 5px 2px;
+    color: var(--p-text-3);
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.6;
+  }
+
+  .insight-tab-regen:hover { opacity: 1; color: var(--p-accent); }
+  .insight-tab-regen.is-busy { opacity: 1; color: var(--p-accent); }
 
 
 
@@ -1970,7 +2001,6 @@
       <span class="insight-avatar" aria-hidden="true">💡</span>
       <strong id="insightTitle" class="insight-title">今日洞察</strong>
       <div id="insightButtons" class="insight-tabs" role="tablist"></div>
-      <button type="button" id="insightRegen" class="btn btn-ghost btn-xs insight-regen" title="用当前 tab 自己的 prompt 重新生成">↻ 重新生成</button>
       <button type="button" id="insightGear" class="btn btn-ghost btn-xs insight-gear" title="洞察设置（按钮 / Prompt）" aria-expanded="false" aria-controls="insightSettingsPanel">⚙</button>
     </div>
 
@@ -2253,6 +2283,7 @@
     insightBusyId: '',
     insightActiveId: '',
     insightResults: {},
+    insightAutoTried: false,
     promptDefaults: {},
     insightStats: null,
     insightStatsLoading: false,
@@ -3757,24 +3788,32 @@
     list.forEach(function (btn) {
       var busy = app.insightLoading && app.insightBusyId === btn.id;
       var active = btn.id === app.insightActiveId;
-      var label = busy ? '生成中…' : btn.label;
-      var node = makeButton(label, 'btn btn-ghost btn-xs', null, false, function () {
+
+      var tab = el('span', { 'class': 'insight-tab' + (active ? ' is-active' : '') });
+      var label = makeButton(busy ? '生成中…' : btn.label, 'insight-tab-label', null, false, function () {
         handleInsightButton(btn);
       });
-      if (app.insightLoading) node.disabled = true;
-      if (busy) node.classList.add('is-busy');
-      node.setAttribute('role', 'tab');
-      node.setAttribute('aria-selected', active ? 'true' : 'false');
-      if (active) node.classList.add('is-active');
-      if (btn.prompt) node.title = btn.prompt.slice(0, 200);
-      box.appendChild(node);
+      label.setAttribute('role', 'tab');
+      label.setAttribute('aria-selected', active ? 'true' : 'false');
+      if (btn.prompt) label.title = btn.prompt.slice(0, 200);
+      if (app.insightLoading) label.disabled = true;
+      tab.appendChild(label);
+
+      /* 每个 tab 自带一个重新生成图标：点它就用这个 tab 的 prompt 重跑（写评论这种不生成内容，不给图标） */
+      if (btn.kind === 'export') { box.appendChild(tab); return; }
+      var again = makeButton('↻', 'insight-tab-regen', null, false, function (event) {
+        event.stopPropagation();
+        app.insightActiveId = btn.id;
+        runInsightButton(btn);
+      });
+      again.title = '用「' + btn.label + '」的 prompt 重新生成';
+      again.setAttribute('aria-label', '重新生成：' + btn.label);
+      if (app.insightLoading) again.disabled = true;
+      if (busy) again.classList.add('is-busy');
+      tab.appendChild(again);
+      box.appendChild(tab);
     });
 
-    var regen = $('insightRegen');
-    if (regen) {
-      regen.disabled = Boolean(app.insightLoading);
-      regen.textContent = app.insightLoading ? '↻ 生成中…' : '↻ 重新生成';
-    }
   }
 
   /* 点击按钮 = 切换视图；已有结果就不重跑。想重跑点「重新生成」。 */
@@ -3811,20 +3850,31 @@
   }
 
   /* 真正触发一次生成：带上按钮自己的 prompt 与它该走的模式 */
-  function runInsightButton(btn) {
+  function runInsightButton(btn, opts) {
     if (!btn) return;
     app.insightActiveId = btn.id;
     var mode = btn.kind === 'morning' ? 'morning' : '';
-    onInsightDiagnose(btn.prompt || '', btn.id, mode);
+    onInsightDiagnose(btn.prompt || '', btn.id, mode, opts);
   }
 
-  function onInsightDiagnose(prompt, buttonId, mode) {
+  /* 首次进入：还没有任何结果就自动生成一次，别让人先去点 */
+  function maybeAutoInsight() {
+    if (app.insightAutoTried || !app.insightLocal) return;
+    if (app.insightAI || app.insightLoading) return;
+    if (Object.keys(app.insightResults || {}).length > 0) return;
+    app.insightAutoTried = true;
+    var list = insightButtons();
+    var active = list.find(function (btn) { return btn.id === app.insightActiveId; }) || list[0];
+    if (active) runInsightButton(active, { expand: false });
+  }
+
+  function onInsightDiagnose(prompt, buttonId, mode, opts) {
     if (app.insightLoading) return;
     app.insightLoading = true;
     app.insightBusyId = buttonId || '';
     /* 早会按钮跑出来的东西属于「早会」页，不要丢进 AI 诊断页 */
     app.insightTab = mode === 'morning' ? 'morning' : 'diagnose';
-    app.insightOpen = true;
+    if (!(opts && opts.expand === false)) app.insightOpen = true;
     syncToggleLabel();
     renderInsight();
 
@@ -4106,15 +4156,6 @@
       });
     }
 
-    var regen = $('insightRegen');
-    if (regen) {
-      regen.addEventListener('click', function (event) {
-        event.stopPropagation();   /* 别触发文字块的展开/收起 */
-        var list = insightButtons();
-        var active = list.find(function (btn) { return btn.id === app.insightActiveId; }) || list[0];
-        if (active) runInsightButton(active);
-      });
-    }
     wireInsightSettings();
   }
 
@@ -4336,6 +4377,7 @@
       }
       app.loadedOnce = true;
       renderAll();
+      maybeAutoInsight();
     }, function () {
       /* api() 已按 silent 决定是否 toast */
     });
@@ -4905,7 +4947,7 @@
   wire();
   wireInsight();
   loadInsight();
-  /* 收起状态也要看到图表与结论，所以开局就把趋势和当天那份 AI 结论拉回来 */
+  /* 收起状态也要看到图表与结论，所以开局就把趋势拉回来 */
   loadInsightStats();
   renderAll();  // 先渲染空态，避免白屏
   load().then(schedulePoll);
