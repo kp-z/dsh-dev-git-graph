@@ -99,6 +99,11 @@ function audit(world, trace) {
   }
   for (const task of world.tasks) {
     if (task.status === 'in_progress' && task.owner === null) issues.push(`${task.id}: in_progress 没有 owner`)
+    if (task.status === 'in_progress' && task.owner !== null) {
+      const owner = world.agents.find((agent) => agent.id === task.owner)
+      if (owner === undefined) issues.push(`${task.id}: owner ${task.owner} 不在世界`)
+      else if (owner.carrying !== task.id) issues.push(`${task.id}: in_progress 但 owner 没背着它（carrying=${owner.carrying}）`)
+    }
     if (task.status === 'done' && task.progress < 1) issues.push(`${task.id}: done 但 progress<1`)
   }
   const duplicateSeats = new Map()
@@ -257,8 +262,23 @@ async function main() {
       seed: Math.max(1, Math.floor(num(args.seed, scenario.seed ?? 1))),
       scene: typeof args.scene === 'string' ? args.scene : (scenario.scene ?? 'scene.default-town'),
     }
+    const repeat = Math.max(1, Math.min(5, Math.floor(num(args.repeat, 1))))
     const result = simulate(options)
-    if (args.json === true) console.log(JSON.stringify({ options, audit: result.audit, trace: result.trace }, null, 2))
+    let deterministic = true
+    if (repeat > 1) {
+      const fingerprint = (value) => JSON.stringify({
+        audit: value.audit,
+        trace: value.trace.positions,
+      })
+      const first = fingerprint(result)
+      for (let index = 1; index < repeat; index += 1) {
+        const next = fingerprint(simulate(options))
+        if (next !== first) deterministic = false
+      }
+      if (args.json !== true) console.log(`determinism ${deterministic ? 'OK' : 'FAIL'}（${repeat} 次）`)
+      if (!deterministic) process.exitCode = 1
+    }
+    if (args.json === true && repeat === 1) console.log(JSON.stringify({ options, audit: result.audit, trace: result.trace }, null, 2))
     else {
       console.log(summarize(result))
       if (result.audit.issues.length > 0) process.exitCode = 1
