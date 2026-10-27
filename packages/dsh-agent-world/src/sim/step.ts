@@ -176,7 +176,7 @@ function ingest(
           delete agent.activityUntil
           break
         }
-        const wants = command.activity === 'meet' ? ['converse'] : command.activity === 'rest' ? ['rest'] : ['code', 'review', 'compute', 'research']
+        const wants = command.activity === 'meet' ? ['converse'] : command.activity === 'rest' ? ['rest'] : [command.skill ?? 'code']
         const station = world.stations.find((candidate) =>
           candidate.capabilities.some((capability) => wants.includes(capability)) && occupancyOf(world, candidate.id) < candidate.capacity)
         if (station === undefined) break

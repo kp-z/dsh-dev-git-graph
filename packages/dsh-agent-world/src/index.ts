@@ -685,8 +685,17 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       // R364：工具调用 → 去工位；tool/result → 收工。只在游戏模式里映射，普通 profile 不被扰动。
       if (gameModeEnabled) {
         if (event.type === 'assistant/message') {
-          const hasToolCall = blocks.some((block) => (block as Record<string, unknown>)?.['type'] === 'tool-call')
-          if (hasToolCall) runtime.enqueue({ kind: 'agentActivity', agentId: actor.id, activity: 'work', ticks: 60 })
+          const toolNames = blocks
+            .filter((block) => (block as Record<string, unknown>)?.['type'] === 'tool-call')
+            .map((block) => String((block as Record<string, unknown>)?.['name'] ?? ''))
+          if (toolNames.length > 0) {
+            const name = toolNames[0] ?? ''
+            const skill = /(content|search|read|memory|inspect|doc|wiki)/i.test(name) ? 'research'
+              : /(bash|terminal|shell|exec|compute|run)/i.test(name) ? 'compute'
+              : /(review|verify|check)/i.test(name) ? 'review'
+              : 'code'
+            runtime.enqueue({ kind: 'agentActivity', agentId: actor.id, activity: 'work', ticks: 60, skill })
+          }
         } else if (event.type === 'tool/result') {
           runtime.enqueue({ kind: 'agentActivity', agentId: actor.id, activity: 'idle', ticks: 0 })
         }

@@ -62,7 +62,7 @@ export type WorldCommand =
    */
   | { kind: 'moveAgent'; agentId: string; x: number; z: number }
   /** R364：把真实 subagent 的工具调用映射成世界动作（work/meet/rest/idle）。 */
-  | { kind: 'agentActivity'; agentId: string; activity: 'work' | 'meet' | 'rest' | 'idle'; ticks: number }
+  | { kind: 'agentActivity'; agentId: string; activity: 'work' | 'meet' | 'rest' | 'idle'; ticks: number; skill?: 'code' | 'review' | 'research' | 'compute' }
 
 /** 全部命令的 kind。用于校验与穷尽性检查。 */
 export const WORLD_COMMAND_KINDS = [
