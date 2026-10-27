@@ -925,7 +925,9 @@ export function createBoard(options = {}) {
       { ...GEOMETRY_PRESETS[0], nodeW: 244, cellW: 286, nodeH: 104, cellH: 126 },
       { ...GEOMETRY_PRESETS[1], nodeW: 232, cellW: 272, nodeH: 96, cellH: 118 },
     ]
-    const fitted = fitGraphGeometry(layout, available, richPresets, 'auto')
+    // R426：挂载在侧边栏且宽度不足时，横向三列必然被裁；按布局层的建议转竖向。
+    const orientation = mounted === true ? 'vertical' : 'auto'
+    const fitted = fitGraphGeometry(layout, available, richPresets, orientation)
     geometry = fitted
     /*
      * 溢出量仍然算——它是 `stats().overflow` 里的**诊断读数**（验收/排查用），
