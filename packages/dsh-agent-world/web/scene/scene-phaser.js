@@ -3080,6 +3080,9 @@ export function createScenePhaser(canvas, options = {}) {
         seat: seatAssignments.get(id) ?? null,
         anim: entry.sprite.anims?.currentAnim?.key ?? null,
         playing: entry.sprite.anims?.isPlaying === true,
+        texture: entry.sprite.texture?.key ?? null,
+        textureKey: entry.textureKey ?? null,
+        visible: entry.sprite.visible === true,
       })
     }
     return agentId === null ? out : (out[0] ?? null)
