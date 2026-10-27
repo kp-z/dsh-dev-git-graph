@@ -702,15 +702,64 @@
     height: 100%;
   }
 
-  /* 图表撑满整块并贴底：下边缘和左侧「展开」按钮齐平 */
+  /* 图表区：去掉标题，图占满，左右箭头切换 */
   .insight-charts .insight-chart {
+    position: relative;
     display: flex;
-    flex-direction: column;
-    justify-content: space-between;
     align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+  }
+
+  .chart-canvas {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 100%;
     height: 100%;
   }
+
+  .chart-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--p-text-3);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.35;
+    z-index: 2;
+  }
+
+  .chart-nav:hover { opacity: 1; color: var(--p-accent); }
+  .chart-nav-prev { left: -2px; }
+  .chart-nav-next { right: -2px; }
+
+  .chart-dots {
+    position: absolute;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+  }
+
+  .chart-dots i {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--p-line-strong);
+    opacity: 0.6;
+  }
+
+  .chart-dots i.on { background: var(--p-accent); opacity: 1; }
 
   .insight-charts .chart-title {
     font-size: 9.5px;
@@ -746,9 +795,9 @@
 
   .mini-line svg { width: 100%; height: 24px; display: block; }
 
-  .mini-donut { display: flex; align-items: center; gap: 8px; }
-  .mini-donut svg { width: 118px; height: 118px; flex: 0 0 auto; }
-  .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--p-text-2); }
+  .mini-donut { display: flex; align-items: center; gap: 4px; }
+  .mini-donut svg { width: 148px; height: 148px; flex: 0 0 auto; }
+  .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 1px; font-size: 9.5px; line-height: 1.25; color: var(--p-text-3); }
   .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
 
   .insight-head {
@@ -2307,6 +2356,7 @@
     insightBusyId: '',
     insightActiveId: '',
     insightResults: {},
+    insightChartIndex: 0,
     insightAutoTried: false,
     promptDefaults: {},
     insightStats: null,
@@ -3408,9 +3458,9 @@
         extra.textContent = brief.join('\n');
       }
     } else {
-      /* 还没生成过：只给一句提示，不再铺本地流水账 */
+      /* 还没生成过：留空即可，首次进入会自动生成 */
       line.classList.add('is-idle');
-      line.textContent = '还没有生成洞察：点右上角 ↻ 重新生成。';
+      line.textContent = '';
       if (extra) extra.textContent = '';
       renderInsightCharts();
       renderInsightBody();
@@ -3492,30 +3542,110 @@
    * AI 仍然决定「用哪份数据 + 标题 + 理由」，但不再决定图的形状——
    * 一张卡里塞三种图会把「今天该干什么」这件事本身淹掉。
    */
+  /* 数据集里有没有非零值：全 0 的图（比如近 7 天完成数）画出来是一条空栏，不如不展示 */
+  function hasChartSignal(dataset) {
+    var datasets = (app.insightStats && app.insightStats.datasets) || {};
+    var data = datasets[dataset];
+    if (!data || !Array.isArray(data.values)) return false;
+    var positive = data.values.filter(function (value) { return Number(value) > 0; }).length;
+    if (!positive) return false;
+    /* 折线至少要有两个非零点，否则画出来只是一段孤立线段 */
+    if (dataset === 'wip_by_day_14') return positive >= 2;
+    return true;
+  }
+
+  /* 可切换的图表清单：AI 选的优先，没有就拿默认几张兜底 */
+  function insightChartSpecs() {
+    var ai = app.insightAI;
+    var picked = (ai && Array.isArray(ai.charts) && ai.charts.length)
+      ? ai.charts.filter(function (spec) { return spec && spec.dataset; })
+      : [];
+    var list = (picked.length ? picked : FALLBACK_CHARTS.slice()).filter(function (spec) {
+      return hasChartSignal(spec.dataset);
+    });
+
+    /* 至少给两张，才谈得上左右切换 */
+    if (!list.some(function (spec) { return spec.dataset === 'state_distribution'; }) && hasChartSignal('state_distribution')) {
+      list.push({ type: 'pie', dataset: 'state_distribution', title: '状态分布' });
+    }
+    if (!list.some(function (spec) { return spec.dataset === 'workspace_distribution'; }) && hasChartSignal('workspace_distribution')) {
+      list.push({ type: 'sunburst', dataset: 'workspace_distribution', title: '工作区分布' });
+    }
+    /* 分布类（饼/环）比趋势线更好看也更稳：排在前面，趋势线放后面当补充 */
+    var RANK = { state_distribution: 0, workspace_distribution: 1 };
+    list.sort(function (a, b) {
+      return (RANK[a.dataset] === undefined ? 9 : RANK[a.dataset])
+        - (RANK[b.dataset] === undefined ? 9 : RANK[b.dataset]);
+    });
+    return list;
+  }
+
+  /**
+   * 图表区：只显示一张（去掉标题，把空间都给图），左右两侧箭头切换。
+   * 编号记在 app.insightChartIndex，切 tab 时保留。
+   */
   function renderInsightCharts() {
     var box = $('insightCharts');
     if (!box) return;
     clear(box);
     var datasets = (app.insightStats && app.insightStats.datasets) || null;
-    if (!datasets) {
-      box.appendChild(el('div', { 'class': 'chart-title', text: '图表加载中…' }));
+    if (!datasets) return;
+
+    var specs = insightChartSpecs();
+    if (!specs.length) return;
+    var index = Math.min(app.insightChartIndex || 0, specs.length - 1);
+    if (index < 0) index = 0;
+    app.insightChartIndex = index;
+    var spec = specs[index];
+    var data = datasets[spec.dataset];
+
+    var wrap = el('div', { 'class': 'insight-chart' });
+    if (!data) {
+      box.appendChild(wrap);
       return;
     }
-    var ai = app.insightAI;
-    var specs = (ai && Array.isArray(ai.charts) && ai.charts.length) ? ai.charts : FALLBACK_CHARTS;
-    /* 优先挑能画成饼的那张：状态分布 / 工作区分布；AI 选了时间序列就退回状态分布 */
-    var pick = null;
-    for (var i = 0; i < specs.length; i++) {
-      var data = datasets[specs[i].dataset];
-      if (data && data.labels && data.values) { pick = specs[i]; break; }
+
+    /* 有图才给箭头；只有一张时不显示 */
+    if (specs.length > 1) {
+      var prev = el('button', { type: 'button', 'class': 'chart-nav chart-nav-prev', 'aria-label': '上一张图表' });
+      prev.textContent = '‹';
+      prev.addEventListener('click', function (event) {
+        event.stopPropagation();
+        app.insightChartIndex = (index - 1 + specs.length) % specs.length;
+        renderInsightCharts();
+      });
+      wrap.appendChild(prev);
     }
-    if (!pick) pick = { dataset: 'state_distribution', title: '状态分布' };
-    var chosen = datasets[pick.dataset];
-    var wrap = el('div', { 'class': 'insight-chart' });
-    var title = el('div', { 'class': 'chart-title', text: pick.title || '' });
-    if (pick.why) title.title = pick.why;
-    wrap.appendChild(title);
-    wrap.appendChild(chartDonutCanvas(chosen, true));
+
+    var canvas = el('div', { 'class': 'chart-canvas' });
+    if (spec.type === 'bar') canvas.appendChild(chartBarCanvas(data));
+    else if (spec.type === 'line') canvas.appendChild(chartLineCanvas(data));
+    else if (spec.type === 'sunburst') canvas.appendChild(chartDonutCanvas(data, true));
+    else canvas.appendChild(chartDonutCanvas(data, false));
+    wrap.appendChild(canvas);
+
+    if (specs.length > 1) {
+      var next = el('button', { type: 'button', 'class': 'chart-nav chart-nav-next', 'aria-label': '下一张图表' });
+      next.textContent = '›';
+      next.addEventListener('click', function (event) {
+        event.stopPropagation();
+        app.insightChartIndex = (index + 1) % specs.length;
+        renderInsightCharts();
+      });
+      wrap.appendChild(next);
+    }
+
+    /* 小圆点：当前在第几张（不占高度，绝对定位在底部） */
+    if (specs.length > 1) {
+      var dots = el('div', { 'class': 'chart-dots' });
+      specs.forEach(function (_, i) {
+        var dot = el('i');
+        if (i === index) dot.className = 'on';
+        dots.appendChild(dot);
+      });
+      wrap.appendChild(dots);
+    }
+
     box.appendChild(wrap);
   }
 
@@ -3642,10 +3772,7 @@
       return;
     }
 
-    /* 还没生成过：只给一句提示，不铺流水账 */
-    body.appendChild(insightBlock('还没有生成', [
-      el('div', { 'class': 'insight-empty', text: '点右上角的 ↻ 重新生成，用当前 tab 的 prompt 生成一份。' }),
-    ]));
+    /* 还没生成过：什么都不铺（首次进入会自动生成，不必写提示） */
   }
 
   /* 柱状图：近 7 天「完成 / 新开工」 */
