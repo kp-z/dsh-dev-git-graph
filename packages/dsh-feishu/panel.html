@@ -578,7 +578,7 @@
     display: grid;
     /* 左侧文字 40%、右侧图表 60%；两栏等高 */
     grid-template-columns: 40% minmax(0, 1fr);
-    gap: 10px;
+    gap: 6px;
     align-items: stretch;
   }
 
@@ -701,8 +701,8 @@
   .insight-charts {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: stretch;
+    align-items: flex-start;
+    justify-content: center;
     min-width: 0;
     height: 100%;
   }
@@ -711,8 +711,10 @@
   .insight-charts .insight-chart {
     position: relative;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: flex-start;
     justify-content: center;
+    gap: 2px;
     width: 100%;
     height: 100%;
     padding: 0;
@@ -732,33 +734,32 @@
     justify-content: center;
   }
 
+  .chart-foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 12px;
+  }
+
   .chart-nav {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    width: 18px;
-    height: 28px;
+    width: 16px;
+    height: 16px;
     padding: 0;
     border: none;
     background: transparent;
     color: var(--p-text-3);
-    font-size: 16px;
+    font-size: 13px;
     line-height: 1;
     cursor: pointer;
-    opacity: 0.35;
-    z-index: 2;
+    opacity: 0.55;
   }
 
   .chart-nav:hover { opacity: 1; color: var(--p-accent); }
-  .chart-nav-prev { left: -23px; }
-  .chart-nav-next { right: -23px; }
+
 
   .chart-dots {
-    position: absolute;
-    left: 50%;
-    bottom: 0;
-    transform: translateX(-50%);
     display: flex;
+    align-items: center;
     gap: 4px;
   }
 
@@ -3733,20 +3734,8 @@
       return;
     }
 
-    /* 舞台只包住「图 + 两个箭头」：箭头贴在图的左右边，而不是贴着整个卡片边 */
+    /* 图在上，底部一行放「‹ 圆点 ›」：切换按钮就落在圆点两侧，不再飘在图的两边 */
     var stage = el('div', { 'class': 'chart-stage' });
-
-    /* 有图才给箭头；只有一张时不显示 */
-    if (specs.length > 1) {
-      var prev = el('button', { type: 'button', 'class': 'chart-nav chart-nav-prev', 'aria-label': '上一张图表' });
-      prev.textContent = '‹';
-      prev.addEventListener('click', function (event) {
-        event.stopPropagation();
-        app.insightChartIndex = (index - 1 + specs.length) % specs.length;
-        renderInsightCharts();
-      });
-      stage.appendChild(prev);
-    }
 
     var canvas = el('div', { 'class': 'chart-canvas' });
     if (spec.type === 'bar') canvas.appendChild(chartBarCanvas(data));
@@ -3757,25 +3746,34 @@
     wrap.appendChild(stage);
 
     if (specs.length > 1) {
-      var next = el('button', { type: 'button', 'class': 'chart-nav chart-nav-next', 'aria-label': '下一张图表' });
-      next.textContent = '›';
-      next.addEventListener('click', function (event) {
+      var foot = el('div', { 'class': 'chart-foot' });
+
+      var prev = el('button', { type: 'button', 'class': 'chart-nav', 'aria-label': '上一张图表' });
+      prev.textContent = '‹';
+      prev.addEventListener('click', function (event) {
         event.stopPropagation();
-        app.insightChartIndex = (index + 1) % specs.length;
+        app.insightChartIndex = (index - 1 + specs.length) % specs.length;
         renderInsightCharts();
       });
-      stage.appendChild(next);
-    }
+      foot.appendChild(prev);
 
-    /* 小圆点：当前在第几张（不占高度，绝对定位在底部） */
-    if (specs.length > 1) {
       var dots = el('div', { 'class': 'chart-dots' });
       specs.forEach(function (_, i) {
         var dot = el('i');
         if (i === index) dot.className = 'on';
         dots.appendChild(dot);
       });
-      wrap.appendChild(dots);
+      foot.appendChild(dots);
+
+      var next = el('button', { type: 'button', 'class': 'chart-nav', 'aria-label': '下一张图表' });
+      next.textContent = '›';
+      next.addEventListener('click', function (event) {
+        event.stopPropagation();
+        app.insightChartIndex = (index + 1) % specs.length;
+        renderInsightCharts();
+      });
+      foot.appendChild(next);
+      wrap.appendChild(foot);
     }
 
     box.appendChild(wrap);
