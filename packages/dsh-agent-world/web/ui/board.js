@@ -138,6 +138,9 @@ export function createBoard(options = {}) {
    */
   let taskSetNames = {}
   let model = null
+  /** R393：官方 projection 的成员（可能还没进 world.agents）。 */
+  let teamMembers = []
+  let teamMembersKey = null
   let layout = null
   let geometry = null
   let world = null
@@ -1700,12 +1703,34 @@ export function createBoard(options = {}) {
    * 这一步把名字对回世界里的角色——世界角色本身就是真实 subagent 的投影
    *（`src/index.ts` R166 的 `syncRoster`）。对不上就保持"未指派"：**不猜**。
    */
+  function mergeTeamMembers() {
+    if (model === null) return
+    for (const raw of teamMembers) {
+      const name = typeof raw?.name === 'string' ? raw.name : ''
+      if (name === '') continue
+      const known = model.members.find((member) => member.name === name) ?? (typeof raw.id === 'string' ? model.members.find((member) => member.id === raw.id) : undefined)
+      if (known !== undefined) {
+        if (typeof raw.state === 'string') known.state = raw.state
+        if (typeof raw.role === 'string') known.role = raw.role
+        continue
+      }
+      model.members.push({
+        id: typeof raw.id === 'string' && raw.id !== '' ? raw.id : `team:${name}`,
+        name,
+        role: typeof raw.role === 'string' ? raw.role : null,
+        state: typeof raw.state === 'string' ? raw.state : 'idle',
+        carrying: null,
+        tasks: [],
+      })
+    }
+  }
+
   function applyTeamOwners() {
     if (teamTasks === null || model === null) return
     const idByName = new Map()
-    for (const agent of Array.isArray(world?.agents) ? world.agents : []) {
-      const name = typeof agent?.name === 'string' ? agent.name : ''
-      if (name !== '' && typeof agent.id === 'string') idByName.set(name, agent.id)
+    for (const member of model.members) {
+      const name = typeof member?.name === 'string' ? member.name : ''
+      if (name !== '' && typeof member.id === 'string') idByName.set(name, member.id)
     }
     for (const task of model.tasks) {
       const name = teamMeta.get(task.id)?.ownerName ?? ''
@@ -1727,6 +1752,17 @@ export function createBoard(options = {}) {
    *
    * @param {ReadonlyArray<object>|null} tasks
    */
+  function setTeamMembers(members) {
+    const next = Array.isArray(members) ? members : []
+    const key = next.map((m) => `${m.id ?? ''}:${m.name ?? ''}:${m.state ?? ''}:${m.role ?? ''}`).join('|')
+    if (key === (teamMembersKey ?? '')) return false
+    teamMembersKey = key
+    teamMembers = next
+    lastState = null
+    if (world !== null && world !== undefined) return update(world)
+    return false
+  }
+
   function setTeamTasks(tasks) {
     const next = tasks === null || tasks === undefined ? null : normalizeTeamTasks(tasks)
     // 指纹没变就不重画：轮询每 10s 一次，而任务内容多数时候是同一份。
@@ -1798,7 +1834,10 @@ export function createBoard(options = {}) {
     allGroups = groupTasks(sourceTasks, taskSetNames)
     const viewTasks = native ? sourceTasks : applyView(sourceTasks, { group: viewGroup, filter: viewFilter })
     model = buildBoardModel({ ...world, tasks: viewTasks })
-    if (native) applyTeamOwners()
+    if (native) {
+      mergeTeamMembers()
+      applyTeamOwners()
+    }
     layout = layoutDependencyGraph(model.tasks)
     // 几何不在这里算：它要按**可见容器的实测尺寸**挑档位，所以由 `renderGraph()` 负责
     //（只有真重画时才需要，跳过/就地改的路径一次都不用量）。
@@ -1883,6 +1922,7 @@ export function createBoard(options = {}) {
     },
     /** R181：官方任务（`null` = 退回世界工单）。 */
     setTeamTasks,
+    setTeamMembers,
     /** 被切掉的元素（空数组 = 没有东西被裁）。每轮验收的第一行就用它。 */
     clipped,
     /** 诊断用：`updates` 一直在涨而 `structureRebuilds` 不涨，说明就地更新在做它的事。 */

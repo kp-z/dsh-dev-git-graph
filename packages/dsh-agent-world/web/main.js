@@ -1492,6 +1492,7 @@ function renderAgentActions(team) {
     meta.textContent = `${lead?.name ?? 'lead'} · ${members.length} 人 · ${taskCount} 任务`
   }
   lastTeam = team
+  board.setTeamMembers?.(Array.isArray(team?.members) ? team.members : [])
   const card = root.querySelector('#sidebar-official-agents')
   if (card !== null) card.textContent = ''
   const host = sidebarMounts.agentsActions
@@ -2160,7 +2161,7 @@ const onResize = () => {
   render(true)
 }
 window.addEventListener('resize', onResize)
-const planTimer = globalThis.setInterval(() => { void loadTeamPlan() }, 10000)
+const planTimer = globalThis.setInterval(() => { void loadTeamPlan() }, 3000)
 
 // R3：看板从顶栏搬进侧边栏之后**没有"收起"这回事**了——它常驻在侧边栏里，
 // 两档由页签切换（`setCollapsed` 在挂载模式下是空操作，这里不再调它）。
