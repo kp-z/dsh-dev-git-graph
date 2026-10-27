@@ -911,7 +911,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         tickMs: state.tickMs,
         maxLiveSessions: resolved.maxLiveSessions,
         dialogue: activeDialoguePort,
-        gameMode: { get: () => gameModeEnabled, set: (enabled) => { gameModeEnabled = enabled } },
+        gameMode: { get: () => gameModeEnabled, set: (enabled) => { gameModeEnabled = enabled; const world = state.currentWorld(); if (world !== null) world.gameMode = enabled } },
         personas: {
           list: () => personaStore.list() as unknown as Record<string, unknown>[],
           upsert: (input) => personaStore.upsert(input as never) as unknown as Record<string, unknown>,

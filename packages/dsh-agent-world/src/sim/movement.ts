@@ -83,7 +83,7 @@ export function advanceMovement(world: World): MovementOutcome {
       agent.station = station.id
       agent.targetStation = null
       agent.path = []
-      agent.state = 'working'
+      agent.state = agent.activityKind === 'meet' ? 'talking' : agent.activityKind === 'rest' ? 'sleeping' : 'working'
       arrived.push({ agentId: agent.id, stationId: station.id })
     }
 
