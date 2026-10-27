@@ -41,7 +41,7 @@ export const AgentWorldConfig = z.object({
   persistEveryTicks: z.number().default(100),
 
   /** 同屏角色上限。性能预算的一部分，见 docs/ARCHITECTURE.md §5.3。 */
-  maxAgents: z.number().default(24),
+  maxAgents: z.number().default(0),
 
   /** 默认世界名（也是 seed 的来源，除非另给 seed）。 */
   worldName: z.string().default('Agent World'),
@@ -73,7 +73,7 @@ export const AgentWorldConfig = z.object({
    * 超限时 `/api/say` 会**拒绝并给出可下手的原因**（含当前值与上限），而不是静默排队——
    * 静默排队会让面板以为话发出去了。
    */
-  maxLiveSessions: z.number().default(4),
+  maxLiveSessions: z.number().default(0),
 
   /**
    * 面板路径前缀。宿主 webServer 上挂的静态面板与 API 都在它下面。
@@ -127,14 +127,14 @@ export function resolveConfig(config: Partial<AgentWorldConfig> = {}): AgentWorl
     idleActionsEnabled: config.idleActionsEnabled ?? false,
     gameMode: config.gameMode ?? true,
     persistEveryTicks: config.persistEveryTicks ?? 100,
-    maxAgents: config.maxAgents && config.maxAgents > 0 ? config.maxAgents : 24,
+    maxAgents: config.maxAgents && config.maxAgents > 0 ? Math.floor(config.maxAgents) : 0,
     worldName: config.worldName ?? 'Agent World',
     scene: config.scene ?? 'scene.office',
     contentDir: config.contentDir ?? '',
     allowImplicitOverride: config.allowImplicitOverride ?? false,
     // 与 maxAgents 同样的写法：小于 1 或非数就退回默认（0 或负数会让所有搭话都被拒）。
     maxLiveSessions:
-      config.maxLiveSessions && config.maxLiveSessions > 0 ? Math.floor(config.maxLiveSessions) : 4,
+      config.maxLiveSessions && config.maxLiveSessions > 0 ? Math.floor(config.maxLiveSessions) : 0,
     routePrefix: normalizePrefix(config.routePrefix ?? '/agent-world'),
     dialogueBackend: config.dialogueBackend === 'native' ? 'native' : 'agent-teams',
     memberToolPolicy: config.memberToolPolicy ?? 'agent-world-resident',
