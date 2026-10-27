@@ -352,6 +352,10 @@ export interface World {
   nav: NavGrid | null
   /** R363：游戏模式；开启后 heartbeat 才会主动安排开会/休息。 */
   gameMode?: boolean
+  /** R369：本轮任务的开工会议结束 tick；未定义=没有进行中的开工会议。 */
+  briefingUntil?: number
+  /** R369：已经为哪一批任务做过开工会议（按最新任务 createdAtTick 去重）。 */
+  briefingForTick?: number
   agents: Agent[]
   tasks: Task[]
   messages: Message[]

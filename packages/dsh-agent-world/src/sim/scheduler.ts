@@ -107,6 +107,34 @@ export function claimTasks(world: World): SchedulerOutcome {
 
   if (ready.length === 0) return { claims, stalled }
 
+  // R369：游戏模式下，新一批任务开工前先全体去会议室。
+  // 会议期间不派工，避免“人在会议室、单已经派给工位”的错位。
+  if (world.gameMode === true) {
+    if (world.briefingUntil !== undefined && world.tick < world.briefingUntil) return { claims, stalled }
+    const newest = ready.reduce((max, task) => Math.max(max, task.createdAtTick), -1)
+    if (world.briefingForTick !== newest) {
+      const meeting = world.stations.find((station) => station.kind === 'meeting' && occupancyOf(world, station.id) < station.capacity)
+      if (meeting !== undefined) {
+        const room = meeting.capacity - occupancyOf(world, meeting.id)
+        const attendees = world.agents.filter((agent) => agent.state === 'idle' && agent.carrying === null).slice(0, room)
+        for (const agent of attendees) {
+          const slot = stationSlot(meeting, occupancyOf(world, meeting.id))
+          const path = findPath(world.nav, agent.position, slot)
+          if (path.length === 0) continue
+          agent.state = 'walking'
+          agent.station = null
+          agent.targetStation = meeting.id
+          agent.path = path
+          agent.activityKind = 'meet'
+          agent.activityUntil = world.tick + 40
+        }
+        world.briefingUntil = world.tick + 40
+        world.briefingForTick = newest
+        return { claims, stalled }
+      }
+    }
+  }
+
   // 本次调度里已经被占用的角色，避免一张单派给同一个人两次。
   const taken = new Set<string>()
   const available = idleAgents(world)
