@@ -110,6 +110,15 @@ function assignActivity(world: World, agent: Agent, kind: 'meet' | 'rest'): bool
 
 export function runHeartbeats(world: World, delivered: DeliverOutcome['delivered'] = []): HeartbeatOutcome {
   const intents: AgentIntent[] = []
+  // R366：gameMode 下每 180 tick 召集一次同步会：同一 meeting 站点、同一结束 tick。
+  if (world.gameMode === true && world.tick % 180 === 0) {
+    const meeting = world.stations.find((station) => station.kind === 'meeting' && occupancyOf(world, station.id) < station.capacity)
+    if (meeting !== undefined) {
+      const room = meeting.capacity - occupancyOf(world, meeting.id)
+      const attendees = world.agents.filter((agent) => agent.state === 'idle' && agent.carrying === null).slice(0, room)
+      for (const agent of attendees) assignActivity(world, agent, 'meet')
+    }
+  }
   const drafts = []
   for (const agent of world.agents) {
     if (!heartbeatDue(world, agent)) continue
