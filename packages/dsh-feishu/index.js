@@ -2220,7 +2220,7 @@ function createSyncEngine(ctx) {
 
     /* 任务名 = 会话名：AI 先给一个像任务的名字，失败再用首行启发式兜底。 */
     const draft = deriveTaskDraft(text, id)
-    const named = await generateSessionTitle(text, draft.title)
+    const named = await generateSessionTitle(text, draft.title, asString(draft.workspace))
     const result = await createTaskFromSession(id, { title: named.title, description: draft.description })
     if (!result.ok) return result
 
@@ -2239,13 +2239,10 @@ function createSyncEngine(ctx) {
    * 用当前默认模型给一段会话内容起个短标题（失败就回退到首行启发式）。
    * 走 llm.stream，purpose 标成 session-title，和 DSH 自己的标题生成同一档。
    */
-  async function generateSessionTitle(text, fallback) {
-    const asked = await askModelForTitle(
-      '你是会话标题助手。把用户给的一段工作记录概括成一个短标题：不超过 18 个汉字，' +
-        '动宾结构、书面语，不要标点、不要引号、不要编号、不要解释。只输出标题本身。',
-      text,
-    )
-    const clean = asString(asked.text).split('\n')[0]?.trim().slice(0, 30)
+  async function generateSessionTitle(text, fallback, project = '') {
+    const material = project ? `项目/工作区：${project}\n\n${text}` : text
+    const asked = await askModelForTitle(TITLE_SYSTEM_PROMPT, material)
+    const clean = asString(asked.text).split('\n')[0]?.trim().slice(0, 48)
     return clean ? { title: clean, ai: true } : { title: fallback, ai: false, reason: asked.reason || '模型返回空' }
   }
 
@@ -2286,11 +2283,19 @@ function createSyncEngine(ctx) {
 
   /** 正式风格的标题提示词：书面语、动宾结构、不带标点与人称。 */
   const TITLE_SYSTEM_PROMPT =
-    '你是任务命名助手。根据用户给出的工作记录，生成一条正式、专业的中文任务名：' +
-    '12-20 个字，动宾结构，使用书面语，准确概括工作内容与目标。' +
-    '专有名词必须原样保留：产品/框架/协议/快捷键/接口/文件名的写法不要改写、不要意译、不要泛化' +
-    '（例如 Ctrl+P、Feishu、DSH、Cordis、MCP、LLM 等该用就直接用）。' +
-    '不要口语、不要情绪词、不要第一人称、不要引号/编号/标点/解释，也不要加 T1- 这类前缀。只输出标题本身。'
+    '你是任务命名助手。根据用户给出的工作记录，生成一条**任何同事看一眼就懂**的中文任务名。' +
+    '\n\n必须同时回答三件事，缺一不可：' +
+    '\n1) 哪个项目/模块（来自工作区、产品或对话里出现的系统名，例如 QVIZ、MvizLite、dsh-feishu）；' +
+    '\n2) 做了什么（具体动作与对象，不要写「优化」「改进」「处理问题」这类空词）；' +
+    '\n3) 为了什么（目的或结果，例如「补上缺失字段，避免下游解析失败」）。' +
+    '\n\n格式：`项目：做了什么，为了什么`（用中文冒号分隔项目与动作；目的可省略后半句但能省则省）。' +
+    '\n长度 16-32 个汉字。' +
+    '\n\n硬性要求：' +
+    '\n- 专有名词原样保留，不要意译、不要泛化（Ctrl+P、Feishu、DSH、Cordis、MCP、LLM、NPZ、scenpack 等直接用）。' +
+    '\n- 不要只写函数名或文件路径；一定要说出人话层面的目的。' +
+    '\n- 不要口语、情绪词、第一人称、引号、编号、句末标点、解释。' +
+    '\n- 不要加 T1- 这类前缀。' +
+    '\n\n只输出标题本身。'
 
   /**
    * 从 llm.stream 里取纯文本。
@@ -2377,15 +2382,16 @@ function createSyncEngine(ctx) {
     return { text: '', reason: lastError || '模型返回空' }
   }
 
-  async function suggestTitleFrom(text, fallback = '未命名任务') {
-    const asked = await askModelForTitle(TITLE_SYSTEM_PROMPT, text)
+  async function suggestTitleFrom(text, fallback = '未命名任务', project = '') {
+    const material = project ? `项目/工作区：${project}\n\n${text}` : text
+    const asked = await askModelForTitle(TITLE_SYSTEM_PROMPT, material)
     const clean = asString(asked.text)
       .split('\n')
       .map((line) => line.trim())
       .filter(Boolean)[0]
       ?.replace(/^["'「『《]+|["'」』》]+$/g, '')
       .replace(/[。．.!！?？:：]+$/, '')
-      .slice(0, 40)
+      .slice(0, 48)
       .trim()
     return clean ? { title: clean, ai: true } : { title: fallback, ai: false, reason: asked.reason || '模型返回空' }
   }
@@ -2493,7 +2499,7 @@ function createSyncEngine(ctx) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
     const material = await taskMaterial(task)
-    const result = await suggestTitleFrom(material, asString(task.title))
+    const result = await suggestTitleFrom(material, asString(task.title), asString(task.workspaceTitle || task.workspaceName || ''))
     /* 表情前缀：按「标题 + 材料」挑，已有前缀先摘掉再加，避免叠成一串。 */
     const emoji = leadingEmojiOf(result.title) || pickTaskEmoji(`${stripTaskNo(result.title)} ${material}`)
     const bare = stripTaskNo(result.title)
