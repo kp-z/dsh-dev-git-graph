@@ -842,12 +842,31 @@
     flex-wrap: wrap;
   }
 
-  .insight-default-prompt { font-size: 10.5px; color: var(--p-text-3); }
-  .insight-default-prompt summary { cursor: pointer; }
+  .insight-default-prompt {
+    grid-column: 1 / -1;
+    font-size: 10.5px;
+    color: var(--p-text-3);
+  }
+
+  .insight-mini-label {
+    font-size: 10px;
+    color: var(--p-text-3);
+    line-height: 1.4;
+  }
+
+  .insight-extra-head {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 2px;
+  }
+
   .insight-default-prompt pre {
-    margin: 4px 0 0;
-    max-height: 160px;
-    overflow: auto;
+    margin: 3px 0 0;
+    max-height: none;
+    overflow: visible;
     padding: 6px;
     border-radius: 5px;
     background: var(--p-bg, var(--p-card));
@@ -3824,28 +3843,31 @@
       /* 这里只放「额外要求」，默认提示词单独只读展示——
          两者合并展示会让用户以为要整份改写，保存后又会被追加到默认后面，重复一大段。 */
       var fallback = promptDefaultFor(btn.kind);
+
+      var extraHead = el('div', { 'class': 'insight-extra-head' });
+      extraHead.appendChild(el('span', { 'class': 'insight-mini-label', text: '额外要求（追加在默认提示词之后，可留空）' }));
+      var clear = makeButton('清空', 'btn btn-ghost btn-xs', null, false, function () {
+        prompt.value = '';
+        btn.prompt = '';
+      });
+      extraHead.appendChild(clear);
+      row.appendChild(extraHead);
+
       var prompt = el('textarea', {
-        rows: '3',
-        placeholder: '留空 = 只用默认提示词。这里写的内容会追加在默认提示词之后（例如「忽略某类任务」）'
+        rows: '2',
+        placeholder: '例如：忽略 dsh 插件开发的任务'
       });
       prompt.value = String(btn.prompt || '').trim();
       prompt.addEventListener('input', function () { btn.prompt = prompt.value; });
       row.appendChild(prompt);
 
-      var tools = el('div', { 'class': 'insight-button-tools' });
-      var restore = makeButton('清空额外要求', 'btn btn-ghost btn-xs', null, false, function () {
-        prompt.value = '';
-        btn.prompt = '';
-      });
-      tools.appendChild(restore);
-
-      var details = el('details', { 'class': 'insight-default-prompt' });
-      details.appendChild(el('summary', { text: '查看默认提示词' }));
+      /* 默认提示词直接摊开显示，不折叠、不截断 */
+      var defaultBox = el('div', { 'class': 'insight-default-prompt' });
+      defaultBox.appendChild(el('div', { 'class': 'insight-mini-label', text: '默认提示词（只读）' }));
       var pre = el('pre');
       pre.textContent = fallback || '（这个按钮不使用默认提示词）';
-      details.appendChild(pre);
-      tools.appendChild(details);
-      row.appendChild(tools);
+      defaultBox.appendChild(pre);
+      row.appendChild(defaultBox);
       box.appendChild(row);
     });
   }
