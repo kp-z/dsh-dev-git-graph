@@ -23,6 +23,11 @@
     --p-accent-text: #2f4bc8;
     --p-accent-weak: rgba(59, 91, 219, 0.10);
     --p-accent-line: rgba(59, 91, 219, 0.24);
+    /* 洞察气泡：底色偏中性、只用一点点蓝，文字压到接近正文黑 */
+    --p-bubble-bg: #eef1f7;
+    --p-bubble-line: #dce1ec;
+    --p-bubble-text: #232733;
+    --p-bubble-text-soft: #5b6270;
     /* 选中态用橙色：和强调蓝拉开距离，扫一眼就能在一堆白卡里认出来 */
     --p-select: #ea6a12;
     --p-select-weak: rgba(234, 106, 18, 0.12);
@@ -890,11 +895,13 @@
   .insight-text {
     position: relative;
     height: 172px;
-    padding: 12px 14px 28px;
+    padding: 14px 16px 32px;
     box-sizing: border-box;
-    /* 气泡底色用一个变量，尾巴直接复用同一色，避免半透明叠加后看不出来 */
-    --p-bubble: color-mix(in srgb, var(--p-accent) 8%, var(--p-card, #fff));
+    /* 气泡底色用变量，尾巴复用同一色，避免半透明叠加后看不出来 */
+    --p-bubble: var(--p-bubble-bg, #f7f8fb);
     background: var(--p-bubble);
+    border: 1px solid var(--p-bubble-line, #e4e7f0);
+    box-shadow: 0 1px 2px rgba(20, 24, 36, 0.04);
     border-radius: 14px 14px 14px 4px;
     /* 不能用 hidden：会把左上角的尾巴裁掉 */
     overflow: visible;
@@ -908,19 +915,33 @@
     bottom: 12px;
     width: 14px;
     height: 14px;
+    /* 不描边：同色方块盖住气泡边框的那一小段，看起来才是「长出来的」 */
     background: var(--p-bubble);
-    border-radius: 3px;
+    border-radius: 2px;
     transform: rotate(45deg);
-    z-index: 0;
+    z-index: 1;
+  }
+
+  .insight-line .tk {
+    font-weight: 600;
+    color: var(--p-accent-text, #2f4bc8);
+    background: var(--p-accent-weak, rgba(59, 91, 219, 0.10));
+    border-radius: 4px;
+    /* 负外边距把色块「收回」到行内，避免带高亮的行看起来比纯文字行更高 */
+    padding: 0 3px;
+    margin: 0 -1px;
+    white-space: nowrap;
   }
 
   .insight-line.is-summary {
     display: block;
     -webkit-line-clamp: unset;
-    max-height: 132px;
+    max-height: 124px;
     overflow-y: auto;
-    font-size: 11.5px;
-    line-height: 1.6;
+    font-size: 12px;
+    line-height: 1.78;
+    letter-spacing: 0.01em;
+    color: var(--p-bubble-text, #2a2e37);
     white-space: pre-line;
     /* 滚动能力保留，但不要显示滚动条 */
     scrollbar-width: none;
@@ -940,20 +961,23 @@
     bottom: 0;
     height: 20px;
     padding: 0 7px;
-    border: 1px solid var(--p-line);
+    /* ghost：无边框无底色，只有文字；hover 才显形，避免在气泡上贴补丁 */
+    border: 0;
     border-radius: 6px;
-    /* 透明底：让灰块透上来，视觉上就是「灰块里的一个操作」，而不是浮在外面的白胶囊 */
     background: transparent;
-    color: var(--p-text-3);
+    color: var(--p-bubble-text-soft, #5b6270);
     font-size: 10.5px;
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-color: transparent;
     line-height: 18px;
     cursor: pointer;
   }
 
   .insight-toggle:hover {
-    color: var(--p-accent);
-    border-color: var(--p-accent);
-    background: var(--p-card, transparent);
+    color: var(--p-accent-text, #2f4bc8);
+    text-decoration-color: currentColor;
   }
 
   .insight-line.is-warn { border-left-color: var(--p-warn); }
@@ -2123,7 +2147,7 @@
         <div id="insightMeta" class="insight-meta"></div>
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
         <div id="insightExtra" class="insight-extra"></div>
-        <button type="button" id="insightToggle" class="insight-toggle" aria-expanded="false" aria-controls="insightBody">展开 ↓</button>
+        <button type="button" id="insightToggle" class="insight-toggle" aria-expanded="false" aria-controls="insightBody">展开详情 ↓</button>
       </div>
       <div id="insightCharts" class="insight-charts" aria-label="AI 选的图表"></div>
     </div>
@@ -3483,7 +3507,7 @@
       if (extra) extra.textContent = '';
     } else if (hasSummary) {
       /* 这一块只放 AI 写的总结；其余内容看展开 */
-      line.textContent = String(ai.summary || '').trim();
+      renderInsightText(line, String(ai.summary || '').trim());
       line.classList.add('is-summary');
       if (extra) extra.textContent = '';
     } else if (ai && ai.headline) {
@@ -3528,6 +3552,21 @@
 
     renderInsightCharts();
     renderInsightBody();
+  }
+
+  /* 把正文里的 T13「任务名」渲染成醒目的标签，扫读时先看到任务再看到理由 */
+  function renderInsightText(target, text) {
+    clear(target);
+    var raw = String(text || '');
+    var re = /(T\d+)(?=「)/g;
+    var last = 0;
+    var m;
+    while ((m = re.exec(raw)) !== null) {
+      if (m.index > last) target.appendChild(document.createTextNode(raw.slice(last, m.index)));
+      target.appendChild(el('b', { 'class': 'tk', text: m[1] }));
+      last = m.index + m[1].length;
+    }
+    if (last < raw.length) target.appendChild(document.createTextNode(raw.slice(last)));
   }
 
   /* 任务标签：AI 现在会把「T13「任务名」」写进 text，别再重复拼一次编号 */
@@ -4057,7 +4096,7 @@
     var btn = $('insightToggle');
     if (btn) {
       btn.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
-      btn.textContent = app.insightOpen ? '收起 ↑' : '展开 ↓';
+      btn.textContent = app.insightOpen ? '收起详情 ↑' : '展开详情 ↓';
     }
   }
 
