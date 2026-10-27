@@ -182,6 +182,10 @@ export interface Agent {
    * 所以它同样是内容驱动的：把广场改大，人自然就散得更开。
    */
   hangout: Vec2 | null
+  /** R363：主动活动（开会/休息）的类型；普通任务为 null/undefined。 */
+  activityKind?: 'meet' | 'rest'
+  /** 活动结束 tick；到时自动回 idle，释放站点。 */
+  activityUntil?: number
   llm: AgentLlmRoute
   /** 与真实 subagent 的绑定。模拟模式下为 null。 */
   boundAgentId: string | null
@@ -346,6 +350,8 @@ export interface World {
   stations: Station[]
   /** 导航网格（R64 物理）。**派生量**：由内容的地图在建世界/读档时算出。null = 没有地图（退回直线走）。 */
   nav: NavGrid | null
+  /** R363：游戏模式；开启后 heartbeat 才会主动安排开会/休息。 */
+  gameMode?: boolean
   agents: Agent[]
   tasks: Task[]
   messages: Message[]

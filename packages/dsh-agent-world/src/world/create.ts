@@ -143,6 +143,7 @@ export function createWorld(options: CreateWorldOptions): World {
     districts,
     stations,
     nav,
+    gameMode: false,
     agents,
     tasks,
     messages: [],

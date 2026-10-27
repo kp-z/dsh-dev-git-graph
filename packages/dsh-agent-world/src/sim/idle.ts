@@ -85,6 +85,18 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
 
   const tasksById = new Map(world.tasks.map((task) => [task.id, task]))
   for (const agent of world.agents) {
+    // R363：主动开会/休息驻留：到点散会，清站点，回 idle。
+    if (agent.activityUntil !== undefined && (agent.state === 'talking' || agent.state === 'sleeping')) {
+      if (world.tick < agent.activityUntil) continue
+      agent.state = 'idle'
+      agent.station = null
+      agent.targetStation = null
+      agent.path = []
+      delete agent.activityKind
+      delete agent.activityUntil
+      stateChanged.push(agent.id)
+      continue
+    }
     // 歇会儿用的 `sleeping` 也由这一段管：它是待命行为的产物，没有别的地方设置它。
     const resting = agent.state === 'sleeping'
     // R69：**没有目标工位的 `walking` 是待命踱步**，主人是这里（判据与 `movement.ts` 成对，

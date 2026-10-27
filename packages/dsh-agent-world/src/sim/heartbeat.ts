@@ -13,6 +13,9 @@ import { seedFromString, createRng } from '../domain/rng.js'
 import type { Agent, Message, Task, World } from '../domain/types.js'
 import type { DeliverOutcome, SendOutcome } from './mailbox.js'
 import { sendMessages } from './mailbox.js'
+import { findPath } from './pathfind.js'
+import { occupancyOf } from './scheduler.js'
+import { stationSlot } from '../domain/geometry.js'
 
 export const HEARTBEAT_TICKS = 20
 
@@ -89,6 +92,22 @@ export function heartbeatFor(world: World, agent: Agent, delivered: DeliverOutco
   }
 }
 
+function assignActivity(world: World, agent: Agent, kind: 'meet' | 'rest'): boolean {
+  if (agent.state !== 'idle' || agent.carrying !== null) return false
+  const capability = kind === 'rest' ? 'rest' : 'converse'
+  const station = world.stations.find((candidate) => candidate.capabilities.includes(capability) && occupancyOf(world, candidate.id) < candidate.capacity)
+  if (station === undefined) return false
+  const path = findPath(world.nav, agent.position, stationSlot(station, occupancyOf(world, station.id)))
+  if (path.length === 0) return false
+  agent.state = 'walking'
+  agent.targetStation = station.id
+  agent.station = null
+  agent.path = path
+  agent.activityKind = kind
+  agent.activityUntil = world.tick + 60
+  return true
+}
+
 export function runHeartbeats(world: World, delivered: DeliverOutcome['delivered'] = []): HeartbeatOutcome {
   const intents: AgentIntent[] = []
   const drafts = []
@@ -96,6 +115,7 @@ export function runHeartbeats(world: World, delivered: DeliverOutcome['delivered
     if (!heartbeatDue(world, agent)) continue
     const intent = heartbeatFor(world, agent, delivered)
     intents.push(intent)
+    if (world.gameMode === true && (intent.decision === 'meet' || intent.decision === 'rest')) assignActivity(world, agent, intent.decision)
     if (intent.decision !== 'reply' || intent.replyTo === null) continue
     const message = world.messages.find((candidate) => candidate.id === intent.replyTo)
     if (message === undefined || message.from === message.to) continue
