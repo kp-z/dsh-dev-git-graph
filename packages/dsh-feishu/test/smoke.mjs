@@ -256,6 +256,7 @@ const currentPayload = await currentStart.json()
 /* 真实清单里这条任务可能已经绑在别的会话上（插件会拒绝跨会话抢占），这时跳过即可 */
 const takenByOther = /已经绑/.test(String(currentPayload?.error ?? ''))
   || /没找到当前会话/.test(String(currentPayload?.error ?? ''))
+  || /已经开过工了/.test(String(currentPayload?.error ?? ''))
 if (takenByOther) {
   console.log('✓ /api/tasks/start(sessionId)：该任务已绑定其它会话，跳过当前会话断言')
 } else {

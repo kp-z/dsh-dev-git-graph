@@ -241,6 +241,8 @@ const DEFAULT_SETTINGS = {
   autoCommentMinSeconds: 45,
   /* 交给模型前先过滤掉的任务关键词（工作区名/标题命中即跳过）。比在提示词里写「忽略 X」可靠。 */
   insightIgnore: [],
+  /* 会话已读水位：sessionId → 已看到的轮次，用来判断「跑完但没看」 */
+  sessionSeen: {},
   /* 洞察卡的「参考手册」覆盖（空 = 用内置 INSIGHT_PLAYBOOK） */
   insightPlaybook: '',
   /* 早会诊断的系统提示（面板可改）。 */
@@ -1142,16 +1144,28 @@ function createSyncEngine(ctx) {
    * 不表达「不存在」。面板上的措辞按这个语义写。
    */
   function liveSessionIds() {
+    return new Set(liveSessionState().keys())
+  }
+
+  /**
+   * 每个活着的会话当前在干嘛：running（正在回复）还是 idle（闲着）。
+   * turn 用来判断「跑完但还没看过」——turn 涨了而没标记已读，就给个绿色角标。
+   */
+  function liveSessionState() {
     const agents = service(ctx, 'agents')
-    const live = new Set()
+    const map = new Map()
     try {
       for (const agent of agents?.list?.() ?? []) {
-        if (agent && typeof agent.id === 'string') live.add(agent.id)
+        if (!agent || typeof agent.id !== 'string') continue
+        const phase = agent.phase && typeof agent.phase === 'object' ? agent.phase : {}
+        const kind = phase.kind === 'running' ? 'running' : 'idle'
+        const turn = Number(phase.turn ?? phase.lastTurn ?? 0) || 0
+        map.set(agent.id, { kind, turn })
       }
     } catch {
       /* 服务形状变了也不该让面板拿不到数据 */
     }
-    return live
+    return map
   }
 
   function workspaces() {
@@ -1163,8 +1177,20 @@ function createSyncEngine(ctx) {
     }
   }
 
+  /** 标记某条会话「已经看过」，把未读水位抬到当前轮次。 */
+  async function markSessionSeen(sessionId, turn) {
+    const sid = asString(sessionId).trim()
+    if (!sid) return { ok: false, error: '缺少会话 id' }
+    const next = Math.max(0, Number(turn) || 0)
+    state.sessionSeen = { ...(state.sessionSeen ?? {}) }
+    if ((Number(state.sessionSeen[sid]) || 0) >= next) return { ok: true, skipped: true }
+    state.sessionSeen[sid] = next
+    await persistState()
+    return { ok: true, turn: next }
+  }
+
   function snapshot() {
-    const live = liveSessionIds()
+    const live = liveSessionState()
     return {
       version: pluginVersion(),
       settings,
@@ -1173,7 +1199,23 @@ function createSyncEngine(ctx) {
         ...state,
         tasks: state.tasks.map((task) => {
           const enriched = enrichWorkspace(task)
-          return enriched.sessionId ? { ...enriched, sessionAlive: live.has(enriched.sessionId) } : enriched
+          if (!enriched.sessionId) return enriched
+          const alive = live.get(enriched.sessionId)
+          if (!alive) return { ...enriched, sessionAlive: false }
+          /* 第一次见到这条会话时把水位对齐到当前轮次：
+             否则历史会话会全部亮成「未读」，等于没有信号。 */
+          const seenMap = state.sessionSeen ?? (state.sessionSeen = {})
+          if (seenMap[enriched.sessionId] === undefined) {
+            seenMap[enriched.sessionId] = alive.turn
+          }
+          const seen = Number(seenMap[enriched.sessionId]) || 0
+          return {
+            ...enriched,
+            sessionAlive: true,
+            sessionPhase: alive.kind,
+            sessionTurn: alive.turn,
+            sessionUnread: alive.kind !== 'running' && alive.turn > seen,
+          }
         }),
         syncing: inFlight !== null,
         cli,
@@ -4150,6 +4192,7 @@ function createSyncEngine(ctx) {
     insightDataset,
     startInsightJob,
     insightJobState,
+    markSessionSeen,
     recordDailyMetrics,
     cachedInsight: () => (state.insight
       && Number(state.insight.at ?? 0) >= dayStart(0)
@@ -4409,6 +4452,12 @@ function mountRoutes(ctx, engine) {
             }
             const started = engine.startInsightJob(body.force === true, asString(body.prompt), asString(body.mode))
             sendJson(res, 200, started)
+            return
+          }
+
+          if (route === '/api/sessions/seen' && req.method === 'POST') {
+            const body = await readBody(req)
+            sendJson(res, 200, await engine.markSessionSeen(body.sessionId, body.turn))
             return
           }
 
