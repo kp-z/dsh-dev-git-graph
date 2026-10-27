@@ -118,7 +118,14 @@ export function claimTasks(world: World): SchedulerOutcome {
         // 开工会议是全员同步，不受 meeting capacity 限制；座位按顺序吸附，超出容量的会靠近最后一席。
         const attendees = world.agents.filter((agent) => agent.state === 'idle' && agent.carrying === null)
         for (const [index, agent] of attendees.entries()) {
+          // 超出座位数的参会者不能都吸到最后一把椅子：那会让物理体互相顶、看起来一直跳。
           const slot = stationSlot(meeting, index)
+          const extra = Math.max(0, index - (meeting.slots.length - 1))
+          if (extra > 0) {
+            const ring = extra - 1
+            slot.x += ((ring % 3) - 1) * 0.55
+            slot.z += Math.floor(ring / 3) * 0.45
+          }
           const path = findPath(world.nav, agent.position, slot)
           if (path.length === 0) continue
           agent.state = 'walking'
