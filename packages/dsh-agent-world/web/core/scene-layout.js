@@ -422,3 +422,18 @@ export function pairwiseOcclusionAnomalies(nodes, options = {}) {
   }
   return { checked, anomalies, total: list.length }
 }
+
+/** R375：找出几乎完全重合的椅子（地图导出重复对象）；只报重复索引，不改数据。 */
+export function duplicateSeatIndices(seats, minDistance = 6) {
+  const list = Array.isArray(seats) ? seats : []
+  const duplicate = []
+  for (let i = 0; i < list.length; i += 1) {
+    for (let j = 0; j < i; j += 1) {
+      if (Math.hypot((list[i]?.x ?? 0) - (list[j]?.x ?? 0), (list[i]?.y ?? 0) - (list[j]?.y ?? 0)) < minDistance) {
+        duplicate.push(i)
+        break
+      }
+    }
+  }
+  return duplicate
+}

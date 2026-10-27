@@ -52,6 +52,7 @@ import {
   bandForActor,
   bandOfState,
   pairwiseOcclusionAnomalies,
+  duplicateSeatIndices,
   FIT,
   OVERLAY_DEPTHS,
   obstacleRectToPixels,
@@ -1725,7 +1726,11 @@ export function createScenePhaser(canvas, options = {}) {
       // R152：**按椅子自己的底边 Y 参与 Y 排序**（与家具/角色同一套口径），再减 `CHAIR_BIAS`
       // 保留"椅子塞在桌下、不盖桌面"的观感。`index * 0.001` 只保证同深度下次序稳定。
       const chairBottom = worldY + node.displayHeight * (1 - node.originY)
-      chairSeats.push({ x: worldX, y: chairBottom })
+      // R375：同一位置重复导出的椅子只保留第一把，避免画面叠成一张。
+      const seat = { x: worldX, y: chairBottom }
+      const duplicate = duplicateSeatIndices([...chairSeats, seat]).includes(chairSeats.length)
+      if (!duplicate) chairSeats.push(seat)
+      node.setVisible(!duplicate)
       node.setDepth(overrideDepth(id, chairBottom / TILE_PX, depthFor(chairBottom / TILE_PX) - CHAIR_BIAS + index * 0.001))
       node.setVisible(true)
     })
@@ -2963,6 +2968,7 @@ export function createScenePhaser(canvas, options = {}) {
     },
     /** R374：动作库。 */
     listActions: () => listActions(),
+    chairAudit: () => ({ total: chairSeats.length, duplicates: duplicateSeatIndices(chairSeats) }),
     playAction: (agentId, actionId) => playActionFor(agentId, actionId),
     clearAction: (agentId) => { clearActionOverride(agentId) },
     /** R335：底边可视层开关（也支持 `?ysort=1`）。 */
@@ -3050,6 +3056,7 @@ export function createScenePhaser(canvas, options = {}) {
     pick,
     /** R374：动作库（供对话面板的动作下拉使用）。 */
     listActions: () => listActions(),
+    chairAudit: () => ({ total: chairSeats.length, duplicates: duplicateSeatIndices(chairSeats) }),
     playAction: (agentId, actionId) => playActionFor(agentId, actionId),
     clearAction: (agentId) => { clearActionOverride(agentId) },
     // ── 视图控制（R65）：外壳的 − ＋ ⤢ ⌖ 四个按钮接这几个 ────────────────────
