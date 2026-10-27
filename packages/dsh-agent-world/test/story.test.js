@@ -17,3 +17,12 @@ test('story：有失败时终章是失败态', () => {
   assert.equal(story.id, 'epilogue-fail')
   assert.equal(story.tone, 'danger')
 })
+
+test('story：会议中会把第二章标成会议', () => {
+  const world = {
+    tasks: [{ status: 'in_progress' }],
+    agents: [{ state: 'talking', station: 'm1' }],
+    stations: [{ id: 'm1', kind: 'meeting' }],
+  }
+  assert.equal(buildStory(world).title, '执行中 · 会议')
+})

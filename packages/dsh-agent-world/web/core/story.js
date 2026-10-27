@@ -5,6 +5,8 @@
  * 全部完成时看交付。任务面板只负责显示，故事线只负责判断。
  */
 export function buildStory(world) {
+  const stationKind = new Map((world?.stations ?? []).map((station) => [station.id, station.kind]))
+  const meeting = (world?.agents ?? []).filter((agent) => (agent.state === 'talking' || agent.state === 'working') && stationKind.get(agent.station) === 'meeting').length
   const tasks = Array.isArray(world?.tasks) ? world.tasks : []
   const total = tasks.length
   const done = tasks.filter((task) => task.status === 'done').length
@@ -25,7 +27,12 @@ export function buildStory(world) {
     }
   }
   if (inProgress > 0) {
-    return { id: 'act-2', act: '第二章', title: '执行中', hint: `${inProgress} 人正在工位/会议室推进任务。`, progress, tone: 'working' }
+    return {
+      id: 'act-2', act: '第二章',
+      title: meeting > 0 ? '执行中 · 会议' : '执行中',
+      hint: meeting > 0 ? `会议中：${meeting} 人在会议室对齐计划。` : `${inProgress} 人正在工位推进任务。`,
+      progress, tone: 'working',
+    }
   }
   if (ready > 0) {
     return { id: 'act-1', act: '第一章', title: '集结', hint: `${ready} 张待领，先开会再分工。`, progress, tone: 'ready' }
