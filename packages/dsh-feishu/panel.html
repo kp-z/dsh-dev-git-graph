@@ -695,7 +695,7 @@
     color: var(--p-text-3);
     overflow: hidden;
     display: -webkit-box;
-    -webkit-line-clamp: 4;
+    -webkit-line-clamp: 6;
     -webkit-box-orient: vertical;
   }
 
@@ -3249,19 +3249,21 @@
       line.textContent = 'AI 正在看你今天的任务…';
       if (extra) extra.textContent = '';
     } else if (ai && ai.headline) {
+      /* 收起状态要和展开后看到的是同一件事：昨天做了什么 / 今天做什么 / 今天不建议 */
       line.textContent = ai.headline;
       if (extra) {
-        var parts = [];
-        if (ai.commentary) parts.push(ai.commentary);
-        if (ai.advice) parts.push('建议：' + ai.advice);
-        if (ai.score) {
-          var scores = [];
-          if (ai.score.focus !== null && ai.score.focus !== undefined) scores.push('专注 ' + ai.score.focus);
-          if (ai.score.throughput !== null && ai.score.throughput !== undefined) scores.push('产出 ' + ai.score.throughput);
-          if (ai.score.hygiene !== null && ai.score.hygiene !== undefined) scores.push('收尾 ' + ai.score.hygiene);
-          if (scores.length) parts.push(scores.join(' · '));
+        var brief = [];
+        if (ai.today) {
+          var todayText = String(ai.today).trim();
+          /* 模型自己已经以「昨天」开头，就别再套一层 */
+          brief.push((/^昨天/.test(todayText) ? '' : '昨天：') + todayText);
         }
-        extra.textContent = parts.join('\n');
+        if ((ai.issues || []).length) {
+          brief.push('今天：' + ai.issues.map(function (issue) { return 'T' + (issue.taskNo || '?'); }).join(' · ')
+            + '　' + ai.issues.map(function (issue) { return issue.text || ''; }).join('；'));
+        }
+        if (ai.advice) brief.push('不建议：' + ai.advice);
+        extra.textContent = brief.join('\n');
       }
     } else {
       var facts = [];
