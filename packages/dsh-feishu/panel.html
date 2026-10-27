@@ -3322,6 +3322,21 @@
   function loadInsight() {
     return api('insight', undefined, { silent: true }).then(function (data) {
       app.insightLocal = (data && data.local) || null;
+      /* 服务端按天缓存着上次生成的结果：有就直接用，切对话 / 重开面板都不再触发模型 */
+      var cached = data && data.ai;
+      if (cached && !app.insightAI) {
+        /* 按生成它的那种 tab 归类，别把「诊断」的内容挂到「早会同步」下面 */
+        var want = cached.mode === 'morning' ? 'morning' : 'ai';
+        var target = insightButtons().find(function (btn) {
+          return (btn.kind === 'morning' ? 'morning' : 'ai') === want;
+        });
+        var key = (target && target.id) || app.insightActiveId || 'default';
+        if (!app.insightResults[key]) app.insightResults[key] = cached;
+        /* 打开面板就停在「有内容的那一个 tab」上，别让人看到空卡片 */
+        app.insightActiveId = key;
+        app.insightAI = cached;
+        app.insightTab = cached.mode === 'morning' ? 'morning' : 'diagnose';
+      }
       renderInsight();
     }, function () {
       /* 拿不到就保持空态，不影响任务列表 */
@@ -3884,6 +3899,7 @@
   /* 首次进入：还没有任何结果就自动生成一次，别让人先去点 */
   function maybeAutoInsight() {
     if (app.insightAutoTried || !app.insightLocal) return;
+    /* 已经有结果（页面内或服务端缓存）就只展示，不再调模型 */
     if (app.insightAI || app.insightLoading) return;
     if (Object.keys(app.insightResults || {}).length > 0) return;
     app.insightAutoTried = true;
