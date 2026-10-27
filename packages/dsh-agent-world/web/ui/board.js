@@ -1049,9 +1049,16 @@ export function createBoard(options = {}) {
       stateIcon.dataset.status = status
       top.append(stateIcon)
       if (task.ownerName !== null && task.ownerName !== undefined && task.ownerName !== '') {
-        const avatar = el(doc, 'span', 'board-node-avatar', memberInitial(task.ownerName))
+        const ownerSprite = task.owner === null ? null : resolveMemberSprite(scene, task.owner, assetBase, ownerMember?.role ?? null)
+        const avatar = el(doc, 'span', ownerSprite === null ? 'board-node-avatar is-generic' : 'board-node-avatar is-sprite', ownerSprite === null ? '👤' : '')
         if (typeof ownerMember?.palette === 'string' && ownerMember.palette !== '') {
           avatar.style.setProperty('--avatar-color', ownerMember.palette)
+        }
+        if (ownerSprite !== null) {
+          const style = spriteAvatarStyle(ownerSprite)
+          avatar.style.backgroundImage = style.backgroundImage
+          avatar.style.backgroundSize = style.backgroundSize
+          avatar.style.backgroundPosition = style.backgroundPosition
         }
         top.append(avatar)
       }
