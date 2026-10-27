@@ -571,8 +571,8 @@
   /* 中间块：左文字 / 右图表。顶部那一行（今日洞察 + 统计）保持整行。 */
   .insight-mid {
     display: grid;
-    /* 饼图至少占一半宽；两栏等高，文字块撑满这一行 */
-    grid-template-columns: minmax(0, 1fr) minmax(50%, 1fr);
+    /* 左侧文字 40%、右侧图表 60%；两栏等高 */
+    grid-template-columns: 40% minmax(0, 1fr);
     gap: 10px;
     align-items: stretch;
   }
@@ -796,7 +796,7 @@
   .mini-line svg { width: 100%; height: 24px; display: block; }
 
   .mini-donut { display: flex; align-items: center; gap: 4px; }
-  .mini-donut svg { width: 148px; height: 148px; flex: 0 0 auto; }
+  .mini-donut svg { width: 164px; height: 164px; flex: 0 0 auto; }
   .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10px; line-height: 1.3; color: var(--p-text-2); }
   .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
 
@@ -889,7 +889,7 @@
   /* 左侧是一句「AI 对我说的话」：做成对话气泡，尾巴朝左上角的灯泡 */
   .insight-text {
     position: relative;
-    height: 156px;
+    height: 172px;
     padding: 12px 14px 28px;
     box-sizing: border-box;
     /* 气泡底色用一个变量，尾巴直接复用同一色，避免半透明叠加后看不出来 */
@@ -916,7 +916,7 @@
   .insight-line.is-summary {
     display: block;
     -webkit-line-clamp: unset;
-    max-height: 116px;
+    max-height: 132px;
     overflow-y: auto;
     font-size: 11.5px;
     line-height: 1.6;
