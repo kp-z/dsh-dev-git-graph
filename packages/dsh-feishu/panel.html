@@ -571,11 +571,13 @@
   /* 中间块：左文字 / 右图表。顶部那一行（今日洞察 + 统计）保持整行。 */
   .insight-mid {
     display: grid;
-    /* 饼图至少占一半宽；两栏等高 */
+    /* 饼图至少占一半宽；两栏等高，文字块撑满这一行 */
     grid-template-columns: minmax(0, 1fr) minmax(50%, 1fr);
     gap: 10px;
     align-items: stretch;
   }
+
+  .insight-charts { align-self: stretch; }
 
   .insight-text {
     display: flex;
@@ -625,9 +627,11 @@
 
   .insight-charts {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     min-width: 0;
+    height: 100%;
   }
 
   .insight-charts .chart-title {
@@ -665,7 +669,7 @@
   .mini-line svg { width: 100%; height: 24px; display: block; }
 
   .mini-donut { display: flex; align-items: center; gap: 8px; }
-  .mini-donut svg { width: 96px; height: 96px; flex: 0 0 auto; }
+  .mini-donut svg { width: 118px; height: 118px; flex: 0 0 auto; }
   .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; color: var(--p-text-2); }
   .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
 
@@ -750,11 +754,12 @@
     border-left: 2px solid var(--p-accent-line);
   }
 
-  /* 总结可以多行显示，别截成一行 */
+  /* 收起状态：整块文字（总结 + 昨天 + 今天 + 不建议），多行、最多 8 行 */
   .insight-line.is-summary {
-    -webkit-line-clamp: 6;
-    font-size: 12px;
-    line-height: 1.6;
+    -webkit-line-clamp: 10;
+    font-size: 11.5px;
+    line-height: 1.55;
+    white-space: pre-line;
   }
 
   .insight-line.is-warn { border-left-color: var(--p-warn); }
@@ -3245,8 +3250,16 @@
       line.textContent = 'AI 正在看你今天的任务…';
       if (extra) extra.textContent = '';
     } else if (hasSummary) {
-      /* 收起状态只显示 AI 写的那段总结；其余内容全部在展开里 */
-      line.textContent = ai.summary;
+      /* 所有文字集中在左侧这一块：总结 → 昨天 → 今天 → 不建议 */
+      var lines = [String(ai.summary || '').trim()];
+      if (ai.today) lines.push('昨天：' + String(ai.today).trim());
+      if ((ai.issues || []).length) {
+        lines.push('今天：' + ai.issues.map(function (issue) {
+          return 'T' + (issue.taskNo || '?') + ' ' + (issue.text || '');
+        }).join('；'));
+      }
+      if (ai.advice) lines.push('不建议：' + String(ai.advice).trim());
+      line.textContent = lines.filter(Boolean).join('\n');
       line.classList.add('is-summary');
       if (extra) extra.textContent = '';
     } else if (ai && ai.headline) {
@@ -3505,23 +3518,15 @@
   function renderMorning(body, local, ai) {
     var hasAI = ai && (ai.headline || ai.today || (ai.issues && ai.issues.length));
 
-    /* AI 版：只放「昨天做了什么 / 今天做什么 / 今天不建议」，不掺本地流水账 */
+    /* 展开区只补一件事：每条任务的第一步怎么做（其余文字都已在左侧那块里） */
     if (hasAI) {
-      if (ai.today) {
-        body.appendChild(insightBlock('昨天做了什么', [insightRow(ai.today)]));
-      }
-      var plan = [];
-      if (ai.headline) plan.push(insightRow(ai.headline, '先做'));
-      (ai.issues || []).forEach(function (issue) {
-        plan.push(insightRow((issue.text || '')
-          + (issue.evidence ? '　第一步：' + issue.evidence : ''), 'T' + (issue.taskNo || '?')));
+      var steps = (ai.issues || []).map(function (issue) {
+        return insightRow((issue.text || '') + (issue.evidence ? '　第一步：' + issue.evidence : ''),
+          'T' + (issue.taskNo || '?'));
       });
-      body.appendChild(insightBlock('今天做什么', plan.length
-        ? plan
-        : [el('div', { 'class': 'insight-empty', text: 'AI 没有给出今天的排期。' })]));
-      if (ai.advice) {
-        body.appendChild(insightBlock('今天不建议', [insightRow(ai.advice)]));
-      }
+      body.appendChild(insightBlock('第一步怎么做', steps.length
+        ? steps
+        : [el('div', { 'class': 'insight-empty', text: 'AI 没有给出执行步骤。' })]));
       return;
     }
 
@@ -3787,7 +3792,9 @@
     renderInsight();
 
     /* 后台跑：先让服务端开工，再轮询结果，面板不会被一个几十秒的请求挂住 */
-    api('insight/diagnose', { force: true, prompt: prompt || '', mode: mode || '' }).then(function () {
+    app.insightPending = { prompt: prompt || '', id: buttonId || '', mode: mode || '' };
+    api('insight/diagnose', { force: true, prompt: prompt || '', mode: mode || '' }).then(function (data) {
+      app.insightJobId = (data && data.jobId) || 0;
       pollInsightAI(Date.now());
     }, function (error) {
       app.insightLoading = false;
@@ -3801,6 +3808,23 @@
   /* 轮询后台任务：1.2s 一次，最多 3 分钟 */
   function pollInsightAI(startedAt) {
     api('insight/ai', undefined, { silent: true }).then(function (data) {
+      /* 服务端同一时刻只跑一个任务：如果跑的不是我们这次，就等它结束再重开 */
+      if (data && data.jobId && app.insightJobId && data.jobId !== app.insightJobId) {
+        if (data.running) {
+          setTimeout(function () { pollInsightAI(startedAt); }, 1200);
+          return;
+        }
+        /* 上一个任务刚结束：用同样的按钮参数自动补跑一次，不用让人再点 */
+        var pending = app.insightPending;
+        app.insightLoading = false;
+        app.insightBusyId = '';
+        if (pending) {
+          onInsightDiagnose(pending.prompt, pending.id, pending.mode);
+        } else {
+          renderInsight();
+        }
+        return;
+      }
       var running = data && data.running;
       if (running) {
         if (Date.now() - startedAt > 180000) {

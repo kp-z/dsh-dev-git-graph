@@ -138,10 +138,10 @@ export const PROMPT_REV = 5
 export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。今天要说两件事：昨天做了什么、今天做什么。不写客套话、不写评估分数、不写趋势分析。
 
 输出一个 JSON 对象，不要解释、不要 markdown 代码块：
-{"summary":"一段话总结（2-4 句，不超过 120 字）：昨天做了什么、今天最重要的一件事是什么","headline":"今天最该做的一件事（不超过 30 字，带任务号）",
- "today":"昨天做了哪些事（不超过 70 字，按任务号逐条列，每条一句结果）",
- "issues":[{"taskNo":12,"level":"info","text":"为什么今天做它 / 现在做它的理由（不超过 28 字）","evidence":"第一步具体做什么（不超过 30 字）"}],
- "advice":"今天不建议碰什么，以及原因（不超过 50 字）",
+{"summary":"一段话总结（2-3 句，不超过 70 字）：昨天做了什么、今天最重要的一件事是什么","headline":"今天最该做的一件事（不超过 24 字，带任务号）",
+ "today":"昨天做了哪些事（不超过 45 字，只列任务号 + 一句结果，用分号隔开）",
+ "issues":[{"taskNo":12,"level":"info","text":"为什么今天做它（不超过 18 字）","evidence":"第一步具体做什么（不超过 26 字）"}],
+ "advice":"今天不建议碰什么（不超过 36 字）",
  "commentary":"","charts":[]}
 
 规则：
@@ -151,7 +151,8 @@ export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。今天�
 - 「今天做什么」必须是**你的判断**：从待办里挑出今天最该推进的 1-3 件，说明为什么是它、
   现在做的理由（例如「只差验收」「卡住别人」「已经拖了 3 天」）。**不要**因为「今天还没开始」就说今天没事可做，
   也不要把「还没做」当成结论。
-- issues 最多 3 条，按先后顺序排，就是今天的排期。
+- issues 最多 3 条，按先后顺序排，就是今天的排期。**每条 text 控制在 18 字内**，卡片上一行放得下。
+- 全部内容要能在卡片上 8 行内显示完，宁可少说，不要堆字。
 - 不要罗列任务计数（共几个、几个在跑、完成几个）。
 - 只依据给到的信息，不编造任务与数字；需要举例用任务号（T9、T12）。
 - 中文，短句。`
@@ -2870,10 +2871,12 @@ function createSyncEngine(ctx) {
 
   /* 后台诊断任务：HTTP 立刻返回，模型在后台跑，面板轮询状态。
      这样点按钮不会挂着一个几十秒的请求，也不会把面板卡住。 */
-  let insightJob = { running: false, startedAt: 0, result: null, error: '' }
+  let insightJob = { id: 0, running: false, startedAt: 0, result: null, error: '' }
+  let insightJobSeq = 0
 
   function insightJobState() {
     return {
+      jobId: insightJob.id,
       running: insightJob.running,
       startedAt: insightJob.startedAt,
       error: insightJob.error,
@@ -2884,8 +2887,9 @@ function createSyncEngine(ctx) {
 
   /** 立即返回，模型在后台跑；同一时间只跑一个。 */
   function startInsightJob(force = false, promptOverride = '', mode = '') {
-    if (insightJob.running) return { ok: true, started: false, reason: '已经在跑了' }
-    insightJob = { running: true, startedAt: nowMs(), result: null, error: '' }
+    if (insightJob.running) return { ok: true, started: false, jobId: insightJob.id, reason: '已经在跑了' }
+    insightJobSeq += 1
+    insightJob = { id: insightJobSeq, running: true, startedAt: nowMs(), result: null, error: '' }
     void diagnoseInsight(force, promptOverride, mode).then((result) => {
       insightJob.running = false
       if (result.ok) insightJob.result = result.data
