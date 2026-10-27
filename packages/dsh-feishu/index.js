@@ -624,10 +624,21 @@ function sanitizeInsightButtons(input, fallback) {
     let prompt = asString(raw?.prompt).slice(0, 4000)
     /* 旧版把按钮 prompt 当「额外要求」存（通常是一句话）。现在是一份完整提示词，
        直接把短句当提示词会让模型不吐 JSON，所以迁移时把它接到默认提示词后面。 */
-    /* 早会默认提示词改版：把「旧默认 + 用户追加句子」重建成「新默认 + 同一句」 */
-    if (kind === 'morning' && prompt.includes(LEGACY_MORNING_MARKER)) {
-      const tail = prompt.slice(prompt.indexOf(LEGACY_MORNING_MARKER) + LEGACY_MORNING_MARKER.length).trim()
-      prompt = tail ? `${DEFAULT_MORNING_PROMPT}\n\n${tail}` : DEFAULT_MORNING_PROMPT
+    /* 早会默认提示词改版：把「旧默认 + 用户追加句子」重建成「新默认 + 同一句」。
+       判据是「以我们的开场白开头 + 含旧版特征句」——这样用户完全自己写的提示词不会被覆盖。 */
+    if (kind === 'morning' && prompt.startsWith('你是团队早会')) {
+      const legacy = prompt.includes(LEGACY_MORNING_MARKER)
+        || prompt.includes('只回答两件事：昨天做了什么、今天做什么')
+        || prompt.includes('别的废话一律不写')
+      if (legacy && prompt.trim() !== DEFAULT_MORNING_PROMPT.trim()) {
+        const ends = [LEGACY_MORNING_MARKER, '- 中文，短句。', '- 中文，句子短，不喊口号。', '- 中文，句子短，不说场面话。']
+        let tail = ''
+        for (const marker of ends) {
+          const at = prompt.lastIndexOf(marker)
+          if (at >= 0) { tail = prompt.slice(at + marker.length).trim(); break }
+        }
+        prompt = tail ? `${DEFAULT_MORNING_PROMPT}\n\n${tail}` : DEFAULT_MORNING_PROMPT
+      }
     }
     if (prompt && prompt.length < 300 && !/json/i.test(prompt)) {
       const base = kind === 'morning' ? DEFAULT_MORNING_PROMPT : DEFAULT_INSIGHT_PROMPT
@@ -2637,7 +2648,13 @@ function createSyncEngine(ctx) {
     const inToday = (ts) => ts >= todayStart && ts < tomorrow
     const inYesterday = (ts) => ts >= yesterdayStart && ts < todayStart
 
-    const tasks = state.tasks.filter((task) => task && !task.syncFirst)
+    const ignoreWords = (settings.insightIgnore ?? []).map((item) => asString(item).toLowerCase()).filter(Boolean)
+    const matchesIgnore = (task) => {
+      if (!ignoreWords.length) return false
+      const hay = `${task.title ?? ''} ${task.workspaceTitle ?? ''} ${task.workspaceName ?? ''}`.toLowerCase()
+      return ignoreWords.some((word) => hay.includes(word))
+    }
+    const tasks = state.tasks.filter((task) => task && !task.syncFirst && !matchesIgnore(task))
     const engaged = tasks.filter((task) => task.started || task.sessionId || task.done)
 
     const doneToday = tasks.filter((task) => inToday(Number(task.completedAt ?? 0)))
@@ -2798,6 +2815,7 @@ function createSyncEngine(ctx) {
       for (const agent of agents?.list?.() ?? []) {
         if (!agent || typeof agent.id !== 'string' || bound.has(agent.id)) continue
         const title = asString(agent.session?.title || agent.title || agent.id).slice(0, 40)
+        if (ignore.some((word) => title.toLowerCase().includes(word))) continue
         let snippet = ''
         if (sessions && typeof sessions.inspect === 'function') {
           try {
