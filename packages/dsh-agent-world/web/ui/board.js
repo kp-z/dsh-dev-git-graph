@@ -1845,6 +1845,9 @@ export function createBoard(options = {}) {
     const viewTasks = native ? sourceTasks : applyView(sourceTasks, { group: viewGroup, filter: viewFilter })
     model = buildBoardModel({ ...world, tasks: viewTasks })
     if (native) {
+      // R403：有官方 projection 时，成员列表也以官方为唯一真相；
+      // 不再把 world.agents（captain/临时角色）混进来，避免 captain/lead 两套领导。
+      if (teamMembers.length > 0) model.members = []
       mergeTeamMembers()
       applyTeamOwners()
     }
