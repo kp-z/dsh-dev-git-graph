@@ -10,7 +10,7 @@
 
 在 DSH 里打开「飞书」面板（侧边面板里的一个 tab）。上面是今日洞察，下面是任务列表。
 
-![DSH 中的飞书面板](images/01-app-overview.png)
+![DSH 中的飞书面板](images/01-app-overview.jpg)
 
 ---
 
@@ -29,7 +29,7 @@
 
 一行标题，超长自动省略，鼠标悬停看全名。下面是模糊后的样子，结构不变。
 
-![任务列表](images/02-app-tasks.png)
+![任务列表](images/02-app-tasks.jpg)
 
 **`Session` 按钮上的那盏灯**，就是会话状态：
 
