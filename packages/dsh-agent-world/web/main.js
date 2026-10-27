@@ -1789,6 +1789,17 @@ function render(force = false) {
  * 刻意**不重试**：契约说这条请求是同步收话，失败就是失败；
  * 静默重试只会让同一句话在宿主那边出现两遍，而用户完全不知道。
  */
+function humanizeSayReason(reason) {
+  const value = String(reason ?? '')
+  if (/already owned by an active write handle/i.test(value)) {
+    return '这个会话已经被 DSH GUI 打开并占用了写句柄。请回到该会话内的 Agent World 面板说话，不要另开独立页同时指挥。'
+  }
+  if (/未绑定 DSH 会话/.test(value)) {
+    return '独立页没有绑定会话：请从 DSH 对话里的 Agent World 面板打开，或用 ?session=<会话id> 打开。'
+  }
+  return value
+}
+
 async function sayToAgent({ agentId, text }) {
   const controller = new AbortController()
   // 收话应当**立刻**返回（模型在后台想）；等 10 秒还没回说明端点那边在等不该等的东西。
@@ -1810,12 +1821,12 @@ async function sayToAgent({ agentId, text }) {
         body = null
       }
     }
-    if (!res.ok) return { ok: false, status: res.status, reason: body?.reason, text: rawText ?? undefined }
+    if (!res.ok) return { ok: false, status: res.status, reason: humanizeSayReason(body?.reason), text: rawText ?? undefined }
     if (body === null || body.accepted !== true) {
       return {
         ok: false,
         status: res.status,
-        reason: body?.reason ?? (body === null ? '响应不是 JSON' : undefined),
+        reason: humanizeSayReason(body?.reason ?? (body === null ? '响应不是 JSON' : undefined)),
         text: rawText ?? undefined,
       }
     }
