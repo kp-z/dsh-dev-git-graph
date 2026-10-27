@@ -834,6 +834,30 @@
     font-family: inherit;
   }
 
+  .insight-button-tools {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .insight-default-prompt { font-size: 10.5px; color: var(--p-text-3); }
+  .insight-default-prompt summary { cursor: pointer; }
+  .insight-default-prompt pre {
+    margin: 4px 0 0;
+    max-height: 160px;
+    overflow: auto;
+    padding: 6px;
+    border-radius: 5px;
+    background: var(--p-bg, var(--p-card));
+    border: 1px solid var(--p-line);
+    white-space: pre-wrap;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--p-text-2);
+  }
+
   .insight-button-row textarea {
     grid-column: 1 / -1;
     min-height: 44px;
@@ -1844,15 +1868,13 @@
         <strong class="insight-title">洞察设置</strong>
         <button type="button" id="insightSettingsDone" class="btn btn-primary btn-xs">完成</button>
       </div>
-      <label class="insight-settings-label" for="insightPromptInput">诊断 Prompt</label>
-      <textarea id="insightPromptInput" rows="6" spellcheck="false" placeholder="留空 = 用内置默认提示词"></textarea>
-      <div class="insight-settings-label">按钮（可增删；每个按钮可带自己的 Prompt）</div>
+      <div class="insight-settings-label">按钮与各自的 Prompt（每个按钮用自己那份；留空 = 用该按钮的默认提示词）</div>
       <div id="insightButtonsEditor" class="insight-buttons-editor"></div>
       <div><button type="button" id="insightAddButton" class="btn btn-ghost btn-xs">+ 添加按钮</button></div>
 
       <div class="insight-actions">
         <button type="button" id="insightSettingsSave" class="btn btn-primary btn-xs">保存</button>
-        <button type="button" id="insightSettingsReset" class="btn btn-ghost btn-xs">恢复默认 Prompt</button>
+        <button type="button" id="insightSettingsReset" class="btn btn-ghost btn-xs">全部恢复默认 Prompt</button>
         <span id="insightSettingsHint" class="insight-empty"></span>
       </div>
     </div>
@@ -2098,6 +2120,7 @@
     insightTab: 'morning',
     insightLoading: false,
     insightBusyId: '',
+    promptDefaults: {},
     insightStats: null,
     insightStatsLoading: false,
     filterOpen: false, // 过滤条是否展开（头部「筛选」按钮控制）
@@ -3756,6 +3779,14 @@
 
   /* ---------------- 洞察设置（Prompt / 快捷键） ---------------- */
 
+  /* 每个按钮的默认提示词：早会用 morning 那份，其它调模型的用 insight 那份 */
+  function promptDefaultFor(kind) {
+    var d = app.promptDefaults || {};
+    if (kind === 'morning') return d.morning || '';
+    if (kind === 'export') return '';
+    return d.insight || '';
+  }
+
   /* 按钮编辑器：草稿态，点「保存」才写回设置 */
   function insightDraftButtons() {
     if (!app.insightDraft) {
@@ -3785,13 +3816,36 @@
       });
       row.appendChild(del);
 
+      if (btn.kind === 'export') {
+        row.appendChild(el('div', { 'class': 'insight-empty', text: '这个按钮不调模型（直接把早会摘要写成飞书评论），没有 Prompt。' }));
+        box.appendChild(row);
+        return;
+      }
+      /* 这里只放「额外要求」，默认提示词单独只读展示——
+         两者合并展示会让用户以为要整份改写，保存后又会被追加到默认后面，重复一大段。 */
+      var fallback = promptDefaultFor(btn.kind);
       var prompt = el('textarea', {
-        rows: '2',
-        placeholder: '这个按钮的 Prompt（留空 = 用上面的诊断 Prompt）'
+        rows: '3',
+        placeholder: '留空 = 只用默认提示词。这里写的内容会追加在默认提示词之后（例如「忽略某类任务」）'
       });
-      prompt.value = btn.prompt || '';
+      prompt.value = String(btn.prompt || '').trim();
       prompt.addEventListener('input', function () { btn.prompt = prompt.value; });
       row.appendChild(prompt);
+
+      var tools = el('div', { 'class': 'insight-button-tools' });
+      var restore = makeButton('清空额外要求', 'btn btn-ghost btn-xs', null, false, function () {
+        prompt.value = '';
+        btn.prompt = '';
+      });
+      tools.appendChild(restore);
+
+      var details = el('details', { 'class': 'insight-default-prompt' });
+      details.appendChild(el('summary', { text: '查看默认提示词' }));
+      var pre = el('pre');
+      pre.textContent = fallback || '（这个按钮不使用默认提示词）';
+      details.appendChild(pre);
+      tools.appendChild(details);
+      row.appendChild(tools);
       box.appendChild(row);
     });
   }
@@ -3807,10 +3861,8 @@
   }
 
   function renderInsightSettings() {
+    /* 提示词只有「每个按钮各自一份」，不再有全局那个重复的「诊断 Prompt」 */
     renderButtonsEditor();
-    var prompt = (app.settings && app.settings.insightPrompt) || '';
-    var node = $('insightPromptInput');
-    if (node && document.activeElement !== node) node.value = prompt;
   }
 
   function toggleInsightSettings(force) {
@@ -3839,9 +3891,11 @@
     if (save) {
       save.addEventListener('click', function () {
         var patch = {
-          insightPrompt: String(($('insightPromptInput') || {}).value || '').trim(),
           insightButtons: insightDraftButtons().map(function (btn) {
-            return { id: btn.id, label: btn.label, prompt: btn.prompt, kind: btn.kind };
+            var text = String(btn.prompt || '').trim();
+            /* 与默认一致就存空：以后默认提示词升级，按钮能自动跟上 */
+            if (text === promptDefaultFor(btn.kind)) text = '';
+            return { id: btn.id, label: btn.label, prompt: text, kind: btn.kind };
           }),
         };
         save.disabled = true;
@@ -3870,9 +3924,9 @@
     var reset = $('insightSettingsReset');
     if (reset) {
       reset.addEventListener('click', function () {
-        var node = $('insightPromptInput');
-        if (node) node.value = '';
-        toast('Prompt 已清空，点「保存」后生效（会用内置默认提示词）');
+        insightDraftButtons().forEach(function (btn) { btn.prompt = ''; });
+        renderButtonsEditor();
+        toast('已全部恢复默认 Prompt，点「保存」后生效');
       });
     }
 
@@ -4065,6 +4119,7 @@
     return api('state', undefined, { silent: quiet }).then(function (data) {
       var next = (data && data.state) || {};
       app.settings = (data && data.settings) || {};
+      app.promptDefaults = (data && data.promptDefaults) || app.promptDefaults || {};
       app.snap = next;
       /* 版本在响应的顶层（不是 state 里），单独存一份 */
       app.version = (data && data.version) || '';
