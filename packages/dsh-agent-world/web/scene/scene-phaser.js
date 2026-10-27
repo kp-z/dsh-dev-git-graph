@@ -1194,6 +1194,8 @@ export function createScenePhaser(canvas, options = {}) {
     selectedAgentId = null
     stopFollowSelection()
     syncSelectionRing()
+    // R383：取消选中后通知外壳收起对话卡（空选中不该留一张卡）。
+    if (typeof options.onSelectionCleared === 'function') options.onSelectionCleared()
   }
 
   /**

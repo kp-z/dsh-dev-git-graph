@@ -236,6 +236,11 @@ const scene2d = createScenePhaser(canvas, {
   },
   // P4：玩家用键盘走完一段 → 把落点写回世界（否则服务端还停在旧坐标，解锁会瞬移回去）。
   onAgentMoveSettled: (agentId, x, z) => void sendCommand({ kind: 'moveAgent', agentId, x, z }),
+  // R383：点空白/按 Esc 取消选中 → 收起对话卡；没有选中 agent 就不该留一张空卡。
+  onSelectionCleared: () => {
+    if (typeof dialogue !== 'undefined' && dialogue !== null && dialogue.isOpen?.() === true) dialogue.close()
+    render(true)
+  },
 })
 
 // R201：卡片布局/侧边栏拖拽会改变 stage 尺寸；Phaser 的 RESIZE 在嵌入组合里可能不跟，
