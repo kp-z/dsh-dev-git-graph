@@ -467,6 +467,10 @@ export function createScenePhaser(canvas, options = {}) {
   /** 椅子精灵（按数据建一次，之后只同步深度）。 */
   const objectNodes = new Map()
   let objectNodesKey = null
+  /** R373：椅子座位（世界像素，中心）。用于工作/开会时把角色吸附到椅子上。 */
+  const chairSeats = []
+  /** R374：手动选中的动作（actorId → actionId）；走动时清除，回到自动动作。 */
+  const actionOverrides = new Map()
   /** 墙体图层节点（每条墙一个 image，用**纹理帧**取对应块）。 */
   const wallNodes = new Map()
   let wallNodesKey = null
@@ -894,6 +898,9 @@ export function createScenePhaser(canvas, options = {}) {
       for (const [actorId, entry] of actorNodes) {
         const sprite = entry.sprite
         if (sprite === null || sprite === undefined || sprite.visible !== true) continue
+        // R372：每帧按**精灵脚底**重算深度。只按服务端 actor.z 会在物理追赶/手动移动时用旧值，
+        // 造成走路时被桌椅错误遮挡。
+        sprite.setDepth(depthFor(sprite.y / TILE_PX))
         const label = entry.label
         if (label !== null && label !== undefined && label.visible === true) {
           label.x = sprite.x
@@ -1343,6 +1350,8 @@ export function createScenePhaser(canvas, options = {}) {
         wasManualWalking = false
         notifyMoveSettled(selectedAgentId, sprite.x / TILE_PX, sprite.y / TILE_PX)
       }
+      if (entry.lastDir !== undefined) playManualAnim(entry, 'idle', entry.lastDir)
+      sprite.setDepth(depthFor(sprite.y / TILE_PX))
       return
     }
 
@@ -1360,6 +1369,9 @@ export function createScenePhaser(canvas, options = {}) {
     if (vx === 0 && vy === 0) {
       lastManualReason = 'no-direction'
       body.setVelocity(0, 0)
+      // R372：停步时用最后移动方向播 idle，别让服务端把朝向掰回初始值。
+      if (entry.lastDir !== undefined) playManualAnim(entry, 'idle', entry.lastDir)
+      sprite.setDepth(depthFor(sprite.y / TILE_PX))
       // ⚠️ 松键后**不要**在这里挑站立动画：动画要交回 `drawActors`（服务端朝向）。
       // 这里一写 `idle-<lastDir>`，被摸过的人就永远钉在最后那个方向——
       // 用户反馈的「只要朝向不是向右就会跳向右」正是这条（因为位置所有权是粘的，
@@ -1379,6 +1391,7 @@ export function createScenePhaser(canvas, options = {}) {
     body.setVelocity((vx / len) * MANUAL_SPEED_PX, (vy / len) * MANUAL_SPEED_PX)
     // 一旦真的被玩家推动过 → 位置归客户端（切回对话模式也不会被服务端拽回）。
     if (selectedAgentId !== null) manualPositionIds.add(selectedAgentId)
+    if (selectedAgentId !== null) actionOverrides.delete(selectedAgentId)
 
     // 屏幕 +y = 世界 +z，所以 atan2(vy, vx) 直接喂 `directionOf` 就是四向。
     const dir = directionOf(Math.atan2(vy, vx))
@@ -1686,6 +1699,7 @@ export function createScenePhaser(canvas, options = {}) {
     const offsetPxX = -37 * TILE_PX
     const offsetPxY = -21 * TILE_PX
     const wanted = new Set()
+    chairSeats.length = 0
     data.chairs.forEach((chair, index) => {
       if (chair === null || chair === undefined) return
       const textureKey = String(chair.texture ?? '')
@@ -1711,6 +1725,7 @@ export function createScenePhaser(canvas, options = {}) {
       // R152：**按椅子自己的底边 Y 参与 Y 排序**（与家具/角色同一套口径），再减 `CHAIR_BIAS`
       // 保留"椅子塞在桌下、不盖桌面"的观感。`index * 0.001` 只保证同深度下次序稳定。
       const chairBottom = worldY + node.displayHeight * (1 - node.originY)
+      chairSeats.push({ x: worldX, y: chairBottom })
       node.setDepth(overrideDepth(id, chairBottom / TILE_PX, depthFor(chairBottom / TILE_PX) - CHAIR_BIAS + index * 0.001))
       node.setVisible(true)
     })
@@ -1964,9 +1979,32 @@ export function createScenePhaser(canvas, options = {}) {
   }
 
   /** 角色：精灵 + 引擎动画（`play`）+ 名字；`setInteractive` 让**整只角色**可点。 */
+  function actionById(id) {
+    return (state.plan?.actions ?? []).find((action) => action.id === id) ?? null
+  }
+
+  function playActionFor(actorId, actionId) {
+    const action = actionById(actionId)
+    const entry = actorNodes.get(actorId)
+    if (action === null || entry?.sprite === undefined || entry.sprite === null) return false
+    actionOverrides.set(actorId, actionId)
+    const dir = entry.lastDir ?? directionOf(state.plan?.actors?.find((a) => a.id === actorId)?.facing ?? 0)
+    if (action.band !== null) playManualAnim(entry, action.band, dir)
+    return true
+  }
+
+  function clearActionOverride(actorId) {
+    actionOverrides.delete(actorId)
+  }
+
+  function listActions() {
+    return (state.plan?.actions ?? []).map((action) => ({ id: action.id, name: action.name, state: action.state, band: action.band }))
+  }
+
   function drawActors(worldState, plan, nowMs) {
     const models = new Map((plan?.models ?? []).map((model) => [model.id, model]))
     const actors = [...liveActorsOf(worldState, plan)].sort((a, b) => a.z - b.z)
+    const claimedSeats = new Set()
     /**
      * `ownerId → 他此刻在做的那张单`（R123）。
      *
@@ -2099,18 +2137,39 @@ export function createScenePhaser(canvas, options = {}) {
         // 看起来就是"一走动就弹回去"）。动画同理交给 `tickManualMovement` 自己挑。
         entry.textureKey = textureKey
         const manual = ownsPosition(actor.id)
-        if (manual !== true) moveActorTo(entry, posX, posY)
-        entry.sprite.setDepth(depthFor(actor.z))
+        let renderX = posX
+        let renderY = posY
+        const seatedKind = actor.stationKind === 'desk' || actor.stationKind === 'meeting' || actor.stationKind === 'breakroom'
+        const seatedState = actor.state === 'working' || actor.state === 'talking' || actor.state === 'sleeping'
+        if (manual !== true && seatedKind && seatedState) {
+          let best = null
+          let bestDistance = 64
+          for (const [index, seat] of chairSeats.entries()) {
+            if (claimedSeats.has(index)) continue
+            const distance = Math.hypot(seat.x - posX, seat.y - posY)
+            if (distance < bestDistance) { bestDistance = distance; best = index }
+          }
+          if (best !== null) {
+            claimedSeats.add(best)
+            renderX = chairSeats[best].x
+            renderY = chairSeats[best].y
+          }
+        }
+        if (manual !== true) moveActorTo(entry, renderX, renderY)
+        entry.sprite.setDepth(depthFor(entry.sprite.y / TILE_PX))
+        if (entry.lastDir === undefined) entry.lastDir = directionOf(actor.facing)
         entry.sprite.setVisible(true)
         // `setTexture` 之后帧可能是 `__BASE`（整张图）——但**只在没有动画可播时才钉帧**。
         // ⚠️ 这里曾经**每帧都 setFrame(第一帧)**，结果动画永远冻在第一帧：
         // `currentAnim.key` 看着是对的，人却在原地滑（R64 逐个验方向时才逮到）。
         // 该播哪个动画：**回退链在纯函数里**（返回候选名），`play` 交给引擎。
         // 动画按纹理分开命名（重上色纹理有它自己的一套），否则换色会串回原图。
+        const override = actionOverrides.get(actor.id)
+        const overrideAction = override === undefined ? null : (plan?.actions ?? []).find((action) => action.id === override) ?? null
         const animName = resolveAnimationKey((name) => activeScene.anims.exists(animKeyFor(textureKey, name)) === true, {
           // **带由内容库给**（`ScenePlan.actions`）：working → sit，其余按库里的声明。
           // 渲染器不自己编这套映射——那正是"坐着干活的人站着"那类错藏身的地方。
-          band: bandForActor(plan?.actions, actor),
+          band: overrideAction?.band ?? bandForActor(plan?.actions, actor),
           direction: directionOf(actor.facing),
         })
         // 钉帧必须钉**解析出来的那条动画**的首帧。
@@ -2129,7 +2188,8 @@ export function createScenePhaser(canvas, options = {}) {
         // 但**动画不能跟着粘**——否则被玩家摸过的人会永远钉在最后按下的那个方向，
         // 服务端的朝向再也不生效。用户反馈的「只要朝向不是向右就会跳向右」就是这条：
         // 位置仍归客户端 → drawActors 跳过动画 → 只有手动那套按 `lastDir` 播，而它恰好是 right。
-        if ((manual !== true || wasManualWalking !== true) && animName !== null) {
+        // 手动位置归客户端时，动画与朝向也归客户端；由 tickManualMovement 用 lastDir 播。
+        if (manual !== true && animName !== null) {
           const fullKey = animKeyFor(textureKey, animName)
           if (entry.sprite.anims.currentAnim?.key !== fullKey) entry.sprite.play(fullKey, true)
           // 正在播就**别碰帧**（碰了就成了"看着在走、其实是冻帧"）；没在播才钉第一帧
@@ -2901,6 +2961,10 @@ export function createScenePhaser(canvas, options = {}) {
       if (wallsDebugLayer !== null) wallsDebugLayer.setVisible(wallsDebugVisible)
       return wallsDebugVisible
     },
+    /** R374：动作库。 */
+    listActions: () => listActions(),
+    playAction: (agentId, actionId) => playActionFor(agentId, actionId),
+    clearAction: (agentId) => { clearActionOverride(agentId) },
     /** R335：底边可视层开关（也支持 `?ysort=1`）。 */
     setYSortDebug: (on) => {
       ysortDebugVisible = on === true
@@ -2984,6 +3048,10 @@ export function createScenePhaser(canvas, options = {}) {
     resize,
     render,
     pick,
+    /** R374：动作库（供对话面板的动作下拉使用）。 */
+    listActions: () => listActions(),
+    playAction: (agentId, actionId) => playActionFor(agentId, actionId),
+    clearAction: (agentId) => { clearActionOverride(agentId) },
     // ── 视图控制（R65）：外壳的 − ＋ ⤢ ⌖ 四个按钮接这几个 ────────────────────
     zoomIn: () => applyZoomStep(1),
     zoomOut: () => applyZoomStep(-1),

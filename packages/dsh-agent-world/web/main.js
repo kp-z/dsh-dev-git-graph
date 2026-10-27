@@ -541,6 +541,33 @@ dialogue = createDialogueUi({
 })
 dialogue.setTickSource(() => currentTick())
 
+// R374：动作库下拉。列表来自 ScenePlan.actions（内容库），初始「自动」。
+const actionSelect = root.querySelector?.('#dialogue-action')
+let populateActionOptions = () => {}
+if (actionSelect !== null && actionSelect !== undefined) {
+  const auto = doc.createElement('option')
+  auto.value = ''
+  auto.textContent = '自动'
+  actionSelect.append(auto)
+  populateActionOptions = () => {
+    const actions = typeof scene2d.listActions === 'function' ? scene2d.listActions() : []
+    if (actions.length === 0) return
+    while (actionSelect.options.length > 1) actionSelect.remove(1)
+    for (const action of actions) {
+      const option = doc.createElement('option')
+      option.value = action.id
+      option.textContent = `${action.state} · ${action.name}`
+      actionSelect.append(option)
+    }
+  }
+  actionSelect.addEventListener('change', () => {
+    const agentId = dialogue?.agentId?.() ?? null
+    if (agentId === null) return
+    if (actionSelect.value === '') scene2d.clearAction?.(agentId)
+    else scene2d.playAction?.(agentId, actionSelect.value)
+  })
+}
+
 // ── 时钟 ──────────────────────────────────────────────────────────────────────
 
 /**
@@ -1829,6 +1856,10 @@ function openDialogueFor(agentId) {
   if (agentId === null || agentId === undefined) return
   const sameAgentOpen = dialogue.isOpen() === true && dialogue.agentId() === agentId
   if (!sameAgentOpen) dialogue.open(agentId)
+  if (actionSelect !== null && actionSelect !== undefined) {
+    populateActionOptions()
+    actionSelect.value = ''
+  }
   void loadAgentHistory(agentId)
   render(true)
 }
