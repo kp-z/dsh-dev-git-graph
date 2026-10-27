@@ -1556,6 +1556,68 @@
 
   .title-input:focus { outline: none; box-shadow: 0 0 0 2px var(--p-accent-weak); }
 
+  /* 会话按钮：正在回复时呼吸灯 */
+  .sess-inline.is-running {
+    border-color: color-mix(in srgb, var(--p-accent) 45%, transparent);
+    background: color-mix(in srgb, var(--p-accent) 10%, transparent);
+    color: var(--p-accent-text);
+    animation: sess-breathe 1.6s ease-in-out infinite;
+  }
+
+  @keyframes sess-breathe {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--p-accent) 30%, transparent); }
+    50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--p-accent) 0%, transparent); }
+  }
+
+  /* 跑完但没看：右上角一个绿豆 */
+  .sess-inline.has-unread { position: relative; }
+
+  .sess-inline.has-unread::after {
+    content: '';
+    position: absolute;
+    right: -3px;
+    top: -3px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--p-ok);
+    border: 1.5px solid var(--p-card, #fff);
+  }
+
+  .dot.sm.busy {
+    background: var(--p-accent);
+    animation: dot-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes dot-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: .45; transform: scale(.8); }
+  }
+
+  /* 卡片右上角状态图标 */
+  .task { position: relative; }
+
+  .task-live {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .task-live.is-running {
+    background: var(--p-accent);
+    animation: dot-pulse 1.2s ease-in-out infinite;
+  }
+
+  .task-live.is-unread { background: var(--p-ok); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sess-inline.is-running, .dot.sm.busy, .task-live.is-running { animation: none; }
+  }
+
   /* 会话 id：一行、像个小按钮，点开 / 复制 */
   .sess-inline {
     flex: 0 0 auto;
@@ -2496,6 +2558,7 @@
     insightActiveId: '',
     insightResults: {},
     insightChartIndex: 0,
+    seenSent: {},
     insightAutoTried: false,
     promptDefaults: {},
     insightStats: null,
@@ -3044,8 +3107,15 @@
             (alive ? ' — 点击打开这条对话' : ' — 已结束的对话无法跳转，点击复制 ID')
       });
       /* 会话活着 → 绿灯；只是已结束 → 灰点（不是错误，不该报警）。 */
-      sessChip.appendChild(el('span', { 'class': 'dot sm ' + (alive ? 'ok' : 'idle') }));
+      var running = t.sessionPhase === 'running';
+      var unread = t.sessionUnread === true;
+      sessChip.className += running ? ' is-running' : '';
+      sessChip.className += unread ? ' has-unread' : '';
+      sessChip.appendChild(el('span', {
+        'class': 'dot sm ' + (running ? 'busy' : alive ? 'ok' : 'idle')
+      }));
       sessChip.appendChild(el('span', { text: shortSession(sid) }));
+      if (unread) sessChip.setAttribute('data-unread', '1');
       sessChip.addEventListener('click', function () {
         /* 当前对话这张卡再「跳到」它会话没意义，反而容易跳到别处——直接提示一下。 */
         if (isCurrent) {
@@ -3061,6 +3131,16 @@
       headRow.appendChild(sessChip);
     }
     main.appendChild(headRow);
+
+    /* 卡片右上角：运行中转圈 / 跑完未读绿点。只有图形，没有文字。 */
+    if (sid && (t.sessionPhase === 'running' || t.sessionUnread === true)) {
+      var badge = el('span', {
+        'class': 'task-live ' + (t.sessionPhase === 'running' ? 'is-running' : 'is-unread'),
+        'aria-hidden': 'true'
+      });
+      badge.title = t.sessionPhase === 'running' ? '这条对话正在回复' : '这条对话跑完了，还没看';
+      item.appendChild(badge);
+    }
 
     var meta = el('div', { 'class': 'task-meta' });
     if (t.due) meta.appendChild(el('span', { 'class': 'due', text: '截止 ' + t.due }));
@@ -4225,6 +4305,22 @@
   }
 
   /* 轮询后台任务：1.2s 一次，最多 3 分钟 */
+  /* 面板正在看这条会话 → 把未读标记清掉（跑的那一下不算，等它结束） */
+  function markCurrentSessionSeen() {
+    var sid = app.currentSessionId ? String(app.currentSessionId) : '';
+    if (!sid) return;
+    var task = ((app.snap && app.snap.tasks) || []).find(function (t) {
+      return String(t.sessionId || '') === sid;
+    });
+    if (!task || task.sessionPhase === 'running') return;
+    var turn = Number(task.sessionTurn || 0);
+    if (!turn || app.seenSent[sid] === turn) return;
+    app.seenSent[sid] = turn;
+    api('sessions/seen', { sessionId: sid, turn: turn }, { silent: true }).catch(function () {
+      delete app.seenSent[sid];
+    });
+  }
+
   function pollInsightAI(startedAt) {
     api('insight/ai', undefined, { silent: true }).then(function (data) {
       /* 服务端同一时刻只跑一个任务：如果跑的不是我们这次，就等它结束再重开 */
@@ -4709,6 +4805,7 @@
       }
       app.loadedOnce = true;
       renderAll();
+      markCurrentSessionSeen();
       maybeAutoInsight();
     }, function () {
       /* api() 已按 silent 决定是否 toast */
