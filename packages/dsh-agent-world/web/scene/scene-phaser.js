@@ -470,6 +470,8 @@ export function createScenePhaser(canvas, options = {}) {
   let objectNodesKey = null
   /** R373：椅子座位（世界像素，中心）。用于工作/开会时把角色吸附到椅子上。 */
   const chairSeats = []
+  /** R389：角色 → 已绑定的椅子索引；坐着期间不重选，避免目标每帧变化造成抖动。 */
+  const seatAssignments = new Map()
   /** R374：手动选中的动作（actorId → actionId）；走动时清除，回到自动动作。 */
   const actionOverrides = new Map()
   /** 墙体图层节点（每条墙一个 image，用**纹理帧**取对应块）。 */
@@ -2149,18 +2151,26 @@ export function createScenePhaser(canvas, options = {}) {
         const seatedKind = actor.stationKind === 'desk' || actor.stationKind === 'meeting' || actor.stationKind === 'breakroom'
         const seatedState = actor.state === 'working' || actor.state === 'talking' || actor.state === 'sleeping'
         if (manual !== true && seatedKind && seatedState) {
-          let best = null
-          let bestDistance = 64
-          for (const [index, seat] of chairSeats.entries()) {
-            if (claimedSeats.has(index)) continue
-            const distance = Math.hypot(seat.x - posX, seat.y - posY)
-            if (distance < bestDistance) { bestDistance = distance; best = index }
+          let seatIndex = seatAssignments.get(actor.id)
+          if (seatIndex !== undefined && claimedSeats.has(seatIndex)) seatIndex = undefined
+          if (seatIndex === undefined) {
+            let best = null
+            let bestDistance = 64
+            for (const [index, seat] of chairSeats.entries()) {
+              if (claimedSeats.has(index)) continue
+              const distance = Math.hypot(seat.x - posX, seat.y - posY)
+              if (distance < bestDistance) { bestDistance = distance; best = index }
+            }
+            seatIndex = best ?? undefined
+            if (seatIndex !== undefined) seatAssignments.set(actor.id, seatIndex)
           }
-          if (best !== null) {
-            claimedSeats.add(best)
-            renderX = chairSeats[best].x
-            renderY = chairSeats[best].y
+          if (seatIndex !== undefined) {
+            claimedSeats.add(seatIndex)
+            renderX = chairSeats[seatIndex].x
+            renderY = chairSeats[seatIndex].y
           }
+        } else {
+          seatAssignments.delete(actor.id)
         }
         if (manual !== true) moveActorTo(entry, renderX, renderY)
         entry.sprite.setDepth(depthFor(entry.sprite.y / TILE_PX))
