@@ -39,7 +39,7 @@
 
 ![任务看板](docs/shots/14-task-board.jpg)
 
-> 截图取自真实使用环境，含内部项目代号，请勿外发。
+> 截图已脱敏：文字全部打码成色块，只保留布局；图表比例也一并盖住。
 
 完整的用法说明见 [docs/USER-GUIDE.md](docs/USER-GUIDE.md)。
 
