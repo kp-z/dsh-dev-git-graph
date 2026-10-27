@@ -34,7 +34,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "tsc -p tsconfig.json && node scripts/copy-web.mjs && node scripts/build-subagent-view.mjs && node --test test/",
-    "build:web": "node scripts/copy-web.mjs && node scripts/build-subagent-view.mjs && cp src/client.js lib/client.js"
+    "build:web": "node scripts/copy-web.mjs && node scripts/build-subagent-view.mjs && cp src/client.js lib/client.js",
+    "lab": "node tools/aw-lab.mjs sim",
+    "lab:live": "node tools/aw-lab.mjs live snapshot"
   },
   "keywords": [
     "deepseek",
