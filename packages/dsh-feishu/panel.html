@@ -713,18 +713,22 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 2px;
     width: 100%;
     height: 100%;
     padding: 0;
   }
 
+  /* 舞台撑满剩余高度：图在舞台里居中，底部控制行永远贴在列底 */
   .chart-stage {
     position: relative;
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
     max-width: 100%;
   }
 
@@ -732,6 +736,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    /* 高度上限 = 整行 172 - 控制行 12 - 间隙 2，保证控件永远贴在底部 */
+    max-height: 158px;
+    overflow: hidden;
   }
 
   /* 底部控制行固定占满整列宽、内容居中：图宽怎么变它都不动 */
@@ -811,7 +818,7 @@
   .mini-line svg { width: 100%; height: 24px; display: block; }
 
   .mini-donut { display: flex; align-items: center; gap: 4px; }
-  .mini-donut svg { width: 164px; height: 164px; flex: 0 0 auto; }
+  .mini-donut svg { width: 150px; height: 150px; flex: 0 0 auto; }
   .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10px; line-height: 1.3; color: var(--p-text-2); }
   .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
 
