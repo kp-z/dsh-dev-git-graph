@@ -20,7 +20,11 @@ function leaf(id) {
 const DEFAULT_TREE = {
   type: 'split', dir: 'row', ratio: 0.62,
   a: leaf('stage'),
-  b: { type: 'split', dir: 'col', ratio: 0.56, a: leaf('task'), b: leaf('team') },
+  b: {
+    type: 'split', dir: 'col', ratio: 0.56,
+    a: leaf('task'),
+    b: { type: 'split', dir: 'col', ratio: 0.52, a: leaf('team'), b: leaf('chat') },
+  },
 }
 
 function readTree() {
@@ -36,7 +40,11 @@ function readTree() {
     }
     if (!walk(value)) return DEFAULT_TREE
     const unique = new Set(ids)
-    if (unique.size !== 3 || !['stage', 'task', 'team'].every((id) => unique.has(id))) return DEFAULT_TREE
+    // R370：旧布局只有 3 leaf；迁移时把 chat 挂到 team 下面。
+    if (unique.size === 3 && ['stage', 'task', 'team'].every((id) => unique.has(id))) {
+      return replaceLeaf(value, 'team', { type: 'split', dir: 'col', ratio: 0.52, a: leaf('team'), b: leaf('chat') })
+    }
+    if (unique.size !== 4 || !['stage', 'task', 'team', 'chat'].every((id) => unique.has(id))) return DEFAULT_TREE
     return value
   } catch (e) {
     return DEFAULT_TREE
@@ -85,12 +93,14 @@ export function mountDock(options = {}) {
     stage,
     task: panels.task ?? root.querySelector?.('#sidebar-panel-graph'),
     team: panels.team ?? root.querySelector?.('#sidebar-panel-agents'),
+    chat: panels.chat ?? root.querySelector?.('#dialogue-dock-host'),
   }
   if (!elements.stage || !elements.task || !elements.team) return null
+  if (!elements.chat) elements.chat = doc.createElement('div')
 
   let tree = readTree()
   let dragId = null
-  const visibility = { task: true, team: true }
+  const visibility = { task: true, team: true, chat: false }
 
   const workspace = doc.createElement('div')
   workspace.className = 'workspace'
@@ -224,7 +234,7 @@ export function mountDock(options = {}) {
 
   function renderNode(node) {
     if (isLeaf(node)) {
-      if ((node.id === 'task' || node.id === 'team') && visibility[node.id] !== true) return null
+      if (['task', 'team', 'chat'].includes(node.id) && visibility[node.id] !== true) return null
       const pane = doc.createElement('div')
       pane.className = 'dock-pane'
       pane.dataset.pane = node.id
@@ -260,7 +270,7 @@ export function mountDock(options = {}) {
 
   /** 由 header 的面板开关调用；hidden pane 仍然留在布局树里，只是不占位。 */
   function setPanelVisible(id, visible) {
-    if (id !== 'task' && id !== 'team') return
+    if (!['task', 'team', 'chat'].includes(id)) return
     visibility[id] = visible === true
     render()
     globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))

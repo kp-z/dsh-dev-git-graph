@@ -363,7 +363,10 @@ const board = createBoard({
 boardRef = board
 
 // R349：游戏目标 HUD（舞台叠层）。数据来自世界事实，不另造状态。
-const questHud = createQuestHud({ root: doc.querySelector('#quest-hud'), doc })
+const questRoot = doc.querySelector('#quest-hud')
+const questHost = doc.querySelector('#sidebar-panel-graph .sidebar-region-content')
+if (questRoot !== null && questHost !== null) questHost.prepend(questRoot)
+const questHud = createQuestHud({ root: questRoot, doc })
 
 // R208：三张卡（场景/任务/团队）进入同一个 dock，可互相拖到左/右/上/下，split 手柄可调宽。
 const dock = mountDock({
@@ -372,8 +375,41 @@ const dock = mountDock({
   panels: {
     task: document.querySelector('#sidebar-panel-graph'),
     team: document.querySelector('#sidebar-panel-agents'),
+    chat: document.querySelector('#dialogue-dock-host'),
   },
 })
+
+// R370：对话卡「悬浮 / 停靠」切换。
+const dialogueDockToggle = root.querySelector?.('#dialogue-dock-toggle')
+const dialogueElement = root.querySelector?.('#dialogue')
+const dialogueDockHost = root.querySelector?.('#dialogue-dock-host')
+const dialogueStage = root.querySelector?.('#stage')
+let dialogueDocked = (() => {
+  try { return globalThis.localStorage?.getItem('agentWorld.dialogueDocked') === 'true' } catch (e) { return false }
+})()
+
+function applyDialogueDock() {
+  if (dialogueDockToggle === null || dialogueDockToggle === undefined || dialogueElement === null || dialogueElement === undefined) return
+  if (dialogueDocked) {
+    dialogueDockHost?.append(dialogueElement)
+    dialogueElement.classList.add('is-docked')
+    dock?.setPanelVisible?.('chat', true)
+    dialogueDockToggle.textContent = '悬浮'
+    dialogueDockToggle.title = '恢复舞台悬浮'
+  } else {
+    dialogueStage?.append(dialogueElement)
+    dialogueElement.classList.remove('is-docked')
+    dock?.setPanelVisible?.('chat', false)
+    dialogueDockToggle.textContent = '停靠'
+    dialogueDockToggle.title = '停靠到侧边'
+  }
+}
+dialogueDockToggle?.addEventListener('click', () => {
+  dialogueDocked = !dialogueDocked
+  try { globalThis.localStorage?.setItem('agentWorld.dialogueDocked', String(dialogueDocked)) } catch (e) { /* 便利 */ }
+  applyDialogueDock()
+})
+applyDialogueDock()
 
 // R307：header 面板开关——只控制 task/team 两张卡是否显示，不改布局树。
 const panelVisibility = (() => {
@@ -1628,6 +1664,25 @@ function showHint(text) {
  * 屏幕边缘避让/尾巴指向这些"贴边"逻辑随 DOM 层一起删掉了——世界坐标里气泡跟着人走，
  * 人走到画面边缘气泡自然跟着出画面，这是游戏该有的样子，不需要额外夹取。
  */
+function compactBubbleText(text, limit) {
+  const value = String(text ?? '')
+    .replace(/```[\s\S]*?```/g, ' [代码] ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/[*_~>|-]{1,}/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return value.length > limit ? `${value.slice(0, Math.max(1, limit - 1))}…` : value
+}
+
+function bubbleTextFor(bubble) {
+  if (bubble.phase === 'thinking') return '思考中…'
+  if (bubble.phase === 'acting') return '执行中…'
+  if (bubble.phase === 'failed') return '出错了'
+  return compactBubbleText(bubble.text, gameModeEnabled ? 44 : 90)
+}
+
 function updateBubbles() {
   if (meta === null) return
   const list = dialogue === null ? [] : dialogue.bubblesFor(performance.now())
@@ -1635,7 +1690,8 @@ function updateBubbles() {
   for (const bubble of list) {
     const agent = world?.agents.find((a) => a.id === bubble.agentId)
     if (agent === undefined) continue
-    enriched.push({ agentId: bubble.agentId, phase: bubble.phase, text: bubble.text })
+    // 气泡只做“状态/摘要”，完整 Markdown 在对话面板里看。
+    enriched.push({ agentId: bubble.agentId, phase: bubble.phase, text: bubbleTextFor(bubble) })
   }
   scene2d.renderBubbles(enriched)
 }

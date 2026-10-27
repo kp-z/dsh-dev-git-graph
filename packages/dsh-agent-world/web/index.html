@@ -150,6 +150,9 @@
           · 左：角色名；中：对话 / 移动 互斥模式；右：解锁 / 收起 两个方图标。
           · 去掉「超控」大标题与大段说明——面板是 HUD，不是文档。
         -->
+        <!-- R370：对话卡停靠位；默认隐藏，由对话头部的「停靠/悬浮」切换。 -->
+        <div id="dialogue-dock-host" class="dialogue-dock-host"></div>
+
         <section id="dialogue" class="dialogue" hidden>
           <div id="dialogue-resize" class="dialogue-resize" title="拖动调整高度"></div>
           <div class="oc-head">
@@ -159,6 +162,7 @@
               <button id="dialogue-mode-move" class="mode-tab" role="tab" aria-selected="false" aria-controls="dialogue-mode-move-panel" type="button">移动</button>
             </div>
             <div class="oc-actions">
+              <button id="dialogue-dock-toggle" class="oc-icon oc-icon-text" type="button" title="停靠到侧边">停靠</button>
               <button id="dialogue-unlock" class="oc-icon oc-icon-text" type="button" title="解锁镜头（Esc）">解锁</button>
               <!--
                 R116：**关闭控件显著化**。用户原话「agent 的对话框没有关闭按钮」——
