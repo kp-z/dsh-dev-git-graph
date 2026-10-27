@@ -748,15 +748,10 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   }
   const experimentalDialoguePort = {
     async say(characterId: string, text: string): Promise<{ ok: true } | { ok: false; reason: string }> {
-      const lead = agentsService?.get?.(state.activeSessionId ?? '')
-      if (lead === undefined) {
-        if (state.activeSessionId === null) {
-          return { ok: false, reason: '当前是独立 Agent World 页，未绑定 DSH 会话。请从 DSH 对话里的 Agent World 面板打开，或用 ?session=<会话id> 打开。' }
-        }
-        return { ok: false, reason: `会话 ${state.activeSessionId} 没有在线 Lead：先回到该会话把它打开，再试。` }
-      }
       const actor = state.currentWorld()?.agents.find((agent) => agent.id === characterId)
       if (actor === undefined) return { ok: false, reason: '没有这个角色：先等成员 spawn 出来。' }
+      // R385：captain 属于当前会话本身，不需要先成为 agent-teams Lead。
+      // 之前的 agentsService 前置检查会把“会话在线但没建团队”直接误报成 Lead 不在线。
       if ((actor as { boundAgentId?: string | null }).boundAgentId === null) {
         // R198：captain 就是当前会话的 Lead；通过 sessionController.prompt 把话送进对话，
         // 回复仍由 session/event 桥接回场景气泡。
@@ -777,6 +772,13 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         } catch (error) {
           return { ok: false, reason: error instanceof Error ? error.message : String(error) }
         }
+      }
+      const lead = agentsService?.get?.(state.activeSessionId ?? '')
+      if (lead === undefined) {
+        if (state.activeSessionId === null) {
+          return { ok: false, reason: '当前是独立 Agent World 页，未绑定 DSH 会话。请从 DSH 对话里的 Agent World 面板打开，或用 ?session=<会话id> 打开。' }
+        }
+        return { ok: false, reason: `成员对话需要 agent-teams Lead；会话 ${state.activeSessionId} 还没有在线团队。` }
       }
       if (typeof agentTeamsService?.sendMessage !== 'function') {
         return { ok: false, reason: 'experimental agentTeams 服务不可用。' }
