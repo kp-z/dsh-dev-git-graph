@@ -894,8 +894,8 @@
   /* 左侧是一句「AI 对我说的话」：做成对话气泡，尾巴朝左上角的灯泡 */
   .insight-text {
     position: relative;
-    height: 172px;
-    padding: 14px 16px 32px;
+    height: 134px;
+    padding: 11px 14px 28px;
     box-sizing: border-box;
     /* 气泡底色用变量，尾巴复用同一色，避免半透明叠加后看不出来 */
     --p-bubble: var(--p-bubble-bg, #f7f8fb);
@@ -905,6 +905,83 @@
     border-radius: 14px 14px 14px 4px;
     /* 不能用 hidden：会把左上角的尾巴裁掉 */
     overflow: visible;
+  }
+
+  /* 左栏：气泡在上，小猫在下 */
+  .insight-left {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .cat-ai {
+    display: flex;
+    align-items: flex-end;
+    gap: 5px;
+    height: 34px;
+    margin-top: 4px;
+    padding-left: 4px;
+  }
+
+  .cat {
+    width: 46px;
+    height: 34px;
+    overflow: visible;
+    flex: 0 0 auto;
+  }
+
+  .cat-shadow { fill: rgba(20, 24, 36, 0.10); }
+  .cat-body, .cat-head, .cat-ear-l, .cat-ear-r {
+    fill: var(--cat-fur, #f6b26b);
+    stroke: var(--cat-line, #d98f45);
+    stroke-width: 1.2;
+  }
+
+  .cat-tail {
+    fill: none;
+    stroke: var(--cat-line, #d98f45);
+    stroke-width: 3.2;
+    stroke-linecap: round;
+    transform-origin: 48px 44px;
+  }
+
+  .cat-eye-l circle:first-child, .cat-eye-r circle:first-child { fill: #2a2e37; }
+  .cat-glint { fill: #fff; }
+  .cat-mouth { fill: none; stroke: #a26434; stroke-width: 1.1; stroke-linecap: round; }
+  .cat-whisker { stroke: var(--cat-line, #d98f45); stroke-width: 1; stroke-linecap: round; opacity: .65; }
+
+  /* 呼吸、眨眼、甩尾各走各的节奏，看起来是活的 */
+  .cat-bob { animation: cat-bob 2.8s ease-in-out infinite; transform-origin: 50% 100%; }
+  .cat-tail { animation: cat-tail 2.2s ease-in-out infinite; }
+  .cat-eye-l, .cat-eye-r { animation: cat-blink 4.4s ease-in-out infinite; transform-origin: center; }
+  .cat-eye-r { animation-delay: .06s; }
+
+  @keyframes cat-bob {
+    0%, 100% { transform: translateY(0) }
+    50% { transform: translateY(-1.2px) }
+  }
+
+  @keyframes cat-tail {
+    0%, 100% { transform: rotate(-7deg) }
+    50% { transform: rotate(9deg) }
+  }
+
+  @keyframes cat-blink {
+    0%, 90%, 100% { transform: scaleY(1) }
+    94% { transform: scaleY(0.1) }
+  }
+
+  .cat-tip {
+    font-size: 9.5px;
+    line-height: 1;
+    color: var(--p-text-3);
+    padding-bottom: 6px;
+    letter-spacing: .04em;
+  }
+
+  /* 尊重「减少动态效果」的系统设置 */
+  @media (prefers-reduced-motion: reduce) {
+    .cat-bob, .cat-tail, .cat-eye-l, .cat-eye-r { animation: none; }
   }
 
   /* 尾巴放在左下角、朝左（像一条从左边递过来的消息） */
@@ -936,7 +1013,7 @@
   .insight-line.is-summary {
     display: block;
     -webkit-line-clamp: unset;
-    max-height: 124px;
+    max-height: 92px;
     overflow-y: auto;
     font-size: 12px;
     line-height: 1.78;
@@ -2143,11 +2220,32 @@
 
     <!-- 中间块：左文字（含「展开」） / 右饼图，左右等高 -->
     <div class="insight-mid">
+      <div class="insight-left">
       <div class="insight-text" id="insightText" role="button" tabindex="0" aria-expanded="false" aria-controls="insightBody" title="点击展开 / 收起详情">
         <div id="insightMeta" class="insight-meta"></div>
         <div id="insightLine" class="insight-line" role="status" aria-live="polite"></div>
         <div id="insightExtra" class="insight-extra"></div>
         <button type="button" id="insightToggle" class="insight-toggle" aria-expanded="false" aria-controls="insightBody">展开详情 ↓</button>
+      </div>
+
+      <!-- 拟人化的 AI：一只会眨眼、甩尾巴的小猫，蹲在气泡下面 -->
+      <div class="cat-ai" aria-hidden="true">
+        <svg class="cat" viewBox="0 0 72 52" focusable="false">
+          <ellipse class="cat-shadow" cx="34" cy="49" rx="15" ry="2.4" />
+          <g class="cat-bob">
+            <path class="cat-tail" d="M48 44 C58 44 62 38 58 31 C56 27 50 28 50 32" />
+            <path class="cat-body" d="M20 46 C20 36 25 31 34 31 C43 31 48 36 48 46 Z" />
+            <path class="cat-ear-l" d="M20 22 L18 11 L29 18 Z" />
+            <path class="cat-ear-r" d="M40 18 L51 11 L49 22 Z" />
+            <circle class="cat-head" cx="34" cy="24" r="13" />
+            <g class="cat-eye-l"><circle cx="29" cy="23" r="2.1" /><circle class="cat-glint" cx="29.7" cy="22.3" r="0.7" /></g>
+            <g class="cat-eye-r"><circle cx="39" cy="23" r="2.1" /><circle class="cat-glint" cx="39.7" cy="22.3" r="0.7" /></g>
+            <path class="cat-mouth" d="M32 28.5 q2 2 4 0" />
+            <path class="cat-whisker" d="M22 26 h-5 M22 29 h-5 M46 26 h5 M46 29 h5" />
+          </g>
+        </svg>
+        <span class="cat-tip">AI</span>
+      </div>
       </div>
       <div id="insightCharts" class="insight-charts" aria-label="AI 选的图表"></div>
     </div>
