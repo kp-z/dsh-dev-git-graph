@@ -35,6 +35,7 @@ import type { DialogueChannel } from './routes/dialogue.js'
 import { createEventHub, createRuntime } from './runtime/index.js'
 import { planTeamSync } from './sim/index.js'
 import { createWorldStore } from './store/index.js'
+import { skillForTool } from './sim/tool-skill.js'
 import { createPluginState } from './state.js'
 import { createPersonaStore } from './persona/store.js'
 import { registerDispatchTool } from './tools/dispatch.js'
@@ -690,11 +691,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
             .map((block) => String((block as Record<string, unknown>)?.['name'] ?? ''))
           if (toolNames.length > 0) {
             const name = toolNames[0] ?? ''
-            const skill = /(content|search|read|memory|inspect|doc|wiki)/i.test(name) ? 'research'
-              : /(bash|terminal|shell|exec|compute|run)/i.test(name) ? 'compute'
-              : /(review|verify|check)/i.test(name) ? 'review'
-              : 'code'
-            runtime.enqueue({ kind: 'agentActivity', agentId: actor.id, activity: 'work', ticks: 60, skill })
+            runtime.enqueue({ kind: 'agentActivity', agentId: actor.id, activity: 'work', ticks: 60, skill: skillForTool(name) })
           }
         } else if (event.type === 'tool/result') {
           runtime.enqueue({ kind: 'agentActivity', agentId: actor.id, activity: 'idle', ticks: 0 })
