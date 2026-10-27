@@ -740,6 +740,13 @@
     border-left: 2px solid var(--p-accent-line);
   }
 
+  /* 总结可以多行显示，别截成一行 */
+  .insight-line.is-summary {
+    -webkit-line-clamp: 6;
+    font-size: 12px;
+    line-height: 1.6;
+  }
+
   .insight-line.is-warn { border-left-color: var(--p-warn); }
   .insight-line.is-idle { color: var(--p-text-3); border-left-color: var(--p-line-strong); }
 
@@ -3227,6 +3234,11 @@
 
     /* 统计从顶栏挪进文字块：顶栏只留标题 + 按钮，腾地方给按钮，也让顶栏不换行 */
     var meta = $('insightMeta');
+    var hasSummary = Boolean(ai && String(ai.summary || '').trim());
+    if (meta) {
+      /* 有 AI 总结时，统计行让位给总结——「今天活跃 0 条」这种没有信息量的东西不占地方 */
+      meta.hidden = hasSummary;
+    }
     if (meta) {
       var bits = [];
       if (typeof board.total === 'number') {
@@ -3248,19 +3260,18 @@
       line.classList.add('is-idle');
       line.textContent = 'AI 正在看你今天的任务…';
       if (extra) extra.textContent = '';
+    } else if (hasSummary) {
+      /* 收起状态只显示 AI 写的那段总结；其余内容全部在展开里 */
+      line.textContent = ai.summary;
+      line.classList.add('is-summary');
+      if (extra) extra.textContent = '';
     } else if (ai && ai.headline) {
-      /* 收起状态要和展开后看到的是同一件事：昨天做了什么 / 今天做什么 / 今天不建议 */
       line.textContent = ai.headline;
       if (extra) {
         var brief = [];
         if (ai.today) {
           var todayText = String(ai.today).trim();
-          /* 模型自己已经以「昨天」开头，就别再套一层 */
           brief.push((/^昨天/.test(todayText) ? '' : '昨天：') + todayText);
-        }
-        if ((ai.issues || []).length) {
-          brief.push('今天：' + ai.issues.map(function (issue) { return 'T' + (issue.taskNo || '?'); }).join(' · ')
-            + '　' + ai.issues.map(function (issue) { return issue.text || ''; }).join('；'));
         }
         if (ai.advice) brief.push('不建议：' + ai.advice);
         extra.textContent = brief.join('\n');

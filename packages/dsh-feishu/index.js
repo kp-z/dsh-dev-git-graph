@@ -138,13 +138,15 @@ export const PROMPT_REV = 5
 export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。今天要说两件事：昨天做了什么、今天做什么。不写客套话、不写评估分数、不写趋势分析。
 
 输出一个 JSON 对象，不要解释、不要 markdown 代码块：
-{"headline":"今天最该做的一件事（不超过 30 字，带任务号）",
+{"summary":"一段话总结（2-4 句，不超过 120 字）：昨天做了什么、今天最重要的一件事是什么","headline":"今天最该做的一件事（不超过 30 字，带任务号）",
  "today":"昨天做了哪些事（不超过 70 字，按任务号逐条列，每条一句结果）",
  "issues":[{"taskNo":12,"level":"info","text":"为什么今天做它 / 现在做它的理由（不超过 28 字）","evidence":"第一步具体做什么（不超过 30 字）"}],
  "advice":"今天不建议碰什么，以及原因（不超过 50 字）",
  "commentary":"","charts":[]}
 
 规则：
+- **summary 是最重要的字段**：用户收起卡片时只会看到这一段。用 2-4 句话说清昨天做了什么、
+  今天最该做的一件事是什么；不要罗列任务号清单，要像跟同事口头交代一样。
 - 「昨天做了什么」按事实写：有推进就写清是哪条、做到哪一步；确实没有记录才写「昨天没有记录到推进」。
 - 「今天做什么」必须是**你的判断**：从待办里挑出今天最该推进的 1-3 件，说明为什么是它、
   现在做的理由（例如「只差验收」「卡住别人」「已经拖了 3 天」）。**不要**因为「今天还没开始」就说今天没事可做，
@@ -2922,7 +2924,7 @@ function createSyncEngine(ctx) {
       parsed = parseJson(asked.text)
       /* 解析出来但字段对不上（模型自己换了结构）也算失败，换个预算重试 */
       if (parsed && typeof parsed === 'object'
-        && (asString(parsed.headline) || asString(parsed.today) || asString(parsed.advice)
+        && (asString(parsed.summary) || asString(parsed.headline) || asString(parsed.today) || asString(parsed.advice)
           || Array.isArray(parsed.issues))) {
         break
       }
@@ -2938,6 +2940,7 @@ function createSyncEngine(ctx) {
       }
     }
     const data = {
+      summary: asString(parsed.summary).slice(0, 400),
       headline: asString(parsed.headline).slice(0, 120),
       today: asString(parsed.today).slice(0, 160),
       issues: (Array.isArray(parsed.issues) ? parsed.issues : []).slice(0, 3).map((item) => ({
