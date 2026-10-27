@@ -2441,6 +2441,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
       airWall: globalThis.__agentWorldPhaser?.airWallAudit?.() ?? null,
       occlusion: globalThis.__agentWorldPhaser?.occlusionAudit?.() ?? null,
       overlay: globalThis.__agentWorldPhaser?.overlayAudit?.() ?? null,
+      chairs: globalThis.__agentWorldPhaser?.chairAudit?.() ?? null,
     }),
     explain: (id) => {
       const space = spaceOf()
