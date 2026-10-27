@@ -29,6 +29,8 @@ export interface RuntimeDiagnostics {
   resets: number
   /** 处理过的派单请求。 */
   dispatches: number
+  /** 成功落进世界的招募请求数。 */
+  hires: number
   /** 收到但没人能处理的招募请求数（M7 之前接不上）。 */
   unhandledHires: number
   /** `step()` 抛异常的累计次数。 */

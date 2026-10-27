@@ -129,6 +129,7 @@ export function createRuntime(options: RuntimeOptions): Runtime {
     ticks: 0,
     resets: 0,
     dispatches: 0,
+    hires: 0,
     unhandledHires: 0,
     errors: 0,
     persistErrors: 0,
@@ -236,8 +237,37 @@ export function createRuntime(options: RuntimeOptions): Runtime {
       }
     }
     if (hire.length > 0) {
-      // M7 之前没人能做这件事。计数而不是静默丢弃。
-      diagnostics.unhandledHires += hire.length
+      // R400：真正把 hire 落进世界。以前只计数、直接丢弃，表现为“创建成功但没人出现”。
+      const world = service.currentWorld()
+      if (world !== null) {
+        const template = world.agents[0]
+        for (const request of hire) {
+          const index = world.agents.length + 1
+          const id = `agent-${index}`
+          const agent = template === undefined
+            ? null
+            : {
+                ...template,
+                id,
+                name: request.name ?? `${request.role}-${index}`,
+                role: request.role,
+                state: 'idle' as const,
+                station: null,
+                targetStation: null,
+                carrying: null,
+                path: [],
+                boundAgentId: null,
+              }
+          if (agent !== null) {
+            world.agents.push(agent)
+            // 只改内存不够：面板靠增量事件，必须把“新角色”广播出去。
+            world.events.push({ seq: world.seq, tick: world.tick, type: 'agent.hired', payload: { agent } })
+            world.seq += 1
+            diagnostics.hires += 1
+          }
+        }
+      }
+      if (diagnostics.hires < hire.length) diagnostics.unhandledHires += hire.length - diagnostics.hires
     }
   }
 

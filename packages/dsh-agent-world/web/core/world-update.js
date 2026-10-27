@@ -79,6 +79,13 @@ export function applyEvent(world, event) {
       return
     }
 
+    case 'agent.hired': {
+      const agent = payload.agent
+      if (agent === null || typeof agent !== 'object' || typeof agent.id !== 'string') return
+      if (Array.isArray(world.agents) && !world.agents.some((item) => item.id === agent.id)) world.agents.push(agent)
+      return
+    }
+
     case 'agent.state': {
       const agent = agentOf(world, payload.id)
       if (agent === undefined) return

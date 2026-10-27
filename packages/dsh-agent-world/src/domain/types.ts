@@ -297,6 +297,7 @@ export type WorldEventType =
   | 'world.tick'
   | 'agent.state'
   | 'agent.moved'
+  | 'agent.hired'
   | 'task.changed'
   | 'task.assigned'
   | 'task.completed'
