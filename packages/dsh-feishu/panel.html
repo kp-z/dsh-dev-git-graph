@@ -24,8 +24,8 @@
     --p-accent-weak: rgba(59, 91, 219, 0.10);
     --p-accent-line: rgba(59, 91, 219, 0.24);
     /* 洞察气泡：底色偏中性、只用一点点蓝，文字压到接近正文黑 */
-    --p-bubble-bg: #e6eaf2;
-    --p-bubble-line: #d5dbe7;
+    --p-bubble-bg: #eaecf0;
+    --p-bubble-line: #dcdfe6;
     --p-bubble-text: #232733;
     --p-bubble-text-soft: #5b6270;
     /* 选中态用橙色：和强调蓝拉开距离，扫一眼就能在一堆白卡里认出来 */
@@ -570,12 +570,14 @@
   .insight-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 12px;
   }
 
   /* 中间块：左文字 / 右图表。顶部那一行（今日洞察 + 统计）保持整行。 */
   .insight-mid {
     display: grid;
+    /* 和上方标题行拉开距离：气泡顶部的小尾巴也需要这块空间 */
+    margin-top: 10px;
     /* 两栏各占一半，等高 */
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 10px;
