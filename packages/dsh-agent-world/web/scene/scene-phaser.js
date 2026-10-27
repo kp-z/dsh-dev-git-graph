@@ -2072,6 +2072,13 @@ export function createScenePhaser(canvas, options = {}) {
           ? ensureTintedSheet(model.url, actor.color, variants.get(actor.id) ?? 0, sheet)
           : null
         const textureKey = actorTextureKey({ baseKey, tintedKey, sheet })
+        // R401：贴图晚到时要能把 Rectangle 兜底升级成真正的精灵，否则它一辈子无动画地滑。
+        if (entry.sprite !== null && entry.sprite.type === 'Rectangle') {
+          entry.collider?.destroy?.()
+          entry.collider = null
+          entry.sprite.destroy()
+          entry.sprite = null
+        }
         if (entry.sprite === null) {
           // 用**引擎的 Arcade 物理精灵**：移动交给物理系统（`moveActorTo` 里的 `physics.moveTo`），
           // 不手写每帧补间。物理体负责"朝目标匀速走"，其余（动画/点人/深度）照旧。
