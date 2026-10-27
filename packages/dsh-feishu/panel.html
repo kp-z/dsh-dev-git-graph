@@ -1350,19 +1350,18 @@
     min-width: 0;
   }
 
+  /* 标题永远一行：超出直接省略，全称靠 hover 的 title 提示 */
   .task-title,
   .doc-title {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
+    display: block;
+    min-width: 0;
+    white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
     font-size: 12.5px;
     font-weight: 500;
     line-height: 1.4;
     color: var(--dsw-alias-label-primary, var(--p-text));
-    word-break: break-word;
-    overflow-wrap: anywhere;
   }
 
   .doc-title { font-size: 12.5px; }
@@ -1413,9 +1412,9 @@
 
   .task-head {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px 6px;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
     min-width: 0;
   }
 
@@ -1460,24 +1459,30 @@
 
   .title-input:focus { outline: none; box-shadow: 0 0 0 2px var(--p-accent-weak); }
 
+  /* 会话 id：一行、像个小按钮，点开 / 复制 */
   .sess-inline {
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    max-width: 18ch;
-    padding: 0;
-    border: 0;
-    background: transparent;
+    max-width: 16ch;
+    padding: 1px 6px;
+    border: 1px solid var(--p-line);
+    border-radius: 999px;
+    background: var(--p-sub, rgba(127, 127, 127, 0.08));
     color: var(--p-text-3);
     font: inherit;
     font-size: 10px;
-    line-height: 1.4;
-    opacity: .72;
-    cursor: pointer;
+    line-height: 1.5;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .sess-inline:hover {
+    color: var(--p-accent);
+    border-color: var(--p-accent);
   }
 
   .sess-inline:hover {
