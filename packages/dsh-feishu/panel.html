@@ -588,6 +588,16 @@
 
   .btn.is-busy { opacity: 0.75; }
 
+  /* 当前选中的洞察按钮 */
+  .insight-buttons .btn.is-active {
+    color: var(--p-accent);
+    border-color: var(--p-accent);
+    background: color-mix(in srgb, var(--p-accent) 12%, transparent);
+    font-weight: 600;
+  }
+
+  .insight-regen { margin-right: 2px; opacity: 0.85; }
+
   /* 点文字块本身展开/收起：不额外占一行 */
   .insight-text {
     cursor: pointer;
@@ -2164,6 +2174,8 @@
     insightTab: 'morning',
     insightLoading: false,
     insightBusyId: '',
+    insightActiveId: '',
+    insightResults: {},
     promptDefaults: {},
     insightStats: null,
     insightStatsLoading: false,
@@ -3699,45 +3711,69 @@
     var box = $('insightButtons');
     if (!box) return;
     clear(box);
-    insightButtons().forEach(function (btn) {
+
+    var list = insightButtons();
+    if (!app.insightActiveId || !list.some(function (btn) { return btn.id === app.insightActiveId; })) {
+      app.insightActiveId = list[0] ? list[0].id : '';
+    }
+
+    /* 「重新生成」在最左边：只做一件事——用当前按钮的 prompt 重新跑一次 */
+    var regen = makeButton(app.insightLoading ? '生成中…' : '重新生成', 'btn btn-ghost btn-xs insight-regen', null, false, function () {
+      var active = list.find(function (btn) { return btn.id === app.insightActiveId; }) || list[0];
+      if (!active) return;
+      runInsightButton(active);
+    });
+    regen.title = '用当前按钮自己的 prompt 重新生成';
+    if (app.insightLoading) regen.disabled = true;
+    box.appendChild(regen);
+
+    list.forEach(function (btn) {
       var busy = app.insightLoading && app.insightBusyId === btn.id;
+      var active = btn.id === app.insightActiveId;
       var label = busy ? '生成中…' : btn.label;
       var node = makeButton(label, 'btn btn-ghost btn-xs', null, false, function () {
         handleInsightButton(btn);
       });
       if (app.insightLoading) node.disabled = true;
       if (busy) node.classList.add('is-busy');
+      if (active) node.classList.add('is-active');
       if (btn.prompt) node.title = btn.prompt.slice(0, 200);
-      if (btn.kind === 'morning') node.classList.add('btn-soft');
       box.appendChild(node);
     });
   }
 
+  /* 点击按钮 = 切换视图；已有结果就不重跑。想重跑点「重新生成」。 */
   function handleInsightButton(btn) {
     if (!btn) return;
-    if (btn.kind === 'morning') {
-      app.insightTab = 'morning';
-      app.insightOpen = true;
-      syncToggleLabel();
-      loadInsightStats();
-      renderInsightBody();
-      /* 早会用自己的提示词（mode=morning），走不到「诊断」的 prompt */
-      onInsightDiagnose(btn.prompt || '', btn.id, 'morning');
+    app.insightActiveId = btn.id;
+    app.insightTab = btn.kind === 'morning' ? 'morning' : 'diagnose';
+    app.insightOpen = true;
+    syncToggleLabel();
+
+    var cached = app.insightResults && app.insightResults[btn.id];
+    if (cached) {
+      app.insightAI = cached;
+      renderInsight();
       return;
     }
-    if (btn.kind === 'export') {
-      onInsightExport();
-      return;
-    }
-    /* kind === 'ai'：用这个按钮自己的 prompt 跑一次诊断 */
-    app.insightTab = 'diagnose';
-    onInsightDiagnose(btn.prompt || '', btn.id);
+    app.insightAI = null;
+    renderInsight();
+    if (btn.kind === 'export') { onInsightExport(); return; }
+    runInsightButton(btn);
   }
 
   function syncToggleLabel() {
     var text = $('insightText');
     if (!text) return;
     text.setAttribute('aria-expanded', app.insightOpen ? 'true' : 'false');
+  }
+
+  /* 真正触发一次生成：带上按钮自己的 prompt 与它该走的模式 */
+  function runInsightButton(btn) {
+    if (!btn) return;
+    app.insightActiveId = btn.id;
+    var mode = btn.kind === 'morning' ? 'morning' : '';
+    onInsightDiagnose(btn.prompt || '', btn.id, mode);
   }
 
   function onInsightDiagnose(prompt, buttonId, mode) {
@@ -3777,10 +3813,13 @@
         setTimeout(function () { pollInsightAI(startedAt); }, 1200);
         return;
       }
+      var finishedId = app.insightBusyId;
       app.insightLoading = false;
       app.insightBusyId = '';
       if (data && data.data) {
         app.insightAI = data.data;
+        /* 按「哪个按钮跑出来的」分别存，切回去就不用再花 token */
+        if (finishedId) app.insightResults[finishedId] = data.data;
         renderInsight();
       } else {
         toast('AI 诊断没有结果：' + ((data && data.error) || '模型不可用'));
