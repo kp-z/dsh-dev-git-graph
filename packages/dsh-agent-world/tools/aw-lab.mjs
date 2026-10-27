@@ -278,10 +278,17 @@ async function main() {
       if (args.json !== true) console.log(`determinism ${deterministic ? 'OK' : 'FAIL'}（${repeat} 次）`)
       if (!deterministic) process.exitCode = 1
     }
-    if (args.json === true && repeat === 1) console.log(JSON.stringify({ options, audit: result.audit, trace: result.trace }, null, 2))
+    const expect = scenario.expect ?? {}
+    const violations = []
+    if (Number.isFinite(expect.minDone) && result.audit.tasks.done < expect.minDone) violations.push(`done ${result.audit.tasks.done} < minDone ${expect.minDone}`)
+    if (Number.isFinite(expect.maxFailed) && result.audit.tasks.failed > expect.maxFailed) violations.push(`failed ${result.audit.tasks.failed} > maxFailed ${expect.maxFailed}`)
+    if (expect.noIssues === true && result.audit.issues.length > 0) violations.push(`audit issues ${result.audit.issues.length}`)
+    if (args.json === true && repeat === 1) console.log(JSON.stringify({ options, audit: result.audit, trace: result.trace, violations }, null, 2))
     else {
       console.log(summarize(result))
-      if (result.audit.issues.length > 0) process.exitCode = 1
+      if (violations.length > 0) console.log(`scenario FAIL\n  - ${violations.join('\n  - ')}`)
+      else if (Object.keys(expect).length > 0) console.log('scenario OK')
+      if (result.audit.issues.length > 0 || violations.length > 0) process.exitCode = 1
     }
     return
   }
