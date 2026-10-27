@@ -31,7 +31,7 @@ export const MESSAGE_RING_SIZE = 200
 export const EVENT_RING_SIZE = 500
 
 /** 角色一条 tick 的移动速度（世界单位 / tick）。走一个地块约 1 秒。 */
-export const WALK_SPEED = 0.06
+export const WALK_SPEED = 0.18
 
 /**
  * 到一个站点后，一条 tick 推进多少进度。1 / 这个值 = 需要多少 tick。

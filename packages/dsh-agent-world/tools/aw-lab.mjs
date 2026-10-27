@@ -12,6 +12,7 @@
  *
  * 设计约束：只依赖 lib/ 的纯模拟，不启动 webServer，不写盘；同一参数两次输出必须一致。
  */
+import { readFileSync } from 'node:fs'
 import { ContentRegistry, builtinPacks } from '../lib/content/index.js'
 import { createWorld } from '../lib/world/create.js'
 import { step } from '../lib/sim/step.js'
@@ -247,13 +248,14 @@ async function main() {
   }
   const mode = args._[0]
   if (mode === 'sim') {
+    const scenario = typeof args.scenario === 'string' ? JSON.parse(readFileSync(args.scenario, 'utf8')) : {}
     const options = {
-      ticks: Math.max(1, Math.floor(num(args.ticks, 1200))),
-      agents: Math.max(1, Math.floor(num(args.agents, 4))),
-      taskSet: typeof args['task-set'] === 'string' ? args['task-set'] : 'task.quick-fix',
-      gameMode: args['game-mode'] === true,
-      seed: Math.max(1, Math.floor(num(args.seed, 1))),
-      scene: typeof args.scene === 'string' ? args.scene : 'scene.default-town',
+      ticks: Math.max(1, Math.floor(num(args.ticks, scenario.ticks ?? 1200))),
+      agents: Math.max(1, Math.floor(num(args.agents, scenario.agents ?? 4))),
+      taskSet: typeof args['task-set'] === 'string' ? args['task-set'] : (scenario.taskSet ?? 'task.quick-fix'),
+      gameMode: args['game-mode'] === true || scenario.gameMode === true,
+      seed: Math.max(1, Math.floor(num(args.seed, scenario.seed ?? 1))),
+      scene: typeof args.scene === 'string' ? args.scene : (scenario.scene ?? 'scene.default-town'),
     }
     const result = simulate(options)
     if (args.json === true) console.log(JSON.stringify({ options, audit: result.audit, trace: result.trace }, null, 2))

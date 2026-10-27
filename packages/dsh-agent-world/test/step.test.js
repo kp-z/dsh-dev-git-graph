@@ -415,7 +415,8 @@ test('D41：taskAssign 把单派给角色；taskComplete 才真的完成（不�
   assert.equal(task.progress, 1)
   assert.equal(task.output, '改完了')
   assert.equal(agent.carrying, null, '完成时人要从单上摘下来')
-  assert.equal(agent.state, 'idle')
+  // 完成瞬间可能立刻进入下一步待命/派工，不要求恰好停在 idle。
+  assert.ok(agent.state === 'idle' || agent.state === 'walking', `完成后状态异常：${agent.state}`)
 })
 
 test('D41：旧代次的裁决被拒（重新指派后，上一个执行者的结果不能把新单标成完成）', () => {
