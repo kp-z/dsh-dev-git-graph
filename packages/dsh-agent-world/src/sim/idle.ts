@@ -220,7 +220,10 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
     // 全都不再是派工候选（7 条既有测试红：R67 的 stalled、D41 的派工）。
     // 也就是说 `walking` 在这个代码库里同时驮着两件事：「我在挪」**和**「我在派工流程里」。
     // 这个歧义值得单独修（见汇报），但**不是这一轮该顺手改的**——它会把调度语义一起动了。
-    const wanted = paceTarget !== null ? 'walking' : 'idle'
+    // R398：只要还在沿路径移动，就必须是 walking；否则渲染器选站立动画，
+    // 表现就是“人在地上滑”。到达后再回 idle。
+    const moving = agent.path.length > 0 || Math.hypot(goal.x - agent.position.x, goal.z - agent.position.z) > 0.15
+    const wanted = moving ? 'walking' : 'idle'
     if (agent.state !== wanted) {
       agent.state = wanted
       stateChanged.push(agent.id)
