@@ -3003,34 +3003,6 @@
     }
 
     /* AI 起名的落库：改完立刻关编辑器、刷新，并在 toast 里带上原标题方便对照。 */
-    function applyRename(next, source) {
-      var previous = String(t.title || '');
-      if (!next || next === previous) { close(); return; }
-      finished = true;
-      app.titleEditing = false;
-      input.disabled = true;
-      api('tasks/rename', { taskId: t.id, title: next }).then(function (data) {
-        wrap.remove();
-        toast((source || '已改名') + '：' + ((data && data.title) || next) + '（原「' + previous + '」）');
-        load({ quiet: true });
-      }, function (error) {
-        /* 失败要把编辑器还回去，别让人以为改完了 */
-        finished = false;
-        app.titleEditing = true;
-        input.disabled = false;
-        var detail = (error && (error.message || error.error)) || '改名失败';
-        toast(String(detail).slice(0, 120));
-      });
-    }
-
-    input.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter') { event.preventDefault(); submit(); }
-      else if (event.key === 'Escape') {
-        event.preventDefault();
-        app.docBinding = false;
-        renderTasks();
-      }
-    });
   }
 
   /* 就地改文档链接：换成另一篇文档，标题按新链接重新问一次，然后重写飞书「文档」字段。 */
@@ -4078,6 +4050,21 @@
   }
 
   /**
+   * 改名的公共出口：调后端 + 强制刷新列表。
+   *
+   * 之前这段逻辑分别嵌在「文档绑定」和「标题编辑」两个函数里，名字还被互相引用，
+   * 于是标题编辑那边调到了一个不存在的 applyRename → 点了 AI 起名什么都不发生（静默 ReferenceError）。
+   */
+  function renameTaskRemote(taskId, next, source) {
+    return api('tasks/rename', { taskId: taskId, title: next }).then(function (data) {
+      app.lastSig = '';   /* 强制重绘：改名后列表必须立刻变 */
+      load({ quiet: true });
+      if (source) toast(source + '：' + ((data && data.title) || next));
+      return data;
+    });
+  }
+
+  /**
    * 双击标题后的就地编辑：Enter 保存、Esc 取消、失焦取消。
    * 旁边的「AI 起名」调后端生成正式标题，只填进输入框，仍由人确认再保存。
    */
@@ -4106,10 +4093,28 @@
           return;
         }
         /* 生成即写回：以前只是填进输入框、还要再按回车，容易被当成「没生效」。 */
-        applyRename(data.title, 'AI 起名');
-      }, function () {
+        var next = String(data.title || '');
+        if (next === String(t.title || '')) {
+          toast('AI 起的名字和现在一致');
+          return;
+        }
+        finished = true;
+        app.titleEditing = false;
+        input.disabled = true;
+        renameTaskRemote(t.id, next, 'AI 起名').then(function () {
+          wrap.remove();
+        }, function (error) {
+          finished = false;
+          app.titleEditing = true;
+          input.disabled = false;
+          var detail = (error && (error.error || error.message)) || '改名失败';
+          toast('AI 起名失败：' + String(detail).slice(0, 100));
+        });
+      }, function (error) {
         aiBtn.disabled = false;
         aiBtn.textContent = 'AI 起名';
+        var detail = (error && (error.error || error.message)) || '请求失败';
+        toast('AI 起名失败：' + String(detail).slice(0, 100));
       });
     });
     var saveBtn = makeButton('保存', 'btn btn-primary btn-xs', null, false, function () { save(); });
