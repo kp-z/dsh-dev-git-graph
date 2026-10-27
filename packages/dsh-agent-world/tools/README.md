@@ -53,3 +53,14 @@ node tools/aw-probe.mjs --url ... --expr 'JSON.stringify(globalThis.__agentWorld
 
 默认输出 `occlusion`、`chairs`、`trace`、`manual`、`stats`。用于断言：
 `occlusion.ok === true`、每个 actor 有 `texture/anim`、walking 时不是 idle 动画、工作到站后 `seat` 非空。
+
+## check（门禁）
+
+```bash
+node tools/aw-probe.mjs --url '<agent-world?debug=1&token=...>' --wait 5000 --check
+# scene check OK
+# 失败时打印 issues，退出码 1
+```
+
+断言：occlusion 0 异常、0 fallback、每个 actor 有贴图/动画、有目标时播 walk、到目标不播 walk、
+desk/meeting 工作时有绑定椅子。
