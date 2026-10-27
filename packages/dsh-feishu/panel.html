@@ -600,6 +600,9 @@
     flex: 0 0 auto;
   }
 
+  /* 顶栏本身不换行：放不下就横向滚动，tab 始终贴右 */
+  .insight-head { flex-wrap: nowrap; }
+
   .insight-tabs .btn {
     border: none;
     background: transparent;
@@ -632,13 +635,7 @@
 
   .insight-regen:hover { color: var(--p-accent); border-color: var(--p-accent); }
 
-  /* 侧栏很窄时（<560px）把 tab 行放到第二行，避免被标题挤掉 */
-  @media (max-width: 560px) {
-    .insight-head { flex-wrap: wrap; overflow-x: visible; }
-    .insight-title { flex: 1 1 auto; }
-    .insight-tabs { order: 3; width: 100%; margin-left: 0; justify-content: flex-start; }
-    .insight-regen { order: 4; }
-  }
+
 
   /* 点文字块本身展开/收起：不额外占一行 */
   .insight-text {
@@ -727,7 +724,11 @@
   .insight-head::-webkit-scrollbar { display: none; }
 
   .insight-title {
-    flex: 0 0 auto;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12.5px;
     color: var(--p-text-1);
   }
