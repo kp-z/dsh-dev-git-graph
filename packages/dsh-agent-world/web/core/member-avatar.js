@@ -44,10 +44,15 @@ function assetUrl(url, baseUrl = './vendor/') {
  * @returns {{url: string, col: number, row: number, cellW: number, cellH: number}|null}
  *   找不到（没有场景 / 没有这个 actor / 没声明图集 / 没有动画）时返回 null，调用方退回字母头像。
  */
-export function resolveMemberSprite(scene, agentId, baseUrl = './vendor/') {
+export function resolveMemberSprite(scene, agentId, baseUrl = './vendor/', role = null) {
   if (scene === null || scene === undefined || typeof agentId !== 'string' || agentId === '') return null
   const actors = Array.isArray(scene.actors) ? scene.actors : []
-  const actor = actors.find((a) => a !== null && a.id === agentId)
+  let actor = actors.find((a) => a !== null && a.id === agentId)
+  // R382：新建成员可能还没进 scene.actors（快照滞后）；按同职业找一张现有贴图，
+  // 避免头像直接掉成字母。只做展示兜底，不改变角色身份。
+  if (actor === undefined && typeof role === 'string' && role !== '') {
+    actor = actors.find((a) => a !== null && a.role === role)
+  }
   if (actor === undefined) return null
   const models = Array.isArray(scene.models) ? scene.models : []
   const model = models.find((m) => m !== null && m.id === actor.modelId)
