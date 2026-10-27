@@ -3858,6 +3858,14 @@
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+  /* R381：舞台浮层用 left:50% + translateX(-50%) 居中；停靠后必须彻底取消，
+     否则整张卡仍左移半个宽度，表现为左侧被裁、右侧空白。 */
+  left: auto;
+  right: auto;
+  bottom: auto;
+  transform: none;
+  width: 100%;
+  max-width: 100%;
 }
 /* 三张卡的间隔稍拉开，避免“贴住/重叠”的观感。 */
 .dock-split {
@@ -3917,4 +3925,9 @@
 .dialogue.is-docked .dialogue-log {
   min-height: 88px;
   overflow-y: auto;
+}
+
+/* R381：停靠态关闭入场位移动画，避免动画期间 transform 再次生效。 */
+.dialogue.is-docked:not([hidden]) {
+  animation: none;
 }
