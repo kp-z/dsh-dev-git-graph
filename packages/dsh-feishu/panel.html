@@ -796,7 +796,7 @@
   .mini-line svg { width: 100%; height: 24px; display: block; }
 
   .mini-donut { display: flex; align-items: center; gap: 4px; }
-  .mini-donut svg { width: 164px; height: 164px; flex: 0 0 auto; }
+  .mini-donut svg { width: 88px; height: 88px; flex: 0 0 auto; }
   .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10px; line-height: 1.3; color: var(--p-text-2); }
   .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
 
@@ -889,8 +889,8 @@
   /* 左侧是一句「AI 对我说的话」：做成对话气泡，尾巴朝左上角的灯泡 */
   .insight-text {
     position: relative;
-    height: 172px;
-    padding: 12px 14px 28px;
+    height: 96px;
+    padding: 8px 11px 20px;
     box-sizing: border-box;
     /* 气泡底色用一个变量，尾巴直接复用同一色，避免半透明叠加后看不出来 */
     --p-bubble: color-mix(in srgb, var(--p-accent) 8%, var(--p-card, #fff));
@@ -905,7 +905,7 @@
     content: '';
     position: absolute;
     left: -5px;
-    bottom: 12px;
+    bottom: 10px;
     width: 14px;
     height: 14px;
     background: var(--p-bubble);
@@ -917,7 +917,7 @@
   .insight-line.is-summary {
     display: block;
     -webkit-line-clamp: unset;
-    max-height: 132px;
+    max-height: 64px;
     overflow-y: auto;
     font-size: 11.5px;
     line-height: 1.6;
@@ -934,7 +934,7 @@
     position: absolute;
     right: 0;
     bottom: 0;
-    height: 20px;
+    height: 18px;
     padding: 0 7px;
     border: 1px solid var(--p-line);
     border-radius: 6px;
