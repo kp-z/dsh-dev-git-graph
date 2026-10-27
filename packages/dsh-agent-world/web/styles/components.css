@@ -3839,3 +3839,27 @@
   font: inherit;
   font-size: 9px;
 }
+
+/* R378：停靠对话与任务/团队共用同一套卡片 chrome。
+ * 之前 dialog 自带“舞台浮层”的 0 圆角/无外框，塞进 dock 后看起来像粘在团队卡下面。 */
+.dock-pane[data-pane="chat"] {
+  background: var(--console-bg);
+  border: 1px solid var(--console-line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.dock-pane[data-pane="chat"] > .dialogue-dock-host {
+  padding: 8px;
+}
+.dialogue.is-docked {
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+/* 三张卡的间隔稍拉开，避免“贴住/重叠”的观感。 */
+.dock-split {
+  gap: 8px;
+}
