@@ -24,10 +24,11 @@
     --p-accent-weak: rgba(59, 91, 219, 0.10);
     --p-accent-line: rgba(59, 91, 219, 0.24);
     /* 洞察气泡：底色偏中性、只用一点点蓝，文字压到接近正文黑 */
-    --p-bubble-bg: #eaecf0;
-    --p-bubble-line: #dcdfe6;
-    --p-bubble-text: #232733;
-    --p-bubble-text-soft: #5b6270;
+    /* 气泡：白天是浅色底 + 深色字 */
+    --p-bubble-bg: #fbf7ef;
+    --p-bubble-line: #ecdfc8;
+    --p-bubble-text: #33291c;
+    --p-bubble-text-soft: #7a6850;
     /* 选中态用橙色：和强调蓝拉开距离，扫一眼就能在一堆白卡里认出来 */
     --p-select: #ea6a12;
     --p-select-weak: rgba(234, 106, 18, 0.12);
@@ -74,6 +75,11 @@
     --p-danger: #ff7a70;
     --p-danger-weak: rgba(255, 122, 112, 0.12);
     --p-danger-line: rgba(255, 122, 112, 0.28);
+    /* 气泡：黑夜是深色底 + 浅色字 */
+    --p-bubble-bg: #262a33;
+    --p-bubble-line: #3a3f4b;
+    --p-bubble-text: #eef0f5;
+    --p-bubble-text-soft: #a9b0bd;
     --p-toast-bg: #2b2f37;
     --p-toast-fg: #f2f3f5;
     --p-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
@@ -929,9 +935,10 @@
     /* 气泡底色用变量，尾巴复用同一色，避免半透明叠加后看不出来 */
     --p-bubble: var(--p-bubble-bg, #f7f8fb);
     background: var(--p-bubble);
-    border: 1px solid var(--p-bubble-line, #e4e7f0);
+    /* 虚线描边 + 大圆角：像一张手账贴纸，比硬边框柔和 */
+    border: 1.5px dashed var(--p-bubble-line, #ecdfc8);
     box-shadow: 0 1px 2px rgba(20, 24, 36, 0.04);
-    border-radius: 12px;
+    border-radius: 16px;
     /* 不能用 hidden：会把左上角的尾巴裁掉 */
     overflow: visible;
   }
@@ -960,11 +967,24 @@
     .cat { animation: none; }
   }
 
+  /* 右上角一颗小星星：给气泡一点手账/贴纸的俏皮感 */
+  .insight-text::after {
+    content: '✦';
+    position: absolute;
+    right: 8px;
+    top: 6px;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--p-bubble-line);
+    pointer-events: none;
+    opacity: .9;
+  }
+
   /* 尾巴在左上、朝上：指向标题行里的那只猫（它会说这句话） */
   .insight-text::before {
     content: '';
     position: absolute;
-    left: 7px;
+    left: 2px;
     top: -5px;
     width: 10px;
     height: 10px;
