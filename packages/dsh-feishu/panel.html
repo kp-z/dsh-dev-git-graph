@@ -2124,6 +2124,8 @@
     settings: null,       // GET /api/state → settings
     snap: {},             // GET /api/state → state
     loaded: false,
+    loadedOnce: false,
+    lastSig: '',
     skew: 0,              // 宿主时间 - 本机时间
     loginUrl: null,
     loginNote: '',
@@ -3758,19 +3760,46 @@
     app.insightOpen = true;
     syncToggleLabel();
     renderInsight();
-    if (!app.insightAI) toast('正在让 AI 看一眼…');
-    api('insight/diagnose', { force: true, prompt: prompt || '', mode: mode || '' }).then(function (data) {
-      app.insightLoading = false;
-      app.insightBusyId = '';
-      app.insightAI = (data && data.data) || null;
-      if (!app.insightAI) toast('AI 诊断没有结果：' + ((data && data.reason) || '模型不可用'));
-      renderInsight();
-      if (app.insightAI && app.insightAI.headline) toast('诊断完成');
+
+    /* 后台跑：先让服务端开工，再轮询结果，面板不会被一个几十秒的请求挂住 */
+    api('insight/diagnose', { force: true, prompt: prompt || '', mode: mode || '' }).then(function () {
+      pollInsightAI(Date.now());
     }, function (error) {
       app.insightLoading = false;
       app.insightBusyId = '';
       var detail = (error && (error.error || error.message)) || '诊断失败';
       toast(String(detail).slice(0, 120));
+      renderInsight();
+    });
+  }
+
+  /* 轮询后台任务：1.2s 一次，最多 3 分钟 */
+  function pollInsightAI(startedAt) {
+    api('insight/ai', undefined, { silent: true }).then(function (data) {
+      var running = data && data.running;
+      if (running) {
+        if (Date.now() - startedAt > 180000) {
+          app.insightLoading = false;
+          app.insightBusyId = '';
+          toast('AI 跑太久了，先放弃这次');
+          renderInsight();
+          return;
+        }
+        setTimeout(function () { pollInsightAI(startedAt); }, 1200);
+        return;
+      }
+      app.insightLoading = false;
+      app.insightBusyId = '';
+      if (data && data.data) {
+        app.insightAI = data.data;
+        renderInsight();
+      } else {
+        toast('AI 诊断没有结果：' + ((data && data.error) || '模型不可用'));
+        renderInsight();
+      }
+    }, function () {
+      app.insightLoading = false;
+      app.insightBusyId = '';
       renderInsight();
     });
   }
@@ -4133,14 +4162,34 @@
       app.workspaces = Array.isArray(data && data.workspaces) ? data.workspaces : [];
       app.loaded = true;
       if (typeof (data && data.now) === 'number') app.skew = data.now - Date.now();
+      /* 20 秒一次的轮询里，数据没变就别整体重绘（重绘会打断输入、也让面板发飘） */
+      var sig = stateSignature(next);
+      if (app.loadedOnce && sig === app.lastSig) {
+        app.loaded = true;
+        return;
+      }
+      app.lastSig = sig;
       if (next.auth && next.auth.ok) {
         app.loginUrl = null;
         app.loginNote = '';
       }
+      app.loadedOnce = true;
       renderAll();
     }, function () {
       /* api() 已按 silent 决定是否 toast */
     });
+  }
+
+  /* 只关心「会改变界面」的字段，别把整份 JSON 字符串化 */
+  function stateSignature(next) {
+    var tasks = (next && next.tasks) || [];
+    var parts = tasks.map(function (task) {
+      return [task.id, task.title, task.done ? 1 : 0, task.started ? 1 : 0, task.sessionId || '',
+        (task.docs || []).length, task.localUpdatedAt || 0, task.sessionAlive ? 1 : 0].join(':');
+    });
+    var docs = ((next && next.docs) || []).length;
+    var settings = JSON.stringify(app.settings || {}).length;
+    return [parts.join('|'), docs, next && next.syncing ? 1 : 0, app.version, settings].join('#');
   }
 
   function schedulePoll() {

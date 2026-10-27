@@ -2782,6 +2782,35 @@ function createSyncEngine(ctx) {
     return `${dayStart(0)}-${hash}`
   }
 
+  /* 后台诊断任务：HTTP 立刻返回，模型在后台跑，面板轮询状态。
+     这样点按钮不会挂着一个几十秒的请求，也不会把面板卡住。 */
+  let insightJob = { running: false, startedAt: 0, result: null, error: '' }
+
+  function insightJobState() {
+    return {
+      running: insightJob.running,
+      startedAt: insightJob.startedAt,
+      error: insightJob.error,
+      data: insightJob.result,
+      cached: Boolean(insightJob.result),
+    }
+  }
+
+  /** 立即返回，模型在后台跑；同一时间只跑一个。 */
+  function startInsightJob(force = false, promptOverride = '', mode = '') {
+    if (insightJob.running) return { ok: true, started: false, reason: '已经在跑了' }
+    insightJob = { running: true, startedAt: nowMs(), result: null, error: '' }
+    void diagnoseInsight(force, promptOverride, mode).then((result) => {
+      insightJob.running = false
+      if (result.ok) insightJob.result = result.data
+      else insightJob.error = result.reason || '模型没有返回可用结果'
+    }).catch((error) => {
+      insightJob.running = false
+      insightJob.error = error instanceof Error ? error.message : String(error)
+    })
+    return { ok: true, started: true }
+  }
+
   /** AI 诊断：一句话结论 + 3 条问题 + 三个粗分。失败返回 null，由面板降级。 */
   async function diagnoseInsight(force = false, promptOverride = '', mode = '') {
     const custom = asString(promptOverride).trim()
@@ -2819,7 +2848,13 @@ function createSyncEngine(ctx) {
     for (const budget of [900, 2200, 3600]) {
       asked = await askModelForInsight(systemPrompt, promptText, budget)
       parsed = parseJson(asked.text)
-      if (parsed && typeof parsed === 'object') break
+      /* 解析出来但字段对不上（模型自己换了结构）也算失败，换个预算重试 */
+      if (parsed && typeof parsed === 'object'
+        && (asString(parsed.headline) || asString(parsed.today) || asString(parsed.advice)
+          || Array.isArray(parsed.issues))) {
+        break
+      }
+      parsed = undefined
       if (!asString(asked.text).trim() && asked.reason) break
     }
     if (!parsed || typeof parsed !== 'object') {
@@ -3941,6 +3976,8 @@ function createSyncEngine(ctx) {
     /* 面板打开时带上的「今天那份诊断」：只要还在同一天就给，任务变动不该让结论凭空消失 */
     insightStats,
     insightDataset,
+    startInsightJob,
+    insightJobState,
     recordDailyMetrics,
     cachedInsight: () => (state.insight
       && Number(state.insight.at ?? 0) >= dayStart(0)
@@ -4192,8 +4229,19 @@ function mountRoutes(ctx, engine) {
 
           if (route === '/api/insight/diagnose' && req.method === 'POST') {
             const body = await readBody(req)
-            const result = await engine.diagnoseInsight(body.force === true, asString(body.prompt), asString(body.mode))
-            sendJson(res, result.ok ? 200 : 400, result)
+            /* 默认后台跑：立刻返回，面板轮询 /api/insight/ai；带 wait:true 才同步等结果 */
+            if (body.wait === true) {
+              const result = await engine.diagnoseInsight(body.force === true, asString(body.prompt), asString(body.mode))
+              sendJson(res, result.ok ? 200 : 400, result)
+              return
+            }
+            const started = engine.startInsightJob(body.force === true, asString(body.prompt), asString(body.mode))
+            sendJson(res, 200, started)
+            return
+          }
+
+          if (route === '/api/insight/ai' && req.method === 'GET') {
+            sendJson(res, 200, { ok: true, ...engine.insightJobState() })
             return
           }
 
