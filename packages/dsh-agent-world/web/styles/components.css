@@ -3931,3 +3931,25 @@
 .dialogue.is-docked:not([hidden]) {
   animation: none;
 }
+
+/* R391：无文字运行状态——团队头像呼吸环 + 任务卡右上角状态图标。 */
+.board-member[data-state='working'] .board-member-avatar,
+.board-member[data-state='walking'] .board-member-avatar {
+  animation: member-working-pulse 1.6s ease-in-out infinite;
+}
+@keyframes member-working-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--screen) 0%, transparent); }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--screen) 28%, transparent); }
+}
+.board-node-state-icon {
+  flex: none;
+  margin-left: auto;
+  font-style: normal;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ink-2);
+  opacity: 0.85;
+}
+.board-node-state-icon[data-status='in_progress'] { color: var(--st-in_progress, var(--screen)); }
+.board-node-state-icon[data-status='done'] { color: var(--st-done, #65d98a); }
+.board-node-state-icon[data-status='failed'] { color: var(--st-failed, #ff6b6b); }
