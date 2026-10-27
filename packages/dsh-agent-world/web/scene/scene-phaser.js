@@ -2155,7 +2155,7 @@ export function createScenePhaser(canvas, options = {}) {
           if (seatIndex !== undefined && claimedSeats.has(seatIndex)) seatIndex = undefined
           if (seatIndex === undefined) {
             let best = null
-            let bestDistance = 64
+            let bestDistance = 24
             for (const [index, seat] of chairSeats.entries()) {
               if (claimedSeats.has(index)) continue
               const distance = Math.hypot(seat.x - posX, seat.y - posY)
