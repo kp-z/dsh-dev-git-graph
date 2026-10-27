@@ -72,3 +72,13 @@ node tools/aw-probe.mjs --url ... --wait 2000 --samples 6 --interval 800 --check
 ```
 
 `--samples` 会连续采样，能抓到“到点仍播 walk”“走路中遮挡异常”这类只在过程中出现的状态。
+
+## 断言场景
+
+```bash
+node tools/aw-lab.mjs sim --scenario tools/scenarios/full-flow.json
+# scenario OK
+```
+
+scenario JSON 支持 `expect: { "minDone": 2, "maxFailed": 0, "noIssues": true }`；
+不达标退出码 1，可直接接定时任务/CI。

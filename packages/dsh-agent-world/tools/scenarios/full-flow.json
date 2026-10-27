@@ -1,0 +1,13 @@
+{
+  "ticks": 2500,
+  "agents": 6,
+  "taskSet": "task.quick-fix",
+  "gameMode": true,
+  "scene": "scene.office",
+  "seed": 2,
+  "expect": {
+    "minDone": 2,
+    "maxFailed": 0,
+    "noIssues": true
+  }
+}
