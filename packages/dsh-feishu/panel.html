@@ -3545,6 +3545,18 @@
       ? yNodes
       : [el('div', { 'class': 'insight-empty', text: '昨天没有记录到推进。' })]));
 
+    /* ⑤ 自证：这次到底用了哪份提示词（自定义 / 默认），省得猜「有没有读我的 prompt」 */
+    if (ai && ai.promptSource) {
+      var src = ai.promptSource === 'custom' ? '自定义'
+        : ai.promptSource === 'morning-default' ? '内置早会默认'
+          : ai.promptSource === 'settings' ? '设置里的诊断提示词' : '内置默认'
+      var ctx = ai.ctxStats || {};
+      body.appendChild(insightBlock('本次提示词', [
+        insightRow(src + '：' + String(ai.promptHead || '').slice(0, 40)),
+        insightRow('看过：任务 ' + (ctx.tasks || 0) + ' 条 · 未绑定对话 ' + (ctx.unbound || 0) + ' 条'),
+      ]))
+    }
+
     /* ④ 今天建议先做（本地排序，AI 版没给的时候兜底） */
     if (!aiMorning) {
       var recNodes = (local.recommend || []).map(function (item) {

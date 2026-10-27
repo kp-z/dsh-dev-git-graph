@@ -2785,7 +2785,33 @@ function createSyncEngine(ctx) {
       }
       lines.push(bits.join(' | '))
     }
-    return lines.join('\n')
+    /* 未绑定任务的对话也要看：这是「今日洞察」不看会漏掉的一半信息 */
+    let unboundCount = 0
+    try {
+      const agents = service(ctx, 'agents')
+      const bound = new Set(state.tasks.map((task) => task.sessionId).filter(Boolean))
+      const extras = []
+      for (const agent of agents?.list?.() ?? []) {
+        if (!agent || typeof agent.id !== 'string' || bound.has(agent.id)) continue
+        const title = asString(agent.session?.title || agent.title || agent.id).slice(0, 40)
+        let snippet = ''
+        if (sessions && typeof sessions.inspect === 'function') {
+          try {
+            const inspection = await sessions.inspect(agent.id)
+            snippet = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ').slice(0, 160)
+          } catch {
+            /* 读不到正文就只留标题 */
+          }
+        }
+        extras.push(`未绑定任务 · ${title}${snippet ? ` | 最近：${snippet}` : ''}`)
+        if (extras.length >= 8) break
+      }
+      unboundCount = extras.length
+      if (extras.length) lines.push('以下是没绑定任务的对话：', ...extras)
+    } catch {
+      /* agents 服务不可用时只是少一块信息 */
+    }
+    return { text: lines.join('\n'), tasks: kept.length, unbound: unboundCount }
   }
 
   /** 任务状态签名：同一天里任务没变就不重复问模型。 */
@@ -2837,7 +2863,8 @@ function createSyncEngine(ctx) {
       && Number(state.insight.promptRev ?? 0) === PROMPT_REV) {
       return { ok: true, data: state.insight, cached: true }
     }
-    const context = await insightContext()
+    const ctxPack = await insightContext()
+    const context = ctxPack.text
     if (!context.trim()) return { ok: false, reason: '还没有可评估的任务' }
     const datasets = insightDataset()
     const dataBrief = [
@@ -2858,6 +2885,9 @@ function createSyncEngine(ctx) {
       || (mode === 'morning' ? DEFAULT_MORNING_PROMPT : '')
       || asString(settings.insightPrompt)
       || DEFAULT_INSIGHT_PROMPT
+    const promptSource = custom ? 'custom'
+      : mode === 'morning' ? 'morning-default'
+        : asString(settings.insightPrompt) ? 'settings' : 'default'
     /* 输出被 maxTokens 截断时文本非空但 JSON 不完整，所以要按「能否解析」决定是否加预算重试 */
     let asked = { text: '', reason: '' }
     let parsed
@@ -2909,6 +2939,10 @@ function createSyncEngine(ctx) {
       },
       at: nowMs(),
       promptRev: PROMPT_REV,
+      /* 让面板能显示「这次到底用了哪份提示词」，不用猜 */
+      promptSource,
+      promptHead: asString(systemPrompt).replace(/\s+/g, ' ').slice(0, 60),
+      ctxStats: { tasks: ctxPack.tasks, unbound: ctxPack.unbound, chars: context.length },
     }
     state.insight = data
     state.insightSignature = signature
