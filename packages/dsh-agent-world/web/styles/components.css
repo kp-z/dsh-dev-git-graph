@@ -3906,3 +3906,15 @@
   color: var(--fg-2);
   cursor: grab;
 }
+
+/* R380：停靠对话的最小可读高度，防止分栏被压扁后日志消失。 */
+.dock-pane[data-pane="chat"] {
+  min-height: 190px;
+}
+.dialogue-dock-host {
+  flex-direction: column;
+}
+.dialogue.is-docked .dialogue-log {
+  min-height: 88px;
+  overflow-y: auto;
+}
