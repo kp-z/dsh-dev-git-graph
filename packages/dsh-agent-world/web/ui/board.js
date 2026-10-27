@@ -1046,7 +1046,13 @@ export function createBoard(options = {}) {
       }
       top.append(el(doc, 'span', 'board-node-owner dim', `◉ ${task.ownerName ?? '未分配'}`))
       const ownerPersona = task.owner === null ? null : personas.get(task.owner)
-      if (ownerPersona !== undefined && ownerPersona !== null) top.append(el(doc, 'span', 'board-node-level', `Lv.${ownerPersona.level ?? 1}`))
+      if (ownerPersona !== undefined && ownerPersona !== null) {
+        const levelNode = el(doc, 'span', 'board-node-level', `Lv.${ownerPersona.level ?? 1}`)
+        const level = Math.max(1, Number(ownerPersona.level) || 1)
+        const nextXp = 100 * level * (level + 1) / 2
+        levelNode.title = `${ownerPersona.xp ?? 0} XP · 下一级 ${nextXp} XP`
+        top.append(levelNode)
+      }
       if (fitted.preset !== 'tight') top.append(el(doc, 'span', 'board-node-status', `◷ ${taskStatusLabel(task.displayStatus ?? task.status)}`))
       if ((task.blockedBy?.length ?? 0) > 0) top.append(el(doc, 'span', 'board-node-status', `⇠ ${task.blockedBy.length}`))
       const ownerRole = ownerMember === undefined ? '' : roleLabel(ownerMember.role)
