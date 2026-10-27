@@ -1612,8 +1612,9 @@ function createSyncEngine(ctx) {
 
   async function syncTasks() {
     const path = resolveCli(settings.cliPath)
-    const args = ['task', 'list', '--json']
-    if (!settings.tasks.includeCompleted) args.push('--completed=False')
+    /* 已完成一律不从飞书拉：那些是历史数据，会把列表撑爆，也和「今天做什么」无关。
+       本地完成的任务在下面单独保留。 */
+    const args = ['task', 'list', '--json', '--completed=False']
     const result = await runCli(path, args)
     if (!result.ok) {
       // 任务接口同时是授权探针：失败原因直接写进 auth，面板才知道该让人去授权还是去装 CLI。
@@ -1645,10 +1646,22 @@ function createSyncEngine(ctx) {
       const label = await workspaceFromSession(task.sessionId)
       if (label) task.workspaceTitle = label
     }
-    const audited = auditBindings(kept)
-    renumberTasks(kept)
+    /* 本地完成的任务不能因为「不在飞书返回的未完成列表里」就消失：
+       把上一版里 done 的补回来，会话绑定、完成时间都留着。 */
+    const freshIds = new Set(kept.map((task) => task.id))
+    const bindings = state.bindings ?? {}
+    const localDone = state.tasks.filter((task) => task
+      && task.done
+      && task.id
+      && !freshIds.has(task.id)
+      /* 只留「我们自己在面板里标完成的」或「曾经开过工会话的」，
+         飞书里那 190 多条历史已完成不该被拉进列表 */
+      && (task.completedLocally === true || Boolean(bindings[task.id])))
+    const mergedTasks = kept.concat(localDone)
+    const audited = auditBindings(mergedTasks)
+    renumberTasks(mergedTasks)
     if (audited) await persistState()
-    state.tasks = kept
+    state.tasks = mergedTasks
     await backfillDocTitles(kept).catch(() => undefined)
     await repairTitleNumbers(kept).catch(() => undefined)
     await ensureWorkspaceOptions(kept).catch(() => undefined)
@@ -3431,6 +3444,8 @@ function createSyncEngine(ctx) {
     if (!done.ok) return { ok: false, error: `标记完成失败：${(done.detail ?? '').slice(-300)}` }
     task.done = true
     task.status = 'done'
+    /* 只有这里标完成的才算「本地完成」，同步时要把它们留住 */
+    task.completedLocally = true
     let archived = false
     if (task.sessionId) {
       const result = await archiveSessionForTask(task.sessionId)
@@ -4147,6 +4162,8 @@ function createSyncEngine(ctx) {
         await persistState()
         return { ok: false, errors: [state.lastError] }
       } finally {
+        /* 异常路径也要把「同步中」放掉，否则一次失败会让后续同步全被挡住 */
+        state.syncing = false
         inFlight = null
       }
     })()
