@@ -873,14 +873,19 @@
     padding: 0 7px;
     border: 1px solid var(--p-line);
     border-radius: 6px;
-    background: var(--p-sub, rgba(127, 127, 127, 0.08));
+    /* 透明底：让灰块透上来，视觉上就是「灰块里的一个操作」，而不是浮在外面的白胶囊 */
+    background: transparent;
     color: var(--p-text-3);
     font-size: 10.5px;
     line-height: 18px;
     cursor: pointer;
   }
 
-  .insight-toggle:hover { color: var(--p-accent); border-color: var(--p-accent); }
+  .insight-toggle:hover {
+    color: var(--p-accent);
+    border-color: var(--p-accent);
+    background: var(--p-card, transparent);
+  }
 
   .insight-line.is-warn { border-left-color: var(--p-warn); }
   .insight-line.is-idle { color: var(--p-text-3); border-left-color: var(--p-line-strong); }
