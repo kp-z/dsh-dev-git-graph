@@ -183,7 +183,7 @@ export interface Agent {
    */
   hangout: Vec2 | null
   /** R363：主动活动（开会/休息）的类型；普通任务为 null/undefined。 */
-  activityKind?: 'meet' | 'rest'
+  activityKind?: 'work' | 'meet' | 'rest'
   /** 活动结束 tick；到时自动回 idle，释放站点。 */
   activityUntil?: number
   llm: AgentLlmRoute

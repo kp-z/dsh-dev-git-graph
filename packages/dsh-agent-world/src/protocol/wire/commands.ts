@@ -61,6 +61,8 @@ export type WorldCommand =
    * 这条命令让"玩家走过的地方"真正落进世界，也进 journal，回放能复现。
    */
   | { kind: 'moveAgent'; agentId: string; x: number; z: number }
+  /** R364：把真实 subagent 的工具调用映射成世界动作（work/meet/rest/idle）。 */
+  | { kind: 'agentActivity'; agentId: string; activity: 'work' | 'meet' | 'rest' | 'idle'; ticks: number }
 
 /** 全部命令的 kind。用于校验与穷尽性检查。 */
 export const WORLD_COMMAND_KINDS = [
@@ -75,6 +77,7 @@ export const WORLD_COMMAND_KINDS = [
   'taskFail',
   'taskLink',
   'moveAgent',
+  'agentActivity',
 ] as const
 
 /** 命令的 kind 类型。 */
@@ -105,6 +108,8 @@ export function describeCommand(command: WorldCommand): string {
       return `对应团队任务：${command.taskId} ↔ ${command.externalId}`
     case 'moveAgent':
       return `移动到 ${command.agentId}：(${command.x.toFixed(2)}, ${command.z.toFixed(2)})`
+    case 'agentActivity':
+      return `${command.agentId} → ${command.activity}（${command.ticks} tick）`
   }
 }
 
