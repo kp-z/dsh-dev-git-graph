@@ -4,3 +4,4 @@
 
 # 面板的构建产物（`web/` → `lib/web/`）；`lib/` 整体是编译输出。
 /lib/
+artifacts/

@@ -33,3 +33,13 @@ node tools/aw-lab.mjs layout --json
 ```
 
 检查每个站点的 slot 是否可走、是否从出生点可达、slot 是否重复、容量是否小于 slot 数。
+
+## shot（视觉基线）
+
+```bash
+node tools/aw-shot.mjs --url 'http://127.0.0.1:3082/agent-world/?session=...&token=...' \
+  --out artifacts/scene.png --width 1440 --height 900 --wait 6000
+```
+
+用 Chrome CDP 导航后等待再截图；`--headless=old` 是本机唯一稳定的模式。
+输出目录 `artifacts/` 已加入 .gitignore。
