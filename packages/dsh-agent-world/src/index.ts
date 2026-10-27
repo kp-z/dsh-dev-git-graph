@@ -409,7 +409,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     })
     if (wiring.ok) {
       liveBridge = wiring.bridge
-      logger.info(`对话通道已就绪：上限 ${resolved.maxLiveSessions} 个角色会话（懒创建，超限会给出原因）`)
+      logger.info(`对话通道已就绪：${resolved.maxLiveSessions > 0 ? `上限 ${resolved.maxLiveSessions} 个角色会话` : '不限制角色会话数'}（懒创建）`)
       return { ok: true, bridge: wiring.bridge }
     }
     // 同一种失败只记一次日志：每次搭话都重试，若每次都写一行，日志就会被同一句话淹没。

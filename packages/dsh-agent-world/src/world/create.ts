@@ -64,7 +64,7 @@ export function createWorld(options: CreateWorldOptions): World {
   const name = options.name ?? scene.name
   const seed = options.seed ?? seedFromString(`${name}:${scene.id}`)
   const rng = createRng(seed)
-  const maxAgents = options.maxAgents ?? MAX_AGENTS
+  const maxAgents = options.maxAgents && options.maxAgents > 0 ? Math.floor(options.maxAgents) : Number.MAX_SAFE_INTEGER
 
   const districts = scene.districts.map((id) =>
     instantiateDistrict(content.require('districts', id, `场景 ${scene.id} 引用的地块`)),

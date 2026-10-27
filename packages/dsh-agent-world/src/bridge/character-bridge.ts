@@ -349,7 +349,7 @@ export function createCharacterBridge(options: CharacterBridgeOptions): Characte
     }
     if (!ready.ok) return fail(characterId, ready.code, ready.reason)
 
-    if (sessions.size >= maxLiveSessions) {
+    if (maxLiveSessions > 0 && sessions.size >= maxLiveSessions) {
       return fail(
         characterId,
         'capacity',
