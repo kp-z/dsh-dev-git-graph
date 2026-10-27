@@ -3518,7 +3518,7 @@
           + (issue.evidence ? '　第一步：' + issue.evidence : ''), 'T' + (issue.taskNo || '?')));
       });
       if (ai.today) planNodes.push(insightRow('昨天：' + ai.today));
-      if (ai.advice) planNodes.push(insightRow('可能翻车：' + ai.advice));
+      if (ai.advice) planNodes.push(insightRow('今天不建议：' + ai.advice));
       if (ai.commentary) planNodes.push(insightRow(ai.commentary));
       body.appendChild(insightBlock('早会', planNodes));
     }
