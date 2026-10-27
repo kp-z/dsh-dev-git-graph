@@ -169,9 +169,14 @@ console.log('✓ /api/settings：写入并过滤未知字段')
 /* 开工：建会话 + 按模板投递。用假 agents/sessionController 抓参数。 */
 /* 挑一条工作区能对上假注册表（或没写工作区）的任务：真实清单里有些任务挂在别的工作区上，
    那样开工会被「找不到工作区」挡掉，和本次冒烟要验的链路无关。 */
+/* 只挑「还没绑定过会话」的任务：绑了死会话的那条会走「没找到当前会话」分支，
+   那是数据漂移，不是本次冒烟要验的建会话链路。 */
 const startTarget =
-  after.state.tasks.find((task) => !task.workspaceTitle || task.workspaceTitle === STUB_WORKSPACE) ??
-  after.state.tasks[0]
+  after.state.tasks.find((task) => !task.sessionId
+    && (!task.workspaceTitle || task.workspaceTitle === STUB_WORKSPACE))
+  ?? after.state.tasks.find((task) => !task.sessionId)
+  ?? after.state.tasks.find((task) => !task.workspaceTitle || task.workspaceTitle === STUB_WORKSPACE)
+  ?? after.state.tasks[0]
 const startResponse = await fetch(`${base}/api/tasks/start`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },

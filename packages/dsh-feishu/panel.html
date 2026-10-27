@@ -3525,6 +3525,13 @@
     renderInsightBody();
   }
 
+  /* 任务标签：AI 现在会把「T13「任务名」」写进 text，别再重复拼一次编号 */
+  function issueLabel(issue) {
+    var text = String((issue && issue.text) || '').trim();
+    if (/^T\d+/.test(text)) return text;
+    return 'T' + ((issue && issue.taskNo) || '?') + ' ' + text;
+  }
+
   function insightBlock(title, nodes) {
     var wrap = el('div', { 'class': 'insight-block' });
     wrap.appendChild(el('div', { 'class': 'insight-block-title', text: title }));
@@ -3798,8 +3805,7 @@
     /* 展开区只补一件事：每条任务的第一步怎么做（其余文字都已在左侧那块里） */
     if (hasAI) {
       var steps = (ai.issues || []).map(function (issue) {
-        return insightRow((issue.text || '') + (issue.evidence ? '　第一步：' + issue.evidence : ''),
-          'T' + (issue.taskNo || '?'));
+        return insightRow(issueLabel(issue) + (issue.evidence ? '　第一步：' + issue.evidence : ''));
       });
       body.appendChild(insightBlock('第一步怎么做', steps.length
         ? steps

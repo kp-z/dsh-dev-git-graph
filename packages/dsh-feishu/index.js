@@ -126,7 +126,7 @@ function pluginVersion() {
  * 输出固定 JSON，面板直接渲染，不做二次解析。
  */
 /* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
-export const PROMPT_REV = 6
+export const PROMPT_REV = 7
 
 /**
  * 早会同步专用提示词。
@@ -135,11 +135,32 @@ export const PROMPT_REV = 6
  * 复用同一套 JSON 字段，只是语义错位映射（headline=今天的一件事、issues=今天的三步排期、
  * advice=最可能翻车的地方、today=昨天实际推进），这样面板不用为它写第二套解析。
  */
+/**
+ * 洞察卡的后端「参考手册」：一套判断框架 + 一套话术。
+ * 说明：这是给模型的参考材料，不是对用户的话术模板——它约束「怎么判断」和「怎么开口」。
+ * 用户可在设置里覆盖（settings.insightPlaybook），留空则用这份默认。
+ */
+export const INSIGHT_PLAYBOOK = `【判断框架】按优先级从高到低：
+1. 收尾优先于开工：已经做到 80% 的活，价值只有交付才兑现；先问「这条离验收还差什么」。
+2. WIP 限制：同时在跑超过 3 条就是排队成本，先砍不是因为紧急，而是因为切换成本。
+3. 依赖先行：卡着别人下一步的那条，优先级天然更高。
+4. 证据优先：只有对话记录、提交、文档能证明「真的推进了」，说了不等于做了。
+5. 存量比新增重要：长期没动的条目要说明「为什么还在」，否则默认它该被砍或该被拆。
+6. 不做清单：明确说出今天不建议碰什么，比多说一件该做的事更有价值。
+
+【话术】
+- 先给结论，再给理由；一句一个意思，短句，像跟同事当面交代。
+- 提到任务时先说「这条是什么」，编号只是索引。格式：T13「调整预览遮罩渐变色标」。
+- 理由要具体到可验证的动作或状态（「只差两档色标数值」），不要用「重要」「紧急」这种空词。
+- 不喊口号、不写「加油」「坚持」、不用「赋能/抓手/闭环」这类黑话。
+- 不罗列任务计数（共几个、完成几个），除非计数本身就是结论。
+- 不确定的就说不确定，不要编造进度、数字、人名。`
+
 export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。今天要说两件事：昨天做了什么、今天做什么。不写客套话、不写评估分数、不写趋势分析。
 
 输出一个 JSON 对象，不要解释、不要 markdown 代码块：
 {"summary":"一段话总结（2-3 句，不超过 70 字）：昨天做了什么、今天最重要的一件事是什么","headline":"今天最该做的一件事（不超过 24 字，带任务号）",
- "today":"昨天做了哪些事（不超过 45 字，只列任务号 + 一句结果，用分号隔开）",
+ "today":"昨天做了哪些事（不超过 45 字，每条写成 T13「调整色标」+ 一句结果，用分号隔开）",
  "issues":[{"taskNo":12,"level":"info","text":"为什么今天做它（不超过 18 字）","evidence":"第一步具体做什么（不超过 26 字）"}],
  "advice":"今天不建议碰什么（不超过 36 字）",
  "commentary":"","charts":[]}
@@ -154,7 +175,13 @@ export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。今天�
 - issues 最多 3 条，按先后顺序排，就是今天的排期。**每条 text 控制在 18 字内**，卡片上一行放得下。
 - 全部内容要能在卡片上 8 行内显示完，宁可少说，不要堆字。
 - 不要罗列任务计数（共几个、几个在跑、完成几个）。
-- 只依据给到的信息，不编造任务与数字；需要举例用任务号（T9、T12）。
+- **任何任务号后面都必须跟「任务名」**，写成 T13「调整预览遮罩渐变色标」这种格式：
+  用户不认识编号，先让人知道这是哪件事，编号只当索引。第一次提到给全名，后面可以简称。
+- **每条建议都要说清为什么**：为什么是现在做、不做的代价是什么；理由要具体到可验证的状态，
+  不要用「重要」「紧急」这类空词。
+- 只依据给到的信息，不编造任务与数字。
+- **任务号必须带任务名**：写成 T13「调整预览遮罩渐变色标」，不要只写编号——用户不认识编号。
+- 每条都要给理由：为什么这是个问题、不处理会怎样。
 - 中文，短句。`
 
 /* 上一版早会默认提示词的最后一行：用来把「旧默认 + 用户追加句子」迁移成「新默认 + 用户追加句子」 */
@@ -165,7 +192,7 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
 
 {"summary":"一段话总结（2-3 句，不超过 70 字）：现在最该注意的是什么、为什么","headline":"一句话总结当前推进状态（不超过 24 字）",
  "today":"一句话说今天实际做了什么（不超过 50 字，基于任务与对话摘要，不要编造）",
- "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字）","evidence":"一句话证据（不超过 40 字）"}],
+ "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字，以 T12「任务名」开头）","evidence":"一句话证据（不超过 40 字）"}],
  "advice":"下一步建议（不超过 60 字）",
  "commentary":"你自己想补充的一句判断（不超过 80 字，可以说趋势/风险/悖论）",
  "charts":[{"type":"bar|line|pie|sunburst","dataset":"done_by_day_7|started_by_day_7|wip_by_day_14|state_distribution|workspace_distribution","title":"图表标题（不超过 14 字）","why":"为什么用这张图（不超过 20 字）"}],
@@ -209,6 +236,8 @@ const DEFAULT_SETTINGS = {
   autoCommentMinSeconds: 45,
   /* 交给模型前先过滤掉的任务关键词（工作区名/标题命中即跳过）。比在提示词里写「忽略 X」可靠。 */
   insightIgnore: [],
+  /* 洞察卡的「参考手册」覆盖（空 = 用内置 INSIGHT_PLAYBOOK） */
+  insightPlaybook: '',
   /* 早会诊断的系统提示（面板可改）。 */
   insightPrompt: DEFAULT_INSIGHT_PROMPT,
   insightPromptRev: PROMPT_REV,
@@ -692,6 +721,7 @@ function sanitizeSettings(input, base) {
     insightIgnore: Array.isArray(next.insightIgnore)
       ? next.insightIgnore.map((item) => asString(item).slice(0, 24)).filter(Boolean).slice(0, 10)
       : base.insightIgnore,
+    insightPlaybook: asString(next.insightPlaybook).slice(0, 4000) || base.insightPlaybook,
     insightButtons: sanitizeInsightButtons(next.insightButtons, base.insightButtons),
     docPrompt:
       typeof next.docPrompt === 'string' && next.docPrompt.trim().length > 0
@@ -2858,7 +2888,8 @@ function createSyncEngine(ctx) {
     } catch {
       /* agents 服务不可用时只是少一块信息 */
     }
-    return { text: lines.join('\n'), tasks: kept.length, unbound: unboundCount }
+    /* tasks 是数量（老字段），taskList 是这批任务本体：上层要拿标题做「T13「任务名」」的兜底 */
+    return { text: lines.join('\n'), tasks: kept.length, taskList: kept, unbound: unboundCount }
   }
 
   /** 任务状态签名：同一天里任务没变就不重复问模型。 */
@@ -2935,17 +2966,21 @@ function createSyncEngine(ctx) {
     const ignoreNotice = ignoreWords.length
       ? `\n\n注意：任务清单里已经过滤掉与「${ignoreWords.join('、')}」相关的工作，你也不要主动提起这类工作。`
       : ''
+    /* 手册：用户设置里覆盖，否则用内置那份；放在最前面当背景，再给本次任务的具体指令 */
+    const playbook = asString(settings.insightPlaybook) || INSIGHT_PLAYBOOK
+    /* 任务指令在前、手册在后：把长段背景材料放最前面时，模型容易答非所问甚至返回空 */
     const systemPrompt = (custom
       || (mode === 'morning' ? DEFAULT_MORNING_PROMPT : '')
       || asString(settings.insightPrompt)
-      || DEFAULT_INSIGHT_PROMPT) + ignoreNotice
+      || DEFAULT_INSIGHT_PROMPT) + ignoreNotice + '\n\n' + playbook
     const promptSource = custom ? 'custom'
       : mode === 'morning' ? 'morning-default'
         : asString(settings.insightPrompt) ? 'settings' : 'default'
     /* 输出被 maxTokens 截断时文本非空但 JSON 不完整，所以要按「能否解析」决定是否加预算重试 */
     let asked = { text: '', reason: '' }
     let parsed
-    for (const budget of [900, 2200, 3600]) {
+    /* 900 起步太紧：模型一旦先思考，正文还没开始就被截断，表现为「返回空」 */
+    for (const budget of [1800, 2800, 4000]) {
       asked = await askModelForInsight(systemPrompt, promptText, budget)
       parsed = parseJson(asked.text)
       /* 解析出来但字段对不上（模型自己换了结构）也算失败，换个预算重试 */
@@ -2965,6 +3000,27 @@ function createSyncEngine(ctx) {
         raw: asString(asked.text).slice(0, 160),
       }
     }
+    /* 任务号 → 短标题：模型经常只写「T13」或干脆不写编号，这里统一补成 T13「任务名」 */
+    const titleByNo = new Map()
+    for (const task of ctxPack.taskList ?? []) {
+      if (!task?.no) continue
+      const clean = stripTaskNo(asString(task.title)).trim()
+      /* 太长就截断并加省略号，别把词切成「…与基」这种半截 */
+      const name = clean.length > 12 ? `${clean.slice(0, 12)}…` : clean
+      if (name) titleByNo.set(Number(task.no), name)
+    }
+    const withTaskName = (taskNo, text) => {
+      const no = Number(taskNo) || 0
+      const body = asString(text).trim()
+      if (!no) return body
+      const name = titleByNo.get(no)
+      if (!name) return body
+      if (new RegExp(`^T${no}(?!\\d)`).test(body)) {
+        /* 已经有 T 号但没带任务名，补一个 */
+        return /「/.test(body) ? body : body.replace(new RegExp(`^T${no}(?!\\d)\\s*`), `T${no}「${name}」`)
+      }
+      return `T${no}「${name}」 ${body}`
+    }
     const data = {
       summary: asString(parsed.summary).slice(0, 400),
       headline: asString(parsed.headline).slice(0, 120),
@@ -2972,7 +3028,7 @@ function createSyncEngine(ctx) {
       issues: (Array.isArray(parsed.issues) ? parsed.issues : []).slice(0, 3).map((item) => ({
         taskNo: Number(item?.taskNo) || 0,
         level: item?.level === 'warn' ? 'warn' : item?.level === 'bad' ? 'bad' : 'info',
-        text: asString(item?.text).slice(0, 80),
+        text: withTaskName(item?.taskNo, item?.text).slice(0, 88),
         evidence: asString(item?.evidence).slice(0, 120),
       })),
       advice: asString(parsed.advice).slice(0, 160),
