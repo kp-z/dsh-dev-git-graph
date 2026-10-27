@@ -1887,7 +1887,7 @@
         <strong class="insight-title">洞察设置</strong>
         <button type="button" id="insightSettingsDone" class="btn btn-primary btn-xs">完成</button>
       </div>
-      <div class="insight-settings-label">按钮与各自的 Prompt（每个按钮用自己那份；留空 = 用该按钮的默认提示词）</div>
+      <div class="insight-settings-label">按钮与各自的 Prompt（每个按钮一份，可直接编辑；「恢复默认」回到内置版本）</div>
       <div id="insightButtonsEditor" class="insight-buttons-editor"></div>
       <div><button type="button" id="insightAddButton" class="btn btn-ghost btn-xs">+ 添加按钮</button></div>
 
@@ -3840,34 +3840,19 @@
         box.appendChild(row);
         return;
       }
-      /* 这里只放「额外要求」，默认提示词单独只读展示——
-         两者合并展示会让用户以为要整份改写，保存后又会被追加到默认后面，重复一大段。 */
+      /* 一个按钮一份提示词：默认值直接填进去，改了就存下来——不分「默认 / 额外」两层 */
       var fallback = promptDefaultFor(btn.kind);
-
-      var extraHead = el('div', { 'class': 'insight-extra-head' });
-      extraHead.appendChild(el('span', { 'class': 'insight-mini-label', text: '额外要求（追加在默认提示词之后，可留空）' }));
-      var clear = makeButton('清空', 'btn btn-ghost btn-xs', null, false, function () {
-        prompt.value = '';
-        btn.prompt = '';
-      });
-      extraHead.appendChild(clear);
-      row.appendChild(extraHead);
-
-      var prompt = el('textarea', {
-        rows: '2',
-        placeholder: '例如：忽略 dsh 插件开发的任务'
-      });
-      prompt.value = String(btn.prompt || '').trim();
+      var prompt = el('textarea', { rows: '8', spellcheck: 'false' });
+      prompt.value = String(btn.prompt || '').trim() || fallback;
       prompt.addEventListener('input', function () { btn.prompt = prompt.value; });
       row.appendChild(prompt);
 
-      /* 默认提示词直接摊开显示，不折叠、不截断 */
-      var defaultBox = el('div', { 'class': 'insight-default-prompt' });
-      defaultBox.appendChild(el('div', { 'class': 'insight-mini-label', text: '默认提示词（只读）' }));
-      var pre = el('pre');
-      pre.textContent = fallback || '（这个按钮不使用默认提示词）';
-      defaultBox.appendChild(pre);
-      row.appendChild(defaultBox);
+      var tools = el('div', { 'class': 'insight-button-tools' });
+      tools.appendChild(makeButton('恢复默认', 'btn btn-ghost btn-xs', null, false, function () {
+        prompt.value = fallback;
+        btn.prompt = '';
+      }));
+      row.appendChild(tools);
       box.appendChild(row);
     });
   }

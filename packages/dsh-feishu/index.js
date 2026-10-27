@@ -614,12 +614,15 @@ function sanitizeInsightButtons(input, fallback) {
     let id = asString(raw?.id).replace(/[^a-z0-9_-]/gi, '').slice(0, 24)
     if (!id || seen.has(id)) id = `btn${out.length + 1}`
     seen.add(id)
-    out.push({
-      id,
-      label,
-      prompt: asString(raw?.prompt).slice(0, 2000),
-      kind: ['morning', 'export', 'ai'].includes(raw?.kind) ? raw.kind : 'ai',
-    })
+    const kind = ['morning', 'export', 'ai'].includes(raw?.kind) ? raw.kind : 'ai'
+    let prompt = asString(raw?.prompt).slice(0, 4000)
+    /* 旧版把按钮 prompt 当「额外要求」存（通常是一句话）。现在是一份完整提示词，
+       直接把短句当提示词会让模型不吐 JSON，所以迁移时把它接到默认提示词后面。 */
+    if (prompt && prompt.length < 300 && !/json/i.test(prompt)) {
+      const base = kind === 'morning' ? DEFAULT_MORNING_PROMPT : DEFAULT_INSIGHT_PROMPT
+      prompt = `${base}\n\n${prompt}`
+    }
+    out.push({ id, label, prompt, kind })
     if (out.length >= 6) break
   }
   return out.length ? out : fallback
@@ -2805,12 +2808,11 @@ function createSyncEngine(ctx) {
       + ` · 今日完成 ${local.today.doneCount} · 完成度 ${local.today.completion === null ? '—' : `${local.today.completion}%`}`
     const promptText = `${context}\n\n卡片上方已经显示的统计（**不要重复这些数字**）：${statLine}`
       + `\n\n可用图表数据集（挑图表时用这些 key，不要另造）：\n${dataBrief}`
-    /* 按钮上的 prompt 是「额外要求」，不是整份提示词的替代品——
-       否则用户随手写的一句「忽略某些任务」会把 JSON 格式要求整个顶掉，模型就不吐 JSON 了。 */
-    const basePrompt = mode === 'morning'
-      ? DEFAULT_MORNING_PROMPT
-      : (asString(settings.insightPrompt) || DEFAULT_INSIGHT_PROMPT)
-    const systemPrompt = custom ? `${basePrompt}\n\n额外要求（在满足上面的格式前提下优先遵守）：\n${custom}` : basePrompt
+    /* 一个按钮一份提示词：写了就用它，整份替换（用户要的是「直接改提示词」，不是再叠一层） */
+    const systemPrompt = custom
+      || (mode === 'morning' ? DEFAULT_MORNING_PROMPT : '')
+      || asString(settings.insightPrompt)
+      || DEFAULT_INSIGHT_PROMPT
     /* 输出被 maxTokens 截断时文本非空但 JSON 不完整，所以要按「能否解析」决定是否加预算重试 */
     let asked = { text: '', reason: '' }
     let parsed
