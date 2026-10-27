@@ -3943,40 +3943,51 @@
       gear.addEventListener('click', function () { toggleInsightSettings(); });
     }
 
+    /* 「保存」和「完成」走同一条路径：完成 = 保存后返回内容页。
+       之前「完成」只是关闭，改了 prompt 没点保存就丢了——这就是「填了却没生效」的原因。 */
+    function saveInsightSettings(thenClose) {
+      var patch = {
+        insightIgnore: String(($('insightIgnoreInput') || {}).value || '')
+          .split(/[,，]/)
+          .map(function (item) { return item.trim(); })
+          .filter(Boolean),
+        insightButtons: insightDraftButtons().map(function (btn) {
+          var text = String(btn.prompt || '').trim();
+          if (text === promptDefaultFor(btn.kind)) text = '';
+          return { id: btn.id, label: btn.label, prompt: text, kind: btn.kind };
+        })
+      };
+      return api('settings', patch).then(function (data) {
+        app.settings = (data && data.settings) || app.settings;
+        app.insightDraft = null;
+        renderInsightButtons();
+        var hint = $('insightSettingsHint');
+        if (hint) hint.textContent = '已保存';
+        renderInsightSettings();
+        toast('洞察设置已保存');
+        if (thenClose) toggleInsightSettings(false);
+        return true;
+      }, function () {
+        toast('保存失败，稍后再试');
+        return false;
+      });
+    }
+
     var save = $('insightSettingsSave');
     if (save) {
       save.addEventListener('click', function () {
-        var patch = {
-          insightIgnore: String(($('insightIgnoreInput') || {}).value || '')
-            .split(/[,，]/)
-            .map(function (item) { return item.trim(); })
-            .filter(Boolean),
-          insightButtons: insightDraftButtons().map(function (btn) {
-            var text = String(btn.prompt || '').trim();
-            /* 与默认一致就存空：以后默认提示词升级，按钮能自动跟上 */
-            if (text === promptDefaultFor(btn.kind)) text = '';
-            return { id: btn.id, label: btn.label, prompt: text, kind: btn.kind };
-          }),
-        };
         save.disabled = true;
-        api('settings', patch).then(function (data) {
-          save.disabled = false;
-          app.settings = (data && data.settings) || app.settings;
-          app.insightDraft = null;
-          renderInsightButtons();
-          var hint = $('insightSettingsHint');
-          if (hint) hint.textContent = '已保存';
-          renderInsightSettings();
-          toast('洞察设置已保存');
-        }, function () {
-          save.disabled = false;
-          toast('保存失败，稍后再试');
-        });
+        saveInsightSettings(false).then(function () { save.disabled = false; });
       });
     }
 
     var doneBtn = $('insightSettingsDone');
-    if (doneBtn) doneBtn.addEventListener('click', function () { toggleInsightSettings(false); });
+    if (doneBtn) {
+      doneBtn.addEventListener('click', function () {
+        doneBtn.disabled = true;
+        saveInsightSettings(true).then(function () { doneBtn.disabled = false; });
+      });
+    }
 
     var addBtn = $('insightAddButton');
     if (addBtn) addBtn.addEventListener('click', addInsightButton);
