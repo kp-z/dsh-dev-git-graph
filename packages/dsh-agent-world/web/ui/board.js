@@ -1068,7 +1068,8 @@ export function createBoard(options = {}) {
       if ((task.blockedBy?.length ?? 0) > 0) top.append(el(doc, 'span', 'board-node-status', `⇠ ${task.blockedBy.length}`))
       const ownerRole = ownerMember === undefined ? '' : roleLabel(ownerMember.role)
       if (ownerRole !== '') top.append(el(doc, 'span', 'board-node-role', ownerRole))
-      card.style.setProperty('--task-accent', taskAccentOf(task))
+      const accent = statusColor(task.displayStatus ?? task.status)
+      if (accent !== null) card.style.setProperty('--task-accent', accent)
       const title = el(doc, 'div', 'board-node-title', task.title)
       title.title = task.title
       const bar = el(doc, 'div', 'board-node-progress')
