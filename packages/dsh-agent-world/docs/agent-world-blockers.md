@@ -25,3 +25,10 @@
 ## 4. 任务数量限制
 
 `maxAgents` / `maxLiveSessions` 默认已改为 0 = 不限制；若 profile 显式配置正数仍会生效。
+
+## 5. 慢速寻路被误认为漂移（2026-10-27 实测）
+
+agent-5 接 task-4 后去 `station.seat-02`：world `position` 每 tick 前进 0.06 格，
+对应屏幕约 `0.06 × 16px × 10Hz = 9.6px/s`。跨房间路径 500px 需要 ~50s，
+期间 `actorTrace.seat` 必然为 null（还没到站），动画为 `walk-*`。
+这不是漂移；要确认“到站坐椅子”必须等 `state` 变 `working` 后再采 `seat`。
