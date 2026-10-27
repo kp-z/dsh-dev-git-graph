@@ -840,8 +840,13 @@
   .insight-text {
     position: relative;
     height: 156px;
-    padding-bottom: 22px;   /* 给右下角的「展开」腾位置 */
+    /* 灰底和左侧竖线放在整块上：这样右下角的「展开」也在块内，不会看起来掉在外面 */
+    padding: 8px 10px 26px;
     box-sizing: border-box;
+    background: var(--p-sub, rgba(127, 127, 127, 0.08));
+    border-left: 2px solid var(--p-accent-line);
+    border-radius: 8px;
+    overflow: hidden;
   }
 
   .insight-line.is-summary {
@@ -853,7 +858,11 @@
     line-height: 1.6;
     white-space: pre-line;
     scrollbar-width: thin;
-    padding-right: 2px;
+    padding: 0 2px 0 0;
+    /* 灰底已经移到 .insight-text 上，这里不再重复画一层 */
+    background: transparent;
+    border-left: none;
+    border-radius: 0;
   }
 
   .insight-toggle {
@@ -864,7 +873,7 @@
     padding: 0 7px;
     border: 1px solid var(--p-line);
     border-radius: 6px;
-    background: var(--p-card, transparent);
+    background: var(--p-sub, rgba(127, 127, 127, 0.08));
     color: var(--p-text-3);
     font-size: 10.5px;
     line-height: 18px;
