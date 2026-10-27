@@ -43,3 +43,13 @@ node tools/aw-shot.mjs --url 'http://127.0.0.1:3082/agent-world/?session=...&tok
 
 用 Chrome CDP 导航后等待再截图；`--headless=old` 是本机唯一稳定的模式。
 输出目录 `artifacts/` 已加入 .gitignore。
+
+## probe（y 排序/运动/动作）
+
+```bash
+node tools/aw-probe.mjs --url 'http://127.0.0.1:3082/agent-world/?debug=1&token=...' --wait 5000
+node tools/aw-probe.mjs --url ... --expr 'JSON.stringify(globalThis.__agentWorldPhaser.occlusionAudit())'
+```
+
+默认输出 `occlusion`、`chairs`、`trace`、`manual`、`stats`。用于断言：
+`occlusion.ok === true`、每个 actor 有 `texture/anim`、walking 时不是 idle 动画、工作到站后 `seat` 非空。
