@@ -40,6 +40,7 @@ import { createSidebar } from './ui/sidebar.js'
 import { createBoard } from './ui/board.js'
 import { createQuestHud } from './ui/quest-hud.js'
 import { buildQuestState } from './core/quests.js'
+import { buildStory } from './core/story.js'
 import { mountDock } from './ui/dock.js'
 import { createDialogueUi } from './ui/dialogue-ui.js'
 
@@ -372,6 +373,9 @@ const questRoot = doc.querySelector('#quest-hud')
 const questHost = doc.querySelector('#sidebar-panel-graph .sidebar-region-content')
 if (questRoot !== null && questHost !== null) questHost.prepend(questRoot)
 const questHud = createQuestHud({ root: questRoot, doc })
+const storyBanner = doc.createElement('div')
+storyBanner.className = 'story-banner'
+questRoot?.prepend(storyBanner)
 
 // R208：三张卡（场景/任务/团队）进入同一个 dock，可互相拖到左/右/上/下，split 手柄可调宽。
 const dock = mountDock({
@@ -1776,6 +1780,12 @@ function render(force = false) {
   const renderWorld = applyTeamActivity(world)
   scene2d.render({ world: renderWorld, scene: meta.scene, tick, messageDeliveryTicks: meta.messageDeliveryTicks })
   questHud.update(buildQuestState(renderWorld, renderWorld.stations ?? []))
+  const story = buildStory(renderWorld)
+  if (storyBanner !== null && storyBanner !== undefined) {
+    storyBanner.dataset.tone = story.tone
+    storyBanner.textContent = `${story.act} · ${story.title} — ${story.hint}`
+    storyBanner.title = `${story.act} · ${story.title}\n${story.hint}`
+  }
 
   // 把渲染器的**真实计数**显示出来——"不卡"要能被看见，否则只是承诺（R57）。
   // 报 Phaser 用哪个渲染器、这一帧提交了几次 GL 绘制、画了多少个对象。
