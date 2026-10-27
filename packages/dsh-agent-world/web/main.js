@@ -2253,6 +2253,7 @@ if (new URLSearchParams(globalThis.location?.search ?? '').has('debug')) {
     following: () => (typeof scene2d.following === 'function' ? scene2d.following() : null),
     movementEnabled: () => (typeof scene2d.movementEnabled === 'function' ? scene2d.movementEnabled() : null),
     manualState: () => (typeof scene2d.manualState === 'function' ? scene2d.manualState() : null),
+    actorTrace: (agentId = null) => (typeof scene2d.actorTrace === 'function' ? scene2d.actorTrace(agentId) : null),
     setMovementEnabled: (on) => (typeof scene2d.setMovementEnabled === 'function' ? scene2d.setMovementEnabled(on) : null),
   }
 
