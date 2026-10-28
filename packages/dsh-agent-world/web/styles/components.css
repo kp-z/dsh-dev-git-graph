@@ -4051,3 +4051,6 @@
   color: var(--avatar-color, var(--screen));
   font-size: 8px;
 }
+
+/* R429：流水线循环切换图标。 */
+.aw-group-cycle[data-group='all'] { opacity: 0.6; }

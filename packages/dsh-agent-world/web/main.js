@@ -1122,6 +1122,16 @@ function setTaskView(next) {
   }
 }
 
+function syncGroupCycle() {
+  const button = root.querySelector('.aw-group-cycle')
+  if (button === null) return
+  const view = typeof board?.view === 'function' ? board.view() : null
+  const groups = typeof board?.groups === 'function' ? board.groups() : []
+  const current = groups.find((group) => group.id === view?.group)
+  button.title = `切换流水线视图：${current?.name ?? '全部'}`
+  button.dataset.group = view?.group ?? 'all'
+}
+
 function renderTaskActions(team) {
   const card = root.querySelector('.sidebar-panel-graph .sidebar-region-content')
   if (card === null) return
@@ -1137,6 +1147,24 @@ function renderTaskActions(team) {
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
   host.append(create)
+  // R429：流水线单视图。任务图多组并排会横向溢出；这里用图标按钮循环切组。
+  if (host.querySelector('.aw-group-cycle') === null) {
+    const cycle = doc.createElement('button')
+    cycle.type = 'button'
+    cycle.className = 'aw-icon aw-group-cycle'
+    cycle.textContent = '◫'
+    cycle.title = '切换流水线视图'
+    cycle.setAttribute('aria-label', '切换流水线视图')
+    cycle.addEventListener('click', () => {
+      const groups = [{ id: 'all', name: '全部' }, ...board.groups()]
+      const current = board.view().group
+      const index = groups.findIndex((group) => group.id === current)
+      const next = groups[(index + 1) % groups.length] ?? groups[0]
+      board.setView({ group: next.id })
+      syncGroupCycle()
+    })
+    host.append(cycle)
+  }
   if (host.querySelector('.aw-view-wrap') === null) {
     const wrap = doc.createElement('div')
     wrap.className = 'aw-view-wrap'
@@ -1802,6 +1830,7 @@ function render(force = false) {
   const renderWorld = applyTeamActivity(world)
   scene2d.render({ world: renderWorld, scene: meta.scene, tick, messageDeliveryTicks: meta.messageDeliveryTicks })
   questHud.update(buildQuestState(renderWorld, renderWorld.stations ?? []))
+  syncGroupCycle()
   const story = buildStory(renderWorld)
   if (storyBanner !== null && storyBanner !== undefined) {
     storyBanner.dataset.tone = story.tone
