@@ -57,6 +57,8 @@ export interface ApiDeps {
   teamRoster?: (sessionId: string) => Promise<unknown>
   /** 官方 agentTeams 任务写入：create / CAS update（R179）。 */
   teamTask?: (payload: Record<string, unknown>) => Promise<unknown>
+  /** R442：最近的结构化 subagent 汇报（agent_world_report）。 */
+  reports?: () => readonly Record<string, unknown>[]
   /** R438：请求主会话用官方 spawn_teammate 创建真实 subagent。 */
   spawnMember?: (payload: { name: string; role: string }) => Promise<{ ok: boolean; reason?: string }>
   /** 读取某个 Agent 对应的 DSH 会话历史。 */
@@ -502,6 +504,11 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
         deps.deactivateSession?.()
         return { ok: true }
       },
+    },
+    {
+      method: 'GET',
+      pattern: '/api/reports',
+      handler: () => ({ reports: deps.reports?.() ?? [] }),
     },
     {
       method: 'POST',
