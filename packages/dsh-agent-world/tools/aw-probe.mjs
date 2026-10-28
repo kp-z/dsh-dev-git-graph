@@ -34,6 +34,7 @@ const expression = typeof args.expr === 'string' && args.expr !== ''
   ? args.expr
   : `JSON.stringify({
       occlusion: globalThis.__agentWorldPhaser?.occlusionAudit?.(),
+      physics: globalThis.__agentWorldPhaser?.physicsAudit?.(),
       chairs: globalThis.__agentWorldPhaser?.chairAudit?.(),
       trace: globalThis.__agentWorldScene2d?.actorTrace?.(),
       manual: globalThis.__agentWorldScene2d?.manualState?.(),
@@ -99,6 +100,7 @@ try {
   const checkScene = (value) => {
     const issues = []
     if (value?.occlusion?.ok !== true) issues.push('occlusion 审计未通过')
+    if (value?.physics?.ok !== true) issues.push(`physics 审计未通过：${value?.physics?.overlapCount ?? '?'} 个角色插进墙里`)
     if ((value?.occlusion?.anomalyCount ?? 0) > 0) issues.push(`occlusion ${value.occlusion.anomalyCount} 个异常`)
     if ((value?.occlusion?.pairAnomalyCount ?? 0) > 0) issues.push(`pair occlusion ${value.occlusion.pairAnomalyCount} 个异常`)
     if ((value?.chairs?.duplicates?.length ?? 0) > 0) issues.push(`椅子重复 ${value.chairs.duplicates.length}`)
