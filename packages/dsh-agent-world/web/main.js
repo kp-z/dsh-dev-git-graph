@@ -400,6 +400,8 @@ questRoot?.prepend(storyBanner)
 const reportLine = doc.createElement('div')
 reportLine.className = 'aw-latest-report'
 reportLine.hidden = true
+reportLine.setAttribute('role', 'status')
+reportLine.setAttribute('aria-live', 'polite')
 questRoot?.prepend(reportLine)
 
 // R208：三张卡（场景/任务/团队）进入同一个 dock，可互相拖到左/右/上/下，split 手柄可调宽。
