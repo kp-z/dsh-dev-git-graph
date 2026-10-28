@@ -1125,12 +1125,9 @@ function setTaskView(next) {
 function syncTeamMeta() {
   const meta = root.querySelector('#sidebar-region-meta-agents')
   if (meta === null) return
-  const count = typeof board?.memberCount === 'function' ? board.memberCount() : null
-  if (count === null) return
-  const current = meta.textContent ?? ''
-  const lead = current.split(' · ')[0] ?? 'lead'
-  const tasks = current.includes(' · ') ? current.slice(current.lastIndexOf(' · ')) : ''
-  meta.textContent = `${lead} · ${count} 人${tasks}`
+  const stats = typeof board?.memberStats === 'function' ? board.memberStats() : null
+  if (stats === null) return
+  meta.textContent = `${stats.members} 人 · ${stats.busy} 忙碌`
 }
 
 function syncGroupCycle() {
@@ -1627,7 +1624,19 @@ function renderAgentActions(team) {
       item.addEventListener('click', () => {
         hireMenu.hidden = true
         hire.setAttribute('aria-expanded', 'false')
-        void sendCommand({ kind: 'hire', role, name: hireName.value.trim() === '' ? null : hireName.value.trim() })
+        // R438：走官方 spawn_teammate，不再把 NPC 复制进 world。
+        const requestedName = hireName.value.trim()
+        showHint(`正在请求主会话创建 ${requestedName === '' ? roleNames[role] : requestedName}…`)
+        void fetch(apiUrl('api/team/spawn'), {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: requestedName, role }),
+        }).then(async (response) => {
+          const body = await response.json().catch(() => ({}))
+          if (!response.ok || body?.ok !== true) showHint(`创建失败：${body?.reason ?? response.status}`)
+          else showHint('已请求主会话创建官方 subagent，等它加入团队')
+        }).catch((error) => showHint(`创建失败：${error instanceof Error ? error.message : String(error)}`))
       })
       hireMenu.append(item)
     }
