@@ -1928,6 +1928,8 @@ export function createBoard(options = {}) {
     ready,
     /** 换视图（分组/筛选）——给核验用，也是图里那两个 chip 走的同一条路。 */
     setView,
+    view: () => ({ group: viewGroup, filter: viewFilter }),
+    groups: () => allGroups.map((group) => ({ id: group.id, name: group.name, total: group.total, unfinished: group.unfinished })),
     update,
     setPalette,
     setTaskSets,
