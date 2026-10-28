@@ -3047,20 +3047,24 @@
     /* 当前对话绑定的那条任务置顶：翻面板时第一眼就是「我现在干的这条」。
        只换顺序、不动数据（slice 一份再排，别把快照本身改了）。 */
     var currentId = String(app.currentSessionId || '');
-    if (currentId) {
-      tasks = tasks.slice().sort(function (a, b) {
-        var ac = a && a.sessionId === currentId ? 1 : 0;
-        var bc = b && b.sessionId === currentId ? 1 : 0;
-        return bc - ac;
-      });
-    }
 
-    /* 优先级高的排前面（P0 < P1 < P2 < P3 < 未设置），同档保持原顺序。 */
+    /* 排序只有一条规则，两个键按顺序比：
+         1. 当前对话绑定的那条**永远第一**（翻面板时第一眼就是「我现在干的这条」）；
+         2. 其余按优先级 P0 < P1 < P2 < P3 < 未设置，同档保持原顺序。
+       分成两次 sort 会互相覆盖——优先级那次会把置顶冲掉，所以必须合成一个比较器。 */
     function prioRank(t) {
       var v = normPriority(t && t.priority);
       return v ? PRIORITY_OPTIONS.indexOf(v) : 9;
     }
-    tasks = tasks.slice().sort(function (a, b) { return prioRank(a) - prioRank(b); });
+    function isCurrentTask(t) {
+      return Boolean(currentId && t && t.sessionId && String(t.sessionId) === currentId);
+    }
+    tasks = tasks.slice().sort(function (a, b) {
+      var ac = isCurrentTask(a) ? 0 : 1;
+      var bc = isCurrentTask(b) ? 0 : 1;
+      if (ac !== bc) return ac - bc;
+      return prioRank(a) - prioRank(b);
+    });
 
     var allTasks = tasks;
     tasks = filterTasksForPanel(allTasks);
