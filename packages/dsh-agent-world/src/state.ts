@@ -404,11 +404,14 @@ export function createPluginState(config: AgentWorldConfig, options: PluginState
       const scene = registry.require('scenes', config.scene, '同步 subagent 花名册时取场景')
       const roster = registry.require('rosters', scene.roster, '同步 subagent 花名册时取花名册')
       const seatAt = (index: number) => roster.seats[index % Math.max(1, roster.seats.length)]
+      // R436：subagents.listChildren 的 label 不保证带 `agent-teams:` 前缀；
+      // 以前只收带前缀的，普通 subagent 全被丢掉，world 永远只有 captain。
       const members = children
-        .map((child) => {
-          const label = typeof child.label === 'string' ? child.label : ''
-          if (!label.startsWith('agent-teams:')) return null
-          const name = label.slice(label.lastIndexOf(':') + 1).trim()
+        .map((child, index) => {
+          const raw = typeof child.label === 'string' ? child.label.trim() : ''
+          const name = raw === ''
+            ? `subagent-${index + 1}`
+            : raw.startsWith('agent-teams:') ? raw.slice(raw.lastIndexOf(':') + 1).trim() : raw
           if (name === '') return null
           return { id: child.id, name }
         })
