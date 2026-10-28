@@ -321,6 +321,9 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       const key = agent.boundAgentId ?? agent.id
       if (personaStore.get(key) === null) {
         personaStore.upsert({ id: key, name: agent.name, role: agent.role, skills: roleSkills[agent.role] ?? [agent.role] })
+      } else if ((personaStore.get(key)?.skills.length ?? 0) === 0) {
+        // 老存档里的 persona 没有技能；按当前角色回填，不要求用户重开世界。
+        personaStore.upsert({ id: key, skills: roleSkills[agent.role] ?? [agent.role] })
       }
     }
     for (const task of world.tasks) {

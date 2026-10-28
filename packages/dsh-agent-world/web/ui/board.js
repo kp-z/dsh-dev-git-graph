@@ -635,6 +635,16 @@ export function createBoard(options = {}) {
       memberStateNodes.set(row.member.id ?? '__unowned__', stateSpan)
       // R181：「未分配」行用一枚计数角标说明"还有几张没人领"，替代原来那一排 chip。
       if (row.member.id === null) head.append(el(doc, 'b', 'aw-badge', String(row.tasks.length)))
+      if (memberPersona !== null && memberPersona !== undefined && Array.isArray(memberPersona.skills) && memberPersona.skills.length > 0) {
+        const skills = el(doc, 'div', 'board-member-skills')
+        for (const skill of memberPersona.skills.slice(0, 3)) {
+          if (typeof skill !== 'string' || skill === '') continue
+          const chip = el(doc, 'span', 'board-member-skill', skill)
+          chip.title = `${memberName} 的技能：${skill}`
+          skills.append(chip)
+        }
+        if (skills.children.length > 0) head.append(skills)
+      }
       const memberTasks = (row.tasks ?? [])
         .map((id) => model.tasks.find((task) => task.id === id))
         .filter((task) => task !== undefined)
