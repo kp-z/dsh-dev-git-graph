@@ -96,6 +96,22 @@ function audit(world, trace) {
     if (agent.state === 'idle' && agent.carrying !== null) {
       issues.push(`${agent.id}: idle 但还背着任务 ${agent.carrying}`)
     }
+    // R453：路径本身也必须走可走格；只查当前位置会漏掉“下一步穿墙”。
+    const nav = world.nav
+    if (nav !== null && nav !== undefined && Array.isArray(agent.path) && agent.path.length > 1) {
+      for (const point of agent.path.slice(1)) {
+        const col = Math.floor((point.x - nav.originX) / nav.unitsPerCell)
+        const row = Math.floor((point.z - nav.originZ) / nav.unitsPerCell)
+        if (col < 0 || row < 0 || col >= nav.width || row >= nav.height) {
+          issues.push(`${agent.id}: path 点越界 (${point.x},${point.z})`)
+          break
+        }
+        if (nav.blocked[row * nav.width + col] === true) {
+          issues.push(`${agent.id}: path 穿过 blocked 格 (${point.x},${point.z})`)
+          break
+        }
+      }
+    }
   }
   for (const task of world.tasks) {
     if (task.status === 'in_progress' && task.owner === null) issues.push(`${task.id}: in_progress 没有 owner`)
