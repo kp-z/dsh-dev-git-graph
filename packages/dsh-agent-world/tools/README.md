@@ -82,3 +82,13 @@ node tools/aw-lab.mjs sim --scenario tools/scenarios/full-flow.json
 
 scenario JSON 支持 `expect: { "minDone": 2, "maxFailed": 0, "noIssues": true }`；
 不达标退出码 1，可直接接定时任务/CI。
+
+## dev（测试 profile 热重载替代）
+
+```bash
+./tools/aw-dev.sh 3082 awteam
+# 自动 build → 重启 3082 → 打印新 token
+```
+
+这不是 host 热插拔：DSH 的 Cordis 插件在启动时 import，ESM 缓存不会热替换。
+纯 web/ui 改动刷新页面即可；host 路由/模拟改动必须重启进程，这个脚本把重启收敛成一条命令。
