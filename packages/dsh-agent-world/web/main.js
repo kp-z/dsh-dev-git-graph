@@ -1269,6 +1269,7 @@ let sessionGraph = null
 let workflowLoadToken = 0
 const heartbeatIntents = new Map()
 const personaByKey = new Map()
+const personaLevels = new Map()
 
 async function loadPersonas() {
   try {
@@ -1277,7 +1278,12 @@ async function loadPersonas() {
     const body = await res.json().catch(() => ({}))
     personaByKey.clear()
     for (const persona of Array.isArray(body.personas) ? body.personas : []) {
-      if (typeof persona?.id === 'string') personaByKey.set(persona.id, persona)
+      if (typeof persona?.id !== 'string') continue
+      const previous = personaLevels.get(persona.id)
+      const level = Number(persona.level) || 1
+      if (previous !== undefined && level > previous) showHint(`${persona.name ?? persona.id} 升到 Lv.${level}`)
+      personaLevels.set(persona.id, level)
+      personaByKey.set(persona.id, persona)
     }
     for (const agent of world?.agents ?? []) {
       const persona = personaByKey.get(agent.boundAgentId ?? '') ?? personaByKey.get(agent.id)

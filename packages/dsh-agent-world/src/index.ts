@@ -309,10 +309,18 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
    * 数据仍在 personaStore 里，不另造一套成就表。
    */
   function syncPersonaProgress(world: World): void {
+    const roleSkills: Record<string, string[]> = {
+      lead: ['协调', '计划'],
+      engineer: ['写代码', '调试'],
+      researcher: ['检索', '分析'],
+      reviewer: ['评审', '验收'],
+      ops: ['部署', '监控'],
+      docs: ['写作', '整理'],
+    }
     for (const agent of world.agents) {
       const key = agent.boundAgentId ?? agent.id
       if (personaStore.get(key) === null) {
-        personaStore.upsert({ id: key, name: agent.name, role: agent.role, skills: [agent.role] })
+        personaStore.upsert({ id: key, name: agent.name, role: agent.role, skills: roleSkills[agent.role] ?? [agent.role] })
       }
     }
     for (const task of world.tasks) {

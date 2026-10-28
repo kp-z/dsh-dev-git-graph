@@ -1855,9 +1855,14 @@ export function createBoard(options = {}) {
     const viewTasks = native ? sourceTasks : applyView(sourceTasks, { group: viewGroup, filter: viewFilter })
     model = buildBoardModel({ ...world, tasks: viewTasks })
     if (native) {
-      // R403：有官方 projection 时，成员列表也以官方为唯一真相；
-      // 不再把 world.agents（captain/临时角色）混进来，避免 captain/lead 两套领导。
-      if (teamMembers.length > 0) model.members = []
+      // R403/R435：官方 projection 是队长/任务的真相，但它可能只返回 lead；
+      // 真实 subagent 已经绑定了会话、也在 world 里，不能因此从面板消失。
+      // 只保留“有 boundAgentId 的真实成员”，过滤掉纯 NPC hire 和重复 captain。
+      if (teamMembers.length > 0) {
+        const boundIds = new Set((world?.agents ?? []).filter((agent) => typeof agent.boundAgentId === 'string' && agent.boundAgentId !== '').map((agent) => agent.id))
+        const gameNpc = world?.gameMode === true
+        model.members = model.members.filter((member) => boundIds.has(member.id) || (gameNpc && member.role !== 'lead'))
+      }
       mergeTeamMembers()
       applyTeamOwners()
     }
