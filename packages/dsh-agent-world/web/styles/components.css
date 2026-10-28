@@ -4088,3 +4088,18 @@
   line-height: 1.4;
   white-space: nowrap;
 }
+
+/* R443：最新一条结构化汇报。 */
+.aw-latest-report {
+  margin: 2px 0 6px;
+  padding: 3px 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--screen) 24%, transparent);
+  background: color-mix(in srgb, var(--screen) 6%, transparent);
+  color: var(--fg-1);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
