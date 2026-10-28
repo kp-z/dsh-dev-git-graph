@@ -78,13 +78,14 @@ test('apply 能被调用，缺配置时不会因 config 为 undefined 崩掉', (
   // 关键：不传 config。Loader 在 patch 没写 config 时就是给 undefined，
   // 而 schema 的 default 不会被自动填充——这正是最容易崩的一条路径。
   apply(ctx, { persistEveryTicks: 0 })
-  assert.equal(registered.length, 4, '应注册 status / open / content / dispatch 四个工具')
+  assert.equal(registered.length, 5, '应注册 status / open / content / dispatch / report 五个工具')
 
   const names = registered.map((t) => t.name).sort()
   assert.deepEqual(names, [
     'agent_world_content',
     'agent_world_dispatch',
     'agent_world_open',
+    'agent_world_report',
     'agent_world_status',
   ])
 })

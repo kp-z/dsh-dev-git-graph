@@ -304,6 +304,7 @@ export type WorldEventType =
   | 'task.failed'
   | 'message.sent'
   | 'agent.intent'
+  | 'agent.report'
   | 'world.paused'
 
 /**

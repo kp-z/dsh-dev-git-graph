@@ -26,6 +26,7 @@ import {
 } from './bridge/index.js'
 import type { DispatchOutcome, WorldServicePort } from './protocol/index.js'
 import type { World } from './domain/types.js'
+import type { AgentReportInput, AgentReportPort, AgentReportResult } from './protocol/index.js'
 import type { TeamsPort } from './bridge/index.js'
 import type { CharacterBridge } from './bridge/index.js'
 import { type AgentWorldConfig, resolveConfig } from './config.js'
@@ -39,6 +40,7 @@ import { skillForTool } from './sim/tool-skill.js'
 import { createPluginState } from './state.js'
 import { createPersonaStore } from './persona/store.js'
 import { registerDispatchTool } from './tools/dispatch.js'
+import { registerReportTool } from './tools/report.js'
 import { registerWorldTools } from './tools/world.js'
 
 /** Loader entry id（kebab-case，全局唯一，配置覆盖靠它定位）。 */
@@ -591,6 +593,70 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
     },
   }) as WorldServicePort
   registerWorldTools(ctx, sessionWorld)
+
+  // R441：官方 subagent 的结构化汇报入口。身份来自工具执行上下文，不解析正文。
+  const reportPort: AgentReportPort = {
+    report(agentSessionId: string, input: AgentReportInput): AgentReportResult {
+      const world = state.currentWorld()
+      const base = { agentId: '', agentName: '', taskId: input.taskId, status: input.status, xpAwarded: 0, level: 1 }
+      if (world === null) return { ...base, accepted: false, reason: '世界尚未创建。' }
+      const agent = world.agents.find((candidate) => candidate.boundAgentId === agentSessionId)
+      if (agent === undefined) return { ...base, accepted: false, reason: '调用者不是当前世界绑定的 subagent。' }
+      const task = world.tasks.find((candidate) => candidate.id === input.taskId)
+      if (task === undefined) return { ...base, agentId: agent.id, agentName: agent.name, accepted: false, reason: `没有工单 ${input.taskId}。` }
+      if (task.owner !== null && task.owner !== agent.id) return { ...base, agentId: agent.id, agentName: agent.name, accepted: false, reason: `${task.id} 属于 ${task.owner}，不是 ${agent.id}。` }
+      const key = agent.boundAgentId ?? agent.id
+      if (input.status === 'done') {
+        if (task.status !== 'done') {
+          task.status = 'done'
+          task.progress = 1
+          task.finishedAtTick = world.tick
+          task.station = null
+          task.output = input.summary
+          agent.carrying = null
+          agent.state = 'idle'
+          agent.station = null
+          agent.targetStation = null
+          agent.path = []
+          personaStore.awardTask(key, task.id, 40)
+        }
+      } else if (input.status === 'working') {
+        if (task.status !== 'done' && task.status !== 'failed') {
+          task.status = 'in_progress'
+          task.owner = agent.id
+          agent.state = 'working'
+        }
+      } else {
+        if (task.status !== 'done' && task.status !== 'failed') {
+          task.status = 'blocked'
+          task.owner = agent.id
+          agent.state = 'blocked'
+          task.failureReason = input.summary
+        }
+      }
+      const persona = personaStore.get(key)
+      if (input.skill !== undefined && input.skill.trim() !== '' && persona !== null && !persona.skills.includes(input.skill.trim())) {
+        personaStore.upsert({ id: key, skills: [...persona.skills, input.skill.trim()] })
+      }
+      world.events.push({
+        seq: (world.events.at(-1)?.seq ?? 0) + 1,
+        tick: world.tick,
+        type: 'agent.report',
+        payload: { agentId: agent.id, taskId: task.id, status: input.status, summary: input.summary, evidence: input.evidence ?? [], next: input.next ?? null },
+      })
+      const latest = personaStore.get(key)
+      return {
+        accepted: true,
+        agentId: agent.id,
+        agentName: agent.name,
+        taskId: task.id,
+        status: input.status,
+        xpAwarded: input.status === 'done' ? 40 : 0,
+        level: latest?.level ?? 1,
+      }
+    },
+  }
+  registerReportTool(ctx, reportPort)
 
   // ── 派单后立刻在团队里建对应任务（D41，R43）────────────────────────────────
   //
