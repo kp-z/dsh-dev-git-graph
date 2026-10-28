@@ -1295,6 +1295,7 @@ async function loadReports() {
     const payload = latest.payload ?? {}
     const agentName = world?.agents?.find((agent) => agent.id === payload.agentId)?.name ?? payload.agentId ?? '成员'
     reportLine.textContent = `报告 · ${agentName}：${payload.summary ?? '已完成'}`
+    reportLine.dataset.status = typeof payload.status === 'string' ? payload.status : 'working'
     reportLine.title = `${payload.taskId ?? ''} · ${payload.status ?? ''}\n${payload.summary ?? ''}`
     reportLine.hidden = false
   } catch (error) { /* 旧宿主没有 reports API */ }
