@@ -6,7 +6,8 @@
 # 行为：
 #   1. 对所有插件包执行 pnpm build
 #   2. 对每个声明了 dsh.bundle 的包，执行 `dsh plugin --profile <profile> add <pkg>`
-#   3. 提示重启 dsh 生效
+#   3. 同步构建产物到 profile（补齐硬链接副本里缺失的新文件，见 sync-profile-links.mjs）
+#   4. 提示重启 dsh 生效
 #
 # 幂等：重复执行安全。
 set -euo pipefail
@@ -15,10 +16,10 @@ PROFILE="${1:-web}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-echo "==> [1/2] 构建所有插件包"
+echo "==> [1/3] 构建所有插件包"
 pnpm build
 
-echo "==> [2/2] 安装到 profile: $PROFILE"
+echo "==> [2/3] 安装到 profile: $PROFILE"
 # 逐个安装 workspace 里声明了 dsh.bundle 的包
 # 本地开发：用 file: 绝对路径安装（npm registry 没有未发布的本地包）；
 # 用 `USE_REGISTRY=1 bash scripts/install-to-profile.sh` 则按包名从 registry 安装（需已发布）。
@@ -35,6 +36,11 @@ for pkg in $(find packages -maxdepth 1 -type d -mindepth 1 | sort); do
     fi
   fi
 done
+
+echo ""
+echo "==> [3/3] 同步构建产物到 profile（补齐硬链接副本里缺失的新文件）"
+node "$ROOT/scripts/sync-profile-links.mjs" "$PROFILE" \
+  || echo "    !! 同步失败（可手动重跑：node scripts/sync-profile-links.mjs $PROFILE）"
 
 echo ""
 echo "==> 完成。请重启 dsh（profile=${PROFILE}）使插件生效。"
