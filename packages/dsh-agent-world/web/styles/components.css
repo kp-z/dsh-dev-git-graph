@@ -4103,3 +4103,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.aw-latest-report[data-status='done'] { border-color: color-mix(in srgb, #65d98a 42%, transparent); background: color-mix(in srgb, #65d98a 8%, transparent); }
+.aw-latest-report[data-status='blocked'] { border-color: color-mix(in srgb, #ff6b6b 42%, transparent); background: color-mix(in srgb, #ff6b6b 8%, transparent); }
+.aw-latest-report[data-status='working'] { border-color: color-mix(in srgb, #f2c14e 42%, transparent); background: color-mix(in srgb, #f2c14e 8%, transparent); }
