@@ -1156,6 +1156,10 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
             return { ok: false, error: error instanceof Error ? error.message : String(error) }
           }
         },
+        reports: () => (state.currentWorld()?.events ?? [])
+          .filter((event) => event.type === 'agent.report')
+          .slice(-50)
+          .map((event) => event as unknown as Record<string, unknown>),
         // R438：唯一的新成员入口——让主会话调用官方 spawn_teammate，不复制 NPC。
         spawnMember: async ({ name, role }) => {
           const sessionId = state.activeSessionId ?? ''
