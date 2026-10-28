@@ -1909,7 +1909,6 @@ export function createScenePhaser(canvas, options = {}) {
         let node = propNodes.get(nodeKey)
         if (node === undefined) {
           node = activeScene.add.sprite(0, 0, key)
-          node.setDepth(depthFor(baseOf(prop) + (part.dz ?? 0)))
           activeScene.layers.entities.add(node)
           propNodes.set(nodeKey, node)
         }
@@ -1920,7 +1919,10 @@ export function createScenePhaser(canvas, options = {}) {
         if (firstAnim !== undefined) node.setFrame(animationFrameList(sheet, firstAnim, perRowByUrl.get(model.url) ?? 1)[0] ?? 0)
         node.setOrigin(ox, oy)
         node.setPosition(Math.round((prop.x + (part.dx ?? 0)) * TILE_PX), Math.round((prop.z + (part.dz ?? 0)) * TILE_PX))
-        node.setDepth(depthFor(baseOf(prop) + (part.dz ?? 0)))
+        // R451：depth 必须由**精灵真实底边**推出来（与角色同一规则）；
+        // 用站点 anchor z 会让桌/椅和角色错开半格，遮挡看起来随机。
+        const propBottom = node.y + (node.displayHeight ?? 0) * (1 - (node.originY ?? 0.5))
+        node.setDepth(depthFor(propBottom / TILE_PX))
         node.setVisible(true)
         spriteCount += 1
       })
@@ -1934,12 +1936,12 @@ export function createScenePhaser(canvas, options = {}) {
         const size = (prop.capacity > 1 ? 18 : 13)
         if (node === undefined) {
           node = activeScene.add.rectangle(0, 0, size, size, colorOf(prop.color), 1)
-          node.setDepth(depthFor(baseOf(prop)))
           activeScene.layers.entities.add(node)
           propNodes.set(nodeKey, node)
         }
         node.setPosition(Math.round(prop.x * TILE_PX), Math.round(prop.z * TILE_PX))
-        node.setDepth(depthFor(baseOf(prop)))
+        const rectBottom = node.y + (node.displayHeight ?? 0) * (1 - (node.originY ?? 0.5))
+        node.setDepth(depthFor(rectBottom / TILE_PX))
         node.setVisible(true)
       }
     }
@@ -2953,6 +2955,34 @@ export function createScenePhaser(canvas, options = {}) {
      *
      * @returns `{ ok, total, anomalyCount, anomalies }`；`anomalies` 最多列 20 条，带 delta 便于定位。
      */
+    /** R451：物理重叠自检——角色脚部 body 是否插进了静态墙/家具。 */
+    physicsAudit: () => {
+      const scene = activeScene
+      if (!scene) return { ok: false, reason: '场景还没建好', totalWalls: 0, overlaps: [] }
+      // 只对**可见墙面美术**求交：椅子/桌面也会挡人，但“坐在椅子上”不是穿墙。
+      const walls = [...wallNodes.values()]
+        .filter((node) => node.visible !== false && node.texture?.key === WALLS_KEY)
+        .map((node) => {
+          const bounds = typeof node.getBounds === 'function' ? node.getBounds() : null
+          return bounds === null ? null : { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom, key: String(node.texture?.key ?? '') }
+        })
+        .filter(Boolean)
+      const overlaps = []
+      for (const [id, entry] of actorNodes) {
+        const sprite = entry.sprite
+        const body = sprite?.body
+        if (!body) continue
+        for (const wall of walls) {
+          const w = Math.min(body.right, wall.right) - Math.max(body.left, wall.left)
+          const h = Math.min(body.bottom, wall.bottom) - Math.max(body.top, wall.top)
+          if (w > 0.5 && h > 0.5) {
+            overlaps.push({ id, x: Math.round(sprite.x), y: Math.round(sprite.y), wall: wall.key, w: Math.round(w), h: Math.round(h) })
+            break
+          }
+        }
+      }
+      return { ok: overlaps.length === 0, totalWalls: walls.length, totalActors: actorNodes.size, overlapCount: overlaps.length, overlaps: overlaps.slice(0, 20) }
+    },
     occlusionAudit: () => {
       const scene = activeScene
       const entities = scene?.layers?.entities
