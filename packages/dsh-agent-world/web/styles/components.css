@@ -4069,3 +4069,4 @@
 .app.is-graph-focus .workspace .dock-split { display: block; }
 .app.is-graph-focus .dock-pane[data-pane='task'] { width: 100%; height: 100%; }
 .app.is-graph-focus .dock-resizer { display: none; }
+.aw-graph-focus.is-on { color: var(--screen); background: color-mix(in srgb, var(--screen) 12%, transparent); }
