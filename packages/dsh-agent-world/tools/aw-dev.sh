@@ -4,6 +4,7 @@
 set -euo pipefail
 PORT="${1:-3082}"
 PROFILE="${2:-awteam}"
+WORKDIR="${3:-$ROOT}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG="/tmp/aw-dev-${PORT}.log"
 cd "$ROOT"
@@ -12,6 +13,7 @@ for pid in $(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true); do
   kill "$pid" 2>/dev/null || true
 done
 sleep 2
+cd "$WORKDIR"
 nohup env DSH_HOME="$HOME/.dsh" "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
   --profile "$PROFILE" --port "$PORT" --no-open >"$LOG" 2>&1 &
 for _ in $(seq 1 30); do
