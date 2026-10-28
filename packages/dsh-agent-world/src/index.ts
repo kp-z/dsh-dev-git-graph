@@ -10,7 +10,7 @@
  * 落盘与 HTTP/SSE 见 BACKLOG M3，3D 面板见 M4。
  * 架构见 docs/ARCHITECTURE.md，内容模型见 docs/CONTENT.md，协议见 docs/PROTOCOL.md。
  */
-import { appendFileSync, existsSync, renameSync } from 'node:fs'
+import { appendFileSync, existsSync, renameSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import {
@@ -73,6 +73,10 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   const debugLogPath = join(resolved.stateDir, 'debug.jsonl')
   const debugLog = (scope: string, payload: Record<string, unknown>): void => {
     try {
+      // 2MB 轮转：调试日志不能无限增长把工作区写满。
+      if (existsSync(debugLogPath) && statSync(debugLogPath).size > 2_000_000) {
+        renameSync(debugLogPath, `${debugLogPath}.1`)
+      }
       appendFileSync(debugLogPath, `${JSON.stringify({ ts: new Date().toISOString(), scope, ...payload })}\n`)
     } catch { /* 调试日志失败不能影响世界 */ }
   }
