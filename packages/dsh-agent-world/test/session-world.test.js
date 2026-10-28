@@ -65,6 +65,7 @@ test('R166/R436：所有 subagent 子会话都投影成角色（不再只认 age
     { id: 'child-1', label: 'agent-teams:team:小蓝' },
     { id: 'child-2', label: 'agent-teams:team:小铁' },
     { id: 'child-3', label: '无关的其它子会话' },
+    { id: 'child-1', label: 'agent-teams:team:小蓝' },
   ])
   assert.equal(changed, true)
   assert.deepEqual(world.agents.map((a) => a.name), [world.agents[0].name, '小蓝', '小铁', '无关的其它子会话'])

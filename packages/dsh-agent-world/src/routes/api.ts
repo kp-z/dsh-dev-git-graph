@@ -57,6 +57,8 @@ export interface ApiDeps {
   teamRoster?: (sessionId: string) => Promise<unknown>
   /** 官方 agentTeams 任务写入：create / CAS update（R179）。 */
   teamTask?: (payload: Record<string, unknown>) => Promise<unknown>
+  /** R438：请求主会话用官方 spawn_teammate 创建真实 subagent。 */
+  spawnMember?: (payload: { name: string; role: string }) => Promise<{ ok: boolean; reason?: string }>
   /** 读取某个 Agent 对应的 DSH 会话历史。 */
   history?: (agentId: string) => Promise<unknown>
   /** R350：游戏模式开关（主对话 → subagent 注入）。 */
@@ -499,6 +501,17 @@ export function apiRoutes(deps: ApiDeps): RouteEntry[] {
       handler: () => {
         deps.deactivateSession?.()
         return { ok: true }
+      },
+    },
+    {
+      method: 'POST',
+      pattern: '/api/team/spawn',
+      handler: async (request) => {
+        const body = request.body as { name?: unknown; role?: unknown } | undefined
+        const name = typeof body?.name === 'string' ? body.name.trim() : ''
+        const role = typeof body?.role === 'string' ? body.role.trim() : 'engineer'
+        if (typeof deps.spawnMember !== 'function') throw new HttpError(503, '这个宿主不支持官方 spawn')
+        return deps.spawnMember({ name, role })
       },
     },
     {

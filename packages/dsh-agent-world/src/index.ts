@@ -1087,6 +1087,28 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
             return { ok: false, error: error instanceof Error ? error.message : String(error) }
           }
         },
+        // R438：唯一的新成员入口——让主会话调用官方 spawn_teammate，不复制 NPC。
+        spawnMember: async ({ name, role }) => {
+          const sessionId = state.activeSessionId ?? ''
+          if (sessionId === '' || typeof sessionControllerService?.prompt !== 'function') {
+            return { ok: false, reason: '当前会话没有可用的 sessionController' }
+          }
+          const label = name === '' ? role : name
+          try {
+            await sessionControllerService.prompt({
+              requestId: `agent-world-spawn-${Date.now()}`,
+              sessionId,
+              mode: 'steer',
+              content: [{
+                type: 'text',
+                text: `请在团队中调用 spawn_teammate 创建一个真实 subagent（角色：${role}，名字偏好：${label}）。只做这件事，不要复制 NPC，也不要在 world 里 hire。`,
+              }],
+            }, new AbortController().signal)
+            return { ok: true }
+          } catch (error) {
+            return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+          }
+        },
         history: async (agentId: string) => {
           const world = state.currentWorld()
           const actor = world?.agents.find((a) => a.id === agentId)
