@@ -1187,6 +1187,7 @@ function renderTaskActions(team) {
       const next = groups[(index + 1) % groups.length] ?? groups[0]
       board.setView({ group: next.id })
       syncGroupCycle()
+      showHint(`流水线：${next.name}`)
     })
     host.append(cycle)
   }
