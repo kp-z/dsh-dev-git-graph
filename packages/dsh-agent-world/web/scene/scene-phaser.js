@@ -2216,6 +2216,15 @@ export function createScenePhaser(canvas, options = {}) {
           seatAssignments.delete(actor.id)
           stationSlotAssignments.delete(actor.id)
         }
+        // R455：走路时追 path 的下一个 waypoint，而不是只追服务端当前位置。
+        // 只追单点会在墙角“切角”，视觉上就是人从墙里斜穿过去。
+        if (manual !== true && actor.state === 'walking' && Array.isArray(actor.path) && actor.path.length > 1) {
+          const waypoint = actor.path[1] ?? actor.path[0]
+          if (waypoint !== undefined) {
+            renderX = Math.round(waypoint.x * TILE_PX)
+            renderY = Math.round(waypoint.z * TILE_PX)
+          }
+        }
         if (manual !== true) moveActorTo(entry, renderX, renderY)
         entry.sprite.setDepth(depthFor(entry.sprite.y / TILE_PX))
         if (entry.lastDir === undefined) entry.lastDir = directionOf(actor.facing)
