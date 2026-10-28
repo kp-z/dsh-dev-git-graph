@@ -126,7 +126,7 @@ function pluginVersion() {
  * 输出固定 JSON，面板直接渲染，不做二次解析。
  */
 /* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
-export const PROMPT_REV = 8
+export const PROMPT_REV = 9
 
 /**
  * 早会同步专用提示词。
@@ -145,13 +145,26 @@ export const INSIGHT_PLAYBOOK = `【先记住两个定义】
   绑了会话但最近没有产出，不是「零开工」，而是「在推进但没收口」。
 - 「收口」= 产出已经可以被验收（提交、文档、可运行结果），和「有没有在聊」是两回事。
 
+【任务行里会带的字段】
+- 优先级=P0/P1/P2/P3：老板/用户**手动**打的显式排序信号，P0 最紧急、P3 低；没有这个字段就是没排过。
+  它不是「紧急度评分」，而是用户的意志——P0 等于「这条今天必须动」。
+- 状态（未完成 / 进行中 / 已完成）、工作区=、最后活动=、文档=N、有进展评论：用来判断「真的在推进」还是「挂着」。
+
 【判断框架】按优先级从高到低：
-1. 收尾优先于开工：已经做到 80% 的活，价值只有交付才兑现；先问「这条离验收还差什么」。
-2. WIP 限制：同时在跑超过 3 条就是排队成本，先砍不是因为紧急，而是因为切换成本。
-3. 依赖先行：卡着别人下一步的那条，优先级天然更高。
-4. 证据优先：只有对话记录、提交、文档能证明「真的推进了」，说了不等于做了。
-5. 存量比新增重要：长期没动的条目要说明「为什么还在」，否则默认它该被砍或该被拆。
-6. 不做清单：明确说出今天不建议碰什么，比多说一件该做的事更有价值。
+1. **显式优先级优先**：P0 先于一切；P0 有两条时，按「谁更接近收口」排。P1 排在所有未排过的任务之前。
+   但优先级不是免死金牌：P0 如果还差得远（刚开工、还在讨论），也要说清「今天能动到哪一步」。
+2. 收尾优先于开工：已经做到 80% 的活，价值只有交付才兑现；先问「这条离验收还差什么」。
+3. WIP 限制：同时在跑超过 3 条就是排队成本，先砍不是因为紧急，而是因为切换成本。
+4. 依赖先行：卡着别人下一步的那条，优先级天然更高。
+5. 证据优先：只有对话记录、提交、文档能证明「真的推进了」，说了不等于做了。
+6. 存量比新增重要：长期没动的条目要说明「为什么还在」，否则默认它该被砍或该被拆。
+7. 不做清单：明确说出今天不建议碰什么，比多说一件该做的事更有价值。
+
+【优先级怎么用】
+- 高优先级但没进展的，要点出来：「P1 挂了 5 天没动」本身就是结论。
+- 低优先级（P3）不值得单独占一条建议，除非它卡住了 P0/P1。
+- 一堆任务都没优先级时，别说「都没排序」这种废话，直接按收尾与依赖给判断。
+- 不要复述优先级数字凑字数，只在它**改变了结论**时提。
 
 【话术】
 - 先给结论，再给理由；一句一个意思，短句，像跟同事当面交代。
@@ -177,6 +190,9 @@ export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。今天�
 - 「今天做什么」必须是**你的判断**：从待办里挑出今天最该推进的 1-3 件，说明为什么是它、
   现在做的理由（例如「只差验收」「卡住别人」「已经拖了 3 天」）。**不要**因为「今天还没开始」就说今天没事可做，
   也不要把「还没做」当成结论。
+- **优先级是重要的考量条件**：任务行里带「优先级=P0/P1/P2/P3」（P0 最急，没有就是没排过）。
+  P0 必须先出现在今天的排期里；P1 优先于未排过的任务；P2/P3 只有在接近收口或卡住别人时才值得提。
+  但别只按数字排：P0 也可能「今天只能推进一小步」，说清今天能到哪。
 - issues 最多 3 条，按先后顺序排，就是今天的排期。**每条 text 控制在 18 字内**，卡片上一行放得下。
 - 全部内容要能在卡片上 8 行内显示完，宁可少说，不要堆字。
 - 不要罗列任务计数（共几个、几个在跑、完成几个）。
@@ -207,6 +223,9 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
 规则：
 - 只依据给到的信息，不要编造没出现的任务或数字。
 - issues 最多 3 条，优先「卡住 / 长时间没动 / 反复返工」的。
+- **把优先级当考量条件**：任务行里的「优先级=P0/P1/P2/P3」是用户手动排的（P0 最急，缺失=没排过）。
+  P0 出问题必须进 issues；P1 的问题排在未排过的之前；P2/P3 的小毛病别占名额。
+  高优先级却长期没动的，直接把「P1 挂了 N 天」当成问题写出来。
 - focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
 - charts 选 1-3 张，type 与 dataset 只能从给定枚举里选；**不要自己编数字**，数值由系统按 dataset 渲染。
   挑最有说服力的：比如「堆活」用 wip_by_day_14 折线，「注意力分散」用 workspace_distribution 旭日/饼图。
@@ -652,6 +671,23 @@ function normalizeAutoStartMode(next, base) {
   return base.autoStartMode ?? 'off'
 }
 
+/**
+ * 32 位 FNV-1a：给默认提示词打个「指纹」。
+ *
+ * 为什么需要：默认提示词改版（比如这次加优先级）时，已经装过插件的用户设置里
+ * 存的是旧版全文。要刷新它，得先确认「用户没动过这段文字」——直接比文本不可行
+ * （我们手里只有新版），所以安装时把指纹一起存下来，加载时对得上才敢覆盖。
+ */
+function promptFingerprint(text) {
+  let hash = 0x811c9dc5
+  const str = String(text ?? '')
+  for (let i = 0; i < str.length; i += 1) {
+    hash ^= str.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16)
+}
+
 /** 按钮列表规范化：限 6 个、label 必填、id 唯一。 */
 function sanitizeInsightButtons(input, fallback) {
   const list = Array.isArray(input) ? input : fallback
@@ -683,11 +719,18 @@ function sanitizeInsightButtons(input, fallback) {
         prompt = tail ? `${DEFAULT_MORNING_PROMPT}\n\n${tail}` : DEFAULT_MORNING_PROMPT
       }
     }
+    const base = kind === 'morning' ? DEFAULT_MORNING_PROMPT : DEFAULT_INSIGHT_PROMPT
     if (prompt && prompt.length < 300 && !/json/i.test(prompt)) {
-      const base = kind === 'morning' ? DEFAULT_MORNING_PROMPT : DEFAULT_INSIGHT_PROMPT
       prompt = `${base}\n\n${prompt}`
     }
-    out.push({ id, label, prompt, kind })
+    /* 默认稿改版：指纹对得上（或旧数据没指纹、但明显还是我们那段开场白）就换成新版，
+       用户自己改过的一律保留。 */
+    if (prompt && prompt.trim() !== base.trim()) {
+      const stored = asString(raw?.hash)
+      const untouched = stored ? promptFingerprint(prompt) === stored : prompt.startsWith('你是团队早会')
+      if (untouched) prompt = base
+    }
+    out.push({ id, label, prompt, kind, hash: promptFingerprint(prompt) })
     if (out.length >= 6) break
   }
   return out.length ? out : fallback
