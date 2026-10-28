@@ -1155,10 +1155,13 @@ function renderTaskActions(team) {
     focus.textContent = '⤢'
     focus.title = '专注任务图'
     focus.setAttribute('aria-label', '专注任务图')
+    focus.setAttribute('aria-pressed', 'false')
     focus.addEventListener('click', () => {
       const app = root.querySelector('.app')
       const on = app?.classList.toggle('is-graph-focus') === true
       focus.title = on ? '退出专注任务图' : '专注任务图'
+      focus.setAttribute('aria-pressed', String(on))
+      focus.classList.toggle('is-on', on)
       globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
     })
     host.append(focus)
