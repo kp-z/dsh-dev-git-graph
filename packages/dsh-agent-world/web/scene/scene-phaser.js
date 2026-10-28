@@ -2221,8 +2221,13 @@ export function createScenePhaser(canvas, options = {}) {
         if (manual !== true && actor.state === 'walking' && Array.isArray(actor.path) && actor.path.length > 1) {
           const waypoint = actor.path[1] ?? actor.path[0]
           if (waypoint !== undefined) {
-            renderX = Math.round(waypoint.x * TILE_PX)
-            renderY = Math.round(waypoint.z * TILE_PX)
+            const wx = Math.round(waypoint.x * TILE_PX)
+            const wy = Math.round(waypoint.z * TILE_PX)
+            // 只追近处 waypoint；path 突变/服务端回退时退回当前位置，避免倒着瞬移。
+            if (Math.hypot(wx - sprite.x, wy - sprite.y) < 64) {
+              renderX = wx
+              renderY = wy
+            }
           }
         }
         if (manual !== true) moveActorTo(entry, renderX, renderY)
