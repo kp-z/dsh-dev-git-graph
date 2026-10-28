@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Feishu Sync">
+  <defs>
+    <linearGradient id="feishu-bg" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3370FF"/>
+      <stop offset="1" stop-color="#12B5CB"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#feishu-bg)"/>
+  <path d="M46 18 25.5 39.5 20 33" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M46 18 34.5 47 29.4 36.6 19 31.5 46 18z" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+  <circle cx="47" cy="45" r="7" fill="#fff" opacity=".95"/>
+  <path d="M44 45.2l2.1 2.1 4-4.4" fill="none" stroke="#3370FF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
