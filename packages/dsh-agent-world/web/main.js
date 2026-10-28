@@ -397,6 +397,10 @@ storyRail.setAttribute('role', 'list')
 storyRail.removeAttribute('aria-hidden')
 storyBanner.append(storyText, storyTrack, storyRail)
 questRoot?.prepend(storyBanner)
+const reportLine = doc.createElement('div')
+reportLine.className = 'aw-latest-report'
+reportLine.hidden = true
+questRoot?.prepend(reportLine)
 
 // R208：三张卡（场景/任务/团队）进入同一个 dock，可互相拖到左/右/上/下，split 手柄可调宽。
 const dock = mountDock({
@@ -1196,6 +1200,7 @@ function renderTaskActions(team) {
       board.setView({ group: next.id })
       syncGroupCycle()
   syncTeamMeta()
+  void loadReports()
       showHint(`流水线：${next.name}`)
     })
     host.append(cycle)
@@ -1279,6 +1284,21 @@ let workflowLoadToken = 0
 const heartbeatIntents = new Map()
 const personaByKey = new Map()
 const personaLevels = new Map()
+
+async function loadReports() {
+  try {
+    const res = await fetch(apiUrl('api/reports'))
+    if (!res.ok) return
+    const body = await res.json().catch(() => ({}))
+    const latest = Array.isArray(body.reports) ? body.reports.at(-1) : null
+    if (latest === null || latest === undefined) { reportLine.hidden = true; return }
+    const payload = latest.payload ?? {}
+    const agentName = world?.agents?.find((agent) => agent.id === payload.agentId)?.name ?? payload.agentId ?? '成员'
+    reportLine.textContent = `报告 · ${agentName}：${payload.summary ?? '已完成'}`
+    reportLine.title = `${payload.taskId ?? ''} · ${payload.status ?? ''}\n${payload.summary ?? ''}`
+    reportLine.hidden = false
+  } catch (error) { /* 旧宿主没有 reports API */ }
+}
 
 async function loadPersonas() {
   try {
@@ -1885,6 +1905,7 @@ function render(force = false) {
   questHud.update(buildQuestState(renderWorld, renderWorld.stations ?? []))
   syncGroupCycle()
   syncTeamMeta()
+  void loadReports()
   const story = buildStory(renderWorld)
   if (storyBanner !== null && storyBanner !== undefined) {
     storyBanner.dataset.tone = story.tone
