@@ -472,6 +472,9 @@ export function createScenePhaser(canvas, options = {}) {
   const chairSeats = []
   /** R389：角色 → 已绑定的椅子索引；坐着期间不重选，避免目标每帧变化造成抖动。 */
   const seatAssignments = new Map()
+  // R450：站点精确坐点（station.slots）优先于“最近椅子”。椅子只是家具，
+  // 最近椅子可能属于别人工位；slots 才是内容层声明的精确位置。
+  const stationSlotAssignments = new Map()
   /** R374：手动选中的动作（actorId → actionId）；走动时清除，回到自动动作。 */
   const actionOverrides = new Map()
   /** 墙体图层节点（每条墙一个 image，用**纹理帧**取对应块）。 */
@@ -2162,26 +2165,43 @@ export function createScenePhaser(canvas, options = {}) {
         const seatedKind = actor.stationKind === 'desk' || actor.stationKind === 'meeting' || actor.stationKind === 'breakroom'
         const seatedState = actor.state === 'working' || actor.state === 'talking' || actor.state === 'sleeping'
         if (manual !== true && seatedKind && seatedState) {
-          let seatIndex = seatAssignments.get(actor.id)
-          if (seatIndex !== undefined && claimedSeats.has(seatIndex)) seatIndex = undefined
-          if (seatIndex === undefined) {
-            let best = null
-            let bestDistance = 24
-            for (const [index, seat] of chairSeats.entries()) {
-              if (claimedSeats.has(index)) continue
-              const distance = Math.hypot(seat.x - posX, seat.y - posY)
-              if (distance < bestDistance) { bestDistance = distance; best = index }
+          const station = (worldState.stations ?? []).find((candidate) => candidate.id === actor.station)
+          const slots = Array.isArray(station?.slots) ? station.slots : []
+          if (slots.length > 0 && station !== undefined) {
+            let slotIndex = stationSlotAssignments.get(actor.id)
+            if (slotIndex === undefined || slotIndex >= slots.length) {
+              const used = new Set([...stationSlotAssignments.entries()].filter(([id]) => id !== actor.id).map(([, index]) => index))
+              slotIndex = slots.findIndex((_, index) => !used.has(index))
+              if (slotIndex < 0) slotIndex = 0
+              stationSlotAssignments.set(actor.id, slotIndex)
             }
-            seatIndex = best ?? undefined
-            if (seatIndex !== undefined) seatAssignments.set(actor.id, seatIndex)
-          }
-          if (seatIndex !== undefined) {
-            claimedSeats.add(seatIndex)
-            renderX = chairSeats[seatIndex].x
-            renderY = chairSeats[seatIndex].y
+            const slot = slots[slotIndex] ?? slots[0]
+            renderX = Math.round((station.anchor.x + slot.x) * TILE_PX)
+            renderY = Math.round((station.anchor.z + slot.z) * TILE_PX)
+          } else {
+            // 兼容没有 slots 的老内容：仍然只认吸附半径内的椅子。
+            let seatIndex = seatAssignments.get(actor.id)
+            if (seatIndex !== undefined && claimedSeats.has(seatIndex)) seatIndex = undefined
+            if (seatIndex === undefined) {
+              let best = null
+              let bestDistance = 24
+              for (const [index, seat] of chairSeats.entries()) {
+                if (claimedSeats.has(index)) continue
+                const distance = Math.hypot(seat.x - posX, seat.y - posY)
+                if (distance < bestDistance) { bestDistance = distance; best = index }
+              }
+              seatIndex = best ?? undefined
+              if (seatIndex !== undefined) seatAssignments.set(actor.id, seatIndex)
+            }
+            if (seatIndex !== undefined) {
+              claimedSeats.add(seatIndex)
+              renderX = chairSeats[seatIndex].x
+              renderY = chairSeats[seatIndex].y
+            }
           }
         } else {
           seatAssignments.delete(actor.id)
+          stationSlotAssignments.delete(actor.id)
         }
         if (manual !== true) moveActorTo(entry, renderX, renderY)
         entry.sprite.setDepth(depthFor(entry.sprite.y / TILE_PX))
