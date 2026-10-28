@@ -69,6 +69,13 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
   /** R350：游戏模式（可在主对话 header 切换，不需要重启插件）。 */
   let gameModeEnabled = resolved.gameMode
   const personaStore = createPersonaStore(join(resolved.stateDir, 'personas.json'))
+  // R446：调试数据只写文件，不上正式面板。JSONL，排查时直接 tail。
+  const debugLogPath = join(resolved.stateDir, 'debug.jsonl')
+  const debugLog = (scope: string, payload: Record<string, unknown>): void => {
+    try {
+      appendFileSync(debugLogPath, `${JSON.stringify({ ts: new Date().toISOString(), scope, ...payload })}\n`)
+    } catch { /* 调试日志失败不能影响世界 */ }
+  }
   const logger = ctx.logger('agent-world')
 
   // 外部内容目录的解析结果要**原样打出来**：用户配了 contentDir 却没生效时，
@@ -375,7 +382,8 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
       }
       const leadMember = experimental ? (agentTeamsService?.listMembers?.(agentsService?.get?.(sessionId)!) as readonly { role?: unknown; name?: unknown }[] | undefined)?.find((m) => m.role === 'lead') : undefined
       const leadName = typeof leadMember?.name === 'string' ? leadMember.name : undefined
-      state.syncSubagents(sessionId, merged, leadName)
+      const changed = state.syncSubagents(sessionId, merged, leadName)
+      debugLog('roster.sync', { sessionId, children: merged.map((child) => child.label ?? child.id), leadName: leadName ?? null, changed })
     } catch (error) {
       logger.warn(`同步 subagent 花名册失败（下次再试）：${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -645,6 +653,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
         payload: { agentId: agent.id, taskId: task.id, status: input.status, summary: input.summary, evidence: input.evidence ?? [], next: input.next ?? null },
       })
       const latest = personaStore.get(key)
+      debugLog('agent.report', { agentId: agent.id, taskId: task.id, status: input.status, summary: input.summary, evidence: input.evidence ?? [], skill: input.skill ?? null })
       return {
         accepted: true,
         agentId: agent.id,
@@ -1167,6 +1176,7 @@ export function apply(ctx: Context, config: Partial<AgentWorldConfig> = {}): voi
             return { ok: false, reason: '当前会话没有可用的 sessionController' }
           }
           const label = name === '' ? role : name
+          debugLog('team.spawn', { name: label, role, sessionId })
           try {
             await sessionControllerService.prompt({
               requestId: `agent-world-spawn-${Date.now()}`,

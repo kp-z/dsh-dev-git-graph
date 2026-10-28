@@ -92,3 +92,18 @@ scenario JSON 支持 `expect: { "minDone": 2, "maxFailed": 0, "noIssues": true }
 
 这不是 host 热插拔：DSH 的 Cordis 插件在启动时 import，ESM 缓存不会热替换。
 纯 web/ui 改动刷新页面即可；host 路由/模拟改动必须重启进程，这个脚本把重启收敛成一条命令。
+
+## debug 日志
+
+正式面板不放诊断信息。需要排查时看：
+
+```bash
+tail -f .agent-world/debug.jsonl
+```
+
+JSONL，每行带 `ts` 和 `scope`：
+- `agent.report`：subagent 通过 `agent_world_report` 汇报
+- `roster.sync`：官方 subagent 花名册同步
+- `team.spawn`：请求主会话创建 subagent
+
+路径由 `stateDir` 决定，默认 `<session workspace>/.agent-world/`。

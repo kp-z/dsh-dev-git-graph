@@ -4089,20 +4089,3 @@
   white-space: nowrap;
 }
 
-/* R443：最新一条结构化汇报。 */
-.aw-latest-report {
-  margin: 2px 0 6px;
-  padding: 3px 7px;
-  border-radius: var(--r-sm);
-  border: 1px solid color-mix(in srgb, var(--screen) 24%, transparent);
-  background: color-mix(in srgb, var(--screen) 6%, transparent);
-  color: var(--fg-1);
-  font-size: 10px;
-  line-height: 1.45;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.aw-latest-report[data-status='done'] { border-color: color-mix(in srgb, #65d98a 42%, transparent); background: color-mix(in srgb, #65d98a 8%, transparent); }
-.aw-latest-report[data-status='blocked'] { border-color: color-mix(in srgb, #ff6b6b 42%, transparent); background: color-mix(in srgb, #ff6b6b 8%, transparent); }
-.aw-latest-report[data-status='working'] { border-color: color-mix(in srgb, #f2c14e 42%, transparent); background: color-mix(in srgb, #f2c14e 8%, transparent); }
