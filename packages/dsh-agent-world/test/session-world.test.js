@@ -58,7 +58,7 @@ test('R166：会话 A/B 的世界与 tick 分开保存/恢复', async () => {
   state.deactivate()
 })
 
-test('R166：只把 agent-teams 子会话 label 投影成角色', async () => {
+test('R166/R436：所有 subagent 子会话都投影成角色（不再只认 agent-teams 前缀）', async () => {
   const { state } = await tempState()
   const world = state.activateSession('session-a')
   const changed = state.syncSubagents('session-a', [
@@ -67,9 +67,9 @@ test('R166：只把 agent-teams 子会话 label 投影成角色', async () => {
     { id: 'child-3', label: '无关的其它子会话' },
   ])
   assert.equal(changed, true)
-  assert.deepEqual(world.agents.map((a) => a.name), [world.agents[0].name, '小蓝', '小铁'])
+  assert.deepEqual(world.agents.map((a) => a.name), [world.agents[0].name, '小蓝', '小铁', '无关的其它子会话'])
   assert.equal(world.agents[1].boundAgentId, 'child-1')
-  assert.equal(world.agents.some((a) => a.name === '无关的其它子会话'), false)
+  assert.equal(world.agents[3].boundAgentId, 'child-3')
   assert.equal(world.events.at(-1)?.type, 'world.reset')
 
   state.syncSubagents('session-a', [{ id: 'child-1', label: 'agent-teams:team:小蓝' }])
