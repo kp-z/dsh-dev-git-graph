@@ -1546,11 +1546,12 @@ function renderAgentActions(team) {
       if (event.key === 'Enter') event.preventDefault()
     })
     hireMenu.append(hireName)
+    const roleNames = { lead: '负责人', engineer: '工程师', researcher: '研究员', reviewer: '评审', ops: '运维', docs: '文档' }
     for (const role of ['lead', 'engineer', 'researcher', 'reviewer', 'ops', 'docs']) {
       const item = doc.createElement('button')
       item.type = 'button'
       item.role = 'menuitem'
-      item.textContent = role
+      item.textContent = roleNames[role] ?? role
       item.addEventListener('click', () => {
         hireMenu.hidden = true
         hire.setAttribute('aria-expanded', 'false')
