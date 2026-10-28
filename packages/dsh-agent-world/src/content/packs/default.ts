@@ -459,6 +459,18 @@ export const defaultPack: ContentPack = {
         ],
       },
       {
+        // R448：专供游戏测试的安全工作流。所有步骤只允许改 `packages/dsh-spellbook`，
+        // 这样试玩/验收不会碰关键插件。
+        id: 'task.spellbook-polish',
+        name: '打磨咒语书（测试用）',
+        description: '只改 packages/dsh-spellbook：审计、修一处视觉问题、跑该包测试。',
+        tasks: [
+          { key: 'audit', title: '审计咒语书面板', description: '只读 packages/dsh-spellbook/src，找出一个真实视觉/间距问题，不改其它包。', requires: ['research'], dependsOn: [], acceptance: '指出文件、元素和可验证的现象', estimateTicks: 300, role: 'researcher' },
+          { key: 'fix', title: '修咒语书样式', description: '只修改 packages/dsh-spellbook 内的文件；禁止改其它 packages。', requires: ['code'], dependsOn: ['audit'], acceptance: '改动只落在 dsh-spellbook', estimateTicks: 600, role: 'engineer' },
+          { key: 'verify', title: '验证咒语书', description: '在 packages/dsh-spellbook 跑 build/test，记录命令与结果。', requires: ['compute'], dependsOn: ['fix'], acceptance: '该包测试通过且无跨包改动', estimateTicks: 300, role: 'ops' },
+        ],
+      },
+      {
         // ⚠️ 同 `task.software-feature`：需要代码工具，当前能力面下走不完（见 D46）。
         id: 'task.quick-fix',
         name: '快速修一个 bug',
