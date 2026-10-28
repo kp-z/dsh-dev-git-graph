@@ -4,8 +4,8 @@
 set -euo pipefail
 PORT="${1:-3082}"
 PROFILE="${2:-awteam}"
-WORKDIR="${3:-$ROOT}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WORKDIR="${3:-$ROOT}"
 LOG="/tmp/aw-dev-${PORT}.log"
 cd "$ROOT"
 PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN=false pnpm run build >/tmp/aw-dev-build.log 2>&1
