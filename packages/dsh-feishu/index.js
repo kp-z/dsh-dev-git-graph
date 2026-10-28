@@ -225,7 +225,9 @@ const DEFAULT_SETTINGS = {
   tasks: { includeCompleted: false, keyword: '', dueWithinDays: 0 },
   docs: { watch: [], excerptChars: 600 },
   /* 清单自定义字段里，哪两个字段算「工作区 / 自动开工」。 */
-  taskFields: { workspace: '工作区', trigger: '触发条件', legacyAuto: '自动开工', doc: '文档' },
+  taskFields: { workspace: '工作区', trigger: '触发条件', legacyAuto: '自动开工', doc: '文档', priority: '优先级' },
+  /* 优先级：越靠前越紧急。清单里是一个单选字段，面板上按这个顺序挑。 */
+  priorityOptions: ['P0', 'P1', 'P2', 'P3'],
   /* off=不自动开工；tagged=只开任务里标了 auto 的；all=所有新任务都开 */
   autoStartMode: 'off',
   autoStartPrompt:
@@ -707,7 +709,11 @@ function sanitizeSettings(input, base) {
       trigger: asString(next.taskFields?.trigger).slice(0, 20) || base.taskFields.trigger,
       legacyAuto: asString(next.taskFields?.legacyAuto).slice(0, 20) || base.taskFields.legacyAuto,
       doc: asString(next.taskFields?.doc).slice(0, 20) || base.taskFields.doc,
+      priority: asString(next.taskFields?.priority).slice(0, 20) || base.taskFields.priority,
     },
+    priorityOptions: Array.isArray(next.priorityOptions) && next.priorityOptions.length
+      ? [...new Set(next.priorityOptions.map((item) => asString(item).slice(0, 8)).filter(Boolean))].slice(0, 6)
+      : base.priorityOptions,
     docs: {
       watch: Array.isArray(next.docs?.watch)
         ? [...new Set(next.docs.watch.filter((u) => typeof u === 'string' && /^https?:\/\//.test(u)))].slice(0, 50)
@@ -1468,6 +1474,10 @@ function createSyncEngine(ctx) {
       return { id, role: asString(member?.role), name: user?.name ?? '', avatar: user?.avatar ?? '' }
     })
 
+    /* 优先级：清单里是单选字段，值就是选项名（P0/P1/P2/P3）。 */
+    const priorityName = (settings.taskFields?.priority || '优先级').trim() || '优先级'
+    const priority = asString(customFields.find((field) => field.name === priorityName)?.value)
+
     /* 配置优先读清单字段；字段不存在时才回退到描述里的旧约定。 */
     const fieldConfig = readFieldConfig(customFields)
     let meta
@@ -1496,6 +1506,7 @@ function createSyncEngine(ctx) {
       members,
       creator: { id: creatorId, name: creatorUser?.name ?? '' },
       customFields,
+      priority,
       description: asString(raw?.description),
       done: asString(raw?.completed_at) !== '0' && Boolean(raw?.completed_at),
       status: asString(raw?.status),
@@ -2908,6 +2919,7 @@ function createSyncEngine(ctx) {
         ? '已完成'
         : (task.started || task.sessionId) ? '进行中（已有会话在推进）' : '未开始（还没有会话）'
       const bits = [`T${taskNo(task)} ${task.title}`, status]
+      if (task.priority) bits.push(`优先级=${task.priority}`)
       const workspace = task.workspaceTitle || task.workspaceName
       if (workspace) bits.push(`工作区=${workspace}`)
       const idle = Math.floor((now - taskActivityAt(task)) / DAY_MS)
@@ -4025,6 +4037,58 @@ function createSyncEngine(ctx) {
   }
 
   /**
+   * 设置/清除一条任务的优先级。
+   *
+   * 飞书那边是清单级的一个单选字段（默认叫「优先级」），第一次用的时候现场建字段并把
+   * P0~P3 灌成选项；本地先改、再写回，写失败就把本地回滚——面板上看到的状态必须和
+   * 飞书一致，否则下次同步会「莫名其妙变回去」。
+   */
+  async function setTaskPriority(taskId, value) {
+    const task = state.tasks.find((item) => String(item.id) === String(taskId))
+    if (!task) return { ok: false, error: '没找到这条任务' }
+    const fieldName = (settings.taskFields?.priority || '优先级').trim() || '优先级'
+    const options = Array.isArray(settings.priorityOptions) ? settings.priorityOptions : ['P0', 'P1', 'P2', 'P3']
+    const want = asString(value)
+    if (want && !options.includes(want)) return { ok: false, error: `优先级只能是 ${options.join(' / ')}（或留空清除）` }
+    const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+    if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回' }
+
+    const previous = task.priority || ''
+    const python = resolvePython(resolveCli(settings.cliPath))
+    if (!python) {
+      /* 没装 CLI 也别把功能锁死：本地先记住，等能写回时再补。 */
+      task.priority = want
+      task.localUpdatedAt = nowMs()
+      await persistState()
+      return { ok: true, task, local: true, warning: '未找到 feishu-sync-cli，已只改本地' }
+    }
+
+    const result = await runBridge(python, {
+      actions: [
+        { op: 'ensure_custom_field', tasklist: listGuid, name: fieldName, options },
+        { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: want },
+      ],
+    })
+    const ensure = (result.actions ?? [])[0]
+    const applied = (result.actions ?? [])[1]
+    if (!ensure?.ok) {
+      return { ok: false, error: `建字段失败：${(ensure?.error ?? '').slice(0, 120)}` }
+    }
+    if (!applied?.ok) {
+      task.priority = previous
+      return { ok: false, error: `写回失败：${(applied?.error ?? '').slice(0, 120)}` }
+    }
+    task.priority = want
+    const field = (task.customFields || []).find((field2) => field2.name === fieldName)
+    if (field) field.value = want
+    else task.customFields = [...(task.customFields || []), { guid: ensure.guid ?? '', name: fieldName, type: 'single_select', value: want }]
+    task.localUpdatedAt = nowMs()
+    await persistState()
+    log(ctx, 'info', `[priority] ${task.title.slice(0, 20)} → ${want || '（清除）'}`)
+    return { ok: true, task }
+  }
+
+  /**
    * 按「谁更新」决定同步方向：
    *   本地比飞书新 → 把本地字段写回飞书；
    *   飞书不比本地旧 → 拉取飞书（重新同步一轮），本地跟着变。
@@ -4197,6 +4261,7 @@ function createSyncEngine(ctx) {
     loadTaskDetail,
     formatTaskDetail,
     syncTaskFields,
+    setTaskPriority,
     syncSessionTitles,
     archiveSessionForTask,
     sessionExists,
@@ -4385,6 +4450,14 @@ function mountRoutes(ctx, engine) {
               asString(body.url),
               asString(body.nextUrl),
             )
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          /* 设置优先级：写本地 + 写回飞书清单的「优先级」单选字段（字段不存在就建）。 */
+          if (route === '/api/tasks/priority' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.setTaskPriority(asString(body.taskId ?? body.id), asString(body.value))
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }

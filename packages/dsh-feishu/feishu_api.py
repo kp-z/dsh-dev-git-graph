@@ -341,6 +341,28 @@ def run_actions(token, actions):
                 ok = patched.get('code') == 0
                 results.append({'op': op, 'ok': ok, 'added': missing if ok else [],
                                 'error': None if ok else (patched.get('msg') or '')[:160]})
+            elif op == 'ensure_custom_field':
+                # 清单上还没有这个字段就建一个单选字段，顺带把选项灌进去。
+                # 建字段的接口是 POST /task/v2/custom_fields，body 带 resource_type/resource_id。
+                fields = call(token, f"/task/v2/custom_fields?resource_type=tasklist&resource_id={action['tasklist']}&page_size=100")
+                items = ((fields.get('data') or {}).get('items') or [])
+                target = next((f for f in items if f.get('name') == action['name']), None)
+                options = [str(o) for o in (action.get('options') or []) if o]
+                if target:
+                    results.append({'op': op, 'ok': True, 'created': False, 'guid': target.get('guid')})
+                    continue
+                body = {
+                    'resource_type': 'tasklist',
+                    'resource_id': action['tasklist'],
+                    'name': action['name'],
+                    'type': 'single_select',
+                    'single_select_setting': {'options': [{'name': o} for o in options]},
+                }
+                created = call(token, '/task/v2/custom_fields', method='POST', body=body)
+                ok = created.get('code') == 0
+                guid = (((created.get('data') or {}).get('custom_field') or {}).get('guid'))
+                results.append({'op': op, 'ok': ok, 'created': True, 'guid': guid,
+                                'error': None if ok else (created.get('msg') or '')[:160]})
             elif op == 'delete_custom_field':
                 # 注意路径：不是 DELETE /task/v2/custom_fields/{guid}（那个是 404，v2 没这路由），
                 # 而是 POST .../{guid}/remove，body 带 resource_type/resource_id。
