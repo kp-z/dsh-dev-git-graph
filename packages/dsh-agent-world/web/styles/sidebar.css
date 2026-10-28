@@ -914,3 +914,21 @@
 .sidebar-panel-graph .aw-inspector[hidden] {
   display: none;
 }
+
+/* R427：任务图超出面板时必须让人知道可以横向拖，而不是像被裁掉。 */
+.sidebar-panel-graph .board-canvas {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--screen) 55%, transparent) transparent;
+}
+.sidebar-panel-graph .board-canvas::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+.sidebar-panel-graph .board-canvas::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--screen) 50%, transparent);
+}
+.sidebar-panel-graph .board-canvas::-webkit-scrollbar-track {
+  background: transparent;
+}
