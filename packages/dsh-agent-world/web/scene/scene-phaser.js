@@ -1135,8 +1135,11 @@ export function createScenePhaser(canvas, options = {}) {
     const labelY = ty + labelDy
     const body = sprite.body ?? null
 
-    // 3 格（48 世界像素）：正常行走 250ms 只挪 ~2.5px，跳超过这个量就是"传送"，直接落位。
-    if (Math.abs(sprite.x - tx) > 48 || Math.abs(sprite.y - ty) > 48) {
+    // 3 格（48 世界像素）：正常行走 250ms 只挪 ~2.5px，跳超过这个量就是"传送"。
+    // R452：**只有首次生成允许瞬移落位**；之后的跳变仍交给物理走。
+    // 之前每次跳变都 body.reset，等于绕过 collider，这是"人直接穿墙"的客户端来源。
+    const firstPlacement = entry.placed !== true
+    if ((Math.abs(sprite.x - tx) > 48 || Math.abs(sprite.y - ty) > 48) && firstPlacement) {
       if (body !== null && body !== undefined) {
         body.reset(tx, ty)
         // ⚠️ `Body.reset` 不认 `offset`：不重算的话脚部碰撞体会被甩到帧左上角，
@@ -1144,6 +1147,12 @@ export function createScenePhaser(canvas, options = {}) {
         body.updateFromGameObject()
       } else sprite.setPosition(tx, ty)
       if (label !== null && label !== undefined) label.setPosition(tx, labelY)
+      entry.placed = true
+      return
+    }
+    if (Math.abs(sprite.x - tx) > 48 || Math.abs(sprite.y - ty) > 48) {
+      // 非首次的大跳变：仍然朝目标设速度，让墙/家具 collider 生效。
+      activeScene.physics.moveTo(sprite, tx, ty, WALK_SPEED_PX)
       return
     }
 
@@ -1151,6 +1160,7 @@ export function createScenePhaser(canvas, options = {}) {
     if (body === null || body === undefined) {
       sprite.setPosition(tx, ty)
       if (label !== null && label !== undefined) label.setPosition(tx, labelY)
+      entry.placed = true
       return
     }
 
@@ -1163,6 +1173,7 @@ export function createScenePhaser(canvas, options = {}) {
 
     // 引擎物理移动：朝目标设速度，物理世界每帧推进；到达后由上面的分支停住。
     activeScene.physics.moveTo(sprite, tx, ty, WALK_SPEED_PX)
+    entry.placed = true
   }
 
   // ── 选中（P1）：点人 / 看板定位 → 记下 selectedAgentId + 脚下高亮圈 ───────────
