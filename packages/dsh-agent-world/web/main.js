@@ -1147,6 +1147,22 @@ function renderTaskActions(team) {
   create.setAttribute('aria-label', '新建任务')
   create.addEventListener('click', () => setComposerOpen(composerBox.hidden))
   host.append(create)
+  // R430：专注任务图（隐藏舞台/团队，图占满宽度）。
+  if (host.querySelector('.aw-graph-focus') === null) {
+    const focus = doc.createElement('button')
+    focus.type = 'button'
+    focus.className = 'aw-icon aw-graph-focus'
+    focus.textContent = '⤢'
+    focus.title = '专注任务图'
+    focus.setAttribute('aria-label', '专注任务图')
+    focus.addEventListener('click', () => {
+      const app = root.querySelector('.app')
+      const on = app?.classList.toggle('is-graph-focus') === true
+      focus.title = on ? '退出专注任务图' : '专注任务图'
+      globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
+    })
+    host.append(focus)
+  }
   // R429：流水线单视图。任务图多组并排会横向溢出；这里用图标按钮循环切组。
   if (host.querySelector('.aw-group-cycle') === null) {
     const cycle = doc.createElement('button')
