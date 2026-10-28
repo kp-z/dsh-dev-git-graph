@@ -107,3 +107,17 @@ JSONL，每行带 `ts` 和 `scope`：
 - `team.spawn`：请求主会话创建 subagent
 
 路径由 `stateDir` 决定，默认 `<session workspace>/.agent-world/`。
+
+## 场景门禁
+
+```bash
+node tools/aw-probe.mjs --url '<测试页>' --samples 5 --check
+```
+
+`--check` 现在包含：
+- occlusion：深度是否能由底边解释、成对前后关系
+- physics：角色脚部 body 是否插进**墙面美术**
+- 动画/贴图/座椅：walk/idle 与目标距离、椅子重复、贴图缺失
+
+headless 侧：
+- `sim` 审计 path 是否穿过 blocked 格、当前位置是否在墙内
