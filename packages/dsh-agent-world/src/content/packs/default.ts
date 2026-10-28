@@ -465,9 +465,9 @@ export const defaultPack: ContentPack = {
         name: '打磨咒语书（测试用）',
         description: '只改 packages/dsh-spellbook：审计、修一处视觉问题、跑该包测试。',
         tasks: [
-          { key: 'audit', title: '审计咒语书面板', description: '只读 packages/dsh-spellbook/src，找出一个真实视觉/间距问题，不改其它包。', requires: ['research'], dependsOn: [], acceptance: '指出文件、元素和可验证的现象', estimateTicks: 300, role: 'researcher' },
+          { key: 'audit', title: '审计咒语书面板', description: '只读 packages/dsh-spellbook/src，找出一个真实视觉/间距问题，不改其它包。', requires: ['code'], dependsOn: [], acceptance: '指出文件、元素和可验证的现象', estimateTicks: 300, role: 'engineer' },
           { key: 'fix', title: '修咒语书样式', description: '只修改 packages/dsh-spellbook 内的文件；禁止改其它 packages。', requires: ['code'], dependsOn: ['audit'], acceptance: '改动只落在 dsh-spellbook', estimateTicks: 600, role: 'engineer' },
-          { key: 'verify', title: '验证咒语书', description: '在 packages/dsh-spellbook 跑 build/test，记录命令与结果。', requires: ['compute'], dependsOn: ['fix'], acceptance: '该包测试通过且无跨包改动', estimateTicks: 300, role: 'ops' },
+          { key: 'verify', title: '验证咒语书', description: '在 packages/dsh-spellbook 跑 build/test，记录命令与结果。', requires: ['code'], dependsOn: ['fix'], acceptance: '该包测试通过且无跨包改动', estimateTicks: 300, role: 'engineer' },
         ],
       },
       {
