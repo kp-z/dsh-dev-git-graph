@@ -1155,13 +1155,19 @@ function renderTaskActions(team) {
     focus.textContent = '⤢'
     focus.title = '专注任务图'
     focus.setAttribute('aria-label', '专注任务图')
-    focus.setAttribute('aria-pressed', 'false')
-    focus.addEventListener('click', () => {
-      const app = root.querySelector('.app')
-      const on = app?.classList.toggle('is-graph-focus') === true
+    const focusApp = root.querySelector('.app')
+    const savedFocus = (() => { try { return globalThis.localStorage?.getItem('agentWorld.graphFocus') === 'true' } catch { return false } })()
+    const applyFocus = (on) => {
+      focusApp?.classList.toggle('is-graph-focus', on)
       focus.title = on ? '退出专注任务图' : '专注任务图'
       focus.setAttribute('aria-pressed', String(on))
       focus.classList.toggle('is-on', on)
+    }
+    applyFocus(savedFocus)
+    focus.addEventListener('click', () => {
+      const on = focusApp?.classList.contains('is-graph-focus') !== true
+      applyFocus(on)
+      try { globalThis.localStorage?.setItem('agentWorld.graphFocus', String(on)) } catch { /* 便利 */ }
       globalThis.dispatchEvent?.(new CustomEvent('agentworld:layout-change'))
     })
     host.append(focus)
