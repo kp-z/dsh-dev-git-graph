@@ -96,6 +96,15 @@ function audit(world, trace) {
     if (agent.state === 'idle' && agent.carrying !== null) {
       issues.push(`${agent.id}: idle 但还背着任务 ${agent.carrying}`)
     }
+    // R457：非工作状态的人，脚不能踩在 blocked 格；工作状态可能坐在椅子里，跳过。
+    const navNow = world.nav
+    if (navNow !== null && navNow !== undefined && agent.state !== 'working' && agent.state !== 'sleeping') {
+      const colNow = Math.floor((agent.position.x - navNow.originX) / navNow.unitsPerCell)
+      const rowNow = Math.floor((agent.position.z - navNow.originZ) / navNow.unitsPerCell)
+      if (colNow >= 0 && rowNow >= 0 && colNow < navNow.width && rowNow < navNow.height && navNow.blocked[rowNow * navNow.width + colNow] === true) {
+        issues.push(`${agent.id}: 当前位置在 blocked 格 (${agent.position.x},${agent.position.z})`)
+      }
+    }
     // R453：路径本身也必须走可走格；只查当前位置会漏掉“下一步穿墙”。
     const nav = world.nav
     if (nav !== null && nav !== undefined && Array.isArray(agent.path) && agent.path.length > 1) {
