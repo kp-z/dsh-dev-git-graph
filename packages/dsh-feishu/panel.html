@@ -1492,6 +1492,90 @@
     color: var(--p-text-2);
   }
 
+  /* ---- 优先级：左侧色条 + 标题前的实心徽标，扫一眼就能分出 P0~P3 ---- */
+  .task[data-priority] {
+    border-left-width: 3px;
+    border-left-style: solid;
+  }
+  .task[data-priority="P0"] { border-left-color: #e5484d; }
+  .task[data-priority="P1"] { border-left-color: #f59e0b; }
+  .task[data-priority="P2"] { border-left-color: #3b82f6; }
+  .task[data-priority="P3"] { border-left-color: #94a3b8; }
+
+  .prio {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 26px;
+    height: 18px;
+    padding: 0 5px;
+    border: 0;
+    border-radius: 5px;
+    font: inherit;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1;
+    color: #fff;
+    cursor: pointer;
+    background: #8b8f9a;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  }
+  .prio:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .prio:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 1px; }
+  .prio[data-value="P0"] { background: #e5484d; box-shadow: 0 0 0 3px rgb(229 72 77 / 0.18); }
+  .prio[data-value="P1"] { background: #f59e0b; }
+  .prio[data-value="P2"] { background: #3b82f6; }
+  .prio[data-value="P3"] { background: #94a3b8; }
+  /* 没设过优先级：虚线空位，点一下就能加，别让用户找不到入口 */
+  .prio-empty {
+    background: transparent;
+    border: 1px dashed var(--p-line-strong, var(--p-line));
+    color: var(--p-text-3);
+    font-weight: 600;
+  }
+  .prio-empty:hover { border-color: var(--p-accent); color: var(--p-accent); }
+
+  .prio-menu {
+    position: fixed;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 116px;
+    padding: 4px;
+    border: 1px solid var(--p-line);
+    border-radius: 10px;
+    background: var(--p-card);
+    box-shadow: 0 10px 28px rgb(0 0 0 / 0.16);
+  }
+  .prio-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--p-text);
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .prio-item:hover { background: var(--p-sub); }
+  .prio-item .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 3px;
+    background: #8b8f9a;
+  }
+  .prio-item[data-value="P0"] .dot { background: #e5484d; }
+  .prio-item[data-value="P1"] .dot { background: #f59e0b; }
+  .prio-item[data-value="P2"] .dot { background: #3b82f6; }
+  .prio-item[data-value="P3"] .dot { background: #94a3b8; }
+
   .task-head {
     display: flex;
     flex-wrap: nowrap;
@@ -2971,6 +3055,13 @@
       });
     }
 
+    /* 优先级高的排前面（P0 < P1 < P2 < P3 < 未设置），同档保持原顺序。 */
+    function prioRank(t) {
+      var v = normPriority(t && t.priority);
+      return v ? PRIORITY_OPTIONS.indexOf(v) : 9;
+    }
+    tasks = tasks.slice().sort(function (a, b) { return prioRank(a) - prioRank(b); });
+
     var allTasks = tasks;
     tasks = filterTasksForPanel(allTasks);
     renderFilterOptions(allTasks);
@@ -3020,6 +3111,73 @@
     return 'hsl(' + Math.round((no * 137.508) % 360) + ' 60% 55%)';
   }
 
+  var PRIORITY_OPTIONS = ['P0', 'P1', 'P2', 'P3'];
+  var PRIORITY_LABEL = { P0: 'P0 最紧急', P1: 'P1 高', P2: 'P2 中', P3: 'P3 低' };
+
+  function normPriority(value) {
+    var v = String(value || '').trim().toUpperCase();
+    return PRIORITY_OPTIONS.indexOf(v) >= 0 ? v : '';
+  }
+
+  /* 点徽标弹出选择器：P0~P3 + 清除。菜单跟着按钮走，滚出视口就关掉。 */
+  function openPriorityMenu(anchorEl, current, onPick) {
+    var existing = document.querySelector('.prio-menu');
+    if (existing) existing.remove();
+    var menu = el('div', { 'class': 'prio-menu', role: 'menu' });
+    PRIORITY_OPTIONS.concat(['']).forEach(function (value) {
+      var row = el('button', { type: 'button', 'class': 'prio-item', role: 'menuitem' });
+      if (value) row.setAttribute('data-value', value);
+      row.appendChild(el('span', { 'class': 'dot' }));
+      row.appendChild(el('span', { text: value ? PRIORITY_LABEL[value] : '清除优先级' }));
+      row.addEventListener('click', function () {
+        menu.remove();
+        onPick(value);
+      });
+      menu.appendChild(row);
+    });
+    document.body.appendChild(menu);
+    var rect = anchorEl.getBoundingClientRect();
+    var top = rect.bottom + 4;
+    if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - menu.offsetHeight - 4);
+    menu.style.top = top + 'px';
+    menu.style.left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8) + 'px';
+    setTimeout(function () {
+      var close = function (event) {
+        if (!menu.contains(event.target)) {
+          menu.remove();
+          document.removeEventListener('mousedown', close, true);
+        }
+      };
+      document.addEventListener('mousedown', close, true);
+      document.addEventListener('scroll', function () { menu.remove(); }, { once: true, capture: true });
+    }, 0);
+    return menu;
+  }
+
+  function priorityChip(t, prio) {
+    var chip = el('button', {
+      type: 'button',
+      'class': prio ? 'prio' : 'prio prio-empty',
+      title: prio ? '优先级 ' + prio + '（点击修改）' : '设优先级（点击选择）',
+      'aria-label': prio ? '优先级 ' + prio : '未设置优先级',
+    });
+    if (prio) chip.setAttribute('data-value', prio);
+    chip.textContent = prio || '--';
+    chip.addEventListener('click', function (event) {
+      event.stopPropagation();
+      openPriorityMenu(chip, prio, function (value) { setPriority(t.id, value); });
+    });
+    return chip;
+  }
+
+  function setPriority(taskId, value) {
+    api('tasks/priority', { taskId: taskId, value: value }).then(function () {
+      return load({ quiet: true });
+    }).then(function () {
+      toast(value ? '优先级改为 ' + value : '已清除优先级');
+    }).catch(function () { /* api() 已经 toast 过错误 */ });
+  }
+
   function taskNode(t) {
     /* 当前对话绑定的那张卡单独标出来：描边 + 呼吸动画 + 「当前对话」徽标。 */
     var isCurrent = !!(t.sessionId && app.currentSessionId && t.sessionId === app.currentSessionId);
@@ -3031,6 +3189,9 @@
       item.setAttribute('aria-current', 'true');
       item.setAttribute('data-session', String(t.sessionId));
     }
+    /* 优先级：卡片最左边一条色条 + 标题前一个实心徽标，点徽标就地改。 */
+    var prio = normPriority(t.priority);
+    if (prio) item.setAttribute('data-priority', prio);
     var main = el('div', { 'class': 'task-main' });
     /* 会话 id 要同时用于标题行的小角标和下面的动作行，先取一次。 */
     var sid = t.sessionId || app.sessions[t.id];
@@ -3043,6 +3204,7 @@
 
     /* 标题行：标题 + 一个很浅的会话 id；绑定成功且会话活着时前面亮一个绿灯。 */
     var headRow = el('div', { 'class': 'task-head' });
+    headRow.appendChild(priorityChip(t, prio));
     headRow.appendChild(title);
     /* 双击标题 → 就地改名，旁边带一个 AI 起名。 */
     title.addEventListener('dblclick', function (event) {
