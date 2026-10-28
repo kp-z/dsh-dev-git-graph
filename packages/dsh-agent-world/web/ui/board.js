@@ -1935,6 +1935,7 @@ export function createBoard(options = {}) {
     setView,
     view: () => ({ group: viewGroup, filter: viewFilter }),
     groups: () => allGroups.map((group) => ({ id: group.id, name: group.name, total: group.total, unfinished: group.unfinished })),
+    memberCount: () => model?.members.length ?? 0,
     update,
     setPalette,
     setTaskSets,

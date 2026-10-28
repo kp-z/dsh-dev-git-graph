@@ -1122,6 +1122,17 @@ function setTaskView(next) {
   }
 }
 
+function syncTeamMeta() {
+  const meta = root.querySelector('#sidebar-region-meta-agents')
+  if (meta === null) return
+  const count = typeof board?.memberCount === 'function' ? board.memberCount() : null
+  if (count === null) return
+  const current = meta.textContent ?? ''
+  const lead = current.split(' · ')[0] ?? 'lead'
+  const tasks = current.includes(' · ') ? current.slice(current.lastIndexOf(' · ')) : ''
+  meta.textContent = `${lead} · ${count} 人${tasks}`
+}
+
 function syncGroupCycle() {
   const button = root.querySelector('.aw-group-cycle')
   if (button === null) return
@@ -1187,6 +1198,7 @@ function renderTaskActions(team) {
       const next = groups[(index + 1) % groups.length] ?? groups[0]
       board.setView({ group: next.id })
       syncGroupCycle()
+  syncTeamMeta()
       showHint(`流水线：${next.name}`)
     })
     host.append(cycle)
@@ -1863,6 +1875,7 @@ function render(force = false) {
   scene2d.render({ world: renderWorld, scene: meta.scene, tick, messageDeliveryTicks: meta.messageDeliveryTicks })
   questHud.update(buildQuestState(renderWorld, renderWorld.stations ?? []))
   syncGroupCycle()
+  syncTeamMeta()
   const story = buildStory(renderWorld)
   if (storyBanner !== null && storyBanner !== undefined) {
     storyBanner.dataset.tone = story.tone
