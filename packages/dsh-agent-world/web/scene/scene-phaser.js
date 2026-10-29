@@ -2190,7 +2190,9 @@ export function createScenePhaser(canvas, options = {}) {
         if (manual !== true && seatedKind && seatedState) {
           const station = (worldState.stations ?? []).find((candidate) => candidate.id === actor.station)
           const slots = Array.isArray(station?.slots) ? station.slots : []
-          if (slots.length > 0 && station !== undefined) {
+          // office 的 slots 全是 {0,0}（= anchor），不是椅子；只有真实偏移才当坐点。
+          const hasSeatSlot = slots.length > 0 && slots.some((slot) => Math.abs(slot.x) > 0.01 || Math.abs(slot.z) > 0.01)
+          if (hasSeatSlot && station !== undefined) {
             let slotIndex = stationSlotAssignments.get(actor.id)
             if (slotIndex === undefined || slotIndex >= slots.length) {
               const used = new Set([...stationSlotAssignments.entries()].filter(([id]) => id !== actor.id).map(([, index]) => index))
@@ -2207,6 +2209,28 @@ export function createScenePhaser(canvas, options = {}) {
             // 0=right, π/2=down, π=left, -π/2=up（见 directionOf）。
             if (Math.abs(towardX) >= Math.abs(towardZ)) renderFacing = towardX >= 0 ? 0 : Math.PI
             else renderFacing = towardZ >= 0 ? Math.PI / 2 : -Math.PI / 2
+          } else if (station !== undefined) {
+            // 内容只有 anchor：找**离工位 anchor 最近**的真实椅子，而不是离角色最近。
+            // 这样既不会坐到别人工位，也不会坐在桌子旁边的空地上。
+            const anchorX = station.anchor.x * TILE_PX
+            const anchorY = station.anchor.z * TILE_PX
+            let best = null
+            let bestDistance = 48
+            for (const [index, seat] of chairSeats.entries()) {
+              if (claimedSeats.has(index)) continue
+              const distance = Math.hypot(seat.x - anchorX, seat.y - anchorY)
+              if (distance < bestDistance) { bestDistance = distance; best = index }
+            }
+            if (best !== null) {
+              claimedSeats.add(best)
+              seatAssignments.set(actor.id, best)
+              renderX = chairSeats[best].x
+              renderY = chairSeats[best].y
+              const towardX = anchorX - renderX
+              const towardZ = anchorY - renderY
+              if (Math.abs(towardX) >= Math.abs(towardZ)) renderFacing = towardX >= 0 ? 0 : Math.PI
+              else renderFacing = towardZ >= 0 ? Math.PI / 2 : -Math.PI / 2
+            }
           } else {
             // 兼容没有 slots 的老内容：仍然只认吸附半径内的椅子。
             let seatIndex = seatAssignments.get(actor.id)
