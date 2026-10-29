@@ -95,4 +95,6 @@ export interface IdleBehaviorPlan {
 export interface StepContext {
   /** 待命行为目录。缺省 = 没有目录 = 待命时站着不动（R68 之前的行为）。 */
   readonly idleBehaviors?: readonly IdleBehaviorPlan[]
+  /** R471：没有目标时是否允许待命走动（默认 true；运行时按 idleActionsEnabled 传）。 */
+  readonly idleAmbient?: boolean
 }

@@ -70,7 +70,8 @@ export interface IdleOutcome {
  * @param world - 世界（就地修改）。
  * @param behaviors - 待命行为目录（来自内容库 `actions`；空数组 = 不编排，退回老行为）。
  */
-export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[] = []): IdleOutcome {
+export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[] = [], options: { allowAmbient?: boolean } = {}): IdleOutcome {
+  const allowAmbient = options.allowAmbient !== false
   const advanced: string[] = []
   const settled: string[] = []
   const acted: string[] = []
@@ -113,6 +114,16 @@ export function advanceIdle(world: World, behaviors: readonly IdleBehaviorPlan[]
      * 两条一起才闭得住：这条保证"不会再被拉走"，那条保证"已经卡住的能被收回"。
      */
     if (holdsUnfinishedTask(agent, tasksById)) continue
+    // R471：运行时默认 `idleActionsEnabled=false` → 目录为空 → 待命/无目标就站定。
+    // 只有显式开启待命行为（非空目录）时才允许走向歇脚点/踱步；人为控制不走这里。
+    if (!allowAmbient && behaviors.length === 0) {
+      if (agent.state === 'walking' && agent.targetStation === null) {
+        agent.state = 'idle'
+        agent.path = []
+        repaired.push(agent.id)
+      }
+      continue
+    }
     if (agent.state !== 'idle' && !resting && !ambientWalking) continue
 
     const home = agent.hangout

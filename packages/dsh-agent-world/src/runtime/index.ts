@@ -299,6 +299,8 @@ export function createRuntime(options: RuntimeOptions): Runtime {
       // 设计开关（"先让 agent 不进行任何动作"），内容侧仍保留三条待命行为、翻回即恢复。
       result = step(world, commands, {
         idleBehaviors: idleActionsEnabled ? service.content().idleBehaviors() : [],
+        // R471：关掉待命行为时，没有目标就站定，不再“自己去歇脚点”。
+        idleAmbient: idleActionsEnabled,
       })
     } catch (error) {
       diagnostics.errors += 1
