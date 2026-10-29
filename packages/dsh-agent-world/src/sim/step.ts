@@ -375,7 +375,7 @@ export function step(
     if (agent.carrying === null) continue
     const carried = world.tasks.find((task) => task.id === agent.carrying)
     // 只自愈“任务确实已完成/失败但人还挂着”；假的 carrying 不在这里猜（测试也会用它造忙态）。
-    if (carried !== undefined && (carried.status === 'done' || carried.status === 'failed')) {
+    if (carried !== undefined && (carried.status === 'done' || carried.status === 'failed' || carried.owner !== agent.id)) {
       agent.carrying = null
       agent.state = 'idle'
       agent.station = null

@@ -2185,10 +2185,14 @@ export function createScenePhaser(canvas, options = {}) {
         let renderX = posX
         let renderY = posY
         let renderFacing = actor.facing
-        const seatedKind = actor.stationKind === 'desk' || actor.stationKind === 'meeting' || actor.stationKind === 'breakroom'
+        // R466：actor.stationKind 在 world-update 里可能是空的；座位判断必须看站点真实 kind。
+        const currentStation = (worldState.stations ?? []).find((candidate) => candidate.id === actor.station)
+        const planKind = (state.plan?.actors ?? []).find((candidate) => candidate.id === actor.id)?.stationKind
+        const stationKind = currentStation?.kind ?? actor.stationKind ?? planKind
+        const seatedKind = stationKind === 'desk' || stationKind === 'meeting' || stationKind === 'breakroom'
         const seatedState = actor.state === 'working' || actor.state === 'talking' || actor.state === 'sleeping'
         if (manual !== true && seatedKind && seatedState) {
-          const station = (worldState.stations ?? []).find((candidate) => candidate.id === actor.station)
+          const station = currentStation
           const slots = Array.isArray(station?.slots) ? station.slots : []
           // office 的 slots 全是 {0,0}（= anchor），不是椅子；只有真实偏移才当坐点。
           const hasSeatSlot = slots.length > 0 && slots.some((slot) => Math.abs(slot.x) > 0.01 || Math.abs(slot.z) > 0.01)
@@ -2237,7 +2241,7 @@ export function createScenePhaser(canvas, options = {}) {
             if (seatIndex !== undefined && claimedSeats.has(seatIndex)) seatIndex = undefined
             if (seatIndex === undefined) {
               let best = null
-              let bestDistance = 24
+              let bestDistance = 48
               for (const [index, seat] of chairSeats.entries()) {
                 if (claimedSeats.has(index)) continue
                 const distance = Math.hypot(seat.x - posX, seat.y - posY)
@@ -3112,6 +3116,7 @@ export function createScenePhaser(canvas, options = {}) {
     /** R374：动作库。 */
     listActions: () => listActions(),
     chairAudit: () => ({ total: chairSeats.length, duplicates: duplicateSeatIndices(chairSeats) }),
+    chairs: () => chairSeats.map((seat, index) => ({ index, x: Math.round(seat.x), y: Math.round(seat.y) })),
     playAction: (agentId, actionId) => playActionFor(agentId, actionId),
     clearAction: (agentId) => { clearActionOverride(agentId) },
     /** R335：底边可视层开关（也支持 `?ysort=1`）。 */
@@ -3227,6 +3232,7 @@ export function createScenePhaser(canvas, options = {}) {
     /** R374：动作库（供对话面板的动作下拉使用）。 */
     listActions: () => listActions(),
     chairAudit: () => ({ total: chairSeats.length, duplicates: duplicateSeatIndices(chairSeats) }),
+    chairs: () => chairSeats.map((seat, index) => ({ index, x: Math.round(seat.x), y: Math.round(seat.y) })),
     playAction: (agentId, actionId) => playActionFor(agentId, actionId),
     clearAction: (agentId) => { clearActionOverride(agentId) },
     // ── 视图控制（R65）：外壳的 − ＋ ⤢ ⌖ 四个按钮接这几个 ────────────────────
