@@ -1253,6 +1253,10 @@ export function createScenePhaser(canvas, options = {}) {
       const margin = 18 / (camera.zoom || 1)
       px = Math.max(view.x + margin, Math.min(view.right - margin, px))
       py = Math.max(view.y + margin, Math.min(view.bottom - margin, py))
+      // R474：多个目标都被夹到边缘时按角色序错开，避免完全重叠。
+      const ringIndex = [...destinationRings.keys()].indexOf(actor.id)
+      px += ((ringIndex % 3) - 1) * 9
+      py += (Math.floor(ringIndex / 3) % 2) * 9
       const pulse = 1 + Math.sin(nowMs / 180) * 0.08
       ring.setPosition(px, py)
       ring.setScale(pulse)
