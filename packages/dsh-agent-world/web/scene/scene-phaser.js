@@ -2175,6 +2175,7 @@ export function createScenePhaser(canvas, options = {}) {
         const manual = ownsPosition(actor.id)
         let renderX = posX
         let renderY = posY
+        let renderFacing = actor.facing
         const seatedKind = actor.stationKind === 'desk' || actor.stationKind === 'meeting' || actor.stationKind === 'breakroom'
         const seatedState = actor.state === 'working' || actor.state === 'talking' || actor.state === 'sleeping'
         if (manual !== true && seatedKind && seatedState) {
@@ -2191,6 +2192,12 @@ export function createScenePhaser(canvas, options = {}) {
             const slot = slots[slotIndex] ?? slots[0]
             renderX = Math.round((station.anchor.x + slot.x) * TILE_PX)
             renderY = Math.round((station.anchor.z + slot.z) * TILE_PX)
+            // R459：坐着时朝向工位（slot → anchor），而不是沿用走路朝向。
+            const towardX = -slot.x
+            const towardZ = -slot.z
+            // 0=right, π/2=down, π=left, -π/2=up（见 directionOf）。
+            if (Math.abs(towardX) >= Math.abs(towardZ)) renderFacing = towardX >= 0 ? 0 : Math.PI
+            else renderFacing = towardZ >= 0 ? Math.PI / 2 : -Math.PI / 2
           } else {
             // 兼容没有 slots 的老内容：仍然只认吸附半径内的椅子。
             let seatIndex = seatAssignments.get(actor.id)
@@ -2250,7 +2257,7 @@ export function createScenePhaser(canvas, options = {}) {
           // **带由内容库给**（`ScenePlan.actions`）：working → sit，其余按库里的声明。
           // 渲染器不自己编这套映射——那正是"坐着干活的人站着"那类错藏身的地方。
           band: overrideAction?.band ?? bandForActor(plan?.actions, animationActor),
-          direction: directionOf(actor.facing),
+          direction: directionOf(renderFacing),
         })
         // 钉帧必须钉**解析出来的那条动画**的首帧。
         // ⚠️ 原来取 `sheet.animations` 的第一个（= `walk.right`，列 0）—— 于是"动画没在播"
