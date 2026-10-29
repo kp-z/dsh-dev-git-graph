@@ -396,7 +396,7 @@ export function step(
   // 待命角色走向歇脚点（M2.5-1）。**放在 movement 之后**：movement 只处理 `walking`，
   // 而这一步只处理 `idle`，两者互不重叠；但刚被派工的人这一 tick 已经是 `walking` 了，
   // 所以不会被这里再挪一次。
-  const idle = advanceIdle(world, context.idleBehaviors ?? [])
+  const idle = advanceIdle(world, context.idleBehaviors ?? [], { allowAmbient: context.idleAmbient ?? true })
 
   // ── 4. interaction ──
   const work = advanceWork(world)
