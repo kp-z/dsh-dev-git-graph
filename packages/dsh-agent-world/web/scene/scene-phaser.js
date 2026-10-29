@@ -333,6 +333,9 @@ export function createScenePhaser(canvas, options = {}) {
   let selectedAgentId = null
   /** P1：选中者脚下的高亮圈（Phaser Shape，随物理精灵每帧贴位）。 */
   let selectionRing = null
+  /** R468：选中角色导航中的目标点高亮（station 位置）。 */
+  let destinationRing = null
+  let lastWorldState = null
   /**
    * P3：移动模式开关。由超控面板的「对话 / 移动」切换驱动——
    * 只有 `true` 时键盘（WASD/方向键）才操控选中 agent；`false` 时键盘归相机/输入框。
@@ -933,6 +936,7 @@ export function createScenePhaser(canvas, options = {}) {
        * 正确做法：位置、尺寸、偏移全用世界单位；只有 72px 这个**阈值**是屏幕概念，
        * 把它换算成世界单位（`/ zoom`）再传进去。
        */
+      syncDestinationRing(_time)
       const plan = planTaskLabelStagger(
         taskLabelSpots.map((spot) => ({
           id: spot.id,
@@ -1222,6 +1226,29 @@ export function createScenePhaser(canvas, options = {}) {
    * 和精灵一样有坐标/深度/可见性，进 `entities` 层一起做 y 排序（不手写层级、不另开层）。
    * 没选中、或选中者还没建出精灵（首帧）时只藏不报错。
    */
+  function syncDestinationRing(nowMs = 0) {
+    if (destinationRing !== null && destinationRing !== undefined) destinationRing.setVisible(false)
+    if (selectedAgentId === null || lastWorldState === null) return
+    const actor = (lastWorldState.agents ?? []).find((candidate) => candidate.id === selectedAgentId)
+    const targetId = actor?.targetStation ?? null
+    if (actor === null || actor === undefined || targetId === null || actor.state !== 'walking') return
+    const station = (lastWorldState.stations ?? []).find((candidate) => candidate.id === targetId)
+    if (station === undefined) return
+    if (destinationRing === null || destinationRing === undefined) {
+      destinationRing = activeScene.add.ellipse(0, 0, 34, 16, 0x65d98a, 0.10)
+      destinationRing.setStrokeStyle(2, 0x65d98a, 0.9)
+      destinationRing.setOrigin(0.5, 0.5)
+      activeScene.layers.entities.add(destinationRing)
+    }
+    const px = station.anchor.x * TILE_PX
+    const py = station.anchor.z * TILE_PX
+    const pulse = 1 + Math.sin(nowMs / 180) * 0.08
+    destinationRing.setPosition(px, py)
+    destinationRing.setScale(pulse)
+    destinationRing.setDepth(depthFor(station.anchor.z) - 1)
+    destinationRing.setVisible(true)
+  }
+
   function syncSelectionRing() {
     const entry = selectedAgentId === null ? undefined : actorNodes.get(selectedAgentId)
     const sprite = entry === undefined ? null : entry.sprite
@@ -2037,6 +2064,7 @@ export function createScenePhaser(canvas, options = {}) {
   }
 
   function drawActors(worldState, plan, nowMs) {
+    lastWorldState = worldState
     const models = new Map((plan?.models ?? []).map((model) => [model.id, model]))
     const actors = [...liveActorsOf(worldState, plan)].sort((a, b) => a.z - b.z)
     const claimedSeats = new Set()
