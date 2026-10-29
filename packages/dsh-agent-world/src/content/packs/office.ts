@@ -68,17 +68,51 @@ const DISTRICTS: DistrictEntry[] = OFFICE_DISTRICTS.map((d) => ({
 }))
 
 /** 24 把椅子 → 站点。**没有 `props`**：地图已经把家具画好了。 */
-const STATIONS: StationEntry[] = OFFICE_STATIONS.map((s) => ({
-  id: s.id,
-  name: s.name,
-  kind: s.kind as StationEntry['kind'],
-  district: s.district,
-  anchor: { x: s.anchor.x, z: s.anchor.z },
-  relativeTo: null,
-  capacity: s.capacity,
-  capabilities: s.capabilities as StationEntry['capabilities'],
-  slots: s.slots.map((v) => ({ x: v.x, z: v.z })),
-}))
+const CHAIR = 'model.part.chair-desk'
+
+/**
+ * R463：原版地图只画了椅子，没有“椅子可坐点”；很多站的 slots 还是 {0,0}，
+ * 人就会坐到桌子旁边。这里给 desk 补一把明确椅子 + slot，会议桌补 4 把。
+ * 地图里原有的椅子保留（用户要求“多放几把”），新增的是可坐、可碰撞的椅子。
+ */
+const STATIONS: StationEntry[] = OFFICE_STATIONS.map((s) => {
+  const base = {
+    id: s.id,
+    name: s.name,
+    kind: s.kind as StationEntry['kind'],
+    district: s.district,
+    anchor: { x: s.anchor.x, z: s.anchor.z },
+    relativeTo: null,
+    capacity: s.capacity,
+    capabilities: s.capabilities as StationEntry['capabilities'],
+  }
+  // 这两个座位的 anchor 本身贴着墙；新增椅子 slot 会落在不可走格，保留原 slots。
+  if (s.kind === 'desk' && (s.id === 'station.seat-17' || s.id === 'station.seat-18')) {
+    return { ...base, slots: s.slots.map((v) => ({ x: v.x, z: v.z })) }
+  }
+  if (s.kind === 'desk') {
+    return {
+      ...base,
+      props: [{ model: CHAIR, offset: { x: 0, z: -0.55 }, rotationY: Math.PI }],
+      slots: [{ x: 0, z: -0.55 }],
+    }
+  }
+  if (s.kind === 'meeting') {
+    const chairs = [
+      { x: -0.8, z: 0, rotationY: Math.PI / 2 },
+      { x: 0.8, z: 0, rotationY: -Math.PI / 2 },
+      { x: 0, z: -0.8, rotationY: Math.PI },
+      { x: 0, z: 0.8, rotationY: 0 },
+    ]
+    return {
+      ...base,
+      capacity: Math.max(4, s.capacity),
+      props: chairs.map((chair) => ({ model: CHAIR, offset: { x: chair.x, z: chair.z }, rotationY: chair.rotationY })),
+      slots: chairs.map((chair) => ({ x: chair.x, z: chair.z })),
+    }
+  }
+  return { ...base, slots: s.slots.map((v) => ({ x: v.x, z: v.z })) }
+})
 
 /**
  * **这一局的装配单**：只引用原版办公室的 9 个分区与 24 个座位。

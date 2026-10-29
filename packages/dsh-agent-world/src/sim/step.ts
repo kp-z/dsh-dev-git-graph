@@ -369,6 +369,21 @@ export function step(
     return { world, events, claims: [], stalled: [], requests, messages: [], delivered: [], recovered: [] }
   }
 
+  // R464：读档/重放后可能残留“任务已完成但人还 carrying”的脏状态；
+  // 先自愈再调度，否则调度器会误判没有空闲角色。
+  for (const agent of world.agents) {
+    if (agent.carrying === null) continue
+    const carried = world.tasks.find((task) => task.id === agent.carrying)
+    // 只自愈“任务确实已完成/失败但人还挂着”；假的 carrying 不在这里猜（测试也会用它造忙态）。
+    if (carried !== undefined && (carried.status === 'done' || carried.status === 'failed')) {
+      agent.carrying = null
+      agent.state = 'idle'
+      agent.station = null
+      agent.targetStation = null
+      agent.path = []
+    }
+  }
+
   // ── 2. scheduler ──
   // 输入必须是"依赖已求值"的状态，而这个求值全世界只有 ready.ts 一处实现。
   const ready = recomputeReady(world)
