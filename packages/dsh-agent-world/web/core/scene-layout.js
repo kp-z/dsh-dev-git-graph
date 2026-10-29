@@ -82,7 +82,8 @@ export function bandOfState(actions, state) {
 /** R316：站点类型覆盖动作带——同一 working，会议桌站、工位坐、休息区坐。 */
 export function bandForActor(actions, actor) {
   const kind = actor?.stationKind
-  if (kind === 'meeting' && actor?.state === 'working') return 'idle'
+  // R461：会议桌 working 也坐下（以前返回 idle，画面里人站在桌边开会）。
+  if (kind === 'meeting' && actor?.state === 'working') return 'sit'
   if (kind === 'mailroom' && actor?.state === 'working') return 'idle'
   if (kind === 'breakroom' && actor?.state === 'working') return 'sit'
   return bandOfState(actions, actor?.state)
