@@ -313,6 +313,17 @@ function applyExternalTasks(
       task.finishedAtTick = world.tick
       task.station = null
       task.output = command.output
+      // 完工不只清 owner：任何 agent 若还挂着这张单（曾接手/投影错位）都要释放，
+      // 否则它会一直 carrying，调度器误判“没有空闲角色”。
+      for (const carryingAgent of world.agents) {
+        if (carryingAgent.carrying === task.id) {
+          carryingAgent.carrying = null
+          carryingAgent.state = 'idle'
+          carryingAgent.station = null
+          carryingAgent.targetStation = null
+          carryingAgent.path = []
+        }
+      }
       events.push({ type: 'task.completed', payload: { taskId: task.id, agentId: task.owner, stationId: null } })
     } else {
       task.status = 'failed'
