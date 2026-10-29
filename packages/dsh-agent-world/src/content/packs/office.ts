@@ -75,17 +75,35 @@ const CHAIR = 'model.part.chair-desk'
  * 人就会坐到桌子旁边。这里给 desk 补一把明确椅子 + slot，会议桌补 4 把。
  * 地图里原有的椅子保留（用户要求“多放几把”），新增的是可坐、可碰撞的椅子。
  */
-const STATIONS: StationEntry[] = OFFICE_STATIONS.map((s) => ({
-  id: s.id,
-  name: s.name,
-  kind: s.kind as StationEntry['kind'],
-  district: s.district,
-  anchor: { x: s.anchor.x, z: s.anchor.z },
-  relativeTo: null,
-  capacity: s.capacity,
-  capabilities: s.capabilities as StationEntry['capabilities'],
-  slots: s.slots.map((v) => ({ x: v.x, z: v.z })),
-}))
+const EXTRA_CHAIRS: Record<string, { x: number; z: number; rotationY: number }> = {
+  'station.seat-04': { x: 0, z: 1.5, rotationY: 0 },
+  'station.seat-05': { x: 0, z: 1.5, rotationY: 0 },
+  'station.seat-15': { x: 0, z: -1.5, rotationY: Math.PI },
+  'station.seat-16': { x: 0, z: -1.5, rotationY: Math.PI },
+}
+
+const STATIONS: StationEntry[] = OFFICE_STATIONS.map((s) => {
+  const base = {
+    id: s.id,
+    name: s.name,
+    kind: s.kind as StationEntry['kind'],
+    district: s.district,
+    anchor: { x: s.anchor.x, z: s.anchor.z },
+    relativeTo: null,
+    capacity: s.capacity,
+    capabilities: s.capabilities as StationEntry['capabilities'],
+  }
+  const extra = EXTRA_CHAIRS[s.id]
+  if (extra !== undefined && s.kind === 'desk') {
+    return {
+      ...base,
+      // 额外椅子只做装饰/占位，不改官方 seat slot，避免把工位坐点挪进墙里。
+      props: [{ model: 'model.part.chair-desk', offset: { x: extra.x, z: extra.z }, rotationY: extra.rotationY }],
+      slots: s.slots.map((v) => ({ x: v.x, z: v.z })),
+    }
+  }
+  return { ...base, slots: s.slots.map((v) => ({ x: v.x, z: v.z })) }
+})
 
 /**
  * **这一局的装配单**：只引用原版办公室的 9 个分区与 24 个座位。
