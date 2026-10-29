@@ -1,6 +1,6 @@
 {
   "name": "dsh-feishu",
-  "version": "0.12.0",
+  "version": "0.19.0",
   "private": true,
   "type": "module",
   "description": "飞书同步插件：配置个人授权，定时把飞书任务与文档同步到本地，任务可直接开成 DSH 会话。",
@@ -16,6 +16,8 @@
   "files": [
     "index.js",
     "schedule.js",
+    "dshSchedule.js",
+    "workspace.js",
     "commitment.js",
     "client.js",
     "panel.html",
@@ -55,8 +57,11 @@
     "test:meta": "node test/meta.mjs",
     "test:client": "node test/client.mjs",
     "test:smoke": "node test/smoke.mjs",
-    "test": "node test/meta.mjs && node test/schedule.mjs && node test/commitment.mjs && node test/client.mjs && node test/smoke.mjs",
+    "test": "node test/meta.mjs && node test/schedule.mjs && node test/commitment.mjs && node test/dshSchedule.mjs && node test/dshBridge.mjs && node test/workspace.mjs && node test/workspaceBridge.mjs && node test/attribution.mjs && node test/client.mjs && node test/smoke.mjs",
     "test:schedule": "node test/schedule.mjs",
-    "test:commitment": "node test/commitment.mjs"
+    "test:commitment": "node test/commitment.mjs",
+    "test:dsh": "node test/dshSchedule.mjs && node test/dshBridge.mjs",
+    "test:workspace": "node test/workspace.mjs && node test/workspaceBridge.mjs",
+    "test:attribution": "node test/attribution.mjs"
   }
 }

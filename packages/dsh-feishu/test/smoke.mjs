@@ -39,14 +39,12 @@ const prompts = []
 /* 假的会话服务：开工逻辑要在这里面走一遍，否则「能不能自动开工」只能靠读代码猜。 */
 /*
  * 真实飞书清单里的任务可能挂在任意工作区名下（插件会把工作区补写进字段）。
- * 冒烟验的是「写了工作区就按工作区目录开工」这条链路，不是名字匹配，所以假注册表
- * 对认不出的名字一律回同一个目录。
+ * 冒烟验的是「写了工作区就按工作区目录开工」这条链路。
+ * v0.15 起工作区解析是**严格匹配**（去掉了 contains 兜底）：所以假注册表要在开工会那一步
+ * 动态补上「这次要开工的任务」的工作区名，才能真的走到「按工作区开工」。
  */
 const STUB_WORKSPACE = 'DSH 插件开发'
 const workspaceList = [{ id: 'ws-1', title: STUB_WORKSPACE, path: '/tmp' }]
-workspaceList.find = function findLoose(predicate) {
-  return Array.prototype.find.call(this, predicate) ?? this[0]
-}
 
 const fakeServices = {
   agents: {
@@ -76,6 +74,68 @@ const fakeServices = {
   },
 }
 
+/* 冒烟也要有 DSH 自动化服务：v0.14 起定时只写进它，没有服务就等于「定时不可用」。
+   这里是一个内存假实现，只够验「一句话 → 编译 → 写进服务 → 快照能看见 → 清得掉」。 */
+const smokeSchedules = []
+const smokeSchedule = {
+  async catalog() {
+    return smokeSchedules.map((row) => ({ ...row }))
+  },
+  async list(request) {
+    return smokeSchedules
+      .filter((row) => row.sessionId === request.sessionId && row.status === 'active')
+      .map(({ sessionId, status, ...record }) => record)
+  },
+  async create(sessionId, request) {
+    const kind = request.at ? 'at' : request.every_seconds ? 'every' : request.daily ? 'daily' : request.weekly ? 'weekly' : 'cron'
+    const record = {
+      id: `smoke-${smokeSchedules.length + 1}`,
+      kind,
+      title: request.title,
+      prompt: request.prompt,
+      scheduledAt: new Date(Date.now() + 3_600_000).toISOString(),
+    }
+    if (request.daily) record.time = request.daily.time
+    if (request.weekly) {
+      record.time = request.weekly.time
+      record.weekdays = request.weekly.weekdays
+    }
+    if (request.every_seconds) record.everySeconds = request.every_seconds
+    if (request.cron) record.expression = request.cron.expression
+    smokeSchedules.push({ ...record, sessionId, status: 'active' })
+    return record
+  },
+  async update(request) {
+    const index = smokeSchedules.findIndex((row) => row.id === request.id && row.sessionId === request.sessionId)
+    if (index < 0) return { code: 'schedule_not_found', message: 'gone' }
+    const next = { ...smokeSchedules[index], scheduledAt: new Date(Date.now() + 7_200_000).toISOString() }
+    if (request.change?.daily) {
+      next.kind = 'daily'
+      next.time = request.change.daily.time
+    }
+    smokeSchedules[index] = next
+    return { record: next }
+  },
+  async delete(request) {
+    const index = smokeSchedules.findIndex((row) => row.id === request.id && row.sessionId === request.sessionId)
+    if (index < 0) return { code: 'schedule_not_found', message: 'gone' }
+    smokeSchedules.splice(index, 1)
+    return { id: request.id, deleted: true }
+  },
+}
+const smokeScheduleScope = {
+  schedule: smokeSchedule,
+  on: () => () => {},
+  effect: (fn) => {
+    try {
+      fn()
+    } catch {
+      /* ignore */
+    }
+    return () => {}
+  },
+}
+
 const ctx = {
   logger: () => ({
     info: (...args) => console.log('[feishu]', ...args),
@@ -86,6 +146,9 @@ const ctx = {
     return () => {}
   },
   get: (name) => fakeServices[name],
+  inject(deps, cb) {
+    if (Array.isArray(deps) && deps.includes('schedule')) cb(smokeScheduleScope)
+  },
   tools: {
     register(definition) {
       tools.set(definition.name, definition)
@@ -137,6 +200,15 @@ if (panelResponse.status !== 200 || !/<html/i.test(panelHtml)) {
   throw new Error(`面板不是 HTML（status=${panelResponse.status}, len=${panelHtml.length}）`)
 }
 console.log(`✓ /panel：${panelHtml.length} 字符`)
+
+/* 面板靠能力清单判断「宿主是不是旧代码」：这条不能掉，否则新按钮点下去只能吃 404 */
+const capsResponse = await fetch(`${base}/api/capabilities`)
+const capsPayload = await capsResponse.json()
+if (!capsPayload.ok || !Array.isArray(capsPayload.features) || capsPayload.features.length === 0) {
+  throw new Error(`/api/capabilities 形状不对：${JSON.stringify(capsPayload).slice(0, 200)}`)
+}
+if (!capsPayload.features.includes('workspace.bind')) throw new Error('能力清单缺 workspace.bind')
+console.log(`✓ /api/capabilities：${capsPayload.features.length} 项，v${capsPayload.version}`)
 
 const syncResponse = await fetch(`${base}/api/sync`, { method: 'POST' })
 const syncPayload = await syncResponse.json()
@@ -194,6 +266,15 @@ const startTarget =
   ?? after.state.tasks.find((task) => !task.sessionId)
   ?? after.state.tasks.find((task) => !task.workspaceTitle || task.workspaceTitle === STUB_WORKSPACE)
   ?? after.state.tasks[0]
+/* 严格匹配：让假注册表里正好有这条任务写的工作区名（没有工作区就只留默认那条） */
+{
+  const text = String(startTarget?.meta?.workspace ?? '').trim()
+  if (text) {
+    workspaceList.length = 0
+    workspaceList.push({ id: 'ws-1', title: text, path: '/tmp' })
+  }
+}
+
 const startResponse = await fetch(`${base}/api/tasks/start`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
@@ -251,9 +332,16 @@ if (!boundTask || boundTask.sessionAlive !== true) {
 }
 /* 绑定 = 开始计时：startAt 必须落下来（卡片不显示，但履约要用） */
 if (!(Number(boundTask.startAt) > 0)) throw new Error('绑定后没记 startAt')
-if (!boundTask.commitment || boundTask.commitment.state !== 'none') {
-  throw new Error(`没设预期时 commitment 应为 none：${JSON.stringify(boundTask.commitment)}`)
-}
+/* 绑定不该凭空造出预期：原来有（飞书清单里本来就填过）就保持原值，原来没有就仍然没有。
+   断言必须数据无关——直接比「绑定前 → 绑定后」，否则清单里恰好有预期就会假红
+   （2026-10 就是这样：真实任务带了「预期完成」，冒烟一直红，代码却是对的）。 */
+const bindTarget = after.state.tasks[1] || {}
+const bindTargetLive = liveState.state.tasks.find((task) => task.id === bindTarget.id)
+if (!bindTargetLive) throw new Error(`绑定后找不到目标任务：${bindTarget.id}`)
+const etaBefore = Number(bindTarget.commitment?.expectedAt) || 0
+const etaAfter = Number(bindTargetLive.commitment?.expectedAt) || 0
+if (etaAfter !== etaBefore) throw new Error(`绑定会话改动了预期时间：${etaBefore} → ${etaAfter}（${bindTarget.id} / ${boundTask.id}）`)
+if (!boundTask.commitment) throw new Error('绑定后缺 commitment 视图')
 const sessionsResponse = await (await fetch(`${base}/api/sessions`)).json()
 if (!sessionsResponse.ok || !Array.isArray(sessionsResponse.sessions)) {
   throw new Error(`/api/sessions 形状不对：${JSON.stringify(sessionsResponse)}`)
@@ -344,10 +432,11 @@ const dismissResponse = await fetch(`${base}/api/tasks/dismiss`, {
 console.log(`✓ /api/tasks/dismiss 404 路径：${(await dismissResponse.json()).error ?? ''}`)
 
 /* ── 排期（AI 时间自动化）──
- * 验的是「一句话 → 编译 → 落地 → 快照里能看见 → 清得掉」这条链路。
- * 不验真正到点开工（那要等真实时钟，冒烟里不烧这个时间）。 */
-const scheduleTarget = after.state.tasks.find((task) => !task.done) ?? after.state.tasks[0]
-if (!scheduleTarget) throw new Error('清单里一条任务都没有，排期冒烟跑不了')
+ * 验的是「一句话 → 编译 → 写进 DSH 自动化 → 快照里能看见 → 清得掉」这条链路。
+ * v0.14：定时只能写到「已绑定会话」的任务上，所以挑一条带 sessionId 的 */
+const scheduleTarget = after.state.tasks.find((task) => !task.done && task.sessionId)
+if (!scheduleTarget) console.log('· 没有已绑定会话的任务：跳过排期冒烟（dshBridge 已覆盖这条链路）')
+if (scheduleTarget) {
 
 const planResponse = await fetch(`${base}/api/plan`)
 const planPayload = await planResponse.json()
@@ -417,108 +506,11 @@ const clearResponse = await fetch(`${base}/api/tasks/schedule`, {
 })
 if (!(await clearResponse.json()).ok) throw new Error('清除排期失败')
 console.log('✓ 清除排期')
-
-/* 到点真的开工：把排期设在 2 秒后，等它到点，手动推一轮同步，验会话建出来。
-   这条链路是「AI 排期」的全部价值所在，只验 preview/set 是不够的。 */
-const fireTarget =
-  after.state.tasks.find((task) => !task.done && !task.started && !task.sessionId
-    && !task.workspaceTitle && !task.meta?.workspace)
-  ?? after.state.tasks.find((task) => !task.done && !task.started && !task.sessionId)
-if (fireTarget) {
-  /* 先把免打扰清空：默认午休 12:00-13:30 会让「刚刚」的排期顺延到 13:30（那是正确行为，
-     但冒烟不能等到下午）。验完再恢复。 */
-  /* 注意：settings 在 /api/state 响应顶层，不在 state 里（写错会静默把免打扰清空）。 */
-  const originalQuiet = statePayload.settings?.schedule?.quietHours ?? [{ start: '12:00', end: '13:30' }]
-  await fetch(`${base}/api/settings`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ schedule: { quietHours: [] } }),
-  })
-  const fireAt = new Date(Date.now() + 2000).toISOString()
-  const fireSet = await fetch(`${base}/api/tasks/schedule`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      taskId: fireTarget.id,
-      action: 'set',
-      spec: { kind: 'at', at: fireAt },
-      writeBack: false,
-      delivery: 'spawn',
-    }),
-  })
-  const firePayload = await fireSet.json()
-  if (!firePayload.ok) throw new Error(`设置到点排期失败：${JSON.stringify(firePayload).slice(0, 300)}`)
-  await wait(2600)
-  await fetch(`${base}/api/sync`, { method: 'POST' })
-  const fireDeadline = Date.now() + 60_000
-  let firedTask = null
-  while (Date.now() < fireDeadline) {
-    const snap = await (await fetch(`${base}/api/state`)).json()
-    firedTask = snap.state.tasks.find((task) => task.id === fireTarget.id)
-    if (firedTask?.started || firedTask?.error) break
-    await wait(500)
-  }
-  if (!firedTask?.started) {
-    throw new Error(
-      `到点没开工：started=${firedTask?.started} error=${firedTask?.error} schedule=${JSON.stringify(firedTask?.schedule)}`,
-    )
-  }
-  console.log(`✓ 到点开工：${fireTarget.title.slice(0, 20)} → ${firedTask.sessionId}`)
-  await fetch(`${base}/api/tasks/schedule`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ taskId: fireTarget.id, action: 'clear' }),
-  })
-  await fetch(`${base}/api/settings`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ schedule: { quietHours: originalQuiet } }),
-  })
-} else {
-  console.log('· 跳过「到点开工」：没有可用的未开工任务')
 }
 
-/* session 投递 + 任务没有会话：到点也不该开工，只给「未生效」原因。
-   这条锁的是 delivery 语义——避免排期静默失败。 */
-const noSessionTask = after.state.tasks.find(
-  (task) => !task.done && !task.sessionId && task.id !== fireTarget?.id,
-)
-if (noSessionTask) {
-  await fetch(`${base}/api/settings`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ schedule: { quietHours: [] } }),
-  })
-  const at = new Date(Date.now() + 2000).toISOString()
-  const setRes = await fetch(`${base}/api/tasks/schedule`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      taskId: noSessionTask.id,
-      action: 'set',
-      spec: { kind: 'at', at },
-      delivery: 'session',
-      writeBack: false,
-    }),
-  })
-  const setPayload = await setRes.json()
-  if (!setPayload.ok) throw new Error(`session 投递排期没设上：${JSON.stringify(setPayload).slice(0, 200)}`)
-  await wait(2600)
-  await fetch(`${base}/api/sync`, { method: 'POST' })
-  await wait(3000)
-  const afterNoSession = await (await fetch(`${base}/api/state`)).json()
-  const stuck = afterNoSession.state.tasks.find((task) => task.id === noSessionTask.id)
-  if (stuck?.started) throw new Error('没有会话的 session 投递排期不该开工')
-  if (!/未生效/.test(String(stuck?.schedule?.reason ?? ''))) {
-    throw new Error(`没给出「未生效」原因：${JSON.stringify(stuck?.schedule)}`)
-  }
-  console.log(`✓ session 投递 + 无会话：不触发且给出原因（${stuck.schedule.reason.slice(0, 20)}）`)
-  await fetch(`${base}/api/tasks/schedule`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ taskId: noSessionTask.id, action: 'clear' }),
-  })
-}
+/* 「到点开工」不再由插件负责：v0.14 起定时只写进 DSH 自动化任务，到点由 DSH
+   把提示词发进会话。那条链路由 dshBridge（写入）与 DSH 自己的测试覆盖，
+   这里只验插件「写进去」和「清得掉」，不再等墙钟。 */
 
 /* ── 预期完成（履约基准）── */
 const etaTarget = after.state.tasks.find((task) => !task.done) ?? after.state.tasks[0]
@@ -582,16 +574,27 @@ if (!etaClear.ok || etaClear.task.commitment.expectedAt !== 0) {
 }
 console.log('✓ 清除预期')
 
-/* 工具层：让模型能「说人话排期」。只 preview，不落地。 */
+/* 工具层：让模型能「说人话排期」。只 preview，不落地。
+   定时必须绑定会话：没有带会话的任务时，这条工具链路由 dshBridge 覆盖。 */
 const scheduleTool = tools.get('feishu_task_schedule')
-const scheduleToolText = await scheduleTool.execute(
-  { taskId: scheduleTarget.id, action: 'preview', when: '每周一早上 9:30' },
-  {},
-)
-if (!/每周一 09:30/.test(String(scheduleToolText))) {
-  throw new Error(`feishu_task_schedule 话术不对：${String(scheduleToolText).slice(0, 200)}`)
+if (!scheduleTool) throw new Error('缺 feishu_task_schedule 工具')
+if (scheduleTarget) {
+  const scheduleToolText = await scheduleTool.execute(
+    { taskId: scheduleTarget.id, action: 'preview', when: '每周一早上 9:30' },
+    {},
+  )
+  if (!/每周一 09:30/.test(String(scheduleToolText))) {
+    throw new Error(`feishu_task_schedule 话术不对：${String(scheduleToolText).slice(0, 200)}`)
+  }
+  console.log(`✓ 工具 feishu_task_schedule：${String(scheduleToolText).split('\n')[0]}`)
+} else {
+  /* 没绑会话时必须明确拒绝，而不是偷偷落本地 */
+  const refused = await scheduleTool.execute({ taskId: etaTarget.id, action: 'preview', when: '每周一早上 9:30' }, {})
+  if (!/绑定会话|DSH 自动化/.test(String(refused))) {
+    throw new Error(`没绑定会话时排期应被拒：${String(refused).slice(0, 200)}`)
+  }
+  console.log('✓ 工具 feishu_task_schedule：没绑定会话时明确拒绝')
 }
-console.log(`✓ 工具 feishu_task_schedule：${String(scheduleToolText).split('\n')[0]}`)
 
 const etaTool = tools.get('feishu_task_eta')
 const etaToolText = await etaTool.execute({ taskId: etaTarget.id, action: 'preview', when: '明天下午三点' }, {})

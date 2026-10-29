@@ -33,8 +33,9 @@
 
 ```jsonc
 {
-  "kind": "at | daily | workdays | weekly | monthly",   // 必填
+  "kind": "at | interval | daily | workdays | weekly | monthly",   // 必填
   "at": "2026-11-02T15:00:00+08:00",                    // kind=at：绝对时刻（ISO）
+  "everyMinutes": 60,                                   // kind=interval：步长，最短 5 分钟
   "anchor": "due | start | created",                    // kind=at 可改用锚点 + 偏移
   "offsetMinutes": -120,                                // 截止前 2 小时 = -120
   "time": "09:30",                                      // 重复类：当天时刻 HH:mm
@@ -108,6 +109,7 @@ export function advance(entry, firedAt, opts = {})       // {entry, done}
 | `工作日 9:00` / `每个工作日早上九点` | kind=workdays |
 | `每周一 9:30` / `每周五 18:00` / `每周一、三 10:00` | kind=weekly |
 | `每月 1 号 10:00` / `每月 15 日` | kind=monthly |
+| `每隔一小时` / `每小时` / `每 30 分钟` / `每半小时` / `每隔两小时` | kind=interval（相位锚在创建时刻，最短 5 分钟） |
 | `截止前 2 小时` / `提前一天` / `到期前 30 分钟` | anchor=due, offsetMinutes=-120/-1440/-30 |
 | `开工后 1 小时` | anchor=start, offsetMinutes=+60 |
 | 带窗口：`工作日 9:00，只在 9:00-19:00 之间` | + window |
@@ -205,10 +207,30 @@ feishu_plan_today({
 }
 ```
 
+## 7.5 真相源：DSH 自动化任务
+
+v0.13 起，「什么时候做」不再由插件自己保管，而是**写入并读取 DSH 的自动化任务**
+（`@deepseek-ai/dsh-schedule`，宿主的 `ctx.schedule` 服务）。v0.14 起更进一步：
+
+- **没绑定会话就没有定时**：DSH 的自动化必须绑定会话，没会话投不出去，所以不再退回本地排期；
+- **一个会话只有一条自动化**：保存时多余的会被收敛，清除等于删掉该会话的全部记录；
+- 本地 `state.schedules` 与本地调度器停用（`nextScheduleAt()` 返回 null，`dueScheduleTasks()` 恒为空）。
+
+- 读：`catalog()` 按 `sessionId` 分组进 10 秒缓存，`schedule/changed` 事件与写操作后强制刷新；
+  `scheduleViewOf()` 命中 DSH 记录时 `fire:false`，本地调度器不会重复触发。
+- 写：`create()` / `update()`（带 `expected` 做 compare-and-set）/ `delete()`。
+- 映射：at→at、interval→every_seconds、daily→daily、workdays→weekly[1..5]、
+  monthly→cron；DSH 没有免打扰/窗口/截止/次数，这些条件进 warnings 明说不会生效。
+- 提示词：`settings.schedule.automationPrompt`（默认「继续这条任务：先制定计划，然后按计划开始执行。」）。
+
 ## 8. 面板
 
 1. **任务卡片**：信息行加一枚排期 chip
-   `⏱ 每周一 09:30 · 下次 11-02 09:30`（无排期时显示淡色的 `⏱ 排期`）。
+   `⏰ 每周一 09:30 · 11-02`（无排期时显示淡色的 `⏰ 定时`）。
+   短文案的规则：**规则段 + 下次段**。规则段回答「多久一次 / 每周几」，下次段只写日期——
+   几点已经在规则里，再写一遍就是同一份时间说两遍。一次性没有规则段，直接写
+   `⏰ 明天 15:00`；跨年才写全 `YYYY-MM-DD`；同年的 `2026-` 一律省掉。
+   已暂停用 `⏸️` 图标收尾；免打扰 / 只在哪段时段 / 到哪天为止放在悬停 title 里。
    点击弹出小面板：输入框（占位符「下周一早上九点半 / 截止前两小时」）+ 「预览」+「保存」+「清除」；
    预览行显示 `下次 2026-11-02 09:30（周一）· 每周一 09:30`，解析失败时把原话标红并给出示例。
 2. **设置 → 时间自动化**：时区、工作时段、免打扰、错过策略、每日容量、默认写回飞书。

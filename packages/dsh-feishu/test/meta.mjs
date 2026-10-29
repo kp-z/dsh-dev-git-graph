@@ -33,6 +33,9 @@ import {
   parseTrigger,
   selectAutoStartCandidates,
   tasklistNameOf,
+  DEFAULT_MORNING_PROMPT,
+  DEFAULT_INSIGHT_PROMPT,
+  PROMPT_REV,
 } from '../index.js'
 
 let failures = 0

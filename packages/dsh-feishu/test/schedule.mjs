@@ -13,6 +13,7 @@ import {
   TZ_DEFAULT,
   advance,
   compileSpec,
+  describeShort,
   describeSpec,
   evaluateSchedule,
   nextFireAt,
@@ -112,7 +113,7 @@ check(
   check('compile 错误一次全给：ok=false 且没有 spec', [r.ok, r.spec], [false, undefined])
   check('compile 错误里带上了 time', r.errors[0].includes('time 无法解析'), true)
   check('compile 错误里带上了 missPolicy', r.errors.some((e) => e.includes('missPolicy 不认识')), true)
-  check('compile null 不抛异常', compileSpec(null).errors, ['缺少 kind（at / daily / workdays / weekly / monthly）'])
+  check('compile null 不抛异常', compileSpec(null).errors, ['缺少 kind（at / interval / daily / workdays / weekly / monthly）'])
   check('compile 未知时区报错', compileSpec({ kind: 'daily', time: '09:00', tz: 'Mars/Base' }).errors, ['时区不认识：Mars/Base'])
   check('compile 怪输入也不抛', [compileSpec(42).ok, compileSpec([]).ok, compileSpec(undefined).ok], [false, false, false])
 }
@@ -419,6 +420,41 @@ check('advance：过了 until → done', advance({ spec: { ...daily09, until: '2
 check('advance：一次性排期触发后 → done', advance({ spec: { kind: 'at', at: '2026-11-02T15:00:00+08:00', tz: SH }, runs: 0 }, NOW).done, true)
 check('advance：countRun=false 时不加次数（skip 推进用）', advance({ spec: daily09, runs: 3 }, NOW, { countRun: false }).entry.runs, 3)
 check('advance：countRun=false 时也推进 lastFiredAt', advance({ spec: daily09, runs: 3 }, NOW, { countRun: false }).entry.lastFiredAt, NOW)
+
+/* ══════════════════ interval：每隔 N 分钟 / N 小时 ══════════════════ */
+
+{
+  check('interval：每隔一小时 → 60 分钟', parseWhen('每隔一小时', { tz: SH, now: NOW }).spec, { kind: 'interval', everyMinutes: 60, tz: SH })
+  check('interval：每小时', parseWhen('每小时', { tz: SH, now: NOW }).spec.everyMinutes, 60)
+  check('interval：每 30 分钟', parseWhen('每 30 分钟', { tz: SH, now: NOW }).spec.everyMinutes, 30)
+  check('interval：每半小时', parseWhen('每半小时', { tz: SH, now: NOW }).spec.everyMinutes, 30)
+  check('interval：每隔两小时', parseWhen('每隔两小时', { tz: SH, now: NOW }).spec.everyMinutes, 120)
+  check('interval：每隔两天', parseWhen('每隔两天', { tz: SH, now: NOW }).spec.everyMinutes, 2880)
+  check('interval：每两周', parseWhen('每两周', { tz: SH, now: NOW }).spec.everyMinutes, 20160)
+  /* 「每」字也出现在每天/每周里：这两种不能被间隔规则抢走 */
+  check('interval 不抢「每天」', parseWhen('每天 9:00', { tz: SH, now: NOW }).spec.kind, 'daily')
+  check('interval 不抢「每周一」', parseWhen('每周一 9:30', { tz: SH, now: NOW }).spec.kind, 'weekly')
+  check('连写的星期要拆开', parseWhen('每周一三五 9:00', { tz: SH, now: NOW }).spec.weekdays, [1, 3, 5])
+  check('interval：< 5 分钟被拒', compileSpec({ kind: 'interval', everyMinutes: 1 }, { tz: SH }).ok, false)
+  check('interval：下次 = 创建时刻 + 步长', nextFireAt({ kind: 'interval', everyMinutes: 60, tz: SH }, NOW), NOW + 3_600_000)
+  check('interval：到点触发', evaluateSchedule({ spec: { kind: 'interval', everyMinutes: 60, tz: SH }, createdAt: NOW, runs: 0 }, { now: NOW + 3_600_000 }).fire, true)
+  check('interval：触发后不是 done', advance({ spec: { kind: 'interval', everyMinutes: 60, tz: SH }, runs: 0 }, NOW + 3_600_000).done, false)
+  check('interval：describe', describeSpec({ kind: 'interval', everyMinutes: 60 }), '每 1 小时')
+  check('interval：describe 90 分钟', describeSpec({ kind: 'interval', everyMinutes: 90 }), '每 90 分钟')
+}
+
+/* ══════════════════ describeShort：面板 chip 的短文案 ══════════════════ */
+
+{
+  check('short：每天只写日期', describeShort({ kind: 'daily', time: '09:00', tz: SH }, { now: NOW, nextAt: Date.parse('2026-10-29T09:00:00+08:00') }), '每天 09:00 · 明天')
+  check('short：每周', describeShort({ kind: 'weekly', time: '09:30', weekdays: [1], tz: SH }, { now: NOW, nextAt: Date.parse('2026-11-02T09:30:00+08:00') }), '每周一 09:30 · 11-02')
+  check('short：每月', describeShort({ kind: 'monthly', time: '10:00', monthDays: [1], tz: SH }, { now: NOW, nextAt: Date.parse('2026-11-01T10:00:00+08:00') }), '每月 1 日 10:00 · 11-01')
+  check('short：工作日', describeShort({ kind: 'workdays', time: '09:00', tz: SH }, { now: NOW, nextAt: Date.parse('2026-10-29T09:00:00+08:00') }), '工作日 09:00 · 明天')
+  check('short：interval', describeShort({ kind: 'interval', everyMinutes: 60, tz: SH }, { now: NOW, nextAt: NOW + 3_600_000 }), '每 1 小时 · 今天')
+  check('short：一次性带钟点', describeShort({ kind: 'at', at: '2026-10-29T15:00:00+08:00', tz: SH }, { now: NOW, nextAt: Date.parse('2026-10-29T15:00:00+08:00') }), '明天 15:00')
+  check('short：跨年写全年份', describeShort({ kind: 'at', at: '2027-01-05T09:30:00+08:00', tz: SH }, { now: NOW, nextAt: Date.parse('2027-01-05T09:30:00+08:00') }), '2027-01-05 09:30')
+  check('short：锚点意图留在规则位', describeShort({ kind: 'at', at: '2026-11-05T16:00:00+08:00', note: '截止前 2 小时', tz: SH }, { now: NOW, nextAt: Date.parse('2026-11-05T16:00:00+08:00') }), '截止前 2 小时 · 11-05 16:00')
+}
 
 /* ══════════════════ 收尾 ══════════════════ */
 

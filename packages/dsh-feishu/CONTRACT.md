@@ -87,7 +87,60 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 `isNew`：本次同步第一次见到的任务（面板打「新」标，用来提示「自动拿过来做」的目标）。
 
 任务自带的配置（写在描述里，见下）解析后放在 `meta`：`{ workspace, auto }`；
-工作区解析结果单独放 `workspaceName / workspaceTitle / workspacePath / workspaceError`。
+### 逾期自动归因（v0.19）
+
+预期过了还没完成 → 让模型给一个可核对的「为什么晚」，人只需要认或改。存在独立表里：
+
+```jsonc
+// state.delayAttributions[taskId]
+{ "expectedAt": 0, "bucket": "estimate", "reason": "原估两天，实际拆出五个子任务",
+  "evidence": "改期记录 3 次", "confidence": 0.8, "at": 0, "source": "ai" }
+// state.delayAttempts[taskId] = { expectedAt, at }   ← 失败 6 小时退避，别每轮同步烧 token
+```
+
+- 触发：`sync()` 末尾 `attributeOverdueTasks()`（一轮最多 3 条）；也可
+  `POST /api/delay/attribute {force?, taskId?, max?}` 手动触发。
+- 只处理「已过预期、未完成、这一次预期还没归因过」的任务；**预期改了（重承诺）旧的归因自动失效**，
+  会重新归因一次（`attributionView` 用 `expectedAt` 对齐）。
+- 快照里以 `task.delayAttribution = {bucket, label, reason, evidence, at, source}` 出现，
+  面板在预期芯片旁渲染 `🤖 估时不准`（悬停给依据）。
+- 延期原因统计（`delayPatterns`）：人工写过的改期原因**优先**，没有人工记录时才用 AI 归因补桶，
+  且 `ai` 字段单独计数。
+- 桶：dependency / scope / interrupt / estimate / environment / review / other（`DELAY_BUCKETS`）。
+
+### 工作区绑定：id 为主键（v0.15）
+
+工作区名字在 DSH 里**可以改、也不唯一**（不同目录允许同名），所以名字不能当主键。
+
+```jsonc
+// state.workspaceLinks[taskId]
+{ "id": "workspace-uuid", "path": "/Users/kp/DEV/x", "title": "工作区名字",
+  "boundAt": 0, "titleSyncedAt": 0, "stale": false }
+```
+
+解析顺序（`workspace.js` 的 `matchWorkspace`，纯函数）：
+
+1. `binding.id` 在 registry 且 `path` 一致 → 命中（改名不断链）；
+2. 否则 `binding.path` 命中 → 命中并重绑新 id（工作区被删掉重建）；
+3. 否则文本**精确**等于 title 或 path → 首次绑定；
+4. 否则文本归一化（去括号/空格/标点、小写）后精确相等 → 首次绑定；
+5. 否则 **失效**：`workspaceError`，卡片红字，不尝试开工。
+
+**已删除**：标题包含匹配、路径后缀匹配、未登记绝对路径兜底——这三种会静默开错目录。
+未登记路径改为显式动作：`POST /api/workspaces/register {taskId, path}` → `registry.create()`。
+
+能力探测：`GET /api/capabilities` → `{ok, version, features[]}`。面板是静态文件、随刷新更新，
+宿主要重启才换代码；面板开局探一次，探不到（旧宿主 404）就顶部显示「重启 DSH」提示条并禁用新按钮。
+
+换绑：`POST /api/workspaces/bind {taskId, workspaceId}`（面板点工作区标签 → 下拉）。
+按 id 写入 `state.workspaceLinks[taskId]`，同步改 `task.meta.workspace`，并立刻
+`set_custom_field` 把新名字写回飞书（失败不阻塞本地绑定，返回 `writeBack.error`）。
+
+改名同步：每轮同步对账一次（`registry.list()` 是内存投影），发现 registry 的 title 与绑定不一致
+且飞书字段正好是旧名字时，用 `set_custom_field` 把新名字写回（一轮最多 5 条，失败下轮重试）；
+`ensure_select_options` 会把新名字补进单选选项。
+
+工作区解析结果单独放 `workspaceName / workspaceTitle / workspaceId / workspacePath / workspaceError / workspaceStale / workspaceCanRegister`。
 
 ### 清单自定义字段（首选配置来源）
 
@@ -95,7 +148,7 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 
 | 字段名（默认） | 类型 | 取值 |
 | --- | --- | --- |
-| 工作区 | 文本 | 已登记的工作区标题，或绝对路径 |
+| 工作区 | 文本 | 已登记的工作区标题（或路径）；未登记的绝对路径要先「登记为工作区」 |
 | 触发条件 | 单选 | 人工触发 / 自动执行 / 按时执行 |
 | 开始时间 | 任务原生 `start` 字段 | 「按时执行」的触发时刻；未设开始时间则不按时触发 |
 | 结束时间 | 任务原生 `due`（截止） | 过了结束时间就不再自动开工 |
@@ -114,7 +167,7 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 
 | 键（大小写/中英文都认） | 值 | 作用 |
 | --- | --- | --- |
-| `workspace` / `ws` / `project` / `项目` / `工作区` | 已登记的工作区标题，或绝对路径 | 开工时把会话建在这个工作区 |
+| `workspace` / `ws` / `project` / `项目` / `工作区` | 已登记的工作区标题（或路径） | 开工时把会话建在这个工作区；按 id 绑定，改名不断链 |
 | `auto` / `auto-start` / `自动开工` / `自动` | `true/yes/on/开/是`、`false/no/off/关/否` | 该任务是否参与自动开工；`false` 永远优先 |
 
 写法：任意行 `键: 值` / `键：值` / `键 = 值`，允许行首 `-` `*` `·`。
@@ -274,15 +327,51 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 这一层把「什么时候开工」从飞书字段里解耦出来，改成**一句话 → 可求值规则 → 准点触发**。
 设计文档：[docs/DESIGN-ai-scheduling.md](docs/DESIGN-ai-scheduling.md)。
 
-### 数据结构
+### 唯一真相源：DSH 自动化任务（`@deepseek-ai/dsh-schedule`）
+
+从 v0.13 起，「定时」不再自己记时间——**有绑定会话的任务，一律以 DSH 的自动化任务为准**：
+
+- 显示：`ctx.schedule.catalog()` → 按 `sessionId` 分组，卡片上的 `⏰` 就是这条记录；
+  会话里有多条时显示最先到点的一条，其余在悬停里报数量。**本地 `state.schedules` 不再参与**。
+- 写入：面板改时间 = `ctx.schedule.create()` / `update()`（已有则原地改，保留 id 与投递历史），
+  同时清掉该任务的本地排期条目，避免 DSH 投一次、本地再开一次。
+- 清除：`ctx.schedule.delete()` 只删卡片上那一条；还有剩余会在返回里报 `remaining`。
+- 暂停：DSH 没有暂停语义 → 明确报错「改时间或清除即可」。
+- 本地 scheduler：**已停用**。`scheduleViewOf()` 只读 DSH 记录，`dueScheduleTasks()` 恒为空。
+- **没绑定会话 = 不能排期**：`set / preview / clear` 一律 400，面板上的 ⏰ 变成禁用态并提示「先绑定会话」。
+- **一个会话只允许一条自动化**：保存时若发现多条，收敛成一条（删掉多余的）；
+  清除等于删掉这条会话的全部自动化记录。
+
+`spec` → DSH selector 的映射（见 `dshSchedule.js`）：
+
+| 插件 spec | DSH 请求 |
+| --- | --- |
+| `kind:'at'` | `at`（ISO 时刻） |
+| `kind:'interval', everyMinutes` | `every_seconds`（≥60） |
+| `kind:'daily', time` | `daily: { time, time_zone }` |
+| `kind:'workdays', time` | `weekly: { time, time_zone, weekdays: [1..5] }` |
+| `kind:'weekly', time, weekdays` | `weekly: { time, time_zone, weekdays }` |
+| `kind:'monthly', time, monthDays` | `cron: { expression: 'M H D,D * *', time_zone }` |
+
+DSH 没有免打扰 / 只在某时段 / 到某天为止 / 最多 N 次：这些条件**不静默吞掉**，
+`toDshRequest()` 会把它们放进 `warnings`，面板原样显示「不会生效」。
+
+提示词就是到点发给会话的那句话（`settings.schedule.automationPrompt`，默认
+「继续这条任务：先制定计划，然后按计划开始执行。」，支持 `{{title}} {{list}} {{workspace}}`）。
+服务缺席（老 profile / headless）时自动退回下面的本地排期，插件照常工作。
+
+### 数据结构（历史遗留，不再使用）
 
 ```jsonc
-// state.schedules[taskId]
+// state.schedules[taskId]：v0.14 起停用。老状态里的条目会被忽略（不显示、不触发），
+// 只在新保存时顺手清掉，方便回滚
+
 {
   "spec": {
-    "kind": "at | daily | workdays | weekly | monthly",
+    "kind": "at | interval | daily | workdays | weekly | monthly",
     "at": "2026-11-02T15:00:00+08:00",   // kind=at
-    "time": "09:30",                      // 重复类
+    "everyMinutes": 60,                   // kind=interval（步长，最短 5 分钟）
+    "time": "09:30",                      // 固定钟点类（daily/workdays/weekly/monthly）
     "weekdays": [1, 3],                   // weekly（1=周一）
     "monthDays": [1, 15],                 // monthly
     "quiet": [["12:00", "13:30"]],        // 免打扰（规范形状是二元数组）
@@ -341,7 +430,7 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 - `delivery` 决定到点后的会话来源：`session`（默认，只投已有会话；没会话时 fire=false，
   reason「未生效：还没有会话」）、`spawn`（没会话就新建，飞书「按时执行」字段映射成它）、
   `auto`（有就用、没有就建）。旧数据没有这个字段：`source='feishu'` 按 spawn，其余按 session。
-- 一次性排期（`kind:'at'`）开工后失效；重复排期（daily/workdays/weekly/monthly）在任务已开工时
+- 一次性排期（`kind:'at'`）开工后失效；重复排期（interval/daily/workdays/weekly/monthly）在任务已开工时
   **不新建会话**，改为向 `task.sessionId` 投递一轮（`nudge`），并照常推进 `runs/lastFiredAt`。
 - 开工/推送失败记 `lastAttemptAt`，5 分钟内不再重试，避免到点判定反复拉同步烧 token。
 

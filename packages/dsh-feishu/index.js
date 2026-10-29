@@ -31,15 +31,32 @@ import { fileURLToPath } from 'node:url'
  * 模型只负责把「下周一早上九点半」说成一句话，插件负责算准它到底是哪一刻。
  * 分开的另一个理由：时间逻辑最容易错，纯函数才能单测（test/schedule.mjs）。
  */
+import { matchWorkspace, titleChangeOf } from './workspace.js'
 import {
   TZ_DEFAULT,
   advance as advanceSchedule,
+  anchorText,
   compileSpec,
+  describeExtras,
+  describeShort,
   describeSpec,
   evaluateSchedule,
   nextFireAt,
   parseWhen,
+  shortNextText,
 } from './schedule.js'
+
+/* DSH 自动化任务（@deepseek-ai/dsh-schedule）：定时功能的唯一真相源。
+   本地 state.schedules 只在「任务还没有会话」时降级使用——DSH 的自动化必须绑定会话。 */
+import {
+  DEFAULT_AUTOMATION_PROMPT,
+  automationPrompt,
+  dshTitle,
+  primaryRecord,
+  ruleOfRecord,
+  toDshChange,
+  toDshRequest,
+} from './dshSchedule.js'
 
 /* 履约：预期时间、偏差、延期记录都是纯计算，放在 commitment.js 里单测。 */
 import {
@@ -47,6 +64,8 @@ import {
   classifyFulfillment,
   completionQuality,
   delayPatterns,
+  attributionView,
+  DELAY_BUCKETS,
   firstPromiseOf,
   formatEta,
   formatSpan,
@@ -67,6 +86,16 @@ const DATA_DIR = join(HOME, 'dsh-feishu')
 /* 设置和状态各一份（状态见 stateFileFor：整个 DSH_HOME 共用，不按端口分）。 */
 const SETTINGS_FILE = join(DATA_DIR, 'settings.json')
 const MOUNT = '/dsh-feishu'
+/* 面板与宿主是**分开更新**的：panel.html 每次请求读盘，index.js 要重启宿主。
+   面板用这个能力清单探测「宿主是不是旧代码」，免得点新按钮直接吃 404。 */
+const SERVER_FEATURES = [
+  'schedule.dsh-automation',
+  'workspace.bind',
+  'workspace.register',
+  'workspace.reconcile',
+  'morning.standup',
+  'insight.capabilities',
+]
 
 /** 面板里「打开」按钮要用的飞书 web 域；只用于绝对路径拼接，不做鉴权。 */
 const LOGIN_URL_HINT = /https:\/\/accounts\.feishu\.cn\/open-apis\/authen\/v1\/authorize\?[^\s"'\\]+/
@@ -156,7 +185,7 @@ function pluginVersion() {
  * 输出固定 JSON，面板直接渲染，不做二次解析。
  */
 /* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
-export const PROMPT_REV = 10
+export const PROMPT_REV = 12
 
 /**
  * 早会同步专用提示词。
@@ -221,35 +250,60 @@ export const INSIGHT_PLAYBOOK = `【先记住两个定义】
 - 不罗列任务计数（共几个、完成几个），除非计数本身就是结论。
 - 不确定的就说不确定，不要编造进度、数字、人名。`
 
-export const DEFAULT_MORNING_PROMPT = `你是团队早会的主持人。今天要说两件事：昨天做了什么、今天做什么。不写客套话、不写评估分数、不写趋势分析。
+export const DEFAULT_MORNING_PROMPT = `你是团队早会的发言稿写手。我每天要在早会上**口述**两段：昨天做了什么、今天做什么。
+听众是同事和领导：他们不知道我在做哪个项目，也不会去看任务清单。所以每一句都要自带背景，
+让一个完全不了解的人听完能复述给别人；说清楚「做了什么」不够，还要说清「所以什么变了」。
 
 输出一个 JSON 对象，不要解释、不要 markdown 代码块：
-{"summary":"一段话总结（2-3 句，不超过 70 字）：昨天做了什么、今天最重要的一件事是什么","headline":"今天最该做的一件事（不超过 24 字，带任务号）",
- "today":"昨天做了哪些事（不超过 45 字，每条写成 T13「调整色标」+ 一句结果，用分号隔开）",
- "issues":[{"taskNo":12,"level":"info","text":"为什么今天做它（不超过 18 字）","evidence":"第一步具体做什么（不超过 26 字）"}],
- "advice":"今天不建议碰什么（不超过 36 字）",
+{"summary":"一句话：昨天交付了什么、今天交付什么（不超过 90 字）",
+ "headline":"今天最该做的一件事（不超过 24 字，带任务名）",
+ "standup":"可以直接照着念的口述稿：两段（昨天 / 今天），共 150-260 字",
+ "today":"昨天的明细（最多 3 条，用分号隔开，每条不超过 60 字）",
+ "issues":[{"taskNo":12,"level":"info","text":"今天做什么（不超过 30 字）","evidence":"做到什么程度算完成（不超过 50 字）"}],
+ "advice":"今天不做什么 / 最可能翻车的地方（不超过 40 字）",
  "commentary":"","charts":[]}
 
-规则：
-- **summary 是最重要的字段**：用户收起卡片时只会看到这一段。用 2-4 句话说清昨天做了什么、
-  今天最该做的一件事是什么；不要罗列任务号清单，要像跟同事口头交代一样。
-- 「昨天做了什么」按事实写：有推进就写清是哪条、做到哪一步；确实没有记录才写「昨天没有记录到推进」。
-- 「今天做什么」必须是**你的判断**：从待办里挑出今天最该推进的 1-3 件，说明为什么是它、
-  现在做的理由（例如「只差验收」「卡住别人」「已经拖了 3 天」）。**不要**因为「今天还没开始」就说今天没事可做，
-  也不要把「还没做」当成结论。
-- **优先级是重要的考量条件**：任务行里带「优先级=P0/P1/P2/P3」（P0 最急，没有就是没排过）。
-  P0 必须先出现在今天的排期里；P1 优先于未排过的任务；P2/P3 只有在接近收口或卡住别人时才值得提。
-  但别只按数字排：P0 也可能「今天只能推进一小步」，说清今天能到哪。
-- issues 最多 3 条，按先后顺序排，就是今天的排期。**每条 text 控制在 18 字内**，卡片上一行放得下。
-- 全部内容要能在卡片上 8 行内显示完，宁可少说，不要堆字。
-- 不要罗列任务计数（共几个、几个在跑、完成几个）。
-- **任何任务号后面都必须跟「任务名」**，写成 T13「调整预览遮罩渐变色标」这种格式：
-  用户不认识编号，先让人知道这是哪件事，编号只当索引。第一次提到给全名，后面可以简称。
-- **每条建议都要说清为什么**：为什么是现在做、不做的代价是什么；理由要具体到可验证的状态，
-  不要用「重要」「紧急」这类空词。
-- 只依据给到的信息，不编造任务与数字。
-- **任务号必须带任务名**：写成 T13「调整预览遮罩渐变色标」，不要只写编号——用户不认识编号。
-- 每条都要给理由：为什么这是个问题、不处理会怎样。
+【standup 是这次的重点】
+- 写成**能直接念出来**的句子：不要 bullet、不要编号、不要括号注释、不要「首先/其次/最后」。
+- 第一段「昨天」：1-3 件事，每件必须说清三样——
+  1) 我在做什么，用**外行能懂的目的或类比**讲，不要上来就是内部代号；
+  2) 做到哪一步（已完成 / 做完大半 / 卡在什么上）；
+  3) **做完之后什么变了**：谁受益、什么麻烦消失了、什么风险降低了、什么从不能变成能。
+- 第二段「今天」：1-3 件事，每件说清「今天结束时会是什么样」（可验收的状态）+
+  为什么先做它（卡住别人的下一步 / 只差收尾 / 今天必须交付）。
+- 项目代号或术语第一次出现，先用 6-12 个字解释它是什么，后文再简称。
+  例：「QVIZ 是我们给标注同学看的质检工具」。
+- 数字要具体（3 个 / 20MB / 从 8 秒到 2 秒）；没有数字就说没有，不要用「大幅」「显著」。
+
+【today：昨天的明细】
+- 最多 3 条，每条写成：T13「任务名」做了什么，结果是什么。超过 3 条只留最有结果的前 3 条。
+- 只写有证据的（对话记录、提交、文档、任务状态变化）。只推进到一半就写「推进到哪一步」，不要编结果。
+- 昨天确实没有可确认的推进，就写「昨天没有记录到可确认的产出」，不要拿计划凑数。
+
+【issues：今天的计划】
+- 1-3 条，按今天先做哪件排序；text 说做什么，evidence 写**可验收的完成标准**（不是「继续推进」）。
+- 坏：「继续推进 T12」「跟进一下」。好：「T12「预览配色」把两档色标对齐，今天能出对比图给设计确认」。
+
+【advice】
+- 一句话：今天明确不碰的事，或最可能翻车的地方。没有就不写，不要凑。
+
+【语气硬规则（违反就重写）】
+- 第一人称「我」，口语，短句；像跟同事当面说，不像写周报。
+- 禁止自评和场面话：顺利、高效、大幅提升、整体更稳定、赋能、闭环、抓手、深入、全面、扎实推进。
+- 禁止复述统计凑字数（共几条、完成几条、在跑几条），除非这个数字本身就是结论。
+- 禁止编造：没记录的事、没发生的协作、没有的数字，都不要写。
+- 每条都要能回答「所以呢？」：说了做了什么，就要说清带来什么变化；说不清就老实说「还在推进，今天能看到 X」。
+
+【好坏对照（照这个标准）】
+坏：「完成了 T13 的重构，优化了链路性能，整体更稳定。」
+好：「T13 之前每次预览要等 8 秒，我把重复计算去掉了，现在 2 秒内出图，验收时不用再干等。」
+坏：「今天继续推进 QVIZ 相关任务，跟进 MvizLite 的进度。」
+好：「今天把 QVIZ 的坐标转换补完——它决定出图准不准；补完今天能跑通一条完整样例，明天就能交给测试。」
+
+【其他】
+- summary 是收起卡片时唯一看到的一行：说清「昨天交付了什么、今天交付什么」，不要罗列任务号。
+- 优先级（P0/P1/P2/P3，没有就是没排过）是判断依据，但只在它改变结论时才提，别复述数字。
+- 只依据给到的信息；信息不足就直说，不要编。
 - 中文，短句。`
 
 /* 上一版早会默认提示词的最后一行：用来把「旧默认 + 用户追加句子」迁移成「新默认 + 用户追加句子」 */
@@ -260,7 +314,7 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
 
 {"summary":"一段话总结（2-3 句，不超过 70 字）：现在最该注意的是什么、为什么","headline":"一句话总结当前推进状态（不超过 24 字）",
  "today":"一句话说今天实际做了什么（不超过 50 字，基于任务与对话摘要，不要编造）",
- "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字，以 T12「任务名」开头）","evidence":"一句话证据（不超过 40 字）"}],
+ "issues":[{"taskNo":12,"level":"info|warn|bad","text":"问题（不超过 30 字，以 T12「任务名」开头）","evidence":"一句话证据（不超过 40 字，写你凭什么这么说：哪条记录/哪次提交/哪个状态；不是下一步该做什么）"}],
  "advice":"下一步建议（不超过 60 字）",
  "commentary":"你自己想补充的一句判断（不超过 80 字，可以说趋势/风险/悖论）",
  "charts":[{"type":"bar|line|pie|sunburst","dataset":"done_by_day_7|started_by_day_7|wip_by_day_14|state_distribution|workspace_distribution","title":"图表标题（不超过 14 字）","why":"为什么用这张图（不超过 20 字）"}],
@@ -351,6 +405,9 @@ const DEFAULT_SETTINGS = {
     writeEndToFeishu: true,
     /* 只说日期时，预期完成默认算当天几点（下班前）。 */
     etaDefaultClock: '18:00',
+    /* 「定时」写进 DSH 自动化任务时的提示词。到点被唤醒的 Agent 就在自己的会话里，
+       不需要重述任务全文——这句话只负责「接着干」。占位符：{{title}} {{list}} {{workspace}}。 */
+    automationPrompt: DEFAULT_AUTOMATION_PROMPT,
   },
   /* 绑定任务时把「任务档案」注入会话（按需打开，默认关）。 */
   contextInjection: false,
@@ -411,6 +468,15 @@ const DEFAULT_STATE = {
   numbers: {},
   /* taskId → 绑定快照：任务暂时掉出列表（被过滤/被归档）时绑定关系别跟着丢，见 persistState。 */
   bindings: {},
+  /* taskId → 工作区绑定 {id, path, title, boundAt, titleSyncedAt, stale}。
+     名字是可修改、也不唯一的，所以 **id 才是主键**；path 用来在工作区被删掉重建后接上。
+     这个表和会话绑定分开：任务可能先分配了工作区、还没开工（没有 session）。 */
+  workspaceLinks: {},
+  /* taskId → AI 逾期归因 {expectedAt, bucket, reason, evidence, confidence, at, source}。
+     和 delayLog 分开存：delayLog 是「谁在什么时候把预期往后挪了」，归因是「为什么没做完」。 */
+  delayAttributions: {},
+  /* taskId → 上次尝试归因的时间（失败 6 小时退避，别每轮同步都烧 token） */
+  delayAttempts: {},
   /* taskId → 排期条目 {spec, createdAt, lastFiredAt, runs, paused, source}。
      本地是权威：飞书里的开始时间只当输入（同步时合成一条 source='feishu' 的 spec 兜底）。 */
   schedules: {},
@@ -900,6 +966,8 @@ function sanitizeScheduleSettings(input, base) {
     writeStartToFeishu: next.writeStartToFeishu !== false,
     writeEndToFeishu: next.writeEndToFeishu !== false,
     etaDefaultClock: normalizeClock(next.etaDefaultClock) || base.etaDefaultClock || '18:00',
+    /* 写进 DSH 自动化任务的提示词：留空就回默认那句「接着干」 */
+    automationPrompt: asString(next.automationPrompt).trim().slice(0, 500) || base.automationPrompt || DEFAULT_AUTOMATION_PROMPT,
   }
 }
 
@@ -942,9 +1010,15 @@ function sanitizeSettings(input, base) {
     pushChanges: next.pushChanges === true,
     autoComment: next.autoComment !== false,
     autoCommentMinSeconds: clampInt(next.autoCommentMinSeconds, 10, 3600, 45),
-    insightPrompt: (Number(next.insightPromptRev) || 0) < PROMPT_REV
-      ? base.insightPrompt
-      : (asString(next.insightPrompt).slice(0, 4000) || base.insightPrompt),
+    insightPrompt: (() => {
+      const stored = asString(next.insightPrompt)
+      if (!stored.trim()) return base.insightPrompt
+      if ((Number(next.insightPromptRev) || 0) >= PROMPT_REV) return stored.slice(0, 4000)
+      /* 版本升级：只有「还是我们某一版默认」才换成新默认；用户自己写的提示词保留，
+         否则一次改版就把定制吞掉了（旧行为）。 */
+      const looksLikeOurDefault = stored.trim() === DEFAULT_INSIGHT_PROMPT.trim() || /^你是团队早会/.test(stored.trim())
+      return looksLikeOurDefault ? base.insightPrompt : stored.slice(0, 4000)
+    })(),
     insightPromptRev: PROMPT_REV,
     insightIgnore: Array.isArray(next.insightIgnore)
       ? next.insightIgnore.map((item) => asString(item).slice(0, 24)).filter(Boolean).slice(0, 10)
@@ -1463,6 +1537,98 @@ function createSyncEngine(ctx) {
 
   const tzOf = () => settings.schedule?.timeZone || TZ_DEFAULT
 
+  /* ───────────── DSH 自动化任务：定时功能的唯一真相源 ─────────────
+   * 插件只做两件事：把 DSH 里属于「这条任务绑定的会话」的自动化读进来显示；
+   * 把面板上改的时间写回 DSH。本地 state.schedules 只在没有会话时降级使用
+   * （DSH 的自动化必须绑定会话，没会话投不出去）。
+   * 缓存是为了让同步的 snapshot() 也能读到：由 catalog() 刷新，10 秒 TTL，
+   * 变更事件（schedule/changed）与写操作后强制刷新。 */
+  let dshSchedules = null
+  let dshCache = { at: 0, bySession: new Map() }
+  const DSH_CACHE_MS = 10_000
+
+  function attachDshSchedules(service) {
+    dshSchedules = service || null
+    dshCache = { at: 0, bySession: new Map() }
+    void refreshDshSchedules(true)
+  }
+
+  async function refreshDshSchedules(force = false) {
+    if (!dshSchedules) return
+    const now = nowMs()
+    if (!force && now - dshCache.at < DSH_CACHE_MS) return
+    try {
+      const rows = await dshSchedules.catalog()
+      const bySession = new Map()
+      for (const row of Array.isArray(rows) ? rows : []) {
+        if (!row || row.status !== 'active') continue
+        const sid = asString(row.sessionId)
+        if (!sid) continue
+        if (!bySession.has(sid)) bySession.set(sid, [])
+        bySession.get(sid).push(row)
+      }
+      dshCache = { at: now, bySession }
+    } catch {
+      /* 服务暂时不可用不该让面板挂掉：保留旧缓存，等下一轮 */
+    }
+  }
+
+  function dshRecordsOf(task) {
+    const sid = asString(task?.sessionId)
+    if (!sid || !dshSchedules) return []
+    return dshCache.bySession.get(sid) || []
+  }
+
+  /** DSH 记录 → 和本地排期同形状的视图（面板不用知道真相源在哪）。 */
+  function dshViewOf(task, records, now = nowMs()) {
+    const primary = primaryRecord(records)
+    if (!primary) return null
+    const tz = asString(primary.timeZone) || tzOf()
+    const rule = ruleOfRecord(primary)
+    const nextAt = Date.parse(primary.scheduledAt)
+    const valid = Number.isFinite(nextAt)
+    const withClock = primary.kind === 'at' || primary.kind === 'after'
+    const dayText = valid ? shortNextText(nextAt, now, tz, { withClock }) : ''
+    const extras = []
+    if (records.length > 1) extras.push(`这个会话有 ${records.length} 条自动化（应只有一条，保存一次即可收敛）`)
+    extras.push('来源：DSH 自动化任务')
+    return {
+      source: 'dsh',
+      recordId: primary.id,
+      recordTitle: asString(primary.title),
+      recordPrompt: asString(primary.prompt),
+      summary: rule || '一次性',
+      short: [rule, dayText].filter(Boolean).join(' · '),
+      extras,
+      detail: [rule, asString(primary.title)].filter(Boolean).join(' · '),
+      kind: primary.kind === 'after' ? 'at' : primary.kind,
+      recurring: primary.kind !== 'at' && primary.kind !== 'after',
+      delivery: 'session',
+      deliveryText: 'DSH 自动化',
+      /* 本地调度器不再碰它：投递由 DSH 负责，这里永远不 fire。 */
+      fire: false,
+      reason: '交给 DSH 自动化任务投递',
+      nextAt: valid ? nextAt : null,
+      nextText: valid ? formatStamp(nextAt, false) : '—',
+      waitMs: valid ? Math.max(0, nextAt - now) : 0,
+      dueAt: valid ? nextAt : 0,
+      paused: false,
+      runs: 0,
+      state: valid && nextAt <= now ? 'due' : 'armed',
+      lastReason: '',
+    }
+  }
+
+  /** DSH 的错误码换成一句人话；调用方直接 toast。 */
+  function dshErrorText(error) {
+    const code = asString(error?.code)
+    const message = asString(error?.message) || asString(error)
+    if (code === 'schedule_not_found') return 'DSH 里找不到这条自动化任务（可能已被删掉），刷新一下再试'
+    if (code === 'schedule_conflict') return '这条自动化任务刚被改过，刷新后重试'
+    if (code === 'subagent_session') return '这条会话是子代理的，DSH 无法往它投递'
+    return message || 'DSH 自动化任务操作失败'
+  }
+
   /** 投递方式：session=只投已有会话；spawn=没会话就新建；auto=有就用没有就建。
    *  旧数据没有这个字段：飞书字段来的排期按 spawn（字段本身就是在要求到点开工），其余按 session。 */
   const DELIVERY_MODES = ['session', 'spawn', 'auto']
@@ -1497,87 +1663,27 @@ function createSyncEngine(ctx) {
     return entry
   }
 
-  /** 一条任务此刻的排期视图：给人看的 summary/nextText + 给判定用的 fire/reason。 */
+  /**
+   * 一条任务此刻的排期视图。
+   *
+   * 唯一来源：**这条任务绑定的会话上的 DSH 自动化任务**。任务没绑定会话、或 DSH 里
+   * 没有记录，就没有「定时」——本地 state.schedules 不再参与显示与求值（老状态里
+   * 残留的条目会被直接忽略，也不会再触发）。
+   */
   function scheduleViewOf(task, now = nowMs()) {
-    const entry = scheduleEntryOf(task?.id)
-    if (!entry || !task) return null
-    const tz = tzOf()
-    const effective = withScheduleDefaults(entry.spec, tz)
-    const recurring = !!entry.spec?.kind && entry.spec.kind !== 'at'
-    let ev
-    try {
-      ev = evaluateSchedule({ ...entry, spec: effective }, {
-        now,
-        done: task.done === true,
-        /* 重复排期在开工之后仍然有效（「每天 9:00 继续推进」）：真正的动作不是再开一条会话，
-           而是往已经绑定的会话里推一轮。一次性排期开工后就没意义了。 */
-        started: recurring ? false : task.started === true,
-        endTs: Number(task.endTs) || 0,
-        graceMs: (Number(settings.schedule?.graceMinutes) || 0) * 60_000,
-        defaultMissPolicy: settings.schedule?.missPolicy || 'delay',
-      })
-    } catch {
-      /* spec 坏掉（手工改过 state 文件之类）不能让整个面板 500：降级成「规则无效」。 */
-      return { summary: '排期规则无效', nextAt: null, nextText: '—', fire: false, reason: '排期规则无效', paused: entry.paused === true, runs: Number(entry.runs) || 0, state: 'invalid', lastReason: '排期规则无效' }
-    }
-    /* chip 上只放「什么时候」本身；免打扰/截止这类附加说明放 detail，悬停才看。 */
-    const summary = ruleLabel(effective, tz, now)
-    const detail = describeSpec(effective, { tz, now })
-    const delivery = normalizeDelivery(entry.delivery, entry.source)
-    /* 只投已有会话的排期，在任务还没有会话时不算「到点」：
-       不产生静默失败——面板直接显示未生效原因，给「绑定会话 / 改成新建」。 */
-    let fire = ev.fire === true
-    let reason = ev.reason || ''
-    if (fire && delivery === 'session' && !asString(task.sessionId)) {
-      fire = false
-      reason = '未生效：还没有会话（先绑定会话，或把投递方式改成到点新建）'
-    }
-    return {
-      summary,
-      detail,
-      kind: entry.spec?.kind ?? 'at',
-      recurring,
-      delivery,
-      deliveryText: DELIVERY_TEXT[delivery],
-      fire,
-      reason,
-      nextAt: ev.nextAt ?? null,
-      nextText: ev.nextAt ? formatStamp(ev.nextAt, false) : '—',
-      waitMs: Number(ev.waitMs) || 0,
-      dueAt: ev.fire ? now : (ev.nextAt ?? 0),
-      paused: entry.paused === true,
-      runs: Number(entry.runs) || 0,
-      state: entry.paused === true ? 'paused' : ev.fire === true ? 'due' : 'armed',
-      lastReason: asString(entry.lastReason) || ev.reason || '',
-    }
+    const dshRecords = dshRecordsOf(task)
+    if (!dshRecords.length) return null
+    return dshViewOf(task, dshRecords, now)
   }
 
-  /** 下一次需要唤醒的时刻（所有排期里最近的 future nextAt）。没有就 null。 */
-  function nextScheduleAt(now = nowMs()) {
-    let best = null
-    for (const task of state.tasks) {
-      const entry = scheduleEntryOf(task.id)
-      if (!entry || entry.paused === true || task.done) continue
-      const view = scheduleViewOf(task, now)
-      const at = Number(view?.nextAt) || 0
-      if (at > now && (best === null || at < best)) best = at
-    }
-    return best
+  /** 本地调度器已停用：触发全部由 DSH 自动化任务负责，这里恒为 null。 */
+  function nextScheduleAt() {
+    return null
   }
 
-  /** 此刻到点的任务（开工判定 + 调度器共用一个口径）。 */
-  function dueScheduleTasks(now = nowMs()) {
-    const out = []
-    for (const task of state.tasks) {
-      const view = scheduleViewOf(task, now)
-      if (!view?.fire) continue
-      /* 开工失败（工作区没登记、宿主还没就绪）不该每 30 秒重试一次把 token 烧光：
-         失败后 5 分钟内不再算「到点」，等下一轮同步再试。 */
-      const attempted = Number(scheduleEntryOf(task.id)?.lastAttemptAt) || 0
-      if (attempted && now - attempted < 5 * 60_000) continue
-      out.push({ task, view })
-    }
-    return out
+  /** 本地不再「到点开工」：DSH 到点会往会话里发指令。保留入口给面板/工具问「有没有到点」。 */
+  function dueScheduleTasks() {
+    return []
   }
 
   /**
@@ -1619,7 +1725,10 @@ function createSyncEngine(ctx) {
         warnings.push(spec.anchor === 'due' ? '任务没有截止时间，按此刻起算' : '任务没有开始时间，按此刻起算')
       }
       const at = (base || now) + (Number(spec.offsetMinutes) || 0) * 60_000
-      spec = { ...spec, kind: 'at', anchor: undefined, offsetMinutes: undefined, at: new Date(at).toISOString() }
+      /* 落成绝对时刻后，「截止前 2 小时」这层意图只剩在 note 里：卡片 chip 和浮层标题
+         读它，否则一条带锚点的排期在面板上只会显示成「一次性」。 */
+      const note = String(spec.note || '').trim() || anchorText(spec.anchor, spec.offsetMinutes)
+      spec = { ...spec, kind: 'at', anchor: undefined, offsetMinutes: undefined, at: new Date(at).toISOString(), note }
     }
 
     if (!spec.tz) spec.tz = tz
@@ -1659,6 +1768,8 @@ function createSyncEngine(ctx) {
   function previewTaskSchedule(taskId, options = {}) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务（可能已被下一次同步移除）' }
+    const blocked = scheduleBlockedReason(task)
+    if (blocked) return { ok: false, error: blocked }
     const now = nowMs()
     const resolved = resolveScheduleSpec(task, options, now)
     if (!resolved.ok) return resolved
@@ -1668,6 +1779,8 @@ function createSyncEngine(ctx) {
     if (nextAt === null) warnings.push('按这条规则不会再触发了（时间已过 / 已到 until 或次数上限）')
     return {
       ok: true,
+      /* 只有一条路：写进这条会话的 DSH 自动化任务 */
+      target: 'dsh',
       preview: {
         summary: ruleLabel(effective, resolved.tz, now),
         nextAt,
@@ -1681,40 +1794,96 @@ function createSyncEngine(ctx) {
     }
   }
 
+  /** 定时只有一条路：任务必须绑定会话，且 DSH 自动化服务在场。缺一个就明确拒绝。 */
+  function scheduleBlockedReason(task) {
+    if (!dshSchedules) return '这个 profile 没有 DSH 自动化服务，定时不可用（不会退回本地排期）'
+    if (!asString(task?.sessionId)) return '这条任务还没绑定会话，不能排期：先开工（或绑定已有会话）再设时间'
+    return ''
+  }
+
+  /** 排期入口：一律写进「这条会话的 DSH 自动化任务」。没有会话就没有排期。 */
   async function setTaskSchedule(taskId, options = {}) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务（可能已被下一次同步移除）' }
+    const blocked = scheduleBlockedReason(task)
+    if (blocked) return { ok: false, error: blocked }
+    return await setDshTaskSchedule(task, options)
+  }
+
+  /**
+   * 把面板上的时间写进 DSH 自动化任务（唯一真相源）。
+   * 会话里已经有一条 → 原地改（保留 id 与投递历史）；没有 → 新建。
+   * 提示词不是「重述任务」，而是到点后让 Agent 接着干的那一句（可配置，默认模糊但可执行）。
+   */
+  async function setDshTaskSchedule(task, options = {}) {
     const now = nowMs()
     const resolved = resolveScheduleSpec(task, options, now)
     if (!resolved.ok) return resolved
-    const { spec, tz, warnings, delivery } = resolved
+    const { spec, tz, warnings } = resolved
     const effective = withScheduleDefaults(spec, tz)
-    const nextAt = nextFireAt(effective, now)
-    if (nextAt === null) warnings.push('按这条规则不会再触发了（时间已过 / 已到 until 或次数上限）')
+    const plannedNext = nextFireAt(effective, now)
+    if (plannedNext === null) warnings.push('按这条规则不会再触发了（时间已过 / 已到 until 或次数上限）')
 
-    state.schedules = state.schedules ?? {}
-    state.schedules[taskId] = {
-      spec,
-      delivery,
-      createdAt: now,
-      /* 以「创建时刻」作为下一次计算的基准：0 会被当成 1970 年，
-         于是 evaluateSchedule 一律判成「睡过头了」。 */
-      lastFiredAt: now,
-      runs: 0,
-      paused: false,
-      source: asString(options.source) || 'nl',
-      lastReason: '',
+    const built = toDshRequest(effective, {
+      tz,
+      title: dshTitle(asString(settings.schedule?.automationTitle).trim() || task.title),
+      prompt: automationPrompt(settings, task),
+    })
+    if (!built.ok) return { ok: false, error: built.error }
+    warnings.push(...built.warnings)
+
+    const sessionId = asString(task.sessionId)
+    /* 写之前先拿一份最新的：CAS 的 expected 和「要不要收敛多余条目」都依赖它 */
+    await refreshDshSchedules(true)
+    const existing = primaryRecord(dshRecordsOf(task))
+    let record = null
+    try {
+      if (existing) {
+        const change = toDshChange(effective, { tz })
+        if (!change.ok) return { ok: false, error: change.error }
+        const result = await dshSchedules.update({
+          sessionId,
+          id: existing.id,
+          expected: existing,
+          title: built.request.title,
+          prompt: built.request.prompt,
+          change: change.change,
+        })
+        if (result && result.record) record = result.record
+        else if (result && (result.code || result.error)) return { ok: false, error: dshErrorText(result) }
+      } else {
+        record = await dshSchedules.create(sessionId, built.request)
+      }
+    } catch (error) {
+      return { ok: false, error: dshErrorText(error) }
     }
-    await persistState()
-    rearmSchedules()
 
-    /* 写回飞书：只写「下一次」那一个时刻。一次性任务写的是它的开工时间；
-       重复规则写的是下一次，飞书那边看到的就是个提醒点（不会跟着滚动，能接受）。 */
+    /* 一个会话只允许一条自动化：老数据 / 外部来源多出来的，保存时顺手收敛掉。 */
+    const stale = dshRecordsOf(task).filter((row) => !record || row.id !== record.id)
+    for (const row of stale) {
+      try {
+        await dshSchedules.delete({ sessionId, id: row.id })
+      } catch {
+        /* 收敛失败不影响本次保存，下一次保存还会再试 */
+      }
+    }
+
+    /* 本地排期已停用；老状态里残留的条目顺手删掉，别让面板/工具再看见它。 */
+    let droppedLocal = false
+    if (state.schedules?.[task.id]) {
+      delete state.schedules[task.id]
+      droppedLocal = true
+    }
+    if (droppedLocal) await persistState()
+    rearmSchedules()
+    await refreshDshSchedules(true)
+
+    const nextAt = record ? Date.parse(record.scheduledAt) : plannedNext
     const writeBack = options.writeBack === undefined
       ? settings.schedule?.writeBackDefault !== false
       : options.writeBack === true
     let written = null
-    if (writeBack && nextAt) {
+    if (writeBack && Number.isFinite(nextAt) && nextAt > 0) {
       written = await writeTaskStartTime(task, nextAt)
       if (!written.ok) warnings.push(`写回飞书失败：${written.error}`)
       await persistState()
@@ -1723,34 +1892,47 @@ function createSyncEngine(ctx) {
     return {
       ok: true,
       task,
+      target: 'dsh',
       writeBack: written,
       preview: {
-        summary: ruleLabel(effective, tz, now),
-        nextAt,
-        nextText: nextAt ? formatStamp(nextAt, false) : '—',
+        summary: ruleOfRecord(record || {}) || ruleLabel(effective, tz, now),
+        nextAt: Number.isFinite(nextAt) ? nextAt : null,
+        nextText: Number.isFinite(nextAt) ? formatStamp(nextAt, false) : '—',
         warnings,
         spec,
         tz,
-        delivery,
+        delivery: 'session',
+        source: 'dsh',
       },
     }
   }
 
   async function clearTaskSchedule(taskId) {
-    if (!state.schedules?.[taskId]) return { ok: false, error: '这条任务没有排期' }
-    delete state.schedules[taskId]
-    await persistState()
+    const task = state.tasks.find((item) => item.id === taskId)
+    if (!task) return { ok: false, error: '没找到这条任务（可能已被下一次同步移除）' }
+    const sessionId = asString(task.sessionId)
+    if (!sessionId) return { ok: false, error: '这条任务还没绑定会话，没有定时可以清除' }
+    if (!dshSchedules) return { ok: false, error: '这个 profile 没有 DSH 自动化服务，定时不可用' }
+    await refreshDshSchedules(true)
+    const records = dshRecordsOf(task)
+    if (records.length === 0) return { ok: false, error: '这条任务没有定时' }
+    try {
+      /* 一个会话只允许一条自动化：清除就是把这条会话的自动化全部删掉
+         （正常情况下只有一条；老数据里有多条时也一并收敛）。 */
+      for (const record of records) {
+        await dshSchedules.delete({ sessionId, id: record.id })
+      }
+    } catch (error) {
+      return { ok: false, error: dshErrorText(error) }
+    }
+    await refreshDshSchedules(true)
     rearmSchedules()
-    return { ok: true }
+    return { ok: true, target: 'dsh', remaining: 0 }
   }
 
-  async function setSchedulePaused(taskId, paused) {
-    const entry = scheduleEntryOf(taskId)
-    if (!entry) return { ok: false, error: '这条任务没有排期' }
-    entry.paused = paused === true
-    await persistState()
-    rearmSchedules()
-    return { ok: true, paused: entry.paused }
+  async function setSchedulePaused() {
+    /* DSH 的自动化任务只有「有 / 没有」，没有暂停语义；本地排期也已经停用。 */
+    return { ok: false, error: '定时没有「暂停」：改时间或清除即可' }
   }
 
   /** 记一次触发：lastFiredAt 是「下一次」的基准，runs 用来兜 maxRuns。 */
@@ -1763,35 +1945,13 @@ function createSyncEngine(ctx) {
   }
 
   /** 同步时给「只有飞书开始时间」的任务补一条兜底 spec，面板才能显示「下次」。 */
+  /**
+   * 老版本会在同步时给「飞书按时执行」的任务补一条本地排期（source='feishu'）。
+   * 现在定时只有 DSH 自动化一条路，**不再新建**；只顺手清掉任务已经不存在的残留条目，
+   * 避免老状态文件里越积越脏。已有条目保留但不再参与显示与触发（可回滚用）。
+   */
   function adoptFeishuSchedule() {
-    const now = nowMs()
     let dirty = false
-    for (const task of state.tasks) {
-      if (state.schedules?.[task.id]) continue
-      if (task.meta?.trigger !== 'scheduled') continue
-      const at = Number(task.startTs) || 0
-      if (!at) continue
-      /* 已经开过工、或者时间早就过去了：补一条只会立刻又触发一次，没意义。 */
-      if (task.started || task.done) continue
-      if (at < now - 5 * 60_000) continue
-      const compiled = compileSpec({ kind: 'at', at: new Date(at).toISOString() }, { tz: tzOf(), now })
-      if (!compiled.ok) continue
-      state.schedules = state.schedules ?? {}
-      state.schedules[task.id] = {
-        spec: { ...compiled.spec, missPolicy: settings.schedule?.missPolicy || 'delay' },
-        /* 飞书字段「按时执行」= 明确要求到点开工，映射成 spawn。 */
-        delivery: 'spawn',
-        createdAt: now,
-        lastFiredAt: now,
-        runs: 0,
-        paused: false,
-        source: 'feishu',
-        lastReason: '来自飞书「开始时间」',
-      }
-      dirty = true
-    }
-    /* 完成任务 / 被清掉的任务：排期条目留着没坏处（它不会再触发），但漂久了会脏。
-       只在任务确实不在快照里时清，避免「过滤掉的任务」回来时排期没了。 */
     const ids = new Set(state.tasks.map((task) => task.id))
     for (const id of Object.keys(state.schedules ?? {})) {
       if (ids.has(id)) continue
@@ -2232,6 +2392,9 @@ function createSyncEngine(ctx) {
             schedule: scheduleViewOf(task),
             /* 预期完成 + 履约状态：面板只展示这个，不展示 startAt/endAt。 */
             commitment: commitmentOf(task),
+            /* AI 自动归因（只带「这一次预期」的，改了预期就自动失效）。
+               归因单独存在 state.delayAttributions 里，所以这里拼一下再判断。 */
+            delayAttribution: attributionView({ ...task, delayAttribution: state.delayAttributions?.[task.id] }),
           }
           if (!enriched.sessionId) return enriched
           const alive = live.get(enriched.sessionId)
@@ -2341,48 +2504,81 @@ function createSyncEngine(ctx) {
     })
   }
 
-  /**
-   * 工作区名 → 目录。只认「已经登记过的工作区」，不替用户凭空创建，
-   * 否则一个拼错的名字会在某个奇怪路径下开工。显式绝对路径是唯一的例外。
-   */
-  function resolveWorkspace(name) {
-    const target = asString(name).trim()
-    if (!target) return { path: '', title: '' }
+  /** 登记表 → 纯数据（只取绑定需要的三个字段）。 */
+  function workspaceList() {
     const registry = service(ctx, 'workspaceRegistry')
-    let list = []
     try {
-      list = registry?.list?.() ?? []
+      return (registry?.list?.() ?? []).map((w) => ({ id: w.id, title: w.title, path: w.path }))
     } catch {
-      list = []
+      return []
     }
-    /* 工作区标题常常带方括号和空格（`[DSH] 插件开发`），所以比较前先把这些噪音去掉，
-       否则用户写成「DSH 插件开发」就匹配不上——这类失败最难解释。 */
-    const normalize = (value) => asString(value).toLowerCase().replace(/[\[\]（）()【】<>《》\s_\-·]+/g, '')
-    const wanted = normalize(target)
-    const hit =
-      list.find((w) => w.title === target || w.path === target) ??
-      list.find((w) => normalize(w.title) === wanted) ??
-      list.find((w) => normalize(w.title).includes(wanted) && wanted.length >= 2) ??
-      list.find((w) => normalize(w.path).endsWith('/' + wanted) && wanted.length >= 2)
-    if (hit) return { path: hit.path, title: hit.title, id: hit.id }
-    if (target.startsWith('/') && existsSync(target)) return { path: target, title: target }
-    return { error: `没找到工作区「${target}」（已登记：${list.map((w) => w.title).slice(0, 6).join('、') || '无'}）` }
+  }
+
+  /**
+   * 工作区解析：**id 为主键**，path 次之，名字只用于第一次绑定。
+   *
+   * 名字在 DSH 里是可以改的，所以「每次拿飞书文本去猜」会改名即断链、还会静默开到
+   * 相近名字的工作区上。这里改成：先看本地绑定（id → path），认不出来才用**精确**
+   * 名字/路径做第一次绑定；再认不出来就是显式失效，绝不猜（包含匹配已删除）。
+   *
+   * @param {string} name 飞书上的文字（字段值 / 描述里的工作区 / 清单名兜底）
+   * @param {string} [taskId] 用来取本地绑定；不给就只做一次性解析，不记绑定
+   */
+  function resolveWorkspace(name, taskId) {
+    const target = asString(name).trim()
+    const links = state.workspaceLinks ?? {}
+    const binding = taskId ? links[taskId] || null : null
+    if (!target && !binding) return { path: '', title: '' }
+    const list = workspaceList()
+    const result = matchWorkspace({ list, binding, text: target })
+    if (result.error) {
+      return {
+        error: result.error,
+        hint: result.hint,
+        candidates: result.candidates,
+        /* 绝对路径 + 目录真的存在 → 面板可以给「登记并绑定」 */
+        canRegister: result.hint === 'unregistered-path' && existsSync(target),
+      }
+    }
+    const hit = result.hit
+    if (taskId) {
+      const prev = binding || {}
+      const changed = prev.id !== hit.id || prev.path !== hit.path || prev.title !== hit.title || prev.stale === true
+      if (changed) {
+        state.workspaceLinks = {
+          ...links,
+          [taskId]: {
+            id: hit.id,
+            path: hit.path,
+            title: hit.title,
+            boundAt: Number(prev.boundAt) || nowMs(),
+            titleSyncedAt: Number(prev.titleSyncedAt) || 0,
+            stale: false,
+          },
+        }
+      }
+    }
+    return { id: hit.id, path: hit.path, title: hit.title, via: result.via }
   }
 
   function enrichWorkspace(task) {
     const name = task.meta?.workspace ?? ''
-    if (!name) return task
-    const resolved = resolveWorkspace(name)
+    const link = task.id ? state.workspaceLinks?.[task.id] : null
+    if (!name && !link) return task
+    const resolved = resolveWorkspace(name, task.id)
     /* 清单名只是「碰巧同名就当工作区」的兜底：对不上不算错，也不该把任务卡标红。 */
-    if (resolved.error && task.meta?.source === 'tasklist') {
+    if (resolved.error && task.meta?.source === 'tasklist' && !link) {
       return { ...task, meta: { ...task.meta, workspace: '' }, workspaceName: '', workspaceTitle: '', workspacePath: '', workspaceError: null }
     }
     return {
       ...task,
-      workspaceName: name,
+      workspaceName: name || (link && link.title) || '',
       workspaceTitle: resolved.title ?? '',
+      workspaceId: resolved.id ?? '',
       workspacePath: resolved.path ?? '',
       workspaceError: resolved.error ?? null,
+      workspaceStale: resolved.error ? !!link : false,
+      workspaceCanRegister: resolved.canRegister === true,
     }
   }
 
@@ -3044,7 +3240,7 @@ function createSyncEngine(ctx) {
     let cwd
     const wanted = task.meta?.workspace ?? ''
     if (wanted) {
-      const resolved = resolveWorkspace(wanted)
+      const resolved = resolveWorkspace(wanted, task.id)
       if (resolved.error) {
         task.error = resolved.error
         await persistState()
@@ -4007,7 +4203,9 @@ function createSyncEngine(ctx) {
     const since = now - 28 * DAY_MS
     const summary = fulfillmentSummary(state.tasks, { now, since })
     const quality = completionQuality(state.tasks, { since })
-    const buckets = delayPatterns(state.tasks, { limit: 4, samples: 2 })
+    /* 归因存在 state.delayAttributions 里：拼到任务上再统计，AI 给的桶才进得去 */
+    const attributedTasks = state.tasks.map((task) => ({ ...task, delayAttribution: state.delayAttributions?.[task.id] }))
+    const buckets = delayPatterns(attributedTasks, { limit: 4, samples: 2 })
     const risk = promiseRisk(state.tasks, now)
     const lines = []
 
@@ -4168,6 +4366,150 @@ function createSyncEngine(ctx) {
     return { text: lines.join('\n'), tasks: kept.length, taskList: kept, unbound: unboundCount, brief }
   }
 
+  /* ---------------- 逾期自动归因 ---------------- */
+
+  /**
+   * 逾期归因的系统提示。
+   *
+   * 为什么不让用户手填：改期/逾期的时候人正在忙，最不愿意写的就是原因；于是 delayLog 大面积「未写原因」，
+   * 归因永远停在 other。这里用「任务 + 最近对话 + 改期记录」让模型先给一个可核对的说法，
+   * 人只需要认或改。
+   */
+  const ATTRIBUTION_SYSTEM = `你在给一条**已逾期**的任务做延误归因。只输出一个 JSON 对象，不要解释、不要 markdown：
+{"bucket":"dependency|scope|interrupt|estimate|environment|review|other","reason":"为什么晚（不超过 40 字，写具体卡点）","evidence":"你依据的事实（不超过 50 字，必须来自材料原文）","confidence":0-1}
+
+bucket 只能从枚举里选：
+- estimate 估时不准（实际比估计大）
+- dependency 等上游/等接口/等对方
+- scope 需求或范围变了
+- interrupt 被打断、插队、优先级被换
+- environment 环境/权限/数据/构建问题
+- review 返工、验收没过、测试又挂了
+- other 材料里看不出来
+
+规则：
+- reason 要能被当事人认下来：写「卡在哪一步」，不要写「时间不够」「比较忙」这种空话。
+- evidence 必须是材料里出现过的原话或事实（哪条对话、哪条改期记录、哪个状态），不要编。
+- 材料不足以判断 → bucket=other、reason 写「材料不足，无法判断」、confidence 给 0.2 以下。
+- 中文，短句。`
+
+  /** 归因材料：一条任务 + 它自己的证据（不把整张清单塞进去，避免模型串行归因）。 */
+  async function attributionMaterial(task, now) {
+    const bits = [`任务：T${taskNo(task)}「${asString(task.title).slice(0, 40)}」`]
+    if (task.priority) bits.push(`优先级=${task.priority}`)
+    const workspace = task.workspaceTitle || task.workspaceName
+    if (workspace) bits.push(`工作区=${workspace}`)
+    bits.push(task.sessionId ? '已绑定会话（在推进）' : '没有会话（从未开工）')
+    if (Number(task.expectedAt)) {
+      const view = classifyFulfillment(task, now)
+      bits.push(`预期=${formatEta(Number(task.expectedAt), settings.schedule?.timeZone)}（${view.label}）`)
+    }
+    const idle = Math.floor((now - taskActivityAt(task)) / DAY_MS)
+    bits.push(`最后活动=${idle <= 0 ? '今天' : `${idle} 天前`}`)
+    if (Array.isArray(task.docs) && task.docs.length) bits.push(`文档=${task.docs.length}`)
+    const log = Array.isArray(task.delayLog) ? task.delayLog : []
+    if (log.length) {
+      bits.push('改期记录：' + log.slice(-4).map((entry) => {
+        const reason = asString(entry?.reason) || '未写原因'
+        return `${reason}${Number(entry?.days) ? `（+${entry.days} 天）` : ''}`
+      }).join('；'))
+    }
+    const sessions = await awaitService(ctx, 'sessionController')
+    if (sessions && typeof sessions.inspect === 'function' && task.sessionId) {
+      try {
+        const inspection = await sessions.inspect(task.sessionId)
+        const text = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ')
+        if (text) bits.push(`最近对话=${text.slice(0, 300)}`)
+      } catch {
+        /* 读不到会话就只凭任务信息归因 */
+      }
+    }
+    return bits.join('\n')
+  }
+
+  /** 模型返回 → 归因对象（容错：允许带代码块/前后废话）。 */
+  function parseAttribution(text) {
+    const raw = asString(text)
+    const start = raw.indexOf('{')
+    const end = raw.lastIndexOf('}')
+    if (start < 0 || end <= start) return null
+    let parsed
+    try {
+      parsed = JSON.parse(raw.slice(start, end + 1))
+    } catch {
+      return null
+    }
+    const bucket = DELAY_BUCKETS.some((item) => item.id === asString(parsed?.bucket)) ? asString(parsed.bucket) : 'other'
+    const reason = asString(parsed?.reason).slice(0, 80)
+    if (!reason) return null
+    const confidence = Number(parsed?.confidence)
+    return {
+      bucket,
+      reason,
+      evidence: asString(parsed?.evidence).slice(0, 120),
+      confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0.5,
+    }
+  }
+
+  /**
+   * 给逾期任务自动归因。
+   *
+   * 只处理「已过预期、还没完成、这一次预期还没归因过」的任务；一轮最多 3 条，失败按 6 小时退避，
+   * 免得每次同步都烧 token。改期（重承诺）后 expectedAt 变了，会重新归因一次。
+   */
+  async function attributeOverdueTasks(options = {}) {
+    const now = nowMs()
+    const force = options.force === true
+    const only = asString(options.taskId)
+    const max = Math.max(1, Math.min(5, Number(options.max) || 3))
+    const attributions = { ...(state.delayAttributions ?? {}) }
+    const attempts = { ...(state.delayAttempts ?? {}) }
+    const RETRY_MS = 6 * 60 * 60_000
+    const candidates = state.tasks.filter((task) => {
+      if (only && task.id !== only) return false
+      if (task.done || !Number(task.expectedAt)) return false
+      if (now <= Number(task.expectedAt)) return false
+      const prev = attributions[task.id]
+      if (prev && Number(prev.expectedAt) === Number(task.expectedAt)) return false
+      const tried = attempts[task.id]
+      if (!force && tried && Number(tried.expectedAt) === Number(task.expectedAt) && now - Number(tried.at) < RETRY_MS) return false
+      return true
+    }).slice(0, max)
+    if (!candidates.length) return { ok: true, attributed: 0, reason: '没有需要归因的逾期任务' }
+    let attributed = 0
+    const failures = []
+    for (const task of candidates) {
+      attempts[task.id] = { expectedAt: Number(task.expectedAt), at: now }
+      let material
+      try {
+        material = await attributionMaterial(task, now)
+      } catch {
+        continue
+      }
+      const asked = await askModelLong(ATTRIBUTION_SYSTEM, material, [500, 900])
+      const parsed = parseAttribution(asked.text)
+      if (!parsed) {
+        failures.push(`${taskNo(task)}：${asked.reason || '返回无法解析'}`)
+        continue
+      }
+      attributions[task.id] = {
+        expectedAt: Number(task.expectedAt),
+        bucket: parsed.bucket,
+        reason: parsed.reason,
+        evidence: parsed.evidence,
+        confidence: parsed.confidence,
+        at: now,
+        source: 'ai',
+      }
+      attributed += 1
+      log(ctx, 'info', `[delay] T${taskNo(task)} 逾期归因：${parsed.reason.slice(0, 30)}`)
+    }
+    state.delayAttributions = attributions
+    state.delayAttempts = attempts
+    if (attributed) await persistState()
+    return { ok: true, attributed, failures, candidates: candidates.length }
+  }
+
   /** 任务状态签名：同一天里任务没变就不重复问模型。 */
   function insightSignature() {
     /* 承诺与延期也要进签名：改一次预期、多一条延期记录，诊断的输入就变了，
@@ -4305,7 +4647,9 @@ function createSyncEngine(ctx) {
     const data = {
       summary: asString(parsed.summary).slice(0, 400),
       headline: asString(parsed.headline).slice(0, 120),
-      today: asString(parsed.today).slice(0, 160),
+      /* 早会口述稿：可以直接照着念的两段（昨天 / 今天），卡片展开区单独渲染 */
+      standup: asString(parsed.standup).slice(0, 800),
+      today: asString(parsed.today).slice(0, 240),
       issues: (Array.isArray(parsed.issues) ? parsed.issues : []).slice(0, 3).map((item) => ({
         taskNo: Number(item?.taskNo) || 0,
         level: item?.level === 'warn' ? 'warn' : item?.level === 'bad' ? 'bad' : 'info',
@@ -4529,6 +4873,20 @@ function createSyncEngine(ctx) {
     const ai = state.insight
     const lines = [`💡 AI 早会摘要 · ${new Date().toLocaleString('zh-CN', { hour12: false })}`]
     if (ai?.headline) lines.push('', `结论：${ai.headline}`)
+    /* 口述稿放最前：这份文本导到飞书评论/文档里，就是早会发言的底稿 */
+    const script = asString(ai?.standup).trim()
+    if (script) {
+      lines.push('')
+      for (const paragraph of script.split(/\n+/).map((item) => item.trim()).filter(Boolean)) lines.push(paragraph)
+    }
+    if (ai?.today) lines.push('', `昨天：${ai.today}`)
+    if (Array.isArray(ai?.issues) && ai.issues.length) {
+      lines.push('今天：')
+      for (const issue of ai.issues.slice(0, 3)) {
+        const no = Number(issue?.taskNo) ? `T${issue.taskNo} ` : ''
+        lines.push(`- ${no}${asString(issue?.text)}${issue?.evidence ? `（完成标准：${asString(issue.evidence)}）` : ''}`)
+      }
+    }
     lines.push('', `今日：活跃 ${local.today.activeCount} · 完成 ${local.today.doneCount} · 新开工 ${local.today.startedCount} · 文档 ${local.today.docsCount}`)
     if (local.stalled.length) {
       lines.push(`卡住：${local.stalled.map((item) => `T${item.no} ${item.title.slice(0, 18)}`).join('；')}`)
@@ -5261,6 +5619,190 @@ function createSyncEngine(ctx) {
    * 现在每轮同步补一次：**只填空值**（用户自己填过的不覆盖），一轮最多补 5 条，
    * 免得同步被一堆写回拖慢。
    */
+  /**
+   * 工作区对账（每轮同步跑一次，轻量：registry.list() 是内存投影）。
+   *
+   * 1. 把「还没绑定 id」的任务补上绑定（老数据迁移）；
+   * 2. 已绑定的，按 id 重新确认（工作区被删掉重建时靠 path 接上）；
+   * 3. 检测改名：DSH 里改了工作区标题 → 飞书字段还写着旧名字 → 记一笔待写回。
+   */
+  async function reconcileWorkspaces() {
+    const list = workspaceList()
+    if (!list.length) return 0
+    const links = state.workspaceLinks ?? {}
+    let dirty = false
+    const pending = []
+    for (const task of state.tasks) {
+      const text = asString(task.meta?.workspace).trim()
+      const link = links[task.id] || null
+      if (!text && !link) continue
+      const result = matchWorkspace({ list, binding: link, text })
+      if (result.error) {
+        /* 认不出来：已绑定的标记失效（卡片显式提示），没绑定的保持原样等下一轮 */
+        if (link && link.stale !== true) {
+          state.workspaceLinks = { ...state.workspaceLinks, [task.id]: { ...link, stale: true } }
+          dirty = true
+        }
+        continue
+      }
+      const hit = result.hit
+      const changed = !link || link.id !== hit.id || link.path !== hit.path || link.title !== hit.title || link.stale === true
+      if (changed) {
+        state.workspaceLinks = {
+          ...state.workspaceLinks,
+          [task.id]: {
+            id: hit.id,
+            path: hit.path,
+            title: hit.title,
+            boundAt: Number(link?.boundAt) || nowMs(),
+            titleSyncedAt: Number(link?.titleSyncedAt) || 0,
+            stale: false,
+          },
+        }
+        dirty = true
+      }
+      /* 改名：之前绑过、飞书字段里正好是旧名字、registry 里已经是新名字 */
+      if (link?.title && hit.title && link.title !== hit.title && text === link.title) {
+        pending.push({ task, title: hit.title })
+      }
+    }
+    /* 任务已经不在了，绑定也别留着（否则 state 越跑越脏） */
+    const alive = new Set(state.tasks.map((task) => task.id))
+    for (const id of Object.keys(state.workspaceLinks ?? {})) {
+      if (alive.has(id)) continue
+      delete state.workspaceLinks[id]
+      dirty = true
+    }
+    if (dirty) await persistState()
+    if (pending.length) await syncWorkspaceTitles(pending)
+    return dirty ? 1 : 0
+  }
+
+  /**
+   * 把「还没登记成工作区」的目录登记进来并绑上（面板上的「登记并绑定」）。
+   * 只接受绝对路径，且目录必须真实存在——registry.create 自己也会 realpath 校验。
+   */
+  async function registerWorkspace(taskId, path, title) {
+    const registry = await awaitService(ctx, 'workspaceRegistry')
+    if (!registry || typeof registry.create !== 'function') return { ok: false, error: '宿主不支持登记工作区' }
+    const target = asString(path).trim()
+    if (!target.startsWith('/')) return { ok: false, error: '需要一个绝对路径才能登记' }
+    if (!existsSync(target)) return { ok: false, error: `目录不存在：${target}` }
+    let workspace
+    try {
+      workspace = await registry.create(target, asString(title).trim() || undefined)
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+    if (!workspace?.id) return { ok: false, error: '登记失败：宿主没有返回工作区' }
+    const task = state.tasks.find((item) => item.id === taskId)
+    state.workspaceLinks = {
+      ...(state.workspaceLinks ?? {}),
+      [taskId]: { id: workspace.id, path: workspace.path, title: workspace.title, boundAt: nowMs(), titleSyncedAt: 0, stale: false },
+    }
+    if (task) task.meta = { ...(task.meta || {}), workspace: workspace.title }
+    await persistState()
+    return { ok: true, workspace: { id: workspace.id, title: workspace.title, path: workspace.path } }
+  }
+
+  /** 把任务上的「工作区」字段写到飞书（单条；失败返回错误但不抛）。 */
+  async function writeWorkspaceField(task, title) {
+    const fieldName = settings.taskFields.workspace.trim() || '工作区'
+    const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+    if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回' }
+    const python = resolvePython(resolveCli(settings.cliPath))
+    if (!python) return { ok: false, error: '没有可用的 feishu bridge' }
+    let result
+    try {
+      result = await runBridge(python, {
+        actions: [{ op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: title }],
+      })
+    } catch (error) {
+      return { ok: false, error: String(error).slice(0, 120) }
+    }
+    const item = (result.actions ?? [])[0]
+    /* 就地更新快照，面板不用等下一轮同步 */
+    const fields = Array.isArray(task.customFields) ? task.customFields : []
+    const field = fields.find((f) => f.name === fieldName)
+    if (field) field.value = title
+    else if (title) fields.push({ guid: '', name: fieldName, type: 'single_select', value: title })
+    task.customFields = title ? fields : fields.filter((f) => f.name !== fieldName)
+    return { ok: item?.ok === true, error: item?.ok ? '' : asString(item?.error) || '写回失败' }
+  }
+
+  /**
+   * 面板上点工作区标签 → 换绑。id 是主键：绑完立刻写回飞书字段；
+   * 写回失败不回滚本地绑定（下一轮同步还会再写），但要如实把错误带回去。
+   */
+  async function bindWorkspace(taskId, workspaceId) {
+    const task = state.tasks.find((item) => item.id === taskId)
+    if (!task) return { ok: false, error: '没找到这条任务（可能已被下一次同步移除）' }
+    const wanted = asString(workspaceId).trim()
+    if (!wanted) {
+      const links = { ...(state.workspaceLinks ?? {}) }
+      delete links[taskId]
+      state.workspaceLinks = links
+      task.meta = { ...(task.meta || {}), workspace: '' }
+      await persistState()
+      const writeBack = await writeWorkspaceField(task, '')
+      return { ok: true, cleared: true, writeBack }
+    }
+    const hit = workspaceList().find((w) => String(w.id) === wanted)
+    if (!hit) return { ok: false, error: '这个工作区已经不在登记表里了，刷新一下再试' }
+    state.workspaceLinks = {
+      ...(state.workspaceLinks ?? {}),
+      [taskId]: { id: hit.id, path: hit.path, title: hit.title, boundAt: nowMs(), titleSyncedAt: nowMs(), stale: false },
+    }
+    task.meta = { ...(task.meta || {}), workspace: hit.title }
+    await persistState()
+    const writeBack = await writeWorkspaceField(task, hit.title)
+    return { ok: true, workspace: hit, writeBack }
+  }
+
+  /** 把改名后的工作区标题写回飞书（一轮最多 5 条，失败只记日志，下轮再试）。 */
+  async function syncWorkspaceTitles(entries) {
+    const fieldName = settings.taskFields.workspace.trim() || '工作区'
+    const python = resolvePython(resolveCli(settings.cliPath))
+    if (!python) return 0
+    const batch = entries.slice(0, 5)
+    const actions = []
+    for (const { task, title } of batch) {
+      const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+      if (!listGuid) continue
+      actions.push({ op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: title })
+    }
+    if (!actions.length) return 0
+    let result
+    try {
+      result = await runBridge(python, { actions })
+    } catch (error) {
+      log(ctx, 'info', `[workspace] 改名写回失败：${String(error).slice(0, 120)}`)
+      return 0
+    }
+    let written = 0
+    for (let i = 0; i < actions.length; i += 1) {
+      const item = (result.actions ?? [])[i]
+      const entry = batch[i]
+      if (!item?.ok) {
+        log(ctx, 'info', `[workspace] 改名写回失败：${entry.task.title.slice(0, 20)} ${(item?.error ?? '').slice(0, 80)}`)
+        continue
+      }
+      /* 就地更新快照，面板不用等下一轮同步 */
+      const field = (entry.task.customFields || []).find((f) => f.name === fieldName)
+      if (field) field.value = entry.title
+      else (entry.task.customFields = entry.task.customFields || []).push({ guid: '', name: fieldName, type: 'single_select', value: entry.title })
+      entry.task.meta = { ...(entry.task.meta || {}), workspace: entry.title }
+      const link = state.workspaceLinks?.[entry.task.id]
+      if (link) state.workspaceLinks = { ...state.workspaceLinks, [entry.task.id]: { ...link, titleSyncedAt: nowMs() } }
+      written += 1
+    }
+    if (written) {
+      await persistState()
+      log(ctx, 'info', `[workspace] 工作区改名已同步回飞书 ${written} 条`)
+    }
+    return written
+  }
+
   async function fillWorkspaceFields(tasks) {
     const fieldName = settings.taskFields.workspace.trim() || '工作区'
     const pending = []
@@ -5554,10 +6096,17 @@ function createSyncEngine(ctx) {
       const errors = []
       try {
         await probeCli()
+        /* 先刷 DSH 自动化目录：同一轮里的「到点判定」才能知道哪些任务已交给 DSH，
+           避免本地再开一次会话（双投递）。 */
+        await refreshDshSchedules()
         const tasks = await syncTasks()
         if (!tasks.ok) errors.push(`任务：${tasks.detail}`)
         /* 飞书上填了「按时执行 + 开始时间」的任务，补一条本地兜底排期，面板才有「下次」。 */
         if (adoptFeishuSchedule()) await persistState()
+        /* 工作区对账：补 id 绑定、检测改名（顺手把新名字写回飞书，最多 5 条）。 */
+        await reconcileWorkspaces().catch(() => 0)
+        /* 逾期自动归因：只处理刚逾期、还没归因的那几条（一轮最多 3 条，失败 6 小时退避） */
+        await attributeOverdueTasks().catch(() => 0)
         /* 上一轮没写进飞书的预期时间，这里补发（最多 5 条，别拖慢同步）。 */
         await retryEtaWrites().catch(() => 0)
         const docs = await syncDocs()
@@ -5638,6 +6187,15 @@ function createSyncEngine(ctx) {
     commentProgress,
     flushPendingProgress,
     getState: () => state,
+    /* ── 工作区绑定（id 为主键）── */
+    reconcileWorkspaces,
+    registerWorkspace,
+    bindWorkspace,
+    attributeOverdueTasks,
+    resolveWorkspace,
+    /* ── DSH 自动化任务（定时功能的真相源）── */
+    attachDshSchedules,
+    refreshDshSchedules,
     /* ── 排期（AI 时间自动化）── */
     scheduleViewOf,
     nextScheduleAt,
@@ -5738,7 +6296,15 @@ function mountRoutes(ctx, engine) {
             return
           }
 
+          if (route === '/api/capabilities' && req.method === 'GET') {
+            sendJson(res, 200, { ok: true, version: pluginVersion(), features: SERVER_FEATURES })
+            return
+          }
+
           if (route === '/api/state' && req.method === 'GET') {
+            /* 面板拉快照前顺手刷一次 DSH 自动化目录（10 秒 TTL，不会每次真读盘）：
+               「定时」显示的是 DSH 里的任务，不能等下一次排期巡检才更新。 */
+            await engine.refreshDshSchedules()
             const snap = engine.snapshot()
             sendJson(res, 200, {
               ok: true,
@@ -6004,6 +6570,47 @@ function mountRoutes(ctx, engine) {
             }
             await engine.persistState()
             sendJson(res, 200, { ok: true })
+            return
+          }
+
+          /* ── 逾期归因：手动触发（诊断卡上的「重新归因」/ 测试用）── */
+          if (route === '/api/delay/attribute' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.attributeOverdueTasks({
+              force: body.force === true,
+              taskId: asString(body.taskId),
+              max: Number(body.max) || 3,
+            })
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          /* ── 工作区：任务换绑（面板点标签下拉）── */
+          if (route === '/api/workspaces/bind' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.bindWorkspace(asString(body.taskId), asString(body.workspaceId))
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          /* ── 工作区：手动对账一次（补绑定 / 检测改名）── */
+          if (route === '/api/workspaces/reconcile' && req.method === 'POST') {
+            const changed = await engine.reconcileWorkspaces()
+            sendJson(res, 200, { ok: true, changed })
+            return
+          }
+
+          /* ── 工作区：把未登记的绝对路径登记成工作区并绑上 ── */
+          if (route === '/api/workspaces/register' && req.method === 'POST') {
+            const body = await readBody(req)
+            const taskId = asString(body.taskId)
+            const task = engine.getState().tasks.find((item) => item.id === taskId)
+            if (!task) {
+              sendJson(res, 404, { ok: false, error: '没有这条任务' })
+              return
+            }
+            const result = await engine.registerWorkspace(taskId, asString(body.path || task.meta?.workspace), body.title)
+            sendJson(res, result.ok ? 200 : 400, result)
             return
           }
 
@@ -6504,8 +7111,10 @@ function registerTools(ctx, engine) {
   register(
     textTool(
       'feishu_task_schedule',
-      '给一条飞书任务排期（**写本地规则；默认还会把下次触发时刻写回飞书原生「开始时间」**）。' +
-        '用户说「明天下午三点做这个」「每周一早上看周报」「截止前两小时开始」时用它——' +
+      '给一条飞书任务排期（**绑定会话的任务写进 DSH 自动化任务；没有会话才写本地规则**；' +
+        '默认还会把下次触发时刻写回飞书原生「开始时间」）。' +
+        '到点由 DSH 把一句话发进那条会话，提示词来自设置里的「定时触发时发什么指令」。' +
+        '用户说「明天下午三点做这个」「每周一早上看周报」「每隔一小时」时用它——' +
         '直接把原话放到 when 里，插件负责算准，不要自己换算日期。' +
         '已经自己算好绝对时间（ISO）时才用 spec。action=preview 只看不落地；list 看所有排期。',
       {
@@ -6925,6 +7534,25 @@ export function apply(ctx, config = {}) {
   try {
     const engine = createSyncEngine(ctx)
     const schedule = installSchedule(ctx, engine)
+
+    /* DSH 自动化任务（定时功能的唯一真相源）。
+       ctx.inject 是可选依赖：服务缺席（老 profile / headless）时继续用本地排期，插件照常工作。 */
+    if (typeof ctx.inject === 'function') {
+      try {
+        ctx.inject(['schedule'], (sctx) => {
+          engine.attachDshSchedules(sctx.schedule)
+          if (typeof sctx.on === 'function') {
+            const off = sctx.on('schedule/changed', () => {
+              void engine.refreshDshSchedules(true)
+            })
+            if (typeof off === 'function' && typeof sctx.effect === 'function') sctx.effect(() => off)
+          }
+        })
+      } catch {
+        /* 可选依赖解析失败不影响插件其它功能 */
+      }
+    }
+
 
     /* 「按需打开」的任务上下文提示：默认不挂，面板里打开开关才注入。
        只写一段很短的引导（几行），全量数据靠 feishu_task_detail 按需取。 */
