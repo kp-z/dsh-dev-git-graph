@@ -334,7 +334,7 @@ export function createScenePhaser(canvas, options = {}) {
   /** P1：选中者脚下的高亮圈（Phaser Shape，随物理精灵每帧贴位）。 */
   let selectionRing = null
   /** R468：选中角色导航中的目标点高亮（station 位置）。 */
-  let destinationRing = null
+  const destinationRings = new Map()
   let lastWorldState = null
   /**
    * P3：移动模式开关。由超控面板的「对话 / 移动」切换驱动——
@@ -1227,26 +1227,42 @@ export function createScenePhaser(canvas, options = {}) {
    * 没选中、或选中者还没建出精灵（首帧）时只藏不报错。
    */
   function syncDestinationRing(nowMs = 0) {
-    if (destinationRing !== null && destinationRing !== undefined) destinationRing.setVisible(false)
-    if (selectedAgentId === null || lastWorldState === null) return
-    const actor = (lastWorldState.agents ?? []).find((candidate) => candidate.id === selectedAgentId)
-    const targetId = actor?.targetStation ?? null
-    if (actor === null || actor === undefined || targetId === null || actor.state !== 'walking') return
-    const station = (lastWorldState.stations ?? []).find((candidate) => candidate.id === targetId)
-    if (station === undefined) return
-    if (destinationRing === null || destinationRing === undefined) {
-      destinationRing = activeScene.add.ellipse(0, 0, 34, 16, 0x65d98a, 0.10)
-      destinationRing.setStrokeStyle(2, 0x65d98a, 0.9)
-      destinationRing.setOrigin(0.5, 0.5)
-      activeScene.layers.entities.add(destinationRing)
+    if (lastWorldState === null) return
+    const wanted = new Set()
+    for (const actor of lastWorldState.agents ?? []) {
+      const targetId = actor.targetStation ?? null
+      if (actor.state !== 'walking' || targetId === null) continue
+      const station = (lastWorldState.stations ?? []).find((candidate) => candidate.id === targetId)
+      if (station === undefined) continue
+      wanted.add(actor.id)
+      let ring = destinationRings.get(actor.id)
+      if (ring === undefined) {
+        ring = activeScene.add.ellipse(0, 0, 34, 16, 0x65d98a, 0.10)
+        ring.setStrokeStyle(2, 0x65d98a, 0.9)
+        ring.setOrigin(0.5, 0.5)
+        // 目标圈是导航提示，不能被地板/furniture 深度盖住：放 overlay 层。
+        activeScene.layers.labels.add(ring)
+        ring.setDepth(OVERLAY_DEPTHS.task - 1)
+        destinationRings.set(actor.id, ring)
+      }
+      let px = station.anchor.x * TILE_PX
+      let py = station.anchor.z * TILE_PX
+      // R469：目标在视野外时贴到画面边缘，否则用户根本看不到目标圈。
+      const camera = activeScene.cameras.main
+      const view = camera.worldView
+      const margin = 18 / (camera.zoom || 1)
+      px = Math.max(view.x + margin, Math.min(view.right - margin, px))
+      py = Math.max(view.y + margin, Math.min(view.bottom - margin, py))
+      const pulse = 1 + Math.sin(nowMs / 180) * 0.08
+      ring.setPosition(px, py)
+      ring.setScale(pulse)
+      ring.setDepth(OVERLAY_DEPTHS.task - 1)
+      ring.setAlpha(selectedAgentId === null || selectedAgentId === actor.id ? 0.95 : 0.35)
+      ring.setVisible(true)
     }
-    const px = station.anchor.x * TILE_PX
-    const py = station.anchor.z * TILE_PX
-    const pulse = 1 + Math.sin(nowMs / 180) * 0.08
-    destinationRing.setPosition(px, py)
-    destinationRing.setScale(pulse)
-    destinationRing.setDepth(depthFor(station.anchor.z) - 1)
-    destinationRing.setVisible(true)
+    for (const [id, ring] of destinationRings) {
+      if (!wanted.has(id)) ring.setVisible(false)
+    }
   }
 
   function syncSelectionRing() {
@@ -3145,6 +3161,10 @@ export function createScenePhaser(canvas, options = {}) {
     listActions: () => listActions(),
     chairAudit: () => ({ total: chairSeats.length, duplicates: duplicateSeatIndices(chairSeats) }),
     chairs: () => chairSeats.map((seat, index) => ({ index, x: Math.round(seat.x), y: Math.round(seat.y) })),
+    destinationState: () => ({
+      selectedAgentId,
+      rings: [...destinationRings].filter(([, ring]) => ring.visible === true).map(([id, ring]) => ({ id, x: Math.round(ring.x), y: Math.round(ring.y) })),
+    }),
     playAction: (agentId, actionId) => playActionFor(agentId, actionId),
     clearAction: (agentId) => { clearActionOverride(agentId) },
     /** R335：底边可视层开关（也支持 `?ysort=1`）。 */
@@ -3261,6 +3281,10 @@ export function createScenePhaser(canvas, options = {}) {
     listActions: () => listActions(),
     chairAudit: () => ({ total: chairSeats.length, duplicates: duplicateSeatIndices(chairSeats) }),
     chairs: () => chairSeats.map((seat, index) => ({ index, x: Math.round(seat.x), y: Math.round(seat.y) })),
+    destinationState: () => ({
+      selectedAgentId,
+      rings: [...destinationRings].filter(([, ring]) => ring.visible === true).map(([id, ring]) => ({ id, x: Math.round(ring.x), y: Math.round(ring.y) })),
+    }),
     playAction: (agentId, actionId) => playActionFor(agentId, actionId),
     clearAction: (agentId) => { clearActionOverride(agentId) },
     // ── 视图控制（R65）：外壳的 − ＋ ⤢ ⌖ 四个按钮接这几个 ────────────────────
