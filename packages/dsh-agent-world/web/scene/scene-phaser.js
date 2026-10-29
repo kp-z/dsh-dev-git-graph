@@ -1902,6 +1902,14 @@ export function createScenePhaser(canvas, options = {}) {
 
   function drawProps(plan) {
     const models = new Map((plan?.models ?? []).map((model) => [model.id, model]))
+    // R461：2D 精灵没有真正的 Y 轴旋转；rotationY≈π 用垂直翻转、±π/2 用水平翻转，
+    // 让会议椅/工位椅朝向桌子的方向生效（以前这个字段被完全忽略）。
+    const applyRotation = (node, rotationY) => {
+      const rotation = Number.isFinite(rotationY) ? rotationY : 0
+      const normalized = Math.atan2(Math.sin(rotation), Math.cos(rotation))
+      node.setFlipX(Math.abs(Math.abs(normalized) - Math.PI / 2) < 0.15)
+      node.setFlipY(Math.abs(Math.abs(normalized) - Math.PI) < 0.65)
+    }
     // R227：深度基准优先读统一空间里的 `entities[].base`（站点锚点世界 z）。
     // 读不到才退回 `prop.z`——两条路数值相同，但"谁说了算"只能有一条。
     const baseByEntity = new Map((plan?.space?.entities ?? []).map((entity) => [entity.id, entity.base]))
@@ -1930,6 +1938,7 @@ export function createScenePhaser(canvas, options = {}) {
         if (firstAnim !== undefined) node.setFrame(animationFrameList(sheet, firstAnim, perRowByUrl.get(model.url) ?? 1)[0] ?? 0)
         node.setOrigin(ox, oy)
         node.setPosition(Math.round((prop.x + (part.dx ?? 0)) * TILE_PX), Math.round((prop.z + (part.dz ?? 0)) * TILE_PX))
+        applyRotation(node, part.rotationY)
         // R451：depth 必须由**精灵真实底边**推出来（与角色同一规则）；
         // 用站点 anchor z 会让桌/椅和角色错开半格，遮挡看起来随机。
         const propBottom = node.y + (node.displayHeight ?? 0) * (1 - (node.originY ?? 0.5))
