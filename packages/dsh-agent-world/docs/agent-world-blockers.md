@@ -52,3 +52,13 @@ agent-5 接 task-4 后去 `station.seat-02`：world `position` 每 tick 前进 0
 
 仍待观察：
 - 客户端按服务端位置插值，绕过墙角时可能“视觉上切角”；需要客户端按 path waypoint 行走，而不是只追当前点。
+
+## R468–R472：目标高亮与无目标静止
+
+已验证：
+- 选中/导航目标圈：walking + targetStation 时在目标 station 画绿色椭圆；目标在视野外时夹到画面边缘；截图可见。
+- 无 target 不移动：运行时默认 `idleActionsEnabled=false`，两轮采样坐标不变；新增 `test/no-ambient.test.js` 锁回归。
+- 椅子：运行时探针验证 `seat` 非空、`sit-down`，角色向真实椅子坐标收敛。
+
+未验证：
+- 肉眼验收“坐在椅子上且朝向电脑”尚未逐工位截图确认；目标圈在多个角色同屏时的重叠还未做避让。
