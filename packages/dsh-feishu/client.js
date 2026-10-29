@@ -99,14 +99,38 @@ window.__ModuleLoader__.load({
       }, []);
 
       /* 面板要知道「当前是哪条会话」，才能提供「绑定到当前会话」。 */
-      var pushContext = React.useCallback(function () {
-        lastSessionId = currentSessionId;
+      var sendContext = function (sessionId) {
+        lastSessionId = sessionId;
         var frame = frameRef.current;
         if (!frame || !frame.contentWindow) return;
         try {
-          frame.contentWindow.postMessage({ type: "dsh-feishu:context", sessionId: currentSessionId }, "*");
+          frame.contentWindow.postMessage({ type: "dsh-feishu:context", sessionId: sessionId }, "*");
         } catch (e) {}
+      };
+      var pushContext = React.useCallback(function () {
+        sendContext(currentSessionId);
       }, [currentSessionId]);
+
+      /* 兜底：切换会话时右侧栏不一定换 props（不同实现有缓存/复用），
+         这里每秒对一次「props 里的会话 id」，变了就补推；窗口重新获得焦点时也补一次。
+         代价是一次字符串比较，换来的是一整类「切了会话卡片还停在旧任务」的 bug 不再出现。 */
+      var latestProps = React.useRef(props);
+      latestProps.current = props;
+      React.useEffect(function () {
+        var sync = function () {
+          var next = sessionIdOf(latestProps.current);
+          if (next === lastSessionId) return;
+          sendContext(next);
+        };
+        var timer = setInterval(sync, 1000);
+        window.addEventListener("focus", sync);
+        document.addEventListener("visibilitychange", sync);
+        return function () {
+          clearInterval(timer);
+          window.removeEventListener("focus", sync);
+          document.removeEventListener("visibilitychange", sync);
+        };
+      }, []);
 
       React.useEffect(function () {
         var frame = frameRef.current;

@@ -24,6 +24,9 @@ export const TZ_DEFAULT = 'Asia/Shanghai'
 
 const MINUTE = 60_000
 const DAY = 86_400_000
+/* 间隔型排期的下限：每次触发都是一条会话，比 5 分钟还密只会烧 token、没有信息量。 */
+const MIN_EVERY_MINUTES = 5
+const MAX_EVERY_MINUTES = 365 * 24 * 60
 /** 重复类排期最多向后找这么多天（月排期 [31] 从 2 月起最长要跨一年）。 */
 const MAX_SCAN_DAYS = 800
 const WEEKDAY_NAMES = ['', '一', '二', '三', '四', '五', '六', '日']
@@ -321,7 +324,16 @@ function readWeekdays(value) {
       return
     }
     if (typeof item === 'string') {
-      for (const piece of item.split(/[,、，;；\/|]+/)) flat.push(piece)
+      /* 「周一三五」「一和三」都要拆开：只认第一个的话会被静默降级成一次性
+         （历史 bug：每周一三五 9:00 变成了「下周一 09:00 一次性」）。 */
+      for (const piece of item.split(/[,、，;；\/|和及与]+/)) {
+        const compact = piece.replace(/^(?:周|星期|礼拜)/, '')
+        if (compact.length > 1 && /^[一二三四五六七日天]+$/.test(compact)) {
+          for (const ch of compact) flat.push(ch)
+        } else {
+          flat.push(piece)
+        }
+      }
       return
     }
     flat.push(item)
@@ -501,7 +513,23 @@ function readKind(value) {
   if (/^(workdays?|weekdays?|工作日|每个工作日|上班日)$/.test(text)) return 'workdays'
   if (/^(weekly|week|every-?week|每周|每星期|每个星期)$/.test(text)) return 'weekly'
   if (/^(monthly|month|every-?month|每月|每个月)$/.test(text)) return 'monthly'
+  /* 间隔型：没有固定钟点，只有步长（everyMinutes）。「每隔一小时」就落在这里。 */
+  if (/^(interval|every-?x?|step|repeat|fixed-?rate|间隔|每隔|每)$/.test(text)) return 'interval'
   return null
+}
+
+/* 「每 1 小时 / 30m / 2h」这类步长字段：数字 + 单位，或纯数字（分钟）。 */
+function readEveryMinutes(value) {
+  if (value == null || value === '') return null
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? Math.round(value) : null
+  const text = String(value).trim().toLowerCase()
+  const m = /^([0-9]+(?:\.[0-9]+)?|[零一二两三四五六七八九十半]+)\s*(分钟|分|小时|钟头|钟|min|mins|minute|minutes|h|hr|hrs|hour|hours|m)?$/.exec(text)
+  if (!m) return null
+  const amount = amountOf(m[1])
+  const unit = m[2] ? unitMinutes(m[2].replace(/^min.*/, '分').replace(/^h.*/, '小时')) : 1
+  if (!Number.isFinite(amount) || !unit) return null
+  const minutes = Math.round(amount * unit)
+  return minutes > 0 ? minutes : null
 }
 
 function readAnchor(value) {
@@ -549,7 +577,7 @@ function buildSpec(input, opts = {}) {
 
   const kind = readKind(src.kind)
   if (!kind) {
-    errors.push(src.kind == null || src.kind === '' ? '缺少 kind（at / daily / workdays / weekly / monthly）' : `kind 不认识：${src.kind}`)
+    errors.push(src.kind == null || src.kind === '' ? '缺少 kind（at / interval / daily / workdays / weekly / monthly）' : `kind 不认识：${src.kind}`)
   }
 
   const spec = { kind }
@@ -576,6 +604,13 @@ function buildSpec(input, opts = {}) {
     } else if (src.at == null || src.at === '') {
       errors.push('kind=at 需要 at（绝对时刻）或 anchor + offsetMinutes')
     }
+  } else if (kind === 'interval') {
+    /* 间隔型只认步长：从「上一次触发（没有就创建时刻）」往后推 everyMinutes。 */
+    const minutes = readEveryMinutes(src.everyMinutes ?? src.every ?? src.interval ?? src.step)
+    if (minutes == null) errors.push('kind=interval 需要 everyMinutes（分钟数，比如 60 = 每小时）')
+    else if (minutes < MIN_EVERY_MINUTES) errors.push(`间隔太短：${minutes} 分钟（至少 ${MIN_EVERY_MINUTES} 分钟）`)
+    else if (minutes > MAX_EVERY_MINUTES) errors.push(`间隔太长：${minutes} 分钟（最多 ${MAX_EVERY_MINUTES} 分钟）`)
+    else spec.everyMinutes = minutes
   } else if (kind) {
     const time = readTimeOfDayField(src.time)
     if (time) spec.time = time.text
@@ -648,6 +683,7 @@ function buildSpec(input, opts = {}) {
     'at',
     'anchor',
     'offsetMinutes',
+    'everyMinutes',
     'time',
     'weekdays',
     'monthDays',
@@ -807,6 +843,16 @@ function firstFire(spec, afterTs, opts = {}) {
     if (raw == null) return null
     const hit = resolveAllowed(raw, spec, tz)
     if (hit.ts <= afterTs) return null
+    if (Number.isFinite(untilTs) && hit.ts > untilTs) return null
+    return hit
+  }
+
+  /* 间隔型：从 after 起往后推一个步长。after 由调用方给（上次触发 / 创建时刻 / 现在），
+     所以「每隔一小时」的相位锚在创建那一刻，不会因为 DSH 重启漂移。 */
+  if (spec.kind === 'interval') {
+    const step = Math.round(Number(spec.everyMinutes) || 0) * MINUTE
+    if (!step) return null
+    const hit = resolveAllowed(afterTs + step, spec, tz)
     if (Number.isFinite(untilTs) && hit.ts > untilTs) return null
     return hit
   }
@@ -1095,6 +1141,25 @@ function parseRelativeExpression(body) {
   return Math.round(n * unit) * MINUTE
 }
 
+/** 每隔一小时 / 每小时 / 每 30 分钟 / 每半小时 / 每两小时一次。 */
+/* 天/周 也收：『每两周』『每隔两天』是明确的间隔，而『每天』『每周一』必须留给重复规则。 */
+const INTERVAL_UNIT = '(分钟|分|小时|钟头|钟|天|日|周|星期|礼拜)'
+const INTERVAL_AMOUNT = '([0-9]+(?:\\.[0-9]+)?|[零一二两三四五六七八九十半]+)'
+function parseIntervalExpression(body) {
+  /* 「每」后面必须跟得出一个步长才算间隔；『每天』『每周一』没有步长，交给重复规则。 */
+  const m = new RegExp(`每\\s*(?:隔\\s*)?(?:${INTERVAL_AMOUNT}\\s*)?${INTERVAL_UNIT}\\s*(?:一次|一遍|一趟|执行一次|跑一次|提醒一次)?`).exec(body)
+  if (!m) return null
+  const rawAmount = m[1] == null || m[1] === '' ? null : m[1]
+  const amount = rawAmount == null ? 1 : amountOf(rawAmount)
+  const unit = unitMinutes(m[2])
+  if (!Number.isFinite(amount) || !unit) return null
+  /* 天/周：只有明确写了「两/2」以上才算间隔（『每 2 天』），否则让给 daily/weekly */
+  if ((unit === 1440 || unit === 1440 * 7) && (rawAmount == null || !(amount > 1))) return null
+  const minutes = Math.round(amount * unit)
+  if (!(minutes >= 1)) return null
+  return { everyMinutes: minutes, rest: body.replace(m[0], ' ') }
+}
+
 /** 每天 / 工作日 / 每周一、三 / 每月 1 号。 */
 function parseRecurringExpression(body) {
   const weeklyRe = /每\s*(?:个)?\s*(?:周|星期|礼拜)\s*([一二三四五六七日天0-9][一二三四五六七日天0-9、,，和及]*)/
@@ -1317,6 +1382,11 @@ function parseWhenInner(text, opts = {}) {
     if (ts != null) return done({ kind: 'at', at: new Date(ts).toISOString() })
   }
 
+  /* 间隔型要排在重复规则之前：『每隔一小时』里没有日/周/月的词，但『每小时』里的
+     「每」会被重复规则的正则盯上，先问一次更稳。 */
+  const interval = parseIntervalExpression(body)
+  if (interval) return done({ kind: 'interval', everyMinutes: interval.everyMinutes })
+
   const recurring = parseRecurringExpression(body)
   if (recurring) {
     const clock = parseTimePhrase(recurring.rest) || { h: 9, mi: 0, s: 0 }
@@ -1334,7 +1404,7 @@ function parseWhenInner(text, opts = {}) {
 
 /* ═══════════════════════════ describeSpec ═══════════════════════════ */
 
-function anchorText(anchor, offsetMinutes) {
+export function anchorText(anchor, offsetMinutes) {
   const label = anchor === 'start' ? '开工' : anchor === 'created' ? '创建' : '截止'
   const offset = Number(offsetMinutes) || 0
   if (offset === 0) return `${label}时`
@@ -1378,6 +1448,8 @@ export function describeSpec(spec, opts = {}) {
   } else if (normalized.kind === 'weekly') {
     const days = (normalized.weekdays || []).map((n) => WEEKDAY_NAMES[n] || n).join('、')
     text = `每周${days} ${time}`
+  } else if (normalized.kind === 'interval') {
+    text = everyText(normalized.everyMinutes)
   } else if (normalized.kind === 'monthly') {
     text = `每月 ${(normalized.monthDays || []).join('、')} 号 ${time}`
   } else {
@@ -1393,6 +1465,94 @@ export function describeSpec(spec, opts = {}) {
   }
   if (normalized.maxRuns) text += `，最多 ${normalized.maxRuns} 次`
   return text
+}
+
+/* ═══════════════════════════ describeShort（面板 chip 用） ═══════════════════════════ */
+
+/*
+ * 卡片上「什么时候」只放两段：规则 + 下次。
+ *   规则段回答「多久一次 / 每周几」；下次段只回答「哪一天」——几点已经在规则里，
+ *   再写一遍就是把同一份时间说两遍（每天 09:00 · 2026-10-30 09:00）。
+ *   一次性没有规则段，所以「哪天 + 几点」都放在同一段里。
+ * 年份：同年不写，跨年才写全；免打扰 / 时段 / 截止 / 次数这些附加信息留在悬停。
+ */
+
+/* 步长的人话：60 → 「每 1 小时」，90 → 「每 90 分钟」，1440 → 「每 1 天」。 */
+function everyText(minutes) {
+  const m = Math.max(0, Math.round(Number(minutes) || 0))
+  if (!m) return '未设置排期'
+  if (m % 10080 === 0) return `每 ${m / 10080} 周`
+  if (m % 1440 === 0) return `每 ${m / 1440} 天`
+  if (m % 60 === 0) return `每 ${m / 60} 小时`
+  return `每 ${m} 分钟`
+}
+
+/** 规则段：'每天 09:00' / '工作日 09:00' / '每周一、三 10:00' / '每月 1、15 日 10:00' / '每 1 小时'。 */
+function shortRule(spec) {
+  const time = spec.time || '09:00'
+  if (spec.kind === 'at') return String(spec.note || '').trim()
+  if (spec.kind === 'daily') return `每天 ${time}`
+  if (spec.kind === 'workdays') return `工作日 ${time}`
+  if (spec.kind === 'weekly') {
+    const days = (Array.isArray(spec.weekdays) ? spec.weekdays : []).map((n) => `周${WEEKDAY_NAMES[n] || n}`).join('、')
+    return days ? `每${days} ${time}` : ''
+  }
+  if (spec.kind === 'monthly') {
+    const days = (Array.isArray(spec.monthDays) ? spec.monthDays : []).join('、')
+    return days ? `每月 ${days} 日 ${time}` : ''
+  }
+  if (spec.kind === 'interval') return everyText(spec.everyMinutes)
+  return ''
+}
+
+/** 下次段：今天 / 明天 / 后天 / MM-DD / YYYY-MM-DD（一次性再带 HH:mm）。 */
+export function shortNextText(nextAt, now, tz = TZ_DEFAULT, opts = {}) {
+  const ts = Number(nextAt) || 0
+  if (!ts) return ''
+  const at = zoneParts(ts, tz)
+  const base = zoneParts(Number(now) || Date.now(), tz)
+  const dayDiff = Math.round((Date.UTC(at.y, at.mo - 1, at.d) - Date.UTC(base.y, base.mo - 1, base.d)) / DAY)
+  let day
+  if (dayDiff === 0) day = '今天'
+  else if (dayDiff === 1) day = '明天'
+  else if (dayDiff === 2) day = '后天'
+  else if (at.y === base.y) day = `${pad2(at.mo)}-${pad2(at.d)}`
+  else day = `${at.y}-${pad2(at.mo)}-${pad2(at.d)}`
+  return opts.withClock === false ? day : `${day} ${pad2(at.h)}:${pad2(at.mi)}`
+}
+
+/**
+ * 面板 chip 的短文案（不带 ⏰ 前缀、不含暂停标记）：'每天 09:00 · 明天'。
+ * opts.nextAt 由调用方（scheduleViewOf）算好传进来，避免这里再扫一遍日历。
+ */
+/**
+ * 附加说明（免打扰 / 只在哪段时段 / 到哪天为止 / 最多几次），给卡片悬停用。
+ * 和 describeSpec 的区别：这里是**结构化的一段段**，面板自己拼，不用做字符串切分
+ * （那套 indexOf 去重以前会把「还有 1.2 天），免打扰 …」切得七零八落）。
+ */
+export function describeExtras(spec, opts = {}) {
+  const normalized = runtimeSpec(spec, opts)
+  if (!normalized) return []
+  const tz = normalized.tz || TZ_DEFAULT
+  const extras = []
+  if (normalized.window) extras.push(`只在 ${normalized.window[0]}-${normalized.window[1]}`)
+  if (normalized.quiet?.length) extras.push(`免打扰 ${normalized.quiet.map((pair) => `${pair[0]}-${pair[1]}`).join('、')}`)
+  if (normalized.until) {
+    const ts = Date.parse(normalized.until)
+    if (Number.isFinite(ts)) extras.push(`到 ${dayText(ts, tz)}`)
+  }
+  if (normalized.maxRuns) extras.push(`最多 ${normalized.maxRuns} 次`)
+  return extras
+}
+
+export function describeShort(spec, opts = {}) {
+  const normalized = runtimeSpec(spec, opts)
+  if (!normalized) return ''
+  const tz = normalized.tz || TZ_DEFAULT
+  const now = Number.isFinite(Number(opts.now)) ? Number(opts.now) : Date.now()
+  const rule = shortRule(normalized)
+  const next = opts.nextAt ? shortNextText(opts.nextAt, now, tz, { withClock: normalized.kind === 'at' }) : ''
+  return [rule, next].filter(Boolean).join(' · ')
 }
 
 /* ═══════════════════════════ advance ═══════════════════════════ */

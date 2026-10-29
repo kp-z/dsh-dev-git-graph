@@ -317,6 +317,35 @@ export const DELAY_BUCKETS = [
 
 const BUCKET_LABEL = Object.fromEntries(DELAY_BUCKETS.map((item) => [item.id, item.label]))
 
+/** 桶 id → 中文标签（面板/诊断文案用）。 */
+export function bucketLabel(id) {
+  return BUCKET_LABEL[asText(id)] ?? BUCKET_LABEL.other
+}
+
+/**
+ * 看一条任务上的 AI 归因是否还能用。
+ *
+ * 归因针对的是**某一次预期**：预期被改过（重承诺）之后，上一轮的归因就过期了，
+ * 不能再拿它解释新的逾期。所以这里用 expectedAt 对齐，对不上就当没有。
+ */
+export function attributionView(task) {
+  const raw = task && task.delayAttribution
+  if (!raw || typeof raw !== 'object') return null
+  const bucket = asText(raw.bucket)
+  if (!DELAY_BUCKETS.some((item) => item.id === bucket)) return null
+  if (Number(raw.expectedAt) && Number(raw.expectedAt) !== Number(task.expectedAt)) return null
+  const reason = asText(raw.reason).slice(0, 80)
+  if (!reason) return null
+  return {
+    bucket,
+    label: BUCKET_LABEL[bucket],
+    reason,
+    evidence: asText(raw.evidence).slice(0, 120),
+    at: Number(raw.at) || 0,
+    source: 'ai',
+  }
+}
+
 /** 一条延期原因 → 固定桶 id（空原因归 other）。 */
 export function classifyDelayReason(text) {
   const raw = asText(text)
@@ -356,6 +385,30 @@ export function delayPatterns(tasks, opts = {}) {
         hit.samples.push(asText(entry.reason).slice(0, 40))
       }
       map.set(bucket, hit)
+    }
+    /* 没写过原因的逾期：用 AI 归因补一条。人工写的永远优先，
+       同一条任务不会被算两次（有 delayLog 就整条跳过）。 */
+    if (!log.length) {
+      const att = attributionView(task)
+      if (att) {
+        const hit = map.get(att.bucket) ?? {
+          bucket: att.bucket,
+          label: att.label,
+          count: 0,
+          days: 0,
+          tasks: [],
+          samples: [],
+          ai: 0,
+        }
+        hit.count += 1
+        hit.ai = (Number(hit.ai) || 0) + 1
+        const id = task.id ?? `${task.no ?? ''}`
+        if (!hit.tasks.some((item) => item.id === id)) {
+          hit.tasks.push({ id, no: Number(task.no) || 0, title: asText(task.title) })
+        }
+        if (att.reason && hit.samples.length < samplesPer) hit.samples.push(att.reason)
+        map.set(att.bucket, hit)
+      }
     }
   }
   return [...map.values()]

@@ -1161,7 +1161,7 @@
     color: var(--p-text-3);
   }
 
-  /* 延期原因：整行都用次要色，故意不抢「第一步怎么做」的注意力 */
+  /* 延期原因：整行都用次要色，故意不抢正文（完成标准 / 问题证据）的注意力 */
   .insight-delay {
     flex-wrap: wrap;
     gap: 0 6px;
@@ -1656,6 +1656,31 @@
     cursor: pointer;
   }
   .prio-item:hover { background: var(--p-sub); }
+  /* 工作区下拉：标题 + 路径两行；当前项高亮 */
+  .prio-menu.ws-menu { min-width: 220px; max-width: 320px; max-height: 320px; overflow: auto; }
+  .ws-dot { width: 9px; height: 9px; border-radius: 3px; background: var(--p-accent-text, #6b7cff); flex: 0 0 auto; }
+  .ws-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .ws-path { font-size: 10.5px; color: var(--p-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .prio-item[aria-current="true"] { background: var(--p-accent-weak); }
+  .prio-item[aria-current="true"] .ws-dot { box-shadow: 0 0 0 2px var(--p-accent-weak); }
+  /* 工作区标签本身可点：给个 hover 提示，别让人猜它能点 */
+  /* 宿主还是旧代码：显示在面板顶部，重启才消失 */
+  .host-stale {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 7px 10px;
+    background: var(--p-warn-weak);
+    color: var(--p-warn);
+    border-bottom: 1px solid var(--p-warn-line);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  /* AI 逾期归因：一枚小标签，细节全在悬停里 */
+  .chip-attrib { border-color: var(--p-accent-line); color: var(--p-text); background: var(--p-accent-weak); }
+  button.chip-workspace { cursor: pointer; }
+  button.chip-workspace:hover { border-color: var(--p-accent-line); color: var(--p-text); background: var(--p-accent-weak); }
+  button.chip-workspace::after { content: ' ▾'; opacity: .55; }
   .prio-item .dot {
     width: 9px;
     height: 9px;
@@ -2302,6 +2327,8 @@
 
   /* 暂停只是「暂时不动」，不是错误：淡一点、别用红色报警 */
   .chip-sched.is-paused { opacity: 0.62; }
+  /* 任务还没绑定会话：定时根本无处可写（DSH 自动化必须绑会话），做成禁用态 */
+  .chip-sched.is-locked { opacity: 0.45; cursor: not-allowed; border-style: dashed; }
 
   /* ---------- 预期完成 chip ---------- */
   /* 和排期 chip 并排；窄屏一起折行靠的是 .task-meta 的 flex-wrap，这里不用管 */
@@ -2808,6 +2835,16 @@
 
       <div class="row">
         <div class="row-text">
+          <label for="schAutomationPrompt">定时触发时发什么指令</label>
+          <div class="hint">「定时」写进这条会话的 DSH 自动化任务，到点就把这句话发给会话。占位符 {{title}} / {{list}} / {{workspace}}；留空用默认「继续这条任务：先制定计划，然后按计划开始执行。」</div>
+        </div>
+        <div class="row-ctrl grow">
+          <textarea id="schAutomationPrompt" data-setting="1" rows="2" style="width:100%;min-width:180px" placeholder="继续这条任务：先制定计划，然后按计划开始执行。"></textarea>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="row-text">
           <label for="schWriteEta">预期完成写回飞书</label>
           <div class="hint">写进清单的「预期完成」列（文本，格式 2026-10-30 18:00）；关掉就只存在本地</div>
         </div>
@@ -2937,6 +2974,9 @@
   })();
 
   var app = {
+    /* 宿主能力探测：null=还没探测，[]=探测过（旧宿主会 404 → hostStale） */
+    serverFeatures: null,
+    hostStale: false,
     settings: null,       // GET /api/state → settings
     snap: {},             // GET /api/state → state
     loaded: false,
@@ -3101,6 +3141,12 @@
         }
         if (!res.ok) {
           var msg = (data && (data.error || data.message)) || ('请求失败（HTTP ' + res.status + '）');
+          /* 面板是静态文件、跟着刷新就更新；宿主插件（index.js）要重启 DSH 才换。
+             命中这条说明「面板新、宿主旧」——直接告诉用户下一步做什么，别把人晾在 404 上。 */
+          if (/没有这个接口/.test(msg)) {
+            var route = msg.replace(/^.*没有这个接口[：:]\s*/, '');
+            msg = '宿主插件还是旧代码（面板已先更新）：重启一次 DSH 后可用' + (route ? '（缺接口 ' + route + '）' : '');
+          }
           if (!silent) toast(msg);
           var err = new Error(msg);
           err.handled = true;
@@ -3314,7 +3360,9 @@
       /* 三个写回开关：缺省都是开——用户装插件就是为了飞书侧也能看见时间 */
       writeEtaToFeishu: true,
       writeStartToFeishu: true,
-      writeEndToFeishu: true
+      writeEndToFeishu: true,
+      /* 留空表示「用服务端默认那句」：占位符就是它 */
+      automationPrompt: ''
     };
   }
 
@@ -3385,6 +3433,9 @@
     if (wst) wst.checked = st.writeStartToFeishu !== false;
     var wen = $('schWriteEnd');
     if (wen) wen.checked = st.writeEndToFeishu !== false;
+    /* 提示词留空 = 用默认：别把默认值硬填进输入框，否则用户改不回「默认」 */
+    var ap = $('schAutomationPrompt');
+    if (ap) ap.value = String(st.automationPrompt || '');
   }
 
   /* 读控件 → settings.schedule。数字 clamp、时间清洗、非法回落默认：
@@ -3420,7 +3471,8 @@
       /* 缺省 true：控件被藏起来 / 不存在时也不能把写回能力关掉 */
       writeEtaToFeishu: checked('schWriteEta', def.writeEtaToFeishu),
       writeStartToFeishu: checked('schWriteStart', def.writeStartToFeishu),
-      writeEndToFeishu: checked('schWriteEnd', def.writeEndToFeishu)
+      writeEndToFeishu: checked('schWriteEnd', def.writeEndToFeishu),
+      automationPrompt: String(raw('schAutomationPrompt', '') || '').trim()
     };
   }
 
@@ -3529,6 +3581,16 @@
       statusNode.value = app.filter.status || 'open';
     }
     renderFilterToggle();
+  }
+
+  /* 宿主旧代码的常驻提示：不需要用户做别的，重启 DSH 就好 */
+  function renderHostStaleBar() {
+    if (document.getElementById('hostStaleBar')) return;
+    var bar = el('div', { id: 'hostStaleBar', 'class': 'host-stale' });
+    bar.appendChild(el('span', {
+      text: '宿主插件还是旧代码（面板已先更新）：重启一次 DSH，工作区换绑 / 定时这些新功能才可用。'
+    }));
+    document.body.insertBefore(bar, document.body.firstChild);
   }
 
   function renderTasks() {
@@ -3658,6 +3720,66 @@
     return menu;
   }
 
+  /* 工作区标签下拉：列出已登记工作区（标题 + 路径），点一个就换绑；最后一行是清除。 */
+  function openWorkspaceMenu(anchorEl, t) {
+    var existing = document.querySelector('.ws-menu');
+    if (existing) existing.remove();
+    var menu = el('div', { 'class': 'prio-menu ws-menu', role: 'menu', 'aria-label': '选择工作区' });
+    var list = Array.isArray(app.workspaces) ? app.workspaces : [];
+    var currentId = String(t.workspaceId || '');
+    list.forEach(function (w) {
+      var row = el('button', { type: 'button', 'class': 'prio-item', role: 'menuitem' });
+      row.appendChild(el('span', { 'class': 'ws-dot' }));
+      var label = el('span', { 'class': 'ws-label' });
+      label.appendChild(el('span', { text: String(w.title || w.path || '（未命名）') }));
+      if (w.path) label.appendChild(el('span', { 'class': 'ws-path', text: String(w.path) }));
+      row.appendChild(label);
+      if (String(w.id) === currentId) row.setAttribute('aria-current', 'true');
+      row.addEventListener('click', function () {
+        menu.remove();
+        changeWorkspace(t, w);
+      });
+      menu.appendChild(row);
+    });
+    if (!list.length) {
+      menu.appendChild(el('div', { 'class': 'ws-path', text: '还没有登记过工作区' }));
+    }
+    document.body.appendChild(menu);
+    var rect = anchorEl.getBoundingClientRect();
+    var top = rect.bottom + 4;
+    if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - menu.offsetHeight - 4);
+    menu.style.top = top + 'px';
+    menu.style.left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8) + 'px';
+    setTimeout(function () {
+      var close = function (event) {
+        if (!menu.contains(event.target)) {
+          menu.remove();
+          document.removeEventListener('mousedown', close, true);
+        }
+      };
+      document.addEventListener('mousedown', close, true);
+      document.addEventListener('scroll', function () { menu.remove(); }, { once: true, capture: true });
+    }, 0);
+    return menu;
+  }
+
+  /** 换绑：id 是主键；服务端会同时把名字写回飞书字段（失败会带回来）。 */
+  function changeWorkspace(t, workspace) {
+    api('workspaces/bind', { taskId: t.id, workspaceId: workspace ? workspace.id : '' }).then(function (data) {
+      if (workspace) {
+        toast('工作区改为：' + ((data && data.workspace && data.workspace.title) || workspace.title));
+      } else {
+        toast('已清除工作区');
+      }
+      if (data && data.writeBack && data.writeBack.ok === false) {
+        toast('本地已改，写回飞书失败：' + (data.writeBack.error || ''));
+      }
+      load({ quiet: true });
+    }, function (err) {
+      if (!err || err.handled !== true) toast((err && err.message) || '切换工作区失败');
+    });
+  }
+
   function priorityChip(t, prio) {
     var chip = el('button', {
       type: 'button',
@@ -3693,49 +3815,81 @@
     return s;
   }
 
+  /* 排期「下次什么时候」的统一口径：没有下一次（一次性已跑过 / 规则无效）时返回空串，
+     免得把破折号拼进 chip；同年省掉年份，和「预期」chip 的 MM-DD HH:mm 对齐，
+     完整日期留在 title 里。卡片判「⏰ 定时 有没有时间」也用这一个函数，两处不会漂。 */
+  function scheduleNextText(s) {
+    var next = s ? String(s.nextText || '').trim() : '';
+    if (next === '—' || next === '-') return '';
+    var thisYear = String(new Date(nowMs()).getFullYear()) + '-';
+    return next.indexOf(thisYear) === 0 ? next.slice(thisYear.length) : next;
+  }
+
+  /* 同年省掉年份的日期：'2026-11-05' → '11-05'，和 chip 上的短时间对齐；
+     完整日期留在 title 里。 */
+  function shortDayText(text) {
+    var s = String(text || '').trim();
+    var thisYear = String(new Date(nowMs()).getFullYear()) + '-';
+    return s.indexOf(thisYear) === 0 ? s.slice(thisYear.length) : s;
+  }
+
   function scheduleChip(t) {
     var s = taskSchedule(t);
     var paused = !!(s && s.state === 'paused');
-    /* chip 上同时放「规则」和「下次」：只放规则时，一次性排期会退化成一句
-       「⏱ 一次性」，看不出到底约在什么时候。 */
-    var rule = s ? (String(s.summary || '').trim() || '已排期') : '';
-    var next = s ? String(s.nextText || '').trim() : '';
-    /* nextText 为「—」表示没有下一次（一次性已跑过 / 已开工）：别把破折号拼进 chip */
-    if (next === '—' || next === '-') next = '';
-    /* 同年省掉年份，和「预期」chip 的 MM-DD HH:mm 对齐；完整日期留在 title 里 */
-    var thisYear = String(new Date(nowMs()).getFullYear()) + '-';
-    if (next.indexOf(thisYear) === 0) next = next.slice(thisYear.length);
-    /* 「定时」和「预期」是两件事：定时=到点往会话里推一条指令；预期=承诺什么时候完成。
-       空态和填充态都带这个词，否则两枚灰 chip 只看内容分不清。 */
-    var label = s
-      ? ('⏰ 定时 · ' + rule + (next && next !== rule ? ' · ' + next : '') + (paused ? '（已暂停）' : ''))
-      : '⏰ 定时';
+    /* 短文案由服务端算好（scheduleView.short）：'每天 09:00 · 明天' / '明天 15:00'。
+       重复型只在「下次」段写日期——几点已经在规则里，再写一遍就是把同一份时间说两遍。
+       服务端没给（老快照）时退回 summary，别让 chip 空着。 */
+    var short = s ? String(s.short || '').trim() : '';
+    var rule = s ? (short || String(s.summary || '').trim() || '已排期') : '';
+    /* 定时只能写进「这条会话的 DSH 自动化任务」：没绑定会话就没有落点，做成禁用态。 */
+    var locked = !s && !t.sessionId;
+    /* 状态用图标：⏸ 是「已暂停」里唯一没有歧义的，今天/明天这类没有对应 emoji，仍用文字。 */
+    var label = s ? ('⏰ ' + rule + (paused ? ' · ⏸️' : '')) : '⏰ 定时';
+    var next = scheduleNextText(s);
     var titleParts = [];
     if (s) {
-      if (next) titleParts.push('下次 ' + next);
-      /* detail 对一次性排期就是「时间本身 + 附加说明」，和「下次」重复，跳过；
-         规则类排期（每周一/每天）才把它带上，那里面有免打扰这类有用信息。 */
-      if (s.detail && s.detail !== rule && (!next || String(s.detail).indexOf(next) !== 0)) {
+      /* 悬停里给完整日期（chip 上省掉了年份），信息一点不少 */
+      var fullNext = String(s.nextText || '').trim();
+      if (fullNext && fullNext !== '—' && fullNext !== '-') titleParts.push('下次 ' + fullNext);
+      /* 附加说明（免打扰 / 只在某时段 / 到哪天 / 最多几次）由服务端结构化给出，
+         一段段拼进悬停就行；老快照没有 extras 时退回 detail 原文。 */
+      var extras = Array.isArray(s.extras) ? s.extras : [];
+      if (extras.length) {
+        for (var xi = 0; xi < extras.length; xi += 1) {
+          var piece = String(extras[xi] || '').trim();
+          if (piece) titleParts.push(piece);
+        }
+      } else if (s.detail && s.detail !== rule) {
         titleParts.push(String(s.detail));
       }
       if (paused) titleParts.push('已暂停');
-      /* lastReason 是调度器给的「为什么这次没按时跑」，看一眼就能判断要不要改时间 */
-      if (s.lastReason) titleParts.push('上次：' + s.lastReason);
+      /* lastReason 是调度器给的「为什么这次没按时跑」。未到点 / 到点 是正常心跳，
+         写进悬停只是噪音——只有真异常（跳过、宽限、出错）才值得露出来。 */
+      var benign = { '': 1, '未到点': 1, '到点': 1, '已暂停': 1 };
+      if (s.lastReason && !benign[String(s.lastReason).trim()]) titleParts.push('上次：' + s.lastReason);
       titleParts.push('点击修改排期');
     } else {
-      titleParts.push('到点往会话里推一条指令（定时提醒/开工）：支持「下周一早上九点半」「截止前两小时」这种人话');
+      titleParts.push('点开设定时：写进这条会话的 DSH 自动化任务，到点由它往会话里发一句话；支持「下周一早上九点半」「每隔一小时」这种人话');
     }
     var chip = el('button', {
       type: 'button',
-      'class': 'chip chip-sched' + (s ? '' : ' chip-sched-empty') + (paused ? ' is-paused' : ''),
-      title: titleParts.join(' · '),
-      'aria-label': s ? '定时：' + rule + (next ? '，下次 ' + next : '') : '设置定时提醒',
-      'aria-haspopup': 'dialog'
+      'class': 'chip chip-sched' + (s ? '' : ' chip-sched-empty') + (paused ? ' is-paused' : '') + (locked ? ' is-locked' : ''),
+      title: locked
+        ? '这条任务还没绑定会话：定时只能写进会话的 DSH 自动化任务，先开工（或绑定已有会话）'
+        : titleParts.join(' · '),
+      'aria-label': s ? '定时：' + rule + (next ? '，下次 ' + next : '') + (paused ? '，已暂停' : '')
+        : (locked ? '定时不可用：先绑定会话' : '设置定时提醒'),
+      'aria-disabled': locked ? 'true' : 'false',
+      'aria-haspopup': locked ? undefined : 'dialog'
     });
     chip.textContent = label;
     chip.addEventListener('click', function (event) {
       /* 卡片本身有「开工」入口，别让这枚 chip 的点击冒泡去开工 */
       event.stopPropagation();
+      if (locked) {
+        toast('先绑定会话才能设定时：定时写进的是会话的 DSH 自动化任务');
+        return;
+      }
       openSchedulePopover(chip, t);
     });
     return chip;
@@ -3854,7 +4008,7 @@
       msg.textContent = text;
     }
 
-    function showPreview(pv) {
+    function showPreview(pv, target) {
       clear(msg);
       msg.className = 'chip-pop-msg';
       var line = cfg.previewLine ? cfg.previewLine(pv) : '';
@@ -3863,6 +4017,10 @@
         return;
       }
       msg.appendChild(el('div', { text: line }));
+      /* 说清这份时间最后落在哪：DSH 自动化任务（有会话）还是本地排期（没会话）。 */
+      if (target === 'dsh') {
+        msg.appendChild(el('div', { 'class': 'chip-pop-warn', text: '· 保存后写进这条会话的 DSH 自动化任务' }));
+      }
       /* 冲突 / 越界之类不是失败，只是提醒：橙色小字列出来，别拦着保存 */
       var warnings = pv && Array.isArray(pv.warnings) ? pv.warnings : [];
       for (var i = 0; i < warnings.length && i < 4; i++) {
@@ -3889,7 +4047,7 @@
         if (kind === 'preview') {
           action = '';
           setBusy(false);
-          showPreview(pv);
+          showPreview(pv, data && data.target);
           input.focus();
           return;
         }
@@ -3959,24 +4117,26 @@
     }
   }
 
-  /* 排期浮层的副标题：下次 / 暂停 / 上次为什么没跑成 */
+  /* 排期浮层的副标题：下次 / 来源 / 暂停 / 上次为什么没跑成 */
   function scheduleSubText(s) {
     var sub = [];
     if (s.nextText && s.nextText !== '—') sub.push('下次 ' + s.nextText);
+    if (s.source === 'dsh') sub.push('来源：DSH 自动化任务');
     if (s.state === 'paused') sub.push('已暂停');
-    if (s.lastReason) sub.push('上次：' + s.lastReason);
+    var benign = { '': 1, '未到点': 1, '到点': 1, '已暂停': 1 };
+    if (s.lastReason && !benign[String(s.lastReason).trim()]) sub.push('上次：' + s.lastReason);
     return sub.join(' · ');
   }
 
   function openSchedulePopover(anchorEl, t) {
     var s = taskSchedule(t);
-    var rule = s ? (String(s.summary || '').trim() || '已排期') : '';
+    var rule = s ? (String(s.short || '').trim() || String(s.summary || '').trim() || '已排期') : '';
     openTaskChipPopover({
       anchorEl: anchorEl,
       dialogLabel: '定时提醒',
-      title: s ? ('⏰ 定时 · ' + rule) : '⏰ 定时',
+      title: s ? ('⏰ ' + rule) : '⏰ 定时',
       sub: s ? scheduleSubText(s) : '',
-      placeholder: '下周一早上九点半 / 截止前两小时',
+      placeholder: '下周一早上九点半 / 每隔一小时 / 截止前两小时',
       inputLabel: '用一句话描述排期时间',
       emptyHint: '先用一句话说说什么时候做，比如「下周一早上九点半」',
       taskId: t.id,
@@ -3991,9 +4151,17 @@
       previewEmpty: '服务端没有返回排期摘要（缺 preview）',
       commit: function (data, kind, when) {
         patchTask(t.id, 'schedule', kind === 'clear' ? null : scheduleFromResponse(data, when));
-        if (kind === 'clear') return '已清除排期';
+        if (kind === 'clear') {
+          if (data && data.target === 'dsh') {
+            return data.remaining ? '已删除这条 DSH 自动化（还剩 ' + data.remaining + ' 条）' : '已删除 DSH 自动化任务';
+          }
+          return '已清除排期';
+        }
         var pv = (data && data.preview) || {};
         var settled = data && data.task && data.task.schedule;
+        if (data && data.target === 'dsh') {
+          return '已写入 DSH 自动化：' + ((settled && (settled.short || settled.summary)) || pv.summary || '');
+        }
         return (settled && settled.summary) || pv.summary || '已排期';
       }
     });
@@ -4057,6 +4225,10 @@
     if (label) titleParts.push(label);
     if (c.firstPromiseText) titleParts.push('首次承诺 ' + c.firstPromiseText);
     if (Number(c.delayCount) > 0) titleParts.push('重承诺 ' + Number(c.delayCount) + ' 次');
+    /* 逾期的时候最想知道「为什么晚」：AI 归因直接挂在预期芯片的悬停里 */
+    if (t && t.delayAttribution && t.delayAttribution.reason) {
+      titleParts.push('AI 归因：' + (t.delayAttribution.label || '') + ' · ' + t.delayAttribution.reason);
+    }
     if (c.syncState === 'failed') titleParts.push('写回飞书失败');
     else if (c.syncState === 'pending') titleParts.push('写回飞书未完成');
     titleParts.push('点击修改预期');
@@ -4265,22 +4437,51 @@
     if (trigger && TRIGGER_TEXT[trigger]) {
       meta.appendChild(el('span', { 'class': 'chip chip-trigger chip-' + trigger, text: TRIGGER_TEXT[trigger] }));
     }
-    if (t.start) meta.appendChild(el('span', { 'class': 'chip chip-time', text: '开始 ' + t.start }));
-    if (t.end) meta.appendChild(el('span', { 'class': 'chip chip-time', text: '结束 ' + t.end }));
+    /* 「什么时候」只留一份：⏰ 定时 / 📅 预期 是这两件事的唯一出口（可点开改）。
+       飞书原生开始时间就是排期写回的投影——排期真给了下次时间时再排一枚「开始 …」
+       就是同一份时间说两遍；一次性排期跑完（下次＝—）时没有别处能看这个时间，照旧显示。
+       截止日期（飞书原生结束时间）和预期不是一回事，单独一枚，同年省年份。 */
+    var sched = taskSchedule(t);
+    if (t.start && !scheduleNextText(sched)) meta.appendChild(el('span', { 'class': 'chip chip-time', text: '开始 ' + shortDayText(t.start) }));
+    if (t.end) {
+      meta.appendChild(el('span', {
+        'class': 'chip chip-time',
+        text: '截止 ' + shortDayText(t.end),
+        title: '任务截止时间：' + String(t.end)
+      }));
+    }
     /* 排期：有就显示摘要（暂停时淡显），没有就是一枚淡色入口；点开是用一句话排期。 */
     meta.appendChild(scheduleChip(t));
     /* 预期完成紧跟在排期后面：两枚都是「时间」，并排看得到「什么时候做 / 什么时候交」。 */
     meta.appendChild(commitmentChip(t));
+    /* 逾期归因：AI 给的「为什么晚」，跟预期芯片挨着放，扫一眼就知道差在哪 */
+    var attrib = t && t.delayAttribution;
+    if (attrib && attrib.reason) {
+      meta.appendChild(el('span', {
+        'class': 'chip chip-attrib',
+        text: '🤖 ' + (attrib.label || '归因'),
+        title: 'AI 归因：' + attrib.reason
+          + (attrib.evidence ? '\n依据：' + attrib.evidence : '')
+          + '\n（改期后会自动重新归因）'
+      }));
+    }
 
     var fields = Array.isArray(t.customFields) ? t.customFields : [];
     var fieldCfg = (app.settings && app.settings.taskFields) || {};
     /* 优先级不进信息行：卡片左上角已经有实心徽标，再挂一枚「优先级 P0」是重复信息。 */
     var cfg = [fieldCfg.workspace, fieldCfg.trigger, fieldCfg.legacyAuto, fieldCfg.doc, fieldCfg.priority, '优先级'].filter(Boolean);
+    /* 写回列（预期完成 / 开始时间 / 结束时间）同上：它们只是上面两枚 chip 的投影，
+       再画一枚「预期完成 2026-10-30 18:00」就是第二份时间。名字跟着设置走，改过列名也不漏。 */
+    var ECHO_DEFAULTS = { eta: '预期完成', startCol: '开始时间', endCol: '结束时间' };
+    var echoFields = ['eta', 'startCol', 'endCol'].map(function (key) {
+      return String(fieldCfg[key] || ECHO_DEFAULTS[key]).trim();
+    }).filter(Boolean);
     for (var fi = 0; fi < fields.length && fi < 4; fi++) {
       var f = fields[fi] || {};
       if (!f.value) continue;
       var name = String(f.name || '');
       if (cfg.indexOf(name) !== -1) continue;
+      if (echoFields.indexOf(name) !== -1) continue;
       if (f.type === 'datetime' && /开始|结束/.test(name)) continue;
       meta.appendChild(el('span', { 'class': 'chip chip-field', text: (name ? name + ' ' : '') + f.value, title: f.type || '' }));
     }
@@ -4301,13 +4502,42 @@
     if (!docs.length) docRow.appendChild(docAddNode(t));
     main.appendChild(docRow);
 
-    if (t.workspaceName) {
+    if (t.workspaceName || t.workspaceTitle) {
       var resolved = String(t.workspaceTitle || t.workspaceName);
-      meta.appendChild(el('span', { 'class': 'chip chip-field', text: resolved, title: t.workspacePath || '' }));
+      var wsChip = el('button', {
+        type: 'button',
+        'class': 'chip chip-field chip-workspace',
+        title: (t.workspacePath ? t.workspacePath + ' · ' : '') + '点击切换工作区',
+        'aria-haspopup': 'menu',
+        'aria-label': '工作区：' + resolved + '（点击切换）'
+      });
+      wsChip.textContent = resolved;
+      wsChip.addEventListener('click', function (event) {
+        event.stopPropagation();
+        if (app.hostStale) {
+          toast('宿主插件是旧代码：重启一次 DSH 后才能在工作区之间切换');
+          return;
+        }
+        openWorkspaceMenu(wsChip, t);
+      });
+      meta.appendChild(wsChip);
     }
 
     if (t.workspaceError) {
-      main.appendChild(el('div', { 'class': 'task-err', text: String(t.workspaceError) }));
+      var wsErr = el('div', { 'class': 'task-err' });
+      wsErr.appendChild(el('span', { text: String(t.workspaceError) }));
+      /* 绝对路径但还没登记：给一个明确动作，而不是让人去设置里翻 */
+      if (t.workspaceCanRegister) {
+        wsErr.appendChild(makeButton('登记为工作区', 'btn btn-ghost btn-xs', '登记中…', false, function () {
+          api('workspaces/register', { taskId: t.id, path: t.workspaceName }).then(function (data) {
+            toast('已登记并绑定：' + ((data && data.workspace && data.workspace.title) || ''));
+            load({ quiet: true });
+          }, function (err) {
+            toast((err && err.message) || '登记失败');
+          });
+        })).title = '把这个目录登记成 DSH 工作区，并按 id 绑定到这条任务';
+      }
+      main.appendChild(wsErr);
     }
 
     if (t.error) {
@@ -4893,10 +5123,10 @@
     var local = app.insightLocal || {};
     var ai = app.insightAI;
 
-    /* 两个 tab 共用「第一步怎么做」 */
+    /* 展开区由两个 tab 共用（内容按 tab 分流，见 renderMorning） */
     renderMorning(body, local, ai);
     /* 履约 / 延期原因 / 改进建议只在诊断里出现：早会盯的是「今天先干什么」，
-       多三块会把那一屏撑长，也抢掉第一步的注意力。 */
+       多三块会把那一屏撑长，也抢掉问题证据的注意力。 */
     if (app.insightTab !== 'morning') renderFulfillmentBlocks(body);
   }
 
@@ -5139,14 +5369,37 @@
   function renderMorning(body, local, ai) {
     var hasAI = ai && (ai.headline || ai.today || (ai.issues && ai.issues.length));
 
-    /* 展开区只补一件事：每条任务的第一步怎么做（其余文字都已在左侧那块里） */
+    /* 展开区：早会 tab 给口述稿 + 每条任务的完成标准；诊断 tab 给问题证据。
+       两个 tab 的 issues[].evidence 语义不同（早会=完成标准、诊断=证据），
+       所以标题和前缀要分开写，不能共用一句「第一步」。 */
     if (hasAI) {
-      var steps = (ai.issues || []).map(function (issue) {
-        return insightRow(issueLabel(issue) + (issue.evidence ? '　第一步：' + issue.evidence : ''));
+      /* 标签跟着**这份结果的来源**走（ai.mode），不是跟着当前 tab：
+         同一个缓存对象会被两个 tab 复用，按 tab 标就会把「证据」标成「完成标准」。
+         两份结果的 mode 不一样时，再补一行提示，别让人以为是这个 tab 生成的。 */
+      var aiMode = (ai && ai.mode) || app.insightTab;
+      var isMorning = aiMode !== 'diagnose';
+      if (aiMode !== app.insightTab) {
+        body.appendChild(el('div', {
+          'class': 'insight-empty',
+          text: '这份是「' + (aiMode === 'morning' ? '早会同步' : '诊断') + '」生成的结果：点「重新生成」出当前这一份。'
+        }));
+      }
+      if (isMorning) {
+        var script = String(ai.standup || '').trim();
+        if (script) {
+          var paragraphs = script.split(/\n+/).map(function (t) { return String(t).trim(); }).filter(Boolean);
+          body.appendChild(insightBlock('口述稿（可直接念）', paragraphs.map(function (text) {
+            return insightRow(text);
+          })));
+        }
+      }
+      var prefix = isMorning ? '　完成标准：' : '　证据：';
+      var rows = (ai.issues || []).map(function (issue) {
+        return insightRow(issueLabel(issue) + (issue.evidence ? prefix + issue.evidence : ''));
       });
-      body.appendChild(insightBlock('第一步怎么做', steps.length
-        ? steps
-        : [el('div', { 'class': 'insight-empty', text: 'AI 没有给出执行步骤。' })]));
+      body.appendChild(insightBlock(isMorning ? '今天怎么算做完' : '问题证据', rows.length
+        ? rows
+        : [el('div', { 'class': 'insight-empty', text: isMorning ? 'AI 没有给出完成标准。' : 'AI 没有给出证据。' })]));
       return;
     }
 
@@ -6011,6 +6264,18 @@
       app.workspaces = Array.isArray(data && data.workspaces) ? data.workspaces : [];
       app.loaded = true;
       if (typeof (data && data.now) === 'number') app.skew = data.now - Date.now();
+      /* 首次加载探一次宿主能力：面板是静态文件、会先更新，宿主要重启才换代码。
+         探不到就按「旧宿主」处理——新按钮直接禁用，而不是让人点了吃 404。 */
+      if (app.serverFeatures === null) {
+        app.serverFeatures = [];
+        api('capabilities', undefined, { silent: true }).then(function (caps) {
+          app.serverFeatures = (caps && Array.isArray(caps.features)) ? caps.features : [];
+          app.hostStale = false;
+        }, function () {
+          app.hostStale = true;
+          renderHostStaleBar();
+        });
+      }
       /* 20 秒一次的轮询里，数据没变就别整体重绘（重绘会打断输入、也让面板发飘） */
       var sig = stateSignature(next);
       if (app.loadedOnce && sig === app.lastSig) {
@@ -6039,6 +6304,8 @@
       var com = task && task.commitment;
       return [task.id, task.title, task.done ? 1 : 0, task.started ? 1 : 0, task.sessionId || '',
         (task.docs || []).length, task.localUpdatedAt || 0, task.sessionAlive ? 1 : 0,
+        /* 工作区会变（换绑 / 改名 / 失效）：不带上这条，chip 会停在旧名字 */
+        [task.workspaceTitle || task.workspaceName || '', task.workspaceId || '', task.workspaceStale ? 1 : 0, task.workspaceError || ''].join('/'),
         /* 排期也会变（调度器跑完会改 state / nextAt）：不带上这条，chip 会停在旧文案 */
         sch ? [sch.summary || '', sch.state || '', sch.nextAt || 0].join('/') : '',
         /* 预期/履约同理：状态会随时间自己变（pending → overdue），不带上就刷不出来 */
@@ -6502,7 +6769,7 @@
     var settingIds = ['autoSync', 'syncInterval', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap',
       /* 时间自动化这组也要算「正在编辑」：轮询回来别把正在输入的时区/时段冲掉 */
       'schTimeZone', 'schWorkStart', 'schWorkEnd', 'schQuietStart', 'schQuietEnd', 'schMissPolicy', 'schGrace', 'schCapacity', 'schWriteBack',
-      'schWriteEta', 'schWriteStart', 'schWriteEnd'];
+      'schWriteEta', 'schWriteStart', 'schWriteEnd', 'schAutomationPrompt'];
     for (var i = 0; i < settingIds.length; i++) {
       var node = $(settingIds[i]);
       if (!node) continue;
