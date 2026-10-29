@@ -109,6 +109,15 @@ export function advanceWork(world: World): WorkOutcome {
     if (task.progress >= 1) {
       const stationId = task.station
       task.status = 'done'
+      for (const carryingAgent of world.agents) {
+        if (carryingAgent.carrying === task.id) {
+          carryingAgent.carrying = null
+          carryingAgent.state = 'idle'
+          carryingAgent.station = null
+          carryingAgent.targetStation = null
+          carryingAgent.path = []
+        }
+      }
       task.progress = 1
       task.finishedAtTick = world.tick
       task.station = null
