@@ -97,8 +97,9 @@ assert.equal(n('commentOtherMode').value, 'off', 'polling preserves dirty commen
 context.updateSettingDependencies()
 assert.equal(n('commentOtherMode').value, 'off', 'capability update preserves drafts')
 n('commentMaxPerSync').value = '900'
+assert.equal(n('commentMentionMode').value, 'native')
 context.onSave()
-assert.deepEqual(JSON.parse(JSON.stringify(requests.at(-1).body.comments)), { enabled: true, ownerMode: 'execute', otherMode: 'off', maxPerSync: 20 })
+assert.deepEqual(JSON.parse(JSON.stringify(requests.at(-1).body.comments)), { enabled: true, ownerMode: 'execute', otherMode: 'off', mentionMode: 'native', maxPerSync: 20 })
 await new Promise(setImmediate)
 n('commentEnabled').checked = false
 context.updateSettingDependencies()

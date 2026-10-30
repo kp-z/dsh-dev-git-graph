@@ -41,7 +41,7 @@ function validSnapshot(value) {
   }
   return Object.values(value.tasks).every((row) => object(row) && typeof row.baseline === 'boolean' && object(row.seen)) && Object.entries(value.outbound).every(([key, row]) => object(row) && row.taskId && row.key && key === identity(row.taskId, row.key) && outboundStates.has(row.status) && object(row.payload) && typeof row.payload.text === 'string' && Array.isArray(row.payload.mentionIds) && (row.status !== 'sent' || Boolean(str(row.commentId))))
 }
-const configOf = (config = {}) => ({ enabled: config.enabled === true, ownerMode: config.ownerMode === 'execute' ? 'execute' : 'off', otherMode: config.otherMode === 'reply' ? 'reply' : 'off', maxPerSync: Number.isInteger(config.maxPerSync) && config.maxPerSync >= 0 ? config.maxPerSync : 5 })
+const configOf = (config = {}) => ({ enabled: config.enabled === true, ownerMode: config.ownerMode === 'execute' ? 'execute' : 'off', otherMode: config.otherMode === 'reply' ? 'reply' : 'off', mentionMode: config.mentionMode === 'task-v1' ? 'task-v1' : 'native', maxPerSync: Number.isInteger(config.maxPerSync) && config.maxPerSync >= 0 ? config.maxPerSync : 5 })
 
 export function normalizeComment(raw = {}) {
   const creator = raw.creator ?? raw.author ?? {}
@@ -139,11 +139,11 @@ export function createCommentCoordinator(deps) {
     if (blocked(taskId)) return { ok: false, unknown: true, error: 'Task outbound ledger requires reconciliation' }
     const eligible = options.requireActive === true ? await current(taskId, options.sessionId) : await deps.getTask(taskId)
     if (!eligible || str(eligible.id) !== taskId) return { ok: false, blocked: true, error: 'Task missing, or active reply task paused, done, unbound or rebound' }
-    row ??= state.outbound[key] = { taskId, key: str(options.key), payload, createdAt: deps.now() }
+    row ??= state.outbound[key] = { taskId, key: str(options.key), payload, mentionMode: config.mentionMode, createdAt: deps.now() }
     row.status = 'sending'
     await persist()
     let result
-    try { result = await deps.writeComment(taskId, row.payload.text, { key: row.key, replyTo: row.payload.replyTo, mentionIds: row.payload.mentionIds }) } catch (error) { result = { error: str(error?.message ?? error) } }
+    try { result = await deps.writeComment(taskId, row.payload.text, { key: row.key, replyTo: row.payload.replyTo, mentionIds: row.payload.mentionIds, mentionMode: row.mentionMode || 'native' }) } catch (error) { result = { error: str(error?.message ?? error) } }
     if (result?.ok === true && str(result.commentId)) {
       row.status = 'sent'; row.commentId = str(result.commentId); row.warning = str(result.warning); row.mentionSupported = result.mentionSupported === true; delete row.error
     } else {
