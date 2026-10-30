@@ -34,12 +34,13 @@ def load_token():
         from feishu_sync.retoken import get_access_token
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f'feishu_sync 不可用：{exc}') from exc
-    token, _ttl = get_access_token()
+    # Silence credential-bearing library diagnostics BEFORE loading the token.
     try:
         from loguru import logger
         logger.remove()
     except Exception:  # noqa: BLE001
         pass
+    token, _ttl = get_access_token()
     return token
 
 
