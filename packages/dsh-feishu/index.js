@@ -1510,7 +1510,7 @@ function createSyncEngine(ctx) {
       if (!python) return { ok: false, definitive: true, error: '找不到飞书 Python 环境' }
       const result = await runBridge(python, { actions: [{ op: 'task_comment', task: taskId, text, reply_to_comment_id: options.replyTo, mentionIds: options.mentionIds, allowMentionFallback: true }] })
       const row = result.actions?.[0]
-      return row?.ok && row.commentId ? { ok: true, commentId: row.commentId } : { ok: false, definitive: row?.unknownDelivery === false, error: row?.error || result.error || '评论写回结果不明' }
+      return row?.ok && row.commentId ? { ok: true, commentId: row.commentId, warning: row.warning || '', mentionSupported: row.mentionSupported === true } : { ok: false, definitive: row?.unknownDelivery === false, error: row?.error || result.error || '评论写回结果不明' }
     },
   })
   let commentGuardAvailable = false
@@ -7651,7 +7651,7 @@ function registerTools(ctx, engine) {
       async (args, exec) => {
         const sid = asString(exec?.agent?.id)
         const result = await engine.replyToComment(asString(args.commentId), sid, asString(args.text), asString(args.taskId))
-        return result.ok ? `已回复评论 ${result.commentId}` : `回复失败：${result.error || '未知错误'}`
+        return result.ok ? `已回复评论 ${result.commentId}${result.warning ? '；' + result.warning : ''}` : `回复失败：${result.error || '未知错误'}`
       },
     ),
   )
