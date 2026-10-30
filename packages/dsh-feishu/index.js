@@ -419,7 +419,7 @@ const DEFAULT_SETTINGS = {
   contextInjection: false,
   /* 任务有实质变化时推给绑定会话（默认关：每次推送都会消耗一个 turn）。 */
   pushChanges: false,
-  comments: { enabled: false, ownerMode: 'off', otherMode: 'off', maxPerSync: 5 },
+  comments: { enabled: false, ownerMode: 'off', otherMode: 'off', mentionMode: 'native', maxPerSync: 5 },
   /* 每个 turn 结束把进展写回任务评论（用户要求的「进展同步」）。 */
   autoComment: true,
   /* 同一会话两条进度评论的最小间隔（秒），防止一个 turn 刷一条。 */
@@ -1032,6 +1032,7 @@ function sanitizeSettings(input, base) {
       enabled: next.comments?.enabled === true,
       ownerMode: next.comments?.ownerMode === 'execute' ? 'execute' : 'off',
       otherMode: next.comments?.otherMode === 'reply' ? 'reply' : 'off',
+      mentionMode: next.comments?.mentionMode === 'task-v1' ? 'task-v1' : 'native',
       maxPerSync: clampInt(next.comments?.maxPerSync, 1, 20, 5),
     },
     autoComment: next.autoComment !== false,
@@ -1508,7 +1509,7 @@ function createSyncEngine(ctx) {
       if (commentsDisposed) return { ok: false, definitive: true, error: '评论插件已卸载' }
       const python = resolvePython(resolveCli(settings.cliPath))
       if (!python) return { ok: false, definitive: true, error: '找不到飞书 Python 环境' }
-      const result = await runBridge(python, { actions: [{ op: 'task_comment', task: taskId, text, reply_to_comment_id: options.replyTo, mentionIds: options.mentionIds, allowMentionFallback: true }] })
+      const result = await runBridge(python, { actions: [{ op: 'task_comment', task: taskId, text, reply_to_comment_id: options.replyTo, mentionIds: options.mentionIds, mentionMode: options.mentionMode, allowMentionFallback: options.mentionMode !== 'task-v1' }] })
       const row = result.actions?.[0]
       return row?.ok && row.commentId ? { ok: true, commentId: row.commentId, warning: row.warning || '', mentionSupported: row.mentionSupported === true } : { ok: false, definitive: row?.unknownDelivery === false, error: row?.error || result.error || '评论写回结果不明' }
     },

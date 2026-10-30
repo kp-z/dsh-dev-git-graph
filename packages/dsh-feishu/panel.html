@@ -3129,6 +3129,10 @@
           <div class="row-text"><label for="commentMaxPerSync">每轮处理上限</label><div class="hint">每次同步最多投递多少条留言</div></div>
           <div class="row-ctrl"><input type="number" id="commentMaxPerSync" data-setting="1" min="1" max="20" step="1" value="5" inputmode="numeric" disabled><span class="unit">条</span></div>
         </div>
+        <div class="row">
+          <div class="row-text"><label for="commentMentionMode">回复提及作者</label><div class="hint">原生回复不含 @；任务富文本 @ 使用已验证的旧版接口，需要旧版评论权限。通知是否送达取决于飞书设置；失败不会换接口重发。</div></div>
+          <div class="row-ctrl"><select id="commentMentionMode" data-setting="1" disabled><option value="native">原生回复（默认）</option><option value="task-v1">任务富文本 @ 作者</option></select></div>
+        </div>
         <section id="commentsInbox" class="comments-inbox" aria-label="评论收件箱" hidden>
           <div class="comments-inbox-head"><h2>评论收件箱</h2><button id="commentsRefresh" type="button" class="btn btn-ghost btn-xs">刷新</button><span class="hint">只读账本，不触发同步或处理</span></div>
           <div id="commentsInboxStatus" class="hint" role="status" aria-live="polite">展开后读取评论记录</div>
@@ -3593,7 +3597,7 @@
     var commentEnabled = $('commentEnabled');
     if (commentEnabled) {
       commentEnabled.disabled = !commentsSupported;
-      ['commentOwnerMode', 'commentOtherMode', 'commentMaxPerSync'].forEach(function (id) { $(id).disabled = !commentsSupported || !commentEnabled.checked; });
+      ['commentOwnerMode', 'commentOtherMode', 'commentMaxPerSync', 'commentMentionMode'].forEach(function (id) { $(id).disabled = !commentsSupported || !commentEnabled.checked; });
       $('commentsCapabilityHint').textContent = commentsSupported ? '评论只在已绑定会话内处理；回复通过出站账本避免重复发送。' : (app.serverFeatures === null ? '正在确认宿主是否支持评论协作…' : '当前宿主不支持评论协作，请更新并重启 DSH；这些设置不会提交。');
     }
     var summary = $('settingsSummary');
@@ -3636,6 +3640,7 @@
     $('commentEnabled').checked = comments.enabled === true;
     $('commentOwnerMode').value = comments.ownerMode === 'execute' ? 'execute' : 'off';
     $('commentOtherMode').value = comments.otherMode === 'reply' ? 'reply' : 'off';
+    $('commentMentionMode').value = comments.mentionMode === 'task-v1' ? 'task-v1' : 'native';
     $('commentMaxPerSync').value = toInt(comments.maxPerSync, 5, 1, 20);
     /* 时间自动化单独一组，回填逻辑也单独放，别和既有设置的读写搅在一起 */
     renderScheduleSettings();
@@ -7480,6 +7485,7 @@
       enabled: $('commentEnabled').checked,
       ownerMode: $('commentOwnerMode').value === 'execute' ? 'execute' : 'off',
       otherMode: $('commentOtherMode').value === 'reply' ? 'reply' : 'off',
+      mentionMode: $('commentMentionMode').value === 'task-v1' ? 'task-v1' : 'native',
       maxPerSync: toInt($('commentMaxPerSync').value, 5, 1, 20)
     };
 
@@ -7827,7 +7833,7 @@
       /* 时间自动化这组也要算「正在编辑」：轮询回来别把正在输入的时区/时段冲掉 */
       'schTimeZone', 'schWorkStart', 'schWorkEnd', 'schQuietStart', 'schQuietEnd', 'schMissPolicy', 'schGrace', 'schCapacity', 'schWriteBack',
       'schWriteEta', 'schWriteStart', 'schWriteEnd', 'schAutomationPrompt',
-      'commentEnabled', 'commentOwnerMode', 'commentOtherMode', 'commentMaxPerSync'];
+      'commentEnabled', 'commentOwnerMode', 'commentOtherMode', 'commentMaxPerSync', 'commentMentionMode'];
     for (var i = 0; i < settingIds.length; i++) {
       var node = $(settingIds[i]);
       if (!node) continue;
