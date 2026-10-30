@@ -82,6 +82,15 @@ window.__ModuleLoader__.load({
       return "";
     }
 
+    function workspaceContextOf(props) {
+      props = props || {};
+      var scope = props.scope || {};
+      var id = typeof scope.workspaceId === 'string' ? scope.workspaceId : typeof props.workspaceId === 'string' ? props.workspaceId : '';
+      var path = [scope.cwd, scope.repoRoot, scope.workspacePath, props.path, props.workspacePath].find(function (value) { return typeof value === 'string' && value; }) || '';
+      return { workspaceId: id, workspacePath: path };
+    }
+
+    var lastWorkspaceContext = { workspaceId: '', workspacePath: '' };
     /* 页签内容：一个铺满的 iframe。宿主切换主题时把深浅色再推一次。 */
     function FeishuPanel(props) {
       var state = React.useState(0);
@@ -101,10 +110,11 @@ window.__ModuleLoader__.load({
       /* 面板要知道「当前是哪条会话」，才能提供「绑定到当前会话」。 */
       var sendContext = function (sessionId) {
         lastSessionId = sessionId;
+        lastWorkspaceContext = workspaceContextOf(latestProps && latestProps.current || props);
         var frame = frameRef.current;
         if (!frame || !frame.contentWindow) return;
         try {
-          frame.contentWindow.postMessage({ type: "dsh-feishu:context", sessionId: sessionId }, "*");
+          frame.contentWindow.postMessage({ type: "dsh-feishu:context", sessionId: sessionId, workspaceId: lastWorkspaceContext.workspaceId, workspacePath: lastWorkspaceContext.workspacePath }, "*");
         } catch (e) {}
       };
       var pushContext = React.useCallback(function () {
@@ -119,7 +129,8 @@ window.__ModuleLoader__.load({
       React.useEffect(function () {
         var sync = function () {
           var next = sessionIdOf(latestProps.current);
-          if (next === lastSessionId) return;
+          var workspace = workspaceContextOf(latestProps.current);
+          if (next === lastSessionId && workspace.workspaceId === lastWorkspaceContext.workspaceId && workspace.workspacePath === lastWorkspaceContext.workspacePath) return;
           sendContext(next);
         };
         var timer = setInterval(sync, 1000);
@@ -245,7 +256,7 @@ window.__ModuleLoader__.load({
             var frame = document.querySelector("iframe.dfe-frame");
             try {
               frame && frame.contentWindow && frame.contentWindow.postMessage(
-                { type: "dsh-feishu:context", sessionId: lastSessionId }, "*");
+                { type: "dsh-feishu:context", sessionId: lastSessionId, workspaceId: lastWorkspaceContext.workspaceId, workspacePath: lastWorkspaceContext.workspacePath }, "*");
             } catch (e) {}
             return;
           }

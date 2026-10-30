@@ -1657,7 +1657,10 @@
   }
   .prio-item:hover { background: var(--p-sub); }
   /* 工作区下拉：标题 + 路径两行；当前项高亮 */
-  .prio-menu.ws-menu { min-width: 220px; max-width: 320px; max-height: 320px; overflow: auto; }
+  .prio-menu.ws-menu { min-width: min(220px, calc(100vw - 16px)); width: min(320px, calc(100vw - 16px)); max-width: calc(100vw - 16px); max-height: min(320px, calc(100vh - 16px)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }
+  .prio-menu .prio-item { flex-shrink: 0; }
+  .ws-label { flex: 1; }
+  .ws-label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ws-dot { width: 9px; height: 9px; border-radius: 3px; background: var(--p-accent-text, #6b7cff); flex: 0 0 auto; }
   .ws-label { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
   .ws-path { font-size: 10.5px; color: var(--p-text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2103,7 +2106,38 @@
 
   .chip-doc:hover { text-decoration: underline; }
 
-  /* ---------- 任务过滤条（一行，点「筛选」才展开） ---------- */
+  /* ---------- 声明驱动的筛选工作台：字段 / 匹配方式 / 值 ---------- */
+  .task-filter-card { border: 1px solid var(--p-line); border-radius: 10px; background: var(--p-card); padding: 10px; }
+  .task-filter-card > .card-head { margin-bottom: 6px; }
+  .task-filter-card .task-filter { margin-bottom: 0; border: 0; border-radius: 0; padding: 10px 0 0; background: transparent; border-top: 1px solid var(--p-line); }
+  .filter-template-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--p-line); }
+  .filter-template-head .hint { flex-basis: 100%; }
+  .task-filter-divider { height: 1px; background: var(--p-line); margin: 12px 0; }
+  .filter-view-head, .filter-presets, .filter-summary, .filter-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+  .filter-view-head { justify-content: space-between; margin: 6px 0; }
+  .filter-summary { margin-bottom: 8px; }
+  .filter-summary[hidden], #filterViewDeleteConfirm[hidden] { display: none; }
+  #filterViewName { min-width: 0; max-width: 100%; flex: 1 1 120px; }
+  .filter-summary button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
+  .filter-presets button[aria-pressed="true"] { border-color: var(--p-accent-line); color: var(--p-text-1); background: var(--p-bg); }
+  #taskFilterBar { display: block; min-width: 0; }
+  #taskFilterBar[hidden] { display: none; }
+  .filter-search { display: flex; align-items: center; gap: 8px; font-size: 11px; }
+  #taskFilterBar #filterKeyword { flex: 1; width: 0; }
+  .filter-facets { display: grid; gap: 0; margin: 8px 0; min-width: 0; }
+  .filter-facet { min-width: 0; margin: 0; padding: 8px 0; border: 0; border-top: 1px solid var(--p-line); }
+  .filter-facet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .filter-facet-title { font-size: 11px; font-weight: 600; }
+  .filter-facet-values { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .filter-value { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 3px 6px; border: 1px solid var(--p-line); border-radius: 5px; color: var(--p-text-2); font-size: 11px; overflow-wrap: anywhere; cursor: pointer; }
+  .filter-value.is-selected { border-color: var(--p-accent-line); color: var(--p-text-1); background: var(--p-bg); }
+  .filter-value:focus-within { outline: 2px solid var(--p-accent-line); outline-offset: 1px; }
+  #taskFilterBar .filter-value input { flex: none; width: 12px; height: 12px; margin: 0; padding: 0; }
+  .filter-empty-note { margin-top: 5px; font-size: 11px; color: var(--p-text-2); }
+  .filter-footer { padding-top: 5px; }
+  .filter-footer .hint { flex-basis: 100%; }
+
+  /* 基础输入样式，复用面板主题 */
   .task-filter {
     display: flex;
     align-items: center;
@@ -2128,6 +2162,14 @@
     font-size: 11px;
     font-family: inherit;
   }
+
+  .task-filter { flex-wrap: wrap; }
+  .filter-suspended { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; color: var(--p-text-2); }
+  .task-filter .filter-suspended input { width: 13px; height: 13px; padding: 0; }
+  .suspension-reason { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .suspension-warning { color: var(--p-text-2); }
+  .suspension-editor { max-width: 240px; }
+  .suspension-editor input { box-sizing: border-box; width: 100%; min-width: 0; margin: 4px 0; }
 
   .task-filter #filterWorkspace { flex: 1.4 1 0; }
   .task-filter #filterStatus { flex: 0.9 1 0; }
@@ -2463,6 +2505,58 @@
     gap: 6px;
   }
 
+  .task-body { flex-wrap: wrap; }
+  .task-body > .task-actions { flex: 1 0 100%; min-width: 0; flex-wrap: wrap; border-top: 1px solid var(--p-line); padding-top: 5px; }
+  .task-action-spacer { flex: 1; }
+  .task-text-action { background: none; border: 0; padding: 3px 2px; color: var(--p-text-2); font: inherit; font-size: 11px; cursor: pointer; }
+  .task-text-action:hover, .task-text-action:focus-visible { color: var(--p-text-1); outline-color: var(--p-accent-line); }
+  .task-text-action:disabled { opacity: .45; cursor: default; }
+  .task-local-pop, .suspension-editor { width: min(280px, calc(100vw - 16px)); box-sizing: border-box; padding: 8px; overflow-wrap: anywhere; }
+  .task-local-pop > .task-text-action { display: block; width: 100%; text-align: left; }
+  .task-local-pop.task-document-menu { width: max-content; min-width: 132px; max-width: calc(100vw - 16px); padding: 4px; gap: 2px; }
+  .task-document-menu > .task-text-action { padding: 6px 10px; white-space: nowrap; border-radius: 5px; }
+  .task-document-menu > .task-text-action:hover { background: var(--p-sub); }
+  .task-document-bind { width: min(260px, calc(100vw - 16px)); }
+  .task-document-bind input { box-sizing: border-box; min-width: 0; width: 100%; padding: 6px; border: 1px solid var(--p-line); border-radius: 5px; background: var(--p-bg); color: var(--p-text-1); }
+  .task-local-pop select { display: block; max-width: 100%; width: 100%; margin-bottom: 5px; }
+  .relation-preview { margin: 5px 0; color: var(--p-text-2); }
+  .relation-line { display: flex; align-items: center; flex-wrap: wrap; gap: 3px; min-width: 0; }
+  .relation-node { background: var(--p-sub); border: 1px solid var(--p-line); border-radius: 6px; padding: 2px 6px; color: var(--p-text-2); font-size: 10px; font-weight: 400; line-height: 1.6; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+  .relation-arrow { display: inline-block; position: relative; width: 20px; min-width: 20px; height: 10px; font-size: 0; }
+  .relation-arrow::before { content: ''; position: absolute; left: 0; right: 2px; top: 5px; border-top: 1px solid var(--p-text-2); }
+  .relation-arrow::after { content: ''; position: absolute; right: 2px; top: 3px; width: 4px; height: 4px; border-top: 1px solid var(--p-text-2); border-right: 1px solid var(--p-text-2); transform: rotate(45deg); }
+  .relation-provenance .relation-arrow::before { border-top-style: dashed; }
+  .relation-current { font-weight: 400; }
+  .relation-flow { display: flex; align-items: center; gap: 5px; min-width: 0; margin: 8px 0; }
+  .relation-flow .relation-node { flex: 1; max-width: none; min-width: 0; }
+  .relation-candidate-panel[hidden] { display: none; }
+  .relation-candidate-panel { min-width: 0; }
+  .task-toolbar { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+  .task-local-pop.relation-editor { width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 24px); padding: 10px; overflow-y: auto; display: flex; flex-direction: column; }
+  .relation-editor > * { flex-shrink: 0; }
+  .relation-editor .relation-candidates { flex-shrink: 1; min-height: 48px; }
+  .relation-editor .relation-existing { flex-shrink: 1; }
+  .relation-editor-head, .relation-editor-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+  .relation-editor-head strong { font-size: 12px; font-weight: 600; color: var(--p-text-1); }
+  .relation-segments { display: flex; gap: 2px; margin: 8px 0 5px; padding: 2px; border: 1px solid var(--p-line); border-radius: 6px; }
+  .relation-segment { flex: 1; border: 0; border-radius: 4px; background: none; color: var(--p-text-2); padding: 4px; font: inherit; font-size: 11px; cursor: pointer; }
+  .relation-segment[aria-pressed="true"] { background: var(--p-bg); color: var(--p-text-1); box-shadow: 0 0 0 1px var(--p-line); }
+  .relation-editor-help { margin-bottom: 8px; }
+  .relation-editor .relation-search { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--p-line); border-radius: 5px; background: var(--p-bg); color: var(--p-text-1); font-size: 11px; }
+  .relation-candidates { max-height: min(210px, 32vh); overflow-y: auto; overscroll-behavior: contain; margin: 6px 0; }
+  .relation-candidate { display: block; width: 100%; min-width: 0; text-align: left; padding: 6px; border: 1px solid transparent; border-radius: 5px; background: none; color: var(--p-text-1); cursor: pointer; }
+  .relation-candidate[aria-pressed="true"] { border-color: var(--p-line); background: var(--p-bg); }
+  .relation-candidate-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font-size: 11px; overflow: hidden; overflow-wrap: anywhere; }
+  .relation-candidate-meta { display: block; font-size: 10px; color: var(--p-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+  .relation-existing { border-top: 1px solid var(--p-line); max-height: 110px; overflow-y: auto; }
+  .relation-existing:empty { border: 0; }
+  .relation-existing-label { font-size: 10px; color: var(--p-text-2); margin-top: 6px; }
+  .relation-existing-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .relation-existing-row > span { flex: 1; min-width: 0; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .relation-editor-message { margin: 5px 0; }
+  .relation-selection { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .relation-editor button:disabled { opacity: .45; cursor: default; }
+
   /* ---------- 文档监听 ---------- */
   .doc-add {
     display: flex;
@@ -2641,25 +2735,45 @@
 
   <!-- 3. 任务列表 -->
   <section class="card" aria-labelledby="tasksTitle">
+    <div class="task-filter-card">
     <div class="card-head">
       <h2 id="tasksTitle">任务</h2>
       <span id="taskListName" class="title-sub"></span>
       <span id="taskCount" class="count">0</span>
-      <button type="button" id="filterToggle" class="btn btn-ghost btn-sm filter-toggle" aria-expanded="false" aria-controls="taskFilterBar" title="筛选任务">筛选</button>
-      <button type="button" id="syncNow" class="btn btn-ghost btn-sm push">立即同步</button>
+      <div class="task-toolbar">
+        <button type="button" id="filterToggle" class="btn btn-ghost btn-sm filter-toggle" aria-expanded="false" aria-controls="taskFilterBar" title="筛选任务">筛选</button>
+        <button type="button" id="syncNow" class="btn btn-ghost btn-sm">立即同步</button>
+      </div>
     </div>
+    <div class="filter-view-head">
+      <div id="filterPresets" class="filter-presets" role="group" aria-label="快捷视图"></div>
+      <span id="filterResult" class="hint" role="status" aria-live="polite"></span>
+    </div>
+    <div id="filterSummary" class="filter-summary" role="group" aria-label="当前筛选条件" hidden></div>
     <div id="taskFilterBar" class="task-filter" role="search" hidden>
-      <select id="filterWorkspace" aria-label="按工作区过滤">
-        <option value="">全部工作区</option>
-      </select>
-      <select id="filterStatus" aria-label="按状态过滤">
-        <option value="open">未完成</option>
-        <option value="all">全部</option>
-        <option value="done">已完成</option>
-      </select>
-      <input type="search" id="filterKeyword" placeholder="标题 / 描述" aria-label="关键词筛选" spellcheck="false">
-      <button type="button" id="filterReset" class="btn btn-ghost btn-xs filter-reset" title="清空筛选">✕</button>
+      <div class="filter-template-head">
+        <span id="filterViewStatus" class="hint" role="status"></span>
+        <input type="text" id="filterViewName" aria-label="筛选方案名称" placeholder="方案名称（24 字内）">
+        <button type="button" id="filterViewSave" class="btn btn-ghost btn-xs">另存新方案</button>
+        <button type="button" id="filterViewUpdate" class="btn btn-ghost btn-xs" disabled>保存到当前模板</button>
+        <button type="button" id="filterClear" class="btn btn-ghost btn-xs">清空全部条件</button>
+        <button type="button" id="filterReset" class="btn btn-ghost btn-xs">使用日常模板</button>
+        <button type="button" id="filterRestore" class="btn btn-ghost btn-xs" disabled>还原原始配置</button>
+        <span id="filterRestoreConfirm" hidden>仅还原当前内置模板。
+          <button type="button" id="filterRestoreYes" class="btn btn-ghost btn-xs">确认还原</button>
+          <button type="button" id="filterRestoreNo" class="btn btn-ghost btn-xs">取消</button>
+        </span>
+        <button type="button" id="filterViewDelete" class="btn btn-ghost btn-xs" disabled>删除当前方案</button>
+        <span id="filterViewDeleteConfirm" hidden>仅删除方案，不改变当前规则。
+          <button type="button" id="filterViewDeleteYes" class="btn btn-ghost btn-xs">确认删除</button>
+          <button type="button" id="filterViewDeleteNo" class="btn btn-ghost btn-xs">取消</button>
+        </span>
+      </div>
+      <label class="filter-search">关键词<input type="search" id="filterKeyword" placeholder="搜索标题 / 描述" aria-label="关键词筛选" spellcheck="false"></label>
+      <div id="filterFacets" class="filter-facets"></div>
     </div>
+    </div>
+    <div class="task-filter-divider" role="separator" aria-label="筛选与任务列表分隔"></div>
     <div id="taskList" class="list"></div>
   </section>
 
@@ -2989,7 +3103,7 @@
     currentSessionId: '', // 宿主当前会话（client 半体 postMessage 进来）
     version: '', // 插件版本（/api/state 顶层，显示在 CLI chip 上）
     /* 任务过滤条件：工作区 / 状态 / 关键词；存在 localStorage，刷新后还在 */
-    filter: { workspace: '', status: 'open', keyword: '' },
+    filter: null,
     /* Insight 卡片：本地指标、AI 诊断结果、展开/分页状态 */
     insightLocal: null,
     insightAI: null,
@@ -3482,104 +3596,401 @@
 
   var FILTER_STORE = 'dsh-feishu:filter';
 
+  function workspaceOf(t) {
+    return String(t && (t.workspaceTitle || t.workspaceName || t.meta && t.meta.workspace) || '');
+  }
+
+  function workspaceKey(t) {
+    if (t.workspaceId) return 'id:' + t.workspaceId;
+    var rows = app.workspaces || [];
+    if (t.workspacePath) {
+      var pathHit = rows.find(function (row) { return String(row.path || '').replace(/\/+$/, '') === String(t.workspacePath).replace(/\/+$/, ''); });
+      return pathHit && pathHit.id ? 'id:' + pathHit.id : 'path:' + t.workspacePath;
+    }
+    var label = workspaceOf(t);
+    var matches = label ? rows.filter(function (row) { return row.title === label; }) : [];
+    return matches.length === 1 ? 'id:' + matches[0].id : label ? 'legacy:' + label : 'none';
+  }
+
+  function workspaceOptions(list, selected) {
+    var rows = [{ value: 'none', label: '未设置' }];
+    list.forEach(function (t) {
+      if (!t) return;
+      var value = workspaceKey(t);
+      if (rows.some(function (row) { return row.value === value; })) return;
+      rows.push({ value: value, label: workspaceOf(t) || t.workspacePath || t.workspaceId, detail: t.workspacePath || t.workspaceId || '' });
+    });
+    var counts = Object.create(null);
+    rows.forEach(function (row) { counts[row.label] = (counts[row.label] || 0) + 1; });
+    rows.forEach(function (row) { if (counts[row.label] > 1) row.label += ' · ' + (row.detail || row.value); });
+    selected.forEach(function (value) {
+      if (!rows.some(function (row) { return row.value === value; })) rows.push({ value: value, label: value.replace(/^(id|path|legacy):/, '') + '（当前快照未出现）' });
+    });
+    return rows;
+  }
+
+  // 唯一声明源：增加筛选维度只需注册 options/valueOf/default。
+  var FACET_DEFS = [
+    { id: 'completion', label: '完成状态', options: [['open', '未完成'], ['done', '已完成']], valueOf: function (t) { return t.done === true ? 'done' : 'open'; }, default: { mode: 'exclude', values: ['done'] } },
+    { id: 'handling', label: '处理状态', options: [['normal', '正常'], ['suspended', '挂起']], valueOf: function (t) { return t.suspension && t.suspension.active === true ? 'suspended' : 'normal'; }, default: { mode: 'exclude', values: ['suspended'] } },
+    { id: 'progress', label: '推进状态', options: [['unstarted', '未开工'], ['bound', '已绑定'], ['started', '已开工']], valueOf: function (t) { return t.started === true ? 'started' : t.sessionId || t.boundOnly === true ? 'bound' : 'unstarted'; } },
+    { id: 'dependency', label: '依赖状态', options: [['ready', '前置已满足'], ['blocked', '前置未满足'], ['unknown', '未同步 / 未知']], valueOf: function (t) { return t.relations && t.relations.ready === true ? 'ready' : t.relations && t.relations.ready === false ? 'blocked' : 'unknown'; } },
+    { id: 'priority', label: '优先级', options: [['P0', 'P0'], ['P1', 'P1'], ['P2', 'P2'], ['P3', 'P3'], ['none', '未设置'], ['unknown', '其他 / 未知']], valueOf: function (t) { var value = String(t.priority || '').trim().toUpperCase(); return !value ? 'none' : /^P[0-3]$/.test(value) ? value : 'unknown'; } },
+    { id: 'workspace', label: '工作区', options: workspaceOptions, valueOf: workspaceKey, matches: function (t, value) { return value.indexOf('legacy:') === 0 ? workspaceOf(t) === value.slice(7) : workspaceKey(t) === value; } }
+  ];
+  var FILTER_MODES = [['all', '不限'], ['include', '只看所选'], ['exclude', '排除所选']];
+  var FILTER_PRESETS = [['daily', '日常'], ['all', '全部'], ['project', '项目']];
+  var FILTER_VIEWS_STORE = 'dsh-feishu:filter-views';
+
+  function createFilter(preset) {
+    var filter = { version: 2, facets: {}, keyword: '' };
+    FACET_DEFS.forEach(function (def) {
+      var initial = preset === 'daily' && def.default || { mode: 'all', values: [] };
+      filter.facets[def.id] = { mode: initial.mode, values: initial.values.slice() };
+    });
+    if (preset === 'suspended') filter.facets.handling = { mode: 'include', values: ['suspended'] };
+    if (preset === 'project') { filter.project = true; resolveProjectFilter(filter); }
+    return filter;
+  }
+
+  function currentProjectKey() {
+    var workspace = app.currentWorkspace || {};
+    if (workspace.id) return 'id:' + workspace.id;
+    if (workspace.path) {
+      var registered = (app.workspaces || []).find(function (item) { return String(item.path || '').replace(/\/+$/, '') === String(workspace.path).replace(/\/+$/, ''); });
+      return registered && registered.id ? 'id:' + registered.id : 'path:' + workspace.path;
+    }
+    if (!app.currentSessionId) return '__no-current-project__';
+    var task = ((app.snap && app.snap.tasks) || []).find(function (item) { return item.sessionId === app.currentSessionId; });
+    return task && task.workspaceId ? 'id:' + task.workspaceId : task && task.workspacePath ? 'path:' + task.workspacePath : '__no-current-project__';
+  }
+
+  function resolveProjectFilter(filter) {
+    if (filter && filter.project === true) filter.facets.workspace = { mode: 'include', values: [currentProjectKey()] };
+    return filter;
+  }
+
+  function normalizeFilter(saved) {
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return createFilter('daily');
+    if (saved.version !== 2) {
+      if (saved.version !== undefined) return createFilter('daily');
+      var old = createFilter('daily');
+      old.keyword = typeof saved.keyword === 'string' ? saved.keyword : '';
+      if (saved.status === 'all' || saved.status === 'suspended') old.facets.completion = { mode: 'all', values: [] };
+      if (saved.status === 'done') old.facets.completion = { mode: 'include', values: ['done'] };
+      if (saved.showSuspended === true) old.facets.handling = { mode: 'all', values: [] };
+      if (saved.status === 'suspended') old.facets.handling = { mode: 'include', values: ['suspended'] };
+      if (typeof saved.workspace === 'string' && saved.workspace) old.facets.workspace = { mode: 'include', values: ['legacy:' + saved.workspace] };
+      return old;
+    }
+    var result = createFilter('daily');
+    result.keyword = typeof saved.keyword === 'string' ? saved.keyword : '';
+    FACET_DEFS.forEach(function (def) {
+      var rule = saved.facets && saved.facets[def.id];
+      if (!rule || FILTER_MODES.every(function (pair) { return pair[0] !== rule.mode; }) || !Array.isArray(rule.values) || !Array.from(rule.values).every(function (v) { return typeof v === 'string' && v.length > 0; })) return;
+      result.facets[def.id] = { mode: rule.mode, values: rule.values.filter(function (v, i, a) { return a.indexOf(v) === i; }) };
+    });
+    if (saved.project === true) { result.project = true; resolveProjectFilter(result); }
+    return result;
+  }
+
+  var FILTER_DEFAULTS_STORE = 'dsh-feishu:filter-defaults';
+  function loadFilterDefaults() {
+    app.filterDefaults = {};
+    try {
+      var saved = JSON.parse(localStorage.getItem(FILTER_DEFAULTS_STORE) || '{}');
+      FILTER_PRESETS.forEach(function (pair) {
+        var rule = saved && saved[pair[0]];
+        if (!rule || rule.version !== 2 || !rule.facets || FACET_DEFS.some(function (def) { var value = rule.facets[def.id]; return !value || !['all', 'include', 'exclude'].includes(value.mode) || !Array.isArray(value.values) || !value.values.every(function (v) { return typeof v === 'string' && v; }); })) return;
+        app.filterDefaults[pair[0]] = normalizeFilter(rule);
+      });
+    } catch (error) {}
+  }
+  function builtinFilter(id) {
+    var filter = app.filterDefaults && app.filterDefaults[id];
+    return filter ? resolveProjectFilter(JSON.parse(JSON.stringify(filter))) : createFilter(id);
+  }
+  function saveBuiltinFilter(id) {
+    loadFilterDefaults();
+    var next = Object.assign({}, app.filterDefaults || {});
+    next[id] = normalizeFilter(app.filter);
+    if (id === 'project') { next[id].project = true; resolveProjectFilter(next[id]); }
+    try { localStorage.setItem(FILTER_DEFAULTS_STORE, JSON.stringify(next)); }
+    catch (error) { toast('模板保存失败：' + error.message); return false; }
+    app.filterDefaults = next;
+    app.filter = builtinFilter(id);
+    updateFilter();
+    toast('当前模板已覆盖');
+    return true;
+  }
+  function restoreBuiltinFilter(confirm) {
+    if (!FILTER_PRESETS.some(function (pair) { return pair[0] === app.activeViewId; })) return false;
+    if (!confirm) { app.filterRestoreConfirm = true; renderFilterOptions((app.snap && app.snap.tasks) || []); return false; }
+    var next = Object.assign({}, app.filterDefaults || {});
+    delete next[app.activeViewId];
+    try { localStorage.setItem(FILTER_DEFAULTS_STORE, JSON.stringify(next)); }
+    catch (error) { toast('模板还原失败：' + error.message); return false; }
+    app.filterDefaults = next;
+    app.filterRestoreConfirm = false;
+    app.filter = createFilter(app.activeViewId);
+    updateFilter();
+    toast('已还原原始配置');
+    return true;
+  }
+  function newFilterTemplate() {
+    app.activeViewId = '';
+    app.filterOpen = true;
+    app.filterDeleteConfirm = app.filterRestoreConfirm = false;
+    renderFilterOptions((app.snap && app.snap.tasks) || []);
+    var input = $('filterViewName');
+    if (input) { input.value = ''; input.focus(); }
+  }
+
   function loadFilter() {
+    loadFilterDefaults();
+    app.filter = builtinFilter('daily');
+    app.filterOpen = false;
+    loadFilterViews();
     try {
       var raw = window.localStorage && localStorage.getItem(FILTER_STORE);
-      if (!raw) return;
+      if (!raw) { app.activeViewId = 'daily'; return; }
       var saved = JSON.parse(raw);
-      if (!saved || typeof saved !== 'object') return;
-      app.filter = {
-        workspace: typeof saved.workspace === 'string' ? saved.workspace : '',
-        status: saved.status === 'all' || saved.status === 'done' ? saved.status : 'open',
-        keyword: typeof saved.keyword === 'string' ? saved.keyword : '',
-      };
-      app.filterOpen = saved.open === true;
-    } catch (e) {
-      /* 隐私模式禁 localStorage 就算了 */
-    }
+      app.filter = normalizeFilter(saved);
+      app.activeViewId = saved.activeTemplateId || app.filterViews.find(function (view) { return filterRuleSignature(view.filter) === filterRuleSignature(app.filter); })?.id || FILTER_PRESETS.find(function (pair) { return filterRuleSignature(builtinFilter(pair[0])) === filterRuleSignature(app.filter); })?.[0] || '';
+    } catch (e) { /* 隐私模式禁 localStorage 时使用明确的日常默认 */ }
   }
 
   function saveFilter() {
+    try { if (window.localStorage) localStorage.setItem(FILTER_STORE, JSON.stringify(Object.assign({}, app.filter, { activeTemplateId: app.activeViewId || '' }))); }
+    catch (e) { toast('筛选规则保存失败：' + (e.message || String(e))); }
+  }
+
+  function filterRuleSignature(filter) {
+    var normalized = normalizeFilter(filter);
+    FACET_DEFS.forEach(function (def) { var rule = normalized.facets[def.id]; rule.values = rule.mode === 'all' ? [] : rule.values.slice().sort(); });
+    return JSON.stringify(normalized);
+  }
+
+  function loadFilterViews() {
+    app.filterViews = [];
+    app.activeViewId = '';
     try {
-      if (window.localStorage) {
-        localStorage.setItem(FILTER_STORE, JSON.stringify({
-          workspace: app.filter.workspace,
-          status: app.filter.status,
-          keyword: app.filter.keyword,
-          open: app.filterOpen === true,
-        }));
+      var saved = JSON.parse(localStorage.getItem(FILTER_VIEWS_STORE) || '[]');
+      if (!Array.isArray(saved)) return;
+      saved.forEach(function (view) {
+        if (app.filterViews.length >= 20 || !view || typeof view.id !== 'string' || !view.id || FILTER_PRESETS.some(function (pair) { return pair[0] === view.id || pair[1] === view.name; }) || typeof view.name !== 'string' || !view.name.trim() || Array.from(view.name).length > 24 || !view.filter || view.filter.version !== 2 || !view.filter.facets) return;
+        if (FACET_DEFS.some(function (def) { var rule = view.filter.facets[def.id]; return !rule || !FILTER_MODES.some(function (pair) { return pair[0] === rule.mode; }) || !Array.isArray(rule.values) || !Array.from(rule.values).every(function (value) { return typeof value === 'string' && value.length > 0; }); })) return;
+        if (app.filterViews.some(function (item) { return item.id === view.id || item.name === view.name.trim(); })) return;
+        app.filterViews.push({ id: view.id, name: view.name.trim(), filter: normalizeFilter(view.filter) });
+      });
+    } catch (error) { /* 坏存储不阻塞面板启动 */ }
+  }
+
+  function persistFilterViews(next) {
+    try {
+      if (!window.localStorage) throw new Error('本地存储不可用');
+      localStorage.setItem(FILTER_VIEWS_STORE, JSON.stringify(next));
+      app.filterViews = next;
+      return true;
+    } catch (error) { toast('方案保存失败：' + (error.message || String(error))); return false; }
+  }
+
+  function saveFilterView(name, update) {
+    name = String(name || '').trim();
+    var views = app.filterViews || [];
+    var current = views.find(function (view) { return view.id === app.activeViewId; });
+    if (update && FILTER_PRESETS.some(function (pair) { return pair[0] === app.activeViewId; })) return saveBuiltinFilter(app.activeViewId);
+    if (update && !current) { toast('先选择一个模板'); return false; }
+    if (update) name = current.name;
+    if (!name || Array.from(name).length > 24) { toast('方案名称需为 1–24 字'); return false; }
+    if (!update && FILTER_PRESETS.some(function (pair) { return pair[1] === name; })) { toast('日常和全部是内置视图，请使用其他名称'); return false; }
+    if (!update && views.some(function (view) { return view.name === name; })) { toast('名称已存在，请选择“更新当前方案”或使用新名称'); return false; }
+    if (!update && views.length >= 20) { toast('最多保存 20 个方案'); return false; }
+    var id = update ? current.id : 'view-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    var savedRule = JSON.parse(JSON.stringify(resolveProjectFilter(normalizeFilter(app.filter))));
+    delete savedRule.project;
+    var entry = { id: id, name: name, filter: savedRule };
+    var next = update ? views.map(function (view) { return view.id === id ? entry : view; }) : views.concat(entry);
+    if (!persistFilterViews(next)) return false;
+    app.activeViewId = id;
+    toast(update ? '方案已更新' : '方案已保存');
+    renderFilterOptions((app.snap && app.snap.tasks) || []);
+    return true;
+  }
+
+  function selectFilterView(id) {
+    var view = (app.filterViews || []).find(function (item) { return item.id === id; });
+    if (!view) return;
+    app.activeViewId = id;
+    app.filter = JSON.parse(JSON.stringify(view.filter));
+    app.filterOpen = false;
+    app.filterDeleteConfirm = false;
+    updateFilter();
+  }
+
+  function deleteFilterView(confirm) {
+    if (!app.activeViewId || FILTER_PRESETS.some(function (pair) { return pair[0] === app.activeViewId; })) return false;
+    if (!confirm) { app.filterDeleteConfirm = true; renderFilterOptions((app.snap && app.snap.tasks) || []); return false; }
+    var id = app.activeViewId;
+    if (!persistFilterViews((app.filterViews || []).filter(function (view) { return view.id !== id; }))) return false;
+    app.activeViewId = '';
+    app.filterDeleteConfirm = false;
+    toast('方案已删除，当前规则保持不变');
+    renderFilterOptions((app.snap && app.snap.tasks) || []);
+    return true;
+  }
+
+  function renderSavedFilterViews() {
+    var root = $('filterPresets');
+    if (!root) return;
+    var items = FILTER_PRESETS.map(function (pair) { return { id: pair[0], name: pair[1], builtin: true, filter: builtinFilter(pair[0]) }; }).concat(app.filterViews || []);
+    items.forEach(function (item) {
+      var button = Array.prototype.find.call(root.children, function (node) { return node.getAttribute('data-view') === item.id; });
+      if (!button) {
+        button = makeButton(item.name, 'btn btn-ghost btn-xs', null, false, function () { if (FILTER_PRESETS.some(function (pair) { return pair[0] === item.id; })) { app.filterOpen = false; applyFilterPreset(item.id); } else selectFilterView(item.id); });
+        button.setAttribute('data-view', item.id); root.appendChild(button);
       }
-    } catch (e) {
-      /* 忽略 */
-    }
+      button.textContent = item.name;
+      button.setAttribute('aria-pressed', filterRuleSignature(app.filter) === filterRuleSignature(item.filter) && (app.activeViewId === item.id || item.builtin && !app.activeViewId) ? 'true' : 'false');
+    });
+    Array.prototype.slice.call(root.children).forEach(function (node) { if (node.id !== 'filterNewTemplate' && !items.some(function (item) { return node.getAttribute('data-view') === item.id; })) node.remove(); });
+    var builtin = items.find(function (view) { return view.builtin && view.id === app.activeViewId; });
+    var current = builtin || (app.filterViews || []).find(function (view) { return view.id === app.activeViewId; });
+    var status = $('filterViewStatus');
+    if (status) status.textContent = current ? current.name + (filterRuleSignature(current.filter) !== filterRuleSignature(app.filter) ? ' · 已修改' : '') : '';
+    var update = $('filterViewUpdate'); if (update) update.disabled = !current;
+    var del = $('filterViewDelete'); if (del) del.disabled = !current || !!builtin;
+    var restore = $('filterRestore'); if (restore) restore.disabled = !builtin || !(app.filterDefaults || {})[builtin.id];
+    var restoreConfirm = $('filterRestoreConfirm'); if (restoreConfirm) restoreConfirm.hidden = !app.filterRestoreConfirm;
+    var confirm = $('filterViewDeleteConfirm'); if (confirm) confirm.hidden = !app.filterDeleteConfirm;
+    var add = Array.prototype.find.call(root.children, function (node) { return node.id === 'filterNewTemplate'; });
+    if (!add) { add = makeButton('＋ 新模板', 'btn btn-ghost btn-xs', null, false, newFilterTemplate); add.id = 'filterNewTemplate'; root.appendChild(add); }
+    if (root.children[root.children.length - 1] !== add) { add.remove(); root.appendChild(add); }
   }
 
-  function workspaceOf(t) {
-    return String((t && (t.workspaceTitle || t.workspaceName)) || '');
-  }
-
-  /* 按当前条件筛；工作区为空串表示「全部」。 */
   function filterTasksForPanel(list) {
-    var f = app.filter || {};
-    var keyword = String(f.keyword || '').trim().toLowerCase();
-    var status = f.status || 'open';
+    var filter = resolveProjectFilter(app.filter || createFilter('daily'));
+    var keyword = String(filter.keyword || '').trim().toLowerCase();
     return list.filter(function (t) {
       if (!t) return false;
-      if (status === 'open' && t.done) return false;
-      if (status === 'done' && !t.done) return false;
-      if (f.workspace && workspaceOf(t) !== f.workspace) return false;
-      if (keyword) {
-        var hay = (String(t.title || '') + '\n' + String(t.description || '')).toLowerCase();
-        if (hay.indexOf(keyword) === -1) return false;
-      }
-      return true;
+      if (keyword && (String(t.title || '') + '\n' + String(t.description || '')).toLowerCase().indexOf(keyword) === -1) return false;
+      return FACET_DEFS.every(function (def) {
+        var rule = filter.facets[def.id];
+        if (rule.mode === 'all') return true;
+        var matched = rule.values.some(function (value) { return def.matches ? def.matches(t, value) : def.valueOf(t) === value; });
+        return rule.mode === 'include' ? matched : !matched;
+      });
     });
   }
 
-  /* 过滤条要不要展开 + 「筛选」按钮上的小点（有生效条件时亮）。 */
+  function facetOptions(def, list) {
+    var selected = app.filter.facets[def.id].values;
+    var options = typeof def.options === 'function' ? def.options(list, selected) : def.options.map(function (pair) { return { value: pair[0], label: pair[1] }; });
+    selected.forEach(function (value) { if (!options.some(function (row) { return row.value === value; })) options.push({ value: value, label: value + '（未知值）' }); });
+    return options;
+  }
+
+  function updateFilter() {
+    saveFilter();
+    renderTasks();
+  }
+
+  function applyFilterPreset(id) {
+    /* 其它会话面板可能刚覆盖模板，切换时读取最新配置，不使用打开时的旧缓存。 */
+    loadFilterDefaults();
+    app.filter = builtinFilter(id);
+    app.activeViewId = FILTER_PRESETS.some(function (pair) { return pair[0] === id; }) ? id : '';
+    app.filterDeleteConfirm = app.filterRestoreConfirm = false;
+    updateFilter();
+  }
+
+  function removeFilterCondition(id) {
+    if (id === 'keyword') app.filter.keyword = '';
+    else { if (id === 'workspace') delete app.filter.project; app.filter.facets[id] = { mode: 'all', values: [] }; }
+    updateFilter();
+  }
+
   function renderFilterToggle() {
     var bar = $('taskFilterBar');
     var toggle = $('filterToggle');
     if (bar) bar.hidden = !app.filterOpen;
+    var summary = $('filterSummary');
+    if (summary) summary.hidden = !app.filterOpen;
     if (!toggle) return;
     toggle.setAttribute('aria-expanded', app.filterOpen ? 'true' : 'false');
-    var active = !!(app.filter.workspace || (app.filter.keyword || '').trim() || (app.filter.status || 'open') !== 'open');
-    if (active) toggle.classList.add('is-active');
-    else toggle.classList.remove('is-active');
+    var active = app.filter.keyword.trim() || FACET_DEFS.some(function (def) { return app.filter.facets[def.id].mode !== 'all'; });
+    toggle.classList.toggle('is-active', !!active);
   }
 
-  /* 工作区下拉：按当前快照里出现过的值填充，保留已选项。 */
+  function renderFilterSummary(list) {
+    var summary = $('filterSummary');
+    if (!summary) return;
+    clear(summary);
+    FACET_DEFS.forEach(function (def) {
+      var rule = app.filter.facets[def.id];
+      if (rule.mode === 'all') return;
+      var options = facetOptions(def, list);
+      var labels = rule.values.map(function (value) { return options.find(function (row) { return row.value === value; }).label; });
+      var text = def.label + ' · ' + (rule.mode === 'include' ? '只看' : '排除') + ' ' + (labels.length ? labels.join('、') : rule.mode === 'include' ? '未选值，暂无匹配' : '未排除任何值');
+      var button = makeButton(text + ' ×', 'btn btn-ghost btn-xs', null, false, function () { removeFilterCondition(def.id); });
+      button.setAttribute('aria-label', '删除条件：' + text);
+      summary.appendChild(button);
+    });
+    if (app.filter.keyword) summary.appendChild(makeButton('关键词 · ' + app.filter.keyword + ' ×', 'btn btn-ghost btn-xs', null, false, function () { removeFilterCondition('keyword'); }));
+    if (!summary.children.length) summary.appendChild(el('span', { 'class': 'hint', text: '无筛选条件 · 显示全部任务' }));
+  }
+
   function renderFilterOptions(list) {
-    var select = $('filterWorkspace');
-    if (!select) return;
-    var seen = [];
-    for (var i = 0; i < list.length; i++) {
-      var name = workspaceOf(list[i]);
-      if (name && seen.indexOf(name) === -1) seen.push(name);
-    }
-    seen.sort();
-    var want = app.filter.workspace || '';
-    var signature = seen.join('\u0001');
-    if (select.getAttribute('data-sig') !== signature) {
-      select.setAttribute('data-sig', signature);
-      clear(select);
-      select.appendChild(el('option', { value: '', text: '全部工作区' }));
-      for (var j = 0; j < seen.length; j++) {
-        select.appendChild(el('option', { value: seen[j], text: seen[j] }));
+    var root = $('filterFacets');
+    if (!root) return;
+    FACET_DEFS.forEach(function (def) {
+      var options = facetOptions(def, list);
+      var field = $('filterFacet-' + def.id);
+      if (!field) {
+        field = el('div', { id: 'filterFacet-' + def.id, 'class': 'filter-facet', role: 'group', 'aria-label': def.label });
+        var head = el('div', { 'class': 'filter-facet-head' });
+        head.appendChild(el('span', { 'class': 'filter-facet-title', text: def.label }));
+        var mode = el('select', { id: 'filterMode-' + def.id, 'aria-label': def.label + '匹配方式' });
+        FILTER_MODES.forEach(function (pair) { mode.appendChild(el('option', { value: pair[0], text: pair[1] })); });
+        mode.addEventListener('change', function () { if (def.id === 'workspace') delete app.filter.project; app.filter.facets[def.id].mode = this.value; updateFilter(); });
+        head.appendChild(mode); field.appendChild(head);
+        field.appendChild(el('div', { id: 'filterValues-' + def.id, 'class': 'filter-facet-values' }));
+        field.appendChild(el('div', { id: 'filterNote-' + def.id, 'class': 'filter-empty-note', role: 'status' }));
+        root.appendChild(field);
       }
-    }
-    select.value = seen.indexOf(want) === -1 ? '' : want;
-    if (select.value !== want) {
-      app.filter.workspace = select.value;
-    }
-    var keywordNode = $('filterKeyword');
-    if (keywordNode && keywordNode.value !== (app.filter.keyword || '')) keywordNode.value = app.filter.keyword || '';
-    var statusNode = $('filterStatus');
-    if (statusNode) {
-      /* 关掉「包含已完成任务」时，同步压根不拉已完成的任务，
-         「已完成」这个筛选项必然是空的——直接藏掉，别让人点了以为坏了。 */
-      statusNode.value = app.filter.status || 'open';
-    }
+      var values = $('filterValues-' + def.id);
+      // 增量维护，已有checkbox/select不重建：输入焦点和键盘位置不丢。
+      options.forEach(function (option) {
+        var label = Array.prototype.find.call(values.children, function (node) { return node.getAttribute('data-value') === option.value; });
+        if (!label) {
+          label = el('label', { 'class': 'filter-value', 'data-value': option.value });
+          var input = el('input', { type: 'checkbox', 'aria-label': def.label + '：' + option.label });
+          input.addEventListener('change', function () {
+            if (def.id === 'workspace') delete app.filter.project;
+            var rule = app.filter.facets[def.id];
+            rule.values = this.checked ? rule.values.concat(option.value).filter(function (v, i, a) { return a.indexOf(v) === i; }) : rule.values.filter(function (v) { return v !== option.value; });
+            updateFilter();
+          });
+          label.appendChild(input); label.appendChild(el('span')); values.appendChild(label);
+        }
+        var rule = app.filter.facets[def.id];
+        label.children[0].checked = rule.values.indexOf(option.value) !== -1;
+        label.children[0].disabled = rule.mode === 'all';
+        label.children[0].setAttribute('aria-label', def.label + '：' + option.label);
+        label.children[1].textContent = option.label;
+        label.classList.toggle('is-selected', label.children[0].checked && rule.mode !== 'all');
+      });
+      Array.prototype.slice.call(values.children).forEach(function (node) { if (!options.some(function (row) { return row.value === node.getAttribute('data-value'); })) node.remove(); });
+      var rule = app.filter.facets[def.id];
+      $('filterMode-' + def.id).value = rule.mode;
+      $('filterNote-' + def.id).textContent = rule.mode === 'all' ? '不限制此项' : rule.values.length ? '' : rule.mode === 'include' ? '未选值，暂无匹配' : '未排除任何值';
+    });
+    var keyword = $('filterKeyword');
+    if (keyword && keyword.value !== app.filter.keyword) keyword.value = app.filter.keyword;
+    renderSavedFilterViews();
+    var result = $('filterResult');
+    if (result) result.textContent = filterTasksForPanel(list).length + ' / ' + list.length + ' 条';
+    renderFilterSummary(list);
     renderFilterToggle();
   }
 
@@ -3597,12 +4008,15 @@
     /* 正在就地编辑（任务标题 / 文档标题 / 贴链接）时不要重建：
        面板每 20s 轮询一次，一重建就把输入框和已输入的内容一起丢掉（实测踩过）。
        排期浮层同理：它挂在 body 上、锚在这张卡上，卡一重建浮层就得跟着关。 */
-    if (app.titleEditing || app.docEditing || app.docBinding) return;
-    if (document.querySelector('.chip-pop')) return;
+    if (app.titleEditing || app.docEditing || app.docBinding || app.suspensionEditing || document.querySelector('.chip-pop') || document.querySelector('.prio-menu')) {
+      app.taskRenderPending = true;
+      return;
+    }
+    app.taskRenderPending = false;
     app.docEditing = false;
     app.docBinding = false;
     var list = $('taskList');
-    clear(list);
+    if (!list) return;
 
     var tasks = (app.snap && app.snap.tasks) || [];
     if (!Array.isArray(tasks)) tasks = [];
@@ -3649,19 +4063,123 @@
     syncBtn.textContent = app.busy.sync ? '同步中…' : '立即同步';
 
     /* 会话未绑定任务时，第一张卡是「当前会话 → 飞书任务」。 */
-    var syncNode = sessionSyncNode();
-    if (syncNode) list.appendChild(syncNode);
-
+    var wanted = [];
+    var syncSignature = stablePanelSignature([app.currentSessionId, allTasks.map(function (t) { return [t.id, t.sessionId]; }), app.busy]);
+    if (app.syncCardSignature !== syncSignature) { app.syncCardSignature = syncSignature; app.syncCardNode = sessionSyncNode(); }
+    if (app.syncCardNode) wanted.push(app.syncCardNode);
+    var cache = app.taskCache || (app.taskCache = Object.create(null));
+    var present = Object.create(null);
+    allTasks.forEach(function (task) {
+      present[task.id] = true;
+      var entry = cache[task.id];
+      if (entry) syncCachedTask(entry.task, task);
+    });
+    Object.keys(cache).forEach(function (id) { if (!present[id]) delete cache[id]; });
     if (!tasks.length) {
-      list.appendChild(emptyNode(app.filter.status === 'done'
-        ? '还没有本地完成的任务。飞书的已完成历史不会再同步，这里只显示你在面板里标完成的。'
-        : allTasks.length ? '没有符合筛选条件的任务（点「重置」看全部）' : '还没有同步到任务'));
-      return;
+      var emptyText = app.filter.project && currentProjectKey() === '__no-current-project__' ? '未识别当前项目，请从项目会话打开面板。' : allTasks.length ? '当前条件没有匹配任务。可删除条件，或选择「全部」查看整个快照。' : '还没有同步到任务';
+      if (app.taskEmptyText !== emptyText) { app.taskEmptyText = emptyText; app.taskEmptyNode = emptyNode(emptyText); }
+      wanted.push(app.taskEmptyNode);
     }
+    tasks.forEach(function (task) {
+      var signature = taskCardSignature(task);
+      var entry = cache[task.id];
+      if (!entry) entry = cache[task.id] = { task: Object.assign({}, task) };
+      else syncCachedTask(entry.task, task);
+      if (!entry.node || entry.signature !== signature) { entry.node = taskNode(entry.task); entry.signature = signature; }
+      wanted.push(entry.node);
+    });
+    reconcilePanelChildren(list, wanted);
+  }
 
-    for (var i = 0; i < tasks.length; i++) {
-      list.appendChild(taskNode(tasks[i] || {}));
+  function syncCachedTask(target, source) {
+    if (target === source) return;
+    Object.keys(target).forEach(function (key) { if (!Object.prototype.hasOwnProperty.call(source, key)) delete target[key]; });
+    Object.assign(target, source);
+  }
+
+  function reconcilePanelChildren(root, wanted) {
+    wanted.forEach(function (node, index) { if (root.children[index] !== node) root.insertBefore(node, root.children[index] || null); });
+    Array.prototype.slice.call(root.children).forEach(function (node) { if (wanted.indexOf(node) === -1) root.removeChild(node); });
+  }
+
+  function taskCardSignature(task) {
+    return stablePanelSignature([task, app.currentSessionId, app.sharedList, app.busyTask[task.id], app.settings, app.serverFeatures, app.workspaces]);
+  }
+
+  function flushPendingTaskRender() {
+    if (app.taskRenderPending) renderTasks();
+  }
+
+  function suspensionWarningText(item) {
+    return typeof item === 'string' ? item : String(item && (item.error || item.message) || '同步失败');
+  }
+
+  function suspensionControlNode(t) {
+    if (!app.serverFeatures || app.serverFeatures.indexOf('tasks.suspension') === -1) return null;
+    var suspended = !!(t.suspension && t.suspension.active);
+    if (t.done && !suspended) return null;
+    var group = el('div', { 'class': 'task-suspend-control' });
+    var closeEditor = null;
+    var toggle = makeButton(suspended ? '恢复' : '挂起', 'task-text-action', null, !!app.busyTask[t.id], function () {
+      if (suspended) submit('resume');
+      else {
+        editor.hidden = false;
+        editor.classList.add('prio-menu');
+        closeEditor = mountTaskMenu(editor, toggle);
+        input.focus();
+      }
+    });
+    toggle.title = suspended ? '恢复任务并重新激活关联会话；不会自动开工' : '暂停任务与排期，并归档关联会话（会停止正在运行的会话）';
+    group.appendChild(toggle);
+    var editor = el('div', { hidden: true, 'class': 'suspension-editor' });
+    editor.appendChild(el('div', { 'class': 'hint', text: '挂起会暂停排期并归档关联会话，停止正在运行的活动。恢复后不会自动开工。' }));
+    var input = el('input', { type: 'text', placeholder: '挂起原因（可选）', 'aria-label': '挂起原因' });
+    editor.appendChild(input);
+    var message = el('div', { 'class': 'hint', role: 'status', 'aria-live': 'polite' });
+    editor.appendChild(message);
+    var confirm = makeButton('确认挂起', 'btn btn-ghost btn-xs', null, false, function () { submit('suspend'); });
+    var cancel = makeButton('取消', 'btn btn-ghost btn-xs', null, false, function () {
+      if (closeEditor) closeEditor(true);
+      editor.hidden = true;
+    });
+    editor.appendChild(confirm);
+    editor.appendChild(cancel);
+    var busy = false;
+    async function submit(action) {
+      if (busy) return;
+      busy = true;
+      app.busyTask[t.id] = true;
+      toggle.disabled = confirm.disabled = cancel.disabled = true;
+      var committed = false;
+      try {
+        var body = { taskId: t.id, action: action };
+        if (action === 'suspend') body.reason = String(input.value || '').trim();
+        var result = await api('tasks/suspension', body);
+        if (!result || !result.ok) throw new Error(result && result.error || '任务状态修改失败');
+        committed = true;
+        var value = result.suspension || result.task && result.task.suspension || { active: action === 'suspend', reason: body.reason || '' };
+        t.suspension = value;
+        ((app.snap && app.snap.tasks) || []).forEach(function (task) { if (task.id === t.id) task.suspension = value; });
+        var warnings = Array.isArray(result.warnings) ? result.warnings : [];
+        var note = action === 'suspend' ? '任务已挂起' : '任务已恢复';
+        if (warnings.length) note += '；部分同步待处理：' + warnings.map(suspensionWarningText).join('；');
+        if (closeEditor) closeEditor(false);
+        editor.hidden = true;
+        toast(note);
+        await load({ quiet: true });
+      } catch (error) {
+        var text = error.message || String(error);
+        if (committed) text = '任务状态已保存，但刷新失败：' + text;
+        if (action === 'suspend' && !committed) message.textContent = text;
+        else toast(text);
+      } finally {
+        busy = false;
+        delete app.busyTask[t.id];
+        toggle.disabled = confirm.disabled = cancel.disabled = false;
+        if (!app.suspensionEditing) renderTasks();
+      }
     }
+    return group;
   }
 
   /* 任务 → 主题色。用黄金角把色相摊开：相邻编号的颜色差得远，且不会周期性撞色。 */
@@ -3687,8 +4205,7 @@
 
   /* 点徽标弹出选择器：P0~P3 + 清除。菜单跟着按钮走，滚出视口就关掉。 */
   function openPriorityMenu(anchorEl, current, onPick) {
-    var existing = document.querySelector('.prio-menu');
-    if (existing) existing.remove();
+    if (disposeTaskMenu) disposeTaskMenu(false);
     var menu = el('div', { 'class': 'prio-menu', role: 'menu' });
     PRIORITY_OPTIONS.concat(['']).forEach(function (value) {
       var row = el('button', { type: 'button', 'class': 'prio-item', role: 'menuitem' });
@@ -3696,34 +4213,66 @@
       row.appendChild(el('span', { 'class': 'dot' }));
       row.appendChild(el('span', { text: value ? PRIORITY_LABEL[value] : '清除优先级' }));
       row.addEventListener('click', function () {
-        menu.remove();
+        closeMenu(false);
         onPick(value);
       });
       menu.appendChild(row);
     });
-    document.body.appendChild(menu);
-    var rect = anchorEl.getBoundingClientRect();
-    var top = rect.bottom + 4;
-    if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - menu.offsetHeight - 4);
-    menu.style.top = top + 'px';
-    menu.style.left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8) + 'px';
-    setTimeout(function () {
-      var close = function (event) {
-        if (!menu.contains(event.target)) {
-          menu.remove();
-          document.removeEventListener('mousedown', close, true);
-        }
-      };
-      document.addEventListener('mousedown', close, true);
-      document.addEventListener('scroll', function () { menu.remove(); }, { once: true, capture: true });
-    }, 0);
+    var closeMenu = mountTaskMenu(menu, anchorEl);
     return menu;
   }
 
-  /* 工作区标签下拉：列出已登记工作区（标题 + 路径），点一个就换绑；最后一行是清除。 */
+  /* 点击菜单保持打开；菜单内滚动不关闭，外部滚动只重新定位。 */
+  var disposeTaskMenu = null;
+  function mountTaskMenu(menu, anchorEl) {
+    if (disposeTaskMenu) disposeTaskMenu(false);
+    document.body.appendChild(menu);
+    var closed = false;
+    function close(restoreFocus) {
+      if (closed) return;
+      closed = true;
+      document.removeEventListener('mousedown', onOutside, true);
+      document.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', reposition);
+      document.removeEventListener('keydown', onKey, true);
+      menu.remove();
+      if (disposeTaskMenu === close) disposeTaskMenu = null;
+      if (restoreFocus && anchorEl.isConnected) anchorEl.focus();
+    }
+    function reposition() {
+      if (!anchorEl.isConnected) return close(false);
+      var rect = anchorEl.getBoundingClientRect();
+      if (rect.bottom < 0 || rect.top > window.innerHeight) return close(false);
+      var top = rect.bottom + 4;
+      if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - menu.offsetHeight - 4);
+      menu.style.top = Math.max(8, Math.min(top, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+      menu.style.left = Math.max(8, Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+    }
+    function onScroll(event) { if (!menu.contains(event.target)) reposition(); }
+    function onOutside(event) { if (!menu.contains(event.target) && !anchorEl.contains(event.target)) close(false); }
+    function onKey(event) {
+      if (event.key === 'Escape') { event.preventDefault(); close(true); return; }
+      if (!menu.contains(event.target)) return;
+      var rows = Array.prototype.slice.call(menu.querySelectorAll('button'));
+      var index = rows.indexOf(document.activeElement);
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        var next = (index + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;
+        if (rows[next]) { rows[next].focus(); rows[next].scrollIntoView({ block: 'nearest' }); }
+      }
+    }
+    disposeTaskMenu = close;
+    document.addEventListener('mousedown', onOutside, true);
+    document.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', reposition);
+    document.addEventListener('keydown', onKey, true);
+    reposition();
+    return close;
+  }
+
+  /* 工作区标签下拉：列出已登记工作区（标题 + 路径），点一个就换绑。 */
   function openWorkspaceMenu(anchorEl, t) {
-    var existing = document.querySelector('.ws-menu');
-    if (existing) existing.remove();
+    if (disposeTaskMenu) disposeTaskMenu(false);
     var menu = el('div', { 'class': 'prio-menu ws-menu', role: 'menu', 'aria-label': '选择工作区' });
     var list = Array.isArray(app.workspaces) ? app.workspaces : [];
     var currentId = String(t.workspaceId || '');
@@ -3736,7 +4285,7 @@
       row.appendChild(label);
       if (String(w.id) === currentId) row.setAttribute('aria-current', 'true');
       row.addEventListener('click', function () {
-        menu.remove();
+        closeMenu(false);
         changeWorkspace(t, w);
       });
       menu.appendChild(row);
@@ -3744,28 +4293,21 @@
     if (!list.length) {
       menu.appendChild(el('div', { 'class': 'ws-path', text: '还没有登记过工作区' }));
     }
-    document.body.appendChild(menu);
-    var rect = anchorEl.getBoundingClientRect();
-    var top = rect.bottom + 4;
-    if (top + menu.offsetHeight > window.innerHeight - 8) top = Math.max(8, rect.top - menu.offsetHeight - 4);
-    menu.style.top = top + 'px';
-    menu.style.left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8) + 'px';
-    setTimeout(function () {
-      var close = function (event) {
-        if (!menu.contains(event.target)) {
-          menu.remove();
-          document.removeEventListener('mousedown', close, true);
-        }
-      };
-      document.addEventListener('mousedown', close, true);
-      document.addEventListener('scroll', function () { menu.remove(); }, { once: true, capture: true });
-    }, 0);
+    var closeMenu = mountTaskMenu(menu, anchorEl);
     return menu;
   }
 
   /** 换绑：id 是主键；服务端会同时把名字写回飞书字段（失败会带回来）。 */
   function changeWorkspace(t, workspace) {
     api('workspaces/bind', { taskId: t.id, workspaceId: workspace ? workspace.id : '' }).then(function (data) {
+      app.stateMutationRevision = (app.stateMutationRevision || 0) + 1;
+      var target = data && data.workspace || workspace;
+      var patch = { workspaceId: target && target.id || '', workspaceTitle: target && target.title || '', workspaceName: target && target.title || '', workspacePath: target && target.path || '', workspaceError: '', workspaceStale: false,
+        workspaceWrite: { pending: !!(data && data.writeBack && data.writeBack.pending), error: data && data.writeBack && data.writeBack.ok === false ? data.writeBack.error || '写回失败' : null } };
+      Object.assign(t, patch);
+      t.meta = Object.assign({}, t.meta, { workspace: patch.workspaceTitle });
+      ((app.snap && app.snap.tasks) || []).forEach(function (task) { if (task.id === t.id) { Object.assign(task, patch); task.meta = Object.assign({}, task.meta, { workspace: patch.workspaceTitle }); } });
+      renderTasks();
       if (workspace) {
         toast('工作区改为：' + ((data && data.workspace && data.workspace.title) || workspace.title));
       } else {
@@ -4297,6 +4839,227 @@
   }
 
 
+  function relationPreviewNode(t) {
+    var rel = t.relations || {};
+    if (!['predecessors', 'successors', 'sourceTasks', 'derivedTasks'].some(function (key) { return (rel[key] || []).length; })) return null;
+    var root = el('div', { 'class': 'relation-preview' });
+    function line(before, after, provenance) {
+      if (!before.length && !after.length) return;
+      var row = el('div', { 'class': 'relation-line' + (provenance ? ' relation-provenance' : '') });
+      function side(items, leading) {
+        if (!items.length) return;
+        if (!leading) row.appendChild(el('span', { 'class': 'relation-arrow', text: '→' }));
+        var node = makeButton(String(items[0].title || items[0].id).slice(0, 12), 'relation-node', null, false, function () { openRelationGraph(node, t); });
+        node.title = items[0].title || items[0].id;
+        row.appendChild(node);
+        if (items.length > 1) { var extra = makeButton('+' + (items.length - 1), 'relation-node', null, false, function () { openRelationGraph(extra, t); }); row.appendChild(extra); }
+        if (leading) row.appendChild(el('span', { 'class': 'relation-arrow', text: '→' }));
+      }
+      side(before, true);
+      var current = makeButton('本任务', 'relation-node relation-current', null, false, function () { openRelationGraph(current, t); }); row.appendChild(current);
+      side(after, false);
+      root.appendChild(row);
+    }
+    line(rel.predecessors || [], rel.successors || [], false);
+    line(rel.sourceTasks || [], rel.derivedTasks || [], true);
+    return root;
+  }
+
+  function enterRelatedTask(id) {
+    var task = ((app.snap && app.snap.tasks) || []).find(function (item) { return item.id === id; });
+    if (!task) return toast('这条任务尚未同步');
+    if (disposeTaskMenu) disposeTaskMenu(false);
+    var entry = app.taskCache && app.taskCache[id];
+    if (entry && entry.node && entry.node.isConnected) { entry.node.scrollIntoView({ block: 'center' }); entry.node.setAttribute('tabindex', '-1'); entry.node.focus(); }
+    else if (task.sessionId) onOpenSession(task.sessionId, task.title);
+    else toast('任务被当前筛选隐藏，可在“全部”视图查看：' + (task.title || id));
+  }
+
+  function openRelationGraph(anchor, t) {
+    var menu = el('div', { 'class': 'prio-menu task-local-pop', role: 'dialog', 'aria-label': '关联任务局部图' });
+    var rel = t.relations || {};
+    [['predecessors', true, false], ['successors', false, false], ['sourceTasks', true, true], ['derivedTasks', false, true]].forEach(function (pair) {
+      (rel[pair[0]] || []).forEach(function (item) {
+        var row = el('div', { 'class': 'relation-line' + (pair[2] ? ' relation-provenance' : '') });
+        var other = makeButton(item.title || item.id, 'relation-node', null, false, function () { enterRelatedTask(item.id); });
+        var self = makeButton(t.title || '本任务', 'relation-node relation-current', null, false, function () { enterRelatedTask(t.id); });
+        row.appendChild(pair[1] ? other : self); row.appendChild(el('span', { 'class': 'relation-arrow', text: '→' })); row.appendChild(pair[1] ? self : other); menu.appendChild(row);
+      });
+    });
+    menu.appendChild(el('div', { 'class': 'hint', text: '实线：前置 → 后置；虚线：来源 → 派生' }));
+    mountTaskMenu(menu, anchor);
+    return menu;
+  }
+
+  async function saveTaskRelation(t, field, targetId, remove) {
+    var keys = { predecessorIds: 'predecessors', successorIds: 'successors', sourceTaskIds: 'sourceTasks' };
+    var body = { taskId: t.id, action: 'set', mode: remove ? 'replace' : 'merge', reason: '面板手动关联' };
+    body[field] = remove ? ((t.relations || {})[keys[field]] || []).filter(function (item) { return item.id !== targetId; }).map(function (item) { return item.id; }) : [targetId];
+    var result = await api('tasks/relations', body);
+    if (!result.ok) throw new Error(result.error || '关联修改失败');
+    if (result.relations) {
+      t.relations = result.relations;
+      ((app.snap && app.snap.tasks) || []).forEach(function (task) { if (task.id === t.id) task.relations = result.relations; });
+    }
+    app.stateMutationRevision = (app.stateMutationRevision || 0) + 1;
+    toast(result.remote && result.remote.ok === false ? '本地已保存，飞书待同步：' + (result.remote.error || '') : remove ? '已移除关联' : '已添加关联');
+    await load({ quiet: true });
+    return result;
+  }
+
+  function openRelationEditor(anchor, t) {
+    var menu = el('div', { 'class': 'prio-menu task-local-pop relation-editor', role: 'dialog', 'aria-label': '关联任务' });
+    var capable = app.serverFeatures && app.serverFeatures.indexOf('tasks.relations') !== -1;
+    var types = [['predecessorIds', 'predecessors', '前置', '需先完成的任务'], ['successorIds', 'successors', '后置', '等待本任务完成的任务'], ['sourceTaskIds', 'sourceTasks', '来源', '派生来源，不阻塞执行']];
+    var chosenType = types[0], selected = '', busy = false, closeMenu;
+    var head = el('div', { 'class': 'relation-editor-head' });
+    head.appendChild(el('strong', { text: '关联任务' }));
+    var close = makeButton('×', 'task-text-action', null, false, function () { if (!busy) closeMenu(true); });
+    close.setAttribute('aria-label', '关闭关联任务'); head.appendChild(close); menu.appendChild(head);
+    var segments = el('div', { 'class': 'relation-segments', role: 'group', 'aria-label': '关系类型' });
+    types.forEach(function (type) {
+      var button = makeButton(type[2], 'relation-node relation-segment', null, !capable, function () { if (busy) return; chosenType = type; if (existingIds(type).indexOf(selected) !== -1) selected = ''; message.textContent = ''; render(); });
+      button.setAttribute('data-type', type[0]); segments.appendChild(button);
+    }); menu.appendChild(segments);
+    var help = el('div', { 'class': 'hint relation-editor-help' }); menu.appendChild(help);
+    var flow = el('div', { 'class': 'relation-flow', 'aria-label': '关联方向' }); menu.appendChild(flow);
+    var currentNode = makeButton((t.title || '本任务') + ' ▾', 'relation-node relation-current', null, !capable, function () { if (busy) return; typeInfo.hidden = !typeInfo.hidden; });
+    currentNode.setAttribute('aria-label', '当前任务，切换关系类型');
+    var chooseNode = makeButton('选择任务 ▾', 'relation-node relation-choose', null, !capable, function () { if (busy) return; candidatePanel.hidden = !candidatePanel.hidden; chooseNode.setAttribute('aria-expanded', candidatePanel.hidden ? 'false' : 'true'); if (!candidatePanel.hidden) search.focus(); });
+    chooseNode.setAttribute('aria-haspopup', 'true'); chooseNode.setAttribute('aria-expanded', 'false');
+    var arrow = el('span', { 'class': 'relation-arrow', text: '→', 'aria-hidden': 'true' });
+    var typeInfo = el('div', { 'class': 'hint', hidden: true, text: '本任务固定在流程一侧。点击上方前置、后置或来源切换方向。' }); menu.appendChild(typeInfo);
+    var candidatePanel = el('div', { 'class': 'relation-candidate-panel', hidden: true }); menu.appendChild(candidatePanel);
+    var search = el('input', { type: 'search', placeholder: '搜索标题、任务 ID 或编号', 'aria-label': '搜索关联任务', 'class': 'relation-search' });
+    candidatePanel.appendChild(search);
+    var candidates = el('div', { 'class': 'relation-candidates', role: 'group', 'aria-label': '可关联任务' }); candidatePanel.appendChild(candidates);
+    var existing = el('div', { 'class': 'relation-existing' }); menu.appendChild(existing);
+    var message = el('div', { 'class': 'hint relation-editor-message', role: 'status', 'aria-live': 'polite' }); menu.appendChild(message);
+    var footer = el('div', { 'class': 'relation-editor-footer' });
+    var selection = el('span', { 'class': 'hint relation-selection', text: '未选择任务' }); footer.appendChild(selection);
+    var add = makeButton('添加', 'btn btn-ghost btn-xs', null, true, function () { return submit(chosenType, selected, false); }); footer.appendChild(add); menu.appendChild(footer);
+    search.addEventListener('input', function () { if (!busy) renderCandidates(); });
+
+    function currentTask() { return ((app.snap && app.snap.tasks) || []).find(function (task) { return task.id === t.id; }) || t; }
+    function existingIds(type) { return (((currentTask().relations || {})[type[1]]) || []).map(function (item) { return item.id; }); }
+    function available() {
+      var query = String(search.value || '').trim().toLowerCase();
+      var used = existingIds(chosenType);
+      return ((app.snap && app.snap.tasks) || []).filter(function (task) {
+        return task.id !== t.id && used.indexOf(task.id) === -1 && (!query || [task.title, task.id, task.no, 'T' + task.no].join(' ').toLowerCase().indexOf(query) !== -1);
+      });
+    }
+    function renderCandidates() {
+      clear(candidates);
+      var list = available();
+      list.forEach(function (task) {
+        var row = makeButton('', 'relation-candidate', null, busy || !capable, function () { if (busy) return; selected = task.id; message.textContent = ''; candidatePanel.hidden = true; chooseNode.setAttribute('aria-expanded', 'false'); renderCandidates(); chooseNode.focus(); });
+        row.setAttribute('data-task-id', task.id); row.setAttribute('aria-pressed', selected === task.id ? 'true' : 'false');
+        row.appendChild(el('span', { 'class': 'relation-candidate-title', text: task.title || task.id }));
+        row.appendChild(el('span', { 'class': 'relation-candidate-meta', text: [task.workspaceTitle || task.workspaceName || '无工作区', task.done ? '已完成' : task.suspension && task.suspension.active ? '挂起' : task.started ? '已开工' : '未完成'].join(' · ') }));
+        candidates.appendChild(row);
+      });
+      if (!list.length) candidates.appendChild(el('div', { 'class': 'hint', text: '没有匹配的可关联任务' }));
+      var task = ((app.snap && app.snap.tasks) || []).find(function (item) { return item.id === selected; });
+      selection.textContent = task ? task.title || task.id : '未选择任务';
+      chooseNode.textContent = (task ? task.title || task.id : '选择任务') + ' ▾';
+      chooseNode.title = task ? task.title || task.id : '选择关联任务';
+      add.disabled = busy || !capable || !selected || existingIds(chosenType).indexOf(selected) !== -1;
+    }
+    function renderExisting() {
+      clear(existing);
+      types.forEach(function (type) {
+        var items = ((currentTask().relations || {})[type[1]]) || [];
+        if (!items.length) return;
+        existing.appendChild(el('div', { 'class': 'relation-existing-label', text: type[2] + ' · ' + items.length }));
+        items.forEach(function (item) {
+          var row = el('div', { 'class': 'relation-existing-row' }); row.appendChild(el('span', { 'class': 'relation-node', text: item.title || item.id }));
+          var remove = makeButton('×', 'task-text-action', null, busy || !capable, function () { return submit(type, item.id, true); });
+          remove.setAttribute('aria-label', '移除' + type[2] + '关联：' + (item.title || item.id)); row.appendChild(remove); existing.appendChild(row);
+        });
+      });
+    }
+    function render() {
+      Array.prototype.forEach.call(segments.children, function (button) { button.setAttribute('aria-pressed', button.getAttribute('data-type') === chosenType[0] ? 'true' : 'false'); button.disabled = busy || !capable; });
+      help.textContent = chosenType[3]; search.disabled = busy || !capable; close.disabled = busy;
+      currentNode.disabled = chooseNode.disabled = busy || !capable;
+      flow.className = 'relation-flow' + (chosenType[0] === 'sourceTaskIds' ? ' relation-provenance' : '');
+      clear(flow);
+      flow.appendChild(chosenType[0] === 'successorIds' ? currentNode : chooseNode);
+      flow.appendChild(arrow);
+      flow.appendChild(chosenType[0] === 'successorIds' ? chooseNode : currentNode);
+      renderCandidates(); renderExisting();
+      if (!capable) message.textContent = '当前宿主不支持关系编辑，请重启插件';
+    }
+    async function submit(type, id, remove) {
+      if (busy || !capable || !id || (!remove && existingIds(type).indexOf(id) !== -1)) return;
+      busy = true; message.textContent = '保存中…'; render();
+      try {
+        var result = await saveTaskRelation(currentTask(), type[0], id, remove);
+        selected = '';
+        message.textContent = result.remote && result.remote.ok === false ? '本地已保存，飞书待同步：' + (result.remote.error || '') : remove ? '已移除关联' : '已添加关联';
+      } catch (error) { message.textContent = error.message || String(error); }
+      finally { busy = false; render(); }
+    }
+    render();
+    closeMenu = mountTaskMenu(menu, anchor);
+    chooseNode.focus();
+    return menu;
+  }
+
+  function openTaskDocumentMenu(anchor, t) {
+    var menu = el('div', { 'class': 'prio-menu task-local-pop task-document-menu', role: 'menu', 'aria-label': '任务文档' });
+    var add = makeButton('添加文档', 'task-text-action', null, !!app.busyTask[t.id], function () {
+      if (disposeTaskMenu) disposeTaskMenu(false);
+      openTaskDocumentBind(anchor, t);
+    });
+    menu.appendChild(add);
+    menu.appendChild(makeButton((t.docs || []).some(function (doc) { return doc.source === '生成'; }) ? 'AI 更新文档' : 'AI 生成文档', 'task-text-action', null, !!app.busyTask[t.id], function () { if (disposeTaskMenu) disposeTaskMenu(false); onMakeDoc(t); }));
+    mountTaskMenu(menu, anchor);
+    return menu;
+  }
+
+  function openTaskDocumentBind(anchor, t) {
+    var menu = el('div', { 'class': 'prio-menu task-local-pop task-document-bind', role: 'dialog', 'aria-label': '添加文档' });
+    var input = el('input', { type: 'url', 'aria-label': '飞书文档链接', placeholder: '粘贴飞书文档链接' });
+    var message = el('div', { 'class': 'hint', role: 'status' });
+    var row = el('div', { 'class': 'chip-pop-row' });
+    var busy = false;
+    var close;
+    var cancel = makeButton('取消', 'task-text-action', null, false, function () { if (!busy) close(true); });
+    var save = makeButton('添加', 'task-text-action', null, false, async function () {
+      if (busy) return;
+      var url = input.value.trim();
+      if (!/^https?:\/\//.test(url)) { message.textContent = '请粘贴完整的飞书文档链接'; input.focus(); return; }
+      busy = true; input.disabled = save.disabled = cancel.disabled = true;
+      try {
+        var result = await api('tasks/bind-doc', { taskId: t.id, url: url });
+        if (!result.ok) throw new Error(result.error || '添加失败');
+        close(false);
+        toast(result.field && result.field.ok === false ? '文档已绑定，飞书字段待同步' : '文档已添加');
+        await load({ quiet: true });
+      } catch (error) { message.textContent = error.message || String(error); }
+      finally { busy = false; input.disabled = save.disabled = cancel.disabled = false; }
+    });
+    menu.appendChild(input); menu.appendChild(message);
+    row.appendChild(cancel); row.appendChild(save); menu.appendChild(row);
+    input.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); save.click(); } });
+    close = mountTaskMenu(menu, anchor); input.focus();
+    return menu;
+  }
+
+  function openTaskMoreMenu(anchor, t) {
+    var menu = el('div', { 'class': 'prio-menu task-local-pop', role: 'menu', 'aria-label': '更多任务操作' });
+    menu.appendChild(makeButton('添加 / 管理关联', 'task-text-action', null, false, function () { if (disposeTaskMenu) disposeTaskMenu(false); openRelationEditor(anchor, t); }));
+    if (t.sessionId || app.sessions[t.id]) {
+      menu.appendChild(makeButton('删除会话（归档，任务状态不变）', 'task-text-action', null, !!app.busyTask[t.id], function () { if (disposeTaskMenu) disposeTaskMenu(false); onDeleteSession(t); }));
+      menu.appendChild(makeButton('解绑会话（不删除任务）', 'task-text-action', null, !!app.busyTask[t.id], function () { if (disposeTaskMenu) disposeTaskMenu(false); onUnlink(t); }));
+      if (app.currentSessionId && app.currentSessionId !== t.sessionId) menu.appendChild(makeButton('换绑当前会话', 'task-text-action', null, false, function () { if (disposeTaskMenu) disposeTaskMenu(false); onBind(t); }));
+    }
+    mountTaskMenu(menu, anchor);
+    return menu;
+  }
+
   function taskNode(t) {
     /* 当前对话绑定的那张卡单独标出来：描边 + 呼吸动画 + 「当前对话」徽标。 */
     var isCurrent = !!(t.sessionId && app.currentSessionId && t.sessionId === app.currentSessionId);
@@ -4383,9 +5146,17 @@
     if (t.boundOnly && !t.started) meta.appendChild(el('span', { 'class': 'badge', text: '已绑定' }));
     if (t.started) meta.appendChild(el('span', { 'class': 'badge badge-ok', text: '已开工' }));
     if (t.done) meta.appendChild(el('span', { 'class': 'badge badge-done', text: '已完成' }));
+    if (t.suspension && t.suspension.active) headRow.appendChild(el('span', { 'class': 'hint', text: '已挂起', title: t.suspension.reason || '任务已挂起' }));
     if (isCurrent) meta.appendChild(el('span', { 'class': 'badge badge-current', text: '当前对话' }));
     /* 触发条件与工作区统一用下面的 chip 表达（不论来自清单字段还是旧描述），这里不再出徽标。 */
     main.appendChild(meta);
+
+    if (t.suspension && Array.isArray(t.suspension.errors) && t.suspension.errors.length) {
+      main.appendChild(el('div', { 'class': 'hint suspension-warning', text: '挂起状态已保存，部分同步待处理：' + t.suspension.errors.map(suspensionWarningText).join('；') }));
+    }
+
+    var relationPreview = relationPreviewNode(t);
+    if (relationPreview) main.appendChild(relationPreview);
 
     /* 人员与便签都并进同一行信息区：横向排布、自动折行，卡片高度只跟内容行数走。 */
     var members = Array.isArray(t.members) ? t.members : [];
@@ -4494,24 +5265,23 @@
     });
     /* 文档单独一行：chip 可点开，✎ 改标题，✕ 从任务解绑，「＋ 文档」手动贴链接。
        解绑 / 绑定 / 改名都会立刻写回飞书，不只是改本地。 */
-    var docRow = el('div', { 'class': 'task-docs' });
-    for (var di = 0; di < docs.length; di++) {
-      docRow.appendChild(docChipNode(t, docs[di]));
+    /* 已绑定文档是内容，常驻展示；只有添加/AI生成操作收进菜单。 */
+    if (docs.length) {
+      var docRow = el('div', { 'class': 'task-docs' });
+      docs.forEach(function (doc) { docRow.appendChild(docChipNode(t, doc)); });
+      main.appendChild(docRow);
     }
-    /* 已经绑了文档就不再给「＋ 文档」：一条任务一篇文档，换/删走 chip 上的 ✎ ✕。 */
-    if (!docs.length) docRow.appendChild(docAddNode(t));
-    main.appendChild(docRow);
 
     if (t.workspaceName || t.workspaceTitle) {
       var resolved = String(t.workspaceTitle || t.workspaceName);
       var wsChip = el('button', {
         type: 'button',
         'class': 'chip chip-field chip-workspace',
-        title: (t.workspacePath ? t.workspacePath + ' · ' : '') + '点击切换工作区',
+        title: (t.workspacePath ? t.workspacePath + ' · ' : '') + '点击切换工作区' + (t.workspaceWrite && t.workspaceWrite.pending ? ' · 飞书同步中' : t.workspaceWrite && t.workspaceWrite.error ? ' · 飞书待同步：' + t.workspaceWrite.error : ''),
         'aria-haspopup': 'menu',
         'aria-label': '工作区：' + resolved + '（点击切换）'
       });
-      wsChip.textContent = resolved;
+      wsChip.textContent = resolved + (t.workspaceWrite && (t.workspaceWrite.pending || t.workspaceWrite.error) ? ' ·' : '');
       wsChip.addEventListener('click', function (event) {
         event.stopPropagation();
         if (app.hostStale) {
@@ -4545,38 +5315,13 @@
     }
 
     var sid = t.sessionId || app.sessions[t.id];
-    if (sid) {
-      var sess = el('div', { 'class': 'task-session' });
-      /* 三个动作都直接作用于飞书任务 + 会话本身：
-         完成＝飞书置完成 + 归档会话；删除＝归档/删除会话（不动任务状态）；解绑＝只清关系。 */
-      sess.appendChild(makeButton('完成', 'btn btn-ghost btn-xs', '完成中…', !!app.busyTask[t.id] || t.done,
-        function () { onComplete(t); })).title = '在飞书把任务置为完成，并归档这条会话';
-      sess.appendChild(makeButton('删除', 'btn btn-ghost btn-xs', null, !!app.busyTask[t.id],
-        function () { onDeleteSession(t); })).title = '删除（归档）这条会话，任务状态不变';
-      sess.appendChild(makeButton('解绑', 'btn btn-ghost btn-xs', null, !!app.busyTask[t.id],
-        function () { onUnlink(t); })).title = '只解除任务↔会话关系，任务回到未开工';
-      /* 绑错了怎么办：解绑再绑太绕，这里直接给一个「换绑」；
-         只有当当前会话不是它绑的那条时才出现。 */
-      if (app.currentSessionId && String(app.currentSessionId) !== String(sid)) {
-        sess.appendChild(makeButton('换绑', 'btn btn-ghost btn-xs', null, !!app.busyTask[t.id],
-          function () { onBind(t); })).title = '把当前这条对话换成这条任务绑定的会话';
-      }
-      var hasOwnDoc = (t.docs || []).some(function (d) { return d && d.source === '生成'; });
-      sess.appendChild(makeButton('同步', 'btn btn-ghost btn-xs', '同步中…', !!app.busyTask[t.id],
-        function () { onSyncTask(t); })).title = '按最后修改时间决定：本地新则写回飞书字段，否则从飞书拉取';
-      sess.appendChild(makeButton(hasOwnDoc ? '更新文档' : '生成文档', 'btn btn-ghost btn-xs',
-        hasOwnDoc ? '更新中…' : '生成中…', !!app.busyTask[t.id],
-        function () { onMakeDoc(t); })).title = hasOwnDoc
-        ? '用任务最新内容重写这条任务已绑定的文档'
-        : '在「DSH 任务文档」目录下为这条任务新建飞书文档';
-      main.appendChild(sess);
-    }
+    /* 次要会话操作收进更多菜单，不丢原handler语义。 */
 
     var actions = el('div', { 'class': 'task-actions' });
     var busy = !!app.busyTask[t.id];
     /* 绑了会话就是已经开工了，不再给「开工」——那按钮的语义是「开一条会话干活」。
        只有还没绑会话的卡才出现「开工」和「绑定」。 */
-    if (!sid) {
+    if (!sid && !(t.suspension && t.suspension.active)) {
       var startBtn = makeButton('开工',
         'btn btn-primary btn-sm', '开工中…', busy, function () { onStart(t); });
       startBtn.title = app.currentSessionId
@@ -4594,11 +5339,16 @@
       actions.appendChild(bindBtn);
     }
 
-    if (!sid) {
-      var hasDoc = (t.docs || []).some(function (d) { return d && d.source === '生成'; });
-      actions.appendChild(makeButton(hasDoc ? '更新文档' : '生成文档', 'btn btn-ghost btn-sm',
-        hasDoc ? '更新中…' : '生成中…', busy, function () { onMakeDoc(t); }));
-    }
+    actions.appendChild(makeButton('完成', 'task-text-action', null, busy || t.done, function () { onComplete(t); }));
+    var documentButton = makeButton('文档', 'task-text-action', null, busy, function () { openTaskDocumentMenu(documentButton, t); });
+    actions.appendChild(documentButton);
+    actions.appendChild(makeButton('同步', 'task-text-action', null, busy, function () { onSyncTask(t); }));
+    actions.appendChild(el('span', { 'class': 'task-action-spacer' }));
+    var suspensionControl = suspensionControlNode(t);
+    if (suspensionControl) actions.appendChild(suspensionControl);
+    var more = makeButton('···', 'task-text-action', null, busy, function () { openTaskMoreMenu(more, t); });
+    more.setAttribute('aria-label', '更多任务操作');
+    actions.appendChild(more);
 
     var body = el('div', { 'class': 'task-body' });
     body.appendChild(main);
@@ -5195,8 +5945,11 @@
   function renderInsightCharts() {
     var box = $('insightCharts');
     if (!box) return;
-    clear(box);
     var datasets = (app.insightStats && app.insightStats.datasets) || null;
+    var chartSignature = stablePanelSignature([datasets, insightChartSpecs(), app.insightChartIndex || 0, document.body.className]);
+    if (app.insightChartSignature === chartSignature) return;
+    app.insightChartSignature = chartSignature;
+    clear(box);
     if (!datasets) return;
 
     var specs = insightChartSpecs();
@@ -6253,12 +7006,16 @@
   /* ---------------- 数据加载与轮询 ---------------- */
 
   function load(opts) {
+    if (app.loadPromise) return app.loadPromise;
     var quiet = !!(opts && opts.quiet);
-    return api('state', undefined, { silent: quiet }).then(function (data) {
+    var mutationRevision = app.stateMutationRevision || 0;
+    var promise = api('state', undefined, { silent: quiet }).then(function (data) {
+      if ((app.stateMutationRevision || 0) !== mutationRevision) return;
       var next = (data && data.state) || {};
       app.settings = (data && data.settings) || {};
       app.promptDefaults = (data && data.promptDefaults) || app.promptDefaults || {};
       app.snap = next;
+      if (app.taskCache) (next.tasks || []).forEach(function (task) { var entry = app.taskCache[task.id]; if (entry) syncCachedTask(entry.task, task); });
       /* 版本在响应的顶层（不是 state 里），单独存一份 */
       app.version = (data && data.version) || '';
       app.workspaces = Array.isArray(data && data.workspaces) ? data.workspaces : [];
@@ -6271,6 +7028,7 @@
         api('capabilities', undefined, { silent: true }).then(function (caps) {
           app.serverFeatures = (caps && Array.isArray(caps.features)) ? caps.features : [];
           app.hostStale = false;
+          renderTasks();
         }, function () {
           app.hostStale = true;
           renderHostStaleBar();
@@ -6294,30 +7052,36 @@
     }, function () {
       /* api() 已按 silent 决定是否 toast */
     });
+    app.loadPromise = promise.then(function (value) {
+      app.loadPromise = null;
+      // 写操作之后才开始的新读取，不能复用写之前拍下的旧快照。
+      if ((app.stateMutationRevision || 0) !== mutationRevision) return load({ quiet: quiet });
+      return value;
+    }, function (error) { app.loadPromise = null; throw error; });
+    return app.loadPromise;
   }
 
-  /* 只关心「会改变界面」的字段，别把整份 JSON 字符串化 */
-  function stateSignature(next) {
-    var tasks = (next && next.tasks) || [];
-    var parts = tasks.map(function (task) {
-      var sch = task && task.schedule;
-      var com = task && task.commitment;
-      return [task.id, task.title, task.done ? 1 : 0, task.started ? 1 : 0, task.sessionId || '',
-        (task.docs || []).length, task.localUpdatedAt || 0, task.sessionAlive ? 1 : 0,
-        /* 工作区会变（换绑 / 改名 / 失效）：不带上这条，chip 会停在旧名字 */
-        [task.workspaceTitle || task.workspaceName || '', task.workspaceId || '', task.workspaceStale ? 1 : 0, task.workspaceError || ''].join('/'),
-        /* 排期也会变（调度器跑完会改 state / nextAt）：不带上这条，chip 会停在旧文案 */
-        sch ? [sch.summary || '', sch.state || '', sch.nextAt || 0].join('/') : '',
-        /* 预期/履约同理：状态会随时间自己变（pending → overdue），不带上就刷不出来 */
-        com ? [com.expectedAt || 0, com.state || '', com.label || '', com.syncState || ''].join('/') : ''].join(':');
+  function stablePanelSignature(value) {
+    return JSON.stringify(value, function (key, item) {
+      // 非显示的访问心跳不使卡片失效；其它真实字段完整比较。
+      if (key === 'seenAt') return undefined;
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        var ordered = {};
+        Object.keys(item).sort().forEach(function (name) { ordered[name] = item[name]; });
+        return ordered;
+      }
+      return item;
     });
-    var docs = ((next && next.docs) || []).length;
-    var settings = JSON.stringify(app.settings || {}).length;
-    return [parts.join('|'), docs, next && next.syncing ? 1 : 0, app.version, settings].join('#');
+  }
+
+  function stateSignature(next) {
+    return stablePanelSignature([next, app.settings, app.version, app.workspaces, app.promptDefaults, app.serverFeatures]);
   }
 
   function schedulePoll() {
     if (app.pollTimer) clearTimeout(app.pollTimer);
+    app.pollTimer = null;
+    if (document.hidden) return;
     var delay = (app.snap && app.snap.syncing) ? 3000 : 20000;
     app.pollTimer = setTimeout(function () {
       app.pollTimer = null;
@@ -6780,39 +7544,21 @@
     $('saveSettings').addEventListener('click', onSave);
     $('syncNow').addEventListener('click', onSync);
 
-    /* 过滤条：改任何一项都立即重排，并把条件记到 localStorage。 */
-    var filterWorkspace = $('filterWorkspace');
-    var filterStatus = $('filterStatus');
+    /* 条件控件稳定驻留，只更新任务列表与摘要。 */
     var filterKeyword = $('filterKeyword');
+    if (filterKeyword) filterKeyword.addEventListener('input', function () { app.filter.keyword = this.value || ''; updateFilter(); });
     var filterReset = $('filterReset');
-    if (filterWorkspace) {
-      filterWorkspace.addEventListener('change', function () {
-        app.filter.workspace = this.value || '';
-        saveFilter();
-        renderTasks();
-      });
-    }
-    if (filterStatus) {
-      filterStatus.addEventListener('change', function () {
-        app.filter.status = this.value || 'open';
-        saveFilter();
-        renderTasks();
-      });
-    }
-    if (filterKeyword) {
-      filterKeyword.addEventListener('input', function () {
-        app.filter.keyword = this.value || '';
-        saveFilter();
-        renderTasks();
-      });
-    }
-    if (filterReset) {
-      filterReset.addEventListener('click', function () {
-        app.filter = { workspace: '', status: 'open', keyword: '' };
-        saveFilter();
-        renderTasks();
-      });
-    }
+    if (filterReset) filterReset.addEventListener('click', function () { applyFilterPreset('daily'); });
+    var filterClear = $('filterClear');
+    if (filterClear) filterClear.addEventListener('click', function () { app.filter = createFilter('all'); app.activeViewId = ''; updateFilter(); });
+    $('filterViewSave').addEventListener('click', function () { saveFilterView($('filterViewName').value, false); });
+    $('filterViewUpdate').addEventListener('click', function () { saveFilterView('', true); });
+    $('filterRestore').addEventListener('click', function () { restoreBuiltinFilter(false); });
+    $('filterRestoreYes').addEventListener('click', function () { restoreBuiltinFilter(true); });
+    $('filterRestoreNo').addEventListener('click', function () { app.filterRestoreConfirm = false; renderFilterOptions((app.snap && app.snap.tasks) || []); });
+    $('filterViewDelete').addEventListener('click', function () { deleteFilterView(false); });
+    $('filterViewDeleteYes').addEventListener('click', function () { deleteFilterView(true); });
+    $('filterViewDeleteNo').addEventListener('click', function () { app.filterDeleteConfirm = false; renderSavedFilterViews(); });
     /* 统一任务命名：把历史标题按同一规则规整（只改不一致的）。 */
     var normBtn = $('normalizeNames');
     if (normBtn) {
@@ -6883,7 +7629,7 @@
         saveFilter();
         renderFilterToggle();
         if (app.filterOpen) {
-          var ws = $('filterWorkspace');
+          var ws = $('filterKeyword');
           ws && ws.focus();
         }
       });
@@ -6904,6 +7650,7 @@
       if (d.type === 'dsh-feishu:theme') {
         if (d.dark) document.body.classList.add('dark');
         else document.body.classList.remove('dark');
+        renderInsightCharts();
         return;
       }
       if (d.type === 'dsh-feishu:open-session-result') {
@@ -6913,8 +7660,11 @@
       }
       if (d.type === 'dsh-feishu:context') {
         var next = typeof d.sessionId === 'string' ? d.sessionId : '';
-        if (next !== app.currentSessionId) {
+        var workspace = { id: typeof d.workspaceId === 'string' ? d.workspaceId : '', path: typeof d.workspacePath === 'string' ? d.workspacePath : '' };
+        if (next !== app.currentSessionId || JSON.stringify(workspace) !== JSON.stringify(app.currentWorkspace || {})) {
           app.currentSessionId = next;
+          app.currentWorkspace = workspace;
+          resolveProjectFilter(app.filter);
           renderTasks();
         }
       }
@@ -6935,22 +7685,36 @@
     wireDocPrompt();
 
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden) load({ quiet: true }).then(schedulePoll);
+      if (document.hidden) { if (app.pollTimer) clearTimeout(app.pollTimer); app.pollTimer = null; }
+      else { load({ quiet: true }).then(schedulePoll); deferAuxiliaryLoads(); }
     });
   }
 
   /* ---------------- 启动 ---------------- */
 
+  function deferAuxiliaryLoads() {
+    if (!app.loaded || document.hidden) return;
+    var states = app.auxiliaryLoads || (app.auxiliaryLoads = {});
+    [loadInsight, loadInsightStats, loadFulfillment].forEach(function (fn, index) {
+      if (states[index]) return;
+      states[index] = 'queued';
+      setTimeout(function () {
+        if (document.hidden) { delete states[index]; return; }
+        states[index] = 'started';
+        fn();
+      }, 100 + index * 150);
+    });
+  }
+
   loadFilter();
   wire();
   wireInsight();
-  loadInsight();
-  /* 收起状态也要看到图表与结论，所以开局就把趋势拉回来 */
-  loadInsightStats();
-  /* 履约摘要：一次请求、本地渲染，失败静默 */
-  loadFulfillment();
-  renderAll();  // 先渲染空态，避免白屏
-  load().then(schedulePoll);
+  if (typeof MutationObserver === 'function') {
+    var taskRenderObserver = new MutationObserver(function () { flushPendingTaskRender(); });
+    taskRenderObserver.observe(document.body, { childList: true, subtree: true });
+  }
+  renderAll();  // 空态先显示，辅助图表等首份state后分批加载
+  load().then(function () { schedulePoll(); deferAuxiliaryLoads(); });
 })();
 </script>
 </body>
