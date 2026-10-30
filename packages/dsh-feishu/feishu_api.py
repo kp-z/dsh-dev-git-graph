@@ -283,7 +283,13 @@ def task_comment(token, action):
     try:
         # Do not silently turn a requested real mention into cosmetic @text.
         result['mentionSupported'] = False
-        if action.get('mentions') or action.get('mentionIds') or action.get('mention_ids'):
+        mentions = action.get('mentionIds') or action.get('mention_ids') or action.get('mentions') or []
+        legacy_mention = action.get('mentionMode') == 'task-v1' and bool(mentions)
+        if legacy_mention:
+            if not isinstance(mentions, list) or len(mentions) > 5 or any(not isinstance(uid, str) or not re.fullmatch(r'ou_[A-Za-z0-9]+', uid) for uid in mentions):
+                raise ValueError('任务提及只接受最多5个有效open_id')
+            mentions = list(dict.fromkeys(mentions))
+        if mentions and not legacy_mention:
             reply_requested = action.get('reply_to_comment_id', action.get('replyToCommentId'))
             if action.get('allowMentionFallback') is not True or not reply_requested:
                 result['unsupported'] = 'mentions'
@@ -312,8 +318,17 @@ def task_comment(token, action):
             if target.get('resource_type') != 'task' or target.get('resource_id') != task or target['id'] != reply:
                 raise ValueError('被回复评论不属于当前任务')
             body['reply_to_comment_id'] = reply
+        path = '/task/v2/comments?user_id_type=open_id'
+        if legacy_mention:
+            # Task v1's documented rich_content protocol, never injected into v2 content.
+            # Same GUID/comment IDs verified against an isolated real task.
+            rich = ' '.join('<at id=' + uid + '></at>' for uid in mentions)
+            safe_content = html.escape(content, quote=False)
+            rich_content = '🤖: ' + rich + ' ' + safe_content.removeprefix('🤖:').lstrip()
+            body = {'content': content, 'rich_content': rich_content, 'parent_id': reply or '0'}
+            path = '/task/v1/tasks/' + urllib.parse.quote(task, safe='') + '/comments?user_id_type=open_id'
         posting = True
-        res = call(token, '/task/v2/comments?user_id_type=open_id', method='POST', body=body)
+        res = call(token, path, method='POST', body=body)
         if res.get('code') != 0:
             code = res.get('code')
             # A server failure can occur after commit. Only explicit client errors are unambiguous.
@@ -321,6 +336,14 @@ def task_comment(token, action):
             result['error'] = str(res.get('msg') or code or '评论创建失败')[:200]
             return result
         comment = _comment_resource((res.get('data') or {}).get('comment'))
+        if legacy_mention:
+            if str(comment.get('parent_id', '0')) != (reply or '0'):
+                raise ValueError('旧版评论回执回复关联不匹配')
+            verified = call(token, '/task/v2/comments/' + urllib.parse.quote(comment['id'], safe='') + '?user_id_type=open_id')
+            if verified.get('code') != 0:
+                raise ValueError('旧版评论已提交，但v2回执对账失败')
+            comment = _comment_resource((verified.get('data') or {}).get('comment'))
+            result.update(mentionSupported=True, mentionTransport='task-v1', notificationVerified=False)
         if comment.get('resource_type') != 'task' or comment.get('resource_id') != task:
             raise ValueError('评论创建回执资源不属于当前任务')
         if reply and comment.get('reply_to_comment_id') != reply:
