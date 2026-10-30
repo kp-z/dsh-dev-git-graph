@@ -135,7 +135,7 @@ export function createCommentCoordinator(deps) {
     let row = state.outbound[key]
     const payload = { text: str(text), replyTo: str(options.replyTo), mentionIds: [...new Set((options.mentionIds ?? []).map(str).filter(Boolean))] }
     if (row && JSON.stringify(row.payload) !== JSON.stringify(payload)) return { ok: false, error: 'Stable outbound key cannot change payload' }
-    if (row?.status === 'sent') return { ok: true, commentId: row.commentId, reused: true }
+    if (row?.status === 'sent') return { ok: true, commentId: row.commentId, reused: true, warning: row.warning || '', mentionSupported: row.mentionSupported === true }
     if (blocked(taskId)) return { ok: false, unknown: true, error: 'Task outbound ledger requires reconciliation' }
     const eligible = options.requireActive === true ? await current(taskId, options.sessionId) : await deps.getTask(taskId)
     if (!eligible || str(eligible.id) !== taskId) return { ok: false, blocked: true, error: 'Task missing, or active reply task paused, done, unbound or rebound' }
@@ -145,17 +145,17 @@ export function createCommentCoordinator(deps) {
     let result
     try { result = await deps.writeComment(taskId, row.payload.text, { key: row.key, replyTo: row.payload.replyTo, mentionIds: row.payload.mentionIds }) } catch (error) { result = { error: str(error?.message ?? error) } }
     if (result?.ok === true && str(result.commentId)) {
-      row.status = 'sent'; row.commentId = str(result.commentId); delete row.error
+      row.status = 'sent'; row.commentId = str(result.commentId); row.warning = str(result.warning); row.mentionSupported = result.mentionSupported === true; delete row.error
     } else {
       row.status = result?.ok === false && result.definitive === true ? 'failed' : 'unknown'
       row.error = str(result?.error || 'Unknown comment send outcome')
     }
     await persist()
-    return row.status === 'sent' ? { ok: true, commentId: row.commentId } : { ok: false, unknown: row.status === 'unknown', error: row.error }
+    return row.status === 'sent' ? { ok: true, commentId: row.commentId, warning: row.warning || '', mentionSupported: row.mentionSupported === true } : { ok: false, unknown: row.status === 'unknown', error: row.error }
   }
   async function reply(entry) {
     const result = await outbound(entry.taskId, entry.replyText, { key: `reply:${entry.key}`, replyTo: entry.commentId, mentionIds: [entry.authorId], sessionId: entry.sessionId, requireActive: true })
-    if (result.ok) { entry.status = 'replied'; entry.outboundCommentId = result.commentId; delete entry.error; await persist() }
+    if (result.ok) { entry.status = 'replied'; entry.outboundCommentId = result.commentId; entry.warning = result.warning || ''; entry.mentionSupported = result.mentionSupported === true; delete entry.error; await persist() }
     else { entry.error = result.error; await persist() }
     return result
   }
