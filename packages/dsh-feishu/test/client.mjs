@@ -14,6 +14,15 @@ import vm from 'node:vm'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const source = await readFile(join(HERE, '..', 'client.js'), 'utf8')
 
+const projectStart = source.indexOf('    function workspaceContextOf(')
+const projectEnd = source.indexOf('\n    var lastWorkspaceContext', projectStart)
+const projectSandbox = {}
+vm.createContext(projectSandbox)
+vm.runInContext(source.slice(projectStart, projectEnd), projectSandbox)
+const projectContext = projectSandbox.workspaceContextOf({ scope: { workspaceId: 'w1', cwd: '/one' } })
+if (projectContext.workspaceId !== 'w1' || projectContext.workspacePath !== '/one') throw new Error('项目上下文未从scope传出')
+if (!source.includes('workspaceId: lastWorkspaceContext.workspaceId') || !source.includes('workspace.workspacePath === lastWorkspaceContext.workspacePath')) throw new Error('同会话项目变更不会推送')
+
 const captured = []
 const registeredSlots = []
 

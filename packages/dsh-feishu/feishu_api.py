@@ -202,6 +202,26 @@ def run_actions(token, actions):
                            method='POST', body={'tasklist_guid': action['tasklist']})
                 ok = res.get('code') == 0
                 results.append({'op': op, 'ok': ok, 'error': None if ok else res.get('msg', '')[:200]})
+            elif op == 'task_dependencies':
+                res = call(token, f"/task/v2/tasks/{action['task']}?user_id_type=open_id")
+                ok = res.get('code') == 0
+                task = ((res.get('data') or {}).get('task') or {})
+                results.append({'op': op, 'ok': ok, 'items': task.get('dependencies') or [],
+                                'error': None if ok else (res.get('msg') or '')[:200]})
+            elif op in ('add_dependencies', 'remove_dependencies'):
+                deps = action.get('dependencies') or []
+                if not 1 <= len(deps) <= 50:
+                    raise ValueError('dependencies 必须包含 1–50 项')
+                if op == 'add_dependencies':
+                    if any(d.get('type') not in ('prev', 'next') or not d.get('task_guid') for d in deps):
+                        raise ValueError('依赖必须带 task_guid 和 prev/next type')
+                    body = {'dependencies': [{'task_guid': d['task_guid'], 'type': d['type']} for d in deps]}
+                else:
+                    body = {'dependencies': [{'task_guid': d['task_guid']} for d in deps]}
+                res = call(token, f"/task/v2/tasks/{action['task']}/{op}", method='POST', body=body)
+                ok = res.get('code') == 0
+                results.append({'op': op, 'ok': ok, 'items': (res.get('data') or {}).get('dependencies') or [],
+                                'error': None if ok else (res.get('msg') or '')[:200]})
             elif op == 'ensure_folder':
                 folder, url = ensure_folder(token, action['name'], action.get('parent', ''))
                 results.append({'op': op, 'ok': bool(folder), 'folder': folder, 'url': url})

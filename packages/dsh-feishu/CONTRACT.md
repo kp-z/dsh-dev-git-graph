@@ -3,6 +3,36 @@
 宿主半体（index.js）与面板（panel.html）、侧栏壳（client.js）之间的固定接口。
 **改这里之前先改代码注释里的同一段**：面板不读宿主源码，只认这份契约。
 
+## 紧凑任务卡
+
+关联为空时不渲染关联区；有依赖显示Tag前置→Tag当前→Tag后置，所有节点字号/字重与任务卡chip一致，来源派生为虚线箭头。编辑器左右Tag端点同排箭头，前置/来源为选择任务→本任务，后置为本任务→选择任务；选择端下拉按需搜索，不允许绕当前任务任意修改其它pair。筛选与立即同步置任务标题行右侧。节点/+N查看局部关联，编辑控件仅在「···」管理入口按需渲染。文档统一短标签菜单；挂起恢复在底栏右侧，原因弹层确认，原API语义不变。次要删除/解绑等收在更多菜单。弹层期间保留任务锚点，关闭后补绘等待中的快照；不破坏keyed缓存。
+
+## 快照与后台工作区写回
+
+`GET /api/state` 不等待自动化目录I/O；返回最新本地快照与缓存排期，后台singleflight更新缓存。前端singleflight读取，按完整显示签名检测变化，任务卡以ID复用；工作区mutation revision拦截旧state响应并重取。
+
+`POST /api/workspaces/bind` 本地成功返回 `{ok:true,workspace?,cleared?,writeBack:{pending:true}}`；不是飞书已写成功。`state.workspaceWrites[taskId]` / 快照 `task.workspaceWrite` 为 `{title,revision,pending,error,at?}`，独立持久化。每task单worker串行写当前版本，旧完成不更新最新元数据，失败待重试；下轮同步最多启动5worker。前端先本地更新并提示待同步，之后加载状态，不等飞书网络。
+
+## 挂起 / 恢复接口
+
+`POST /dsh-feishu/api/tasks/suspension`：`{taskId,action:suspend|resume|status,reason?,writeBack?}`，默认 suspend；status只读。成功返回 `{ok:true,taskId,suspension,warnings,relations}`。外部副作用失败返回 warnings，不丢本地挂起/恢复凭据；恢复核心副作用失败仍 active=true，可重试。
+
+`state.suspensions[taskId]` 独立持久保存 `{active,reason,at,resumedAt,sessionId,archiveOwned,archiveChecked,archived?,unarchived?,schedules:[{record,status:captured|paused|restored|skipped,newId?}],errors,fieldPending?}`。快照 `task.suspension` 默认 `{active:false}`。只归档当前绑定会话，不归档依赖任务会话。恢复只解本次归档；只恢复捕获且仍存在的inactive规则，旧inactive/删除/过期一次性不复活。DSH无pause方法，恢复创建新ID保留旧记录历史。
+
+`feishu_task_suspend` 与HTTP共用同一方法，taskId可从当前绑定取。新操作能力键 `tasks.suspension`，旧Host不显示无法使用的控件。
+
+筛选模型 v2：`{version:2,facets:{completion,handling,progress,dependency,priority,workspace},keyword,open}`，每facet `{mode:all|include|exclude,values:string[]}`。由面板统一声明驱动UI、规则与摘要，同组OR跨组AND；include空=零匹配，exclude空=全匹配。日常默认排除done/suspended；全部任务解除所有条件；不内置仅挂起preset，用户可配置handling include suspended自行保存。条件移除设all，清空全部与恢复默认分开。旧 `{workspace,status,keyword,showSuspended,open}` 自动迁移，storage键保持不变；已选但不在快照的值保留。缺失依赖数据为unknown，不推断ready。每次打开filterOpen=false，忽略旧open:true；详情/摘要仅展开显示。自定义方案保存在独立浏览器key `dsh-feishu:filter-views`，日常/全部/项目与自定义同排，项目视图动态按当前会话工作区ID或路径精确匹配，不提供上下文则零匹配并提示，模板行增加＋新模板，支持命名新增、更新当前、确认删除。三个内置模板均允许覆盖，覆盖存储在 `dsh-feishu:filter-defaults`，可确认还原当前模板原始配置；项目覆盖保留动态项目范围。清空全部条件使用原始不限规则，不受全部模板覆盖影响；不改变Host数据。
+
+## 任务关系增量接口
+
+`POST /dsh-feishu/api/tasks/relations`：`{taskId, action:get|suggest|set}`，默认 set；get 可带 `refresh:true` 读取飞书原生依赖；suggest 返回 `{ok,proposal}`（只读）。set 接收 `predecessorIds/successorIds/sourceTaskIds` 字符串数组、`mode:merge|replace`（默认 merge）、`reason`、`writeBack`（默认 true）、`fields`（默认 false）。成功返回 `{ok:true,taskId,relations,remote}`；本地保存成功而远端失败时仍 ok=true，`remote.ok=false` 和 error 明确区分。
+
+`state.relations` 是独立于任务过滤的边数组：`{from,to,kind:depends_on|derived_from,source,reason,createdAt,sessionId}`。依赖方向前置 from → 后置 to；来源方向来源 from → 派生 to。`state.relationSync[taskId]` 保存待同步/错误信息；只在完整远端依赖可读且本地没有待写修改时采纳远端。来源关系只本地持久化，fields=true 可投影来源 GUID 到清单文本列。
+
+面板/快照 `task.relations` 为 `{predecessors,successors,sourceTasks,derivedTasks,blockedBy,ready}`；各摘要 `{id,title,done,missing}`。`state.relationStats` 为依赖边数、来源边数、阻塞任务数、就绪任务数。`feishu_task_relations` 默认 get，taskId 可从当前绑定取。
+
+创建工具增加 `followUp/predecessorIds/successorIds/sourceTaskIds/reason/autoRelate`。followUp 保留原会话绑定，新任务不抢占会话，默认记录原任务来源；创建返回 `bound/relations/remote/aiRelations`。非法关系创建前拒绝；远端任务已创建后关系或 AI 失败不声称创建失败。
+
 ## 文件分工（写作用域）
 
 | 文件 | 归属 |

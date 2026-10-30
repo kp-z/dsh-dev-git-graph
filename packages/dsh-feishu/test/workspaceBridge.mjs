@@ -152,7 +152,7 @@ check('换绑：返回新工作区', rebound.body.workspace?.title, 'MSIM')
 const a3 = await taskOf('task-a')
 check('换绑后卡片显示新工作区', a3?.workspaceTitle, 'MSIM')
 check('换绑后绑定的是新 id', a3?.workspaceId, 'ws-b')
-check('换绑后飞书写回失败也不报成整体失败', typeof rebound.body.writeBack?.ok, 'boolean')
+check('换绑后本地立即成功，飞书写回进入后台', rebound.body.writeBack?.pending, true)
 
 /* 7. 清除工作区 */
 const clearedWs = await post('/api/workspaces/bind', { taskId: 'task-a', workspaceId: '' })
