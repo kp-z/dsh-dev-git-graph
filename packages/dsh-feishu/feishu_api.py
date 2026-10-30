@@ -23,6 +23,7 @@ stdout:
 import json
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 BASE = 'https://open.feishu.cn/open-apis'
@@ -191,6 +192,146 @@ def clear_doc(token, doc):
              method='DELETE', body={'start_index': 0, 'end_index': len(items)})
 
 
+# Official protocol evidence (public sources, no credential or live-write tests):
+# https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/task-v2/comment/create
+# https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/task-v2/comment/get
+# larksuite/oapi-sdk-python: task/v2/model/{input_comment,comment,list_comment_request}.py
+# @larksuiteoapi/node-sdk 1.76.0: types/index.d.ts, task.v2.comment
+# IDs and ms timestamps are strings on the wire; creator is Member{id,type,role,name}.
+# Create has no uid/idempotency field. No task-comment mention format is documented.
+COMMENT_MAX_PAGES = 100
+
+
+def _comment_resource(item):
+    """Keep the actual resource, with lossless IDs (Python SDK also accepts ints)."""
+    if not isinstance(item, dict):
+        raise ValueError('评论资源不是对象')
+    out = dict(item)
+    for key in ('id', 'reply_to_comment_id', 'created_at', 'updated_at'):
+        value = out.get(key)
+        if value is not None:
+            if isinstance(value, bool) or not isinstance(value, (str, int)):
+                raise ValueError(f'评论 {key} 类型无效')
+            out[key] = str(value)
+    if not out.get('id') or not out['id'].isascii() or not out['id'].isdigit():
+        raise ValueError('评论资源缺少有效稳定 ID')
+    return out
+
+
+def task_comments(token, action):
+    """Bounded full listing: partial data is useful but never a success receipt."""
+    result = {'op': 'task_comments', 'ok': False, 'items': [], 'has_more': True,
+              'page_token': action.get('page_token') or '', 'incomplete': True,
+              'pages': 0, 'user_id_type': 'open_id', 'error': None}
+    try:
+        max_pages = action.get('max_pages', 20)
+        if isinstance(max_pages, bool) or not isinstance(max_pages, int) or not 1 <= max_pages <= COMMENT_MAX_PAGES:
+            raise ValueError(f'max_pages 必须为 1–{COMMENT_MAX_PAGES} 的整数')
+        direction = action.get('direction', 'asc')
+        if direction not in ('asc', 'desc'):
+            raise ValueError('direction 必须为 asc/desc')
+        task = action['task']
+        if not isinstance(task, str) or not task or len(task) > 100:
+            raise ValueError('task 必须为非空任务 GUID（最多100字符）')
+        seen_tokens, seen_ids = set(), set()
+        for _ in range(max_pages):
+            cursor = result['page_token']
+            if not isinstance(cursor, str):
+                raise ValueError('page_token 必须为字符串')
+            seen_tokens.add(cursor)
+            query = {'resource_type': 'task', 'resource_id': task, 'page_size': 50,
+                     'user_id_type': 'open_id', 'direction': direction}
+            if cursor:
+                query['page_token'] = cursor
+            res = call(token, '/task/v2/comments?' + urllib.parse.urlencode(query))
+            if res.get('code') != 0:
+                raise RuntimeError(str(res.get('msg') or res.get('code') or '评论读取失败'))
+            data = res.get('data')
+            if not isinstance(data, dict) or not isinstance(data.get('items'), list) or not isinstance(data.get('has_more'), bool):
+                raise ValueError('评论分页响应缺少 items/has_more')
+            if len(data['items']) > 50:
+                raise ValueError('评论页超出请求的 page_size')
+            page = [_comment_resource(item) for item in data['items']]
+            for item in page:
+                if item.get('resource_type') not in (None, 'task') or item.get('resource_id') not in (None, task):
+                    raise ValueError('评论资源不属于当前任务')
+                if item['id'] not in seen_ids:
+                    seen_ids.add(item['id'])
+                    result['items'].append(item)
+            result['pages'] += 1
+            result['has_more'] = data['has_more']
+            result['page_token'] = data.get('page_token') or ''
+            if not result['has_more']:
+                result.update(ok=True, incomplete=False)
+                return result
+            if not isinstance(result['page_token'], str) or not result['page_token']:
+                raise ValueError('has_more=true 但缺少 page_token')
+            if result['page_token'] in seen_tokens:
+                raise ValueError('评论分页 page_token 循环')
+        raise ValueError('评论分页达到 max_pages 上限，数据不完整')
+    except Exception as exc:  # noqa: BLE001
+        result['error'] = str(exc)[:200]
+        return result
+
+
+def task_comment(token, action):
+    """Create with an ID receipt; ambiguous POST delivery must not be retried."""
+    result = {'op': 'task_comment', 'ok': False, 'commentId': None, 'comment': None,
+              'unknownDelivery': False, 'user_id_type': 'open_id', 'error': None}
+    posting = False
+    try:
+        # Do not silently turn a requested real mention into cosmetic @text.
+        result['mentionSupported'] = False
+        if action.get('mentions') or action.get('mentionIds') or action.get('mention_ids'):
+            reply_requested = action.get('reply_to_comment_id', action.get('replyToCommentId'))
+            if action.get('allowMentionFallback') is not True or not reply_requested:
+                result['unsupported'] = 'mentions'
+                raise ValueError('任务评论真实 mention 协议未获官方确认，不能发送假 @ 提及')
+            result['warning'] = '真实 mention 未获官方协议确认；仅创建原生关联回复，不保证 @ 通知'
+        if action.get('uid'):
+            result['unsupported'] = 'uid'
+            raise ValueError('官方任务评论创建协议没有 uid 幂等参数')
+        task = action['task']
+        if not isinstance(task, str) or not task or len(task) > 100:
+            raise ValueError('task 必须为非空任务 GUID（最多100字符）')
+        content = action.get('text', action.get('content'))
+        if not isinstance(content, str) or not content.strip() or len(content) > 3000:
+            raise ValueError('评论内容必须为非空字符串，最多3000个UTF-8字符')
+        content.encode('utf-8')
+        body = {'content': content, 'resource_type': 'task', 'resource_id': task}
+        reply = action.get('reply_to_comment_id', action.get('replyToCommentId'))
+        if reply is not None and reply != '':
+            # InputComment explicitly uses a string, not the numeric Comment model.
+            if not isinstance(reply, str) or not reply.isascii() or not reply.isdigit() or len(reply) > 20:
+                raise ValueError('reply_to_comment_id 必须为最多20位的数字字符串')
+            original = call(token, '/task/v2/comments/' + urllib.parse.quote(reply, safe='') + '?user_id_type=open_id')
+            if original.get('code') != 0:
+                raise RuntimeError(str(original.get('msg') or '无法核验被回复评论'))
+            target = _comment_resource((original.get('data') or {}).get('comment'))
+            if target.get('resource_type') != 'task' or target.get('resource_id') != task or target['id'] != reply:
+                raise ValueError('被回复评论不属于当前任务')
+            body['reply_to_comment_id'] = reply
+        posting = True
+        res = call(token, '/task/v2/comments?user_id_type=open_id', method='POST', body=body)
+        if res.get('code') != 0:
+            code = res.get('code')
+            # A server failure can occur after commit. Only explicit client errors are unambiguous.
+            result['unknownDelivery'] = not (isinstance(code, int) and (400 <= code < 500 or 1470400 <= code < 1470500))
+            result['error'] = str(res.get('msg') or code or '评论创建失败')[:200]
+            return result
+        comment = _comment_resource((res.get('data') or {}).get('comment'))
+        if comment.get('resource_type') != 'task' or comment.get('resource_id') != task:
+            raise ValueError('评论创建回执资源不属于当前任务')
+        if reply and comment.get('reply_to_comment_id') != reply:
+            raise ValueError('评论创建回执回复关联不匹配')
+        result.update(ok=True, commentId=comment['id'], comment=comment)
+        return result
+    except Exception as exc:  # noqa: BLE001
+        result['unknownDelivery'] = posting
+        result['error'] = str(exc)[:200]
+        return result
+
+
 def run_actions(token, actions):
     """CLI 没覆盖的写操作：任务挂清单、建文档目录、写文档、回写任务描述。"""
     results = []
@@ -202,6 +343,18 @@ def run_actions(token, actions):
                            method='POST', body={'tasklist_guid': action['tasklist']})
                 ok = res.get('code') == 0
                 results.append({'op': op, 'ok': ok, 'error': None if ok else res.get('msg', '')[:200]})
+            elif op == 'task_get':
+                task_id = urllib.parse.quote(str(action['task']), safe='')
+                res = call(token, f'/task/v2/tasks/{task_id}?user_id_type=open_id')
+                task = (res.get('data') or {}).get('task')
+                ok = res.get('code') == 0 and isinstance(task, dict) and task.get('guid') == action['task']
+                results.append({'op': op, 'ok': ok, 'task': task if ok else None,
+                                'user_id_type': 'open_id',
+                                'error': None if ok else str(res.get('msg') or '任务权威回执缺失/不匹配')[:200]})
+            elif op == 'task_comment':
+                results.append(task_comment(token, action))
+            elif op == 'task_comments':
+                results.append(task_comments(token, action))
             elif op == 'task_dependencies':
                 res = call(token, f"/task/v2/tasks/{action['task']}?user_id_type=open_id")
                 ok = res.get('code') == 0
@@ -268,14 +421,11 @@ def run_actions(token, actions):
                 errors.append('drive: ' + str(res.get('msg') or res.get('code'))[:160])
                 results.append({'op': op, 'ok': False, 'title': title,
                                 'error': '；'.join(errors)[:300]})
-            elif op in ('task_comments', 'task_subtasks', 'task_attachments'):
-                # 任务的评论 / 子任务 / 附件：都要额外 scope（task:comment:read 等），
-                # 没授权时把错误原样带回，调用方降级成「（需要权限）」而不是整条失败。
+            elif op in ('task_subtasks', 'task_attachments'):
+                # 没授权时把错误原样带回，调用方按该项降级，而不是整条失败。
                 task = action['task']
-                # 评论 / 附件是资源型接口（/task/v2/comments?resource_type=task&resource_id=...），
-                # 子任务才是挂在任务下面的路径；走错会直接 404。
+                # 附件是资源型接口，子任务才是挂在任务下面的路径。
                 path = {
-                    'task_comments': f'/task/v2/comments?resource_type=task&resource_id={task}&page_size=50',
                     'task_attachments': f'/task/v2/attachments?resource_type=task&resource_id={task}&page_size=50',
                     'task_subtasks': f'/task/v2/tasks/{task}/subtasks?page_size=50',
                 }[op]

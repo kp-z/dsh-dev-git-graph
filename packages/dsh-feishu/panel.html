@@ -140,6 +140,56 @@
 
   .push { margin-left: auto; }
 
+  /* 配置是任务页的辅助工作区，而不是默认堆叠的卡片墙。 */
+  .configuration-area[hidden], .configuration-panel[hidden] { display: none; }
+  .configuration-area { min-width: 0; scroll-margin-top: 12px; }
+  .configuration-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .configuration-tabs { display: flex; flex: 1; gap: 3px; min-width: 0; flex-wrap: wrap; }
+  .configuration-tabs button { border: 0; border-radius: 7px; padding: 7px 9px; background: transparent; color: var(--p-text-3); font: inherit; font-size: 12px; cursor: pointer; }
+  .configuration-tabs button:hover { background: var(--p-sub); color: var(--p-text); }
+  .configuration-tabs button[aria-selected="true"] { background: var(--p-accent-weak); color: var(--p-accent); font-weight: 600; }
+  .configuration-tabs button:focus-visible, .setting-group summary:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+  #configurationToggle[aria-expanded="true"] { color: var(--p-accent); background: var(--p-accent-weak); }
+  .settings-card > .card-head { margin-bottom: 14px; }
+  .settings-card .row { padding: 10px 0; gap: 6px 12px; }
+  .settings-card .row:first-child { padding-top: 0; }
+  .settings-card .row:last-child { padding-bottom: 0; }
+  .settings-card .row-text { flex: 1 1 140px; }
+  .settings-card .row-ctrl.grow { flex: 1 1 160px; }
+  .settings-card .row-text .hint { font-size: 11px; line-height: 1.5; margin-top: 3px; }
+  .setting-group { border-top: 1px solid var(--p-line); margin-top: 12px; }
+  .setting-group summary { display: flex; align-items: center; gap: 8px; padding: 12px 0 0; list-style: none; cursor: pointer; font-size: 12px; font-weight: 600; }
+  .setting-group summary::-webkit-details-marker { display: none; }
+  .setting-group summary::before { content: '›'; color: var(--p-text-3); font-size: 17px; font-weight: 400; line-height: 1; width: 10px; }
+  .setting-group[open] > summary::before { transform: rotate(90deg); }
+  .setting-group-desc { margin-left: auto; color: var(--p-text-3); font-size: 11px; font-weight: 400; text-align: right; }
+  .setting-group > .rows { padding-top: 14px; }
+  .setting-group:not([open]) > .rows { display: none; }
+  .settings-card input.hm-input { width: 64px; max-width: 64px; flex: 0 0 64px; }
+  .settings-card .row-ctrl { max-width: 100%; }
+  .settings-card .setting-prompt-row { display: block; }
+  .settings-card .setting-prompt-row .row-ctrl { margin-top: 8px; max-width: none; }
+  .settings-card textarea { width: 100%; min-width: 0; box-sizing: border-box; resize: vertical; padding: 8px 9px; border: 1px solid var(--p-line-strong); border-radius: 7px; color: var(--p-text); background: var(--p-sub); font: inherit; font-size: 12px; }
+  .settings-card textarea:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+  .settings-card input:disabled, .settings-card select:disabled { opacity: .45; cursor: not-allowed; }
+  .comments-inbox { margin-top: 14px; border-top: 1px solid var(--p-line); padding-top: 10px; }
+  .comments-inbox-head, .comment-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+  .comments-inbox-head { margin-bottom: 6px; }
+  .comment-entry { padding: 10px 0; border-bottom: 1px solid var(--p-line); min-width: 0; }
+  .comment-entry:last-child { border-bottom: 0; }
+  .comment-meta { font-size: 11px; color: var(--p-text-2); overflow-wrap: anywhere; }
+  .comment-text { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .comment-note { font-size: 11px; color: var(--p-warn); overflow-wrap: anywhere; }
+  .comment-actions { display: flex; gap: 6px; margin-top: 6px; }
+  .comments-inbox[hidden] { display: none; }
+  .settings-card .row-main { flex: 1 1 180px; min-width: 0; }
+  #settingsSummary { font-size: 11px; }
+  @media (max-width: 380px) { .setting-group-desc { max-width: 150px; } .configuration-tabs button { padding: 7px; } }
+
+  .panel-header { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  .panel-header .statusbar { flex: 1; min-width: 0; }
+  .panel-header > #configurationToggle { flex: 0 0 auto; margin-left: auto; }
+
   /* ---------- 状态条 ---------- */
   .statusbar {
     display: flex;
@@ -2680,7 +2730,10 @@
 
 <main class="wrap">
   <!-- 1. 状态条 -->
-  <div id="statusbar" class="statusbar" aria-live="polite"></div>
+  <header class="panel-header">
+    <div id="statusbar" class="statusbar" aria-live="polite"></div>
+    <button type="button" id="configurationToggle" class="btn btn-ghost btn-sm" aria-expanded="false" aria-controls="configurationArea" title="飞书面板配置">配置</button>
+  </header>
 
   <!-- 2.5 Insight：早会视图（本地指标秒出，AI 诊断按需） -->
   <section id="insightCard" class="card insight-card" aria-labelledby="insightTitle" hidden>
@@ -2777,8 +2830,18 @@
     <div id="taskList" class="list"></div>
   </section>
 
-  <!-- 3. 授权卡 -->
-  <section class="card" aria-labelledby="docPromptTitle">
+  <!-- 配置只在主动打开时显示；草稿控件驻留，不因切换而重建。 -->
+  <section id="configurationArea" class="configuration-area" aria-label="飞书配置" hidden>
+    <div class="configuration-head">
+      <div class="configuration-tabs" role="tablist" aria-label="配置分类">
+        <button id="configTab-settings" type="button" role="tab" data-config-tab="settings" aria-controls="settingsCard" aria-selected="true">同步规则</button>
+        <button id="configTab-auth" type="button" role="tab" data-config-tab="auth" aria-controls="authCard" aria-selected="false" tabindex="-1">授权</button>
+        <button id="configTab-docPrompt" type="button" role="tab" data-config-tab="docPrompt" aria-controls="docPromptCard" aria-selected="false" tabindex="-1">文档生成</button>
+        <button id="configTab-docs" type="button" role="tab" data-config-tab="docs" aria-controls="docsCard" aria-selected="false" tabindex="-1">文档监听</button>
+      </div>
+      <button id="configurationClose" type="button" class="btn btn-ghost btn-xs" aria-label="收起配置">收起</button>
+    </div>
+  <section id="docPromptCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docPrompt" hidden>
     <div class="card-head">
       <h2 id="docPromptTitle">文档生成 Prompt</h2>
       <span id="docPromptState" class="push muted"></span>
@@ -2791,7 +2854,7 @@
     <div class="hint">生成文档时用这段要求重写内容；默认要求「零废话、主体用表格、结构用 Mermaid」。</div>
   </section>
 
-  <section class="card" aria-labelledby="authTitle">
+  <section id="authCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-auth" hidden>
     <div class="card-head">
       <h2 id="authTitle">飞书授权</h2>
       <span id="authBadge" class="push"></span>
@@ -2800,16 +2863,17 @@
   </section>
 
   <!-- 4. 同步设置 -->
-  <section class="card" aria-labelledby="settingsTitle">
+  <section id="settingsCard" class="card configuration-panel settings-card" role="tabpanel" aria-labelledby="configTab-settings">
     <div class="card-head">
-      <h2 id="settingsTitle">同步设置</h2>
+      <h2 id="settingsTitle">飞书任务同步规则</h2>
+      <span id="settingsSummary" class="hint push"></span>
     </div>
 
     <div class="rows">
       <div class="row">
         <div class="row-text">
           <label for="autoSync">自动同步</label>
-          <div class="hint">按间隔把飞书任务与文档拉到本地</div>
+          <div class="hint">定期更新本地任务与监听文档</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="autoSync" class="switch" data-setting="1">
@@ -2819,7 +2883,7 @@
       <div class="row">
         <div class="row-text">
           <label for="syncInterval">同步间隔</label>
-          <div class="hint">单位分钟，最小 1</div>
+          <div class="hint">自动同步开启后生效</div>
         </div>
         <div class="row-ctrl">
           <input type="number" id="syncInterval" data-setting="1" min="1" max="1440" step="1" inputmode="numeric">
@@ -2831,17 +2895,20 @@
       <div class="row">
         <div class="row-text">
           <label for="keyword">任务关键词</label>
-          <div class="hint">只同步命中关键词的任务，留空为全部</div>
+          <div class="hint">留空同步全部；填写后只同步匹配任务</div>
         </div>
         <div class="row-ctrl grow">
           <input type="text" id="keyword" data-setting="1" autocomplete="off" spellcheck="false" placeholder="如：周报">
         </div>
       </div>
-
+    </div>
+    <details class="setting-group">
+      <summary><span>自动开工</span><span class="setting-group-desc">触发范围与并发上限</span></summary>
+      <div class="rows">
       <div class="row">
         <div class="row-text">
-          <label for="autoStartMode">自动开工</label>
-          <div class="hint">清单字段：<code>工作区</code> + <code>触发条件</code>（人工触发 / 自动执行 / 按时执行）
+          <label for="autoStartMode">开工范围</label>
+          <div class="hint">标注任务需在飞书清单填写工作区与触发条件。
             <div id="wsHint" class="hint-sub"></div>
           </div>
         </div>
@@ -2865,12 +2932,16 @@
         </div>
       </div>
 
-      <div class="rows-subhead">时间自动化（排期 / 按时执行）</div>
+      </div>
+    </details>
+    <details class="setting-group">
+      <summary><span>排期与定时</span><span class="setting-group-desc">工作时段、补跑与触发指令</span></summary>
+      <div class="rows">
 
       <div class="row">
         <div class="row-text">
           <label for="schTimeZone">时区</label>
-          <div class="hint">「早上九点半」按这个时区换算，如 Asia/Shanghai；留空或写错回落默认</div>
+          <div class="hint">自然语言时间按此时区解析</div>
         </div>
         <div class="row-ctrl grow">
           <input type="text" id="schTimeZone" data-setting="1" autocomplete="off" spellcheck="false" placeholder="Asia/Shanghai">
@@ -2880,7 +2951,7 @@
       <div class="row">
         <div class="row-text">
           <label for="schWorkStart">工作时段</label>
-          <div class="hint">只在这个区间里排时间块，格式 HH:mm</div>
+          <div class="hint">每日排期范围，格式 HH:mm</div>
         </div>
         <div class="row-ctrl">
           <input type="text" id="schWorkStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="09:00" maxlength="5" inputmode="numeric">
@@ -2892,7 +2963,7 @@
       <div class="row">
         <div class="row-text">
           <label for="schQuietStart">免打扰时段</label>
-          <div class="hint">午休之类不排事的区间；两个都留空表示没有</div>
+          <div class="hint">此时段不排任务；两项留空表示不限制</div>
         </div>
         <div class="row-ctrl">
           <input type="text" id="schQuietStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="12:00" maxlength="5" inputmode="numeric">
@@ -2929,7 +3000,7 @@
       <div class="row">
         <div class="row-text">
           <label for="schCapacity">每日容量</label>
-          <div class="hint">一天最多排多少分钟，AI 规划「今天做什么」时按这个收口</div>
+          <div class="hint">规划今日任务时的总时长上限</div>
         </div>
         <div class="row-ctrl">
           <input type="number" id="schCapacity" data-setting="1" min="30" max="1440" step="30" inputmode="numeric">
@@ -2937,10 +3008,24 @@
         </div>
       </div>
 
+      <div class="row setting-prompt-row">
+        <div class="row-text">
+          <label for="schAutomationPrompt">定时触发指令</label>
+          <div class="hint">到点发送到绑定会话。支持 {{title}} / {{list}} / {{workspace}}；留空使用默认指令。</div>
+        </div>
+        <div class="row-ctrl grow">
+          <textarea id="schAutomationPrompt" data-setting="1" rows="3" placeholder="继续这条任务：先制定计划，然后按计划开始执行。"></textarea>
+        </div>
+      </div>
+      </div>
+    </details>
+    <details class="setting-group">
+      <summary><span>写回飞书</span><span class="setting-group-desc">排期与任务时间</span></summary>
+      <div class="rows">
       <div class="row">
         <div class="row-text">
-          <label for="schWriteBack">默认写回飞书</label>
-          <div class="hint">排期时同时写飞书的开始/截止时间，飞书侧也看得见</div>
+          <label for="schWriteBack">排期时间</label>
+          <div class="hint">排期时同步飞书的开始 / 截止时间</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="schWriteBack" class="switch" data-setting="1">
@@ -2949,18 +3034,8 @@
 
       <div class="row">
         <div class="row-text">
-          <label for="schAutomationPrompt">定时触发时发什么指令</label>
-          <div class="hint">「定时」写进这条会话的 DSH 自动化任务，到点就把这句话发给会话。占位符 {{title}} / {{list}} / {{workspace}}；留空用默认「继续这条任务：先制定计划，然后按计划开始执行。」</div>
-        </div>
-        <div class="row-ctrl grow">
-          <textarea id="schAutomationPrompt" data-setting="1" rows="2" style="width:100%;min-width:180px" placeholder="继续这条任务：先制定计划，然后按计划开始执行。"></textarea>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
           <label for="schWriteEta">预期完成写回飞书</label>
-          <div class="hint">写进清单的「预期完成」列（文本，格式 2026-10-30 18:00）；关掉就只存在本地</div>
+          <div class="hint">同步到清单的「预期完成」列；关闭则仅保存在本地</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="schWriteEta" class="switch" data-setting="1">
@@ -2970,7 +3045,7 @@
       <div class="row">
         <div class="row-text">
           <label for="schWriteStart">绑定会话时写回开始时间</label>
-          <div class="hint">绑定会话时写回飞书原生「开始时间」（到分钟）和已有的「开始时间」日期列</div>
+          <div class="hint">绑定会话时更新飞书开始时间</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="schWriteStart" class="switch" data-setting="1">
@@ -2980,17 +3055,22 @@
       <div class="row">
         <div class="row-text">
           <label for="schWriteEnd">完成时写回结束时间</label>
-          <div class="hint">标完成时写已有的「结束时间」日期列（原生完成时间由飞书自己记）</div>
+          <div class="hint">完成任务时更新清单的「结束时间」列</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="schWriteEnd" class="switch" data-setting="1">
         </div>
       </div>
 
+      </div>
+    </details>
+    <details class="setting-group">
+      <summary><span>会话协作</span><span class="setting-group-desc">任务档案、通知与进度评论</span></summary>
+      <div class="rows">
       <div class="row">
         <div class="row-text">
-          <label for="contextInjection">绑定任务时注入任务档案</label>
-          <div class="hint">按需打开：绑定时把状态/人员/清单字段/文档投进会话，并给模型一条「先读详情」的提示；关着也随时能用 feishu_task_detail</div>
+          <label for="contextInjection">绑定时注入任务档案</label>
+          <div class="hint">把状态、人员、清单字段和文档发到会话；关闭后仍可按需查详情</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="contextInjection" class="switch" data-setting="1">
@@ -3000,7 +3080,7 @@
       <div class="row">
         <div class="row-text">
           <label for="pushChanges">任务变化推送到会话</label>
-          <div class="hint">默认关：飞书上改了标题/状态、新加了文档时，往绑定会话投一条通知（会消耗一个 turn，同一会话 5 分钟最多一条）</div>
+          <div class="hint">标题、状态或文档变化时通知绑定会话；消耗一轮对话，5 分钟最多一条</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="pushChanges" class="switch" data-setting="1">
@@ -3010,7 +3090,7 @@
       <div class="row">
         <div class="row-text">
           <label for="autoComment">有实际进展才写回任务评论</label>
-          <div class="hint">只有改了文件 / 产生了 commit / 跑了测试的轮次才写（闲聊轮次不写）；以「🤖 AI 进度」开头、用第一人称，同事一眼看出是 AI 写的。失败下次补发一次</div>
+          <div class="hint">仅改文件、提交或测试后写评论，带 AI 标记；闲聊不写，失败下次补发</div>
         </div>
         <div class="row-ctrl">
           <input type="checkbox" id="autoComment" class="switch" data-setting="1">
@@ -3020,19 +3100,49 @@
       <div class="row">
         <div class="row-text">
           <label for="autoCommentGap">进度评论最小间隔</label>
-          <div class="hint">同一会话两条进度评论之间至少隔多久，防止一个短 turn 刷一条</div>
+          <div class="hint">限制同一会话的评论频率</div>
         </div>
         <div class="row-ctrl">
           <input type="number" id="autoCommentGap" data-setting="1" min="10" max="3600" step="5" inputmode="numeric">
           <span class="unit">秒</span>
         </div>
       </div>
-    </div>
-
+      </div>
+    </details>
+    <details id="commentsGroup" class="setting-group">
+      <summary><span>评论协作</span><span class="setting-group-desc">绑定会话内处理留言</span></summary>
+      <div class="rows">
+        <div id="commentsCapabilityHint" class="hint" role="status">正在确认宿主是否支持评论协作…</div>
+        <div class="row">
+          <div class="row-text"><label for="commentEnabled">接收任务评论</label><div class="hint">仅处理已绑定会话的任务；默认关闭，保存后生效</div></div>
+          <div class="row-ctrl"><input type="checkbox" id="commentEnabled" class="switch" data-setting="1" disabled></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="commentOwnerMode">任务负责人留言</label><div class="hint">执行模式会在绑定会话内判断并处理请求</div></div>
+          <div class="row-ctrl"><select id="commentOwnerMode" data-setting="1" disabled><option value="off">不处理</option><option value="execute">处理请求</option></select></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="commentOtherMode">其他人留言</label><div class="hint">仅回复当前任务问题，不执行修改；原生回复关联作者，但不保证 @ 通知（通知协议尚未确认）</div></div>
+          <div class="row-ctrl"><select id="commentOtherMode" data-setting="1" disabled><option value="off">不处理</option><option value="reply">仅回复</option></select></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="commentMaxPerSync">每轮处理上限</label><div class="hint">每次同步最多投递多少条留言</div></div>
+          <div class="row-ctrl"><input type="number" id="commentMaxPerSync" data-setting="1" min="1" max="20" step="1" value="5" inputmode="numeric" disabled><span class="unit">条</span></div>
+        </div>
+        <section id="commentsInbox" class="comments-inbox" aria-label="评论收件箱" hidden>
+          <div class="comments-inbox-head"><h2>评论收件箱</h2><button id="commentsRefresh" type="button" class="btn btn-ghost btn-xs">刷新</button><span class="hint">只读账本，不触发同步或处理</span></div>
+          <div id="commentsInboxStatus" class="hint" role="status" aria-live="polite">展开后读取评论记录</div>
+          <div id="commentsList" role="list"></div>
+        </section>
+      </div>
+    </details>
+    <details class="setting-group">
+      <summary><span>维护工具</span><span class="setting-group-desc">任务命名与孤儿会话</span></summary>
+    <div class="rows">
     <div class="row">
       <div class="row-main">
         <label for="normalizeNames">统一任务命名</label>
-        <div class="hint">把已有任务名规整成「表情 + T&lt;n&gt;- + 标题」：漏表情的补上、编号和 no 不符的改正。可重复执行。</div>
+        <div class="hint">整理为「表情 + T&lt;n&gt;- + 标题」，可重复执行。</div>
       </div>
       <button type="button" id="normalizeNames" class="btn btn-ghost btn-sm">执行</button>
     </div>
@@ -3040,11 +3150,13 @@
     <div class="row">
       <div class="row-main">
         <label for="cleanOrphans">清理孤儿会话</label>
-        <div class="hint">插件开出来、但没有任何任务再指向它的会话（重复开工留下的）。先扫描，再决定是否归档。</div>
+        <div class="hint">查找插件创建但已无关联任务的会话；扫描后再决定是否归档。</div>
       </div>
       <button type="button" id="cleanOrphans" class="btn btn-ghost btn-sm">扫描</button>
     </div>
 
+    </div>
+    </details>
     <div class="card-foot">
       <button type="button" id="saveSettings" class="btn btn-primary">保存设置</button>
       <span id="saveHint" class="saved" role="status" aria-live="polite"></span>
@@ -3053,7 +3165,7 @@
 
 
   <!-- 5. 文档监听 -->
-  <section class="card" aria-labelledby="docsTitle">
+  <section id="docsCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docs" hidden>
     <div class="card-head">
       <h2 id="docsTitle">文档监听</h2>
     </div>
@@ -3069,6 +3181,7 @@
 
     <div id="docHint" class="form-error" role="status" aria-live="polite" hidden></div>
     <div id="docList" class="list"></div>
+  </section>
   </section>
 </main>
 
@@ -3254,7 +3367,7 @@
           try { data = JSON.parse(txt); } catch (e) { data = null; }
         }
         if (!res.ok) {
-          var msg = (data && (data.error || data.message)) || ('请求失败（HTTP ' + res.status + '）');
+          var msg = (data && (data.error || data.reason || data.message)) || ('请求失败（HTTP ' + res.status + '）');
           /* 面板是静态文件、跟着刷新就更新；宿主插件（index.js）要重启 DSH 才换。
              命中这条说明「面板新、宿主旧」——直接告诉用户下一步做什么，别把人晾在 404 上。 */
           if (/没有这个接口/.test(msg)) {
@@ -3267,7 +3380,7 @@
           throw err;
         }
         if (data && data.ok === false) {
-          var msg2 = data.error || data.message || '操作失败';
+          var msg2 = data.error || data.reason || data.message || '操作失败';
           if (!silent) toast(msg2);
           var err2 = new Error(msg2);
           err2.handled = true;
@@ -3422,6 +3535,71 @@
     }
   }
 
+  /* ---------------- 按需配置：切换仅影响可见性，不保存也不重建草稿 ---------------- */
+  var CONFIGURATION_KEYS = ['settings', 'auth', 'docPrompt', 'docs'];
+  var activeConfiguration = 'settings';
+
+  function openConfiguration(key) {
+    if (CONFIGURATION_KEYS.indexOf(key) === -1) key = activeConfiguration;
+    activeConfiguration = key;
+    $('configurationArea').hidden = false;
+    $('configurationToggle').setAttribute('aria-expanded', 'true');
+    CONFIGURATION_KEYS.forEach(function (name) {
+      var selected = name === key;
+      $(name + 'Card').hidden = !selected;
+      var tab = $('configTab-' + name);
+      tab.setAttribute('aria-selected', String(selected));
+      tab.setAttribute('tabindex', selected ? '0' : '-1');
+    });
+  }
+
+  function closeConfiguration() {
+    $('configurationArea').hidden = true;
+    $('configurationToggle').setAttribute('aria-expanded', 'false');
+    $('configurationToggle').focus();
+  }
+
+  function wireConfiguration() {
+    $('configurationToggle').addEventListener('click', function () {
+      if (!$('configurationArea').hidden) { closeConfiguration(); return; }
+      openConfiguration(activeConfiguration);
+      $('configurationArea').scrollIntoView({ block: 'start', behavior: 'auto' });
+      $('configTab-' + activeConfiguration).focus();
+    });
+    $('configurationClose').addEventListener('click', closeConfiguration);
+    CONFIGURATION_KEYS.forEach(function (key, index) {
+      var tab = $('configTab-' + key);
+      tab.addEventListener('click', function () { openConfiguration(key); });
+      tab.addEventListener('keydown', function (event) {
+        var next;
+        if (event.key === 'ArrowRight') next = (index + 1) % CONFIGURATION_KEYS.length;
+        else if (event.key === 'ArrowLeft') next = (index + CONFIGURATION_KEYS.length - 1) % CONFIGURATION_KEYS.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = CONFIGURATION_KEYS.length - 1;
+        else return;
+        event.preventDefault();
+        openConfiguration(CONFIGURATION_KEYS[next]);
+        $('configTab-' + CONFIGURATION_KEYS[next]).focus();
+      });
+    });
+  }
+
+  function updateSettingDependencies() {
+    $('syncInterval').disabled = !$('autoSync').checked;
+    $('maxAutoStart').disabled = $('autoStartMode').value === 'off';
+    $('schGrace').disabled = $('schMissPolicy').value !== 'delay';
+    $('autoCommentGap').disabled = !$('autoComment').checked;
+    var commentsSupported = Array.isArray(app.serverFeatures) && app.serverFeatures.indexOf('tasks.comments') !== -1;
+    var commentEnabled = $('commentEnabled');
+    if (commentEnabled) {
+      commentEnabled.disabled = !commentsSupported;
+      ['commentOwnerMode', 'commentOtherMode', 'commentMaxPerSync'].forEach(function (id) { $(id).disabled = !commentsSupported || !commentEnabled.checked; });
+      $('commentsCapabilityHint').textContent = commentsSupported ? '评论只在已绑定会话内处理；回复通过出站账本避免重复发送。' : (app.serverFeatures === null ? '正在确认宿主是否支持评论协作…' : '当前宿主不支持评论协作，请更新并重启 DSH；这些设置不会提交。');
+    }
+    var summary = $('settingsSummary');
+    if (summary) summary.textContent = app.settingsDirty ? '有未保存的修改' : ($('autoSync').checked ? '每 ' + $('syncInterval').value + ' 分钟同步' : '手动同步');
+  }
+
   /* ---------------- 渲染：设置 ---------------- */
 
   function isEditingSetting() {
@@ -3454,8 +3632,103 @@
     $('pushChanges').checked = st.pushChanges === true;
     $('autoComment').checked = st.autoComment !== false;
     $('autoCommentGap').value = st.autoCommentMinSeconds != null ? st.autoCommentMinSeconds : 45;
+    var comments = st.comments || {};
+    $('commentEnabled').checked = comments.enabled === true;
+    $('commentOwnerMode').value = comments.ownerMode === 'execute' ? 'execute' : 'off';
+    $('commentOtherMode').value = comments.otherMode === 'reply' ? 'reply' : 'off';
+    $('commentMaxPerSync').value = toInt(comments.maxPerSync, 5, 1, 20);
     /* 时间自动化单独一组，回填逻辑也单独放，别和既有设置的读写搅在一起 */
     renderScheduleSettings();
+    updateSettingDependencies();
+  }
+
+  /* ---------------- 评论协作：仅展开配置后读取真实账本 ---------------- */
+
+  function commentsSupported() {
+    return Array.isArray(app.serverFeatures) && app.serverFeatures.indexOf('tasks.comments') !== -1;
+  }
+
+  function commentsVisible() {
+    return !$('configurationArea').hidden && !$('settingsCard').hidden && $('commentsGroup').open;
+  }
+
+  function commentActions(entry) {
+    if (entry.status === 'pending' || entry.status === 'unknown') return ['ignore'];
+    if (entry.status === 'reply_pending' || entry.status === 'failed') return ['retry'];
+    return [];
+  }
+
+  function renderCommentsInbox() {
+    var box = $('commentsList');
+    clear(box);
+    var labels = { pending: '等待处理', delivered: '已投递', running: '处理中', reply_pending: '回复待发送', replied: '已回复', ignored: '已忽略', unknown: '结果未知', failed: '回复发送失败' };
+    var entries = app.commentEntries || [];
+    entries.forEach(function (entry) {
+      var item = el('div', { 'class': 'comment-entry', role: 'listitem' });
+      var meta = el('div', { 'class': 'comment-meta' });
+      var author = entry.authorName || entry.authorId || (entry.author && (entry.author.name || entry.author.id)) || (typeof entry.author === 'string' ? entry.author : '') || '作者未知';
+      var task = ((app.snap && app.snap.tasks) || []).filter(function (t) { return t.id === entry.taskId; })[0];
+      meta.appendChild(el('span', { text: '作者：' + author }));
+      meta.appendChild(el('span', { text: '任务：' + (entry.taskTitle || (task && (task.title || task.summary)) || entry.taskId || '未知任务') }));
+      meta.appendChild(el('span', { 'class': 'badge ' + (entry.status === 'unknown' || entry.status === 'failed' ? 'badge-warn' : ''), text: (labels[entry.status] || '未知状态') + ' · ' + (entry.status || 'unknown') }));
+      item.appendChild(meta);
+      item.appendChild(el('div', { 'class': 'comment-text', text: entry.text || entry.content || '（无文本）' }));
+      if (entry.error || entry.reason) item.appendChild(el('div', { 'class': 'comment-note', text: '原因：' + (entry.error || entry.reason) }));
+      if (entry.status === 'unknown') item.appendChild(el('div', { 'class': 'comment-note', text: '必须人工对账：投递或发送结果不确定，不能直接重试。忽略仅停止处理此输入，不清除出站账本或解除任务锁。' }));
+      var actions = el('div', { 'class': 'comment-actions' });
+      commentActions(entry).forEach(function (action) {
+        actions.appendChild(makeButton(action === 'ignore' ? '忽略输入' : '重试回复', 'btn btn-ghost btn-xs', '处理中…', !!app.commentActionBusy || !!app.commentInboxLoading, function () { onCommentAction(entry, action); }));
+      });
+      if (actions.firstChild) item.appendChild(actions);
+      box.appendChild(item);
+    });
+    $('commentsInboxStatus').textContent = app.commentInboxError ? '读取失败：' + app.commentInboxError : (app.commentInboxLoading ? '正在读取评论账本…' : (app.commentInboxLoaded ? (entries.length ? '已读取 ' + entries.length + ' 条记录' : '暂无评论记录；下次任务同步后可刷新查看。') : '展开后读取评论记录'));
+    $('commentsRefresh').disabled = !!app.commentInboxLoading || !!app.commentActionBusy || !commentsSupported();
+  }
+
+  function loadCommentsInbox() {
+    $('commentsInbox').hidden = !commentsVisible() || !commentsSupported();
+    if (!commentsVisible() || !commentsSupported() || app.commentInboxLoading || app.commentActionBusy) return Promise.resolve();
+    app.commentInboxLoading = true;
+    app.commentInboxError = '';
+    renderCommentsInbox();
+    return api('comments', undefined, { silent: true }).then(function (data) {
+      if (!data || data.ok !== true || !Array.isArray(data.entries)) throw new Error((data && (data.error || data.reason || data.message)) || '宿主没有返回有效的评论记录');
+      app.commentEntries = data.entries;
+      app.commentInboxLoaded = true;
+    }).catch(function (error) {
+      app.commentInboxError = error.message === 'network' ? '连不上宿主服务，请确认插件已启动' : (error.message || '无法读取评论账本');
+    }).then(function () {
+      app.commentInboxLoading = false;
+      renderCommentsInbox();
+    });
+  }
+
+  function onCommentAction(entry, action) {
+    if (!commentsSupported() || !commentsVisible() || app.commentActionBusy || app.commentInboxLoading || commentActions(entry).indexOf(action) === -1 || !entry.taskId || !entry.commentId) return Promise.resolve();
+    app.commentActionBusy = true;
+    renderCommentsInbox();
+    return api('comments/action', { taskId: entry.taskId, commentId: entry.commentId, action: action }, { silent: true }).then(function (data) {
+      if (!data || data.ok !== true) throw new Error((data && (data.error || data.reason || data.message)) || '宿主未确认操作结果');
+      // 不推测新状态：操作后重新读取，失败或unknown仍由Host账本决定。
+      app.commentActionBusy = false;
+      return loadCommentsInbox();
+    }).catch(function (error) {
+      app.commentActionBusy = false;
+      app.commentInboxError = error.message || '评论操作失败';
+      renderCommentsInbox();
+    });
+  }
+
+  function wireComments() {
+    $('commentsGroup').addEventListener('toggle', loadCommentsInbox);
+    $('commentsRefresh').addEventListener('click', loadCommentsInbox);
+    $('configurationToggle').addEventListener('click', loadCommentsInbox);
+    $('configurationClose').addEventListener('click', function () { $('commentsInbox').hidden = true; });
+    ['settings', 'auth', 'docPrompt', 'docs'].forEach(function (key) {
+      $('configTab-' + key).addEventListener('click', loadCommentsInbox);
+      $('configTab-' + key).addEventListener('keydown', function (event) { if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].indexOf(event.key) !== -1) loadCommentsInbox(); });
+    });
   }
 
   /* ---------------- 设置：时间自动化 ---------------- */
@@ -5611,24 +5884,32 @@
     var area = $('docPrompt');
     if (!area) return;
     var value = (app.settings && app.settings.docPrompt) || DEFAULT_DOC_PROMPT;
-    if (document.activeElement !== area) area.value = value;
+    if (!app.docPromptDirty && document.activeElement !== area) area.value = value;
   }
 
   function wireDocPrompt() {
     var save = $('saveDocPrompt');
     var reset = $('resetDocPrompt');
+    $('docPrompt').addEventListener('input', function () {
+      app.docPromptDirty = true;
+      $('docPromptState').textContent = '有未保存的修改';
+    });
     if (save) save.addEventListener('click', function () {
       var value = String($('docPrompt').value || '').trim();
       if (!value) { toast('prompt 不能为空'); return; }
       save.disabled = true;
-      api('settings', { docPrompt: value }).then(function () {
-        $('docPromptState').textContent = '已保存';
+      api('settings', { docPrompt: value }).then(function (data) {
+        if (data && data.settings) app.settings = data.settings;
+        else { app.settings = app.settings || {}; app.settings.docPrompt = value; }
+        app.docPromptDirty = String($('docPrompt').value || '').trim() !== value;
+        $('docPromptState').textContent = app.docPromptDirty ? '有未保存的修改' : '已保存';
         save.disabled = false;
         load({ quiet: true });
       }, function () { save.disabled = false; });
     });
     if (reset) reset.addEventListener('click', function () {
       $('docPrompt').value = DEFAULT_DOC_PROMPT;
+      app.docPromptDirty = true;
       $('docPromptState').textContent = '已恢复默认（记得保存）';
     });
   }
@@ -7028,9 +7309,12 @@
         api('capabilities', undefined, { silent: true }).then(function (caps) {
           app.serverFeatures = (caps && Array.isArray(caps.features)) ? caps.features : [];
           app.hostStale = false;
+          updateSettingDependencies();
+          loadCommentsInbox();
           renderTasks();
         }, function () {
           app.hostStale = true;
+          updateSettingDependencies();
           renderHostStaleBar();
         });
       }
@@ -7190,6 +7474,13 @@
       autoCommentMinSeconds: toInt($('autoCommentGap').value, 45, 10, 3600),
       /* 整个对象一起写：服务端按 latest 覆盖，字段级合并反而容易留下旧值 */
       schedule: readScheduleSettings()
+    };
+
+    if (commentsSupported()) payload.comments = {
+      enabled: $('commentEnabled').checked,
+      ownerMode: $('commentOwnerMode').value === 'execute' ? 'execute' : 'off',
+      otherMode: $('commentOtherMode').value === 'reply' ? 'reply' : 'off',
+      maxPerSync: toInt($('commentMaxPerSync').value, 5, 1, 20)
     };
 
     api('settings', payload).then(function (data) {
@@ -7527,13 +7818,16 @@
 
   /* ---------------- 事件绑定 ---------------- */
 
-  function markDirty() { app.settingsDirty = true; }
+  function markDirty() { app.settingsDirty = true; updateSettingDependencies(); }
 
   function wire() {
+    wireConfiguration();
+    wireComments();
     var settingIds = ['autoSync', 'syncInterval', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap',
       /* 时间自动化这组也要算「正在编辑」：轮询回来别把正在输入的时区/时段冲掉 */
       'schTimeZone', 'schWorkStart', 'schWorkEnd', 'schQuietStart', 'schQuietEnd', 'schMissPolicy', 'schGrace', 'schCapacity', 'schWriteBack',
-      'schWriteEta', 'schWriteStart', 'schWriteEnd', 'schAutomationPrompt'];
+      'schWriteEta', 'schWriteStart', 'schWriteEnd', 'schAutomationPrompt',
+      'commentEnabled', 'commentOwnerMode', 'commentOtherMode', 'commentMaxPerSync'];
     for (var i = 0; i < settingIds.length; i++) {
       var node = $(settingIds[i]);
       if (!node) continue;

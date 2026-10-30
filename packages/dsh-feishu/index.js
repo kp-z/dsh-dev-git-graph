@@ -21,7 +21,7 @@
  */
 import { execFile, spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, stat, writeFile, rename, open, unlink } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,6 +31,8 @@ import { fileURLToPath } from 'node:url'
  * 模型只负责把「下周一早上九点半」说成一句话，插件负责算准它到底是哪一刻。
  * 分开的另一个理由：时间逻辑最容易错，纯函数才能单测（test/schedule.mjs）。
  */
+import { createCommentCoordinator } from './comments.js'
+import { randomUUID } from 'node:crypto'
 import { matchWorkspace, titleChangeOf } from './workspace.js'
 import { updateRelations, projectRelations, relationStats } from './relations.js'
 import {
@@ -98,6 +100,7 @@ const SERVER_FEATURES = [
   'insight.capabilities',
   'tasks.relations',
   'tasks.suspension',
+  'tasks.comments',
 ]
 
 /** 面板里「打开」按钮要用的飞书 web 域；只用于绝对路径拼接，不做鉴权。 */
@@ -416,6 +419,7 @@ const DEFAULT_SETTINGS = {
   contextInjection: false,
   /* 任务有实质变化时推给绑定会话（默认关：每次推送都会消耗一个 turn）。 */
   pushChanges: false,
+  comments: { enabled: false, ownerMode: 'off', otherMode: 'off', maxPerSync: 5 },
   /* 每个 turn 结束把进展写回任务评论（用户要求的「进展同步」）。 */
   autoComment: true,
   /* 同一会话两条进度评论的最小间隔（秒），防止一个 turn 刷一条。 */
@@ -1024,6 +1028,12 @@ function sanitizeSettings(input, base) {
     schedule: sanitizeScheduleSettings(next.schedule, base.schedule),
     contextInjection: next.contextInjection === true,
     pushChanges: next.pushChanges === true,
+    comments: {
+      enabled: next.comments?.enabled === true,
+      ownerMode: next.comments?.ownerMode === 'execute' ? 'execute' : 'off',
+      otherMode: next.comments?.otherMode === 'reply' ? 'reply' : 'off',
+      maxPerSync: clampInt(next.comments?.maxPerSync, 1, 20, 5),
+    },
     autoComment: next.autoComment !== false,
     autoCommentMinSeconds: clampInt(next.autoCommentMinSeconds, 10, 3600, 45),
     insightPrompt: (() => {
@@ -1420,6 +1430,163 @@ function createSyncEngine(ctx) {
   let state = { ...DEFAULT_STATE }
   let inFlight = null
   let cli = { found: false, version: null, path: null }
+  const commentsFile = join(DATA_DIR, 'comments.json')
+  const commentsLock = commentsFile + '.lock'
+  let commentLockHandle = null
+  let commentReady = null
+  const commentDeliveries = new Map()
+  const activeCommentTurns = new Map()
+  let commentsDisposed = false
+
+  async function loadComments() {
+    if (!commentReady) commentReady = (async () => {
+      await mkdir(DATA_DIR, { recursive: true })
+      try { commentLockHandle = await open(commentsLock, 'wx', 0o600) }
+      catch (error) {
+        if (error.code !== 'EEXIST') throw error
+        const pidText = await readFile(commentsLock, 'utf8')
+        const pid = Number(pidText)
+        if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('评论状态锁无效，请人工检查')
+        let alive = true
+        try { process.kill(pid, 0) } catch (probe) { if (probe.code === 'ESRCH') alive = false; else throw probe }
+        if (alive) throw new Error('其他进程正在处理评论，请勿重复启动')
+        // Exact constant path under DATA_DIR, verified above; never remove a live lock.
+        if (await readFile(commentsLock, 'utf8') !== pidText) throw new Error('评论锁已变化，请稍后重试')
+        await unlink(commentsLock)
+        commentLockHandle = await open(commentsLock, 'wx', 0o600)
+      }
+      await commentLockHandle.writeFile(String(process.pid))
+      await commentLockHandle.sync()
+      try { return JSON.parse(await readFile(commentsFile, 'utf8')) }
+      catch (error) { if (error.code === 'ENOENT') return null; throw error }
+    })()
+    return commentReady
+  }
+  async function saveComments(value) {
+    const temp = commentsFile + '.' + randomUUID() + '.tmp'
+    const handle = await open(temp, 'wx', 0o600)
+    try { await handle.writeFile(JSON.stringify(value, null, 2)); await handle.sync() }
+    finally { await handle.close() }
+    await rename(temp, commentsFile)
+  }
+  async function resolveCommentTask(taskId) {
+    const task = state.tasks.find((item) => item.id === taskId)
+    if (!task) return null
+    const python = resolvePython(resolveCli(settings.cliPath))
+    if (!python) return null
+    const result = await runBridge(python, { actions: [{ op: 'task_get', task: taskId }] })
+    const row = result.actions?.[0]
+    if (!row?.ok || !row.task || String(row.task.guid) !== taskId) return null
+    return { ...task, members: row.task.members || [], done: Boolean(row.task.completed_at && String(row.task.completed_at) !== '0'), paused: isSuspended(taskId) }
+  }
+  const comments = createCommentCoordinator({
+    load: loadComments, save: saveComments, now: nowMs,
+    getTask: (id) => { const task = state.tasks.find((item) => item.id === id); return task ? { ...task, paused: isSuspended(id) } : null },
+    resolveTask: resolveCommentTask,
+    listComments: async (taskId) => {
+      const python = resolvePython(resolveCli(settings.cliPath))
+      if (!python) return { ok: false, complete: false, items: [] }
+      const result = await runBridge(python, { actions: [{ op: 'task_comments', task: taskId }] })
+      const row = result.actions?.[0]
+      return { ...row, complete: row?.ok === true && row?.incomplete === false }
+    },
+    isSessionBusy: async (sessionId) => {
+      const agents = await awaitService(ctx, 'agents')
+      const agent = agents?.get?.(sessionId)
+      return !agent || agent.phase?.kind === 'running' || agent.isRunning === true || activeCommentTurns.has(sessionId) || commentDeliveries.has(sessionId)
+    },
+    deliver: async (entry) => {
+      if (!commentGuardAvailable || commentsDisposed) return { ok: false, error: 'Host comment guards unavailable or plugin disposed' }
+      commentDeliveries.set(entry.sessionId, entry)
+      const sessions = await awaitService(ctx, 'sessionController')
+      try {
+        await sessions.prompt({ requestId: entry.requestId, sessionId: entry.sessionId, mode: 'queue', content: [{ type: 'text', text: entry.text }] }, new AbortController().signal)
+        return { ok: true }
+      } catch (error) { return { ok: false, error: asString(error?.message) } }
+    },
+    writeComment: async (taskId, text, options) => {
+      if (commentsDisposed) return { ok: false, definitive: true, error: '评论插件已卸载' }
+      const python = resolvePython(resolveCli(settings.cliPath))
+      if (!python) return { ok: false, definitive: true, error: '找不到飞书 Python 环境' }
+      const result = await runBridge(python, { actions: [{ op: 'task_comment', task: taskId, text, reply_to_comment_id: options.replyTo, mentionIds: options.mentionIds, allowMentionFallback: true }] })
+      const row = result.actions?.[0]
+      return row?.ok && row.commentId ? { ok: true, commentId: row.commentId } : { ok: false, definitive: row?.unknownDelivery === false, error: row?.error || result.error || '评论写回结果不明' }
+    },
+  })
+  let commentGuardAvailable = false
+  function commentTurn(sessionId) { return activeCommentTurns.get(sessionId) }
+  async function enterCommentStep(payload, next) {
+    const sessionId = payload.agent?.id
+    const decision = await next()
+    if (decision.kind !== 'enter') return decision
+    let entry = activeCommentTurns.get(sessionId)
+    const texts = (decision.messages || []).flatMap((message) => (message.content || []).filter((part) => part.type === 'text').map((part) => part.text))
+    if (!entry && !commentDeliveries.has(sessionId) && (settings.comments.enabled || commentReady || existsSync(commentsFile))) {
+      const rows = await comments.list()
+      const uncertain = rows.find((item) => item.sessionId === sessionId && ['unknown', 'delivering', 'delivered'].includes(item.status) && texts.includes(item.deliveryText))
+      if (uncertain) return { kind: 'reject' }
+      const unfinished = rows.find((item) => item.sessionId === sessionId && !item.turnEnded && ['running', 'reply_pending', 'replied'].includes(item.status))
+      if (unfinished) {
+        if (unfinished.turn !== payload.turn) return { kind: 'reject' }
+        entry = unfinished
+        activeCommentTurns.set(sessionId, entry)
+      }
+    }
+    if (!entry) {
+      const queued = commentDeliveries.get(sessionId)
+      if (queued && !texts.includes(queued.text)) return { kind: 'reject' }
+      if (queued && texts.includes(queued.text)) {
+        entry = { ...queued, turn: payload.turn }
+        const admitted = await comments.markRunning(entry.taskId, entry.commentId, sessionId, payload.turn)
+        if (!admitted.ok) return { kind: 'reject' }
+        activeCommentTurns.set(sessionId, entry)
+        commentDeliveries.delete(sessionId)
+      }
+    }
+    if (entry && entry.turn !== payload.turn) return { kind: 'reject' }
+    if (entry) {
+      const task = await resolveCommentTask(entry.taskId)
+      if (!task || task.done || task.paused || task.sessionId !== entry.sessionId || !settings.comments.enabled) return { kind: 'reject' }
+      if (entry.maxPermission === 'owner' && !task.members.some((member) => member.type === 'user' && member.role === 'assignee' && String(member.id) === entry.authorId)) entry.maxPermission = 'reply'
+    }
+    return decision
+  }
+  function guardCommentTool(exec) {
+    const entry = activeCommentTurns.get(exec.agent?.id)
+    if (!entry) return
+    const task = state.tasks.find((item) => item.id === entry.taskId)
+    if (!settings.comments.enabled || !task || task.sessionId !== entry.sessionId || task.done || isSuspended(task.id)) return '飞书评论任务已关闭、完成、暂停或解绑'
+    if (entry.maxPermission !== 'reply') return
+    if (exec.name === 'feishu_comment_reply' && String(exec.arguments?.commentId) === entry.commentId && (!exec.arguments?.taskId || exec.arguments.taskId === entry.taskId)) return
+    if (exec.name === 'feishu_task_detail' && (!exec.arguments?.taskId || exec.arguments.taskId === entry.taskId)) return
+    return '非负责人评论仅可读取当前任务详情并回复；不得执行代码、命令或访问其他资料'
+  }
+  async function replyToComment(commentId, sessionId, text, taskId) {
+    const entry = activeCommentTurns.get(sessionId)
+    if (!entry || entry.commentId !== String(commentId) || (taskId && taskId !== entry.taskId)) return { ok: false, error: '只能回复当前轮正在处理的评论' }
+    return comments.complete(commentId, sessionId, sanitizeTaskDescription(text), { taskId: entry.taskId })
+  }
+  async function endCommentTurn(sessionId, turn) {
+    const entry = activeCommentTurns.get(sessionId)
+    if (!entry || entry.turn !== turn) return false
+    const result = await comments.endTurn(entry.taskId, entry.commentId, sessionId, turn)
+    if (!result.ok) return false
+    activeCommentTurns.delete(sessionId)
+    return true
+  }
+  async function writeTaskComment(taskId, text, options = {}) {
+    const key = options.key || 'manual:' + randomUUID()
+    const result = await comments.writeOutbound(taskId, '🤖: ' + sanitizeTaskDescription(text).replace(/^🤖:\s*/, ''), { ...options, key })
+    return { ...result, key, detail: result.error || '' }
+  }
+  async function disposeComments() {
+    commentsDisposed = true
+    await comments.dispose()
+    if (!commentLockHandle) return
+    await commentLockHandle.close()
+    if (await readFile(commentsLock, 'utf8').catch(() => '') === String(process.pid)) await unlink(commentsLock)
+    commentLockHandle = null
+  }
 
   async function load() {
     const savedSettings = await readJson(SETTINGS_FILE, {})
@@ -3268,10 +3435,10 @@ function createSyncEngine(ctx) {
     if (nowMs() - last < settings.autoCommentMinSeconds * 1000) return { ok: false, skipped: '间隔不足' }
 
     const path = resolveCli(settings.cliPath)
-    const result = await runCli(path, ['task', 'comment', task.id, body], { timeoutMs: 60_000 })
+    const result = await writeTaskComment(task.id, body)
     if (!result.ok) {
       log(ctx, 'warn', `[comment] 进度写回失败：${(result.detail ?? '').slice(-200)}`)
-      if (pendingProgress.length < 5) pendingProgress.push({ taskId: task.id, sessionId, body, at: nowMs() })
+      if (!result.unknown && pendingProgress.length < 5) pendingProgress.push({ taskId: task.id, sessionId, body, at: nowMs(), key: result.key })
       return { ok: false, error: '写评论失败' }
     }
     lastProgressAt.set(sessionId, nowMs())
@@ -3286,7 +3453,7 @@ function createSyncEngine(ctx) {
     const item = pendingProgress.shift()
     if (!item) return { ok: false, skipped: '没有待补发' }
     const path = resolveCli(settings.cliPath)
-    const result = await runCli(path, ['task', 'comment', item.taskId, item.body], { timeoutMs: 60_000 })
+    const result = await writeTaskComment(item.taskId, item.body, { key: item.key })
     if (result.ok) lastProgressAt.set(item.sessionId, nowMs())
     return { ok: result.ok }
   }
@@ -3490,7 +3657,7 @@ function createSyncEngine(ctx) {
 
     const path = resolveCli(settings.cliPath)
     if (body) {
-      const result = await runCli(path, ['task', 'comment', task.id, body], { timeoutMs: 60_000 })
+      const result = await writeTaskComment(task.id, body)
       if (!result.ok) return { ok: false, error: `写评论失败：${(result.detail ?? '').slice(-300)}` }
     }
     if (complete) {
@@ -5275,7 +5442,7 @@ bucket 只能从枚举里选：
     const body = asString(text).trim() || insightSummaryText()
     if (!body) return { ok: false, error: '没有可写的内容' }
     const path = resolveCli(settings.cliPath)
-    const result = await runCli(path, ['task', 'comment', task.id, body], { timeoutMs: 60_000 })
+    const result = await writeTaskComment(task.id, body)
     if (!result.ok) return { ok: false, error: `写评论失败：${(result.detail ?? '').slice(-160)}` }
     task.lastCommentAt = nowMs()
     await persistState()
@@ -5706,10 +5873,15 @@ bucket 只能从枚举里选：
       id: asString(raw?.id),
       content: asString(raw?.content),
       authorId: asString(raw?.creator?.id ?? raw?.creator_id),
+      authorType: asString(raw?.creator?.type),
+      updatedAt: Number(raw?.updated_at) || 0,
+      replyToCommentId: asString(raw?.reply_to_comment_id),
       createdAt: Number(raw?.created_at) || 0,
     }))
+    const commentPage = byOp('task_comments')
+    Object.assign(comments, { complete: commentPage?.incomplete === false, hasMore: commentPage?.has_more, pageToken: commentPage?.page_token || '' })
     /* 评论人可能不是任务成员（没在 enrich 里露过面）：补查一次姓名，别让输出全是 ou_xxx。 */
-    const unknownAuthors = [...new Set(comments.items.map((item) => item.authorId))]
+    const unknownAuthors = [...new Set(comments.items.filter((item) => item.authorType === 'user').map((item) => item.authorId))]
       .filter((id) => id && !cached(remoteCache.users, id, REMOTE_TTL.users))
     if (unknownAuthors.length > 0) {
       try {
@@ -6519,6 +6691,10 @@ bucket 只能从枚举里选：
         const docs = await syncDocs()
         if (!docs.ok) errors.push(`文档：${docs.detail}`)
         const autoStarted = await autoStartNewTasks()
+        if (settings.comments.enabled) {
+          try { await comments.sync(state.tasks.map((task) => ({ ...task, paused: isSuspended(task.id) })), settings.comments) }
+          catch (error) { errors.push('评论：' + (error?.message || String(error))) }
+        }
         state.lastSyncAt = nowMs()
         state.lastError = errors.length > 0 ? errors.join('；') : null
         state.syncing = false
@@ -6597,6 +6773,15 @@ bucket 只能从枚举里选：
     archiveOrphans,
     onSettingsChange,
     commentProgress,
+    comments,
+    enterCommentStep,
+    guardCommentTool,
+    commentTurn,
+    replyToComment,
+    endCommentTurn,
+    writeTaskComment,
+    disposeComments,
+    setCommentGuardAvailable: (value) => { commentGuardAvailable = value === true },
     flushPendingProgress,
     getState: () => state,
     /* ── 工作区绑定（id 为主键）── */
@@ -6984,6 +7169,20 @@ function mountRoutes(ctx, engine) {
             return
           }
 
+          if (route === '/api/comments' && req.method === 'GET') {
+            sendJson(res, 200, { ok: true, entries: await engine.comments.list() })
+            return
+          }
+          if (route === '/api/comments/action' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = body.action === 'ignore'
+              ? await engine.comments.ignore(asString(body.taskId), asString(body.commentId))
+              : body.action === 'retry'
+                ? await engine.comments.retry(asString(body.taskId), asString(body.commentId))
+                : { ok: false, error: '不支持的评论操作' }
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
           if (route === '/api/tasks/report' && req.method === 'POST') {
             const body = await readBody(req)
             const result = await engine.reportTask(asString(body.taskId ?? body.id), {
@@ -7442,6 +7641,23 @@ function registerTools(ctx, engine) {
 
   register(
     textTool(
+      'feishu_comment_reply',
+      '回复当前轮正在处理的飞书评论。自动标注 AI 身份并关联原评论作者；只允许当前绑定任务的评论，成功返回远端回复 ID。',
+      {
+        commentId: { type: 'string', description: '投递的原评论 ID。' },
+        taskId: { type: 'string', description: '原评论所属任务 GUID，可省略。' },
+        text: { type: 'string', description: '简短回复或执行结论，不包含密钥、内部推理或无关会话内容。' },
+      },
+      async (args, exec) => {
+        const sid = asString(exec?.agent?.id)
+        const result = await engine.replyToComment(asString(args.commentId), sid, asString(args.text), asString(args.taskId))
+        return result.ok ? `已回复评论 ${result.commentId}` : `回复失败：${result.error || '未知错误'}`
+      },
+    ),
+  )
+
+  register(
+    textTool(
       'feishu_task_comment',
       '给一条飞书任务写评论（**写操作**，会真的发到飞书里，同事能看到）。' +
         '「开工」处理完一条任务后，用这个把结论写回去。id 必须是 feishu_tasks 返回过的任务 id。',
@@ -7457,7 +7673,7 @@ function registerTools(ctx, engine) {
           return `本地快照里没有这条任务（${id}）：先 feishu_sync 同步一次，或确认 id 抄对了。`
         }
         const path = resolveCli(engine.getSettings().cliPath)
-        const result = await runCli(path, ['task', 'comment', id, text], { timeoutMs: 60_000 })
+        const result = await engine.writeTaskComment(id, text)
         return result.ok ? `已写入评论：${text.slice(0, 80)}` : `写评论失败：${(result.detail ?? '').slice(-400)}`
       },
     ),
@@ -8071,6 +8287,12 @@ export function apply(ctx, config = {}) {
     /* 插件卸载/热重载时要注销自己注册的东西：路由和工具都会返回 disposer，
        以前这里丢掉了它们，于是旧实例的 HTTP 路由一直挂在已失效的 fiber 上对外服务。 */
     const owned = []
+    try {
+      const guardOff = ctx.tools.guard((exec) => engine.guardCommentTool(exec))
+      const stepOff = ctx.on('agent/pre-step', (payload, next) => engine.enterCommentStep(payload, next))
+      owned.push(guardOff, stepOff)
+      engine.setCommentGuardAvailable(true)
+    } catch { engine.setCommentGuardAvailable(false) }
 
     /**
      * 每个 turn 结束把进展写回任务评论（「会话有任何进展都同步到飞书」）。
@@ -8150,6 +8372,11 @@ export function apply(ctx, config = {}) {
               commands: evidence.commands,
               failed: failure.failed,
             })
+            const comment = engine.commentTurn(sessionId)
+            if (comment) {
+              void engine.endCommentTurn(sessionId, event?.data?.turn).catch(() => undefined)
+              return
+            }
             if (!digest) return
             void engine
               .flushPendingProgress()
@@ -8193,7 +8420,9 @@ export function apply(ctx, config = {}) {
       void boot().catch((error) => {
         log(ctx, 'error', `初始化失败（已忽略）：${error instanceof Error ? error.stack ?? error.message : String(error)}`)
       })
-      return () => {
+      return async () => {
+        schedule.dispose()
+        await engine.disposeComments()
         while (owned.length > 0) {
           const dispose = owned.pop()
           try {
@@ -8202,7 +8431,6 @@ export function apply(ctx, config = {}) {
             /* 注销失败不该阻塞卸载 */
           }
         }
-        schedule.dispose()
         if (typeof disposeSection === 'function') {
           try {
             disposeSection()
