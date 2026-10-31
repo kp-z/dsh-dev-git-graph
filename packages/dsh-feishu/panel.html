@@ -182,6 +182,31 @@
   .comment-note { font-size: 11px; color: var(--p-warn); overflow-wrap: anywhere; }
   .comment-actions { display: flex; gap: 6px; margin-top: 6px; }
   .comments-inbox[hidden] { display: none; }
+  /* 评论沿卡片内容流展开：细分隔、头像轨道，不再嵌套卡片。 */
+  .task-body > .task-card-comments { flex: 1 0 100%; min-width: 0; }
+  .task-card-comments { border-top: 1px solid var(--p-line); padding-top: 8px; }
+  .task-card-comments[hidden], .task-card-comments button[hidden] { display: none; }
+  .card-comments-toolbar { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+  .card-comments-toolbar .card-comments-summary { flex: 1; min-width: 90px; color: var(--p-text-3); font-size: 11px; }
+  .card-comment { display: flex; gap: 8px; padding: 9px 0; min-width: 0; }
+  .card-comment.is-reply { margin-left: 14px; border-left: 1px solid var(--p-line); padding-left: 10px; }
+  .card-comment-avatar { flex: 0 0 22px; width: 22px; height: 22px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--p-sub); color: var(--p-text-2); font-size: 10px; }
+  .card-comment-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .card-comment-main { flex: 1; min-width: 0; }
+  .card-comment-meta { display: flex; align-items: center; gap: 5px 8px; flex-wrap: wrap; font-size: 11px; }
+  .card-comment-author { color: var(--p-text-2); font-weight: 600; }
+  .card-comment-time, .card-comment-role, .card-comment-note { color: var(--p-text-3); font-size: 10px; overflow-wrap: anywhere; }
+  .card-comment-time { margin-left: auto; }
+  .card-comment-content { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; line-height: 1.65; }
+  .card-comment-content.is-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+  .card-comment-controls { display: flex; gap: 10px; align-items: center; }
+  .card-comment-tag { color: var(--p-text-3); font-size: 10px; }
+  .card-comment-tag[data-state="running"], .card-comment-tag[data-state="delivered"] { color: var(--p-accent); }
+  .card-comment-tag[data-state="failed"], .card-comments-error { color: var(--p-warn); }
+  .card-comments-error { margin-top: 5px; font-size: 11px; overflow-wrap: anywhere; }
+  .card-comments-button, .card-comments-toolbar .task-text-action { display: inline-flex; align-items: center; gap: 4px; }
+  .task-card-comments button:focus-visible, .card-comments-button:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+  @media (max-width: 380px) { .card-comment.is-reply { margin-left: 5px; padding-left: 7px; } }
   .settings-card .row-main { flex: 1 1 180px; min-width: 0; }
   #settingsSummary { font-size: 11px; }
   @media (max-width: 380px) { .setting-group-desc { max-width: 150px; } .configuration-tabs button { padding: 7px; } }
@@ -1644,6 +1669,8 @@
   .task[data-priority="P3"] { border-left-color: #94a3b8; }
 
   .prio {
+    position: relative;
+    isolation: isolate;
     flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
@@ -1677,6 +1704,45 @@
     font-weight: 600;
   }
   .prio-empty:hover { border-color: var(--p-accent); color: var(--p-accent); }
+
+  .task-activity { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; font-size: 10px; }
+  .task-activity-bars { display: inline-flex; align-items: flex-end; flex-wrap: wrap; gap: 2px; max-width: 96px; min-height: 17px; padding: 2px 0; }
+  .task-activity-bar { width: 3px; height: 15px; border-radius: 2px; background: var(--p-accent); transform-origin: bottom; animation: task-equalize var(--bar-duration, 1.3s) ease-in-out var(--bar-delay, 0s) infinite; }
+  .task-activity-label { color: var(--p-accent-text); white-space: nowrap; }
+  .task-activity-count { color: var(--p-text-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  @keyframes task-equalize { 0%, 100% { transform: scaleY(.3); opacity: .6; } 45% { transform: scaleY(1); opacity: 1; } 70% { transform: scaleY(.55); opacity: .8; } }
+  @media (prefers-reduced-motion: reduce) { .task-activity-bar { animation: none; transform: scaleY(.7); } }
+
+  /* 优先级底色保留语义；运行状态独立用蓝色光圈，不改变布局或点击目标。 */
+  .prio.is-running::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border: 2px solid var(--p-accent);
+    border-radius: 8px;
+    pointer-events: none;
+    animation: priority-breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes priority-breathe {
+    0%, 100% { opacity: .95; transform: scale(1); box-shadow: 0 0 0 1px color-mix(in srgb, var(--p-accent) 25%, transparent); }
+    50% { opacity: .4; transform: scale(1.1); box-shadow: 0 0 10px 3px color-mix(in srgb, var(--p-accent) 35%, transparent); }
+  }
+  .prio.is-unread::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--p-ok);
+    border: 2px solid var(--p-card);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--p-ok) 45%, transparent);
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .prio.is-running::before { animation: none; opacity: 1; }
+  }
 
   .prio-menu {
     position: fixed;
@@ -1982,15 +2048,6 @@
     min-width: 0;
   }
 
-  .people-label {
-    flex: 0 0 auto;
-    margin-right: 1px;
-    font-size: 10px;
-    color: var(--p-text-3);
-  }
-
-  .people-label::after { content: '：'; }
-
   .avatar {
     display: inline-flex;
     align-items: center;
@@ -2018,15 +2075,10 @@
     display: block;
   }
 
-  .people-names {
-    margin-left: 2px;
-    font-size: 10.5px;
-    color: var(--p-text-2);
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  .people-role-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-right: 2px; color: var(--p-text-3); line-height: 1; cursor: help; }
+  .people-group .avatar:focus-visible, .people-role-icon:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+  .people-group + .people-group { margin-left: 5px; }
+  .people-group[aria-label="负责人"] .avatar { border-color: color-mix(in srgb, var(--p-accent) 45%, var(--p-line)); }
 
   .chip {
     max-width: 100%;
@@ -2800,7 +2852,7 @@
     </div>
     <div class="filter-view-head">
       <div id="filterPresets" class="filter-presets" role="group" aria-label="快捷视图"></div>
-      <span id="filterResult" class="hint" role="status" aria-live="polite"></span>
+      <span id="filterResult" class="task-activity" role="status" aria-live="polite"></span>
     </div>
     <div id="filterSummary" class="filter-summary" role="group" aria-label="当前筛选条件" hidden></div>
     <div id="taskFilterBar" class="task-filter" role="search" hidden>
@@ -3217,6 +3269,8 @@
     loginUrl: null,
     loginNote: '',
     sessions: {},         // task.id → sessionId（开工后立刻显示）
+    cardComments: Object.create(null), // 评论历史独立缓存，不参与 taskCardSignature
+    cardCommentsOpen: Object.create(null), // 卡片重绘 / 筛选保留展开状态
     currentSessionId: '', // 宿主当前会话（client 半体 postMessage 进来）
     version: '', // 插件版本（/api/state 顶层，显示在 CLI chip 上）
     /* 任务过滤条件：工作区 / 状态 / 关键词；存在 localStorage，刷新后还在 */
@@ -4266,10 +4320,32 @@
     var keyword = $('filterKeyword');
     if (keyword && keyword.value !== app.filter.keyword) keyword.value = app.filter.keyword;
     renderSavedFilterViews();
-    var result = $('filterResult');
-    if (result) result.textContent = filterTasksForPanel(list).length + ' / ' + list.length + ' 条';
+    renderTaskActivity(list, filterTasksForPanel(list).length);
     renderFilterSummary(list);
     renderFilterToggle();
+  }
+
+  function renderTaskActivity(list, visibleCount) {
+    var root = $('filterResult');
+    if (!root) return;
+    // 全快照计数：筛选隐藏的运行任务仍各占一根柱，不让日常视图漏报活动。
+    var running = list.filter(function (task) { return task.sessionAlive === true && task.sessionPhase === 'running'; });
+    var summary = '正在运行 ' + running.length + ' 个任务；当前显示 ' + visibleCount + ' 个，共 ' + list.length + ' 个';
+    root.setAttribute('aria-label', summary);
+    root.title = summary;
+    var signature = running.map(function (task) { return task.id + ':' + task.title; }).join('|') + '/' + visibleCount + '/' + list.length;
+    if (root.getAttribute('data-signature') === signature) return;
+    root.setAttribute('data-signature', signature);
+    clear(root);
+    var bars = el('span', { 'class': 'task-activity-bars', 'aria-hidden': 'true' });
+    running.forEach(function (task, index) {
+      var bar = el('span', { 'class': 'task-activity-bar', title: task.title || '运行中任务', 'data-task-id': task.id });
+      bar.style.setProperty('--bar-delay', (-index * .23) + 's');
+      bar.style.setProperty('--bar-duration', (1.05 + (index % 5) * .17) + 's');
+      bars.appendChild(bar);
+    });
+    if (running.length) root.appendChild(bars);
+    root.appendChild(el('span', { 'class': 'task-activity-label', text: running.length ? running.length + ' 运行中' : '空闲' }));
   }
 
   /* 宿主旧代码的常驻提示：不需要用户做别的，重启 DSH 就好 */
@@ -4365,6 +4441,7 @@
       else syncCachedTask(entry.task, task);
       if (!entry.node || entry.signature !== signature) { entry.node = taskNode(entry.task); entry.signature = signature; }
       wanted.push(entry.node);
+      if (entry.node._cardComments) updateCardComments(entry.task);
     });
     reconcilePanelChildren(list, wanted);
   }
@@ -4381,7 +4458,10 @@
   }
 
   function taskCardSignature(task) {
-    return stablePanelSignature([task, app.currentSessionId, app.sharedList, app.busyTask[task.id], app.settings, app.serverFeatures, app.workspaces]);
+    // 活动只更新灯和运行柱，不让下一次任务poll重建卡片、丢评论草稿。
+    var cardTask = Object.assign({}, task);
+    ['sessionAlive', 'sessionPhase', 'sessionTurn', 'sessionUnread'].forEach(function (key) { delete cardTask[key]; });
+    return stablePanelSignature([cardTask, app.currentSessionId, app.sharedList, app.busyTask[task.id], app.settings, app.serverFeatures, app.workspaces]);
   }
 
   function flushPendingTaskRender() {
@@ -4601,11 +4681,16 @@
   }
 
   function priorityChip(t, prio) {
+    var running = t.sessionAlive === true && t.sessionPhase === 'running';
+    var unread = t.sessionAlive === true && !running && t.sessionUnread === true;
+    var stateLabel = running ? '正在运行' : unread ? '运行结束，尚未查看' : '';
+    var priorityLabel = prio ? '优先级 ' + prio : '未设置优先级';
     var chip = el('button', {
       type: 'button',
-      'class': prio ? 'prio' : 'prio prio-empty',
-      title: prio ? '优先级 ' + prio + '（点击修改）' : '设优先级（点击选择）',
-      'aria-label': prio ? '优先级 ' + prio : '未设置优先级',
+      'class': (prio ? 'prio' : 'prio prio-empty') + (running ? ' is-running' : unread ? ' is-unread' : ''),
+      'data-activity-task': String(t.id || ''),
+      title: priorityLabel + (stateLabel ? ' · ' + stateLabel : '') + '（点击修改优先级）',
+      'aria-label': priorityLabel + (stateLabel ? '，' + stateLabel : ''),
     });
     if (prio) chip.setAttribute('data-value', prio);
     chip.textContent = prio || '--';
@@ -5375,11 +5460,12 @@
       var alive = t.sessionAlive === true;
       var sessChip = el('button', {
         type: 'button',
-        'class': 'sess-inline'
+        'class': 'sess-inline',
+        'data-activity-task': String(t.id || '')
       });
       /* 会话活着 → 绿灯；只是已结束 → 灰点（不是错误，不该报警）。 */
-      var running = t.sessionPhase === 'running';
-      var unread = t.sessionUnread === true;
+      var running = alive && t.sessionPhase === 'running';
+      var unread = alive && t.sessionUnread === true;
       /* 一个状态灯，四种含义：运行中（蓝·呼吸）/ 跑完未读（绿·实心）/
          空闲已读（绿·淡）/ 会话已结束（灰） */
       var lampState = running ? 'running' : unread ? 'unread' : alive ? 'idle' : 'dead';
@@ -5387,26 +5473,27 @@
       sessChip.appendChild(el('span', { 'class': 'lamp lamp-' + lampState }));
       /* 卡片上只留「Session」保持安静；完整 id 放悬停（title）与读屏（aria-label）。 */
       sessChip.appendChild(el('span', { text: 'Session' }));
-      sessChip.setAttribute('aria-label', '会话 ' + sid + (alive ? '（运行中）' : '（已结束）'));
+      updateSessionActivityChip(sessChip, t, sid);
+      function sessionTipState() { return String(sid) === String(app.currentSessionId) ? '当前对话' : sessionActivityLabel(currentActivityTask(t)); }
       sessChip.setAttribute('data-session', String(sid));
       /* 悬停给完整 id + 复制按钮；点 chip 仍然是「打开 / 复制」的旧行为 */
       sessChip.addEventListener('mouseenter', function () {
         cancelSessionTipHide();
-        showSessionTip(sessChip, sid, isCurrent ? '当前对话' : alive ? '运行中' : '已结束');
+        showSessionTip(sessChip, sid, sessionTipState());
       });
       sessChip.addEventListener('mouseleave', scheduleSessionTipHide);
       sessChip.addEventListener('focus', function () {
         cancelSessionTipHide();
-        showSessionTip(sessChip, sid, isCurrent ? '当前对话' : alive ? '运行中' : '已结束');
+        showSessionTip(sessChip, sid, sessionTipState());
       });
       sessChip.addEventListener('blur', scheduleSessionTipHide);
       sessChip.addEventListener('click', function () {
         /* 当前对话这张卡再「跳到」它会话没意义，反而容易跳到别处——直接提示一下。 */
-        if (isCurrent) {
+        if (String(sid) === String(app.currentSessionId)) {
           toast('这就是当前对话');
           return;
         }
-        if (!alive) {
+        if (currentActivityTask(t).sessionAlive !== true) {
           onCopySession(sid, '对话已结束（宿主重启过就不在了），已复制 ID');
           return;
         }
@@ -5424,6 +5511,7 @@
     if (t.boundOnly && !t.started) meta.appendChild(el('span', { 'class': 'badge', text: '已绑定' }));
     if (t.started) meta.appendChild(el('span', { 'class': 'badge badge-ok', text: '已开工' }));
     if (t.done) meta.appendChild(el('span', { 'class': 'badge badge-done', text: '已完成' }));
+    if (t.reopenPending) meta.appendChild(el('span', { 'class': 'hint', text: '已重开 · 飞书待同步', title: t.reopenError || '正在将原任务重开状态写回飞书' }));
     if (t.suspension && t.suspension.active) headRow.appendChild(el('span', { 'class': 'hint', text: '已挂起', title: t.suspension.reason || '任务已挂起' }));
     if (isCurrent) meta.appendChild(el('span', { 'class': 'badge badge-current', text: '当前对话' }));
     /* 触发条件与工作区统一用下面的 chip 表达（不论来自清单字段还是旧描述），这里不再出徽标。 */
@@ -5445,13 +5533,36 @@
 
     function personGroup(label, list) {
       if (!list.length) return null;
-      var group = el('span', { 'class': 'people-group' });
-      group.appendChild(el('span', { 'class': 'people-label', text: label }));
+      var group = el('span', { 'class': 'people-group', role: 'group', 'aria-label': label });
+      var icon = el('span', {
+        'class': 'people-role-icon',
+        tabindex: '0',
+        title: label + '：' + list.map(function (m) { return m.name || m.id || '未知人员'; }).join('、'),
+        'aria-label': label + '，' + list.length + ' 人'
+      });
+      var svgNs = 'http://www.w3.org/2000/svg';
+      var svg = document.createElementNS(svgNs, 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '14');
+      svg.setAttribute('height', '14');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '1.7');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.setAttribute('aria-hidden', 'true');
+      var path = document.createElementNS(svgNs, 'path');
+      path.setAttribute('d', label === '负责人'
+        ? 'M20 21v-2a7 7 0 0 0-14 0v2 M17 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0'
+        : 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12 M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0');
+      svg.appendChild(path);
+      icon.appendChild(svg);
+      group.appendChild(icon);
       var shown = list.slice(0, 4);
       for (var i = 0; i < shown.length; i++) {
         (function (m) {
           var who = m.name || m.id || '';
-          var av = el('span', { 'class': 'avatar', title: who });
+          var av = el('span', { 'class': 'avatar', tabindex: '0', title: label + '：' + who, 'aria-label': label + '：' + who });
           if (m.avatar) {
             av.appendChild(el('img', { src: m.avatar, alt: who, loading: 'lazy' }));
           } else {
@@ -5464,11 +5575,11 @@
         group.appendChild(el('span', {
           'class': 'avatar more',
           text: '+' + (list.length - shown.length),
-          title: list.slice(shown.length).map(function (m) { return m.name || m.id; }).join('、')
+          tabindex: '0',
+          'aria-label': label + '，另有 ' + (list.length - shown.length) + ' 人',
+          title: label + '：' + list.slice(shown.length).map(function (m) { return m.name || m.id; }).join('、')
         }));
       }
-      var names = list.map(function (m) { return m.name || ''; }).filter(Boolean).slice(0, 2).join('、');
-      if (names) group.appendChild(el('span', { 'class': 'people-names', text: names }));
       return group;
     }
 
@@ -5621,6 +5732,11 @@
     var documentButton = makeButton('文档', 'task-text-action', null, busy, function () { openTaskDocumentMenu(documentButton, t); });
     actions.appendChild(documentButton);
     actions.appendChild(makeButton('同步', 'task-text-action', null, busy, function () { onSyncTask(t); }));
+    var commentControls = cardCommentsControl(t);
+    if (commentControls.button && commentControls.section) {
+      actions.appendChild(commentControls.button);
+      item._cardComments = commentControls; // 动态区域公开节点，不影响整卡缓存签名
+    }
     actions.appendChild(el('span', { 'class': 'task-action-spacer' }));
     var suspensionControl = suspensionControlNode(t);
     if (suspensionControl) actions.appendChild(suspensionControl);
@@ -5631,12 +5747,226 @@
     var body = el('div', { 'class': 'task-body' });
     body.appendChild(main);
     body.appendChild(actions);
+    if (commentControls.section) body.appendChild(commentControls.section);
     item.appendChild(body);
 
     return item;
   }
 
 
+
+  /* ---------------- 任务卡评论：GET 查看，显式处理才投递原会话 ---------------- */
+
+  function cardCommentsState(id) {
+    var cache = app.cardComments || (app.cardComments = Object.create(null));
+    return cache[id] || (cache[id] = { loaded: false, items: [], entries: [], expanded: Object.create(null), lastReadAt: 0 });
+  }
+
+  function cardCommentHistorySupported() {
+    return Array.isArray(app.serverFeatures) && app.serverFeatures.indexOf('tasks.comment-history') !== -1;
+  }
+
+  function cardCommentsTask(t) {
+    return ((app.snap && app.snap.tasks) || []).filter(function (task) { return task.id === t.id; })[0] || t;
+  }
+
+  function cardCommentEntry(state, comment) {
+    return (state.entries || []).filter(function (entry) { return String(entry.commentId) === String(comment.id); })[0];
+  }
+
+  function cardCommentStatus(entry) {
+    var labels = { pending: '待处理', delivered: '已投递', running: '处理中', replied: '已回复', ignored: '忽略', failed: '失败', reply_pending: '待回复', unknown: '待核对' };
+    return entry ? (labels[entry.status] || '历史') : '历史';
+  }
+
+  function cardCommentIsOwn(comment, entry) {
+    return /^(app|bot|ai)$/i.test(String(comment.authorType || '')) || !!(entry && entry.reason === 'outbound-ledger');
+  }
+
+  function cardCommentSubmitReason(t, state, comment, entry) {
+    t = cardCommentsTask(t);
+    if (!cardCommentHistorySupported()) return '重启后可用：当前宿主不支持任务评论历史';
+    if (cardCommentIsOwn(comment, entry)) return '自己的 AI 回复仅供查看，不会再次投递';
+    if (!(t.sessionId || app.sessions[t.id])) return '请先绑定会话，评论只投递到任务已绑定的原会话';
+    if (t.done) return '任务已完成，不能处理评论';
+    if (t.suspension && t.suspension.active) return '任务已挂起，恢复后才能处理评论';
+    if (state.enabled === false) return '评论协作未开启，请在设置中开启';
+    if (state.loading || state.submitting) return '正在读取或处理评论，请稍候';
+    if (state.error || state.complete === false) return '评论读取不完整，请刷新后再处理';
+    if (entry && (entry.status !== 'ignored' || entry.deliveryText || entry.turn != null)) return '此评论已有处理记录，请查看对话';
+    return '';
+  }
+
+  function cardCommentIcon(kind) {
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    [['viewBox', '0 0 24 24'], ['width', '13'], ['height', '13'], ['fill', 'none'], ['stroke', 'currentColor'], ['stroke-width', '1.7'], ['stroke-linecap', 'round'], ['stroke-linejoin', 'round'], ['aria-hidden', 'true']].forEach(function (pair) { svg.setAttribute(pair[0], pair[1]); });
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', kind === 'refresh' ? 'M20 7v5h-5 M4 17v-5h5 M6 6a8 8 0 0 1 13 2 M18 18A8 8 0 0 1 5 16' : 'M21 11a8 8 0 0 1-8 8H7l-4 3V7a4 4 0 0 1 4-4h6a8 8 0 0 1 8 8Z');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function cardCommentsControl(t) {
+    var section = el('section', { 'class': 'task-card-comments', id: 'task-comments-' + encodeURIComponent(t.id), 'aria-label': '任务评论' });
+    var button = makeButton('评论', 'task-text-action card-comments-button', null, false, function () {
+      var open = app.cardCommentsOpen || (app.cardCommentsOpen = Object.create(null));
+      open[t.id] = !open[t.id];
+      updateCardComments(t);
+      if (open[t.id]) loadCardComments(t, { refresh: true });
+    });
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-controls', section.id);
+    button.title = '查看飞书评论记录；只读取，不同步或处理评论';
+    button.insertBefore(cardCommentIcon('comment'), button.firstChild);
+    section.hidden = true;
+    return { button: button, section: section };
+  }
+
+  function updateCardComments(t) {
+    var cached = app.taskCache && app.taskCache[t.id];
+    if (!cached || !cached.node || !cached.node._cardComments) return;
+    var controls = cached.node._cardComments;
+    var state = cardCommentsState(t.id);
+    var open = !!(app.cardCommentsOpen && app.cardCommentsOpen[t.id]);
+    controls.button.setAttribute('aria-expanded', String(open));
+    controls.section.hidden = !open;
+    // 未读取前不编造数量；读取后的数量只来自真实历史。
+    controls.button.setAttribute('aria-label', state.loaded ? '评论，已读取 ' + state.items.length + ' 条' : '评论');
+    if (!open) return;
+    t = cardCommentsTask(t);
+    var signature = JSON.stringify([state.items, state.entries, state.expanded, state.loading, state.submitting, state.error, state.actionError, state.loaded, state.complete, state.diagnostic, state.enabled, t.members, t.sessionId, t.done, t.suspension, app.serverFeatures]);
+    if (controls.signature === signature) { measureCardCommentOverflow(controls.section); return; }
+    controls.signature = signature;
+    clear(controls.section);
+    var toolbar = el('div', { 'class': 'card-comments-toolbar' });
+    var summary = state.loading ? '读取中…' : state.loaded ? (state.items.length ? state.items.length + ' 条评论' : '暂无评论') : '展开后读取评论';
+    var diag = state.diagnostic || {};
+    if (diag.lastScanAt) summary += ' · 扫描 ' + fmtRel(diag.lastScanAt);
+    if (typeof diag.readCount === 'number') summary += ' · 读 ' + diag.readCount;
+    if (typeof diag.newCount === 'number') summary += ' · 新 ' + diag.newCount;
+    toolbar.appendChild(el('span', { 'class': 'card-comments-summary', text: summary, title: diag.reason || '' }));
+    var refresh = makeButton('刷新', 'task-text-action', null, state.loading || !!state.submitting, function () { loadCardComments(t, { refresh: true }); });
+    refresh.title = '只刷新评论记录，不投递或处理';
+    refresh.insertBefore(cardCommentIcon('refresh'), refresh.firstChild);
+    toolbar.appendChild(refresh);
+    var sid = t.sessionId || app.sessions[t.id];
+    var session = makeButton('对话', 'task-text-action', null, !sid, function () { onOpenSession(t.sessionId || app.sessions[t.id], t.title); });
+    session.title = sid ? '打开任务已绑定的原会话，查看评论处理进展' : '任务尚未绑定会话';
+    toolbar.appendChild(session);
+    controls.section.appendChild(toolbar);
+    var notice = !cardCommentHistorySupported() ? '重启后可用：当前宿主尚不支持任务评论历史。' : '';
+    if (state.error) notice += (notice ? ' ' : '') + '读取失败：' + state.error;
+    else if (state.complete === false) notice += (notice ? ' ' : '') + '评论未读完整，请刷新重试。';
+    if (state.actionError) notice += (notice ? ' ' : '') + '处理失败：' + state.actionError;
+    if (notice) controls.section.appendChild(el('div', { 'class': 'card-comments-error', role: 'status', 'aria-live': 'polite', text: notice }));
+    if (diag.reason) controls.section.appendChild(el('div', { 'class': 'card-comment-note', text: diag.reason }));
+    var list = el('div', { role: 'list', 'aria-label': '评论记录' });
+    // 原生回复紧跟父评论；缺失父评论或循环引用也保留，不隐藏真实记录。
+    var byId = Object.create(null), children = Object.create(null), seen = Object.create(null);
+    state.items.forEach(function (comment) { byId[comment.id] = comment; });
+    state.items.forEach(function (comment) { var parent = comment.replyToCommentId; if (parent && byId[parent] && parent !== comment.id) (children[parent] || (children[parent] = [])).push(comment); });
+    function appendComment(comment) {
+      if (seen[comment.id]) return;
+      seen[comment.id] = true;
+      var entry = cardCommentEntry(state, comment);
+      var author = comment.author;
+      var authorName = typeof author === 'string' ? author : author && (author.name || author.id);
+      var member = (Array.isArray(t.members) ? t.members : []).filter(function (m) { return m.id === comment.authorId; })[0];
+      authorName = authorName || (member && member.name) || comment.authorId || '未知作者';
+      var own = cardCommentIsOwn(comment, entry);
+      var item = el('div', { 'class': 'card-comment' + (comment.replyToCommentId ? ' is-reply' : ''), role: 'listitem' });
+      var avatar = el('span', { 'class': 'card-comment-avatar', 'aria-hidden': 'true' });
+      var avatarUrl = (author && typeof author === 'object' && author.avatar) || (member && member.avatar);
+      if (avatarUrl && /^https?:\/\//i.test(avatarUrl)) avatar.appendChild(el('img', { src: avatarUrl, alt: '', loading: 'lazy' }));
+      else avatar.textContent = String(authorName).trim().slice(0, 1).toUpperCase();
+      item.appendChild(avatar);
+      var main = el('div', { 'class': 'card-comment-main' });
+      var meta = el('div', { 'class': 'card-comment-meta' });
+      meta.appendChild(el('span', { 'class': 'card-comment-author', text: authorName }));
+      var role = own ? '[🤖AI 回复]' : member && member.role === 'assignee' ? '负责人' : member ? '关注人' : '';
+      if (role) meta.appendChild(el('span', { 'class': 'card-comment-role', text: role }));
+      meta.appendChild(el('span', { 'class': 'card-comment-tag', 'data-state': entry ? entry.status : 'history', text: cardCommentStatus(entry) }));
+      meta.appendChild(el('time', { 'class': 'card-comment-time', text: fmtRel(comment.createdAt), title: fmtAbs(comment.createdAt) + (comment.updatedAt && comment.updatedAt !== comment.createdAt ? ' · 编辑 ' + fmtAbs(comment.updatedAt) : '') }));
+      main.appendChild(meta);
+      var content = String(comment.content || '（无文本）');
+      if (own) content = content.replace(/^\[🤖AI 回复\]\s*\n-{5,}\s*\n/, '').replace(/\n-{5,}\s*$/, '');
+      var expanded = !!state.expanded[comment.id];
+      var text = el('div', { 'class': 'card-comment-content' + (expanded ? '' : ' is-clamped'), text: content });
+      main.appendChild(text);
+      if (entry && (entry.reason || entry.error)) main.appendChild(el('div', { 'class': 'card-comment-note', text: entry.display || entry.error || (entry.reason === 'outbound-ledger' ? '自己的回复 · 仅查看' : entry.reason) }));
+      var row = el('div', { 'class': 'card-comment-controls' });
+      var more = makeButton(expanded ? '收起' : '展开', 'task-text-action', null, false, function () { state.expanded[comment.id] = !state.expanded[comment.id]; updateCardComments(t); });
+      more.setAttribute('aria-expanded', String(expanded));
+      more.hidden = !expanded && content.split('\n').length <= 4 && content.length <= 80;
+      text._expandControl = more; row.appendChild(more);
+      if (!own && (!entry || ['pending', 'ignored'].indexOf(entry.status) !== -1)) {
+        var reason = cardCommentSubmitReason(t, state, comment, entry);
+        var submit = makeButton(state.submitting === comment.id ? '处理中' : '处理', 'task-text-action', null, !!reason, function () { submitCardComment(t, comment.id); });
+        submit.title = reason || '将这条评论投递到任务已绑定的原会话，可能唤醒该会话；不会新建或换绑';
+        row.appendChild(submit);
+      }
+      if (row.firstChild) main.appendChild(row);
+      item.appendChild(main); list.appendChild(item);
+      (children[comment.id] || []).forEach(appendComment);
+    }
+    state.items.filter(function (comment) { return !comment.replyToCommentId || !byId[comment.replyToCommentId]; }).forEach(appendComment);
+    state.items.forEach(appendComment);
+    controls.section.appendChild(list);
+    measureCardCommentOverflow(controls.section);
+  }
+
+  function measureCardCommentOverflow(section) {
+    if (!section.isConnected || section.hidden || !section.querySelectorAll) return;
+    Array.prototype.forEach.call(section.querySelectorAll('.card-comment-content.is-clamped'), function (content) {
+      if (content._expandControl && content.clientHeight > 0) content._expandControl.hidden = content.scrollHeight <= content.clientHeight + 1;
+    });
+  }
+
+  function loadCardComments(t, opts) {
+    var state = cardCommentsState(t.id);
+    if (state.promise) return state.promise;
+    if (state.submitting || !(app.cardCommentsOpen && app.cardCommentsOpen[t.id])) return Promise.resolve();
+    if (opts && opts.quiet && nowMs() - state.lastReadAt < 20000) return Promise.resolve();
+    state.loading = true; state.error = ''; state.lastReadAt = nowMs();
+    updateCardComments(t);
+    var path = 'tasks/comments?taskId=' + encodeURIComponent(t.id) + (opts && opts.refresh ? '&refresh=true' : '');
+    state.promise = api(path, undefined, { silent: true }).then(function (data) {
+      if (!data || data.ok !== true || !data.comments || !Array.isArray(data.comments.items)) throw new Error((data && (data.error || data.reason)) || '宿主未返回有效评论记录');
+      state.items = data.comments.items;
+      state.entries = Array.isArray(data.entries) ? data.entries : [];
+      state.loaded = true; state.enabled = data.enabled;
+      state.complete = data.comments.complete !== false && data.comments.ok === true;
+      state.diagnostic = data.diagnostic || {};
+      var errors = data.comments.errors;
+      state.error = Array.isArray(errors) && errors.length ? errors.map(function (error) { return typeof error === 'string' ? error : error.error || error.message || JSON.stringify(error); }).join('；') : data.comments.ok !== true ? '宿主读取评论失败' : '';
+    }).catch(function (error) { state.error = error.message === 'network' ? '连不上宿主服务' : error.message || '无法读取评论'; }).then(function () {
+      state.loading = false; state.promise = null; updateCardComments(t);
+    });
+    return state.promise;
+  }
+
+  function pollCardComments() {
+    if (document.hidden || !app.cardCommentsOpen) return;
+    Object.keys(app.cardCommentsOpen).forEach(function (id) {
+      var cached = app.taskCache && app.taskCache[id];
+      if (!app.cardCommentsOpen[id] || !cached || !cached.node || !cached.node._cardComments || !cached.node.isConnected) return;
+      updateCardComments(cached.task);
+      loadCardComments(cached.task, { quiet: true, refresh: true });
+    });
+  }
+
+  function submitCardComment(t, commentId) {
+    var state = cardCommentsState(t.id);
+    var comment = state.items.filter(function (item) { return item.id === commentId; })[0];
+    if (!comment || cardCommentSubmitReason(t, state, comment, cardCommentEntry(state, comment))) return Promise.resolve();
+    state.submitting = commentId; state.actionError = ''; updateCardComments(t);
+    return api('comments/action', { taskId: t.id, commentId: commentId, action: 'submit' }, { silent: true }).then(function (data) {
+      if (!data || data.ok !== true) throw new Error((data && (data.error || data.reason || data.message)) || '宿主未确认投递结果');
+      // 不乐观编造已投递；重新读取Host真实账本，不创建或切换会话。
+      state.submitting = ''; return loadCardComments(t, { refresh: true });
+    }).catch(function (error) { state.submitting = ''; state.actionError = error.message || '无法处理评论'; updateCardComments(t); });
+  }
 
   /* ---------------- 渲染：任务卡上的文档行 ---------------- */
 
@@ -7289,19 +7619,167 @@
   }
 
 
+  /* ---------------- 会话活动：同源SSE，独立于任务同步 / 编辑 / 浮层 ---------------- */
+
+  function activityState() {
+    return app.activity || (app.activity = { source: null, generation: 0, revision: -1, serial: 0,
+      sessions: Object.create(null), baseline: false, live: false, retryTimer: null, retryDelay: 20000, disposed: false });
+  }
+
+  function currentActivityTask(task) {
+    return ((app.snap && app.snap.tasks) || []).find(function (row) { return row.id === task.id; }) || task;
+  }
+
+  function sessionActivityLabel(task) {
+    if (task.sessionAlive !== true) return '已结束';
+    return task.sessionPhase === 'running' ? '正在运行' : task.sessionUnread === true ? '运行结束，尚未查看' : '空闲，已查看';
+  }
+
+  function updateSessionActivityChip(chip, task, sid) {
+    var alive = task.sessionAlive === true;
+    var running = alive && task.sessionPhase === 'running';
+    var unread = alive && !running && task.sessionUnread === true;
+    var lamp = chip.querySelector('.lamp');
+    if (lamp) lamp.className = 'lamp lamp-' + (running ? 'running' : unread ? 'unread' : alive ? 'idle' : 'dead');
+    chip.classList.toggle('is-running', running);
+    var label = '会话 ' + sid + '（' + sessionActivityLabel(task) + '）';
+    chip.setAttribute('aria-label', label);
+    chip.title = label;
+  }
+
+  function updateTaskActivityNodes() {
+    var tasks = (app.snap && app.snap.tasks) || [];
+    var byId = Object.create(null);
+    tasks.forEach(function (task) {
+      byId[String(task.id)] = task;
+      var entry = app.taskCache && app.taskCache[task.id];
+      if (entry) syncCachedTask(entry.task, task);
+    });
+    // 只碰状态节点；输入、菜单、评论草稿、整张卡及焦点都不动。
+    function update(node) {
+      var task = byId[node.getAttribute('data-activity-task')];
+      if (!task) return;
+      if (node.classList.contains('prio')) {
+        var running = task.sessionAlive === true && task.sessionPhase === 'running';
+        var unread = task.sessionAlive === true && !running && task.sessionUnread === true;
+        node.classList.toggle('is-running', running);
+        node.classList.toggle('is-unread', unread);
+        var priority = node.getAttribute('data-value');
+        var label = priority ? '优先级 ' + priority : '未设置优先级';
+        var state = running ? '正在运行' : unread ? '运行结束，尚未查看' : '';
+        node.title = label + (state ? ' · ' + state : '') + '（点击修改优先级）';
+        node.setAttribute('aria-label', label + (state ? '，' + state : ''));
+      } else if (node.classList.contains('sess-inline')) {
+        updateSessionActivityChip(node, task, node.getAttribute('data-session') || task.sessionId);
+      }
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('[data-activity-task]'), update);
+    // 筛选暂时卸下的缓存卡也保持最新，下次显示不会恢复旧灯。
+    Object.keys(app.taskCache || {}).forEach(function (id) {
+      var node = app.taskCache[id].node;
+      if (node && !node.isConnected) Array.prototype.forEach.call(node.querySelectorAll('[data-activity-task]'), update);
+    });
+    renderTaskActivity(tasks, filterTasksForPanel(tasks).length);
+  }
+
+  function mergeActivitySnapshot(snapshot) {
+    var activity = activityState();
+    if (!activity.baseline) return;
+    (snapshot.tasks || []).forEach(function (task) {
+      if (!task.sessionId) return;
+      var session = activity.sessions[String(task.sessionId)];
+      var alive = !!(session && session.alive);
+      task.sessionAlive = alive;
+      task.sessionPhase = alive ? session.phase : 'idle';
+      task.sessionTurn = session ? session.turn : 0;
+      task.sessionUnread = alive && session.unread === true;
+    });
+  }
+
+  function stopActivityStream() {
+    var activity = activityState();
+    activity.generation++;
+    activity.live = false;
+    if (activity.source) { activity.source.close(); activity.source = null; }
+    if (activity.retryTimer) clearTimeout(activity.retryTimer);
+    activity.retryTimer = null;
+  }
+
+  function connectActivityStream() {
+    var activity = activityState();
+    if (activity.disposed || document.hidden || activity.source || typeof window.EventSource !== 'function') return;
+    var url;
+    try {
+      url = new URL(API_BASE + 'sessions/activity', location.href);
+      if (url.origin !== location.origin || !/^https?:$/.test(url.protocol)) return;
+    } catch (_) { return; }
+    var generation = ++activity.generation;
+    activity.revision = -1; // 每条新连接第一份全量是新基线，允许宿主重启后的低revision。
+    var source;
+    function fail() {
+      if (generation !== activity.generation || activity.disposed) return;
+      stopActivityStream(); // 不用EventSource的隐式快速重试：404/旧宿主不得忙循环。
+      schedulePoll();
+      if (!document.hidden) {
+        var delay = activity.retryDelay;
+        activity.retryDelay = Math.min(delay * 2, 120000);
+        activity.retryTimer = setTimeout(function () { activity.retryTimer = null; connectActivityStream(); }, delay);
+      }
+    }
+    try { source = new window.EventSource(url.href); } catch (_) { fail(); return; }
+    activity.source = source;
+    source.addEventListener('activity', function (event) {
+      if (generation !== activity.generation || activity.disposed || document.hidden) return;
+      var data;
+      try { data = JSON.parse(event.data); } catch (_) { fail(); return; }
+      if (!data || !Number.isSafeInteger(data.revision) || data.revision < 0 || !Array.isArray(data.sessions)) { fail(); return; }
+      if (data.revision <= activity.revision) return;
+      var sessions = Object.create(null);
+      for (var i = 0; i < data.sessions.length; i++) {
+        var row = data.sessions[i];
+        if (!row || typeof row.id !== 'string' || typeof row.alive !== 'boolean' ||
+          (row.phase !== 'running' && row.phase !== 'idle') || !Number.isSafeInteger(row.turn) || row.turn < 0 || typeof row.unread !== 'boolean') { fail(); return; }
+        sessions[row.id] = { alive: row.alive, phase: row.phase, turn: row.turn, unread: row.unread };
+      }
+      activity.sessions = sessions;
+      activity.revision = data.revision;
+      activity.serial++;
+      activity.baseline = true;
+      activity.live = true;
+      activity.retryDelay = 20000;
+      mergeActivitySnapshot(app.snap);
+      updateTaskActivityNodes();
+    });
+    source.addEventListener('error', fail);
+  }
+
+  function disposeActivityPanel() {
+    var activity = activityState();
+    activity.disposed = true;
+    stopActivityStream();
+    if (app.pollTimer) clearTimeout(app.pollTimer);
+    app.pollTimer = null;
+    if (typeof taskRenderObserver !== 'undefined' && taskRenderObserver) taskRenderObserver.disconnect();
+  }
+
   /* ---------------- 数据加载与轮询 ---------------- */
 
   function load(opts) {
     if (app.loadPromise) return app.loadPromise;
     var quiet = !!(opts && opts.quiet);
     var mutationRevision = app.stateMutationRevision || 0;
+    var activitySerial = app.activity ? app.activity.serial : 0;
+    var activityWasLive = !!(app.activity && app.activity.live);
     var promise = api('state', undefined, { silent: quiet }).then(function (data) {
       if ((app.stateMutationRevision || 0) !== mutationRevision) return;
       var next = (data && data.state) || {};
+      // SSE权威覆盖；断线后新poll正常降级，但先发出的慢load不得盖掉后来活动。
+      if (app.activity && (app.activity.live || activityWasLive || app.activity.serial > activitySerial)) mergeActivitySnapshot(next);
       app.settings = (data && data.settings) || {};
       app.promptDefaults = (data && data.promptDefaults) || app.promptDefaults || {};
       app.snap = next;
       if (app.taskCache) (next.tasks || []).forEach(function (task) { var entry = app.taskCache[task.id]; if (entry) syncCachedTask(entry.task, task); });
+      if (typeof updateTaskActivityNodes === 'function') updateTaskActivityNodes();
       /* 版本在响应的顶层（不是 state 里），单独存一份 */
       app.version = (data && data.version) || '';
       app.workspaces = Array.isArray(data && data.workspaces) ? data.workspaces : [];
@@ -7323,6 +7801,8 @@
           renderHostStaleBar();
         });
       }
+      // 共用现有load轮询，即便任务快照未变化也安静更新可见展开评论。
+      if (app.cardCommentsOpen) pollCardComments();
       /* 20 秒一次的轮询里，数据没变就别整体重绘（重绘会打断输入、也让面板发飘） */
       var sig = stateSignature(next);
       if (app.loadedOnce && sig === app.lastSig) {
@@ -7336,7 +7816,8 @@
       }
       app.loadedOnce = true;
       renderAll();
-      markCurrentSessionSeen();
+      // 初次context可能先于state到达，只兑现用户切会话时排队的已读操作。
+      if (app.pendingSeenSession === app.currentSessionId) { app.pendingSeenSession = ''; markCurrentSessionSeen(); }
       maybeAutoInsight();
     }, function () {
       /* api() 已按 silent 决定是否 toast */
@@ -7370,7 +7851,7 @@
   function schedulePoll() {
     if (app.pollTimer) clearTimeout(app.pollTimer);
     app.pollTimer = null;
-    if (document.hidden) return;
+    if (document.hidden || (app.activity && app.activity.disposed)) return;
     var delay = (app.snap && app.snap.syncing) ? 3000 : 20000;
     app.pollTimer = setTimeout(function () {
       app.pollTimer = null;
@@ -7945,6 +8426,7 @@
     });
 
     window.addEventListener('message', function (e) {
+      if (!e || e.source !== window.parent || e.origin !== window.location.origin) return;
       var d = e && e.data;
       if (!d || typeof d !== 'object') return;
       if (d.type === 'dsh-feishu:theme') {
@@ -7962,8 +8444,13 @@
         var next = typeof d.sessionId === 'string' ? d.sessionId : '';
         var workspace = { id: typeof d.workspaceId === 'string' ? d.workspaceId : '', path: typeof d.workspacePath === 'string' ? d.workspacePath : '' };
         if (next !== app.currentSessionId || JSON.stringify(workspace) !== JSON.stringify(app.currentWorkspace || {})) {
+          var sessionChanged = next !== app.currentSessionId;
           app.currentSessionId = next;
           app.currentWorkspace = workspace;
+          if (sessionChanged) {
+            if (app.loaded) markCurrentSessionSeen();
+            else app.pendingSeenSession = next;
+          }
           resolveProjectFilter(app.filter);
           renderTasks();
         }
@@ -7985,8 +8472,16 @@
     wireDocPrompt();
 
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) { if (app.pollTimer) clearTimeout(app.pollTimer); app.pollTimer = null; }
-      else { load({ quiet: true }).then(schedulePoll); deferAuxiliaryLoads(); }
+      if (document.hidden) { stopActivityStream(); if (app.pollTimer) clearTimeout(app.pollTimer); app.pollTimer = null; }
+      else { connectActivityStream(); load({ quiet: true }).then(schedulePoll); deferAuxiliaryLoads(); }
+    });
+    window.addEventListener('pagehide', disposeActivityPanel);
+    window.addEventListener('pageshow', function (event) {
+      if (event.persisted) {
+        activityState().disposed = false;
+        if (typeof taskRenderObserver !== 'undefined' && taskRenderObserver) taskRenderObserver.observe(document.body, { childList: true, subtree: true });
+        connectActivityStream(); load({ quiet: true }).then(schedulePoll);
+      }
     });
   }
 
@@ -8014,6 +8509,7 @@
     taskRenderObserver.observe(document.body, { childList: true, subtree: true });
   }
   renderAll();  // 空态先显示，辅助图表等首份state后分批加载
+  connectActivityStream();
   load().then(function () { schedulePoll(); deferAuxiliaryLoads(); });
 })();
 </script>

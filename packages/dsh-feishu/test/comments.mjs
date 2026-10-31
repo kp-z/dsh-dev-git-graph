@@ -37,7 +37,8 @@ await test('complete baseline only: historical comments never execute', async ()
 })
 await test('failed, incomplete and malformed scan never advances baseline or seen', async () => {
   for (const result of [{ ok: false, complete: true, items: [comment('old')] }, { ok: true, complete: false, items: [comment('old')] }, { ok: true, complete: true, items: [{}] }]) {
-    const f = fixture(); f.result(result); await baseline(f); assert.deepEqual(f.saved, null)
+    const f = fixture(); f.result(result); await baseline(f)
+    if (f.saved) { assert.equal(Object.values(f.saved.tasks)[0].baseline, false); assert.deepEqual(Object.values(f.saved.tasks)[0].seen, {}); assert.deepEqual(f.saved.inbox, []) }
     f.comments(comment('old')); await baseline(f); assert.deepEqual(await f.c.list(), [])
     f.result({ ok: true, complete: false, items: [comment('new')] }); await baseline(f)
     f.comments(comment('old'), comment('new')); await baseline(f); assert.equal(f.calls.deliveries.length, 1)
@@ -95,7 +96,7 @@ await test('complete explicitly matches session, task and entry; mentions origin
   assert.equal((await f.c.complete('c', 'wrong', 'done')).ok, false)
   assert.equal((await f.c.complete('c', 's', 'done', { taskId: 'wrong' })).ok, false)
   assert.equal((await f.c.complete('c', 's', ' done ')).ok, true)
-  assert.deepEqual(f.calls.writes[0].options.mentionIds, ['owner']); assert.equal(f.calls.writes[0].text, '🤖: done'); assert.equal(f.calls.writes[0].options.replyTo, 'c')
+  assert.deepEqual(f.calls.writes[0].options.mentionIds, ['owner']); assert.equal(f.calls.writes[0].text, '[🤖AI 回复]\n--------------------\ndone\n--------------------'); assert.equal(f.calls.writes[0].options.replyTo, 'c')
   await f.c.complete('c', 's', 'other'); assert.equal(f.calls.writes.length, 1)
   assert.equal((await f.c.endTurn('t', 'c', 's', 2)).ok, false)
 })
