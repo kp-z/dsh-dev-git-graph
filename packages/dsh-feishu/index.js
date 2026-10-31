@@ -1575,7 +1575,7 @@ function createSyncEngine(ctx) {
   async function replyToComment(commentId, sessionId, text, taskId) {
     const entry = activeCommentTurns.get(sessionId)
     if (!entry || entry.commentId !== String(commentId) || (taskId && taskId !== entry.taskId)) return { ok: false, error: '只能回复当前轮正在处理的评论' }
-    return comments.complete(commentId, sessionId, sanitizeTaskDescription(text), { taskId: entry.taskId })
+    return comments.complete(commentId, sessionId, sanitizeTaskDescription(text), { taskId: entry.taskId, config: settings.comments })
   }
   async function endCommentTurn(sessionId, turn) {
     const entry = activeCommentTurns.get(sessionId)
