@@ -226,6 +226,8 @@ export function createCommentCoordinator(deps) {
     drain: (nextConfig) => serial(async () => { if (nextConfig) config = configOf(nextConfig); return drainInternal() }),
     writeOutbound: (taskId, text, options) => serial(() => outbound(taskId, text, options)),
     complete: (commentId, sessionId, text, options = {}) => serial(async () => {
+      // Refresh settings without draining other comments or changing existing outbound transports.
+      if (options.config) config = configOf(options.config)
       const matches = state.inbox.filter((entry) => entry.commentId === str(commentId) && entry.sessionId === str(sessionId) && (!options.taskId || entry.taskId === str(options.taskId)))
       if (matches.length !== 1) return { ok: false, error: 'Comment/session entry is missing or ambiguous' }
       const entry = matches[0]
