@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url'
  */
 import { formatAIComment } from './commentFormat.js'
 import { createActivityFeed } from './activity.js'
+import { beginSyncHistory, finishSyncHistory, recordSyncStage, recoverSyncHistory, safeSyncDetail } from './syncHistory.js'
 import { createCommentCoordinator } from './comments.js'
 import { randomUUID } from 'node:crypto'
 import { matchWorkspace, titleChangeOf } from './workspace.js'
@@ -470,6 +471,7 @@ const DEFAULT_STATE = {
   auth: { ok: false, checkedAt: 0, detail: '尚未检查' },
   cli: { found: false, version: null, path: null },
   lastSyncAt: 0,
+  syncHistory: [],
   lastError: null,
   syncing: false,
   tasks: [],
@@ -1611,7 +1613,9 @@ function createSyncEngine(ctx) {
     if (!Array.isArray(savedState?.tasks) || savedState.tasks.length === 0) {
       const adopted = await adoptPreviousState(stateFile)
       if (adopted) {
+        const localHistory = savedState.syncHistory
         savedState = adopted.data
+        if (Array.isArray(localHistory) && localHistory.length) savedState = { ...savedState, syncHistory: localHistory }
         log(ctx, 'info', `[state] 本端口还没有状态，继承 ${basename(adopted.file)}（任务 ${adopted.data.tasks?.length ?? 0} 条）`)
       }
     }
@@ -1619,6 +1623,7 @@ function createSyncEngine(ctx) {
     state = { ...DEFAULT_STATE, ...savedState }
     state.sessionSeen = { ...earlySeen, ...(savedState.sessionSeen || {}) }
     state.syncing = false
+    state.syncHistory = recoverSyncHistory(savedState.syncHistory)
     state.tasks = Array.isArray(savedState.tasks) ? savedState.tasks : []
     state.relations = Array.isArray(savedState.relations) ? savedState.relations : []
     state.relationSync = savedState.relationSync && typeof savedState.relationSync === 'object' ? savedState.relationSync : {}
@@ -1628,6 +1633,7 @@ function createSyncEngine(ctx) {
     cli = { ...DEFAULT_STATE.cli, ...(savedState.cli ?? {}) }
     if (lifecycleDisposed) return
     stateLoaded = true
+    if (Array.isArray(savedState.syncHistory) && savedState.syncHistory.some((row) => row?.status === 'running')) await persistState()
     for (const [sessionId, at] of earlyReopenTurns) await reopenSessionTasks(sessionId, at)
     earlyReopenTurns.clear()
   }
@@ -1807,9 +1813,11 @@ function createSyncEngine(ctx) {
           bySession.get(sid).push(row)
         }
         dshCache = { at: nowMs(), bySession }
-      } catch {
+        return { ok: true }
+      } catch (error) {
         /* 失败也退避，避免每个面板GET都重试；保留旧缓存。 */
         dshCache.at = nowMs()
+        return { ok: false, detail: safeSyncDetail(error?.message || error) }
       }
     })()
     try { return await dshRefreshFlight } finally { dshRefreshFlight = null }
@@ -3315,7 +3323,8 @@ function createSyncEngine(ctx) {
       })
     }
     state.docs = docs
-    return { ok: true, count: docs.length }
+    const failures = docs.flatMap((doc, index) => doc.error ? [`监听文档 ${index + 1}：${doc.error}`] : [])
+    return { ok: failures.length === 0, count: docs.length, failures, detail: failures.join('；') }
   }
 
   /** 任务上绑定的文档 → 投给会话的一段文字（标题 + 链接）。 */
@@ -5168,6 +5177,7 @@ bucket 只能从枚举里选：
     }).slice(0, max)
     if (!candidates.length) return { ok: true, attributed: 0, reason: '没有需要归因的逾期任务' }
     let attributed = 0
+    let modelAttempts = 0
     const failures = []
     for (const task of candidates) {
       attempts[task.id] = { expectedAt: Number(task.expectedAt), at: now }
@@ -5177,6 +5187,7 @@ bucket 只能从枚举里选：
       } catch {
         continue
       }
+      modelAttempts += 1
       const asked = await askModelLong(ATTRIBUTION_SYSTEM, material, [500, 900])
       const parsed = parseAttribution(asked.text)
       if (!parsed) {
@@ -5198,7 +5209,7 @@ bucket 只能从枚举里选：
     state.delayAttributions = attributions
     state.delayAttempts = attempts
     if (attributed) await persistState()
-    return { ok: true, attributed, failures, candidates: candidates.length }
+    return { ok: true, attributed, failures, modelAttempts, candidates: candidates.length }
   }
 
   /** 任务状态签名：同一天里任务没变就不重复问模型。 */
@@ -6781,7 +6792,7 @@ bucket 只能从枚举里选：
     }
   }
 
-  async function autoStartNewTasks() {
+  async function autoStartNewTasks(failures = []) {
     /* 口径来自 schedule.js：到点才开，错过按 missPolicy 处理；没排期的任务仍走原来的三档开关。 */
     const now = nowMs()
     const candidates = selectAutoStartCandidates(state.tasks.filter((task) => !isSuspended(task.id)), settings, now, (task) => scheduleViewOf(task, now))
@@ -6800,7 +6811,8 @@ bucket 只能从枚举里选：
     let started = 0
     for (const task of candidates) {
       const fetched = await refreshTaskRelations(task.id)
-      if (!fetched.ok || !relationView(task.id).ready) continue
+      if (!fetched.ok) { failures.push(fetched.error || '自动开工前关系核验失败'); continue }
+      if (!relationView(task.id).ready) continue
       const view = scheduleViewOf(task, now)
       /* 到点交付的统一口径：有会话就投进去（已开工推一轮、未开工就地开工）；
          没会话看 delivery：spawn/auto 才新建，session 不触发（evaluate 那层已经挡住）。 */
@@ -6817,6 +6829,7 @@ bucket 只能从枚举里选：
         result = await startTask(task.id, 'auto')
       }
       if (!result.ok) {
+        failures.push(result.error || task.error || '自动开工失败')
         /* 记一次尝试：失败原因已经写在 task.error 上，这里只负责「别每 30 秒重试」。 */
         const entry = state.schedules?.[task.id]
         if (entry) {
@@ -6834,58 +6847,84 @@ bucket 只能从枚举里选：
 
   async function sync({ source = 'manual' } = {}) {
     if (inFlight) return inFlight
-    inFlight = (async () => {
-      const started = nowMs()
-      const errors = []
+    /* Install singleflight before the first await; joining callers share one receipt. */
+    inFlight = Promise.resolve().then(async () => {
+      const receipt = beginSyncHistory(state, source)
+      const stage = (name, fn, options) => recordSyncStage(receipt, name, fn, options)
+      let fatal = false
       try {
-        await probeCli()
-        /* 先刷 DSH 自动化目录：同一轮里的「到点判定」才能知道哪些任务已交给 DSH，
-           避免本地再开一次会话（双投递）。 */
-        await refreshDshSchedules()
-        await retryTaskReopens()
-        const tasks = await syncTasks()
-        if (!tasks.ok) errors.push(`任务：${tasks.detail}`)
-        /* 飞书上填了「按时执行 + 开始时间」的任务，补一条本地兜底排期，面板才有「下次」。 */
+        await persistState()
+        await stage('CLI 检查', async () => {
+          const result = await probeCli()
+          return { ...result, ok: result.found, detail: result.found ? '' : 'CLI 不可用或版本检查失败' }
+        })
+        /* 先刷自动化目录，避免本地与 DSH 双投递。 */
+        await stage('自动化目录', refreshDshSchedules)
+        await stage('任务重开重试', async () => {
+          const pending = state.tasks.filter((task) => task.reopenPending && !task.done && nowMs() - (Number(task.reopenAttemptAt) || 0) >= 60_000).slice(0, 5)
+          await retryTaskReopens()
+          const failures = pending.filter((task) => task.reopenPending).map((task) => task.reopenError || '任务重开写回失败')
+          return { ok: failures.length === 0, failures }
+        })
+        await stage('任务同步', syncTasks)
         if (adoptFeishuSchedule()) await persistState()
-        /* 工作区对账：补 id 绑定、检测改名（顺手把新名字写回飞书，最多 5 条）。 */
         retryWorkspaceWrites()
-        await reconcileWorkspaces().catch(() => 0)
-        /* 逾期自动归因：只处理刚逾期、还没归因的那几条（一轮最多 3 条，失败 6 小时退避） */
-        await attributeOverdueTasks().catch(() => 0)
-        /* 上一轮没写进飞书的预期时间，这里补发（最多 5 条，别拖慢同步）。 */
-        await retryEtaWrites().catch(() => 0)
-        /* 原生关系写入失败保留本地，下一轮有界重试。 */
-        for (const [taskId, entry] of Object.entries(state.relationSync).filter(([, item]) => item?.pending && !item.localOnly).slice(0, 5)) {
-          await writeTaskRelations(taskId, { fields: entry.fields === true })
-        }
-        for (const task of state.tasks.filter((item) => state.suspensions[item.id]?.fieldPending).slice(0, 5)) {
-          const entry = state.suspensions[task.id]
-          const result = await writeSuspensionField(task, entry)
-          entry.fieldPending = !result.ok
-        }
-        const docs = await syncDocs()
-        if (!docs.ok) errors.push(`文档：${docs.detail}`)
-        const autoStarted = await autoStartNewTasks()
+        await stage('工作区对账', reconcileWorkspaces, { optional: true })
+        const attribution = await stage('逾期 AI 归因', attributeOverdueTasks, { optional: true })
+        receipt.ai.attributionAttempts = Number(attribution?.modelAttempts) || 0
+        receipt.counts.attributions = Number(attribution?.attributed) || 0
+        await stage('预期时间重试', async () => {
+          const pending = settings.schedule?.writeEtaToFeishu === false ? [] : state.tasks.filter((task) => task.etaSyncPending === true).slice(0, 5)
+          await retryEtaWrites()
+          const failures = pending.filter((task) => task.etaSyncPending === true).map((task) => task.etaSyncError || '预期时间写回失败')
+          return { ok: failures.length === 0, failures }
+        }, { optional: true })
+        await stage('关系与挂起重试', async () => {
+          const failures = []
+          for (const [taskId, entry] of Object.entries(state.relationSync).filter(([, item]) => item?.pending && !item.localOnly).slice(0, 5)) {
+            const result = await writeTaskRelations(taskId, { fields: entry.fields === true })
+            if (result?.ok === false) failures.push(result.error || '关系写回失败')
+          }
+          for (const task of state.tasks.filter((item) => state.suspensions[item.id]?.fieldPending).slice(0, 5)) {
+            const entry = state.suspensions[task.id]
+            const result = await writeSuspensionField(task, entry)
+            entry.fieldPending = !result.ok
+            if (!result.ok) failures.push(result.error || '挂起字段写回失败')
+          }
+          return { ok: failures.length === 0, failures }
+        })
+        await stage('文档同步', syncDocs)
+        const autoStart = await stage('自动开工', async () => {
+          const failures = []
+          const started = await autoStartNewTasks(failures)
+          return { ok: failures.length === 0, failures, started }
+        })
+        receipt.counts.autoStarted = receipt.ai.autoStarted = Number(autoStart?.started) || 0
         if (settings.comments.enabled) {
-          try { state.commentSync = await comments.sync(state.tasks.map((task) => ({ ...task, paused: isSuspended(task.id) })), settings.comments) }
-          catch (error) { errors.push('评论：' + (error?.message || String(error))) }
+          const result = await stage('评论协作', () => comments.sync(state.tasks.map((task) => ({ ...task, paused: isSuspended(task.id) })), settings.comments), { optional: true })
+          state.commentSync = result
+          receipt.counts.commentsDispatched = receipt.ai.commentsDispatched = Number(result?.delivered) || 0
+          receipt.counts.commentsProcessed = (result?.diagnostics || []).filter((row) => Number(row.lastScanAt) >= receipt.startedAt).reduce((sum, row) => sum + (Number(row.readCount) || 0), 0)
+          const incomplete = (result?.diagnostics || []).filter((row) => Number(row.lastScanAt) >= receipt.startedAt && row.complete === false)
+          for (const row of incomplete.slice(0, 5)) receipt.errors.push('评论读取：' + safeSyncDetail(row.reason))
         }
         state.lastSyncAt = nowMs()
-        state.lastError = errors.length > 0 ? errors.join('；') : null
-        state.syncing = false
-        await persistState()
-        log(ctx, 'info', `[${source}] 同步完成：任务 ${state.tasks.length} 条，文档 ${state.docs.length} 篇，自动开工 ${autoStarted}，耗时 ${nowMs() - started}ms`)
-        return { ok: errors.length === 0, errors }
       } catch (error) {
-        state.lastError = error instanceof Error ? error.message : String(error)
-        await persistState()
-        return { ok: false, errors: [state.lastError] }
+        fatal = true
+        const detail = safeSyncDetail(error?.message || error)
+        if (!receipt.errors.some((message) => message.includes(detail))) receipt.errors.push(detail)
       } finally {
-        /* 异常路径也要把「同步中」放掉，否则一次失败会让后续同步全被挡住 */
-        state.syncing = false
+        finishSyncHistory(state, receipt, { fatal })
+        try { await persistState() }
+        catch (error) {
+          receipt.errors.push('同步记录落盘：' + safeSyncDetail(error?.message || error))
+          finishSyncHistory(state, receipt, { fatal: true })
+        }
         inFlight = null
       }
-    })()
+      log(ctx, 'info', `[${source}] 同步${receipt.status}：任务 ${state.tasks.length} 条，文档 ${state.docs.length} 篇，自动开工 ${receipt.counts.autoStarted}，耗时 ${receipt.durationMs}ms`)
+      return { ok: receipt.errors.length === 0 && receipt.status === 'success', errors: [...receipt.errors] }
+    })
     return inFlight
   }
 
