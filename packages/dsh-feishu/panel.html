@@ -150,6 +150,22 @@
   .configuration-tabs button[aria-selected="true"] { background: var(--p-accent-weak); color: var(--p-accent); font-weight: 600; }
   .configuration-tabs button:focus-visible, .setting-group summary:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
   #configurationToggle[aria-expanded="true"] { color: var(--p-accent); background: var(--p-accent-weak); }
+  .sync-history-entry { padding: 12px 0; border-top: 1px solid var(--p-line); min-width: 0; }
+  .sync-history-head, .sync-history-counts { display: flex; flex-wrap: wrap; gap: 5px 12px; }
+  .sync-history-head { align-items: center; font-size: 12px; }
+  .sync-history-status { margin-left: auto; color: var(--p-text-3); }
+  .sync-history-status[data-status="running"] { color: var(--p-accent); }
+  .sync-history-status[data-status="success"] { color: var(--p-ok); }
+  .sync-history-status[data-status="partial"], .sync-history-status[data-status="interrupted"] { color: var(--p-warn); }
+  .sync-history-status[data-status="failed"], .sync-history-errors { color: var(--p-danger); }
+  .sync-history-times, .sync-history-counts, .sync-history-ai { margin-top: 5px; font-size: 11px; color: var(--p-text-2); }
+  .sync-history-times, .sync-history-detail { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .sync-history-entry > details { margin-top: 8px; font-size: 11px; }
+  .sync-history-entry summary { cursor: pointer; color: var(--p-text-2); }
+  .sync-history-entry summary:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+  .sync-history-stage { margin-top: 6px; }
+  .sync-history-detail { margin-top: 3px; font-size: 11px; }
+  .sync-history-errors { padding-left: 18px; }
   .settings-card > .card-head { margin-bottom: 14px; }
   .settings-card .row { padding: 10px 0; gap: 6px 12px; }
   .settings-card .row:first-child { padding-top: 0; }
@@ -2890,6 +2906,7 @@
         <button id="configTab-auth" type="button" role="tab" data-config-tab="auth" aria-controls="authCard" aria-selected="false" tabindex="-1">授权</button>
         <button id="configTab-docPrompt" type="button" role="tab" data-config-tab="docPrompt" aria-controls="docPromptCard" aria-selected="false" tabindex="-1">文档生成</button>
         <button id="configTab-docs" type="button" role="tab" data-config-tab="docs" aria-controls="docsCard" aria-selected="false" tabindex="-1">文档监听</button>
+        <button id="configTab-syncHistory" type="button" role="tab" data-config-tab="syncHistory" aria-controls="syncHistoryCard" aria-selected="false" tabindex="-1">同步记录</button>
       </div>
       <button id="configurationClose" type="button" class="btn btn-ghost btn-xs" aria-label="收起配置">收起</button>
     </div>
@@ -3237,6 +3254,16 @@
 
     <div id="docHint" class="form-error" role="status" aria-live="polite" hidden></div>
     <div id="docList" class="list"></div>
+  </section>
+
+  <section id="syncHistoryCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-syncHistory" hidden>
+    <div class="card-head">
+      <h2>同步记录</h2>
+      <span id="syncHistorySummary" class="push muted small"></span>
+    </div>
+    <p class="muted small">最近 100 条，最新在前；随页面数据刷新。这里只查看记录，不会触发同步或模型调用。</p>
+    <p class="muted small">纯数据同步是程序化操作，不消耗模型 token；逾期 AI 归因、自动开工和评论协作可能消耗模型 token。下方 AI 数量是尝试或投递次数，不是 token 用量。</p>
+    <div id="syncHistoryList"></div>
   </section>
   </section>
 </main>
@@ -3593,8 +3620,92 @@
     }
   }
 
+  /* ---------------- 渲染：同步记录（仅消费现有 state，无请求或模型调用） ---------------- */
+
+  function syncHistoryText(value) {
+    if (value === null || value === undefined) return '—';
+    if (typeof value === 'object') {
+      try { return JSON.stringify(value); } catch (_) { return '无法显示的记录内容'; }
+    }
+    return String(value);
+  }
+
+  function syncHistoryStatus(status) {
+    var labels = { running: '进行中', success: '成功', partial: '部分成功', failed: '失败', interrupted: '已中断', skipped: '已跳过' };
+    return Object.prototype.hasOwnProperty.call(labels, status) ? labels[status] : syncHistoryText(status);
+  }
+
+  function syncHistoryDuration(duration) {
+    if (typeof duration !== 'number' || !isFinite(duration) || duration < 0) return '—';
+    if (duration < 1000) return Math.round(duration) + ' 毫秒';
+    if (duration < 60000) return (duration / 1000).toFixed(1) + ' 秒';
+    return Math.floor(duration / 60000) + ' 分 ' + Math.floor(duration % 60000 / 1000) + ' 秒';
+  }
+
+  function syncHistorySource(source) {
+    var labels = { manual: '手动同步', panel: '面板同步', timer: '定时同步', schedule: '排期同步', 'task-sync': '任务同步', startup: '启动同步', tool: '工具同步' };
+    return Object.prototype.hasOwnProperty.call(labels, source) ? labels[source] : syncHistoryText(source);
+  }
+
+  function renderSyncHistory() {
+    var body = $('syncHistoryList');
+    var rows = Array.isArray(app.snap && app.snap.syncHistory) ? app.snap.syncHistory.slice(0, 100).filter(function (row) { return row && typeof row === 'object'; }) : [];
+    var signature = JSON.stringify(rows);
+    if (body._syncHistorySignature === signature) return;
+    body._syncHistorySignature = signature;
+    var expanded = Object.create(null);
+    Array.prototype.forEach.call(body.querySelectorAll('details[data-history-key]'), function (node) { expanded[node.getAttribute('data-history-key')] = node.open; });
+    clear(body);
+    $('syncHistorySummary').textContent = rows.length ? rows.length + ' 条' : '';
+    if (!rows.length) {
+      body.appendChild(emptyNode('暂无同步记录。记录功能启用后的同步才会出现在这里，不补造历史。'));
+      return;
+    }
+    rows.forEach(function (row, index) {
+      var entry = el('article', { 'class': 'sync-history-entry' });
+      var head = el('div', { 'class': 'sync-history-head' });
+      head.appendChild(el('strong', { text: syncHistorySource(row.source) }));
+      var status = ['running', 'success', 'partial', 'failed', 'interrupted'].indexOf(row.status) !== -1 ? row.status : 'unknown';
+      head.appendChild(el('span', { 'class': 'sync-history-status', 'data-status': status, text: syncHistoryStatus(row.status) }));
+      entry.appendChild(head);
+      entry.appendChild(el('div', { 'class': 'sync-history-times', text: '开始：' + (fmtAbs(row.startedAt) || '—') + '\n结束：' + (fmtAbs(row.finishedAt) || (row.status === 'running' ? '尚未结束' : '—')) + ' · 耗时：' + syncHistoryDuration(row.durationMs) }));
+      var counts = row.counts || {};
+      var countLine = el('div', { 'class': 'sync-history-counts' });
+      [['tasks', '任务'], ['docs', '文档'], ['autoStarted', '自动开工'], ['commentsProcessed', '评论读取'], ['commentsDispatched', '评论投递'], ['attributions', '归因']].forEach(function (pair) {
+        countLine.appendChild(el('span', { text: pair[1] + ' ' + syncHistoryText(counts[pair[0]]) }));
+      });
+      entry.appendChild(countLine);
+      var ai = row.ai || {};
+      entry.appendChild(el('div', { 'class': 'sync-history-ai', text: 'AI 相关：归因尝试 ' + syncHistoryText(ai.attributionAttempts) + ' · 自动开工 ' + syncHistoryText(ai.autoStarted) + ' · 评论投递 ' + syncHistoryText(ai.commentsDispatched) }));
+      var stages = Array.isArray(row.stages) ? row.stages : [];
+      var errors = Array.isArray(row.errors) ? row.errors : [];
+      [['stages', '阶段', stages], ['errors', '错误', errors]].forEach(function (group) {
+        if (!group[2].length) return;
+        var key = syncHistoryText(row.id === undefined ? index : row.id) + ':' + group[0];
+        var details = el('details', { 'data-history-key': key });
+        details.open = !!expanded[key];
+        details.appendChild(el('summary', { text: group[1] + '（' + group[2].length + '）' }));
+        if (group[0] === 'stages') {
+          stages.forEach(function (stage) {
+            stage = stage || {};
+            var node = el('div', { 'class': 'sync-history-stage' });
+            node.appendChild(el('div', { 'class': 'sync-history-detail', text: syncHistoryText(stage.name) + ' · ' + syncHistoryStatus(stage.status) + ' · ' + syncHistoryDuration(stage.durationMs) }));
+            if (stage.detail !== undefined && stage.detail !== null) node.appendChild(el('div', { 'class': 'sync-history-detail muted', text: syncHistoryText(stage.detail) }));
+            details.appendChild(node);
+          });
+        } else {
+          var list = el('ul', { 'class': 'sync-history-errors' });
+          errors.forEach(function (error) { list.appendChild(el('li', { 'class': 'sync-history-detail', text: syncHistoryText(error) })); });
+          details.appendChild(list);
+        }
+        entry.appendChild(details);
+      });
+      body.appendChild(entry);
+    });
+  }
+
   /* ---------------- 按需配置：切换仅影响可见性，不保存也不重建草稿 ---------------- */
-  var CONFIGURATION_KEYS = ['settings', 'auth', 'docPrompt', 'docs'];
+  var CONFIGURATION_KEYS = ['settings', 'auth', 'docPrompt', 'docs', 'syncHistory'];
   var activeConfiguration = 'settings';
 
   function openConfiguration(key) {
@@ -7436,6 +7547,7 @@
     renderSettings(false);
     renderTasks();
     renderDocs();
+    renderSyncHistory();
   }
 
   /* ---------------- 渲染：当前会话（任务卡里的第一张） ---------------- */

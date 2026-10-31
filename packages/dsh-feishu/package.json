@@ -16,6 +16,7 @@
   "files": [
     "index.js",
     "activity.js",
+    "syncHistory.js",
     "schedule.js",
     "dshSchedule.js",
     "workspace.js",
@@ -63,7 +64,7 @@
     "test:smoke": "node test/smoke.mjs",
     "test:offline": "node test/offline.mjs",
     "test:comments": "node test/commentFormat.mjs && node test/cardCommentsPanel.mjs && node test/liveActivityPanel.mjs && node test/taskActivityPanel.mjs && node test/comments.mjs && node test/commentsBridge.mjs && node test/commentsPanel.mjs && python3 -B test/comments_api.py",
-    "test": "node test/meta.mjs && node test/schedule.mjs && node test/commitment.mjs && node test/dshSchedule.mjs && node test/dshBridge.mjs && node test/workspace.mjs && node test/workspaceBridge.mjs && node test/attribution.mjs && node test/client.mjs && node test/smoke.mjs && node test/relations.mjs && node test/relationsBridge.mjs && python3 -B test/relations_api.py && node test/suspensionBridge.mjs && node test/suspensionPanel.mjs && node test/filterPanel.mjs && node test/taskMenu.mjs && node test/performanceBridge.mjs && node test/performancePanel.mjs && node test/taskCard.mjs && node test/configurationPanel.mjs && npm run test:comments",
+    "test": "node test/meta.mjs && node test/schedule.mjs && node test/commitment.mjs && node test/dshSchedule.mjs && node test/dshBridge.mjs && node test/workspace.mjs && node test/workspaceBridge.mjs && node test/attribution.mjs && node test/client.mjs && node test/smoke.mjs && node test/relations.mjs && node test/relationsBridge.mjs && python3 -B test/relations_api.py && node test/suspensionBridge.mjs && node test/suspensionPanel.mjs && node test/filterPanel.mjs && node test/taskMenu.mjs && node test/performanceBridge.mjs && node test/performancePanel.mjs && node test/taskCard.mjs && node test/configurationPanel.mjs && node test/syncHistory.mjs && node test/syncHistoryPanel.mjs && npm run test:comments",
     "test:schedule": "node test/schedule.mjs",
     "test:commitment": "node test/commitment.mjs",
     "test:dsh": "node test/dshSchedule.mjs && node test/dshBridge.mjs",

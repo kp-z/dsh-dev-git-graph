@@ -46,7 +46,7 @@ assert.ok(classHas(toggle.parent, 'panel-header'), 'configuration belongs in the
 assert.equal(toggle.parent.tag, 'header')
 assert.equal(get('statusbar').parent, toggle.parent, 'configuration sits beside global status')
 assert.ok(within(get('configurationClose'), area))
-const panels = { settings: 'settingsCard', auth: 'authCard', docPrompt: 'docPromptCard', docs: 'docsCard' }
+const panels = { settings: 'settingsCard', auth: 'authCard', docPrompt: 'docPromptCard', docs: 'docsCard', syncHistory: 'syncHistoryCard' }
 const tabs = nodes.filter((n) => has(n, 'data-config-tab'))
 assert.deepEqual(tabs.map((n) => n.attrs['data-config-tab']).sort(), Object.keys(panels).sort())
 for (const [key, id] of Object.entries(panels)) {
@@ -135,29 +135,29 @@ function expectSelected(key) {
   }
 }
 for (const key of Object.keys(panels)) { context.openConfiguration(key); expectSelected(key) }
-for (const bad of [undefined, null, '', 'missing', '__proto__']) { context.openConfiguration(bad); expectSelected('docs') }
+for (const bad of [undefined, null, '', 'missing', '__proto__']) { context.openConfiguration(bad); expectSelected('syncHistory') }
 context.closeConfiguration()
 assert.equal(n('configurationArea').hidden, true)
 assert.equal(n('configurationToggle').getAttribute('aria-expanded'), 'false')
 assert.equal(context.document.activeElement, n('configurationToggle'))
 context.wireConfiguration()
 n('configurationToggle').fire('click')
-expectSelected('docs')
-assert.equal(context.document.activeElement, n('configTab-docs'))
+expectSelected('syncHistory')
+assert.equal(context.document.activeElement, n('configTab-syncHistory'))
 assert.equal(n('configurationArea').scrolled, true)
 n('configurationToggle').fire('click')
 assert.equal(n('configurationArea').hidden, true)
 n('configurationToggle').fire('click')
 for (const key of Object.keys(panels)) { n(`configTab-${key}`).fire('click'); expectSelected(key) }
-for (const [from, key, to] of [['docs', 'ArrowRight', 'settings'], ['settings', 'ArrowLeft', 'docs'], ['auth', 'Home', 'settings'], ['settings', 'End', 'docs']]) {
+for (const [from, key, to] of [['docs', 'ArrowRight', 'syncHistory'], ['syncHistory', 'ArrowRight', 'settings'], ['settings', 'ArrowLeft', 'syncHistory'], ['auth', 'Home', 'settings'], ['settings', 'End', 'syncHistory']]) {
   let prevented = false
   n(`configTab-${from}`).fire('keydown', { key, preventDefault() { prevented = true } })
   assert.equal(prevented, true)
   expectSelected(to)
   assert.equal(context.document.activeElement, n(`configTab-${to}`))
 }
-n('configTab-docs').fire('keydown', { key: 'Tab', preventDefault: forbidden })
-expectSelected('docs')
+n('configTab-syncHistory').fire('keydown', { key: 'Tab', preventDefault: forbidden })
+expectSelected('syncHistory')
 n('configurationClose').fire('click')
 assert.equal(n('configurationArea').hidden, true)
 for (const [id, node, value] of before) { assert.equal(n(id), node); assert.equal(n(id).value, value) }
