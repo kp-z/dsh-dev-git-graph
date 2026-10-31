@@ -31,6 +31,8 @@ import { fileURLToPath } from 'node:url'
  * 模型只负责把「下周一早上九点半」说成一句话，插件负责算准它到底是哪一刻。
  * 分开的另一个理由：时间逻辑最容易错，纯函数才能单测（test/schedule.mjs）。
  */
+import { formatAIComment } from './commentFormat.js'
+import { createActivityFeed } from './activity.js'
 import { createCommentCoordinator } from './comments.js'
 import { randomUUID } from 'node:crypto'
 import { matchWorkspace, titleChangeOf } from './workspace.js'
@@ -100,7 +102,10 @@ const SERVER_FEATURES = [
   'insight.capabilities',
   'tasks.relations',
   'tasks.suspension',
+  'tasks.reopen-on-turn',
+  'sessions.activity-stream',
   'tasks.comments',
+  'tasks.comment-history',
 ]
 
 /** 面板里「打开」按钮要用的飞书 web 域；只用于绝对路径拼接，不做鉴权。 */
@@ -616,7 +621,7 @@ export function turnFailureOf(reason) {
  * 为什么要判据：以前每轮都写，模型只是回了一句话也会留下一条评论，评论列表很快变成噪音。
  * 现在只认这三种硬证据：改了文件、产生了 commit、跑了测试。都没有就返回空串（不写评论）。
  *
- * 产出带 `🤖 AI 进度` 前缀，正文用第一人称（「我改了…」「我提交了…」），别人一眼知道是 AI 写的。
+ * 出站统一加 AI 回复身份行，正文用第一人称（「我改了…」「我提交了…」），别人一眼知道是 AI 写的。
  */
 export function progressDigest(input = {}, now = Date.now()) {
   const text = asString(input.text)
@@ -637,7 +642,7 @@ export function progressDigest(input = {}, now = Date.now()) {
   if (!edits.length && !commits.size && !testCmds.length && !gitCmds.length) return ''
 
   const time = new Date(now).toLocaleTimeString('zh-CN', { hour12: false })
-  const lines = [failed ? `🤖 AI 进度 · ${time}（这一轮出错了）` : `🤖 AI 进度 · ${time}`]
+  const lines = [failed ? `进度 · ${time}（这一轮出错了）` : `进度 · ${time}`]
   const bullets = []
   if (edits.length) {
     const shown = edits.slice(0, 3).map((file) => file.split('/').pop() || file).join('、')
@@ -1429,6 +1434,9 @@ function createSyncEngine(ctx) {
   const stateFile = stateFileFor()
   let settings = { ...DEFAULT_SETTINGS }
   let state = { ...DEFAULT_STATE }
+  let lifecycleDisposed = false
+  let stateLoaded = false
+  const earlyReopenTurns = new Map()
   let inFlight = null
   let cli = { found: false, version: null, path: null }
   const commentsFile = join(DATA_DIR, 'comments.json')
@@ -1491,10 +1499,10 @@ function createSyncEngine(ctx) {
       const row = result.actions?.[0]
       return { ...row, complete: row?.ok === true && row?.incomplete === false }
     },
-    isSessionBusy: async (sessionId) => {
+    isSessionBusy: async (sessionId, options = {}) => {
       const agents = await awaitService(ctx, 'agents')
       const agent = agents?.get?.(sessionId)
-      return !agent || agent.phase?.kind === 'running' || agent.isRunning === true || activeCommentTurns.has(sessionId) || commentDeliveries.has(sessionId)
+      return (!agent && !options.wake) || agent?.phase?.kind === 'running' || agent?.isRunning === true || activeCommentTurns.has(sessionId) || commentDeliveries.has(sessionId)
     },
     deliver: async (entry) => {
       if (!commentGuardAvailable || commentsDisposed) return { ok: false, error: 'Host comment guards unavailable or plugin disposed' }
@@ -1577,7 +1585,7 @@ function createSyncEngine(ctx) {
   }
   async function writeTaskComment(taskId, text, options = {}) {
     const key = options.key || 'manual:' + randomUUID()
-    const result = await comments.writeOutbound(taskId, '🤖: ' + sanitizeTaskDescription(text).replace(/^🤖:\s*/, ''), { ...options, key })
+    const result = await comments.writeOutbound(taskId, formatAIComment(sanitizeTaskDescription(text)), { ...options, key })
     return { ...result, key, detail: result.error || '' }
   }
   async function disposeComments() {
@@ -1590,6 +1598,7 @@ function createSyncEngine(ctx) {
   }
 
   async function load() {
+    await (globalThis[Symbol.for('dsh-feishu:task-lifecycle')] || Promise.resolve()).catch(() => {})
     const savedSettings = await readJson(SETTINGS_FILE, {})
     settings = sanitizeSettings(savedSettings, DEFAULT_SETTINGS)
     /* 提示词模板升级：只把「原封不动的旧默认」换成新默认，用户自己改过的一律不动。 */
@@ -1606,7 +1615,9 @@ function createSyncEngine(ctx) {
         log(ctx, 'info', `[state] 本端口还没有状态，继承 ${basename(adopted.file)}（任务 ${adopted.data.tasks?.length ?? 0} 条）`)
       }
     }
+    const earlySeen = state.sessionSeen || {}
     state = { ...DEFAULT_STATE, ...savedState }
+    state.sessionSeen = { ...earlySeen, ...(savedState.sessionSeen || {}) }
     state.syncing = false
     state.tasks = Array.isArray(savedState.tasks) ? savedState.tasks : []
     state.relations = Array.isArray(savedState.relations) ? savedState.relations : []
@@ -1615,9 +1626,14 @@ function createSyncEngine(ctx) {
     state.workspaceWrites = savedState.workspaceWrites && typeof savedState.workspaceWrites === 'object' ? savedState.workspaceWrites : {}
     state.docs = Array.isArray(savedState.docs) ? savedState.docs : []
     cli = { ...DEFAULT_STATE.cli, ...(savedState.cli ?? {}) }
+    if (lifecycleDisposed) return
+    stateLoaded = true
+    for (const [sessionId, at] of earlyReopenTurns) await reopenSessionTasks(sessionId, at)
+    earlyReopenTurns.clear()
   }
 
   async function persistState() {
+    if (lifecycleDisposed) return
     /* 绑定快照：在场任务的当前状态写进去；不在场的条目留着（等它回来接上）；
        在场但已解绑的条目删掉。 */
     const bindings = { ...(state.bindings ?? {}) }
@@ -1637,6 +1653,7 @@ function createSyncEngine(ctx) {
     }
     state.bindings = bindings
     await writeJson(stateFile, state)
+    activityFeed.changed()
   }
 
   const settingsHooks = []
@@ -1673,6 +1690,30 @@ function createSyncEngine(ctx) {
    * 每个活着的会话当前在干嘛：running（正在回复）还是 idle（闲着）。
    * turn 用来判断「跑完但还没看过」——turn 涨了而没标记已读，就给个绿色角标。
    */
+  const activityOverrides = new Map()
+  const activityFeed = createActivityFeed(activitySessions)
+
+  function updateSessionActivity(id, patch) {
+    if (!id || lifecycleDisposed) return
+    const old = activityOverrides.get(id) || liveSessionState().get(id) || { kind: 'idle', turn: 0 }
+    // Seed read watermark before a new turn completes, never treat old history as unread.
+    const seen = state.sessionSeen ?? (state.sessionSeen = {})
+    if (seen[id] === undefined) seen[id] = Math.max(0, (patch.turn || old.turn || 0) - ((patch.kind === 'running' || old.kind === 'running') ? 1 : 0))
+    activityOverrides.set(id, { ...old, ...patch, turn: Math.max(old.turn || 0, patch.turn || 0) })
+    activityFeed.changed()
+  }
+
+  function activitySessions() {
+    const live = liveSessionState()
+    return [...new Set([...live.keys(), ...state.tasks.map((task) => task.sessionId).filter(Boolean)])].map((id) => {
+      const item = live.get(id)
+      if (!item) return { id, alive: false, phase: 'idle', turn: 0, unread: false }
+      const seen = state.sessionSeen ?? (state.sessionSeen = {})
+      if (seen[id] === undefined) seen[id] = item.turn
+      return { id, alive: true, phase: item.kind, turn: item.turn, unread: item.kind !== 'running' && item.turn > seen[id] }
+    })
+  }
+
   function liveSessionState() {
     const agents = service(ctx, 'agents')
     const map = new Map()
@@ -1686,6 +1727,10 @@ function createSyncEngine(ctx) {
       }
     } catch {
       /* 服务形状变了也不该让面板拿不到数据 */
+    }
+    for (const [id, item] of activityOverrides) {
+      if (item.alive === false) map.delete(id)
+      else map.set(id, { kind: item.kind, turn: item.turn })
     }
     return map
   }
@@ -1707,6 +1752,7 @@ function createSyncEngine(ctx) {
     state.sessionSeen = { ...(state.sessionSeen ?? {}) }
     if ((Number(state.sessionSeen[sid]) || 0) >= next) return { ok: true, skipped: true }
     state.sessionSeen[sid] = next
+    activityFeed.changed()
     await persistState()
     return { ok: true, turn: next }
   }
@@ -2620,7 +2666,7 @@ function createSyncEngine(ctx) {
           }
           if (!enriched.sessionId) return enriched
           const alive = live.get(enriched.sessionId)
-          if (!alive) return { ...enriched, sessionAlive: false }
+          if (!alive) return { ...enriched, sessionAlive: false, sessionPhase: 'idle', sessionTurn: 0, sessionUnread: false }
           /* 第一次见到这条会话时把水位对齐到当前轮次：
              否则历史会话会全部亮成「未读」，等于没有信号。 */
           const seenMap = state.sessionSeen ?? (state.sessionSeen = {})
@@ -3122,7 +3168,11 @@ function createSyncEngine(ctx) {
     })
   }
 
-  async function syncTasks() {
+  function syncTasks() {
+    return withTaskLifecycle('sync', () => applyTaskSync())
+  }
+
+  async function applyTaskSync() {
     const path = resolveCli(settings.cliPath)
     /* 已完成一律不从飞书拉：那些是历史数据，会把列表撑爆，也和「今天做什么」无关。
        本地完成的任务在下面单独保留。 */
@@ -3149,7 +3199,19 @@ function createSyncEngine(ctx) {
     state.auth = { ok: true, checkedAt: nowMs(), detail: '个人令牌可用（任务接口已通）' }
     const previous = new Map(state.tasks.map((task) => [task.id, task]))
     await enrichRemote(list)
-    const next = list.map((raw) => normalizeTask(raw, previous)).filter((task) => task.id)
+    const next = list.map((raw) => {
+      const task = normalizeTask(raw, previous)
+      const local = state.tasks.find((item) => item.id === task.id) || previous.get(task.id)
+      /* 包括并发读到的旧完成回声；新的远端完成时间仍可正常采纳。 */
+      if (local?.reopenPending || (local?.reopenedAt && task.completedAt > 0 && task.completedAt <= local.reopenedAt)) {
+        Object.assign(task, { done: false, status: 'todo', completedAt: 0, endAt: 0 })
+      }
+      if (local) for (const key of ['reopenPending', 'reopenAwaitingList', 'reopenError', 'reopenAttemptAt', 'reopenedAt', 'completionHistory', 'completedLocally']) {
+        task[key] = local[key]
+      }
+      if (local?.reopenAwaitingList && !Number(raw.completed_at) && !local.reopenPending) task.reopenAwaitingList = false
+      return task
+    }).filter((task) => task.id)
     const marked = new Set(filterTasks(next).map((task) => task.id))
     const kept = next.filter((task) => marked.has(task.id)).map(enrichWorkspace)
     /* 任务没声明工作区时，按绑定会话反查一次项目名：卡片上要显示、字段里也要补。 */
@@ -3163,12 +3225,12 @@ function createSyncEngine(ctx) {
     const freshIds = new Set(kept.map((task) => task.id))
     const bindings = state.bindings ?? {}
     const localDone = state.tasks.filter((task) => task
-      && task.done
+      && (task.done || task.reopenPending || task.reopenAwaitingList)
       && task.id
       && !freshIds.has(task.id)
       /* 只留「我们自己在面板里标完成的」或「曾经开过工会话的」，
          飞书里那 190 多条历史已完成不该被拉进列表 */
-      && (task.completedLocally === true || Boolean(bindings[task.id])))
+      && (task.reopenPending || task.reopenAwaitingList || task.completedLocally === true || Boolean(bindings[task.id])))
     const mergedTasks = kept.concat(localDone)
     const audited = auditBindings(mergedTasks)
     /* 本轮同步前就记过编号的任务：只有这些才可以「按本地编号改飞书标题」。
@@ -3649,8 +3711,12 @@ function createSyncEngine(ctx) {
    * 这是「当前会话 → 飞书」的唯一出口：面板的完成按钮和模型工具都走它，
    * 免得两处各写一套 CLI 调用。
    */
-  async function reportTask(taskId, { text = '', complete = false } = {}) {
-    const task = state.tasks.find((item) => item.id === taskId)
+  function reportTask(taskId, input = {}) {
+    return withTaskLifecycle(taskId, () => applyTaskReport(taskId, input))
+  }
+
+  async function applyTaskReport(taskId, { text = '', complete = false } = {}) {
+    let task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务（可能已被下一次同步移除）' }
     /* 评论同样可能带上 agent 输出里的坏链（[file](/abs/path)），飞书会 400，先清洗。 */
     const body = sanitizeTaskDescription(text)
@@ -3664,11 +3730,111 @@ function createSyncEngine(ctx) {
     if (complete) {
       const result = await runCli(path, ['task', 'complete', task.id], { timeoutMs: 60_000 })
       if (!result.ok) return { ok: false, error: `标记完成失败：${(result.detail ?? '').slice(-300)}` }
+      task = state.tasks.find((item) => item.id === taskId) || task
       task.done = true
       task.status = 'done'
+      task.reopenPending = false
+      task.reopenAwaitingList = false
+      task.reopenError = null
+      task.completedAt = nowMs()
+      task.endAt = task.completedAt
+      task.completedLocally = true
     }
     await persistState()
     return { ok: true, task, commented: Boolean(body), completed: Boolean(complete) }
+  }
+
+  /* 同步替换任务对象、重开与完成串行提交。Symbol 锁跨热重载代际共享，
+     新实例 load 等旧在途 PATCH/落盘结束，避免旧完成回声或旧实例覆盖新状态。 */
+  const lifecycleKey = Symbol.for('dsh-feishu:task-lifecycle')
+  function withTaskLifecycle(_taskId, action) {
+    if (lifecycleDisposed) return Promise.resolve(undefined)
+    const work = (globalThis[lifecycleKey] || Promise.resolve()).catch(() => {}).then(() =>
+      lifecycleDisposed ? undefined : action())
+    globalThis[lifecycleKey] = work.catch(() => {})
+    return work
+  }
+
+  async function reopenSessionTasks(sessionId, at = nowMs()) {
+    if (lifecycleDisposed) return
+    if (!stateLoaded) {
+      earlyReopenTurns.set(sessionId, Math.max(at, earlyReopenTurns.get(sessionId) || 0))
+      return
+    }
+    const targets = state.tasks.filter((task) => task.sessionId === sessionId && !isSuspended(task.id)
+      && (task.done || task.reopenPending))
+    for (const target of targets) {
+      await withTaskLifecycle(target.id, async () => {
+        const task = state.tasks.find((item) => item.id === target.id)
+        if (!task || task.sessionId !== sessionId || isSuspended(task.id) || (!task.done && !task.reopenPending)) return
+        /* 只接受完成之后的新开工；解归档/打开历史会话不会走这里。 */
+        if (task.done && at <= Math.max(Number(task.completedAt) || 0, Number(task.endAt) || 0)) return
+        if (!task.reopenPending) {
+          task.completionHistory = [...(task.completionHistory || []), {
+            completedAt: Number(task.completedAt) || Number(task.endAt) || 0, reopenedAt: at,
+          }].slice(-20)
+          task.reopenedAt = at
+        }
+        task.done = false
+        task.status = 'todo'
+        task.completedAt = 0
+        task.endAt = 0
+        task.completedLocally = false
+        task.reopenPending = true
+        task.reopenAwaitingList = true
+        task.started = true
+        task.boundOnly = false
+        task.isNew = false
+        task.localUpdatedAt = nowMs()
+        await persistState()
+        await writeTaskReopen(task.id)
+      })
+    }
+  }
+
+  async function writeTaskReopen(taskId) {
+    const task = state.tasks.find((item) => item.id === taskId)
+    if (!task?.reopenPending || task.done || !task.sessionId || isSuspended(task.id)) return
+    task.reopenAttemptAt = nowMs()
+    try {
+      const result = await runBridge(resolvePython(resolveCli(settings.cliPath)), {
+        actions: [{ op: 'task_reopen', task: taskId }],
+      })
+      const action = result.actions?.find((item) => item.op === 'task_reopen')
+      if (!result.ok || !action?.ok) throw new Error(action?.error || result.errors?.join('; ') || '飞书重开失败')
+      const current = state.tasks.find((item) => item.id === taskId)
+      if (current?.reopenPending && !current.done) {
+        current.reopenPending = false
+        current.reopenError = null
+      }
+      detailCache.delete(taskId)
+    } catch (error) {
+      const current = state.tasks.find((item) => item.id === taskId)
+      if (current?.reopenPending) current.reopenError = error instanceof Error ? error.message : String(error)
+      log(ctx, 'warn', `[reopen] ${taskId}：${error instanceof Error ? error.message : String(error)}`)
+    }
+    await persistState()
+  }
+
+  async function retryTaskReopens() {
+    const tasks = state.tasks.filter((task) => task.reopenPending && !task.done
+      && nowMs() - (Number(task.reopenAttemptAt) || 0) >= 60_000).slice(0, 5)
+    for (const task of tasks) await withTaskLifecycle(task.id, () => writeTaskReopen(task.id))
+  }
+
+  /** 热重载时只补已经重新开工的活跃会话；不激活历史会话、不恢复自动化。 */
+  async function reconcileRunningReopens() {
+    const sessions = service(ctx, 'sessionController')
+    if (!sessions?.inspect) return
+    for (const task of state.tasks.filter((item) => item.done && item.sessionId && !isSuspended(item.id))) {
+      if (liveSessionState().get(task.sessionId)?.kind !== 'running') continue
+      const inspection = await sessions.inspect(task.sessionId)
+      const events = inspection?.events || []
+      const start = [...events].reverse().find((event) => event.type === 'turn/start')
+      if (start && Number(start.time) > Math.max(Number(task.completedAt) || 0, Number(task.endAt) || 0)) {
+        await reopenSessionTasks(task.sessionId, Number(start.time))
+      }
+    }
   }
 
   /** 会话记录里最后一条有正文的助手回复；同步就是用这段内容。 */
@@ -5594,7 +5760,11 @@ bucket 只能从枚举里选：
   }
 
   /** 「完成」：飞书置完成 + 归档会话。 */
-  async function completeTask(taskId) {
+  function completeTask(taskId) {
+    return withTaskLifecycle(taskId, () => applyTaskCompletion(taskId))
+  }
+
+  async function applyTaskCompletion(taskId) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
     const path = resolveCli(settings.cliPath)
@@ -5602,6 +5772,9 @@ bucket 只能从枚举里选：
     if (!done.ok) return { ok: false, error: `标记完成失败：${(done.detail ?? '').slice(-300)}` }
     task.done = true
     task.status = 'done'
+    task.reopenPending = false
+    task.reopenAwaitingList = false
+    task.reopenError = null
     /* 结束时间 = 完成那一刻：履约结算用它，卡片上不显示。 */
     if (!Number(task.endAt)) task.endAt = nowMs()
     task.completedAt = task.endAt
@@ -5880,7 +6053,7 @@ bucket 只能从枚举里选：
       createdAt: Number(raw?.created_at) || 0,
     }))
     const commentPage = byOp('task_comments')
-    Object.assign(comments, { complete: commentPage?.incomplete === false, hasMore: commentPage?.has_more, pageToken: commentPage?.page_token || '' })
+    Object.assign(comments, { complete: commentPage?.ok === true && commentPage?.incomplete === false, hasMore: commentPage?.has_more, pageToken: commentPage?.page_token || '' })
     /* 评论人可能不是任务成员（没在 enrich 里露过面）：补查一次姓名，别让输出全是 ou_xxx。 */
     const unknownAuthors = [...new Set(comments.items.filter((item) => item.authorType === 'user').map((item) => item.authorId))]
       .filter((id) => id && !cached(remoteCache.users, id, REMOTE_TTL.users))
@@ -6669,6 +6842,7 @@ bucket 只能从枚举里选：
         /* 先刷 DSH 自动化目录：同一轮里的「到点判定」才能知道哪些任务已交给 DSH，
            避免本地再开一次会话（双投递）。 */
         await refreshDshSchedules()
+        await retryTaskReopens()
         const tasks = await syncTasks()
         if (!tasks.ok) errors.push(`任务：${tasks.detail}`)
         /* 飞书上填了「按时执行 + 开始时间」的任务，补一条本地兜底排期，面板才有「下次」。 */
@@ -6693,7 +6867,7 @@ bucket 只能从枚举里选：
         if (!docs.ok) errors.push(`文档：${docs.detail}`)
         const autoStarted = await autoStartNewTasks()
         if (settings.comments.enabled) {
-          try { await comments.sync(state.tasks.map((task) => ({ ...task, paused: isSuspended(task.id) })), settings.comments) }
+          try { state.commentSync = await comments.sync(state.tasks.map((task) => ({ ...task, paused: isSuspended(task.id) })), settings.comments) }
           catch (error) { errors.push('评论：' + (error?.message || String(error))) }
         }
         state.lastSyncAt = nowMs()
@@ -6726,6 +6900,14 @@ bucket 只能从枚举里选：
     linkTask,
     unlinkTask,
     reportTask,
+    reopenSessionTasks,
+    reconcileRunningReopens,
+    disposeLifecycle: () => {
+      lifecycleDisposed = true
+      const drain = Promise.allSettled([globalThis[lifecycleKey], inFlight]).then(() => stateLoaded ? writeJson(stateFile, state) : undefined)
+      globalThis[lifecycleKey] = drain.catch(() => {})
+      return drain
+    },
     syncCurrentSession,
     createTaskFromSession,
     relationView,
@@ -6761,6 +6943,8 @@ bucket 只能从枚举里选：
     startInsightJob,
     insightJobState,
     markSessionSeen,
+    activityFeed,
+    updateSessionActivity,
     recordDailyMetrics,
     cachedInsight: () => (state.insight
       && Number(state.insight.at ?? 0) >= dayStart(0)
@@ -6896,6 +7080,11 @@ function mountRoutes(ctx, engine) {
 
           if (route === '/api/capabilities' && req.method === 'GET') {
             sendJson(res, 200, { ok: true, version: pluginVersion(), features: SERVER_FEATURES })
+            return
+          }
+
+          if (route === '/api/sessions/activity' && req.method === 'GET') {
+            engine.activityFeed.open(req, res)
             return
           }
 
@@ -7170,13 +7359,27 @@ function mountRoutes(ctx, engine) {
             return
           }
 
+          if (route === '/api/tasks/comments' && req.method === 'GET') {
+            const taskId = url.searchParams.get('taskId') || ''
+            const detail = await engine.loadTaskDetail(taskId, { refresh: url.searchParams.get('refresh') === 'true' })
+            if (!detail.ok) { sendJson(res, 400, detail); return }
+            const entries = await engine.comments.list({ taskId })
+            const ledger = await engine.comments.status()
+            for (const row of Object.values(ledger.outbound)) {
+              if (row.taskId === taskId && row.status === 'sent' && !entries.some((entry) => entry.commentId === row.commentId)) entries.push({ taskId, commentId: row.commentId, status: 'ignored', reason: 'outbound-ledger' })
+            }
+            sendJson(res, 200, { ok: true, comments: detail.detail.comments, entries, diagnostic: await engine.comments.diagnostic(taskId), sessionId: detail.task.sessionId || '', enabled: engine.getSettings().comments.enabled })
+            return
+          }
           if (route === '/api/comments' && req.method === 'GET') {
             sendJson(res, 200, { ok: true, entries: await engine.comments.list() })
             return
           }
           if (route === '/api/comments/action' && req.method === 'POST') {
             const body = await readBody(req)
-            const result = body.action === 'ignore'
+            const result = body.action === 'submit'
+              ? await engine.comments.submit(asString(body.taskId), asString(body.commentId), engine.getSettings().comments)
+              : body.action === 'ignore'
               ? await engine.comments.ignore(asString(body.taskId), asString(body.commentId))
               : body.action === 'retry'
                 ? await engine.comments.retry(asString(body.taskId), asString(body.commentId))
@@ -8288,6 +8491,14 @@ export function apply(ctx, config = {}) {
     /* 插件卸载/热重载时要注销自己注册的东西：路由和工具都会返回 disposer，
        以前这里丢掉了它们，于是旧实例的 HTTP 路由一直挂在已失效的 fiber 上对外服务。 */
     const owned = []
+    owned.push(() => engine.activityFeed.dispose())
+    for (const [name, handler] of [
+      ['api-session/status', (id, running) => engine.updateSessionActivity(id, { alive: true, kind: running ? 'running' : 'idle' })],
+      ['api-session/added', (summary) => engine.updateSessionActivity(summary?.sessionId, { alive: summary?.agentAvailable === true, kind: summary?.running ? 'running' : 'idle' })],
+      ['api-session/removed', (id) => engine.updateSessionActivity(id, { alive: false, kind: 'idle' })],
+    ]) {
+      try { const off = ctx.on(name, handler); if (typeof off === 'function') owned.push(off) } catch { /* optional Host events */ }
+    }
     try {
       const guardOff = ctx.tools.guard((exec) => engine.guardCommentTool(exec))
       const stepOff = ctx.on('agent/pre-step', (payload, next) => engine.enterCommentStep(payload, next))
@@ -8324,7 +8535,15 @@ export function apply(ctx, config = {}) {
             }
             return
           }
+          if (type === 'turn/start' || type === 'turn/end') {
+            const agents = service(ctx, 'agents')
+            const agent = agents?.get?.(sessionId) || agents?.list?.().find((item) => item.id === sessionId)
+            const kind = type === 'turn/start' || agent?.phase?.kind === 'running' ? 'running' : 'idle'
+            engine.updateSessionActivity(sessionId, { alive: true, kind, turn: Number(event?.data?.turn) || 0 })
+          }
           if (type === 'turn/start') {
+            void engine.reopenSessionTasks(sessionId, Number(event.time) || Date.now()).catch((error) =>
+              log(ctx, 'warn', `[reopen] 开工状态同步失败：${error.message}`))
             progressText.delete(sessionId)
             turnEvidence.delete(sessionId)
             return
@@ -8408,6 +8627,7 @@ export function apply(ctx, config = {}) {
         await engine.saveSettings(config)
       }
       await engine.probeCli().catch(() => undefined)
+      await engine.reconcileRunningReopens().catch((error) => log(ctx, 'warn', `[reopen] 活跃会话对账失败：${error.message}`))
       syncTaskSection()
       // 启动时顺手体检一次授权：面板一打开就该知道「能用」还是「该去授权」。
       void engine.checkAuth().catch(() => undefined)
@@ -8423,6 +8643,9 @@ export function apply(ctx, config = {}) {
       })
       return async () => {
         schedule.dispose()
+        engine.activityFeed.dispose()
+        engine.disposeLifecycle()
+        await (globalThis[Symbol.for('dsh-feishu:task-lifecycle')] || Promise.resolve()).catch(() => {})
         await engine.disposeComments()
         while (owned.length > 0) {
           const dispose = owned.pop()

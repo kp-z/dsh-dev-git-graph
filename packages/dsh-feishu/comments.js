@@ -1,3 +1,5 @@
+import { formatAIComment } from './commentFormat.js'
+
 /* Pure comment collaboration coordinator. No IO outside injected adapters.
  *
  * Adapters (all may be async):
@@ -102,22 +104,29 @@ export function createCommentCoordinator(deps) {
     const scanned = new Set()
     for (const candidate of tasks ?? []) {
       const taskId = str(candidate?.id)
-      if (!active(candidate) || scanned.has(taskId) || blocked(taskId)) continue
+      if (scanned.has(taskId)) continue
       scanned.add(taskId)
+      const row = taskState(taskId)
+      row.lastScanAt = deps.now(); row.newCount = 0
+      if (!active(candidate) || blocked(taskId)) {
+        row.reason = blocked(taskId) ? '待对账' : candidate?.done ? '任务已完成' : !candidate?.sessionId ? '未绑定对话' : '任务已暂停'
+        await persist(); continue
+      }
       const task = await current(taskId, candidate.sessionId)
-      if (!task) continue
+      if (!task) { row.reason = '任务状态核验失败'; await persist(); continue }
       let result
-      try { result = await deps.listComments(taskId) } catch { continue }
-      if (result?.ok !== true || result.complete !== true || !Array.isArray(result.items)) continue
+      try { result = await deps.listComments(taskId) } catch (error) { row.reason = str(error?.message || '评论读取失败'); await persist(); continue }
+      if (result?.ok !== true || result.complete !== true || !Array.isArray(result.items)) { row.reason = str(result?.error || '评论读取不完整'); row.complete = false; await persist(); continue }
+      row.readCount = result.items.length; row.complete = true; row.reason = row.baseline ? '已同步' : '首次同步，仅记录历史'
       const items = result.items.map(normalizeComment)
       // An unidentifiable comment makes a purportedly complete scan unsafe.
       if (items.some((comment) => !comment.id)) continue
-      const row = taskState(taskId)
       for (const comment of items.sort((a, b) => a.createdAt - b.createdAt)) {
         const key = identity(taskId, comment.id)
         if (row.seen[key]) continue
         row.seen[key] = true
         if (!row.baseline) continue
+        row.newCount++
         const own = Object.values(state.outbound).some((out) => out.taskId === taskId && out.commentId === comment.id && out.status === 'sent')
         const owner = isCommentOwner(task, comment)
         const mode = owner ? config.ownerMode : config.otherMode
@@ -179,7 +188,11 @@ export function createCommentCoordinator(deps) {
       const ownerNow = entry.owner && isCommentOwner(task, entry)
       const mode = ownerNow ? config.ownerMode : config.otherMode
       if (mode === 'off') { entry.status = 'ignored'; entry.reason = 'mode-off'; await persist(); continue }
-      if (delivered >= config.maxPerSync || await deps.isSessionBusy(entry.sessionId)) continue
+      if (delivered >= config.maxPerSync || await deps.isSessionBusy(entry.sessionId, { wake: entry.manual === true })) {
+        entry.reason = delivered >= config.maxPerSync ? '等待下一轮' : '等待对话空闲或激活'
+        await persist(); continue
+      }
+      delete entry.reason
       // An owner who lost ownership can only be downgraded. A non-owner never upgrades.
       entry.mode = entry.mode === 'reply' ? 'reply' : mode
       entry.maxPermission = ownerNow && entry.mode === 'execute' ? 'owner' : 'reply'
@@ -203,7 +216,13 @@ export function createCommentCoordinator(deps) {
   }
   return {
     dispose: async () => { closed = true; await tail },
-    sync: (tasks, nextConfig) => serial(async () => { config = configOf(nextConfig); if (config.enabled) await scan(tasks); return drainInternal() }),
+    sync: (tasks, nextConfig) => serial(async () => {
+      config = configOf(nextConfig)
+      if (config.enabled) await scan(tasks)
+      const result = await drainInternal()
+      const diagnostics = (tasks || []).map((task) => ({ taskId: task.id, ...(state.tasks[identity(task.id, '')] || {}) }))
+      return { ...result, diagnostics }
+    }),
     drain: (nextConfig) => serial(async () => { if (nextConfig) config = configOf(nextConfig); return drainInternal() }),
     writeOutbound: (taskId, text, options) => serial(() => outbound(taskId, text, options)),
     complete: (commentId, sessionId, text, options = {}) => serial(async () => {
@@ -215,7 +234,7 @@ export function createCommentCoordinator(deps) {
       if (!config.enabled || !(await current(entry.taskId, entry.sessionId))) return { ok: false, blocked: true, error: 'Comment collaboration disabled or task inactive' }
       if (entry.status !== 'reply_pending') {
         if (!str(text).trim()) return { ok: false, error: 'Reply text is required' }
-        entry.replyText = `🤖: ${str(text).trim()}`; entry.status = 'reply_pending'; await persist()
+        entry.replyText = formatAIComment(str(text)); entry.status = 'reply_pending'; await persist()
       }
       return reply(entry)
     }),
@@ -236,6 +255,31 @@ export function createCommentCoordinator(deps) {
       entry.turnEnded = true
       if (['running', 'delivered'].includes(entry.status)) { entry.status = 'unknown'; entry.error = 'Turn ended without explicit completion; manual handling required' }
       await persist(); return { ok: true }
+    }),
+    diagnostic: (taskId) => serial(() => clone(state.tasks[identity(taskId, '')] || { baseline: false, reason: config.enabled ? '尚未同步' : '评论协作未开启' })),
+    submit: (taskId, commentId, nextConfig) => serial(async () => {
+      config = configOf(nextConfig)
+      if (!config.enabled) return { ok: false, error: '请先开启评论协作' }
+      const task = await current(str(taskId))
+      if (!task) return { ok: false, error: '任务已完成、暂停、解绑或无法核验' }
+      const result = await deps.listComments(str(taskId))
+      if (!result?.ok || !result.complete) return { ok: false, error: '评论读取不完整，不能提交' }
+      const raw = result.items.find((item) => str(item.id) === str(commentId))
+      if (!raw) return { ok: false, error: '未找到评论，请刷新' }
+      const comment = normalizeComment(raw)
+      if (Object.values(state.outbound).some((row) => row.taskId === taskId && row.commentId === comment.id && row.status === 'sent')) return { ok: false, error: 'AI 自身回复不再处理' }
+      if (comment.authorType !== 'user' || !comment.authorId) return { ok: false, error: '无法核验评论作者' }
+      const existing = findEntry(str(taskId), str(commentId))
+      if (existing && (existing.status !== 'ignored' || existing.deliveryText || existing.turn != null)) return { ok: false, error: '评论已在处理中或已处理，请勿重复提交' }
+      const owner = isCommentOwner(task, comment)
+      const mode = owner ? config.ownerMode : config.otherMode
+      if (mode === 'off') return { ok: false, error: '该作者的评论处理已关闭' }
+      const entry = { key: identity(taskId, commentId), seq: state.nextSeq++, taskId: str(taskId), commentId: comment.id, sessionId: task.sessionId, text: comment.text, authorId: comment.authorId, authorType: comment.authorType, owner, mode, requestId: `feishu-comment:${identity(taskId, commentId)}`, status: 'pending', createdAt: deps.now(), manual: true }
+      if (existing) state.inbox[state.inbox.indexOf(existing)] = entry; else state.inbox.push(entry)
+      taskState(taskId).seen[entry.key] = true
+      await persist()
+      const drained = await drainInternal()
+      return { ok: true, status: entry.status, reason: entry.reason || '', ...drained }
     }),
     list: (filter = {}) => serial(() => clone(state.inbox.filter((entry) => (!filter.taskId || entry.taskId === filter.taskId) && (!filter.status || entry.status === filter.status)))),
     status: () => serial(() => clone({ ...state, blockedTasks: [...new Set(Object.values(state.outbound).filter((row) => ['sending', 'unknown'].includes(row.status)).map((row) => row.taskId))] })),

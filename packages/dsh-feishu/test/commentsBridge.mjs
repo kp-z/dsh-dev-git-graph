@@ -138,7 +138,7 @@ try {
     assert.match(await tool.execute({ commentId: 'wrong', text: 'answer' }, { agent: { id: 's' } }), /回复失败/)
     assert.match(await tool.execute({ commentId: 'question', text: 'answer' }, { agent: { id: 'other' } }), /回复失败/)
     assert.match(await tool.execute({ commentId: 'question', taskId: 't', text: 'answer' }, { agent: { id: 's' } }), /已回复评论 out-1/)
-    const write = (await writes()).at(-1); assert.equal(write.reply_to_comment_id, 'question'); assert.deepEqual(write.mentionIds, ['someone']); assert.equal(write.allowMentionFallback, true); assert.equal(write.text, '🤖: answer')
+    const write = (await writes()).at(-1); assert.equal(write.reply_to_comment_id, 'question'); assert.deepEqual(write.mentionIds, ['someone']); assert.equal(write.allowMentionFallback, true); assert.equal(write.text, '[🤖AI 回复]\n--------------------\nanswer\n--------------------')
     assert.equal((await app.rows())[0].outboundCommentId, 'out-1')
     assert.match(app.guard('bash', {}), /非负责人/)
   })

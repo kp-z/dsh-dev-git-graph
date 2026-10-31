@@ -21,6 +21,8 @@ stdout:
 任何一部分失败都不影响其它部分：errors 里记原因，调用方按缺失处理。
 """
 import json
+import html
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -324,7 +326,7 @@ def task_comment(token, action):
             # Same GUID/comment IDs verified against an isolated real task.
             rich = ' '.join('<at id=' + uid + '></at>' for uid in mentions)
             safe_content = html.escape(content, quote=False)
-            rich_content = '🤖: ' + rich + ' ' + safe_content.removeprefix('🤖:').lstrip()
+            rich_content = rich + '\n' + safe_content
             body = {'content': content, 'rich_content': rich_content, 'parent_id': reply or '0'}
             path = '/task/v1/tasks/' + urllib.parse.quote(task, safe='') + '/comments?user_id_type=open_id'
         posting = True
@@ -615,6 +617,19 @@ def run_actions(token, actions):
                            method='PATCH', body={'task': {'description': new_desc}, 'update_fields': ['description']})
                 ok = res.get('code') == 0
                 results.append({'op': op, 'ok': ok, 'error': None if ok else res.get('msg', '')[:200]})
+            elif op == 'task_reopen':
+                # Same task-v2 PATCH envelope as set_task_time; reopening only clears completion.
+                # Never interpolate a path/query or coerce another identifier into a task GUID.
+                task_id = action.get('task')
+                if not isinstance(task_id, str) or not re.fullmatch(
+                        r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', task_id):
+                    raise ValueError('task 必须是完整任务 GUID')
+                res = call(token, f'/task/v2/tasks/{task_id}?user_id_type=open_id',
+                           method='PATCH', body={'task': {'completed_at': '0'},
+                                                 'update_fields': ['completed_at']})
+                ok = res.get('code') == 0
+                results.append({'op': op, 'ok': ok,
+                                'error': None if ok else str(res.get('msg') or res.get('code') or '任务重开失败')[:200]})
             elif op == 'set_task_time':
                 # 写任务的开始/截止时间（AI 排期落地用）。
                 # v2 的时间是**毫秒时间戳字符串**，不是秒、也不是对象；传错会被当成 1970 年，

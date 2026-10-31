@@ -120,7 +120,7 @@ async function boot() {
       const res = await fetch(`${base}/api/tasks/relations`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(5000) })
       return { status: res.status, body: await res.json() }
     },
-    async close() { effects.reverse().forEach((dispose) => dispose()); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)) },
+    async close() { for (const dispose of effects.reverse()) await dispose(); server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)) },
   }
 }
 let app = await boot()
@@ -246,7 +246,8 @@ try {
     assert.deepEqual(ids(result.body.relations.predecessors), ['c', 'a'])
     assert.deepEqual(ids(result.body.relations.successors), ['d'])
     const calls = (await bridgeCalls()).slice(before)
-    assert.deepEqual(calls.map((action) => action.op), ['task_dependencies', 'task_dependencies', 'add_dependencies'])
+    assert.equal(calls.at(-1).op, 'add_dependencies')
+    assert.ok(calls.length >= 2 && calls.slice(0, -1).every((action) => action.op === 'task_dependencies'), 'remote reads precede the sole mutation; startup probes may add a read')
     assert.deepEqual(calls.at(-1).dependencies, [{ task_guid: 'a', type: 'prev' }])
     assert.equal((await app.state()).relationSync.b.pending, false)
   })

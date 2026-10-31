@@ -303,7 +303,7 @@ check('传布尔也不炸', turnFailureOf(true).failed, false)
   )
   check(
     '标明是 AI 写的',
-    progressDigest({ text: '', edits: ['a.js'] }, now).startsWith('🤖 AI 进度'),
+    progressDigest({ text: '', edits: ['a.js'] }, now).startsWith('进度 ·'),
     true,
   )
   check(
