@@ -2657,6 +2657,28 @@
   .people-group + .people-group { margin-left: 5px; }
   .people-group[aria-label="负责人"] .avatar { border-color: color-mix(in srgb, var(--p-accent) 45%, var(--p-line)); }
 
+  /* 头像悬停姓名：原生 title 有延迟、触屏也没有，统一用一个轻量气泡。 */
+  .avatar-tip {
+    position: fixed;
+    z-index: 60;
+    pointer-events: none;
+    max-width: 240px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--p-text);
+    color: var(--p-card);
+    font-size: 11px;
+    line-height: 1.45;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .avatar-tip[data-show="1"] { opacity: 1; transform: translateY(0); }
+
   .chip {
     max-width: 100%;
     padding: 0 6px;
@@ -4031,6 +4053,82 @@
     app.toastTimer = setTimeout(function () {
       $('toast').classList.remove('show');
     }, 3000);
+  }
+
+  /* ---------------- 头像悬停姓名 ----------------
+     data-tip 就是提示文案；原生 title 的延迟太长，触屏也看不到。 */
+  var avatarTipNode = null
+  var avatarTipTimer = null
+
+  function avatarTipEl() {
+    if (avatarTipNode && avatarTipNode.isConnected) return avatarTipNode
+    avatarTipNode = el('div', { 'class': 'avatar-tip', role: 'tooltip', 'aria-hidden': 'true' })
+    document.body.appendChild(avatarTipNode)
+    return avatarTipNode
+  }
+
+  function placeAvatarTip(target) {
+    if (!avatarTipNode || !target || !target.getBoundingClientRect) return
+    var rect = target.getBoundingClientRect()
+    var gap = 6
+    var width = avatarTipNode.offsetWidth || 0
+    var height = avatarTipNode.offsetHeight || 0
+    var viewport = window.innerWidth || rect.right + width
+    var left = Math.max(6, Math.min(rect.left + rect.width / 2 - width / 2, viewport - width - 6))
+    var top = rect.top - height - gap
+    if (top < 6) top = rect.bottom + gap
+    avatarTipNode.style.left = left + 'px'
+    avatarTipNode.style.top = Math.max(6, top) + 'px'
+  }
+
+  function showAvatarTip(target) {
+    var text = target && target.getAttribute ? target.getAttribute('data-tip') : ''
+    if (!text) return
+    var node = avatarTipEl()
+    node.textContent = String(text)
+    node.setAttribute('aria-hidden', 'false')
+    node.setAttribute('data-show', '1')
+    placeAvatarTip(target)
+  }
+
+  function hideAvatarTip() {
+    if (avatarTipTimer) { clearTimeout(avatarTipTimer); avatarTipTimer = null }
+    if (!avatarTipNode) return
+    avatarTipNode.removeAttribute('data-show')
+    avatarTipNode.setAttribute('aria-hidden', 'true')
+  }
+
+  function avatarTipTargetOf(event) {
+    var node = event && event.target
+    while (node && node !== document.body) {
+      if (node.getAttribute && node.getAttribute('data-tip')) return node
+      node = node.parentNode
+    }
+    return null
+  }
+
+  function wireAvatarTips() {
+    if (wireAvatarTips.done) return
+    wireAvatarTips.done = true
+    document.addEventListener('pointerover', function (event) {
+      var target = avatarTipTargetOf(event)
+      if (!target) return
+      if (avatarTipTimer) clearTimeout(avatarTipTimer)
+      avatarTipTimer = setTimeout(function () { showAvatarTip(target) }, 80)
+    })
+    document.addEventListener('pointerout', function (event) {
+      var target = avatarTipTargetOf(event)
+      if (!target) return
+      var next = event.relatedTarget
+      if (next && target.contains && target.contains(next)) return
+      hideAvatarTip()
+    })
+    document.addEventListener('focusin', function (event) {
+      var target = avatarTipTargetOf(event)
+      if (target) showAvatarTip(target)
+    })
+    document.addEventListener('focusout', hideAvatarTip)
+    window.addEventListener('scroll', hideAvatarTip, true)
   }
 
   function showSaved(msg) {
@@ -6897,7 +6995,7 @@
       var icon = el('span', {
         'class': 'people-role-icon',
         tabindex: '0',
-        title: label + '：' + list.map(function (m) { return m.name || m.id || '未知人员'; }).join('、'),
+        'data-tip': label + '：' + list.map(function (m) { return m.name || m.id || '未知人员'; }).join('、'),
         'aria-label': label + '，' + list.length + ' 人'
       });
       var svgNs = 'http://www.w3.org/2000/svg';
@@ -6922,7 +7020,7 @@
       for (var i = 0; i < shown.length; i++) {
         (function (m) {
           var who = m.name || m.id || '';
-          var av = el('span', { 'class': 'avatar', tabindex: '0', title: label + '：' + who, 'aria-label': label + '：' + who });
+          var av = el('span', { 'class': 'avatar', tabindex: '0', 'data-tip': who || label, 'aria-label': label + '：' + who });
           if (m.avatar) {
             av.appendChild(el('img', { src: m.avatar, alt: who, loading: 'lazy' }));
           } else {
@@ -6937,7 +7035,7 @@
           text: '+' + (list.length - shown.length),
           tabindex: '0',
           'aria-label': label + '，另有 ' + (list.length - shown.length) + ' 人',
-          title: label + '：' + list.slice(shown.length).map(function (m) { return m.name || m.id; }).join('、')
+          'data-tip': label + '：' + list.slice(shown.length).map(function (m) { return m.name || m.id; }).join('、')
         }));
       }
       return group;
@@ -7245,6 +7343,7 @@
       var meta = el('div', { 'class': 'card-comment-meta' });
       meta.appendChild(el('span', { 'class': 'card-comment-author', text: authorName }));
       var role = own ? '[🤖AI 回复]' : member && member.role === 'assignee' ? '负责人' : member ? '关注人' : '';
+      avatar.setAttribute('data-tip', role ? authorName + ' · ' + role : authorName);
       if (role) meta.appendChild(el('span', { 'class': 'card-comment-role', text: role }));
       meta.appendChild(el('span', { 'class': 'card-comment-tag', 'data-state': entry ? entry.status : 'history', text: cardCommentStatus(entry) }));
       meta.appendChild(el('time', { 'class': 'card-comment-time', text: fmtRel(comment.createdAt), title: fmtAbs(comment.createdAt) + (comment.updatedAt && comment.updatedAt !== comment.createdAt ? ' · 编辑 ' + fmtAbs(comment.updatedAt) : '') }));
@@ -10408,6 +10507,7 @@
     var taskRenderObserver = new MutationObserver(function () { flushPendingTaskRender(); });
     taskRenderObserver.observe(document.body, { childList: true, subtree: true });
   }
+  wireAvatarTips();
   renderAll();  // 空态先显示，辅助图表等首份state后分批加载
   connectActivityStream();
   load().then(function () { schedulePoll(); deferAuxiliaryLoads(); });
