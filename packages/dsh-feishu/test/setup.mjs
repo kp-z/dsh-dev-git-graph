@@ -113,7 +113,11 @@ try {
   check('准备卡收放行是单独一行', html.includes('id="setupSummary"') && html.includes('id="setupChips"'))
   check('旧的收起/展开按钮已移除', !html.includes('id="setupToggle"') && !html.includes('id="setupCollapsed"'))
   check('收放行展示 授权 / CLI / 上次同步 / 出错', ['需要授权', 'CLI 未就绪', '上次同步', '上次同步出错'].every((s) => html.includes(s)))
-  check('未授权成功时禁止收起', html.includes('if (!st.ready) return') && html.includes('授权成功后才能收起'))
+  check('状态行有「配置」「认证」两个并列按钮', html.indexOf('id="configurationToggle"') >= 0 &&
+    html.indexOf('id="authToggle"') > html.indexOf('id="configurationToggle"'))
+  check('配置内容收进状态卡内部', /id="setupCard"[\s\S]*id="configurationArea"[\s\S]*id="insightCard"/.test(html))
+  check('未就绪时认证信息强制展开', html.includes('app.setupForceAuth = !ready') &&
+    html.includes("return app.setupForceAuth ? 'auth' : ''"))
 
   /* 2. 还没装 CLI：state 要说清楚，并且别把授权写在「可用」上。 */
   const before = await getJson('/api/state')

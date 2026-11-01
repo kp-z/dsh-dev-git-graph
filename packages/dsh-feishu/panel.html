@@ -146,6 +146,9 @@
   /* 配置是任务页的辅助工作区，而不是默认堆叠的卡片墙。 */
   .configuration-area[hidden], .configuration-panel[hidden] { display: none; }
   .configuration-area { min-width: 0; scroll-margin-top: 12px; }
+  /* 配置内容也放进状态卡内部，和认证信息互斥显示；嵌套卡片收一下边框，别越套越厚。 */
+  .setup #configurationArea { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--p-line); }
+  .setup #configurationArea .configuration-panel { background: transparent; border: 0; box-shadow: none; padding: 0; }
   .configuration-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .configuration-tabs { display: flex; flex: 1; gap: 3px; min-width: 0; flex-wrap: wrap; }
   .configuration-tabs button { border: 0; border-radius: 7px; padding: 7px 9px; background: transparent; color: var(--p-text-3); font: inherit; font-size: 12px; cursor: pointer; }
@@ -225,8 +228,10 @@
   #settingsSummary { font-size: 11px; }
   @media (max-width: 380px) { .setting-group-desc { max-width: 150px; } .configuration-tabs button { padding: 7px; } }
 
-  /* 配置入口在准备卡的状态行（状态栏）右侧，不再单独占一行 header。 */
+  /* 状态行右侧两个并列按钮：配置 / 认证；同一时间只展开一块内容。 */
   #setupSummary > #configurationToggle { flex: 0 0 auto; margin-left: auto; }
+  #setupSummary > #authToggle { flex: 0 0 auto; }
+  #configurationToggle[aria-expanded="true"], #authToggle[aria-expanded="true"] { color: var(--p-accent); background: var(--p-accent-weak); }
 
   /* ---------- 准备卡（装 CLI → 授权，就绪后折叠成状态行） ---------- */
   .setup-step {
@@ -424,14 +429,10 @@
     min-width: 0;
   }
 
-  .setup-head.can-toggle { cursor: pointer; }
-
   /* 收起后只留一行状态条：压掉卡片内边距和标题下间距 */
   .setup.collapsed { padding: 9px 14px; }
   .setup.collapsed .setup-head { margin-bottom: 0; }
   .setup.collapsed .setup-head h2 { font-size: 13px; }
-
-  .setup-head.can-toggle:hover .setup-caret { color: var(--p-text); }
 
   /* 收放行：始终一行，内容多了横向滚动，不换行 */
   .setup-chips {
@@ -453,14 +454,6 @@
   .setup-chips .stat {
     flex: 0 0 auto;
     white-space: nowrap;
-  }
-
-  .setup-caret {
-    flex: 0 0 auto;
-    width: 12px;
-    text-align: center;
-    font-size: 11px;
-    color: var(--p-text-3);
   }
 
   .stat {
@@ -3382,11 +3375,11 @@
 <main class="wrap">
   <!-- 0. 准备卡：装 CLI → 授权；就绪后只剩一行状态，标题改叫「状态」 -->
   <section class="card setup" id="setupCard" aria-labelledby="setupTitle">
-    <div class="card-head setup-head" id="setupSummary" aria-controls="setupBody" aria-expanded="true">
+    <div class="card-head setup-head" id="setupSummary">
       <h2 id="setupTitle">准备</h2>
       <span id="setupChips" class="setup-chips"></span>
       <button type="button" id="configurationToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="configurationArea" title="飞书面板配置">配置</button>
-      <span id="setupCaret" class="setup-caret" aria-hidden="true"></span>
+      <button type="button" id="authToggle" class="btn btn-ghost btn-xs" aria-expanded="true" aria-controls="setupBody" title="飞书认证信息（CLI 安装 / 授权）">认证</button>
     </div>
     <div id="setupBody">
       <div id="staleHost"></div>
@@ -3425,6 +3418,396 @@
         <div id="authBody"></div>
       </div>
     </div>
+    <!-- 配置只在主动打开时显示；草稿控件驻留，不因切换而重建。 -->
+    <section id="configurationArea" class="configuration-area" aria-label="飞书配置" hidden>
+      <div class="configuration-head">
+        <div class="configuration-tabs" role="tablist" aria-label="配置分类">
+          <button id="configTab-settings" type="button" role="tab" data-config-tab="settings" aria-controls="settingsCard" aria-selected="true">同步规则</button>
+          <button id="configTab-auth" type="button" role="tab" data-config-tab="auth" aria-controls="authCard" aria-selected="false" tabindex="-1">授权</button>
+          <button id="configTab-docPrompt" type="button" role="tab" data-config-tab="docPrompt" aria-controls="docPromptCard" aria-selected="false" tabindex="-1">文档生成</button>
+          <button id="configTab-docs" type="button" role="tab" data-config-tab="docs" aria-controls="docsCard" aria-selected="false" tabindex="-1">文档监听</button>
+          <button id="configTab-syncHistory" type="button" role="tab" data-config-tab="syncHistory" aria-controls="syncHistoryCard" aria-selected="false" tabindex="-1">同步记录</button>
+        </div>
+        <button id="configurationClose" type="button" class="btn btn-ghost btn-xs" aria-label="收起配置">收起</button>
+      </div>
+    <section id="docPromptCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docPrompt" hidden>
+      <div class="card-head">
+        <h2 id="docPromptTitle">文档生成 Prompt</h2>
+        <span id="docPromptState" class="push muted"></span>
+      </div>
+      <textarea id="docPrompt" class="prompt-area" rows="7" spellcheck="false"></textarea>
+      <div class="sess-controls">
+        <button id="saveDocPrompt" class="btn btn-primary btn-sm" type="button">保存</button>
+        <button id="resetDocPrompt" class="btn btn-ghost btn-sm" type="button">恢复默认</button>
+      </div>
+      <div class="hint">生成文档时用这段要求重写内容；默认要求「零废话、主体用表格、结构用 Mermaid」。</div>
+    </section>
+
+    <section id="authCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-auth" hidden>
+      <div class="card-head">
+        <h2 id="authTitle">飞书授权</h2>
+      </div>
+      <p class="hint">授权流程已并入页面顶部「准备」卡的第 2 步（状态、二维码与「下一步」都在那里）；这里保留授权页签，方便和同步规则一起切换。</p>
+    </section>
+
+    <!-- 4. 同步设置 -->
+    <section id="settingsCard" class="card configuration-panel settings-card" role="tabpanel" aria-labelledby="configTab-settings">
+      <div class="card-head">
+        <h2 id="settingsTitle">飞书任务同步规则</h2>
+        <span id="settingsSummary" class="hint push"></span>
+      </div>
+
+      <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="autoSync">自动同步</label>
+            <div class="hint">定期更新本地任务与监听文档</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="autoSync" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="syncInterval">同步间隔</label>
+            <div class="hint">自动同步开启后生效</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="syncInterval" data-setting="1" min="1" max="1440" step="1" inputmode="numeric">
+            <span class="unit">分钟</span>
+          </div>
+        </div>
+
+
+        <div class="row">
+          <div class="row-text">
+            <label for="keyword">任务关键词</label>
+            <div class="hint">留空同步全部；填写后只同步匹配任务</div>
+          </div>
+          <div class="row-ctrl grow">
+            <input type="text" id="keyword" data-setting="1" autocomplete="off" spellcheck="false" placeholder="如：周报">
+          </div>
+        </div>
+      </div>
+    <details id="managedTasklistGroup" class="setting-group">
+      <summary><span>受管任务清单</span><span class="setting-group-desc">自动初始化与完整字段检查</span></summary>
+      <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="managedTasklistEnabled">启用受管任务清单</label>
+            <div class="hint">默认启用；授权后初始化清单及所需字段</div>
+          </div>
+          <div class="row-ctrl"><input type="checkbox" id="managedTasklistEnabled" class="switch" data-setting="1" checked></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="managedTasklistName">清单名称</label><div class="hint">自动创建时使用；留空使用「DSH 任务清单」</div></div>
+          <div class="row-ctrl grow"><input type="text" id="managedTasklistName" data-setting="1" autocomplete="off" spellcheck="false" placeholder="DSH 任务清单"></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="managedTasklistGuid">复用清单 GUID</label><div class="hint">留空自动创建或复用旧配置中的单一清单；填写则复用指定清单</div></div>
+          <div class="row-ctrl grow"><input type="text" id="managedTasklistGuid" data-setting="1" autocomplete="off" spellcheck="false" placeholder="留空自动选择"></div>
+        </div>
+      </div>
+      <div class="managed-tasklist-status">
+        <div class="hint">指定清单的已有字段类型不符时不会删除或覆盖。配置通过「保存设置」提交，不会自动触发同步；保存后可点现有「立即同步」重新检查。检查缓存约 10 分钟，配置改动会更新检查签名。</div>
+        <div id="managedTasklistStatus" role="status" aria-live="polite"></div>
+        <div id="managedTasklistIdentity" class="hint"></div>
+        <div id="managedTasklistCheckedAt" class="hint"></div>
+        <ul id="managedTasklistFields" class="managed-tasklist-fields" aria-label="完整字段检查结果"></ul>
+        <ul id="managedTasklistErrors" class="managed-tasklist-errors" aria-label="清单检查错误"></ul>
+      </div>
+    </details>
+      <details class="setting-group">
+        <summary><span>自动开工</span><span class="setting-group-desc">触发范围与并发上限</span></summary>
+        <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="autoStartMode">开工范围</label>
+            <div class="hint">标注任务需在飞书清单填写工作区与触发条件。
+              <div id="wsHint" class="hint-sub"></div>
+            </div>
+          </div>
+          <div class="row-ctrl">
+            <select id="autoStartMode" data-setting="1">
+              <option value="off">关闭</option>
+              <option value="tagged">只开标注过的</option>
+              <option value="all">所有新任务</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="maxAutoStart">每轮自动开工上限</label>
+            <div class="hint">每次同步最多自动开工几个任务</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="maxAutoStart" data-setting="1" min="1" max="20" step="1" inputmode="numeric">
+            <span class="unit">个</span>
+          </div>
+        </div>
+
+        </div>
+      </details>
+      <details class="setting-group">
+        <summary><span>排期与定时</span><span class="setting-group-desc">工作时段、补跑与触发指令</span></summary>
+        <div class="rows">
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schTimeZone">时区</label>
+            <div class="hint">自然语言时间按此时区解析</div>
+          </div>
+          <div class="row-ctrl grow">
+            <input type="text" id="schTimeZone" data-setting="1" autocomplete="off" spellcheck="false" placeholder="Asia/Shanghai">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schWorkStart">工作时段</label>
+            <div class="hint">每日排期范围，格式 HH:mm</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="text" id="schWorkStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="09:00" maxlength="5" inputmode="numeric">
+            <span class="unit">到</span>
+            <input type="text" id="schWorkEnd" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="19:00" maxlength="5" inputmode="numeric">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schQuietStart">免打扰时段</label>
+            <div class="hint">此时段不排任务；两项留空表示不限制</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="text" id="schQuietStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="12:00" maxlength="5" inputmode="numeric">
+            <span class="unit">到</span>
+            <input type="text" id="schQuietEnd" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="13:30" maxlength="5" inputmode="numeric">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schMissPolicy">错过策略</label>
+            <div class="hint">到点没跑成（比如会话还在忙）时怎么补</div>
+          </div>
+          <div class="row-ctrl">
+            <select id="schMissPolicy" data-setting="1">
+              <option value="delay">宽限内补跑</option>
+              <option value="skip">跳过</option>
+              <option value="next">顺延下一次</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schGrace">宽限分钟</label>
+            <div class="hint">选了「宽限内补跑」时，最多晚多久还算数</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="schGrace" data-setting="1" min="0" max="1440" step="5" inputmode="numeric">
+            <span class="unit">分钟</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schCapacity">每日容量</label>
+            <div class="hint">规划今日任务时的总时长上限</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="schCapacity" data-setting="1" min="30" max="1440" step="30" inputmode="numeric">
+            <span class="unit">分钟</span>
+          </div>
+        </div>
+
+        <div class="row setting-prompt-row">
+          <div class="row-text">
+            <label for="schAutomationPrompt">定时触发指令</label>
+            <div class="hint">到点发送到绑定会话。支持 {{title}} / {{list}} / {{workspace}}；留空使用默认指令。</div>
+          </div>
+          <div class="row-ctrl grow">
+            <textarea id="schAutomationPrompt" data-setting="1" rows="3" placeholder="继续这条任务：先制定计划，然后按计划开始执行。"></textarea>
+          </div>
+        </div>
+        </div>
+      </details>
+      <details class="setting-group">
+        <summary><span>写回飞书</span><span class="setting-group-desc">排期与任务时间</span></summary>
+        <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="schWriteBack">排期时间</label>
+            <div class="hint">排期时同步飞书的开始 / 截止时间</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="schWriteBack" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schWriteEta">预期完成写回飞书</label>
+            <div class="hint">同步到清单的「预期完成」列；关闭则仅保存在本地</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="schWriteEta" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schWriteStart">绑定会话时写回开始时间</label>
+            <div class="hint">绑定会话时更新飞书开始时间</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="schWriteStart" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schWriteEnd">完成时写回结束时间</label>
+            <div class="hint">完成任务时更新清单的「结束时间」列</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="schWriteEnd" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        </div>
+      </details>
+      <details class="setting-group">
+        <summary><span>会话协作</span><span class="setting-group-desc">任务档案、通知与进度评论</span></summary>
+        <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="contextInjection">绑定时注入任务档案</label>
+            <div class="hint">把状态、人员、清单字段和文档发到会话；关闭后仍可按需查详情</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="contextInjection" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="pushChanges">任务变化推送到会话</label>
+            <div class="hint">标题、状态或文档变化时通知绑定会话；消耗一轮对话，5 分钟最多一条</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="pushChanges" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="autoComment">有实际进展才写回任务评论</label>
+            <div class="hint">仅改文件、提交或测试后写评论，带 AI 标记；闲聊不写，失败下次补发</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="autoComment" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="autoCommentGap">进度评论最小间隔</label>
+            <div class="hint">限制同一会话的评论频率</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="autoCommentGap" data-setting="1" min="10" max="3600" step="5" inputmode="numeric">
+            <span class="unit">秒</span>
+          </div>
+        </div>
+        </div>
+      </details>
+      <details id="commentsGroup" class="setting-group">
+        <summary><span>评论协作</span><span class="setting-group-desc">绑定会话内处理留言</span></summary>
+        <div class="rows">
+          <div id="commentsCapabilityHint" class="hint" role="status">正在确认宿主是否支持评论协作…</div>
+          <div class="row">
+            <div class="row-text"><label for="commentEnabled">接收任务评论</label><div class="hint">仅处理已绑定会话的任务；默认关闭，保存后生效</div></div>
+            <div class="row-ctrl"><input type="checkbox" id="commentEnabled" class="switch" data-setting="1" disabled></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><label for="commentOwnerMode">任务负责人留言</label><div class="hint">执行模式会在绑定会话内判断并处理请求</div></div>
+            <div class="row-ctrl"><select id="commentOwnerMode" data-setting="1" disabled><option value="off">不处理</option><option value="execute">处理请求</option></select></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><label for="commentOtherMode">其他人留言</label><div class="hint">仅回复当前任务问题，不执行修改；原生回复关联作者，但不保证 @ 通知（通知协议尚未确认）</div></div>
+            <div class="row-ctrl"><select id="commentOtherMode" data-setting="1" disabled><option value="off">不处理</option><option value="reply">仅回复</option></select></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><label for="commentMaxPerSync">每轮处理上限</label><div class="hint">每次同步最多投递多少条留言</div></div>
+            <div class="row-ctrl"><input type="number" id="commentMaxPerSync" data-setting="1" min="1" max="20" step="1" value="5" inputmode="numeric" disabled><span class="unit">条</span></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><label for="commentMentionMode">回复提及作者</label><div class="hint">默认 @ 作者；原生回复不含 @，仅在旧版权限不可用时手动切换。失败不会换接口重发。</div></div>
+            <div class="row-ctrl"><select id="commentMentionMode" data-setting="1" disabled><option value="task-v1" selected>任务富文本 @ 作者（默认）</option><option value="native">原生回复（不 @）</option></select></div>
+          </div>
+        </div>
+      </details>
+      <details class="setting-group">
+        <summary><span>维护工具</span><span class="setting-group-desc">任务命名与孤儿会话</span></summary>
+      <div class="rows">
+      <div class="row">
+        <div class="row-main">
+          <label for="normalizeNames">统一任务命名</label>
+          <div class="hint">整理为「表情 + T&lt;n&gt;- + 标题」，可重复执行。</div>
+        </div>
+        <button type="button" id="normalizeNames" class="btn btn-ghost btn-sm">执行</button>
+      </div>
+
+      <div class="row">
+        <div class="row-main">
+          <label for="cleanOrphans">清理孤儿会话</label>
+          <div class="hint">查找插件创建但已无关联任务的会话；扫描后再决定是否归档。</div>
+        </div>
+        <button type="button" id="cleanOrphans" class="btn btn-ghost btn-sm">扫描</button>
+      </div>
+
+      </div>
+      </details>
+      <div class="card-foot">
+        <button type="button" id="saveSettings" class="btn btn-primary">保存设置</button>
+        <span id="saveHint" class="saved" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+
+    <!-- 5. 文档监听 -->
+    <section id="docsCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docs" hidden>
+      <div class="card-head">
+        <h2 id="docsTitle">文档监听</h2>
+      </div>
+
+      <div class="doc-add">
+        <div class="doc-field">
+          <label for="docUrl">文档链接</label>
+          <input type="url" id="docUrl" autocomplete="off" spellcheck="false"
+            placeholder="https://xxx.feishu.cn/wiki/…">
+        </div>
+        <button type="button" id="docAdd" class="btn btn-primary">添加监听</button>
+      </div>
+
+      <div id="docHint" class="form-error" role="status" aria-live="polite" hidden></div>
+      <div id="docList" class="list"></div>
+    </section>
+
+    <section id="syncHistoryCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-syncHistory" hidden>
+      <div class="card-head">
+        <h2>同步记录</h2>
+        <span id="syncHistorySummary" class="push muted small"></span>
+      </div>
+      <p class="muted small">最近 100 条，最新在前；随页面数据刷新。这里只查看记录，不会触发同步或模型调用。</p>
+      <p class="muted small">纯数据同步是程序化操作，不消耗模型 token；逾期 AI 归因、自动开工和评论协作可能消耗模型 token。下方 AI 数量是尝试或投递次数，不是 token 用量。</p>
+      <div id="syncHistoryList"></div>
+    </section>
+    </section>
   </section>
 
   <!-- 2.5 Insight：早会视图（本地指标秒出，AI 诊断按需） -->
@@ -3522,396 +3905,6 @@
     <div id="taskList" class="list"></div>
   </section>
 
-  <!-- 配置只在主动打开时显示；草稿控件驻留，不因切换而重建。 -->
-  <section id="configurationArea" class="configuration-area" aria-label="飞书配置" hidden>
-    <div class="configuration-head">
-      <div class="configuration-tabs" role="tablist" aria-label="配置分类">
-        <button id="configTab-settings" type="button" role="tab" data-config-tab="settings" aria-controls="settingsCard" aria-selected="true">同步规则</button>
-        <button id="configTab-auth" type="button" role="tab" data-config-tab="auth" aria-controls="authCard" aria-selected="false" tabindex="-1">授权</button>
-        <button id="configTab-docPrompt" type="button" role="tab" data-config-tab="docPrompt" aria-controls="docPromptCard" aria-selected="false" tabindex="-1">文档生成</button>
-        <button id="configTab-docs" type="button" role="tab" data-config-tab="docs" aria-controls="docsCard" aria-selected="false" tabindex="-1">文档监听</button>
-        <button id="configTab-syncHistory" type="button" role="tab" data-config-tab="syncHistory" aria-controls="syncHistoryCard" aria-selected="false" tabindex="-1">同步记录</button>
-      </div>
-      <button id="configurationClose" type="button" class="btn btn-ghost btn-xs" aria-label="收起配置">收起</button>
-    </div>
-  <section id="docPromptCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docPrompt" hidden>
-    <div class="card-head">
-      <h2 id="docPromptTitle">文档生成 Prompt</h2>
-      <span id="docPromptState" class="push muted"></span>
-    </div>
-    <textarea id="docPrompt" class="prompt-area" rows="7" spellcheck="false"></textarea>
-    <div class="sess-controls">
-      <button id="saveDocPrompt" class="btn btn-primary btn-sm" type="button">保存</button>
-      <button id="resetDocPrompt" class="btn btn-ghost btn-sm" type="button">恢复默认</button>
-    </div>
-    <div class="hint">生成文档时用这段要求重写内容；默认要求「零废话、主体用表格、结构用 Mermaid」。</div>
-  </section>
-
-  <section id="authCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-auth" hidden>
-    <div class="card-head">
-      <h2 id="authTitle">飞书授权</h2>
-    </div>
-    <p class="hint">授权流程已并入页面顶部「准备」卡的第 2 步（状态、二维码与「下一步」都在那里）；这里保留授权页签，方便和同步规则一起切换。</p>
-  </section>
-
-  <!-- 4. 同步设置 -->
-  <section id="settingsCard" class="card configuration-panel settings-card" role="tabpanel" aria-labelledby="configTab-settings">
-    <div class="card-head">
-      <h2 id="settingsTitle">飞书任务同步规则</h2>
-      <span id="settingsSummary" class="hint push"></span>
-    </div>
-
-    <div class="rows">
-      <div class="row">
-        <div class="row-text">
-          <label for="autoSync">自动同步</label>
-          <div class="hint">定期更新本地任务与监听文档</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="autoSync" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="syncInterval">同步间隔</label>
-          <div class="hint">自动同步开启后生效</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="syncInterval" data-setting="1" min="1" max="1440" step="1" inputmode="numeric">
-          <span class="unit">分钟</span>
-        </div>
-      </div>
-
-
-      <div class="row">
-        <div class="row-text">
-          <label for="keyword">任务关键词</label>
-          <div class="hint">留空同步全部；填写后只同步匹配任务</div>
-        </div>
-        <div class="row-ctrl grow">
-          <input type="text" id="keyword" data-setting="1" autocomplete="off" spellcheck="false" placeholder="如：周报">
-        </div>
-      </div>
-    </div>
-    <details id="managedTasklistGroup" class="setting-group">
-      <summary><span>受管任务清单</span><span class="setting-group-desc">自动初始化与完整字段检查</span></summary>
-      <div class="rows">
-        <div class="row">
-          <div class="row-text">
-            <label for="managedTasklistEnabled">启用受管任务清单</label>
-            <div class="hint">默认启用；授权后初始化清单及所需字段</div>
-          </div>
-          <div class="row-ctrl"><input type="checkbox" id="managedTasklistEnabled" class="switch" data-setting="1" checked></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="managedTasklistName">清单名称</label><div class="hint">自动创建时使用；留空使用「DSH 任务清单」</div></div>
-          <div class="row-ctrl grow"><input type="text" id="managedTasklistName" data-setting="1" autocomplete="off" spellcheck="false" placeholder="DSH 任务清单"></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="managedTasklistGuid">复用清单 GUID</label><div class="hint">留空自动创建或复用旧配置中的单一清单；填写则复用指定清单</div></div>
-          <div class="row-ctrl grow"><input type="text" id="managedTasklistGuid" data-setting="1" autocomplete="off" spellcheck="false" placeholder="留空自动选择"></div>
-        </div>
-      </div>
-      <div class="managed-tasklist-status">
-        <div class="hint">指定清单的已有字段类型不符时不会删除或覆盖。配置通过「保存设置」提交，不会自动触发同步；保存后可点现有「立即同步」重新检查。检查缓存约 10 分钟，配置改动会更新检查签名。</div>
-        <div id="managedTasklistStatus" role="status" aria-live="polite"></div>
-        <div id="managedTasklistIdentity" class="hint"></div>
-        <div id="managedTasklistCheckedAt" class="hint"></div>
-        <ul id="managedTasklistFields" class="managed-tasklist-fields" aria-label="完整字段检查结果"></ul>
-        <ul id="managedTasklistErrors" class="managed-tasklist-errors" aria-label="清单检查错误"></ul>
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>自动开工</span><span class="setting-group-desc">触发范围与并发上限</span></summary>
-      <div class="rows">
-      <div class="row">
-        <div class="row-text">
-          <label for="autoStartMode">开工范围</label>
-          <div class="hint">标注任务需在飞书清单填写工作区与触发条件。
-            <div id="wsHint" class="hint-sub"></div>
-          </div>
-        </div>
-        <div class="row-ctrl">
-          <select id="autoStartMode" data-setting="1">
-            <option value="off">关闭</option>
-            <option value="tagged">只开标注过的</option>
-            <option value="all">所有新任务</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="maxAutoStart">每轮自动开工上限</label>
-          <div class="hint">每次同步最多自动开工几个任务</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="maxAutoStart" data-setting="1" min="1" max="20" step="1" inputmode="numeric">
-          <span class="unit">个</span>
-        </div>
-      </div>
-
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>排期与定时</span><span class="setting-group-desc">工作时段、补跑与触发指令</span></summary>
-      <div class="rows">
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schTimeZone">时区</label>
-          <div class="hint">自然语言时间按此时区解析</div>
-        </div>
-        <div class="row-ctrl grow">
-          <input type="text" id="schTimeZone" data-setting="1" autocomplete="off" spellcheck="false" placeholder="Asia/Shanghai">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schWorkStart">工作时段</label>
-          <div class="hint">每日排期范围，格式 HH:mm</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="text" id="schWorkStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="09:00" maxlength="5" inputmode="numeric">
-          <span class="unit">到</span>
-          <input type="text" id="schWorkEnd" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="19:00" maxlength="5" inputmode="numeric">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schQuietStart">免打扰时段</label>
-          <div class="hint">此时段不排任务；两项留空表示不限制</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="text" id="schQuietStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="12:00" maxlength="5" inputmode="numeric">
-          <span class="unit">到</span>
-          <input type="text" id="schQuietEnd" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="13:30" maxlength="5" inputmode="numeric">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schMissPolicy">错过策略</label>
-          <div class="hint">到点没跑成（比如会话还在忙）时怎么补</div>
-        </div>
-        <div class="row-ctrl">
-          <select id="schMissPolicy" data-setting="1">
-            <option value="delay">宽限内补跑</option>
-            <option value="skip">跳过</option>
-            <option value="next">顺延下一次</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schGrace">宽限分钟</label>
-          <div class="hint">选了「宽限内补跑」时，最多晚多久还算数</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="schGrace" data-setting="1" min="0" max="1440" step="5" inputmode="numeric">
-          <span class="unit">分钟</span>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schCapacity">每日容量</label>
-          <div class="hint">规划今日任务时的总时长上限</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="schCapacity" data-setting="1" min="30" max="1440" step="30" inputmode="numeric">
-          <span class="unit">分钟</span>
-        </div>
-      </div>
-
-      <div class="row setting-prompt-row">
-        <div class="row-text">
-          <label for="schAutomationPrompt">定时触发指令</label>
-          <div class="hint">到点发送到绑定会话。支持 {{title}} / {{list}} / {{workspace}}；留空使用默认指令。</div>
-        </div>
-        <div class="row-ctrl grow">
-          <textarea id="schAutomationPrompt" data-setting="1" rows="3" placeholder="继续这条任务：先制定计划，然后按计划开始执行。"></textarea>
-        </div>
-      </div>
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>写回飞书</span><span class="setting-group-desc">排期与任务时间</span></summary>
-      <div class="rows">
-      <div class="row">
-        <div class="row-text">
-          <label for="schWriteBack">排期时间</label>
-          <div class="hint">排期时同步飞书的开始 / 截止时间</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="schWriteBack" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schWriteEta">预期完成写回飞书</label>
-          <div class="hint">同步到清单的「预期完成」列；关闭则仅保存在本地</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="schWriteEta" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schWriteStart">绑定会话时写回开始时间</label>
-          <div class="hint">绑定会话时更新飞书开始时间</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="schWriteStart" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schWriteEnd">完成时写回结束时间</label>
-          <div class="hint">完成任务时更新清单的「结束时间」列</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="schWriteEnd" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>会话协作</span><span class="setting-group-desc">任务档案、通知与进度评论</span></summary>
-      <div class="rows">
-      <div class="row">
-        <div class="row-text">
-          <label for="contextInjection">绑定时注入任务档案</label>
-          <div class="hint">把状态、人员、清单字段和文档发到会话；关闭后仍可按需查详情</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="contextInjection" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="pushChanges">任务变化推送到会话</label>
-          <div class="hint">标题、状态或文档变化时通知绑定会话；消耗一轮对话，5 分钟最多一条</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="pushChanges" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="autoComment">有实际进展才写回任务评论</label>
-          <div class="hint">仅改文件、提交或测试后写评论，带 AI 标记；闲聊不写，失败下次补发</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="autoComment" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="autoCommentGap">进度评论最小间隔</label>
-          <div class="hint">限制同一会话的评论频率</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="autoCommentGap" data-setting="1" min="10" max="3600" step="5" inputmode="numeric">
-          <span class="unit">秒</span>
-        </div>
-      </div>
-      </div>
-    </details>
-    <details id="commentsGroup" class="setting-group">
-      <summary><span>评论协作</span><span class="setting-group-desc">绑定会话内处理留言</span></summary>
-      <div class="rows">
-        <div id="commentsCapabilityHint" class="hint" role="status">正在确认宿主是否支持评论协作…</div>
-        <div class="row">
-          <div class="row-text"><label for="commentEnabled">接收任务评论</label><div class="hint">仅处理已绑定会话的任务；默认关闭，保存后生效</div></div>
-          <div class="row-ctrl"><input type="checkbox" id="commentEnabled" class="switch" data-setting="1" disabled></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="commentOwnerMode">任务负责人留言</label><div class="hint">执行模式会在绑定会话内判断并处理请求</div></div>
-          <div class="row-ctrl"><select id="commentOwnerMode" data-setting="1" disabled><option value="off">不处理</option><option value="execute">处理请求</option></select></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="commentOtherMode">其他人留言</label><div class="hint">仅回复当前任务问题，不执行修改；原生回复关联作者，但不保证 @ 通知（通知协议尚未确认）</div></div>
-          <div class="row-ctrl"><select id="commentOtherMode" data-setting="1" disabled><option value="off">不处理</option><option value="reply">仅回复</option></select></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="commentMaxPerSync">每轮处理上限</label><div class="hint">每次同步最多投递多少条留言</div></div>
-          <div class="row-ctrl"><input type="number" id="commentMaxPerSync" data-setting="1" min="1" max="20" step="1" value="5" inputmode="numeric" disabled><span class="unit">条</span></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="commentMentionMode">回复提及作者</label><div class="hint">默认 @ 作者；原生回复不含 @，仅在旧版权限不可用时手动切换。失败不会换接口重发。</div></div>
-          <div class="row-ctrl"><select id="commentMentionMode" data-setting="1" disabled><option value="task-v1" selected>任务富文本 @ 作者（默认）</option><option value="native">原生回复（不 @）</option></select></div>
-        </div>
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>维护工具</span><span class="setting-group-desc">任务命名与孤儿会话</span></summary>
-    <div class="rows">
-    <div class="row">
-      <div class="row-main">
-        <label for="normalizeNames">统一任务命名</label>
-        <div class="hint">整理为「表情 + T&lt;n&gt;- + 标题」，可重复执行。</div>
-      </div>
-      <button type="button" id="normalizeNames" class="btn btn-ghost btn-sm">执行</button>
-    </div>
-
-    <div class="row">
-      <div class="row-main">
-        <label for="cleanOrphans">清理孤儿会话</label>
-        <div class="hint">查找插件创建但已无关联任务的会话；扫描后再决定是否归档。</div>
-      </div>
-      <button type="button" id="cleanOrphans" class="btn btn-ghost btn-sm">扫描</button>
-    </div>
-
-    </div>
-    </details>
-    <div class="card-foot">
-      <button type="button" id="saveSettings" class="btn btn-primary">保存设置</button>
-      <span id="saveHint" class="saved" role="status" aria-live="polite"></span>
-    </div>
-  </section>
-
-
-  <!-- 5. 文档监听 -->
-  <section id="docsCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docs" hidden>
-    <div class="card-head">
-      <h2 id="docsTitle">文档监听</h2>
-    </div>
-
-    <div class="doc-add">
-      <div class="doc-field">
-        <label for="docUrl">文档链接</label>
-        <input type="url" id="docUrl" autocomplete="off" spellcheck="false"
-          placeholder="https://xxx.feishu.cn/wiki/…">
-      </div>
-      <button type="button" id="docAdd" class="btn btn-primary">添加监听</button>
-    </div>
-
-    <div id="docHint" class="form-error" role="status" aria-live="polite" hidden></div>
-    <div id="docList" class="list"></div>
-  </section>
-
-  <section id="syncHistoryCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-syncHistory" hidden>
-    <div class="card-head">
-      <h2>同步记录</h2>
-      <span id="syncHistorySummary" class="push muted small"></span>
-    </div>
-    <p class="muted small">最近 100 条，最新在前；随页面数据刷新。这里只查看记录，不会触发同步或模型调用。</p>
-    <p class="muted small">纯数据同步是程序化操作，不消耗模型 token；逾期 AI 归因、自动开工和评论协作可能消耗模型 token。下方 AI 数量是尝试或投递次数，不是 token 用量。</p>
-    <div id="syncHistoryList"></div>
-  </section>
-  </section>
 </main>
 
 <script>
@@ -3968,7 +3961,8 @@
     workspaces: [],       // GET /api/state → 已登记工作区
     busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false, install: false, backend: false },
     installTarget: null, // 正在安装哪个后端：只让那一行按钮显示「处理中…」，另一行只是暂时禁用
-    setupOpen: null,     // null=自动（未就绪展开、就绪折叠）；true/false=用户手动
+    setupView: '',       // 状态卡里展开哪块：''=收起 / 'auth'=认证信息 / 'config'=配置
+    setupForceAuth: false, // 未就绪时认证信息强制展开，不允许收起
     installLog: '',      // 一键安装的分步日志
     busyTask: {},
     settingsDirty: false,
@@ -4825,16 +4819,13 @@
   }
 
   /**
-   * 准备卡状态机：两步都完成（CLI 就绪 + 授权成功）后，卡头那行才可点击收起；
-   * 没授权成功之前强制展开，点这一行也不会隐藏（免得「该点哪里」被藏起来）。
+   * 准备卡状态机：状态行右侧是「配置 / 认证」两个并列按钮，卡内同一时间只展开一块内容。
+   * 未就绪（CLI/授权没完成）时认证信息强制展开，免得关键步骤被收起来找不到。
    */
   function renderSetup() {
     var st = setupState();
-    /* 宿主还是旧代码时别收起：要让人看到「重启后新流程才生效」。 */
     var ready = st.ready && !hostOutdated();
-    var canCollapse = ready;
-
-    if (!canCollapse) app.setupOpen = null;
+    app.setupForceAuth = !ready;
 
     renderSetupChips();
     renderSetupCli(st);
@@ -4842,35 +4833,22 @@
     var authStep = $('setupAuthStep');
     if (authStep) authStep.className = 'setup-step' + (st.authOk ? ' done' : '');
 
-    var open = canCollapse ? (app.setupOpen === null ? false : app.setupOpen) : true;
-    var bodyBox = $('setupBody');
-    var head = $('setupSummary');
-    if (bodyBox) bodyBox.hidden = !open;
+    applySetupPanels();
 
-    /* 就绪后这张卡只剩一行状态，标题改叫「状态」；收起时压掉内边距，别显得很高。 */
-    var card = $('setupCard');
+    /* 就绪后这张卡只剩一行状态，标题改叫「状态」。 */
     var titleEl = $('setupTitle');
     if (titleEl) titleEl.textContent = ready ? '状态' : '准备';
-    if (card) card.classList.toggle('collapsed', !open);
 
+    /* 状态行不再整行可点：展开哪个由两个按钮决定，别留 role=button 误导键盘用户。 */
+    var head = $('setupSummary');
     if (head) {
-      if (canCollapse) {
-        head.classList.add('can-toggle');
-        head.setAttribute('role', 'button');
-        head.setAttribute('tabindex', '0');
-        head.setAttribute('aria-expanded', open ? 'true' : 'false');
-        head.setAttribute('title', open ? '点击收起' : '点击展开');
-      } else {
-        head.classList.remove('can-toggle');
-        head.removeAttribute('role');
-        head.removeAttribute('tabindex');
-        head.setAttribute('aria-expanded', 'true');
-        head.setAttribute('title', '授权成功后才能收起');
-      }
+      head.classList.remove('can-toggle');
+      head.removeAttribute('role');
+      head.removeAttribute('tabindex');
+      head.removeAttribute('aria-expanded');
+      head.removeAttribute('aria-controls');
+      head.removeAttribute('title');
     }
-
-    var caret = $('setupCaret');
-    if (caret) caret.textContent = canCollapse ? (open ? '▾' : '▸') : '';
   }
 
   /* ---------------- 准备卡动作 ---------------- */
@@ -5087,11 +5065,33 @@
   var CONFIGURATION_KEYS = ['settings', 'auth', 'docPrompt', 'docs', 'syncHistory'];
   var activeConfiguration = 'settings';
 
+  /* 状态卡里的两块内容：认证信息（setupBody）与配置（configurationArea）互斥显示。
+     未就绪时认证强制展开（app.setupForceAuth），就绪后完全由「配置 / 认证」按钮控制。 */
+  function setupPanelView() {
+    if (app.setupView === 'config') return 'config';
+    if (app.setupView === 'auth') return 'auth';
+    return app.setupForceAuth ? 'auth' : '';
+  }
+
+  function applySetupPanels() {
+    var view = setupPanelView();
+    var authBox = $('setupBody');
+    var configBox = $('configurationArea');
+    if (authBox) authBox.hidden = view !== 'auth';
+    if (configBox) configBox.hidden = view !== 'config';
+    var configurationToggle = $('configurationToggle');
+    if (configurationToggle) configurationToggle.setAttribute('aria-expanded', String(view === 'config'));
+    var authToggle = $('authToggle');
+    if (authToggle) authToggle.setAttribute('aria-expanded', String(view === 'auth'));
+    var card = $('setupCard');
+    if (card) card.classList.toggle('collapsed', view === '');
+  }
+
   function openConfiguration(key) {
     if (CONFIGURATION_KEYS.indexOf(key) === -1) key = activeConfiguration;
     activeConfiguration = key;
-    $('configurationArea').hidden = false;
-    $('configurationToggle').setAttribute('aria-expanded', 'true');
+    app.setupView = 'config';
+    applySetupPanels();
     CONFIGURATION_KEYS.forEach(function (name) {
       var selected = name === key;
       $(name + 'Card').hidden = !selected;
@@ -5102,8 +5102,8 @@
   }
 
   function closeConfiguration() {
-    $('configurationArea').hidden = true;
-    $('configurationToggle').setAttribute('aria-expanded', 'false');
+    app.setupView = '';
+    applySetupPanels();
     $('configurationToggle').focus();
   }
 
@@ -5121,6 +5121,21 @@
       if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
     });
     $('configurationClose').addEventListener('click', closeConfiguration);
+    /* 「认证」和「配置」并列：同一时间只展开一块；未就绪时不允许收起认证信息。 */
+    var authToggle = $('authToggle');
+    if (authToggle) {
+      authToggle.addEventListener('click', function (event) {
+        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+        var current = setupPanelView();
+        if (current === 'auth') {
+          if (app.setupForceAuth) return;
+          app.setupView = '';
+        } else {
+          app.setupView = 'auth';
+        }
+        applySetupPanels();
+      });
+    }
     CONFIGURATION_KEYS.forEach(function (key, index) {
       var tab = $('configTab-' + key);
       tab.addEventListener('click', function () { openConfiguration(key); });
@@ -10304,22 +10319,6 @@
     }
 
     $('saveSettings').addEventListener('click', onSave);
-    var setupSummary = $('setupSummary');
-    if (setupSummary) {
-      var toggleSetup = function () {
-        var st = setupState();
-        if (!st.ready) return; /* 授权成功前不允许隐藏 */
-        app.setupOpen = !(app.setupOpen === null ? false : app.setupOpen);
-        renderSetup();
-      };
-      setupSummary.addEventListener('click', toggleSetup);
-      setupSummary.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Enter' || ev.key === ' ') {
-          ev.preventDefault();
-          toggleSetup();
-        }
-      });
-    }
     var setupSave = $('setupSaveAdvanced');
     if (setupSave) setupSave.addEventListener('click', onSaveSetupSettings);
     $('syncNow').addEventListener('click', onSync);
