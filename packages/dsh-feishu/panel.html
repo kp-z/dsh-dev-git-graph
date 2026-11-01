@@ -827,89 +827,22 @@
   .insight-charts {
     display: flex;
     flex-direction: column;
-    align-items: center;
     justify-content: center;
+    align-items: stretch;
     min-width: 0;
     height: 100%;
   }
 
-  /* 图表区：去掉标题，图占满，左右箭头切换 */
+  /* 收起态只有一张 hero：没有左右箭头，也没有切换圆点 */
   .insight-charts .insight-chart {
-    position: relative;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 2px;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-  }
-
-  /* 舞台撑满剩余高度：图在舞台里居中，底部控制行永远贴在列底 */
-  .chart-stage {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex: 1 1 auto;
-    width: 100%;
-    min-height: 0;
-    max-width: 100%;
-  }
-
-  .chart-canvas {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    /* 高度上限 = 整行 172 - 控制行 12 - 间隙 2，保证控件永远贴在底部 */
-    max-height: 158px;
-    overflow: hidden;
-  }
-
-  /* 底部控制行固定占满整列宽、内容居中：图宽怎么变它都不动 */
-  .chart-foot {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    width: 100%;
-    height: 12px;
-  }
-
-  .chart-nav {
-    width: 16px;
-    height: 16px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--p-text-3);
-    font-size: 13px;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0.55;
-  }
-
-  .chart-nav:hover { opacity: 1; color: var(--p-accent); }
-
-
-  .chart-dots {
-    display: flex;
-    align-items: center;
     gap: 4px;
+    width: 100%;
+    min-width: 0;
   }
 
-  .chart-dots i {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--p-line-strong);
-    opacity: 0.6;
-  }
-
-  .chart-dots i.on { background: var(--p-accent); opacity: 1; }
-
-  .insight-charts .chart-title {
+  .insight-charts .insight-chart .chart-title {
     font-size: 9.5px;
     color: var(--p-text-3);
     line-height: 1.2;
@@ -920,33 +853,375 @@
 
   .insight-mini { display: none; }
 
-  .insight-mini .mini-label {
+  /* 图表：纯 DOM/SVG，不引第三方库 */
+  .insight-chart { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .chart-fig { min-width: 0; }
+
+  /* 主图固定高度、图体内滚动；整列拉到与左栏等高，切换条贴底对齐 */
+  .insight-charts {
+    align-self: stretch;
+    height: 100%;
+    min-height: 150px;
+    flex-direction: column;
+  }
+
+  .insight-charts .insight-chart.is-hero {
+    flex: 0 0 132px;
+    height: 132px;
+    max-height: 132px;
+  }
+
+  .insight-charts .insight-chart.is-hero .chart-fig {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    scrollbar-color: var(--p-line-strong) transparent;
+    padding-right: 3px;
+  }
+
+  .insight-charts .insight-chart.is-hero .chart-fig::-webkit-scrollbar { width: 6px; }
+  .insight-charts .insight-chart.is-hero .chart-fig::-webkit-scrollbar-thumb {
+    background: var(--p-line-strong);
+    border-radius: 3px;
+  }
+
+  .chart-switch { flex: 0 0 18px; margin-top: auto; }
+
+  /* 每个 tab 自己记住看到第几张图，左右切换只影响当前 tab */
+  .chart-switch {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 18px;
+  }
+
+  .chart-switch .chart-nav {
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--p-text-3);
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .chart-switch .chart-nav:hover { color: var(--p-accent); }
+
+  .chart-switch .chart-switch-count {
     font-size: 9.5px;
     color: var(--p-text-3);
-    line-height: 1.2;
+    font-variant-numeric: tabular-nums;
   }
 
-  .mini-bars {
+  .insight-chart .chart-title {
+    font-size: 10px;
+    line-height: 1.3;
+    color: var(--p-text-3);
+  }
+
+  .insight-chart-grid .chart-title {
+    color: var(--p-text-2);
+    font-weight: 600;
+  }
+
+  .chart-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 64px;
+    font-size: 10px;
+    color: var(--p-text-3);
+    border: 1px dashed var(--p-line);
+    border-radius: 8px;
+  }
+
+  /* ---- 展开后的图表网格：窄栏单列，宽 ≥430px 自动两列 ---- */
+  .insight-chart-section { display: flex; flex-direction: column; gap: 6px; }
+
+  .insight-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+  }
+
+  .insight-chart-grid .insight-chart {
+    padding: 9px 10px;
+    background: var(--p-hover, rgba(127, 127, 127, 0.06));
+    border: 1px solid var(--p-line);
+    border-radius: 10px;
+  }
+
+  .chart-note {
+    font-size: 9.5px;
+    line-height: 1.35;
+    color: var(--p-text-3);
+  }
+
+  /* ---- 环图：中心总数 + 图例数值 ---- */
+  .chart-donut {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 10px;
+    min-width: 0;
+  }
+
+  .donut-ring {
+    position: relative;
+    flex: 0 0 auto;
+    width: 104px;
+    height: 104px;
+  }
+
+  .insight-chart.is-hero .donut-ring { width: 112px; height: 112px; }
+  .donut-ring svg { display: block; width: 100%; height: 100%; }
+
+  .donut-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1px;
+    pointer-events: none;
+  }
+
+  .donut-center strong {
+    font-size: 17px;
+    line-height: 1;
+    color: var(--p-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .insight-chart.is-hero .donut-center strong { font-size: 19px; }
+  .donut-center span { font-size: 8.5px; color: var(--p-text-3); }
+
+  .donut-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 84px;
+    font-size: 10px;
+    color: var(--p-text-2);
+  }
+
+  .donut-legend .legend-row { display: flex; align-items: center; gap: 5px; }
+  .donut-legend i { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 2px; }
+  .donut-legend .legend-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .donut-legend .legend-value {
+    margin-left: auto;
+    color: var(--p-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- 柱状：hero 90–110px，每根柱子带数值 ---- */
+  .chart-bars {
     display: flex;
     align-items: flex-end;
-    gap: 2px;
-    height: 26px;
+    gap: 3px;
+    width: 100%;
+    height: 56px;
   }
 
-  .mini-bars i {
+  .chart-bars.is-hero { height: 78px; gap: 5px; }
+
+  .chart-bars .bar-col {
     flex: 1 1 0;
-    min-height: 2px;
-    border-radius: 1.5px 1.5px 0 0;
-    background: var(--p-ok);
-    opacity: 0.85;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
   }
 
-  .mini-line svg { width: 100%; height: 24px; display: block; }
+  .chart-bars .bar-value {
+    font-size: 8.5px;
+    line-height: 1;
+    color: var(--p-text-3);
+    font-variant-numeric: tabular-nums;
+  }
 
-  .mini-donut { display: flex; align-items: center; gap: 4px; }
-  .mini-donut svg { width: 150px; height: 150px; flex: 0 0 auto; }
-  .mini-donut .mini-legend { display: flex; flex-direction: column; gap: 2px; font-size: 10px; line-height: 1.3; color: var(--p-text-2); }
-  .mini-donut .mini-legend i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 4px; }
+  .chart-bars.is-hero .bar-value { font-size: 10px; color: var(--p-text-2); }
+
+  .chart-bars .bar-track {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 0;
+    display: flex;
+    align-items: flex-end;
+  }
+
+  .chart-bars .bar {
+    width: 100%;
+    min-height: 2px;
+    border-radius: 3px 3px 0 0;
+    background: var(--p-accent);
+    opacity: 0.9;
+  }
+
+  .chart-bars .bar.is-empty { background: var(--p-line-strong); opacity: 0.45; }
+  .chart-bars .bar-label {
+    font-size: 8px;
+    line-height: 1.1;
+    color: var(--p-text-3);
+    white-space: nowrap;
+  }
+
+  /* ---- 折线 ---- */
+  .chart-line { display: flex; flex-direction: column; gap: 4px; }
+  .chart-line svg { display: block; width: 100%; height: 56px; }
+  .chart-line.is-hero svg { height: 64px; }
+
+  /* ---- 横向堆叠（工作区负载 / 履约质量共用） ---- */
+  .chart-stack { display: flex; flex-direction: column; gap: 5px; }
+  .stack-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+  .stack-label {
+    flex: 0 0 62px;
+    font-size: 9.5px;
+    color: var(--p-text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .stack-bar {
+    flex: 1 1 auto;
+    display: flex;
+    height: 11px;
+    min-width: 0;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--p-line);
+  }
+
+  .stack-bar i { display: block; height: 100%; }
+
+  .stack-total {
+    flex: 0 0 auto;
+    font-size: 9.5px;
+    color: var(--p-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .chart-quality { display: flex; flex-direction: column; gap: 5px; }
+
+  .quality-bar {
+    display: flex;
+    height: 13px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--p-line);
+  }
+
+  .quality-bar i { display: block; height: 100%; }
+
+  /* ---- 热力图：5 行 × 6 列，字号小但行列标签要读得出来 ---- */
+  .chart-heat {
+    display: grid;
+    grid-template-columns: 30px repeat(6, minmax(0, 1fr));
+    gap: 2px;
+  }
+
+  .heat-col {
+    font-size: 8px;
+    line-height: 1.1;
+    color: var(--p-text-3);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 1px;
+  }
+
+  .heat-rowlabel {
+    display: flex;
+    align-items: center;
+    font-size: 9px;
+    color: var(--p-text-2);
+    white-space: nowrap;
+  }
+
+  .heat-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 20px;
+    border-radius: 4px;
+    font-size: 9px;
+    color: var(--p-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .heat-cell.is-hot { color: #fff; }
+  .heat-cell.is-zero { color: var(--p-text-3); }
+
+  /* ---- 横向条（延期原因） ---- */
+  .chart-hbars { display: flex; flex-direction: column; gap: 6px; }
+  .hbar-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+  .hbar-label {
+    flex: 0 0 74px;
+    font-size: 9.5px;
+    color: var(--p-text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .hbar-track {
+    flex: 1 1 auto;
+    height: 7px;
+    min-width: 0;
+    border-radius: 4px;
+    background: var(--p-line);
+    overflow: hidden;
+  }
+
+  .hbar-track i {
+    display: block;
+    height: 100%;
+    border-radius: 4px;
+    background: var(--p-warn, #d97706);
+  }
+
+  .hbar-value {
+    flex: 0 0 auto;
+    font-size: 9.5px;
+    color: var(--p-text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- 图例（所有图共用） ---- */
+  .chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    font-size: 9.5px;
+    color: var(--p-text-3);
+  }
+
+  .chart-legend i {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+  }
+
+  .chart-legend .legend-total { color: var(--p-text-2); }
+
 
   .insight-head {
     display: flex;
@@ -1467,65 +1742,7 @@
     border-color: var(--p-accent-line);
   }
 
-  /* 图表：不引第三方库，纯 SVG/div 画，尺寸跟着侧栏走 */  /* 图表：不引第三方库，纯 SVG/div 画，尺寸跟着侧栏走 */
-  .insight-charts {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .insight-chart-title {
-    font-size: 10.5px;
-    color: var(--p-text-3);
-    margin-bottom: 4px;
-  }
-
-  .chart-bars {
-    display: flex;
-    align-items: flex-end;
-    gap: 6px;
-    height: 56px;
-  }
-
-  .chart-bars .bar-col {
-    flex: 1 1 0;
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
-    height: 100%;
-  }
-
-  .chart-bars .bar {
-    flex: 1 1 0;
-    min-height: 2px;
-    border-radius: 2px 2px 0 0;
-    background: var(--p-accent);
-    opacity: 0.85;
-  }
-
-  .chart-bars .bar.done { background: var(--p-ok); }
-
-  .chart-legend {
-    display: flex;
-    gap: 10px;
-    font-size: 10.5px;
-    color: var(--p-text-3);
-    margin-top: 4px;
-  }
-
-  .chart-legend i {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    margin-right: 4px;
-    vertical-align: middle;
-  }
-
-  .chart-line svg { width: 100%; height: 64px; display: block; }
-
-  .chart-sunburst { display: flex; align-items: center; gap: 10px; }
-  .chart-sunburst svg { width: 96px; height: 96px; flex: 0 0 auto; }
+  /* 图表样式统一在「Insight 卡片」区块定义（chart-* / heat-* / stack-*），这里不再重复。 */
 
   /* ---------- 卡片主题色 ----------  /* ---------- 卡片主题色 ----------
      色相由任务编号按黄金角散开（编号稳定 → 颜色稳定，几十条内不撞色）。
@@ -2831,7 +3048,7 @@
         <div id="insightExtra" class="insight-extra"></div>
         <button type="button" id="insightToggle" class="insight-toggle" aria-expanded="false" aria-controls="insightBody">展开详情 ↓</button>
       </div>
-      <div id="insightCharts" class="insight-charts" aria-label="AI 选的图表"></div>
+      <div id="insightCharts" class="insight-charts" role="group" aria-label="图表"></div>
     </div>
 
     <div id="insightBody" class="insight-body" hidden></div>
@@ -3343,7 +3560,6 @@
     insightBusyId: '',
     insightActiveId: '',
     insightResults: {},
-    insightChartIndex: 0,
     seenSent: {},
     insightAutoTried: false,
     promptDefaults: {},
@@ -6667,8 +6883,9 @@
     var body = $('insightBody');
     if (!body) return;
     body.hidden = !app.insightOpen;
-    /* 收起：把那行摘要放回来；展开：藏起来（内容在履约小节里更完整） */
+    /* 收起：摘要行放回来，并清掉展开区的图表网格——收起态只留中间那张 hero */
     if (!app.insightOpen) {
+      clear(body);
       renderFulfillment(app.fulfillmentSummary || null);
       return;
     }
@@ -6678,6 +6895,10 @@
     var local = app.insightLocal || {};
     var ai = app.insightAI;
 
+    /* 展开后第一眼先看「哪里不对劲」：该 tab 的全部图表放正文最前面 */
+    var grid = renderInsightChartsGrid();
+    if (grid) body.appendChild(grid);
+
     /* 展开区由两个 tab 共用（内容按 tab 分流，见 renderMorning） */
     renderMorning(body, local, ai);
     /* 履约 / 延期原因 / 改进建议只在诊断里出现：早会盯的是「今天先干什么」，
@@ -6686,241 +6907,698 @@
   }
 
 
-  /* ---------------- 图表：AI 选类型，数据本地给 ---------------- */
+  /* ---------------- 图表：每个 tab 一套，数值全部来自本地 datasets ---------------- */
 
-  var FALLBACK_CHARTS = [
-    { type: 'bar', dataset: 'done_by_day_7', title: '完成 · 7 天' },
-    { type: 'line', dataset: 'wip_by_day_14', title: '在跑 WIP' },
-    { type: 'pie', dataset: 'state_distribution', title: '状态分布' }
+  /* INSIGHT_CHARTS_START */
+  /* 已知数据集 → 固定图元。AI 只能从这些 key 里挑；形状由数据集决定，
+     免得模型给出「用饼图画 5×6 矩阵」这种画不出来的组合。数值一律来自本地 stats。 */
+  var CHART_TYPE_BY_DATASET = {
+    done_by_day_7: 'bars',
+    started_by_day_7: 'bars',
+    wip_by_day_14: 'line',
+    throughput_14: 'line',
+    state_distribution: 'donut',
+    workspace_distribution: 'donut',
+    priority_urgency: 'heatmap',
+    stalled_aging: 'bars',
+    workspace_load: 'stacked',
+    fulfillment_quality: 'quality',
+    delay_reasons: 'hbars'
+  };
+
+  var CHART_DEFAULT_TITLES = {
+    done_by_day_7: '近 7 天完成',
+    started_by_day_7: '近 7 天新开工',
+    wip_by_day_14: '在跑 WIP',
+    throughput_14: '近 14 天吞吐',
+    state_distribution: '状态分布',
+    workspace_distribution: '工作区分布',
+    priority_urgency: '优先级 × 紧急度',
+    stalled_aging: '停滞老化',
+    workspace_load: '工作区负载',
+    fulfillment_quality: '履约质量',
+    delay_reasons: '延期原因'
+  };
+
+  /* 没写 why 时的口径说明：一句话讲清这张图在回答什么 */
+  var CHART_NOTES = {
+    done_by_day_7: '每天完成数，看产出节奏有没有掉下来',
+    started_by_day_7: '每天新开工数，和完成数对照看积压',
+    wip_by_day_14: '在跑任务数，持续升高说明在堆活',
+    throughput_14: '每天完成 / 新开工 / 在跑，一起看吞吐',
+    state_distribution: '已完成 / 在跑 / 未开始，今天从哪一档开始',
+    workspace_distribution: '任务按工作区分布，看注意力有没有被摊平',
+    priority_urgency: '横向优先级，纵向离截止还有多久；越靠左上越该先动',
+    stalled_aging: '已开工任务停了多久，越靠右越该先捞起来',
+    workspace_load: '每个工作区的完成 / 在跑 / 未开始，看负载堆在哪',
+    fulfillment_quality: '按预期时间看提前 / 准时 / 延期',
+    delay_reasons: '延期按原因归类，次数最多的先处理'
+  };
+
+  /* 热力图列头缩写（只影响显示；数据集里的列名保持契约原样） */
+  var HEAT_COL_SHORT = {
+    '已逾期': '逾期',
+    '2–3 天': '2–3',
+    '4–7 天': '4–7',
+    '8 天+': '8+',
+    '无截止': '无'
+  };
+
+  /* 早会：今天从哪开始 → 近一周产出 → 负载堆在哪个工作区 */
+  var MORNING_CHARTS = [
+    { dataset: 'state_distribution', title: '今天从哪开始', why: '先看手上三类任务的占比' },
+    { dataset: 'done_by_day_7', title: '近 7 天完成', why: '最近一周的产出节奏' },
+    { dataset: 'workspace_load', title: '工作区负载', why: '哪个工作区堆得最多' }
   ];
 
-  /**
-   * 渲染图表区。
-   *
-   * AI 只决定「用哪种图 + 用哪个数据集 + 标题」，数值一律来自本地 datasets——
-   * 既保留 AI 选图的灵活度，又保证图上没有一个编出来的数字。
-   */
-  /**
-   * 图表区：**只放一张饼图**（宽 ≥50%），类型固定为 pie/donut。
-   * AI 仍然决定「用哪份数据 + 标题 + 理由」，但不再决定图的形状——
-   * 一张卡里塞三种图会把「今天该干什么」这件事本身淹掉。
-   */
-  /* 数据集里有没有非零值：全 0 的图（比如近 7 天完成数）画出来是一条空栏，不如不展示 */
+  /* 诊断：优先级 × 紧急度定位「先动哪个」，停滞老化看「放了多久」，
+     延期原因看「流程卡在哪」。AI 没给图时这三张也够读。 */
+  var DIAGNOSE_CHARTS = [
+    { dataset: 'priority_urgency', title: '优先级 × 紧急度', why: '高优先级又临近截止的格子最该先动' },
+    { dataset: 'stalled_aging', title: '停滞老化', why: '停了 8 天以上的任务其实优先级最高' },
+    { dataset: 'delay_reasons', title: '延期原因', why: '次数最多的原因就是最该改的流程' }
+  ];
+
+  function chartNumber(value) {
+    var n = Number(value);
+    return isFinite(n) ? n : 0;
+  }
+
+  function chartSum(values) {
+    return (values || []).reduce(function (sum, value) { return sum + chartNumber(value); }, 0);
+  }
+
+  function chartColor(index) {
+    return ['var(--p-ok)', 'var(--p-accent)', 'var(--p-line-strong)', '#8b5cf6', '#d97706'][index % 5];
+  }
+
+  /* 只把 ISO 日期缩成 MM-DD；「0–1 天」这类标签原样保留 */
+  function chartAxisLabel(label) {
+    var text = String(label || '');
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text.slice(5) : text;
+  }
+
+  /* hero 柱状一列只有 20 多像素：轴标签只留「日」，完整日期在 title 里 */
+  function chartAxisShort(label) {
+    var text = String(label || '');
+    return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text.slice(8) : text;
+  }
+
+  /* 语义色：完成/提前=绿，在跑/准时=蓝，未开始=灰，延期=橙 */
+  function stackColor(label, index) {
+    if (label === '已完成' || label === '提前') return 'var(--p-ok)';
+    if (label === '在跑' || label === '准时') return 'var(--p-accent)';
+    if (label === '未开始') return 'var(--p-line-strong)';
+    if (label === '延期') return 'var(--p-warn, #d97706)';
+    return chartColor(index);
+  }
+
+  /* 数据集里有没有非零值：全 0 的图画出来是一条空栏，不如跳过 */
   function hasChartSignal(dataset) {
     var datasets = (app.insightStats && app.insightStats.datasets) || {};
     var data = datasets[dataset];
-    if (!data || !Array.isArray(data.values)) return false;
-    var positive = data.values.filter(function (value) { return Number(value) > 0; }).length;
+    if (!data) return false;
+    var positive = 0;
+    function count(values) {
+      (values || []).forEach(function (value) { if (chartNumber(value) > 0) positive++; });
+    }
+    if (dataset === 'priority_urgency') {
+      (Array.isArray(data.values) ? data.values : []).forEach(function (row) { count(row); });
+      return positive > 0;
+    }
+    if (dataset === 'workspace_load') {
+      (Array.isArray(data.series) ? data.series : []).forEach(function (series) {
+        count(series && series.values);
+      });
+      return positive > 0;
+    }
+    if (dataset === 'throughput_14') {
+      count(data.done);
+      count(data.started);
+      count(data.wip);
+      return positive > 0;
+    }
+    count(data.values);
     if (!positive) return false;
     /* 折线至少要有两个非零点，否则画出来只是一段孤立线段 */
     if (dataset === 'wip_by_day_14') return positive >= 2;
     return true;
   }
 
-  /* 可切换的图表清单：AI 选的优先，没有就拿默认几张兜底 */
-  function insightChartSpecs() {
-    var ai = app.insightAI;
-    var picked = (ai && Array.isArray(ai.charts) && ai.charts.length)
-      ? ai.charts.filter(function (spec) { return spec && spec.dataset; })
-      : [];
-    var list = (picked.length ? picked : FALLBACK_CHARTS.slice()).filter(function (spec) {
-      return hasChartSignal(spec.dataset);
+  function chartSpecsWithSignal(list) {
+    return (list || []).filter(function (spec) {
+      return spec && spec.dataset && hasChartSignal(spec.dataset);
     });
+  }
 
-    /* 至少给两张，才谈得上左右切换 */
-    if (!list.some(function (spec) { return spec.dataset === 'state_distribution'; }) && hasChartSignal('state_distribution')) {
-      list.push({ type: 'pie', dataset: 'state_distribution', title: '状态分布' });
-    }
-    if (!list.some(function (spec) { return spec.dataset === 'workspace_distribution'; }) && hasChartSignal('workspace_distribution')) {
-      list.push({ type: 'sunburst', dataset: 'workspace_distribution', title: '工作区分布' });
-    }
-    /* 分布类（饼/环）比趋势线更好看也更稳：排在前面，趋势线放后面当补充 */
-    var RANK = { state_distribution: 0, workspace_distribution: 1 };
-    list.sort(function (a, b) {
-      return (RANK[a.dataset] === undefined ? 9 : RANK[a.dataset])
-        - (RANK[b.dataset] === undefined ? 9 : RANK[b.dataset]);
+  /* 去重（同一数据集只留第一张）并截断：一个 tab 最多 4 张，再多就看不过来 */
+  function uniqueChartSpecs(list, limit) {
+    var seen = {};
+    var out = [];
+    (list || []).forEach(function (spec) {
+      if (!spec || !spec.dataset || seen[spec.dataset]) return;
+      seen[spec.dataset] = true;
+      out.push(spec);
     });
-    return list;
+    return out.slice(0, limit || 4);
+  }
+
+  function normalizeChartSpec(spec) {
+    if (!spec || !spec.dataset) return null;
+    var dataset = String(spec.dataset);
+    if (!CHART_TYPE_BY_DATASET[dataset]) return null;
+    return {
+      dataset: dataset,
+      title: String(spec.title || '').trim(),
+      why: String(spec.why || '').trim()
+    };
+  }
+
+  function finalizeChartSpec(spec) {
+    return {
+      type: CHART_TYPE_BY_DATASET[spec.dataset] || 'bars',
+      dataset: spec.dataset,
+      title: spec.title || CHART_DEFAULT_TITLES[spec.dataset] || spec.dataset,
+      why: spec.why || ''
+    };
   }
 
   /**
-   * 图表区：只显示一张（去掉标题，把空间都给图），左右两侧箭头切换。
-   * 编号记在 app.insightChartIndex，切 tab 时保留。
+   * 每个 tab 一套固定的「一屏三问」；诊断优先用 AI 选的图（仍然只认已知数据集）。
+   * 全空时不返回任何 spec：hero 位置显示「暂无数据」，不画空图、也不编数字。
    */
-  function renderInsightCharts() {
-    var box = $('insightCharts');
-    if (!box) return;
-    var datasets = (app.insightStats && app.insightStats.datasets) || null;
-    var chartSignature = stablePanelSignature([datasets, insightChartSpecs(), app.insightChartIndex || 0, document.body.className]);
-    if (app.insightChartSignature === chartSignature) return;
-    app.insightChartSignature = chartSignature;
-    clear(box);
-    if (!datasets) return;
-
-    var specs = insightChartSpecs();
-    if (!specs.length) return;
-    var index = Math.min(app.insightChartIndex || 0, specs.length - 1);
-    if (index < 0) index = 0;
-    app.insightChartIndex = index;
-    var spec = specs[index];
-    var data = datasets[spec.dataset];
-
-    var wrap = el('div', { 'class': 'insight-chart' });
-    if (!data) {
-      box.appendChild(wrap);
-      return;
+  function insightChartSpecs() {
+    var tab = app.insightTab === 'diagnose' ? 'diagnose' : 'morning';
+    var list = [];
+    if (tab === 'diagnose') {
+      var ai = app.insightAI;
+      var picked = (ai && ai.mode !== 'morning' && Array.isArray(ai.charts) ? ai.charts : [])
+        .map(normalizeChartSpec)
+        .filter(function (spec) { return spec && hasChartSignal(spec.dataset); });
+      list = uniqueChartSpecs(picked, 4);
+      /* AI 没选图 / 选的都空：退回本地三张，诊断 tab 不依赖模型也能看图 */
+      if (!list.length) list = uniqueChartSpecs(chartSpecsWithSignal(DIAGNOSE_CHARTS), 4);
+    } else {
+      list = uniqueChartSpecs(chartSpecsWithSignal(MORNING_CHARTS), 3);
     }
-
-    /* 图在上，底部一行放「‹ 圆点 ›」：切换按钮就落在圆点两侧，不再飘在图的两边 */
-    var stage = el('div', { 'class': 'chart-stage' });
-
-    var canvas = el('div', { 'class': 'chart-canvas' });
-    if (spec.type === 'bar') canvas.appendChild(chartBarCanvas(data));
-    else if (spec.type === 'line') canvas.appendChild(chartLineCanvas(data));
-    else if (spec.type === 'sunburst') canvas.appendChild(chartDonutCanvas(data, true));
-    else canvas.appendChild(chartDonutCanvas(data, false));
-    stage.appendChild(canvas);
-    wrap.appendChild(stage);
-
-    if (specs.length > 1) {
-      var foot = el('div', { 'class': 'chart-foot' });
-
-      var prev = el('button', { type: 'button', 'class': 'chart-nav', 'aria-label': '上一张图表' });
-      prev.textContent = '‹';
-      prev.addEventListener('click', function (event) {
-        event.stopPropagation();
-        app.insightChartIndex = (index - 1 + specs.length) % specs.length;
-        renderInsightCharts();
-      });
-      foot.appendChild(prev);
-
-      var dots = el('div', { 'class': 'chart-dots' });
-      specs.forEach(function (_, i) {
-        var dot = el('i');
-        if (i === index) dot.className = 'on';
-        dots.appendChild(dot);
-      });
-      foot.appendChild(dots);
-
-      var next = el('button', { type: 'button', 'class': 'chart-nav', 'aria-label': '下一张图表' });
-      next.textContent = '›';
-      next.addEventListener('click', function (event) {
-        event.stopPropagation();
-        app.insightChartIndex = (index + 1) % specs.length;
-        renderInsightCharts();
-      });
-      foot.appendChild(next);
-      wrap.appendChild(foot);
-    }
-
-    box.appendChild(wrap);
+    return list.map(finalizeChartSpec);
   }
 
-  function renderOneChart(spec, data) {
-    var wrap = el('div', { 'class': 'insight-chart' });
-    var title = el('div', { 'class': 'chart-title', text: spec.title || '' });
-    if (spec.why) title.title = spec.why;
-    wrap.appendChild(title);
-    if (spec.type === 'bar') wrap.appendChild(chartBarCanvas(data));
-    else if (spec.type === 'line') wrap.appendChild(chartLineCanvas(data));
-    else if (spec.type === 'sunburst') wrap.appendChild(chartDonutCanvas(data, true));
-    else wrap.appendChild(chartDonutCanvas(data, false));
-    return wrap;
+  function chartNote(spec) {
+    return spec.why || CHART_NOTES[spec.dataset] || '';
   }
 
-  function chartBarCanvas(data) {
-    var values = (data && data.values) || [];
-    var max = Math.max.apply(null, values.concat([1]));
-    var bars = el('div', { 'class': 'mini-bars' });
-    values.forEach(function (value, index) {
-      var bar = el('i');
-      bar.style.height = Math.round(((value || 0) / max) * 100) + '%';
-      bar.title = ((data.days && data.days[index]) || '') + ' ' + value;
-      if (bar.style.height === '100%' && max === 1) bar.style.height = '12%';
-      bars.appendChild(bar);
+  function insightChartEmpty(text) {
+    var label = text || '暂无数据';
+    var node = el('div', { 'class': 'chart-empty', text: label });
+    node.setAttribute('role', 'img');
+    node.setAttribute('aria-label', label);
+    return node;
+  }
+
+  /* 每张图都有 role=img + 一句可读的汇总：数值不只靠颜色/高度表达 */
+  function chartAriaLabel(spec, data) {
+    var title = spec.title || CHART_DEFAULT_TITLES[spec.dataset] || spec.dataset;
+    if (!data) return title + '：暂无数据';
+    var parts = [];
+    if (spec.type === 'heatmap') {
+      var rows = data.rows || [];
+      var cols = data.cols || [];
+      (data.values || []).forEach(function (row, ri) {
+        (row || []).forEach(function (value, ci) {
+          if (chartNumber(value) > 0) {
+            parts.push(String(rows[ri] || '') + ' · ' + String(cols[ci] || '') + ' ' + chartNumber(value));
+          }
+        });
+      });
+      return title + '：' + (parts.length ? parts.slice(0, 10).join('，') : '暂无数据');
+    }
+    if (spec.type === 'stacked') {
+      (data.labels || []).forEach(function (label, index) {
+        var total = 0;
+        var bits = (data.series || []).map(function (series) {
+          var n = chartNumber((series.values || [])[index]);
+          total += n;
+          return String(series.label || '') + ' ' + n;
+        });
+        parts.push(String(label || '') + '（' + bits.join('，') + '，共 ' + total + '）');
+      });
+      return title + '：' + (parts.length ? parts.slice(0, 6).join('；') : '暂无数据');
+    }
+    if (spec.type === 'line') {
+      var series = [];
+      if (Array.isArray(data.values)) {
+        series.push({ label: '', values: data.values });
+      } else if (Array.isArray(data.wip)) {
+        series.push({ label: '在跑', values: data.wip });
+        if (Array.isArray(data.done)) series.push({ label: '完成', values: data.done });
+        if (Array.isArray(data.started)) series.push({ label: '新开工', values: data.started });
+      }
+      series.forEach(function (item) {
+        var values = (item.values || []).map(chartNumber);
+        parts.push((item.label ? item.label + ' ' : '')
+          + '最新 ' + (values.length ? values[values.length - 1] : 0)
+          + '，峰值 ' + Math.max.apply(null, values.concat([0])));
+      });
+      return title + '：' + (parts.length ? parts.join('；') : '暂无数据');
+    }
+    var labels = data.labels || data.days || [];
+    (data.values || []).forEach(function (value, index) {
+      parts.push(String(labels[index] || '') + ' ' + chartNumber(value));
     });
-    return bars;
+    return title + '：' + (parts.length ? parts.slice(0, 12).join('，') : '暂无数据');
   }
 
-  function chartLineCanvas(data) {
-    var values = (data && data.values) || [];
-    var wrap = el('div', { 'class': 'mini-line' });
-    if (values.length < 2) {
-      wrap.appendChild(el('div', { 'class': 'chart-title', text: '数据点不足' }));
-      return wrap;
+  /**
+   * 一张图表卡片：标题 + role=img 的图 + （网格里）一行口径说明。
+   * hero 变体加 data-chart-hero，网格变体不加。
+   */
+  function insightChartCard(spec, datasets, opts) {
+    var hero = !!(opts && opts.hero);
+    var data = datasets[spec.dataset];
+    var card = el('div', {
+      'class': 'insight-chart' + (hero ? ' is-hero' : ''),
+      'data-chart-dataset': spec.dataset,
+      'data-chart-type': spec.type
+    });
+    if (hero) card.setAttribute('data-chart-hero', '1');
+    card.appendChild(el('div', { 'class': 'chart-title', text: spec.title || '' }));
+
+    var fig = el('div', { 'class': 'chart-fig' });
+    fig.setAttribute('role', 'img');
+    fig.setAttribute('aria-label', chartAriaLabel(spec, data));
+    fig.appendChild(insightChartBody(spec, data, hero));
+    card.appendChild(fig);
+
+    if (!hero) {
+      var note = chartNote(spec);
+      if (note) card.appendChild(el('div', { 'class': 'chart-note', text: note }));
     }
-    var hi = Math.max.apply(null, values.concat([1]));
-    var step = 100 / (values.length - 1);
-    var d = values.map(function (value, index) {
-      var x = index * step;
-      var y = 24 - ((value || 0) / hi) * 20 - 2;
-      return (index ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
-    }).join(' ');
-    var svgNs = 'http://www.w3.org/2000/svg';
-    var svg = document.createElementNS(svgNs, 'svg');
-    svg.setAttribute('viewBox', '0 0 100 24');
-    svg.setAttribute('preserveAspectRatio', 'none');
-    var path = document.createElementNS(svgNs, 'path');
-    path.setAttribute('d', d);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', 'var(--p-accent)');
-    path.setAttribute('stroke-width', '1.4');
-    path.setAttribute('vector-effect', 'non-scaling-stroke');
-    svg.appendChild(path);
-    wrap.appendChild(svg);
-    var tail = el('div', { 'class': 'chart-title', text: '现在 ' + values[values.length - 1] });
-    wrap.appendChild(tail);
-    return wrap;
+    return card;
   }
 
-  /* 环图（两层时外环按工作区再分一层，逼近旭日图的效果，但只占 34px） */
-  function chartDonutCanvas(data, nested) {
+  function insightChartBody(spec, data, hero) {
+    if (!data) return insightChartEmpty('暂无数据');
+    if (spec.type === 'donut') return chartDonut(data);
+    if (spec.type === 'line') return chartLine(data, hero);
+    if (spec.type === 'stacked') return chartStacked(data);
+    if (spec.type === 'heatmap') return chartHeatmap(data);
+    if (spec.type === 'hbars') return chartHbars(data);
+    if (spec.type === 'quality') return chartQuality(data);
+    return chartBars(data, hero);
+  }
+
+  /* 环图：中心给总数，图例逐项给数值（hero 更大，见 CSS） */
+  function chartDonut(data) {
     var labels = (data && data.labels) || [];
     var values = (data && data.values) || [];
-    var total = values.reduce(function (sum, value) { return sum + (value || 0); }, 0);
-    var wrap = el('div', { 'class': 'mini-donut' });
+    var total = chartSum(values);
+    var wrap = el('div', { 'class': 'chart-donut' });
     if (!total) {
-      wrap.appendChild(el('div', { 'class': 'chart-title', text: '暂无数据' }));
+      wrap.appendChild(insightChartEmpty('暂无数据'));
       return wrap;
     }
-    var palette = ['var(--p-ok)', 'var(--p-accent)', 'var(--p-line-strong)', '#8b5cf6', '#d97706', '#0891b2'];
+    var ring = el('div', { 'class': 'donut-ring' });
     var svgNs = 'http://www.w3.org/2000/svg';
     var svg = document.createElementNS(svgNs, 'svg');
     svg.setAttribute('viewBox', '0 0 40 40');
     var angle = -Math.PI / 2;
+    var rOut = 17, rIn = 11, cx = 20, cy = 20;
     values.forEach(function (value, index) {
-      if (!value) return;
-      var span = (value / total) * Math.PI * 2;
-      var rOut = 15, rIn = nested ? 10 : 7, cx = 20, cy = 20;
+      var n = chartNumber(value);
+      if (!n) return;
+      var span = (n / total) * Math.PI * 2;
       var x1 = cx + rOut * Math.cos(angle), y1 = cy + rOut * Math.sin(angle);
       var x2 = cx + rOut * Math.cos(angle + span), y2 = cy + rOut * Math.sin(angle + span);
       var x3 = cx + rIn * Math.cos(angle + span), y3 = cy + rIn * Math.sin(angle + span);
       var x4 = cx + rIn * Math.cos(angle), y4 = cy + rIn * Math.sin(angle);
       var large = span > Math.PI ? 1 : 0;
-      var node = document.createElementNS(svgNs, 'path');
-      node.setAttribute('d',
+      var slice = document.createElementNS(svgNs, 'path');
+      slice.setAttribute('d',
         'M' + x1.toFixed(2) + ' ' + y1.toFixed(2)
         + ' A' + rOut + ' ' + rOut + ' 0 ' + large + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2)
         + ' L' + x3.toFixed(2) + ' ' + y3.toFixed(2)
         + ' A' + rIn + ' ' + rIn + ' 0 ' + large + ' 0 ' + x4.toFixed(2) + ' ' + y4.toFixed(2) + ' Z');
-      node.setAttribute('fill', palette[index % palette.length]);
+      slice.setAttribute('fill', chartColor(index));
+      slice.setAttribute('stroke', 'var(--p-card)');
+      slice.setAttribute('stroke-width', '0.6');
       var tip = document.createElementNS(svgNs, 'title');
-      tip.textContent = labels[index] + ' ' + value;
-      node.appendChild(tip);
-      svg.appendChild(node);
+      tip.textContent = String(labels[index] || '') + ' ' + n;
+      slice.appendChild(tip);
+      svg.appendChild(slice);
       angle += span;
     });
-    wrap.appendChild(svg);
-    var legend = el('div', { 'class': 'mini-legend' });
-    labels.slice(0, 4).forEach(function (label, index) {
-      var row = el('span');
-      row.appendChild(el('i', { style: 'background:' + palette[index % palette.length] }));
-      row.appendChild(el('span', { text: String(label).slice(0, 8) + ' ' + values[index] }));
+    ring.appendChild(svg);
+
+    var center = el('div', { 'class': 'donut-center' });
+    center.setAttribute('aria-hidden', 'true');
+    center.appendChild(el('strong', { text: String(total) }));
+    center.appendChild(el('span', { text: '条任务' }));
+    ring.appendChild(center);
+    wrap.appendChild(ring);
+
+    var legend = el('div', { 'class': 'donut-legend' });
+    labels.forEach(function (label, index) {
+      var row = el('div', { 'class': 'legend-row' });
+      row.appendChild(el('i', { style: 'background:' + chartColor(index) }));
+      row.appendChild(el('span', { 'class': 'legend-label', text: String(label || '') }));
+      row.appendChild(el('span', { 'class': 'legend-value', text: String(chartNumber(values[index])) }));
       legend.appendChild(row);
     });
     wrap.appendChild(legend);
     return wrap;
   }
+
+  /* 柱状：每根柱子顶部带数值；hero 更高、标出日期 */
+  function chartBars(data, hero) {
+    var labels = (data && (data.labels || data.days)) || [];
+    var values = (data && data.values) || [];
+    var max = Math.max.apply(null, values.map(chartNumber).concat([1]));
+    var wrap = el('div', { 'class': 'chart-bars' + (hero ? ' is-hero' : '') });
+    values.forEach(function (value, index) {
+      var n = chartNumber(value);
+      var col = el('div', { 'class': 'bar-col' });
+      col.appendChild(el('span', { 'class': 'bar-value', text: String(n) }));
+      var track = el('div', { 'class': 'bar-track' });
+      var bar = el('div', { 'class': 'bar' + (n ? '' : ' is-empty') });
+      bar.style.height = (n ? Math.max(6, Math.round((n / max) * 100)) : 2) + '%';
+      bar.title = chartAxisLabel(labels[index]) + ' ' + n;
+      track.appendChild(bar);
+      col.appendChild(track);
+      if (hero && labels[index]) {
+        col.appendChild(el('span', { 'class': 'bar-label', text: chartAxisShort(labels[index]) }));
+      }
+      wrap.appendChild(col);
+    });
+    return wrap;
+  }
+
+  /* 折线：支持单序列 values，也支持 throughput_14 的 done/started/wip */
+  function chartLine(data, hero) {
+    var wrap = el('div', { 'class': 'chart-line' + (hero ? ' is-hero' : '') });
+    var series = [];
+    if (data && Array.isArray(data.values)) {
+      series.push({ label: '', values: data.values, color: 'var(--p-accent)' });
+    } else if (data && Array.isArray(data.wip)) {
+      series.push({ label: '在跑', values: data.wip, color: 'var(--p-accent)' });
+      if (Array.isArray(data.done)) series.push({ label: '完成', values: data.done, color: 'var(--p-ok)' });
+      if (Array.isArray(data.started)) series.push({ label: '新开工', values: data.started, color: '#8b5cf6' });
+    }
+    if (!series.length) {
+      wrap.appendChild(insightChartEmpty('暂无数据'));
+      return wrap;
+    }
+    var maxLen = 0;
+    var max = 1;
+    series.forEach(function (item) {
+      maxLen = Math.max(maxLen, item.values.length);
+      item.values.forEach(function (value) { max = Math.max(max, chartNumber(value)); });
+    });
+    if (maxLen < 2) {
+      wrap.appendChild(insightChartEmpty('数据点不足'));
+      return wrap;
+    }
+
+    var svgNs = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(svgNs, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 40');
+    svg.setAttribute('preserveAspectRatio', 'none');
+    var step = 100 / (maxLen - 1);
+    series.forEach(function (item) {
+      var d = item.values.map(function (value, index) {
+        var x = index * step;
+        var y = 36 - (chartNumber(value) / max) * 32 - 2;
+        return (index ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
+      }).join(' ');
+      var path = document.createElementNS(svgNs, 'path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', item.color);
+      path.setAttribute('stroke-width', '1.6');
+      path.setAttribute('stroke-linejoin', 'round');
+      path.setAttribute('vector-effect', 'non-scaling-stroke');
+      svg.appendChild(path);
+    });
+    wrap.appendChild(svg);
+
+    var meta = el('div', { 'class': 'chart-legend' });
+    series.forEach(function (item) {
+      var entry = el('span');
+      entry.appendChild(el('i', { style: 'background:' + item.color }));
+      entry.appendChild(el('span', {
+        text: (item.label ? item.label + ' ' : '') + '最新 ' + chartNumber(item.values[item.values.length - 1])
+      }));
+      meta.appendChild(entry);
+    });
+    meta.appendChild(el('span', { 'class': 'legend-total', text: '峰值 ' + max }));
+    wrap.appendChild(meta);
+    return wrap;
+  }
+
+  /* 横向堆叠：每个工作区一行，三段＝已完成/在跑/未开始，右侧给每行总数 */
+  function chartStacked(data) {
+    var labels = (data && data.labels) || [];
+    var series = (data && data.series) || [];
+    var wrap = el('div', { 'class': 'chart-stack' });
+    if (!labels.length || !series.length) {
+      wrap.appendChild(insightChartEmpty('暂无数据'));
+      return wrap;
+    }
+    var totals = labels.map(function (_, index) {
+      return series.reduce(function (sum, item) {
+        return sum + chartNumber((item.values || [])[index]);
+      }, 0);
+    });
+    var grand = chartSum(totals);
+    if (!grand) {
+      wrap.appendChild(insightChartEmpty('暂无数据'));
+      return wrap;
+    }
+
+    var colors = {};
+    series.forEach(function (item, index) { colors[item.label] = stackColor(item.label, index); });
+
+    labels.forEach(function (label, index) {
+      var row = el('div', { 'class': 'stack-row' });
+      var name = el('span', { 'class': 'stack-label', text: String(label || '') });
+      name.title = String(label || '');
+      row.appendChild(name);
+
+      var bar = el('div', { 'class': 'stack-bar' });
+      var bits = [];
+      series.forEach(function (item) {
+        var n = chartNumber((item.values || [])[index]);
+        if (!n) return;
+        var seg = el('i', {
+          style: 'width:' + ((n / totals[index]) * 100).toFixed(2) + '%;background:' + colors[item.label]
+        });
+        seg.title = label + ' · ' + item.label + ' ' + n;
+        bar.appendChild(seg);
+        bits.push(item.label + ' ' + n);
+      });
+      row.appendChild(bar);
+      row.appendChild(el('span', { 'class': 'stack-total', text: String(totals[index]) }));
+      row.title = label + '：' + bits.join(' / ') + '（共 ' + totals[index] + '）';
+      wrap.appendChild(row);
+    });
+
+    var legend = el('div', { 'class': 'chart-legend' });
+    series.forEach(function (item) {
+      var entry = el('span');
+      entry.appendChild(el('i', { style: 'background:' + colors[item.label] }));
+      entry.appendChild(el('span', { text: item.label + ' ' + chartSum(item.values) }));
+      legend.appendChild(entry);
+    });
+    legend.appendChild(el('span', { 'class': 'legend-total', text: '共 ' + grand }));
+    wrap.appendChild(legend);
+    return wrap;
+  }
+
+  /* 热力图：5 行（P0…未设置）× 6 列（紧急度），透明度按全表最大值缩放 */
+  function chartHeatmap(data) {
+    var rows = (data && data.rows) || [];
+    var cols = (data && data.cols) || [];
+    var matrix = (data && data.values) || [];
+    var max = 0;
+    matrix.forEach(function (row) {
+      (row || []).forEach(function (value) { max = Math.max(max, chartNumber(value)); });
+    });
+    var wrap = el('div', { 'class': 'chart-heat' });
+    wrap.appendChild(el('div', { 'class': 'heat-corner' }));
+    cols.forEach(function (col) {
+      /* 列头在 ~200px 的卡里放不下全称：显示 2–3 字缩写，全称进悬停与 aria */
+      var header = el('div', { 'class': 'heat-col', text: HEAT_COL_SHORT[String(col)] || String(col || '') });
+      header.title = String(col || '');
+      wrap.appendChild(header);
+    });
+    rows.forEach(function (row, ri) {
+      wrap.appendChild(el('div', { 'class': 'heat-rowlabel', text: String(row || '') }));
+      cols.forEach(function (col, ci) {
+        var n = chartNumber(((matrix[ri] || [])[ci]));
+        var ratio = max ? n / max : 0;
+        var cell = el('div', {
+          'class': 'heat-cell' + (ratio >= 0.55 ? ' is-hot' : '') + (n ? '' : ' is-zero')
+        });
+        cell.style.background = 'rgba(59, 130, 246, ' + (0.06 + ratio * 0.8).toFixed(3) + ')';
+        cell.textContent = n ? String(n) : '·';
+        cell.title = String(row || '') + ' · ' + String(col || '') + ' · ' + n;
+        wrap.appendChild(cell);
+      });
+    });
+    return wrap;
+  }
+
+  /* 横向条：延期原因 label + 条 + 次数 */
+  function chartHbars(data) {
+    var labels = (data && data.labels) || [];
+    var values = (data && data.values) || [];
+    var wrap = el('div', { 'class': 'chart-hbars' });
+    if (!chartSum(values)) {
+      wrap.appendChild(insightChartEmpty('暂无数据'));
+      return wrap;
+    }
+    var max = Math.max.apply(null, values.map(chartNumber).concat([1]));
+    labels.forEach(function (label, index) {
+      var n = chartNumber(values[index]);
+      var row = el('div', { 'class': 'hbar-row' });
+      var name = el('span', { 'class': 'hbar-label', text: String(label || '') });
+      name.title = String(label || '') + ' ' + n + ' 次';
+      row.appendChild(name);
+
+      var track = el('div', { 'class': 'hbar-track' });
+      var bar = el('i');
+      bar.style.width = (n ? Math.max(4, Math.round((n / max) * 100)) : 0) + '%';
+      bar.title = String(label || '') + ' ' + n + ' 次';
+      track.appendChild(bar);
+      row.appendChild(track);
+      row.appendChild(el('span', { 'class': 'hbar-value', text: String(n) }));
+      wrap.appendChild(row);
+    });
+    return wrap;
+  }
+
+  /* 履约质量：单条堆叠（提前/准时/延期）+ 图例数值 */
+  function chartQuality(data) {
+    var labels = (data && data.labels) || [];
+    var values = (data && data.values) || [];
+    var total = chartSum(values);
+    var wrap = el('div', { 'class': 'chart-quality' });
+    if (!total) {
+      wrap.appendChild(insightChartEmpty('暂无数据'));
+      return wrap;
+    }
+    var bar = el('div', { 'class': 'quality-bar' });
+    labels.forEach(function (label, index) {
+      var n = chartNumber(values[index]);
+      if (!n) return;
+      var seg = el('i', {
+        style: 'width:' + ((n / total) * 100).toFixed(2) + '%;background:' + stackColor(label, index)
+      });
+      seg.title = label + ' ' + n;
+      bar.appendChild(seg);
+    });
+    wrap.appendChild(bar);
+
+    var legend = el('div', { 'class': 'chart-legend' });
+    labels.forEach(function (label, index) {
+      var entry = el('span');
+      entry.appendChild(el('i', { style: 'background:' + stackColor(label, index) }));
+      entry.appendChild(el('span', { text: label + ' ' + chartNumber(values[index]) }));
+      legend.appendChild(entry);
+    });
+    legend.appendChild(el('span', { 'class': 'legend-total', text: '共 ' + total }));
+    wrap.appendChild(legend);
+    return wrap;
+  }
+
+  /**
+   * 收起态：只渲染 specs[0] 的 hero（没有左右箭头/圆点）。
+   * 签名把 tab / 展开态 / datasets / specs 都算进去：切 tab、开合、数据变化都必须重画，
+   * 数据没变时直接复用 DOM，避免轮询把图反复拆了重建。
+   */
+  function chartTabKey() {
+    return app.insightTab === 'diagnose' ? 'diagnose' : 'morning';
+  }
+
+  /* 每个 tab 记住自己看到第几张图；越界回绕，不因数据变少而空图 */
+  function chartIndexOf(length) {
+    var map = app.insightChartIndexes || (app.insightChartIndexes = {});
+    if (!length) return 0;
+    var index = Number(map[chartTabKey()]) || 0;
+    index = ((index % length) + length) % length;
+    map[chartTabKey()] = index;
+    return index;
+  }
+
+  function moveChartIndex(step, length) {
+    if (!length) return;
+    var map = app.insightChartIndexes || (app.insightChartIndexes = {});
+    map[chartTabKey()] = ((chartIndexOf(length) + step) % length + length) % length;
+  }
+
+  /* 收起态只画当前 tab 的一张 hero；左右箭头在 hero 下方 */
+  function renderInsightCharts() {
+    var box = $('insightCharts');
+    if (!box) return;
+    var datasets = (app.insightStats && app.insightStats.datasets) || null;
+    var specs = insightChartSpecs();
+    var index = specs.length ? chartIndexOf(specs.length) : 0;
+    var signature = stablePanelSignature([app.insightTab, app.insightOpen, datasets, specs, index, document.body.className]);
+    if (app.insightChartSignature === signature) return;
+    app.insightChartSignature = signature;
+    clear(box);
+
+    if (!specs.length) {
+      var empty = el('div', { 'class': 'insight-chart is-hero' });
+      empty.setAttribute('data-chart-hero', '1');
+      empty.appendChild(insightChartEmpty('暂无数据'));
+      box.appendChild(empty);
+      return;
+    }
+    box.appendChild(insightChartCard(specs[index], datasets || {}, { hero: true }));
+
+    if (specs.length > 1) {
+      var nav = el('div', { 'class': 'chart-switch' });
+      var prev = el('button', { type: 'button', 'class': 'chart-nav', 'aria-label': '上一张图表', title: '上一张图表' });
+      prev.textContent = '‹';
+      prev.addEventListener('click', function (event) {
+        event.stopPropagation();
+        moveChartIndex(-1, specs.length);
+        renderInsightCharts();
+      });
+      var next = el('button', { type: 'button', 'class': 'chart-nav', 'aria-label': '下一张图表', title: '下一张图表' });
+      next.textContent = '›';
+      next.addEventListener('click', function (event) {
+        event.stopPropagation();
+        moveChartIndex(1, specs.length);
+        renderInsightCharts();
+      });
+      nav.appendChild(prev);
+      nav.appendChild(el('span', { 'class': 'chart-switch-count', text: (index + 1) + ' / ' + specs.length }));
+      nav.appendChild(next);
+      box.appendChild(nav);
+    }
+  }
+
+  /* 展开态：固定展示主图之外的几张，不跟随当前主图做排除计算 */
+  function renderInsightChartsGrid() {
+    var datasets = (app.insightStats && app.insightStats.datasets) || null;
+    var specs = insightChartSpecs();
+    if (!datasets || !specs.length) return null;
+    var others = specs.slice(1);
+    if (!others.length) return null;
+
+    var section = el('section', { 'class': 'insight-chart-section' });
+    section.setAttribute('data-chart-grid', '1');
+    section.appendChild(el('div', { 'class': 'insight-block-title', text: '其余图表' }));
+    var grid = el('div', { 'class': 'insight-chart-grid' });
+    others.forEach(function (spec) {
+      grid.appendChild(insightChartCard(spec, datasets, { hero: false }));
+    });
+    section.appendChild(grid);
+    return section;
+  }
+  /* INSIGHT_CHARTS_END */
 
   /* ---------------- 早会同步（合并今天/昨天/推荐 + 趋势图） ---------------- */
 
@@ -7046,143 +7724,6 @@
     }
   }
 
-  /* 柱状图：近 7 天「完成 / 新开工」 */
-  function chartBars(series) {
-    var wrap = el('div', { 'class': 'insight-chart' });
-    wrap.appendChild(el('div', { 'class': 'insight-chart-title', text: '每天完成数（绿）与新开工数（蓝）' }));
-    var max = 1;
-    series.forEach(function (d) { max = Math.max(max, d.done || 0, d.started || 0); });
-    var bars = el('div', { 'class': 'chart-bars' });
-    series.forEach(function (d) {
-      var col = el('div', { 'class': 'bar-col', title: d.day + ' 完成 ' + (d.done || 0) + ' / 开工 ' + (d.started || 0) });
-      var a = el('div', { 'class': 'bar done' });
-      a.style.height = Math.round(((d.done || 0) / max) * 100) + '%';
-      var b = el('div', { 'class': 'bar' });
-      b.style.height = Math.round(((d.started || 0) / max) * 100) + '%';
-      col.appendChild(a);
-      col.appendChild(b);
-      bars.appendChild(col);
-    });
-    wrap.appendChild(bars);
-    var legend = el('div', { 'class': 'chart-legend' });
-    var l1 = el('span'); l1.appendChild(el('i', { style: 'background:var(--p-ok)' })); l1.appendChild(el('span', { text: '完成' }));
-    var l2 = el('span'); l2.appendChild(el('i', { style: 'background:var(--p-accent)' })); l2.appendChild(el('span', { text: '新开工' }));
-    legend.appendChild(l1);
-    legend.appendChild(l2);
-    wrap.appendChild(legend);
-    return wrap;
-  }
-
-  /* 折线图：在跑任务数（WIP）随日期变化 */
-  function chartLine(series) {
-    var wrap = el('div', { 'class': 'insight-chart chart-line' });
-    wrap.appendChild(el('div', { 'class': 'insight-chart-title', text: '在跑任务数（WIP）' }));
-    var points = series.filter(function (d) { return typeof d.wip === 'number'; });
-    if (points.length < 2) {
-      wrap.appendChild(el('div', { 'class': 'insight-empty', text: '数据点还不够画折线。' }));
-      return wrap;
-    }
-    var w = 100, h = 100;
-    var max = Math.max.apply(null, points.map(function (d) { return d.wip || 0; }).concat([1]));
-    var step = w / (points.length - 1);
-    var coords = points.map(function (d, i) {
-      var y = h - ((d.wip || 0) / max) * (h - 8) - 4;
-      return [i * step, y];
-    });
-    var d = coords.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
-    var svgNs = 'http://www.w3.org/2000/svg';
-    var svg = document.createElementNS(svgNs, 'svg');
-    svg.setAttribute('viewBox', '0 0 100 100');
-    svg.setAttribute('preserveAspectRatio', 'none');
-    var path = document.createElementNS(svgNs, 'path');
-    path.setAttribute('d', d);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', 'var(--p-accent)');
-    path.setAttribute('stroke-width', '1.6');
-    path.setAttribute('vector-effect', 'non-scaling-stroke');
-    svg.appendChild(path);
-    wrap.appendChild(svg);
-    var legend = el('div', { 'class': 'chart-legend' });
-    legend.appendChild(el('span', { text: '最高 ' + max + ' · 最近 ' + points[points.length - 1].wip }));
-    wrap.appendChild(legend);
-    return wrap;
-  }
-
-  /* 旭日图：内环＝状态占比，外环＝该状态下按工作区拆分 */
-  function chartSunburst(distribution, board) {
-    var wrap = el('div', { 'class': 'insight-chart chart-sunburst' });
-    var left = el('div');
-    left.appendChild(el('div', { 'class': 'insight-chart-title', text: '任务分布（内环状态 · 外环工作区）' }));
-    var legend = el('div', { 'class': 'chart-legend' });
-    var states = [
-      ['done', '已完成', 'var(--p-ok)'],
-      ['started', '在跑', 'var(--p-accent)'],
-      ['idle', '未开始', 'var(--p-line-strong)']
-    ];
-    states.forEach(function (item) {
-      var total = 0;
-      distribution.forEach(function (d) { if (d.state === item[0]) total += d.count; });
-      var row = el('span');
-      row.appendChild(el('i', { style: 'background:' + item[2] }));
-      row.appendChild(el('span', { text: item[1] + ' ' + total }));
-      legend.appendChild(row);
-    });
-    left.appendChild(legend);
-    var meta = el('div', { 'class': 'chart-legend' });
-    meta.appendChild(el('span', { text: '共 ' + (board.total || 0) + ' 条 · 在跑 ' + (board.started || 0) + ' · 未开始 ' + (board.idle || 0) }));
-    left.appendChild(meta);
-    wrap.appendChild(left);
-
-    var total = distribution.reduce(function (sum, d) { return sum + d.count; }, 0);
-    if (!total) return wrap;
-    var svgNs = 'http://www.w3.org/2000/svg';
-    var svg = document.createElementNS(svgNs, 'svg');
-    svg.setAttribute('viewBox', '0 0 100 100');
-    var cx = 50, cy = 50;
-    function arc(rInner, rOuter, start, end) {
-      var x1 = cx + rOuter * Math.cos(start), y1 = cy + rOuter * Math.sin(start);
-      var x2 = cx + rOuter * Math.cos(end), y2 = cy + rOuter * Math.sin(end);
-      var x3 = cx + rInner * Math.cos(end), y3 = cy + rInner * Math.sin(end);
-      var x4 = cx + rInner * Math.cos(start), y4 = cy + rInner * Math.sin(start);
-      var large = end - start > Math.PI ? 1 : 0;
-      return 'M' + x1.toFixed(2) + ' ' + y1.toFixed(2)
-        + ' A' + rOuter + ' ' + rOuter + ' 0 ' + large + ' 1 ' + x2.toFixed(2) + ' ' + y2.toFixed(2)
-        + ' L' + x3.toFixed(2) + ' ' + y3.toFixed(2)
-        + ' A' + rInner + ' ' + rInner + ' 0 ' + large + ' 0 ' + x4.toFixed(2) + ' ' + y4.toFixed(2) + ' Z';
-    }
-    function slice(d, fill) {
-      var node = document.createElementNS(svgNs, 'path');
-      node.setAttribute('d', d);
-      node.setAttribute('fill', fill);
-      node.setAttribute('stroke', 'var(--p-card)');
-      node.setAttribute('stroke-width', '0.6');
-      return node;
-    }
-    var angle = -Math.PI / 2;
-    states.forEach(function (item) {
-      var stateTotal = 0;
-      distribution.forEach(function (d) { if (d.state === item[0]) stateTotal += d.count; });
-      if (!stateTotal) return;
-      var span = (stateTotal / total) * Math.PI * 2;
-      svg.appendChild(slice(arc(18, 30, angle, angle + span), item[2]));
-      /* 外环：该状态按工作区拆分 */
-      var cursor = angle;
-      distribution.filter(function (d) { return d.state === item[0]; }).forEach(function (d) {
-        var part = (d.count / stateTotal) * span;
-        var node = slice(arc(32, 46, cursor, cursor + part), item[2]);
-        node.setAttribute('opacity', '0.55');
-        var title = document.createElementNS(svgNs, 'title');
-        title.textContent = d.workspace + ' · ' + item[1] + ' ' + d.count;
-        node.appendChild(title);
-        svg.appendChild(node);
-        cursor += part;
-      });
-      angle += span;
-    });
-    wrap.appendChild(svg);
-    return wrap;
-  }
-
   /* 趋势数据（近 14 天）：只有打开早会同步时才拉，避免每次开面板都算 */
   function loadInsightStats() {
     if (app.insightStatsLoading) return null;
@@ -7191,6 +7732,8 @@
       app.insightStatsLoading = false;
       app.insightStats = (data && data.stats) || null;
       renderInsightCharts();
+      /* 数据晚到：展开区的图表网格也要跟着刷新（收起态已由 hero 覆盖） */
+      renderInsightBody();
       return app.insightStats;
     }, function () {
       app.insightStatsLoading = false;
@@ -7590,9 +8133,10 @@
     if (text) {
       var toggle = function () {
         app.insightOpen = !app.insightOpen;
-        /* 展开看的是「文字背后的明细」；AI 诊断只在点诊断按钮后出现 */
-        if (app.insightOpen && app.insightTab === 'diagnose' && !app.insightAI) app.insightTab = 'morning';
+        /* 展开看的是「文字背后的明细」；诊断 tab 没有 AI 结果时也保留本地图表，
+           不再强行跳回早会——按钮切到哪个 tab，图上就该是哪个 tab 的问题。 */
         syncToggleLabel();
+        renderInsightCharts();
         renderInsightBody();
       };
       text.addEventListener('click', toggle);
@@ -7610,6 +8154,7 @@
         event.stopPropagation();
         app.insightOpen = !app.insightOpen;
         syncToggleLabel();
+        renderInsightCharts();
         renderInsightBody();
       });
     }

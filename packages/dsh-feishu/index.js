@@ -5665,7 +5665,12 @@ bucket 只能从枚举里选：
       /* 履约（近 28 天）：纯本地算，进 stats 后面板/AI 都能用，不在两处各算一遍。 */
       fulfillment: fulfillmentSummary(state.tasks, { now: nowMs(), since: nowMs() - 28 * DAY_MS }),
       quality: completionQuality(state.tasks, { since: nowMs() - 28 * DAY_MS }),
-      delayBuckets: delayPatterns(state.tasks, { limit: 4, samples: 1 }),
+      /* 延期原因要包含 AI 归因：attribution 单独存在 state.delayAttributions 里，
+         不合并进来的话「延期原因」图永远只统计手写 delayLog。 */
+      delayBuckets: delayPatterns(
+        state.tasks.map((task) => ({ ...task, delayAttribution: state.delayAttributions?.[task.id] })),
+        { limit: 4, samples: 1 },
+      ),
       lastRecordAt: Number(state.metricsAt ?? 0),
       file: METRICS_FILE,
     }
@@ -5705,6 +5710,87 @@ bucket 只能从枚举里选：
         values: Object.values(workspaceCount),
       },
       cycle_days: { median: cycles.length ? cycles[Math.floor(cycles.length / 2)] : null, samples: cycles.length },
+    }
+  }
+
+  /**
+   * 图表专用数据集：在 insightDataset 之上补充「一屏三问」需要的形状。
+   *
+   * 与 AI 数据集分开，避免把新字段塞进诊断提示词；
+   * 所有数值仍然只由本地任务快照计算，面板不得自行推算。
+   */
+  function insightChartData() {
+    const base = insightDataset()
+    const stats = insightStats(14)
+    const now = nowMs()
+    const todayStart = dayStart(0)
+    const tomorrow = todayStart + DAY_MS
+    const day4 = todayStart + 4 * DAY_MS
+    const day8 = todayStart + 8 * DAY_MS
+
+    const priorityOf = (task) => (/^P[0-3]$/.test(asString(task.priority)) ? task.priority : '未设置')
+    const dueOf = (task) => Number(task.dueTs ?? 0) || Number(task.expectedAt ?? 0) || 0
+    const urgencyOf = (ts) => {
+      if (!ts) return 5
+      if (ts < now) return 0
+      if (ts < tomorrow) return 1
+      if (ts < day4) return 2
+      if (ts < day8) return 3
+      return 4
+    }
+    const rows = ['P0', 'P1', 'P2', 'P3', '未设置']
+    const cols = ['已逾期', '今天', '2–3 天', '4–7 天', '8 天+', '无截止']
+    const matrix = rows.map(() => cols.map(() => 0))
+    for (const task of state.tasks) {
+      if (!task || task.done || task.syncFirst) continue
+      matrix[rows.indexOf(priorityOf(task))][urgencyOf(dueOf(task))] += 1
+    }
+
+    const engaged = state.tasks.filter((task) => task && !task.done && !task.syncFirst && (task.started || task.sessionId))
+    const aging = [0, 0, 0, 0]
+    for (const task of engaged) {
+      const idle = now - (Number(taskActivityAt(task)) || now)
+      aging[idle < 2 * DAY_MS ? 0 : idle < 4 * DAY_MS ? 1 : idle < 8 * DAY_MS ? 2 : 3] += 1
+    }
+
+    const stateLabel = { done: '已完成', started: '在跑', idle: '未开始' }
+    const workspaceStates = new Map()
+    for (const item of stats.distribution) {
+      const row = workspaceStates.get(item.workspace) ?? { done: 0, started: 0, idle: 0 }
+      row[item.state] = (row[item.state] ?? 0) + item.count
+      workspaceStates.set(item.workspace, row)
+    }
+    const workspaceRows = [...workspaceStates.entries()].sort((a, b) => {
+      const total = (row) => row.done + row.started + row.idle
+      return total(b[1]) - total(a[1])
+    })
+    const workspaceLoad = {
+      labels: workspaceRows.map(([name]) => name),
+      series: ['idle', 'started', 'done'].map((key) => ({
+        label: stateLabel[key],
+        values: workspaceRows.map(([, row]) => row[key] ?? 0),
+      })),
+    }
+
+    return {
+      ...base,
+      priority_urgency: { rows, cols, values: matrix },
+      stalled_aging: { labels: ['0–1 天', '2–3 天', '4–7 天', '8 天+'], values: aging },
+      workspace_load: workspaceLoad,
+      fulfillment_quality: {
+        labels: ['提前', '准时', '延期'],
+        values: [stats.quality.early, stats.quality.onTime, stats.quality.late],
+      },
+      delay_reasons: {
+        labels: (stats.delayBuckets || []).map((bucket) => bucket.label || bucket.bucket),
+        values: (stats.delayBuckets || []).map((bucket) => bucket.count),
+      },
+      throughput_14: {
+        days: stats.series.map((item) => item.day),
+        done: stats.series.map((item) => item.done ?? 0),
+        started: stats.series.map((item) => item.started ?? 0),
+        wip: stats.series.map((item) => item.wip ?? 0),
+      },
     }
   }
 
@@ -7127,6 +7213,7 @@ bucket 只能从枚举里选：
     /* 面板打开时带上的「今天那份诊断」：只要还在同一天就给，任务变动不该让结论凭空消失 */
     insightStats,
     insightDataset,
+    insightChartData,
     startInsightJob,
     insightJobState,
     markSessionSeen,
@@ -7471,7 +7558,7 @@ function mountRoutes(ctx, engine) {
             const span = Number(url.searchParams.get('days') || 14)
             sendJson(res, 200, {
               ok: true,
-              stats: { ...engine.insightStats(span), datasets: engine.insightDataset() },
+              stats: { ...engine.insightStats(span), datasets: engine.insightChartData() },
             })
             return
           }
