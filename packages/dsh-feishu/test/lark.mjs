@@ -41,6 +41,17 @@ const TASKS = JSON.stringify({
         updated_at: '1700000000000',
       },
       {
+        guid: 'task-3',
+        summary: '关系联调用的未完成任务',
+        description: '',
+        completed_at: '0',
+        members: [{ id: 'ou_1', role: 'assignee' }],
+        tasklists: [{ tasklist_guid: 'list-1' }],
+        custom_fields: [],
+        url: 'https://x.feishu.cn/task/task-3',
+        updated_at: '1700000000000',
+      },
+      {
         guid: 'task-2',
         summary: '写周报',
         description: '',
@@ -73,10 +84,14 @@ JSON
     "POST /open-apis/task/v2/tasklists") echo '{"ok":true,"data":{"tasklist":{"guid":"list-1","name":"DSH 任务"}}}' ;;
     "POST /open-apis/task/v2/custom_fields") echo '{"ok":true,"data":{"custom_field":{"guid":"fld-new"}}}' ;;
     "POST /open-apis/task/v2/comments") echo '{"ok":true,"data":{"comment":{"id":"c-1"}}}' ;;
-    "GET /open-apis/task/v2/custom_fields") echo '{"ok":true,"data":{"items":[{"guid":"fld-ws","name":"工作区","type":"text"},{"guid":"fld-doc","name":"文档","type":"text"}]}}' ;;
+    "GET /open-apis/task/v2/custom_fields") echo '{"ok":true,"data":{"items":[{"guid":"fld-ws","name":"工作区","type":"text"},{"guid":"fld-doc","name":"文档","type":"text"},{"guid":"fld-prio","name":"优先级","type":"text"},{"guid":"fld-eta","name":"预期完成","type":"text"},{"guid":"fld-status","name":"处理状态","type":"text"}]}}' ;;
+    "POST /open-apis/task/v2/custom_fields") echo '{"ok":true,"data":{"custom_field":{"guid":"fld-new","type":"text"}}}' ;;
+    "PATCH /open-apis/task/v2/tasks/task-1") echo '{"ok":true,"data":{}}' ;;
+    "POST /open-apis/task/v2/tasks/task-1/add_dependencies") echo '{"ok":true,"data":{"dependencies":[{"task_guid":"task-2","type":"prev"}]}}' ;;
+    "POST /open-apis/task/v2/tasks/task-1/remove_dependencies") echo '{"ok":true,"data":{"dependencies":[]}}' ;;
     "GET /open-apis/contact/v3/users/ou_1") echo '{"ok":true,"data":{"user":{"name":"张三","avatar":{"avatar_240":"https://x.feishu.cn/a.png"}}}}' ;;
     "POST /open-apis/task/v2/tasks") echo '{"ok":true,"data":{"task":{"guid":"task-new"}}}' ;;
-    "GET /open-apis/task/v2/tasks/task-1") echo '{"ok":true,"data":{"task":{"guid":"task-1","description":""}}}' ;;
+    "GET /open-apis/task/v2/tasks/task-1") echo '{"ok":true,"data":{"task":{"guid":"task-1","description":"","completed_at":"0","dependencies":[]}}}' ;;
     "POST /open-apis/task/v2/tasks/task-1/comments") echo '{"ok":true,"data":{"comment":{"id":"c-1"}}}' ;;
     "GET /open-apis/task/v2/comments") echo '{"ok":true,"data":{"items":[{"id":"c-1","content":"进展正常","creator":{"id":"ou_1"},"created_at":"1700000000000"}]}}' ;;
     "GET /open-apis/task/v2/tasks/task-1/subtasks") echo '{"ok":true,"data":{"items":[]}}' ;;
@@ -338,6 +353,34 @@ try {
   /* 6. 文档信息：docx 走 metas/batch_query。 */
   const info = await post('/api/tasks/rename', { taskId: 'task-1', title: '改过的标题' })
   check('改名走 lark PATCH 成功', info.status === 200 && info.data.ok === true)
+
+  /* 6.5 写回链路：优先级 / 预期完成 / 关系 / 挂起都走官方 Open API，不需要 Python 桥。
+     这几条此前直接调 runBridge(feishu_api.py)，在只有 lark-cli 的机器上必然失败。 */
+  await rm(join(BIN, 'args.log'), { force: true })
+  const priority = await post('/api/tasks/priority', { taskId: 'task-1', value: 'P1' })
+  check('优先级写回走官方自定义字段接口', priority.status === 200 && priority.data.ok === true)
+  const eta = await post('/api/tasks/eta', { taskId: 'task-1', when: '明天 18:00' })
+  check('预期完成写回走官方自定义字段接口', eta.status === 200 && eta.data.ok === true && eta.data.sync?.ok === true)
+  const relations = await post('/api/tasks/relations', { taskId: 'task-1', action: 'set', predecessorIds: ['task-3'] })
+  check(
+    '任务关系写回官方原生依赖接口',
+    relations.status === 200 &&
+      relations.data.ok === true &&
+      relations.data.remote?.ok === true &&
+      (relations.data.relations?.predecessors ?? []).some((item) => item.id === 'task-3'),
+  )
+  const suspend = await post('/api/tasks/suspension', { taskId: 'task-1', action: 'suspend', reason: '自测挂起' })
+  check('挂起写回「处理状态」字段', suspend.status === 200 && suspend.data.ok === true && suspend.data.suspension?.active === true)
+  const resume = await post('/api/tasks/suspension', { taskId: 'task-1', action: 'resume' })
+  check('恢复写回「处理状态」字段', resume.status === 200 && resume.data.ok === true && resume.data.suspension?.active === false)
+  const writeArgs = await readFile(join(BIN, 'args.log'), 'utf8').catch(() => '')
+  check(
+    '写回全部走 lark-cli（没有回退到 Python 桥）',
+    /GET \/open-apis\/task\/v2\/custom_fields/.test(writeArgs) &&
+      /PATCH \/open-apis\/task\/v2\/tasks\/task-1/.test(writeArgs) &&
+      /POST \/open-apis\/task\/v2\/tasks\/task-1\/add_dependencies/.test(writeArgs),
+  )
+  check('关系失败不静默：远端未成功时明确回报', relations.data.remote?.ok === true)
 
   /* 7. 写回：评论 / 完成都走官方 API。 */
   const reported = await post('/api/tasks/report', { taskId: 'task-1', text: '处理完了' })
