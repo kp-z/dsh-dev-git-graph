@@ -48,3 +48,10 @@ packages/dsh-spellbook/.build.lock/
 # dsh-agent-world 运行时状态（宿主以仓库根为 cwd 时落在这里；是会话数据，不是源码）
 .agent-teams/
 .agent-world/
+
+# Internal screenshots are not public source assets.
+packages/dsh-feishu/docs/shots/
+docs/assets/ios-skin/
+docs/assets/design-v3/
+packages/dsh-agent-world/docs/assets/agent-world-panels-*.png
+.tmp-screenshot-purge/
