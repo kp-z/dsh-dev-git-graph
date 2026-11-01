@@ -277,6 +277,27 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 切换后 `state.cli.backend` 与设置一致；默认后端是 `lark-cli`。
 `feishu-sync-cli` 是公司内部隐藏后端，默认不在准备卡里露出，只在准备卡的「高级」里可选。
 
+### 官方 lark-cli 后端的动作矩阵（v0.21）
+
+引擎里所有「写飞书」的动作都走 `backend().actions(settings, actions)`：
+官方后端直接调 Open API，内部后端走 Python 桥，调用方不再自己判断后端。
+lark-cli 后端已实现的动作：
+
+| op | 官方接口 |
+| --- | --- |
+| `task_get` | `GET /task/v2/tasks/{guid}`（评论协作里的权威回执） |
+| `set_task_time` | `PATCH /task/v2/tasks/{guid}`（start/due，毫秒字符串） |
+| `task_reopen` | `PATCH /task/v2/tasks/{guid}`（completed_at=0） |
+| `ensure_custom_field` / `set_custom_field` | `GET/POST /task/v2/custom_fields` + `PATCH /task/v2/tasks/{guid}`；支持文本/单选/多选/日期/数字 |
+| `task_dependencies` / `add_dependencies` / `remove_dependencies` | `GET /task/v2/tasks/{guid}` + `POST .../add_dependencies|remove_dependencies` |
+| `task_comments` | `GET /task/v2/comments`（分页，拿不全返回 `incomplete`） |
+| `task_comment` | `POST /task/v2/comments`（支持 `reply_to_comment_id`） |
+| `task_subtasks` / `task_attachments` | `GET /task/v2/tasks/{guid}/subtasks`、`GET /task/v2/attachments` |
+| `create_docx` / `update_docx` / `rename_docx` / `delete_file` / `ensure_folder` / `add_tasklist` / `append_description` | 对应 docs/drive/task 官方接口 |
+
+已知限制：官方任务评论正文不支持任务 v1 富文本 @，`task_comment` 返回
+`mentionSupported=false` 并带 `warning`，按纯文本发送；这是唯一与内部后端的能力差异。
+
 ### `POST /dsh-feishu/api/sync`
 
 立即同步（异步，不等待）。响应：`{ "ok": true, "started": true }`；

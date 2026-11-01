@@ -3145,6 +3145,7 @@ function createSyncEngine(ctx) {
   }
   async function writeTaskComment(taskId, text, options = {}) {
     const key = options.key || 'manual:' + randomUUID()
+    /* 两个后端都走同一个出站账本，AI 身份格式在协调器内统一处理。 */
     const result = await comments.writeOutbound(taskId, sanitizeTaskDescription(text), { ...options, key })
     return { ...result, key, detail: result.error || '' }
   }

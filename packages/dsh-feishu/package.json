@@ -75,6 +75,7 @@
     "test:workspace": "node test/workspace.mjs && node test/workspaceBridge.mjs",
     "test:attribution": "node test/attribution.mjs",
     "test:lark": "node test/lark.mjs",
+    "test:lark-writes": "node test/larkWrites.mjs",
     "test:policy": "node test/lark-policy.mjs",
     "test:setup": "node test/setup.mjs"
   }
