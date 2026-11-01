@@ -59,7 +59,7 @@ JSON
 {"ok":true,"data":{"items":${JSON.stringify(FIELDS)}}}
 JSON
       ;;
-    "GET /open-apis/contact/v3/users/ou_1") echo '{"ok":true,"data":{"user":{"name":"张三"}}}' ;;
+    "GET /open-apis/contact/v3/users/ou_1") echo '{"ok":false,"error":{"code":99991679,"message":"missing scope"}}' ;;
     "POST /open-apis/task/v2/comments")
       seq_file="$(dirname "$0")/comment-seq"
       n=$(cat "$seq_file" 2>/dev/null || echo 0)
@@ -178,12 +178,21 @@ try {
   /* 1. 探活 + 同步：确认走的是官方 lark-cli。 */
   const state = await stateOf()
   check('lark-cli 探活成功', state.state?.cli?.backend === 'lark-cli' && state.state?.cli?.found === true)
+  /* 先显式体检：把当前登录用户记下来（联系人接口不可用时，负责人姓名靠它兜底）。 */
+  const authed = await post('/api/auth/check')
+  check('体检记下当前登录用户', authed.data?.auth?.openId === 'ou_1')
   await post('/api/sync')
   const synced = await waitFor(async () => {
     const snap = await stateOf()
     return snap.state?.syncing === false && (snap.state?.tasks?.length ?? 0) > 0 ? snap : null
   })
   check('同步拿到任务', !!synced && (await taskOf())?.title === TASK.summary)
+  const firstTask = await taskOf()
+  check(
+    '负责人姓名兜底当前登录用户（联系人接口无返回时不再只剩 open_id）',
+    (firstTask?.members ?? []).some((member) => member.role === 'assignee' && member.name === '测试用户'),
+    firstTask?.members,
+  )
 
   /* 2. 绑定会话 = 开始计时：写原生 start + 「开始时间」列。 */
   const link = await post('/api/tasks/link', { taskId: 'task-1', sessionId: 'sess-1' })

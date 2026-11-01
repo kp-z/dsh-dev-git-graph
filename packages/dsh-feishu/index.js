@@ -508,6 +508,8 @@ const LEGACY_AUTO_START_PROMPTS = [
 
 const DEFAULT_STATE = {
   auth: { ok: false, checkedAt: 0, detail: '尚未检查' },
+  /* 当前 lark-cli 授权用户：{ openId, name }。建任务默认负责人、人员姓名的兜底来源。 */
+  larkUser: {},
   cli: { found: false, version: null, path: null },
   lastSyncAt: 0,
   syncHistory: [],
@@ -1585,7 +1587,14 @@ function larkUserState(parsed) {
   const authed = status
     ? /^(authorized|valid|authenticated|ok|active|ready)$/.test(status)
     : info?.authenticated !== false && Boolean(user.userName || user.name || user.openId)
-  return { info, user, status, authed, name: asString(user.userName || user.name) }
+  return {
+    info,
+    user,
+    status,
+    authed,
+    name: asString(user.userName || user.name),
+    openId: asString(user.openId || user.open_id),
+  }
 }
 
 /** raw OpenAPI：`lark-cli api METHOD /open-apis/... [--params JSON] [--data JSON]`。 */
@@ -1639,6 +1648,9 @@ let pendingConfigInit = null
 /* 最近一次发出去的浏览器链接：面板刷新、后端重启后还能接着显示，并带过期时间。
    config init 链接 10 分钟有效，OAuth 设备链接默认 600 秒。 */
 let larkPending = null
+/* 当前授权登录的飞书用户：建任务时当默认负责人，解析人员姓名时当兜底。
+   state.auth 每轮同步都会被重写，所以单独缓存一份。 */
+let larkSelf = { openId: '', name: '' }
 /* 企业安全策略检查结果缓存：避免面板 4 秒轮询时反复打飞书。 */
 let larkPolicyCache = { at: 0, blocked: false, detail: '' }
 
@@ -2167,6 +2179,7 @@ const larkBackend = {
       return { ok: false, detail: `官方 lark-cli 未就绪：${result.detail}` }
     }
     const state = larkUserState(result.parsed)
+    if (state.authed) larkSelf = { openId: state.openId, name: state.name }
     const app = larkAppConsole(result.parsed)
     /* 先查应用本身能不能调 API：被租户策略整体拦掉时，登录/授权都是死路，直接把原因摆出来。
        个人账号模式不申请 tenant 身份，改由「登录后用 user token 打一次任务接口」验证，别拿 bot 的结论吓人。 */
@@ -2212,6 +2225,8 @@ const larkBackend = {
         : asString(error.missing_scopes)
       return {
         ok: true,
+        openId: larkSelf.openId,
+        userName: larkSelf.name,
         detail: `已登录${name ? `（${name}）` : ''}，但读取任务失败：${probe.detail}${
           missing ? `｜缺权限：${missing}` : '｜多半是开发者后台还没开通对应 scope'
         }`,
@@ -2226,6 +2241,8 @@ const larkBackend = {
     return {
       ok: true,
       permission: true,
+      openId: larkSelf.openId,
+      userName: larkSelf.name,
       detail: `官方 lark-cli 已登录${name ? `（${name}）` : ''}（身份：${asString(result.parsed?.identity) || 'user'}），任务接口已通`,
       appId: appInfo.appId || app.appId,
       consoleUrl: appInfo.consoleUrl || app.consoleUrl,
@@ -2409,7 +2426,7 @@ const larkBackend = {
     /* 建任务接口的 body 是「平铺」字段（summary 在顶层），套 {task:{...}} 会 99992402 field validation failed。 */
     const body = { summary, completed_at: '0' }
     if (description) body.description = description
-    if (assignee) body.members = [{ id: assignee, role: 'assignee' }]
+    if (assignee) body.members = [{ id: assignee, role: 'assignee', type: 'user' }]
     /* 落进插件的固定清单：飞书里才看得见，清单里的自定义字段才有地方写。 */
     const list = await ensureLarkTasklist(settings)
     if (list.ok) body.tasklists = [{ tasklist_guid: list.guid }]
@@ -4418,6 +4435,11 @@ function createSyncEngine(ctx) {
     if (!cli.found) await probeCli()
     const auth = await backend().check(settings)
     state.auth = { ...auth, checkedAt: nowMs() }
+    /* 联系人接口常有 scope 限制：先把「当前登录用户」记下来，至少自己当负责人时能显示真名。 */
+    if (asString(auth.openId)) {
+      state.larkUser = { openId: asString(auth.openId), name: asString(auth.userName), avatar: asString(auth.avatar) }
+      applySelfNames()
+    }
     if (lifecycleDisposed) return { ...state.auth, tasklistReady: false, tasklistError: '插件已重载，旧授权检查不再初始化清单' }
     await persistState()
     /* 受管任务清单是 feishu-sync 后端的能力（走 Python 桥）；官方 lark-cli 后端自己维护固定清单。 */
@@ -4428,6 +4450,17 @@ function createSyncEngine(ctx) {
       await persistState()
     }
     return state.auth
+  }
+
+  /** 把当前登录用户的姓名回填到快照里（联系人接口不可用时的兜底显示）。 */
+  function applySelfNames() {
+    const self = state.larkUser ?? {}
+    if (!self.openId || !self.name) return
+    for (const task of state.tasks) {
+      for (const person of [...(Array.isArray(task.members) ? task.members : []), task.creator].filter(Boolean)) {
+        if (asString(person.id) === self.openId && !asString(person.name)) person.name = self.name
+      }
+    }
   }
 
   /**
@@ -4629,10 +4662,12 @@ function createSyncEngine(ctx) {
       }
     })
 
+    const selfUser = state.larkUser ?? {}
+    const selfName = (id) => (selfUser.openId && id === asString(selfUser.openId) ? asString(selfUser.name) : '')
     const members = (Array.isArray(raw?.members) ? raw.members : []).map((member) => {
       const id = asString(member?.id)
       const user = cached(remoteCache.users, id, REMOTE_TTL.users)
-      return { id, role: asString(member?.role), name: user?.name ?? '', avatar: user?.avatar ?? '' }
+      return { id, role: asString(member?.role), name: user?.name || selfName(id), avatar: user?.avatar ?? '' }
     })
 
     /* 优先级：清单里是单选字段，值就是选项名（P0/P1/P2/P3）。 */
@@ -4657,6 +4692,7 @@ function createSyncEngine(ctx) {
     if (queuedWorkspace?.pending) meta = { ...meta, workspace: queuedWorkspace.title }
     const creatorId = asString(raw?.creator?.id)
     const creatorUser = cached(remoteCache.users, creatorId, REMOTE_TTL.users)
+    const creatorFallback = creatorUser?.name || selfName(creatorId)
     const origin = raw?.origin ?? {}
     const doneFlag = asString(raw?.completed_at) !== '0' && Boolean(raw?.completed_at)
 
@@ -4707,7 +4743,7 @@ function createSyncEngine(ctx) {
       tasklistGuid: listGuid,
       sectionGuid: asString(raw?.tasklists?.[0]?.section_guid),
       members,
-      creator: { id: creatorId, name: creatorUser?.name ?? '' },
+      creator: { id: creatorId, name: creatorFallback },
       customFields,
       priority,
       description: asString(raw?.description),
@@ -5725,6 +5761,11 @@ function createSyncEngine(ctx) {
     }
 
     let { assignee, tasklistGuid } = defaultsFromState()
+    /* 官方 lark-cli 刚装好/还没同步过任务时，历史里推不出负责人。此时默认当前登录用户：
+       否则建出来的任务没有负责人，也不会出现在飞书「我的任务」列表里。 */
+    if (!assignee && settings.cliBackend === 'lark-cli' && asString(state.larkUser?.openId)) {
+      assignee = asString(state.larkUser.openId)
+    }
     /* feishu-sync 后端：受管清单是唯一权威，别用历史任务里碰巧看到的清单。 */
     if (managedTasklistGuid) tasklistGuid = managedTasklistGuid
     const description = asString(input.description).trim()

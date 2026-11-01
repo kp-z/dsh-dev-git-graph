@@ -301,6 +301,10 @@ try {
   /* 3.2 面板第 1 步要分别看到两套 CLI 装没装。 */
   const status = await getJson('/api/state')
   check(
+    'state 记下当前登录用户（建任务默认负责人用）',
+    status.data.state?.larkUser?.openId === 'ou_1' && status.data.state?.larkUser?.name === '测试用户',
+  )
+  check(
     'state 带上两套 CLI 的状态',
     status.data.state?.clis?.['lark-cli']?.found === true &&
       status.data.state?.clis?.['feishu-sync']?.found === false,
