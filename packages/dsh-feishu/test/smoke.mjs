@@ -12,7 +12,7 @@
  * 跑法：node test/smoke.mjs      （需要已授权 feishu-sync-cli；未授权时应看到 auth.ok=false 而不是崩）
  */
 import { createServer } from 'node:http'
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -26,7 +26,16 @@ import { join } from 'node:path'
  * 被改过的设置、试写的预期时间」写进真实插件状态（踩过一次）。
  * 想复用某个目录时显式传 SMOKE_HOME。
  */
-process.env.DSH_HOME = process.env.SMOKE_HOME || mkdtempSync(join(tmpdir(), 'dsh-feishu-smoke-'))
+const SMOKE_HOME = process.env.SMOKE_HOME || mkdtempSync(join(tmpdir(), 'dsh-feishu-smoke-'))
+process.env.DSH_HOME = SMOKE_HOME
+
+/* 冒烟验的是 feishu-sync-cli 这条链路；默认后端已是官方 lark-cli，这里显式写死内部后端，
+   避免冒烟去探真实 lark-cli / 打真实飞书接口。 */
+{
+  const data = join(SMOKE_HOME, 'dsh-feishu')
+  mkdirSync(data, { recursive: true })
+  writeFileSync(join(data, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync' }))
+}
 
 const { apply } = await import('../index.js')
 
@@ -254,6 +263,12 @@ if (noWrite.settings?.schedule?.writeEtaToFeishu !== false) {
   throw new Error(`写回开关没关掉：${JSON.stringify(noWrite.settings?.schedule)}`)
 }
 console.log('✓ 写回开关已关闭（冒烟不碰真实飞书）')
+
+/* 没有 CLI / 授权时 tasks 恒为空：这是「本机没配好」，不是回归，后面的开工断言需要真任务，跳过。 */
+if (after.state.tasks.length === 0) {
+  console.log('SMOKE_SKIP：没有可开工的任务（feishu-sync-cli 未安装或未授权），跳过开工/绑定类断言')
+  process.exit(0)
+}
 
 /* 开工：建会话 + 按模板投递。用假 agents/sessionController 抓参数。 */
 /* 挑一条工作区能对上假注册表（或没写工作区）的任务：真实清单里有些任务挂在别的工作区上，

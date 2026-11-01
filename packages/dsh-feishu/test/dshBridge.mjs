@@ -120,7 +120,7 @@ const HOME = await mkdtemp(join(tmpdir(), 'dsh-feishu-bridge-'))
 process.env.DSH_HOME = HOME
 const DATA = join(HOME, 'dsh-feishu')
 await mkdir(DATA, { recursive: true })
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ autoSync: false, cliPath: '/nonexistent/feishu-sync-cli' }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', autoSync: false, cliPath: '/nonexistent/feishu-sync-cli' }))
 await writeFile(
   join(DATA, 'state.json'),
   JSON.stringify({

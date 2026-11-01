@@ -59,8 +59,14 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
   "autoSync": true,
   "syncIntervalMinutes": 30,
   "cliPath": "feishu-sync-cli",
+  "cliBackend": "lark-cli",
+  "larkCliPath": "lark-cli",
+  "larkDomains": "task,docs,wiki,drive",
+  "larkAccountMode": "enterprise",
+  "larkScopes": "task:task:read task:task:write drive:drive docx:document wiki:wiki",
+  "cliIndexUrl": "https://pypi.example.com/simple",
   "tasks": { "includeCompleted": false, "keyword": "", "dueWithinDays": 0 },
-  "docs": { "watch": ["https://momenta.feishu.cn/wiki/xxx"], "excerptChars": 600 },
+  "docs": { "watch": ["https://example.feishu.cn/wiki/xxx"], "excerptChars": 600 },
   "taskFields": { "workspace": "工作区", "trigger": "触发条件", "legacyAuto": "自动开工" },
   "autoStartMode": "off",
   "autoStartPrompt": "你有一条来自飞书的任务：\n标题：{{title}}\n截止：{{due}}\n链接：{{url}}\n\n{{description}}\n\n请先复述你的理解，再开始处理。",
@@ -73,10 +79,15 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 ```json
 {
   "auth": { "ok": true, "checkedAt": 1790000000000, "detail": "任务接口可用" },
-  "cli": { "found": true, "version": "1.1.3" },
+  "cli": { "backend": "feishu-sync", "found": true, "version": "1.1.3", "path": "/Users/me/.local/bin/feishu-sync-cli" },
+  "clis": {
+    "feishu-sync": { "backend": "feishu-sync", "found": true, "version": "1.1.3", "path": "/Users/me/.local/bin/feishu-sync-cli" },
+    "lark-cli": { "backend": "lark-cli", "found": false, "version": null, "path": null }
+  },
   "lastSyncAt": 1790000000000,
   "lastError": null,
   "syncing": false,
+  "apiVersion": 4,
   "tasks": [
     {
       "id": "guid",
@@ -103,7 +114,7 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
   ],
   "docs": [
     {
-      "url": "https://momenta.feishu.cn/wiki/xxx",
+      "url": "https://example.feishu.cn/wiki/xxx",
       "title": "标题",
       "lastModified": 1790000000000,
       "excerpt": "正文前若干字",
@@ -222,6 +233,50 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 
 请求体：`settings` 的部分字段（深合并）。响应：`{ "ok": true, "settings": {...} }`。
 
+### `POST /dsh-feishu/api/cli/install`
+
+由宿主代装 CLI（GUI 里没有可交互终端）。请求体可选 `{ "backend": "feishu-sync" | "lark-cli" }`，
+缺省为当前 `cliBackend`（默认 `lark-cli`）。指定另一套时先只安装；装成功（或本来就已装）才把它设为当前后端
+（响应里 `switched=true`），安装失败不会动现有后端。
+- `backend=lark-cli`（默认，准备卡里唯一的安装入口）：先 `npm install -g @larksuite/cli`，失败再试
+  `npx -y @larksuite/cli@latest install`；每步之后都会重新探活。
+- `backend=feishu-sync`（公司内部隐藏后端，只在准备卡「高级」里露出）：
+  `uv tool install --upgrade --index <cliIndexUrl> feishu-sync`，失败再试
+  `python3 -m pip install --user --upgrade --extra-index-url <cliIndexUrl> feishu-sync`；
+  pip 命中 PEP 668（`externally-managed-environment`）时自动补 `--break-system-packages` 重试。
+  `cliIndexUrl` 为空则不带索引参数。
+响应：
+
+```json
+{
+  "ok": true,
+  "backend": "lark-cli",
+  "switched": false,
+  "installed": true,
+  "already": false,
+  "steps": [{ "label": "uv tool install feishu-sync", "ok": true, "detail": null }],
+  "cli": { "found": true, "version": "1.0.98", "path": "/Users/me/.npm-global/bin/lark-cli" },
+  "settings": { "cliBackend": "lark-cli" },
+  "error": null
+}
+```
+
+失败也返回 200：`installed=false`，`error` 是一句人话；`steps` 里每步失败原因原样保留（同一条 stderr 不会重复拼接）。
+
+### `POST /dsh-feishu/api/backend/switch`
+
+切换 CLI 后端。请求体：`{ "cliBackend": "feishu-sync" | "lark-cli" }`。
+宿主保存设置 → 重新探活 → 体检授权，一次返回新状态；非法值返回 400。
+
+
+```json
+{ "ok": true, "backend": "lark-cli", "settings": {...}, "state": { "cli": {...}, "auth": {...} } }
+```
+
+
+切换后 `state.cli.backend` 与设置一致；默认后端是 `lark-cli`。
+`feishu-sync-cli` 是公司内部隐藏后端，默认不在准备卡里露出，只在准备卡的「高级」里可选。
+
 ### `POST /dsh-feishu/api/sync`
 
 立即同步（异步，不等待）。响应：`{ "ok": true, "started": true }`；
@@ -229,22 +284,92 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 
 ### `POST /dsh-feishu/api/auth/check`
 
-实测个人令牌是否可用（跑一次 task list）。响应：
+实测当前后端的授权是否可用。`feishu-sync` 跑一次 task list；`lark-cli` 跑
+`auth status --json`（**不带 `--verify`**：企业可能禁用 bot 身份，带 verify 会把能用的
+user 授权误判成失败）。
 
 ```json
 { "ok": true, "auth": { "ok": false, "checkedAt": 1790000000000, "detail": "refresh token 已被吊销…" } }
 ```
 
-### `POST /dsh-feishu/api/auth/login`
-
-启动 `feishu-sync-cli init_token --enable_autofill`。响应：
+lark-cli 未就绪时 `auth` 还会带阶段与最近一条浏览器链接，面板据此显示下一步：
 
 ```json
-{ "ok": true, "url": "https://accounts.feishu.cn/open-apis/authen/v1/authorize?..." }
+{
+  "ok": false,
+  "stage": "config",
+  "detail": "还没配置飞书应用：点「开始授权」会引导你创建应用…",
+  "pendingUrl": "https://open.feishu.cn/page/cli?user_code=…",
+  "pendingExpiresAt": 1790000600000,
+  "checkedAt": 1790000000000
+}
 ```
 
-`url` 为浏览器授权地址（拿不到时为 `null`）。授权完成后宿主置 `auth.ok=true`；
-面板轮询 `GET /api/state` 观察，不要自己猜。
+`stage`：`config`（还没绑定飞书应用）→ `login`（应用已建好、等用户 OAuth）→ `ok`；
+若整个应用被租户的数据安全策略拦截，则为 `blocked`（带 `policyBlocked: true`）：
+
+```json
+{
+  "ok": false,
+  "stage": "blocked",
+  "policyBlocked": true,
+  "detail": "这个应用被租户的数据安全策略整体拦截了（21001）…需要管理员放行…",
+  "appId": "cli_xxxxxxxxxxxxxxxx",
+  "consoleUrl": "https://open.feishu.cn/app/cli_xxxxxxxxxxxxxxxx/auth",
+  "checkedAt": 1790000000000
+}
+```
+
+判断方式：用 bot 身份调一次 `GET /open-apis/tenant/v2/tenant/query`（不需要用户授权）。
+回 `21001`（data security policy）就说明这个应用在租户级被整体挡住，此时发 OAuth 链接
+只会得到授权页「当前无需开通或授权任何权限」，插件因此不再生成链接。
+`pendingUrl`/`pendingExpiresAt` 来自最近一次授权调用，刷新页面或宿主短暂重启后仍可接着显示；
+过期（config 链接 10 分钟、OAuth 设备链接默认 600 秒）后字段消失，重新调一次 login 生成新链接。
+
+### `POST /dsh-feishu/api/auth/login`
+
+按当前后端启动授权：
+- `feishu-sync`：`feishu-sync-cli init_token --enable_autofill`
+- `lark-cli`：先 `auth status --json`，已授权直接 `already=true`；否则
+  `auth login --domain <larkDomains> --no-wait --json` 拿验证链接和 device code，
+  后台继续跑 `auth login --device-code <code>`；应用还没配置时返回 `stage="config"` 和
+  `config init --new` 的创建链接（单实例：重复点击复用同一条，不会叠进程）。
+
+响应：
+
+```json
+{
+  "ok": true,
+  "url": "https://accounts.feishu.cn/oauth/v1/device/verify?flow_id=…",
+  "stage": "login",
+  "expiresAt": 1790000600000,
+  "already": false
+}
+```
+
+`url` 为浏览器地址（拿不到时为 `null`）；`stage="config"` 时为创建应用链接。
+`settings.larkAccountMode`：`enterprise`（默认）按 `--domain` 申请并做应用级 21001 体检；
+`individual`（个人账号）改用 `--scope <larkScopes>` 只做 user OAuth，不做 tenant 探测，
+体检里 `permission=false` 时读数据 21001 通常表示资源没共享给该用户。
+应用被策略拦截时返回 `{"ok":false,"url":null,"stage":"blocked","error":"…21001…"}`，
+不会再生成一条注定失败的链接。
+授权完成后宿主置 `auth.ok=true`：面板在拿到链接后每 4 秒自动查一次 `auth/check`，
+阶段前进（config→login）或授权成功都会自动更新，并自动触发一次同步；
+也可以手动调 `auth/check` 观察，不要自己猜。
+
+> **桌面端（DSH Desktop）硬约束**：面板必须走「先 `auth/login` 拿链接 → 面板内联链接/二维码」。
+> 面板页面跑在 `dsh-app://app` 下，`window.open` 插件自己的相对路由会被 Electron 的窗口打开
+> 处理静默拒绝（它只把 http(s) 交给系统浏览器，`dsh-app:` 一律 deny），表现就是点「飞书登录」
+> 毫无反应。`/api/auth/open` 的 302 直达路由保留给外部浏览器/脚本，面板不再依赖它。
+
+### `GET /dsh-feishu/api/auth/qrcode?stage=login|config`
+
+把最近一条待用授权链接渲染成二维码 PNG（`image/png`，`cache-control: no-store`），
+面板直接 `<img src>` 内联显示，不用人手动打开链接。仅官方 `lark-cli` 后端可用
+（内部调用 `lark-cli auth qrcode <url> --output /tmp/... --size 512`）。
+
+没有待用链接 / 后端是 `feishu-sync` 时返回 `404 {"ok":false,"error":"..."}`。
+链接过期后该接口同样返回 404，重新调一次 `auth/login` 生成新链接即可。
 
 ### `POST /dsh-feishu/api/tasks/start`
 
@@ -321,6 +446,7 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 ### `POST /dsh-feishu/api/docs/read`
 
 请求体：`{ "url": "https://..." }`。响应 `{ "ok": true, "markdown": "..." }`（超长截断到 20000 字符）。
+按当前后端读取：`feishu-sync` 用 `read_page_as_markdown`，`lark-cli` 用 `docs +fetch --doc-format markdown`。
 
 ### `POST /dsh-feishu/api/docs/watch`
 
@@ -341,13 +467,18 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
   由它调用宿主 `uiWorkspace.openSession`。不在 iframe 里时退化为复制 ID。
 - 未绑定会话、且宿主通过 `{type:'dsh-feishu:context', sessionId}` 告知了当前会话时，显示「绑定到当前会话」。
 - 结构（自上而下）：
-  1. 状态条：授权（可用/需授权）、CLI 版本、上次同步时间、同步中指示。
-  2. 授权卡：未授权时显示「开始授权」，拿到 url 后显示可点链接 + 「我已完成授权」；
+  1. 飞书准备卡，两步：
+     1) 安装 CLI：两套二选一（feishu-sync-cli / 官方 lark-cli），各一个安装按钮，
+        点哪套就调 `/api/cli/install` 的 `{backend}` 并切到那套；已装的可「重新检查」；
+     2) 完成飞书授权：按当前后端走个人令牌或 lark-cli OAuth；提示用中性色，不再用橙色告警。
+     切换后端也可以直接调 `/api/backend/switch`。
+  2. 状态条：授权（可用/需授权）、CLI 版本、上次同步时间、同步中指示。
+  3. 授权卡：未授权时显示「开始授权」，拿到 url 后显示可点链接 + 「我已完成授权」；
      提供「检查授权」按钮。
-  3. 同步设置：自动同步开关、间隔（分钟）、只读未完成、关键词、自动开工开关 + 每轮上限。
+  4. 同步设置：自动同步开关、间隔（分钟）、只读未完成、关键词、自动开工开关 + 每轮上限。
      保存按钮调 `/api/settings`。
-  4. 任务列表：标题、截止、新标记、按钮「开工」「略过」；空态文案。
-  5. 文档监听列表：标题 + 最后修改 + 「打开」「移除」；输入框添加 wiki/文档链接。
+  5. 任务列表：标题、截止、新标记、按钮「开工」「略过」；空态文案。
+  6. 文档监听列表：标题 + 最后修改 + 「打开」「移除」；输入框添加 wiki/文档链接。
 - 交互细节：打开时拉一次 `/api/state`，`syncing` 为真或每 20 秒轮询；所有写操作后重新拉取。
 - 无障碍：按钮是 `<button type="button">`，输入有 `<label>`，状态文案在 `aria-live="polite"` 区。
 - 错误呈现：接口 `ok:false` 时在页面顶部 toast，不要 alert()。

@@ -122,7 +122,7 @@ assert.match(text(body.children.at(-1)), /source-99/)
 assert.doesNotMatch(text(body), /source-100/)
 
 // Invoke the real renderAll with only its existing sibling renderers stubbed.
-for (const name of ['renderInsight', 'renderStatus', 'renderDocPrompt', 'renderAuth', 'renderSettings', 'renderTasks', 'renderDocs']) context[name] = () => {}
+for (const name of ['renderInsight', 'renderStatus', 'renderSetup', 'renderDocPrompt', 'renderAuth', 'renderSettings', 'renderTasks', 'renderDocs', 'renderStaleHost', 'scheduleAuthWatch']) context[name] = () => {}
 vm.runInContext(extract('renderAll'), context)
 context.app.snap.syncHistory = [record]
 context.renderAll()

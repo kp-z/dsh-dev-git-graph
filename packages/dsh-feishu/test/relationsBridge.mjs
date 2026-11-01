@@ -71,7 +71,7 @@ const tasks = [
   { id: 'outside', title: 'Other project', done: false, tasklistGuid: 'other' },
 ].map((task) => ({ ...task, members: [], customFields: [], meta: {} }))
 await writeFile(join(DATA, 'state.json'), JSON.stringify({ tasks, schedules: {}, relations: [] }))
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ autoSync: false, cliPath: CLI, managedTasklist: { enabled: true, guid: 'list', name: 'DSH 任务清单' } }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', autoSync: false, cliPath: CLI, managedTasklist: { enabled: true, guid: 'list', name: 'DSH 任务清单' } }))
 const { apply } = await import('../index.js')
 let modelText = ''
 const modelCalls = []

@@ -17,7 +17,7 @@ const CLI = join(HOME, 'fake-cli'), PYTHON = join(HOME, 'fake-python'), REMOTE =
 const tasks = [{ id: 't', title: 'Comment task', sessionId: 's', done: false, started: true, tasklistGuid: 'list', members: [{ id: 'owner', role: 'assignee' }], customFields: [], meta: {} }, { id: 'other', title: 'Unbound', done: false, members: [], customFields: [], meta: {} }]
 await writeFile(REMOTE, JSON.stringify({ items: [{ id: 'history', content: 'historical', creator: { id: 'owner', type: 'user' }, created_at: '1' }], done: false, incomplete: false, counter: 0, failWrite: false }))
 await writeFile(join(DATA, 'state.json'), JSON.stringify({ tasks, schedules: {}, relations: [] }))
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliPath: CLI, autoSync: false, autoStart: 'off', autoComment: true, comments: { enabled: true, ownerMode: 'execute', otherMode: 'reply', maxPerSync: 5 } }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', cliPath: CLI, autoSync: false, autoStart: 'off', autoComment: true, comments: { enabled: true, ownerMode: 'execute', otherMode: 'reply', maxPerSync: 5 } }))
 await writeFile(RUNTIME, `const fs=require('node:fs');
 const file=${JSON.stringify(REMOTE)}, log=${JSON.stringify(LOG)};
 const state=JSON.parse(fs.readFileSync(file,'utf8'));

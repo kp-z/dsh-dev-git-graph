@@ -92,7 +92,7 @@ await writeFile(
     schedules: {},
   }),
 )
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ autoSync: false, cliPath: '/nonexistent/feishu-sync-cli' }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', autoSync: false, cliPath: '/nonexistent/feishu-sync-cli' }))
 
 const { apply } = await import('../index.js')
 apply(ctx, {})

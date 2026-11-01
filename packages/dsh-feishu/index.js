@@ -20,9 +20,9 @@
  * 不是「少了个功能」。所以初始化里的异步动作全部 fire-and-forget，失败只写进 state.lastError。
  */
 import { execFile, spawn } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync } from 'node:fs'
-import { mkdir, readFile, readdir, stat, writeFile, rename, open, unlink } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, readdir, rename, open, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -369,11 +369,46 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
   delayPatterns 与 improve 可以留空，不要编造延期。
 - 中文，句子短，不说场面话。`
 
+/* feishu-sync 若来自自建/私有 PyPI，可在「飞书准备 → 高级」里填私有索引；留空就用公共源。 */
+const DEFAULT_CLI_INDEX_URL = ''
+
+/* lark-cli 生成二维码图片时只允许写 cwd、/tmp、~/files；统一写到 /tmp。 */
+const QR_TMP_DIR = process.platform === 'win32' ? tmpdir() : '/tmp'
+
+/* 两套后端：飞书官方 lark-cli（默认、面向所有用户），和公司内部 feishu-sync-cli（隐藏项，只在高级设置里露出）。 */
+const CLI_BACKENDS = {
+  'lark-cli': { id: 'lark-cli', label: '官方 lark-cli（默认）', binName: 'lark-cli' },
+  'feishu-sync': { id: 'feishu-sync', label: 'feishu-sync-cli（公司内部，高级）', binName: 'feishu-sync-cli' },
+}
+const LARK_DEFAULT_DOMAINS = 'task,docs,wiki,drive'
+/* 个人账号模式：只用 user OAuth，不申请 tenant 身份；scope 用显式列表（官方 CLI 的 --scope）。 */
+const LARK_DEFAULT_SCOPES =
+  'task:task:read task:task:write drive:drive docx:document docx:document:create wiki:wiki contact:user.base:readonly'
+/* 面板会对照这个号判断宿主里跑的是不是同一版 index.js；不匹配就提示重启，避免「面板是新的、宿主是旧的」。 */
+const API_VERSION = 6
+const LARK_BIN = process.platform === 'win32' ? 'lark-cli.exe' : 'lark-cli'
+/* 插件自己维护的任务清单：任务必须进清单才「看得见」，清单里的自定义字段名也要固定。 */
+const LARK_DEFAULT_TASKLIST = 'DSH 任务'
+
 const DEFAULT_SETTINGS = {
   autoSync: true,
   syncIntervalMinutes: 30,
+  /* 公司内部 feishu-sync-cli 的路径：它是隐藏后端，默认引导用户走 lark-cli。 */
   cliPath: 'feishu-sync-cli',
   managedTasklist: { enabled: true, name: DEFAULT_TASKLIST_NAME, guid: '' },
+  /* 默认用飞书官方 lark-cli；feishu-sync-cli 是公司内部 CLI，只在「高级」里可切。 */
+  cliBackend: 'lark-cli',
+  /* 官方 lark-cli 的路径 / 授权域：装在别处时改它，授权时按这些域申请 scope。 */
+  larkCliPath: 'lark-cli',
+  larkDomains: LARK_DEFAULT_DOMAINS,
+  /* 企业应用（默认，scope 要管理员开通发布）或 individual（个人账号，纯 user OAuth）。 */
+  larkAccountMode: 'enterprise',
+  larkScopes: LARK_DEFAULT_SCOPES,
+  /* lark-cli 后端：插件自动创建/维护的任务清单（建任务固定落进去，自定义字段也建在这）。 */
+  larkTasklistName: LARK_DEFAULT_TASKLIST,
+  larkTasklistGuid: '',
+  /* 一键装 CLI 时用的 pip 索引地址（公司内网镜像 / 私有源）。默认指向内网源；清空 = 只用默认源。 */
+  cliIndexUrl: DEFAULT_CLI_INDEX_URL,
   tasks: { includeCompleted: false, keyword: '', dueWithinDays: 0 },
   docs: { watch: [], excerptChars: 600 },
   /* 清单自定义字段里，哪两个字段算「工作区 / 自动开工」。 */
@@ -565,6 +600,14 @@ async function readJson(file, fallback) {
 async function writeJson(file, value) {
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
+function escapeHtml(value) {
+  return String(value == null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 function asString(value) {
@@ -1014,6 +1057,16 @@ function sanitizeSettings(input, base) {
       name: asString(next.managedTasklist?.name).trim().slice(0, 100) || DEFAULT_TASKLIST_NAME,
       guid: asString(next.managedTasklist?.guid).trim(),
     },
+    cliBackend: CLI_BACKENDS[asString(next.cliBackend).trim()] ? asString(next.cliBackend).trim() : base.cliBackend,
+    larkCliPath: asString(next.larkCliPath) || base.larkCliPath,
+    larkDomains: asString(next.larkDomains).trim().slice(0, 200) || base.larkDomains,
+    larkAccountMode: ['enterprise', 'individual'].includes(asString(next.larkAccountMode))
+      ? asString(next.larkAccountMode)
+      : base.larkAccountMode,
+    larkScopes: asString(next.larkScopes).trim().slice(0, 400) || base.larkScopes,
+    larkTasklistName: asString(next.larkTasklistName).trim().slice(0, 60) || base.larkTasklistName,
+    larkTasklistGuid: asString(next.larkTasklistGuid).trim().slice(0, 100),
+    cliIndexUrl: asString(next.cliIndexUrl).trim().slice(0, 500),
     tasks: {
       includeCompleted: next.tasks?.includeCompleted === true,
       keyword: asString(next.tasks?.keyword).slice(0, 120),
@@ -1247,21 +1300,62 @@ function formatDay(ts) {
 
 /* ─────────────────────────── CLI 调用 ─────────────────────────── */
 
-const CLI_CANDIDATES = [
-  join(homedir(), '.local', 'bin', 'feishu-sync-cli'),
-  '/opt/homebrew/bin/feishu-sync-cli',
-  '/usr/local/bin/feishu-sync-cli',
-  '/usr/bin/feishu-sync-cli',
-]
+const CLI_BIN = process.platform === 'win32' ? 'feishu-sync-cli.exe' : 'feishu-sync-cli'
 
-/** GUI 进程的 PATH 很短，所以要自己找一遍再 `which`。 */
+/**
+ * 找 CLI 时要看的目录。
+ *
+ * GUI 进程的 PATH 很短（Finder 启动时不带用户 shell 的 PATH），所以要自己列一遍。
+ * 重点是 pip `--user` 的落点：macOS 上脚本会进 ~/Library/Python/<x.y>/bin，
+ * 这个目录默认不在 PATH 里——「装完了插件却没认出来」多半就是它。
+ * DSH_FEISHU_EXTRA_PATH（冒号分隔）留给测试和自定义安装位置，优先级最高。
+ */
+function cliSearchDirs() {
+  const dirs = []
+  for (const part of String(process.env.DSH_FEISHU_EXTRA_PATH ?? '').split(':')) {
+    if (part.trim()) dirs.push(part.trim())
+  }
+  dirs.push(
+    join(homedir(), '.local', 'bin'),
+    /* 官方 lark-cli 常见落点：npm 全局 / pnpm 全局 */
+    join(homedir(), '.npm-global', 'bin'),
+    join(homedir(), 'Library', 'pnpm'),
+    join(homedir(), '.local', 'share', 'pnpm'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+  )
+  try {
+    const base = join(homedir(), 'Library', 'Python')
+    for (const version of readdirSync(base)) dirs.push(join(base, version, 'bin'))
+  } catch {
+    /* 没有这个目录（Linux / 没用过 pip --user）就跳过 */
+  }
+  return dirs
+}
+
+/** 按文件名在 cliSearchDirs() 里找可执行文件；绝对路径直接看存不存在。 */
+function findExecutable(names) {
+  for (const name of names) {
+    const text = asString(name).trim()
+    if (!text) continue
+    if (text.includes('/') || text.includes('\\')) {
+      if (existsSync(text)) return text
+      continue
+    }
+    for (const dir of cliSearchDirs()) {
+      const candidate = join(dir, text)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return null
+}
+
+/** 显式配了绝对路径就认它；否则在常见目录里找一遍，最后退回裸命令名交给 PATH。 */
 function resolveCli(configured) {
   const explicit = asString(configured).trim()
-  if (explicit && explicit.includes('/') && existsSync(explicit)) return explicit
-  for (const candidate of CLI_CANDIDATES) {
-    if (existsSync(candidate)) return candidate
-  }
-  return explicit || 'feishu-sync-cli'
+  if (explicit && (explicit.includes('/') || explicit.includes('\\')) && existsSync(explicit)) return explicit
+  return findExecutable([CLI_BIN]) ?? (explicit || CLI_BIN)
 }
 
 function cliEnv() {
@@ -1280,12 +1374,17 @@ function cliEnv() {
  * 因为调用方几乎都是「读数据失败了，界面该显示一句人话」。
  */
 function runCli(command, args, { timeoutMs = 180_000 } = {}) {
+  return runCommand(command, args, { timeoutMs, env: cliEnv() })
+}
+
+/** 通用子进程执行：装 CLI 这类一次性命令也走它，失败同样折成 {ok:false, detail}，不抛。 */
+function runCommand(command, args, { timeoutMs = 300_000, env = process.env } = {}) {
   return new Promise((resolve) => {
     try {
       execFile(
         command,
         args,
-        { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env: cliEnv(), encoding: 'utf8' },
+        { timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, env, encoding: 'utf8' },
         (error, stdout, stderr) => {
           const out = asString(stdout)
           const err = asString(stderr)
@@ -1299,7 +1398,10 @@ function runCli(command, args, { timeoutMs = 180_000 } = {}) {
               : error.killed
                 ? `命令超时（${Math.round(timeoutMs / 1000)}s）`
                 : asString(error.message) || String(error)
-          resolve({ ok: false, stdout: out, stderr: err, detail: `${reason}${err ? `\n${err.slice(-800)}` : ''}` })
+          /* execFile 的 error.message 已经把 stderr 拼进去了；再追加一遍会让面板每条错误显示两遍。 */
+          const tail = err.slice(-800)
+          const detail = tail && !reason.includes(tail.trim()) ? `${reason}\n${tail}` : reason
+          resolve({ ok: false, stdout: out, stderr: err, detail })
         },
       )
     } catch (error) {
@@ -1409,6 +1511,1433 @@ function runBridgeRaw(python, payload) {
   })
 }
 
+/* ───────────────────── 后端适配层（feishu-sync-cli / lark-cli） ───────────────────── */
+
+/**
+ * 两套 CLI 的命令完全不同，但插件要的是同一组语义动作：
+ *   探活 / 安装 / 授权体检 / 发起授权 / 列任务 / 读文档信息 / 读正文 /
+ *   建任务 / 改任务 / 完成任务 / 写评论 / 补清单字段人员 / 执行文档写操作。
+ * 引擎只认这套接口；默认后端保持原来的 feishu-sync-cli 行为不变。
+ */
+
+function normalizeBackendId(value) {
+  const id = asString(value).trim()
+  return CLI_BACKENDS[id] ? id : 'lark-cli'
+}
+
+function backendInfo(id) {
+  return CLI_BACKENDS[normalizeBackendId(id)]
+}
+
+function backendFor(id) {
+  return normalizeBackendId(id) === 'lark-cli' ? larkBackend : feishuBackend
+}
+
+/* ---------- 官方 lark-cli 的通用调用 ---------- */
+
+function resolveLarkCli(configured) {
+  const explicit = asString(configured).trim()
+  if (explicit && (explicit.includes('/') || explicit.includes('\\')) && existsSync(explicit)) return explicit
+  return findExecutable([LARK_BIN]) ?? (explicit || LARK_BIN)
+}
+
+function larkEnv() {
+  return {
+    ...cliEnv(),
+    /* 机器调用时别弹更新/skills 提示，否则 stdout 会被说明文字污染。 */
+    LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1',
+    LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1',
+  }
+}
+
+function runLarkCmd(settings, args, timeoutMs = 120_000) {
+  return runCommand(resolveLarkCli(settings.larkCliPath), args, { timeoutMs, env: larkEnv() })
+}
+
+/** 跑一条 lark-cli 命令并按官方输出契约拆信封：成功 `{ok:true,data}`，失败 `{ok:false,detail}`。 */
+async function larkJson(settings, args, timeoutMs = 120_000) {
+  const result = await runLarkCmd(settings, args, timeoutMs)
+  const parsed = parseJson(result.stdout) ?? parseJson(result.stderr)
+  const envelope = parsed && typeof parsed === 'object' ? parsed : undefined
+  if (result.ok && envelope?.ok !== false) {
+    /* api 命令是 {ok,data} 信封；auth status / auth login 则直接输出裸对象，两种都要认。 */
+    const data = envelope?.data ?? (envelope?.ok === undefined ? envelope : {}) ?? {}
+    return { ok: true, data, parsed: envelope, text: result.stdout }
+  }
+  const error = envelope?.error ?? {}
+  const notConfigured = /not[_ ]?configured/i.test(`${asString(error.subtype)} ${asString(error.message)}`)
+  const detail = asString(error.message || error.hint || result.detail || result.stderr || result.stdout).slice(-600)
+  return { ok: false, detail, error, parsed: envelope, missing: /ENOENT|not found|未安装/i.test(detail), notConfigured }
+}
+
+/** 从 `auth status --json --verify` 的结果里读登录态：未登录/未授权都算 not authed。 */
+/** 自建应用的开发者后台「权限管理」链接：缺 scope 时让人一步点到地方。 */
+function larkAppConsole(parsed) {
+  const info = parsed?.data ?? parsed ?? {}
+  const appId = asString(info?.appId || info?.app_id || info?.app?.app_id)
+  return appId ? { appId, consoleUrl: `https://open.feishu.cn/app/${appId}/auth` } : { appId: '', consoleUrl: '' }
+}
+
+function larkUserState(parsed) {
+  const info = parsed?.data ?? parsed ?? {}
+  const user = info?.identities?.user ?? info?.identity?.user ?? info?.user ?? {}
+  const status = asString(user.status || info.status).toLowerCase()
+  const authed = status
+    ? /^(authorized|valid|authenticated|ok|active|ready)$/.test(status)
+    : info?.authenticated !== false && Boolean(user.userName || user.name || user.openId)
+  return { info, user, status, authed, name: asString(user.userName || user.name) }
+}
+
+/** raw OpenAPI：`lark-cli api METHOD /open-apis/... [--params JSON] [--data JSON]`。 */
+function larkApi(settings, method, pathname, { params, data, timeoutMs, as = 'user' } = {}) {
+  /* 任务/文档这些资源属于「用户」：默认显式 --as user，别落到 bot 身份上。
+     探测应用本身能不能调 API 时用 --as bot（不需要用户登录）。 */
+  const args = ['api', method, pathname, '--as', as]
+  if (params && Object.keys(params).length > 0) args.push('--params', JSON.stringify(params))
+  if (data !== undefined) args.push('--data', JSON.stringify(data))
+  return larkJson(settings, args, timeoutMs)
+}
+
+/** 飞书文档链接 → { type, token }；lark 的 raw API 需要分开的 type 与 token。 */
+function parseDocRef(raw) {
+  const url = asString(raw).trim()
+  const match = /\/(docx|docs|wiki|sheets|base)\/([A-Za-z0-9_-]+)/.exec(url)
+  if (!match) return null
+  const map = { docx: 'docx', docs: 'doc', wiki: 'wiki', sheets: 'sheet', base: 'bitable' }
+  return { type: map[match[1]], token: match[2], url }
+}
+
+/** 飞书的修改时间可能是秒也可能是毫秒；统一成秒，和 feishu-sync-cli 的 obj_edit_time 对齐。 */
+function remoteSeconds(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n <= 0) return 0
+  return n > 1e11 ? Math.floor(n / 1000) : Math.floor(n)
+}
+
+function larkOptionsOf(field) {
+  const setting = field?.single_select_setting || field?.multi_select_setting || {}
+  const options = {}
+  for (const option of setting.options ?? []) {
+    if (option?.guid) options[option.guid] = asString(option.name)
+  }
+  return options
+}
+
+async function writeTempMarkdown(text) {
+  /* lark-cli 只允许读 cwd、/tmp、~/files 下的文件；macOS 的 os.tmpdir() 是 /var/folders/…，会被拒。
+     二维码也是同样的原因写 /tmp，这里复用同一个目录。 */
+  const dir = await mkdtemp(join(QR_TMP_DIR, 'dsh-feishu-doc-'))
+  const file = join(dir, 'doc.md')
+  await writeFile(file, asString(text), 'utf8')
+  return { dir, file }
+}
+
+/* 一次只留一个 config init 子进程：拿到链接后它还得继续活着，等用户在浏览器里完成应用创建。
+   不去重的话，每点一次「开始授权」就多一个进程一起打注册接口（飞书会回 400），链接永远拿不到。 */
+let pendingConfigInit = null
+
+/* 最近一次发出去的浏览器链接：面板刷新、后端重启后还能接着显示，并带过期时间。
+   config init 链接 10 分钟有效，OAuth 设备链接默认 600 秒。 */
+let larkPending = null
+/* 企业安全策略检查结果缓存：避免面板 4 秒轮询时反复打飞书。 */
+let larkPolicyCache = { at: 0, blocked: false, detail: '' }
+
+/* 应用级体检：用 bot 身份打一个不需要用户授权的接口（租户信息）。
+   整个应用被租户数据安全策略拦掉时，飞书回 21001——这时用户做多少次 OAuth 都没用，
+   授权页也会是「当前无需开通或授权任何权限」。先把这个事实查出来，别让人白点。 */
+async function larkAppPolicy(settings, force = false) {
+  if (!force && larkPolicyCache.at && Date.now() - larkPolicyCache.at < 60_000) return larkPolicyCache
+  const probe = await larkApi(settings, 'GET', '/open-apis/tenant/v2/tenant/query', { timeoutMs: 45_000, as: 'bot' })
+  const blocked =
+    !probe.ok &&
+    (probe.error?.code === 21001 ||
+      /21001|data security policy|blocked by data security/i.test(asString(probe.detail)))
+  larkPolicyCache = {
+    at: Date.now(),
+    blocked,
+    detail: blocked ? asString(probe.detail).slice(-400) : '',
+  }
+  return larkPolicyCache
+}
+
+function setLarkPending(stage, url, ttlMs, deviceCode) {
+  larkPending = url
+    ? { stage, url, at: Date.now(), expiresAt: Date.now() + ttlMs, deviceCode: asString(deviceCode) || null }
+    : null
+  return larkPending
+}
+
+/* 设备码登录的「完成」只跑一次：用户批准后飞书会把设备码置为已用，
+   重复轮询/重复发起都会让链接变「不合法」。所以这里做成单飞。 */
+let deviceLoginPoll = null
+
+function pollDeviceLogin(settings, pending) {
+  if (deviceLoginPoll) return deviceLoginPoll
+  deviceLoginPoll = larkJson(settings, ['auth', 'login', '--device-code', pending.deviceCode, '--json'], 25_000)
+    .catch((error) => ({ ok: false, detail: asString(error?.message || error).slice(-300) }))
+    .then((result) => {
+      deviceLoginPoll = null
+      return result
+    }, (error) => {
+      deviceLoginPoll = null
+      return { ok: false, detail: asString(error?.message || error).slice(-300) }
+    })
+  return deviceLoginPoll
+}
+
+function pendingForStage(stage) {
+  if (!larkPending || larkPending.stage !== stage) return null
+  if (Date.now() >= larkPending.expiresAt) {
+    larkPending = null
+    return null
+  }
+  return larkPending
+}
+
+function killPendingConfigInit() {
+  const current = pendingConfigInit
+  pendingConfigInit = null
+  if (!current) return
+  try {
+    current.child?.kill('SIGKILL')
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 等命令把授权链接打出来；拿到链接后进程继续跑（等用户在浏览器完成），超时/出错则杀掉免得堆积。 */
+function captureLarkUrl(settings, args, timeoutMs = 25_000) {
+  return new Promise((resolve) => {
+    let child
+    let buffer = ''
+    let settled = false
+    let timer
+    const finish = (payload, keepAlive) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (!keepAlive) {
+        try {
+          child?.kill('SIGKILL')
+        } catch {
+          /* ignore */
+        }
+      }
+      resolve(payload)
+    }
+    timer = setTimeout(() => finish({ url: null, detail: '等待授权链接超时' }, false), timeoutMs)
+    try {
+      child = spawn(resolveLarkCli(settings.larkCliPath), args, { env: larkEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (error) {
+      finish({ url: null, detail: String(error) }, false)
+      return
+    }
+    const onChunk = (chunk) => {
+      buffer += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+      const match = /https:\/\/[^\s"'\\]+/.exec(buffer)
+      if (!match) return
+      pendingConfigInit = { child, url: match[0], startedAt: Date.now() }
+      setLarkPending('config', match[0], 10 * 60_000)
+      child.once('exit', () => {
+        if (pendingConfigInit?.child === child) pendingConfigInit = null
+      })
+      finish({ url: match[0], detail: null }, true)
+    }
+    child.stdout?.on('data', onChunk)
+    child.stderr?.on('data', onChunk)
+    child.on('error', (error) => finish({ url: null, detail: String(error) }, false))
+    child.on('exit', (code) => finish({ url: null, detail: `授权进程退出（code=${code}）` }, false))
+  })
+}
+
+/* ---------- 后端：feishu-sync-cli（默认，行为与改造前一致） ---------- */
+
+const feishuBackend = {
+  id: 'feishu-sync',
+  label: 'feishu-sync-cli（默认）',
+  binName: 'feishu-sync-cli',
+
+  resolve(settings) {
+    return resolveCli(settings.cliPath)
+  },
+
+  async probe(settings) {
+    const path = this.resolve(settings)
+    const result = await runCli(path, ['version'], { timeoutMs: 20_000 })
+    const text = `${result.stdout}\n${result.stderr}`
+    const version = /feishu-sync\s+([0-9][^\s]*)/i.exec(text)?.[1] ?? null
+    return { backend: this.id, found: result.ok, version, path: result.ok ? path : null }
+  },
+
+  async install(settings) {
+    const before = await this.probe(settings)
+    if (before.found) return { installed: true, already: true, steps: [], cli: before, error: null }
+
+    const indexUrl = asString(settings.cliIndexUrl).trim()
+    const uvIndexArgs = indexUrl ? ['--index', indexUrl] : []
+    const pipIndexArgs = indexUrl ? ['--extra-index-url', indexUrl] : []
+    const commands = []
+
+    const uv = findExecutable(['uv'])
+    if (uv) {
+      commands.push({
+        label: 'uv tool install feishu-sync',
+        command: uv,
+        args: ['tool', 'install', '--upgrade', ...uvIndexArgs, 'feishu-sync'],
+      })
+    }
+    const python = findExecutable(['python3', 'python3.12', 'python3.11'])
+    if (python) {
+      commands.push({
+        label: 'python3 -m pip install --user feishu-sync',
+        command: python,
+        args: ['-m', 'pip', 'install', '--user', '--upgrade', ...pipIndexArgs, 'feishu-sync'],
+        /* Homebrew 的 Python 是 externally-managed-environment，连 --user 也会被 PEP 668 拦下。 */
+        retryOnPep668: true,
+        retryLabel: 'python3 -m pip install --user --break-system-packages feishu-sync',
+        retryArgs: [
+          '-m', 'pip', 'install',
+          '--user', '--break-system-packages', '--upgrade',
+          ...pipIndexArgs, 'feishu-sync',
+        ],
+      })
+    }
+
+    const steps = []
+    let cli = before
+    for (const item of commands) {
+      let result = await runCommand(item.command, item.args, { timeoutMs: 300_000 })
+      let label = item.label
+      if (!result.ok && item.retryOnPep668 && /externally-managed-environment|PEP 668/i.test(asString(result.detail))) {
+        label = item.retryLabel
+        result = await runCommand(item.command, item.retryArgs, { timeoutMs: 300_000 })
+      }
+      steps.push({
+        label,
+        ok: result.ok,
+        detail: result.ok ? null : asString(result.detail ?? result.stderr ?? '').slice(-1200),
+      })
+      cli = await this.probe(settings)
+      if (cli.found) return { installed: true, already: false, steps, cli, error: null }
+    }
+
+    const error =
+      commands.length === 0
+        ? '没找到可用的安装器：需要 uv 或 python3。'
+        : indexUrl
+          ? `装 CLI 失败：feishu-sync 只发布在公司内网 PyPI（${DEFAULT_CLI_INDEX_URL}）。确认已连公司内网/VPN、且能访问该索引，再点一次「一键安装 CLI」。`
+          : '装 CLI 失败：公共 PyPI 上没有 feishu-sync（它只在公司内网 Artifactory 上）。展开「高级」，把索引地址填成公司内网源后重试。'
+    return { installed: false, already: false, steps, cli, error }
+  },
+
+  async check(settings) {
+    const path = this.resolve(settings)
+    const result = await runCli(path, ['task', 'list', '--json', '--completed=False'], { timeoutMs: 60_000 })
+    const text = `${result.stdout}\n${result.stderr ?? ''}`
+    if (result.ok && Array.isArray(parseJson(result.stdout))) {
+      return { ok: true, detail: '个人令牌可用（任务接口已通）' }
+    }
+    const revoked = /invalid_grant|20064|refresh token has been revoked/i.test(text)
+    const missing = /ENOENT|未安装/.test(text)
+    return {
+      ok: false,
+      detail: missing
+        ? '没找到 feishu-sync-cli：先安装，或把设置里的 cliPath 指到可执行文件'
+        : revoked
+          ? '个人令牌已失效（refresh token 被吊销）：点「开始授权」重新授权'
+          : `读取任务失败：${(result.detail ?? text).slice(-400)}`,
+    }
+  },
+
+  async loginStart(settings) {
+    const path = this.resolve(settings)
+    return new Promise((resolve) => {
+      let settled = false
+      let buffer = ''
+      let child
+      const finish = (payload) => {
+        if (settled) return
+        settled = true
+        resolve(payload)
+      }
+      try {
+        child = execFile(path, ['init_token', '--enable_autofill'], {
+          env: cliEnv(),
+          timeout: 10 * 60_000,
+          maxBuffer: 4 * 1024 * 1024,
+          encoding: 'utf8',
+        })
+      } catch (error) {
+        finish({ ok: false, url: null, error: String(error) })
+        return
+      }
+      const onChunk = (chunk) => {
+        buffer += asString(chunk)
+        const match = LOGIN_URL_HINT.exec(buffer)
+        if (match) finish({ ok: true, url: match[0] })
+      }
+      child.stdout?.on('data', onChunk)
+      child.stderr?.on('data', onChunk)
+      child.on('error', (error) => finish({ ok: false, url: null, error: String(error) }))
+      child.on('exit', (code) => {
+        finish({
+          ok: code === 0,
+          url: LOGIN_URL_HINT.exec(buffer)?.[0] ?? null,
+          error: code === 0 ? null : `授权进程退出码 ${code}`,
+        })
+      })
+      setTimeout(
+        () => finish({ ok: false, url: LOGIN_URL_HINT.exec(buffer)?.[0] ?? null, error: '等待授权链接超时' }),
+        20_000,
+      )
+    })
+  },
+
+  async listTasks(settings, includeCompleted) {
+    const path = this.resolve(settings)
+    const args = ['task', 'list', '--json']
+    if (!includeCompleted) args.push('--completed=False')
+    const result = await runCli(path, args)
+    if (!result.ok) {
+      const text = `${result.stdout}\n${result.stderr ?? ''}`
+      return {
+        ok: false,
+        detail: (result.detail ?? text).slice(-400),
+        missing: /ENOENT|未安装/.test(text),
+        revoked: /invalid_grant|20064|refresh token has been revoked/i.test(text),
+      }
+    }
+    const list = parseJson(result.stdout)
+    if (!Array.isArray(list)) return { ok: false, detail: '任务接口返回的不是数组（CLI 版本可能变了）' }
+    return { ok: true, list }
+  },
+
+  async docInfo(settings, url) {
+    const result = await runCli(this.resolve(settings), ['info_page', url], { timeoutMs: 90_000 })
+    if (!result.ok) return { ok: false, detail: (result.detail ?? '读取文档信息失败').slice(-300) }
+    const meta = parseJson(result.stdout)
+    if (!meta || typeof meta !== 'object') return { ok: false, detail: '文档信息返回的不是 JSON（CLI 版本可能变了）' }
+    return { ok: true, meta: { title: asString(meta.title), obj_edit_time: Number(meta.obj_edit_time) || 0 } }
+  },
+
+  async docRead(settings, url) {
+    const result = await runCli(this.resolve(settings), ['read_page_as_markdown', url], { timeoutMs: 120_000 })
+    if (!result.ok) return { ok: false, detail: (result.detail ?? '读取正文失败').slice(-300) }
+    return { ok: true, markdown: result.stdout }
+  },
+
+  async createTask(settings, { summary, description, assignee }) {
+    const args = ['task', 'create', summary]
+    if (description) args.push(`--description=${description}`)
+    if (assignee) args.push(`--assignee=${assignee}`)
+    const created = await runCli(this.resolve(settings), args, { timeoutMs: 90_000 })
+    if (!created.ok) {
+      const detail = asString(created.detail)
+      const hint = /url in description is invalid/i.test(detail)
+        ? '任务描述里有飞书不接受的链接（非 http/https）'
+        : /1470400/.test(detail)
+          ? '飞书拒绝了创建参数（1470400）'
+          : detail.slice(-300)
+      return { ok: false, detail: hint }
+    }
+    const guid = asString(parseJson(created.stdout)?.guid)
+    if (!guid) return { ok: false, detail: '创建成功但没解析出任务 guid' }
+    return { ok: true, guid }
+  },
+
+  async updateTask(settings, guid, patch) {
+    if (patch?.summary === undefined) return { ok: true }
+    const result = await runCli(this.resolve(settings), ['task', 'update', guid, `--summary=${patch.summary}`], {
+      timeoutMs: 60_000,
+    })
+    return result.ok ? { ok: true } : { ok: false, detail: (result.detail ?? '').slice(-300) }
+  },
+
+  async complete(settings, guid) {
+    const result = await runCli(this.resolve(settings), ['task', 'complete', guid], { timeoutMs: 60_000 })
+    return result.ok ? { ok: true } : { ok: false, detail: (result.detail ?? '').slice(-300) }
+  },
+
+  async comment(settings, guid, text) {
+    const result = await runCli(this.resolve(settings), ['task', 'comment', guid, text], { timeoutMs: 60_000 })
+    return result.ok ? { ok: true } : { ok: false, detail: (result.detail ?? '').slice(-300) }
+  },
+
+  async enrich(settings, payload) {
+    const python = resolvePython(this.resolve(settings))
+    return runBridge(python, payload)
+  },
+
+  async actions(settings, actions) {
+    const python = resolvePython(this.resolve(settings))
+    return runBridge(python, { actions })
+  },
+}
+
+/* ---------- 后端：官方 lark-cli ---------- */
+
+/* ── 官方 lark-cli：插件自己的任务清单 ─────────────────────────────── */
+
+/* 飞书的任务要属于某个清单才容易被找到/展示，清单里的自定义字段也是按清单定义的。
+   插件固定用 settings.larkTasklistName 这个名字：不存在就自动建，并把 taskFields 的字段补齐，
+   建任务时直接带 tasklists，回写「工作区/文档」才有稳定的字段 key。 */
+let larkTasklistCache = { at: 0, guid: '', name: '', fields: [] }
+
+function larkTasklistWantedFields(settings) {
+  const fields = settings.taskFields ?? {}
+  return [...new Set(Object.values(fields).map((name) => asString(name).trim()).filter(Boolean))]
+}
+
+async function ensureLarkTasklistFields(settings, guid) {
+  const wanted = larkTasklistWantedFields(settings)
+  if (!wanted.length) return { ok: true, fields: [] }
+  const listed = await larkApi(settings, 'GET', '/open-apis/task/v2/custom_fields', {
+    params: { resource_type: 'tasklist', resource_id: guid, page_size: 100, user_id_type: 'open_id' },
+    timeoutMs: 60_000,
+  })
+  if (!listed.ok) return { ok: false, detail: listed.detail, fields: [] }
+  const existing = new Map((listed.data?.items ?? []).map((item) => [asString(item.name), item]))
+  const fields = []
+  const errors = []
+  for (const name of wanted) {
+    if (existing.has(name)) {
+      fields.push(name)
+      continue
+    }
+    const made = await larkApi(settings, 'POST', '/open-apis/task/v2/custom_fields', {
+      params: { user_id_type: 'open_id' },
+      data: { resource_type: 'tasklist', resource_id: guid, name, type: 'text' },
+      timeoutMs: 60_000,
+    })
+    if (made.ok) fields.push(name)
+    else errors.push(`${name}: ${made.detail}`)
+  }
+  return { ok: errors.length === 0, detail: errors.join('; '), fields }
+}
+
+async function ensureLarkTasklist(settings) {
+  const name = asString(settings.larkTasklistName).trim() || LARK_DEFAULT_TASKLIST
+  const now = Date.now()
+  if (larkTasklistCache.guid && larkTasklistCache.name === name && now - larkTasklistCache.at < 5 * 60_000) {
+    return { ok: true, guid: larkTasklistCache.guid, name, created: false, cached: true }
+  }
+  const saved = asString(settings.larkTasklistGuid).trim()
+  if (saved) {
+    const probe = await larkApi(settings, 'GET', `/open-apis/task/v2/tasklists/${encodeURIComponent(saved)}`, {
+      params: { user_id_type: 'open_id' },
+      timeoutMs: 60_000,
+    })
+    if (probe.ok) {
+      const fields = await ensureLarkTasklistFields(settings, saved)
+      larkTasklistCache = { at: Date.now(), guid: saved, name, fields: fields.fields }
+      return { ok: true, guid: saved, name, created: false }
+    }
+  }
+  /* 已经存在同名清单就别重复建（用户可能自己建过）。 */
+  const listed = await larkApi(settings, 'GET', '/open-apis/task/v2/tasklists', {
+    params: { page_size: 100, user_id_type: 'open_id' },
+    timeoutMs: 60_000,
+  })
+  if (listed.ok) {
+    for (const item of listed.data?.items ?? []) {
+      if (item.guid && asString(item.name) === name) {
+        const fields = await ensureLarkTasklistFields(settings, item.guid)
+        larkTasklistCache = { at: Date.now(), guid: item.guid, name, fields: fields.fields }
+        return { ok: true, guid: item.guid, name, created: false }
+      }
+    }
+  }
+  const made = await larkApi(settings, 'POST', '/open-apis/task/v2/tasklists', {
+    params: { user_id_type: 'open_id' },
+    data: { name },
+    timeoutMs: 60_000,
+  })
+  if (!made.ok) return { ok: false, detail: made.detail }
+  const guid = asString(made.data?.tasklist?.guid)
+  if (!guid) return { ok: false, detail: '建任务清单返回里没有 guid' }
+  const fields = await ensureLarkTasklistFields(settings, guid)
+  larkTasklistCache = { at: Date.now(), guid, name, fields: fields.fields }
+  return { ok: true, guid, name, created: true }
+}
+
+const larkBackend = {
+  id: 'lark-cli',
+  label: '官方 lark-cli',
+  binName: 'lark-cli',
+
+  resolve(settings) {
+    return resolveLarkCli(settings.larkCliPath)
+  },
+
+  async probe(settings) {
+    const path = this.resolve(settings)
+    let result = await runCommand(path, ['version'], { timeoutMs: 20_000, env: larkEnv() })
+    if (!result.ok) result = await runCommand(path, ['--version'], { timeoutMs: 20_000, env: larkEnv() })
+    const text = `${result.stdout}\n${result.stderr}`
+    const version = /(\d+\.\d+\.\d+(?:[-+.\w]*)?)/.exec(text)?.[1] ?? null
+    return { backend: this.id, found: result.ok, version, path: result.ok ? path : null }
+  },
+
+  async install(settings) {
+    const before = await this.probe(settings)
+    if (before.found) return { installed: true, already: true, steps: [], cli: before, error: null }
+
+    const steps = []
+    const commands = []
+    /* npm 的默认缓存目录可能被 root 占过（EPERM），用临时缓存绕开，免得装不上。 */
+    const npmCache = join(tmpdir(), 'dsh-feishu-npm-cache')
+    try {
+      await mkdir(npmCache, { recursive: true })
+    } catch {
+      /* 建不出来就用 npm 默认缓存，安装失败时日志里能看到原因。 */
+    }
+    const npmEnv = { ...process.env, npm_config_cache: npmCache }
+    const npm = findExecutable(['npm'])
+    if (npm) {
+      commands.push({ label: 'npm install -g @larksuite/cli', command: npm, args: ['install', '-g', '@larksuite/cli'] })
+    }
+    const npx = findExecutable(['npx'])
+    if (npx) {
+      commands.push({
+        label: 'npx @larksuite/cli@latest install',
+        command: npx,
+        args: ['-y', '@larksuite/cli@latest', 'install'],
+      })
+    }
+
+    for (const item of commands) {
+      const result = await runCommand(item.command, item.args, { timeoutMs: 600_000, env: npmEnv })
+      steps.push({
+        label: item.label,
+        ok: result.ok,
+        detail: result.ok ? null : asString(result.detail ?? result.stderr ?? '').slice(-1200),
+      })
+      const cli = await this.probe(settings)
+      if (cli.found) return { installed: true, already: false, steps, cli, error: null }
+    }
+
+    const error = commands.length
+      ? '装 lark-cli 失败：需要能访问 npm registry；也可以手动跑 `npx @larksuite/cli@latest install`，再点「重新检查」。'
+      : '没找到 npm/npx：先装 Node.js（官方 lark-cli 通过 npm 分发），或在「高级」里把 CLI 路径指到已有的 lark-cli。'
+    return { installed: false, already: false, steps, cli: before, error }
+  },
+
+  async check(settings) {
+    /* 用户可能已经在浏览器里同意了：先拿设备码把这次登录收掉，再走状态查询。
+       收尾成功就清掉 pending；链接失效则也清掉，让面板重新发一条。 */
+    const waiting = pendingForStage('login')
+    let pollError = ''
+    if (waiting?.deviceCode) {
+      const done = await pollDeviceLogin(settings, waiting)
+      if (done.ok) larkPending = null
+      else {
+        pollError = asString(done.detail)
+        if (/expired|invalid|失效|不合法|已过期|20001|20063/i.test(pollError)) larkPending = null
+      }
+    }
+    /* 用户在浏览器点了同意，但飞书以「组织安全策略」拒了这次授权：这不是没登录，重试多少次都一样。 */
+    if (/restricted by your organization|organization's security policy/i.test(pollError)) {
+      larkPending = null
+      return {
+        ok: false,
+        stage: 'blocked',
+        policyBlocked: true,
+        policyTitle: '飞书拒绝了授权：这些权限被组织安全策略限制',
+        detail:
+          '浏览器里已经点了同意，但飞书返回「Unable to authorize. These permissions are restricted by your organization\'s security policy.」：' +
+          '这个租户的安全策略不允许该应用申请这些 API 权限。需要在飞书管理后台放开该应用/这些权限，或换一个不受限制的租户重新建应用。',
+        appId: larkAppConsole(result.parsed).appId,
+        consoleUrl: larkAppConsole(result.parsed).consoleUrl,
+        checkedAt: Date.now(),
+      }
+    }
+    const result = await larkJson(settings, ['auth', 'status', '--json'], 60_000)
+    if (!result.ok) {
+      /* 没配置应用时 CLI 只回一句 not configured；翻译成人话，直接指到下一步。 */
+      if (result.notConfigured) {
+        const pending = pendingForStage('config')
+        return {
+          ok: false,
+          stage: 'config',
+          detail: '还没配置飞书应用：在 2.1 点「获取创建应用链接」会引导你创建；也可以先在终端跑 lark-cli config init --new。',
+          pendingUrl: pending?.url || null,
+          pendingExpiresAt: pending?.expiresAt || null,
+        }
+      }
+      return { ok: false, detail: `官方 lark-cli 未就绪：${result.detail}` }
+    }
+    const state = larkUserState(result.parsed)
+    const app = larkAppConsole(result.parsed)
+    /* 先查应用本身能不能调 API：被租户策略整体拦掉时，登录/授权都是死路，直接把原因摆出来。
+       个人账号模式不申请 tenant 身份，改由「登录后用 user token 打一次任务接口」验证，别拿 bot 的结论吓人。 */
+    const policy = settings.larkAccountMode === 'individual' ? { blocked: false } : await larkAppPolicy(settings)
+    if (policy.blocked) {
+      return {
+        ok: false,
+        stage: 'blocked',
+        policyBlocked: true,
+        detail:
+          '这个应用被租户的数据安全策略整体拦截了（21001）：任务、文档、租户信息等所有接口都调不通，授权页也会显示「当前无需开通或授权任何权限」。' +
+          '需要租户管理员在飞书管理后台的安全设置里放行这个应用，或换一个企业租户的账号重新创建应用。',
+        appId: app.appId,
+        consoleUrl: app.consoleUrl,
+        checkedAt: Date.now(),
+      }
+    }
+    if (!state.authed) {
+      const pending = pendingForStage('login')
+      return {
+        ok: false,
+        stage: 'login',
+        detail: '飞书应用已配置好，但还没登录 CLI：在 2.1 点「登录 CLI（获取登录链接）」，浏览器里用飞书账号登录后回来点「我已完成登录」。',
+        pendingUrl: pending?.url || null,
+        pendingExpiresAt: pending?.expiresAt || null,
+        appId: app.appId,
+        consoleUrl: app.consoleUrl,
+      }
+    }
+    larkPending = null
+    const name = state.name
+    /* 登录成功不等于能读数据：自建应用还得在开发者后台开通 scope。用一次真实调用验证，
+       缺权限就把 missing_scopes / console_url 原样带出去，面板直接给「去开通」入口。 */
+    const probe = await larkApi(settings, 'GET', '/open-apis/task/v2/tasks', {
+      params: { page_size: 1 },
+      timeoutMs: 45_000,
+    })
+    const appInfo = larkAppConsole(result.parsed)
+    if (!probe.ok) {
+      const error = probe.error ?? {}
+      const missing = Array.isArray(error.missing_scopes)
+        ? error.missing_scopes.join(',')
+        : asString(error.missing_scopes)
+      return {
+        ok: true,
+        detail: `已登录${name ? `（${name}）` : ''}，但读取任务失败：${probe.detail}${
+          missing ? `｜缺权限：${missing}` : '｜多半是开发者后台还没开通对应 scope'
+        }`,
+        permission: false,
+        missingScopes: missing || null,
+        appId: appInfo.appId || app.appId,
+        consoleUrl: asString(error.console_url) || appInfo.consoleUrl || app.consoleUrl,
+      }
+    }
+    /* 已登录：顺手把插件自己的任务清单准备好（没有就自动建），建任务才能直接落进清单。 */
+    const tasklist = await ensureLarkTasklist(settings).catch(() => null)
+    return {
+      ok: true,
+      permission: true,
+      detail: `官方 lark-cli 已登录${name ? `（${name}）` : ''}（身份：${asString(result.parsed?.identity) || 'user'}），任务接口已通`,
+      appId: appInfo.appId || app.appId,
+      consoleUrl: appInfo.consoleUrl || app.consoleUrl,
+      tasklistGuid: tasklist?.ok ? tasklist.guid : '',
+      tasklistName: tasklist?.ok ? tasklist.name : '',
+    }
+  },
+
+  async loginStart(settings, options = {}) {
+    const status = await larkJson(settings, ['auth', 'status', '--json'], 60_000)
+    if (status.ok) {
+      const state = larkUserState(status.parsed)
+      if (state.authed) {
+        larkPending = null
+        return { ok: true, url: null, already: true, detail: 'lark-cli 已授权，无需重复登录' }
+      }
+    }
+    /* 应用被租户策略整体拦截时，生成的授权链接打开也是「无需授权任何权限」，不要发这种链接。 */
+    const policy = settings.larkAccountMode === 'individual' ? { blocked: false } : await larkAppPolicy(settings)
+    if (policy.blocked) {
+      return {
+        ok: false,
+        url: null,
+        stage: 'blocked',
+        error:
+          '这个应用被租户数据安全策略拦截（21001），生成授权链接也不会成功：需要管理员放行应用，或换企业租户的应用。',
+      }
+    }
+    /* 用户点「重新获取授权链接」时强制换一条：旧链接可能已经被拒/失效，沿用只会反复失败。 */
+    if (options.force) larkPending = null
+    /* 同一条链接还在有效期内就沿用：每点一次都新建设备码会让旧链接立刻 20001，
+       用户从历史记录/另一个标签页打开旧链接就会看到「request is invalid」。 */
+    const existing = pendingForStage('login')
+    if (existing?.url && existing.expiresAt - Date.now() > 5_000) {
+      return {
+        ok: true,
+        url: existing.url,
+        stage: 'login',
+        expiresAt: existing.expiresAt,
+        reused: true,
+        detail: '沿用同一条授权链接（还在有效期内）',
+      }
+    }
+    const individual = settings.larkAccountMode === 'individual'
+    const domains = asString(settings.larkDomains).trim() || LARK_DEFAULT_DOMAINS
+    const scopes = asString(settings.larkScopes).trim() || LARK_DEFAULT_SCOPES
+    /* 企业应用按「域」申请（--domain）；个人账号模式显式给 scope 列表（--scope），只走 user 身份。 */
+    const loginArgs = individual
+      ? ['auth', 'login', '--scope', scopes, '--no-wait', '--json']
+      : ['auth', 'login', '--domain', domains, '--no-wait', '--json']
+    const login = await larkJson(settings, loginArgs, 90_000)
+    if (login.ok) {
+      const data = login.parsed?.data ?? login.parsed ?? {}
+      const url =
+        asString(data.verification_url || data.verification_uri_complete || data.verification_uri || data.url) || null
+      const code = asString(data.device_code || data.deviceCode)
+      const ttlMs = Math.max(60_000, (Number(data.expires_in) || 600) * 1000)
+      const pending = setLarkPending('login', url, ttlMs, code)
+      return {
+        ok: true,
+        url,
+        stage: 'login',
+        expiresAt: pending?.expiresAt || null,
+        detail: url ? '请在浏览器完成飞书授权' : '已发起授权，等浏览器完成后点「检查授权」',
+      }
+    }
+    const message = login.detail || ''
+    if (login.notConfigured || /config|应用|app.?id|app.?secret|not\s*configured|未配置|tenant/i.test(message)) {
+      /* 上一次点出来的应用创建还没结束：直接把同一个链接再给一次，别重复起进程。 */
+      if (pendingConfigInit?.url && Date.now() - pendingConfigInit.startedAt < 10 * 60_000) {
+        return {
+          ok: true,
+          url: pendingConfigInit.url,
+          stage: 'config',
+          expiresAt: pendingForStage('config')?.expiresAt || null,
+          detail: '应用创建还在进行中：在浏览器里完成后，点一次「开始授权」。',
+        }
+      }
+      killPendingConfigInit()
+      const captured = await captureLarkUrl(settings, ['config', 'init', '--new'], 25_000)
+      if (captured.url) {
+        return {
+          ok: true,
+          url: captured.url,
+          stage: 'config',
+          expiresAt: pendingForStage('config')?.expiresAt || null,
+          detail: '先在浏览器里创建/选择飞书应用，完成后点一次「开始授权」。',
+        }
+      }
+      return {
+        ok: false,
+        url: null,
+        stage: 'config',
+        error: `还不能自动创建飞书应用：${captured.detail || '没拿到链接'}。可以在终端跑 \`lark-cli config init --new\` 完成应用配置，再回来点「开始授权」。`,
+        detail: '需要先创建飞书应用：在终端跑 lark-cli config init --new（会给出浏览器链接），完成后点「开始授权」。',
+      }
+    }
+    if (/restricted by your organization|organization's security policy/i.test(message)) {
+      return {
+        ok: false,
+        url: null,
+        stage: 'blocked',
+        policyBlocked: true,
+        policyTitle: '飞书拒绝了授权：这些权限被组织安全策略限制',
+        error:
+          '飞书拒绝授权：这些权限被所在组织的安全策略限制（restricted by your organization\'s security policy）。需要在管理后台放开该应用/这些权限，或换一个租户重新建应用。',
+      }
+    }
+    return { ok: false, url: null, error: message || '发起官方 lark-cli 授权失败' }
+  },
+
+  async listTasks(settings) {
+    const items = []
+    let pageToken = ''
+    for (let page = 0; page < 10; page++) {
+      const params = { page_size: 100 }
+      if (pageToken) params.page_token = pageToken
+      const result = await larkApi(settings, 'GET', '/open-apis/task/v2/tasks', { params, timeoutMs: 120_000 })
+      if (!result.ok) {
+        return {
+          ok: false,
+          detail: result.detail,
+          missing: result.missing,
+          revoked: /invalid_grant|token|授权|登录|scope/i.test(result.detail),
+        }
+      }
+      const data = result.data ?? {}
+      const batch = Array.isArray(data.items) ? data.items : []
+      items.push(...batch)
+      pageToken = asString(data.page_token)
+      if (!data.has_more || !pageToken || batch.length === 0) break
+    }
+    return { ok: true, list: items }
+  },
+
+  async docInfo(settings, url) {
+    const ref = parseDocRef(url)
+    if (!ref) return { ok: false, detail: '看不懂这个文档链接（支持 /docx/、/docs/、/wiki/、/sheets/、/base/）' }
+    let token = ref.token
+    let type = ref.type
+    let title = ''
+    if (type === 'wiki') {
+      const nodeResult = await larkApi(settings, 'GET', '/open-apis/wiki/v2/spaces/get_node', {
+        params: { token, obj_type: 'wiki' },
+        timeoutMs: 60_000,
+      })
+      if (!nodeResult.ok) return { ok: false, detail: nodeResult.detail }
+      const node = nodeResult.data?.node ?? {}
+      token = asString(node.obj_token) || token
+      type = node.obj_type === 'sheet' ? 'sheet' : asString(node.obj_type) || 'docx'
+      title = asString(node.title)
+    }
+    const metaResult = await larkApi(settings, 'POST', '/open-apis/drive/v1/metas/batch_query', {
+      data: { request_docs: [{ doc_token: token, doc_type: type }], with_url: false },
+      timeoutMs: 60_000,
+    })
+    let metaTitle = ''
+    let editSeconds = 0
+    if (metaResult.ok) {
+      const meta = (metaResult.data?.metas ?? [])[0] ?? {}
+      metaTitle = asString(meta.title)
+      editSeconds = remoteSeconds(meta.latest_modify_time)
+    } else if (!title) {
+      return { ok: false, detail: metaResult.detail }
+    }
+    return { ok: true, meta: { title: title || metaTitle || url, obj_edit_time: editSeconds } }
+  },
+
+  async docRead(settings, url) {
+    const result = await runLarkCmd(settings, ['docs', '+fetch', '--doc', url, '--doc-format', 'markdown', '--as', 'user'], 120_000)
+    const parsed = parseJson(result.stdout) ?? parseJson(result.stderr)
+    if (parsed && parsed.ok === false) {
+      return { ok: false, detail: asString(parsed.error?.message || parsed.error?.hint).slice(-300) }
+    }
+    if (!result.ok && !parsed) return { ok: false, detail: asString(result.detail ?? result.stderr).slice(-300) }
+    const content = parsed?.data?.document?.content ?? parsed?.data?.content
+    return { ok: true, markdown: content === undefined ? result.stdout : asString(content) }
+  },
+
+  async createTask(settings, { summary, description, assignee }) {
+    /* 建任务接口的 body 是「平铺」字段（summary 在顶层），套 {task:{...}} 会 99992402 field validation failed。 */
+    const body = { summary, completed_at: '0' }
+    if (description) body.description = description
+    if (assignee) body.members = [{ id: assignee, role: 'assignee' }]
+    /* 落进插件的固定清单：飞书里才看得见，清单里的自定义字段才有地方写。 */
+    const list = await ensureLarkTasklist(settings)
+    if (list.ok) body.tasklists = [{ tasklist_guid: list.guid }]
+    const result = await larkApi(settings, 'POST', '/open-apis/task/v2/tasks', {
+      params: { user_id_type: 'open_id' },
+      data: body,
+      timeoutMs: 60_000,
+    })
+    if (!result.ok) return { ok: false, detail: result.detail }
+    const guid = asString(result.data?.task?.guid || result.data?.guid)
+    if (!guid) return { ok: false, detail: 'lark-cli 建任务返回里没有 guid' }
+    return { ok: true, guid, tasklistGuid: list.ok ? list.guid : '', tasklistName: list.ok ? list.name : '' }
+  },
+
+  async updateTask(settings, guid, patch) {
+    const body = { task: {}, update_fields: [] }
+    if (patch?.summary !== undefined) {
+      body.task.summary = asString(patch.summary)
+      body.update_fields.push('summary')
+    }
+    if (body.update_fields.length === 0) return { ok: true }
+    const result = await larkApi(settings, 'PATCH', `/open-apis/task/v2/tasks/${encodeURIComponent(guid)}`, {
+      data: body,
+      timeoutMs: 60_000,
+    })
+    return result.ok ? { ok: true } : { ok: false, detail: result.detail }
+  },
+
+  async complete(settings, guid) {
+    const result = await larkApi(settings, 'PATCH', `/open-apis/task/v2/tasks/${encodeURIComponent(guid)}`, {
+      data: { task: { completed_at: String(nowMs()) }, update_fields: ['completed_at'] },
+      timeoutMs: 60_000,
+    })
+    return result.ok ? { ok: true } : { ok: false, detail: result.detail }
+  },
+
+  async comment(settings, guid, text) {
+    /* 评论接口是 /task/v2/comments（资源 id 放 body 里）；/tasks/{guid}/comments 会 404。 */
+    const result = await larkApi(settings, 'POST', '/open-apis/task/v2/comments', {
+      params: { user_id_type: 'open_id' },
+      data: { content: text, resource_id: guid, resource_type: 'task' },
+      timeoutMs: 60_000,
+    })
+    return result.ok ? { ok: true } : { ok: false, detail: result.detail }
+  },
+
+  async enrich(settings, payload) {
+    const out = { ok: true, tasklists: {}, fields: {}, users: {}, actions: [], errors: [] }
+    for (const guid of payload?.tasklists ?? []) {
+      if (!guid) continue
+      const result = await larkApi(settings, 'GET', `/open-apis/task/v2/tasklists/${encodeURIComponent(guid)}`, {
+        params: { user_id_type: 'open_id' },
+        timeoutMs: 60_000,
+      })
+      if (!result.ok) {
+        out.errors.push(`tasklist ${guid}: ${result.detail}`)
+        continue
+      }
+      out.tasklists[guid] = asString(result.data?.tasklist?.name)
+    }
+    for (const guid of payload?.fields ?? []) {
+      if (!guid) continue
+      const result = await larkApi(settings, 'GET', '/open-apis/task/v2/custom_fields', {
+        params: { resource_type: 'tasklist', resource_id: guid, page_size: 100 },
+        timeoutMs: 60_000,
+      })
+      if (!result.ok) {
+        out.errors.push(`fields ${guid}: ${result.detail}`)
+        continue
+      }
+      out.fields[guid] = (result.data?.items ?? []).map((item) => ({
+        guid: asString(item.guid),
+        name: asString(item.name),
+        type: asString(item.type),
+        options: larkOptionsOf(item),
+      }))
+    }
+    for (const id of payload?.users ?? []) {
+      if (!id) continue
+      const result = await larkApi(settings, 'GET', `/open-apis/contact/v3/users/${encodeURIComponent(id)}`, {
+        params: { user_id_type: 'open_id' },
+        timeoutMs: 60_000,
+      })
+      if (!result.ok) {
+        out.errors.push(`user ${id}: ${result.detail}`)
+        continue
+      }
+      const user = result.data?.user ?? {}
+      const avatar = user.avatar ?? {}
+      out.users[id] = {
+        name: asString(user.name),
+        avatar: asString(avatar.avatar_240 || avatar.avatar_640 || avatar.avatar_72),
+      }
+    }
+    return out
+  },
+
+  async actions(settings, actions) {
+    const results = []
+    for (const action of Array.isArray(actions) ? actions : []) {
+      const op = asString(action?.op)
+      const fail = (detail) => results.push({ op, ok: false, error: asString(detail).slice(-300) })
+      try {
+        if (op === 'add_tasklist') {
+          const result = await larkApi(
+            settings,
+            'POST',
+            `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}/add_tasklist`,
+            { data: { tasklist_guid: action.tasklist }, timeoutMs: 60_000 },
+          )
+          if (!result.ok) fail(result.detail)
+          else results.push({ op, ok: true })
+        } else if (op === 'ensure_folder') {
+          const parent = asString(action.parent)
+          const name = asString(action.name).slice(0, 60)
+          const listed = await larkApi(settings, 'GET', '/open-apis/drive/v1/files', {
+            params: { folder_token: parent, page_size: 200 },
+            timeoutMs: 60_000,
+          })
+          const files = listed.ok ? listed.data?.files ?? [] : []
+          const found = files.find((file) => file.type === 'folder' && asString(file.name) === name)
+          if (found) {
+            results.push({ op, ok: true, folder: asString(found.token), url: asString(found.url) })
+          } else {
+            const created = await larkApi(settings, 'POST', '/open-apis/drive/v1/files/create_folder', {
+              data: { name, folder_token: parent },
+              timeoutMs: 60_000,
+            })
+            if (!created.ok) fail(created.detail)
+            else
+              results.push({
+                op,
+                ok: true,
+                folder: asString(created.data?.token ?? created.data?.folder),
+                url: asString(created.data?.url),
+              })
+          }
+        } else if (op === 'create_docx' || op === 'update_docx') {
+          const temp = await writeTempMarkdown(action.text)
+          try {
+            const args =
+              op === 'create_docx'
+                ? [
+                    'docs', '+create',
+                    '--doc-format', 'markdown',
+                    '--as', 'user',
+                    '--title', asString(action.title).slice(0, 120),
+                    '--parent-token', asString(action.folder),
+                    '--content', `@${temp.file}`,
+                  ]
+                : [
+                    'docs', '+update',
+                    '--doc', asString(action.document),
+                    '--command', 'overwrite',
+                    '--doc-format', 'markdown',
+                    '--as', 'user',
+                    '--content', `@${temp.file}`,
+                  ]
+            const result = await runLarkCmd(settings, args, 180_000)
+            const parsed = parseJson(result.stdout) ?? parseJson(result.stderr)
+            if (!result.ok && !parsed?.ok) fail(result.detail ?? result.stderr)
+            else if (parsed?.ok === false) fail(parsed.error?.message || parsed.error?.hint)
+            else if (op === 'update_docx') results.push({ op, ok: true })
+            else {
+              const doc = parsed?.data?.document ?? parsed?.data ?? {}
+              results.push({
+                op,
+                ok: true,
+                document: asString(doc.document_id ?? doc.documentId ?? doc.token),
+                url: asString(doc.url),
+                tables: 0,
+              })
+            }
+          } finally {
+            await rm(temp.dir, { recursive: true, force: true }).catch(() => undefined)
+          }
+        } else if (op === 'rename_docx') {
+          const id = asString(action.document)
+          const title = asString(action.title)
+          const result = await larkApi(
+            settings,
+            'PATCH',
+            `/open-apis/docx/v1/documents/${encodeURIComponent(id)}/blocks/${encodeURIComponent(id)}`,
+            { data: { update_text_elements: { elements: [{ text_run: { content: title } }] } }, timeoutMs: 60_000 },
+          )
+          if (result.ok) {
+            results.push({ op, ok: true })
+          } else {
+            const fallback = await larkApi(settings, 'PATCH', `/open-apis/drive/v1/files/${encodeURIComponent(id)}`, {
+              params: { type: 'docx' },
+              data: { name: title },
+              timeoutMs: 60_000,
+            })
+            if (fallback.ok) results.push({ op, ok: true })
+            else fail(result.detail)
+          }
+        } else if (op === 'set_custom_field') {
+          const listGuid = asString(action.tasklist)
+          const name = asString(action.name)
+          const value = asString(action.value)
+          const fieldsResult = await larkApi(settings, 'GET', '/open-apis/task/v2/custom_fields', {
+            params: { resource_type: 'tasklist', resource_id: listGuid, page_size: 100 },
+            timeoutMs: 60_000,
+          })
+          if (!fieldsResult.ok) fail(fieldsResult.detail)
+          else {
+            const field = (fieldsResult.data?.items ?? []).find((item) => asString(item.name) === name)
+            if (!field) {
+              /* 和 Python 桥同一句话：调用方按「没有名为」判断字段缺失，别换措辞。 */
+              fail(`没有名为 ${name} 的字段`)
+            } else {
+              const type = asString(field.type)
+              const settingsKey = type === 'multi_select' ? 'multi_select_setting' : 'single_select_setting'
+              let body = { guid: field.guid, type, text_value: value }
+              if (type === 'single_select' || type === 'multi_select') {
+                const visible = ((field[settingsKey] ?? {}).options ?? []).filter((item) => !item.is_hidden)
+                let option = visible.find((item) => asString(item.name) === value)
+                if (!option) {
+                  /* 选项不存在就带着现有 guid 追加；整表重写会把已有任务上的旧值全部作废。 */
+                  const merged = visible.map((item) => ({
+                    guid: item.guid,
+                    name: item.name,
+                    color_index: item.color_index ?? 0,
+                  }))
+                  merged.push({ name: value })
+                  const patched = await larkApi(
+                    settings,
+                    'PATCH',
+                    `/open-apis/task/v2/custom_fields/${encodeURIComponent(field.guid)}`,
+                    {
+                      data: { custom_field: { [settingsKey]: { options: merged } }, update_fields: [settingsKey] },
+                      timeoutMs: 60_000,
+                    },
+                  )
+                  if (!patched.ok) {
+                    fail(`追加选项失败：${patched.detail}`)
+                    continue
+                  }
+                  const after = (((patched.data ?? {}).custom_field ?? {})[settingsKey] ?? {}).options ?? []
+                  option = after.find((item) => asString(item.name) === value)
+                  if (!option) {
+                    fail('追加选项后没拿到选项 guid')
+                    continue
+                  }
+                  body = type === 'single_select'
+                    ? { guid: field.guid, type, single_select_value: asString(option.guid) }
+                    : { guid: field.guid, type, multi_select_value: [asString(option.guid)] }
+                } else {
+                  body = type === 'single_select'
+                    ? { guid: field.guid, type, single_select_value: asString(option.guid) }
+                    : { guid: field.guid, type, multi_select_value: [asString(option.guid)] }
+                }
+              } else if (type === 'datetime') {
+                /* 日期字段只收「该日期 UTC 00:00:00」的毫秒字符串；传 text_value 会被静默忽略。 */
+                const day = value.trim().slice(0, 10)
+                const ms = Date.parse(`${day}T00:00:00Z`)
+                if (!Number.isFinite(ms)) {
+                  fail(`日期字段要 YYYY-MM-DD，收到 ${value.slice(0, 20)}`)
+                  continue
+                }
+                body = { guid: field.guid, type, datetime_value: String(ms) }
+              } else if (type === 'number') {
+                body = { guid: field.guid, type, number_value: Number(value) || 0 }
+              }
+              const result = await larkApi(
+                settings,
+                'PATCH',
+                `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}`,
+                { data: { task: { custom_fields: [body] }, update_fields: ['custom_fields'] }, timeoutMs: 60_000 },
+              )
+              if (result.ok) results.push({ op, ok: true })
+              else fail(result.detail)
+            }
+          }
+        } else if (op === 'ensure_custom_field') {
+          /* 清单上还没有这个字段就建一个（与 Python 桥同名同语义）。
+             不显式给 type 时官方后端建**文本**字段：插件自己的列（优先级/工作区/预期完成）都是文本；
+             显式给了 type 就按 type 校验，同名但类型不同不重建（重建会让已有值失效）。 */
+          const listGuid = asString(action.tasklist)
+          const name = asString(action.name)
+          const explicitType = asString(action.type)
+          const wantType = explicitType || 'text'
+          const options = (Array.isArray(action.options) ? action.options : []).map((item) => asString(item)).filter(Boolean)
+          const listed = await larkApi(settings, 'GET', '/open-apis/task/v2/custom_fields', {
+            params: { resource_type: 'tasklist', resource_id: listGuid, page_size: 100 },
+            timeoutMs: 60_000,
+          })
+          if (!listed.ok) fail(listed.detail)
+          else {
+            const target = (listed.data?.items ?? []).find((item) => asString(item.name) === name)
+            if (target) {
+              const same = !explicitType || asString(target.type) === explicitType
+              results.push({
+                op,
+                ok: same,
+                created: false,
+                guid: asString(target.guid),
+                type: asString(target.type),
+                ...(same ? {} : { error: `字段「${name}」已存在但类型是 ${target.type}，不是 ${wantType}` }),
+              })
+            } else {
+              const body = { resource_type: 'tasklist', resource_id: listGuid, name, type: wantType }
+              if (wantType === 'single_select') body.single_select_setting = { options: options.map((item) => ({ name: item })) }
+              else if (wantType === 'text') body.text_setting = {}
+              else if (wantType === 'datetime') body.datetime_setting = { format: 'yyyy-mm-dd' }
+              const created = await larkApi(settings, 'POST', '/open-apis/task/v2/custom_fields', {
+                data: body,
+                timeoutMs: 60_000,
+              })
+              if (!created.ok) fail(`建字段失败：${created.detail}`)
+              else
+                results.push({
+                  op,
+                  ok: true,
+                  created: true,
+                  guid: asString(created.data?.custom_field?.guid),
+                  type: wantType,
+                })
+            }
+          }
+        } else if (op === 'task_get') {
+          const result = await larkApi(
+            settings,
+            'GET',
+            `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}`,
+            { params: { user_id_type: 'open_id' }, timeoutMs: 60_000 },
+          )
+          const task = result.ok ? result.data?.task : null
+          const ok = Boolean(task && asString(task.guid) === asString(action.task))
+          results.push({
+            op,
+            ok,
+            task: ok ? task : null,
+            user_id_type: 'open_id',
+            ...(ok ? {} : { error: result.ok ? '任务权威回执缺失/不匹配' : result.detail }),
+          })
+        } else if (op === 'task_reopen') {
+          const result = await larkApi(
+            settings,
+            'PATCH',
+            `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}`,
+            {
+              data: { task: { completed_at: '0' }, update_fields: ['completed_at'] },
+              timeoutMs: 60_000,
+            },
+          )
+          if (result.ok) results.push({ op, ok: true, guid: asString(action.task) })
+          else fail(result.detail)
+        } else if (op === 'set_task_time') {
+          /* 官方 v2 的时间是毫秒时间戳字符串；传秒/对象会被静默当成 1970 年，所以统一 int 后转 str。 */
+          const taskBody = {}
+          const updateFields = []
+          const allDay = action.isAllDay === true
+          if (Number(action.start)) {
+            taskBody.start = { timestamp: String(Math.trunc(Number(action.start))), is_all_day: allDay }
+            updateFields.push('start')
+          }
+          if (Number(action.due)) {
+            taskBody.due = { timestamp: String(Math.trunc(Number(action.due))), is_all_day: allDay }
+            updateFields.push('due')
+          }
+          if (!updateFields.length) fail('start/due 至少给一个')
+          else {
+            const result = await larkApi(
+              settings,
+              'PATCH',
+              `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}`,
+              { data: { task: taskBody, update_fields: updateFields }, timeoutMs: 60_000 },
+            )
+            if (result.ok) results.push({ op, ok: true })
+            else fail(result.detail)
+          }
+        } else if (op === 'task_dependencies') {
+          const result = await larkApi(
+            settings,
+            'GET',
+            `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}`,
+            { params: { user_id_type: 'open_id' }, timeoutMs: 60_000 },
+          )
+          if (!result.ok) fail(result.detail)
+          else results.push({ op, ok: true, items: result.data?.task?.dependencies ?? [] })
+        } else if (op === 'add_dependencies' || op === 'remove_dependencies') {
+          const deps = (Array.isArray(action.dependencies) ? action.dependencies : []).slice(0, 50)
+          const body = op === 'add_dependencies'
+            ? { dependencies: deps.map((item) => ({ task_guid: asString(item.task_guid), type: asString(item.type) })) }
+            : { dependencies: deps.map((item) => ({ task_guid: asString(item.task_guid) })) }
+          if (!deps.length) fail('dependencies 必须包含 1-50 项')
+          else if (body.dependencies.some((item) => !item.task_guid || (op === 'add_dependencies' && !['prev', 'next'].includes(item.type))))
+            fail('依赖必须带 task_guid（add 还要 prev/next type）')
+          else {
+            const result = await larkApi(
+              settings,
+              'POST',
+              `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}/${op}`,
+              { data: body, timeoutMs: 60_000 },
+            )
+            if (result.ok) results.push({ op, ok: true, items: result.data?.dependencies ?? [] })
+            else fail(result.detail)
+          }
+        } else if (op === 'delete_file') {
+          const result = await larkApi(
+            settings,
+            'DELETE',
+            `/open-apis/drive/v1/files/${encodeURIComponent(action.document ?? action.file)}`,
+            { params: { type: asString(action.doc_type) || 'docx' }, timeoutMs: 60_000 },
+          )
+          if (result.ok) results.push({ op, ok: true })
+          else fail(result.detail)
+        } else if (op === 'append_description') {
+          const taskResult = await larkApi(settings, 'GET', `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}`, {
+            params: { user_id_type: 'open_id' },
+            timeoutMs: 60_000,
+          })
+          if (!taskResult.ok) fail(taskResult.detail)
+          else {
+            const previous = asString(taskResult.data?.task?.description)
+            const line = asString(action.line)
+            if (previous.includes(line)) results.push({ op, ok: true, skipped: true })
+            else {
+              const next = previous ? `${previous}\n\n${line}` : line
+              const updated = await larkApi(
+                settings,
+                'PATCH',
+                `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}`,
+                { data: { task: { description: next }, update_fields: ['description'] }, timeoutMs: 60_000 },
+              )
+              if (updated.ok) results.push({ op, ok: true })
+              else fail(updated.detail)
+            }
+          }
+        } else if (op === 'task_comments' || op === 'task_subtasks' || op === 'task_attachments') {
+          /* 任务详情三件套：评论 / 附件是「资源型」接口（资源 id 走 query），
+             子任务才挂在任务路径下。之前三条都套 /tasks/{guid}/xxx，评论和附件在真实
+             API 上必然 404（单测的假 CLI 把错路径也一起假掉了，所以一直没暴露）。 */
+          const resourceEndpoint =
+            op === 'task_comments'
+              ? '/open-apis/task/v2/comments'
+              : op === 'task_attachments'
+                ? '/open-apis/task/v2/attachments'
+                : null
+          if (resourceEndpoint) {
+            /* 评论协作要「完整列表」才算成功回执：翻页直到 has_more=false，拿不全就标 incomplete。 */
+            const items = []
+            let pageToken = ''
+            let incomplete = false
+            let detail = ''
+            for (let page = 0; page < 20; page += 1) {
+              const params = {
+                resource_type: 'task',
+                resource_id: action.task,
+                page_size: 100,
+                ...(op === 'task_comments' ? { user_id_type: 'open_id', direction: 'asc' } : {}),
+              }
+              if (pageToken) params.page_token = pageToken
+              const pageResult = await larkApi(settings, 'GET', resourceEndpoint, { params, timeoutMs: 60_000 })
+              if (!pageResult.ok) {
+                incomplete = true
+                detail = pageResult.detail
+                break
+              }
+              items.push(...(pageResult.data?.items ?? []))
+              pageToken = asString(pageResult.data?.page_token)
+              if (!pageResult.data?.has_more || !pageToken) break
+              if (page === 19) incomplete = true
+            }
+            if (incomplete && !items.length) fail(detail || '读取任务评论失败')
+            else results.push({ op, ok: true, items, incomplete, pageToken })
+          } else {
+            const result = await larkApi(
+              settings,
+              'GET',
+              `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}/subtasks`,
+              { params: { page_size: 100, user_id_type: 'open_id' }, timeoutMs: 60_000 },
+            )
+            if (!result.ok) fail(result.detail)
+            else results.push({ op, ok: true, items: result.data?.items ?? [] })
+          }
+        } else if (op === 'task_comment') {
+          /* 写评论：body 走资源型接口；回复传 reply_to_comment_id。
+             官方评论正文暂不支持任务 v1 的富文本 @，所以明确回报 mentionSupported=false，不假装支持。 */
+          const data = {
+            content: asString(action.text),
+            resource_type: 'task',
+            resource_id: asString(action.task),
+          }
+          if (asString(action.reply_to_comment_id)) data.reply_to_comment_id = asString(action.reply_to_comment_id)
+          const result = await larkApi(settings, 'POST', '/open-apis/task/v2/comments', {
+            params: { user_id_type: 'open_id' },
+            data,
+            timeoutMs: 60_000,
+          })
+          if (!result.ok) {
+            results.push({
+              op,
+              ok: false,
+              commentId: null,
+              unknownDelivery: false,
+              mentionSupported: false,
+              error: result.detail,
+            })
+          } else {
+            const commentId = asString(result.data?.comment?.id)
+            results.push({
+              op,
+              ok: Boolean(commentId),
+              commentId: commentId || null,
+              comment: result.data?.comment ?? null,
+              mentionSupported: false,
+              warning: (action.mentionIds ?? []).length
+                ? '官方 lark-cli 后端的评论正文不支持 @ 提及，已按纯文本发送'
+                : '',
+              ...(commentId ? {} : { error: '评论创建成功但没拿到评论 id' }),
+            })
+          }
+        } else if (op === 'ensure_select_options') {
+          /* 单选/多选字段才需要补选项；lark 后端自动建的字段是文本类型，保持空操作。 */
+          results.push({ op, ok: true, added: [] })
+        } else {
+          fail(`官方 lark-cli 后端不支持操作：${op}`)
+        }
+      } catch (error) {
+        fail(error instanceof Error ? error.message : String(error))
+      }
+    }
+    return { ok: true, actions: results, errors: [] }
+  },
+}
+
 /**
  * 飞书任务描述会校验 Markdown 链接：`[文字](目标)` 里目标不是 http/https/applink 就 400
  * （典型来源是 agent 输出里的 `[file](/Users/...)`、`[x](#L24)`）。这里把非 http 链接降级成纯文字，
@@ -1515,9 +3044,7 @@ function createSyncEngine(ctx) {
   async function resolveCommentTask(taskId) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return null
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return null
-    const result = await runBridge(python, { actions: [{ op: 'task_get', task: taskId }] })
+    const result = await backend().actions(settings, [{ op: 'task_get', task: taskId }])
     const row = result.actions?.[0]
     if (!row?.ok || !row.task || String(row.task.guid) !== taskId) return null
     return { ...task, members: row.task.members || [], done: Boolean(row.task.completed_at && String(row.task.completed_at) !== '0'), paused: isSuspended(taskId) }
@@ -1527,11 +3054,10 @@ function createSyncEngine(ctx) {
     getTask: (id) => { const task = state.tasks.find((item) => item.id === id); return task ? { ...task, paused: isSuspended(id) } : null },
     resolveTask: resolveCommentTask,
     listComments: async (taskId) => {
-      const python = resolvePython(resolveCli(settings.cliPath))
-      if (!python) return { ok: false, complete: false, items: [] }
-      const result = await runBridge(python, { actions: [{ op: 'task_comments', task: taskId }] })
+      /* 两个后端都走 backend 抽象；拿不全（incomplete）不算成功回执。 */
+      const result = await backend().actions(settings, [{ op: 'task_comments', task: taskId }])
       const row = result.actions?.[0]
-      return { ...row, complete: row?.ok === true && row?.incomplete === false }
+      return { ...row, complete: row?.ok === true && row?.incomplete !== true }
     },
     isSessionBusy: async (sessionId, options = {}) => {
       const agents = await awaitService(ctx, 'agents')
@@ -1549,9 +3075,9 @@ function createSyncEngine(ctx) {
     },
     writeComment: async (taskId, text, options) => {
       if (commentsDisposed) return { ok: false, definitive: true, error: '评论插件已卸载' }
-      const python = resolvePython(resolveCli(settings.cliPath))
-      if (!python) return { ok: false, definitive: true, error: '找不到飞书 Python 环境' }
-      const result = await runBridge(python, { actions: [{ op: 'task_comment', task: taskId, text, reply_to_comment_id: options.replyTo, mentionIds: options.mentionIds, mentionMode: options.mentionMode, allowMentionFallback: options.mentionMode !== 'task-v1' }] })
+      const result = await backend().actions(settings, [
+        { op: 'task_comment', task: taskId, text, reply_to_comment_id: options.replyTo, mentionIds: options.mentionIds, mentionMode: options.mentionMode, allowMentionFallback: options.mentionMode !== 'task-v1' },
+      ])
       const row = result.actions?.[0]
       return row?.ok && row.commentId ? { ok: true, commentId: row.commentId, warning: row.warning || '', mentionSupported: row.mentionSupported === true } : { ok: false, definitive: row?.unknownDelivery === false, error: row?.error || result.error || '评论写回结果不明' }
     },
@@ -1630,6 +3156,8 @@ function createSyncEngine(ctx) {
     if (await readFile(commentsLock, 'utf8').catch(() => '') === String(process.pid)) await unlink(commentsLock)
     commentLockHandle = null
   }
+  /* 两个后端各自的探活结果（面板第 1 步要分别显示装没装），5 秒内复用。 */
+  let clisCache = { at: 0, value: null }
 
   async function load() {
     await (globalThis[Symbol.for('dsh-feishu:task-lifecycle')] || Promise.resolve()).catch(() => {})
@@ -1802,6 +3330,8 @@ function createSyncEngine(ctx) {
         /* 回调失败不影响保存 */
       }
     }
+    /* 路径/后端可能变了，两个后端的状态缓存作废。 */
+    clisCache = { at: 0, value: null }
     return settings
   }
 
@@ -2336,15 +3866,13 @@ function createSyncEngine(ctx) {
     return dirty
   }
 
-  /** 把开始时间写回飞书原生字段（桥接新加的 set_task_time op）。 */
+  /** 把开始时间写回飞书原生字段（backend 抽象：官方 lark-cli 直接打 HTTP 接口）。 */
   async function writeTaskStartTime(task, at) {
     const ts = Number(at) || 0
     if (!task?.id || !ts) return { ok: false, error: '没有可写回的时刻' }
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
-    const result = await runBridge(python, {
-      actions: [{ op: 'set_task_time', task: task.id, start: ts, isAllDay: false }],
-    })
+    const result = await backend().actions(settings, [
+      { op: 'set_task_time', task: task.id, start: ts, isAllDay: false },
+    ])
     const item = (result.actions ?? [])[0]
     if (!item?.ok) return { ok: false, error: item?.error || '写回失败' }
     task.startTs = ts
@@ -2375,11 +3903,9 @@ function createSyncEngine(ctx) {
     const cache = fieldCacheOf(listGuid)
     if (cache.etaGuid) return { ok: true, guid: cache.etaGuid }
     if (cache.etaMissing) return { ok: false, error: `清单上没有「${etaFieldName()}」字段（同名但类型不符，未重建）` }
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
-    const result = await runBridge(python, {
-      actions: [{ op: 'ensure_custom_field', tasklist: listGuid, name: etaFieldName(), type: 'text' }],
-    })
+    const result = await backend().actions(settings, [
+      { op: 'ensure_custom_field', tasklist: listGuid, name: etaFieldName(), type: 'text' },
+    ])
     const item = (result.actions ?? [])[0]
     if (!item?.ok) {
       /* 同名但类型不同：不重建（重建会让已有值失效），标缺，等人工处理。 */
@@ -2401,12 +3927,10 @@ function createSyncEngine(ctx) {
     }
     const field = await ensureEtaField(task)
     if (!field.ok) return field
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
     const value = task.expectedAt ? formatEta(task.expectedAt, settings.schedule?.timeZone) : ''
-    const result = await runBridge(python, {
-      actions: [{ op: 'set_custom_field', task: task.id, tasklist: listGuid, name: etaFieldName(), expected_type: 'text', value }],
-    })
+    const result = await backend().actions(settings, [
+      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: etaFieldName(), value },
+    ])
     const item = (result.actions ?? [])[0]
     if (!item?.ok) return { ok: false, error: item?.error || '写回失败' }
     task.etaSyncedAt = Number(task.expectedAt) || 0
@@ -2424,12 +3948,10 @@ function createSyncEngine(ctx) {
     const cache = fieldCacheOf(listGuid)
     const missingKey = `missing:${name}`
     if (cache[missingKey]) return { ok: true, skipped: 'missing' }
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
     const value = formatEta(ts, settings.schedule?.timeZone).slice(0, 10)
-    const result = await runBridge(python, {
-      actions: [{ op: 'set_custom_field', task: task.id, tasklist: listGuid, name, expected_type: 'datetime', value }],
-    })
+    const result = await backend().actions(settings, [
+      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name, value },
+    ])
     const item = (result.actions ?? [])[0]
     if (item?.ok) return { ok: true, value }
     if (/没有名为/.test(String(item?.error))) cache[missingKey] = true
@@ -2816,98 +4338,108 @@ function createSyncEngine(ctx) {
         }),
         syncing: inFlight !== null,
         cli,
+        apiVersion: API_VERSION,
       },
     }
   }
 
+  /** 当前设置选中的后端实现。 */
+  function backend() {
+    return backendFor(settings.cliBackend)
+  }
+
   async function probeCli() {
-    const path = resolveCli(settings.cliPath)
-    const result = await runCli(path, ['version'], { timeoutMs: 20_000 })
-    const text = `${result.stdout}\n${result.stderr}`
-    const version = /feishu-sync\s+([0-9][^\s]*)/i.exec(text)?.[1] ?? null
-    cli = { found: result.ok, version, path: result.ok ? path : null }
+    const found = await backend().probe(settings)
+    cli = { backend: found.backend, found: found.found, version: found.version, path: found.path }
     state.cli = cli
     return cli
   }
 
+  /**
+   * 两个后端各探一次，给面板第 1 步分别显示「装没装」。
+   * 装一个 CLI 要跑子进程，所以结果缓存 5 秒；`force` 用于安装/切换后立刻刷新。
+   */
+  async function cliStatus(force = false) {
+    if (!force && clisCache.value && nowMs() - clisCache.at < 5000) return clisCache.value
+    const value = {}
+    await Promise.all(
+      ['feishu-sync', 'lark-cli'].map(async (id) => {
+        try {
+          const found = await backendFor(id).probe(settings)
+          value[id] = {
+            backend: id,
+            found: !!found.found,
+            version: found.version ?? null,
+            path: found.path ?? null,
+          }
+        } catch {
+          value[id] = { backend: id, found: false, version: null, path: null }
+        }
+      }),
+    )
+    clisCache = { at: nowMs(), value }
+    return value
+  }
+
+  /**
+   * 一键安装 CLI：用户点一下，宿主动手。
+   *
+   * 默认装飞书官方 lark-cli；feishu-sync-cli 是公司内部隐藏后端，只有显式传 backendId
+   * （面板「高级」里的入口）才会装。安装顺序、索引语义、PEP 668 兜底都在各后端自己的 install() 里。
+   */
+  async function installCli(backendId) {
+    const id = normalizeBackendId(backendId ?? settings.cliBackend)
+    const result = await backendFor(id).install(settings)
+    /* 只有装成功才切后端：安装失败时保持用户原来那套能用的配置不动。 */
+    const switched = !!(result.installed && id !== settings.cliBackend)
+    if (switched) {
+      await saveSettings({ cliBackend: id })
+      await probeCli()
+      await checkAuth().catch(() => undefined)
+    }
+    if (result.cli && (switched || id === settings.cliBackend)) {
+      cli = {
+        backend: result.cli.backend ?? id,
+        found: result.cli.found,
+        version: result.cli.version,
+        path: result.cli.path,
+      }
+      state.cli = cli
+    }
+    if (result.installed) log(ctx, 'info', `[install] 安装成功：${cli.path}（${cli.version ?? '版本未知'}）`)
+    clisCache = { at: 0, value: null }
+    return { ...result, backend: id, switched, settings }
+  }
+
   /** 授权体检：`task list` 是个人令牌专属接口，bot 模式反而读不了，正好当探针。 */
   async function checkAuth() {
-    const path = resolveCli(settings.cliPath)
-    const result = await runCli(path, ['task', 'list', '--json', '--completed=False'], { timeoutMs: 60_000 })
-    const text = `${result.stdout}\n${result.stderr ?? ''}`
-    let auth
-    if (result.ok && Array.isArray(parseJson(result.stdout))) {
-      auth = { ok: true, checkedAt: nowMs(), detail: '个人令牌可用（任务接口已通）' }
-    } else {
-      const revoked = /invalid_grant|20064|refresh token has been revoked/i.test(text)
-      const missing = /ENOENT|未安装/.test(text)
-      auth = {
-        ok: false,
-        checkedAt: nowMs(),
-        detail: missing
-          ? '没找到 feishu-sync-cli：先安装，或把设置里的 cliPath 指到可执行文件'
-          : revoked
-            ? '个人令牌已失效（refresh token 被吊销）：点「开始授权」重新授权'
-            : `读取任务失败：${(result.detail ?? text).slice(-400)}`,
-      }
-    }
-    if (lifecycleDisposed) return { ...auth, tasklistReady: false, tasklistError: '插件已重载，旧授权检查不再初始化清单' }
-    state.auth = auth
+    /* CLI 可能是刚装的、或用户自己装到了别处：体检前重新找一遍，点「检查」就能认出来。 */
+    if (!cli.found) await probeCli()
+    const auth = await backend().check(settings)
+    state.auth = { ...auth, checkedAt: nowMs() }
+    if (lifecycleDisposed) return { ...state.auth, tasklistReady: false, tasklistError: '插件已重载，旧授权检查不再初始化清单' }
     await persistState()
-    if (auth.ok) {
+    /* 受管任务清单是 feishu-sync 后端的能力（走 Python 桥）；官方 lark-cli 后端自己维护固定清单。 */
+    if (state.auth.ok && settings.cliBackend === 'feishu-sync') {
       const initialized = await ensureManagedTasklist({ force: true })
-      auth.tasklistReady = initialized.ok
-      auth.tasklistError = initialized.error || ''
+      state.auth.tasklistReady = initialized.ok
+      state.auth.tasklistError = initialized.error || ''
+      await persistState()
     }
-    return auth
+    return state.auth
   }
 
   /**
    * 启动一次授权。CLI 会起本地回调服务并把授权链接打到 stderr；
    * 我们是 GUI 进程，等不了交互，所以只把链接捞出来交给面板，进程留着自己跑完。
    */
-  async function startLogin() {
-    const path = resolveCli(settings.cliPath)
-    return new Promise((resolve) => {
-      let settled = false
-      let buffer = ''
-      let child
-      const finish = (payload) => {
-        if (settled) return
-        settled = true
-        resolve(payload)
-      }
-      try {
-        child = execFile(path, ['init_token', '--enable_autofill'], {
-          env: cliEnv(),
-          timeout: 10 * 60_000,
-          maxBuffer: 4 * 1024 * 1024,
-          encoding: 'utf8',
-        })
-      } catch (error) {
-        finish({ ok: false, url: null, error: String(error) })
-        return
-      }
-      const onChunk = (chunk) => {
-        buffer += asString(chunk)
-        const match = LOGIN_URL_HINT.exec(buffer)
-        if (match) finish({ ok: true, url: match[0] })
-      }
-      child.stdout?.on('data', onChunk)
-      child.stderr?.on('data', onChunk)
-      child.on('error', (error) => finish({ ok: false, url: null, error: String(error) }))
-      child.on('exit', async (code) => {
-        finish({
-          ok: code === 0,
-          url: LOGIN_URL_HINT.exec(buffer)?.[0] ?? null,
-          error: code === 0 ? null : `授权进程退出码 ${code}`,
-        })
-        if (code === 0) {
-          await checkAuth().catch(() => undefined)
-        }
-      })
-      setTimeout(() => finish({ ok: false, url: LOGIN_URL_HINT.exec(buffer)?.[0] ?? null, error: '等待授权链接超时' }), 20_000)
-    })
+  async function startLogin(options = {}) {
+    /* 授权前先确认 CLI 在：后端可能刚被切换过。 */
+    if (!cli.found) await probeCli()
+    const result = await backend().loginStart(settings, options)
+    /* feishu-sync-cli 的授权进程会自己跑完；没给链接时补一次体检，面板能立刻翻成已授权。 */
+    if (result.ok && !result.url) await checkAuth().catch(() => undefined)
+    return result
   }
 
   /** 登记表 → 纯数据（只取绑定需要的三个字段）。 */
@@ -3003,9 +4535,6 @@ function createSyncEngine(ctx) {
    * 任何一样失败都只是少了那部分展示，不影响任务本身。
    */
   async function enrichRemote(rawList) {
-    const cliPath = resolveCli(settings.cliPath)
-    const python = resolvePython(cliPath)
-
     const wantLists = new Set()
     const wantFields = new Set()
     const wantUsers = new Set()
@@ -3031,7 +4560,7 @@ function createSyncEngine(ctx) {
       return { tasklists: remoteCache.tasklists, fields: remoteCache.fields, users: remoteCache.users }
     }
 
-    const result = await runBridge(python, {
+    const result = await backend().enrich(settings, {
       tasklists: [...wantLists],
       fields: [...wantFields],
       users: [...wantUsers],
@@ -3312,30 +4841,40 @@ function createSyncEngine(ctx) {
   }
 
   async function applyTaskSync() {
-    const path = resolveCli(settings.cliPath)
+    const backendId = settings.cliBackend
+    const info = backendInfo(backendId)
     /* 已完成一律不从飞书拉：那些是历史数据，会把列表撑爆，也和「今天做什么」无关。
        本地完成的任务在下面单独保留。 */
-    const args = ['task', 'list', '--json', '--completed=False']
-    const result = await runCli(path, args)
+    const result = await backend().listTasks(settings, settings.tasks.includeCompleted)
     if (!result.ok) {
       // 任务接口同时是授权探针：失败原因直接写进 auth，面板才知道该让人去授权还是去装 CLI。
-      const text = `${result.stdout}\n${result.stderr ?? ''}`
-      const revoked = /invalid_grant|20064|refresh token has been revoked/i.test(text)
-      const missing = /ENOENT|未安装/.test(text)
       state.auth = {
         ok: false,
         checkedAt: nowMs(),
-        detail: missing
-          ? '没找到 feishu-sync-cli：先安装，或把设置里的 cliPath 指到可执行文件'
-          : revoked
-            ? '个人令牌已失效（refresh token 被吊销）：点「开始授权」重新授权'
-            : `读取任务失败：${(result.detail ?? text).slice(-400)}`,
+        detail:
+          backendId === 'feishu-sync'
+            ? result.missing
+              ? '没找到 feishu-sync-cli：先安装，或把设置里的 cliPath 指到可执行文件'
+              : result.revoked
+                ? '个人令牌已失效（refresh token 被吊销）：点「开始授权」重新授权'
+                : `读取任务失败：${asString(result.detail).slice(-400)}`
+            : result.missing
+              ? '没找到 lark-cli：先安装，或把设置里的 larkCliPath 指到可执行文件'
+              : result.revoked
+                ? `${info.label} 授权失效：点「开始授权」重新授权`
+                : `读取任务失败：${asString(result.detail).slice(-400)}`,
       }
       return { ok: false, detail: state.auth.detail }
     }
-    const list = parseJson(result.stdout)
-    if (!Array.isArray(list)) return { ok: false, detail: '任务接口返回的不是数组（CLI 版本可能变了）' }
-    state.auth = { ok: true, checkedAt: nowMs(), detail: '个人令牌可用（任务接口已通）' }
+    const list = result.list
+    state.auth = {
+      ok: true,
+      checkedAt: nowMs(),
+      detail:
+        backendId === 'feishu-sync'
+          ? '个人令牌可用（任务接口已通）'
+          : `${info.label} 授权可用（任务接口已通）`,
+    }
     const previous = new Map(state.tasks.map((task) => [task.id, task]))
     await enrichRemote(list)
     const next = list.map((raw) => {
@@ -3422,26 +4961,24 @@ function createSyncEngine(ctx) {
   }
 
   async function syncDocs() {
-    const path = resolveCli(settings.cliPath)
     const previous = new Map(state.docs.map((doc) => [doc.url, doc]))
     const docs = []
     for (const url of settings.docs.watch) {
       const known = previous.get(url)
-      // info_page 默认就吐 JSON，多给 --json 会被当成字段选择器报错。
-      const info = await runCli(path, ['info_page', url], { timeoutMs: 90_000 })
-      const meta = info.ok ? parseJson(info.stdout) : undefined
+      const info = await backend().docInfo(settings, url)
+      const meta = info.ok ? info.meta : undefined
       const lastModified = Number(meta?.obj_edit_time) ? Number(meta.obj_edit_time) * 1000 : (known?.lastModified ?? 0)
       const changed = !known || known.lastModified !== lastModified || !known.excerpt
       let excerpt = known?.excerpt ?? ''
       let error = null
       if (!info.ok) {
-        error = (info.detail ?? '读取文档信息失败').slice(-300)
+        error = asString(info.detail || '读取文档信息失败').slice(-300)
       } else if (changed) {
-        const body = await runCli(path, ['read_page_as_markdown', url], { timeoutMs: 120_000 })
+        const body = await backend().docRead(settings, url)
         if (body.ok) {
-          excerpt = body.stdout.replace(/\s+/g, ' ').trim().slice(0, settings.docs.excerptChars)
+          excerpt = asString(body.markdown).replace(/\s+/g, ' ').trim().slice(0, settings.docs.excerptChars)
         } else {
-          error = (body.detail ?? '读取正文失败').slice(-300)
+          error = asString(body.detail || '读取正文失败').slice(-300)
         }
       }
       docs.push({
@@ -3862,14 +5399,13 @@ function createSyncEngine(ctx) {
     const body = sanitizeTaskDescription(text)
     if (!body && !complete) return { ok: false, error: '没有要回写的内容' }
 
-    const path = resolveCli(settings.cliPath)
     if (body) {
       const result = await writeTaskComment(task.id, body)
-      if (!result.ok) return { ok: false, error: `写评论失败：${(result.detail ?? '').slice(-300)}` }
+      if (!result.ok) return { ok: false, error: `写评论失败：${asString(result.detail).slice(-300)}` }
     }
     if (complete) {
-      const result = await runCli(path, ['task', 'complete', task.id], { timeoutMs: 60_000 })
-      if (!result.ok) return { ok: false, error: `标记完成失败：${(result.detail ?? '').slice(-300)}` }
+      const result = await backend().complete(settings, task.id)
+      if (!result.ok) return { ok: false, error: `标记完成失败：${asString(result.detail).slice(-300)}` }
       task = state.tasks.find((item) => item.id === taskId) || task
       task.done = true
       task.status = 'done'
@@ -3937,9 +5473,7 @@ function createSyncEngine(ctx) {
     if (!task?.reopenPending || task.done || !task.sessionId || isSuspended(task.id)) return
     task.reopenAttemptAt = nowMs()
     try {
-      const result = await runBridge(resolvePython(resolveCli(settings.cliPath)), {
-        actions: [{ op: 'task_reopen', task: taskId }],
-      })
+      const result = await backend().actions(settings, [{ op: 'task_reopen', task: taskId }])
       const action = result.actions?.find((item) => item.op === 'task_reopen')
       if (!result.ok || !action?.ok) throw new Error(action?.error || result.errors?.join('; ') || '飞书重开失败')
       const current = state.tasks.find((item) => item.id === taskId)
@@ -4051,9 +5585,7 @@ function createSyncEngine(ctx) {
   }
 
   async function refreshTaskRelations(taskId) {
-    const result = await runBridge(resolvePython(resolveCli(settings.cliPath)), {
-      actions: [{ op: 'task_dependencies', task: taskId }],
-    })
+    const result = await backend().actions(settings, [{ op: 'task_dependencies', task: taskId }])
     const item = result.actions?.[0]
     if (!result.ok || !item?.ok) return { ok: false, error: item?.error || result.errors?.join('; ') || '读取依赖失败' }
     /* 未送达的本地修改优先；不能用旧远端覆盖。 */
@@ -4076,8 +5608,7 @@ function createSyncEngine(ctx) {
   }
 
   async function writeTaskRelations(taskId, options = {}) {
-    const python = resolvePython(resolveCli(settings.cliPath))
-    const remote = await runBridge(python, { actions: [{ op: 'task_dependencies', task: taskId }] })
+    const remote = await backend().actions(settings, [{ op: 'task_dependencies', task: taskId }])
     const got = remote.actions?.[0]
     let error = !remote.ok || !got?.ok ? got?.error || remote.errors?.join('; ') || '读取原生依赖失败' : ''
     if (!error) {
@@ -4090,7 +5621,7 @@ function createSyncEngine(ctx) {
       const add = wanted.filter((item) => !existing.some((dep) => key(dep) === key(item)))
       for (const [op, deps] of [['remove_dependencies', remove], ['add_dependencies', add]]) {
         for (let i = 0; i < deps.length && !error; i += 50) {
-          const result = await runBridge(python, { actions: [{ op, task: taskId, dependencies: deps.slice(i, i + 50) }] })
+          const result = await backend().actions(settings, [{ op, task: taskId, dependencies: deps.slice(i, i + 50) }])
           const item = result.actions?.[0]
           if (!result.ok || !item?.ok) error = item?.error || result.errors?.join('; ') || '原生依赖写入失败'
         }
@@ -4104,7 +5635,7 @@ function createSyncEngine(ctx) {
             actions.push({ op: 'ensure_custom_field', tasklist: task.tasklistGuid, name, type: 'text' },
               { op: 'set_custom_field', task: taskId, tasklist: task.tasklistGuid, name, expected_type: 'text', value: ids.map((item) => item.id).join('\n') })
           }
-          const result = await runBridge(python, { actions })
+          const result = await backend().actions(settings, actions)
           if (!result.ok || result.actions?.some((item) => !item.ok)) error = result.actions?.filter((item) => !item.ok).map((item) => item.error).join('; ') || result.errors?.join('; ') || '文本列投影失败'
         }
       }
@@ -4182,57 +5713,42 @@ function createSyncEngine(ctx) {
         if (cwd) creationWorkspace = await registry?.resolveByPath?.(cwd)
       } catch { /* 无上下文时不猜项目 */ }
     }
-    const initialized = await ensureManagedTasklist()
-    if (!initialized.ok) return { ok: false, error: '任务清单未就绪：' + (initialized.error || initialized.errors?.join('; ')) }
-    const path = resolveCli(settings.cliPath)
-    const { assignee } = defaultsFromState()
-    const tasklistGuid = initialized.guid || settings.managedTasklist?.guid || ''
-    if (settings.managedTasklist?.enabled !== false && tasklistGuid !== settings.managedTasklist?.guid) return { ok: false, error: '创建前受管清单配置已变化，请重试' }
-    if (!tasklistGuid) return { ok: false, error: '请配置受管任务清单 GUID，不能推测新任务归属' }
-    const args = ['task', 'create', summary]
-    const description = asString(input.description).trim()
-    if (description) args.push(`--description=${description}`)
-    if (assignee) args.push(`--assignee=${assignee}`)
-
-    const created = await runCli(path, args, { timeoutMs: 90_000 })
-    if (!created.ok) {
-      const detail = asString(created.detail)
-      /* 飞书这句原始报错会带一整段 JSON，直接怼到 toast 里没人看得懂。 */
-      const hint = /url in description is invalid/i.test(detail)
-        ? '任务描述里有飞书不接受的链接（非 http/https）'
-        : /1470400/.test(detail)
-          ? '飞书拒绝了创建参数（1470400）'
-          : detail.slice(-300)
-      return { ok: false, error: `创建任务失败：${hint}` }
+    /* 受管任务清单只在 feishu-sync 后端走 Python 桥初始化；官方 lark-cli 后端由 createTask 自己落清单。 */
+    let managedTasklistGuid = ''
+    if (settings.cliBackend === 'feishu-sync') {
+      const initialized = await ensureManagedTasklist()
+      if (!initialized.ok) return { ok: false, error: '任务清单未就绪：' + (initialized.error || initialized.errors?.join('; ')) }
+      managedTasklistGuid = initialized.guid || settings.managedTasklist?.guid || ''
+      if (settings.managedTasklist?.enabled !== false && managedTasklistGuid !== settings.managedTasklist?.guid) return { ok: false, error: '创建前受管清单配置已变化，请重试' }
+      if (!managedTasklistGuid) return { ok: false, error: '请配置受管任务清单 GUID，不能推测新任务归属' }
     }
-    const parsed = parseJson(created.stdout)
-    const guid = asString(parsed?.guid)
-    if (!guid) return { ok: false, error: '创建成功但没解析出任务 guid' }
+
+    let { assignee, tasklistGuid } = defaultsFromState()
+    /* feishu-sync 后端：受管清单是唯一权威，别用历史任务里碰巧看到的清单。 */
+    if (managedTasklistGuid) tasklistGuid = managedTasklistGuid
+    const description = asString(input.description).trim()
+    const created = await backend().createTask(settings, { summary, description, assignee })
+    if (!created.ok) return { ok: false, error: `创建任务失败：${asString(created.detail).slice(-400)}` }
+    const guid = created.guid
 
     /* 新建任务也套上 T<n>- 前缀和表情，和面板改名、AI 起名保持同一套规则。 */
     const draftNo = taskNo(undefined)
     let finalTitle = decorateTitle(summary, { no: draftNo }, description)
     if (finalTitle !== summary) {
-      const renamed = await runCli(path, ['task', 'update', guid, `--summary=${finalTitle}`], { timeoutMs: 30_000 })
+      const renamed = await backend().updateTask(settings, guid, { summary: finalTitle })
       if (!renamed.ok) finalTitle = summary
     }
 
-    /* CLI 创建与加入清单分开；返回部分成功，绝不谎称远端已经归属。 */
+    /* 老后端（feishu-sync）建完任务再补一次加入清单；官方 lark-cli 后端在 createTask 里已经带上清单。
+       失败要如实回报，不能假装已经归属清单。 */
     let tasklistError = ''
-    if (tasklistGuid) {
-      const python = resolvePython(path)
-      if (python) {
-        const bridged = await runBridge(python, {
-          actions: [{ op: 'add_tasklist', task: guid, tasklist: tasklistGuid }],
-        })
-        const action = (bridged.actions ?? [])[0]
-        if (!bridged.ok || !action?.ok) {
-          tasklistError = action?.error || bridged.errors?.join('; ') || '加入清单失败'
-        }
-      } else tasklistError = '找不到 Python，任务未加入清单'
+    if (!created.tasklistGuid && managedTasklistGuid) {
+      const bridged = await backend().actions(settings, [{ op: 'add_tasklist', task: guid, tasklist: managedTasklistGuid }])
+      const action = (bridged.actions ?? [])[0]
+      if (!bridged.ok || !action?.ok) tasklistError = action?.error || bridged.errors?.join('; ') || '加入清单失败'
     }
     if (tasklistError) {
-      state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid: '', intendedTasklistGuid: tasklistGuid, tasklistSyncPending: true, tasklistError, done: false, members: [], customFields: [], meta: {}, docs: extractDocLinks(description) })
+      state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid: '', intendedTasklistGuid: managedTasklistGuid, tasklistSyncPending: true, tasklistError, done: false, members: [], customFields: [], meta: {}, docs: extractDocLinks(description) })
       await persistState()
       return { ok: false, partial: true, taskId: guid, error: '任务已创建但未加入清单，勿重复创建：' + tasklistError }
     }
@@ -4634,9 +6150,8 @@ function createSyncEngine(ctx) {
     if (!asString(nextTitle).trim()) return { ok: false, error: '标题不能为空' }
     if (title === task.title) return { ok: true, title, unchanged: true }
 
-    const path = resolveCli(settings.cliPath)
-    const result = await runCli(path, ['task', 'update', task.id, `--summary=${title}`], { timeoutMs: 60_000 })
-    if (!result.ok) return { ok: false, error: `改名失败：${(result.detail ?? '').slice(-300)}` }
+    const result = await backend().updateTask(settings, task.id, { summary: title })
+    if (!result.ok) return { ok: false, error: `改名失败：${asString(result.detail).slice(-300)}` }
 
     task.title = title
     task.localUpdatedAt = nowMs()
@@ -4762,10 +6277,10 @@ function createSyncEngine(ctx) {
 
   async function writeSuspensionField(task, entry) {
     if (!task.tasklistGuid) return { ok: false, error: '任务没有清单，处理状态仅本地保存' }
-    const result = await runBridge(resolvePython(resolveCli(settings.cliPath)), { actions: [
+    const result = await backend().actions(settings, [
       { op: 'ensure_custom_field', tasklist: task.tasklistGuid, name: '处理状态', options: ['正常', '挂起'] },
-      { op: 'set_custom_field', task: task.id, tasklist: task.tasklistGuid, name: '处理状态', expected_type: 'single_select', value: entry.active ? '挂起' : '正常' },
-    ] })
+      { op: 'set_custom_field', task: task.id, tasklist: task.tasklistGuid, name: '处理状态', value: entry.active ? '挂起' : '正常' },
+    ])
     const error = result.actions?.filter((item) => !item.ok).map((item) => item.error).join('; ') || result.errors?.join('; ')
     return { ok: result.ok && !error, error }
   }
@@ -5907,7 +7422,6 @@ bucket 只能从枚举里选：
    * 得跑一次这个补上。只改「算出来的标题和现在不一样」的任务，可重复执行。
    */
   async function normalizeTaskTitles() {
-    const path = resolveCli(settings.cliPath)
     const planned = []
     for (const task of state.tasks) {
       const want = buildTaskTitle(task.title, taskNo(task), task.description ?? '')
@@ -5918,7 +7432,7 @@ bucket 只能从枚举里选：
     let changed = 0
     const items = []
     for (const { task, want } of planned) {
-      const result = await runCli(path, ['task', 'update', task.id, `--summary=${want}`], { timeoutMs: 60_000 })
+      const result = await backend().updateTask(settings, task.id, { summary: want })
       if (!result.ok) {
         items.push({ id: task.id, from: task.title, to: want, ok: false })
         continue
@@ -6017,9 +7531,8 @@ bucket 只能从枚举里选：
   async function applyTaskCompletion(taskId) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
-    const path = resolveCli(settings.cliPath)
-    const done = await runCli(path, ['task', 'complete', task.id], { timeoutMs: 60_000 })
-    if (!done.ok) return { ok: false, error: `标记完成失败：${(done.detail ?? '').slice(-300)}` }
+    const done = await backend().complete(settings, task.id)
+    if (!done.ok) return { ok: false, error: `标记完成失败：${asString(done.detail).slice(-300)}` }
     task.done = true
     task.status = 'done'
     task.reopenPending = false
@@ -6075,20 +7588,15 @@ bucket 只能从枚举里选：
   async function pushDocField(task) {
     const listGuid = task.tasklistGuid
     if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回「文档」字段' }
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
-    const result = await runBridge(python, {
-      actions: [
-        {
-          op: 'set_custom_field',
-          task: task.id,
-          tasklist: listGuid,
-          name: settings.taskFields.doc || '文档',
-          expected_type: 'text',
-          value: docFieldValue(task),
-        },
-      ],
-    })
+    const result = await backend().actions(settings, [
+      {
+        op: 'set_custom_field',
+        task: task.id,
+        tasklist: listGuid,
+        name: settings.taskFields.doc || '文档',
+        value: docFieldValue(task),
+      },
+    ])
     const item = (result.actions ?? [])[0]
     if (!item?.ok) return { ok: false, error: item?.error || '写回失败' }
     return { ok: true }
@@ -6098,7 +7606,7 @@ bucket 只能从枚举里选：
    * 清单「文档」字段里只有链接、没有标题：按 URL 去飞书问一次标题。
    *
    * 只在第一次遇到这篇文档时问（结果进 state.docTitles 缓存，问过没拿到就记 null），
-   * 每轮最多补 3 篇——同步是定时跑的，不能为了好看向飞书打几十个 info_page。
+   * 每轮最多补 3 篇——同步是定时跑的，不能为了好看向飞书打几十个文档信息请求。
    */
   async function backfillDocTitles(tasks) {
     const cache = state.docTitles || (state.docTitles = {})
@@ -6113,10 +7621,9 @@ bucket 只能从枚举里选：
       }
     }
     if (!pending.length) return
-    const path = resolveCli(settings.cliPath)
     for (const doc of pending.slice(0, 3)) {
-      const info = await runCli(path, ['info_page', doc.url], { timeoutMs: 30_000 })
-      const title = info.ok ? asString(parseJson(info.stdout)?.title) : ''
+      const info = await backend().docInfo(settings, doc.url)
+      const title = info.ok ? asString(info.meta?.title) : ''
       cache[doc.url] = title ? { title, at: nowMs() } : null
       if (title) doc.title = title
     }
@@ -6134,10 +7641,7 @@ bucket 只能从枚举里选：
     if (!id) return { ok: false, error: '只有 docx 文档能同步改名' }
     const title = asString(doc.title).trim()
     if (!title) return { ok: false, error: '标题不能为空' }
-    const python = resolvePython(resolveCli(settings.cliPath))
-    const result = await runBridge(python, {
-      actions: [{ op: 'rename_docx', document: id, title }],
-    })
+    const result = await backend().actions(settings, [{ op: 'rename_docx', document: id, title }])
     const item = (result.actions ?? [])[0]
     if (!item?.ok) return { ok: false, error: item?.error || '飞书改名失败' }
     return { ok: true }
@@ -6181,7 +7685,7 @@ bucket 只能从枚举里选：
    * 手动把一篇飞书文档绑到任务上（或解绑）。
    *
    * 面板卡片上的「＋ 文档」直接调它：写本地 + 立刻写回飞书字段，两条链路一次完成。
-   * 标题尽力从 CLI 的 info_page 拿；拿不到就用链接占位，不因为标题失败拒绝绑定。
+   * 标题尽力从当前后端的文档信息接口拿；拿不到就用链接占位，不因为标题失败拒绝绑定。
    */
   async function bindTaskDoc(taskId, rawUrl, options = {}) {
     const task = state.tasks.find((item) => item.id === taskId)
@@ -6198,9 +7702,8 @@ bucket 只能从枚举里选：
       if (!/^https?:\/\//.test(url)) return { ok: false, error: '文档链接需要以 http(s):// 开头' }
       let title = current.find((doc) => doc?.url === url)?.title || ''
       if (!title) {
-        const info = await runCli(resolveCli(settings.cliPath), ['info_page', url], { timeoutMs: 60_000 })
-        const meta = info.ok ? parseJson(info.stdout) : undefined
-        title = asString(meta?.title)
+        const info = await backend().docInfo(settings, url)
+        title = info.ok ? asString(info.meta?.title) : ''
       }
       const others = current.filter((doc) => doc?.url !== url)
       task.docs = [{ url, title: title || url, source: '手动', createdAt: nowMs() }, ...others].slice(0, 8)
@@ -6217,7 +7720,7 @@ bucket 只能从枚举里选：
    * 把一条任务上已绑定的文档换成另一个链接，并同步到飞书。
    *
    * 卡片上的 `✎` 改的是链接不是标题：粘错文档、或者要把任务挂到另一篇文档时，
-   * 直接改链接最直观。换完标题按新链接重新问一次 `info_page`，然后重写「文档」字段
+   * 直接改链接最直观。换完标题按新链接重新问一次文档信息，然后重写「文档」字段
    * （字段里存的就是链接，这一步才是真正让飞书那边跟着换）。
    */
   async function editTaskDoc(taskId, rawUrl, rawNextUrl) {
@@ -6237,8 +7740,8 @@ bucket 只能从枚举里选：
     const duplicate = docs.find((item) => item !== doc && item?.url === nextUrl)
     if (duplicate) task.docs = docs.filter((item) => item !== doc)
 
-    const info = await runCli(resolveCli(settings.cliPath), ['info_page', nextUrl], { timeoutMs: 60_000 })
-    const title = info.ok ? asString(parseJson(info.stdout)?.title) : ''
+    const info = await backend().docInfo(settings, nextUrl)
+    const title = info.ok ? asString(info.meta?.title) : ''
     const previousUrl = url
     doc.url = nextUrl
     /* 换了链接就不再是「自己生成的那篇」了，按手动绑定记。 */
@@ -6277,15 +7780,11 @@ bucket 只能从枚举里选：
     if (options.refresh !== true && hit && nowMs() - hit.at < DETAIL_TTL) {
       return { ok: true, task, detail: hit.value, cached: true }
     }
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）', task }
-    const result = await runBridge(python, {
-      actions: [
-        { op: 'task_comments', task: taskId },
-        { op: 'task_subtasks', task: taskId },
-        { op: 'task_attachments', task: taskId },
-      ],
-    })
+    const result = await backend().actions(settings, [
+      { op: 'task_comments', task: taskId },
+      { op: 'task_subtasks', task: taskId },
+      { op: 'task_attachments', task: taskId },
+    ])
     const byOp = (name) => (result.actions ?? []).find((item) => item.op === name)
     const nameOf = (id) => cached(remoteCache.users, asString(id), REMOTE_TTL.users)?.name || asString(id)
     const pick = (name, mapItem) => {
@@ -6310,7 +7809,7 @@ bucket 只能从枚举里选：
       .filter((id) => id && !cached(remoteCache.users, id, REMOTE_TTL.users))
     if (unknownAuthors.length > 0) {
       try {
-        const extra = await runBridge(python, { users: unknownAuthors })
+        const extra = await backend().enrich(settings, { users: unknownAuthors })
         const stamp = nowMs()
         for (const [id, user] of Object.entries(extra?.users ?? {})) {
           remoteCache.users.set(id, { at: stamp, value: user })
@@ -6370,10 +7869,6 @@ bucket 只能从枚举里选：
   async function createTaskDoc(taskId) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
-    const path = resolveCli(settings.cliPath)
-    const python = resolvePython(path)
-    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
-
     const lines = []
     if (task.description) lines.push(task.description.trim())
     if (task.sessionId) {
@@ -6394,16 +7889,14 @@ bucket 只能从枚举里选：
     const body = written.text || material
     if (!written.text) log(ctx, 'warn', `[doc] 模型改写失败，落原始材料：${written.reason}`)
 
-    const root = await runBridge(python, {
-      actions: [{ op: 'ensure_folder', name: 'DSH 任务文档', parent: '' }],
-    })
+    const root = await backend().actions(settings, [{ op: 'ensure_folder', name: 'DSH 任务文档', parent: '' }])
     const rootFolder = (root.actions ?? [])[0]
     if (!rootFolder?.ok) return { ok: false, error: `创建文档根目录失败：${rootFolder?.error ?? '未知'}` }
 
     const subName = `${task.no ? `T${task.no}-` : ''}${stripTaskNo(task.title).slice(0, 20)}`
-    const sub = await runBridge(python, {
-      actions: [{ op: 'ensure_folder', name: subName, parent: rootFolder.folder }],
-    })
+    const sub = await backend().actions(settings, [
+      { op: 'ensure_folder', name: subName, parent: rootFolder.folder },
+    ])
     const subFolder = (sub.actions ?? [])[0]
     if (!subFolder?.ok) return { ok: false, error: `创建任务子目录失败：${subFolder?.error ?? '未知'}` }
 
@@ -6412,20 +7905,18 @@ bucket 只能从枚举里选：
       (item) => item.source === '生成' && /\/docx\//.test(item.url || ''),
     )
     const existingId = existing ? String(existing.url).split('/docx/')[1] : ''
-    const created = await runBridge(python, {
-      actions: [
-        existingId
-          ? { op: 'update_docx', document: existingId, text: body }
-          : { op: 'create_docx', title: stripTaskNo(task.title), folder: subFolder.folder, text: body },
-      ],
-    })
+    const created = await backend().actions(settings, [
+      existingId
+        ? { op: 'update_docx', document: existingId, text: body }
+        : { op: 'create_docx', title: stripTaskNo(task.title), folder: subFolder.folder, text: body },
+    ])
     let doc = (created.actions ?? [])[0]
     if (existingId && !doc?.ok) {
       /* 记录里的文档可能已经被人删了：退回新建一篇并替换记录。 */
       log(ctx, 'warn', `[doc] 更新失败，改为新建：${doc?.error ?? '未知'}`)
-      const recreated = await runBridge(python, {
-        actions: [{ op: 'create_docx', title: stripTaskNo(task.title), folder: subFolder.folder, text: body }],
-      })
+      const recreated = await backend().actions(settings, [
+        { op: 'create_docx', title: stripTaskNo(task.title), folder: subFolder.folder, text: body },
+      ])
       doc = (recreated.actions ?? [])[0]
     }
     if (!doc?.ok) return { ok: false, error: `创建文档失败：${doc?.error ?? '未知'}` }
@@ -6516,11 +8007,9 @@ bucket 只能从枚举里选：
     }
     const missing = [...wanted].filter((name) => !existing.has(name))
     if (!missing.length) return 0
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return 0
-    const result = await runBridge(python, {
-      actions: [{ op: 'ensure_select_options', tasklist: listGuid, name: fieldName, options: missing.slice(0, 20) }],
-    })
+    const result = await backend().actions(settings, [
+      { op: 'ensure_select_options', tasklist: listGuid, name: fieldName, options: missing.slice(0, 20) },
+    ])
     const action = (result.actions ?? [])[0]
     if (!action?.ok) {
       log(ctx, 'info', `[workspace] 补选项失败：${(action?.error ?? '').slice(0, 120)}`)
@@ -6552,11 +8041,10 @@ bucket 只能从枚举里选：
       })
       .slice(0, 3)
     if (!broken.length) return 0
-    const path = resolveCli(settings.cliPath)
     let fixed = 0
     for (const task of broken) {
       const title = withTaskNo(task.title, task, leadingEmojiOf(task.title))
-      const result = await runCli(path, ['task', 'update', task.id, `--summary=${title}`], { timeoutMs: 60_000 })
+      const result = await backend().updateTask(settings, task.id, { summary: title })
       if (!result.ok) {
         log(ctx, 'info', `[repair] 改编号失败：${task.title.slice(0, 24)} ${(result.detail ?? '').slice(-80)}`)
         continue
@@ -6672,13 +8160,11 @@ bucket 只能从枚举里选：
     const fieldName = settings.taskFields.workspace.trim() || '工作区'
     const listGuid = task.tasklistGuid
     if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回' }
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return { ok: false, error: '没有可用的 feishu bridge' }
     let result
     try {
-      result = await runBridge(python, {
-        actions: [{ op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: title }],
-      })
+      result = await backend().actions(settings, [
+        { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: title },
+      ])
     } catch (error) {
       return { ok: false, error: String(error).slice(0, 120) }
     }
@@ -6758,8 +8244,6 @@ bucket 只能从枚举里选：
   /** 把改名后的工作区标题写回飞书（一轮最多 5 条，失败只记日志，下轮再试）。 */
   async function syncWorkspaceTitles(entries) {
     const fieldName = settings.taskFields.workspace.trim() || '工作区'
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return 0
     const batch = entries.slice(0, 5)
     const actions = []
     for (const { task, title } of batch) {
@@ -6770,7 +8254,7 @@ bucket 只能从枚举里选：
     if (!actions.length) return 0
     let result
     try {
-      result = await runBridge(python, { actions })
+      result = await backend().actions(settings, actions)
     } catch (error) {
       log(ctx, 'info', `[workspace] 改名写回失败：${String(error).slice(0, 120)}`)
       return 0
@@ -6814,17 +8298,16 @@ bucket 只能从枚举里选：
       pending.push({ task, listGuid, label })
     }
     if (!pending.length) return 0
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) return 0
-    const result = await runBridge(python, {
-      actions: pending.map(({ task, listGuid, label }) => ({
+    const result = await backend().actions(
+      settings,
+      pending.map(({ task, listGuid, label }) => ({
         op: 'set_custom_field',
         task: task.id,
         tasklist: listGuid,
         name: fieldName,
         value: label,
       })),
-    })
+    )
     let filled = 0
     for (let i = 0; i < pending.length; i += 1) {
       const item = (result.actions ?? [])[i]
@@ -6868,21 +8351,11 @@ bucket 只能从枚举里选：
     if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回' }
 
     const previous = task.priority || ''
-    const python = resolvePython(resolveCli(settings.cliPath))
-    if (!python) {
-      /* 没装 CLI 也别把功能锁死：本地先记住，等能写回时再补。 */
-      task.priority = want
-      task.localUpdatedAt = nowMs()
-      await persistState()
-      return { ok: true, task, local: true, warning: '未找到 feishu-sync-cli，已只改本地' }
-    }
-
-    const result = await runBridge(python, {
-      actions: [
-        { op: 'ensure_custom_field', tasklist: listGuid, name: fieldName, options },
-        { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, expected_type: 'single_select', value: want },
-      ],
-    })
+    /* 统一走 backend 抽象：官方 lark-cli 直接打自定义字段接口，内部 CLI 走 Python 桥。 */
+    const result = await backend().actions(settings, [
+      { op: 'ensure_custom_field', tasklist: listGuid, name: fieldName, options },
+      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: want },
+    ])
     const ensure = (result.actions ?? [])[0]
     const applied = (result.actions ?? [])[1]
     if (!ensure?.ok) {
@@ -6916,10 +8389,7 @@ bucket 只能从枚举里选：
     const fieldValue = (name) =>
       (task.customFields || []).find((item) => item.name === name)?.value || ''
 
-    const path = resolveCli(settings.cliPath)
-    const python = resolvePython(path)
-    if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
-    const listGuid = task.tasklistGuid
+    const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
     if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回字段' }
 
     const actions = []
@@ -6960,7 +8430,7 @@ bucket 只能从枚举里选：
       await sync({ source: 'task-sync' })
       return { ok: true, direction: 'pull', note: '飞书与本地一致，已刷新' }
     }
-    const result = await runBridge(python, { actions })
+    const result = await backend().actions(settings, actions)
     const failed = (result.actions ?? []).filter((item) => !item.ok)
     task.localUpdatedAt = 0
     await persistState()
@@ -7175,12 +8645,64 @@ bucket 只能从枚举里选：
     return inFlight
   }
 
+  /** 文档信息（标题 / 修改时间）：面板订阅与「＋ 文档」用。 */
+  function docInfo(url) {
+    return backend().docInfo(settings, asString(url))
+  }
+
+  /** 读文档正文（Markdown）：/api/docs/read 与 feishu_doc_read 共用，两种后端各自实现。 */
+  async function readDocMarkdown(url) {
+    const result = await backend().docRead(settings, asString(url))
+    if (!result.ok) return { ok: false, error: asString(result.detail || '读取失败').slice(-400) }
+    return { ok: true, markdown: asString(result.markdown) }
+  }
+
+  /** 把最近一条待用授权链接渲染成二维码（返回 png 文件路径）；面板直接 <img> 加载。 */
+  async function authQr(stageId) {
+    const stage = stageId === 'config' ? 'config' : 'login'
+    if (settings.cliBackend !== 'lark-cli') return { ok: false, error: '二维码只在官方 lark-cli 后端可用' }
+    const pending = pendingForStage(stage)
+    if (!pending) return { ok: false, error: '还没有待用链接：先点「开始授权」' }
+    const file = join(QR_TMP_DIR, `dsh-feishu-auth-qr-${stage}.png`)
+    const result = await runCommand(
+      resolveLarkCli(settings.larkCliPath),
+      ['auth', 'qrcode', pending.url, '--output', file, '--size', '512'],
+      { timeoutMs: 30_000 },
+    )
+    if (!result.ok) return { ok: false, error: asString(result.detail || '生成二维码失败').slice(-300) }
+    return { ok: true, file, url: pending.url, expiresAt: pending.expiresAt }
+  }
+
+  /** 给任务写评论（模型工具 feishu_task_comment 用）。 */
+  async function commentTask(taskId, text) {
+    const result = await backend().comment(settings, asString(taskId), asString(text))
+    return result.ok ? { ok: true } : { ok: false, error: asString(result.detail).slice(-400) }
+  }
+
+  /** 切换 CLI 后端：保存设置 → 重新探活 → 体检，面板一次请求拿到新状态。 */
+  async function switchBackend(next) {
+    const id = normalizeBackendId(next)
+    if (id !== settings.cliBackend) {
+      await saveSettings({ cliBackend: id })
+      await probeCli()
+      await checkAuth().catch(() => undefined)
+    }
+    return { ok: true, backend: id, settings, state: snapshot().state }
+  }
+
   return {
     load,
     snapshot,
     saveSettings,
     ensureManagedTasklist,
+    switchBackend,
+    docInfo,
+    readDocMarkdown,
+    commentTask,
+    authQr,
     probeCli,
+    cliStatus,
+    installCli,
     checkAuth,
     startLogin,
     startTask,
@@ -7391,7 +8913,7 @@ function mountRoutes(ctx, engine) {
                 morning: DEFAULT_MORNING_PROMPT,
                 insight: DEFAULT_INSIGHT_PROMPT,
               },
-              state: snap.state,
+              state: { ...snap.state, clis: await engine.cliStatus() },
               workspaces: snap.workspaces,
               now: nowMs(),
             })
@@ -7416,15 +8938,83 @@ function mountRoutes(ctx, engine) {
             return
           }
 
+          /* 一键安装 CLI（面板第 1 步）：body.backend 指定装哪套，缺省用当前后端。 */
+          if (route === '/api/cli/install' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.installCli(asString(body.backend || body.cliBackend) || undefined)
+            sendJson(res, 200, { ok: true, ...result })
+            return
+          }
+
+          /* 面板切换 CLI 后端：改设置后立刻重新探活 + 体检，返回新快照。 */
+          if (route === '/api/backend/switch' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.switchBackend(asString(body.cliBackend ?? body.backend))
+            sendJson(res, 200, result)
+            return
+          }
+
           if (route === '/api/auth/check' && req.method === 'POST') {
             const auth = await engine.checkAuth()
             sendJson(res, 200, { ok: true, auth })
             return
           }
 
+          /* 授权链接的二维码：面板 <img src> 直接用，省得把链接甩给人。 */
+          if (route === '/api/auth/qrcode' && req.method === 'GET') {
+            const stage = new URL(req.url, 'http://127.0.0.1').searchParams.get('stage') || 'login'
+            const qr = await engine.authQr(stage)
+            if (!qr.ok) {
+              sendJson(res, 404, { ok: false, error: qr.error })
+              return
+            }
+            try {
+              const png = await readFile(qr.file)
+              res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' })
+              res.end(png)
+            } catch (error) {
+              sendJson(res, 500, { ok: false, error: String(error).slice(-300) })
+            }
+            return
+          }
+
+          /* 浏览器新标签/脚本直接打开这条：服务端发起登录并 302 到飞书页面。
+             面板不再依赖它（桌面端 dsh-app:// 页面里 window.open 相对路径会被宿主拦），
+             改为 POST /api/auth/login 拿链接后内联展示；这条保留给外部浏览器/脚本。 */
+          if (route === '/api/auth/open' && req.method === 'GET') {
+            const force = new URL(req.url, 'http://127.0.0.1').searchParams.get('force') === '1'
+            try {
+              const result = await engine.startLogin({ force })
+              if (result.ok && result.url) {
+                res.writeHead(302, { location: result.url, 'cache-control': 'no-store' })
+                res.end()
+                return
+              }
+              const message = escapeHtml(
+                result.already
+                  ? '已经登录了，回面板刷新即可。'
+                  : result.error || result.detail || '没拿到飞书登录链接：可以回面板点「重新登录」，或看终端里 lark-cli 的输出。'
+              )
+              res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+              res.end('<!doctype html><meta charset="utf-8"><title>飞书登录</title><body style="font:14px/1.6 -apple-system,sans-serif;padding:32px;max-width:640px"><h3>飞书登录</h3><p>' + message + '</p><p><a href="/dsh-feishu/panel">回到面板</a></p></body>')
+            } catch (error) {
+              sendJson(res, 500, { ok: false, error: String(error).slice(-300) })
+            }
+            return
+          }
+
           if (route === '/api/auth/login' && req.method === 'POST') {
-            const result = await engine.startLogin()
-            sendJson(res, 200, { ok: result.ok, url: result.url ?? null, error: result.error ?? null })
+            const body = await readBody(req)
+            const result = await engine.startLogin({ force: body.force === true })
+            sendJson(res, 200, {
+              ok: result.ok,
+              url: result.url ?? null,
+              error: result.error ?? null,
+              already: result.already === true,
+              stage: result.stage ?? null,
+              detail: result.detail ?? null,
+              expiresAt: result.expiresAt ?? null,
+            })
             return
           }
 
@@ -7868,13 +9458,12 @@ function mountRoutes(ctx, engine) {
               sendJson(res, 400, { ok: false, error: '需要一个 http(s) 文档链接' })
               return
             }
-            const path = resolveCli(engine.getSettings().cliPath)
-            const result = await runCli(path, ['read_page_as_markdown', target], { timeoutMs: 120_000 })
+            const result = await engine.readDocMarkdown(target)
             if (!result.ok) {
-              sendJson(res, 502, { ok: false, error: (result.detail ?? '读取失败').slice(-400) })
+              sendJson(res, 502, { ok: false, error: result.error })
               return
             }
-            sendJson(res, 200, { ok: true, markdown: result.stdout.slice(0, 20_000) })
+            sendJson(res, 200, { ok: true, markdown: result.markdown.slice(0, 20_000) })
             return
           }
 
@@ -8052,17 +9641,16 @@ function registerTools(ctx, engine) {
       '读取一篇飞书文档/wiki 页面的正文（Markdown）。只读、联网，一次一篇。' +
         '用户给了飞书链接并问「这篇讲了什么」时用它，不要凭记忆编。',
       {
-        url: { type: 'string', description: '飞书文档链接，https://momenta.feishu.cn/wiki/... 或 /docx/...' },
+        url: { type: 'string', description: '飞书文档链接，https://example.feishu.cn/wiki/... 或 /docx/...' },
         maxChars: { type: 'number', description: '最多返回多少字符，默认 8000，上限 20000。' },
       },
       async (args) => {
         const url = asString(args.url).trim()
         if (!/^https?:\/\//.test(url)) return '需要一个 http(s) 飞书文档链接。'
         const limit = clampInt(args.maxChars, 500, 20_000, 8_000)
-        const path = resolveCli(engine.getSettings().cliPath)
-        const result = await runCli(path, ['read_page_as_markdown', url], { timeoutMs: 180_000 })
-        if (!result.ok) return `读取失败：${(result.detail ?? '').slice(-500)}`
-        const text = result.stdout.trim()
+        const result = await engine.readDocMarkdown(url)
+        if (!result.ok) return `读取失败：${result.error}`
+        const text = result.markdown.trim()
         return text.length > limit ? `${text.slice(0, limit)}\n\n…（已截断，原文 ${text.length} 字）` : text
       },
     ),

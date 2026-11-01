@@ -88,6 +88,9 @@
   /* ---------- 基础 ---------- */
   *, *::before, *::after { box-sizing: border-box; }
 
+  /* hidden 属性要压过 .btn / .setup-collapsed 这些显式 display，否则收起不生效 */
+  [hidden] { display: none !important; }
+
   html { -webkit-text-size-adjust: 100%; }
 
   body {
@@ -222,20 +225,242 @@
   #settingsSummary { font-size: 11px; }
   @media (max-width: 380px) { .setting-group-desc { max-width: 150px; } .configuration-tabs button { padding: 7px; } }
 
-  .panel-header { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-  .panel-header .statusbar { flex: 1; min-width: 0; }
-  .panel-header > #configurationToggle { flex: 0 0 auto; margin-left: auto; }
+  /* 配置入口在准备卡的状态行（状态栏）右侧，不再单独占一行 header。 */
+  #setupSummary > #configurationToggle { flex: 0 0 auto; margin-left: auto; }
 
-  /* ---------- 状态条 ---------- */
-  .statusbar {
+  /* ---------- 准备卡（装 CLI → 授权，就绪后折叠成状态行） ---------- */
+  .setup-step {
+    border-top: 1px solid var(--p-line);
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .setup-step:first-child {
+    border-top: 0;
+    margin-top: 0;
+    padding-top: 0;
+  }
+
+  .setup-step-head {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 6px 16px;
-    padding: 2px 2px 4px;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .setup-idx {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--p-accent-weak);
+    color: var(--p-accent-text);
+    font-size: 11px;
+    font-weight: 600;
+    flex: none;
+  }
+
+  .setup-step.done .setup-idx {
+    background: var(--p-ok-weak);
+    color: var(--p-ok);
+  }
+
+  .setup-title { font-size: 12.5px; font-weight: 600; }
+
+  /* 授权引导：lark-cli 要「建应用 → 授权登录」两步，feishu-sync-cli 只有一步；一步没完成，下一步不出现。 */
+  .auth-guide { margin-top: 10px; }
+
+  .auth-step {
+    border: 1px solid var(--p-line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-top: 8px;
+    background: var(--p-card);
+  }
+
+  .auth-step.pending { opacity: .55; }
+
+  .auth-step.active { border-color: var(--p-accent-line); background: var(--p-accent-weak); }
+
+  .auth-step .setup-idx { width: auto; min-width: 18px; padding: 0 5px; border-radius: 9px; }
+
+  .auth-step-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .auth-step p.muted { margin: 6px 0 0; line-height: 1.65; }
+
+  .auth-step-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  /* 「下一步」条：整个认证流程只有这一处主按钮。 */
+  .auth-next {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--p-line);
+    border-radius: 10px;
+    background: var(--p-sub);
+  }
+  .auth-next.warn { border-color: color-mix(in srgb, var(--p-warn) 45%, var(--p-line)); }
+  .auth-next.ok { border-color: color-mix(in srgb, var(--p-ok) 45%, var(--p-line)); }
+  .personal-steps { margin: 8px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.7; color: var(--p-text-2); }
+  .personal-steps li { margin: 0 0 8px; }
+  .auth-code {
+    margin: 6px 0 0;
+    padding: 7px 9px;
+    border: 1px solid var(--p-line);
+    border-radius: 8px;
+    background: var(--p-sub);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--p-text);
+  }
+  .auth-next-msg { font-size: 12.5px; line-height: 1.5; color: var(--p-text); flex: 1 1 240px; }
+  .auth-next .auth-step-actions { margin-top: 0; flex: 0 0 auto; }
+
+  /* 企业应用 / 个人账号：两种 lark-cli 授权模式 */
+  .auth-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+  .auth-mode-label { font-size: 12px; color: var(--p-text-3); }
+  .auth-mode .btn.active { border-color: var(--p-accent-line); background: var(--p-accent-weak); color: var(--p-accent-text); }
+  .auth-mode-hint { flex: 1 1 100%; font-size: 11.5px; line-height: 1.5; color: var(--p-text-3); }
+
+  .setup-log {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    max-height: 180px;
+    overflow: auto;
+    border: 1px solid var(--p-line);
+    border-radius: 8px;
+    background: var(--p-sub);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--p-text-2);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .setup-advanced { margin-top: 10px; }
+
+  .setup-advanced summary {
+    cursor: pointer;
+    font-size: 11.5px;
+    color: var(--p-text-3);
+    user-select: none;
+  }
+
+  .setup-advanced summary:hover { color: var(--p-text-2); }
+
+  .setup-advanced[open] summary { margin-bottom: 8px; }
+
+  /* 第 1 步里两套 CLI 各占一行：左边名字/状态/说明，右边安装按钮。 */
+  .setup-clirow {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    padding: 9px 11px;
+    border: 1px solid var(--p-line);
+    border-radius: 9px;
+    background: var(--p-sub);
+  }
+
+  .setup-clirow.active {
+    border-color: var(--p-accent-line);
+    background: var(--p-accent-weak);
+  }
+
+  .setup-clirow-main { flex: 1 1 220px; min-width: 0; }
+
+  .setup-clirow-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .setup-clirow-name { font-size: 12px; font-weight: 600; }
+
+  .setup-clirow-meta { margin-top: 3px; }
+
+  .setup-clirow-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+  }
+
+  .field > span { font-size: 11.5px; color: var(--p-text-2); }
+
+  .field input {
+    height: 28px;
+    padding: 0 9px;
+    border: 1px solid var(--p-line-strong);
+    border-radius: 7px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .field input:focus {
+    outline: 2px solid var(--p-accent);
+    outline-offset: 0;
+    border-color: var(--p-accent);
+  }
+
+  .setup-head {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .setup-head.can-toggle { cursor: pointer; }
+
+  /* 收起后只留一行状态条：压掉卡片内边距和标题下间距 */
+  .setup.collapsed { padding: 9px 14px; }
+  .setup.collapsed .setup-head { margin-bottom: 0; }
+  .setup.collapsed .setup-head h2 { font-size: 13px; }
+
+  .setup-head.can-toggle:hover .setup-caret { color: var(--p-text); }
+
+  /* 收放行：始终一行，内容多了横向滚动，不换行 */
+  .setup-chips {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px 12px;
+    min-width: 0;
+    overflow-x: auto;
     font-size: 12px;
     color: var(--dsw-alias-label-secondary, var(--p-text-2));
-    min-width: 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .setup-chips::-webkit-scrollbar { display: none; }
+
+  .setup-chips .stat {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .setup-caret {
+    flex: 0 0 auto;
+    width: 12px;
+    text-align: center;
+    font-size: 11px;
+    color: var(--p-text-3);
   }
 
   .stat {
@@ -311,12 +536,20 @@
     border-color: var(--p-warn-line);
   }
 
+  /* 中性提示：授权步骤用这个，避免橙色太扎眼。 */
+  .callout.info {
+    background: var(--p-accent-weak);
+    border-color: var(--p-accent-line);
+  }
+
   .callout-title {
     font-size: 12.5px;
     font-weight: 600;
     color: var(--p-warn);
     margin-bottom: 2px;
   }
+
+  .callout.info .callout-title { color: var(--p-accent-text); }
 
   .callout-desc {
     color: var(--dsw-alias-label-secondary, var(--p-text-2));
@@ -351,6 +584,102 @@
     font-size: 12px;
     color: var(--dsw-alias-label-secondary, var(--p-text-2));
     word-break: break-all;
+  }
+
+  .auth-qr-wrap {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .auth-qr-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-top: 8px;
+  }
+
+  .auth-qr-side {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .auth-step-desc {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--p-text-2);
+  }
+
+  .auth-detail {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--p-text-2);
+  }
+
+  .scope-guide {
+    margin-top: 8px;
+    border: 1px solid var(--p-line);
+    border-radius: 8px;
+    background: var(--p-bg-2, rgba(0, 0, 0, 0.02));
+  }
+
+  .scope-guide > summary {
+    cursor: pointer;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--p-text-2);
+  }
+
+  .scope-guide[open] > summary {
+    padding-bottom: 2px;
+    color: var(--p-text-1);
+  }
+
+  .scope-guide .scope-steps {
+    padding: 0 12px 10px 26px;
+  }
+
+  .scope-steps {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .scope-steps li {
+    margin: 2px 0;
+  }
+
+  .scope-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 4px 0 2px;
+  }
+
+  .scope-chip {
+    font-family: var(--p-mono, ui-monospace, monospace);
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--p-line);
+    background: var(--p-bg-1, #fff);
+    color: var(--p-text-2);
+  }
+
+  .auth-qr {
+    display: block;
+    width: 136px;
+    height: 136px;
+    padding: 6px;
+    background: #fff;
+    border: 1px solid var(--p-line);
+    border-radius: 10px;
   }
 
   .link {
@@ -3029,11 +3358,52 @@
 <div id="toast" class="toast" role="status" aria-live="polite"><span id="toastText"></span></div>
 
 <main class="wrap">
-  <!-- 1. 状态条 -->
-  <header class="panel-header">
-    <div id="statusbar" class="statusbar" aria-live="polite"></div>
-    <button type="button" id="configurationToggle" class="btn btn-ghost btn-sm" aria-expanded="false" aria-controls="configurationArea" title="飞书面板配置">配置</button>
-  </header>
+  <!-- 0. 准备卡：装 CLI → 授权；就绪后只剩一行状态，标题改叫「状态」 -->
+  <section class="card setup" id="setupCard" aria-labelledby="setupTitle">
+    <div class="card-head setup-head" id="setupSummary" aria-controls="setupBody" aria-expanded="true">
+      <h2 id="setupTitle">准备</h2>
+      <span id="setupChips" class="setup-chips"></span>
+      <button type="button" id="configurationToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="configurationArea" title="飞书面板配置">配置</button>
+      <span id="setupCaret" class="setup-caret" aria-hidden="true"></span>
+    </div>
+    <div id="setupBody">
+      <div id="staleHost"></div>
+      <div class="setup-step" id="setupCliStep">
+        <div class="setup-step-head">
+          <span class="setup-idx">1</span>
+          <span class="setup-title" id="setupCliTitle">安装 CLI</span>
+          <span class="push"></span>
+          <span id="setupCliBadge"></span>
+        </div>
+        <div id="setupCliBody"></div>
+        <details class="setup-advanced" id="setupAdvanced">
+          <summary>高级：内部 CLI / 自定义安装源 / CLI 路径</summary>
+          <!-- 公司内部 CLI：默认不露出，只在这里出现 -->
+          <div id="setupInternalCli"></div>
+          <label class="field" id="cliIndexField">
+            <span>feishu-sync 私有索引（公司内部 CLI 用，可选）</span>
+            <input id="cliIndexUrl" type="text" spellcheck="false" autocomplete="off" placeholder="https://pypi.example.com/simple">
+          </label>
+          <label class="field" id="cliPathField">
+            <span id="cliPathLabel">当前后端 CLI 绝对路径（装到了别处时用）</span>
+            <input id="cliPathInput" type="text" spellcheck="false" autocomplete="off" placeholder="~/.local/bin/feishu-sync-cli">
+          </label>
+          <div class="btnrow">
+            <button type="button" id="setupSaveAdvanced" class="btn btn-sm">保存并重试</button>
+          </div>
+        </details>
+      </div>
+      <div class="setup-step" id="setupAuthStep">
+        <div class="setup-step-head">
+          <span class="setup-idx">2</span>
+          <span class="setup-title" id="setupAuthTitle">完成飞书授权</span>
+          <span class="push"></span>
+          <span id="authBadge"></span>
+        </div>
+        <div id="authBody"></div>
+      </div>
+    </div>
+  </section>
 
   <!-- 2.5 Insight：早会视图（本地指标秒出，AI 诊断按需） -->
   <section id="insightCard" class="card insight-card" aria-labelledby="insightTitle" hidden>
@@ -3158,9 +3528,8 @@
   <section id="authCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-auth" hidden>
     <div class="card-head">
       <h2 id="authTitle">飞书授权</h2>
-      <span id="authBadge" class="push"></span>
     </div>
-    <div id="authBody"></div>
+    <p class="hint">授权流程已并入页面顶部「准备」卡的第 2 步（状态、二维码与「下一步」都在那里）；这里保留授权页签，方便和同步规则一起切换。</p>
   </section>
 
   <!-- 4. 同步设置 -->
@@ -3549,6 +3918,8 @@
     lastSig: '',
     skew: 0,              // 宿主时间 - 本机时间
     loginUrl: null,
+    loginExpiresAt: 0,
+    loginStage: '',       // 链接属于哪一步：config=建应用，login=OAuth 授权
     loginNote: '',
     sessions: {},         // task.id → sessionId（开工后立刻显示）
     cardComments: Object.create(null), // 评论历史独立缓存，不参与 taskCardSignature
@@ -3573,10 +3944,14 @@
     insightStatsLoading: false,
     filterOpen: false, // 过滤条是否展开（头部「筛选」按钮控制）
     workspaces: [],       // GET /api/state → 已登记工作区
-    busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false },
+    busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false, install: false, backend: false },
+    installTarget: null, // 正在安装哪个后端：只让那一行按钮显示「处理中…」，另一行只是暂时禁用
+    setupOpen: null,     // null=自动（未就绪展开、就绪折叠）；true/false=用户手动
+    installLog: '',      // 一键安装的分步日志
     busyTask: {},
     settingsDirty: false,
     pollTimer: null,
+    authTimer: null,
     savedTimer: null,
     toastTimer: null,
     statusKey: ''
@@ -3735,9 +4110,563 @@
     });
   }
 
-  /* ---------------- 渲染：状态条 ---------------- */
+  /* ---------------- 渲染：状态条（已并入准备卡收放行） ---------------- */
 
   function renderStatus() {
+    renderSetupChips();
+  }
+
+  /* ---------------- 渲染：授权引导 ---------------- */
+
+  /* 把「需要人工去浏览器确认」的动作拆成一张张卡片：当前这步高亮，后面的步骤置灰并等前一步完成。
+     lark-cli 和 feishu-sync-cli 的授权流程不一样，所以两套分开渲染。 */
+
+  /* 授权链接直接渲染成二维码：用飞书 App 扫，不用人手动打开链接。 */
+  function consoleLinkRow(url) {
+    var row = el('div', { 'class': 'auth-link' });
+    row.appendChild(el('span', { text: '开发者后台（权限管理）：' }));
+    row.appendChild(el('a', {
+      'class': 'link',
+      href: url,
+      target: '_blank',
+      rel: 'noreferrer',
+      title: url,
+      text: '打开并开通 scope'
+    }));
+    return row;
+  }
+
+  /* 插件本身不保存应用：用的是 lark-cli 本机配置里的 appId。
+     换过应用/换过账号时，这里必须能一眼看出当前绑的是哪个 id。 */
+  function appIdRow(auth) {
+    var row = el('div', { 'class': 'auth-link' });
+    row.appendChild(el('span', { text: '当前应用：' }));
+    row.appendChild(el('span', {
+      'class': 'mono small',
+      text: (auth && auth.appId) || '未绑定（先完成授权或点「检查授权」）'
+    }));
+    if (auth && auth.consoleUrl) {
+      row.appendChild(el('a', {
+        'class': 'link',
+        href: auth.consoleUrl,
+        target: '_blank',
+        rel: 'noreferrer',
+        text: '开发者后台'
+      }));
+    }
+    return row;
+  }
+
+  var LARK_SCOPES = [
+    'task:task:read', 'task:task:write',
+    'task:tasklist:read', 'task:tasklist:write',
+    'task:custom_field:read', 'task:custom_field:write',
+    'docx:document', 'wiki:wiki', 'drive:drive',
+    'contact:user.base:readonly'
+  ];
+
+  /* 应用没开 scope / 没发布版本时，授权页只会显示「当前无需开通或授权任何权限」。
+     把该做的几步直接铺在面板里，省得用户去猜。 */
+  function larkScopeGuide(auth) {
+    var box = el('details', { 'class': 'scope-guide' });
+    box.appendChild(el('summary', {
+      text: '扫码后提示「当前无需开通或授权任何权限」？点开看怎么开通'
+    }));
+    var stepsEl = el('ol', { 'class': 'scope-steps' });
+
+    var s1 = el('li', {});
+    s1.appendChild(el('span', { text: '打开 ' }));
+    s1.appendChild(el('a', {
+      'class': 'link',
+      href: (auth && auth.consoleUrl) || 'https://open.feishu.cn/app',
+      target: '_blank',
+      rel: 'noreferrer',
+      text: '开发者后台 · 权限管理'
+    }));
+    if (auth && auth.appId) s1.appendChild(el('span', { text: '（应用 ' + auth.appId + '）' }));
+    s1.appendChild(el('span', { text: '，登录建应用的那个飞书账号。' }));
+    stepsEl.appendChild(s1);
+
+    var s2 = el('li', {});
+    s2.appendChild(el('span', { text: '搜索并开通这些权限点（读、写都要）：' }));
+    var chips = el('div', { 'class': 'scope-chips' });
+    LARK_SCOPES.forEach(function (scope) {
+      chips.appendChild(el('span', { 'class': 'scope-chip', text: scope }));
+    });
+    s2.appendChild(chips);
+    stepsEl.appendChild(s2);
+
+    stepsEl.appendChild(el('li', {
+      text: '「版本管理与发布」→ 创建版本 → 申请发布；企业租户可能要管理员审批，通过才生效。'
+    }));
+    stepsEl.appendChild(el('li', {
+      text: '回来点「重新获取授权链接」，扫新码并在页面同意。'
+    }));
+    box.appendChild(stepsEl);
+    return box;
+  }
+
+  function authStepCard(opts) {
+    var card = el('div', { 'class': 'auth-step ' + (opts.state || 'pending') });
+    var head = el('div', { 'class': 'auth-step-head' });
+    head.appendChild(el('span', { 'class': 'setup-idx', text: opts.index }));
+    head.appendChild(el('span', { 'class': 'setup-title', text: opts.title }));
+    head.appendChild(el('span', { 'class': 'push' }));
+    head.appendChild(el('span', {
+      'class': 'badge ' + (opts.state === 'done' ? 'badge-ok' : opts.state === 'active' ? 'badge-warn' : ''),
+      text: opts.state === 'done' ? '已完成' : opts.state === 'active' ? '进行中' : '待办'
+    }));
+    card.appendChild(head);
+    /* 只有当前这一步需要解释；已完成 / 待办的步骤只留标题，页面更干净。 */
+    if (opts.desc && opts.state === 'active') {
+      card.appendChild(el('p', { 'class': 'auth-step-desc', text: opts.desc }));
+    }
+    (opts.children || []).forEach(function (node) {
+      if (node) card.appendChild(node);
+    });
+    return card;
+  }
+
+  /* feishu-sync-cli：一步——点开始授权，浏览器/终端完成个人令牌授权。 */
+  function appendFeishuAuthSteps(guide, auth) {
+    var actions = el('div', { 'class': 'auth-step-actions' });
+    /* 包一层：addEventListener 会把点击事件当参数传进来，别让 force 变成事件对象。 */
+    actions.appendChild(makeButton('开始授权', 'btn btn-primary', '请求中…', app.busy.login, function () {
+      onLogin(false);
+    }));
+    if (app.loginUrl && app.loginStage !== 'config') {
+      actions.appendChild(makeButton('我已完成授权', 'btn', '检查中…', app.busy.check, onCheck));
+      actions.appendChild(makeButton('重新获取授权链接', 'btn btn-ghost btn-sm', '获取中…', app.busy.login, function () {
+        onLogin(true);
+      }));
+    }
+    guide.appendChild(authStepCard({
+      index: '2',
+      state: 'active',
+      title: '完成个人令牌授权',
+      desc: '点「开始授权」，浏览器确认后回来点「我已完成授权」。',
+      children: [
+        actions
+      ]
+    }));
+  }
+
+  /* 官方 lark-cli：两步——先建/选飞书应用（config init），再 OAuth 授权登录（auth login）。 */
+  function appendLarkAuthSteps(guide, auth) {
+    var mode = (app.settings && app.settings.larkAccountMode) === 'individual' ? 'individual' : 'enterprise';
+    var modeRow = el('div', { 'class': 'auth-mode' });
+    modeRow.appendChild(el('span', { 'class': 'auth-mode-label', text: '账号模式' }));
+    [['enterprise', '企业应用'], ['individual', '个人账号']].forEach(function (pair) {
+      var cls = 'btn btn-sm' + (mode === pair[0] ? ' active' : '');
+      modeRow.appendChild(makeButton(pair[1], cls, null, false, function () {
+        onSwitchLarkMode(pair[0]);
+      }));
+    });
+    if (Number((app.snap && app.snap.apiVersion) || 0) < MIN_API_VERSION) {
+      modeRow.appendChild(el('span', { 'class': 'auth-mode-hint', text: '宿主是旧代码：重启 DSH 后才能切换账号模式。' }));
+    }
+    modeRow.appendChild(el('span', {
+      'class': 'auth-mode-hint',
+      text: mode === 'individual' ? '用你本人的飞书账号授权。' : '用企业自建应用，权限要管理员开通。'
+    }));
+
+    var authed = !!auth.ok;
+    var stage = authed ? '' : auth.stage === 'config' ? 'config' : 'login';
+    var hasLink = !!app.loginUrl && app.loginStage === stage;
+    var configState = authed ? 'done' : 'active';
+    var loginState = authed ? (auth.permission === false ? 'active' : 'done') : 'pending';
+
+    /* 应用被租户数据安全策略整体拦截（21001）：发链接、点授权都是死路，只给原因和出口。 */
+    if (auth.policyBlocked || auth.stage === 'blocked') {
+      var blockCard = el('div', { 'class': 'callout warn' });
+      blockCard.appendChild(el('div', { 'class': 'callout-title', text: auth.policyTitle || '租户数据安全策略拦截（21001）' }));
+      blockCard.appendChild(el('div', {
+        'class': 'callout-desc',
+        text: auth.detail || '这个应用调不通任何飞书接口，授权页也会显示「当前无需开通或授权任何权限」。'
+      }));
+      guide.appendChild(authStepCard({
+        index: '2.1',
+        state: 'active',
+        title: '绑定应用并登录 CLI',
+        desc: '应用被拦截，登录授权走不通。',
+        children: [modeRow, blockCard, appIdRow(auth)]
+      }));
+      guide.appendChild(authStepCard({
+        index: '2.2',
+        state: 'pending',
+        title: '确认权限',
+        desc: '先解决 2.1 的拦截，权限才有意义。',
+        children: [el('p', { 'class': 'muted small', text: '先解决 2.1。' })]
+      }));
+      return;
+    }
+
+    /* 2.1：绑定应用 + 登录 CLI。没绑定先建/选应用；绑定完就在这一步把 CLI 登录掉。 */
+    var firstChildren = [modeRow];
+    /* 绑定结果就显示在 2.1 这一步里：换过应用时能立刻看到实际绑的是哪个 id。 */
+    firstChildren.push(appIdRow(auth));
+    guide.appendChild(authStepCard({
+      index: '2.1',
+      state: configState,
+      title: '绑定应用并登录 CLI',
+      desc: authed
+        ? '应用已绑定，CLI 已登录。'
+        : stage === 'config'
+          ? '先绑定一个飞书应用。'
+          : '应用已绑定，点「授权登录」在浏览器完成授权。',
+      children: firstChildren
+    }));
+
+    /* 2.2：确认权限。登录成功不代表能读数据，还要确认应用开通了 task/docs/wiki/drive。 */
+    var loginChildren = [];
+    if (authed) {
+      var okPerm = auth.permission !== false;
+      if (okPerm) {
+        loginChildren.push(el('p', { 'class': 'muted small', text: 'CLI 已登录，任务接口可读，权限已就绪。' }));
+      } else {
+        var permNote = el('div', { 'class': 'callout warn' });
+        permNote.appendChild(el('div', { 'class': 'callout-title', text: '已登录，但应用权限没开全' }));
+        permNote.appendChild(el('div', {
+          'class': 'callout-desc',
+          text: auth.missingScopes ? '缺少 ' + auth.missingScopes : (auth.detail || '去开发者后台开通所需 scope。')
+        }));
+        loginChildren.push(permNote);
+      }
+      if (mode !== 'individual') loginChildren.push(larkScopeGuide(auth));
+    } else {
+      loginChildren.push(el('p', { 'class': 'muted small', text: '先完成 2.1。' }));
+    }
+    guide.appendChild(authStepCard({
+      index: '2.2',
+      state: loginState,
+      title: '确认权限',
+      desc: '登录后确认应用权限已开。',
+      children: loginChildren
+    }));
+  }
+
+  /* ---------------- 认证流程：任何时刻只给一个「下一步」 ---------------- */
+
+  function deriveNext(auth, cliOk) {
+    var backend = backendOf();
+    if (!cliOk) {
+      return { phase: 'install', tone: 'warn', message: backendLabel(backend) + ' 还没安装：先完成上面第 1 步。', label: null };
+    }
+    if (backend === 'lark-cli' && (auth.policyBlocked || auth.stage === 'blocked')) {
+      return { phase: 'blocked', tone: 'warn', message: auth.policyTitle || '应用被租户数据安全策略拦截（21001）：发授权链接也不会成功。', label: '重新检查' };
+    }
+    if (!auth.ok) {
+      if (auth.stage === 'config') {
+        return {
+          phase: 'config', tone: 'info',
+          message: '先绑定飞书应用：点按钮会跑 lark-cli config init，浏览器里创建/选择即可。',
+          label: app.loginUrl ? '重新创建' : '创建应用'
+        };
+      }
+      return {
+        phase: 'login', tone: 'info',
+        message: backend === 'lark-cli'
+          ? '点「飞书登录」直接跑 lark-cli 登录，浏览器里同意即可，插件会自动检测结果。'
+          : '点「开始授权」跑 feishu-sync-cli 授权。',
+        label: app.loginUrl ? (backend === 'lark-cli' ? '重新登录' : '重新授权') : (backend === 'lark-cli' ? '飞书登录' : '开始授权')
+      };
+    }
+    if (auth.permission === false) {
+      return { phase: 'scope', tone: 'warn', message: '已登录，但应用权限还没开全。', label: '检查授权' };
+    }
+    return { phase: 'ready', tone: 'ok', message: '授权已就绪，可以同步任务了。', label: '检查授权' };
+  }
+
+  function nextActionRow(next, auth) {
+    var wrap = el('div', { 'class': 'auth-next ' + (next.tone || 'info') });
+    wrap.setAttribute('data-phase', next.phase);
+    wrap.appendChild(el('span', { 'class': 'auth-next-msg', text: next.message }));
+    var row = el('div', { 'class': 'auth-step-actions' });
+    if (next.phase === 'install') {
+      row.appendChild(makeButton('去安装 CLI', 'btn btn-primary btn-sm', null, false, function () {
+        var target = $('setupCliStep');
+        if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }));
+    } else if (next.phase === 'config' || next.phase === 'login') {
+      row.appendChild(makeButton(next.label, 'btn btn-primary', '执行中…', app.busy.login, function () {
+        onLogin(!!app.loginUrl);
+      }));
+    } else if (next.phase === 'blocked') {
+      row.appendChild(makeButton('重新检查', 'btn', '检查中…', app.busy.check, onCheck));
+    } else {
+      row.appendChild(makeButton(next.label, 'btn btn-ghost', '检查中…', app.busy.check, onCheck));
+    }
+    if (app.loginNote) row.appendChild(el('span', { 'class': 'muted small', text: app.loginNote }));
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  /* ---------------- 渲染：授权卡 ---------------- */
+
+  function renderAuth() {
+    var auth = (app.snap && app.snap.auth) || {};
+    var ok = !!auth.ok;
+    /* 页面刷新后本地状态会丢：用后端记住的「最近一条链接」恢复，不用重新点一遍。 */
+    if (!ok && !app.loginUrl && auth.pendingUrl) {
+      app.loginUrl = String(auth.pendingUrl);
+      app.loginStage = auth.stage === 'config' ? 'config' : 'login';
+      app.loginExpiresAt = Number(auth.pendingExpiresAt) || 0;
+    }
+    if (!ok && app.loginUrl && app.loginExpiresAt && Date.now() > app.loginExpiresAt) {
+      app.loginUrl = null;
+      app.loginStage = '';
+      app.loginExpiresAt = 0;
+      app.loginNote = '上一条链接已过期，再点按钮会生成新链接。';
+    }
+    var cliOk = !!(app.snap && app.snap.cli && app.snap.cli.found);
+    /* 4 秒静默体检会不停触发渲染；内容没变就整块跳过，避免二维码闪烁。 */
+    var authKey = JSON.stringify([
+      ok, auth.stage, auth.detail, auth.policyBlocked, auth.permission,
+      auth.missingScopes, auth.appId, auth.consoleUrl,
+      app.loginUrl, app.loginStage, app.loginNote,
+      app.busy.login, app.busy.check, backendOf(), cliOk
+    ]);
+    if (app.authKey === authKey) return;
+    app.authKey = authKey;
+    var authTitle = $('setupAuthTitle');
+    if (authTitle) authTitle.textContent = '飞书授权';
+
+    var badge = $('authBadge');
+    clear(badge);
+    var badgeOk = ok && auth.permission !== false;
+    badge.appendChild(el('span', {
+      'class': 'badge ' + (badgeOk ? 'badge-ok' : 'badge-warn'),
+      text: badgeOk ? '已授权' : auth.policyBlocked ? '被拦截' : ok ? '已登录 · 缺权限' : '需要授权'
+    }));
+
+    var body = $('authBody');
+    clear(body);
+
+    var next = deriveNext(auth, cliOk);
+    body.appendChild(nextActionRow(next, auth));
+    /* 桌面端 window.open 可能被宿主拦掉：把链接和二维码直接放在面板里兜底。 */
+    var linkBox = authLinkBox(auth);
+    if (linkBox) body.appendChild(linkBox);
+
+    if (!ok) {
+      /* CLI 都没有时，授权按钮只会失败，先把人指回第 1 步。 */
+      if (!cliOk) {
+        body.appendChild(el('p', {
+          'class': 'muted',
+          text: backendLabel(backendOf()) + ' 还没装，先完成上面第 1 步。'
+        }));
+        return;
+      }
+      if (auth.detail && !auth.policyBlocked) {
+        body.appendChild(el('p', { 'class': 'auth-detail', text: auth.detail }));
+      }
+
+      var guide = el('div', { 'class': 'auth-guide' });
+      if (backendOf() === 'lark-cli') appendLarkAuthSteps(guide, auth);
+      else appendFeishuAuthSteps(guide, auth);
+      body.appendChild(guide);
+
+      if (app.loginNote) {
+        body.appendChild(el('p', { 'class': 'muted small', text: app.loginNote }));
+      }
+    } else if (auth.permission === false) {
+      var perm = el('div', { 'class': 'callout warn' });
+      perm.appendChild(el('div', { 'class': 'callout-title', text: '已登录，但应用权限没开全' }));
+      perm.appendChild(el('div', {
+        'class': 'callout-desc',
+        text: auth.missingScopes ? '缺少 ' + auth.missingScopes : (auth.detail || '去开发者后台开通所需 scope。')
+      }));
+      body.appendChild(perm);
+      if (backendOf() === 'lark-cli') {
+        var guidePerm = el('div', { 'class': 'auth-guide' });
+        appendLarkAuthSteps(guidePerm, auth);
+        body.appendChild(guidePerm);
+      } else {
+        body.appendChild(larkScopeGuide(auth));
+      }
+
+    } else {
+      var lead = el('div', { 'class': 'auth-ok' });
+      lead.appendChild(el('span', { 'class': 'dot ok' }));
+      lead.appendChild(el('span', {
+        text: backendOf() === 'lark-cli' ? '官方 lark-cli 已登录' : '个人令牌可用'
+      }));
+      body.appendChild(lead);
+
+      if (auth.detail) {
+        body.appendChild(el('p', { 'class': 'muted', text: auth.detail }));
+      }
+      if (auth.checkedAt) {
+        var checked = el('p', { 'class': 'muted small' });
+        checked.appendChild(el('span', { text: '最近检查：' }));
+        checked.appendChild(el('span', {
+          title: fmtAbs(auth.checkedAt),
+          text: fmtRel(auth.checkedAt)
+        }));
+        body.appendChild(checked);
+      }
+
+      if (backendOf() === 'lark-cli') {
+        var guideOk = el('div', { 'class': 'auth-guide' });
+        appendLarkAuthSteps(guideOk, auth);
+        body.appendChild(guideOk);
+      }
+    }
+  }
+
+  /* ---------------- 渲染：飞书准备卡 ---------------- */
+
+  function backendOf() {
+    var chosen = (app.snap && app.snap.cli && app.snap.cli.backend) || (app.settings && app.settings.cliBackend) || 'lark-cli';
+    return chosen === 'feishu-sync' ? 'feishu-sync' : 'lark-cli';
+  }
+
+  function backendLabel(id) {
+    return id === 'lark-cli' ? '官方 lark-cli' : 'feishu-sync-cli';
+  }
+
+  function setupState() {
+    var s = app.snap || {};
+    var cli = s.cli || {};
+    var auth = s.auth || {};
+    var cliOk = !!cli.found;
+    var authOk = !!auth.ok;
+    return {
+      cli: cli,
+      clis: s.clis || null,
+      auth: auth,
+      cliOk: cliOk,
+      authOk: authOk,
+      ready: cliOk && authOk,
+      backend: backendOf(),
+      done: (cliOk ? 1 : 0) + (authOk ? 1 : 0)
+    };
+  }
+
+  /* 第 1 步默认只给官方 lark-cli；公司内部的 feishu-sync-cli 收在「高级」里，不主动引导安装。 */
+  var PRIMARY_CLI = {
+    id: 'lark-cli',
+    name: '官方 lark-cli',
+    desc: '飞书官方，推荐',
+    installLabel: '安装官方 lark-cli'
+  };
+  var INTERNAL_CLI = {
+    id: 'feishu-sync',
+    name: 'feishu-sync-cli',
+    desc: '公司内部（内网/私有包）',
+    installLabel: '安装内部 feishu-sync-cli'
+  };
+
+  function renderSetupCli(st) {
+    var step = $('setupCliStep');
+    if (!step) return;
+    step.className = 'setup-step' + (st.cliOk ? ' done' : '');
+
+    var badge = $('setupCliBadge');
+    clear(badge);
+    badge.appendChild(el('span', {
+      'class': 'badge ' + (st.cliOk ? 'badge-ok' : 'badge'),
+      text: st.cliOk ? '已安装' : '未安装'
+    }));
+
+    var body = $('setupCliBody');
+    clear(body);
+    body.appendChild(el('p', {
+      'class': 'muted small',
+      text: '默认用飞书官方 lark-cli；公司内部 CLI 收在下面的「高级」里。'
+    }));
+    body.appendChild(renderCliChoice(PRIMARY_CLI, st));
+
+    /* 公司内部 CLI 只在高级里出现：默认不展示、不引导安装。 */
+    var internal = $('setupInternalCli');
+    if (internal) {
+      clear(internal);
+      internal.appendChild(el('p', {
+        'class': 'muted small',
+        text: '公司内部 CLI（仅内网可用；不需要就别管这一项）'
+      }));
+      internal.appendChild(renderCliChoice(INTERNAL_CLI, st));
+    }
+
+    if (app.installLog) {
+      body.appendChild(el('pre', { 'class': 'setup-log', text: app.installLog }));
+    }
+
+    var indexField = $('cliIndexField');
+    if (indexField) indexField.hidden = false;
+    var pathLabel = $('cliPathLabel');
+    if (pathLabel) {
+      pathLabel.textContent = 'CLI 路径（自动查找失败时填）';
+    }
+    if (document.activeElement !== $('cliPathInput')) {
+      var pathInput = $('cliPathInput');
+      if (pathInput) {
+        var useLark = st.backend === 'lark-cli';
+        pathInput.value =
+          (app.settings && (useLark ? app.settings.larkCliPath : app.settings.cliPath)) || '';
+        pathInput.placeholder = useLark ? '/opt/homebrew/bin/lark-cli' : '~/.local/bin/feishu-sync-cli';
+      }
+    }
+    var idxInput = $('cliIndexUrl');
+    if (idxInput && document.activeElement !== idxInput) {
+      idxInput.value = (app.settings && app.settings.cliIndexUrl) || '';
+    }
+  }
+
+  function renderCliChoice(choice, st) {
+    var status = (st.clis && st.clis[choice.id]) || (st.backend === choice.id ? st.cli : null) || {};
+    var installed = !!status.found;
+    var active = st.backend === choice.id;
+
+    var row = el('div', { 'class': 'setup-clirow' + (active ? ' active' : '') });
+    var main = el('div', { 'class': 'setup-clirow-main' });
+    var head = el('div', { 'class': 'setup-clirow-head' });
+    head.appendChild(el('span', { 'class': 'setup-clirow-name', text: choice.name }));
+    if (active && installed) head.appendChild(el('span', { 'class': 'badge badge-ok', text: '使用中' }));
+    head.appendChild(el('span', {
+      'class': 'badge ' + (installed ? 'badge-ok' : 'badge'),
+      text: installed ? '已安装' : '未安装'
+    }));
+    main.appendChild(head);
+    if (installed) {
+      var metaText = choice.desc + ' · ' + (status.version || '已安装');
+      if (status.path) metaText += ' · ' + status.path;
+      main.appendChild(el('p', {
+        'class': 'muted small setup-clirow-meta',
+        title: metaText,
+        text: choice.desc + ' · ' + (status.version || '已安装')
+      }));
+    } else {
+      main.appendChild(el('p', {
+        'class': 'muted small setup-clirow-meta',
+        text: choice.desc
+      }));
+    }
+    row.appendChild(main);
+
+    var actions = el('div', { 'class': 'setup-clirow-actions' });
+    var label = choice.installLabel;
+    var cls = 'btn btn-sm' + (active ? ' btn-primary' : '');
+    if (installed && active) {
+      label = '重新检查';
+      cls = 'btn btn-ghost btn-sm';
+    } else if (installed) {
+      label = '切换到此后端';
+      cls = 'btn btn-sm';
+    }
+    var busyHere = !!app.busy.install && app.installTarget === choice.id;
+    actions.appendChild(makeButton(
+      label, cls,
+      busyHere ? '处理中…' : '', /* 别的后端在装时，这一行只禁用，不显示处理中 */
+      app.busy.install,
+      function () { onInstallCli(choice.id); }
+    ));
+    row.appendChild(actions);
+    return row;
+  }
+
+  /* 收放行：授权/CLI/上次同步/同步出错，全在这一行里，和状态条同款 dot+文字。 */
+  function renderSetupChips() {
     renderManagedTasklistStatus();
     var s = app.snap || {};
     var auth = s.auth || {};
@@ -3749,8 +4678,9 @@
     }
     /* 插件版本跟 CLI 挂在同一个 chip 上：一行看完「插件哪版 + CLI 什么状态」。 */
     var version = app.version || s.version || '';
-    var versionText = version ? 'v' + String(version) : 'v—';
-    var cliChipText = versionText + ' · ' + cliText;
+    var versionText = version ? 'v' + String(version) : '';
+    /* 旧宿主不上报版本号：不要显示假的 v—，只留 CLI 状态。 */
+    var cliChipText = versionText ? versionText + ' · ' + cliText : cliText;
     var syncText = s.lastSyncAt ? fmtRel(s.lastSyncAt) : '尚未同步';
     var key = [
       auth.ok ? '1' : '0', auth.detail || '',
@@ -3759,25 +4689,26 @@
     if (key === app.statusKey) return;
     app.statusKey = key;
 
-    var box = $('statusbar');
+    var box = $('setupChips');
+    if (!box) return;
     clear(box);
 
     box.appendChild(statChip(auth.ok ? 'ok' : 'warn',
       auth.ok ? '授权可用' : '需要授权', auth.detail));
 
-    box.appendChild(statChip(null, cliChipText, (s.cli && s.cli.path) || 'dsh-feishu ' + versionText));
+    box.appendChild(statChip(
+      s.cli && s.cli.found ? 'ok' : null,
+      cliChipText,
+      (s.cli && s.cli.path) || (versionText ? 'dsh-feishu ' + versionText : 'dsh-feishu')
+    ));
 
     var syncEl = el('span', { 'class': 'stat' });
     syncEl.appendChild(el('span', { 'class': 'k', text: '上次同步' }));
-    if (s.lastSyncAt) {
-      syncEl.appendChild(el('span', {
-        'class': 'val',
-        title: fmtAbs(s.lastSyncAt),
-        text: syncText
-      }));
-    } else {
-      syncEl.appendChild(el('span', { 'class': 'val', text: '尚未同步' }));
-    }
+    syncEl.appendChild(el('span', {
+      'class': 'val',
+      title: s.lastSyncAt ? fmtAbs(s.lastSyncAt) : '',
+      text: s.lastSyncAt ? fmtRel(s.lastSyncAt) : '尚未同步'
+    }));
     box.appendChild(syncEl);
 
     if (s.syncing) {
@@ -3795,84 +4726,179 @@
     }
   }
 
-  /* ---------------- 渲染：授权卡 ---------------- */
+  /**
+   * 准备卡状态机：两步都完成（CLI 就绪 + 授权成功）后，卡头那行才可点击收起；
+   * 没授权成功之前强制展开，点这一行也不会隐藏（免得「该点哪里」被藏起来）。
+   */
+  function renderSetup() {
+    var st = setupState();
+    /* 宿主还是旧代码时别收起：要让人看到「重启后新流程才生效」。 */
+    var ready = st.ready && !hostOutdated();
+    var canCollapse = ready;
 
-  function renderAuth() {
-    var auth = (app.snap && app.snap.auth) || {};
-    var ok = !!auth.ok;
+    if (!canCollapse) app.setupOpen = null;
 
-    var badge = $('authBadge');
-    clear(badge);
-    badge.appendChild(el('span', {
-      'class': 'badge ' + (ok ? 'badge-ok' : 'badge-warn'),
-      text: ok ? '已授权' : '需要授权'
-    }));
+    renderSetupChips();
+    renderSetupCli(st);
 
-    var body = $('authBody');
-    clear(body);
+    var authStep = $('setupAuthStep');
+    if (authStep) authStep.className = 'setup-step' + (st.authOk ? ' done' : '');
 
-    if (!ok) {
-      var callout = el('div', { 'class': 'callout warn' });
-      callout.appendChild(el('div', { 'class': 'callout-title', text: '需要授权' }));
-      callout.appendChild(el('div', {
-        'class': 'callout-desc',
-        text: auth.detail || '个人令牌不可用或已过期，请完成一次飞书授权。'
-      }));
-      body.appendChild(callout);
+    var open = canCollapse ? (app.setupOpen === null ? false : app.setupOpen) : true;
+    var bodyBox = $('setupBody');
+    var head = $('setupSummary');
+    if (bodyBox) bodyBox.hidden = !open;
 
-      var row = el('div', { 'class': 'btnrow' });
-      row.appendChild(makeButton('开始授权', 'btn btn-primary',
-        '请求中…', app.busy.login, onLogin));
-      row.appendChild(makeButton('检查授权', 'btn btn-ghost',
-        '检查中…', app.busy.check, onCheck));
-      body.appendChild(row);
+    /* 就绪后这张卡只剩一行状态，标题改叫「状态」；收起时压掉内边距，别显得很高。 */
+    var card = $('setupCard');
+    var titleEl = $('setupTitle');
+    if (titleEl) titleEl.textContent = ready ? '状态' : '准备';
+    if (card) card.classList.toggle('collapsed', !open);
 
-      if (app.loginNote) {
-        body.appendChild(el('p', { 'class': 'muted', text: app.loginNote }));
+    if (head) {
+      if (canCollapse) {
+        head.classList.add('can-toggle');
+        head.setAttribute('role', 'button');
+        head.setAttribute('tabindex', '0');
+        head.setAttribute('aria-expanded', open ? 'true' : 'false');
+        head.setAttribute('title', open ? '点击收起' : '点击展开');
+      } else {
+        head.classList.remove('can-toggle');
+        head.removeAttribute('role');
+        head.removeAttribute('tabindex');
+        head.setAttribute('aria-expanded', 'true');
+        head.setAttribute('title', '授权成功后才能收起');
       }
-
-      if (app.loginUrl) {
-        var linkRow = el('div', { 'class': 'auth-link' });
-        linkRow.appendChild(el('span', { text: '授权链接：' }));
-        linkRow.appendChild(el('a', {
-          'class': 'link',
-          href: app.loginUrl,
-          target: '_blank',
-          rel: 'noreferrer',
-          title: app.loginUrl,
-          text: '打开飞书授权页'
-        }));
-        body.appendChild(linkRow);
-
-        var row2 = el('div', { 'class': 'btnrow' });
-        row2.appendChild(makeButton('我已完成授权', 'btn',
-          '检查中…', app.busy.check, onCheck));
-        body.appendChild(row2);
-      }
-    } else {
-      var lead = el('div', { 'class': 'auth-ok' });
-      lead.appendChild(el('span', { 'class': 'dot ok' }));
-      lead.appendChild(el('span', { text: '个人令牌可用' }));
-      body.appendChild(lead);
-
-      if (auth.detail) {
-        body.appendChild(el('p', { 'class': 'muted', text: auth.detail }));
-      }
-      if (auth.checkedAt) {
-        var checked = el('p', { 'class': 'muted small' });
-        checked.appendChild(el('span', { text: '最近检查：' }));
-        checked.appendChild(el('span', {
-          title: fmtAbs(auth.checkedAt),
-          text: fmtRel(auth.checkedAt)
-        }));
-        body.appendChild(checked);
-      }
-
-      var row3 = el('div', { 'class': 'btnrow' });
-      row3.appendChild(makeButton('检查授权', 'btn',
-        '检查中…', app.busy.check, onCheck));
-      body.appendChild(row3);
     }
+
+    var caret = $('setupCaret');
+    if (caret) caret.textContent = canCollapse ? (open ? '▾' : '▸') : '';
+  }
+
+  /* ---------------- 准备卡动作 ---------------- */
+
+  function installLogText(steps) {
+    var lines = [];
+    for (var i = 0; i < (steps || []).length; i++) {
+      var step = steps[i] || {};
+      lines.push((step.ok ? '✓ ' : '✗ ') + (step.label || ''));
+      var parts = String(step.detail || '').split('\n');
+      for (var j = 0; j < parts.length; j++) {
+        if (parts[j].trim()) lines.push('    ' + parts[j].trim());
+      }
+    }
+    return lines.join('\n');
+  }
+
+  function onInstallCli(backendId) {
+    if (app.busy.install) return;
+    app.busy.install = true;
+    app.installTarget = backendId || backendOf();
+    app.installLog = '';
+    renderSetup();
+
+    api('cli/install', backendId ? { backend: backendId } : {}).then(function (data) {
+      app.busy.install = false;
+      app.installTarget = null;
+      app.installLog = installLogText(data && data.steps) || ((data && data.error) || '');
+      if (data && data.settings) app.settings = data.settings;
+      if (data && data.cli) app.snap.cli = data.cli;
+      var currentBackend = (app.settings && app.settings.cliBackend) || 'lark-cli';
+      var staleServer = !!backendId && backendId !== currentBackend &&
+        (!data || data.backend !== backendId);
+      if (staleServer) {
+        /* 旧版宿主会忽略 backend 参数、改去装当前后端：明确告诉用户，别以为装错了。 */
+        app.installLog = '⚠ 宿主还在跑旧代码，这次按旧逻辑安装了「当前后端」。请重启 DSH 后重试。\n' + app.installLog;
+        toast('宿主仍是旧版本：重启 DSH 后再切后端');
+      } else if (data && data.switched) {
+        toast('已切换到 ' + backendLabel(data.backend));
+      } else if (data && (data.installed || data.already)) {
+        toast(data.already ? 'CLI 已就绪' : 'CLI 安装完成');
+      } else if (data && data.error) {
+        toast(data.error);
+      }
+      renderSetup();
+      renderStatus();
+      renderAuth();
+      load({ quiet: true }).then(function () {
+        /* 刚装上 CLI 就顺手体检一次授权，让第 2 步立刻能用。 */
+        if (app.snap && app.snap.cli && app.snap.cli.found) return onCheck();
+        return null;
+      });
+    }, function () {
+      app.busy.install = false;
+      app.installTarget = null;
+      renderSetup();
+    });
+  }
+
+  /* 从飞书准备卡里直接换后端（被拦截时的退路）。 */
+  function onSwitchBackendTo(id) {
+    if (!id || backendOf() === id) return;
+    api('backend/switch', { cliBackend: id }).then(function (data) {
+      if (data && data.settings) app.settings = data.settings;
+      if (data && data.cli) app.snap.cli = data.cli;
+      if (data && data.state) {
+        app.snap.auth = data.state.auth || app.snap.auth;
+      }
+      app.loginUrl = null;
+      app.loginStage = '';
+      app.loginExpiresAt = 0;
+      app.loginNote = '';
+      toast(id === 'lark-cli' ? '已改用官方 lark-cli' : '已改用 feishu-sync-cli');
+      load({ quiet: true }).then(function () {
+        renderAll();
+      }, function () {
+        renderAll();
+      });
+    }, function () {
+      /* api() 已经提示过失败 */
+    });
+  }
+
+  function onSwitchLarkMode(mode) {
+    if (!mode) return;
+    if ((app.settings && app.settings.larkAccountMode) === mode) return;
+    api('settings', { larkAccountMode: mode }).then(function (data) {
+      var saved = data && data.settings ? data.settings.larkAccountMode : '';
+      if (saved !== mode) {
+        /* 旧宿主不认识这个设置项，会静默丢掉；不要假装切成功了。 */
+        toast('宿主还是旧代码：重启 DSH 后才能切换账号模式');
+        renderStaleHost();
+        return;
+      }
+      if (data && data.settings) app.settings = data.settings;
+      toast(mode === 'individual' ? '已切到个人账号模式' : '已切到企业应用模式');
+      app.loginUrl = '';
+      app.loginStage = '';
+      app.loginNote = '';
+      load({ quiet: true }).then(function () {
+        renderSetup();
+        renderAuth();
+      });
+    }, function () {});
+  }
+
+  function onSaveSetupSettings() {
+    var backend = backendOf();
+    var payload = {
+      cliBackend: backend,
+      cliIndexUrl: String(($('cliIndexUrl') || {}).value || '').trim(),
+    };
+    var nextPath = String(($('cliPathInput') || {}).value || '').trim();
+    if (backend === 'lark-cli') payload.larkCliPath = nextPath || 'lark-cli';
+    else payload.cliPath = nextPath || 'feishu-sync-cli';
+
+    api('settings', payload).then(function (data) {
+      if (data && data.settings) app.settings = data.settings;
+      toast('已保存');
+      renderSetup();
+      load({ quiet: true }).then(function () {
+        if (!(app.snap && app.snap.cli && app.snap.cli.found)) onInstallCli();
+      });
+    }, function () {
+      /* api() 已经 toast 过了 */
+    });
   }
 
   /* ---------------- 渲染：同步记录（仅消费现有 state，无请求或模型调用） ---------------- */
@@ -3984,11 +5010,17 @@
   }
 
   function wireConfiguration() {
-    $('configurationToggle').addEventListener('click', function () {
+    /* 按钮现在在准备卡状态行里：阻止冒泡，别顺手把准备卡收起/展开。 */
+    $('configurationToggle').addEventListener('click', function (event) {
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
       if (!$('configurationArea').hidden) { closeConfiguration(); return; }
       openConfiguration(activeConfiguration);
       $('configurationArea').scrollIntoView({ block: 'start', behavior: 'auto' });
       $('configTab-' + activeConfiguration).focus();
+    });
+    $('configurationToggle').addEventListener('keydown', function (event) {
+      /* 状态行自己也监听 Enter/Space 做收放；按钮上的键盘操作不要触发它。 */
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
     });
     $('configurationClose').addEventListener('click', closeConfiguration);
     CONFIGURATION_KEYS.forEach(function (key, index) {
@@ -8111,12 +9143,90 @@
   function renderAll() {
     renderInsight();
     renderStatus();
+    renderSetup();
     renderDocPrompt();
     renderAuth();
     renderSettings(false);
     renderTasks();
     renderDocs();
     renderSyncHistory();
+    renderStaleHost();
+    scheduleAuthWatch();
+  }
+
+  /* 面板是热更新的、宿主 index.js 要重启才更新：版本号不一致时直接说清楚，别让人对着旧逻辑干等。 */
+  var MIN_API_VERSION = 6;
+
+  function hostOutdated() {
+    var api = Number((app.snap && app.snap.apiVersion) || 0);
+    return api < MIN_API_VERSION;
+  }
+
+  function renderStaleHost() {
+    var holder = $('staleHost');
+    if (!holder) return;
+    clear(holder);
+    if (!hostOutdated()) return;
+    var box = el('div', { 'class': 'callout info' });
+    box.appendChild(el('div', { 'class': 'callout-title', text: '宿主还是旧代码，重启 DSH 后新流程才生效' }));
+    box.appendChild(el('div', {
+      'class': 'callout-desc',
+      text: '面板已经更新，但后台 index.js 还是上一版：企业/个人账号模式、自动抓建应用链接、步骤推进都依赖新代码。重启 DeepSeek Harness 后刷新本页即可。'
+    }));
+    holder.appendChild(box);
+  }
+
+  /* 授权是「去浏览器操作 → 回来」的异步过程：面板每 4 秒自动体检一次，不用人反复点。
+     建应用完成 → 自动出现第 2.2 步；浏览器授权完成 → 自动变已授权。 */
+  function scheduleAuthWatch() {
+    if (app.authTimer) clearTimeout(app.authTimer);
+    app.authTimer = null;
+    var st = setupState();
+    if (!st.cliOk || st.authOk || document.hidden) return;
+    /* 认证进行中（创建应用 / 登录）就自动往前探：用户在浏览器或终端完成，
+       面板不用等手动点「我已完成」，每 6 秒静默体检一次。 */
+    var authNow = (app.snap && app.snap.auth) || {};
+    var nextNow = deriveNext(authNow, st.cliOk);
+    if (nextNow.phase !== 'config' && nextNow.phase !== 'login') return;
+    app.authTimer = setTimeout(function () {
+      app.authTimer = null;
+      if (app.busy.check) {
+        scheduleAuthWatch();
+        return;
+      }
+      app.busy.check = true;
+      api('auth/check', {}, { silent: true }).then(function (data) {
+        app.busy.check = false;
+        if (data && data.auth) {
+          var wasOk = !!(app.snap.auth && app.snap.auth.ok);
+          var prevStage = (app.snap.auth && app.snap.auth.stage) || '';
+          app.snap.auth = data.auth;
+          var nextStage = data.auth.stage || '';
+          if (data.auth.ok) {
+            app.loginUrl = null;
+            app.loginStage = '';
+            app.loginExpiresAt = 0;
+            app.loginNote = '';
+            toast('授权已生效');
+            if (!wasOk) afterAuthOk();
+          } else if (nextStage && prevStage && nextStage !== prevStage) {
+            app.loginUrl = null;
+            app.loginStage = '';
+            app.loginNote = '';
+          } else if (nextStage === 'login' && prevStage === 'config') {
+            app.loginUrl = null;
+            app.loginStage = '';
+          }
+          renderStatus();
+          renderAuth();
+          renderSetup();
+        }
+        scheduleAuthWatch();
+      }, function () {
+        app.busy.check = false;
+        scheduleAuthWatch();
+      });
+    }, 4000);
   }
 
   /* ---------------- 渲染：当前会话（任务卡里的第一张） ---------------- */
@@ -8492,6 +9602,8 @@
       app.lastSig = sig;
       if (next.auth && next.auth.ok) {
         app.loginUrl = null;
+        app.loginStage = '';
+        app.loginExpiresAt = 0;
         app.loginNote = '';
       }
       app.loadedOnce = true;
@@ -8545,31 +9657,96 @@
 
   /* ---------------- 授权动作 ---------------- */
 
-  function onLogin() {
+  /* 取登录链接：先 POST /api/auth/login 拿链接，再在面板里内联展示（可点、可扫码）。
+     不能再用 window.open 直接开插件自己的相对路由 /api/auth/open：桌面端面板跑在
+     dsh-app://app 下，相对 URL 会被解析成 dsh-app://app/...，而 Electron 的 window-open
+     处理只把 http(s) 交给系统浏览器，dsh-app: 一律静默拒绝 —— 表现就是「点飞书登录没反应」。
+     拿到绝对 https 链接后再 window.open，桌面端会正常拉起默认浏览器；被拦也不怕，
+     面板里同时给了链接和二维码。 */
+  function onLogin(force) {
     if (app.busy.login) return;
     app.busy.login = true;
-    app.loginNote = '';
+    app.loginNote = '正在获取登录链接…（最多约 1 分钟）';
     renderAuth();
-
-    api('auth/login', {}).then(function (data) {
+    api('auth/login', { force: !!force }).then(function (data) {
       app.busy.login = false;
-      if (data && data.url) {
-        app.loginUrl = String(data.url);
-      } else {
+      if (data && data.already) {
         app.loginUrl = null;
-        app.loginNote = '没有拿到授权链接，请在终端查看 feishu-sync-cli 的输出。';
-        toast('未拿到授权链接');
+        app.loginStage = '';
+        app.loginExpiresAt = 0;
+        app.loginNote = '';
+        toast('CLI 已经登录了，点「检查授权」即可。');
+        renderAuth();
+        load({ quiet: true });
+        return;
       }
+      if (data && data.ok && data.url) {
+        app.loginUrl = String(data.url);
+        app.loginStage = data.stage === 'config' ? 'config' : 'login';
+        app.loginExpiresAt = Number(data.expiresAt) || 0;
+        app.loginNote = '链接已生成：没自动打开浏览器就点下面的链接，或用手机扫二维码。完成后回来点「检查授权」。';
+        renderAuth();
+        try {
+          window.open(app.loginUrl, '_blank', 'noopener');
+        } catch (error) {
+          /* 弹窗被拦也没关系：内联链接/二维码还在 */
+        }
+        scheduleAuthWatch();
+        return;
+      }
+      var why = (data && (data.error || data.detail)) || '';
+      app.loginNote = '没拿到登录链接' + (why ? '：' + why : '，可以重试或看终端里 CLI 的输出。');
       renderAuth();
-      load({ quiet: true });
-    }, function () {
+      if (why) toast(why);
+    }, function (error) {
       app.busy.login = false;
+      app.loginNote = '获取登录链接失败：' + ((error && error.message) || '网络错误');
       renderAuth();
     });
   }
 
+  /* 登录链接 + 二维码：桌面端 window.open 可能被宿主拦掉，所以链接必须能在面板里
+     直接看到、直接点，手机则可以直接扫码。 */
+  function authLinkBox(auth) {
+    if (!app.loginUrl || (auth && auth.ok)) return null;
+    var stage = app.loginStage === 'config' ? 'config' : 'login';
+    var row = el('div', { 'class': 'auth-qr-row' });
+    if (backendOf() === 'lark-cli') {
+      var wrap = el('div', { 'class': 'auth-qr-wrap' });
+      wrap.appendChild(el('img', {
+        'class': 'auth-qr',
+        alt: '飞书登录二维码',
+        src: API_BASE + 'auth/qrcode?stage=' + stage + '&t=' + Date.now()
+      }));
+      row.appendChild(wrap);
+    }
+    var side = el('div', { 'class': 'auth-qr-side' });
+    side.appendChild(el('a', {
+      'class': 'link',
+      href: app.loginUrl,
+      target: '_blank',
+      rel: 'noreferrer',
+      text: stage === 'config' ? '打开飞书应用创建页 ↗' : '打开飞书登录页 ↗'
+    }));
+    side.appendChild(el('p', {
+      'class': 'muted small',
+      text: stage === 'config'
+        ? '在浏览器里创建/选择飞书应用，完成后回来点「检查授权」。'
+        : '在浏览器里用飞书账号确认授权；手机可用飞书扫左侧二维码。完成后回来点「检查授权」，面板也会自动检测。'
+    }));
+    if (app.loginExpiresAt) {
+      side.appendChild(el('p', {
+        'class': 'muted small',
+        text: '链接有效期至 ' + fmtDate(app.loginExpiresAt) + '，过期请重新点按钮获取。'
+      }));
+    }
+    row.appendChild(side);
+    return row;
+  }
+
   function onCheck() {
     if (app.busy.check) return;
+    var wasOk = !!(app.snap && app.snap.auth && app.snap.auth.ok);
     app.busy.check = true;
     renderAuth();
 
@@ -8579,22 +9756,43 @@
         app.snap.auth = data.auth;
         if (data.auth.ok) {
           app.loginUrl = null;
+          app.loginStage = '';
+          app.loginExpiresAt = 0;
           app.loginNote = '';
           toast('授权已生效');
-        } else if (data.auth.detail) {
-          toast(data.auth.detail);
+          if (!wasOk) afterAuthOk();
+        } else {
+          /* 阶段前进（config→login）后，上一步的链接就作废了。 */
+          if (data.auth.stage && app.loginStage && data.auth.stage !== app.loginStage) {
+            app.loginUrl = null;
+            app.loginStage = '';
+            app.loginNote = '';
+          }
+          if (data.auth.detail) toast(data.auth.detail);
         }
       }
       renderStatus();
       renderAuth();
+      renderSetup();
       load({ quiet: true });
     }, function () {
       app.busy.check = false;
       renderAuth();
+      renderSetup();
     });
   }
 
   /* ---------------- 同步 / 设置动作 ---------------- */
+
+  /* 授权完成的下一个自然动作就是同步：自动跑一次，让流程从「授权」直接走到「看到任务」。 */
+  function afterAuthOk() {
+    setTimeout(function () {
+      load({ quiet: true }).then(function () {
+        if (app.busy.sync) return;
+        onSync();
+      });
+    }, 300);
+  }
 
   function onSync() {
     if (app.busy.sync) return;
@@ -9007,6 +10205,24 @@
     }
 
     $('saveSettings').addEventListener('click', onSave);
+    var setupSummary = $('setupSummary');
+    if (setupSummary) {
+      var toggleSetup = function () {
+        var st = setupState();
+        if (!st.ready) return; /* 授权成功前不允许隐藏 */
+        app.setupOpen = !(app.setupOpen === null ? false : app.setupOpen);
+        renderSetup();
+      };
+      setupSummary.addEventListener('click', toggleSetup);
+      setupSummary.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' || ev.key === ' ') {
+          ev.preventDefault();
+          toggleSetup();
+        }
+      });
+    }
+    var setupSave = $('setupSaveAdvanced');
+    if (setupSave) setupSave.addEventListener('click', onSaveSetupSettings);
     $('syncNow').addEventListener('click', onSync);
 
     /* 条件控件稳定驻留，只更新任务列表与摘要。 */

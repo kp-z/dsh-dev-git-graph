@@ -42,9 +42,10 @@ assert.ok(has(area, 'hidden'), 'configuration is hidden on first paint')
 const toggle = get('configurationToggle')
 assert.equal(toggle.attrs['aria-expanded'], 'false')
 assert.equal(toggle.attrs['aria-controls'], 'configurationArea')
-assert.ok(classHas(toggle.parent, 'panel-header'), 'configuration belongs in the panel header, not a task card')
-assert.equal(toggle.parent.tag, 'header')
-assert.equal(get('statusbar').parent, toggle.parent, 'configuration sits beside global status')
+/* 配置入口挂在准备卡的状态行（状态栏）里，不再单独占一行 header。 */
+assert.equal(toggle.parent.attrs.id, 'setupSummary')
+assert.ok(classHas(toggle.parent, 'setup-head'), 'configuration sits in the status bar row')
+assert.ok(within(toggle, get('setupCard')), 'configuration stays with the global status chips, not a task card')
 assert.ok(within(get('configurationClose'), area))
 const panels = { settings: 'settingsCard', auth: 'authCard', docPrompt: 'docPromptCard', docs: 'docsCard', syncHistory: 'syncHistoryCard' }
 const tabs = nodes.filter((n) => has(n, 'data-config-tab'))
