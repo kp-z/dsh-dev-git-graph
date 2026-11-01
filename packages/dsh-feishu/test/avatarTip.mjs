@@ -21,6 +21,14 @@ assert.match(html, /avatar\.setAttribute\('data-tip', role \? authorName \+ ' ·
 assert.match(script, /\n  wireAvatarTips\(\);/, '启动时接线气泡')
 assert.doesNotMatch(html, /title: label \+ '：' \+ who/, '头像不再用原生 title 造成双重提示')
 
+/* 1.2 头像兜底：没有真名/真照片时画人形，绝不把 open_id 首字母当成用户头像。 */
+assert.match(html, /\.avatar\.is-anon::before/, '成员头像的中性人形样式存在')
+assert.match(html, /\.card-comment-avatar\.is-anon::before/, '评论头像的中性人形样式存在')
+assert.match(html, /'class': 'avatar' \+ \(letter \|\| photo \? '' : ' is-anon'\)/, '成员头像按「照片/首字/人形」三档渲染')
+assert.match(html, /'class': 'card-comment-avatar' \+ \(letter \|\|/, '评论头像同样是三档渲染')
+assert.match(html, /comment\.authorAvatar/, '评论头像优先用后端解析出的本人真头像')
+assert.match(html, /img\.onerror/, '头像加载失败退回首字/人形，不留破图')
+
 /* 2. 行为：抽出气泡相关声明，用假 DOM 跑一遍。 */
 const start = script.indexOf('  /* ---------------- 头像悬停姓名')
 const end = script.indexOf('  function showSaved', start)

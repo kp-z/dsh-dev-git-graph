@@ -207,8 +207,12 @@
   .card-comments-toolbar .card-comments-summary { flex: 1; min-width: 90px; color: var(--p-text-3); font-size: 11px; }
   .card-comment { display: flex; gap: 8px; padding: 9px 0; min-width: 0; }
   .card-comment.is-reply { margin-left: 14px; border-left: 1px solid var(--p-line); padding-left: 10px; }
-  .card-comment-avatar { flex: 0 0 22px; width: 22px; height: 22px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--p-sub); color: var(--p-text-2); font-size: 10px; }
+  .card-comment-avatar { position: relative; flex: 0 0 22px; width: 22px; height: 22px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--p-sub); color: var(--p-text-2); font-size: 10px; }
   .card-comment-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  /* 没拿到姓名/照片时的中性人形：open_id 的首字母不是头像，别拿它冒充用户。 */
+  .card-comment-avatar.is-anon { color: var(--p-text-3); }
+  .card-comment-avatar.is-anon::before { content: ""; position: absolute; left: 50%; top: 4px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: currentColor; }
+  .card-comment-avatar.is-anon::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 12px; height: 6px; margin-left: -6px; border-radius: 6px 6px 0 0; background: currentColor; }
   .card-comment-main { flex: 1; min-width: 0; }
   .card-comment-meta { display: flex; align-items: center; gap: 5px 8px; flex-wrap: wrap; font-size: 11px; }
   .card-comment-author { color: var(--p-text-2); font-weight: 600; }
@@ -2619,6 +2623,7 @@
   }
 
   .avatar {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2633,6 +2638,11 @@
     color: var(--p-text-2);
     flex: 0 0 auto;
   }
+
+  /* 同上：没有姓名/照片时画人形，不显示 open_id 首字母。 */
+  .avatar.is-anon { color: var(--p-text-3); }
+  .avatar.is-anon::before { content: ""; position: absolute; left: 50%; top: 3px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: currentColor; }
+  .avatar.is-anon::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 9px; height: 4px; margin-left: -4.5px; border-radius: 5px 5px 0 0; background: currentColor; }
 
   .avatar.lead { border-color: var(--p-accent, #0b5fd8); }
 
@@ -7017,7 +7027,7 @@
       var icon = el('span', {
         'class': 'people-role-icon',
         tabindex: '0',
-        'data-tip': label + '：' + list.map(function (m) { return m.name || m.id || '未知人员'; }).join('、'),
+        'data-tip': label + '：' + list.map(function (m) { return (m && m.name) || '未知成员'; }).join('、'),
         'aria-label': label + '，' + list.length + ' 人'
       });
       var svgNs = 'http://www.w3.org/2000/svg';
@@ -7041,12 +7051,24 @@
       var shown = list.slice(0, 4);
       for (var i = 0; i < shown.length; i++) {
         (function (m) {
-          var who = m.name || m.id || '';
-          var av = el('span', { 'class': 'avatar', tabindex: '0', 'data-tip': who || label, 'aria-label': label + '：' + who });
-          if (m.avatar) {
-            av.appendChild(el('img', { src: m.avatar, alt: who, loading: 'lazy' }));
+          /* 头像只认「真名」和「真照片」：
+             联系人接口没权限时成员只有 open_id，拿 ou_ 首字母当头像就是错的（显示成一片 O）。
+             有名字用首字，没名字留一个中性人形，等下次同步拿到真名/真头像再换。 */
+          var who = m && m.name ? String(m.name).trim() : '';
+          var photo = m && typeof m.avatar === 'string' && /^https?:\/\//i.test(m.avatar) ? m.avatar : '';
+          var letter = who ? who.slice(0, 1).toUpperCase() : '';
+          var av = el('span', { 'class': 'avatar' + (letter || photo ? '' : ' is-anon'), tabindex: '0', 'data-tip': who || label, 'aria-label': label + '：' + (who || '未知成员') });
+          if (photo) {
+            var img = el('img', { src: photo, alt: '', loading: 'lazy' });
+            /* 头像 URL 过期或被拦时退回首字/人形，别在卡片上留一张破图。 */
+            img.onerror = function () {
+              if (img.parentNode === av) av.removeChild(img);
+              av.className = letter ? 'avatar' : 'avatar is-anon';
+              av.textContent = letter;
+            };
+            av.appendChild(img);
           } else {
-            av.textContent = (who || '?').trim().slice(0, 1).toUpperCase();
+            av.textContent = letter;
           }
           group.appendChild(av);
         })(shown[i]);
@@ -7057,7 +7079,7 @@
           text: '+' + (list.length - shown.length),
           tabindex: '0',
           'aria-label': label + '，另有 ' + (list.length - shown.length) + ' 人',
-          'data-tip': label + '：' + list.slice(shown.length).map(function (m) { return m.name || m.id; }).join('、')
+          'data-tip': label + '：' + list.slice(shown.length).map(function (m) { return (m && m.name) || '未知成员'; }).join('、')
         }));
       }
       return group;
@@ -7351,15 +7373,29 @@
       seen[comment.id] = true;
       var entry = cardCommentEntry(state, comment);
       var author = comment.author;
-      var authorName = typeof author === 'string' ? author : author && (author.name || author.id);
       var member = (Array.isArray(t.members) ? t.members : []).filter(function (m) { return m.id === comment.authorId; })[0];
-      authorName = authorName || (member && member.name) || comment.authorId || '未知作者';
+      var rawName = typeof author === 'string' ? author : author && (author.name || author.id);
+      /* 后端查不到评论人姓名时会退回 open_id：那不是名字，别拿它（或它的首字母）冒充头像。 */
+      var placeholder = !rawName || /^ou_[A-Za-z0-9]+$/.test(String(rawName).trim());
+      var authorName = placeholder ? String((member && member.name) || '').trim() : String(rawName).trim();
+      var letter = authorName ? authorName.slice(0, 1).toUpperCase() : '';
+      if (!authorName) authorName = '未知成员';
       var own = cardCommentIsOwn(comment, entry);
       var item = el('div', { 'class': 'card-comment' + (comment.replyToCommentId ? ' is-reply' : ''), role: 'listitem' });
-      var avatar = el('span', { 'class': 'card-comment-avatar', 'aria-hidden': 'true' });
-      var avatarUrl = (author && typeof author === 'object' && author.avatar) || (member && member.avatar);
-      if (avatarUrl && /^https?:\/\//i.test(avatarUrl)) avatar.appendChild(el('img', { src: avatarUrl, alt: '', loading: 'lazy' }));
-      else avatar.textContent = String(authorName).trim().slice(0, 1).toUpperCase();
+      var avatarUrl = (author && typeof author === 'object' && author.avatar) || comment.authorAvatar || (member && member.avatar);
+      var avatar = el('span', { 'class': 'card-comment-avatar' + (letter || (avatarUrl && /^https?:\/\//i.test(avatarUrl)) ? '' : ' is-anon'), 'aria-hidden': 'true' });
+      if (avatarUrl && /^https?:\/\//i.test(avatarUrl)) {
+        var photo = el('img', { src: avatarUrl, alt: '', loading: 'lazy' });
+        /* 头像 URL 过期或被拦时退回首字/人形，别留破图。 */
+        photo.onerror = function () {
+          if (photo.parentNode === avatar) avatar.removeChild(photo);
+          avatar.className = letter ? 'card-comment-avatar' : 'card-comment-avatar is-anon';
+          avatar.textContent = letter;
+        };
+        avatar.appendChild(photo);
+      } else {
+        avatar.textContent = letter;
+      }
       item.appendChild(avatar);
       var main = el('div', { 'class': 'card-comment-main' });
       var meta = el('div', { 'class': 'card-comment-meta' });

@@ -17,7 +17,7 @@ class Node {
   get textContent() { return this._text }
   get firstChild() { return this.children[0] }
   setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'id') this.id = String(v) }
-  appendChild(n) { this.children.push(n); return n }
+  appendChild(n) { this.children.push(n); n.parentNode = this; return n }
   insertBefore(n, next) { const i = next ? this.children.indexOf(next) : this.children.length; this.children.splice(i, 0, n); return n }
   removeChild(n) { this.children.splice(this.children.indexOf(n), 1) }
   addEventListener(k, fn) { (this.listeners[k] ||= []).push(fn) }
@@ -176,6 +176,27 @@ state.error = ''; state.complete = true
 await context.submitCardComment(task, human.id)
 assert.match(text(controls.section), /原会话正在处理/)
 assert.equal(state.submitting, '')
+
+/* 头像回归：有真照片就渲染 img；只剩 open_id 的评论人不能拿 ou_ 首字母冒充头像。 */
+history.push({ id: 'photo-avatar', content: '带头像的评论', authorId: 'owner', author: '负责人甲', createdAt: 11 })
+history.push({ id: 'anon-author', content: '同事的评论', authorId: 'ou_7515cfb505bce97ec6dcae7bb5b224f5', author: 'ou_7515cfb505bce97ec6dcae7bb5b224f5', createdAt: 12 })
+response = { ...response, comments: { ok: true, complete: true, items: history, errors: [] } }
+context.app.cardCommentsOpen[task.id] = true
+await context.loadCardComments(task, { refresh: true })
+const avatarNodes = all(controls.section).filter((n) => String(n.className || '').split(' ')[0] === 'card-comment-avatar')
+const photoAvatar = avatarNodes.find((n) => n.children[0]?.tag === 'img' && n.children[0].attrs.src === 'https://example.test/avatar')
+assert.ok(photoAvatar, '成员照片渲染成 img')
+assert.doesNotMatch(String(photoAvatar.className), /is-anon/)
+const anonAvatar = avatarNodes[avatarNodes.length - 1]
+assert.match(String(anonAvatar.className), /is-anon/)
+assert.equal(anonAvatar.children.length, 0, 'open_id 不平铺成假头像')
+assert.doesNotMatch(text(anonAvatar), /ou_|O/)
+assert.match(text(controls.section), /未知成员/)
+/* 图片加载失败（URL 过期/被拦）退回首字，不留破图。 */
+photoAvatar.children[0].onerror()
+assert.equal(String(photoAvatar.className), 'card-comment-avatar')
+assert.equal(photoAvatar.children.length, 0)
+assert.match(text(photoAvatar), /负/)
 
 const taskSource = extract('taskNode')
 assert.ok(taskSource.indexOf("makeButton('同步'") < taskSource.indexOf('cardCommentsControl(t)'))

@@ -31,7 +31,7 @@ const TASKS = JSON.stringify({
         completed_at: '0',
         due: { timestamp: '1700000000000', is_all_day: false },
         start: { timestamp: '1699000000000', is_all_day: false },
-        members: [{ id: 'ou_1', role: 'assignee' }],
+        members: [{ id: 'ou_1', role: 'assignee' }, { id: 'ou_2', role: 'follower' }],
         tasklists: [{ tasklist_guid: 'list-1' }],
         custom_fields: [
           { guid: 'fld-ws', type: 'text', text_value: '工作区A' },
@@ -89,7 +89,9 @@ JSON
     "PATCH /open-apis/task/v2/tasks/task-1") echo '{"ok":true,"data":{}}' ;;
     "POST /open-apis/task/v2/tasks/task-1/add_dependencies") echo '{"ok":true,"data":{"dependencies":[{"task_guid":"task-2","type":"prev"}]}}' ;;
     "POST /open-apis/task/v2/tasks/task-1/remove_dependencies") echo '{"ok":true,"data":{"dependencies":[]}}' ;;
-    "GET /open-apis/contact/v3/users/ou_1") echo '{"ok":true,"data":{"user":{"name":"张三","avatar":{"avatar_240":"https://x.feishu.cn/a.png"}}}}' ;;
+    "GET /open-apis/authen/v1/user_info") echo '{"ok":true,"data":{"open_id":"ou_1","name":"测试用户","en_name":"Tester","avatar_middle":"https://x.feishu.cn/me-240.png","avatar_url":"https://x.feishu.cn/me-72.png"}}' ;;
+    "GET /open-apis/contact/v3/users/ou_1") echo '{"ok":false,"identity":"user","error":{"type":"authorization","subtype":"missing_scope","code":99991679,"message":"unauthorized: user authorization does not cover the required scope(s): contact:contact.base:readonly"}}' >&2; exit 1 ;;
+    "GET /open-apis/contact/v3/users/ou_2") echo '{"ok":true,"data":{"user":{"name":"李四","avatar":{"avatar_240":"https://x.feishu.cn/li-240.png"}}}}' ;;
     "POST /open-apis/task/v2/tasks") echo '{"ok":true,"data":{"task":{"guid":"task-new"}}}' ;;
     "GET /open-apis/task/v2/tasks/task-1") echo '{"ok":true,"data":{"task":{"guid":"task-1","description":"","completed_at":"0","dependencies":[]}}}' ;;
     "POST /open-apis/task/v2/tasks/task-1/comments") echo '{"ok":true,"data":{"comment":{"id":"c-1"}}}' ;;
@@ -305,6 +307,10 @@ try {
     status.data.state?.larkUser?.openId === 'ou_1' && status.data.state?.larkUser?.name === '测试用户',
   )
   check(
+    '本人头像从 authen 接口拿到并落进 state.larkUser',
+    status.data.state?.larkUser?.avatar === 'https://x.feishu.cn/me-240.png',
+  )
+  check(
     'state 带上两套 CLI 的状态',
     status.data.state?.clis?.['lark-cli']?.found === true &&
       status.data.state?.clis?.['feishu-sync']?.found === false,
@@ -342,7 +348,14 @@ try {
   const tasks = synced?.data.state.tasks ?? []
   check('任务标题来自 OAPI summary', String(tasks[0]?.title || '').includes('修复登录'))
   check('清单名来自 tasklists 接口', tasks[0]?.listName === '清单A')
-  check('负责人来自 contact 接口', tasks[0]?.members?.[0]?.name === '张三')
+  check(
+    '负责人姓名/头像来自本人身份（联系人接口缺 scope 也不再是 open_id 首字母）',
+    tasks[0]?.members?.[0]?.name === '测试用户' && tasks[0]?.members?.[0]?.avatar === 'https://x.feishu.cn/me-240.png',
+  )
+  check(
+    '关注人姓名/头像照旧走联系人接口',
+    tasks[0]?.members?.[1]?.name === '李四' && tasks[0]?.members?.[1]?.avatar === 'https://x.feishu.cn/li-240.png',
+  )
   check(
     '自定义字段值已映射',
     (tasks[0]?.customFields ?? []).some((item) => item.name === '工作区' && item.value === '工作区A'),
@@ -406,6 +419,10 @@ try {
   check('feishu_task_detail 已注册', !!detailTool)
   const detailResult = await detailTool.execute({ taskId: 'task-1', refresh: true }, { agent: { id: 'session-test' } })
   check('任务详情走 lark 后端（评论可见）', String(detailResult).includes('进展正常'))
+  const commentApi = await getJson('/api/tasks/comments?taskId=task-1')
+  const firstComment = commentApi.data?.comments?.items?.[0] ?? {}
+  check('评论作者用本人真名而不是 open_id', firstComment.author === '测试用户')
+  check('评论头像带本人真头像地址', firstComment.authorAvatar === 'https://x.feishu.cn/me-240.png')
 
   /* 9. 显式切到公司内部后端（隐藏项）：不应残留 lark 状态。 */
   const back = await post('/api/backend/switch', { cliBackend: 'feishu-sync' })

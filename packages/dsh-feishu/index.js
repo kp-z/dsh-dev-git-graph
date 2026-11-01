@@ -1607,6 +1607,48 @@ function larkApi(settings, method, pathname, { params, data, timeoutMs, as = 'us
   return larkJson(settings, args, timeoutMs)
 }
 
+/** 头像字段在不同接口里名字不一样：联系人是 avatar.avatar_240，authen 是 avatar_middle。 */
+function larkAvatarUrl(user) {
+  const avatar = user?.avatar ?? {}
+  /* 面板里头像最大 22px：240 足够清晰也最省流量，别再退到 640 的大图。 */
+  return asString(
+    user?.avatar_middle ||
+      user?.avatar_thumb ||
+      user?.avatar_big ||
+      user?.avatar_url ||
+      avatar.avatar_240 ||
+      avatar.avatar_640 ||
+      avatar.avatar_72,
+  )
+}
+
+/**
+ * 读「当前登录用户」的姓名和头像。
+ *
+ * 通讯录接口（/contact/v3/users/{id}）要 contact:contact.* 这类通讯录 scope，最常见的状态是
+ * 根本没授权——那样面板只能显示 open_id 首字母，头像就全成了错的。`/authen/v1/user_info`
+ * 只需要用户本人授权，姓名与头像都在里面，所以本人的真名/真头像一律从这里取。
+ * 失败不抛错：调用方用 seed（auth status 里的 userName/openId）兜底。
+ */
+async function larkSelfProfileOf(settings, seed = {}) {
+  const seededOpenId = asString(seed.openId)
+  const seededName = asString(seed.name)
+  const fresh = larkSelfProfile.at && Date.now() - larkSelfProfile.at < LARK_SELF_PROFILE_TTL
+  if (fresh && (!seededOpenId || larkSelfProfile.openId === seededOpenId)) return larkSelfProfile
+  const result = await larkApi(settings, 'GET', '/open-apis/authen/v1/user_info', { timeoutMs: 30_000 })
+  const user = result.ok ? (result.data ?? {}) : {}
+  const profile = {
+    at: Date.now(),
+    openId: asString(user.open_id || user.openId) || seededOpenId,
+    name: asString(user.name || user.en_name) || seededName,
+    avatar: larkAvatarUrl(user),
+  }
+  /* 一样都没拿到：别把空结果缓存 24 小时，下次体检还要再试。 */
+  if (!profile.openId && !profile.name && !profile.avatar) return { ...profile, at: 0 }
+  larkSelfProfile = profile
+  return profile
+}
+
 /** 飞书文档链接 → { type, token }；lark 的 raw API 需要分开的 type 与 token。 */
 function parseDocRef(raw) {
   const url = asString(raw).trim()
@@ -1648,9 +1690,13 @@ let pendingConfigInit = null
 /* 最近一次发出去的浏览器链接：面板刷新、后端重启后还能接着显示，并带过期时间。
    config init 链接 10 分钟有效，OAuth 设备链接默认 600 秒。 */
 let larkPending = null
-/* 当前授权登录的飞书用户：建任务时当默认负责人，解析人员姓名时当兜底。
+/* 当前授权登录的飞书用户：建任务时当默认负责人，解析人员姓名/头像时当兜底。
    state.auth 每轮同步都会被重写，所以单独缓存一份。 */
-let larkSelf = { openId: '', name: '' }
+let larkSelf = { openId: '', name: '', avatar: '' }
+/* 「当前登录用户」的真名与真头像缓存：联系人接口缺 scope 时，这是唯一可靠的来源。
+   头像 24 小时内复用；换账号（openId 变了）就重新查。 */
+let larkSelfProfile = { at: 0, openId: '', name: '', avatar: '' }
+const LARK_SELF_PROFILE_TTL = 24 * 60 * 60_000
 /* 企业安全策略检查结果缓存：避免面板 4 秒轮询时反复打飞书。 */
 let larkPolicyCache = { at: 0, blocked: false, detail: '' }
 
@@ -2179,7 +2225,11 @@ const larkBackend = {
       return { ok: false, detail: `官方 lark-cli 未就绪：${result.detail}` }
     }
     const state = larkUserState(result.parsed)
-    if (state.authed) larkSelf = { openId: state.openId, name: state.name }
+    if (state.authed) {
+      /* 姓名/头像走 authen（只要本人授权）；联系人接口的 scope 不再是硬前提。 */
+      const profile = await larkSelfProfileOf(settings, state)
+      larkSelf = { openId: profile.openId, name: profile.name, avatar: profile.avatar }
+    }
     const app = larkAppConsole(result.parsed)
     /* 先查应用本身能不能调 API：被租户策略整体拦掉时，登录/授权都是死路，直接把原因摆出来。
        个人账号模式不申请 tenant 身份，改由「登录后用 user token 打一次任务接口」验证，别拿 bot 的结论吓人。 */
@@ -2227,6 +2277,7 @@ const larkBackend = {
         ok: true,
         openId: larkSelf.openId,
         userName: larkSelf.name,
+        avatar: larkSelf.avatar,
         detail: `已登录${name ? `（${name}）` : ''}，但读取任务失败：${probe.detail}${
           missing ? `｜缺权限：${missing}` : '｜多半是开发者后台还没开通对应 scope'
         }`,
@@ -2243,6 +2294,7 @@ const larkBackend = {
       permission: true,
       openId: larkSelf.openId,
       userName: larkSelf.name,
+      avatar: larkSelf.avatar,
       detail: `官方 lark-cli 已登录${name ? `（${name}）` : ''}（身份：${asString(result.parsed?.identity) || 'user'}），任务接口已通`,
       appId: appInfo.appId || app.appId,
       consoleUrl: appInfo.consoleUrl || app.consoleUrl,
@@ -3211,6 +3263,9 @@ function createSyncEngine(ctx) {
     cli = { ...DEFAULT_STATE.cli, ...(savedState.cli ?? {}) }
     if (lifecycleDisposed) return
     stateLoaded = true
+    /* 上次体检记下的本人姓名/头像先补上：面板一打开、还没同步时负责人头像就不该是空的。 */
+    rememberSelfUser()
+    applySelfNames()
     if (Array.isArray(savedState.syncHistory) && savedState.syncHistory.some((row) => row?.status === 'running')) await persistState()
     for (const [sessionId, at] of earlyReopenTurns) await reopenSessionTasks(sessionId, at)
     earlyReopenTurns.clear()
@@ -4435,9 +4490,16 @@ function createSyncEngine(ctx) {
     if (!cli.found) await probeCli()
     const auth = await backend().check(settings)
     state.auth = { ...auth, checkedAt: nowMs() }
-    /* 联系人接口常有 scope 限制：先把「当前登录用户」记下来，至少自己当负责人时能显示真名。 */
+    /* 联系人接口常有 scope 限制：先把「当前登录用户」的姓名/头像记下来，
+       至少本人当负责人、本人写评论时能显示真名和真头像。
+       后端没回头像时保留上一版（别把已经拿到的真头像抹成空）。 */
     if (asString(auth.openId)) {
-      state.larkUser = { openId: asString(auth.openId), name: asString(auth.userName), avatar: asString(auth.avatar) }
+      state.larkUser = {
+        openId: asString(auth.openId),
+        name: asString(auth.userName) || asString(state.larkUser?.name),
+        avatar: asString(auth.avatar) || asString(state.larkUser?.avatar),
+      }
+      rememberSelfUser()
       applySelfNames()
     }
     if (lifecycleDisposed) return { ...state.auth, tasklistReady: false, tasklistError: '插件已重载，旧授权检查不再初始化清单' }
@@ -4452,13 +4514,16 @@ function createSyncEngine(ctx) {
     return state.auth
   }
 
-  /** 把当前登录用户的姓名回填到快照里（联系人接口不可用时的兜底显示）。 */
+  /** 把当前登录用户的姓名/头像回填到快照里（联系人接口不可用时的兜底显示）。 */
   function applySelfNames() {
     const self = state.larkUser ?? {}
-    if (!self.openId || !self.name) return
+    if (!self.openId) return
+    if (!self.name && !self.avatar) return
     for (const task of state.tasks) {
       for (const person of [...(Array.isArray(task.members) ? task.members : []), task.creator].filter(Boolean)) {
-        if (asString(person.id) === self.openId && !asString(person.name)) person.name = self.name
+        if (asString(person.id) !== self.openId) continue
+        if (self.name && !asString(person.name)) person.name = self.name
+        if (self.avatar && !asString(person.avatar)) person.avatar = self.avatar
       }
     }
   }
@@ -4565,10 +4630,33 @@ function createSyncEngine(ctx) {
   }
 
   /**
+   * 把「当前登录用户」的真名/真头像放进人员缓存。
+   *
+   * 通讯录接口没权限时，成员/创建人/评论人都查不到姓名和头像；但本人是谁是确定的
+   * （体检时从 authen 接口拿到了），所以先把这一条补进缓存：
+   *   - 卡片上的负责人/评论人不再退化成 open_id 首字母；
+   *   - 头像用本人真实头像，而不是随便一个字母；
+   *   - 也省掉一次注定失败的通讯录查询。
+   * 每次同步都刷新时间戳，避免 24 小时 TTL 到点后又去查通讯录。
+   */
+  function rememberSelfUser() {
+    const self = state.larkUser ?? {}
+    const openId = asString(self.openId)
+    if (!openId) return
+    const hit = cached(remoteCache.users, openId, REMOTE_TTL.users)
+    const name = asString(hit?.name) || asString(self.name)
+    const avatar = asString(hit?.avatar) || asString(self.avatar)
+    if (!name && !avatar) return
+    remoteCache.users.set(openId, { at: nowMs(), value: { name, avatar } })
+  }
+
+  /**
    * 拉「CLI 拿不到但卡片需要」的三样：清单名、字段定义（选项 guid→文字）、人员姓名头像。
    * 任何一样失败都只是少了那部分展示，不影响任务本身。
    */
   async function enrichRemote(rawList) {
+    /* 本人的姓名/头像先就位：既保证显示正确，也省掉一次查不到结果的通讯录请求。 */
+    rememberSelfUser()
     const wantLists = new Set()
     const wantFields = new Set()
     const wantUsers = new Set()
@@ -4635,7 +4723,9 @@ function createSyncEngine(ctx) {
         return rawValue.datetime_value ? formatDay(Number(rawValue.datetime_value)) : ''
       case 'member': {
         const id = asString(rawValue.member_value?.id ?? rawValue.member_value)
-        return cached(remoteCache.users, id, REMOTE_TTL.users)?.name ?? id
+        const self = state.larkUser ?? {}
+        const selfName = self.openId && id === asString(self.openId) ? asString(self.name) : ''
+        return asString(cached(remoteCache.users, id, REMOTE_TTL.users)?.name) || selfName || id
       }
       default:
         return asString(rawValue.text_value)
@@ -4663,11 +4753,18 @@ function createSyncEngine(ctx) {
     })
 
     const selfUser = state.larkUser ?? {}
-    const selfName = (id) => (selfUser.openId && id === asString(selfUser.openId) ? asString(selfUser.name) : '')
+    const isSelf = (id) => Boolean(selfUser.openId) && id === asString(selfUser.openId)
+    const selfName = (id) => (isSelf(id) ? asString(selfUser.name) : '')
+    const selfAvatar = (id) => (isSelf(id) ? asString(selfUser.avatar) : '')
     const members = (Array.isArray(raw?.members) ? raw.members : []).map((member) => {
       const id = asString(member?.id)
       const user = cached(remoteCache.users, id, REMOTE_TTL.users)
-      return { id, role: asString(member?.role), name: user?.name || selfName(id), avatar: user?.avatar ?? '' }
+      return {
+        id,
+        role: asString(member?.role),
+        name: asString(user?.name) || selfName(id),
+        avatar: asString(user?.avatar) || selfAvatar(id),
+      }
     })
 
     /* 优先级：清单里是单选字段，值就是选项名（P0/P1/P2/P3）。 */
@@ -4692,7 +4789,8 @@ function createSyncEngine(ctx) {
     if (queuedWorkspace?.pending) meta = { ...meta, workspace: queuedWorkspace.title }
     const creatorId = asString(raw?.creator?.id)
     const creatorUser = cached(remoteCache.users, creatorId, REMOTE_TTL.users)
-    const creatorFallback = creatorUser?.name || selfName(creatorId)
+    const creatorFallback = asString(creatorUser?.name) || selfName(creatorId)
+    const creatorAvatar = asString(creatorUser?.avatar) || selfAvatar(creatorId)
     const origin = raw?.origin ?? {}
     const doneFlag = asString(raw?.completed_at) !== '0' && Boolean(raw?.completed_at)
 
@@ -4743,7 +4841,7 @@ function createSyncEngine(ctx) {
       tasklistGuid: listGuid,
       sectionGuid: asString(raw?.tasklists?.[0]?.section_guid),
       members,
-      creator: { id: creatorId, name: creatorFallback },
+      creator: { id: creatorId, name: creatorFallback, avatar: creatorAvatar },
       customFields,
       priority,
       description: asString(raw?.description),
@@ -7828,7 +7926,13 @@ bucket 只能从枚举里选：
       { op: 'task_attachments', task: taskId },
     ])
     const byOp = (name) => (result.actions ?? []).find((item) => item.op === name)
-    const nameOf = (id) => cached(remoteCache.users, asString(id), REMOTE_TTL.users)?.name || asString(id)
+    const selfUser = state.larkUser ?? {}
+    const selfNameOf = (id) => (selfUser.openId && asString(id) === asString(selfUser.openId) ? asString(selfUser.name) : '')
+    const selfAvatarOf = (id) => (selfUser.openId && asString(id) === asString(selfUser.openId) ? asString(selfUser.avatar) : '')
+    const nameOf = (id) =>
+      asString(cached(remoteCache.users, asString(id), REMOTE_TTL.users)?.name) || selfNameOf(id) || asString(id)
+    const avatarOf = (id) =>
+      asString(cached(remoteCache.users, asString(id), REMOTE_TTL.users)?.avatar) || selfAvatarOf(id)
     const pick = (name, mapItem) => {
       const item = byOp(name)
       const errors = item?.ok ? [] : [item?.error || '未知错误']
@@ -7860,7 +7964,11 @@ bucket 只能从枚举里选：
         /* 查不到就退回显示 id */
       }
     }
-    for (const item of comments.items) item.author = nameOf(item.authorId)
+    for (const item of comments.items) {
+      item.author = nameOf(item.authorId)
+      /* 面板评论头像优先用这个；联系人接口没权限时，本人的真头像就是从这里来的。 */
+      item.authorAvatar = avatarOf(item.authorId)
+    }
     const subtasks = pick('task_subtasks', (raw) => ({
       id: asString(raw?.guid ?? raw?.task_guid),
       title: asString(raw?.summary),
