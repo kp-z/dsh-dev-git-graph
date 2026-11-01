@@ -21,7 +21,7 @@
 
 `feishu_task_suspend` 与HTTP共用同一方法，taskId可从当前绑定取。新操作能力键 `tasks.suspension`，旧Host不显示无法使用的控件。
 
-筛选模型 v2：`{version:2,facets:{completion,handling,progress,dependency,priority,workspace},keyword,open}`，每facet `{mode:all|include|exclude,values:string[]}`。由面板统一声明驱动UI、规则与摘要，同组OR跨组AND；include空=零匹配，exclude空=全匹配。日常默认排除done/suspended；全部任务解除所有条件；不内置仅挂起preset，用户可配置handling include suspended自行保存。条件移除设all，清空全部与恢复默认分开。旧 `{workspace,status,keyword,showSuspended,open}` 自动迁移，storage键保持不变；已选但不在快照的值保留。缺失依赖数据为unknown，不推断ready。每次打开filterOpen=false，忽略旧open:true；详情/摘要仅展开显示。自定义方案保存在独立浏览器key `dsh-feishu:filter-views`，日常/全部/项目与自定义同排，项目视图动态按当前会话工作区ID或路径精确匹配，不提供上下文则零匹配并提示，模板行增加＋新模板，支持命名新增、更新当前、确认删除。三个内置模板均允许覆盖，覆盖存储在 `dsh-feishu:filter-defaults`，可确认还原当前模板原始配置；项目覆盖保留动态项目范围。清空全部条件使用原始不限规则，不受全部模板覆盖影响；不改变Host数据。
+筛选模型 v2：`{version:2,facets:{completion,handling,progress,dependency,priority,workspace},keyword,open}`，每facet `{mode:all|include|exclude,values:string[]}`。由面板统一声明驱动UI、规则与摘要，同组OR跨组AND；include空=零匹配，exclude空=全匹配。日常默认排除done/suspended；全部任务解除所有条件；不内置仅挂起preset，用户可配置handling include suspended自行保存。条件移除设all，清空全部与恢复默认分开。旧 `{workspace,status,keyword,showSuspended,open}` 自动迁移，storage键保持不变；已选但不在快照的值保留。缺失依赖数据为unknown，不推断ready。每次打开filterOpen=false，忽略旧open:true；详情/摘要仅展开显示。自定义方案保存在独立浏览器key `dsh-feishu:filter-views`，日常/全部/项目与自定义同排，项目视图动态按当前会话工作区ID或路径精确匹配，不提供上下文则零匹配并提示，模板行增加＋图标（新建模板），支持命名新增、更新当前、确认删除。三个内置模板均允许覆盖，覆盖存储在 `dsh-feishu:filter-defaults`，可确认还原当前模板原始配置；项目覆盖保留动态项目范围。清空全部条件使用原始不限规则，不受全部模板覆盖影响；不改变Host数据。
 
 ## 任务关系增量接口
 

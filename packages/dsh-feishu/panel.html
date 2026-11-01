@@ -2814,6 +2814,7 @@
   #filterViewName { min-width: 0; max-width: 100%; flex: 1 1 120px; }
   .filter-summary button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
   .filter-presets button[aria-pressed="true"] { border-color: var(--p-accent-line); color: var(--p-text-1); background: var(--p-bg); }
+  .filter-presets .filter-new-template { width: 24px; min-width: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1; }
   #taskFilterBar { display: block; min-width: 0; }
   #taskFilterBar[hidden] { display: none; }
   .filter-search { display: flex; align-items: center; gap: 8px; font-size: 11px; }
@@ -5669,7 +5670,13 @@
     var restoreConfirm = $('filterRestoreConfirm'); if (restoreConfirm) restoreConfirm.hidden = !app.filterRestoreConfirm;
     var confirm = $('filterViewDeleteConfirm'); if (confirm) confirm.hidden = !app.filterDeleteConfirm;
     var add = Array.prototype.find.call(root.children, function (node) { return node.id === 'filterNewTemplate'; });
-    if (!add) { add = makeButton('＋ 新模板', 'btn btn-ghost btn-xs', null, false, newFilterTemplate); add.id = 'filterNewTemplate'; root.appendChild(add); }
+    if (!add) {
+      add = makeButton('＋', 'btn btn-ghost btn-xs filter-new-template', null, false, newFilterTemplate);
+      add.id = 'filterNewTemplate';
+      add.setAttribute('title', '新建筛选模板');
+      add.setAttribute('aria-label', '新建筛选模板');
+      root.appendChild(add);
+    }
     if (root.children[root.children.length - 1] !== add) { add.remove(); root.appendChild(add); }
   }
 
