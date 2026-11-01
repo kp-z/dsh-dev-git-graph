@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url'
  */
 import { formatAIComment } from './commentFormat.js'
 import { createActivityFeed } from './activity.js'
+import { DEFAULT_TASKLIST_NAME, TASKLIST_SCHEMA_VERSION, tasklistFields, schemaSignature, selectTaskList } from './tasklistSchema.js'
 import { beginSyncHistory, finishSyncHistory, recordSyncStage, recoverSyncHistory, safeSyncDetail } from './syncHistory.js'
 import { createCommentCoordinator } from './comments.js'
 import { randomUUID } from 'node:crypto'
@@ -370,6 +371,7 @@ const DEFAULT_SETTINGS = {
   autoSync: true,
   syncIntervalMinutes: 30,
   cliPath: 'feishu-sync-cli',
+  managedTasklist: { enabled: true, name: DEFAULT_TASKLIST_NAME, guid: '' },
   tasks: { includeCompleted: false, keyword: '', dueWithinDays: 0 },
   docs: { watch: [], excerptChars: 600 },
   /* 清单自定义字段里，哪两个字段算「工作区 / 自动开工」。 */
@@ -472,6 +474,7 @@ const DEFAULT_STATE = {
   cli: { found: false, version: null, path: null },
   lastSyncAt: 0,
   syncHistory: [],
+  managedTasklist: { guid: '', name: '', status: 'uninitialized', checkedAt: 0, fields: [], errors: [] },
   lastError: null,
   syncing: false,
   tasks: [],
@@ -1004,6 +1007,11 @@ function sanitizeSettings(input, base) {
     autoSync: next.autoSync !== false,
     syncIntervalMinutes: clampInt(next.syncIntervalMinutes, 1, 24 * 60, base.syncIntervalMinutes),
     cliPath: asString(next.cliPath) || base.cliPath,
+    managedTasklist: {
+      enabled: next.managedTasklist?.enabled !== false,
+      name: asString(next.managedTasklist?.name).trim().slice(0, 100) || DEFAULT_TASKLIST_NAME,
+      guid: asString(next.managedTasklist?.guid).trim(),
+    },
     tasks: {
       includeCompleted: next.tasks?.includeCompleted === true,
       keyword: asString(next.tasks?.keyword).slice(0, 120),
@@ -1350,7 +1358,7 @@ function resolvePython(cliPath) {
 }
 
 /** 跑补充通道：stdin 进 JSON，stdout 出 JSON；失败返回 ok:false，不抛。 */
-function runBridge(python, payload) {
+function runBridgeRaw(python, payload) {
   return new Promise((resolve) => {
     let child
     try {
@@ -1441,6 +1449,28 @@ function createSyncEngine(ctx) {
   const earlyReopenTurns = new Map()
   let inFlight = null
   let cli = { found: false, version: null, path: null }
+  async function runBridge(python, payload) {
+    if (settings.managedTasklist?.enabled === false) return runBridgeRaw(python, payload)
+    const managedGuid = settings.managedTasklist?.guid || state.managedTasklist?.guid
+    if (!managedGuid) return runBridgeRaw(python, payload)
+    /* Only the managed list is gated; explicitly addressed legacy lists keep working.
+       Gate per field: one ambiguous legacy option must not freeze priority/ETA writes. */
+    const current = state.managedTasklist?.signature === schemaSignature(settings, workspaces().map(row => row.title))
+    const status = state.managedTasklist?.status
+    const fieldOk = new Map((state.managedTasklist?.fields || []).map(row => [row.name, row.ok === true]))
+    const blocked = (payload.actions || []).filter(action => {
+      if (!['set_custom_field', 'ensure_select_options', 'ensure_custom_field'].includes(action.op)) return false
+      if (action.tasklist !== managedGuid) return false
+      if (!current) return true
+      if (status === 'ready') return false
+      return fieldOk.get(action.name) !== true
+    })
+    if (blocked.length) {
+      const error = '受管清单字段未就绪，暂停字段写回：' + [...new Set(blocked.map(row => row.name || row.field_guid))].join('、')
+      return { ok: false, actions: (payload.actions || []).map(action => ({ op: action.op, ok: false, error })), errors: [error] }
+    }
+    return runBridgeRaw(python, payload)
+  }
   const commentsFile = join(DATA_DIR, 'comments.json')
   const commentsLock = commentsFile + '.lock'
   let commentLockHandle = null
@@ -1660,6 +1690,98 @@ function createSyncEngine(ctx) {
     state.bindings = bindings
     await writeJson(stateFile, state)
     activityFeed.changed()
+  }
+
+  let tasklistFlight = null
+  const TASKLIST_CHECK_TTL = 10 * 60_000
+  async function ensureManagedTasklist({ force = false } = {}) {
+    if (lifecycleDisposed) return { ok: false, error: '插件已重载，取消旧实例初始化' }
+    if (settings.managedTasklist?.enabled === false) return { ok: true, skipped: 'disabled' }
+    if (tasklistFlight) {
+      const pending = tasklistFlight
+      const wanted = schemaSignature(settings, workspaces().map(row => row.title))
+      const result = await pending
+      if (!lifecycleDisposed && (schemaSignature(settings, workspaces().map(row => row.title)) !== wanted || /配置已变化|配置已重载|字段检查期间配置/.test(result.error || ''))) return ensureManagedTasklist({ force: true })
+      return result
+    }
+    tasklistFlight = (async () => {
+      const previous = state.managedTasklist || {}
+      const capturedSettings = JSON.parse(JSON.stringify(settings))
+      const capturedWorkspaces = workspaces().map(row => row.title)
+      let signature
+      try { signature = schemaSignature(capturedSettings, capturedWorkspaces) }
+      catch (error) { return { ok: false, error: error.message } }
+      if (!force && previous.status === 'ready' && previous.signature === signature && nowMs() - previous.checkedAt < TASKLIST_CHECK_TTL) return { ok: true, guid: previous.guid }
+      const python = resolvePython(resolveCli(settings.cliPath))
+      if (!python) return { ok: false, error: '找不到 Python，无法初始化任务清单' }
+      const requestedGuid = settings.managedTasklist.guid || previous.guid || ''
+      // Legacy installations retain their single known destination, never guess among multiple lists.
+      const legacy = [...new Set(state.tasks.map(task => task.tasklistGuid).filter(Boolean))]
+      const guid = requestedGuid || (legacy.length === 1 ? legacy[0] : '')
+      if (!requestedGuid && legacy.length > 1) {
+        const error = '存在多个历史任务清单，请明确填写受管清单 GUID；不会自动选择或新建'
+        state.managedTasklist = { ...previous, status: 'failed', errors: [error], checkedAt: nowMs() }
+        await persistState()
+        return { ok: false, error }
+      }
+      if (previous.status === 'checking' && !guid && previous.createToken) {
+        state.managedTasklist.status = 'unknown'
+        state.managedTasklist.errors = ['上次清单创建过程未完成，请先核对清单 GUID，避免重复创建']
+        await persistState()
+        return { ok: false, error: state.managedTasklist.errors[0] }
+      }
+      if (previous.status === 'unknown' && !guid) return { ok: false, error: '上次创建清单回执不明，请核对后配置清单 GUID；不会重复创建' }
+      const token = previous.createToken || randomUUID()
+      state.managedTasklist = { ...previous, createToken: token, status: 'checking', errors: [] }
+      await persistState()
+      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) {
+        state.managedTasklist = { ...previous, status: 'uninitialized', errors: [] }
+        await persistState()
+        return { ok: false, error: '配置已变化，尚未发起清单初始化' }
+      }
+      const result = await runBridge(python, { actions: [{ op: 'ensure_tasklist', ...(guid ? { guid } : {}), name: capturedSettings.managedTasklist.name, create_token: token }] })
+      const list = result.actions?.[0]
+      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) return { ok: false, error: '配置已变化或插件已重载，请重新检查清单' }
+      if (!list?.ok || !list.guid) {
+        const error = list?.error || result.errors?.join('; ') || '任务清单初始化失败'
+        state.managedTasklist = { ...state.managedTasklist, status: list?.unknownDelivery || (!list && !guid) ? 'unknown' : 'failed', errors: [error], checkedAt: nowMs() }
+        await persistState()
+        return { ok: false, error }
+      }
+      // Persist the remote GUID before any field mutation, making retries reuse this list.
+      state.managedTasklist = { ...state.managedTasklist, guid: list.guid, name: list.name || settings.managedTasklist.name }
+      settings.managedTasklist.guid = list.guid
+      await writeJson(SETTINGS_FILE, settings)
+      await persistState()
+      capturedSettings.managedTasklist.guid = list.guid
+      const expectedSignature = schemaSignature(capturedSettings, capturedWorkspaces)
+      const fields = tasklistFields(capturedSettings, capturedWorkspaces)
+      // Existing workspace fields may be text/single/multi-select; preserve their type.
+      const definitions = await runBridge(python, { fields: [list.guid] })
+      if (definitions.errors?.length || !Array.isArray(definitions.fields?.[list.guid])) throw new Error(definitions.errors?.join('; ') || '字段定义读取不完整')
+      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，取消过期字段初始化' }
+      const workspace = fields.find(row => row.key === 'workspace')
+      const matches = definitions.fields[list.guid].filter(row => row.name === workspace.name)
+      if (matches.length === 1 && workspace.accepts.includes(matches[0].type)) workspace.type = matches[0].type
+      // Initialization is the trusted setup path; it must not be blocked by its own 'checking' status.
+      const checked = await runBridgeRaw(python, { actions: fields.map(row => ({ op: 'ensure_custom_field', tasklist: list.guid, name: row.name, type: row.type, accepted_types: row.accepts, options: row.options || [] })) })
+      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '字段检查期间配置已变化，请重新检查' }
+      const errors = (checked.actions || []).filter(row => !row.ok).map(row => row.error || '字段初始化失败')
+      if (!checked.ok || checked.actions?.length !== fields.length) errors.push(checked.errors?.join('; ') || '字段初始化返回不完整')
+      /* Duplicate/hidden legacy options only make that one value unwritable; keep the field usable. */
+      const warnings = (checked.actions || []).flatMap(row => Array.isArray(row.warnings) ? row.warnings : [])
+      state.managedTasklist = { ...state.managedTasklist, status: errors.length ? 'failed' : 'ready', checkedAt: nowMs(), schemaVersion: TASKLIST_SCHEMA_VERSION, signature: expectedSignature, fields: (checked.actions || []).map((row, i) => ({ key: fields[i]?.key, name: fields[i]?.name, guid: row.guid, type: row.type, ok: row.ok, warning: (row.warnings || []).join('；') || null, error: row.error })), errors, warnings }
+      remoteCache.fields.delete(list.guid)
+      state.feishuFields[list.guid] = {}
+      await persistState()
+      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，请按新配置重新检查' }
+      return { ok: !errors.length, guid: list.guid, errors, error: errors.join('; ') }
+    })().catch(async error => {
+      state.managedTasklist = { ...(state.managedTasklist || {}), status: 'failed', errors: [safeSyncDetail(error?.message || error)], checkedAt: nowMs() }
+      await persistState().catch(() => {})
+      return { ok: false, error: state.managedTasklist.errors[0] }
+    }).finally(() => { tasklistFlight = null })
+    return tasklistFlight
   }
 
   const settingsHooks = []
@@ -2281,7 +2403,7 @@ function createSyncEngine(ctx) {
     if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
     const value = task.expectedAt ? formatEta(task.expectedAt, settings.schedule?.timeZone) : ''
     const result = await runBridge(python, {
-      actions: [{ op: 'set_custom_field', task: task.id, tasklist: listGuid, name: etaFieldName(), value }],
+      actions: [{ op: 'set_custom_field', task: task.id, tasklist: listGuid, name: etaFieldName(), expected_type: 'text', value }],
     })
     const item = (result.actions ?? [])[0]
     if (!item?.ok) return { ok: false, error: item?.error || '写回失败' }
@@ -2304,7 +2426,7 @@ function createSyncEngine(ctx) {
     if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
     const value = formatEta(ts, settings.schedule?.timeZone).slice(0, 10)
     const result = await runBridge(python, {
-      actions: [{ op: 'set_custom_field', task: task.id, tasklist: listGuid, name, value }],
+      actions: [{ op: 'set_custom_field', task: task.id, tasklist: listGuid, name, expected_type: 'datetime', value }],
     })
     const item = (result.actions ?? [])[0]
     if (item?.ok) return { ok: true, value }
@@ -2727,8 +2849,14 @@ function createSyncEngine(ctx) {
             : `读取任务失败：${(result.detail ?? text).slice(-400)}`,
       }
     }
+    if (lifecycleDisposed) return { ...auth, tasklistReady: false, tasklistError: '插件已重载，旧授权检查不再初始化清单' }
     state.auth = auth
     await persistState()
+    if (auth.ok) {
+      const initialized = await ensureManagedTasklist({ force: true })
+      auth.tasklistReady = initialized.ok
+      auth.tasklistError = initialized.error || ''
+    }
     return auth
   }
 
@@ -2891,7 +3019,7 @@ function createSyncEngine(ctx) {
         const guid = asString(list?.tasklist_guid)
         if (!guid) continue
         if (!cached(remoteCache.tasklists, guid, REMOTE_TTL.tasklists)) wantLists.add(guid)
-        if ((raw?.custom_fields ?? []).length > 0 && !cached(remoteCache.fields, guid, REMOTE_TTL.fields)) {
+        if (!cached(remoteCache.fields, guid, REMOTE_TTL.fields)) {
           wantFields.add(guid)
         }
       }
@@ -2954,7 +3082,8 @@ function createSyncEngine(ctx) {
     const dueTs = Number(raw?.due?.timestamp) || 0
     const previousTask = previous.get(asString(raw?.guid))
     const savedBinding = state.bindings?.[asString(raw?.guid)]
-    const listGuid = asString(raw?.tasklists?.[0]?.tasklist_guid)
+    const listSelection = selectTaskList(raw?.tasklists, settings.managedTasklist?.guid || state.managedTasklist?.guid)
+    const listGuid = listSelection.guid
     const listName = cached(remoteCache.tasklists, listGuid, REMOTE_TTL.tasklists) ?? ''
     const defs = cached(remoteCache.fields, listGuid, REMOTE_TTL.fields) ?? []
 
@@ -3897,9 +4026,8 @@ function createSyncEngine(ctx) {
   /** 从已同步任务里推断「默认负责人」（同一个人出现最多）与「默认清单」。 */
   function defaultsFromState() {
     const counts = new Map()
-    let tasklistGuid = ''
+    const tasklistGuid = settings.managedTasklist?.guid || state.managedTasklist?.guid || ''
     for (const task of state.tasks) {
-      if (!tasklistGuid && task.tasklistGuid) tasklistGuid = task.tasklistGuid
       for (const member of task.members ?? []) {
         if (member.role !== 'assignee' || !member.id) continue
         counts.set(member.id, (counts.get(member.id) ?? 0) + 1)
@@ -3972,7 +4100,7 @@ function createSyncEngine(ctx) {
           const actions = []
           for (const [name, ids] of [['前置任务', view.predecessors], ['后置任务', view.successors], ['来源任务', view.sourceTasks]]) {
             actions.push({ op: 'ensure_custom_field', tasklist: task.tasklistGuid, name, type: 'text' },
-              { op: 'set_custom_field', task: taskId, tasklist: task.tasklistGuid, name, value: ids.map((item) => item.id).join('\n') })
+              { op: 'set_custom_field', task: taskId, tasklist: task.tasklistGuid, name, expected_type: 'text', value: ids.map((item) => item.id).join('\n') })
           }
           const result = await runBridge(python, { actions })
           if (!result.ok || result.actions?.some((item) => !item.ok)) error = result.actions?.filter((item) => !item.ok).map((item) => item.error).join('; ') || result.errors?.join('; ') || '文本列投影失败'
@@ -4052,8 +4180,13 @@ function createSyncEngine(ctx) {
         if (cwd) creationWorkspace = await registry?.resolveByPath?.(cwd)
       } catch { /* 无上下文时不猜项目 */ }
     }
+    const initialized = await ensureManagedTasklist()
+    if (!initialized.ok) return { ok: false, error: '任务清单未就绪：' + (initialized.error || initialized.errors?.join('; ')) }
     const path = resolveCli(settings.cliPath)
-    const { assignee, tasklistGuid } = defaultsFromState()
+    const { assignee } = defaultsFromState()
+    const tasklistGuid = initialized.guid || settings.managedTasklist?.guid || ''
+    if (settings.managedTasklist?.enabled !== false && tasklistGuid !== settings.managedTasklist?.guid) return { ok: false, error: '创建前受管清单配置已变化，请重试' }
+    if (!tasklistGuid) return { ok: false, error: '请配置受管任务清单 GUID，不能推测新任务归属' }
     const args = ['task', 'create', summary]
     const description = asString(input.description).trim()
     if (description) args.push(`--description=${description}`)
@@ -4082,7 +4215,8 @@ function createSyncEngine(ctx) {
       if (!renamed.ok) finalTitle = summary
     }
 
-    /* CLI 建的任务不带清单：飞书里会「看不见」，所以要补一次 add_tasklist。 */
+    /* CLI 创建与加入清单分开；返回部分成功，绝不谎称远端已经归属。 */
+    let tasklistError = ''
     if (tasklistGuid) {
       const python = resolvePython(path)
       if (python) {
@@ -4091,9 +4225,14 @@ function createSyncEngine(ctx) {
         })
         const action = (bridged.actions ?? [])[0]
         if (!bridged.ok || !action?.ok) {
-          log(ctx, 'warn', `任务已创建，但加入清单失败：${action?.error ?? bridged.errors?.join('; ')}`)
+          tasklistError = action?.error || bridged.errors?.join('; ') || '加入清单失败'
         }
-      }
+      } else tasklistError = '找不到 Python，任务未加入清单'
+    }
+    if (tasklistError) {
+      state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid: '', intendedTasklistGuid: tasklistGuid, tasklistSyncPending: true, tasklistError, done: false, members: [], customFields: [], meta: {}, docs: extractDocLinks(description) })
+      await persistState()
+      return { ok: false, partial: true, taskId: guid, error: '任务已创建但未加入清单，勿重复创建：' + tasklistError }
     }
 
     /* 先落库关系，再同步/自动开工：不允许新任务在依赖建立前抢跑。 */
@@ -4623,7 +4762,7 @@ function createSyncEngine(ctx) {
     if (!task.tasklistGuid) return { ok: false, error: '任务没有清单，处理状态仅本地保存' }
     const result = await runBridge(resolvePython(resolveCli(settings.cliPath)), { actions: [
       { op: 'ensure_custom_field', tasklist: task.tasklistGuid, name: '处理状态', options: ['正常', '挂起'] },
-      { op: 'set_custom_field', task: task.id, tasklist: task.tasklistGuid, name: '处理状态', value: entry.active ? '挂起' : '正常' },
+      { op: 'set_custom_field', task: task.id, tasklist: task.tasklistGuid, name: '处理状态', expected_type: 'single_select', value: entry.active ? '挂起' : '正常' },
     ] })
     const error = result.actions?.filter((item) => !item.ok).map((item) => item.error).join('; ') || result.errors?.join('; ')
     return { ok: result.ok && !error, error }
@@ -5834,7 +5973,7 @@ bucket 只能从枚举里选：
    * 绑定 / 解绑文档、生成文档之后都走它：绑定完就同步到飞书，不靠人再点一次同步。
    */
   async function pushDocField(task) {
-    const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+    const listGuid = task.tasklistGuid
     if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回「文档」字段' }
     const python = resolvePython(resolveCli(settings.cliPath))
     if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
@@ -5845,6 +5984,7 @@ bucket 只能从枚举里选：
           task: task.id,
           tasklist: listGuid,
           name: settings.taskFields.doc || '文档',
+          expected_type: 'text',
           value: docFieldValue(task),
         },
       ],
@@ -6257,7 +6397,13 @@ bucket 只能从枚举里选：
    */
   async function ensureWorkspaceOptions(tasks) {
     const fieldName = settings.taskFields.workspace.trim() || '工作区'
-    const listGuid = tasks[0]?.tasklistGuid || defaultsFromState().tasklistGuid
+    const listGuids = [...new Set(tasks.map(task => task.tasklistGuid).filter(Boolean))]
+    if (listGuids.length > 1) {
+      let added = 0
+      for (const guid of listGuids) added += await ensureWorkspaceOptions(tasks.filter(task => task.tasklistGuid === guid))
+      return added
+    }
+    const listGuid = listGuids[0]
     if (!listGuid) return 0
     const defs = cached(remoteCache.fields, listGuid, REMOTE_TTL.fields) ?? []
     const def = defs.find((item) => item.name === fieldName)
@@ -6424,7 +6570,7 @@ bucket 只能从枚举里选：
   /** 把任务上的「工作区」字段写到飞书（单条；失败返回错误但不抛）。 */
   async function writeWorkspaceField(task, title, revision) {
     const fieldName = settings.taskFields.workspace.trim() || '工作区'
-    const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+    const listGuid = task.tasklistGuid
     if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回' }
     const python = resolvePython(resolveCli(settings.cliPath))
     if (!python) return { ok: false, error: '没有可用的 feishu bridge' }
@@ -6517,7 +6663,7 @@ bucket 只能从枚举里选：
     const batch = entries.slice(0, 5)
     const actions = []
     for (const { task, title } of batch) {
-      const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+      const listGuid = task.tasklistGuid
       if (!listGuid) continue
       actions.push({ op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: title })
     }
@@ -6563,7 +6709,7 @@ bucket 只能从枚举里选：
       if (current) continue
       const label = await workspaceLabelOf(task)
       if (!label) continue
-      const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+      const listGuid = task.tasklistGuid
       if (!listGuid) continue
       pending.push({ task, listGuid, label })
     }
@@ -6618,7 +6764,7 @@ bucket 只能从枚举里选：
     const options = Array.isArray(settings.priorityOptions) ? settings.priorityOptions : ['P0', 'P1', 'P2', 'P3']
     const want = asString(value)
     if (want && !options.includes(want)) return { ok: false, error: `优先级只能是 ${options.join(' / ')}（或留空清除）` }
-    const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+    const listGuid = task.tasklistGuid
     if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回' }
 
     const previous = task.priority || ''
@@ -6634,7 +6780,7 @@ bucket 只能从枚举里选：
     const result = await runBridge(python, {
       actions: [
         { op: 'ensure_custom_field', tasklist: listGuid, name: fieldName, options },
-        { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: want },
+        { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, expected_type: 'single_select', value: want },
       ],
     })
     const ensure = (result.actions ?? [])[0]
@@ -6673,7 +6819,7 @@ bucket 只能从枚举里选：
     const path = resolveCli(settings.cliPath)
     const python = resolvePython(path)
     if (!python) return { ok: false, error: '找不到 Python（feishu-sync 安装环境）' }
-    const listGuid = task.tasklistGuid || defaultsFromState().tasklistGuid
+    const listGuid = task.tasklistGuid
     if (!listGuid) return { ok: false, error: '不知道任务所属清单，无法写回字段' }
 
     const actions = []
@@ -6866,7 +7012,8 @@ bucket 只能从枚举里选：
           const failures = pending.filter((task) => task.reopenPending).map((task) => task.reopenError || '任务重开写回失败')
           return { ok: failures.length === 0, failures }
         })
-        await stage('任务同步', syncTasks)
+        const taskSync = await stage('任务同步', syncTasks)
+        if (taskSync?.ok) await stage('清单与字段初始化', ensureManagedTasklist)
         if (adoptFeishuSchedule()) await persistState()
         retryWorkspaceWrites()
         await stage('工作区对账', reconcileWorkspaces, { optional: true })
@@ -6932,6 +7079,7 @@ bucket 只能从枚举里选：
     load,
     snapshot,
     saveSettings,
+    ensureManagedTasklist,
     probeCli,
     checkAuth,
     startLogin,
@@ -6943,7 +7091,7 @@ bucket 只能从枚举里选：
     reconcileRunningReopens,
     disposeLifecycle: () => {
       lifecycleDisposed = true
-      const drain = Promise.allSettled([globalThis[lifecycleKey], inFlight]).then(() => stateLoaded ? writeJson(stateFile, state) : undefined)
+      const drain = Promise.allSettled([globalThis[lifecycleKey], inFlight, tasklistFlight]).then(() => stateLoaded ? writeJson(stateFile, state) : undefined)
       globalThis[lifecycleKey] = drain.catch(() => {})
       return drain
     },

@@ -39,6 +39,8 @@ if (process.argv[2] === ${JSON.stringify(CLI)}) {
     const payload = JSON.parse(raw); fs.appendFileSync(logPath, JSON.stringify(payload) + '\\n');
     const actions = (payload.actions || []).map(action => {
       const deps = state.tasks[action.task] || [];
+      if (action.op === 'ensure_tasklist') return {op:action.op,ok:true,guid:action.guid || 'list',name:'DSH 任务清单'};
+      if (action.op === 'ensure_custom_field') return {op:action.op,ok:true,guid:'field-'+action.name,type:action.type || 'single_select'};
       if (action.op === 'task_dependencies') return {op: action.op, ok: true, items: deps};
       if (['add_dependencies', 'remove_dependencies'].includes(action.op)) {
         if (state.failWrites) return {op: action.op, ok: false, error: 'mock write denied'};
@@ -48,7 +50,7 @@ if (process.argv[2] === ${JSON.stringify(CLI)}) {
       }
       return {op: action.op, ok: true};
     });
-    console.log(JSON.stringify({ok: true, actions, errors: [], tasklists: {}, fields: {}, users: {}}));
+    console.log(JSON.stringify({ok: true, actions, errors: [], tasklists: {}, fields: Object.fromEntries((payload.fields||[]).map(id=>[id,[]])), users: {}}));
   });
 }
 `)
@@ -69,7 +71,7 @@ const tasks = [
   { id: 'outside', title: 'Other project', done: false, tasklistGuid: 'other' },
 ].map((task) => ({ ...task, members: [], customFields: [], meta: {} }))
 await writeFile(join(DATA, 'state.json'), JSON.stringify({ tasks, schedules: {}, relations: [] }))
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ autoSync: false, cliPath: CLI }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ autoSync: false, cliPath: CLI, managedTasklist: { enabled: true, guid: 'list', name: 'DSH 任务清单' } }))
 const { apply } = await import('../index.js')
 let modelText = ''
 const modelCalls = []

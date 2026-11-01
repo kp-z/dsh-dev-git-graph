@@ -358,9 +358,313 @@ def task_comment(token, action):
         return result
 
 
+SUPPORTED_FIELD_TYPES = ('text', 'datetime', 'single_select', 'multi_select')
+
+
+def _identifier(value, label):
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f'{label} 不能为空')
+    return value
+
+
+def _api_data(res):
+    if not isinstance(res, dict) or type(res.get('code')) is not int or res['code'] != 0:
+        raise ValueError(str((res.get('msg') or res.get('code')) if isinstance(res, dict) else 'malformed API response'))
+    data = res.get('data')
+    if not isinstance(data, dict):
+        raise ValueError('malformed API data')
+    return data
+
+
+def _list_all(token, path, kind):
+    """Read all pages or raise; never expose a partial list to a writer."""
+    items, seen, cursor = [], set(), None
+    for _ in range(1000):
+        query = path + ('&page_token=' + urllib.parse.quote(cursor, safe='') if cursor else '')
+        data = _api_data(call(token, query))
+        batch = data.get('items')
+        more = data.get('has_more')
+        if not isinstance(batch, list) or not isinstance(more, bool):
+            raise ValueError(f'malformed {kind} page')
+        for item in batch:
+            if not isinstance(item, dict) or not all(isinstance(item.get(k), str) and item[k] for k in
+                                                    (('guid', 'name', 'type') if kind == 'fields' else ('guid', 'name'))):
+                raise ValueError(f'malformed {kind} item')
+        items.extend(batch)
+        if not more:
+            return items
+        cursor = data.get('page_token')
+        if not isinstance(cursor, str) or not cursor.strip() or cursor in seen:
+            raise ValueError(f'malformed {kind} pagination: missing/repeated cursor')
+        seen.add(cursor)
+    raise ValueError(f'{kind} pagination limit exceeded')
+
+
+def list_custom_fields(token, tasklist):
+    tasklist = _identifier(tasklist, 'tasklist')
+    items = _list_all(token, '/task/v2/custom_fields?resource_type=tasklist&resource_id=' +
+                      urllib.parse.quote(tasklist, safe='') + '&page_size=100', 'fields')
+    for item in items:
+        if item['type'] in ('single_select', 'multi_select'):
+            _select_options(item, for_write=False)
+    return items
+
+
+def _field_target(items, action):
+    guid = action.get('field_guid')
+    name = action.get('name')
+    if guid is not None:
+        _identifier(guid, 'field_guid')
+        matches = [f for f in items if f['guid'] == guid]
+    else:
+        _identifier(name, 'name')
+        matches = [f for f in items if f['name'] == name]
+    if len(matches) != 1:
+        raise ValueError('字段重名/重复 GUID，拒绝写入' if len(matches) > 1 else '没有匹配的字段')
+    target = matches[0]
+    if guid is not None and name is not None and target['name'] != name:
+        raise ValueError('field_guid 与 name 不匹配')
+    expected = action.get('expected_type')
+    if target['type'] not in SUPPORTED_FIELD_TYPES:
+        raise ValueError('不支持字段类型 ' + target['type'])
+    if expected is not None and (expected not in SUPPORTED_FIELD_TYPES or target['type'] != expected):
+        raise ValueError('字段类型与 expected_type 不匹配')
+    return target
+
+
+def _option_names(value):
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError('options 必须是字符串数组')
+    if any(not isinstance(n, str) for n in value):
+        raise ValueError('options 必须是字符串数组')
+    return list(dict.fromkeys(n for n in value if n.strip()))
+
+
+def _select_options(target, for_write=False):
+    """Read tolerantly, write strictly.
+
+    Legacy lists legitimately contain blank-named or repeated option names; failing the
+    whole field-definition read over them hides every other field (and turns select
+    values into raw GUIDs). Reads therefore skip unusable options, while any write to
+    that field still raises instead of guessing.
+    """
+    key = target['type'] + '_setting'
+    setting = target.get(key)
+    if not isinstance(setting, dict) or not isinstance(setting.get('options'), list):
+        if for_write:
+            raise ValueError('malformed select setting')
+        return key, []
+    options = setting['options']
+    guids = set()
+    clean = []
+    for option in options:
+        if not isinstance(option, dict) or not isinstance(option.get('guid'), str) or not option['guid']:
+            if for_write:
+                raise ValueError('malformed select option')
+            continue
+        if not isinstance(option.get('name'), str):
+            if for_write:
+                raise ValueError('malformed select option')
+            continue
+        if option['guid'] in guids:
+            if for_write:
+                raise ValueError('重复选项 GUID')
+            continue
+        guids.add(option['guid'])
+        clean.append(option)
+    return key, clean
+
+
+def _complete_options(token, target, names):
+    key, options = _select_options(target, for_write=True)
+    # Legacy lists may already contain duplicate or hidden options. That makes those
+    # specific values unsafe to write, but it must not fail the whole field (and with it
+    # every sync). Keep the field usable; the write path still refuses ambiguous values.
+    visible = [o for o in options if not o.get('is_hidden')]
+    duplicated = [n for n in names if len([o for o in visible if o['name'] == n]) > 1]
+    hidden_only = [n for n in names if not [o for o in visible if o['name'] == n]
+                   and any(o.get('is_hidden') and o['name'] == n for o in options)]
+    warnings = []
+    if duplicated:
+        warnings.append('同名可见选项重复，写入这些值会被拒绝：' + '、'.join(duplicated))
+    if hidden_only:
+        warnings.append('选项已隐藏，写入这些值会被拒绝：' + '、'.join(hidden_only))
+    missing = [n for n in names if n not in {o['name'] for o in options}]
+    if not missing:
+        return target, [], warnings
+    # Preserve GUIDs, hidden entries and all option metadata: PATCH replaces the full list.
+    merged = [dict(o) for o in options] + [{'name': n} for n in missing]
+    data = _api_data(call(token, '/task/v2/custom_fields/' + urllib.parse.quote(target['guid'], safe=''),
+                          method='PATCH', body={'custom_field': {key: {**target[key], 'options': merged}},
+                                               'update_fields': [key]}))
+    after = data.get('custom_field')
+    if not isinstance(after, dict) or after.get('guid') != target['guid'] or after.get('type') != target['type']:
+        raise ValueError('追加选项回执缺失/不匹配')
+    _, received = _select_options(after, for_write=True)
+    by_guid = {o['guid']: o for o in received}
+    if any(o['guid'] not in by_guid or by_guid[o['guid']].get('name') != o['name'] or
+           bool(by_guid[o['guid']].get('is_hidden')) != bool(o.get('is_hidden')) for o in options):
+        raise ValueError('追加选项回执未保留原 GUID/隐藏项')
+    for n in missing:
+        if len([o for o in received if o['name'] == n and not o.get('is_hidden')]) != 1:
+            raise ValueError('追加选项后没拿到唯一 guid')
+    return after, missing, warnings
+
+
+def ensure_custom_field(token, action):
+    result = {'op': 'ensure_custom_field', 'ok': False, 'created': False, 'guid': None,
+              'name': action.get('name'), 'type': action.get('type', 'single_select'), 'error': None}
+    posting = False
+    try:
+        name = _identifier(action.get('name'), 'name')
+        kind = result['type']
+        if kind not in SUPPORTED_FIELD_TYPES:
+            raise ValueError('不支持字段类型 ' + str(kind))
+        names = _option_names(action.get('options'))
+        items = list_custom_fields(token, action.get('tasklist'))
+        matches = [f for f in items if f['name'] == name]
+        if len(matches) > 1:
+            raise ValueError('字段重名，拒绝创建/写入')
+        if matches:
+            target = matches[0]
+            result.update(guid=target['guid'], type=target['type'])
+            if target['type'] != kind:
+                raise ValueError(f'字段「{name}」已存在但类型是 {target["type"]}，不是 {kind}')
+            added = []
+            warnings = []
+            if kind in ('single_select', 'multi_select'):
+                target, added, warnings = _complete_options(token, target, names)
+            result.update(ok=True, added=added)
+            if warnings:
+                result['warnings'] = warnings
+            return result
+        body = {'resource_type': 'tasklist', 'resource_id': action['tasklist'], 'name': name, 'type': kind}
+        if kind in ('single_select', 'multi_select'):
+            body[kind + '_setting'] = {'options': [{'name': n} for n in names]}
+        elif kind == 'text':
+            body['text_setting'] = {}
+        else:
+            body['datetime_setting'] = {'format': 'yyyy-mm-dd'}
+        posting = True
+        res = call(token, '/task/v2/custom_fields', method='POST', body=body)
+        if isinstance(res, dict) and type(res.get('code')) is int and res['code'] != 0 and not 500 <= res['code'] <= 599:
+            posting = False
+        target = _api_data(res).get('custom_field')
+        if not isinstance(target, dict) or not isinstance(target.get('guid'), str) or not target['guid'].strip() or target.get('name') != name or target.get('type') != kind:
+            raise ValueError('字段创建回执缺失/不匹配')
+        if kind in ('single_select', 'multi_select'):
+            _, received = _select_options(target, for_write=True)
+            if any(len([o for o in received if o['name'] == n and not o.get('is_hidden')]) != 1 for n in names):
+                raise ValueError('字段创建回执未包含唯一选项 GUID')
+        result.update(ok=True, created=True, guid=target['guid'])
+    except Exception as exc:  # noqa: BLE001
+        result['error'] = str(exc)[:200]
+        if posting:
+            result['unknownDelivery'] = True
+    return result
+
+
+def set_custom_field(token, action, failed_ensures=None):
+    task = urllib.parse.quote(_identifier(action.get('task'), 'task'), safe='')
+    if action.get('expected_type') is not None and action['expected_type'] not in SUPPORTED_FIELD_TYPES:
+        raise ValueError('不支持 expected_type')
+    target = _field_target(list_custom_fields(token, action.get('tasklist')), action)
+    failure = (failed_ensures or {}).get((action.get('tasklist'), target['name']))
+    if failure:
+        return {'op': 'set_custom_field', 'ok': False, 'skipped': 'ensure_failed',
+                'error': '同批 ensure 失败，跳过写入：' + failure}
+    kind, raw = target['type'], action.get('value')
+    value = {'guid': target['guid'], 'type': kind}
+    if kind in ('single_select', 'multi_select'):
+        if raw is None or raw == '' or raw == []:
+            names = []
+        elif kind == 'multi_select' and isinstance(raw, list):
+            names = _option_names(raw)
+        elif isinstance(raw, str):
+            names = [raw]
+        else:
+            raise ValueError('select value 必须是字符串（多选可用字符串数组）')
+        target, _, _ = _complete_options(token, target, names)
+        _, options = _select_options(target, for_write=True)
+        selected = []
+        for name in names:
+            matches = [o for o in options if o['name'] == name and not o.get('is_hidden')]
+            if len(matches) != 1:
+                raise ValueError('选项重名或隐藏，拒绝写入')
+            selected.append(matches[0]['guid'])
+        value[kind + '_value'] = (selected[0] if selected else '') if kind == 'single_select' else selected
+    elif kind == 'datetime':
+        import datetime as _dt
+        if not isinstance(raw, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', raw):
+            raise ValueError('日期字段要 YYYY-MM-DD')
+        day = _dt.datetime.strptime(raw, '%Y-%m-%d').replace(tzinfo=_dt.timezone.utc)
+        value['datetime_value'] = str(int(day.timestamp() * 1000))
+    else:
+        if raw is not None and not isinstance(raw, (str, int, float, bool)):
+            raise ValueError('text value 必须是标量')
+        value['text_value'] = '' if raw is None else str(raw)
+    res = call(token, f'/task/v2/tasks/{task}?user_id_type=open_id', method='PATCH',
+               body={'task': {'custom_fields': [value]}, 'update_fields': ['custom_fields']})
+    ok = isinstance(res, dict) and res.get('code') == 0
+    return {'op': 'set_custom_field', 'ok': ok, 'guid': target['guid'], 'type': kind,
+            'error': None if ok else str(res.get('msg') or res.get('code'))[:200] if isinstance(res, dict) else 'malformed API response'}
+
+
+def ensure_tasklist(token, action):
+    """Resolve authoritatively before creating; never retry an ambiguous POST.
+
+    Verified against official lark-oapi 1.7.5: CreateTasklistRequest uses POST
+    /open-apis/task/v2/tasklists and user_id_type; InputTasklist declares name
+    and client_token (not create_token). create_token is our bridge alias.
+    """
+    result = {'op': 'ensure_tasklist', 'ok': False, 'guid': action.get('guid'),
+              'name': action.get('name'), 'created': False, 'error': None}
+    posting = False
+    try:
+        guid = action.get('guid')
+        if guid is not None:
+            guid = _identifier(guid, 'guid')
+            data = _api_data(call(token, '/task/v2/tasklists/' + urllib.parse.quote(guid, safe='') + '?user_id_type=open_id'))
+            target = data.get('tasklist')
+            if not isinstance(target, dict) or target.get('guid') != guid or not isinstance(target.get('name'), str) or not target['name']:
+                raise ValueError('清单 GET 回执缺失/不匹配')
+        else:
+            name = _identifier(action.get('name'), 'name')
+            token_value = action.get('create_token')
+            if token_value is not None:
+                _identifier(token_value, 'create_token')
+            items = _list_all(token, '/task/v2/tasklists?user_id_type=open_id&page_size=100', 'tasklists')
+            matches = [i for i in items if i['name'] == name]
+            if len(matches) > 1:
+                raise ValueError('清单重名，拒绝创建')
+            if matches:
+                target = matches[0]
+            else:
+                body = {'name': name}
+                if token_value is not None:
+                    body['client_token'] = token_value
+                posting = True
+                res = call(token, '/task/v2/tasklists?user_id_type=open_id', method='POST', body=body)
+                if isinstance(res, dict) and type(res.get('code')) is int and res['code'] != 0 and not 500 <= res['code'] <= 599:
+                    posting = False
+                target = _api_data(res).get('tasklist')
+                if not isinstance(target, dict) or not isinstance(target.get('guid'), str) or not target['guid'] or target.get('name') != name:
+                    raise ValueError('清单创建回执缺失/不匹配')
+                result['created'] = True
+        result.update(ok=True, guid=target['guid'], name=target['name'])
+    except Exception as exc:  # noqa: BLE001
+        result['error'] = str(exc)[:200]
+        if posting:
+            result['unknownDelivery'] = True
+    return result
+
+
 def run_actions(token, actions):
     """CLI 没覆盖的写操作：任务挂清单、建文档目录、写文档、回写任务描述。"""
     results = []
+    failed_ensures = {}
     for action in actions or []:
         op = action.get('op')
         try:
@@ -461,137 +765,28 @@ def run_actions(token, actions):
                 results.append({'op': op, 'ok': ok, 'items': items,
                                 'error': None if ok else (res.get('msg') or '')[:200]})
             elif op == 'set_custom_field':
-                fields = call(token, f"/task/v2/custom_fields?resource_type=tasklist&resource_id={action['tasklist']}&page_size=50")
-                items = ((fields.get('data') or {}).get('items') or [])
-                target = next((f for f in items if f.get('name') == action['name']), None)
-                if not target:
-                    results.append({'op': op, 'ok': False, 'error': f"没有名为 {action['name']} 的字段"})
-                    continue
-                want = str(action['value'] or '')
-                ftype = target.get('type')
-                if ftype in ('single_select', 'multi_select'):
-                    # 单选/多选要传选项 guid，不是文本；选项不存在就**带着现有 guid**追加一个，
-                    # 显式传 guid 才不会把已有选项重建（重建会让所有任务上的旧值失效）。
-                    visible = [o for o in ((target.get('single_select_setting') or {}).get('options') or [])
-                               if not o.get('is_hidden')]
-                    by_name = {o.get('name'): o.get('guid') for o in visible}
-                    guid = by_name.get(want)
-                    if not guid:
-                        merged = [{'guid': o.get('guid'), 'name': o.get('name'),
-                                   'color_index': o.get('color_index', 0)} for o in visible]
-                        merged.append({'name': want})
-                        patched = call(token, f"/task/v2/custom_fields/{target['guid']}", method='PATCH',
-                                       body={'custom_field': {'single_select_setting': {'options': merged}},
-                                             'update_fields': ['single_select_setting']})
-                        if patched.get('code') != 0:
-                            results.append({'op': op, 'ok': False,
-                                            'error': ('追加选项失败：' + str(patched.get('msg')))[:160]})
-                            continue
-                        after = (((patched.get('data') or {}).get('custom_field') or {})
-                                 .get('single_select_setting') or {}).get('options') or []
-                        guid = next((o.get('guid') for o in after if o.get('name') == want), None)
-                        if not guid:
-                            results.append({'op': op, 'ok': False, 'error': '追加选项后没拿到 guid'})
-                            continue
-                    value = ({'single_select_value': guid} if ftype == 'single_select'
-                             else {'multi_select_value': [guid]})
-                    res = call(token, f"/task/v2/tasks/{action['task']}?user_id_type=open_id", method='PATCH',
-                               body={'task': {'custom_fields': [dict(guid=target['guid'], type=ftype, **value)]},
-                                     'update_fields': ['custom_fields']})
-                    ok = res.get('code') == 0
-                    results.append({'op': op, 'ok': ok, 'option': want,
-                                    'error': None if ok else (res.get('msg') or '')[:160]})
-                    continue
-                if ftype == 'datetime':
-                    # 日期字段只收毫秒字符串，语义是「该日期 UTC 00:00:00」；传 text_value 会被忽略。
-                    day = want.strip()[:10]
-                    try:
-                        import datetime as _dt
-                        y, m, d = (int(x) for x in day.split('-'))
-                        ms = int(_dt.datetime(y, m, d, tzinfo=_dt.timezone.utc).timestamp() * 1000)
-                    except Exception:
-                        results.append({'op': op, 'ok': False,
-                                        'error': f"日期字段要 YYYY-MM-DD，收到 {want[:20]}"})
-                        continue
-                    res = call(token, f"/task/v2/tasks/{action['task']}?user_id_type=open_id", method='PATCH',
-                               body={'task': {'custom_fields': [{'guid': target['guid'],
-                                                                 'datetime_value': str(ms)}]},
-                                     'update_fields': ['custom_fields']})
-                    ok = res.get('code') == 0
-                    results.append({'op': op, 'ok': ok, 'datetime': day,
-                                    'error': None if ok else (res.get('msg') or '')[:160]})
-                    continue
-                res = call(token, f"/task/v2/tasks/{action['task']}?user_id_type=open_id", method='PATCH',
-                           body={'task': {'custom_fields': [{'guid': target['guid'], 'type': target['type'],
-                                                             'text_value': want}]},
-                                 'update_fields': ['custom_fields']})
-                ok = res.get('code') == 0
-                results.append({'op': op, 'ok': ok, 'error': None if ok else (res.get('msg') or '')[:160]})
+                key = (action.get('tasklist'), action.get('name'))
+                if key in failed_ensures:
+                    results.append({'op': op, 'ok': False, 'skipped': 'ensure_failed',
+                                    'error': '同批 ensure 失败，跳过写入：' + failed_ensures[key]})
+                else:
+                    results.append(set_custom_field(token, action, failed_ensures))
             elif op == 'ensure_select_options':
-                # 把本地工作区名补进单选字段的选项里。**必须带 guid**：整表重写而不传 guid，
-                # 飞书会把所有选项重建，已有任务上的旧值立刻失效。
-                fields = call(token, f"/task/v2/custom_fields?resource_type=tasklist&resource_id={action['tasklist']}&page_size=100")
-                target = next((f for f in ((fields.get('data') or {}).get('items') or [])
-                               if f.get('name') == action['name']), None)
-                if not target:
-                    results.append({'op': op, 'ok': False, 'error': f"没有名为 {action['name']} 的字段"})
-                    continue
-                if target.get('type') not in ('single_select', 'multi_select'):
-                    results.append({'op': op, 'ok': True, 'added': [], 'skipped': 'not_select'})
-                    continue
-                settings_key = 'single_select_setting' if target.get('type') == 'single_select' else 'multi_select_setting'
-                visible = [o for o in ((target.get(settings_key) or {}).get('options') or [])
-                           if not o.get('is_hidden')]
-                names = {o.get('name') for o in visible}
-                missing = [n for n in action.get('options') or [] if n and n not in names]
-                if not missing:
-                    results.append({'op': op, 'ok': True, 'added': []})
-                    continue
-                merged = [{'guid': o.get('guid'), 'name': o.get('name'),
-                           'color_index': o.get('color_index', 0)} for o in visible]
-                merged.extend({'name': n} for n in missing)
-                patched = call(token, f"/task/v2/custom_fields/{target['guid']}", method='PATCH',
-                               body={'custom_field': {settings_key: {'options': merged}},
-                                     'update_fields': [settings_key]})
-                ok = patched.get('code') == 0
-                results.append({'op': op, 'ok': ok, 'added': missing if ok else [],
-                                'error': None if ok else (patched.get('msg') or '')[:160]})
+                target = _field_target(list_custom_fields(token, action.get('tasklist')), action)
+                if target['type'] not in ('single_select', 'multi_select'):
+                    raise ValueError('不支持非 select 字段补选项')
+                target, added, warnings = _complete_options(token, target, _option_names(action.get('options')))
+                row = {'op': op, 'ok': True, 'guid': target['guid'], 'added': added, 'error': None}
+                if warnings:
+                    row['warnings'] = warnings
+                results.append(row)
             elif op == 'ensure_custom_field':
-                # 清单上还没有这个字段就建一个。**默认单选**（历史调用方都按单选传 options）；
-                # 现在也支持 type='text' / 'datetime'：
-                #   - 预期完成用 text（飞书自定义日期字段只到天，§DESIGN-task-lifecycle §10 实测）；
-                #   - 开始/结束的日期列用 datetime。
-                # 建字段接口是 POST /task/v2/custom_fields，body 带 resource_type/resource_id。
-                fields = call(token, f"/task/v2/custom_fields?resource_type=tasklist&resource_id={action['tasklist']}&page_size=100")
-                items = ((fields.get('data') or {}).get('items') or [])
-                target = next((f for f in items if f.get('name') == action['name']), None)
-                want_type = str(action.get('type') or 'single_select')
-                options = [str(o) for o in (action.get('options') or []) if o]
-                if target:
-                    # 同名但类型不同：**不重建**（重建会让已有值失效），交给调用方降级。
-                    same = target.get('type') == want_type
-                    results.append({'op': op, 'ok': same, 'created': False,
-                                    'guid': target.get('guid'), 'type': target.get('type'),
-                                    'error': None if same
-                                    else f"字段「{action['name']}」已存在但类型是 {target.get('type')}，不是 {want_type}"})
-                    continue
-                body = {
-                    'resource_type': 'tasklist',
-                    'resource_id': action['tasklist'],
-                    'name': action['name'],
-                    'type': want_type,
-                }
-                if want_type == 'single_select':
-                    body['single_select_setting'] = {'options': [{'name': o} for o in options]}
-                elif want_type == 'text':
-                    body['text_setting'] = {}
-                elif want_type == 'datetime':
-                    body['datetime_setting'] = {'format': 'yyyy-mm-dd'}
-                created = call(token, '/task/v2/custom_fields', method='POST', body=body)
-                ok = created.get('code') == 0
-                guid = (((created.get('data') or {}).get('custom_field') or {}).get('guid'))
-                results.append({'op': op, 'ok': ok, 'created': True, 'guid': guid, 'type': want_type,
-                                'error': None if ok else (created.get('msg') or '')[:160]})
+                result = ensure_custom_field(token, action)
+                results.append(result)
+                if not result['ok']:
+                    failed_ensures[(action.get('tasklist'), action.get('name'))] = result['error']
+            elif op == 'ensure_tasklist':
+                results.append(ensure_tasklist(token, action))
             elif op == 'delete_custom_field':
                 # 注意路径：不是 DELETE /task/v2/custom_fields/{guid}（那个是 404，v2 没这路由），
                 # 而是 POST .../{guid}/remove，body 带 resource_type/resource_id。
@@ -691,12 +886,10 @@ def main():
     for list_guid in payload.get('fields') or []:
         if not list_guid:
             continue
-        res = call(
-            token,
-            f'/task/v2/custom_fields?resource_type=tasklist&resource_id={list_guid}&page_size=100',
-        )
-        if res.get('code') != 0:
-            out['errors'].append(f'fields {list_guid}: {res.get("msg") or res.get("code")}')
+        try:
+            items = list_custom_fields(token, list_guid)
+        except Exception as exc:  # noqa: BLE001
+            out['errors'].append(f'fields {list_guid}: {str(exc)[:200]}')
             continue
         out['fields'][list_guid] = [
             {
@@ -705,7 +898,7 @@ def main():
                 'type': item.get('type'),
                 'options': options_of(item),
             }
-            for item in (res.get('data') or {}).get('items', [])
+            for item in items
         ]
 
     user_ids = [u for u in (payload.get('users') or []) if u]

@@ -179,6 +179,10 @@
   .setting-group summary::before { content: '›'; color: var(--p-text-3); font-size: 17px; font-weight: 400; line-height: 1; width: 10px; }
   .setting-group[open] > summary::before { transform: rotate(90deg); }
   .setting-group-desc { margin-left: auto; color: var(--p-text-3); font-size: 11px; font-weight: 400; text-align: right; }
+  .managed-tasklist-status { padding-top: 14px; overflow-wrap: anywhere; }
+  .managed-tasklist-fields, .managed-tasklist-errors { margin: 8px 0 0; padding-left: 20px; }
+  .managed-tasklist-fields li, .managed-tasklist-errors li { margin-bottom: 8px; }
+  .managed-tasklist-errors { color: var(--p-warn); }
   .setting-group > .rows { padding-top: 14px; }
   .setting-group:not([open]) > .rows { display: none; }
   .settings-card input.hm-input { width: 64px; max-width: 64px; flex: 0 0 64px; }
@@ -2971,6 +2975,34 @@
         </div>
       </div>
     </div>
+    <details id="managedTasklistGroup" class="setting-group">
+      <summary><span>受管任务清单</span><span class="setting-group-desc">自动初始化与完整字段检查</span></summary>
+      <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="managedTasklistEnabled">启用受管任务清单</label>
+            <div class="hint">默认启用；授权后初始化清单及所需字段</div>
+          </div>
+          <div class="row-ctrl"><input type="checkbox" id="managedTasklistEnabled" class="switch" data-setting="1" checked></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="managedTasklistName">清单名称</label><div class="hint">自动创建时使用；留空使用「DSH 任务清单」</div></div>
+          <div class="row-ctrl grow"><input type="text" id="managedTasklistName" data-setting="1" autocomplete="off" spellcheck="false" placeholder="DSH 任务清单"></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="managedTasklistGuid">复用清单 GUID</label><div class="hint">留空自动创建或复用旧配置中的单一清单；填写则复用指定清单</div></div>
+          <div class="row-ctrl grow"><input type="text" id="managedTasklistGuid" data-setting="1" autocomplete="off" spellcheck="false" placeholder="留空自动选择"></div>
+        </div>
+      </div>
+      <div class="managed-tasklist-status">
+        <div class="hint">指定清单的已有字段类型不符时不会删除或覆盖。配置通过「保存设置」提交，不会自动触发同步；保存后可点现有「立即同步」重新检查。检查缓存约 10 分钟，配置改动会更新检查签名。</div>
+        <div id="managedTasklistStatus" role="status" aria-live="polite"></div>
+        <div id="managedTasklistIdentity" class="hint"></div>
+        <div id="managedTasklistCheckedAt" class="hint"></div>
+        <ul id="managedTasklistFields" class="managed-tasklist-fields" aria-label="完整字段检查结果"></ul>
+        <ul id="managedTasklistErrors" class="managed-tasklist-errors" aria-label="清单检查错误"></ul>
+      </div>
+    </details>
     <details class="setting-group">
       <summary><span>自动开工</span><span class="setting-group-desc">触发范围与并发上限</span></summary>
       <div class="rows">
@@ -3484,6 +3516,7 @@
   /* ---------------- 渲染：状态条 ---------------- */
 
   function renderStatus() {
+    renderManagedTasklistStatus();
     var s = app.snap || {};
     var auth = s.auth || {};
     var cliText;
@@ -3794,6 +3827,10 @@
     $('autoSync').checked = !!st.autoSync;
     $('syncInterval').value = st.syncIntervalMinutes != null ? st.syncIntervalMinutes : 30;
     $('keyword').value = tst.keyword || '';
+    var managed = st.managedTasklist || {};
+    $('managedTasklistEnabled').checked = managed.enabled !== false;
+    $('managedTasklistName').value = managed.name || 'DSH 任务清单';
+    $('managedTasklistGuid').value = managed.guid || '';
     $('autoStartMode').value = st.autoStartMode === 'all' || st.autoStartMode === 'tagged' ? st.autoStartMode : 'off';
     renderWorkspaceHint();
     $('maxAutoStart').value = st.maxAutoStartPerRun != null ? st.maxAutoStartPerRun : 1;
@@ -3810,6 +3847,47 @@
     /* 时间自动化单独一组，回填逻辑也单独放，别和既有设置的读写搅在一起 */
     renderScheduleSettings();
     updateSettingDependencies();
+  }
+
+  function renderManagedTasklistStatus() {
+    var managed = app.snap && app.snap.managedTasklist;
+    var labels = { uninitialized: '尚未初始化', checking: '正在检查', ready: '清单与字段已就绪', failed: '检查失败', unknown: '检查结果未知' };
+    var status = managed && Object.prototype.hasOwnProperty.call(labels, managed.status) ? managed.status : 'unknown';
+    var box = $('managedTasklistStatus');
+    clear(box);
+    box.appendChild(el('span', {
+      'class': 'badge ' + (status === 'ready' ? 'badge-ok' : (status === 'failed' || status === 'unknown' ? 'badge-warn' : '')),
+      text: labels[status] + ' · ' + status
+    }));
+    $('managedTasklistIdentity').textContent = managed ? '实际清单：' + (managed.name || '名称未返回') + ' · GUID：' + (managed.guid || '尚未确定') : '宿主尚未返回受管清单检查状态';
+    $('managedTasklistCheckedAt').textContent = managed && managed.checkedAt ? '最近检查：' + fmtAbs(managed.checkedAt) : '尚无检查时间';
+    var fields = $('managedTasklistFields');
+    clear(fields);
+    var list = managed && Array.isArray(managed.fields) ? managed.fields : [];
+    if (!list.length) fields.appendChild(el('li', { text: '暂无字段检查结果' }));
+    list.forEach(function (field) {
+      var item = el('li');
+      field = field || {};
+      item.appendChild(el('div', { text: (field.name || '名称未返回') + ' · key：' + (field.key || '未返回') }));
+      item.appendChild(el('div', { 'class': 'hint', text: 'GUID：' + (field.guid || '未返回') + ' · 类型：' + (field.type == null ? '未返回' : field.type) + ' · ' + (field.ok === true ? '检查通过' : field.ok === false ? '检查失败' : '结果未知') }));
+      if (field.warning) item.appendChild(el('div', { 'class': 'hint', text: '提醒：' + field.warning }));
+      if (field.error) item.appendChild(el('div', { 'class': 'comment-note', text: '错误：' + field.error }));
+      fields.appendChild(item);
+    });
+    var errors = $('managedTasklistErrors');
+    clear(errors);
+    var problems = managed && Array.isArray(managed.errors) ? managed.errors : [];
+    problems.forEach(function (error) {
+      // 错误可为结构化诊断；只作为文本显示，不信任远端 HTML。
+      var text = typeof error === 'string' ? error : JSON.stringify(error);
+      errors.appendChild(el('li', { text: text == null ? String(error) : text }));
+    });
+    var warnings = managed && Array.isArray(managed.warnings) ? managed.warnings : [];
+    warnings.forEach(function (warning) {
+      var text = typeof warning === 'string' ? warning : JSON.stringify(warning);
+      errors.appendChild(el('li', { 'class': 'hint', text: '⚠ ' + (text == null ? String(warning) : text) }));
+    });
+    errors.hidden = problems.length === 0 && warnings.length === 0;
   }
 
   /* ---------------- 评论协作：仅展开配置后读取真实账本 ---------------- */
@@ -8057,6 +8135,11 @@
     btn.textContent = '保存中…';
 
     var payload = {
+      managedTasklist: {
+        enabled: $('managedTasklistEnabled').checked,
+        name: String($('managedTasklistName').value || '').trim() || 'DSH 任务清单',
+        guid: String($('managedTasklistGuid').value || '').trim()
+      },
       autoSync: $('autoSync').checked,
       syncIntervalMinutes: toInt($('syncInterval').value, 30, 1, 1440),
       tasks: {
@@ -8422,7 +8505,7 @@
   function wire() {
     wireConfiguration();
     wireComments();
-    var settingIds = ['autoSync', 'syncInterval', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap',
+    var settingIds = ['managedTasklistEnabled', 'managedTasklistName', 'managedTasklistGuid', 'autoSync', 'syncInterval', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap',
       /* 时间自动化这组也要算「正在编辑」：轮询回来别把正在输入的时区/时段冲掉 */
       'schTimeZone', 'schWorkStart', 'schWorkEnd', 'schQuietStart', 'schQuietEnd', 'schMissPolicy', 'schGrace', 'schCapacity', 'schWriteBack',
       'schWriteEta', 'schWriteStart', 'schWriteEnd', 'schAutomationPrompt',

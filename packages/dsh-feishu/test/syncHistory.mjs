@@ -56,6 +56,7 @@ const context = {
   state: fakeState, settings: { comments: { enabled: true } }, inFlight: null,
   beginSyncHistory, finishSyncHistory, recordSyncStage, safeSyncDetail,
   nowMs: Date.now, persistState: async () => { writes++ }, probeCli: async () => { await gate; return { found: true } },
+  ensureManagedTasklist: async () => ({ ok: true }),
   refreshDshSchedules: async () => {}, retryTaskReopens: async () => {},
   syncTasks: async () => { taskCalls++; fakeState.tasks = [{ id: 'one' }]; return { ok: true } },
   adoptFeishuSchedule: () => false, retryWorkspaceWrites: () => {}, reconcileWorkspaces: async () => {},
