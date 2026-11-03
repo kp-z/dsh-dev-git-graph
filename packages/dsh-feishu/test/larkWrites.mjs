@@ -7,7 +7,7 @@
  * 跑法：node test/larkWrites.mjs
  */
 import { createServer } from 'node:http'
-import { chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isolatedHome } from './isolatedHome.mjs'
@@ -134,6 +134,11 @@ const ctx = {
   webServer: { register: (route) => (routes.push(route), () => {}) },
 }
 
+/* 关掉「一次性把历史标题迁成 T<n>-」的迁移：本测试只关心写回链路，
+   标题迁移会在首次同步时改名并让断言取决于同步次数。 */
+await mkdir(join(HOME, 'dsh-feishu'), { recursive: true })
+await writeFile(join(HOME, 'dsh-feishu', 'settings.json'), JSON.stringify({ titlesMigrated: true }))
+
 const { apply } = await import('../index.js')
 apply(ctx, {})
 
@@ -186,7 +191,8 @@ try {
     const snap = await stateOf()
     return snap.state?.syncing === false && (snap.state?.tasks?.length ?? 0) > 0 ? snap : null
   })
-  check('同步拿到任务', !!synced && (await taskOf())?.title === TASK.summary)
+  /* 首次同步可能把标题迁成 `T<n>-…`（历史标题迁移，和写回链路无关）：只断言摘要还在。 */
+  check('同步拿到任务', !!synced && String((await taskOf())?.title || '').includes(TASK.summary))
   const firstTask = await taskOf()
   check(
     '负责人姓名兜底当前登录用户（联系人接口无返回时不再只剩 open_id）',

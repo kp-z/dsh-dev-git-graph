@@ -54,7 +54,9 @@ release()
 assert.equal((await racing).ok,false,'Changed schema cannot become ready')
 assert.notEqual(context.state.managedTasklist.status,'ready')
 // Execute the actual write gate separately, with no remote API.
-const gateSource=source.match(/  async function runBridge\(python, payload\) \{[\s\S]*?\n  }/)[0]
+// 集成后闸门逻辑抽成了 managedFieldWriteBlocked（backend().actions 也复用它），两个函数一起取。
+const gateHelper=source.match(/  function managedFieldWriteBlocked\(actions\) \{[\s\S]*?\n  }/)[0]
+const gateSource=gateHelper+'\n'+source.match(/  async function runBridge\(python, payload\) \{[\s\S]*?\n  }/)[0]
 let rawCalls=0
 const gateContext={settings:{managedTasklist:{enabled:true,guid:'managed'}},state:{managedTasklist:{status:'failed'}},schemaSignature,workspaces:()=>[],runBridgeRaw:async()=>{rawCalls++;return{ok:true}}}
 vm.createContext(gateContext);vm.runInContext(gateSource,gateContext)

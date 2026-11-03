@@ -13,7 +13,8 @@ if(process.argv[2]===${JSON.stringify(cli)}){add({cli:args});if(args[0]==='versi
 else{let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>{const p=JSON.parse(s);add(p);const actions=(p.actions||[]).map(a=>a.op==='ensure_tasklist'?{op:a.op,ok:true,guid:'managed-list',name:'DSH 任务清单',created:!a.guid}:a.op==='ensure_custom_field'?{op:a.op,ok:true,guid:'field-'+a.name,type:a.type}:{op:a.op,ok:true,items:[]});console.log(JSON.stringify({ok:true,actions,errors:[],fields:Object.fromEntries((p.fields||[]).map(id=>[id,[]])),tasklists:{},users:{}}));});}`)
 const c=join(home,'launcher.c');await writeFile(c,`#include <unistd.h>\n#include <stdlib.h>\nint main(int n,char**v){char**a=calloc(n+3,sizeof(char*));a[0]=${JSON.stringify(process.execPath)};a[1]=${JSON.stringify(runtime)};for(int i=1;i<n;i++)a[i+1]=v[i];execv(a[0],a);return 127;}\n`)
 execFileSync('cc',[c,'-o',python]);await chmod(python,0o700);await writeFile(cli,'#!'+python+'\n');await chmod(cli,0o700)
-await writeFile(join(data,'settings.json'),JSON.stringify({autoSync:false,cliPath:cli,autoComment:false,managedTasklist:{enabled:true,name:'DSH 任务清单',guid:''}}))
+/* 受管清单初始化是 feishu-sync 后端（Python 桥）的能力；0.21 默认后端是官方 lark-cli，这里显式选内部后端。 */
+await writeFile(join(data,'settings.json'),JSON.stringify({cliBackend:'feishu-sync',autoSync:false,cliPath:cli,autoComment:false,managedTasklist:{enabled:true,name:'DSH 任务清单',guid:''}}))
 const routes=[],effects=[],tools=new Map()
 const ctx={logger:()=>({info(){},warn(){},error(){}}),get:()=>undefined,on:()=>()=>{},effect(f){const x=f();if(typeof x==='function')effects.push(x);return()=>{}},tools:{register(t){tools.set(t.name,t);return()=>{}}},webServer:{register(r){routes.push(r);return()=>{}}}}
 const {apply}=await import('../index.js');apply(ctx,{})

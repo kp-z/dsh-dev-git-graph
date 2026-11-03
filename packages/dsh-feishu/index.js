@@ -2023,12 +2023,12 @@ const feishuBackend = {
 
   async enrich(settings, payload) {
     const python = resolvePython(this.resolve(settings))
-    return runBridge(python, payload)
+    return runBridgeRaw(python, payload)
   },
 
   async actions(settings, actions) {
     const python = resolvePython(this.resolve(settings))
-    return runBridge(python, { actions })
+    return runBridgeRaw(python, { actions })
   },
 }
 
@@ -3049,27 +3049,36 @@ function createSyncEngine(ctx) {
   const earlyReopenTurns = new Map()
   let inFlight = null
   let cli = { found: false, version: null, path: null }
-  async function runBridge(python, payload) {
-    if (settings.managedTasklist?.enabled === false) return runBridgeRaw(python, payload)
+  /**
+   * 受管清单（feishu-sync 后端的清单字段契约）的字段写回闸门。
+   * 只拦「写受管清单字段」这一类动作；显式指向历史清单的写回照旧放行，
+   * 且按字段逐个判断：一个字段配置不明确不该把优先级/预期全冻住。
+   *
+   * 官方 lark-cli 后端不走受管清单（它自己维护固定清单），因此没有配置 GUID 时直接放行。
+   */
+  function managedFieldWriteBlocked(actions) {
+    const listActions = Array.isArray(actions) ? actions : []
+    if (settings.managedTasklist?.enabled === false) return null
     const managedGuid = settings.managedTasklist?.guid || state.managedTasklist?.guid
-    if (!managedGuid) return runBridgeRaw(python, payload)
-    /* Only the managed list is gated; explicitly addressed legacy lists keep working.
-       Gate per field: one ambiguous legacy option must not freeze priority/ETA writes. */
+    if (!managedGuid) return null
     const current = state.managedTasklist?.signature === schemaSignature(settings, workspaces().map(row => row.title))
     const status = state.managedTasklist?.status
     const fieldOk = new Map((state.managedTasklist?.fields || []).map(row => [row.name, row.ok === true]))
-    const blocked = (payload.actions || []).filter(action => {
+    const blocked = listActions.filter(action => {
       if (!['set_custom_field', 'ensure_select_options', 'ensure_custom_field'].includes(action.op)) return false
       if (action.tasklist !== managedGuid) return false
       if (!current) return true
       if (status === 'ready') return false
       return fieldOk.get(action.name) !== true
     })
-    if (blocked.length) {
-      const error = '受管清单字段未就绪，暂停字段写回：' + [...new Set(blocked.map(row => row.name || row.field_guid))].join('、')
-      return { ok: false, actions: (payload.actions || []).map(action => ({ op: action.op, ok: false, error })), errors: [error] }
-    }
-    return runBridgeRaw(python, payload)
+    if (!blocked.length) return null
+    const error = '受管清单字段未就绪，暂停字段写回：' + [...new Set(blocked.map(row => row.name || row.field_guid))].join('、')
+    return { ok: false, actions: listActions.map(action => ({ op: action.op, ok: false, error })), errors: [error] }
+  }
+
+  async function runBridge(python, payload) {
+    const blocked = managedFieldWriteBlocked(payload.actions)
+    return blocked ? blocked : runBridgeRaw(python, payload)
   }
   const commentsFile = join(DATA_DIR, 'comments.json')
   const commentsLock = commentsFile + '.lock'
@@ -4418,7 +4427,16 @@ function createSyncEngine(ctx) {
 
   /** 当前设置选中的后端实现。 */
   function backend() {
-    return backendFor(settings.cliBackend)
+    const impl = backendFor(settings.cliBackend)
+    if (typeof impl?.actions !== 'function') return impl
+    return {
+      ...impl,
+      /* 字段写回统一过受管清单闸门：官桥（feishu-sync）和直连 OpenAPI（lark-cli）同一套判断。 */
+      actions: (settingsArg, actions) => {
+        const blocked = managedFieldWriteBlocked(actions)
+        return blocked ? Promise.resolve(blocked) : impl.actions(settingsArg, actions)
+      },
+    }
   }
 
   async function probeCli() {

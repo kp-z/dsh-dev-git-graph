@@ -329,7 +329,12 @@ try {
   check('lark 已授权时授权接口直接返回 already', login.status === 200 && login.data.ok === true && login.data.already === true)
 
   /* 4. 同步任务：listTasks → enrich → normalizeTask 全走 lark 分支。 */
-  const sync = await post('/api/sync')
+  /* 启动后 rearm() 会先跑一次自动同步：撞上就稍等再点「立即同步」，别把竞态当成功能坏了。 */
+  let sync = await post('/api/sync')
+  for (let i = 0; i < 40 && sync.data?.started !== true; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    sync = await post('/api/sync')
+  }
   check('同步接口已启动', sync.status === 200 && sync.data.started === true)
   const synced = await waitFor(async () => {
     const state = await getJson('/api/state')
