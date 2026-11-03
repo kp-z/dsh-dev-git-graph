@@ -14,6 +14,14 @@ export function createBackendScope({ getSettings, getGeneration, isDisposed, res
   })
   async function invoke(method, ...args) {
     if (!valid()) return stale(method, args)
+    if (beforeActions && ['complete','updateTask','comment'].includes(method)) {
+      const op = { complete: 'task_complete', updateTask: 'task_update', comment: 'task_comment' }[method]
+      const blocked = beforeActions([{ op, task: args[0] }])
+      if (blocked) {
+        const error = blocked.errors?.[0] || blocked.actions?.[0]?.error || '任务写入尚未获准'
+        return { ok: false, beforeRequest: true, unknownDelivery: false, error, detail: error }
+      }
+    }
     if (method === 'actions' && beforeActions) {
       const blocked = beforeActions(args[0])
       if (blocked) return blocked

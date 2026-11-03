@@ -106,11 +106,11 @@ function creationHarness({ remote, failSaveAt = 0, loaded = {} } = {}) {
   const calls = []
   const h = { settings: settings(), backendGeneration: 0, lifecycleDisposed: false,
     state: { tasks: [], taskCreationReceipts: clone(loaded), relations: [], relationSync: {}, workspaceLinks: {}, workspaceWrites: {} },
-    activeCreationKeys: new Set(), createHash, asString: v => v == null ? '' : String(v), nowMs: Date.now,
+    backendContext: { getStore: () => null }, activeCreationKeys: new Set(), createHash, asString: v => v == null ? '' : String(v), nowMs: Date.now,
     updateRelations: () => ({ ok: true, edges: [] }), service: () => undefined, ctx: {},
     ensureManagedTasklist: async () => ({ ok: true, guid: 'list' }), defaultsFromState: () => ({ assignee: 'ou_mock', tasklistGuid: 'list' }),
     extractDocLinks: () => [], persistState: async () => {}, taskNo: () => 1, decorateTitle: title => title,
-    writeTaskRelations: async () => ({ ok: true }), syncTasks: async () => ({ ok: true }), linkTask: async () => {}, relationView: () => ({ edges: [] }),
+    writeTaskRelations: async () => ({ ok: true }), syncTasks: async () => ({ ok: true }), linkTask: async () => ({ ok: true }), relationView: () => ({ edges: [] }),
   }
   const impl = {
     createTask: async (captured, input) => { calls.push({ backend: captured.cliBackend, op: 'create', input }); return remote ? remote(h) : { ok: true, guid: 'created', tasklistGuid: 'list' } },

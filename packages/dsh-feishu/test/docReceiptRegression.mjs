@@ -5,7 +5,7 @@ const source = await readFile(new URL('../index.js', import.meta.url), 'utf8')
 const start = source.indexOf('  async actions(settings, actions) {', source.indexOf('const larkBackend ='))
 const end = source.indexOf('\n  },', start) + 5
 let output = { ok: true, stdout: '{"ok":true,"data":{}}', stderr: '' }
-const ctx = { asString: v => v == null ? '' : String(v), createLarkTasklistActions: () => async () => { throw new Error('not a field test') }, writeTempMarkdown: async () => ({ file: 'fake.md', dir: 'fake-dir' }), runLarkCmd: async () => output, parseJson: text => { try { return JSON.parse(text) } catch { return undefined } }, rm: async () => {} }
+const ctx = { docxIdOf: url => /\/docx\/([A-Za-z0-9_-]+)/.exec(String(url))?.[1] || '', asString: v => v == null ? '' : String(v), createLarkTasklistActions: () => async () => { throw new Error('not a field test') }, writeTempMarkdown: async () => ({ file: 'fake.md', dir: 'fake-dir' }), runLarkCmd: async () => output, parseJson: text => { try { return JSON.parse(text) } catch { return undefined } }, rm: async () => {} }
 vm.createContext(ctx)
 const backend = vm.runInContext('({' + source.slice(start, end) + '})', ctx)
 const url = 'https://tenant.feishu.cn/docx/existing'
@@ -23,7 +23,7 @@ const scope = { backend: 'lark-cli', valid: () => true, actions: async actions =
   if (actions[0].op === 'ensure_folder') return { ok: true, actions: [{ ok: true, folder: 'folder', url: 'folder-url' }] }
   return backend.actions({}, actions)
 } }
-const docCtx = { state: { tasks: [task] }, settings: { docPrompt: 'prompt' }, captureBackendScope: () => scope, askModelLong: async () => ({ text: 'new body' }), asString: ctx.asString, stripTaskNo: v => v, nowMs: Date.now, pushDocField: async value => { fieldSnapshots.push(structuredClone(value.docs)); return { ok: true } }, persistState: async () => {}, ctx: {}, log: () => {} }
+const docCtx = { creationPending: () => false, state: { tasks: [task] }, settings: { docPrompt: 'prompt' }, captureBackendScope: () => scope, askModelLong: async () => ({ text: 'new body' }), asString: ctx.asString, stripTaskNo: v => v, nowMs: Date.now, pushDocField: async value => { fieldSnapshots.push(structuredClone(value.docs)); return { ok: true } }, persistState: async () => {}, ctx: {}, log: () => {} }
 vm.createContext(docCtx); vm.runInContext(source.match(/  async function createTaskDoc\([^]*?\n  }/)[0], docCtx)
 output = { ok: true, stdout: '{"ok":true,"data":{}}', stderr: '' }
 for (let i = 0; i < 2; i++) {

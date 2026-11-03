@@ -2580,7 +2580,7 @@ const larkBackend = {
             const result = await runLarkCmd(settings, args, 180_000)
             const parsed = parseJson(result.stdout) ?? parseJson(result.stderr)
             const error = parsed?.error || {}
-            if (!result.ok || !parsed || parsed.ok === false) {
+            if (!result.ok || !parsed || !(parsed.ok === true || parsed.code === 0) || (parsed.code !== undefined && parsed.code !== 0)) {
               const code = Number(error.code)
               const definitive = result.beforeRequest === true || parsed?.ok === false && (error.type === 'authorization' || error.type === 'validation' || (code >= 400 && code < 500))
               results.push({ op, ok: false, unknownDelivery: !definitive, notFound: code === 404 || error.subtype === 'not_found', error: asString(error.message || error.hint || result.detail || '文档写入回执无效') })
@@ -2588,8 +2588,8 @@ const larkBackend = {
               const doc = parsed.data?.document || parsed.data || {}
               const document = asString(doc.document_id || doc.documentId || doc.token || (op === 'update_docx' ? action.document : ''))
               const url = asString(doc.url || (op === 'update_docx' ? action.url : ''))
-              const validURL = /^https?:\/\/[^\s]+$/.test(url)
-              if (!document || (op === 'create_docx' && !validURL)) results.push({ op, ok: false, document: document || null, unknownDelivery: true, error: '文档已提交，但没有有效 ID/URL 回执；不会清除原有绑定或自动重建' })
+              const validURL = /^https?:\/\/[^\s]+$/.test(url) && docxIdOf(url) === document
+              if (!document || (op === 'update_docx' && document !== asString(action.document)) || (url && !validURL) || (op === 'create_docx' && !validURL)) results.push({ op, ok: false, document: (op === 'update_docx' ? asString(action.document) : document) || null, unknownDelivery: true, error: '文档已提交，但没有有效 ID/URL 回执；不会清除原有绑定或自动重建' })
               else results.push({ op, ok: true, document, url: validURL ? url : undefined, tables: Number(doc.tables) || 0, updated: op === 'update_docx' })
             }
           } finally {
@@ -2804,7 +2804,7 @@ function createSyncEngine(ctx) {
   const activeCreationKeys = new Set()
   const taskCreationLedger = createCreationLedger({ load: async () => state.taskCreationReceipts || {}, save: async rows => { state.taskCreationReceipts = rows; await persistState() }, now: nowMs })
   function creationPending(taskId) {
-    return Object.values(state.taskCreationReceipts || {}).some(row => row.taskId === taskId && ['sending','created','partial','unknown'].includes(row.status) && !activeCreationKeys.has(row.key))
+    return Object.values(state.taskCreationReceipts || {}).some(row => row.taskId === taskId && ['sending','created','partial','unknown'].includes(row.status) && !(activeCreationKeys.has(row.key) && backendContext.getStore()?.creationKey === row.key))
   }
   function pendingCreationWriteBlocked(actions) {
     const reads = new Set(['task_get','task_comments','task_subtasks','task_attachments','task_dependencies'])
@@ -2813,12 +2813,12 @@ function createSyncEngine(ctx) {
     return { ok: false, actions: (actions || []).map(action => ({ op: action.op, ok: false, error, unknownDelivery: false })), errors: [error] }
   }
 
-  function captureBackendScope() {
-    return backendContext.getStore() || createBackendScope({ getSettings: () => settings, getGeneration: () => backendGeneration, isDisposed: () => lifecycleDisposed, resolveBackend: backendFor, beforeActions: actions => pendingCreationWriteBlocked(actions) || managedFieldWriteBlocked(actions) })
+  function captureBackendScope(fresh = false) {
+    return (!fresh && backendContext.getStore()) || createBackendScope({ getSettings: () => settings, getGeneration: () => backendGeneration, isDisposed: () => lifecycleDisposed, resolveBackend: backendFor, beforeActions: actions => pendingCreationWriteBlocked(actions) || managedFieldWriteBlocked(actions) })
   }
   function runEngineOperation(action, args) {
     if (lifecycleDisposed) return Promise.resolve({ ok: false, error: '插件已重载，旧操作已停止' })
-    const scope = captureBackendScope()
+    const scope = captureBackendScope(true)
     const work = Promise.resolve().then(() => backendContext.run(scope, () => action(...args)))
     activeOperations.add(work)
     work.finally(() => activeOperations.delete(work)).catch(() => {})
@@ -3055,6 +3055,8 @@ function createSyncEngine(ctx) {
     state.suspensions = savedState.suspensions && typeof savedState.suspensions === 'object' ? savedState.suspensions : {}
     state.workspaceWrites = savedState.workspaceWrites && typeof savedState.workspaceWrites === 'object' ? savedState.workspaceWrites : {}
     state.docs = Array.isArray(savedState.docs) ? savedState.docs : []
+    state.pendingDocReceipts = savedState.pendingDocReceipts && typeof savedState.pendingDocReceipts === 'object' && !Array.isArray(savedState.pendingDocReceipts) ? { ...savedState.pendingDocReceipts } : {}
+    for (const task of state.tasks) if (task.pendingDocReceipt && !state.pendingDocReceipts[task.id]) state.pendingDocReceipts[task.id] = { ...task.pendingDocReceipt }
     cli = { ...DEFAULT_STATE.cli, ...(savedState.cli ?? {}) }
     if (lifecycleDisposed) return
     stateLoaded = true
@@ -4277,23 +4279,11 @@ function createSyncEngine(ctx) {
 
   /** 当前设置选中的后端实现。 */
   function backend() {
-    const scope = backendContext.getStore()
-    if (scope) {
-      const impl = backendFor(scope.backend)
-      const scoped = { ...impl }
-      for (const method of ['actions','probe','check','listTasks','docInfo','docRead','createTask','updateTask','complete','comment','enrich']) scoped[method] = (_settings, ...args) => scope[method](...args)
-      return scoped
-    }
-    const impl = backendFor(settings.cliBackend)
-    if (typeof impl?.actions !== 'function') return impl
-    return {
-      ...impl,
-      /* 字段写回统一过受管清单闸门：官桥（feishu-sync）和直连 OpenAPI（lark-cli）同一套判断。 */
-      actions: (settingsArg, actions) => {
-        const blocked = pendingCreationWriteBlocked(actions) || managedFieldWriteBlocked(actions)
-        return blocked ? Promise.resolve(blocked) : impl.actions(settingsArg, actions)
-      },
-    }
+    const scope = captureBackendScope()
+    const impl = backendFor(scope.backend)
+    const scoped = { ...impl }
+    for (const method of ['actions','probe','check','listTasks','docInfo','docRead','createTask','updateTask','complete','comment','enrich']) scoped[method] = (_settings, ...args) => backendContext.run(scope, () => scope[method](...args))
+    return scoped
   }
 
   async function probeCli() {
@@ -4808,6 +4798,7 @@ function createSyncEngine(ctx) {
         }
         return docs.slice(0, 8)
       })(),
+      pendingDocReceipt: (state.pendingDocReceipts?.[asString(raw?.guid)] || previousTask?.pendingDocReceipt) ? { ...(state.pendingDocReceipts?.[asString(raw?.guid)] || previousTask.pendingDocReceipt) } : null,
       notifiedSignature: previousTask?.notifiedSignature ?? '',
       updatedAt: Number(raw?.updated_at) || 0,
       localUpdatedAt: Number(previousTask?.localUpdatedAt) || 0,
@@ -5361,8 +5352,9 @@ function createSyncEngine(ctx) {
     if (owner) return { ok: false, error: `这条会话已经绑在「${owner.title.slice(0, 30)}」上了，先解绑那边` }
     if (!(await sessionExists(id))) return { ok: false, error: `没找到会话 ${id}` }
     if (!scope.valid()) return { ok: false, error: '绑定期间配置已变化，未继续写回' }
-    const held = (await taskCreationLedger.list()).find(row => ['created','partial','unknown','sending'].includes(row.status) && (row.taskId === taskId || (!row.taskId && row.sessionId === id)))
+    const held = (await taskCreationLedger.list()).find(row => !(activeCreationKeys.has(row.key) && row.key === scope.creationKey) && ['created','partial','unknown','sending'].includes(row.status) && (row.taskId === taskId || (!row.taskId && row.sessionId === id)))
     if (held) {
+      if (activeCreationKeys.has(held.key)) return { ok: false, error: '任务创建仍在进行，不能提前解除回执保护，请等待创建完成' }
       if (held.backend !== scope.backend) return { ok: false, error: '请切回创建任务时的后端，核对原任务后再绑定' }
       const check = await scope.actions([{ op: 'task_get', task: taskId }])
       if (!scope.valid() || !check.actions?.[0]?.ok || asString(check.actions[0].task?.guid) !== taskId) return { ok: false, error: '任务创建回执尚未通过权威核验，未解除创建保护' }
@@ -5786,6 +5778,7 @@ function createSyncEngine(ctx) {
     const prepared = await taskCreationLedger.begin({ key: requestKey, sessionId: id, backend: selectedBackend, summary, tasklistGuid: managedTasklistGuid, followUp: input.followUp === true })
     if (!prepared.ok) return { ok: false, taskId: prepared.receipt?.taskId, error: prepared.error }
     if (prepared.reused) return { ...prepared.receipt.result, ok: true, taskId: prepared.receipt.taskId, reused: true }
+    scope.creationKey = requestKey
     activeCreationKeys.add(requestKey)
     try {
       if (backendChanged()) { await taskCreationLedger.cancel(requestKey, { provenNotSent: true }); return { ok: false, error: '创建前配置已变化，尚未发送，允许重试' } }
@@ -5856,7 +5849,8 @@ function createSyncEngine(ctx) {
       if (backendChanged()) return stopAfterCreate()
       const task = state.tasks.find((item) => item.id === guid)
       if (task && !boundTask) {
-        await linkTask(guid, id, 'current')
+        const linked = await linkTask(guid, id, 'current')
+        if (!linked?.ok) { await taskCreationLedger.markPartial(requestKey, linked?.error || '绑定尚未完成'); return { ok: false, partial: true, taskId: guid, error: linked?.error || '任务已创建但绑定未完成，请核对原任务，勿重复创建' } }
       } else if (!task) {
         state.tasks.unshift({
           id: guid,
@@ -5901,7 +5895,7 @@ function createSyncEngine(ctx) {
       if (receipt?.status === 'sending') await taskCreationLedger.fail(requestKey, { error: asString(error?.message || error) })
       if (receipt?.status === 'created') await taskCreationLedger.markPartial(requestKey, asString(error?.message || error))
       return { ok: false, partial: Boolean(receipt?.taskId), taskId: receipt?.taskId, error: '创建流程已停止，请核对创建回执：' + asString(error?.message || error) }
-    } finally { activeCreationKeys.delete(requestKey) }
+    } finally { activeCreationKeys.delete(requestKey); if (scope.creationKey === requestKey) delete scope.creationKey }
 
   }
 
@@ -7788,12 +7782,15 @@ bucket 只能从枚举里选：
     const scope = captureBackendScope()
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
+    if (!task.pendingDocReceipt && state.pendingDocReceipts?.[taskId]) task.pendingDocReceipt = { ...state.pendingDocReceipts[taskId] }
     const url = asString(rawUrl).trim()
     if (!url) return { ok: false, error: '需要一篇文档的链接' }
     const remove = options.remove === true
     const current = Array.isArray(task.docs) ? task.docs : []
+    const recoveredGenerated = !remove && Boolean(task.pendingDocReceipt)
     if (!remove && task.pendingDocReceipt) {
       if (task.pendingDocReceipt.backend !== scope.backend) return { ok: false, error: '请切回原后端核对文档回执后绑定' }
+      if (!docxIdOf(url) || (task.pendingDocReceipt.document && docxIdOf(url) !== task.pendingDocReceipt.document)) return { ok: false, error: '请绑定回执中对应的 docx 文档，不可用另一篇文档替代核对' }
       const verified = await scope.docInfo(url)
       if (!scope.valid() || !verified.ok) return { ok: false, error: '文档回执尚未通过读取核验，不会解除保护' }
     }
@@ -7810,10 +7807,10 @@ bucket 只能从枚举里选：
         title = info.ok ? asString(info.meta?.title) : ''
       }
       if (!scope.valid()) return { ok: false, error: '绑定期间配置已变化，未替换文档链接' }
-      const others = current.filter((doc) => doc?.url !== url)
-      task.docs = [{ url, title: title || url, source: '手动', createdAt: nowMs() }, ...others].slice(0, 8)
+      const others = current.filter((doc) => doc?.url !== url && (!recoveredGenerated || doc.source !== '生成'))
+      task.docs = [{ url, title: title || url, source: recoveredGenerated ? '生成' : '手动', createdAt: nowMs() }, ...others].slice(0, 8)
     }
-    if (!remove && task.pendingDocReceipt) delete task.pendingDocReceipt
+    if (!remove && task.pendingDocReceipt) { delete task.pendingDocReceipt; if (state.pendingDocReceipts) delete state.pendingDocReceipts[taskId] }
     task.localUpdatedAt = nowMs()
     await persistState()
     const field = await pushDocField(task)
@@ -7984,8 +7981,10 @@ bucket 只能从枚举里选：
    */
   async function createTaskDoc(taskId) {
     const scope = captureBackendScope()
+    if (creationPending(taskId)) return { ok: false, error: '任务创建回执尚未核对，禁止生成文档，请先绑定原任务' }
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
+    if (!task.pendingDocReceipt && state.pendingDocReceipts?.[taskId]) task.pendingDocReceipt = { ...state.pendingDocReceipts[taskId] }
     if (task.pendingDocReceipt) return { ok: false, partial: true, url: task.pendingDocReceipt.url, error: '上次文档写入回执尚未核对，请先手动绑定已生成的文档；不会自动重建' }
     const lines = []
     if (task.description) lines.push(task.description.trim())
@@ -8023,6 +8022,16 @@ bucket 只能从枚举里选：
       (item) => item.source === '生成' && /\/docx\//.test(item.url || ''),
     )
     const existingId = existing ? String(existing.url).split('/docx/')[1] : ''
+    const retainReceipt = async (row, response) => {
+      const receipt = row?.receipt || response?.receipt?.actions?.[0] || row || {}
+      const newDocument = receipt.op === 'create_docx'
+      task.pendingDocReceipt = { backend: scope.backend, document: receipt.document || (newDocument ? null : existingId) || null, url: receipt.url || (newDocument ? '' : existing?.url) || '', at: nowMs() }
+      state.pendingDocReceipts ||= {}
+      state.pendingDocReceipts[taskId] = { ...task.pendingDocReceipt }
+      await persistState()
+      return task.pendingDocReceipt
+    }
+
     const created = await scope.actions([
       existingId
         ? { op: 'update_docx', document: existingId, url: existing.url, text: body }
@@ -8030,9 +8039,7 @@ bucket 只能从枚举里选：
     ])
     let doc = (created.actions ?? [])[0]
     if (created.stale) {
-      const receipt = doc?.receipt || created.receipt?.actions?.[0]
-      task.pendingDocReceipt = { backend: scope.backend, document: receipt?.document || existingId, url: receipt?.url || existing?.url || '', at: nowMs() }
-      await persistState()
+      await retainReceipt(doc, created)
       return { ok: false, partial: true, url: task.pendingDocReceipt.url, error: '文档操作期间后端已变化，已保留原绑定和回执，请先核对' }
     }
     if (existingId && !doc?.ok && doc?.unknownDelivery !== true && (scope.backend === 'feishu-sync' || doc?.notFound)) {
@@ -8042,11 +8049,14 @@ bucket 只能从枚举里选：
         { op: 'create_docx', title: stripTaskNo(task.title), folder: subFolder.folder, text: body },
       ])
       doc = (recreated.actions ?? [])[0]
+      if (recreated.stale) {
+        await retainReceipt(doc, recreated)
+        return { ok: false, partial: true, url: task.pendingDocReceipt.url, error: '新文档已提交但配置已变化，已保留新文档回执，原绑定未清除' }
+      }
     }
     if (!doc?.ok) {
       if (doc?.unknownDelivery) {
-        task.pendingDocReceipt = { backend: scope.backend, document: doc.document || existingId || null, url: existing?.url || '', at: nowMs() }
-        await persistState()
+        await retainReceipt(doc)
       }
       return { ok: false, partial: Boolean(doc?.unknownDelivery), error: `创建文档失败：${doc?.error ?? '未知'}` }
     }
@@ -8054,8 +8064,7 @@ bucket 只能从枚举里选：
     const nextURL = doc.url || (existingId ? existing.url : '')
     if (!/^https?:\/\/[^\s]+$/.test(nextURL)) return { ok: false, error: '缺少有效文档链接，已保留原有绑定' }
     if (!scope.valid()) {
-      task.pendingDocReceipt = { backend: scope.backend, document: doc.document || existingId || null, url: nextURL, at: nowMs() }
-      await persistState()
+      await retainReceipt({ ...doc, url: nextURL })
       return { ok: false, partial: true, url: nextURL, error: '配置已变化，文档回执需核对，原绑定保留' }
     }
     /* 一条任务只保留一个「自己生成」的文档；描述里识别出来的外部链接照旧展示。 */
