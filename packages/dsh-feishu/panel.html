@@ -192,16 +192,7 @@
   .settings-card textarea { width: 100%; min-width: 0; box-sizing: border-box; resize: vertical; padding: 8px 9px; border: 1px solid var(--p-line-strong); border-radius: 7px; color: var(--p-text); background: var(--p-sub); font: inherit; font-size: 12px; }
   .settings-card textarea:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
   .settings-card input:disabled, .settings-card select:disabled { opacity: .45; cursor: not-allowed; }
-  .comments-inbox { margin-top: 14px; border-top: 1px solid var(--p-line); padding-top: 10px; }
-  .comments-inbox-head, .comment-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
-  .comments-inbox-head { margin-bottom: 6px; }
-  .comment-entry { padding: 10px 0; border-bottom: 1px solid var(--p-line); min-width: 0; }
-  .comment-entry:last-child { border-bottom: 0; }
-  .comment-meta { font-size: 11px; color: var(--p-text-2); overflow-wrap: anywhere; }
-  .comment-text { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .comment-note { font-size: 11px; color: var(--p-warn); overflow-wrap: anywhere; }
-  .comment-actions { display: flex; gap: 6px; margin-top: 6px; }
-  .comments-inbox[hidden] { display: none; }
   /* 评论沿卡片内容流展开：细分隔、头像轨道，不再嵌套卡片。 */
   .task-body > .task-card-comments { flex: 1 0 100%; min-width: 0; }
   .task-card-comments { border-top: 1px solid var(--p-line); padding-top: 8px; }
@@ -843,8 +834,12 @@
   }
 
   .insight-charts .insight-chart .chart-title {
-    font-size: 9.5px;
-    color: var(--p-text-3);
+    /* 固定这一行的高度：窄栏里 hero 的总高度不够时，flex 会先把标题压扁，
+       文字被裁成半行，看起来像乱码。 */
+    flex: 0 0 auto;
+    min-height: 12px;
+    font-size: 10.5px;
+    color: var(--p-text-2);
     line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -888,6 +883,20 @@
     border-radius: 3px;
   }
 
+  /* 窄栏（侧栏/手机）：左右两列挤到图表只剩一百多像素，环图 + 图例会换行，
+     固定 132px 的 hero 又把标题和图例裁掉。这里改成上下堆叠并让图表按内容长高。 */
+  @media (max-width: 500px) {
+    .insight-mid { grid-template-columns: minmax(0, 1fr); }
+    .insight-text { height: auto; min-height: 132px; }
+    .insight-charts { height: auto; min-height: 0; }
+    .insight-charts .insight-chart.is-hero {
+      flex: 0 0 auto;
+      height: auto;
+      max-height: none;
+    }
+    .insight-charts .insight-chart.is-hero .chart-fig { overflow: visible; }
+  }
+
   .chart-switch { flex: 0 0 18px; margin-top: auto; }
 
   /* 每个 tab 自己记住看到第几张图，左右切换只影响当前 tab */
@@ -920,6 +929,8 @@
   }
 
   .insight-chart .chart-title {
+    flex: 0 0 auto;
+    min-height: 12px;
     font-size: 10px;
     line-height: 1.3;
     color: var(--p-text-3);
@@ -3448,14 +3459,9 @@
           <div class="row-ctrl"><input type="number" id="commentMaxPerSync" data-setting="1" min="1" max="20" step="1" value="5" inputmode="numeric" disabled><span class="unit">条</span></div>
         </div>
         <div class="row">
-          <div class="row-text"><label for="commentMentionMode">回复提及作者</label><div class="hint">原生回复不含 @；任务富文本 @ 使用已验证的旧版接口，需要旧版评论权限。通知是否送达取决于飞书设置；失败不会换接口重发。</div></div>
-          <div class="row-ctrl"><select id="commentMentionMode" data-setting="1" disabled><option value="native">原生回复（默认）</option><option value="task-v1">任务富文本 @ 作者</option></select></div>
+          <div class="row-text"><label for="commentMentionMode">回复提及作者</label><div class="hint">默认 @ 作者；原生回复不含 @，仅在旧版权限不可用时手动切换。失败不会换接口重发。</div></div>
+          <div class="row-ctrl"><select id="commentMentionMode" data-setting="1" disabled><option value="task-v1" selected>任务富文本 @ 作者（默认）</option><option value="native">原生回复（不 @）</option></select></div>
         </div>
-        <section id="commentsInbox" class="comments-inbox" aria-label="评论收件箱" hidden>
-          <div class="comments-inbox-head"><h2>评论收件箱</h2><button id="commentsRefresh" type="button" class="btn btn-ghost btn-xs">刷新</button><span class="hint">只读账本，不触发同步或处理</span></div>
-          <div id="commentsInboxStatus" class="hint" role="status" aria-live="polite">展开后读取评论记录</div>
-          <div id="commentsList" role="list"></div>
-        </section>
       </div>
     </details>
     <details class="setting-group">
@@ -4058,7 +4064,7 @@
     $('commentEnabled').checked = comments.enabled === true;
     $('commentOwnerMode').value = comments.ownerMode === 'execute' ? 'execute' : 'off';
     $('commentOtherMode').value = comments.otherMode === 'reply' ? 'reply' : 'off';
-    $('commentMentionMode').value = comments.mentionMode === 'task-v1' ? 'task-v1' : 'native';
+    $('commentMentionMode').value = comments.mentionMode === 'native' ? 'native' : 'task-v1';
     $('commentMaxPerSync').value = toInt(comments.maxPerSync, 5, 1, 20);
     /* 时间自动化单独一组，回填逻辑也单独放，别和既有设置的读写搅在一起 */
     renderScheduleSettings();
@@ -4106,93 +4112,10 @@
     errors.hidden = problems.length === 0 && warnings.length === 0;
   }
 
-  /* ---------------- 评论协作：仅展开配置后读取真实账本 ---------------- */
+  /* ---------------- 评论协作：设置项只控制是否处理留言 ---------------- */
 
   function commentsSupported() {
     return Array.isArray(app.serverFeatures) && app.serverFeatures.indexOf('tasks.comments') !== -1;
-  }
-
-  function commentsVisible() {
-    return !$('configurationArea').hidden && !$('settingsCard').hidden && $('commentsGroup').open;
-  }
-
-  function commentActions(entry) {
-    if (entry.status === 'pending' || entry.status === 'unknown') return ['ignore'];
-    if (entry.status === 'reply_pending' || entry.status === 'failed') return ['retry'];
-    return [];
-  }
-
-  function renderCommentsInbox() {
-    var box = $('commentsList');
-    clear(box);
-    var labels = { pending: '等待处理', delivered: '已投递', running: '处理中', reply_pending: '回复待发送', replied: '已回复', ignored: '已忽略', unknown: '结果未知', failed: '回复发送失败' };
-    var entries = app.commentEntries || [];
-    entries.forEach(function (entry) {
-      var item = el('div', { 'class': 'comment-entry', role: 'listitem' });
-      var meta = el('div', { 'class': 'comment-meta' });
-      var author = entry.authorName || entry.authorId || (entry.author && (entry.author.name || entry.author.id)) || (typeof entry.author === 'string' ? entry.author : '') || '作者未知';
-      var task = ((app.snap && app.snap.tasks) || []).filter(function (t) { return t.id === entry.taskId; })[0];
-      meta.appendChild(el('span', { text: '作者：' + author }));
-      meta.appendChild(el('span', { text: '任务：' + (entry.taskTitle || (task && (task.title || task.summary)) || entry.taskId || '未知任务') }));
-      meta.appendChild(el('span', { 'class': 'badge ' + (entry.status === 'unknown' || entry.status === 'failed' ? 'badge-warn' : ''), text: (labels[entry.status] || '未知状态') + ' · ' + (entry.status || 'unknown') }));
-      item.appendChild(meta);
-      item.appendChild(el('div', { 'class': 'comment-text', text: entry.text || entry.content || '（无文本）' }));
-      if (entry.error || entry.reason) item.appendChild(el('div', { 'class': 'comment-note', text: '原因：' + (entry.error || entry.reason) }));
-      if (entry.status === 'unknown') item.appendChild(el('div', { 'class': 'comment-note', text: '必须人工对账：投递或发送结果不确定，不能直接重试。忽略仅停止处理此输入，不清除出站账本或解除任务锁。' }));
-      var actions = el('div', { 'class': 'comment-actions' });
-      commentActions(entry).forEach(function (action) {
-        actions.appendChild(makeButton(action === 'ignore' ? '忽略输入' : '重试回复', 'btn btn-ghost btn-xs', '处理中…', !!app.commentActionBusy || !!app.commentInboxLoading, function () { onCommentAction(entry, action); }));
-      });
-      if (actions.firstChild) item.appendChild(actions);
-      box.appendChild(item);
-    });
-    $('commentsInboxStatus').textContent = app.commentInboxError ? '读取失败：' + app.commentInboxError : (app.commentInboxLoading ? '正在读取评论账本…' : (app.commentInboxLoaded ? (entries.length ? '已读取 ' + entries.length + ' 条记录' : '暂无评论记录；下次任务同步后可刷新查看。') : '展开后读取评论记录'));
-    $('commentsRefresh').disabled = !!app.commentInboxLoading || !!app.commentActionBusy || !commentsSupported();
-  }
-
-  function loadCommentsInbox() {
-    $('commentsInbox').hidden = !commentsVisible() || !commentsSupported();
-    if (!commentsVisible() || !commentsSupported() || app.commentInboxLoading || app.commentActionBusy) return Promise.resolve();
-    app.commentInboxLoading = true;
-    app.commentInboxError = '';
-    renderCommentsInbox();
-    return api('comments', undefined, { silent: true }).then(function (data) {
-      if (!data || data.ok !== true || !Array.isArray(data.entries)) throw new Error((data && (data.error || data.reason || data.message)) || '宿主没有返回有效的评论记录');
-      app.commentEntries = data.entries;
-      app.commentInboxLoaded = true;
-    }).catch(function (error) {
-      app.commentInboxError = error.message === 'network' ? '连不上宿主服务，请确认插件已启动' : (error.message || '无法读取评论账本');
-    }).then(function () {
-      app.commentInboxLoading = false;
-      renderCommentsInbox();
-    });
-  }
-
-  function onCommentAction(entry, action) {
-    if (!commentsSupported() || !commentsVisible() || app.commentActionBusy || app.commentInboxLoading || commentActions(entry).indexOf(action) === -1 || !entry.taskId || !entry.commentId) return Promise.resolve();
-    app.commentActionBusy = true;
-    renderCommentsInbox();
-    return api('comments/action', { taskId: entry.taskId, commentId: entry.commentId, action: action }, { silent: true }).then(function (data) {
-      if (!data || data.ok !== true) throw new Error((data && (data.error || data.reason || data.message)) || '宿主未确认操作结果');
-      // 不推测新状态：操作后重新读取，失败或unknown仍由Host账本决定。
-      app.commentActionBusy = false;
-      return loadCommentsInbox();
-    }).catch(function (error) {
-      app.commentActionBusy = false;
-      app.commentInboxError = error.message || '评论操作失败';
-      renderCommentsInbox();
-    });
-  }
-
-  function wireComments() {
-    $('commentsGroup').addEventListener('toggle', loadCommentsInbox);
-    $('commentsRefresh').addEventListener('click', loadCommentsInbox);
-    $('configurationToggle').addEventListener('click', loadCommentsInbox);
-    $('configurationClose').addEventListener('click', function () { $('commentsInbox').hidden = true; });
-    ['settings', 'auth', 'docPrompt', 'docs'].forEach(function (key) {
-      $('configTab-' + key).addEventListener('click', loadCommentsInbox);
-      $('configTab-' + key).addEventListener('keydown', function (event) { if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].indexOf(event.key) !== -1) loadCommentsInbox(); });
-    });
   }
 
   /* ---------------- 设置：时间自动化 ---------------- */
@@ -6295,7 +6218,30 @@
       meta.appendChild(el('time', { 'class': 'card-comment-time', text: fmtRel(comment.createdAt), title: fmtAbs(comment.createdAt) + (comment.updatedAt && comment.updatedAt !== comment.createdAt ? ' · 编辑 ' + fmtAbs(comment.updatedAt) : '') }));
       main.appendChild(meta);
       var content = String(comment.content || '（无文本）');
-      if (own) content = content.replace(/^\[🤖AI 回复\]\s*\n-{5,}\s*\n/, '').replace(/\n-{5,}\s*$/, '');
+      if (own) {
+        // 旧版富文本回复会把 <at> 放在最前，AI 标识跟在后面。展示时保留“@某人”，
+        // 但把原始标签换成可读名字；身份由上面的角色标签表达。
+        var mentionLabel = '';
+        content = content.replace(/^(?:<at\b[^>]*><\/at>\s*)+/i, function (block) {
+          var ids = [];
+          var re = /<at\b[^>]*\bid=["']?([^"'\s>]+)["']?[^>]*>/gi, match;
+          while ((match = re.exec(block))) ids.push(match[1]);
+          ids.forEach(function (id) {
+            var row = (state.items || []).filter(function (c) { return String(c.authorId || '') === String(id); })[0];
+            var who = row && row.author;
+            var name = who && typeof who === 'object' ? (who.name || who.id || '') : String(who || '');
+            if (!name) {
+              var member = (Array.isArray(t.members) ? t.members : []).filter(function (m) { return String(m.id) === String(id); })[0];
+              name = (member && (member.name || member.id)) || '';
+            }
+            if (name) mentionLabel += (mentionLabel ? ' ' : '') + '@' + name;
+          });
+          return '';
+        });
+        content = content.replace(/^\[🤖AI 回复\]\s*\n[-━─═]{5,}\s*\n/, '').replace(/\n[-━─═]{5,}\s*$/, '');
+        content = content.split('\n').map(function (line) { return line.replace(/^▌\s?/, ''); }).join('\n').trim();
+        if (mentionLabel) content = mentionLabel + ' ' + content.replace(/^\s+/, '');
+      }
       var expanded = !!state.expanded[comment.id];
       var text = el('div', { 'class': 'card-comment-content' + (expanded ? '' : ' is-clamped'), text: content });
       main.appendChild(text);
@@ -8528,7 +8474,6 @@
           app.serverFeatures = (caps && Array.isArray(caps.features)) ? caps.features : [];
           app.hostStale = false;
           updateSettingDependencies();
-          loadCommentsInbox();
           renderTasks();
         }, function () {
           app.hostStale = true;
@@ -8706,7 +8651,7 @@
       enabled: $('commentEnabled').checked,
       ownerMode: $('commentOwnerMode').value === 'execute' ? 'execute' : 'off',
       otherMode: $('commentOtherMode').value === 'reply' ? 'reply' : 'off',
-      mentionMode: $('commentMentionMode').value === 'task-v1' ? 'task-v1' : 'native',
+      mentionMode: $('commentMentionMode').value === 'native' ? 'native' : 'task-v1',
       maxPerSync: toInt($('commentMaxPerSync').value, 5, 1, 20)
     };
 
@@ -9049,7 +8994,6 @@
 
   function wire() {
     wireConfiguration();
-    wireComments();
     var settingIds = ['managedTasklistEnabled', 'managedTasklistName', 'managedTasklistGuid', 'autoSync', 'syncInterval', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap',
       /* 时间自动化这组也要算「正在编辑」：轮询回来别把正在输入的时区/时段冲掉 */
       'schTimeZone', 'schWorkStart', 'schWorkEnd', 'schQuietStart', 'schQuietEnd', 'schMissPolicy', 'schGrace', 'schCapacity', 'schWriteBack',

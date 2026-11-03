@@ -43,7 +43,7 @@ function validSnapshot(value) {
   }
   return Object.values(value.tasks).every((row) => object(row) && typeof row.baseline === 'boolean' && object(row.seen)) && Object.entries(value.outbound).every(([key, row]) => object(row) && row.taskId && row.key && key === identity(row.taskId, row.key) && outboundStates.has(row.status) && object(row.payload) && typeof row.payload.text === 'string' && Array.isArray(row.payload.mentionIds) && (row.status !== 'sent' || Boolean(str(row.commentId))))
 }
-const configOf = (config = {}) => ({ enabled: config.enabled === true, ownerMode: config.ownerMode === 'execute' ? 'execute' : 'off', otherMode: config.otherMode === 'reply' ? 'reply' : 'off', mentionMode: config.mentionMode === 'task-v1' ? 'task-v1' : 'native', maxPerSync: Number.isInteger(config.maxPerSync) && config.maxPerSync >= 0 ? config.maxPerSync : 5 })
+const configOf = (config = {}) => ({ enabled: config.enabled === true, ownerMode: config.ownerMode === 'execute' ? 'execute' : 'off', otherMode: config.otherMode === 'reply' ? 'reply' : 'off', mentionMode: config.mentionMode === 'native' ? 'native' : 'task-v1', maxPerSync: Number.isInteger(config.maxPerSync) && config.maxPerSync >= 0 ? config.maxPerSync : 5 })
 
 export function normalizeComment(raw = {}) {
   const creator = raw.creator ?? raw.author ?? {}
@@ -142,7 +142,7 @@ export function createCommentCoordinator(deps) {
     if (!str(options.key)) throw new TypeError('writeOutbound requires a stable key')
     const key = identity(taskId, options.key)
     let row = state.outbound[key]
-    const payload = { text: str(text), replyTo: str(options.replyTo), mentionIds: [...new Set((options.mentionIds ?? []).map(str).filter(Boolean))] }
+    const payload = { text: formatAIComment(str(text)), replyTo: str(options.replyTo), mentionIds: [...new Set((options.mentionIds ?? []).map(str).filter(Boolean))] }
     if (row && JSON.stringify(row.payload) !== JSON.stringify(payload)) return { ok: false, error: 'Stable outbound key cannot change payload' }
     if (row?.status === 'sent') return { ok: true, commentId: row.commentId, reused: true, warning: row.warning || '', mentionSupported: row.mentionSupported === true }
     if (blocked(taskId)) return { ok: false, unknown: true, error: 'Task outbound ledger requires reconciliation' }
@@ -163,7 +163,13 @@ export function createCommentCoordinator(deps) {
     return row.status === 'sent' ? { ok: true, commentId: row.commentId, warning: row.warning || '', mentionSupported: row.mentionSupported === true } : { ok: false, unknown: row.status === 'unknown', error: row.error }
   }
   async function reply(entry) {
-    const result = await outbound(entry.taskId, entry.replyText, { key: `reply:${entry.key}`, replyTo: entry.commentId, mentionIds: [entry.authorId], sessionId: entry.sessionId, requireActive: true })
+    const mentionIds = [str(entry.authorId)].filter(Boolean)
+    if (!mentionIds.length) {
+      entry.error = '评论缺少作者 open_id，无法 @ 作者；已拒绝发送不带 @ 的回复'
+      await persist()
+      return { ok: false, error: entry.error }
+    }
+    const result = await outbound(entry.taskId, entry.replyText, { key: `reply:${entry.key}`, replyTo: entry.commentId, mentionIds, sessionId: entry.sessionId, requireActive: true })
     if (result.ok) { entry.status = 'replied'; entry.outboundCommentId = result.commentId; entry.warning = result.warning || ''; entry.mentionSupported = result.mentionSupported === true; delete entry.error; await persist() }
     else { entry.error = result.error; await persist() }
     return result
@@ -202,7 +208,7 @@ export function createCommentCoordinator(deps) {
         if (config.otherMode !== 'reply') continue
         entry.mode = 'reply'; entry.maxPermission = 'reply'
       }
-      entry.deliveryText = `[飞书评论协作 ${entry.key}]\n权限上限：${entry.maxPermission === 'owner' ? '任务负责人；请在已绑定会话内判断意图' : '仅当前任务问答；不得执行修改或读取其他会话/代码'}。\n处理后显式调用 feishu_comment_reply，传 taskId=${entry.taskId}、commentId=${entry.commentId}；🤖:只作展示。\n留言作者：${entry.authorId}\n${entry.text}`
+      entry.deliveryText = `[飞书评论协作 ${entry.key}]\n权限上限：${entry.maxPermission === 'owner' ? '任务负责人；请在已绑定会话内判断意图' : '仅当前任务问答；不得执行修改或读取其他会话/代码'}。\n处理后显式调用 feishu_comment_reply，传 taskId=${entry.taskId}、commentId=${entry.commentId}；宿主会自动 @ 原评论作者（即使是本账号），不要省略；🤖:只作展示。\n留言作者：${entry.authorId}\n${entry.text}`
       entry.status = 'delivering'
       await persist()
       let result

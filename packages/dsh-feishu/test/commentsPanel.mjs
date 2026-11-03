@@ -27,8 +27,8 @@ assert.equal(nodes.get('commentsGroup').tag, 'details')
 assert.match(nodes.get('commentsGroup').attrs.class, /setting-group/)
 assert.ok(!Object.hasOwn(nodes.get('commentsGroup').attrs, 'open'))
 assert.ok(within(nodes.get('commentsGroup'), 'settingsCard'))
-assert.ok(within(nodes.get('commentsInbox'), 'configurationArea'))
-assert.ok(Object.hasOwn(nodes.get('commentsInbox').attrs, 'hidden'))
+assert.ok(!nodes.has('commentsInbox'), 'settings no longer renders a comment inbox')
+assert.ok(!nodes.has('commentsList'), 'settings no longer renders comment entries')
 for (const id of ['commentEnabled', 'commentOwnerMode', 'commentOtherMode', 'commentMaxPerSync']) {
   assert.ok(within(nodes.get(id), 'commentsGroup'))
   assert.equal(nodes.get(id).attrs['data-setting'], '1')
@@ -38,11 +38,9 @@ assert.equal(nodes.get('commentEnabled').attrs.type, 'checkbox')
 assert.equal(nodes.get('commentMaxPerSync').attrs.min, '1')
 assert.equal(nodes.get('commentMaxPerSync').attrs.max, '20')
 assert.equal(nodes.get('commentMaxPerSync').attrs.value, '5')
-assert.equal(nodes.get('commentsList').attrs.role, 'list')
 assert.match(html, /原生回复关联作者，但不保证 @ 通知/)
-assert.match(extract('wire'), /wireComments\(\)/)
 for (const id of ['commentEnabled', 'commentOwnerMode', 'commentOtherMode', 'commentMaxPerSync']) assert.ok(extract('wire').includes(`'${id}'`))
-assert.match(extract('load'), /app\.hostStale = false;\s*updateSettingDependencies\(\);\s*loadCommentsInbox\(\)/, 'late capability arrival updates controls without overwriting dirty values')
+assert.match(extract('load'), /app\.hostStale = false;\s*updateSettingDependencies\(\);\s*renderTasks\(\)/, 'late capability arrival updates controls without overwriting dirty values')
 
 class Control {
   constructor(tag = 'div', attrs = {}) { this.tag = tag; this.attrs = attrs; this.hidden = Object.hasOwn(attrs, 'hidden'); this.open = false; this.value = attrs.value || ''; this.disabled = false; this.checked = false; this.children = []; this.listeners = {}; this.textContent = '' }
@@ -58,18 +56,16 @@ const registry = new Map([...nodes].map(([id, n]) => [id, new Control(n.tag, { .
 const n = (id) => registry.get(id)
 let requests = []
 let response = { ok: true, entries: [] }
-let failure
 const context = {
   app: { settings: {}, settingsDirty: false, workspaces: [], serverFeatures: null, snap: { tasks: [{ id: 't', title: '任务标题' }] }, busy: {} },
   document: { activeElement: null, createElement: (tag) => new Control(tag) },
   $: n,
-  api: (path, body, opts) => { requests.push({ path, body, opts }); return failure ? Promise.reject(new Error(failure)) : Promise.resolve(response) },
+  api: (path, body, opts) => { requests.push({ path, body, opts }); return Promise.resolve(response) },
   load: () => {}, showSaved: () => {}, pad2: (v) => String(v).padStart(2, '0'),
   readScheduleSettings: () => ({}),
 }
 vm.createContext(context)
-vm.runInContext(['clear', 'el', 'makeButton', 'toInt', 'commentsSupported', 'commentsVisible', 'commentActions', 'renderCommentsInbox', 'loadCommentsInbox', 'onCommentAction', 'wireComments', 'updateSettingDependencies', 'isEditingSetting', 'renderWorkspaceHint', 'renderSettings', 'scheduleDefaults', 'normHm', 'renderScheduleSettings', 'onSave'].map(extract).join('\n'), context)
-const text = (node) => [node.textContent, ...node.children.map(text)].join('\n')
+vm.runInContext(['clear', 'el', 'makeButton', 'toInt', 'commentsSupported', 'updateSettingDependencies', 'isEditingSetting', 'renderWorkspaceHint', 'renderSettings', 'scheduleDefaults', 'normHm', 'renderScheduleSettings', 'onSave'].map(extract).join('\n'), context)
 context.renderSettings(true)
 assert.equal(n('commentEnabled').checked, false)
 assert.equal(n('commentOwnerMode').value, 'off')
@@ -97,84 +93,18 @@ assert.equal(n('commentOtherMode').value, 'off', 'polling preserves dirty commen
 context.updateSettingDependencies()
 assert.equal(n('commentOtherMode').value, 'off', 'capability update preserves drafts')
 n('commentMaxPerSync').value = '900'
-assert.equal(n('commentMentionMode').value, 'native')
+assert.equal(n('commentMentionMode').value, 'task-v1')
 context.onSave()
-assert.deepEqual(JSON.parse(JSON.stringify(requests.at(-1).body.comments)), { enabled: true, ownerMode: 'execute', otherMode: 'off', mentionMode: 'native', maxPerSync: 20 })
+assert.deepEqual(JSON.parse(JSON.stringify(requests.at(-1).body.comments)), { enabled: true, ownerMode: 'execute', otherMode: 'off', mentionMode: 'task-v1', maxPerSync: 20 })
 await new Promise(setImmediate)
 n('commentEnabled').checked = false
 context.updateSettingDependencies()
 assert.equal(n('commentOwnerMode').disabled, true)
 assert.equal(n('commentOwnerMode').value, 'off')
 
-requests = []
-response = { ok: true, entries: [] }
-context.wireComments()
-await n('commentsGroup').fire('toggle')
-assert.equal(requests.length, 0, 'collapsed configuration never reads comments')
-n('commentsGroup').open = true
-await n('commentsGroup').fire('toggle')
-assert.equal(requests.length, 0, 'open inner details in hidden configuration never reads')
-n('configurationArea').hidden = false
-n('settingsCard').hidden = false
-context.app.serverFeatures = []
-await context.loadCommentsInbox()
-assert.equal(requests.length, 0, 'old Host is not probed with unsupported comments route')
-context.app.serverFeatures = ['tasks.comments']
-const entries = ['pending', 'delivered', 'running', 'reply_pending', 'replied', 'ignored', 'unknown', 'failed'].map((status, i) => ({ taskId: 't', commentId: `c${i}`, authorId: 'author', text: '<script>literal</script>\n留言', status, ...(status === 'failed' ? { error: 'permission denied' } : {}) }))
-response = { ok: true, entries }
-await n('commentsGroup').fire('toggle')
-assert.equal(requests[0].path, 'comments')
-assert.equal(requests[0].body, undefined, 'GET only, never starts sync/drain')
-assert.equal(n('commentsInbox').hidden, false)
-assert.equal(context.app.commentEntries, entries)
-assert.equal(n('commentsList').children.length, entries.length)
-for (const status of entries.map((e) => e.status)) assert.match(text(n('commentsList')), new RegExp(status))
-assert.match(text(n('commentsList')), /作者：author/)
-assert.match(text(n('commentsList')), /任务：任务标题/)
-assert.match(text(n('commentsList')), /<script>literal<\/script>/, 'original text remains text, never injected HTML')
-assert.match(text(n('commentsList')), /permission denied/)
-assert.match(text(n('commentsList')), /必须人工对账/)
-assert.match(text(n('commentsList')), /不清除出站账本/)
-for (const entry of entries) {
-  const expected = ['pending', 'unknown'].includes(entry.status) ? ['ignore'] : ['reply_pending', 'failed'].includes(entry.status) ? ['retry'] : []
-  assert.deepEqual([...context.commentActions(entry)], expected)
+for (const id of ['commentsInbox', 'commentsInboxStatus', 'commentsList', 'commentsRefresh']) {
+  assert.ok(!html.includes(`id="${id}"`), `${id} removed from settings`)
 }
-const unknown = entries.find((e) => e.status === 'unknown')
-requests = []
-context.app.commentInboxLoading = true
-await context.onCommentAction(unknown, 'ignore')
-assert.equal(requests.length, 0, 'actions wait for the in-flight GET, avoiding stale ledger races')
-context.app.commentInboxLoading = false
-context.app.commentActionBusy = true
-await context.loadCommentsInbox()
-assert.equal(requests.length, 0, 'GET does not race an in-flight action')
-context.app.commentActionBusy = false
-await context.onCommentAction(unknown, 'retry')
-assert.equal(requests.length, 0, 'unknown never retries without manual reconciliation')
-response = { ok: true, entries }
-await context.onCommentAction(unknown, 'ignore')
-assert.equal(requests[0].path, 'comments/action')
-assert.deepEqual(JSON.parse(JSON.stringify(requests[0].body)), { taskId: 't', commentId: unknown.commentId, action: 'ignore' })
-assert.equal(requests[1].path, 'comments', 'successful action reads actual Host state')
-assert.equal(unknown.status, 'unknown', 'no fake optimistic status transitions')
-requests = []
-await context.onCommentAction(entries.find((e) => e.status === 'reply_pending'), 'retry')
-assert.equal(requests[0].body.action, 'retry')
-failure = 'outbound ledger requires reconciliation'
-await context.onCommentAction(entries.find((e) => e.status === 'failed'), 'retry')
-assert.match(n('commentsInboxStatus').textContent, /outbound ledger requires reconciliation/)
-assert.equal(entries.at(-1).status, 'failed')
-assert.equal(context.app.commentActionBusy, false)
-await context.loadCommentsInbox()
-assert.match(n('commentsInboxStatus').textContent, /读取失败/)
-assert.equal(context.app.commentEntries, entries, 'failed GET keeps last real ledger')
-failure = null
-response = { ok: false, reason: 'missing permission' }
-await context.loadCommentsInbox()
-assert.match(n('commentsInboxStatus').textContent, /missing permission/)
-requests = []
-n('commentsGroup').open = false
-await n('commentsGroup').fire('toggle')
-assert.equal(requests.length, 0)
-assert.equal(n('commentsInbox').hidden, true)
-console.log('COMMENTS_PANEL_OK: collapsed ancestry, late capability/draft guards, defaults/clamped save, read-only lazy inbox, raw text/status/reasons, safe ignore/retry and no optimistic ledger changes')
+assert.ok(!/api\('comments',/.test(script), 'settings never reads the Host comment ledger')
+assert.ok(!/评论收件箱/.test(html), 'comment inbox copy removed')
+console.log('COMMENTS_PANEL_OK: comment settings remain, late capability/draft guards, defaults/clamped save, and no comment ledger UI or reads in settings')

@@ -55,7 +55,7 @@ assert.equal(controls.button.children[0].tag, 'svg')
 const history = [
   { id: 'reply', content: '原生回复', author: 'AI', authorType: 'app', createdAt: 6, replyToCommentId: 'parent' },
   { id: 'parent', content: '<script>literal</script>\n一\n二\n三\n四\n五', authorId: 'owner', author: '负责人甲', createdAt: 5 },
-  { id: 'self', content: 'own ledger response', author: '机器人', authorType: 'user', createdAt: 7 },
+  { id: 'self', content: '<at id=owner></at>\n[🤖AI 回复]\n━━━━━━━━━━━━━━━━━━\n▌ own ledger response\n━━━━━━━━━━━━━━━━━━', author: '机器人', authorType: 'user', createdAt: 7, replyToCommentId: 'parent' },
   { id: 'seen', content: '历史非AI已见', authorId: 'user', author: '访客', authorType: 'user', createdAt: 8 },
   { id: 'pending', content: '待处理留言', author: '访客', createdAt: 9 },
   { id: 'delivered', content: '已投递留言', author: '访客', createdAt: 10 },
@@ -79,6 +79,8 @@ assert.match(text(commentNodes[0]), /literal/)
 assert.match(text(commentNodes[1]), /原生回复/)
 assert.match(commentNodes[1].className, /is-reply/)
 assert.equal(buttons(commentNodes[2]).filter(n => n.textContent === '处理').length, 0, 'own outbound-ledger user comment not resubmittable')
+const ownContent = all(commentNodes[2]).find(n => String(n.className || '').split(' ').includes('card-comment-content'))
+assert.equal(text(ownContent), '@负责人甲 own ledger response', 'own reply keeps a readable @mention and hides raw header/rule')
 assert.equal(buttons(commentNodes[3]).filter(n => n.textContent === '处理' && !n.disabled).length, 1, 'seen non-AI history remains manually actionable')
 assert.equal(buttons(commentNodes[5]).filter(n => n.textContent === '处理').length, 0, 'delivered cannot be redelivered')
 const expand = buttons(commentNodes[0]).find(n => n.textContent === '展开')

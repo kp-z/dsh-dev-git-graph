@@ -31,7 +31,6 @@ import { fileURLToPath } from 'node:url'
  * 模型只负责把「下周一早上九点半」说成一句话，插件负责算准它到底是哪一刻。
  * 分开的另一个理由：时间逻辑最容易错，纯函数才能单测（test/schedule.mjs）。
  */
-import { formatAIComment } from './commentFormat.js'
 import { createActivityFeed } from './activity.js'
 import { DEFAULT_TASKLIST_NAME, TASKLIST_SCHEMA_VERSION, tasklistFields, schemaSignature, selectTaskList } from './tasklistSchema.js'
 import { beginSyncHistory, finishSyncHistory, recordSyncStage, recoverSyncHistory, safeSyncDetail } from './syncHistory.js'
@@ -430,7 +429,7 @@ const DEFAULT_SETTINGS = {
   contextInjection: false,
   /* 任务有实质变化时推给绑定会话（默认关：每次推送都会消耗一个 turn）。 */
   pushChanges: false,
-  comments: { enabled: false, ownerMode: 'off', otherMode: 'off', mentionMode: 'native', maxPerSync: 5 },
+  comments: { enabled: false, ownerMode: 'off', otherMode: 'off', mentionMode: 'task-v1', maxPerSync: 5 },
   /* 每个 turn 结束把进展写回任务评论（用户要求的「进展同步」）。 */
   autoComment: true,
   /* 同一会话两条进度评论的最小间隔（秒），防止一个 turn 刷一条。 */
@@ -1050,7 +1049,7 @@ function sanitizeSettings(input, base) {
       enabled: next.comments?.enabled === true,
       ownerMode: next.comments?.ownerMode === 'execute' ? 'execute' : 'off',
       otherMode: next.comments?.otherMode === 'reply' ? 'reply' : 'off',
-      mentionMode: next.comments?.mentionMode === 'task-v1' ? 'task-v1' : 'native',
+      mentionMode: next.comments?.mentionMode === 'native' ? 'native' : 'task-v1',
       maxPerSync: clampInt(next.comments?.maxPerSync, 1, 20, 5),
     },
     autoComment: next.autoComment !== false,
@@ -1620,7 +1619,7 @@ function createSyncEngine(ctx) {
   }
   async function writeTaskComment(taskId, text, options = {}) {
     const key = options.key || 'manual:' + randomUUID()
-    const result = await comments.writeOutbound(taskId, formatAIComment(sanitizeTaskDescription(text)), { ...options, key })
+    const result = await comments.writeOutbound(taskId, sanitizeTaskDescription(text), { ...options, key })
     return { ...result, key, detail: result.error || '' }
   }
   async function disposeComments() {
@@ -8135,7 +8134,7 @@ function registerTools(ctx, engine) {
   register(
     textTool(
       'feishu_comment_reply',
-      '回复当前轮正在处理的飞书评论。自动标注 AI 身份并关联原评论作者；只允许当前绑定任务的评论，成功返回远端回复 ID。',
+      '回复当前轮正在处理的飞书评论。自动标注 AI 身份并在正文前 @ 原评论作者，即使作者就是本账号也不会省略；只允许当前绑定任务的评论，成功返回远端回复 ID。回复评论必须用本工具，不要用 feishu_task_comment 代替。',
       {
         commentId: { type: 'string', description: '投递的原评论 ID。' },
         taskId: { type: 'string', description: '原评论所属任务 GUID，可省略。' },

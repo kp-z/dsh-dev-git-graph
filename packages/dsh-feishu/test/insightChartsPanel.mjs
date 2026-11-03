@@ -325,4 +325,8 @@ assert.equal(context.insightChartSpecs().length, 0)
 assert.doesNotThrow(() => context.renderInsightCharts())
 assert.doesNotThrow(() => context.renderInsightBody())
 
-console.log('INSIGHT_CHARTS_PANEL_OK: per-tab specs, one hero collapsed, grid expanded, aria labels, empty data')
+// 窄栏回归：标题不能被 flex 压扁；≤500px 时改为上下堆叠，避免环图图例被裁掉。
+assert.match(html, /\.insight-charts \.insight-chart \.chart-title \{[^}]*flex: 0 0 auto/, 'chart title must not shrink in the hero')
+assert.match(html, /@media \(max-width: 500px\)[\s\S]{0,500}\.insight-mid \{ grid-template-columns: minmax\(0, 1fr\)/, 'narrow panels stack the chart under the text')
+assert.match(html, /@media \(max-width: 500px\)[\s\S]{0,900}\.insight-charts \.insight-chart\.is-hero \{[^}]*height: auto/, 'narrow hero grows with wrapped legend')
+console.log('INSIGHT_CHARTS_PANEL_OK: per-tab specs, one hero collapsed, grid expanded, aria labels, empty data, no narrow-title/legend clipping')

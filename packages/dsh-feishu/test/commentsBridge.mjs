@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { formatAIComment } from '../commentFormat.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -138,7 +139,7 @@ try {
     assert.match(await tool.execute({ commentId: 'wrong', text: 'answer' }, { agent: { id: 's' } }), /回复失败/)
     assert.match(await tool.execute({ commentId: 'question', text: 'answer' }, { agent: { id: 'other' } }), /回复失败/)
     assert.match(await tool.execute({ commentId: 'question', taskId: 't', text: 'answer' }, { agent: { id: 's' } }), /已回复评论 out-1/)
-    const write = (await writes()).at(-1); assert.equal(write.reply_to_comment_id, 'question'); assert.deepEqual(write.mentionIds, ['someone']); assert.equal(write.allowMentionFallback, true); assert.equal(write.text, '[🤖AI 回复]\n--------------------\nanswer\n--------------------')
+    const write = (await writes()).at(-1); assert.equal(write.reply_to_comment_id, 'question'); assert.deepEqual(write.mentionIds, ['someone']); assert.equal(write.allowMentionFallback, false); assert.equal(write.text, formatAIComment('answer'))
     assert.equal((await app.rows())[0].outboundCommentId, 'out-1')
     assert.match(app.guard('bash', {}), /非负责人/)
   })
