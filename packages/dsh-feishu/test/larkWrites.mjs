@@ -258,7 +258,12 @@ try {
   turnStart?.({ id: 'sess-1' }, { type: 'turn/end', time: Date.now(), data: { turn: 3, reason: { kind: 'done' } } })
   const commentWritten = await waitFor(async () => (await argsHas(/"content":"\[🤖AI 回复\]/)) || null, 15_000)
   check('进度评论写回（AI 回复信封）', !!commentWritten)
-  const commentsFile = JSON.parse(await readFile(join(HOME, 'dsh-feishu', 'comments.json'), 'utf8').catch(() => 'null'))
+  // A CLI log proves dispatch, not completion. Await the durable receipt before
+  // checking its exact ID/status; do not race the coordinator's final save.
+  const commentsFile = await waitFor(async () => {
+    const saved = JSON.parse(await readFile(join(HOME, 'dsh-feishu', 'comments.json'), 'utf8').catch(() => 'null'))
+    return Object.values(saved?.outbound ?? {}).some(row => row.status === 'sent' && row.commentId === '125') ? saved : null
+  }, 15_000)
   const ledger = Object.values(commentsFile?.outbound ?? {})
   if (!ledger.length) console.log('  DEBUG ledger:', JSON.stringify({ commentsFile, args: (await argsLog()).split('\n').filter((line) => line.includes('comments')).slice(-5) }))
   check('出站账本记下真实评论 ID（回声排除依据）', ledger.some((row) => row.status === 'sent' && row.commentId === '125'))

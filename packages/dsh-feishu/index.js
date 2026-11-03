@@ -139,7 +139,7 @@ function stateFileFor() {
  *
  * 历史包袱：状态文件以前按端口分（`state-<port>.json`），DSH 每次重启端口都变，
  * 于是重启一次就换一份空状态——「任务卡片掉绑定」「同一条任务被开两条会话」都是这么来的。
- * 现在只有 `state.json`；这个函数只在它不存在（或为空）时跑一次，把带会话绑定的最新那份继承过来。
+ * 现在只有 `state.json`；这个函数只在当前端口未初始化时使用，继承带绑定或事务回执的最新快照。
  * 旧文件不删，留作备份。
  */
 export async function adoptPreviousState(currentFile) {
@@ -163,7 +163,10 @@ export async function adoptPreviousState(currentFile) {
     }
     const tasks = Array.isArray(data?.tasks) ? data.tasks : []
     const bound = tasks.filter((task) => task?.sessionId).length
-    if (!bound) continue
+    const hasRecords = value => value != null && (typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 0)
+    const managed = data?.managedTasklist || {}
+    const transactions = hasRecords(data?.taskCreationReceipts) || hasRecords(data?.pendingDocReceipts) || hasRecords(managed.fieldCreationIntents) || Boolean(managed.pendingFieldChecks?.names?.length) || ['checking','unknown'].includes(managed.status)
+    if (!bound && !transactions) continue
     let mtimeMs = 0
     try {
       mtimeMs = (await stat(file)).mtimeMs
@@ -2802,7 +2805,7 @@ function createSyncEngine(ctx) {
   const backendContext = backendIOContext
   const activeOperations = new Set()
   const activeCreationKeys = new Set()
-  const taskCreationLedger = createCreationLedger({ load: async () => state.taskCreationReceipts || {}, save: async rows => { state.taskCreationReceipts = rows; await persistState() }, now: nowMs })
+  const taskCreationLedger = createCreationLedger({ load: async () => state.taskCreationReceipts ?? {}, save: async rows => { state.taskCreationReceipts = rows; await persistState() }, now: nowMs })
   function creationPending(taskId) {
     return Object.values(state.taskCreationReceipts || {}).some(row => row.taskId === taskId && ['sending','created','partial','unknown'].includes(row.status) && !(activeCreationKeys.has(row.key) && backendContext.getStore()?.creationKey === row.key))
   }
@@ -3028,8 +3031,12 @@ function createSyncEngine(ctx) {
       await writeJson(SETTINGS_FILE, settings)
     }
     let savedState = await readJson(stateFile, {})
-    /* 换端口重启后这里是空的：继承上一份带绑定的状态，别让卡片集体掉线。 */
-    if (!Array.isArray(savedState?.tasks) || savedState.tasks.length === 0) {
+    /* Only a genuinely empty/new port may inherit legacy tasks. An empty filtered
+       list is NOT an empty authority store: never overwrite in-flight receipts. */
+    const hasRecords = value => value != null && (typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 0)
+    const managed = savedState?.managedTasklist || {}
+    const hasCurrentTransactions = hasRecords(savedState?.taskCreationReceipts) || hasRecords(savedState?.pendingDocReceipts) || hasRecords(managed.fieldCreationIntents) || Boolean(managed.pendingFieldChecks?.names?.length) || ['checking','unknown'].includes(managed.status)
+    if ((!Array.isArray(savedState?.tasks) || savedState.tasks.length === 0) && !hasCurrentTransactions) {
       const adopted = await adoptPreviousState(stateFile)
       if (adopted) {
         const localHistory = savedState.syncHistory
@@ -3040,7 +3047,7 @@ function createSyncEngine(ctx) {
     }
     const earlySeen = state.sessionSeen || {}
     state = { ...DEFAULT_STATE, ...savedState }
-    state.taskCreationReceipts = savedState.taskCreationReceipts && typeof savedState.taskCreationReceipts === 'object' && !Array.isArray(savedState.taskCreationReceipts) ? savedState.taskCreationReceipts : {}
+    state.taskCreationReceipts = savedState.taskCreationReceipts ?? {}
     state.sessionSeen = { ...earlySeen, ...(savedState.sessionSeen || {}) }
     state.syncing = false
     state.syncHistory = recoverSyncHistory(savedState.syncHistory)

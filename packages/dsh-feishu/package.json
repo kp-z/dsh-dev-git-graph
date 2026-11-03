@@ -85,6 +85,6 @@
     "test:setup": "node test/setup.mjs",
     "test:avatar-tip": "node test/avatarTip.mjs",
     "test:lark-transport": "node test/larkComments.mjs && node test/larkTasklist.mjs && node test/larkJson.mjs && node test/pr3Compatibility.mjs",
-    "test:pr3-regressions": "node test/backendScope.mjs && node test/creationLedger.mjs && node test/pr3LifecycleRegression.mjs && node test/creationOwnershipRegression.mjs && node test/docReceiptRegression.mjs && node test/documentRecoveryRegression.mjs && node test/jsonPersistence.mjs && node test/larkProtocolRegression.mjs && node test/setupPanelRegression.mjs"
+    "test:pr3-regressions": "node test/backendScope.mjs && node test/creationLedger.mjs && node test/pr3LifecycleRegression.mjs && node test/creationOwnershipRegression.mjs && node test/docReceiptRegression.mjs && node test/documentRecoveryRegression.mjs && node test/jsonPersistence.mjs && node test/stateAdoptionRegression.mjs && node test/larkProtocolRegression.mjs && node test/setupPanelRegression.mjs"
   }
 }
