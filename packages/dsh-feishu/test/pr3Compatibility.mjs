@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import vm from 'node:vm'
 import { schemaSignature, tasklistFields, TASKLIST_SCHEMA_VERSION } from '../tasklistSchema.js'
+import { createHash } from 'node:crypto'
+import { createCreationLedger } from '../creationLedger.js'
+import { createBackendScope } from '../backendScope.js'
 import { listLarkPages } from '../larkPages.js'
 const source = await readFile(new URL('../index.js', import.meta.url), 'utf8')
 assert.match(source, /name: settings\.taskFields\.doc \|\| '文档',\s*expected_type: 'text'/)
@@ -15,6 +18,10 @@ const enteredCreate = new Promise(resolve => { enterCreate = resolve })
 const calls = []
 const captured = { createTask: async () => { calls.push('create:lark-cli'); enterCreate(); return new Promise(resolve => { releaseCreate = resolve }) }, updateTask: async () => { calls.push('rename'); return { ok: true } } }
 const ctx = { settings: { cliBackend: 'lark-cli', managedTasklist: { enabled: true, guid: 'list' } }, lifecycleDisposed: false, state: { tasks: [], relations: [], workspaceLinks: {}, workspaceWrites: {}, relationSync: {} }, asString: v => v == null ? '' : String(v), nowMs: Date.now, updateRelations: () => ({ ok: true, edges: [] }), service: () => undefined, ctx: {}, ensureManagedTasklist: async () => ({ ok: true, guid: 'list' }), defaultsFromState: () => ({ assignee: 'ou_self', tasklistGuid: 'list' }), backendFor: () => captured, extractDocLinks: () => [], persistState: async () => {}, taskNo: () => 1, decorateTitle: () => 'renamed' }
+ctx.createHash = createHash
+ctx.taskCreationLedger = createCreationLedger({ load: async () => ctx.state.taskCreationReceipts || {}, save: async rows => { ctx.state.taskCreationReceipts = rows }, now: Date.now })
+ctx.activeCreationKeys = new Set()
+ctx.captureBackendScope = () => createBackendScope({ getSettings: () => ctx.settings, getGeneration: () => 0, isDisposed: () => ctx.lifecycleDisposed, resolveBackend: () => captured })
 vm.createContext(ctx); vm.runInContext(create, ctx)
 const pending = ctx.createTaskFromSession('s', { summary: 'Create' })
 await enteredCreate
@@ -33,7 +40,7 @@ const bridge = async (_python, payload) => {
   fieldCalls++; enterFields()
   return new Promise(resolve => { releaseFields = () => resolve({ ok: true, actions: payload.actions.map(a => ({ op: a.op, name: a.name, ok: false, unknownDelivery: true, error: 'lost create receipt' })) }) })
 }
-const managed = { settings: { cliBackend: 'feishu-sync', managedTasklist: { enabled: true, name: 'DSH 任务清单', guid: '' }, taskFields: {} }, state: { tasks: [], managedTasklist: {}, feishuFields: {} }, lifecycleDisposed: false, schemaSignature, tasklistFields, TASKLIST_SCHEMA_VERSION, randomUUID: () => 'stable-token', nowMs: Date.now, resolvePython: () => 'fake-python', resolveCli: () => 'fake-cli', workspaces: () => [], persistState: async () => {}, writeJson: async () => {}, SETTINGS_FILE: 'none', safeSyncDetail: String, remoteCache: { fields: new Map() }, runBridgeRaw: bridge }
+const managed = { settings: { cliBackend: 'feishu-sync', managedTasklist: { enabled: true, name: 'DSH 任务清单', guid: '' }, taskFields: {} }, state: { tasks: [], managedTasklist: {}, feishuFields: {} }, lifecycleDisposed: false, backendGeneration: 0, schemaSignature, tasklistFields, TASKLIST_SCHEMA_VERSION, randomUUID: () => 'stable-token', nowMs: Date.now, resolvePython: () => 'fake-python', resolveCli: () => 'fake-cli', workspaces: () => [], persistState: async () => {}, writeJson: async () => {}, SETTINGS_FILE: 'none', safeSyncDetail: String, remoteCache: { fields: new Map() }, runBridgeRaw: bridge }
 vm.createContext(managed); vm.runInContext(source.slice(start, end), managed)
 const flight = managed.ensureManagedTasklist()
 await enteredFields

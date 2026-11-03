@@ -81,7 +81,7 @@ export function createLarkTasklistActions(api) {
       const code = res?.error?.code
       // Only a structured rejection establishes non-delivery. CLI exit/errors and
       // absent/malformed success bodies are not evidence that a write did not land.
-      const rejected = res?.ok === false && (res?.error?.type === 'authorization' || res?.error?.type === 'validation' || (Number.isInteger(code) && ((code >= 400 && code < 500) || (code >= 1470400 && code < 1470500))))
+      const rejected = res?.beforeRequest === true || res?.ok === false && (res?.error?.type === 'authorization' || res?.error?.type === 'validation' || (Number.isInteger(code) && ((code >= 400 && code < 500) || (code >= 1470400 && code < 1470500))))
       failure.unknownDelivery = method !== 'GET' && !rejected
       throw failure
     }
@@ -119,11 +119,13 @@ export function createLarkTasklistActions(api) {
     const { key, setting, options } = optionsOf(target)
     for (const name of names) {
       const matches = options.filter(option => option.name === name)
-      if (matches.length && (matches.length !== 1 || matches[0].is_hidden)) {
-        if (strict) throw new Error('选项重名或隐藏，拒绝写入')
-        result.warnings.push(`选项重名或隐藏，写入这些值会被拒绝：${name}`)
-      }
+      if (strict && matches.length && (matches.length !== 1 || matches[0].is_hidden)) throw new Error('选项重名或隐藏，拒绝写入')
     }
+    const visible = options.filter(option => !option.is_hidden)
+    const duplicated = names.filter(name => visible.filter(option => option.name === name).length > 1)
+    const hiddenOnly = names.filter(name => !visible.some(option => option.name === name) && options.some(option => option.name === name && option.is_hidden))
+    if (duplicated.length) result.warnings.push(`同名可见选项重复，写入这些值会被拒绝：${duplicated.join('、')}`)
+    if (hiddenOnly.length) result.warnings.push(`选项已隐藏，写入这些值会被拒绝：${hiddenOnly.join('、')}`)
     const missing = names.filter(name => !options.some(option => option.name === name))
     if (!missing.length) return { target, added: [] }
     result.unknownDelivery = true
@@ -216,6 +218,34 @@ export function createLarkTasklistActions(api) {
         result.ok = true
         result.unknownDelivery = false
         failedEnsures.delete(ensureKey)
+      } else if (action.op === 'ensure_select_options') {
+        // This is an independent action (not a no-op or deferred task write).
+        // Resolve from an authoritative full scan before PATCH replaces all options.
+        const names = namesOf(action.options)
+        if (action.expected_type != null && !TYPES.has(action.expected_type)) throw new Error('不支持 expected_type')
+        const byGuid = action.field_guid != null
+        const key = identifier(byGuid ? action.field_guid : action.name, byGuid ? 'field_guid' : 'name')
+        const items = await fields(action.tasklist)
+        const matches = items.filter(field => field[byGuid ? 'guid' : 'name'] === key)
+        if (matches.length !== 1) throw new Error(matches.length ? '字段重名/重复 GUID，拒绝写入' : '没有匹配的字段')
+        const target = matches[0]
+        if (byGuid && action.name != null && target.name !== action.name) throw new Error('field_guid 与 name 不匹配')
+        Object.assign(result, { guid: target.guid, name: target.name, type: target.type })
+        if (!TYPES.has(target.type) || (action.expected_type != null && target.type !== action.expected_type)) throw new Error('字段类型与 expected_type 不匹配')
+        if (!select(target.type)) throw new Error('不支持非 select 字段补选项')
+        result.added = (await completeOptions(target, names, result)).added
+        Object.assign(result, { ok: true, unknownDelivery: false })
+      } else if (action.op === 'delete_custom_field') {
+        const guid = identifier(action.guid, 'guid')
+        const tasklist = identifier(action.tasklist, 'tasklist')
+        result.guid = guid
+        result.unknownDelivery = true
+        // Task v2 removes a field from a resource with POST/remove; there is no
+        // DELETE /custom_fields/{guid} route. Empty object data is a valid receipt.
+        await request('POST', `${ROOT}/custom_fields/${encodeURIComponent(guid)}/remove`, {
+          data: { resource_type: 'tasklist', resource_id: tasklist },
+        })
+        Object.assign(result, { ok: true, unknownDelivery: false })
       } else if (action.op === 'set_custom_field') {
         const task = identifier(action.task, 'task')
         if (action.expected_type != null && !TYPES.has(action.expected_type)) throw new Error('不支持 expected_type')

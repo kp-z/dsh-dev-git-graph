@@ -38,7 +38,11 @@ import { createActivityFeed } from './activity.js'
 import { DEFAULT_TASKLIST_NAME, TASKLIST_SCHEMA_VERSION, tasklistFields, schemaSignature, selectTaskList } from './tasklistSchema.js'
 import { beginSyncHistory, finishSyncHistory, recordSyncStage, recoverSyncHistory, safeSyncDetail } from './syncHistory.js'
 import { createCommentCoordinator } from './comments.js'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { createBackendScope } from './backendScope.js'
+import { createCreationLedger } from './creationLedger.js'
+const backendIOContext = new AsyncLocalStorage()
 import { matchWorkspace, titleChangeOf } from './workspace.js'
 import { updateRelations, projectRelations, relationStats } from './relations.js'
 import {
@@ -603,9 +607,24 @@ async function readJson(file, fallback) {
   }
 }
 
+const jsonWriteQueues = new Map()
 async function writeJson(file, value) {
-  await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+  const payload = `${JSON.stringify(value, null, 2)}\n`
+  const previous = jsonWriteQueues.get(file) || Promise.resolve()
+  const work = previous.catch(() => {}).then(async () => {
+    await mkdir(dirname(file), { recursive: true })
+    const temp = file + '.' + randomUUID() + '.tmp'
+    try {
+      await writeFile(temp, payload, { encoding: 'utf8', mode: 0o600 })
+      await rename(temp, file)
+    } catch (error) {
+      await unlink(temp).catch(() => {})
+      throw error
+    }
+  })
+  jsonWriteQueues.set(file, work)
+  try { await work }
+  finally { if (jsonWriteQueues.get(file) === work) jsonWriteQueues.delete(file) }
 }
 
 function escapeHtml(value) {
@@ -1385,6 +1404,7 @@ function runCli(command, args, { timeoutMs = 180_000 } = {}) {
 
 /** 通用子进程执行：装 CLI 这类一次性命令也走它，失败同样折成 {ok:false, detail}，不抛。 */
 function runCommand(command, args, { timeoutMs = 300_000, env = process.env } = {}) {
+  if (backendIOContext.getStore()?.valid() === false) return Promise.resolve({ ok: false, beforeRequest: true, stdout: '', stderr: '', detail: '配置已变化，命令尚未发出，旧操作已取消' })
   return new Promise((resolve) => {
     try {
       execFile(
@@ -1469,6 +1489,7 @@ function resolvePython(cliPath) {
 
 /** 跑补充通道：stdin 进 JSON，stdout 出 JSON；失败返回 ok:false，不抛。 */
 function runBridgeRaw(python, payload) {
+  if (backendIOContext.getStore()?.valid() === false) return Promise.resolve({ ok: false, actions: (payload.actions || []).map(action => ({ op: action.op, ok: false, unknownDelivery: false, error: '配置已变化，桥接命令尚未发出' })), errors: ['旧操作已取消'] })
   return new Promise((resolve) => {
     let child
     try {
@@ -1606,6 +1627,7 @@ function larkUserState(parsed) {
 
 /** raw OpenAPI：`lark-cli api METHOD /open-apis/... [--params JSON] [--data JSON]`。 */
 function larkApi(settings, method, pathname, { params, data, timeoutMs, as = 'user' } = {}) {
+  if (backendIOContext.getStore()?.valid() === false) return Promise.resolve({ ok: false, beforeRequest: true, detail: '配置已变化，API 尚未发出', error: { type: 'operation_cancelled' } })
   /* 任务/文档这些资源属于「用户」：默认显式 --as user，别落到 bot 身份上。
      探测应用本身能不能调 API 时用 --as bot（不需要用户登录）。 */
   const args = ['api', method, pathname, '--as', as]
@@ -2003,10 +2025,10 @@ const feishuBackend = {
         : /1470400/.test(detail)
           ? '飞书拒绝了创建参数（1470400）'
           : detail.slice(-300)
-      return { ok: false, detail: hint }
+      return { ok: false, unknownDelivery: !(created.beforeRequest === true || /找不到命令|ENOENT|1470400|url in description is invalid/i.test(detail)), detail: hint }
     }
     const guid = asString(parseJson(created.stdout)?.guid)
-    if (!guid) return { ok: false, detail: '创建成功但没解析出任务 guid' }
+    if (!guid) return { ok: false, unknownDelivery: true, detail: '创建成功但没解析出任务 guid' }
     return { ok: true, guid }
   },
 
@@ -2394,16 +2416,20 @@ const larkBackend = {
     if (assignee) body.members = [{ id: assignee, role: 'assignee', type: 'user' }]
     /* 落进插件的固定清单：飞书里才看得见，清单里的自定义字段才有地方写。 */
     const list = tasklistGuid ? { ok: true, guid: tasklistGuid, name: settings.managedTasklist?.name || '' } : await ensureLarkTasklist(settings)
-    if (!list.ok || !list.guid) return { ok: false, detail: list.detail || '任务清单未就绪，拒绝创建无归属任务' }
+    if (!list.ok || !list.guid) return { ok: false, unknownDelivery: false, detail: list.detail || '任务清单未就绪，拒绝创建无归属任务' }
     body.tasklists = [{ tasklist_guid: list.guid }]
     const result = await larkApi(settings, 'POST', '/open-apis/task/v2/tasks', {
       params: { user_id_type: 'open_id' },
       data: body,
       timeoutMs: 60_000,
     })
-    if (!result.ok) return { ok: false, detail: result.detail }
+    if (!result.ok) {
+      const code = Number(result.error?.code)
+      const definitive = result.beforeRequest === true || result.error?.type === 'authorization' || result.error?.type === 'validation' || (code >= 400 && code < 500) || (code >= 1470400 && code < 1470500)
+      return { ok: false, unknownDelivery: !definitive, detail: result.detail }
+    }
     const guid = asString(result.data?.task?.guid || result.data?.guid)
-    if (!guid) return { ok: false, detail: 'lark-cli 建任务返回里没有 guid' }
+    if (!guid) return { ok: false, unknownDelivery: true, detail: 'lark-cli 建任务返回里没有 guid' }
     return { ok: true, guid, tasklistGuid: list.ok ? list.guid : '', tasklistName: list.ok ? list.name : '' }
   },
 
@@ -2495,7 +2521,7 @@ const larkBackend = {
       const op = asString(action?.op)
       const fail = (detail) => results.push({ op, ok: false, error: asString(detail).slice(-300) })
       try {
-        if (['ensure_tasklist', 'ensure_custom_field', 'set_custom_field'].includes(op)) {
+        if (['ensure_tasklist', 'ensure_custom_field', 'set_custom_field', 'ensure_select_options', 'delete_custom_field'].includes(op)) {
           results.push(await managedActions(action))
         } else if (op === 'add_tasklist') {
           const result = await larkApi(
@@ -2553,18 +2579,18 @@ const larkBackend = {
                   ]
             const result = await runLarkCmd(settings, args, 180_000)
             const parsed = parseJson(result.stdout) ?? parseJson(result.stderr)
-            if (!result.ok && !parsed?.ok) fail(result.detail ?? result.stderr)
-            else if (parsed?.ok === false) fail(parsed.error?.message || parsed.error?.hint)
-            else if (op === 'update_docx') results.push({ op, ok: true })
-            else {
-              const doc = parsed?.data?.document ?? parsed?.data ?? {}
-              results.push({
-                op,
-                ok: true,
-                document: asString(doc.document_id ?? doc.documentId ?? doc.token),
-                url: asString(doc.url),
-                tables: 0,
-              })
+            const error = parsed?.error || {}
+            if (!result.ok || !parsed || parsed.ok === false) {
+              const code = Number(error.code)
+              const definitive = result.beforeRequest === true || parsed?.ok === false && (error.type === 'authorization' || error.type === 'validation' || (code >= 400 && code < 500))
+              results.push({ op, ok: false, unknownDelivery: !definitive, notFound: code === 404 || error.subtype === 'not_found', error: asString(error.message || error.hint || result.detail || '文档写入回执无效') })
+            } else {
+              const doc = parsed.data?.document || parsed.data || {}
+              const document = asString(doc.document_id || doc.documentId || doc.token || (op === 'update_docx' ? action.document : ''))
+              const url = asString(doc.url || (op === 'update_docx' ? action.url : ''))
+              const validURL = /^https?:\/\/[^\s]+$/.test(url)
+              if (!document || (op === 'create_docx' && !validURL)) results.push({ op, ok: false, document: document || null, unknownDelivery: true, error: '文档已提交，但没有有效 ID/URL 回执；不会清除原有绑定或自动重建' })
+              else results.push({ op, ok: true, document, url: validURL ? url : undefined, tables: Number(doc.tables) || 0, updated: op === 'update_docx' })
             }
           } finally {
             await rm(temp.dir, { recursive: true, force: true }).catch(() => undefined)
@@ -2669,11 +2695,12 @@ const larkBackend = {
             else fail(result.detail)
           }
         } else if (op === 'delete_file') {
+          if (!asString(action.token ?? action.document ?? action.file).trim()) { fail('文件 token 不能为空'); continue }
           const result = await larkApi(
             settings,
             'DELETE',
-            `/open-apis/drive/v1/files/${encodeURIComponent(action.document ?? action.file)}`,
-            { params: { type: asString(action.doc_type) || 'docx' }, timeoutMs: 60_000 },
+            `/open-apis/drive/v1/files/${encodeURIComponent(action.token ?? action.document ?? action.file)}`,
+            { params: { type: asString(action.type ?? action.doc_type) || 'docx' }, timeoutMs: 60_000 },
           )
           if (result.ok) results.push({ op, ok: true })
           else fail(result.detail)
@@ -2723,9 +2750,6 @@ const larkBackend = {
           }
         } else if (op === 'task_comment') {
           results.push(await createLarkComment((method, path, opts) => larkApi(settings, method, path, opts), action))
-        } else if (op === 'ensure_select_options') {
-          /* 单选/多选字段才需要补选项；lark 后端自动建的字段是文本类型，保持空操作。 */
-          results.push({ op, ok: true, added: [] })
         } else {
           fail(`官方 lark-cli 后端不支持操作：${op}`)
         }
@@ -2774,6 +2798,32 @@ function createSyncEngine(ctx) {
   const stateFile = stateFileFor()
   let settings = { ...DEFAULT_SETTINGS }
   let state = { ...DEFAULT_STATE }
+  let backendGeneration = 0
+  const backendContext = backendIOContext
+  const activeOperations = new Set()
+  const activeCreationKeys = new Set()
+  const taskCreationLedger = createCreationLedger({ load: async () => state.taskCreationReceipts || {}, save: async rows => { state.taskCreationReceipts = rows; await persistState() }, now: nowMs })
+  function creationPending(taskId) {
+    return Object.values(state.taskCreationReceipts || {}).some(row => row.taskId === taskId && ['sending','created','partial','unknown'].includes(row.status) && !activeCreationKeys.has(row.key))
+  }
+  function pendingCreationWriteBlocked(actions) {
+    const reads = new Set(['task_get','task_comments','task_subtasks','task_attachments','task_dependencies'])
+    if (!(actions || []).some(action => action.task && !reads.has(action.op) && creationPending(action.task))) return null
+    const error = '任务创建回执尚未核对，禁止自动或跨后端写回；请手动绑定原任务完成核对'
+    return { ok: false, actions: (actions || []).map(action => ({ op: action.op, ok: false, error, unknownDelivery: false })), errors: [error] }
+  }
+
+  function captureBackendScope() {
+    return backendContext.getStore() || createBackendScope({ getSettings: () => settings, getGeneration: () => backendGeneration, isDisposed: () => lifecycleDisposed, resolveBackend: backendFor, beforeActions: actions => pendingCreationWriteBlocked(actions) || managedFieldWriteBlocked(actions) })
+  }
+  function runEngineOperation(action, args) {
+    if (lifecycleDisposed) return Promise.resolve({ ok: false, error: '插件已重载，旧操作已停止' })
+    const scope = captureBackendScope()
+    const work = Promise.resolve().then(() => backendContext.run(scope, () => action(...args)))
+    activeOperations.add(work)
+    work.finally(() => activeOperations.delete(work)).catch(() => {})
+    return work
+  }
   let lifecycleDisposed = false
   let stateLoaded = false
   const earlyReopenTurns = new Map()
@@ -2990,10 +3040,16 @@ function createSyncEngine(ctx) {
     }
     const earlySeen = state.sessionSeen || {}
     state = { ...DEFAULT_STATE, ...savedState }
+    state.taskCreationReceipts = savedState.taskCreationReceipts && typeof savedState.taskCreationReceipts === 'object' && !Array.isArray(savedState.taskCreationReceipts) ? savedState.taskCreationReceipts : {}
     state.sessionSeen = { ...earlySeen, ...(savedState.sessionSeen || {}) }
     state.syncing = false
     state.syncHistory = recoverSyncHistory(savedState.syncHistory)
     state.tasks = Array.isArray(savedState.tasks) ? savedState.tasks : []
+    for (const receipt of Object.values(state.taskCreationReceipts)) {
+      if (!receipt || typeof receipt !== 'object' || !receipt.taskId || !['created','partial','unknown'].includes(receipt.status) || state.tasks.some(task => task.id === receipt.taskId)) continue
+      state.tasks.push({ id: receipt.taskId, title: receipt.summary, tasklistGuid: receipt.creation?.tasklistGuid || receipt.tasklistGuid || '', done: false, sessionId: receipt.followUp ? null : receipt.sessionId, creationBackend: receipt.backend, creationReceiptKey: receipt.key, creationPending: true, tasklistSyncPending: true, members: [], customFields: [], meta: {}, docs: [] })
+    }
+
     state.relations = Array.isArray(savedState.relations) ? savedState.relations : []
     state.relationSync = savedState.relationSync && typeof savedState.relationSync === 'object' ? savedState.relationSync : {}
     state.suspensions = savedState.suspensions && typeof savedState.suspensions === 'object' ? savedState.suspensions : {}
@@ -3048,6 +3104,7 @@ function createSyncEngine(ctx) {
     }
     tasklistFlight = (async () => {
       const previous = state.managedTasklist || {}
+      const capturedGeneration = backendGeneration
       const capturedSettings = JSON.parse(JSON.stringify(settings))
       const capturedWorkspaces = workspaces().map(row => row.title)
       let signature
@@ -3080,14 +3137,14 @@ function createSyncEngine(ctx) {
       const token = previous.createToken || randomUUID()
       state.managedTasklist = { ...previous, createToken: token, status: 'checking', errors: [] }
       await persistState()
-      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) {
+      if (lifecycleDisposed || capturedGeneration !== backendGeneration || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) {
         state.managedTasklist = { ...previous, status: 'uninitialized', errors: [] }
         await persistState()
         return { ok: false, error: '配置已变化，尚未发起清单初始化' }
       }
       const result = await managedBridge({ actions: [{ op: 'ensure_tasklist', ...(guid ? { guid } : {}), name: capturedSettings.managedTasklist.name, create_token: token }] })
       const list = result.actions?.[0]
-      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) return { ok: false, error: '配置已变化或插件已重载，请重新检查清单' }
+      if (lifecycleDisposed || capturedGeneration !== backendGeneration || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) return { ok: false, error: '配置已变化或插件已重载，请重新检查清单' }
       if (!list?.ok || !list.guid) {
         const error = list?.error || result.errors?.join('; ') || '任务清单初始化失败'
         state.managedTasklist = { ...state.managedTasklist, status: list?.unknownDelivery || (!list && !guid) ? 'unknown' : 'failed', errors: [error], checkedAt: nowMs() }
@@ -3105,17 +3162,23 @@ function createSyncEngine(ctx) {
       // Existing workspace fields may be text/single/multi-select; preserve their type.
       const definitions = await managedBridge({ fields: [list.guid] })
       if (definitions.errors?.length || !Array.isArray(definitions.fields?.[list.guid])) throw new Error(definitions.errors?.join('; ') || '字段定义读取不完整')
-      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，取消过期字段初始化' }
+      if (lifecycleDisposed || capturedGeneration !== backendGeneration || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，取消过期字段初始化' }
       // A lost create receipt is not permission to create the same field again.
       // Reconcile only against a complete authoritative definition list.
-      const pending = previous.pendingFieldChecks
-      if (pending && (pending.guid !== list.guid || pending.backend !== capturedSettings.cliBackend)) {
-        const error = '另一后端/清单仍有字段创建未对账，请先核对原清单，不能切换后重建'
-        state.managedTasklist = { ...state.managedTasklist, status: 'unknown', errors: [error] }
-        await persistState()
-        return { ok: false, error }
+      const scopeKey = JSON.stringify([capturedSettings.cliBackend, list.guid])
+      const intents = { ...(previous.fieldCreationIntents || {}) }
+      const legacyIntent = previous.pendingFieldChecks
+      if (legacyIntent?.names?.length && legacyIntent.phase !== 'prepared') {
+        const legacyKey = JSON.stringify([legacyIntent.backend, legacyIntent.guid])
+        if (!intents[legacyKey]) intents[legacyKey] = { ...legacyIntent, phase: legacyIntent.phase || 'unknown' }
       }
-      const unresolved = [...new Set([...(previous.unknownFields || []), ...(pending?.names || [])])].filter(name => definitions.fields[list.guid].filter(row => row.name === name).length !== 1)
+      // A prepared intent is durable proof of no IO: dispatch is separately marked
+      // before issuing a create batch. Empty or other-backend intents cannot lock it.
+      if (intents[scopeKey]?.phase === 'prepared') delete intents[scopeKey]
+      const pending = intents[scopeKey]
+      state.managedTasklist.fieldCreationIntents = intents
+      state.managedTasklist.pendingFieldChecks = pending || null
+      const unresolved = [...new Set(pending?.names || [])].filter(name => definitions.fields[list.guid].filter(row => row.name === name).length !== 1)
       if (unresolved.length) {
         const error = '字段创建回执不明，请先核对：' + unresolved.join('、')
         state.managedTasklist = { ...state.managedTasklist, status: 'unknown', unknownFields: unresolved, errors: [error] }
@@ -3128,15 +3191,40 @@ function createSyncEngine(ctx) {
       // Initialization is the trusted setup path; it must not be blocked by its own 'checking' status.
       // Durable create intent precedes every possible field POST; an interrupted or
       // superseded batch must reconcile this intent before any field is recreated.
-      state.managedTasklist.pendingFieldChecks = { backend: capturedSettings.cliBackend, guid: list.guid, names: fields.filter(field => !definitions.fields[list.guid].some(row => row.name === field.name)).map(field => field.name) }
+      const createNames = fields.filter(field => !definitions.fields[list.guid].some(row => row.name === field.name)).map(field => field.name)
+      const intent = createNames.length ? { backend: capturedSettings.cliBackend, guid: list.guid, names: createNames, phase: 'prepared' } : null
+      if (intent) intents[scopeKey] = intent
+      else delete intents[scopeKey]
+      state.managedTasklist.fieldCreationIntents = intents
+      state.managedTasklist.pendingFieldChecks = intent
+      state.managedTasklist.unknownFields = pending?.names || []
+      const cancelled = () => lifecycleDisposed || capturedGeneration !== backendGeneration || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature
+      const cancelUnsent = async () => {
+        delete intents[scopeKey]
+        state.managedTasklist.fieldCreationIntents = intents
+        state.managedTasklist.pendingFieldChecks = null
+        state.managedTasklist.unknownFields = []
+        state.managedTasklist.status = 'uninitialized'
+        await persistState()
+        return { ok: false, error: '字段初始化前配置已变化；尚未发送，创建意图已取消' }
+      }
       await persistState()
-      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '字段初始化前配置已变化，请核对创建意图' }
+      if (cancelled()) return cancelUnsent()
+      if (intent) {
+        intent.phase = 'sending'
+        await persistState()
+        if (cancelled()) return cancelUnsent()
+      }
       const checked = await managedBridge({ actions: fields.map(row => ({ op: 'ensure_custom_field', tasklist: list.guid, name: row.name, type: row.type, accepted_types: row.accepts, options: row.options || [] })) })
       const unresolvedReceipts = fields.filter((field, index) => !checked.actions?.[index] || checked.actions[index].unknownDelivery).map(field => field.name)
       state.managedTasklist.unknownFields = unresolvedReceipts
-      state.managedTasklist.pendingFieldChecks = unresolvedReceipts.length ? { backend: capturedSettings.cliBackend, guid: list.guid, names: unresolvedReceipts } : null
+      const uncertain = unresolvedReceipts.length ? { backend: capturedSettings.cliBackend, guid: list.guid, names: unresolvedReceipts, phase: 'unknown' } : null
+      if (uncertain) intents[scopeKey] = uncertain
+      else delete intents[scopeKey]
+      state.managedTasklist.fieldCreationIntents = intents
+      state.managedTasklist.pendingFieldChecks = uncertain
       await persistState()
-      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '字段检查期间配置已变化，请重新检查' }
+      if (lifecycleDisposed || capturedGeneration !== backendGeneration || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '字段检查期间配置已变化，请重新检查' }
       const errors = (checked.actions || []).filter(row => !row.ok).map(row => row.error || '字段初始化失败')
       if (!checked.ok || checked.actions?.length !== fields.length) errors.push(checked.errors?.join('; ') || '字段初始化返回不完整')
       /* Duplicate/hidden legacy options only make that one value unwritable; keep the field usable. */
@@ -3146,7 +3234,7 @@ function createSyncEngine(ctx) {
       remoteCache.fields.delete(list.guid)
       state.feishuFields[list.guid] = {}
       await persistState()
-      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，请按新配置重新检查' }
+      if (lifecycleDisposed || capturedGeneration !== backendGeneration || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，请按新配置重新检查' }
       return { ok: !errors.length, guid: list.guid, errors, error: errors.join('; ') }
     })().catch(async error => {
       state.managedTasklist = { ...(state.managedTasklist || {}), status: 'failed', errors: [safeSyncDetail(error?.message || error)], checkedAt: nowMs() }
@@ -3163,7 +3251,9 @@ function createSyncEngine(ctx) {
   }
 
   async function saveSettings(patch) {
-    settings = sanitizeSettings(patch, settings)
+    const next = sanitizeSettings(patch, settings)
+    if (JSON.stringify(next) !== JSON.stringify(settings)) backendGeneration++
+    settings = next
     await writeJson(SETTINGS_FILE, settings)
     for (const fn of settingsHooks) {
       try {
@@ -4187,20 +4277,29 @@ function createSyncEngine(ctx) {
 
   /** 当前设置选中的后端实现。 */
   function backend() {
+    const scope = backendContext.getStore()
+    if (scope) {
+      const impl = backendFor(scope.backend)
+      const scoped = { ...impl }
+      for (const method of ['actions','probe','check','listTasks','docInfo','docRead','createTask','updateTask','complete','comment','enrich']) scoped[method] = (_settings, ...args) => scope[method](...args)
+      return scoped
+    }
     const impl = backendFor(settings.cliBackend)
     if (typeof impl?.actions !== 'function') return impl
     return {
       ...impl,
       /* 字段写回统一过受管清单闸门：官桥（feishu-sync）和直连 OpenAPI（lark-cli）同一套判断。 */
       actions: (settingsArg, actions) => {
-        const blocked = managedFieldWriteBlocked(actions)
+        const blocked = pendingCreationWriteBlocked(actions) || managedFieldWriteBlocked(actions)
         return blocked ? Promise.resolve(blocked) : impl.actions(settingsArg, actions)
       },
     }
   }
 
   async function probeCli() {
+    const scope = captureBackendScope()
     const found = await backend().probe(settings)
+    if (!scope.valid()) return { backend: scope.backend, found: false, stale: true }
     cli = { backend: found.backend, found: found.found, version: found.version, path: found.path }
     state.cli = cli
     return cli
@@ -4264,12 +4363,13 @@ function createSyncEngine(ctx) {
 
   /** 授权体检：`task list` 是个人令牌专属接口，bot 模式反而读不了，正好当探针。 */
   async function checkAuth() {
+    const scope = captureBackendScope()
     const selectedBackend = settings.cliBackend
     const capturedSettings = settings
     /* CLI 可能是刚装的、或用户自己装到了别处：体检前重新找一遍，点「检查」就能认出来。 */
     if (!cli.found) await probeCli()
     const auth = await backendFor(selectedBackend).check(capturedSettings)
-    if (lifecycleDisposed || selectedBackend !== settings.cliBackend) return { ok: false, stale: true, detail: '后端已切换，忽略旧授权检查' }
+    if (!scope.valid()) return { ok: false, stale: true, detail: '后端或配置已变化，忽略旧授权检查' }
     state.auth = { ...auth, checkedAt: nowMs() }
     /* 联系人接口常有 scope 限制：先把「当前登录用户」的姓名/头像记下来，
        至少本人当负责人、本人写评论时能显示真名和真头像。
@@ -4821,12 +4921,12 @@ function createSyncEngine(ctx) {
     const freshIds = new Set(kept.map((task) => task.id))
     const bindings = state.bindings ?? {}
     const localDone = state.tasks.filter((task) => task
-      && (task.done || task.reopenPending || task.reopenAwaitingList)
+      && (task.done || task.reopenPending || task.reopenAwaitingList || creationPending(task.id))
       && task.id
       && !freshIds.has(task.id)
       /* 只留「我们自己在面板里标完成的」或「曾经开过工会话的」，
          飞书里那 190 多条历史已完成不该被拉进列表 */
-      && (task.reopenPending || task.reopenAwaitingList || task.completedLocally === true || Boolean(bindings[task.id])))
+      && (creationPending(task.id) || task.reopenPending || task.reopenAwaitingList || task.completedLocally === true || Boolean(bindings[task.id])))
     if (lifecycleDisposed || backendId !== settings.cliBackend) return { ok: false, stale: true, detail: '后端已切换，取消旧任务发布' }
     const mergedTasks = kept.concat(localDone)
     const audited = auditBindings(mergedTasks)
@@ -4880,11 +4980,12 @@ function createSyncEngine(ctx) {
   }
 
   async function syncDocs() {
+    const scope = captureBackendScope()
     const previous = new Map(state.docs.map((doc) => [doc.url, doc]))
     const docs = []
     for (const url of settings.docs.watch) {
       const known = previous.get(url)
-      const info = await backend().docInfo(settings, url)
+      const info = await scope.docInfo(url)
       const meta = info.ok ? info.meta : undefined
       const lastModified = Number(meta?.obj_edit_time) ? Number(meta.obj_edit_time) * 1000 : (known?.lastModified ?? 0)
       const changed = !known || known.lastModified !== lastModified || !known.excerpt
@@ -4893,7 +4994,7 @@ function createSyncEngine(ctx) {
       if (!info.ok) {
         error = asString(info.detail || '读取文档信息失败').slice(-300)
       } else if (changed) {
-        const body = await backend().docRead(settings, url)
+        const body = await scope.docRead(url)
         if (body.ok) {
           excerpt = asString(body.markdown).replace(/\s+/g, ' ').trim().slice(0, settings.docs.excerptChars)
         } else {
@@ -4956,6 +5057,7 @@ function createSyncEngine(ctx) {
    * 没必要再开一条；定时自动开工没有「当前会话」可用，才走新建。
    */
   async function startInSession(task, sessionId) {
+    if (creationPending(task.id)) return { ok: false, error: '任务创建回执尚未核对，请先用原后端手动绑定原任务；不会重新开工或写回' }
     if (isSuspended(task.id)) return { ok: false, error: '任务已挂起，请先恢复' }
     const sessions = await awaitService(ctx, 'sessionController')
     if (!sessions || typeof sessions.prompt !== 'function') {
@@ -5120,6 +5222,7 @@ function createSyncEngine(ctx) {
   async function startTask(taskId, source, options = {}) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务（可能已被下一次同步移除）' }
+    if (creationPending(task.id)) return { ok: false, error: '任务创建回执尚未核对，请先用原后端手动绑定原任务；不会重新开工或写回' }
     if (isSuspended(task.id)) return { ok: false, error: '任务已挂起，请先恢复' }
     if (task.done) return { ok: false, error: '这条任务在飞书里已经完成了' }
     if (task.started) return { ok: false, error: `已经开过工了（会话 ${task.sessionId}）` }
@@ -5248,14 +5351,25 @@ function createSyncEngine(ctx) {
    * 比如你先在侧栏里开了个会话干这件事，事后才想起来补绑定。
    */
   async function linkTask(taskId, sessionId, source = 'manual') {
+    const scope = captureBackendScope()
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务（可能已被下一次同步移除）' }
-    if (isSuspended(taskId)) return { ok: false, error: '任务已挂起，请先恢复再换绑会话' }
+    if (state.suspensions?.[taskId]?.active === true) return { ok: false, error: '任务已挂起，请先恢复再换绑会话' }
     const id = asString(sessionId).trim()
     if (!id) return { ok: false, error: '需要 sessionId' }
     const owner = state.tasks.find((item) => item.sessionId === id && item.id !== taskId)
     if (owner) return { ok: false, error: `这条会话已经绑在「${owner.title.slice(0, 30)}」上了，先解绑那边` }
     if (!(await sessionExists(id))) return { ok: false, error: `没找到会话 ${id}` }
+    if (!scope.valid()) return { ok: false, error: '绑定期间配置已变化，未继续写回' }
+    const held = (await taskCreationLedger.list()).find(row => ['created','partial','unknown','sending'].includes(row.status) && (row.taskId === taskId || (!row.taskId && row.sessionId === id)))
+    if (held) {
+      if (held.backend !== scope.backend) return { ok: false, error: '请切回创建任务时的后端，核对原任务后再绑定' }
+      const check = await scope.actions([{ op: 'task_get', task: taskId }])
+      if (!scope.valid() || !check.actions?.[0]?.ok || asString(check.actions[0].task?.guid) !== taskId) return { ok: false, error: '任务创建回执尚未通过权威核验，未解除创建保护' }
+      const reconciled = await taskCreationLedger.reconcile(held.key, { taskId, evidence: '用户手动绑定并通过原后端 task_get 核验' })
+      if (!reconciled.ok) return { ok: false, error: reconciled.error }
+    }
+
 
     /* 「绑定」= 建立关系 + 同步名字，但不投递开工指令。
        按需求：**绑定即开始计时**（startAt = 绑定时刻），并写回飞书开始时间。 */
@@ -5269,7 +5383,15 @@ function createSyncEngine(ctx) {
     task.error = null
     task.localUpdatedAt = nowMs()
     await persistState()
+    if (!scope.valid()) return { ok: false, partial: true, taskId, error: '本地绑定已保存，但配置已变化，未继续写回' }
+    if (held) {
+      const finished = await taskCreationLedger.finish(held.key, { ok: true, taskId, title: task.title, bound: true, reconciled: true })
+      if (!finished.ok) return { ok: false, partial: true, taskId, error: finished.error }
+      task.creationPending = false
+      task.tasklistSyncPending = false
+    }
     const renamed = await renameSession(id, task.title)
+    if (!scope.valid()) return { ok: false, partial: true, taskId, error: '绑定后配置已变化，已停止后续写回' }
     /* 写回失败不回滚绑定：本地已有 startAt，面板会显示「未同步」。 */
     const startWrote = await writeStartToFeishu(task).catch(() => ({ ok: false, error: '写回异常' }))
     if (startWrote?.ok) await persistState()
@@ -5288,6 +5410,7 @@ function createSyncEngine(ctx) {
   async function unlinkTask(taskId) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
+    if (creationPending(taskId)) return { ok: false, error: '任务创建回执尚未核对，请先绑定原任务完成核对再解绑' }
     if (isSuspended(taskId)) return { ok: false, error: '任务已挂起，请先恢复再解绑，避免遗失会话恢复关系' }
     if (!task.sessionId) return { ok: false, error: '这条任务还没有绑定会话' }
     const previous = task.sessionId
@@ -5312,6 +5435,7 @@ function createSyncEngine(ctx) {
   }
 
   async function applyTaskReport(taskId, { text = '', complete = false } = {}) {
+    const scope = captureBackendScope()
     let task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务（可能已被下一次同步移除）' }
     /* 评论同样可能带上 agent 输出里的坏链（[file](/abs/path)），飞书会 400，先清洗。 */
@@ -5323,7 +5447,7 @@ function createSyncEngine(ctx) {
       if (!result.ok) return { ok: false, error: `写评论失败：${asString(result.detail).slice(-300)}` }
     }
     if (complete) {
-      const result = await backend().complete(settings, task.id)
+      const result = await scope.complete(task.id)
       if (!result.ok) return { ok: false, error: `标记完成失败：${asString(result.detail).slice(-300)}` }
       task = state.tasks.find((item) => item.id === taskId) || task
       task.done = true
@@ -5527,7 +5651,8 @@ function createSyncEngine(ctx) {
   }
 
   async function writeTaskRelations(taskId, options = {}) {
-    const remote = await backend().actions(settings, [{ op: 'task_dependencies', task: taskId }])
+    const scope = captureBackendScope()
+    const remote = await scope.actions([{ op: 'task_dependencies', task: taskId }])
     const got = remote.actions?.[0]
     let error = !remote.ok || !got?.ok ? got?.error || remote.errors?.join('; ') || '读取原生依赖失败' : ''
     if (!error) {
@@ -5540,7 +5665,7 @@ function createSyncEngine(ctx) {
       const add = wanted.filter((item) => !existing.some((dep) => key(dep) === key(item)))
       for (const [op, deps] of [['remove_dependencies', remove], ['add_dependencies', add]]) {
         for (let i = 0; i < deps.length && !error; i += 50) {
-          const result = await backend().actions(settings, [{ op, task: taskId, dependencies: deps.slice(i, i + 50) }])
+          const result = await scope.actions([{ op, task: taskId, dependencies: deps.slice(i, i + 50) }])
           const item = result.actions?.[0]
           if (!result.ok || !item?.ok) error = item?.error || result.errors?.join('; ') || '原生依赖写入失败'
         }
@@ -5554,7 +5679,7 @@ function createSyncEngine(ctx) {
             actions.push({ op: 'ensure_custom_field', tasklist: task.tasklistGuid, name, type: 'text' },
               { op: 'set_custom_field', task: taskId, tasklist: task.tasklistGuid, name, expected_type: 'text', value: ids.map((item) => item.id).join('\n') })
           }
-          const result = await backend().actions(settings, actions)
+          const result = await scope.actions(actions)
           if (!result.ok || result.actions?.some((item) => !item.ok)) error = result.actions?.filter((item) => !item.ok).map((item) => item.error).join('; ') || result.errors?.join('; ') || '文本列投影失败'
         }
       }
@@ -5602,12 +5727,20 @@ function createSyncEngine(ctx) {
    * 把当前会话「变成」一条飞书任务；followUp 保留原任务绑定并建立来源关系。
    */
   async function createTaskFromSession(sessionId, input = {}) {
-    const selectedBackend = settings.cliBackend
-    const backendChanged = () => lifecycleDisposed || selectedBackend !== settings.cliBackend
+    const scope = captureBackendScope()
+    const selectedBackend = scope.backend
+    const backendChanged = () => !scope.valid()
     const id = asString(sessionId).trim()
     const summary = asString(input.summary ?? input.title).trim()
     if (!id) return { ok: false, error: '缺少 sessionId' }
     if (!summary) return { ok: false, error: '缺少任务标题（由 agent 生成）' }
+    const ids = value => [...new Set(Array.isArray(value) ? value.map(String) : [])].sort()
+    const requestKey = createHash('sha256').update(JSON.stringify(input.requestId ? [id, String(input.requestId)] : [id, summary, asString(input.description).trim(), input.followUp === true, ids(input.predecessorIds), ids(input.successorIds), ids(input.sourceTaskIds)])).digest('hex')
+    const prior = await taskCreationLedger.get(requestKey)
+    if (prior?.status === 'done') return { ...prior.result, ok: true, taskId: prior.taskId, reused: true }
+    const unresolved = (await taskCreationLedger.list({ sessionId: id })).find(row => ['prepared','sending','created','partial','unknown'].includes(row.status))
+    if (unresolved) return { ok: false, partial: Boolean(unresolved.taskId), taskId: unresolved.taskId, error: '这条会话已有未核对的创建回执，不能重复创建；请核对原任务并手动绑定' }
+
     const boundTask = state.tasks.find((task) => task.sessionId === id)
     if (boundTask && input.followUp !== true) {
       return { ok: false, error: '当前会话已经绑定了任务；创建后续任务请传 followUp=true' }
@@ -5649,101 +5782,127 @@ function createSyncEngine(ctx) {
     /* feishu-sync 后端：受管清单是唯一权威，别用历史任务里碰巧看到的清单。 */
     if (managedTasklistGuid) tasklistGuid = managedTasklistGuid
     const description = asString(input.description).trim()
-    const createBackend = backendFor(selectedBackend)
-    const createSettings = settings
-    const created = await createBackend.createTask(createSettings, { summary, description, assignee, tasklistGuid: managedTasklistGuid })
-    if (!created.ok) return { ok: false, error: `创建任务失败：${asString(created.detail).slice(-400)}` }
-    const guid = created.guid
-    const stopAfterCreate = async () => {
-      if (!state.tasks.some(task => task.id === guid)) state.tasks.unshift({ id: guid, title: summary, description, tasklistGuid: created.tasklistGuid || managedTasklistGuid, done: false, sessionId: boundTask ? null : id, members: [], customFields: [], meta: {}, docs: extractDocLinks(description), creationBackend: selectedBackend, tasklistSyncPending: true })
-      await persistState()
-      return { ok: false, partial: true, taskId: guid, error: '任务已创建，但后端/配置已切换；已保存回执，勿重复创建，请核对原后端任务' }
-    }
-    if (backendChanged() || settings.managedTasklist?.guid !== createSettings.managedTasklist?.guid) return stopAfterCreate()
+    const createSettings = JSON.parse(JSON.stringify(settings))
+    const prepared = await taskCreationLedger.begin({ key: requestKey, sessionId: id, backend: selectedBackend, summary, tasklistGuid: managedTasklistGuid, followUp: input.followUp === true })
+    if (!prepared.ok) return { ok: false, taskId: prepared.receipt?.taskId, error: prepared.error }
+    if (prepared.reused) return { ...prepared.receipt.result, ok: true, taskId: prepared.receipt.taskId, reused: true }
+    activeCreationKeys.add(requestKey)
+    try {
+      if (backendChanged()) { await taskCreationLedger.cancel(requestKey, { provenNotSent: true }); return { ok: false, error: '创建前配置已变化，尚未发送，允许重试' } }
+      const sending = await taskCreationLedger.sending(requestKey)
+      if (!sending.ok) return { ok: false, error: sending.error }
+      if (backendChanged()) { await taskCreationLedger.cancel(requestKey, { provenNotSent: true }); return { ok: false, error: '创建前配置已变化，尚未发送，允许重试' } }
+      const response = await scope.createTask({ summary, description, assignee, tasklistGuid: managedTasklistGuid })
+      const created = response.stale ? response.receipt : response
+      if (!created?.ok || !asString(created.guid)) {
+        const error = '创建任务失败：' + asString(created?.detail || response.detail).slice(-400)
+        await taskCreationLedger.fail(requestKey, { definitive: created?.unknownDelivery === false, error })
+        return { ok: false, unknownDelivery: created?.unknownDelivery !== false, error }
+      }
+      const guid = created.guid
+      const saved = await taskCreationLedger.created(requestKey, { taskId: guid, tasklistGuid: created.tasklistGuid || managedTasklistGuid })
+      if (!saved.ok) return { ok: false, partial: true, taskId: guid, error: '任务已创建，但回执未能持久化；已停止后续写入：' + saved.error }
+      const stopAfterCreate = async () => {
+        await taskCreationLedger.markPartial(requestKey, '创建后操作配置已变化或部分完成')
+        if (!state.tasks.some(task => task.id === guid)) state.tasks.unshift({ id: guid, title: summary, description, tasklistGuid: created.tasklistGuid || managedTasklistGuid, done: false, sessionId: boundTask ? null : id, members: [], customFields: [], meta: {}, docs: extractDocLinks(description), creationBackend: selectedBackend, creationReceiptKey: requestKey, creationPending: true, tasklistSyncPending: true })
+        await persistState()
+        return { ok: false, partial: true, taskId: guid, error: '任务已创建，但后端/配置已切换；已保存回执，勿重复创建，请核对原后端任务' }
+      }
+      if (backendChanged() || settings.managedTasklist?.guid !== createSettings.managedTasklist?.guid) return stopAfterCreate()
 
-    /* 新建任务也套上 T<n>- 前缀和表情，和面板改名、AI 起名保持同一套规则。 */
-    const draftNo = taskNo(undefined)
-    let finalTitle = decorateTitle(summary, { no: draftNo }, description)
-    if (finalTitle !== summary) {
-      const renamed = await createBackend.updateTask(createSettings, guid, { summary: finalTitle })
-      if (!renamed.ok) finalTitle = summary
-    }
+      /* 新建任务也套上 T<n>- 前缀和表情，和面板改名、AI 起名保持同一套规则。 */
+      const draftNo = taskNo(undefined)
+      let finalTitle = decorateTitle(summary, { no: draftNo }, description)
+      if (finalTitle !== summary) {
+        const renamed = await scope.updateTask(guid, { summary: finalTitle })
+        if (!renamed.ok) finalTitle = summary
+      }
 
-    /* 老后端（feishu-sync）建完任务再补一次加入清单；官方 lark-cli 后端在 createTask 里已经带上清单。
-       失败要如实回报，不能假装已经归属清单。 */
-    if (backendChanged()) return stopAfterCreate()
-    let tasklistError = ''
-    if (!created.tasklistGuid && managedTasklistGuid) {
-      const bridged = await createBackend.actions(createSettings, [{ op: 'add_tasklist', task: guid, tasklist: managedTasklistGuid }])
-      const action = (bridged.actions ?? [])[0]
-      if (!bridged.ok || !action?.ok) tasklistError = action?.error || bridged.errors?.join('; ') || '加入清单失败'
-    }
-    if (backendChanged()) return stopAfterCreate()
-    if (tasklistError) {
-      state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid: '', intendedTasklistGuid: managedTasklistGuid, tasklistSyncPending: true, tasklistError, done: false, members: [], customFields: [], meta: {}, docs: extractDocLinks(description) })
-      await persistState()
-      return { ok: false, partial: true, taskId: guid, error: '任务已创建但未加入清单，勿重复创建：' + tasklistError }
-    }
+      /* 老后端（feishu-sync）建完任务再补一次加入清单；官方 lark-cli 后端在 createTask 里已经带上清单。
+         失败要如实回报，不能假装已经归属清单。 */
+      if (backendChanged()) return stopAfterCreate()
+      let tasklistError = ''
+      if (!created.tasklistGuid && managedTasklistGuid) {
+        const bridged = await scope.actions([{ op: 'add_tasklist', task: guid, tasklist: managedTasklistGuid }])
+        const action = (bridged.actions ?? [])[0]
+        if (!bridged.ok || !action?.ok) tasklistError = action?.error || bridged.errors?.join('; ') || '加入清单失败'
+      }
+      if (backendChanged()) return stopAfterCreate()
+      if (tasklistError) {
+        await taskCreationLedger.markPartial(requestKey, tasklistError)
+        state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid: '', intendedTasklistGuid: managedTasklistGuid, creationReceiptKey: requestKey, creationPending: true, creationBackend: selectedBackend, tasklistSyncPending: true, tasklistError, done: false, members: [], customFields: [], meta: {}, docs: extractDocLinks(description) })
+        await persistState()
+        return { ok: false, partial: true, taskId: guid, error: '任务已创建但未加入清单，勿重复创建：' + tasklistError }
+      }
 
-    /* 先落库关系，再同步/自动开工：不允许新任务在依赖建立前抢跑。 */
-    state.relationSync[guid] = { pending: true }
-    if (creationWorkspace) {
-      state.workspaceLinks[guid] = { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title, boundAt: nowMs(), titleSyncedAt: 0, stale: false }
-      state.workspaceWrites[guid] = { title: creationWorkspace.title, revision: 1, pending: true, error: null }
-    }
-    state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid, done: false, members: [], customFields: [],
-      meta: { workspace: creationWorkspace?.title || boundTask?.meta?.workspace || '', trigger: input.trigger, source: 'field' },
-      isNew: Boolean(boundTask), sessionId: boundTask ? null : id, started: !boundTask, docs: extractDocLinks(description) })
-    /* 跨CLI等待后以最新图重新合并，避免并发创建覆盖先前已落库的关系。 */
-    const updated = updateRelations(state.relations, state.tasks, { ...relationInput, taskId: guid })
-    if (updated.ok) state.relations = updated.edges
-    await persistState()
-    if (backendChanged()) return stopAfterCreate()
-    const relationRemote = updated.ok ? await writeTaskRelations(guid) : { ok: false, error: updated.error }
-    /* 避免本次全量同步的自动开工副作用；新任务已可在面板手动开工。 */
-    if (backendChanged()) return stopAfterCreate()
-    await syncTasks()
-    if (backendChanged()) return stopAfterCreate()
-    const task = state.tasks.find((item) => item.id === guid)
-    if (task && !boundTask) {
-      await linkTask(guid, id, 'current')
-    } else if (!task) {
-      state.tasks.unshift({
-        id: guid,
-        title: finalTitle,
-        description,
+      /* 先落库关系，再同步/自动开工：不允许新任务在依赖建立前抢跑。 */
+      state.relationSync[guid] = { pending: true }
+      if (creationWorkspace) {
+        state.workspaceLinks[guid] = { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title, boundAt: nowMs(), titleSyncedAt: 0, stale: false }
+        state.workspaceWrites[guid] = { title: creationWorkspace.title, revision: 1, pending: true, error: null }
+      }
+      state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid, done: false, members: [], customFields: [],
         meta: { workspace: creationWorkspace?.title || boundTask?.meta?.workspace || '', trigger: input.trigger, source: 'field' },
-        members: [],
-        customFields: [],
-        listName: '',
-        done: false,
-        due: '',
-        start: '',
-        url: '',
-        isNew: Boolean(boundTask),
-        started: !boundTask,
-        sessionId: boundTask ? null : id,
-        startedAt: boundTask ? null : nowMs(),
-        linkSource: boundTask ? null : 'current',
-        tasklistGuid,
-        docs: extractDocLinks(description),
-        error: null,
-      })
+        isNew: Boolean(boundTask), sessionId: boundTask ? null : id, started: !boundTask, docs: extractDocLinks(description) })
+      /* 跨CLI等待后以最新图重新合并，避免并发创建覆盖先前已落库的关系。 */
+      const updated = updateRelations(state.relations, state.tasks, { ...relationInput, taskId: guid })
+      if (updated.ok) state.relations = updated.edges
       await persistState()
-    }
-    if (backendChanged()) return stopAfterCreate()
-    let aiRelations = null
-    if (input.autoRelate === true) {
-      aiRelations = await suggestTaskRelations(guid)
-      if (aiRelations.ok) aiRelations = await setTaskRelations(guid, { ...aiRelations.proposal, source: 'ai', sessionId: id })
-    }
-    if (creationWorkspace) {
-      state.workspaceLinks[guid] = { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title, boundAt: nowMs(), titleSyncedAt: 0, stale: false }
-    }
-    await persistState()
-    if (backendChanged()) return stopAfterCreate()
-    if (creationWorkspace) void queueWorkspaceWrite(guid)
-    return { ok: true, taskId: guid, title: finalTitle, bound: !boundTask, workspace: creationWorkspace ? { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title } : null, relations: relationView(guid), remote: relationRemote, aiRelations }
+      if (backendChanged()) return stopAfterCreate()
+      const relationRemote = updated.ok ? await writeTaskRelations(guid) : { ok: false, error: updated.error }
+      /* 避免本次全量同步的自动开工副作用；新任务已可在面板手动开工。 */
+      if (backendChanged()) return stopAfterCreate()
+      await syncTasks()
+      if (backendChanged()) return stopAfterCreate()
+      const task = state.tasks.find((item) => item.id === guid)
+      if (task && !boundTask) {
+        await linkTask(guid, id, 'current')
+      } else if (!task) {
+        state.tasks.unshift({
+          id: guid,
+          title: finalTitle,
+          description,
+          meta: { workspace: creationWorkspace?.title || boundTask?.meta?.workspace || '', trigger: input.trigger, source: 'field' },
+          members: [],
+          customFields: [],
+          listName: '',
+          done: false,
+          due: '',
+          start: '',
+          url: '',
+          isNew: Boolean(boundTask),
+          started: !boundTask,
+          sessionId: boundTask ? null : id,
+          startedAt: boundTask ? null : nowMs(),
+          linkSource: boundTask ? null : 'current',
+          tasklistGuid,
+          docs: extractDocLinks(description),
+          error: null,
+        })
+        await persistState()
+      }
+      if (backendChanged()) return stopAfterCreate()
+      let aiRelations = null
+      if (input.autoRelate === true) {
+        aiRelations = await suggestTaskRelations(guid)
+        if (aiRelations.ok) aiRelations = await setTaskRelations(guid, { ...aiRelations.proposal, source: 'ai', sessionId: id })
+      }
+      if (creationWorkspace) {
+        state.workspaceLinks[guid] = { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title, boundAt: nowMs(), titleSyncedAt: 0, stale: false }
+      }
+      await persistState()
+      if (backendChanged()) return stopAfterCreate()
+      if (creationWorkspace) void queueWorkspaceWrite(guid)
+      const result = { ok: true, taskId: guid, title: finalTitle, bound: !boundTask, workspace: creationWorkspace ? { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title } : null, relations: relationView(guid), remote: relationRemote, aiRelations }
+      const finished = await taskCreationLedger.finish(requestKey, result)
+      return finished.ok ? result : { ok: false, partial: true, taskId: guid, error: '任务操作完成，但创建回执未能持久化：' + finished.error }
+    } catch (error) {
+      const receipt = await taskCreationLedger.get(requestKey).catch(() => null)
+      if (receipt?.status === 'sending') await taskCreationLedger.fail(requestKey, { error: asString(error?.message || error) })
+      if (receipt?.status === 'created') await taskCreationLedger.markPartial(requestKey, asString(error?.message || error))
+      return { ok: false, partial: Boolean(receipt?.taskId), taskId: receipt?.taskId, error: '创建流程已停止，请核对创建回执：' + asString(error?.message || error) }
+    } finally { activeCreationKeys.delete(requestKey) }
+
   }
 
   /**
@@ -6181,7 +6340,7 @@ function createSyncEngine(ctx) {
   }
 
   const suspensionLocks = new Map()
-  const isSuspended = (taskId) => state.suspensions?.[taskId]?.active === true
+  const isSuspended = (taskId) => state.suspensions?.[taskId]?.active === true || creationPending(taskId)
 
   async function archivedSessionIds() {
     const controller = service(ctx, 'workspaceController')
@@ -7626,12 +7785,19 @@ bucket 只能从枚举里选：
    * 标题尽力从当前后端的文档信息接口拿；拿不到就用链接占位，不因为标题失败拒绝绑定。
    */
   async function bindTaskDoc(taskId, rawUrl, options = {}) {
+    const scope = captureBackendScope()
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
     const url = asString(rawUrl).trim()
     if (!url) return { ok: false, error: '需要一篇文档的链接' }
     const remove = options.remove === true
     const current = Array.isArray(task.docs) ? task.docs : []
+    if (!remove && task.pendingDocReceipt) {
+      if (task.pendingDocReceipt.backend !== scope.backend) return { ok: false, error: '请切回原后端核对文档回执后绑定' }
+      const verified = await scope.docInfo(url)
+      if (!scope.valid() || !verified.ok) return { ok: false, error: '文档回执尚未通过读取核验，不会解除保护' }
+    }
+
     if (remove) {
       const next = current.filter((doc) => doc?.url !== url)
       if (next.length === current.length) return { ok: false, error: '这条任务上没有这篇文档' }
@@ -7643,9 +7809,11 @@ bucket 只能从枚举里选：
         const info = await backend().docInfo(settings, url)
         title = info.ok ? asString(info.meta?.title) : ''
       }
+      if (!scope.valid()) return { ok: false, error: '绑定期间配置已变化，未替换文档链接' }
       const others = current.filter((doc) => doc?.url !== url)
       task.docs = [{ url, title: title || url, source: '手动', createdAt: nowMs() }, ...others].slice(0, 8)
     }
+    if (!remove && task.pendingDocReceipt) delete task.pendingDocReceipt
     task.localUpdatedAt = nowMs()
     await persistState()
     const field = await pushDocField(task)
@@ -7815,8 +7983,10 @@ bucket 只能从枚举里选：
    * 内容 = 任务描述 + 绑定会话最后一条助手回复；生成后把链接回写进任务描述（飞书里可见）。
    */
   async function createTaskDoc(taskId) {
+    const scope = captureBackendScope()
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
+    if (task.pendingDocReceipt) return { ok: false, partial: true, url: task.pendingDocReceipt.url, error: '上次文档写入回执尚未核对，请先手动绑定已生成的文档；不会自动重建' }
     const lines = []
     if (task.description) lines.push(task.description.trim())
     if (task.sessionId) {
@@ -7837,12 +8007,12 @@ bucket 只能从枚举里选：
     const body = written.text || material
     if (!written.text) log(ctx, 'warn', `[doc] 模型改写失败，落原始材料：${written.reason}`)
 
-    const root = await backend().actions(settings, [{ op: 'ensure_folder', name: 'DSH 任务文档', parent: '' }])
+    const root = await scope.actions([{ op: 'ensure_folder', name: 'DSH 任务文档', parent: '' }])
     const rootFolder = (root.actions ?? [])[0]
     if (!rootFolder?.ok) return { ok: false, error: `创建文档根目录失败：${rootFolder?.error ?? '未知'}` }
 
     const subName = `${task.no ? `T${task.no}-` : ''}${stripTaskNo(task.title).slice(0, 20)}`
-    const sub = await backend().actions(settings, [
+    const sub = await scope.actions([
       { op: 'ensure_folder', name: subName, parent: rootFolder.folder },
     ])
     const subFolder = (sub.actions ?? [])[0]
@@ -7853,25 +8023,44 @@ bucket 只能从枚举里选：
       (item) => item.source === '生成' && /\/docx\//.test(item.url || ''),
     )
     const existingId = existing ? String(existing.url).split('/docx/')[1] : ''
-    const created = await backend().actions(settings, [
+    const created = await scope.actions([
       existingId
-        ? { op: 'update_docx', document: existingId, text: body }
+        ? { op: 'update_docx', document: existingId, url: existing.url, text: body }
         : { op: 'create_docx', title: stripTaskNo(task.title), folder: subFolder.folder, text: body },
     ])
     let doc = (created.actions ?? [])[0]
-    if (existingId && !doc?.ok) {
+    if (created.stale) {
+      const receipt = doc?.receipt || created.receipt?.actions?.[0]
+      task.pendingDocReceipt = { backend: scope.backend, document: receipt?.document || existingId, url: receipt?.url || existing?.url || '', at: nowMs() }
+      await persistState()
+      return { ok: false, partial: true, url: task.pendingDocReceipt.url, error: '文档操作期间后端已变化，已保留原绑定和回执，请先核对' }
+    }
+    if (existingId && !doc?.ok && doc?.unknownDelivery !== true && (scope.backend === 'feishu-sync' || doc?.notFound)) {
       /* 记录里的文档可能已经被人删了：退回新建一篇并替换记录。 */
       log(ctx, 'warn', `[doc] 更新失败，改为新建：${doc?.error ?? '未知'}`)
-      const recreated = await backend().actions(settings, [
+      const recreated = await scope.actions([
         { op: 'create_docx', title: stripTaskNo(task.title), folder: subFolder.folder, text: body },
       ])
       doc = (recreated.actions ?? [])[0]
     }
-    if (!doc?.ok) return { ok: false, error: `创建文档失败：${doc?.error ?? '未知'}` }
+    if (!doc?.ok) {
+      if (doc?.unknownDelivery) {
+        task.pendingDocReceipt = { backend: scope.backend, document: doc.document || existingId || null, url: existing?.url || '', at: nowMs() }
+        await persistState()
+      }
+      return { ok: false, partial: Boolean(doc?.unknownDelivery), error: `创建文档失败：${doc?.error ?? '未知'}` }
+    }
 
+    const nextURL = doc.url || (existingId ? existing.url : '')
+    if (!/^https?:\/\/[^\s]+$/.test(nextURL)) return { ok: false, error: '缺少有效文档链接，已保留原有绑定' }
+    if (!scope.valid()) {
+      task.pendingDocReceipt = { backend: scope.backend, document: doc.document || existingId || null, url: nextURL, at: nowMs() }
+      await persistState()
+      return { ok: false, partial: true, url: nextURL, error: '配置已变化，文档回执需核对，原绑定保留' }
+    }
     /* 一条任务只保留一个「自己生成」的文档；描述里识别出来的外部链接照旧展示。 */
     const others = (Array.isArray(task.docs) ? task.docs : []).filter((item) => item.source !== '生成')
-    task.docs = [{ url: doc.url, title: stripTaskNo(task.title), source: '生成', createdAt: nowMs() }, ...others].slice(0, 8)
+    task.docs = [{ url: nextURL, title: stripTaskNo(task.title), source: '生成', createdAt: nowMs() }, ...others].slice(0, 8)
     task.localUpdatedAt = nowMs()
     /* 文档链接写进任务的「文档」字段（任务上所有文档一起写回），不再污染描述。 */
     const field = await pushDocField(task)
@@ -7879,7 +8068,7 @@ bucket 只能从枚举里选：
     await persistState()
     return {
       ok: true,
-      url: doc.url,
+      url: nextURL,
       folderUrl: subFolder.url || rootFolder.url,
       updated: Boolean(existingId),
       tables: doc.tables ?? 0,
@@ -8426,6 +8615,7 @@ bucket 只能从枚举里选：
    * 复用的语义才对：同一条任务、同一条工作流、每天一个推动。
    */
   async function nudgeTask(task, view) {
+    if (creationPending(task.id)) return { ok: false, error: '任务创建回执尚未核对，请先用原后端手动绑定原任务；不会重新开工或写回' }
     if (isSuspended(task.id)) return { ok: false, error: '任务已挂起，请先恢复' }
     const sessionId = asString(task.sessionId)
     if (!sessionId) return { ok: false, error: '任务已开工但没有会话 id（可能被归档了）' }
@@ -8510,11 +8700,17 @@ bucket 只能从枚举里选：
   }
 
   async function sync({ source = 'manual' } = {}) {
+    const scope = captureBackendScope()
     if (inFlight) return inFlight
     /* Install singleflight before the first await; joining callers share one receipt. */
     inFlight = Promise.resolve().then(async () => {
       const receipt = beginSyncHistory(state, source)
-      const stage = (name, fn, options) => recordSyncStage(receipt, name, fn, options)
+      const stage = async (name, fn, options) => {
+        if (!scope.valid()) throw new Error('同步期间后端或配置已变化，旧流水线已停止')
+        const result = await recordSyncStage(receipt, name, fn, options)
+        if (!scope.valid()) throw new Error('同步期间后端或配置已变化，旧流水线已停止')
+        return result
+      }
       let fatal = false
       try {
         await persistState()
@@ -8644,54 +8840,54 @@ bucket 只能从枚举里选：
     saveSettings,
     ensureManagedTasklist,
     switchBackend,
-    docInfo,
-    readDocMarkdown,
+    docInfo: (...args) => runEngineOperation(docInfo, args),
+    readDocMarkdown: (...args) => runEngineOperation(readDocMarkdown, args),
     commentTask,
     authQr,
-    probeCli,
+    probeCli: (...args) => runEngineOperation(probeCli, args),
     cliStatus,
     installCli,
-    checkAuth,
+    checkAuth: (...args) => runEngineOperation(checkAuth, args),
     startLogin,
-    startTask,
-    linkTask,
-    unlinkTask,
-    reportTask,
-    reopenSessionTasks,
+    startTask: (...args) => runEngineOperation(startTask, args),
+    linkTask: (...args) => runEngineOperation(linkTask, args),
+    unlinkTask: (...args) => runEngineOperation(unlinkTask, args),
+    reportTask: (...args) => runEngineOperation(reportTask, args),
+    reopenSessionTasks: (...args) => runEngineOperation(reopenSessionTasks, args),
     reconcileRunningReopens,
     disposeLifecycle: () => {
       lifecycleDisposed = true
-      const drain = Promise.allSettled([globalThis[lifecycleKey], inFlight, tasklistFlight]).then(() => stateLoaded ? writeJson(stateFile, state) : undefined)
+      const drain = Promise.allSettled([globalThis[lifecycleKey], inFlight, tasklistFlight, ...activeOperations]).then(() => stateLoaded ? writeJson(stateFile, state) : undefined)
       globalThis[lifecycleKey] = drain.catch(() => {})
       return drain
     },
     syncCurrentSession,
-    createTaskFromSession,
+    createTaskFromSession: (...args) => runEngineOperation(createTaskFromSession, args),
     relationView,
-    setTaskRelations,
+    setTaskRelations: (...args) => runEngineOperation(setTaskRelations, args),
     suggestTaskRelations,
-    refreshTaskRelations,
+    refreshTaskRelations: (...args) => runEngineOperation(refreshTaskRelations, args),
     promoteSessionToTask,
     renameSession,
     generateSessionTitle,
     suggestTaskTitle,
-    renameTask,
+    renameTask: (...args) => runEngineOperation(renameTask, args),
     attachSessionToWorkspace,
     completeTask,
     deleteSessionForTask,
-    createTaskDoc,
-    bindTaskDoc,
-    editTaskDoc,
-    loadTaskDetail,
+    createTaskDoc: (...args) => runEngineOperation(createTaskDoc, args),
+    bindTaskDoc: (...args) => runEngineOperation(bindTaskDoc, args),
+    editTaskDoc: (...args) => runEngineOperation(editTaskDoc, args),
+    loadTaskDetail: (...args) => runEngineOperation(loadTaskDetail, args),
     formatTaskDetail,
-    syncTaskFields,
-    setTaskPriority,
+    syncTaskFields: (...args) => runEngineOperation(syncTaskFields, args),
+    setTaskPriority: (...args) => runEngineOperation(setTaskPriority, args),
     syncSessionTitles,
     archiveSessionForTask,
     changeTaskSuspension,
     sessionExists,
     persistState,
-    sync,
+    sync: (...args) => runEngineOperation(sync, args),
     getSettings: () => settings,
     insightLocal,
     /* 面板打开时带上的「今天那份诊断」：只要还在同一天就给，任务变动不该让结论凭空消失 */
@@ -8710,22 +8906,22 @@ bucket 只能从枚举里选：
       ? state.insight
       : null),
     diagnoseInsight,
-    exportInsight,
-    normalizeTaskTitles,
+    exportInsight: (...args) => runEngineOperation(exportInsight, args),
+    normalizeTaskTitles: (...args) => runEngineOperation(normalizeTaskTitles, args),
     orphanSessions,
     archiveOrphans,
     onSettingsChange,
-    commentProgress,
+    commentProgress: (...args) => runEngineOperation(commentProgress, args),
     comments,
     enterCommentStep,
     guardCommentTool,
     commentTurn,
-    replyToComment,
+    replyToComment: (...args) => runEngineOperation(replyToComment, args),
     endCommentTurn,
-    writeTaskComment,
+    writeTaskComment: (...args) => runEngineOperation(writeTaskComment, args),
     disposeComments,
     setCommentGuardAvailable: (value) => { commentGuardAvailable = value === true },
-    flushPendingProgress,
+    flushPendingProgress: (...args) => runEngineOperation(flushPendingProgress, args),
     getState: () => state,
     /* ── 工作区绑定（id 为主键）── */
     reconcileWorkspaces,
@@ -8743,7 +8939,7 @@ bucket 只能从枚举里选：
     setTaskSchedule,
     previewTaskSchedule,
     previewTaskEta,
-    setTaskEta,
+    setTaskEta: (...args) => runEngineOperation(setTaskEta, args),
     commitmentOf,
     fulfillment(days = 28) {
       const now = nowMs()
@@ -9758,6 +9954,7 @@ function registerTools(ctx, engine) {
       '把当前会话的工作整理成一条飞书任务（**写操作**）：标题/描述由你生成，创建后自动绑定到当前会话。' +
         'followUp=true 可在已绑定会话中创建后续任务，保留原绑定并自动记录来源。',
       {
+        requestId: { type: 'string', description: '可选创建请求 ID；重试或重复投递必须复用同一值，尤其是 followUp。留空按会话与创建内容去重。' },
         summary: { type: 'string', description: '任务标题，一句中文，不超过 30 字。' },
         description: { type: 'string', description: '任务描述：背景 / 本次改动 / 验证方式，纯文本。' },
         followUp: { type: 'boolean', description: '已绑定会话创建后续任务时必须 true；新任务不绑定原会话。' },
@@ -9775,7 +9972,7 @@ function registerTools(ctx, engine) {
           summary: asString(args.summary),
           description: asString(args.description),
         })
-        if (!result.ok) return `创建失败：${result.error}`
+        if (!result.ok) return result.partial || result.unknownDelivery ? JSON.stringify(result) : `创建失败：${result.error}`
         return JSON.stringify(result)
       },
     ),

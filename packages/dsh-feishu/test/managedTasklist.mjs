@@ -15,7 +15,7 @@ const bridgeMock=async(_,payload)=>{
 }
 const context={
  settings:{cliBackend:'feishu-sync',managedTasklist:{enabled:true,name:DEFAULT_TASKLIST_NAME,guid:''},taskFields:{}},
- state:{tasks:[],managedTasklist:{},feishuFields:{}}, lifecycleDisposed:false,
+ state:{tasks:[],managedTasklist:{},feishuFields:{}}, lifecycleDisposed:false, backendGeneration:0,
  schemaSignature,tasklistFields,TASKLIST_SCHEMA_VERSION,randomUUID:()=> 'create-token',nowMs:Date.now,
  resolvePython:()=> 'fake-python',resolveCli:()=> 'fake-cli',workspaces:()=> [{title:'A'}],
  persistState:async()=> {persists++},writeJson:async()=> {},SETTINGS_FILE:'fake',safeSyncDetail:String,
@@ -64,6 +64,7 @@ assert.equal(context.state.managedTasklist.fields.length,12)
 assert.ok(calls.length>beforeLark)
 // 丢失的字段创建回执必须先通过完整定义读取对账，缺字段时不得重发 CREATE。
 context.state.managedTasklist.unknownFields=['未确认字段']
+context.state.managedTasklist.pendingFieldChecks={backend:'lark-cli',guid:'list-1',names:['未确认字段'],phase:'unknown'}
 const beforeUnknown=calls.length
 assert.equal((await context.ensureManagedTasklist({force:true})).ok,false)
 assert.equal(context.state.managedTasklist.status,'unknown')

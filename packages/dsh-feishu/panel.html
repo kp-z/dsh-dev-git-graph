@@ -4527,7 +4527,8 @@
       ok, auth.stage, auth.detail, auth.policyBlocked, auth.permission,
       auth.missingScopes, auth.appId, auth.consoleUrl,
       app.loginUrl, app.loginStage, app.loginNote,
-      app.busy.login, app.busy.check, backendOf(), cliOk
+      app.busy.login, app.busy.check, backendOf(), cliOk,
+      (app.settings && app.settings.larkAccountMode) || 'enterprise'
     ]);
     if (app.authKey === authKey) return;
     app.authKey = authKey;
@@ -4660,6 +4661,27 @@
     installLabel: '安装内部 feishu-sync-cli'
   };
 
+  /* 高级设置独立草稿：失焦/切页签/静默检查都不能覆盖。按后端隔离，
+     切端保留各自草稿，但绝不把旧后端输入框的值写到新后端。 */
+  function setupCliDraft(backend) {
+    var drafts = app.setupCliDrafts || (app.setupCliDrafts = {});
+    return drafts[backend] || (drafts[backend] = { dirty: {}, values: {}, revision: 0 });
+  }
+
+  function wireSetupCliSettings() {
+    ['cliPathInput', 'cliIndexUrl'].forEach(function (id) {
+      var input = $(id);
+      if (!input || input.dataset.setupCliBound === '1') return;
+      input.dataset.setupCliBound = '1';
+      input.addEventListener('input', function () {
+        var draft = setupCliDraft(app.setupCliBackend || backendOf());
+        draft.values[id] = input.value;
+        draft.dirty[id] = true;
+        draft.revision++;
+      });
+    });
+  }
+
   function renderSetupCli(st) {
     var step = $('setupCliStep');
     if (!step) return;
@@ -4701,18 +4723,22 @@
     if (pathLabel) {
       pathLabel.textContent = 'CLI 路径（自动查找失败时填）';
     }
-    if (document.activeElement !== $('cliPathInput')) {
-      var pathInput = $('cliPathInput');
-      if (pathInput) {
-        var useLark = st.backend === 'lark-cli';
-        pathInput.value =
+    var backendChanged = app.setupCliBackend !== st.backend;
+    app.setupCliBackend = st.backend;
+    var draft = setupCliDraft(st.backend);
+    var pathInput = $('cliPathInput');
+    var useLark = st.backend === 'lark-cli';
+    if (pathInput) {
+      if (backendChanged || document.activeElement !== pathInput) {
+        pathInput.value = draft.dirty.cliPathInput ? draft.values.cliPathInput :
           (app.settings && (useLark ? app.settings.larkCliPath : app.settings.cliPath)) || '';
-        pathInput.placeholder = useLark ? '/opt/homebrew/bin/lark-cli' : '~/.local/bin/feishu-sync-cli';
       }
+      pathInput.placeholder = useLark ? '/opt/homebrew/bin/lark-cli' : '~/.local/bin/feishu-sync-cli';
     }
     var idxInput = $('cliIndexUrl');
-    if (idxInput && document.activeElement !== idxInput) {
-      idxInput.value = (app.settings && app.settings.cliIndexUrl) || '';
+    if (idxInput && (backendChanged || document.activeElement !== idxInput)) {
+      idxInput.value = draft.dirty.cliIndexUrl ? draft.values.cliIndexUrl :
+        (app.settings && app.settings.cliIndexUrl) || '';
     }
   }
 
@@ -4968,6 +4994,10 @@
 
   function onSaveSetupSettings() {
     var backend = backendOf();
+    /* 切端响应/轮询可能先更新快照，保存前先绑定到当前后端的输入与草稿。 */
+    renderSetupCli(setupState());
+    var draft = setupCliDraft(backend);
+    var revision = draft.revision;
     var payload = {
       cliBackend: backend,
       cliIndexUrl: String(($('cliIndexUrl') || {}).value || '').trim(),
@@ -4976,12 +5006,21 @@
     if (backend === 'lark-cli') payload.larkCliPath = nextPath || 'feishu-sync';
     else payload.cliPath = nextPath || 'feishu-sync-cli';
 
-    api('settings', payload).then(function (data) {
-      if (data && data.settings) app.settings = data.settings;
+    return api('settings', payload).then(function (data) {
+      if (!data || !data.settings) {
+        toast('未收到保存回执，草稿已保留');
+        return;
+      }
+      if (backendOf() === backend) app.settings = data.settings;
+      /* 成功回执只清本次保存的版本；等待期间的新输入仍是未保存草稿。 */
+      if (draft.revision === revision) {
+        draft.dirty = {};
+        draft.values = {};
+      }
       toast('已保存');
       renderSetup();
-      load({ quiet: true }).then(function () {
-        if (!(app.snap && app.snap.cli && app.snap.cli.found)) onInstallCli();
+      return load({ quiet: true }).then(function () {
+        if (backendOf() === backend && !(app.snap && app.snap.cli && app.snap.cli.found)) onInstallCli();
       });
     }, function () {
       /* api() 已经 toast 过了 */
@@ -9335,17 +9374,25 @@
 
   /* 授权是「去浏览器操作 → 回来」的异步过程：面板每 4 秒自动体检一次，不用人反复点。
      建应用完成 → 自动出现第 2.2 步；浏览器授权完成 → 自动变已授权。 */
-  function scheduleAuthWatch() {
+  function stopAuthWatch() {
     if (app.authTimer) clearTimeout(app.authTimer);
     app.authTimer = null;
+    app.authWatchGeneration = (app.authWatchGeneration || 0) + 1;
+  }
+
+  function scheduleAuthWatch() {
+    stopAuthWatch();
+    var generation = app.authWatchGeneration;
     var st = setupState();
-    if (!st.cliOk || st.authOk || document.hidden) return;
+    if (!st.cliOk || st.authOk || document.hidden || (app.activity && app.activity.disposed)) return;
     /* 认证进行中（创建应用 / 登录）就自动往前探：用户在浏览器或终端完成，
        面板不用等手动点「我已完成」，每 6 秒静默体检一次。 */
     var authNow = (app.snap && app.snap.auth) || {};
     var nextNow = deriveNext(authNow, st.cliOk);
     if (nextNow.phase !== 'config' && nextNow.phase !== 'login') return;
     app.authTimer = setTimeout(function () {
+      /* hidden/pagehide 后即使旧回调已排入事件队列，也不再发请求。 */
+      if (generation !== app.authWatchGeneration || document.hidden || (app.activity && app.activity.disposed)) return;
       app.authTimer = null;
       if (app.busy.check) {
         scheduleAuthWatch();
@@ -9704,6 +9751,7 @@
   function disposeActivityPanel() {
     var activity = activityState();
     activity.disposed = true;
+    stopAuthWatch();
     stopActivityStream();
     if (app.pollTimer) clearTimeout(app.pollTimer);
     app.pollTimer = null;
@@ -10362,6 +10410,7 @@
     }
 
     $('saveSettings').addEventListener('click', onSave);
+    wireSetupCliSettings();
     var setupSave = $('setupSaveAdvanced');
     if (setupSave) setupSave.addEventListener('click', onSaveSetupSettings);
     $('syncNow').addEventListener('click', onSync);
@@ -10513,8 +10562,8 @@
     wireDocPrompt();
 
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) { stopActivityStream(); if (app.pollTimer) clearTimeout(app.pollTimer); app.pollTimer = null; }
-      else { connectActivityStream(); load({ quiet: true }).then(schedulePoll); deferAuxiliaryLoads(); }
+      if (document.hidden) { stopActivityStream(); stopAuthWatch(); if (app.pollTimer) clearTimeout(app.pollTimer); app.pollTimer = null; }
+      else { connectActivityStream(); load({ quiet: true }).then(schedulePoll); scheduleAuthWatch(); deferAuxiliaryLoads(); }
     });
     window.addEventListener('pagehide', disposeActivityPanel);
     window.addEventListener('pageshow', function (event) {
@@ -10522,6 +10571,7 @@
         activityState().disposed = false;
         if (typeof taskRenderObserver !== 'undefined' && taskRenderObserver) taskRenderObserver.observe(document.body, { childList: true, subtree: true });
         connectActivityStream(); load({ quiet: true }).then(schedulePoll);
+        scheduleAuthWatch();
       }
     });
   }
