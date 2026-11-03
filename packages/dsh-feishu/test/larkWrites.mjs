@@ -30,11 +30,11 @@ const TASK = {
 
 const FIELDS = [
   { guid: 'fld-ws', name: '工作区', type: 'text' },
-  { guid: 'fld-prio', name: '优先级', type: 'text' },
+  { guid: 'fld-prio', name: '优先级', type: 'single_select', single_select_setting: { options: ['P0','P1','P2','P3'].map((name,i)=>({name,guid:'prio-'+i})) } },
   { guid: 'fld-eta', name: '预期完成', type: 'text' },
-  { guid: 'fld-start', name: '开始时间', type: 'text' },
-  { guid: 'fld-end', name: '结束时间', type: 'text' },
-  { guid: 'fld-status', name: '处理状态', type: 'text' },
+  { guid: 'fld-start', name: '开始时间', type: 'datetime' },
+  { guid: 'fld-end', name: '结束时间', type: 'datetime' },
+  { guid: 'fld-status', name: '处理状态', type: 'single_select', single_select_setting: { options: ['正常','挂起'].map((name,i)=>({name,guid:'status-'+i})) } },
 ]
 
 const FAKE = `#!/bin/sh
@@ -56,7 +56,7 @@ JSON
     "GET /open-apis/task/v2/tasklists/list-1") echo '{"ok":true,"data":{"tasklist":{"guid":"list-1","name":"DSH 任务"}}}' ;;
     "GET /open-apis/task/v2/tasklists") echo '{"ok":true,"data":{"items":[{"guid":"list-1","name":"DSH 任务"}],"has_more":false}}' ;;
     "GET /open-apis/task/v2/custom_fields") cat <<'JSON'
-{"ok":true,"data":{"items":${JSON.stringify(FIELDS)}}}
+{"ok":true,"data":{"items":${JSON.stringify(FIELDS)},"has_more":false}}
 JSON
       ;;
     "GET /open-apis/contact/v3/users/ou_1") echo '{"ok":false,"error":{"code":99991679,"message":"missing scope"}}' ;;
@@ -65,17 +65,17 @@ JSON
       n=$(cat "$seq_file" 2>/dev/null || echo 0)
       n=$((n + 1))
       echo "$n" > "$seq_file"
-      printf '{"ok":true,"data":{"comment":{"id":"c-%s"}}}' "$((n + 2))" 
+      printf '{"ok":true,"data":{"comment":{"id":"%s","resource_type":"task","resource_id":"task-1"}}}' "$((n + 124))"
       ;;
     "GET /open-apis/task/v2/comments")
       seq_file="$(dirname "$0")/comment-seq"
       n=$(cat "$seq_file" 2>/dev/null || echo 0)
       extra=""
       if [ "$n" -ge 1 ]; then
-        extra=',{"id":"c-3","content":"🤖 进度","creator":{"id":"ou_1","type":"user"},"created_at":"1700000002000"},{"id":"c-4","content":"新的留言","creator":{"id":"ou_1","type":"user"},"created_at":"1700000003000"}'
+        extra=',{"id":"125","resource_type":"task","resource_id":"task-1","content":"🤖 进度","creator":{"id":"ou_1","type":"user"},"created_at":"1700000002000"},{"id":"126","resource_type":"task","resource_id":"task-1","content":"新的留言","creator":{"id":"ou_1","type":"user"},"created_at":"1700000003000"}'
       fi
       cat <<JSON
-{"ok":true,"data":{"items":[{"id":"c-1","content":"历史评论一","creator":{"id":"ou_1","type":"user"},"created_at":"1700000000000"},{"id":"c-2","content":"历史评论二","creator":{"id":"ou_1","type":"user"},"created_at":"1700000001000"}\${extra}],"has_more":false}}
+{"ok":true,"data":{"items":[{"id":"123","resource_type":"task","resource_id":"task-1","content":"历史评论一","creator":{"id":"ou_1","type":"user"},"created_at":"1700000000000"},{"id":"124","resource_type":"task","resource_id":"task-1","content":"历史评论二","creator":{"id":"ou_1","type":"user"},"created_at":"1700000001000"}\${extra}],"has_more":false}}
 JSON
       ;;
     *) echo '{"ok":true,"data":{}}' ;;
@@ -137,7 +137,7 @@ const ctx = {
 /* 关掉「一次性把历史标题迁成 T<n>-」的迁移：本测试只关心写回链路，
    标题迁移会在首次同步时改名并让断言取决于同步次数。 */
 await mkdir(join(HOME, 'dsh-feishu'), { recursive: true })
-await writeFile(join(HOME, 'dsh-feishu', 'settings.json'), JSON.stringify({ titlesMigrated: true }))
+await writeFile(join(HOME, 'dsh-feishu', 'settings.json'), JSON.stringify({ cliBackend: 'lark-cli', autoSync: false, managedTasklist: { enabled: false }, titlesMigrated: true }))
 
 const { apply } = await import('../index.js')
 apply(ctx, {})
@@ -261,7 +261,7 @@ try {
   const commentsFile = JSON.parse(await readFile(join(HOME, 'dsh-feishu', 'comments.json'), 'utf8').catch(() => 'null'))
   const ledger = Object.values(commentsFile?.outbound ?? {})
   if (!ledger.length) console.log('  DEBUG ledger:', JSON.stringify({ commentsFile, args: (await argsLog()).split('\n').filter((line) => line.includes('comments')).slice(-5) }))
-  check('出站账本记下真实评论 ID（回声排除依据）', ledger.some((row) => row.status === 'sent' && row.commentId === 'c-3'))
+  check('出站账本记下真实评论 ID（回声排除依据）', ledger.some((row) => row.status === 'sent' && row.commentId === '125'))
 
   /* 9. 再同步：自己写的评论按账本排除，别人的新留言进收件箱（关闭处理时标 ignored）。 */
   await post('/api/sync')
@@ -270,8 +270,8 @@ try {
     return rows.length >= 2 ? rows : null
   })
   if (!entries) console.log('  DEBUG entries:', JSON.stringify({ entries: (await json('/api/comments')).data?.entries, sync: (await stateOf()).state?.commentSync }))
-  const echo = (entries ?? []).find((entry) => entry.commentId === 'c-3')
-  const other = (entries ?? []).find((entry) => entry.commentId === 'c-4')
+  const echo = (entries ?? []).find((entry) => entry.commentId === '125')
+  const other = (entries ?? []).find((entry) => entry.commentId === '126')
   check('自己写的评论被回声排除（reason=outbound-ledger）', echo?.reason === 'outbound-ledger')
   check('别人的新留言进入收件箱（owner/other 关闭时标 ignored）', other?.status === 'ignored')
   await post('/api/settings', { comments: { enabled: false } })

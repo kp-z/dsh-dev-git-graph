@@ -236,9 +236,9 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 ### `POST /dsh-feishu/api/cli/install`
 
 由宿主代装 CLI（GUI 里没有可交互终端）。请求体可选 `{ "backend": "feishu-sync" | "lark-cli" }`，
-缺省为当前 `cliBackend`（默认 `lark-cli`）。指定另一套时先只安装；装成功（或本来就已装）才把它设为当前后端
+缺省为当前 `cliBackend`（默认 `feishu-sync`）。指定另一套时先只安装；装成功（或本来就已装）才把它设为当前后端
 （响应里 `switched=true`），安装失败不会动现有后端。
-- `backend=lark-cli`（默认，准备卡里唯一的安装入口）：先 `npm install -g @larksuite/cli`，失败再试
+- `backend=lark-cli`（显式选择的官方安装入口）：先 `npm install -g @larksuite/cli`，失败再试
   `npx -y @larksuite/cli@latest install`；每步之后都会重新探活。
 - `backend=feishu-sync`（公司内部隐藏后端，只在准备卡「高级」里露出）：
   `uv tool install --upgrade --index <cliIndexUrl> feishu-sync`，失败再试
@@ -274,7 +274,7 @@ HTTP 前缀：`/dsh-feishu`（宿主 `webServer.register({kind:'prefix'})`）。
 ```
 
 
-切换后 `state.cli.backend` 与设置一致；默认后端是 `lark-cli`。
+切换后 `state.cli.backend` 与设置一致；缺省保持 `feishu-sync`，升级不自动切换已有用户的后端。
 `feishu-sync-cli` 是公司内部隐藏后端，默认不在准备卡里露出，只在准备卡的「高级」里可选。
 
 ### 官方 lark-cli 后端的动作矩阵（v0.21）
@@ -288,15 +288,15 @@ lark-cli 后端已实现的动作：
 | `task_get` | `GET /task/v2/tasks/{guid}`（评论协作里的权威回执） |
 | `set_task_time` | `PATCH /task/v2/tasks/{guid}`（start/due，毫秒字符串） |
 | `task_reopen` | `PATCH /task/v2/tasks/{guid}`（completed_at=0） |
-| `ensure_custom_field` / `set_custom_field` | `GET/POST /task/v2/custom_fields` + `PATCH /task/v2/tasks/{guid}`；支持文本/单选/多选/日期/数字 |
+| `ensure_custom_field` / `set_custom_field` | `GET/POST /task/v2/custom_fields` + `PATCH /task/v2/tasks/{guid}`；支持文本/单选/多选/日期，拒绝字段/选项歧义 |
 | `task_dependencies` / `add_dependencies` / `remove_dependencies` | `GET /task/v2/tasks/{guid}` + `POST .../add_dependencies|remove_dependencies` |
 | `task_comments` | `GET /task/v2/comments`（分页，拿不全返回 `incomplete`） |
-| `task_comment` | `POST /task/v2/comments`（支持 `reply_to_comment_id`） |
+| `task_comment` | `POST /task/v2/comments`；真实 @ 用 `POST /task/v1/tasks/{guid}/comments` + v2 回执核验 |
 | `task_subtasks` / `task_attachments` | `GET /task/v2/tasks/{guid}/subtasks`、`GET /task/v2/attachments` |
 | `create_docx` / `update_docx` / `rename_docx` / `delete_file` / `ensure_folder` / `add_tasklist` / `append_description` | 对应 docs/drive/task 官方接口 |
 
-已知限制：官方任务评论正文不支持任务 v1 富文本 @，`task_comment` 返回
-`mentionSupported=false` 并带 `warning`，按纯文本发送；这是唯一与内部后端的能力差异。
+两种后端共享受管任务清单状态机与完整字段契约。`ensure_tasklist` 使用稳定 `client_token`、明确 GUID 与全分页唯一名称查找；字段创建回执未知不会盲目重建。
+评论的 `task-v1` 模式通过 raw API 提及原作者（包括本人），保留统一 AI 卡片；权限失败不切换接口重发。只有显式 `native` 才发送无 @ 的原生回复。POST 超时/5xx/回执不符标为 `unknownDelivery=true`；评论和任务分页缺游标/循环/超过上限标为不完整。通知实际到达未验证。
 
 ### `POST /dsh-feishu/api/sync`
 

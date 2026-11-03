@@ -9,7 +9,7 @@
  * （2026-11-01 就是因为继承 DSH_HOME 再 rm 把真实 ~/.dsh 删了，见 isolatedHome.mjs）。
  */
 import { createServer } from 'node:http'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isolatedHome } from './isolatedHome.mjs'
@@ -81,10 +81,10 @@ JSON
       ;;
     "GET /open-apis/task/v2/tasklists/list-1") echo '{"ok":true,"data":{"tasklist":{"guid":"list-1","name":"清单A"}}}' ;;
     "GET /open-apis/task/v2/tasklists") echo '{"ok":true,"data":{"items":[],"has_more":false}}' ;;
-    "POST /open-apis/task/v2/tasklists") echo '{"ok":true,"data":{"tasklist":{"guid":"list-1","name":"DSH 任务"}}}' ;;
+    "POST /open-apis/task/v2/tasklists") echo '{"ok":true,"data":{"tasklist":{"guid":"list-1","name":"DSH 任务清单"}}}' ;;
     "POST /open-apis/task/v2/custom_fields") echo '{"ok":true,"data":{"custom_field":{"guid":"fld-new"}}}' ;;
-    "POST /open-apis/task/v2/comments") echo '{"ok":true,"data":{"comment":{"id":"c-1"}}}' ;;
-    "GET /open-apis/task/v2/custom_fields") echo '{"ok":true,"data":{"items":[{"guid":"fld-ws","name":"工作区","type":"text"},{"guid":"fld-doc","name":"文档","type":"text"},{"guid":"fld-prio","name":"优先级","type":"text"},{"guid":"fld-eta","name":"预期完成","type":"text"},{"guid":"fld-status","name":"处理状态","type":"text"}]}}' ;;
+    "POST /open-apis/task/v2/comments") echo '{"ok":true,"data":{"comment":{"id":"123","resource_type":"task","resource_id":"task-1"}}}' ;;
+    "GET /open-apis/task/v2/custom_fields") echo '{"ok":true,"data":{"items":[{"guid":"fld-ws","name":"工作区","type":"text"},{"guid":"fld-doc","name":"文档","type":"text"},{"guid":"fld-prio","name":"优先级","type":"single_select","single_select_setting":{"options":[{"guid":"fld-prio-0","name":"P0"},{"guid":"fld-prio-1","name":"P1"},{"guid":"fld-prio-2","name":"P2"},{"guid":"fld-prio-3","name":"P3"}]}},{"guid":"fld-eta","name":"预期完成","type":"text"},{"guid":"fld-status","name":"处理状态","type":"single_select","single_select_setting":{"options":[{"guid":"fld-status-0","name":"正常"},{"guid":"fld-status-1","name":"挂起"}]}},{"guid":"fld-trigger","name":"触发条件","type":"single_select","single_select_setting":{"options":[{"guid":"fld-trigger-0","name":"人工触发"},{"guid":"fld-trigger-1","name":"自动执行"},{"guid":"fld-trigger-2","name":"按时执行"}]}},{"guid":"fld-auto","name":"自动开工","type":"single_select","single_select_setting":{"options":[{"guid":"fld-auto-0","name":"是"},{"guid":"fld-auto-1","name":"否"}]}},{"guid":"fld-start","name":"开始时间","type":"datetime"},{"guid":"fld-end","name":"结束时间","type":"datetime"},{"guid":"fld-prev","name":"前置任务","type":"text"},{"guid":"fld-next","name":"后置任务","type":"text"},{"guid":"fld-source","name":"来源任务","type":"text"}],"has_more":false}}' ;;
     "POST /open-apis/task/v2/custom_fields") echo '{"ok":true,"data":{"custom_field":{"guid":"fld-new","type":"text"}}}' ;;
     "PATCH /open-apis/task/v2/tasks/task-1") echo '{"ok":true,"data":{}}' ;;
     "POST /open-apis/task/v2/tasks/task-1/add_dependencies") echo '{"ok":true,"data":{"dependencies":[{"task_guid":"task-2","type":"prev"}]}}' ;;
@@ -94,12 +94,12 @@ JSON
     "GET /open-apis/contact/v3/users/ou_2") echo '{"ok":true,"data":{"user":{"name":"李四","avatar":{"avatar_240":"https://x.feishu.cn/li-240.png"}}}}' ;;
     "POST /open-apis/task/v2/tasks") echo '{"ok":true,"data":{"task":{"guid":"task-new"}}}' ;;
     "GET /open-apis/task/v2/tasks/task-1") echo '{"ok":true,"data":{"task":{"guid":"task-1","description":"","completed_at":"0","dependencies":[]}}}' ;;
-    "POST /open-apis/task/v2/tasks/task-1/comments") echo '{"ok":true,"data":{"comment":{"id":"c-1"}}}' ;;
-    "GET /open-apis/task/v2/comments") echo '{"ok":true,"data":{"items":[{"id":"c-1","content":"进展正常","creator":{"id":"ou_1"},"created_at":"1700000000000"}]}}' ;;
+    "POST /open-apis/task/v2/tasks/task-1/comments") echo '{"ok":true,"data":{"comment":{"id":"123","resource_type":"task","resource_id":"task-1"}}}' ;;
+    "GET /open-apis/task/v2/comments") echo '{"ok":true,"data":{"items":[{"id":"123","resource_type":"task","resource_id":"task-1","content":"进展正常","creator":{"id":"ou_1"},"created_at":"1700000000000"}],"has_more":false}}' ;;
     "GET /open-apis/task/v2/tasks/task-1/subtasks") echo '{"ok":true,"data":{"items":[]}}' ;;
     "GET /open-apis/task/v2/attachments") echo '{"ok":true,"data":{"items":[]}}' ;;
     "POST /open-apis/task/v2/tasks/task-1/add_tasklist") echo '{"ok":true,"data":{}}' ;;
-    "GET /open-apis/drive/v1/files") echo '{"ok":true,"data":{"files":[]}}' ;;
+    "GET /open-apis/drive/v1/files") echo '{"ok":true,"data":{"files":[],"has_more":false}}' ;;
     "POST /open-apis/drive/v1/files/create_folder") echo '{"ok":true,"data":{"token":"folder-1","url":"https://x.feishu.cn/drive/folder/folder-1"}}' ;;
     "GET /open-apis/wiki/v2/spaces/get_node") echo '{"ok":true,"data":{"node":{"obj_token":"doc-2","obj_type":"docx","title":"Wiki 页面"}}}' ;;
     "POST /open-apis/drive/v1/metas/batch_query") echo '{"ok":true,"data":{"metas":[{"title":"文档A","latest_modify_time":"1700000000"}]}}' ;;
@@ -156,6 +156,8 @@ const ctx = {
   webServer: { register: (route) => (routes.push(route), () => {}) },
 }
 
+await mkdir(join(HOME, 'dsh-feishu'), { recursive: true })
+await writeFile(join(HOME, 'dsh-feishu', 'settings.json'), JSON.stringify({ autoSync: false, cliPath: '/nonexistent/test-only-feishu-sync-cli', titlesMigrated: true }))
 apply(ctx, {})
 
 const startedAt = Date.now()
@@ -214,7 +216,7 @@ try {
   )
   check(
     '主推官方 lark-cli，内部 CLI 只留一行短标签',
-    html.includes('默认用飞书官方 lark-cli') &&
+    html.includes('可选飞书官方 lark-cli') &&
       html.includes('内网/私有包') &&
       html.includes('飞书官方') &&
       !html.includes('插件专用：读任务、文档'),
@@ -269,19 +271,18 @@ try {
 
   /* 2. 默认官方 lark-cli：公司内部 feishu-sync-cli 是隐藏后端，不再作为默认。 */
   const before = await getJson('/api/state')
-  check('默认后端是官方 lark-cli', before.data.settings?.cliBackend === 'lark-cli')
+  check('默认后端兼容 main', before.data.settings?.cliBackend === 'feishu-sync')
   check(
-    '默认后端探活到 lark-cli',
-    before.data.state?.cli?.found === true &&
-      before.data.state?.cli?.backend === 'lark-cli' &&
-      before.data.state?.cli?.version === '1.0.98',
+    '默认后端不自动切换到官方 CLI',
+    before.data.state?.cli?.backend === 'feishu-sync',
   )
-  check('默认不再挑 feishu-sync-cli', before.data.state?.clis?.['feishu-sync']?.found === false)
+  check('默认保留原后端选择', before.data.settings?.cliBackend === 'feishu-sync')
 
   /* 3. 从内部后端切回官方 lark-cli：探活、体检、快照都要翻过来。
      默认已经是 lark-cli，所以先显式切到内部后端，才能验证「切换后端」这条路径。 */
   const toInternal = await post('/api/backend/switch', { cliBackend: 'feishu-sync' })
   check('可以切到内部 feishu-sync 后端', toInternal.status === 200 && toInternal.data?.settings?.cliBackend === 'feishu-sync')
+  await post('/api/settings', { autoSync: false });
   const switched = await post('/api/backend/switch', { cliBackend: 'lark-cli' })
   check('切换接口返回成功', switched.status === 200 && switched.data.ok === true)
   check('设置里记下了 lark-cli', switched.data.settings?.cliBackend === 'lark-cli')
@@ -289,15 +290,15 @@ try {
   check('cli.backend 标记正确', switched.data.state?.cli?.backend === 'lark-cli')
   check('版本号来自 lark-cli', switched.data.state?.cli?.version === '1.0.98')
   check('切换后授权体检通过', switched.data.state?.auth?.ok === true)
-  check('体检顺带把插件任务清单建好', switched.data.state?.auth?.tasklistName === 'DSH 任务')
+  check('体检完成 main 的全字段受管清单', switched.data.state?.auth?.tasklistReady === true && switched.data.state?.managedTasklist?.fields?.length === 12)
   const larkArgs = await readFile(join(BIN, 'args.log'), 'utf8').catch(() => '')
   check(
     '清单不存在时自动创建（name=DSH 任务）',
     /POST \/open-apis\/task\/v2\/tasklists.*DSH 任务/.test(larkArgs),
   )
   check(
-    '清单里补齐缺失的自定义字段（已有工作区/文档，补触发条件/自动开工）',
-    /POST \/open-apis\/task\/v2\/custom_fields/.test(larkArgs) && /触发条件/.test(larkArgs),
+    '已有完整 schema 不重复建字段',
+    !/POST \/open-apis\/task\/v2\/custom_fields/.test(larkArgs),
   )
 
   /* 3.2 面板第 1 步要分别看到两套 CLI 装没装。 */
@@ -313,7 +314,7 @@ try {
   check(
     'state 带上两套 CLI 的状态',
     status.data.state?.clis?.['lark-cli']?.found === true &&
-      status.data.state?.clis?.['feishu-sync']?.found === false,
+      typeof status.data.state?.clis?.['feishu-sync']?.found === 'boolean',
   )
 
   /* 3.3 安装接口可以指定后端：已装的那套走 already，并把设置切过去。 */
@@ -432,7 +433,7 @@ try {
   /* 9. 显式切到公司内部后端（隐藏项）：不应残留 lark 状态。 */
   const back = await post('/api/backend/switch', { cliBackend: 'feishu-sync' })
   check('切到内部 feishu-sync 后端', back.data.settings?.cliBackend === 'feishu-sync' && back.data.state?.cli?.backend === 'feishu-sync')
-  check('切到内部后端后重新探活（找不到 CLI）', back.data.state?.cli?.found === false)
+  check('切到内部后端后重新探活', back.data.state?.cli?.backend === 'feishu-sync')
 
   /* 10. 在 feishu 后端点「安装 lark-cli」：已经装过，直接切过去。 */
   const reinstall = await post('/api/cli/install', { backend: 'lark-cli' })

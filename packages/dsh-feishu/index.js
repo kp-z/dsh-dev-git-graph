@@ -31,6 +31,9 @@ import { fileURLToPath } from 'node:url'
  * 模型只负责把「下周一早上九点半」说成一句话，插件负责算准它到底是哪一刻。
  * 分开的另一个理由：时间逻辑最容易错，纯函数才能单测（test/schedule.mjs）。
  */
+import { listLarkPages } from './larkPages.js'
+import { createLarkComment, listLarkComments } from './larkComments.js'
+import { createLarkTasklistActions } from './larkTasklist.js'
 import { createActivityFeed } from './activity.js'
 import { DEFAULT_TASKLIST_NAME, TASKLIST_SCHEMA_VERSION, tasklistFields, schemaSignature, selectTaskList } from './tasklistSchema.js'
 import { beginSyncHistory, finishSyncHistory, recordSyncStage, recoverSyncHistory, safeSyncDetail } from './syncHistory.js'
@@ -397,7 +400,8 @@ const DEFAULT_SETTINGS = {
   cliPath: 'feishu-sync-cli',
   managedTasklist: { enabled: true, name: DEFAULT_TASKLIST_NAME, guid: '' },
   /* 默认用飞书官方 lark-cli；feishu-sync-cli 是公司内部 CLI，只在「高级」里可切。 */
-  cliBackend: 'lark-cli',
+  // 新增官方后端是显式选择，不能把现有个人授权与 Python 写回自动切掉。
+  cliBackend: 'feishu-sync',
   /* 官方 lark-cli 的路径 / 授权域：装在别处时改它，授权时按这些域申请 scope。 */
   larkCliPath: 'lark-cli',
   larkDomains: LARK_DEFAULT_DOMAINS,
@@ -1356,7 +1360,7 @@ function findExecutable(names) {
 /** 显式配了绝对路径就认它；否则在常见目录里找一遍，最后退回裸命令名交给 PATH。 */
 function resolveCli(configured) {
   const explicit = asString(configured).trim()
-  if (explicit && (explicit.includes('/') || explicit.includes('\\')) && existsSync(explicit)) return explicit
+  if (explicit && (explicit.includes('/') || explicit.includes('\\'))) return explicit
   return findExecutable([CLI_BIN]) ?? (explicit || CLI_BIN)
 }
 
@@ -1539,7 +1543,7 @@ function backendFor(id) {
 
 function resolveLarkCli(configured) {
   const explicit = asString(configured).trim()
-  if (explicit && (explicit.includes('/') || explicit.includes('\\')) && existsSync(explicit)) return explicit
+  if (explicit && (explicit.includes('/') || explicit.includes('\\'))) return explicit
   return findExecutable([LARK_BIN]) ?? (explicit || LARK_BIN)
 }
 
@@ -1559,17 +1563,20 @@ function runLarkCmd(settings, args, timeoutMs = 120_000) {
 /** 跑一条 lark-cli 命令并按官方输出契约拆信封：成功 `{ok:true,data}`，失败 `{ok:false,detail}`。 */
 async function larkJson(settings, args, timeoutMs = 120_000) {
   const result = await runLarkCmd(settings, args, timeoutMs)
-  const parsed = parseJson(result.stdout) ?? parseJson(result.stderr)
-  const envelope = parsed && typeof parsed === 'object' ? parsed : undefined
-  if (result.ok && envelope?.ok !== false) {
+  // Task 评论 ID 可以是超过 JS safe integer 的 JSON 数字，先保护资源 ID
+  // 再交给通用解析器；正文字符串里的转义引号不会匹配此模式。
+  const preserveIds = text => asString(text).replace(/"(id|reply_to_comment_id|parent_id)"\s*:\s*(\d{16,})(?=\s*[,}])/g, '"$1":"$2"')
+  const parsed = parseJson(preserveIds(result.stdout)) ?? parseJson(preserveIds(result.stderr))
+  const envelope = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : undefined
+  if (result.ok && envelope && envelope.ok !== false && (!('code' in envelope) || envelope.code === 0)) {
     /* api 命令是 {ok,data} 信封；auth status / auth login 则直接输出裸对象，两种都要认。 */
     const data = envelope?.data ?? (envelope?.ok === undefined ? envelope : {}) ?? {}
     return { ok: true, data, parsed: envelope, text: result.stdout }
   }
-  const error = envelope?.error ?? {}
+  const error = envelope?.error ?? (envelope?.code ? { code: envelope.code, message: envelope.msg } : {})
   const notConfigured = /not[_ ]?configured/i.test(`${asString(error.subtype)} ${asString(error.message)}`)
   const detail = asString(error.message || error.hint || result.detail || result.stderr || result.stdout).slice(-600)
-  return { ok: false, detail, error, parsed: envelope, missing: /ENOENT|not found|未安装/i.test(detail), notConfigured }
+  return { ok: false, detail: detail || 'CLI 未返回有效 JSON 回执', error, parsed: envelope, transportOk: result.ok, missing: /ENOENT|not found|未安装/i.test(detail), notConfigured }
 }
 
 /** 从 `auth status --json --verify` 的结果里读登录态：未登录/未授权都算 not authed。 */
@@ -2039,83 +2046,12 @@ const feishuBackend = {
 /* 飞书的任务要属于某个清单才容易被找到/展示，清单里的自定义字段也是按清单定义的。
    插件固定用 settings.larkTasklistName 这个名字：不存在就自动建，并把 taskFields 的字段补齐，
    建任务时直接带 tasklists，回写「工作区/文档」才有稳定的字段 key。 */
-let larkTasklistCache = { at: 0, guid: '', name: '', fields: [] }
-
-function larkTasklistWantedFields(settings) {
-  const fields = settings.taskFields ?? {}
-  return [...new Set(Object.values(fields).map((name) => asString(name).trim()).filter(Boolean))]
-}
-
-async function ensureLarkTasklistFields(settings, guid) {
-  const wanted = larkTasklistWantedFields(settings)
-  if (!wanted.length) return { ok: true, fields: [] }
-  const listed = await larkApi(settings, 'GET', '/open-apis/task/v2/custom_fields', {
-    params: { resource_type: 'tasklist', resource_id: guid, page_size: 100, user_id_type: 'open_id' },
-    timeoutMs: 60_000,
-  })
-  if (!listed.ok) return { ok: false, detail: listed.detail, fields: [] }
-  const existing = new Map((listed.data?.items ?? []).map((item) => [asString(item.name), item]))
-  const fields = []
-  const errors = []
-  for (const name of wanted) {
-    if (existing.has(name)) {
-      fields.push(name)
-      continue
-    }
-    const made = await larkApi(settings, 'POST', '/open-apis/task/v2/custom_fields', {
-      params: { user_id_type: 'open_id' },
-      data: { resource_type: 'tasklist', resource_id: guid, name, type: 'text' },
-      timeoutMs: 60_000,
-    })
-    if (made.ok) fields.push(name)
-    else errors.push(`${name}: ${made.detail}`)
-  }
-  return { ok: errors.length === 0, detail: errors.join('; '), fields }
-}
-
 async function ensureLarkTasklist(settings) {
-  const name = asString(settings.larkTasklistName).trim() || LARK_DEFAULT_TASKLIST
-  const now = Date.now()
-  if (larkTasklistCache.guid && larkTasklistCache.name === name && now - larkTasklistCache.at < 5 * 60_000) {
-    return { ok: true, guid: larkTasklistCache.guid, name, created: false, cached: true }
-  }
-  const saved = asString(settings.larkTasklistGuid).trim()
-  if (saved) {
-    const probe = await larkApi(settings, 'GET', `/open-apis/task/v2/tasklists/${encodeURIComponent(saved)}`, {
-      params: { user_id_type: 'open_id' },
-      timeoutMs: 60_000,
-    })
-    if (probe.ok) {
-      const fields = await ensureLarkTasklistFields(settings, saved)
-      larkTasklistCache = { at: Date.now(), guid: saved, name, fields: fields.fields }
-      return { ok: true, guid: saved, name, created: false }
-    }
-  }
-  /* 已经存在同名清单就别重复建（用户可能自己建过）。 */
-  const listed = await larkApi(settings, 'GET', '/open-apis/task/v2/tasklists', {
-    params: { page_size: 100, user_id_type: 'open_id' },
-    timeoutMs: 60_000,
-  })
-  if (listed.ok) {
-    for (const item of listed.data?.items ?? []) {
-      if (item.guid && asString(item.name) === name) {
-        const fields = await ensureLarkTasklistFields(settings, item.guid)
-        larkTasklistCache = { at: Date.now(), guid: item.guid, name, fields: fields.fields }
-        return { ok: true, guid: item.guid, name, created: false }
-      }
-    }
-  }
-  const made = await larkApi(settings, 'POST', '/open-apis/task/v2/tasklists', {
-    params: { user_id_type: 'open_id' },
-    data: { name },
-    timeoutMs: 60_000,
-  })
-  if (!made.ok) return { ok: false, detail: made.detail }
-  const guid = asString(made.data?.tasklist?.guid)
-  if (!guid) return { ok: false, detail: '建任务清单返回里没有 guid' }
-  const fields = await ensureLarkTasklistFields(settings, guid)
-  larkTasklistCache = { at: Date.now(), guid, name, fields: fields.fields }
-  return { ok: true, guid, name, created: true }
+  // Only used when the managed contract is explicitly disabled. Still fail closed
+  // on list failure/duplicates/unknown create, instead of inventing another list.
+  const run = createLarkTasklistActions((method, path, opts) => larkApi(settings, method, path, opts))
+  const result = await run({ op: 'ensure_tasklist', ...(settings.larkTasklistGuid ? { guid: settings.larkTasklistGuid } : {}), name: asString(settings.larkTasklistName).trim() || LARK_DEFAULT_TASKLIST })
+  return { ...result, detail: result.error || '' }
 }
 
 const larkBackend = {
@@ -2287,8 +2223,6 @@ const larkBackend = {
         consoleUrl: asString(error.console_url) || appInfo.consoleUrl || app.consoleUrl,
       }
     }
-    /* 已登录：顺手把插件自己的任务清单准备好（没有就自动建），建任务才能直接落进清单。 */
-    const tasklist = await ensureLarkTasklist(settings).catch(() => null)
     return {
       ok: true,
       permission: true,
@@ -2298,8 +2232,6 @@ const larkBackend = {
       detail: `官方 lark-cli 已登录${name ? `（${name}）` : ''}（身份：${asString(result.parsed?.identity) || 'user'}），任务接口已通`,
       appId: appInfo.appId || app.appId,
       consoleUrl: appInfo.consoleUrl || app.consoleUrl,
-      tasklistGuid: tasklist?.ok ? tasklist.guid : '',
-      tasklistName: tasklist?.ok ? tasklist.name : '',
     }
   },
 
@@ -2407,27 +2339,8 @@ const larkBackend = {
   },
 
   async listTasks(settings) {
-    const items = []
-    let pageToken = ''
-    for (let page = 0; page < 10; page++) {
-      const params = { page_size: 100 }
-      if (pageToken) params.page_token = pageToken
-      const result = await larkApi(settings, 'GET', '/open-apis/task/v2/tasks', { params, timeoutMs: 120_000 })
-      if (!result.ok) {
-        return {
-          ok: false,
-          detail: result.detail,
-          missing: result.missing,
-          revoked: /invalid_grant|token|授权|登录|scope/i.test(result.detail),
-        }
-      }
-      const data = result.data ?? {}
-      const batch = Array.isArray(data.items) ? data.items : []
-      items.push(...batch)
-      pageToken = asString(data.page_token)
-      if (!data.has_more || !pageToken || batch.length === 0) break
-    }
-    return { ok: true, list: items }
+    const result = await listLarkPages((method, path, opts) => larkApi(settings, method, path, opts), '/open-apis/task/v2/tasks', { user_id_type: 'open_id' }, item => item && typeof item.guid === 'string' && Boolean(item.guid))
+    return result.ok ? { ok: true, list: result.items } : { ...result, revoked: /invalid_grant|token|授权|登录|scope/i.test(result.detail || '') }
   },
 
   async docInfo(settings, url) {
@@ -2474,14 +2387,15 @@ const larkBackend = {
     return { ok: true, markdown: content === undefined ? result.stdout : asString(content) }
   },
 
-  async createTask(settings, { summary, description, assignee }) {
+  async createTask(settings, { summary, description, assignee, tasklistGuid }) {
     /* 建任务接口的 body 是「平铺」字段（summary 在顶层），套 {task:{...}} 会 99992402 field validation failed。 */
     const body = { summary, completed_at: '0' }
     if (description) body.description = description
     if (assignee) body.members = [{ id: assignee, role: 'assignee', type: 'user' }]
     /* 落进插件的固定清单：飞书里才看得见，清单里的自定义字段才有地方写。 */
-    const list = await ensureLarkTasklist(settings)
-    if (list.ok) body.tasklists = [{ tasklist_guid: list.guid }]
+    const list = tasklistGuid ? { ok: true, guid: tasklistGuid, name: settings.managedTasklist?.name || '' } : await ensureLarkTasklist(settings)
+    if (!list.ok || !list.guid) return { ok: false, detail: list.detail || '任务清单未就绪，拒绝创建无归属任务' }
+    body.tasklists = [{ tasklist_guid: list.guid }]
     const result = await larkApi(settings, 'POST', '/open-apis/task/v2/tasks', {
       params: { user_id_type: 'open_id' },
       data: body,
@@ -2541,15 +2455,13 @@ const larkBackend = {
     }
     for (const guid of payload?.fields ?? []) {
       if (!guid) continue
-      const result = await larkApi(settings, 'GET', '/open-apis/task/v2/custom_fields', {
-        params: { resource_type: 'tasklist', resource_id: guid, page_size: 100 },
-        timeoutMs: 60_000,
-      })
+      const run = createLarkTasklistActions((method, path, opts) => larkApi(settings, method, path, opts))
+      const result = await run({ op: 'list_custom_fields', tasklist: guid })
       if (!result.ok) {
-        out.errors.push(`fields ${guid}: ${result.detail}`)
+        out.errors.push(`fields ${guid}: ${result.error}`)
         continue
       }
-      out.fields[guid] = (result.data?.items ?? []).map((item) => ({
+      out.fields[guid] = (result.items ?? []).map((item) => ({
         guid: asString(item.guid),
         name: asString(item.name),
         type: asString(item.type),
@@ -2577,12 +2489,15 @@ const larkBackend = {
   },
 
   async actions(settings, actions) {
+    const managedActions = createLarkTasklistActions((method, path, opts) => larkApi(settings, method, path, opts))
     const results = []
     for (const action of Array.isArray(actions) ? actions : []) {
       const op = asString(action?.op)
       const fail = (detail) => results.push({ op, ok: false, error: asString(detail).slice(-300) })
       try {
-        if (op === 'add_tasklist') {
+        if (['ensure_tasklist', 'ensure_custom_field', 'set_custom_field'].includes(op)) {
+          results.push(await managedActions(action))
+        } else if (op === 'add_tasklist') {
           const result = await larkApi(
             settings,
             'POST',
@@ -2594,12 +2509,11 @@ const larkBackend = {
         } else if (op === 'ensure_folder') {
           const parent = asString(action.parent)
           const name = asString(action.name).slice(0, 60)
-          const listed = await larkApi(settings, 'GET', '/open-apis/drive/v1/files', {
-            params: { folder_token: parent, page_size: 200 },
-            timeoutMs: 60_000,
-          })
-          const files = listed.ok ? listed.data?.files ?? [] : []
-          const found = files.find((file) => file.type === 'folder' && asString(file.name) === name)
+          const listed = await listLarkPages((method, path, opts) => larkApi(settings, method, path, opts), '/open-apis/drive/v1/files', { folder_token: parent, page_size: 200 }, item => item && typeof item.token === 'string' && typeof item.name === 'string', 100, 'files')
+          if (!listed.ok) { fail(listed.detail || '文件夹列表不完整，拒绝重复创建'); continue }
+          const matches = listed.items.filter(file => file.type === 'folder' && asString(file.name) === name)
+          if (matches.length > 1) { fail('同名文件夹不唯一，拒绝创建'); continue }
+          const found = matches[0]
           if (found) {
             results.push({ op, ok: true, folder: asString(found.token), url: asString(found.url) })
           } else {
@@ -2674,130 +2588,6 @@ const larkBackend = {
             })
             if (fallback.ok) results.push({ op, ok: true })
             else fail(result.detail)
-          }
-        } else if (op === 'set_custom_field') {
-          const listGuid = asString(action.tasklist)
-          const name = asString(action.name)
-          const value = asString(action.value)
-          const fieldsResult = await larkApi(settings, 'GET', '/open-apis/task/v2/custom_fields', {
-            params: { resource_type: 'tasklist', resource_id: listGuid, page_size: 100 },
-            timeoutMs: 60_000,
-          })
-          if (!fieldsResult.ok) fail(fieldsResult.detail)
-          else {
-            const field = (fieldsResult.data?.items ?? []).find((item) => asString(item.name) === name)
-            if (!field) {
-              /* 和 Python 桥同一句话：调用方按「没有名为」判断字段缺失，别换措辞。 */
-              fail(`没有名为 ${name} 的字段`)
-            } else {
-              const type = asString(field.type)
-              const settingsKey = type === 'multi_select' ? 'multi_select_setting' : 'single_select_setting'
-              let body = { guid: field.guid, type, text_value: value }
-              if (type === 'single_select' || type === 'multi_select') {
-                const visible = ((field[settingsKey] ?? {}).options ?? []).filter((item) => !item.is_hidden)
-                let option = visible.find((item) => asString(item.name) === value)
-                if (!option) {
-                  /* 选项不存在就带着现有 guid 追加；整表重写会把已有任务上的旧值全部作废。 */
-                  const merged = visible.map((item) => ({
-                    guid: item.guid,
-                    name: item.name,
-                    color_index: item.color_index ?? 0,
-                  }))
-                  merged.push({ name: value })
-                  const patched = await larkApi(
-                    settings,
-                    'PATCH',
-                    `/open-apis/task/v2/custom_fields/${encodeURIComponent(field.guid)}`,
-                    {
-                      data: { custom_field: { [settingsKey]: { options: merged } }, update_fields: [settingsKey] },
-                      timeoutMs: 60_000,
-                    },
-                  )
-                  if (!patched.ok) {
-                    fail(`追加选项失败：${patched.detail}`)
-                    continue
-                  }
-                  const after = (((patched.data ?? {}).custom_field ?? {})[settingsKey] ?? {}).options ?? []
-                  option = after.find((item) => asString(item.name) === value)
-                  if (!option) {
-                    fail('追加选项后没拿到选项 guid')
-                    continue
-                  }
-                  body = type === 'single_select'
-                    ? { guid: field.guid, type, single_select_value: asString(option.guid) }
-                    : { guid: field.guid, type, multi_select_value: [asString(option.guid)] }
-                } else {
-                  body = type === 'single_select'
-                    ? { guid: field.guid, type, single_select_value: asString(option.guid) }
-                    : { guid: field.guid, type, multi_select_value: [asString(option.guid)] }
-                }
-              } else if (type === 'datetime') {
-                /* 日期字段只收「该日期 UTC 00:00:00」的毫秒字符串；传 text_value 会被静默忽略。 */
-                const day = value.trim().slice(0, 10)
-                const ms = Date.parse(`${day}T00:00:00Z`)
-                if (!Number.isFinite(ms)) {
-                  fail(`日期字段要 YYYY-MM-DD，收到 ${value.slice(0, 20)}`)
-                  continue
-                }
-                body = { guid: field.guid, type, datetime_value: String(ms) }
-              } else if (type === 'number') {
-                body = { guid: field.guid, type, number_value: Number(value) || 0 }
-              }
-              const result = await larkApi(
-                settings,
-                'PATCH',
-                `/open-apis/task/v2/tasks/${encodeURIComponent(action.task)}`,
-                { data: { task: { custom_fields: [body] }, update_fields: ['custom_fields'] }, timeoutMs: 60_000 },
-              )
-              if (result.ok) results.push({ op, ok: true })
-              else fail(result.detail)
-            }
-          }
-        } else if (op === 'ensure_custom_field') {
-          /* 清单上还没有这个字段就建一个（与 Python 桥同名同语义）。
-             不显式给 type 时官方后端建**文本**字段：插件自己的列（优先级/工作区/预期完成）都是文本；
-             显式给了 type 就按 type 校验，同名但类型不同不重建（重建会让已有值失效）。 */
-          const listGuid = asString(action.tasklist)
-          const name = asString(action.name)
-          const explicitType = asString(action.type)
-          const wantType = explicitType || 'text'
-          const options = (Array.isArray(action.options) ? action.options : []).map((item) => asString(item)).filter(Boolean)
-          const listed = await larkApi(settings, 'GET', '/open-apis/task/v2/custom_fields', {
-            params: { resource_type: 'tasklist', resource_id: listGuid, page_size: 100 },
-            timeoutMs: 60_000,
-          })
-          if (!listed.ok) fail(listed.detail)
-          else {
-            const target = (listed.data?.items ?? []).find((item) => asString(item.name) === name)
-            if (target) {
-              const same = !explicitType || asString(target.type) === explicitType
-              results.push({
-                op,
-                ok: same,
-                created: false,
-                guid: asString(target.guid),
-                type: asString(target.type),
-                ...(same ? {} : { error: `字段「${name}」已存在但类型是 ${target.type}，不是 ${wantType}` }),
-              })
-            } else {
-              const body = { resource_type: 'tasklist', resource_id: listGuid, name, type: wantType }
-              if (wantType === 'single_select') body.single_select_setting = { options: options.map((item) => ({ name: item })) }
-              else if (wantType === 'text') body.text_setting = {}
-              else if (wantType === 'datetime') body.datetime_setting = { format: 'yyyy-mm-dd' }
-              const created = await larkApi(settings, 'POST', '/open-apis/task/v2/custom_fields', {
-                data: body,
-                timeoutMs: 60_000,
-              })
-              if (!created.ok) fail(`建字段失败：${created.detail}`)
-              else
-                results.push({
-                  op,
-                  ok: true,
-                  created: true,
-                  guid: asString(created.data?.custom_field?.guid),
-                  type: wantType,
-                })
-            }
           }
         } else if (op === 'task_get') {
           const result = await larkApi(
@@ -2920,32 +2710,7 @@ const larkBackend = {
                 ? '/open-apis/task/v2/attachments'
                 : null
           if (resourceEndpoint) {
-            /* 评论协作要「完整列表」才算成功回执：翻页直到 has_more=false，拿不全就标 incomplete。 */
-            const items = []
-            let pageToken = ''
-            let incomplete = false
-            let detail = ''
-            for (let page = 0; page < 20; page += 1) {
-              const params = {
-                resource_type: 'task',
-                resource_id: action.task,
-                page_size: 100,
-                ...(op === 'task_comments' ? { user_id_type: 'open_id', direction: 'asc' } : {}),
-              }
-              if (pageToken) params.page_token = pageToken
-              const pageResult = await larkApi(settings, 'GET', resourceEndpoint, { params, timeoutMs: 60_000 })
-              if (!pageResult.ok) {
-                incomplete = true
-                detail = pageResult.detail
-                break
-              }
-              items.push(...(pageResult.data?.items ?? []))
-              pageToken = asString(pageResult.data?.page_token)
-              if (!pageResult.data?.has_more || !pageToken) break
-              if (page === 19) incomplete = true
-            }
-            if (incomplete && !items.length) fail(detail || '读取任务评论失败')
-            else results.push({ op, ok: true, items, incomplete, pageToken })
+            results.push(await listLarkComments((method, path, opts) => larkApi(settings, method, path, opts), action, resourceEndpoint))
           } else {
             const result = await larkApi(
               settings,
@@ -2957,42 +2722,7 @@ const larkBackend = {
             else results.push({ op, ok: true, items: result.data?.items ?? [] })
           }
         } else if (op === 'task_comment') {
-          /* 写评论：body 走资源型接口；回复传 reply_to_comment_id。
-             官方评论正文暂不支持任务 v1 的富文本 @，所以明确回报 mentionSupported=false，不假装支持。 */
-          const data = {
-            content: asString(action.text),
-            resource_type: 'task',
-            resource_id: asString(action.task),
-          }
-          if (asString(action.reply_to_comment_id)) data.reply_to_comment_id = asString(action.reply_to_comment_id)
-          const result = await larkApi(settings, 'POST', '/open-apis/task/v2/comments', {
-            params: { user_id_type: 'open_id' },
-            data,
-            timeoutMs: 60_000,
-          })
-          if (!result.ok) {
-            results.push({
-              op,
-              ok: false,
-              commentId: null,
-              unknownDelivery: false,
-              mentionSupported: false,
-              error: result.detail,
-            })
-          } else {
-            const commentId = asString(result.data?.comment?.id)
-            results.push({
-              op,
-              ok: Boolean(commentId),
-              commentId: commentId || null,
-              comment: result.data?.comment ?? null,
-              mentionSupported: false,
-              warning: (action.mentionIds ?? []).length
-                ? '官方 lark-cli 后端的评论正文不支持 @ 提及，已按纯文本发送'
-                : '',
-              ...(commentId ? {} : { error: '评论创建成功但没拿到评论 id' }),
-            })
-          }
+          results.push(await createLarkComment((method, path, opts) => larkApi(settings, method, path, opts), action))
         } else if (op === 'ensure_select_options') {
           /* 单选/多选字段才需要补选项；lark 后端自动建的字段是文本类型，保持空操作。 */
           results.push({ op, ok: true, added: [] })
@@ -3323,10 +3053,14 @@ function createSyncEngine(ctx) {
       let signature
       try { signature = schemaSignature(capturedSettings, capturedWorkspaces) }
       catch (error) { return { ok: false, error: error.message } }
-      if (!force && previous.status === 'ready' && previous.signature === signature && nowMs() - previous.checkedAt < TASKLIST_CHECK_TTL) return { ok: true, guid: previous.guid }
-      const python = resolvePython(resolveCli(settings.cliPath))
-      if (!python) return { ok: false, error: '找不到 Python，无法初始化任务清单' }
-      const requestedGuid = settings.managedTasklist.guid || previous.guid || ''
+      if (!force && previous.status === 'ready' && previous.backend === capturedSettings.cliBackend && previous.signature === signature && nowMs() - previous.checkedAt < TASKLIST_CHECK_TTL) return { ok: true, guid: previous.guid }
+      const python = capturedSettings.cliBackend === 'feishu-sync' ? resolvePython(resolveCli(capturedSettings.cliPath)) : null
+      if (capturedSettings.cliBackend === 'feishu-sync' && !python) return { ok: false, error: '找不到 Python，无法初始化任务清单' }
+      const impl = capturedSettings.cliBackend === 'feishu-sync' ? null : backendFor(capturedSettings.cliBackend)
+      const managedBridge = payload => capturedSettings.cliBackend === 'feishu-sync'
+        ? runBridgeRaw(python, payload)
+        : payload.actions ? impl.actions(capturedSettings, payload.actions) : impl.enrich(capturedSettings, payload)
+      const requestedGuid = settings.managedTasklist.guid || previous.guid || (capturedSettings.cliBackend === 'lark-cli' ? settings.larkTasklistGuid : '') || ''
       // Legacy installations retain their single known destination, never guess among multiple lists.
       const legacy = [...new Set(state.tasks.map(task => task.tasklistGuid).filter(Boolean))]
       const guid = requestedGuid || (legacy.length === 1 ? legacy[0] : '')
@@ -3346,14 +3080,14 @@ function createSyncEngine(ctx) {
       const token = previous.createToken || randomUUID()
       state.managedTasklist = { ...previous, createToken: token, status: 'checking', errors: [] }
       await persistState()
-      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) {
+      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) {
         state.managedTasklist = { ...previous, status: 'uninitialized', errors: [] }
         await persistState()
         return { ok: false, error: '配置已变化，尚未发起清单初始化' }
       }
-      const result = await runBridge(python, { actions: [{ op: 'ensure_tasklist', ...(guid ? { guid } : {}), name: capturedSettings.managedTasklist.name, create_token: token }] })
+      const result = await managedBridge({ actions: [{ op: 'ensure_tasklist', ...(guid ? { guid } : {}), name: capturedSettings.managedTasklist.name, create_token: token }] })
       const list = result.actions?.[0]
-      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) return { ok: false, error: '配置已变化或插件已重载，请重新检查清单' }
+      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== signature) return { ok: false, error: '配置已变化或插件已重载，请重新检查清单' }
       if (!list?.ok || !list.guid) {
         const error = list?.error || result.errors?.join('; ') || '任务清单初始化失败'
         state.managedTasklist = { ...state.managedTasklist, status: list?.unknownDelivery || (!list && !guid) ? 'unknown' : 'failed', errors: [error], checkedAt: nowMs() }
@@ -3369,24 +3103,50 @@ function createSyncEngine(ctx) {
       const expectedSignature = schemaSignature(capturedSettings, capturedWorkspaces)
       const fields = tasklistFields(capturedSettings, capturedWorkspaces)
       // Existing workspace fields may be text/single/multi-select; preserve their type.
-      const definitions = await runBridge(python, { fields: [list.guid] })
+      const definitions = await managedBridge({ fields: [list.guid] })
       if (definitions.errors?.length || !Array.isArray(definitions.fields?.[list.guid])) throw new Error(definitions.errors?.join('; ') || '字段定义读取不完整')
-      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，取消过期字段初始化' }
+      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，取消过期字段初始化' }
+      // A lost create receipt is not permission to create the same field again.
+      // Reconcile only against a complete authoritative definition list.
+      const pending = previous.pendingFieldChecks
+      if (pending && (pending.guid !== list.guid || pending.backend !== capturedSettings.cliBackend)) {
+        const error = '另一后端/清单仍有字段创建未对账，请先核对原清单，不能切换后重建'
+        state.managedTasklist = { ...state.managedTasklist, status: 'unknown', errors: [error] }
+        await persistState()
+        return { ok: false, error }
+      }
+      const unresolved = [...new Set([...(previous.unknownFields || []), ...(pending?.names || [])])].filter(name => definitions.fields[list.guid].filter(row => row.name === name).length !== 1)
+      if (unresolved.length) {
+        const error = '字段创建回执不明，请先核对：' + unresolved.join('、')
+        state.managedTasklist = { ...state.managedTasklist, status: 'unknown', unknownFields: unresolved, errors: [error] }
+        await persistState()
+        return { ok: false, error }
+      }
       const workspace = fields.find(row => row.key === 'workspace')
       const matches = definitions.fields[list.guid].filter(row => row.name === workspace.name)
       if (matches.length === 1 && workspace.accepts.includes(matches[0].type)) workspace.type = matches[0].type
       // Initialization is the trusted setup path; it must not be blocked by its own 'checking' status.
-      const checked = await runBridgeRaw(python, { actions: fields.map(row => ({ op: 'ensure_custom_field', tasklist: list.guid, name: row.name, type: row.type, accepted_types: row.accepts, options: row.options || [] })) })
-      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '字段检查期间配置已变化，请重新检查' }
+      // Durable create intent precedes every possible field POST; an interrupted or
+      // superseded batch must reconcile this intent before any field is recreated.
+      state.managedTasklist.pendingFieldChecks = { backend: capturedSettings.cliBackend, guid: list.guid, names: fields.filter(field => !definitions.fields[list.guid].some(row => row.name === field.name)).map(field => field.name) }
+      await persistState()
+      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '字段初始化前配置已变化，请核对创建意图' }
+      const checked = await managedBridge({ actions: fields.map(row => ({ op: 'ensure_custom_field', tasklist: list.guid, name: row.name, type: row.type, accepted_types: row.accepts, options: row.options || [] })) })
+      const unresolvedReceipts = fields.filter((field, index) => !checked.actions?.[index] || checked.actions[index].unknownDelivery).map(field => field.name)
+      state.managedTasklist.unknownFields = unresolvedReceipts
+      state.managedTasklist.pendingFieldChecks = unresolvedReceipts.length ? { backend: capturedSettings.cliBackend, guid: list.guid, names: unresolvedReceipts } : null
+      await persistState()
+      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '字段检查期间配置已变化，请重新检查' }
       const errors = (checked.actions || []).filter(row => !row.ok).map(row => row.error || '字段初始化失败')
       if (!checked.ok || checked.actions?.length !== fields.length) errors.push(checked.errors?.join('; ') || '字段初始化返回不完整')
       /* Duplicate/hidden legacy options only make that one value unwritable; keep the field usable. */
       const warnings = (checked.actions || []).flatMap(row => Array.isArray(row.warnings) ? row.warnings : [])
-      state.managedTasklist = { ...state.managedTasklist, status: errors.length ? 'failed' : 'ready', checkedAt: nowMs(), schemaVersion: TASKLIST_SCHEMA_VERSION, signature: expectedSignature, fields: (checked.actions || []).map((row, i) => ({ key: fields[i]?.key, name: fields[i]?.name, guid: row.guid, type: row.type, ok: row.ok, warning: (row.warnings || []).join('；') || null, error: row.error })), errors, warnings }
+      const unknownFields = (checked.actions || []).filter(row => row.unknownDelivery).map(row => row.name).filter(Boolean)
+      state.managedTasklist = { ...state.managedTasklist, backend: capturedSettings.cliBackend, unknownFields, status: unknownFields.length ? 'unknown' : errors.length ? 'failed' : 'ready', checkedAt: nowMs(), schemaVersion: TASKLIST_SCHEMA_VERSION, signature: expectedSignature, fields: (checked.actions || []).map((row, i) => ({ key: fields[i]?.key, name: fields[i]?.name, guid: row.guid, type: row.type, ok: row.ok, warning: (row.warnings || []).join('；') || null, error: row.error })), errors, warnings }
       remoteCache.fields.delete(list.guid)
       state.feishuFields[list.guid] = {}
       await persistState()
-      if (lifecycleDisposed || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，请按新配置重新检查' }
+      if (lifecycleDisposed || capturedSettings.cliBackend !== settings.cliBackend || schemaSignature(settings, workspaces().map(row => row.title)) !== expectedSignature) return { ok: false, error: '配置已变化，请按新配置重新检查' }
       return { ok: !errors.length, guid: list.guid, errors, error: errors.join('; ') }
     })().catch(async error => {
       state.managedTasklist = { ...(state.managedTasklist || {}), status: 'failed', errors: [safeSyncDetail(error?.message || error)], checkedAt: nowMs() }
@@ -4011,7 +3771,7 @@ function createSyncEngine(ctx) {
     if (!field.ok) return field
     const value = task.expectedAt ? formatEta(task.expectedAt, settings.schedule?.timeZone) : ''
     const result = await backend().actions(settings, [
-      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: etaFieldName(), value },
+      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: etaFieldName(), expected_type: 'text', value },
     ])
     const item = (result.actions ?? [])[0]
     if (!item?.ok) return { ok: false, error: item?.error || '写回失败' }
@@ -4032,7 +3792,7 @@ function createSyncEngine(ctx) {
     if (cache[missingKey]) return { ok: true, skipped: 'missing' }
     const value = formatEta(ts, settings.schedule?.timeZone).slice(0, 10)
     const result = await backend().actions(settings, [
-      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name, value },
+      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name, expected_type: 'datetime', value },
     ])
     const item = (result.actions ?? [])[0]
     if (item?.ok) return { ok: true, value }
@@ -4504,9 +4264,12 @@ function createSyncEngine(ctx) {
 
   /** 授权体检：`task list` 是个人令牌专属接口，bot 模式反而读不了，正好当探针。 */
   async function checkAuth() {
+    const selectedBackend = settings.cliBackend
+    const capturedSettings = settings
     /* CLI 可能是刚装的、或用户自己装到了别处：体检前重新找一遍，点「检查」就能认出来。 */
     if (!cli.found) await probeCli()
-    const auth = await backend().check(settings)
+    const auth = await backendFor(selectedBackend).check(capturedSettings)
+    if (lifecycleDisposed || selectedBackend !== settings.cliBackend) return { ok: false, stale: true, detail: '后端已切换，忽略旧授权检查' }
     state.auth = { ...auth, checkedAt: nowMs() }
     /* 联系人接口常有 scope 限制：先把「当前登录用户」的姓名/头像记下来，
        至少本人当负责人、本人写评论时能显示真名和真头像。
@@ -4522,8 +4285,8 @@ function createSyncEngine(ctx) {
     }
     if (lifecycleDisposed) return { ...state.auth, tasklistReady: false, tasklistError: '插件已重载，旧授权检查不再初始化清单' }
     await persistState()
-    /* 受管任务清单是 feishu-sync 后端的能力（走 Python 桥）；官方 lark-cli 后端自己维护固定清单。 */
-    if (state.auth.ok && settings.cliBackend === 'feishu-sync') {
+    /* 保留 main 的受管清单契约；只替换 IO 适配器，不跳过字段校验。 */
+    if (state.auth.ok && state.auth.permission !== false) {
       const initialized = await ensureManagedTasklist({ force: true })
       state.auth.tasklistReady = initialized.ok
       state.auth.tasklistError = initialized.error || ''
@@ -4999,6 +4762,7 @@ function createSyncEngine(ctx) {
     /* 已完成一律不从飞书拉：那些是历史数据，会把列表撑爆，也和「今天做什么」无关。
        本地完成的任务在下面单独保留。 */
     const result = await backend().listTasks(settings, settings.tasks.includeCompleted)
+    if (lifecycleDisposed || backendId !== settings.cliBackend) return { ok: false, stale: true, detail: '后端已切换，忽略旧任务同步' }
     if (!result.ok) {
       // 任务接口同时是授权探针：失败原因直接写进 auth，面板才知道该让人去授权还是去装 CLI。
       state.auth = {
@@ -5030,6 +4794,7 @@ function createSyncEngine(ctx) {
     }
     const previous = new Map(state.tasks.map((task) => [task.id, task]))
     await enrichRemote(list)
+    if (lifecycleDisposed || backendId !== settings.cliBackend) return { ok: false, stale: true, detail: '后端已切换，取消旧任务快照' }
     const next = list.map((raw) => {
       const task = normalizeTask(raw, previous)
       const local = state.tasks.find((item) => item.id === task.id) || previous.get(task.id)
@@ -5062,6 +4827,7 @@ function createSyncEngine(ctx) {
       /* 只留「我们自己在面板里标完成的」或「曾经开过工会话的」，
          飞书里那 190 多条历史已完成不该被拉进列表 */
       && (task.reopenPending || task.reopenAwaitingList || task.completedLocally === true || Boolean(bindings[task.id])))
+    if (lifecycleDisposed || backendId !== settings.cliBackend) return { ok: false, stale: true, detail: '后端已切换，取消旧任务发布' }
     const mergedTasks = kept.concat(localDone)
     const audited = auditBindings(mergedTasks)
     /* 本轮同步前就记过编号的任务：只有这些才可以「按本地编号改飞书标题」。
@@ -5836,6 +5602,8 @@ function createSyncEngine(ctx) {
    * 把当前会话「变成」一条飞书任务；followUp 保留原任务绑定并建立来源关系。
    */
   async function createTaskFromSession(sessionId, input = {}) {
+    const selectedBackend = settings.cliBackend
+    const backendChanged = () => lifecycleDisposed || selectedBackend !== settings.cliBackend
     const id = asString(sessionId).trim()
     const summary = asString(input.summary ?? input.title).trim()
     if (!id) return { ok: false, error: '缺少 sessionId' }
@@ -5866,16 +5634,12 @@ function createSyncEngine(ctx) {
         if (cwd) creationWorkspace = await registry?.resolveByPath?.(cwd)
       } catch { /* 无上下文时不猜项目 */ }
     }
-    /* 受管任务清单只在 feishu-sync 后端走 Python 桥初始化；官方 lark-cli 后端由 createTask 自己落清单。 */
-    let managedTasklistGuid = ''
-    if (settings.cliBackend === 'feishu-sync') {
-      const initialized = await ensureManagedTasklist()
-      if (!initialized.ok) return { ok: false, error: '任务清单未就绪：' + (initialized.error || initialized.errors?.join('; ')) }
-      managedTasklistGuid = initialized.guid || settings.managedTasklist?.guid || ''
-      if (settings.managedTasklist?.enabled !== false && managedTasklistGuid !== settings.managedTasklist?.guid) return { ok: false, error: '创建前受管清单配置已变化，请重试' }
-      if (!managedTasklistGuid) return { ok: false, error: '请配置受管任务清单 GUID，不能推测新任务归属' }
-    }
-
+    if (backendChanged()) return { ok: false, error: '后端已切换，尚未创建任务，请重试' }
+    const initialized = await ensureManagedTasklist()
+    if (backendChanged()) return { ok: false, error: '后端已切换，尚未创建任务，请重试' }
+    if (!initialized.ok) return { ok: false, error: '任务清单未就绪：' + (initialized.error || initialized.errors?.join('; ')) }
+    const managedTasklistGuid = initialized.guid || settings.managedTasklist?.guid || ''
+    if (settings.managedTasklist?.enabled !== false && (!managedTasklistGuid || managedTasklistGuid !== settings.managedTasklist?.guid)) return { ok: false, error: '创建前受管清单配置已变化，请重试' }
     let { assignee, tasklistGuid } = defaultsFromState()
     /* 官方 lark-cli 刚装好/还没同步过任务时，历史里推不出负责人。此时默认当前登录用户：
        否则建出来的任务没有负责人，也不会出现在飞书「我的任务」列表里。 */
@@ -5885,26 +5649,36 @@ function createSyncEngine(ctx) {
     /* feishu-sync 后端：受管清单是唯一权威，别用历史任务里碰巧看到的清单。 */
     if (managedTasklistGuid) tasklistGuid = managedTasklistGuid
     const description = asString(input.description).trim()
-    const created = await backend().createTask(settings, { summary, description, assignee })
+    const createBackend = backendFor(selectedBackend)
+    const createSettings = settings
+    const created = await createBackend.createTask(createSettings, { summary, description, assignee, tasklistGuid: managedTasklistGuid })
     if (!created.ok) return { ok: false, error: `创建任务失败：${asString(created.detail).slice(-400)}` }
     const guid = created.guid
+    const stopAfterCreate = async () => {
+      if (!state.tasks.some(task => task.id === guid)) state.tasks.unshift({ id: guid, title: summary, description, tasklistGuid: created.tasklistGuid || managedTasklistGuid, done: false, sessionId: boundTask ? null : id, members: [], customFields: [], meta: {}, docs: extractDocLinks(description), creationBackend: selectedBackend, tasklistSyncPending: true })
+      await persistState()
+      return { ok: false, partial: true, taskId: guid, error: '任务已创建，但后端/配置已切换；已保存回执，勿重复创建，请核对原后端任务' }
+    }
+    if (backendChanged() || settings.managedTasklist?.guid !== createSettings.managedTasklist?.guid) return stopAfterCreate()
 
     /* 新建任务也套上 T<n>- 前缀和表情，和面板改名、AI 起名保持同一套规则。 */
     const draftNo = taskNo(undefined)
     let finalTitle = decorateTitle(summary, { no: draftNo }, description)
     if (finalTitle !== summary) {
-      const renamed = await backend().updateTask(settings, guid, { summary: finalTitle })
+      const renamed = await createBackend.updateTask(createSettings, guid, { summary: finalTitle })
       if (!renamed.ok) finalTitle = summary
     }
 
     /* 老后端（feishu-sync）建完任务再补一次加入清单；官方 lark-cli 后端在 createTask 里已经带上清单。
        失败要如实回报，不能假装已经归属清单。 */
+    if (backendChanged()) return stopAfterCreate()
     let tasklistError = ''
     if (!created.tasklistGuid && managedTasklistGuid) {
-      const bridged = await backend().actions(settings, [{ op: 'add_tasklist', task: guid, tasklist: managedTasklistGuid }])
+      const bridged = await createBackend.actions(createSettings, [{ op: 'add_tasklist', task: guid, tasklist: managedTasklistGuid }])
       const action = (bridged.actions ?? [])[0]
       if (!bridged.ok || !action?.ok) tasklistError = action?.error || bridged.errors?.join('; ') || '加入清单失败'
     }
+    if (backendChanged()) return stopAfterCreate()
     if (tasklistError) {
       state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid: '', intendedTasklistGuid: managedTasklistGuid, tasklistSyncPending: true, tasklistError, done: false, members: [], customFields: [], meta: {}, docs: extractDocLinks(description) })
       await persistState()
@@ -5924,9 +5698,12 @@ function createSyncEngine(ctx) {
     const updated = updateRelations(state.relations, state.tasks, { ...relationInput, taskId: guid })
     if (updated.ok) state.relations = updated.edges
     await persistState()
+    if (backendChanged()) return stopAfterCreate()
     const relationRemote = updated.ok ? await writeTaskRelations(guid) : { ok: false, error: updated.error }
     /* 避免本次全量同步的自动开工副作用；新任务已可在面板手动开工。 */
+    if (backendChanged()) return stopAfterCreate()
     await syncTasks()
+    if (backendChanged()) return stopAfterCreate()
     const task = state.tasks.find((item) => item.id === guid)
     if (task && !boundTask) {
       await linkTask(guid, id, 'current')
@@ -5954,6 +5731,7 @@ function createSyncEngine(ctx) {
       })
       await persistState()
     }
+    if (backendChanged()) return stopAfterCreate()
     let aiRelations = null
     if (input.autoRelate === true) {
       aiRelations = await suggestTaskRelations(guid)
@@ -5963,6 +5741,7 @@ function createSyncEngine(ctx) {
       state.workspaceLinks[guid] = { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title, boundAt: nowMs(), titleSyncedAt: 0, stale: false }
     }
     await persistState()
+    if (backendChanged()) return stopAfterCreate()
     if (creationWorkspace) void queueWorkspaceWrite(guid)
     return { ok: true, taskId: guid, title: finalTitle, bound: !boundTask, workspace: creationWorkspace ? { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title } : null, relations: relationView(guid), remote: relationRemote, aiRelations }
   }
@@ -6437,7 +6216,7 @@ function createSyncEngine(ctx) {
     if (!task.tasklistGuid) return { ok: false, error: '任务没有清单，处理状态仅本地保存' }
     const result = await backend().actions(settings, [
       { op: 'ensure_custom_field', tasklist: task.tasklistGuid, name: '处理状态', options: ['正常', '挂起'] },
-      { op: 'set_custom_field', task: task.id, tasklist: task.tasklistGuid, name: '处理状态', value: entry.active ? '挂起' : '正常' },
+      { op: 'set_custom_field', task: task.id, tasklist: task.tasklistGuid, name: '处理状态', expected_type: 'single_select', value: entry.active ? '挂起' : '正常' },
     ])
     const error = result.actions?.filter((item) => !item.ok).map((item) => item.error).join('; ') || result.errors?.join('; ')
     return { ok: result.ok && !error, error }
@@ -7752,6 +7531,7 @@ bucket 只能从枚举里选：
         task: task.id,
         tasklist: listGuid,
         name: settings.taskFields.doc || '文档',
+        expected_type: 'text',
         value: docFieldValue(task),
       },
     ])
@@ -8522,7 +8302,7 @@ bucket 只能从枚举里选：
     /* 统一走 backend 抽象：官方 lark-cli 直接打自定义字段接口，内部 CLI 走 Python 桥。 */
     const result = await backend().actions(settings, [
       { op: 'ensure_custom_field', tasklist: listGuid, name: fieldName, options },
-      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, value: want },
+      { op: 'set_custom_field', task: task.id, tasklist: listGuid, name: fieldName, expected_type: 'single_select', value: want },
     ])
     const ensure = (result.actions ?? [])[0]
     const applied = (result.actions ?? [])[1]
@@ -8843,7 +8623,7 @@ bucket 只能从枚举里选：
 
   /** 给任务写评论（模型工具 feishu_task_comment 用）。 */
   async function commentTask(taskId, text) {
-    const result = await backend().comment(settings, asString(taskId), asString(text))
+    const result = await writeTaskComment(asString(taskId), asString(text))
     return result.ok ? { ok: true } : { ok: false, error: asString(result.detail).slice(-400) }
   }
 

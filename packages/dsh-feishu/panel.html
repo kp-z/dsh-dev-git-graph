@@ -4620,7 +4620,7 @@
   /* ---------------- 渲染：飞书准备卡 ---------------- */
 
   function backendOf() {
-    var chosen = (app.snap && app.snap.cli && app.snap.cli.backend) || (app.settings && app.settings.cliBackend) || 'lark-cli';
+    var chosen = (app.snap && app.snap.cli && app.snap.cli.backend) || (app.settings && app.settings.cliBackend) || 'feishu-sync';
     return chosen === 'feishu-sync' ? 'feishu-sync' : 'lark-cli';
   }
 
@@ -4676,7 +4676,7 @@
     clear(body);
     body.appendChild(el('p', {
       'class': 'muted small',
-      text: '默认用飞书官方 lark-cli；公司内部 CLI 收在下面的「高级」里。'
+      text: '可选飞书官方 lark-cli；保留当前后端与授权，内部 CLI 入口在下面的「高级」里。'
     }));
     body.appendChild(renderCliChoice(PRIMARY_CLI, st));
 
@@ -4890,7 +4890,7 @@
       app.installLog = installLogText(data && data.steps) || ((data && data.error) || '');
       if (data && data.settings) app.settings = data.settings;
       if (data && data.cli) app.snap.cli = data.cli;
-      var currentBackend = (app.settings && app.settings.cliBackend) || 'lark-cli';
+      var currentBackend = (app.settings && app.settings.cliBackend) || 'feishu-sync';
       var staleServer = !!backendId && backendId !== currentBackend &&
         (!data || data.backend !== backendId);
       if (staleServer) {
@@ -4973,7 +4973,7 @@
       cliIndexUrl: String(($('cliIndexUrl') || {}).value || '').trim(),
     };
     var nextPath = String(($('cliPathInput') || {}).value || '').trim();
-    if (backend === 'lark-cli') payload.larkCliPath = nextPath || 'lark-cli';
+    if (backend === 'lark-cli') payload.larkCliPath = nextPath || 'feishu-sync';
     else payload.cliPath = nextPath || 'feishu-sync-cli';
 
     api('settings', payload).then(function (data) {

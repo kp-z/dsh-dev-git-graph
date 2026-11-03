@@ -14,7 +14,7 @@ const bridgeMock=async(_,payload)=>{
  return {ok:true,actions:payload.actions.map((a,i)=>({ok:!failField||i!==2,guid:'field-'+i,type:a.type,warnings:a.name==='优先级'?['同名可见选项重复，写入这些值会被拒绝：P0']:undefined,error:failField&&i===2?'wrong type':undefined}))}
 }
 const context={
- settings:{managedTasklist:{enabled:true,name:DEFAULT_TASKLIST_NAME,guid:''},taskFields:{}},
+ settings:{cliBackend:'feishu-sync',managedTasklist:{enabled:true,name:DEFAULT_TASKLIST_NAME,guid:''},taskFields:{}},
  state:{tasks:[],managedTasklist:{},feishuFields:{}}, lifecycleDisposed:false,
  schemaSignature,tasklistFields,TASKLIST_SCHEMA_VERSION,randomUUID:()=> 'create-token',nowMs:Date.now,
  resolvePython:()=> 'fake-python',resolveCli:()=> 'fake-cli',workspaces:()=> [{title:'A'}],
@@ -53,6 +53,21 @@ context.settings.taskFields={eta:'Changed during request'}
 release()
 assert.equal((await racing).ok,false,'Changed schema cannot become ready')
 assert.notEqual(context.state.managedTasklist.status,'ready')
+// 同一状态机走官方后端：不能加载 Python，也不能跳过完整字段检查。
+context.settings.cliBackend='lark-cli'
+context.backendFor=()=>({actions:async(_,actions)=>bridgeMock(null,{actions}),enrich:async(_,payload)=>bridgeMock(null,payload)})
+context.resolvePython=()=>{throw new Error('official backend must not resolve Python')}
+const beforeLark=calls.length
+assert.equal((await context.ensureManagedTasklist({force:true})).ok,true)
+assert.equal(context.state.managedTasklist.backend,'lark-cli')
+assert.equal(context.state.managedTasklist.fields.length,12)
+assert.ok(calls.length>beforeLark)
+// 丢失的字段创建回执必须先通过完整定义读取对账，缺字段时不得重发 CREATE。
+context.state.managedTasklist.unknownFields=['未确认字段']
+const beforeUnknown=calls.length
+assert.equal((await context.ensureManagedTasklist({force:true})).ok,false)
+assert.equal(context.state.managedTasklist.status,'unknown')
+assert.ok(calls.slice(beforeUnknown).every(payload=>!payload.actions?.some(a=>a.op==='ensure_custom_field')))
 // Execute the actual write gate separately, with no remote API.
 // 集成后闸门逻辑抽成了 managedFieldWriteBlocked（backend().actions 也复用它），两个函数一起取。
 const gateHelper=source.match(/  function managedFieldWriteBlocked\(actions\) \{[\s\S]*?\n  }/)[0]

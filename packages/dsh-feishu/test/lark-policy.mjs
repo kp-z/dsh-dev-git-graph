@@ -12,12 +12,12 @@
  * （2026-11-01 就是因为继承 DSH_HOME 再 rm 把真实 ~/.dsh 删了，见 isolatedHome.mjs）。
  */
 import { createServer } from 'node:http'
-import { chmod, mkdtemp, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isolatedHome } from './isolatedHome.mjs'
 
-await isolatedHome('dsh-feishu-lark-policy-')
+const HOME = await isolatedHome('dsh-feishu-lark-policy-')
 const BIN = await mkdtemp(join(tmpdir(), 'dsh-feishu-lark-policy-bin-'))
 /* 必须在设置 DSH_HOME 之后再加载插件：index.js 在模块顶层读这个变量。 */
 const { apply } = await import('../index.js')
@@ -65,6 +65,8 @@ const ctx = {
   webServer: { register: (route) => (routes.push(route), () => {}) },
 }
 
+await mkdir(join(HOME, 'dsh-feishu'), { recursive: true })
+await writeFile(join(HOME, 'dsh-feishu', 'settings.json'), JSON.stringify({ autoSync: false, cliPath: '/nonexistent/test-only-feishu-sync-cli', titlesMigrated: true }))
 apply(ctx, {})
 
 const startedAt = Date.now()
@@ -98,7 +100,7 @@ try {
   const state = await getJson('/api/state')
   check('状态接口可用', state.status === 200 && !!state.data?.state?.auth)
   const auth = state.data?.state?.auth ?? {}
-  check('默认后端是官方 lark-cli', state.data?.settings?.cliBackend === 'lark-cli')
+  check('默认保留内部后端，升级不切换授权', state.data?.settings?.cliBackend === 'feishu-sync')
   check('CLI 探活能找到 lark-cli', state.data?.state?.clis?.['lark-cli']?.found === true)
 
   /* 默认已是 lark-cli：先切到内部后端，再切回 lark，验证「切到 lark 后端」会重新体检，

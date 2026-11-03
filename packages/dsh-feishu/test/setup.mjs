@@ -9,12 +9,12 @@
  * （2026-11-01 就是因为继承 DSH_HOME 再 rm 把真实 ~/.dsh 删了，见 isolatedHome.mjs）。
  */
 import { createServer } from 'node:http'
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isolatedHome } from './isolatedHome.mjs'
 
-await isolatedHome('dsh-feishu-setup-')
+const HOME = await isolatedHome('dsh-feishu-setup-')
 const BIN = await mkdtemp(join(tmpdir(), 'dsh-feishu-setup-bin-'))
 /* 必须在设置 DSH_HOME 之后再加载插件：index.js 在模块顶层读这个变量。 */
 const { apply } = await import('../index.js')
@@ -62,6 +62,8 @@ const ctx = {
   webServer: { register: (route) => (routes.push(route), () => {}) },
 }
 
+await mkdir(join(HOME, 'dsh-feishu'), { recursive: true })
+await writeFile(join(HOME, 'dsh-feishu', 'settings.json'), JSON.stringify({ autoSync: false, cliPath: join(BIN, 'feishu-sync-cli'), managedTasklist: { enabled: false } }))
 apply(ctx, {})
 
 /* boot 是异步的：等路由挂上来再发请求。 */
