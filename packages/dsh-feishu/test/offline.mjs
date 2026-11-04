@@ -4,7 +4,8 @@ import { readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 const cwd = fileURLToPath(new URL('..', import.meta.url))
-const files = readdirSync(new URL('.', import.meta.url)).filter((name) => name.endsWith('.mjs') && !['offline.mjs', 'smoke.mjs'].includes(name)).sort()
+/* isolatedHome.mjs 是隔离助手（没有测试），offline.mjs 自己不跑自己，smoke 要真飞书 CLI。 */
+const files = readdirSync(new URL('.', import.meta.url)).filter((name) => name.endsWith('.mjs') && !['offline.mjs', 'smoke.mjs', 'isolatedHome.mjs'].includes(name)).sort()
 for (const file of files) {
   const result = spawnSync(process.execPath, ['test/' + file], { cwd, stdio: 'inherit' })
   if (result.status !== 0) process.exit(result.status || 1)

@@ -88,6 +88,9 @@
   /* ---------- 基础 ---------- */
   *, *::before, *::after { box-sizing: border-box; }
 
+  /* hidden 属性要压过 .btn / .setup-collapsed 这些显式 display，否则收起不生效 */
+  [hidden] { display: none !important; }
+
   html { -webkit-text-size-adjust: 100%; }
 
   body {
@@ -143,6 +146,9 @@
   /* 配置是任务页的辅助工作区，而不是默认堆叠的卡片墙。 */
   .configuration-area[hidden], .configuration-panel[hidden] { display: none; }
   .configuration-area { min-width: 0; scroll-margin-top: 12px; }
+  /* 配置内容也放进状态卡内部，和认证信息互斥显示；嵌套卡片收一下边框，别越套越厚。 */
+  .setup #configurationArea { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--p-line); }
+  .setup #configurationArea .configuration-panel { background: transparent; border: 0; box-shadow: none; padding: 0; }
   .configuration-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .configuration-tabs { display: flex; flex: 1; gap: 3px; min-width: 0; flex-wrap: wrap; }
   .configuration-tabs button { border: 0; border-radius: 7px; padding: 7px 9px; background: transparent; color: var(--p-text-3); font: inherit; font-size: 12px; cursor: pointer; }
@@ -192,16 +198,7 @@
   .settings-card textarea { width: 100%; min-width: 0; box-sizing: border-box; resize: vertical; padding: 8px 9px; border: 1px solid var(--p-line-strong); border-radius: 7px; color: var(--p-text); background: var(--p-sub); font: inherit; font-size: 12px; }
   .settings-card textarea:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
   .settings-card input:disabled, .settings-card select:disabled { opacity: .45; cursor: not-allowed; }
-  .comments-inbox { margin-top: 14px; border-top: 1px solid var(--p-line); padding-top: 10px; }
-  .comments-inbox-head, .comment-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
-  .comments-inbox-head { margin-bottom: 6px; }
-  .comment-entry { padding: 10px 0; border-bottom: 1px solid var(--p-line); min-width: 0; }
-  .comment-entry:last-child { border-bottom: 0; }
-  .comment-meta { font-size: 11px; color: var(--p-text-2); overflow-wrap: anywhere; }
-  .comment-text { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .comment-note { font-size: 11px; color: var(--p-warn); overflow-wrap: anywhere; }
-  .comment-actions { display: flex; gap: 6px; margin-top: 6px; }
-  .comments-inbox[hidden] { display: none; }
   /* 评论沿卡片内容流展开：细分隔、头像轨道，不再嵌套卡片。 */
   .task-body > .task-card-comments { flex: 1 0 100%; min-width: 0; }
   .task-card-comments { border-top: 1px solid var(--p-line); padding-top: 8px; }
@@ -210,8 +207,12 @@
   .card-comments-toolbar .card-comments-summary { flex: 1; min-width: 90px; color: var(--p-text-3); font-size: 11px; }
   .card-comment { display: flex; gap: 8px; padding: 9px 0; min-width: 0; }
   .card-comment.is-reply { margin-left: 14px; border-left: 1px solid var(--p-line); padding-left: 10px; }
-  .card-comment-avatar { flex: 0 0 22px; width: 22px; height: 22px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--p-sub); color: var(--p-text-2); font-size: 10px; }
+  .card-comment-avatar { position: relative; flex: 0 0 22px; width: 22px; height: 22px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--p-sub); color: var(--p-text-2); font-size: 10px; }
   .card-comment-avatar img { width: 100%; height: 100%; object-fit: cover; }
+  /* 没拿到姓名/照片时的中性人形：open_id 的首字母不是头像，别拿它冒充用户。 */
+  .card-comment-avatar.is-anon { color: var(--p-text-3); }
+  .card-comment-avatar.is-anon::before { content: ""; position: absolute; left: 50%; top: 4px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: currentColor; }
+  .card-comment-avatar.is-anon::after { content: ""; position: absolute; left: 50%; bottom: 3px; width: 12px; height: 6px; margin-left: -6px; border-radius: 6px 6px 0 0; background: currentColor; }
   .card-comment-main { flex: 1; min-width: 0; }
   .card-comment-meta { display: flex; align-items: center; gap: 5px 8px; flex-wrap: wrap; font-size: 11px; }
   .card-comment-author { color: var(--p-text-2); font-weight: 600; }
@@ -231,20 +232,232 @@
   #settingsSummary { font-size: 11px; }
   @media (max-width: 380px) { .setting-group-desc { max-width: 150px; } .configuration-tabs button { padding: 7px; } }
 
-  .panel-header { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
-  .panel-header .statusbar { flex: 1; min-width: 0; }
-  .panel-header > #configurationToggle { flex: 0 0 auto; margin-left: auto; }
+  /* 状态行右侧两个并列按钮：配置 / 认证；同一时间只展开一块内容。 */
+  #setupSummary > #configurationToggle { flex: 0 0 auto; margin-left: auto; }
+  #setupSummary > #authToggle { flex: 0 0 auto; }
+  #configurationToggle[aria-expanded="true"], #authToggle[aria-expanded="true"] { color: var(--p-accent); background: var(--p-accent-weak); }
 
-  /* ---------- 状态条 ---------- */
-  .statusbar {
+  /* ---------- 准备卡（装 CLI → 授权，就绪后折叠成状态行） ---------- */
+  .setup-step {
+    border-top: 1px solid var(--p-line);
+    margin-top: 12px;
+    padding-top: 12px;
+  }
+
+  .setup-step:first-child {
+    border-top: 0;
+    margin-top: 0;
+    padding-top: 0;
+  }
+
+  .setup-step-head {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 6px 16px;
-    padding: 2px 2px 4px;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .setup-idx {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--p-accent-weak);
+    color: var(--p-accent-text);
+    font-size: 11px;
+    font-weight: 600;
+    flex: none;
+  }
+
+  .setup-step.done .setup-idx {
+    background: var(--p-ok-weak);
+    color: var(--p-ok);
+  }
+
+  .setup-title { font-size: 12.5px; font-weight: 600; }
+
+  /* 授权引导：lark-cli 要「建应用 → 授权登录」两步，feishu-sync-cli 只有一步；一步没完成，下一步不出现。 */
+  .auth-guide { margin-top: 10px; }
+
+  .auth-step {
+    border: 1px solid var(--p-line);
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-top: 8px;
+    background: var(--p-card);
+  }
+
+  .auth-step.pending { opacity: .55; }
+
+  .auth-step.active { border-color: var(--p-accent-line); background: var(--p-accent-weak); }
+
+  .auth-step .setup-idx { width: auto; min-width: 18px; padding: 0 5px; border-radius: 9px; }
+
+  .auth-step-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+  .auth-step p.muted { margin: 6px 0 0; line-height: 1.65; }
+
+  .auth-step-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  /* 「下一步」条：整个认证流程只有这一处主按钮。 */
+  .auth-next {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 4px;
+    padding: 10px 12px;
+    border: 1px solid var(--p-line);
+    border-radius: 10px;
+    background: var(--p-sub);
+  }
+  .auth-next.warn { border-color: color-mix(in srgb, var(--p-warn) 45%, var(--p-line)); }
+  .auth-next.ok { border-color: color-mix(in srgb, var(--p-ok) 45%, var(--p-line)); }
+  .personal-steps { margin: 8px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.7; color: var(--p-text-2); }
+  .personal-steps li { margin: 0 0 8px; }
+  .auth-code {
+    margin: 6px 0 0;
+    padding: 7px 9px;
+    border: 1px solid var(--p-line);
+    border-radius: 8px;
+    background: var(--p-sub);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: var(--p-text);
+  }
+  .auth-next-msg { font-size: 12.5px; line-height: 1.5; color: var(--p-text); flex: 1 1 240px; }
+  .auth-next .auth-step-actions { margin-top: 0; flex: 0 0 auto; }
+
+  /* 企业应用 / 个人账号：两种 lark-cli 授权模式 */
+  .auth-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+  .auth-mode-label { font-size: 12px; color: var(--p-text-3); }
+  .auth-mode .btn.active { border-color: var(--p-accent-line); background: var(--p-accent-weak); color: var(--p-accent-text); }
+  .auth-mode-hint { flex: 1 1 100%; font-size: 11.5px; line-height: 1.5; color: var(--p-text-3); }
+
+  .setup-log {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    max-height: 180px;
+    overflow: auto;
+    border: 1px solid var(--p-line);
+    border-radius: 8px;
+    background: var(--p-sub);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--p-text-2);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .setup-advanced { margin-top: 10px; }
+
+  .setup-advanced summary {
+    cursor: pointer;
+    font-size: 11.5px;
+    color: var(--p-text-3);
+    user-select: none;
+  }
+
+  .setup-advanced summary:hover { color: var(--p-text-2); }
+
+  .setup-advanced[open] summary { margin-bottom: 8px; }
+
+  /* 第 1 步里两套 CLI 各占一行：左边名字/状态/说明，右边安装按钮。 */
+  .setup-clirow {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    padding: 9px 11px;
+    border: 1px solid var(--p-line);
+    border-radius: 9px;
+    background: var(--p-sub);
+  }
+
+  .setup-clirow.active {
+    border-color: var(--p-accent-line);
+    background: var(--p-accent-weak);
+  }
+
+  .setup-clirow-main { flex: 1 1 220px; min-width: 0; }
+
+  .setup-clirow-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .setup-clirow-name { font-size: 12px; font-weight: 600; }
+
+  .setup-clirow-meta { margin-top: 3px; }
+
+  .setup-clirow-actions { flex: none; display: flex; align-items: center; gap: 6px; }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+  }
+
+  .field > span { font-size: 11.5px; color: var(--p-text-2); }
+
+  .field input {
+    height: 28px;
+    padding: 0 9px;
+    border: 1px solid var(--p-line-strong);
+    border-radius: 7px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    font: inherit;
+    font-size: 12px;
+  }
+
+  .field input:focus {
+    outline: 2px solid var(--p-accent);
+    outline-offset: 0;
+    border-color: var(--p-accent);
+  }
+
+  .setup-head {
+    gap: 8px;
+    min-width: 0;
+  }
+
+  /* 收起后只留一行状态条：压掉卡片内边距和标题下间距 */
+  .setup.collapsed { padding: 9px 14px; }
+  .setup.collapsed .setup-head { margin-bottom: 0; }
+  .setup.collapsed .setup-head h2 { font-size: 13px; }
+
+  /* 收放行：始终一行，内容多了横向滚动，不换行 */
+  .setup-chips {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px 12px;
+    min-width: 0;
+    overflow-x: auto;
     font-size: 12px;
     color: var(--dsw-alias-label-secondary, var(--p-text-2));
-    min-width: 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .setup-chips::-webkit-scrollbar { display: none; }
+
+  .setup-chips .stat {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   .stat {
@@ -320,12 +533,20 @@
     border-color: var(--p-warn-line);
   }
 
+  /* 中性提示：授权步骤用这个，避免橙色太扎眼。 */
+  .callout.info {
+    background: var(--p-accent-weak);
+    border-color: var(--p-accent-line);
+  }
+
   .callout-title {
     font-size: 12.5px;
     font-weight: 600;
     color: var(--p-warn);
     margin-bottom: 2px;
   }
+
+  .callout.info .callout-title { color: var(--p-accent-text); }
 
   .callout-desc {
     color: var(--dsw-alias-label-secondary, var(--p-text-2));
@@ -360,6 +581,102 @@
     font-size: 12px;
     color: var(--dsw-alias-label-secondary, var(--p-text-2));
     word-break: break-all;
+  }
+
+  .auth-qr-wrap {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .auth-qr-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-top: 8px;
+  }
+
+  .auth-qr-side {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .auth-step-desc {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--p-text-2);
+  }
+
+  .auth-detail {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--p-text-2);
+  }
+
+  .scope-guide {
+    margin-top: 8px;
+    border: 1px solid var(--p-line);
+    border-radius: 8px;
+    background: var(--p-bg-2, rgba(0, 0, 0, 0.02));
+  }
+
+  .scope-guide > summary {
+    cursor: pointer;
+    padding: 6px 10px;
+    font-size: 12px;
+    color: var(--p-text-2);
+  }
+
+  .scope-guide[open] > summary {
+    padding-bottom: 2px;
+    color: var(--p-text-1);
+  }
+
+  .scope-guide .scope-steps {
+    padding: 0 12px 10px 26px;
+  }
+
+  .scope-steps {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+
+  .scope-steps li {
+    margin: 2px 0;
+  }
+
+  .scope-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin: 4px 0 2px;
+  }
+
+  .scope-chip {
+    font-family: var(--p-mono, ui-monospace, monospace);
+    font-size: 11px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--p-line);
+    background: var(--p-bg-1, #fff);
+    color: var(--p-text-2);
+  }
+
+  .auth-qr {
+    display: block;
+    width: 136px;
+    height: 136px;
+    padding: 6px;
+    background: #fff;
+    border: 1px solid var(--p-line);
+    border-radius: 10px;
   }
 
   .link {
@@ -843,8 +1160,12 @@
   }
 
   .insight-charts .insight-chart .chart-title {
-    font-size: 9.5px;
-    color: var(--p-text-3);
+    /* 固定这一行的高度：窄栏里 hero 的总高度不够时，flex 会先把标题压扁，
+       文字被裁成半行，看起来像乱码。 */
+    flex: 0 0 auto;
+    min-height: 12px;
+    font-size: 10.5px;
+    color: var(--p-text-2);
     line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -888,6 +1209,20 @@
     border-radius: 3px;
   }
 
+  /* 窄栏（侧栏/手机）：左右两列挤到图表只剩一百多像素，环图 + 图例会换行，
+     固定 132px 的 hero 又把标题和图例裁掉。这里改成上下堆叠并让图表按内容长高。 */
+  @media (max-width: 500px) {
+    .insight-mid { grid-template-columns: minmax(0, 1fr); }
+    .insight-text { height: auto; min-height: 132px; }
+    .insight-charts { height: auto; min-height: 0; }
+    .insight-charts .insight-chart.is-hero {
+      flex: 0 0 auto;
+      height: auto;
+      max-height: none;
+    }
+    .insight-charts .insight-chart.is-hero .chart-fig { overflow: visible; }
+  }
+
   .chart-switch { flex: 0 0 18px; margin-top: auto; }
 
   /* 每个 tab 自己记住看到第几张图，左右切换只影响当前 tab */
@@ -920,6 +1255,8 @@
   }
 
   .insight-chart .chart-title {
+    flex: 0 0 auto;
+    min-height: 12px;
     font-size: 10px;
     line-height: 1.3;
     color: var(--p-text-3);
@@ -2286,6 +2623,7 @@
   }
 
   .avatar {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2300,6 +2638,11 @@
     color: var(--p-text-2);
     flex: 0 0 auto;
   }
+
+  /* 同上：没有姓名/照片时画人形，不显示 open_id 首字母。 */
+  .avatar.is-anon { color: var(--p-text-3); }
+  .avatar.is-anon::before { content: ""; position: absolute; left: 50%; top: 3px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: currentColor; }
+  .avatar.is-anon::after { content: ""; position: absolute; left: 50%; bottom: 2px; width: 9px; height: 4px; margin-left: -4.5px; border-radius: 5px 5px 0 0; background: currentColor; }
 
   .avatar.lead { border-color: var(--p-accent, #0b5fd8); }
 
@@ -2316,6 +2659,28 @@
   .people-group .avatar:focus-visible, .people-role-icon:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
   .people-group + .people-group { margin-left: 5px; }
   .people-group[aria-label="负责人"] .avatar { border-color: color-mix(in srgb, var(--p-accent) 45%, var(--p-line)); }
+
+  /* 头像悬停姓名：原生 title 有延迟、触屏也没有，统一用一个轻量气泡。 */
+  .avatar-tip {
+    position: fixed;
+    z-index: 60;
+    pointer-events: none;
+    max-width: 240px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--p-text);
+    color: var(--p-card);
+    font-size: 11px;
+    line-height: 1.45;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity .12s ease, transform .12s ease;
+  }
+  .avatar-tip[data-show="1"] { opacity: 1; transform: translateY(0); }
 
   .chip {
     max-width: 100%;
@@ -2459,6 +2824,7 @@
   #filterViewName { min-width: 0; max-width: 100%; flex: 1 1 120px; }
   .filter-summary button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
   .filter-presets button[aria-pressed="true"] { border-color: var(--p-accent-line); color: var(--p-text-1); background: var(--p-bg); }
+  .filter-presets .filter-new-template { width: 24px; min-width: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1; }
   #taskFilterBar { display: block; min-width: 0; }
   #taskFilterBar[hidden] { display: none; }
   .filter-search { display: flex; align-items: center; gap: 8px; font-size: 11px; }
@@ -3018,11 +3384,442 @@
 <div id="toast" class="toast" role="status" aria-live="polite"><span id="toastText"></span></div>
 
 <main class="wrap">
-  <!-- 1. 状态条 -->
-  <header class="panel-header">
-    <div id="statusbar" class="statusbar" aria-live="polite"></div>
-    <button type="button" id="configurationToggle" class="btn btn-ghost btn-sm" aria-expanded="false" aria-controls="configurationArea" title="飞书面板配置">配置</button>
-  </header>
+  <!-- 0. 准备卡：装 CLI → 授权；就绪后只剩一行状态，标题改叫「状态」 -->
+  <section class="card setup" id="setupCard" aria-labelledby="setupTitle">
+    <div class="card-head setup-head" id="setupSummary">
+      <h2 id="setupTitle">准备</h2>
+      <span id="setupChips" class="setup-chips"></span>
+      <button type="button" id="configurationToggle" class="btn btn-ghost btn-xs" aria-expanded="false" aria-controls="configurationArea" title="飞书面板配置">配置</button>
+      <button type="button" id="authToggle" class="btn btn-ghost btn-xs" aria-expanded="true" aria-controls="setupBody" title="飞书认证信息（CLI 安装 / 授权）">认证</button>
+    </div>
+    <div id="setupBody">
+      <div id="staleHost"></div>
+      <div class="setup-step" id="setupCliStep">
+        <div class="setup-step-head">
+          <span class="setup-idx">1</span>
+          <span class="setup-title" id="setupCliTitle">安装 CLI</span>
+          <span class="push"></span>
+          <span id="setupCliBadge"></span>
+        </div>
+        <div id="setupCliBody"></div>
+        <details class="setup-advanced" id="setupAdvanced">
+          <summary>高级：内部 CLI / 自定义安装源 / CLI 路径</summary>
+          <!-- 公司内部 CLI：默认不露出，只在这里出现 -->
+          <div id="setupInternalCli"></div>
+          <label class="field" id="cliIndexField">
+            <span>feishu-sync 私有索引（公司内部 CLI 用，可选）</span>
+            <input id="cliIndexUrl" type="text" spellcheck="false" autocomplete="off" placeholder="https://pypi.example.com/simple">
+          </label>
+          <label class="field" id="cliPathField">
+            <span id="cliPathLabel">当前后端 CLI 绝对路径（装到了别处时用）</span>
+            <input id="cliPathInput" type="text" spellcheck="false" autocomplete="off" placeholder="~/.local/bin/feishu-sync-cli">
+          </label>
+          <div class="btnrow">
+            <button type="button" id="setupSaveAdvanced" class="btn btn-sm">保存并重试</button>
+          </div>
+        </details>
+      </div>
+      <div class="setup-step" id="setupAuthStep">
+        <div class="setup-step-head">
+          <span class="setup-idx">2</span>
+          <span class="setup-title" id="setupAuthTitle">完成飞书授权</span>
+          <span class="push"></span>
+          <span id="authBadge"></span>
+        </div>
+        <div id="authBody"></div>
+      </div>
+    </div>
+    <!-- 配置只在主动打开时显示；草稿控件驻留，不因切换而重建。 -->
+    <section id="configurationArea" class="configuration-area" aria-label="飞书配置" hidden>
+      <div class="configuration-head">
+        <div class="configuration-tabs" role="tablist" aria-label="配置分类">
+          <button id="configTab-settings" type="button" role="tab" data-config-tab="settings" aria-controls="settingsCard" aria-selected="true">同步规则</button>
+          <button id="configTab-auth" type="button" role="tab" data-config-tab="auth" aria-controls="authCard" aria-selected="false" tabindex="-1">授权</button>
+          <button id="configTab-docPrompt" type="button" role="tab" data-config-tab="docPrompt" aria-controls="docPromptCard" aria-selected="false" tabindex="-1">文档生成</button>
+          <button id="configTab-docs" type="button" role="tab" data-config-tab="docs" aria-controls="docsCard" aria-selected="false" tabindex="-1">文档监听</button>
+          <button id="configTab-syncHistory" type="button" role="tab" data-config-tab="syncHistory" aria-controls="syncHistoryCard" aria-selected="false" tabindex="-1">同步记录</button>
+        </div>
+        <button id="configurationClose" type="button" class="btn btn-ghost btn-xs" aria-label="收起配置">收起</button>
+      </div>
+    <section id="docPromptCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docPrompt" hidden>
+      <div class="card-head">
+        <h2 id="docPromptTitle">文档生成 Prompt</h2>
+        <span id="docPromptState" class="push muted"></span>
+      </div>
+      <textarea id="docPrompt" class="prompt-area" rows="7" spellcheck="false"></textarea>
+      <div class="sess-controls">
+        <button id="saveDocPrompt" class="btn btn-primary btn-sm" type="button">保存</button>
+        <button id="resetDocPrompt" class="btn btn-ghost btn-sm" type="button">恢复默认</button>
+      </div>
+      <div class="hint">生成文档时用这段要求重写内容；默认要求「零废话、主体用表格、结构用 Mermaid」。</div>
+    </section>
+
+    <section id="authCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-auth" hidden>
+      <div class="card-head">
+        <h2 id="authTitle">飞书授权</h2>
+      </div>
+      <p class="hint">授权流程已并入页面顶部「准备」卡的第 2 步（状态、二维码与「下一步」都在那里）；这里保留授权页签，方便和同步规则一起切换。</p>
+    </section>
+
+    <!-- 4. 同步设置 -->
+    <section id="settingsCard" class="card configuration-panel settings-card" role="tabpanel" aria-labelledby="configTab-settings">
+      <div class="card-head">
+        <h2 id="settingsTitle">飞书任务同步规则</h2>
+        <span id="settingsSummary" class="hint push"></span>
+      </div>
+
+      <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="autoSync">自动同步</label>
+            <div class="hint">定期更新本地任务与监听文档</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="autoSync" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="syncInterval">同步间隔</label>
+            <div class="hint">自动同步开启后生效</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="syncInterval" data-setting="1" min="1" max="1440" step="1" inputmode="numeric">
+            <span class="unit">分钟</span>
+          </div>
+        </div>
+
+
+        <div class="row">
+          <div class="row-text">
+            <label for="keyword">任务关键词</label>
+            <div class="hint">留空同步全部；填写后只同步匹配任务</div>
+          </div>
+          <div class="row-ctrl grow">
+            <input type="text" id="keyword" data-setting="1" autocomplete="off" spellcheck="false" placeholder="如：周报">
+          </div>
+        </div>
+      </div>
+    <details id="managedTasklistGroup" class="setting-group">
+      <summary><span>受管任务清单</span><span class="setting-group-desc">自动初始化与完整字段检查</span></summary>
+      <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="managedTasklistEnabled">启用受管任务清单</label>
+            <div class="hint">默认启用；授权后初始化清单及所需字段</div>
+          </div>
+          <div class="row-ctrl"><input type="checkbox" id="managedTasklistEnabled" class="switch" data-setting="1" checked></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="managedTasklistName">清单名称</label><div class="hint">自动创建时使用；留空使用「DSH 任务清单」</div></div>
+          <div class="row-ctrl grow"><input type="text" id="managedTasklistName" data-setting="1" autocomplete="off" spellcheck="false" placeholder="DSH 任务清单"></div>
+        </div>
+        <div class="row">
+          <div class="row-text"><label for="managedTasklistGuid">复用清单 GUID</label><div class="hint">留空自动创建或复用旧配置中的单一清单；填写则复用指定清单</div></div>
+          <div class="row-ctrl grow"><input type="text" id="managedTasklistGuid" data-setting="1" autocomplete="off" spellcheck="false" placeholder="留空自动选择"></div>
+        </div>
+      </div>
+      <div class="managed-tasklist-status">
+        <div class="hint">指定清单的已有字段类型不符时不会删除或覆盖。配置通过「保存设置」提交，不会自动触发同步；保存后可点现有「立即同步」重新检查。检查缓存约 10 分钟，配置改动会更新检查签名。</div>
+        <div id="managedTasklistStatus" role="status" aria-live="polite"></div>
+        <div id="managedTasklistIdentity" class="hint"></div>
+        <div id="managedTasklistCheckedAt" class="hint"></div>
+        <ul id="managedTasklistFields" class="managed-tasklist-fields" aria-label="完整字段检查结果"></ul>
+        <ul id="managedTasklistErrors" class="managed-tasklist-errors" aria-label="清单检查错误"></ul>
+      </div>
+    </details>
+      <details class="setting-group">
+        <summary><span>自动开工</span><span class="setting-group-desc">触发范围与并发上限</span></summary>
+        <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="autoStartMode">开工范围</label>
+            <div class="hint">标注任务需在飞书清单填写工作区与触发条件。
+              <div id="wsHint" class="hint-sub"></div>
+            </div>
+          </div>
+          <div class="row-ctrl">
+            <select id="autoStartMode" data-setting="1">
+              <option value="off">关闭</option>
+              <option value="tagged">只开标注过的</option>
+              <option value="all">所有新任务</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="maxAutoStart">每轮自动开工上限</label>
+            <div class="hint">每次同步最多自动开工几个任务</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="maxAutoStart" data-setting="1" min="1" max="20" step="1" inputmode="numeric">
+            <span class="unit">个</span>
+          </div>
+        </div>
+
+        </div>
+      </details>
+      <details class="setting-group">
+        <summary><span>排期与定时</span><span class="setting-group-desc">工作时段、补跑与触发指令</span></summary>
+        <div class="rows">
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schTimeZone">时区</label>
+            <div class="hint">自然语言时间按此时区解析</div>
+          </div>
+          <div class="row-ctrl grow">
+            <input type="text" id="schTimeZone" data-setting="1" autocomplete="off" spellcheck="false" placeholder="Asia/Shanghai">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schWorkStart">工作时段</label>
+            <div class="hint">每日排期范围，格式 HH:mm</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="text" id="schWorkStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="09:00" maxlength="5" inputmode="numeric">
+            <span class="unit">到</span>
+            <input type="text" id="schWorkEnd" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="19:00" maxlength="5" inputmode="numeric">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schQuietStart">免打扰时段</label>
+            <div class="hint">此时段不排任务；两项留空表示不限制</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="text" id="schQuietStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="12:00" maxlength="5" inputmode="numeric">
+            <span class="unit">到</span>
+            <input type="text" id="schQuietEnd" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="13:30" maxlength="5" inputmode="numeric">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schMissPolicy">错过策略</label>
+            <div class="hint">到点没跑成（比如会话还在忙）时怎么补</div>
+          </div>
+          <div class="row-ctrl">
+            <select id="schMissPolicy" data-setting="1">
+              <option value="delay">宽限内补跑</option>
+              <option value="skip">跳过</option>
+              <option value="next">顺延下一次</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schGrace">宽限分钟</label>
+            <div class="hint">选了「宽限内补跑」时，最多晚多久还算数</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="schGrace" data-setting="1" min="0" max="1440" step="5" inputmode="numeric">
+            <span class="unit">分钟</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schCapacity">每日容量</label>
+            <div class="hint">规划今日任务时的总时长上限</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="schCapacity" data-setting="1" min="30" max="1440" step="30" inputmode="numeric">
+            <span class="unit">分钟</span>
+          </div>
+        </div>
+
+        <div class="row setting-prompt-row">
+          <div class="row-text">
+            <label for="schAutomationPrompt">定时触发指令</label>
+            <div class="hint">到点发送到绑定会话。支持 {{title}} / {{list}} / {{workspace}}；留空使用默认指令。</div>
+          </div>
+          <div class="row-ctrl grow">
+            <textarea id="schAutomationPrompt" data-setting="1" rows="3" placeholder="继续这条任务：先制定计划，然后按计划开始执行。"></textarea>
+          </div>
+        </div>
+        </div>
+      </details>
+      <details class="setting-group">
+        <summary><span>写回飞书</span><span class="setting-group-desc">排期与任务时间</span></summary>
+        <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="schWriteBack">排期时间</label>
+            <div class="hint">排期时同步飞书的开始 / 截止时间</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="schWriteBack" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schWriteEta">预期完成写回飞书</label>
+            <div class="hint">同步到清单的「预期完成」列；关闭则仅保存在本地</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="schWriteEta" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schWriteStart">绑定会话时写回开始时间</label>
+            <div class="hint">绑定会话时更新飞书开始时间</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="schWriteStart" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="schWriteEnd">完成时写回结束时间</label>
+            <div class="hint">完成任务时更新清单的「结束时间」列</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="schWriteEnd" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        </div>
+      </details>
+      <details class="setting-group">
+        <summary><span>会话协作</span><span class="setting-group-desc">任务档案、通知与进度评论</span></summary>
+        <div class="rows">
+        <div class="row">
+          <div class="row-text">
+            <label for="contextInjection">绑定时注入任务档案</label>
+            <div class="hint">把状态、人员、清单字段和文档发到会话；关闭后仍可按需查详情</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="contextInjection" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="pushChanges">任务变化推送到会话</label>
+            <div class="hint">标题、状态或文档变化时通知绑定会话；消耗一轮对话，5 分钟最多一条</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="pushChanges" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="autoComment">有实际进展才写回任务评论</label>
+            <div class="hint">仅改文件、提交或测试后写评论，带 AI 标记；闲聊不写，失败下次补发</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="checkbox" id="autoComment" class="switch" data-setting="1">
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="row-text">
+            <label for="autoCommentGap">进度评论最小间隔</label>
+            <div class="hint">限制同一会话的评论频率</div>
+          </div>
+          <div class="row-ctrl">
+            <input type="number" id="autoCommentGap" data-setting="1" min="10" max="3600" step="5" inputmode="numeric">
+            <span class="unit">秒</span>
+          </div>
+        </div>
+        </div>
+      </details>
+      <details id="commentsGroup" class="setting-group">
+        <summary><span>评论协作</span><span class="setting-group-desc">绑定会话内处理留言</span></summary>
+        <div class="rows">
+          <div id="commentsCapabilityHint" class="hint" role="status">正在确认宿主是否支持评论协作…</div>
+          <div class="row">
+            <div class="row-text"><label for="commentEnabled">接收任务评论</label><div class="hint">仅处理已绑定会话的任务；默认关闭，保存后生效</div></div>
+            <div class="row-ctrl"><input type="checkbox" id="commentEnabled" class="switch" data-setting="1" disabled></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><label for="commentOwnerMode">任务负责人留言</label><div class="hint">执行模式会在绑定会话内判断并处理请求</div></div>
+            <div class="row-ctrl"><select id="commentOwnerMode" data-setting="1" disabled><option value="off">不处理</option><option value="execute">处理请求</option></select></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><label for="commentOtherMode">其他人留言</label><div class="hint">仅回复当前任务问题，不执行修改；原生回复关联作者，但不保证 @ 通知（通知协议尚未确认）</div></div>
+            <div class="row-ctrl"><select id="commentOtherMode" data-setting="1" disabled><option value="off">不处理</option><option value="reply">仅回复</option></select></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><label for="commentMaxPerSync">每轮处理上限</label><div class="hint">每次同步最多投递多少条留言</div></div>
+            <div class="row-ctrl"><input type="number" id="commentMaxPerSync" data-setting="1" min="1" max="20" step="1" value="5" inputmode="numeric" disabled><span class="unit">条</span></div>
+          </div>
+          <div class="row">
+            <div class="row-text"><label for="commentMentionMode">回复提及作者</label><div class="hint">默认 @ 作者；原生回复不含 @，仅在旧版权限不可用时手动切换。失败不会换接口重发。</div></div>
+            <div class="row-ctrl"><select id="commentMentionMode" data-setting="1" disabled><option value="task-v1" selected>任务富文本 @ 作者（默认）</option><option value="native">原生回复（不 @）</option></select></div>
+          </div>
+        </div>
+      </details>
+      <details class="setting-group">
+        <summary><span>维护工具</span><span class="setting-group-desc">任务命名与孤儿会话</span></summary>
+      <div class="rows">
+      <div class="row">
+        <div class="row-main">
+          <label for="normalizeNames">统一任务命名</label>
+          <div class="hint">整理为「表情 + T&lt;n&gt;- + 标题」，可重复执行。</div>
+        </div>
+        <button type="button" id="normalizeNames" class="btn btn-ghost btn-sm">执行</button>
+      </div>
+
+      <div class="row">
+        <div class="row-main">
+          <label for="cleanOrphans">清理孤儿会话</label>
+          <div class="hint">查找插件创建但已无关联任务的会话；扫描后再决定是否归档。</div>
+        </div>
+        <button type="button" id="cleanOrphans" class="btn btn-ghost btn-sm">扫描</button>
+      </div>
+
+      </div>
+      </details>
+      <div class="card-foot">
+        <button type="button" id="saveSettings" class="btn btn-primary">保存设置</button>
+        <span id="saveHint" class="saved" role="status" aria-live="polite"></span>
+      </div>
+    </section>
+
+
+    <!-- 5. 文档监听 -->
+    <section id="docsCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docs" hidden>
+      <div class="card-head">
+        <h2 id="docsTitle">文档监听</h2>
+      </div>
+
+      <div class="doc-add">
+        <div class="doc-field">
+          <label for="docUrl">文档链接</label>
+          <input type="url" id="docUrl" autocomplete="off" spellcheck="false"
+            placeholder="https://xxx.feishu.cn/wiki/…">
+        </div>
+        <button type="button" id="docAdd" class="btn btn-primary">添加监听</button>
+      </div>
+
+      <div id="docHint" class="form-error" role="status" aria-live="polite" hidden></div>
+      <div id="docList" class="list"></div>
+    </section>
+
+    <section id="syncHistoryCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-syncHistory" hidden>
+      <div class="card-head">
+        <h2>同步记录</h2>
+        <span id="syncHistorySummary" class="push muted small"></span>
+      </div>
+      <p class="muted small">最近 100 条，最新在前；随页面数据刷新。这里只查看记录，不会触发同步或模型调用。</p>
+      <p class="muted small">纯数据同步是程序化操作，不消耗模型 token；逾期 AI 归因、自动开工和评论协作可能消耗模型 token。下方 AI 数量是尝试或投递次数，不是 token 用量。</p>
+      <div id="syncHistoryList"></div>
+    </section>
+    </section>
+  </section>
 
   <!-- 2.5 Insight：早会视图（本地指标秒出，AI 诊断按需） -->
   <section id="insightCard" class="card insight-card" aria-labelledby="insightTitle" hidden>
@@ -3119,402 +3916,6 @@
     <div id="taskList" class="list"></div>
   </section>
 
-  <!-- 配置只在主动打开时显示；草稿控件驻留，不因切换而重建。 -->
-  <section id="configurationArea" class="configuration-area" aria-label="飞书配置" hidden>
-    <div class="configuration-head">
-      <div class="configuration-tabs" role="tablist" aria-label="配置分类">
-        <button id="configTab-settings" type="button" role="tab" data-config-tab="settings" aria-controls="settingsCard" aria-selected="true">同步规则</button>
-        <button id="configTab-auth" type="button" role="tab" data-config-tab="auth" aria-controls="authCard" aria-selected="false" tabindex="-1">授权</button>
-        <button id="configTab-docPrompt" type="button" role="tab" data-config-tab="docPrompt" aria-controls="docPromptCard" aria-selected="false" tabindex="-1">文档生成</button>
-        <button id="configTab-docs" type="button" role="tab" data-config-tab="docs" aria-controls="docsCard" aria-selected="false" tabindex="-1">文档监听</button>
-        <button id="configTab-syncHistory" type="button" role="tab" data-config-tab="syncHistory" aria-controls="syncHistoryCard" aria-selected="false" tabindex="-1">同步记录</button>
-      </div>
-      <button id="configurationClose" type="button" class="btn btn-ghost btn-xs" aria-label="收起配置">收起</button>
-    </div>
-  <section id="docPromptCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docPrompt" hidden>
-    <div class="card-head">
-      <h2 id="docPromptTitle">文档生成 Prompt</h2>
-      <span id="docPromptState" class="push muted"></span>
-    </div>
-    <textarea id="docPrompt" class="prompt-area" rows="7" spellcheck="false"></textarea>
-    <div class="sess-controls">
-      <button id="saveDocPrompt" class="btn btn-primary btn-sm" type="button">保存</button>
-      <button id="resetDocPrompt" class="btn btn-ghost btn-sm" type="button">恢复默认</button>
-    </div>
-    <div class="hint">生成文档时用这段要求重写内容；默认要求「零废话、主体用表格、结构用 Mermaid」。</div>
-  </section>
-
-  <section id="authCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-auth" hidden>
-    <div class="card-head">
-      <h2 id="authTitle">飞书授权</h2>
-      <span id="authBadge" class="push"></span>
-    </div>
-    <div id="authBody"></div>
-  </section>
-
-  <!-- 4. 同步设置 -->
-  <section id="settingsCard" class="card configuration-panel settings-card" role="tabpanel" aria-labelledby="configTab-settings">
-    <div class="card-head">
-      <h2 id="settingsTitle">飞书任务同步规则</h2>
-      <span id="settingsSummary" class="hint push"></span>
-    </div>
-
-    <div class="rows">
-      <div class="row">
-        <div class="row-text">
-          <label for="autoSync">自动同步</label>
-          <div class="hint">定期更新本地任务与监听文档</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="autoSync" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="syncInterval">同步间隔</label>
-          <div class="hint">自动同步开启后生效</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="syncInterval" data-setting="1" min="1" max="1440" step="1" inputmode="numeric">
-          <span class="unit">分钟</span>
-        </div>
-      </div>
-
-
-      <div class="row">
-        <div class="row-text">
-          <label for="keyword">任务关键词</label>
-          <div class="hint">留空同步全部；填写后只同步匹配任务</div>
-        </div>
-        <div class="row-ctrl grow">
-          <input type="text" id="keyword" data-setting="1" autocomplete="off" spellcheck="false" placeholder="如：周报">
-        </div>
-      </div>
-    </div>
-    <details id="managedTasklistGroup" class="setting-group">
-      <summary><span>受管任务清单</span><span class="setting-group-desc">自动初始化与完整字段检查</span></summary>
-      <div class="rows">
-        <div class="row">
-          <div class="row-text">
-            <label for="managedTasklistEnabled">启用受管任务清单</label>
-            <div class="hint">默认启用；授权后初始化清单及所需字段</div>
-          </div>
-          <div class="row-ctrl"><input type="checkbox" id="managedTasklistEnabled" class="switch" data-setting="1" checked></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="managedTasklistName">清单名称</label><div class="hint">自动创建时使用；留空使用「DSH 任务清单」</div></div>
-          <div class="row-ctrl grow"><input type="text" id="managedTasklistName" data-setting="1" autocomplete="off" spellcheck="false" placeholder="DSH 任务清单"></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="managedTasklistGuid">复用清单 GUID</label><div class="hint">留空自动创建或复用旧配置中的单一清单；填写则复用指定清单</div></div>
-          <div class="row-ctrl grow"><input type="text" id="managedTasklistGuid" data-setting="1" autocomplete="off" spellcheck="false" placeholder="留空自动选择"></div>
-        </div>
-      </div>
-      <div class="managed-tasklist-status">
-        <div class="hint">指定清单的已有字段类型不符时不会删除或覆盖。配置通过「保存设置」提交，不会自动触发同步；保存后可点现有「立即同步」重新检查。检查缓存约 10 分钟，配置改动会更新检查签名。</div>
-        <div id="managedTasklistStatus" role="status" aria-live="polite"></div>
-        <div id="managedTasklistIdentity" class="hint"></div>
-        <div id="managedTasklistCheckedAt" class="hint"></div>
-        <ul id="managedTasklistFields" class="managed-tasklist-fields" aria-label="完整字段检查结果"></ul>
-        <ul id="managedTasklistErrors" class="managed-tasklist-errors" aria-label="清单检查错误"></ul>
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>自动开工</span><span class="setting-group-desc">触发范围与并发上限</span></summary>
-      <div class="rows">
-      <div class="row">
-        <div class="row-text">
-          <label for="autoStartMode">开工范围</label>
-          <div class="hint">标注任务需在飞书清单填写工作区与触发条件。
-            <div id="wsHint" class="hint-sub"></div>
-          </div>
-        </div>
-        <div class="row-ctrl">
-          <select id="autoStartMode" data-setting="1">
-            <option value="off">关闭</option>
-            <option value="tagged">只开标注过的</option>
-            <option value="all">所有新任务</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="maxAutoStart">每轮自动开工上限</label>
-          <div class="hint">每次同步最多自动开工几个任务</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="maxAutoStart" data-setting="1" min="1" max="20" step="1" inputmode="numeric">
-          <span class="unit">个</span>
-        </div>
-      </div>
-
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>排期与定时</span><span class="setting-group-desc">工作时段、补跑与触发指令</span></summary>
-      <div class="rows">
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schTimeZone">时区</label>
-          <div class="hint">自然语言时间按此时区解析</div>
-        </div>
-        <div class="row-ctrl grow">
-          <input type="text" id="schTimeZone" data-setting="1" autocomplete="off" spellcheck="false" placeholder="Asia/Shanghai">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schWorkStart">工作时段</label>
-          <div class="hint">每日排期范围，格式 HH:mm</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="text" id="schWorkStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="09:00" maxlength="5" inputmode="numeric">
-          <span class="unit">到</span>
-          <input type="text" id="schWorkEnd" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="19:00" maxlength="5" inputmode="numeric">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schQuietStart">免打扰时段</label>
-          <div class="hint">此时段不排任务；两项留空表示不限制</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="text" id="schQuietStart" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="12:00" maxlength="5" inputmode="numeric">
-          <span class="unit">到</span>
-          <input type="text" id="schQuietEnd" class="hm-input" data-setting="1" autocomplete="off" spellcheck="false" placeholder="13:30" maxlength="5" inputmode="numeric">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schMissPolicy">错过策略</label>
-          <div class="hint">到点没跑成（比如会话还在忙）时怎么补</div>
-        </div>
-        <div class="row-ctrl">
-          <select id="schMissPolicy" data-setting="1">
-            <option value="delay">宽限内补跑</option>
-            <option value="skip">跳过</option>
-            <option value="next">顺延下一次</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schGrace">宽限分钟</label>
-          <div class="hint">选了「宽限内补跑」时，最多晚多久还算数</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="schGrace" data-setting="1" min="0" max="1440" step="5" inputmode="numeric">
-          <span class="unit">分钟</span>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schCapacity">每日容量</label>
-          <div class="hint">规划今日任务时的总时长上限</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="schCapacity" data-setting="1" min="30" max="1440" step="30" inputmode="numeric">
-          <span class="unit">分钟</span>
-        </div>
-      </div>
-
-      <div class="row setting-prompt-row">
-        <div class="row-text">
-          <label for="schAutomationPrompt">定时触发指令</label>
-          <div class="hint">到点发送到绑定会话。支持 {{title}} / {{list}} / {{workspace}}；留空使用默认指令。</div>
-        </div>
-        <div class="row-ctrl grow">
-          <textarea id="schAutomationPrompt" data-setting="1" rows="3" placeholder="继续这条任务：先制定计划，然后按计划开始执行。"></textarea>
-        </div>
-      </div>
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>写回飞书</span><span class="setting-group-desc">排期与任务时间</span></summary>
-      <div class="rows">
-      <div class="row">
-        <div class="row-text">
-          <label for="schWriteBack">排期时间</label>
-          <div class="hint">排期时同步飞书的开始 / 截止时间</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="schWriteBack" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schWriteEta">预期完成写回飞书</label>
-          <div class="hint">同步到清单的「预期完成」列；关闭则仅保存在本地</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="schWriteEta" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schWriteStart">绑定会话时写回开始时间</label>
-          <div class="hint">绑定会话时更新飞书开始时间</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="schWriteStart" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="schWriteEnd">完成时写回结束时间</label>
-          <div class="hint">完成任务时更新清单的「结束时间」列</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="schWriteEnd" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>会话协作</span><span class="setting-group-desc">任务档案、通知与进度评论</span></summary>
-      <div class="rows">
-      <div class="row">
-        <div class="row-text">
-          <label for="contextInjection">绑定时注入任务档案</label>
-          <div class="hint">把状态、人员、清单字段和文档发到会话；关闭后仍可按需查详情</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="contextInjection" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="pushChanges">任务变化推送到会话</label>
-          <div class="hint">标题、状态或文档变化时通知绑定会话；消耗一轮对话，5 分钟最多一条</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="pushChanges" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="autoComment">有实际进展才写回任务评论</label>
-          <div class="hint">仅改文件、提交或测试后写评论，带 AI 标记；闲聊不写，失败下次补发</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="checkbox" id="autoComment" class="switch" data-setting="1">
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="row-text">
-          <label for="autoCommentGap">进度评论最小间隔</label>
-          <div class="hint">限制同一会话的评论频率</div>
-        </div>
-        <div class="row-ctrl">
-          <input type="number" id="autoCommentGap" data-setting="1" min="10" max="3600" step="5" inputmode="numeric">
-          <span class="unit">秒</span>
-        </div>
-      </div>
-      </div>
-    </details>
-    <details id="commentsGroup" class="setting-group">
-      <summary><span>评论协作</span><span class="setting-group-desc">绑定会话内处理留言</span></summary>
-      <div class="rows">
-        <div id="commentsCapabilityHint" class="hint" role="status">正在确认宿主是否支持评论协作…</div>
-        <div class="row">
-          <div class="row-text"><label for="commentEnabled">接收任务评论</label><div class="hint">仅处理已绑定会话的任务；默认关闭，保存后生效</div></div>
-          <div class="row-ctrl"><input type="checkbox" id="commentEnabled" class="switch" data-setting="1" disabled></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="commentOwnerMode">任务负责人留言</label><div class="hint">执行模式会在绑定会话内判断并处理请求</div></div>
-          <div class="row-ctrl"><select id="commentOwnerMode" data-setting="1" disabled><option value="off">不处理</option><option value="execute">处理请求</option></select></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="commentOtherMode">其他人留言</label><div class="hint">仅回复当前任务问题，不执行修改；原生回复关联作者，但不保证 @ 通知（通知协议尚未确认）</div></div>
-          <div class="row-ctrl"><select id="commentOtherMode" data-setting="1" disabled><option value="off">不处理</option><option value="reply">仅回复</option></select></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="commentMaxPerSync">每轮处理上限</label><div class="hint">每次同步最多投递多少条留言</div></div>
-          <div class="row-ctrl"><input type="number" id="commentMaxPerSync" data-setting="1" min="1" max="20" step="1" value="5" inputmode="numeric" disabled><span class="unit">条</span></div>
-        </div>
-        <div class="row">
-          <div class="row-text"><label for="commentMentionMode">回复提及作者</label><div class="hint">原生回复不含 @；任务富文本 @ 使用已验证的旧版接口，需要旧版评论权限。通知是否送达取决于飞书设置；失败不会换接口重发。</div></div>
-          <div class="row-ctrl"><select id="commentMentionMode" data-setting="1" disabled><option value="native">原生回复（默认）</option><option value="task-v1">任务富文本 @ 作者</option></select></div>
-        </div>
-        <section id="commentsInbox" class="comments-inbox" aria-label="评论收件箱" hidden>
-          <div class="comments-inbox-head"><h2>评论收件箱</h2><button id="commentsRefresh" type="button" class="btn btn-ghost btn-xs">刷新</button><span class="hint">只读账本，不触发同步或处理</span></div>
-          <div id="commentsInboxStatus" class="hint" role="status" aria-live="polite">展开后读取评论记录</div>
-          <div id="commentsList" role="list"></div>
-        </section>
-      </div>
-    </details>
-    <details class="setting-group">
-      <summary><span>维护工具</span><span class="setting-group-desc">任务命名与孤儿会话</span></summary>
-    <div class="rows">
-    <div class="row">
-      <div class="row-main">
-        <label for="normalizeNames">统一任务命名</label>
-        <div class="hint">整理为「表情 + T&lt;n&gt;- + 标题」，可重复执行。</div>
-      </div>
-      <button type="button" id="normalizeNames" class="btn btn-ghost btn-sm">执行</button>
-    </div>
-
-    <div class="row">
-      <div class="row-main">
-        <label for="cleanOrphans">清理孤儿会话</label>
-        <div class="hint">查找插件创建但已无关联任务的会话；扫描后再决定是否归档。</div>
-      </div>
-      <button type="button" id="cleanOrphans" class="btn btn-ghost btn-sm">扫描</button>
-    </div>
-
-    </div>
-    </details>
-    <div class="card-foot">
-      <button type="button" id="saveSettings" class="btn btn-primary">保存设置</button>
-      <span id="saveHint" class="saved" role="status" aria-live="polite"></span>
-    </div>
-  </section>
-
-
-  <!-- 5. 文档监听 -->
-  <section id="docsCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-docs" hidden>
-    <div class="card-head">
-      <h2 id="docsTitle">文档监听</h2>
-    </div>
-
-    <div class="doc-add">
-      <div class="doc-field">
-        <label for="docUrl">文档链接</label>
-        <input type="url" id="docUrl" autocomplete="off" spellcheck="false"
-          placeholder="https://xxx.feishu.cn/wiki/…">
-      </div>
-      <button type="button" id="docAdd" class="btn btn-primary">添加监听</button>
-    </div>
-
-    <div id="docHint" class="form-error" role="status" aria-live="polite" hidden></div>
-    <div id="docList" class="list"></div>
-  </section>
-
-  <section id="syncHistoryCard" class="card configuration-panel" role="tabpanel" aria-labelledby="configTab-syncHistory" hidden>
-    <div class="card-head">
-      <h2>同步记录</h2>
-      <span id="syncHistorySummary" class="push muted small"></span>
-    </div>
-    <p class="muted small">最近 100 条，最新在前；随页面数据刷新。这里只查看记录，不会触发同步或模型调用。</p>
-    <p class="muted small">纯数据同步是程序化操作，不消耗模型 token；逾期 AI 归因、自动开工和评论协作可能消耗模型 token。下方 AI 数量是尝试或投递次数，不是 token 用量。</p>
-    <div id="syncHistoryList"></div>
-  </section>
-  </section>
 </main>
 
 <script>
@@ -3543,6 +3944,8 @@
     lastSig: '',
     skew: 0,              // 宿主时间 - 本机时间
     loginUrl: null,
+    loginExpiresAt: 0,
+    loginStage: '',       // 链接属于哪一步：config=建应用，login=OAuth 授权
     loginNote: '',
     sessions: {},         // task.id → sessionId（开工后立刻显示）
     cardComments: Object.create(null), // 评论历史独立缓存，不参与 taskCardSignature
@@ -3567,10 +3970,15 @@
     insightStatsLoading: false,
     filterOpen: false, // 过滤条是否展开（头部「筛选」按钮控制）
     workspaces: [],       // GET /api/state → 已登记工作区
-    busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false },
+    busy: { auth: false, login: false, check: false, sync: false, save: false, doc: false, install: false, backend: false },
+    installTarget: null, // 正在安装哪个后端：只让那一行按钮显示「处理中…」，另一行只是暂时禁用
+    setupView: '',       // 状态卡里展开哪块：''=收起 / 'auth'=认证信息 / 'config'=配置
+    setupForceAuth: false, // 未就绪时认证信息强制展开，不允许收起
+    installLog: '',      // 一键安装的分步日志
     busyTask: {},
     settingsDirty: false,
     pollTimer: null,
+    authTimer: null,
     savedTimer: null,
     toastTimer: null,
     statusKey: ''
@@ -3652,6 +4060,82 @@
     }, 3000);
   }
 
+  /* ---------------- 头像悬停姓名 ----------------
+     data-tip 就是提示文案；原生 title 的延迟太长，触屏也看不到。 */
+  var avatarTipNode = null
+  var avatarTipTimer = null
+
+  function avatarTipEl() {
+    if (avatarTipNode && avatarTipNode.isConnected) return avatarTipNode
+    avatarTipNode = el('div', { 'class': 'avatar-tip', role: 'tooltip', 'aria-hidden': 'true' })
+    document.body.appendChild(avatarTipNode)
+    return avatarTipNode
+  }
+
+  function placeAvatarTip(target) {
+    if (!avatarTipNode || !target || !target.getBoundingClientRect) return
+    var rect = target.getBoundingClientRect()
+    var gap = 6
+    var width = avatarTipNode.offsetWidth || 0
+    var height = avatarTipNode.offsetHeight || 0
+    var viewport = window.innerWidth || rect.right + width
+    var left = Math.max(6, Math.min(rect.left + rect.width / 2 - width / 2, viewport - width - 6))
+    var top = rect.top - height - gap
+    if (top < 6) top = rect.bottom + gap
+    avatarTipNode.style.left = left + 'px'
+    avatarTipNode.style.top = Math.max(6, top) + 'px'
+  }
+
+  function showAvatarTip(target) {
+    var text = target && target.getAttribute ? target.getAttribute('data-tip') : ''
+    if (!text) return
+    var node = avatarTipEl()
+    node.textContent = String(text)
+    node.setAttribute('aria-hidden', 'false')
+    node.setAttribute('data-show', '1')
+    placeAvatarTip(target)
+  }
+
+  function hideAvatarTip() {
+    if (avatarTipTimer) { clearTimeout(avatarTipTimer); avatarTipTimer = null }
+    if (!avatarTipNode) return
+    avatarTipNode.removeAttribute('data-show')
+    avatarTipNode.setAttribute('aria-hidden', 'true')
+  }
+
+  function avatarTipTargetOf(event) {
+    var node = event && event.target
+    while (node && node !== document.body) {
+      if (node.getAttribute && node.getAttribute('data-tip')) return node
+      node = node.parentNode
+    }
+    return null
+  }
+
+  function wireAvatarTips() {
+    if (wireAvatarTips.done) return
+    wireAvatarTips.done = true
+    document.addEventListener('pointerover', function (event) {
+      var target = avatarTipTargetOf(event)
+      if (!target) return
+      if (avatarTipTimer) clearTimeout(avatarTipTimer)
+      avatarTipTimer = setTimeout(function () { showAvatarTip(target) }, 80)
+    })
+    document.addEventListener('pointerout', function (event) {
+      var target = avatarTipTargetOf(event)
+      if (!target) return
+      var next = event.relatedTarget
+      if (next && target.contains && target.contains(next)) return
+      hideAvatarTip()
+    })
+    document.addEventListener('focusin', function (event) {
+      var target = avatarTipTargetOf(event)
+      if (target) showAvatarTip(target)
+    })
+    document.addEventListener('focusout', hideAvatarTip)
+    window.addEventListener('scroll', hideAvatarTip, true)
+  }
+
   function showSaved(msg) {
     var n = $('saveHint');
     n.textContent = msg || '已保存';
@@ -3729,9 +4213,589 @@
     });
   }
 
-  /* ---------------- 渲染：状态条 ---------------- */
+  /* ---------------- 渲染：状态条（已并入准备卡收放行） ---------------- */
 
   function renderStatus() {
+    renderSetupChips();
+  }
+
+  /* ---------------- 渲染：授权引导 ---------------- */
+
+  /* 把「需要人工去浏览器确认」的动作拆成一张张卡片：当前这步高亮，后面的步骤置灰并等前一步完成。
+     lark-cli 和 feishu-sync-cli 的授权流程不一样，所以两套分开渲染。 */
+
+  /* 授权链接直接渲染成二维码：用飞书 App 扫，不用人手动打开链接。 */
+  function consoleLinkRow(url) {
+    var row = el('div', { 'class': 'auth-link' });
+    row.appendChild(el('span', { text: '开发者后台（权限管理）：' }));
+    row.appendChild(el('a', {
+      'class': 'link',
+      href: url,
+      target: '_blank',
+      rel: 'noreferrer',
+      title: url,
+      text: '打开并开通 scope'
+    }));
+    return row;
+  }
+
+  /* 插件本身不保存应用：用的是 lark-cli 本机配置里的 appId。
+     换过应用/换过账号时，这里必须能一眼看出当前绑的是哪个 id。 */
+  function appIdRow(auth) {
+    var row = el('div', { 'class': 'auth-link' });
+    row.appendChild(el('span', { text: '当前应用：' }));
+    row.appendChild(el('span', {
+      'class': 'mono small',
+      text: (auth && auth.appId) || '未绑定（先完成授权或点「检查授权」）'
+    }));
+    if (auth && auth.consoleUrl) {
+      row.appendChild(el('a', {
+        'class': 'link',
+        href: auth.consoleUrl,
+        target: '_blank',
+        rel: 'noreferrer',
+        text: '开发者后台'
+      }));
+    }
+    return row;
+  }
+
+  var LARK_SCOPES = [
+    'task:task:read', 'task:task:write',
+    'task:tasklist:read', 'task:tasklist:write',
+    'task:custom_field:read', 'task:custom_field:write',
+    'docx:document', 'wiki:wiki', 'drive:drive',
+    'contact:user.base:readonly'
+  ];
+
+  /* 应用没开 scope / 没发布版本时，授权页只会显示「当前无需开通或授权任何权限」。
+     把该做的几步直接铺在面板里，省得用户去猜。 */
+  function larkScopeGuide(auth) {
+    var box = el('details', { 'class': 'scope-guide' });
+    box.appendChild(el('summary', {
+      text: '扫码后提示「当前无需开通或授权任何权限」？点开看怎么开通'
+    }));
+    var stepsEl = el('ol', { 'class': 'scope-steps' });
+
+    var s1 = el('li', {});
+    s1.appendChild(el('span', { text: '打开 ' }));
+    s1.appendChild(el('a', {
+      'class': 'link',
+      href: (auth && auth.consoleUrl) || 'https://open.feishu.cn/app',
+      target: '_blank',
+      rel: 'noreferrer',
+      text: '开发者后台 · 权限管理'
+    }));
+    if (auth && auth.appId) s1.appendChild(el('span', { text: '（应用 ' + auth.appId + '）' }));
+    s1.appendChild(el('span', { text: '，登录建应用的那个飞书账号。' }));
+    stepsEl.appendChild(s1);
+
+    var s2 = el('li', {});
+    s2.appendChild(el('span', { text: '搜索并开通这些权限点（读、写都要）：' }));
+    var chips = el('div', { 'class': 'scope-chips' });
+    LARK_SCOPES.forEach(function (scope) {
+      chips.appendChild(el('span', { 'class': 'scope-chip', text: scope }));
+    });
+    s2.appendChild(chips);
+    stepsEl.appendChild(s2);
+
+    stepsEl.appendChild(el('li', {
+      text: '「版本管理与发布」→ 创建版本 → 申请发布；企业租户可能要管理员审批，通过才生效。'
+    }));
+    stepsEl.appendChild(el('li', {
+      text: '回来点「重新获取授权链接」，扫新码并在页面同意。'
+    }));
+    box.appendChild(stepsEl);
+    return box;
+  }
+
+  function authStepCard(opts) {
+    var card = el('div', { 'class': 'auth-step ' + (opts.state || 'pending') });
+    var head = el('div', { 'class': 'auth-step-head' });
+    head.appendChild(el('span', { 'class': 'setup-idx', text: opts.index }));
+    head.appendChild(el('span', { 'class': 'setup-title', text: opts.title }));
+    head.appendChild(el('span', { 'class': 'push' }));
+    head.appendChild(el('span', {
+      'class': 'badge ' + (opts.state === 'done' ? 'badge-ok' : opts.state === 'active' ? 'badge-warn' : ''),
+      text: opts.state === 'done' ? '已完成' : opts.state === 'active' ? '进行中' : '待办'
+    }));
+    card.appendChild(head);
+    /* 只有当前这一步需要解释；已完成 / 待办的步骤只留标题，页面更干净。 */
+    if (opts.desc && opts.state === 'active') {
+      card.appendChild(el('p', { 'class': 'auth-step-desc', text: opts.desc }));
+    }
+    (opts.children || []).forEach(function (node) {
+      if (node) card.appendChild(node);
+    });
+    return card;
+  }
+
+  /* feishu-sync-cli：一步——点开始授权，浏览器/终端完成个人令牌授权。 */
+  function appendFeishuAuthSteps(guide, auth) {
+    var actions = el('div', { 'class': 'auth-step-actions' });
+    /* 包一层：addEventListener 会把点击事件当参数传进来，别让 force 变成事件对象。 */
+    actions.appendChild(makeButton('开始授权', 'btn btn-primary', '请求中…', app.busy.login, function () {
+      onLogin(false);
+    }));
+    if (app.loginUrl && app.loginStage !== 'config') {
+      actions.appendChild(makeButton('我已完成授权', 'btn', '检查中…', app.busy.check, onCheck));
+      actions.appendChild(makeButton('重新获取授权链接', 'btn btn-ghost btn-sm', '获取中…', app.busy.login, function () {
+        onLogin(true);
+      }));
+    }
+    guide.appendChild(authStepCard({
+      index: '2',
+      state: 'active',
+      title: '完成个人令牌授权',
+      desc: '点「开始授权」，浏览器确认后回来点「我已完成授权」。',
+      children: [
+        actions
+      ]
+    }));
+  }
+
+  /* 官方 lark-cli：两步——先建/选飞书应用（config init），再 OAuth 授权登录（auth login）。 */
+  function appendLarkAuthSteps(guide, auth) {
+    var mode = (app.settings && app.settings.larkAccountMode) === 'individual' ? 'individual' : 'enterprise';
+    var modeRow = el('div', { 'class': 'auth-mode' });
+    modeRow.appendChild(el('span', { 'class': 'auth-mode-label', text: '账号模式' }));
+    [['enterprise', '企业应用'], ['individual', '个人账号']].forEach(function (pair) {
+      var cls = 'btn btn-sm' + (mode === pair[0] ? ' active' : '');
+      modeRow.appendChild(makeButton(pair[1], cls, null, false, function () {
+        onSwitchLarkMode(pair[0]);
+      }));
+    });
+    if (Number((app.snap && app.snap.apiVersion) || 0) < MIN_API_VERSION) {
+      modeRow.appendChild(el('span', { 'class': 'auth-mode-hint', text: '宿主是旧代码：重启 DSH 后才能切换账号模式。' }));
+    }
+    modeRow.appendChild(el('span', {
+      'class': 'auth-mode-hint',
+      text: mode === 'individual' ? '用你本人的飞书账号授权。' : '用企业自建应用，权限要管理员开通。'
+    }));
+
+    var authed = !!auth.ok;
+    var stage = authed ? '' : auth.stage === 'config' ? 'config' : 'login';
+    var hasLink = !!app.loginUrl && app.loginStage === stage;
+    var configState = authed ? 'done' : 'active';
+    var loginState = authed ? (auth.permission === false ? 'active' : 'done') : 'pending';
+
+    /* 应用被租户数据安全策略整体拦截（21001）：发链接、点授权都是死路，只给原因和出口。 */
+    if (auth.policyBlocked || auth.stage === 'blocked') {
+      var blockCard = el('div', { 'class': 'callout warn' });
+      blockCard.appendChild(el('div', { 'class': 'callout-title', text: auth.policyTitle || '租户数据安全策略拦截（21001）' }));
+      blockCard.appendChild(el('div', {
+        'class': 'callout-desc',
+        text: auth.detail || '这个应用调不通任何飞书接口，授权页也会显示「当前无需开通或授权任何权限」。'
+      }));
+      guide.appendChild(authStepCard({
+        index: '2.1',
+        state: 'active',
+        title: '绑定应用并登录 CLI',
+        desc: '应用被拦截，登录授权走不通。',
+        children: [modeRow, blockCard, appIdRow(auth)]
+      }));
+      guide.appendChild(authStepCard({
+        index: '2.2',
+        state: 'pending',
+        title: '确认权限',
+        desc: '先解决 2.1 的拦截，权限才有意义。',
+        children: [el('p', { 'class': 'muted small', text: '先解决 2.1。' })]
+      }));
+      return;
+    }
+
+    /* 2.1：绑定应用 + 登录 CLI。没绑定先建/选应用；绑定完就在这一步把 CLI 登录掉。 */
+    var firstChildren = [modeRow];
+    /* 绑定结果就显示在 2.1 这一步里：换过应用时能立刻看到实际绑的是哪个 id。 */
+    firstChildren.push(appIdRow(auth));
+    guide.appendChild(authStepCard({
+      index: '2.1',
+      state: configState,
+      title: '绑定应用并登录 CLI',
+      desc: authed
+        ? '应用已绑定，CLI 已登录。'
+        : stage === 'config'
+          ? '先绑定一个飞书应用。'
+          : '应用已绑定，点「授权登录」在浏览器完成授权。',
+      children: firstChildren
+    }));
+
+    /* 2.2：确认权限。登录成功不代表能读数据，还要确认应用开通了 task/docs/wiki/drive。 */
+    var loginChildren = [];
+    if (authed) {
+      var okPerm = auth.permission !== false;
+      if (okPerm) {
+        loginChildren.push(el('p', { 'class': 'muted small', text: 'CLI 已登录，任务接口可读，权限已就绪。' }));
+      } else {
+        var permNote = el('div', { 'class': 'callout warn' });
+        permNote.appendChild(el('div', { 'class': 'callout-title', text: '已登录，但应用权限没开全' }));
+        permNote.appendChild(el('div', {
+          'class': 'callout-desc',
+          text: auth.missingScopes ? '缺少 ' + auth.missingScopes : (auth.detail || '去开发者后台开通所需 scope。')
+        }));
+        loginChildren.push(permNote);
+      }
+      if (mode !== 'individual') loginChildren.push(larkScopeGuide(auth));
+    } else {
+      loginChildren.push(el('p', { 'class': 'muted small', text: '先完成 2.1。' }));
+    }
+    guide.appendChild(authStepCard({
+      index: '2.2',
+      state: loginState,
+      title: '确认权限',
+      desc: '登录后确认应用权限已开。',
+      children: loginChildren
+    }));
+  }
+
+  /* ---------------- 认证流程：任何时刻只给一个「下一步」 ---------------- */
+
+  function deriveNext(auth, cliOk) {
+    var backend = backendOf();
+    if (!cliOk) {
+      return { phase: 'install', tone: 'warn', message: backendLabel(backend) + ' 还没安装：先完成上面第 1 步。', label: null };
+    }
+    if (backend === 'lark-cli' && (auth.policyBlocked || auth.stage === 'blocked')) {
+      return { phase: 'blocked', tone: 'warn', message: auth.policyTitle || '应用被租户数据安全策略拦截（21001）：发授权链接也不会成功。', label: '重新检查' };
+    }
+    if (!auth.ok) {
+      if (auth.stage === 'config') {
+        return {
+          phase: 'config', tone: 'info',
+          message: '先绑定飞书应用：点按钮会跑 lark-cli config init，浏览器里创建/选择即可。',
+          label: app.loginUrl ? '重新创建' : '创建应用'
+        };
+      }
+      return {
+        phase: 'login', tone: 'info',
+        message: backend === 'lark-cli'
+          ? '点「飞书登录」直接跑 lark-cli 登录，浏览器里同意即可，插件会自动检测结果。'
+          : '点「开始授权」跑 feishu-sync-cli 授权。',
+        label: app.loginUrl ? (backend === 'lark-cli' ? '重新登录' : '重新授权') : (backend === 'lark-cli' ? '飞书登录' : '开始授权')
+      };
+    }
+    if (auth.permission === false) {
+      return { phase: 'scope', tone: 'warn', message: '已登录，但应用权限还没开全。', label: '检查授权' };
+    }
+    return { phase: 'ready', tone: 'ok', message: '授权已就绪，可以同步任务了。', label: '检查授权' };
+  }
+
+  function nextActionRow(next, auth) {
+    var wrap = el('div', { 'class': 'auth-next ' + (next.tone || 'info') });
+    wrap.setAttribute('data-phase', next.phase);
+    wrap.appendChild(el('span', { 'class': 'auth-next-msg', text: next.message }));
+    var row = el('div', { 'class': 'auth-step-actions' });
+    if (next.phase === 'install') {
+      row.appendChild(makeButton('去安装 CLI', 'btn btn-primary btn-sm', null, false, function () {
+        var target = $('setupCliStep');
+        if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }));
+    } else if (next.phase === 'config' || next.phase === 'login') {
+      row.appendChild(makeButton(next.label, 'btn btn-primary', '执行中…', app.busy.login, function () {
+        onLogin(!!app.loginUrl);
+      }));
+    } else if (next.phase === 'blocked') {
+      row.appendChild(makeButton('重新检查', 'btn', '检查中…', app.busy.check, onCheck));
+    } else {
+      row.appendChild(makeButton(next.label, 'btn btn-ghost', '检查中…', app.busy.check, onCheck));
+    }
+    if (app.loginNote) row.appendChild(el('span', { 'class': 'muted small', text: app.loginNote }));
+    wrap.appendChild(row);
+    return wrap;
+  }
+
+  /* ---------------- 渲染：授权卡 ---------------- */
+
+  function renderAuth() {
+    var auth = (app.snap && app.snap.auth) || {};
+    var ok = !!auth.ok;
+    /* 页面刷新后本地状态会丢：用后端记住的「最近一条链接」恢复，不用重新点一遍。 */
+    if (!ok && !app.loginUrl && auth.pendingUrl) {
+      app.loginUrl = String(auth.pendingUrl);
+      app.loginStage = auth.stage === 'config' ? 'config' : 'login';
+      app.loginExpiresAt = Number(auth.pendingExpiresAt) || 0;
+    }
+    if (!ok && app.loginUrl && app.loginExpiresAt && Date.now() > app.loginExpiresAt) {
+      app.loginUrl = null;
+      app.loginStage = '';
+      app.loginExpiresAt = 0;
+      app.loginNote = '上一条链接已过期，再点按钮会生成新链接。';
+    }
+    var cliOk = !!(app.snap && app.snap.cli && app.snap.cli.found);
+    /* 4 秒静默体检会不停触发渲染；内容没变就整块跳过，避免二维码闪烁。 */
+    var authKey = JSON.stringify([
+      ok, auth.stage, auth.detail, auth.policyBlocked, auth.permission,
+      auth.missingScopes, auth.appId, auth.consoleUrl,
+      app.loginUrl, app.loginStage, app.loginNote,
+      app.busy.login, app.busy.check, backendOf(), cliOk,
+      (app.settings && app.settings.larkAccountMode) || 'enterprise'
+    ]);
+    if (app.authKey === authKey) return;
+    app.authKey = authKey;
+    var authTitle = $('setupAuthTitle');
+    if (authTitle) authTitle.textContent = '飞书授权';
+
+    var badge = $('authBadge');
+    clear(badge);
+    var badgeOk = ok && auth.permission !== false;
+    badge.appendChild(el('span', {
+      'class': 'badge ' + (badgeOk ? 'badge-ok' : 'badge-warn'),
+      text: badgeOk ? '已授权' : auth.policyBlocked ? '被拦截' : ok ? '已登录 · 缺权限' : '需要授权'
+    }));
+
+    var body = $('authBody');
+    clear(body);
+
+    var next = deriveNext(auth, cliOk);
+    body.appendChild(nextActionRow(next, auth));
+    /* 桌面端 window.open 可能被宿主拦掉：把链接和二维码直接放在面板里兜底。 */
+    var linkBox = authLinkBox(auth);
+    if (linkBox) body.appendChild(linkBox);
+
+    if (!ok) {
+      /* CLI 都没有时，授权按钮只会失败，先把人指回第 1 步。 */
+      if (!cliOk) {
+        body.appendChild(el('p', {
+          'class': 'muted',
+          text: backendLabel(backendOf()) + ' 还没装，先完成上面第 1 步。'
+        }));
+        return;
+      }
+      if (auth.detail && !auth.policyBlocked) {
+        body.appendChild(el('p', { 'class': 'auth-detail', text: auth.detail }));
+      }
+
+      var guide = el('div', { 'class': 'auth-guide' });
+      if (backendOf() === 'lark-cli') appendLarkAuthSteps(guide, auth);
+      else appendFeishuAuthSteps(guide, auth);
+      body.appendChild(guide);
+
+      if (app.loginNote) {
+        body.appendChild(el('p', { 'class': 'muted small', text: app.loginNote }));
+      }
+    } else if (auth.permission === false) {
+      var perm = el('div', { 'class': 'callout warn' });
+      perm.appendChild(el('div', { 'class': 'callout-title', text: '已登录，但应用权限没开全' }));
+      perm.appendChild(el('div', {
+        'class': 'callout-desc',
+        text: auth.missingScopes ? '缺少 ' + auth.missingScopes : (auth.detail || '去开发者后台开通所需 scope。')
+      }));
+      body.appendChild(perm);
+      if (backendOf() === 'lark-cli') {
+        var guidePerm = el('div', { 'class': 'auth-guide' });
+        appendLarkAuthSteps(guidePerm, auth);
+        body.appendChild(guidePerm);
+      } else {
+        body.appendChild(larkScopeGuide(auth));
+      }
+
+    } else {
+      var lead = el('div', { 'class': 'auth-ok' });
+      lead.appendChild(el('span', { 'class': 'dot ok' }));
+      lead.appendChild(el('span', {
+        text: backendOf() === 'lark-cli' ? '官方 lark-cli 已登录' : '个人令牌可用'
+      }));
+      body.appendChild(lead);
+
+      if (auth.detail) {
+        body.appendChild(el('p', { 'class': 'muted', text: auth.detail }));
+      }
+      if (auth.checkedAt) {
+        var checked = el('p', { 'class': 'muted small' });
+        checked.appendChild(el('span', { text: '最近检查：' }));
+        checked.appendChild(el('span', {
+          title: fmtAbs(auth.checkedAt),
+          text: fmtRel(auth.checkedAt)
+        }));
+        body.appendChild(checked);
+      }
+
+      if (backendOf() === 'lark-cli') {
+        var guideOk = el('div', { 'class': 'auth-guide' });
+        appendLarkAuthSteps(guideOk, auth);
+        body.appendChild(guideOk);
+      }
+    }
+  }
+
+  /* ---------------- 渲染：飞书准备卡 ---------------- */
+
+  function backendOf() {
+    var chosen = (app.snap && app.snap.cli && app.snap.cli.backend) || (app.settings && app.settings.cliBackend) || 'feishu-sync';
+    return chosen === 'feishu-sync' ? 'feishu-sync' : 'lark-cli';
+  }
+
+  function backendLabel(id) {
+    return id === 'lark-cli' ? '官方 lark-cli' : 'feishu-sync-cli';
+  }
+
+  function setupState() {
+    var s = app.snap || {};
+    var cli = s.cli || {};
+    var auth = s.auth || {};
+    var cliOk = !!cli.found;
+    var authOk = !!auth.ok;
+    return {
+      cli: cli,
+      clis: s.clis || null,
+      auth: auth,
+      cliOk: cliOk,
+      authOk: authOk,
+      ready: cliOk && authOk,
+      backend: backendOf(),
+      done: (cliOk ? 1 : 0) + (authOk ? 1 : 0)
+    };
+  }
+
+  /* 第 1 步默认只给官方 lark-cli；公司内部的 feishu-sync-cli 收在「高级」里，不主动引导安装。 */
+  var PRIMARY_CLI = {
+    id: 'lark-cli',
+    name: '官方 lark-cli',
+    desc: '飞书官方，推荐',
+    installLabel: '安装官方 lark-cli'
+  };
+  var INTERNAL_CLI = {
+    id: 'feishu-sync',
+    name: 'feishu-sync-cli',
+    desc: '公司内部（内网/私有包）',
+    installLabel: '安装内部 feishu-sync-cli'
+  };
+
+  /* 高级设置独立草稿：失焦/切页签/静默检查都不能覆盖。按后端隔离，
+     切端保留各自草稿，但绝不把旧后端输入框的值写到新后端。 */
+  function setupCliDraft(backend) {
+    var drafts = app.setupCliDrafts || (app.setupCliDrafts = {});
+    return drafts[backend] || (drafts[backend] = { dirty: {}, values: {}, revision: 0 });
+  }
+
+  function wireSetupCliSettings() {
+    ['cliPathInput', 'cliIndexUrl'].forEach(function (id) {
+      var input = $(id);
+      if (!input || input.dataset.setupCliBound === '1') return;
+      input.dataset.setupCliBound = '1';
+      input.addEventListener('input', function () {
+        var draft = setupCliDraft(app.setupCliBackend || backendOf());
+        draft.values[id] = input.value;
+        draft.dirty[id] = true;
+        draft.revision++;
+      });
+    });
+  }
+
+  function renderSetupCli(st) {
+    var step = $('setupCliStep');
+    if (!step) return;
+    step.className = 'setup-step' + (st.cliOk ? ' done' : '');
+
+    var badge = $('setupCliBadge');
+    clear(badge);
+    badge.appendChild(el('span', {
+      'class': 'badge ' + (st.cliOk ? 'badge-ok' : 'badge'),
+      text: st.cliOk ? '已安装' : '未安装'
+    }));
+
+    var body = $('setupCliBody');
+    clear(body);
+    body.appendChild(el('p', {
+      'class': 'muted small',
+      text: '可选飞书官方 lark-cli；保留当前后端与授权，内部 CLI 入口在下面的「高级」里。'
+    }));
+    body.appendChild(renderCliChoice(PRIMARY_CLI, st));
+
+    /* 公司内部 CLI 只在高级里出现：默认不展示、不引导安装。 */
+    var internal = $('setupInternalCli');
+    if (internal) {
+      clear(internal);
+      internal.appendChild(el('p', {
+        'class': 'muted small',
+        text: '公司内部 CLI（仅内网可用；不需要就别管这一项）'
+      }));
+      internal.appendChild(renderCliChoice(INTERNAL_CLI, st));
+    }
+
+    if (app.installLog) {
+      body.appendChild(el('pre', { 'class': 'setup-log', text: app.installLog }));
+    }
+
+    var indexField = $('cliIndexField');
+    if (indexField) indexField.hidden = false;
+    var pathLabel = $('cliPathLabel');
+    if (pathLabel) {
+      pathLabel.textContent = 'CLI 路径（自动查找失败时填）';
+    }
+    var backendChanged = app.setupCliBackend !== st.backend;
+    app.setupCliBackend = st.backend;
+    var draft = setupCliDraft(st.backend);
+    var pathInput = $('cliPathInput');
+    var useLark = st.backend === 'lark-cli';
+    if (pathInput) {
+      if (backendChanged || document.activeElement !== pathInput) {
+        pathInput.value = draft.dirty.cliPathInput ? draft.values.cliPathInput :
+          (app.settings && (useLark ? app.settings.larkCliPath : app.settings.cliPath)) || '';
+      }
+      pathInput.placeholder = useLark ? '/opt/homebrew/bin/lark-cli' : '~/.local/bin/feishu-sync-cli';
+    }
+    var idxInput = $('cliIndexUrl');
+    if (idxInput && (backendChanged || document.activeElement !== idxInput)) {
+      idxInput.value = draft.dirty.cliIndexUrl ? draft.values.cliIndexUrl :
+        (app.settings && app.settings.cliIndexUrl) || '';
+    }
+  }
+
+  function renderCliChoice(choice, st) {
+    var status = (st.clis && st.clis[choice.id]) || (st.backend === choice.id ? st.cli : null) || {};
+    var installed = !!status.found;
+    var active = st.backend === choice.id;
+
+    var row = el('div', { 'class': 'setup-clirow' + (active ? ' active' : '') });
+    var main = el('div', { 'class': 'setup-clirow-main' });
+    var head = el('div', { 'class': 'setup-clirow-head' });
+    head.appendChild(el('span', { 'class': 'setup-clirow-name', text: choice.name }));
+    if (active && installed) head.appendChild(el('span', { 'class': 'badge badge-ok', text: '使用中' }));
+    head.appendChild(el('span', {
+      'class': 'badge ' + (installed ? 'badge-ok' : 'badge'),
+      text: installed ? '已安装' : '未安装'
+    }));
+    main.appendChild(head);
+    if (installed) {
+      var metaText = choice.desc + ' · ' + (status.version || '已安装');
+      if (status.path) metaText += ' · ' + status.path;
+      main.appendChild(el('p', {
+        'class': 'muted small setup-clirow-meta',
+        title: metaText,
+        text: choice.desc + ' · ' + (status.version || '已安装')
+      }));
+    } else {
+      main.appendChild(el('p', {
+        'class': 'muted small setup-clirow-meta',
+        text: choice.desc
+      }));
+    }
+    row.appendChild(main);
+
+    var actions = el('div', { 'class': 'setup-clirow-actions' });
+    var label = choice.installLabel;
+    var cls = 'btn btn-sm' + (active ? ' btn-primary' : '');
+    if (installed && active) {
+      label = '重新检查';
+      cls = 'btn btn-ghost btn-sm';
+    } else if (installed) {
+      label = '切换到此后端';
+      cls = 'btn btn-sm';
+    }
+    var busyHere = !!app.busy.install && app.installTarget === choice.id;
+    actions.appendChild(makeButton(
+      label, cls,
+      busyHere ? '处理中…' : '', /* 别的后端在装时，这一行只禁用，不显示处理中 */
+      app.busy.install,
+      function () { onInstallCli(choice.id); }
+    ));
+    row.appendChild(actions);
+    return row;
+  }
+
+  /* 收放行：授权/CLI/上次同步/同步出错，全在这一行里，和状态条同款 dot+文字。 */
+  function renderSetupChips() {
     renderManagedTasklistStatus();
     var s = app.snap || {};
     var auth = s.auth || {};
@@ -3743,8 +4807,9 @@
     }
     /* 插件版本跟 CLI 挂在同一个 chip 上：一行看完「插件哪版 + CLI 什么状态」。 */
     var version = app.version || s.version || '';
-    var versionText = version ? 'v' + String(version) : 'v—';
-    var cliChipText = versionText + ' · ' + cliText;
+    var versionText = version ? 'v' + String(version) : '';
+    /* 旧宿主不上报版本号：不要显示假的 v—，只留 CLI 状态。 */
+    var cliChipText = versionText ? versionText + ' · ' + cliText : cliText;
     var syncText = s.lastSyncAt ? fmtRel(s.lastSyncAt) : '尚未同步';
     var key = [
       auth.ok ? '1' : '0', auth.detail || '',
@@ -3753,25 +4818,26 @@
     if (key === app.statusKey) return;
     app.statusKey = key;
 
-    var box = $('statusbar');
+    var box = $('setupChips');
+    if (!box) return;
     clear(box);
 
     box.appendChild(statChip(auth.ok ? 'ok' : 'warn',
       auth.ok ? '授权可用' : '需要授权', auth.detail));
 
-    box.appendChild(statChip(null, cliChipText, (s.cli && s.cli.path) || 'dsh-feishu ' + versionText));
+    box.appendChild(statChip(
+      s.cli && s.cli.found ? 'ok' : null,
+      cliChipText,
+      (s.cli && s.cli.path) || (versionText ? 'dsh-feishu ' + versionText : 'dsh-feishu')
+    ));
 
     var syncEl = el('span', { 'class': 'stat' });
     syncEl.appendChild(el('span', { 'class': 'k', text: '上次同步' }));
-    if (s.lastSyncAt) {
-      syncEl.appendChild(el('span', {
-        'class': 'val',
-        title: fmtAbs(s.lastSyncAt),
-        text: syncText
-      }));
-    } else {
-      syncEl.appendChild(el('span', { 'class': 'val', text: '尚未同步' }));
-    }
+    syncEl.appendChild(el('span', {
+      'class': 'val',
+      title: s.lastSyncAt ? fmtAbs(s.lastSyncAt) : '',
+      text: s.lastSyncAt ? fmtRel(s.lastSyncAt) : '尚未同步'
+    }));
     box.appendChild(syncEl);
 
     if (s.syncing) {
@@ -3789,84 +4855,176 @@
     }
   }
 
-  /* ---------------- 渲染：授权卡 ---------------- */
+  /**
+   * 准备卡状态机：状态行右侧是「配置 / 认证」两个并列按钮，卡内同一时间只展开一块内容。
+   * 未就绪（CLI/授权没完成）时认证信息强制展开，免得关键步骤被收起来找不到。
+   */
+  function renderSetup() {
+    var st = setupState();
+    var ready = st.ready && !hostOutdated();
+    app.setupForceAuth = !ready;
 
-  function renderAuth() {
-    var auth = (app.snap && app.snap.auth) || {};
-    var ok = !!auth.ok;
+    renderSetupChips();
+    renderSetupCli(st);
 
-    var badge = $('authBadge');
-    clear(badge);
-    badge.appendChild(el('span', {
-      'class': 'badge ' + (ok ? 'badge-ok' : 'badge-warn'),
-      text: ok ? '已授权' : '需要授权'
-    }));
+    var authStep = $('setupAuthStep');
+    if (authStep) authStep.className = 'setup-step' + (st.authOk ? ' done' : '');
 
-    var body = $('authBody');
-    clear(body);
+    applySetupPanels();
 
-    if (!ok) {
-      var callout = el('div', { 'class': 'callout warn' });
-      callout.appendChild(el('div', { 'class': 'callout-title', text: '需要授权' }));
-      callout.appendChild(el('div', {
-        'class': 'callout-desc',
-        text: auth.detail || '个人令牌不可用或已过期，请完成一次飞书授权。'
-      }));
-      body.appendChild(callout);
+    /* 就绪后这张卡只剩一行状态，标题改叫「状态」。 */
+    var titleEl = $('setupTitle');
+    if (titleEl) titleEl.textContent = ready ? '状态' : '准备';
 
-      var row = el('div', { 'class': 'btnrow' });
-      row.appendChild(makeButton('开始授权', 'btn btn-primary',
-        '请求中…', app.busy.login, onLogin));
-      row.appendChild(makeButton('检查授权', 'btn btn-ghost',
-        '检查中…', app.busy.check, onCheck));
-      body.appendChild(row);
-
-      if (app.loginNote) {
-        body.appendChild(el('p', { 'class': 'muted', text: app.loginNote }));
-      }
-
-      if (app.loginUrl) {
-        var linkRow = el('div', { 'class': 'auth-link' });
-        linkRow.appendChild(el('span', { text: '授权链接：' }));
-        linkRow.appendChild(el('a', {
-          'class': 'link',
-          href: app.loginUrl,
-          target: '_blank',
-          rel: 'noreferrer',
-          title: app.loginUrl,
-          text: '打开飞书授权页'
-        }));
-        body.appendChild(linkRow);
-
-        var row2 = el('div', { 'class': 'btnrow' });
-        row2.appendChild(makeButton('我已完成授权', 'btn',
-          '检查中…', app.busy.check, onCheck));
-        body.appendChild(row2);
-      }
-    } else {
-      var lead = el('div', { 'class': 'auth-ok' });
-      lead.appendChild(el('span', { 'class': 'dot ok' }));
-      lead.appendChild(el('span', { text: '个人令牌可用' }));
-      body.appendChild(lead);
-
-      if (auth.detail) {
-        body.appendChild(el('p', { 'class': 'muted', text: auth.detail }));
-      }
-      if (auth.checkedAt) {
-        var checked = el('p', { 'class': 'muted small' });
-        checked.appendChild(el('span', { text: '最近检查：' }));
-        checked.appendChild(el('span', {
-          title: fmtAbs(auth.checkedAt),
-          text: fmtRel(auth.checkedAt)
-        }));
-        body.appendChild(checked);
-      }
-
-      var row3 = el('div', { 'class': 'btnrow' });
-      row3.appendChild(makeButton('检查授权', 'btn',
-        '检查中…', app.busy.check, onCheck));
-      body.appendChild(row3);
+    /* 状态行不再整行可点：展开哪个由两个按钮决定，别留 role=button 误导键盘用户。 */
+    var head = $('setupSummary');
+    if (head) {
+      head.classList.remove('can-toggle');
+      head.removeAttribute('role');
+      head.removeAttribute('tabindex');
+      head.removeAttribute('aria-expanded');
+      head.removeAttribute('aria-controls');
+      head.removeAttribute('title');
     }
+  }
+
+  /* ---------------- 准备卡动作 ---------------- */
+
+  function installLogText(steps) {
+    var lines = [];
+    for (var i = 0; i < (steps || []).length; i++) {
+      var step = steps[i] || {};
+      lines.push((step.ok ? '✓ ' : '✗ ') + (step.label || ''));
+      var parts = String(step.detail || '').split('\n');
+      for (var j = 0; j < parts.length; j++) {
+        if (parts[j].trim()) lines.push('    ' + parts[j].trim());
+      }
+    }
+    return lines.join('\n');
+  }
+
+  function onInstallCli(backendId) {
+    if (app.busy.install) return;
+    app.busy.install = true;
+    app.installTarget = backendId || backendOf();
+    app.installLog = '';
+    renderSetup();
+
+    api('cli/install', backendId ? { backend: backendId } : {}).then(function (data) {
+      app.busy.install = false;
+      app.installTarget = null;
+      app.installLog = installLogText(data && data.steps) || ((data && data.error) || '');
+      if (data && data.settings) app.settings = data.settings;
+      if (data && data.cli) app.snap.cli = data.cli;
+      var currentBackend = (app.settings && app.settings.cliBackend) || 'feishu-sync';
+      var staleServer = !!backendId && backendId !== currentBackend &&
+        (!data || data.backend !== backendId);
+      if (staleServer) {
+        /* 旧版宿主会忽略 backend 参数、改去装当前后端：明确告诉用户，别以为装错了。 */
+        app.installLog = '⚠ 宿主还在跑旧代码，这次按旧逻辑安装了「当前后端」。请重启 DSH 后重试。\n' + app.installLog;
+        toast('宿主仍是旧版本：重启 DSH 后再切后端');
+      } else if (data && data.switched) {
+        toast('已切换到 ' + backendLabel(data.backend));
+      } else if (data && (data.installed || data.already)) {
+        toast(data.already ? 'CLI 已就绪' : 'CLI 安装完成');
+      } else if (data && data.error) {
+        toast(data.error);
+      }
+      renderSetup();
+      renderStatus();
+      renderAuth();
+      load({ quiet: true }).then(function () {
+        /* 刚装上 CLI 就顺手体检一次授权，让第 2 步立刻能用。 */
+        if (app.snap && app.snap.cli && app.snap.cli.found) return onCheck();
+        return null;
+      });
+    }, function () {
+      app.busy.install = false;
+      app.installTarget = null;
+      renderSetup();
+    });
+  }
+
+  /* 从飞书准备卡里直接换后端（被拦截时的退路）。 */
+  function onSwitchBackendTo(id) {
+    if (!id || backendOf() === id) return;
+    api('backend/switch', { cliBackend: id }).then(function (data) {
+      if (data && data.settings) app.settings = data.settings;
+      if (data && data.cli) app.snap.cli = data.cli;
+      if (data && data.state) {
+        app.snap.auth = data.state.auth || app.snap.auth;
+      }
+      app.loginUrl = null;
+      app.loginStage = '';
+      app.loginExpiresAt = 0;
+      app.loginNote = '';
+      toast(id === 'lark-cli' ? '已改用官方 lark-cli' : '已改用 feishu-sync-cli');
+      load({ quiet: true }).then(function () {
+        renderAll();
+      }, function () {
+        renderAll();
+      });
+    }, function () {
+      /* api() 已经提示过失败 */
+    });
+  }
+
+  function onSwitchLarkMode(mode) {
+    if (!mode) return;
+    if ((app.settings && app.settings.larkAccountMode) === mode) return;
+    api('settings', { larkAccountMode: mode }).then(function (data) {
+      var saved = data && data.settings ? data.settings.larkAccountMode : '';
+      if (saved !== mode) {
+        /* 旧宿主不认识这个设置项，会静默丢掉；不要假装切成功了。 */
+        toast('宿主还是旧代码：重启 DSH 后才能切换账号模式');
+        renderStaleHost();
+        return;
+      }
+      if (data && data.settings) app.settings = data.settings;
+      toast(mode === 'individual' ? '已切到个人账号模式' : '已切到企业应用模式');
+      app.loginUrl = '';
+      app.loginStage = '';
+      app.loginNote = '';
+      load({ quiet: true }).then(function () {
+        renderSetup();
+        renderAuth();
+      });
+    }, function () {});
+  }
+
+  function onSaveSetupSettings() {
+    var backend = backendOf();
+    /* 切端响应/轮询可能先更新快照，保存前先绑定到当前后端的输入与草稿。 */
+    renderSetupCli(setupState());
+    var draft = setupCliDraft(backend);
+    var revision = draft.revision;
+    var payload = {
+      cliBackend: backend,
+      cliIndexUrl: String(($('cliIndexUrl') || {}).value || '').trim(),
+    };
+    var nextPath = String(($('cliPathInput') || {}).value || '').trim();
+    if (backend === 'lark-cli') payload.larkCliPath = nextPath || 'feishu-sync';
+    else payload.cliPath = nextPath || 'feishu-sync-cli';
+
+    return api('settings', payload).then(function (data) {
+      if (!data || !data.settings) {
+        toast('未收到保存回执，草稿已保留');
+        return;
+      }
+      if (backendOf() === backend) app.settings = data.settings;
+      /* 成功回执只清本次保存的版本；等待期间的新输入仍是未保存草稿。 */
+      if (draft.revision === revision) {
+        draft.dirty = {};
+        draft.values = {};
+      }
+      toast('已保存');
+      renderSetup();
+      return load({ quiet: true }).then(function () {
+        if (backendOf() === backend && !(app.snap && app.snap.cli && app.snap.cli.found)) onInstallCli();
+      });
+    }, function () {
+      /* api() 已经 toast 过了 */
+    });
   }
 
   /* ---------------- 渲染：同步记录（仅消费现有 state，无请求或模型调用） ---------------- */
@@ -3957,11 +5115,33 @@
   var CONFIGURATION_KEYS = ['settings', 'auth', 'docPrompt', 'docs', 'syncHistory'];
   var activeConfiguration = 'settings';
 
+  /* 状态卡里的两块内容：认证信息（setupBody）与配置（configurationArea）互斥显示。
+     未就绪时认证强制展开（app.setupForceAuth），就绪后完全由「配置 / 认证」按钮控制。 */
+  function setupPanelView() {
+    if (app.setupView === 'config') return 'config';
+    if (app.setupView === 'auth') return 'auth';
+    return app.setupForceAuth ? 'auth' : '';
+  }
+
+  function applySetupPanels() {
+    var view = setupPanelView();
+    var authBox = $('setupBody');
+    var configBox = $('configurationArea');
+    if (authBox) authBox.hidden = view !== 'auth';
+    if (configBox) configBox.hidden = view !== 'config';
+    var configurationToggle = $('configurationToggle');
+    if (configurationToggle) configurationToggle.setAttribute('aria-expanded', String(view === 'config'));
+    var authToggle = $('authToggle');
+    if (authToggle) authToggle.setAttribute('aria-expanded', String(view === 'auth'));
+    var card = $('setupCard');
+    if (card) card.classList.toggle('collapsed', view === '');
+  }
+
   function openConfiguration(key) {
     if (CONFIGURATION_KEYS.indexOf(key) === -1) key = activeConfiguration;
     activeConfiguration = key;
-    $('configurationArea').hidden = false;
-    $('configurationToggle').setAttribute('aria-expanded', 'true');
+    app.setupView = 'config';
+    applySetupPanels();
     CONFIGURATION_KEYS.forEach(function (name) {
       var selected = name === key;
       $(name + 'Card').hidden = !selected;
@@ -3972,19 +5152,40 @@
   }
 
   function closeConfiguration() {
-    $('configurationArea').hidden = true;
-    $('configurationToggle').setAttribute('aria-expanded', 'false');
+    app.setupView = '';
+    applySetupPanels();
     $('configurationToggle').focus();
   }
 
   function wireConfiguration() {
-    $('configurationToggle').addEventListener('click', function () {
+    /* 按钮现在在准备卡状态行里：阻止冒泡，别顺手把准备卡收起/展开。 */
+    $('configurationToggle').addEventListener('click', function (event) {
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
       if (!$('configurationArea').hidden) { closeConfiguration(); return; }
       openConfiguration(activeConfiguration);
       $('configurationArea').scrollIntoView({ block: 'start', behavior: 'auto' });
       $('configTab-' + activeConfiguration).focus();
     });
+    $('configurationToggle').addEventListener('keydown', function (event) {
+      /* 状态行自己也监听 Enter/Space 做收放；按钮上的键盘操作不要触发它。 */
+      if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+    });
     $('configurationClose').addEventListener('click', closeConfiguration);
+    /* 「认证」和「配置」并列：同一时间只展开一块；未就绪时不允许收起认证信息。 */
+    var authToggle = $('authToggle');
+    if (authToggle) {
+      authToggle.addEventListener('click', function (event) {
+        if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+        var current = setupPanelView();
+        if (current === 'auth') {
+          if (app.setupForceAuth) return;
+          app.setupView = '';
+        } else {
+          app.setupView = 'auth';
+        }
+        applySetupPanels();
+      });
+    }
     CONFIGURATION_KEYS.forEach(function (key, index) {
       var tab = $('configTab-' + key);
       tab.addEventListener('click', function () { openConfiguration(key); });
@@ -4058,7 +5259,7 @@
     $('commentEnabled').checked = comments.enabled === true;
     $('commentOwnerMode').value = comments.ownerMode === 'execute' ? 'execute' : 'off';
     $('commentOtherMode').value = comments.otherMode === 'reply' ? 'reply' : 'off';
-    $('commentMentionMode').value = comments.mentionMode === 'task-v1' ? 'task-v1' : 'native';
+    $('commentMentionMode').value = comments.mentionMode === 'native' ? 'native' : 'task-v1';
     $('commentMaxPerSync').value = toInt(comments.maxPerSync, 5, 1, 20);
     /* 时间自动化单独一组，回填逻辑也单独放，别和既有设置的读写搅在一起 */
     renderScheduleSettings();
@@ -4106,93 +5307,10 @@
     errors.hidden = problems.length === 0 && warnings.length === 0;
   }
 
-  /* ---------------- 评论协作：仅展开配置后读取真实账本 ---------------- */
+  /* ---------------- 评论协作：设置项只控制是否处理留言 ---------------- */
 
   function commentsSupported() {
     return Array.isArray(app.serverFeatures) && app.serverFeatures.indexOf('tasks.comments') !== -1;
-  }
-
-  function commentsVisible() {
-    return !$('configurationArea').hidden && !$('settingsCard').hidden && $('commentsGroup').open;
-  }
-
-  function commentActions(entry) {
-    if (entry.status === 'pending' || entry.status === 'unknown') return ['ignore'];
-    if (entry.status === 'reply_pending' || entry.status === 'failed') return ['retry'];
-    return [];
-  }
-
-  function renderCommentsInbox() {
-    var box = $('commentsList');
-    clear(box);
-    var labels = { pending: '等待处理', delivered: '已投递', running: '处理中', reply_pending: '回复待发送', replied: '已回复', ignored: '已忽略', unknown: '结果未知', failed: '回复发送失败' };
-    var entries = app.commentEntries || [];
-    entries.forEach(function (entry) {
-      var item = el('div', { 'class': 'comment-entry', role: 'listitem' });
-      var meta = el('div', { 'class': 'comment-meta' });
-      var author = entry.authorName || entry.authorId || (entry.author && (entry.author.name || entry.author.id)) || (typeof entry.author === 'string' ? entry.author : '') || '作者未知';
-      var task = ((app.snap && app.snap.tasks) || []).filter(function (t) { return t.id === entry.taskId; })[0];
-      meta.appendChild(el('span', { text: '作者：' + author }));
-      meta.appendChild(el('span', { text: '任务：' + (entry.taskTitle || (task && (task.title || task.summary)) || entry.taskId || '未知任务') }));
-      meta.appendChild(el('span', { 'class': 'badge ' + (entry.status === 'unknown' || entry.status === 'failed' ? 'badge-warn' : ''), text: (labels[entry.status] || '未知状态') + ' · ' + (entry.status || 'unknown') }));
-      item.appendChild(meta);
-      item.appendChild(el('div', { 'class': 'comment-text', text: entry.text || entry.content || '（无文本）' }));
-      if (entry.error || entry.reason) item.appendChild(el('div', { 'class': 'comment-note', text: '原因：' + (entry.error || entry.reason) }));
-      if (entry.status === 'unknown') item.appendChild(el('div', { 'class': 'comment-note', text: '必须人工对账：投递或发送结果不确定，不能直接重试。忽略仅停止处理此输入，不清除出站账本或解除任务锁。' }));
-      var actions = el('div', { 'class': 'comment-actions' });
-      commentActions(entry).forEach(function (action) {
-        actions.appendChild(makeButton(action === 'ignore' ? '忽略输入' : '重试回复', 'btn btn-ghost btn-xs', '处理中…', !!app.commentActionBusy || !!app.commentInboxLoading, function () { onCommentAction(entry, action); }));
-      });
-      if (actions.firstChild) item.appendChild(actions);
-      box.appendChild(item);
-    });
-    $('commentsInboxStatus').textContent = app.commentInboxError ? '读取失败：' + app.commentInboxError : (app.commentInboxLoading ? '正在读取评论账本…' : (app.commentInboxLoaded ? (entries.length ? '已读取 ' + entries.length + ' 条记录' : '暂无评论记录；下次任务同步后可刷新查看。') : '展开后读取评论记录'));
-    $('commentsRefresh').disabled = !!app.commentInboxLoading || !!app.commentActionBusy || !commentsSupported();
-  }
-
-  function loadCommentsInbox() {
-    $('commentsInbox').hidden = !commentsVisible() || !commentsSupported();
-    if (!commentsVisible() || !commentsSupported() || app.commentInboxLoading || app.commentActionBusy) return Promise.resolve();
-    app.commentInboxLoading = true;
-    app.commentInboxError = '';
-    renderCommentsInbox();
-    return api('comments', undefined, { silent: true }).then(function (data) {
-      if (!data || data.ok !== true || !Array.isArray(data.entries)) throw new Error((data && (data.error || data.reason || data.message)) || '宿主没有返回有效的评论记录');
-      app.commentEntries = data.entries;
-      app.commentInboxLoaded = true;
-    }).catch(function (error) {
-      app.commentInboxError = error.message === 'network' ? '连不上宿主服务，请确认插件已启动' : (error.message || '无法读取评论账本');
-    }).then(function () {
-      app.commentInboxLoading = false;
-      renderCommentsInbox();
-    });
-  }
-
-  function onCommentAction(entry, action) {
-    if (!commentsSupported() || !commentsVisible() || app.commentActionBusy || app.commentInboxLoading || commentActions(entry).indexOf(action) === -1 || !entry.taskId || !entry.commentId) return Promise.resolve();
-    app.commentActionBusy = true;
-    renderCommentsInbox();
-    return api('comments/action', { taskId: entry.taskId, commentId: entry.commentId, action: action }, { silent: true }).then(function (data) {
-      if (!data || data.ok !== true) throw new Error((data && (data.error || data.reason || data.message)) || '宿主未确认操作结果');
-      // 不推测新状态：操作后重新读取，失败或unknown仍由Host账本决定。
-      app.commentActionBusy = false;
-      return loadCommentsInbox();
-    }).catch(function (error) {
-      app.commentActionBusy = false;
-      app.commentInboxError = error.message || '评论操作失败';
-      renderCommentsInbox();
-    });
-  }
-
-  function wireComments() {
-    $('commentsGroup').addEventListener('toggle', loadCommentsInbox);
-    $('commentsRefresh').addEventListener('click', loadCommentsInbox);
-    $('configurationToggle').addEventListener('click', loadCommentsInbox);
-    $('configurationClose').addEventListener('click', function () { $('commentsInbox').hidden = true; });
-    ['settings', 'auth', 'docPrompt', 'docs'].forEach(function (key) {
-      $('configTab-' + key).addEventListener('click', loadCommentsInbox);
-      $('configTab-' + key).addEventListener('keydown', function (event) { if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].indexOf(event.key) !== -1) loadCommentsInbox(); });
-    });
   }
 
   /* ---------------- 设置：时间自动化 ---------------- */
@@ -4601,7 +5719,13 @@
     var restoreConfirm = $('filterRestoreConfirm'); if (restoreConfirm) restoreConfirm.hidden = !app.filterRestoreConfirm;
     var confirm = $('filterViewDeleteConfirm'); if (confirm) confirm.hidden = !app.filterDeleteConfirm;
     var add = Array.prototype.find.call(root.children, function (node) { return node.id === 'filterNewTemplate'; });
-    if (!add) { add = makeButton('＋ 新模板', 'btn btn-ghost btn-xs', null, false, newFilterTemplate); add.id = 'filterNewTemplate'; root.appendChild(add); }
+    if (!add) {
+      add = makeButton('＋', 'btn btn-ghost btn-xs filter-new-template', null, false, newFilterTemplate);
+      add.id = 'filterNewTemplate';
+      add.setAttribute('title', '新建筛选模板');
+      add.setAttribute('aria-label', '新建筛选模板');
+      root.appendChild(add);
+    }
     if (root.children[root.children.length - 1] !== add) { add.remove(); root.appendChild(add); }
   }
 
@@ -5942,7 +7066,7 @@
       var icon = el('span', {
         'class': 'people-role-icon',
         tabindex: '0',
-        title: label + '：' + list.map(function (m) { return m.name || m.id || '未知人员'; }).join('、'),
+        'data-tip': label + '：' + list.map(function (m) { return (m && m.name) || '未知成员'; }).join('、'),
         'aria-label': label + '，' + list.length + ' 人'
       });
       var svgNs = 'http://www.w3.org/2000/svg';
@@ -5966,12 +7090,24 @@
       var shown = list.slice(0, 4);
       for (var i = 0; i < shown.length; i++) {
         (function (m) {
-          var who = m.name || m.id || '';
-          var av = el('span', { 'class': 'avatar', tabindex: '0', title: label + '：' + who, 'aria-label': label + '：' + who });
-          if (m.avatar) {
-            av.appendChild(el('img', { src: m.avatar, alt: who, loading: 'lazy' }));
+          /* 头像只认「真名」和「真照片」：
+             联系人接口没权限时成员只有 open_id，拿 ou_ 首字母当头像就是错的（显示成一片 O）。
+             有名字用首字，没名字留一个中性人形，等下次同步拿到真名/真头像再换。 */
+          var who = m && m.name ? String(m.name).trim() : '';
+          var photo = m && typeof m.avatar === 'string' && /^https?:\/\//i.test(m.avatar) ? m.avatar : '';
+          var letter = who ? who.slice(0, 1).toUpperCase() : '';
+          var av = el('span', { 'class': 'avatar' + (letter || photo ? '' : ' is-anon'), tabindex: '0', 'data-tip': who || label, 'aria-label': label + '：' + (who || '未知成员') });
+          if (photo) {
+            var img = el('img', { src: photo, alt: '', loading: 'lazy' });
+            /* 头像 URL 过期或被拦时退回首字/人形，别在卡片上留一张破图。 */
+            img.onerror = function () {
+              if (img.parentNode === av) av.removeChild(img);
+              av.className = letter ? 'avatar' : 'avatar is-anon';
+              av.textContent = letter;
+            };
+            av.appendChild(img);
           } else {
-            av.textContent = (who || '?').trim().slice(0, 1).toUpperCase();
+            av.textContent = letter;
           }
           group.appendChild(av);
         })(shown[i]);
@@ -5982,7 +7118,7 @@
           text: '+' + (list.length - shown.length),
           tabindex: '0',
           'aria-label': label + '，另有 ' + (list.length - shown.length) + ' 人',
-          title: label + '：' + list.slice(shown.length).map(function (m) { return m.name || m.id; }).join('、')
+          'data-tip': label + '：' + list.slice(shown.length).map(function (m) { return (m && m.name) || '未知成员'; }).join('、')
         }));
       }
       return group;
@@ -6276,26 +7412,64 @@
       seen[comment.id] = true;
       var entry = cardCommentEntry(state, comment);
       var author = comment.author;
-      var authorName = typeof author === 'string' ? author : author && (author.name || author.id);
       var member = (Array.isArray(t.members) ? t.members : []).filter(function (m) { return m.id === comment.authorId; })[0];
-      authorName = authorName || (member && member.name) || comment.authorId || '未知作者';
+      var rawName = typeof author === 'string' ? author : author && (author.name || author.id);
+      /* 后端查不到评论人姓名时会退回 open_id：那不是名字，别拿它（或它的首字母）冒充头像。 */
+      var placeholder = !rawName || /^ou_[A-Za-z0-9]+$/.test(String(rawName).trim());
+      var authorName = placeholder ? String((member && member.name) || '').trim() : String(rawName).trim();
+      var letter = authorName ? authorName.slice(0, 1).toUpperCase() : '';
+      if (!authorName) authorName = '未知成员';
       var own = cardCommentIsOwn(comment, entry);
       var item = el('div', { 'class': 'card-comment' + (comment.replyToCommentId ? ' is-reply' : ''), role: 'listitem' });
-      var avatar = el('span', { 'class': 'card-comment-avatar', 'aria-hidden': 'true' });
-      var avatarUrl = (author && typeof author === 'object' && author.avatar) || (member && member.avatar);
-      if (avatarUrl && /^https?:\/\//i.test(avatarUrl)) avatar.appendChild(el('img', { src: avatarUrl, alt: '', loading: 'lazy' }));
-      else avatar.textContent = String(authorName).trim().slice(0, 1).toUpperCase();
+      var avatarUrl = (author && typeof author === 'object' && author.avatar) || comment.authorAvatar || (member && member.avatar);
+      var avatar = el('span', { 'class': 'card-comment-avatar' + (letter || (avatarUrl && /^https?:\/\//i.test(avatarUrl)) ? '' : ' is-anon'), 'aria-hidden': 'true' });
+      if (avatarUrl && /^https?:\/\//i.test(avatarUrl)) {
+        var photo = el('img', { src: avatarUrl, alt: '', loading: 'lazy' });
+        /* 头像 URL 过期或被拦时退回首字/人形，别留破图。 */
+        photo.onerror = function () {
+          if (photo.parentNode === avatar) avatar.removeChild(photo);
+          avatar.className = letter ? 'card-comment-avatar' : 'card-comment-avatar is-anon';
+          avatar.textContent = letter;
+        };
+        avatar.appendChild(photo);
+      } else {
+        avatar.textContent = letter;
+      }
       item.appendChild(avatar);
       var main = el('div', { 'class': 'card-comment-main' });
       var meta = el('div', { 'class': 'card-comment-meta' });
       meta.appendChild(el('span', { 'class': 'card-comment-author', text: authorName }));
       var role = own ? '[🤖AI 回复]' : member && member.role === 'assignee' ? '负责人' : member ? '关注人' : '';
+      avatar.setAttribute('data-tip', role ? authorName + ' · ' + role : authorName);
       if (role) meta.appendChild(el('span', { 'class': 'card-comment-role', text: role }));
       meta.appendChild(el('span', { 'class': 'card-comment-tag', 'data-state': entry ? entry.status : 'history', text: cardCommentStatus(entry) }));
       meta.appendChild(el('time', { 'class': 'card-comment-time', text: fmtRel(comment.createdAt), title: fmtAbs(comment.createdAt) + (comment.updatedAt && comment.updatedAt !== comment.createdAt ? ' · 编辑 ' + fmtAbs(comment.updatedAt) : '') }));
       main.appendChild(meta);
       var content = String(comment.content || '（无文本）');
-      if (own) content = content.replace(/^\[🤖AI 回复\]\s*\n-{5,}\s*\n/, '').replace(/\n-{5,}\s*$/, '');
+      if (own) {
+        // 旧版富文本回复会把 <at> 放在最前，AI 标识跟在后面。展示时保留“@某人”，
+        // 但把原始标签换成可读名字；身份由上面的角色标签表达。
+        var mentionLabel = '';
+        content = content.replace(/^(?:<at\b[^>]*><\/at>\s*)+/i, function (block) {
+          var ids = [];
+          var re = /<at\b[^>]*\bid=["']?([^"'\s>]+)["']?[^>]*>/gi, match;
+          while ((match = re.exec(block))) ids.push(match[1]);
+          ids.forEach(function (id) {
+            var row = (state.items || []).filter(function (c) { return String(c.authorId || '') === String(id); })[0];
+            var who = row && row.author;
+            var name = who && typeof who === 'object' ? (who.name || who.id || '') : String(who || '');
+            if (!name) {
+              var member = (Array.isArray(t.members) ? t.members : []).filter(function (m) { return String(m.id) === String(id); })[0];
+              name = (member && (member.name || member.id)) || '';
+            }
+            if (name) mentionLabel += (mentionLabel ? ' ' : '') + '@' + name;
+          });
+          return '';
+        });
+        content = content.replace(/^\[🤖AI 回复\]\s*\n[-━─═]{5,}\s*\n/, '').replace(/\n[-━─═]{5,}\s*$/, '');
+        content = content.split('\n').map(function (line) { return line.replace(/^▌\s?/, ''); }).join('\n').trim();
+        if (mentionLabel) content = mentionLabel + ' ' + content.replace(/^\s+/, '');
+      }
       var expanded = !!state.expanded[comment.id];
       var text = el('div', { 'class': 'card-comment-content' + (expanded ? '' : ' is-clamped'), text: content });
       main.appendChild(text);
@@ -8165,12 +9339,98 @@
   function renderAll() {
     renderInsight();
     renderStatus();
+    renderSetup();
     renderDocPrompt();
     renderAuth();
     renderSettings(false);
     renderTasks();
     renderDocs();
     renderSyncHistory();
+    renderStaleHost();
+    scheduleAuthWatch();
+  }
+
+  /* 面板是热更新的、宿主 index.js 要重启才更新：版本号不一致时直接说清楚，别让人对着旧逻辑干等。 */
+  var MIN_API_VERSION = 6;
+
+  function hostOutdated() {
+    var api = Number((app.snap && app.snap.apiVersion) || 0);
+    return api < MIN_API_VERSION;
+  }
+
+  function renderStaleHost() {
+    var holder = $('staleHost');
+    if (!holder) return;
+    clear(holder);
+    if (!hostOutdated()) return;
+    var box = el('div', { 'class': 'callout info' });
+    box.appendChild(el('div', { 'class': 'callout-title', text: '宿主还是旧代码，重启 DSH 后新流程才生效' }));
+    box.appendChild(el('div', {
+      'class': 'callout-desc',
+      text: '面板已经更新，但后台 index.js 还是上一版：企业/个人账号模式、自动抓建应用链接、步骤推进都依赖新代码。重启 DeepSeek Harness 后刷新本页即可。'
+    }));
+    holder.appendChild(box);
+  }
+
+  /* 授权是「去浏览器操作 → 回来」的异步过程：面板每 4 秒自动体检一次，不用人反复点。
+     建应用完成 → 自动出现第 2.2 步；浏览器授权完成 → 自动变已授权。 */
+  function stopAuthWatch() {
+    if (app.authTimer) clearTimeout(app.authTimer);
+    app.authTimer = null;
+    app.authWatchGeneration = (app.authWatchGeneration || 0) + 1;
+  }
+
+  function scheduleAuthWatch() {
+    stopAuthWatch();
+    var generation = app.authWatchGeneration;
+    var st = setupState();
+    if (!st.cliOk || st.authOk || document.hidden || (app.activity && app.activity.disposed)) return;
+    /* 认证进行中（创建应用 / 登录）就自动往前探：用户在浏览器或终端完成，
+       面板不用等手动点「我已完成」，每 6 秒静默体检一次。 */
+    var authNow = (app.snap && app.snap.auth) || {};
+    var nextNow = deriveNext(authNow, st.cliOk);
+    if (nextNow.phase !== 'config' && nextNow.phase !== 'login') return;
+    app.authTimer = setTimeout(function () {
+      /* hidden/pagehide 后即使旧回调已排入事件队列，也不再发请求。 */
+      if (generation !== app.authWatchGeneration || document.hidden || (app.activity && app.activity.disposed)) return;
+      app.authTimer = null;
+      if (app.busy.check) {
+        scheduleAuthWatch();
+        return;
+      }
+      app.busy.check = true;
+      api('auth/check', {}, { silent: true }).then(function (data) {
+        app.busy.check = false;
+        if (data && data.auth) {
+          var wasOk = !!(app.snap.auth && app.snap.auth.ok);
+          var prevStage = (app.snap.auth && app.snap.auth.stage) || '';
+          app.snap.auth = data.auth;
+          var nextStage = data.auth.stage || '';
+          if (data.auth.ok) {
+            app.loginUrl = null;
+            app.loginStage = '';
+            app.loginExpiresAt = 0;
+            app.loginNote = '';
+            toast('授权已生效');
+            if (!wasOk) afterAuthOk();
+          } else if (nextStage && prevStage && nextStage !== prevStage) {
+            app.loginUrl = null;
+            app.loginStage = '';
+            app.loginNote = '';
+          } else if (nextStage === 'login' && prevStage === 'config') {
+            app.loginUrl = null;
+            app.loginStage = '';
+          }
+          renderStatus();
+          renderAuth();
+          renderSetup();
+        }
+        scheduleAuthWatch();
+      }, function () {
+        app.busy.check = false;
+        scheduleAuthWatch();
+      });
+    }, 4000);
   }
 
   /* ---------------- 渲染：当前会话（任务卡里的第一张） ---------------- */
@@ -8491,6 +9751,7 @@
   function disposeActivityPanel() {
     var activity = activityState();
     activity.disposed = true;
+    stopAuthWatch();
     stopActivityStream();
     if (app.pollTimer) clearTimeout(app.pollTimer);
     app.pollTimer = null;
@@ -8528,7 +9789,6 @@
           app.serverFeatures = (caps && Array.isArray(caps.features)) ? caps.features : [];
           app.hostStale = false;
           updateSettingDependencies();
-          loadCommentsInbox();
           renderTasks();
         }, function () {
           app.hostStale = true;
@@ -8547,6 +9807,8 @@
       app.lastSig = sig;
       if (next.auth && next.auth.ok) {
         app.loginUrl = null;
+        app.loginStage = '';
+        app.loginExpiresAt = 0;
         app.loginNote = '';
       }
       app.loadedOnce = true;
@@ -8600,31 +9862,96 @@
 
   /* ---------------- 授权动作 ---------------- */
 
-  function onLogin() {
+  /* 取登录链接：先 POST /api/auth/login 拿链接，再在面板里内联展示（可点、可扫码）。
+     不能再用 window.open 直接开插件自己的相对路由 /api/auth/open：桌面端面板跑在
+     dsh-app://app 下，相对 URL 会被解析成 dsh-app://app/...，而 Electron 的 window-open
+     处理只把 http(s) 交给系统浏览器，dsh-app: 一律静默拒绝 —— 表现就是「点飞书登录没反应」。
+     拿到绝对 https 链接后再 window.open，桌面端会正常拉起默认浏览器；被拦也不怕，
+     面板里同时给了链接和二维码。 */
+  function onLogin(force) {
     if (app.busy.login) return;
     app.busy.login = true;
-    app.loginNote = '';
+    app.loginNote = '正在获取登录链接…（最多约 1 分钟）';
     renderAuth();
-
-    api('auth/login', {}).then(function (data) {
+    api('auth/login', { force: !!force }).then(function (data) {
       app.busy.login = false;
-      if (data && data.url) {
-        app.loginUrl = String(data.url);
-      } else {
+      if (data && data.already) {
         app.loginUrl = null;
-        app.loginNote = '没有拿到授权链接，请在终端查看 feishu-sync-cli 的输出。';
-        toast('未拿到授权链接');
+        app.loginStage = '';
+        app.loginExpiresAt = 0;
+        app.loginNote = '';
+        toast('CLI 已经登录了，点「检查授权」即可。');
+        renderAuth();
+        load({ quiet: true });
+        return;
       }
+      if (data && data.ok && data.url) {
+        app.loginUrl = String(data.url);
+        app.loginStage = data.stage === 'config' ? 'config' : 'login';
+        app.loginExpiresAt = Number(data.expiresAt) || 0;
+        app.loginNote = '链接已生成：没自动打开浏览器就点下面的链接，或用手机扫二维码。完成后回来点「检查授权」。';
+        renderAuth();
+        try {
+          window.open(app.loginUrl, '_blank', 'noopener');
+        } catch (error) {
+          /* 弹窗被拦也没关系：内联链接/二维码还在 */
+        }
+        scheduleAuthWatch();
+        return;
+      }
+      var why = (data && (data.error || data.detail)) || '';
+      app.loginNote = '没拿到登录链接' + (why ? '：' + why : '，可以重试或看终端里 CLI 的输出。');
       renderAuth();
-      load({ quiet: true });
-    }, function () {
+      if (why) toast(why);
+    }, function (error) {
       app.busy.login = false;
+      app.loginNote = '获取登录链接失败：' + ((error && error.message) || '网络错误');
       renderAuth();
     });
   }
 
+  /* 登录链接 + 二维码：桌面端 window.open 可能被宿主拦掉，所以链接必须能在面板里
+     直接看到、直接点，手机则可以直接扫码。 */
+  function authLinkBox(auth) {
+    if (!app.loginUrl || (auth && auth.ok)) return null;
+    var stage = app.loginStage === 'config' ? 'config' : 'login';
+    var row = el('div', { 'class': 'auth-qr-row' });
+    if (backendOf() === 'lark-cli') {
+      var wrap = el('div', { 'class': 'auth-qr-wrap' });
+      wrap.appendChild(el('img', {
+        'class': 'auth-qr',
+        alt: '飞书登录二维码',
+        src: API_BASE + 'auth/qrcode?stage=' + stage + '&t=' + Date.now()
+      }));
+      row.appendChild(wrap);
+    }
+    var side = el('div', { 'class': 'auth-qr-side' });
+    side.appendChild(el('a', {
+      'class': 'link',
+      href: app.loginUrl,
+      target: '_blank',
+      rel: 'noreferrer',
+      text: stage === 'config' ? '打开飞书应用创建页 ↗' : '打开飞书登录页 ↗'
+    }));
+    side.appendChild(el('p', {
+      'class': 'muted small',
+      text: stage === 'config'
+        ? '在浏览器里创建/选择飞书应用，完成后回来点「检查授权」。'
+        : '在浏览器里用飞书账号确认授权；手机可用飞书扫左侧二维码。完成后回来点「检查授权」，面板也会自动检测。'
+    }));
+    if (app.loginExpiresAt) {
+      side.appendChild(el('p', {
+        'class': 'muted small',
+        text: '链接有效期至 ' + fmtDate(app.loginExpiresAt) + '，过期请重新点按钮获取。'
+      }));
+    }
+    row.appendChild(side);
+    return row;
+  }
+
   function onCheck() {
     if (app.busy.check) return;
+    var wasOk = !!(app.snap && app.snap.auth && app.snap.auth.ok);
     app.busy.check = true;
     renderAuth();
 
@@ -8634,22 +9961,43 @@
         app.snap.auth = data.auth;
         if (data.auth.ok) {
           app.loginUrl = null;
+          app.loginStage = '';
+          app.loginExpiresAt = 0;
           app.loginNote = '';
           toast('授权已生效');
-        } else if (data.auth.detail) {
-          toast(data.auth.detail);
+          if (!wasOk) afterAuthOk();
+        } else {
+          /* 阶段前进（config→login）后，上一步的链接就作废了。 */
+          if (data.auth.stage && app.loginStage && data.auth.stage !== app.loginStage) {
+            app.loginUrl = null;
+            app.loginStage = '';
+            app.loginNote = '';
+          }
+          if (data.auth.detail) toast(data.auth.detail);
         }
       }
       renderStatus();
       renderAuth();
+      renderSetup();
       load({ quiet: true });
     }, function () {
       app.busy.check = false;
       renderAuth();
+      renderSetup();
     });
   }
 
   /* ---------------- 同步 / 设置动作 ---------------- */
+
+  /* 授权完成的下一个自然动作就是同步：自动跑一次，让流程从「授权」直接走到「看到任务」。 */
+  function afterAuthOk() {
+    setTimeout(function () {
+      load({ quiet: true }).then(function () {
+        if (app.busy.sync) return;
+        onSync();
+      });
+    }, 300);
+  }
 
   function onSync() {
     if (app.busy.sync) return;
@@ -8706,7 +10054,7 @@
       enabled: $('commentEnabled').checked,
       ownerMode: $('commentOwnerMode').value === 'execute' ? 'execute' : 'off',
       otherMode: $('commentOtherMode').value === 'reply' ? 'reply' : 'off',
-      mentionMode: $('commentMentionMode').value === 'task-v1' ? 'task-v1' : 'native',
+      mentionMode: $('commentMentionMode').value === 'native' ? 'native' : 'task-v1',
       maxPerSync: toInt($('commentMaxPerSync').value, 5, 1, 20)
     };
 
@@ -9049,7 +10397,6 @@
 
   function wire() {
     wireConfiguration();
-    wireComments();
     var settingIds = ['managedTasklistEnabled', 'managedTasklistName', 'managedTasklistGuid', 'autoSync', 'syncInterval', 'keyword', 'autoStartMode', 'maxAutoStart', 'contextInjection', 'pushChanges', 'autoComment', 'autoCommentGap',
       /* 时间自动化这组也要算「正在编辑」：轮询回来别把正在输入的时区/时段冲掉 */
       'schTimeZone', 'schWorkStart', 'schWorkEnd', 'schQuietStart', 'schQuietEnd', 'schMissPolicy', 'schGrace', 'schCapacity', 'schWriteBack',
@@ -9063,6 +10410,9 @@
     }
 
     $('saveSettings').addEventListener('click', onSave);
+    wireSetupCliSettings();
+    var setupSave = $('setupSaveAdvanced');
+    if (setupSave) setupSave.addEventListener('click', onSaveSetupSettings);
     $('syncNow').addEventListener('click', onSync);
 
     /* 条件控件稳定驻留，只更新任务列表与摘要。 */
@@ -9212,8 +10562,8 @@
     wireDocPrompt();
 
     document.addEventListener('visibilitychange', function () {
-      if (document.hidden) { stopActivityStream(); if (app.pollTimer) clearTimeout(app.pollTimer); app.pollTimer = null; }
-      else { connectActivityStream(); load({ quiet: true }).then(schedulePoll); deferAuxiliaryLoads(); }
+      if (document.hidden) { stopActivityStream(); stopAuthWatch(); if (app.pollTimer) clearTimeout(app.pollTimer); app.pollTimer = null; }
+      else { connectActivityStream(); load({ quiet: true }).then(schedulePoll); scheduleAuthWatch(); deferAuxiliaryLoads(); }
     });
     window.addEventListener('pagehide', disposeActivityPanel);
     window.addEventListener('pageshow', function (event) {
@@ -9221,6 +10571,7 @@
         activityState().disposed = false;
         if (typeof taskRenderObserver !== 'undefined' && taskRenderObserver) taskRenderObserver.observe(document.body, { childList: true, subtree: true });
         connectActivityStream(); load({ quiet: true }).then(schedulePoll);
+        scheduleAuthWatch();
       }
     });
   }
@@ -9248,6 +10599,7 @@
     var taskRenderObserver = new MutationObserver(function () { flushPendingTaskRender(); });
     taskRenderObserver.observe(document.body, { childList: true, subtree: true });
   }
+  wireAvatarTips();
   renderAll();  // 空态先显示，辅助图表等首份state后分批加载
   connectActivityStream();
   load().then(function () { schedulePoll(); deferAuxiliaryLoads(); });

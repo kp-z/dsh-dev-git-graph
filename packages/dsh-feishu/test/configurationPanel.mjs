@@ -42,10 +42,22 @@ assert.ok(has(area, 'hidden'), 'configuration is hidden on first paint')
 const toggle = get('configurationToggle')
 assert.equal(toggle.attrs['aria-expanded'], 'false')
 assert.equal(toggle.attrs['aria-controls'], 'configurationArea')
-assert.ok(classHas(toggle.parent, 'panel-header'), 'configuration belongs in the panel header, not a task card')
-assert.equal(toggle.parent.tag, 'header')
-assert.equal(get('statusbar').parent, toggle.parent, 'configuration sits beside global status')
+/* 配置入口挂在准备卡的状态行（状态栏）里，不再单独占一行 header。 */
+assert.equal(toggle.parent.attrs.id, 'setupSummary')
+assert.ok(classHas(toggle.parent, 'setup-head'), 'configuration sits in the status bar row')
+assert.ok(within(toggle, get('setupCard')), 'configuration stays with the global status chips, not a task card')
 assert.ok(within(get('configurationClose'), area))
+/* 状态行右侧是「配置」「认证」两个并列按钮；配置内容与认证信息都收进状态卡内部。 */
+const authToggle = get('authToggle')
+assert.equal(authToggle.parent.attrs.id, 'setupSummary')
+assert.equal(authToggle.tag, 'button')
+assert.equal(authToggle.attrs['aria-controls'], 'setupBody')
+assert.ok(within(authToggle, get('setupCard')))
+const rowChildren = get('setupSummary').children.map((n) => n.attrs.id).filter(Boolean)
+assert.ok(rowChildren.indexOf('configurationToggle') >= 0 && rowChildren.indexOf('authToggle') === rowChildren.indexOf('configurationToggle') + 1, '认证 sits right after 配置')
+assert.ok(within(area, get('setupCard')), 'configuration content now renders inside the status card')
+assert.ok(within(get('setupBody'), get('setupCard')), 'auth content stays inside the status card')
+assert.ok(within(get('settingsCard'), get('setupCard')), 'settings panel is inside the status card too')
 const panels = { settings: 'settingsCard', auth: 'authCard', docPrompt: 'docPromptCard', docs: 'docsCard', syncHistory: 'syncHistoryCard' }
 const tabs = nodes.filter((n) => has(n, 'data-config-tab'))
 assert.deepEqual(tabs.map((n) => n.attrs['data-config-tab']).sort(), Object.keys(panels).sort())
@@ -96,7 +108,7 @@ const registry = new Map()
 for (const [id, src] of byId) {
   registry.set(id, {
     attrs: { ...src.attrs }, hidden: has(src, 'hidden'), value: src.attrs.value || '', checked: has(src, 'checked'), disabled: has(src, 'disabled'),
-    textContent: '', listeners: {},
+    textContent: '', listeners: {}, classList: { toggle() {}, add() {}, remove() {} },
     setAttribute(k, v) { this.attrs[k] = String(v) },
     getAttribute(k) { return this.attrs[k] },
     addEventListener(k, fn) { (this.listeners[k] ||= []).push(fn) },
@@ -160,6 +172,32 @@ n('configTab-syncHistory').fire('keydown', { key: 'Tab', preventDefault: forbidd
 expectSelected('syncHistory')
 n('configurationClose').fire('click')
 assert.equal(n('configurationArea').hidden, true)
+
+/* 「配置」与「认证」互斥：打开配置隐藏认证，打开认证隐藏配置，再点一次收起。 */
+n('configurationToggle').fire('click')
+expectSelected('syncHistory')
+assert.equal(n('setupBody').hidden, true, 'opening config hides auth content')
+n('authToggle').fire('click')
+assert.equal(n('setupBody').hidden, false, 'auth button shows auth content')
+assert.equal(n('configurationArea').hidden, true, 'auth button closes config content')
+assert.equal(n('authToggle').getAttribute('aria-expanded'), 'true')
+assert.equal(n('configurationToggle').getAttribute('aria-expanded'), 'false')
+n('authToggle').fire('click')
+assert.equal(n('setupBody').hidden, true, 'second click collapses auth content')
+assert.equal(n('authToggle').getAttribute('aria-expanded'), 'false')
+/* 未就绪时认证强制展开：不允许把认证主体收起来。 */
+context.app.setupForceAuth = true
+context.applySetupPanels()
+assert.equal(n('setupBody').hidden, false, 'forced auth expands even without a click')
+n('authToggle').fire('click')
+assert.equal(n('setupBody').hidden, false, 'forced auth cannot be collapsed before ready')
+n('authToggle').fire('click')
+assert.equal(n('setupBody').hidden, false)
+context.app.setupForceAuth = false
+n('authToggle').fire('click')
+assert.equal(n('setupBody').hidden, false, 'first click after ready re-opens auth')
+n('authToggle').fire('click')
+assert.equal(n('setupBody').hidden, true)
 for (const [id, node, value] of before) { assert.equal(n(id), node); assert.equal(n(id).value, value) }
 assert.equal(context.app.settingsDirty, true)
 assert.equal(context.app.docPromptDirty, true)

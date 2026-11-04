@@ -61,7 +61,7 @@ await writeFile(
     ],
   }),
 )
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ autoSync: false, cliPath: '/nonexistent/feishu-sync-cli' }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', autoSync: false, cliPath: '/nonexistent/feishu-sync-cli' }))
 
 /* 假模型：按调用次数换答案，验证「第二次不再问」 */
 let llmCalls = 0

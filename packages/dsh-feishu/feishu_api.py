@@ -326,7 +326,10 @@ def task_comment(token, action):
             # Same GUID/comment IDs verified against an isolated real task.
             rich = ' '.join('<at id=' + uid + '></at>' for uid in mentions)
             safe_content = html.escape(content, quote=False)
-            rich_content = rich + '\n' + safe_content
+            # Keep the AI identity card as the first block. A leading <at> would push
+            # the label below the mention and make every reply look like it has no header.
+            envelope = re.match(r'^(\[🤖AI 回复\]\n[-━─═]{5,}\n)', safe_content)
+            rich_content = (envelope.group(1) + '▌ ' + rich + '\n' + safe_content[envelope.end():]) if envelope else (rich + '\n' + safe_content)
             body = {'content': content, 'rich_content': rich_content, 'parent_id': reply or '0'}
             path = '/task/v1/tasks/' + urllib.parse.quote(task, safe='') + '/comments?user_id_type=open_id'
         posting = True

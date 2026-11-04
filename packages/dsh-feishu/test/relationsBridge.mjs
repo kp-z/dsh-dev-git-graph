@@ -71,7 +71,7 @@ const tasks = [
   { id: 'outside', title: 'Other project', done: false, tasklistGuid: 'other' },
 ].map((task) => ({ ...task, members: [], customFields: [], meta: {} }))
 await writeFile(join(DATA, 'state.json'), JSON.stringify({ tasks, schedules: {}, relations: [] }))
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ autoSync: false, cliPath: CLI, managedTasklist: { enabled: true, guid: 'list', name: 'DSH 任务清单' } }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', autoSync: false, cliPath: CLI, managedTasklist: { enabled: true, guid: 'list', name: 'DSH 任务清单' } }))
 const { apply } = await import('../index.js')
 let modelText = ''
 const modelCalls = []
@@ -114,6 +114,15 @@ async function boot() {
   const server = createServer((req, res) => routes[0].handler(req, res))
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${server.address().port}/dsh-feishu`
+  // Startup auth checking is asynchronous and runs its own CLI probe. Wait for
+  // its authoritative receipt before asserting a user request made no CLI calls.
+  const authDeadline = Date.now() + 10000
+  for (;;) {
+    const snapshot = await (await fetch(`${base}/api/state`, { signal: AbortSignal.timeout(5000) })).json()
+    if (snapshot.state?.auth?.checkedAt) break
+    if (Date.now() > authDeadline) throw new Error('startup auth check did not settle')
+    await new Promise(resolve => setTimeout(resolve, 25))
+  }
   return {
     tools,
     services,

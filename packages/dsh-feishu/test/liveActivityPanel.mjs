@@ -53,7 +53,7 @@ const ctx = {
   renderAll: () => { renders++ }, maybeAutoInsight() {}, pollCardComments() {}, taskRenderObserver: { disconnect() { disconnected++ } },
 }
 vm.createContext(ctx)
-for (const name of ['activityState','currentActivityTask','sessionActivityLabel','updateSessionActivityChip','updateTaskActivityNodes','mergeActivitySnapshot','stopActivityStream','connectActivityStream','disposeActivityPanel','syncCachedTask','renderTaskActivity','stablePanelSignature','taskCardSignature','stateSignature','load','schedulePoll','markCurrentSessionSeen']) vm.runInContext(fn(name),ctx)
+for (const name of ['activityState','currentActivityTask','sessionActivityLabel','updateSessionActivityChip','updateTaskActivityNodes','mergeActivitySnapshot','stopActivityStream','connectActivityStream','stopAuthWatch','disposeActivityPanel','syncCachedTask','renderTaskActivity','stablePanelSignature','taskCardSignature','stateSignature','load','schedulePoll','markCurrentSessionSeen']) vm.runInContext(fn(name),ctx)
 const session = (phase = 'running', unread = false, alive = true, turn = 1) => ({ id:'s1', alive, phase, unread, turn })
 const task = () => ctx.app.snap.tasks[0]
 const assertDraft = () => { assert.equal(ctx.document.activeElement,draft); assert.equal(draft.value,'不能丢的评论草稿'); assert.equal(draft.selectionStart,4); assert.deepEqual(card.children,[priority,chip,draft,menu]) }

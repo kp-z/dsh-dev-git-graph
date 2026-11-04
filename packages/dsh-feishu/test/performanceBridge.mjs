@@ -15,7 +15,7 @@ await mkdir(DATA, { recursive: true })
 const CLI = join(HOME, 'offline-feishu-sync-cli')
 await writeFile(CLI, `#!${process.execPath}\nif (process.argv[2] === 'version') console.log('feishu-sync 0.0.0-offline');\nelse { console.error('offline fixture refuses credentials and remote calls'); process.exitCode = 1; }\n`)
 await chmod(CLI, 0o700)
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ autoSync: false, cliPath: CLI }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', autoSync: false, cliPath: CLI }))
 await writeFile(join(DATA, 'state.json'), JSON.stringify({ tasks: [{ id: 'bound', title: 'Offline bound task', sessionId: 'session-performance', done: false, started: false, members: [], customFields: [], meta: {} }], schedules: {}, workspaceLinks: {}, workspaceWrites: {} }))
 const clone = (value) => structuredClone(value)
 function deferred() {
@@ -137,6 +137,9 @@ function workspaceFixture() {
     workspaceList: () => [{ id: 'one', title: 'Workspace One', path: '/offline/one' }, { id: 'two', title: 'Workspace Two', path: '/offline/two' }],
     ctx: {}, log() {},
   }
+  /* 生产代码现在统一走 backend().actions（官方 lark-cli / 内部 CLI 两个后端共用），
+     这里把 backend 折回同一个受控 runBridge Promise，测试仍然只观察桥接调用。 */
+  dependencies.backend = () => ({ actions: async (currentSettings, actions) => dependencies.runBridge('offline-mock-python', { actions }) })
   // Worker/retry declaration names are selected only from production source.
   const names = [...declarations.matchAll(/(?:async )?function ([A-Za-z_$][\w$]*)\(/g)].map((match) => match[1])
   const api = new Function(...Object.keys(dependencies), `${declarations}\nreturn {${names.join(',')}}`)(...Object.values(dependencies))

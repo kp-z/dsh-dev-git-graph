@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { formatAIComment } from '../commentFormat.js'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -16,7 +17,7 @@ const CLI = join(HOME, 'fake-cli'), PYTHON = join(HOME, 'fake-python'), REMOTE =
 const tasks = [{ id: 't', title: 'Comment task', sessionId: 's', done: false, started: true, tasklistGuid: 'list', members: [{ id: 'owner', role: 'assignee' }], customFields: [], meta: {} }, { id: 'other', title: 'Unbound', done: false, members: [], customFields: [], meta: {} }]
 await writeFile(REMOTE, JSON.stringify({ items: [{ id: 'history', content: 'historical', creator: { id: 'owner', type: 'user' }, created_at: '1' }], done: false, incomplete: false, counter: 0, failWrite: false }))
 await writeFile(join(DATA, 'state.json'), JSON.stringify({ tasks, schedules: {}, relations: [] }))
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliPath: CLI, autoSync: false, autoStart: 'off', autoComment: true, comments: { enabled: true, ownerMode: 'execute', otherMode: 'reply', maxPerSync: 5 } }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', cliPath: CLI, autoSync: false, autoStart: 'off', autoComment: true, comments: { enabled: true, ownerMode: 'execute', otherMode: 'reply', maxPerSync: 5 } }))
 await writeFile(RUNTIME, `const fs=require('node:fs');
 const file=${JSON.stringify(REMOTE)}, log=${JSON.stringify(LOG)};
 const state=JSON.parse(fs.readFileSync(file,'utf8'));
@@ -138,7 +139,7 @@ try {
     assert.match(await tool.execute({ commentId: 'wrong', text: 'answer' }, { agent: { id: 's' } }), /回复失败/)
     assert.match(await tool.execute({ commentId: 'question', text: 'answer' }, { agent: { id: 'other' } }), /回复失败/)
     assert.match(await tool.execute({ commentId: 'question', taskId: 't', text: 'answer' }, { agent: { id: 's' } }), /已回复评论 out-1/)
-    const write = (await writes()).at(-1); assert.equal(write.reply_to_comment_id, 'question'); assert.deepEqual(write.mentionIds, ['someone']); assert.equal(write.allowMentionFallback, true); assert.equal(write.text, '[🤖AI 回复]\n--------------------\nanswer\n--------------------')
+    const write = (await writes()).at(-1); assert.equal(write.reply_to_comment_id, 'question'); assert.deepEqual(write.mentionIds, ['someone']); assert.equal(write.allowMentionFallback, false); assert.equal(write.text, formatAIComment('answer'))
     assert.equal((await app.rows())[0].outboundCommentId, 'out-1')
     assert.match(app.guard('bash', {}), /非负责人/)
   })

@@ -46,7 +46,8 @@ assert.match(html, /10 分钟/)
 assert.match(html, /配置改动会更新检查签名/)
 assert.match(html, /类型不符时不会删除或覆盖/)
 assert.match(html, /留空自动创建或复用旧配置中的单一清单/)
-assert.match(extract('renderStatus'), /renderManagedTasklistStatus\(\)/, 'status refresh is outside the settings draft guard')
+/* 集成后状态条改由 renderSetupChips 渲染（renderStatus 只是转发），清单状态刷新跟着它走。 */
+assert.match(extract('renderSetupChips'), /renderManagedTasklistStatus\(\)/, 'status refresh is outside the settings draft guard')
 assert.doesNotMatch(extract('renderManagedTasklistStatus'), /innerHTML|outerHTML|insertAdjacentHTML|\bapi\(|\bfetch\(|onSync\(/)
 
 class Control {

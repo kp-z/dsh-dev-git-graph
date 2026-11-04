@@ -28,7 +28,7 @@ const context = {
   $: (id) => registry.get(id),
   clear(n) { while (n.firstChild) n.removeChild(n.firstChild) },
   el(tag, attrs = {}) { const n = new Node(tag); Object.entries(attrs).forEach(([k, v]) => k === 'text' ? n.textContent = v : n.setAttribute(k, v)); return n },
-  makeButton(text, cls, busy, disabled, fn) { const n = new Node('button'); n.textContent = text; n.addEventListener('click', fn); return n },
+  makeButton(text, cls, busy, disabled, fn) { const n = new Node('button'); n.textContent = text; if (cls) n.setAttribute('class', cls); n.addEventListener('click', fn); return n },
 }
 vm.createContext(context)
 const start = script.indexOf("  var FILTER_STORE =")
@@ -111,7 +111,11 @@ assert.equal(context.app.filter.facets.handling.mode, 'exclude')
 context.renderFilterOptions(tasks)
 assert.equal(registry.get('filterFacets').children.length, 6)
 assert.equal(registry.get('filterPresets').children.length, 4)
-assert.deepEqual(registry.get('filterPresets').children.map((n) => n.textContent), ['日常', '全部', '项目', '＋ 新模板'])
+assert.deepEqual(registry.get('filterPresets').children.map((n) => n.textContent), ['日常', '全部', '项目', '＋'])
+const newTemplate = registry.get('filterPresets').children.at(-1)
+assert.equal(newTemplate.attrs['aria-label'], '新建筛选模板')
+assert.equal(newTemplate.attrs.title, '新建筛选模板')
+assert.match(newTemplate.attrs['class'], /filter-new-template/)
 assert.equal(registry.get('filterSummary').hidden, true)
 assert.equal(registry.get('filterSummary').children.length, 2) // defaults are real visible conditions
 const mode = registry.get('filterMode-completion')

@@ -316,3 +316,20 @@
 顺带发现并修掉一个测试安全问题：smoke 曾继承宿主环境里的 `DSH_HOME=~/.dsh`，
 把假绑定/测试设置写进了真实状态。现在 `test/smoke.mjs` **强制**用临时目录（`SMOKE_HOME` 才复用），
 真实状态已人工核对恢复（假绑定清零、无 `expectedAt` 残留、设置按宿主内存回写）。
+
+### 测试隔离的第二次事故与系统性修复（2026-11-01）
+
+同一个坑后来又踩了一次，而且代价大得多：`test/lark.mjs`、`test/lark-policy.mjs`、`test/setup.mjs`
+写成 `const HOME = process.env.DSH_HOME || '/tmp/dsh-feishu-...'` 之后 `rm -rf HOME`。
+宿主注入的 `DSH_HOME=~/.dsh` 让 `||` 兜底永远不生效，直接 `node test/xxx.mjs` 就把真实
+`~/.dsh`（43 个会话 + 插件设置）删掉了。
+
+教训是「每个测试各自记得隔离」不可靠，因此改成系统性防线：
+
+- `test/isolatedHome.mjs`：`assertTempDir()` 校验路径必须严格在 `tmpdir()` 内；
+  `isolatedHome()` 强制 `mkdtemp` 临时 HOME 并覆盖 `process.env.DSH_HOME`，**不信任外部值**；
+  插件必须用 `await import('../index.js')` 加载（index.js 在模块顶层读 `DSH_HOME`）。
+- `test/safety.mjs`：静态扫描禁止 env fallback / 写死 `/tmp` 夹具 / 删除非 mkdtemp 路径 /
+  隔离测试静态 import 插件；再动态复刻事故现场——用哨兵 `DSH_HOME` 跑三个测试，
+  断言哨兵目录逐字节未变。该测试已接入 `npm test`，回归即红。
+- npm scripts 不再给测试设 `DSH_HOME`：隔离由代码保证，不再依赖「记得通过 npm script 跑」。

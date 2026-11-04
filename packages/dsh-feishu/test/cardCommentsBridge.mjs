@@ -30,7 +30,7 @@ await writeFile(REMOTE, JSON.stringify({
   done: false, incomplete: false, counter: 0, wrongGuid: false,
 }))
 await writeFile(join(DATA, 'state.json'), JSON.stringify({ tasks, schedules: {}, relations: [] }))
-await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliPath: CLI, autoSync: false, autoStart: 'off', autoComment: true, comments: { enabled: true, ownerMode: 'execute', otherMode: 'reply', maxPerSync: 5 } }))
+await writeFile(join(DATA, 'settings.json'), JSON.stringify({ cliBackend: 'feishu-sync', cliPath: CLI, autoSync: false, autoStart: 'off', autoComment: true, comments: { enabled: true, ownerMode: 'execute', otherMode: 'reply', maxPerSync: 5 } }))
 await writeFile(join(DATA, 'comments.json'), JSON.stringify({
   version: 1, nextSeq: 3, tasks: { [key('t', '')]: { baseline: false, seen: {} } },
   inbox: [seedEntry('ignored-history', 1, { status: 'ignored', reason: 'mode-off' }), seedEntry('replied-history', 2, { status: 'replied', outboundCommentId: 'own-ai', turnEnded: true, turn: 0 })],

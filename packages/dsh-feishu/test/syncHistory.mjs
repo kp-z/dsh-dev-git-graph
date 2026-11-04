@@ -53,6 +53,7 @@ let taskCalls = 0
 let writes = 0
 const fakeState = { tasks: [], docs: [], relationSync: {}, suspensions: {}, syncHistory: [] }
 const context = {
+  captureBackendScope: () => ({ valid: () => true }),
   state: fakeState, settings: { comments: { enabled: true } }, inFlight: null,
   beginSyncHistory, finishSyncHistory, recordSyncStage, safeSyncDetail,
   nowMs: Date.now, persistState: async () => { writes++ }, probeCli: async () => { await gate; return { found: true } },

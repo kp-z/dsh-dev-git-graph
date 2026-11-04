@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createCommentCoordinator, normalizeComment, isCommentOwner } from '../comments.js'
+import { formatAIComment } from '../commentFormat.js'
 
 const copy = (x) => structuredClone(x)
 const cfg = { enabled: true, ownerMode: 'execute', otherMode: 'reply', maxPerSync: 10 }
@@ -96,7 +97,7 @@ await test('complete explicitly matches session, task and entry; mentions origin
   assert.equal((await f.c.complete('c', 'wrong', 'done')).ok, false)
   assert.equal((await f.c.complete('c', 's', 'done', { taskId: 'wrong' })).ok, false)
   assert.equal((await f.c.complete('c', 's', ' done ')).ok, true)
-  assert.deepEqual(f.calls.writes[0].options.mentionIds, ['owner']); assert.equal(f.calls.writes[0].text, '[🤖AI 回复]\n--------------------\ndone\n--------------------'); assert.equal(f.calls.writes[0].options.replyTo, 'c')
+  assert.deepEqual(f.calls.writes[0].options.mentionIds, ['owner'], 'author is mentioned even when author is the same account'); assert.equal(f.calls.writes[0].text, formatAIComment('done')); assert.equal(f.calls.writes[0].options.replyTo, 'c')
   await f.c.complete('c', 's', 'other'); assert.equal(f.calls.writes.length, 1)
   assert.equal((await f.c.endTurn('t', 'c', 's', 2)).ok, false)
 })
@@ -150,6 +151,7 @@ await test('sending crash locks and proven non-send permits retry with same key/
 })
 await test('only stable outbound commentId ignores own echo, not same body or author', async () => {
   const f = fixture(); await baseline(f); await f.c.writeOutbound('t', '🤖: body', { key: 'k' })
+  assert.equal(f.calls.writes[0].text, formatAIComment('body'), 'writeOutbound applies the AI envelope by default')
   f.comments(comment('out-1', 'owner', 'edited own echo'), comment('human', 'owner', '🤖: body')); await baseline(f)
   assert.equal((await f.c.list())[0].reason, 'outbound-ledger'); assert.equal(f.calls.deliveries[0].commentId, 'human')
 })

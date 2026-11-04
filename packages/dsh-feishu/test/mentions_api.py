@@ -6,8 +6,9 @@ from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('mention_bridge',pathlib.Path(__file__).parents[1]/'feishu_api.py')
 b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
 class Mentions(unittest.TestCase):
+    RULE='━'*18
     def action(self, **extra):
-        return dict(task='task-guid',text='🤖: answer <at id=evil></at>',reply_to_comment_id='123',mentionIds=['ou_author'],mentionMode='task-v1',**extra)
+        return dict(task='task-guid',text='[🤖AI 回复]\n'+self.RULE+'\n▌ answer <at id=evil></at>\n'+self.RULE,reply_to_comment_id='123',mentionIds=['ou_author'],mentionMode='task-v1',**extra)
     def test_explicit_legacy_transport_and_v2_receipt(self):
         original={'id':'123','resource_type':'task','resource_id':'task-guid'}
         created={'id':'456','parent_id':'123','rich_content':'server-rendered'}
@@ -18,8 +19,11 @@ class Mentions(unittest.TestCase):
         post=api.call_args_list[1]
         self.assertIn('/task/v1/tasks/task-guid/comments?',post.args[1])
         body=post.kwargs['body']
+        self.assertTrue(body['rich_content'].startswith('[🤖AI 回复]\n'+self.RULE+'\n▌ <at id=ou_author></at>'),'AI card header stays first; mention is a railed row')
         self.assertIn('<at id=ou_author></at>',body['rich_content'])
         self.assertIn('&lt;at id=evil&gt;',body['rich_content'])
+        self.assertEqual(body['content'].startswith('[🤖AI 回复]\n'+self.RULE+'\n▌ answer'),True)
+        self.assertNotIn('<at id=ou_author></at>',body['content'],'plain content never carries synthetic mention markup')
         self.assertEqual(body['parent_id'],'123')
         self.assertEqual(r['commentId'],'456')
     def test_rejection_does_not_fallback_post(self):
