@@ -431,6 +431,13 @@
   .setup-head {
     gap: 8px;
     min-width: 0;
+    flex-wrap: nowrap;
+  }
+
+  .setup-head > h2,
+  .setup-head > button {
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   /* 收起后只留一行状态条：压掉卡片内边距和标题下间距 */
@@ -441,7 +448,7 @@
   /* 收放行：始终一行，内容多了横向滚动，不换行 */
   .setup-chips {
     display: flex;
-    flex: 1 1 auto;
+    flex: 1 1 0%;
     flex-wrap: nowrap;
     align-items: center;
     gap: 4px 12px;

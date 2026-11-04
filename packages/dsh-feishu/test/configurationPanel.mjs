@@ -55,6 +55,19 @@ assert.equal(authToggle.attrs['aria-controls'], 'setupBody')
 assert.ok(within(authToggle, get('setupCard')))
 const rowChildren = get('setupSummary').children.map((n) => n.attrs.id).filter(Boolean)
 assert.ok(rowChildren.indexOf('configurationToggle') >= 0 && rowChildren.indexOf('authToggle') === rowChildren.indexOf('configurationToggle') + 1, '认证 sits right after 配置')
+// Adding the syncing chip must not make the status title/actions form a second row.
+const cssBlock = (selector) => {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = html.match(new RegExp(escaped + '\\s*\\{([^}]+)\\}'))
+  assert.ok(match, `missing CSS block ${selector}`)
+  return match[1]
+}
+assert.match(cssBlock('.setup-head'), /flex-wrap:\s*nowrap/)
+assert.match(cssBlock('.setup-head > h2,\n  .setup-head > button'), /flex:\s*0\s+0\s+auto/)
+assert.match(cssBlock('.setup-head > h2,\n  .setup-head > button'), /white-space:\s*nowrap/)
+assert.match(cssBlock('.setup-chips'), /flex:\s*1\s+1\s+0%/)
+assert.match(cssBlock('.setup-chips'), /overflow-x:\s*auto/)
+assert.match(cssBlock('.setup-chips .stat'), /white-space:\s*nowrap/)
 assert.ok(within(area, get('setupCard')), 'configuration content now renders inside the status card')
 assert.ok(within(get('setupBody'), get('setupCard')), 'auth content stays inside the status card')
 assert.ok(within(get('settingsCard'), get('setupCard')), 'settings panel is inside the status card too')
