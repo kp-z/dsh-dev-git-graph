@@ -602,6 +602,51 @@ async function awaitService(ctx, key, timeoutMs = 15000) {
   }
 }
 
+/**
+ * 读一条会话的持久快照（不激活 agent），并把新旧宿主的返回值抹成同一种形状。
+ *
+ * DSH 0.2.2 起 `sessionController` 换成了 API 网关服务：旧的 `inspect()` 没了，
+ * 会话冷读改由 `sessionQuery` 提供（`readSession(id)` → `{ session, events }`，
+ * 标题要单独用 `readTitle(id)` 折）。0.2.1 及更早的宿主（以及测试替身）仍然
+ * 只有 `inspect()`。这里按能力探测，两种宿主都能用。
+ *
+ * @returns 形如 `{ events, session: { cwd, title }, title }` 的快照；
+ *          两者都没有时返回 `null`（宿主没有会话读取服务）。
+ */
+async function readSessionSnapshot(ctx, sessionId) {
+  const query = service(ctx, 'sessionQuery')
+  if (query && typeof query.readSession === 'function') {
+    const snapshot = await query.readSession(sessionId)
+    const header = snapshot?.session ?? {}
+    let title = asString(header.title)
+    if (!title && typeof query.readTitle === 'function') {
+      try {
+        title = asString(await query.readTitle(sessionId))
+      } catch {
+        /* 没有标题事件就当没有标题 */
+      }
+    }
+    const withTitle = title ? { ...header, title } : { ...header }
+    return {
+      via: 'sessionQuery',
+      events: Array.isArray(snapshot?.events) ? snapshot.events : [],
+      session: withTitle,
+      header: withTitle,
+      title,
+    }
+  }
+  const controller = await awaitService(ctx, 'sessionController')
+  if (controller && typeof controller.inspect === 'function') {
+    const inspection = (await controller.inspect(sessionId)) ?? {}
+    return {
+      via: 'sessionController',
+      ...inspection,
+      events: Array.isArray(inspection.events) ? inspection.events : [],
+    }
+  }
+  return null
+}
+
 async function readJson(file, fallback) {
   try {
     return JSON.parse(await readFile(file, 'utf8'))
@@ -5332,12 +5377,10 @@ function createSyncEngine(ctx) {
   async function sessionExists(sessionId) {
     if (!sessionId) return false
     if (liveSessionIds().has(sessionId)) return true
-    const sessions = service(ctx, 'sessionController')
-    if (!sessions || typeof sessions.inspect !== 'function') return false
     try {
-      await sessions.inspect(sessionId)
-      return true
+      return (await readSessionSnapshot(ctx, sessionId)) !== null
     } catch {
+      /* 读不到就当不存在（跨宿主的会话 id 本来就可能失效） */
       return false
     }
   }
@@ -5540,12 +5583,16 @@ function createSyncEngine(ctx) {
 
   /** 热重载时只补已经重新开工的活跃会话；不激活历史会话、不恢复自动化。 */
   async function reconcileRunningReopens() {
-    const sessions = service(ctx, 'sessionController')
-    if (!sessions?.inspect) return
     for (const task of state.tasks.filter((item) => item.done && item.sessionId && !isSuspended(item.id))) {
       if (liveSessionState().get(task.sessionId)?.kind !== 'running') continue
-      const inspection = await sessions.inspect(task.sessionId)
-      const events = inspection?.events || []
+      let inspection
+      try {
+        inspection = await readSessionSnapshot(ctx, task.sessionId)
+      } catch {
+        continue
+      }
+      if (!inspection) return
+      const events = inspection.events
       const start = [...events].reverse().find((event) => event.type === 'turn/start')
       if (start && Number(start.time) > Math.max(Number(task.completedAt) || 0, Number(task.endAt) || 0)) {
         await reopenSessionTasks(task.sessionId, Number(start.time))
@@ -5583,16 +5630,13 @@ function createSyncEngine(ctx) {
     const task = state.tasks.find((item) => item.sessionId === id)
     if (!task) return { ok: false, error: '当前会话没有绑定飞书任务：先在任务卡上点「开工（当前会话）」' }
 
-    const sessions = await awaitService(ctx, 'sessionController')
-    if (!sessions || typeof sessions.inspect !== 'function') {
-      return { ok: false, error: '宿主暂时没有会话服务，稍后再试' }
-    }
     let inspection
     try {
-      inspection = await sessions.inspect(id)
+      inspection = await readSessionSnapshot(ctx, id)
     } catch (error) {
       return { ok: false, error: `读取会话失败：${error instanceof Error ? error.message : String(error)}` }
     }
+    if (!inspection) return { ok: false, error: '宿主暂时没有会话服务，稍后再试' }
     const text = lastAssistantText(inspection)
     if (!text) return { ok: false, error: '这条会话还没有助手回复可同步' }
 
@@ -5760,8 +5804,7 @@ function createSyncEngine(ctx) {
     creationWorkspace = inherited ? workspaceRows.find((row) => row.id === inherited.id) : workspaceRows.find((row) => row.sessionIds?.includes(id))
     if (!creationWorkspace) {
       try {
-        const sessions = service(ctx, 'sessionController')
-        const inspection = await sessions?.inspect?.(id)
+        const inspection = await readSessionSnapshot(ctx, id)
         const cwd = inspection?.session?.cwd || inspection?.header?.cwd
         if (cwd) creationWorkspace = await registry?.resolveByPath?.(cwd)
       } catch { /* 无上下文时不猜项目 */ }
@@ -5918,16 +5961,13 @@ function createSyncEngine(ctx) {
     if (state.tasks.some((task) => task.sessionId === id)) {
       return { ok: false, error: '当前会话已经绑定任务了' }
     }
-    const sessions = await awaitService(ctx, 'sessionController')
-    if (!sessions || typeof sessions.inspect !== 'function') {
-      return { ok: false, error: '宿主暂时没有会话服务，稍后再试' }
-    }
     let inspection
     try {
-      inspection = await sessions.inspect(id)
+      inspection = await readSessionSnapshot(ctx, id)
     } catch (error) {
       return { ok: false, error: `读取会话失败：${error instanceof Error ? error.message : String(error)}` }
     }
+    if (!inspection) return { ok: false, error: '宿主暂时没有会话服务，稍后再试' }
     const text = lastAssistantText(inspection)
     if (!text) return { ok: false, error: '这条会话还没有助手回复，先聊一轮再同步' }
 
@@ -6128,15 +6168,12 @@ function createSyncEngine(ctx) {
     const parts = [asString(task.title)]
     if (task.description) parts.push(asString(task.description))
     if (task.sessionId) {
-      const sessions = await awaitService(ctx, 'sessionController')
-      if (sessions && typeof sessions.inspect === 'function') {
-        try {
-          const inspection = await sessions.inspect(task.sessionId)
-          const text = lastAssistantText(inspection)
-          if (text) parts.push(text)
-        } catch {
-          /* 读不到会话就只用任务本身的内容 */
-        }
+      try {
+        const inspection = await readSessionSnapshot(ctx, task.sessionId)
+        const text = inspection ? lastAssistantText(inspection) : ''
+        if (text) parts.push(text)
+      } catch {
+        /* 读不到会话就只用任务本身的内容 */
       }
     }
     return parts.join('\n\n')
@@ -6745,7 +6782,6 @@ function createSyncEngine(ctx) {
 
   /** 组装喂给模型的上下文：只发摘要，不发代码、不发完整对话。 */
   async function insightContext() {
-    const sessions = await awaitService(ctx, 'sessionController')
     const now = nowMs()
     const lines = []
     const ignore = (settings.insightIgnore ?? []).map((item) => asString(item).toLowerCase()).filter(Boolean)
@@ -6786,10 +6822,10 @@ function createSyncEngine(ctx) {
         const delays = Array.isArray(task.delayLog) ? task.delayLog.length : 0
         if (delays) bits.push(`改期=${delays} 次`)
       }
-      if (sessions && typeof sessions.inspect === 'function' && task.sessionId) {
+      if (task.sessionId) {
         try {
-          const inspection = await sessions.inspect(task.sessionId)
-          const text = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ')
+          const inspection = await readSessionSnapshot(ctx, task.sessionId)
+          const text = inspection ? asString(lastAssistantText(inspection)).replace(/\s+/g, ' ') : ''
           if (text) bits.push(`最近对话=${text.slice(0, 200)}`)
         } catch {
           /* 会话读不到就只给任务自身信息 */
@@ -6808,13 +6844,11 @@ function createSyncEngine(ctx) {
         const title = asString(agent.session?.title || agent.title || agent.id).slice(0, 40)
         if (ignore.some((word) => title.toLowerCase().includes(word))) continue
         let snippet = ''
-        if (sessions && typeof sessions.inspect === 'function') {
-          try {
-            const inspection = await sessions.inspect(agent.id)
-            snippet = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ').slice(0, 160)
-          } catch {
-            /* 读不到正文就只留标题 */
-          }
+        try {
+          const inspection = await readSessionSnapshot(ctx, agent.id)
+          snippet = inspection ? asString(lastAssistantText(inspection)).replace(/\s+/g, ' ').slice(0, 160) : ''
+        } catch {
+          /* 读不到正文就只留标题 */
         }
         extras.push(`未绑定任务 · ${title}${snippet ? ` | 最近：${snippet}` : ''}`)
         if (extras.length >= 8) break
@@ -6879,11 +6913,10 @@ bucket 只能从枚举里选：
         return `${reason}${Number(entry?.days) ? `（+${entry.days} 天）` : ''}`
       }).join('；'))
     }
-    const sessions = await awaitService(ctx, 'sessionController')
-    if (sessions && typeof sessions.inspect === 'function' && task.sessionId) {
+    if (task.sessionId) {
       try {
-        const inspection = await sessions.inspect(task.sessionId)
-        const text = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ')
+        const inspection = await readSessionSnapshot(ctx, task.sessionId)
+        const text = inspection ? asString(lastAssistantText(inspection)).replace(/\s+/g, ' ') : ''
         if (text) bits.push(`最近对话=${text.slice(0, 300)}`)
       } catch {
         /* 读不到会话就只凭任务信息归因 */
@@ -7996,15 +8029,12 @@ bucket 只能从枚举里选：
     const lines = []
     if (task.description) lines.push(task.description.trim())
     if (task.sessionId) {
-      const sessions = await awaitService(ctx, 'sessionController')
-      if (sessions?.inspect) {
-        try {
-          const inspection = await sessions.inspect(task.sessionId)
-          const text = lastAssistantText(inspection)
-          if (text) lines.push('\n---\n会话结论（' + task.sessionId + '）：\n' + text)
-        } catch {
-          /* 读不到会话就只写任务内容 */
-        }
+      try {
+        const inspection = await readSessionSnapshot(ctx, task.sessionId)
+        const text = inspection ? lastAssistantText(inspection) : ''
+        if (text) lines.push('\n---\n会话结论（' + task.sessionId + '）：\n' + text)
+      } catch {
+        /* 读不到会话就只写任务内容 */
       }
     }
     const material = lines.join('\n') || task.title
@@ -8110,10 +8140,9 @@ bucket 只能从枚举里选：
     } catch {
       /* 登记表读不到就退回 inspect */
     }
-    const sessions = await awaitService(ctx, 'sessionController')
-    if (!sessions?.inspect || !registry?.resolveByPath) return ''
+    if (!registry?.resolveByPath) return ''
     try {
-      const inspection = await sessions.inspect(id)
+      const inspection = await readSessionSnapshot(ctx, id)
       const cwd = inspection?.session?.cwd || inspection?.header?.cwd || ''
       if (!cwd) return ''
       const workspace = await registry.resolveByPath(cwd)
@@ -8552,11 +8581,10 @@ bucket 只能从枚举里选：
     /* 本地没解析出工作区时，从绑定会话的 cwd 反查项目名，避免写空值。 */
     let workspaceLabel = task.workspaceTitle || task.workspaceName || ''
     if (!workspaceLabel && task.sessionId) {
-      const sessions = await awaitService(ctx, 'sessionController')
       const registry = await awaitService(ctx, 'workspaceRegistry')
-      if (sessions?.inspect && registry?.resolveByPath) {
+      if (registry?.resolveByPath) {
         try {
-          const inspection = await sessions.inspect(task.sessionId)
+          const inspection = await readSessionSnapshot(ctx, task.sessionId)
           const cwd = inspection?.session?.cwd || inspection?.header?.cwd || ''
           if (cwd) {
             const ws = await registry.resolveByPath(cwd)
@@ -8605,14 +8633,15 @@ bucket 只能从枚举里选：
   async function syncSessionTitles() {
     const bound = state.tasks.filter((task) => task.sessionId && !task.done)
     if (bound.length === 0) return { ok: true, renamed: [] }
-    const sessions = await awaitService(ctx, 'sessionController', 5000)
-    if (!sessions?.inspect) return { ok: false, error: '宿主没有会话服务' }
     const renamed = []
+    let readerMissing = true
     for (const task of bound) {
       let title = ''
       try {
-        const inspection = await sessions.inspect(task.sessionId)
-        title = asString(inspection?.session?.title || inspection?.header?.title || inspection?.title).trim()
+        const inspection = await readSessionSnapshot(ctx, task.sessionId)
+        if (!inspection) continue
+        readerMissing = false
+        title = asString(inspection.title || inspection.session?.title || inspection.header?.title).trim()
       } catch {
         continue
       }
@@ -8622,6 +8651,7 @@ bucket 只能从枚举里选：
       const result = await renameTask(task.id, title)
       if (result.ok) renamed.push({ taskId: task.id, title: result.title })
     }
+    if (readerMissing) return { ok: false, error: '宿主没有会话服务' }
     return { ok: true, renamed }
   }
 
