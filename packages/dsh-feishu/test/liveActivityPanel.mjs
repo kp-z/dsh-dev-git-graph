@@ -47,13 +47,13 @@ const ctx = {
   app: { snap: { tasks: [structuredClone(originalTask)] }, taskCache: { t1: { task: structuredClone(originalTask), node: card } }, currentSessionId: 's1', seenSent: {}, settings: {}, busyTask: {}, workspaces: [], serverFeatures: [] },
   API_BASE: '/dsh-feishu/api/', location: { href: 'https://example.test/dsh-feishu/panel', origin: 'https://example.test' }, URL,
   window: { EventSource }, document: { hidden: false, activeElement: draft, querySelectorAll: () => [priority,chip], querySelector: () => menu },
-  $: () => bars, el: (tag,attrs) => new Node(tag,attrs), clear: n => { n.children = [] }, filterTasksForPanel: tasks => tasks,
+  $: id => id === 'taskList' ? null : bars, el: (tag,attrs) => new Node(tag,attrs), clear: n => { n.children = [] }, filterTasksForPanel: tasks => tasks,
   setTimeout: (f,delay) => { const id = ++timerId; timers.set(id,{f,delay}); return id }, clearTimeout: id => timers.delete(id),
   api: (path,body) => { apiCalls.push({path,body}); return path === 'state' ? new Promise(resolve => flights.push(resolve)) : Promise.resolve({}) },
   renderAll: () => { renders++ }, maybeAutoInsight() {}, pollCardComments() {}, taskRenderObserver: { disconnect() { disconnected++ } },
 }
 vm.createContext(ctx)
-for (const name of ['activityState','currentActivityTask','sessionActivityLabel','updateSessionActivityChip','updateTaskActivityNodes','mergeActivitySnapshot','stopActivityStream','connectActivityStream','stopAuthWatch','disposeActivityPanel','syncCachedTask','renderTaskActivity','stablePanelSignature','taskCardSignature','stateSignature','load','schedulePoll','markCurrentSessionSeen']) vm.runInContext(fn(name),ctx)
+for (const name of ['activityState','currentActivityTask','sessionActivityLabel','updateSessionActivityChip','reorderActivityTaskCards','updateTaskActivityNodes','mergeActivitySnapshot','stopActivityStream','connectActivityStream','stopAuthWatch','disposeActivityPanel','syncCachedTask','renderTaskActivity','stablePanelSignature','taskCardSignature','stateSignature','load','schedulePoll','markCurrentSessionSeen']) vm.runInContext(fn(name),ctx)
 const session = (phase = 'running', unread = false, alive = true, turn = 1) => ({ id:'s1', alive, phase, unread, turn })
 const task = () => ctx.app.snap.tasks[0]
 const assertDraft = () => { assert.equal(ctx.document.activeElement,draft); assert.equal(draft.value,'不能丢的评论草稿'); assert.equal(draft.selectionStart,4); assert.deepEqual(card.children,[priority,chip,draft,menu]) }

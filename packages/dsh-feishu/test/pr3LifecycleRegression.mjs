@@ -110,6 +110,8 @@ function creationHarness({ remote, failSaveAt = 0, loaded = {} } = {}) {
     updateRelations: () => ({ ok: true, edges: [] }), service: () => undefined, ctx: {},
     ensureManagedTasklist: async () => ({ ok: true, guid: 'list' }), defaultsFromState: () => ({ assignee: 'ou_mock', tasklistGuid: 'list' }),
     extractDocLinks: () => [], persistState: async () => {}, taskNo: () => 1, decorateTitle: title => title,
+    /* 编号来自飞书任务号；这里 task_get 返回空，所以创建出来的任务没有号。 */
+    feishuTaskNo: () => 0,
     writeTaskRelations: async () => ({ ok: true }), syncTasks: async () => ({ ok: true }), linkTask: async () => ({ ok: true }), relationView: () => ({ edges: [] }),
   }
   const impl = {
@@ -140,7 +142,8 @@ async function blockedRetries(h, calls, taskId = 'created') {
   } })
   const result = await h.createTaskFromSession('session', { summary: 'original', requestId: 'original' })
   assert.equal(result.ok, false); assert.equal(result.partial, true); assert.equal(result.taskId, 'created')
-  assert.deepEqual(calls.map(c => c.op), ['create'])
+  /* 建完还会 task_get 读飞书任务号（编号来源），所以这里只看创建那一次。 */
+  assert.deepEqual(calls.filter(c => c.op !== 'actions').map(c => c.op), ['create'])
   assert.equal(h.state.tasks[0].creationBackend, 'feishu-sync')
   assert.equal(Object.values(durable())[0].status, 'partial')
   assert.equal(Object.values(durable())[0].taskId, 'created')
@@ -179,7 +182,7 @@ async function blockedRetries(h, calls, taskId = 'created') {
   h.state.tasks = []; reload()
   const reused = await h.createTaskFromSession('session', { summary: 'changed', requestId: 'stable', followUp: true })
   assert.equal(reused.ok, true); assert.equal(reused.reused, true); assert.equal(reused.taskId, first.taskId)
-  assert.equal(calls.length, 1)
+  assert.equal(calls.filter(c => c.op === 'create').length, 1)
 }
 // Both preparation and sending persistence must succeed before create IO.
 for (const failSaveAt of [1, 2]) {

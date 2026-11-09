@@ -86,6 +86,7 @@ function harness(current, old = legacy) {
     now: h.nowMs,
   })
   vm.createContext(h)
+  h.feishuTaskNo = () => 0
   vm.runInContext(defaults[0] + '\n' + ['load', 'persistState', 'creationPending', 'normalizeTask', 'createTaskDoc', 'createTaskFromSession'].map(extract).join('\n'), h)
   return { h, reads, writes, adoptionCalls, effects, logs }
 }

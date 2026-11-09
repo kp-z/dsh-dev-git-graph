@@ -9,6 +9,7 @@ class Node {
   constructor() { this.children = []; this.parent = null }
   insertBefore(n, next) { if (n.parent) n.parent.removeChild(n); const i = next ? this.children.indexOf(next) : this.children.length; this.children.splice(i, 0, n); n.parent = this }
   appendChild(n) { this.insertBefore(n, null) }
+  contains(n) { return this === n || this.children.some((child) => child.contains(n)) }
   removeChild(n) { this.children.splice(this.children.indexOf(n), 1); n.parent = null }
 }
 const nodes = new Map(['taskList', 'taskCount', 'taskListName', 'syncNow', 'insightCharts'].map((id) => [id, new Node()]))
@@ -30,7 +31,7 @@ const context = {
   setTimeout, clearTimeout,
 }
 vm.createContext(context)
-for (const name of ['stablePanelSignature', 'syncCachedTask', 'reconcilePanelChildren', 'taskCardSignature', 'renderTasks', 'flushPendingTaskRender', 'stateSignature', 'load', 'renderInsightCharts', 'schedulePoll']) vm.runInContext(fn(name), context)
+for (const name of ['stablePanelSignature', 'syncCachedTask', 'reconcilePanelChildren', 'taskCardSignature', 'sortPanelTasks', 'reorderActivityTaskCards', 'renderTasks', 'flushPendingTaskRender', 'stateSignature', 'load', 'renderInsightCharts', 'schedulePoll']) vm.runInContext(fn(name), context)
 context.renderTasks()
 assert.equal(made, 2)
 const oldA = nodes.get('taskList').children[0], oldB = nodes.get('taskList').children[1]
@@ -57,6 +58,43 @@ assert.equal(made, 3)
 assert.equal(context.app.taskRenderPending, true)
 menu = false
 context.flushPendingTaskRender()
+assert.equal(made, 4)
+
+// Activity changes reorder existing cards without rebuilding or dropping drafts.
+const list = nodes.get('taskList')
+const cardA = list.children[0], cardB = list.children[1]
+const draft = new Node(); draft.value = '保留评论草稿'; cardA.appendChild(draft)
+context.app.snap.tasks[1].sessionAlive = true
+context.app.snap.tasks[1].sessionPhase = 'running'
+context.reorderActivityTaskCards()
+assert.deepEqual(list.children, [cardB, cardA])
+assert.equal(made, 4)
+assert.equal(draft.value, '保留评论草稿')
+context.app.snap.tasks[0].sessionAlive = true
+context.app.snap.tasks[0].sessionPhase = 'idle'
+context.app.snap.tasks[0].sessionUnread = true
+context.document.activeElement = draft
+context.reorderActivityTaskCards()
+context.renderTasks()
+assert.equal(context.app.taskRenderPending, true, 'poll rendering also defers while a card has focus')
+assert.deepEqual(list.children, [cardB, cardA], 'defer movement while a card has focus')
+assert.equal(context.app.taskOrderPending, true)
+context.document.activeElement = null
+context.flushPendingTaskRender()
+assert.deepEqual(list.children, [cardA, cardB], 'completion moves above running after focus leaves')
+assert.equal(made, 4)
+assert.equal(cardA.children[0], draft)
+context.app.snap.tasks[0].sessionUnread = false
+menu = true
+context.reorderActivityTaskCards()
+assert.deepEqual(list.children, [cardA, cardB], 'open menus defer movement')
+menu = false
+context.flushPendingTaskRender()
+assert.deepEqual(list.children, [cardB, cardA])
+hideA = true; context.renderTasks(); context.reorderActivityTaskCards()
+assert.deepEqual(list.children, [cardB], 'activity sorting never reinstates filtered cards')
+hideA = false; context.renderTasks()
+assert.deepEqual(list.children, [cardB, cardA])
 assert.equal(made, 4)
 
 const base = { tasks: [{ id: 'a', title: 'A', docs: [{ title: 'doc', url: 'url' }] }] }

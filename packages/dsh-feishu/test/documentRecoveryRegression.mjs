@@ -86,6 +86,8 @@ function harness() {
     const scope = newScope()
     return { docInfo: (_settings, url) => scope.docInfo(url) }
   }
+  /* 编号来自飞书任务号；这些用例不关心编号，给个固定替身。 */
+  h.feishuTaskNo = () => 0
   vm.createContext(h)
   vm.runInContext(docxMatch[0].replace('export ', '') + '\n' + ['normalizeTask', 'createTaskDoc', 'bindTaskDoc'].map(extract).join('\n'), h)
   return { h, calls, rawCalls, infoCalls, fieldWrites, saved, replies, modelCalls, adapter }

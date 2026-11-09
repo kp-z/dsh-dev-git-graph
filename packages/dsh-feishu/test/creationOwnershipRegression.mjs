@@ -8,7 +8,7 @@ import { createCreationLedger } from '../creationLedger.js'
 const source = await readFile(new URL('../index.js', import.meta.url), 'utf8')
 const extract = name => { const m = source.match(new RegExp('  (?:async )?function ' + name + '\\([^]*?\\n  }')); assert.ok(m, name); return m[0] }
 const store = new AsyncLocalStorage(), calls = []
-const h = { backendContext: store, activeCreationKeys: new Set(), createHash, settings: { cliBackend: 'A', cliPath: 'fake', managedTasklist: { enabled: true, guid: 'list' }, comments: {}, contextInjection: false }, state: { tasks: [], taskCreationReceipts: {}, relations: [], relationSync: {}, workspaceLinks: {}, workspaceWrites: {}, suspensions: {} }, lifecycleDisposed: false, asString: v => v == null ? '' : String(v), nowMs: Date.now, updateRelations: () => ({ ok: true, edges: [] }), service: () => undefined, ctx: {}, ensureManagedTasklist: async () => ({ ok: true, guid: 'list' }), defaultsFromState: () => ({ assignee: 'self', tasklistGuid: 'list' }), extractDocLinks: () => [], persistState: async () => {}, taskNo: () => 1, decorateTitle: x => x, syncTasks: async () => ({ ok: true }), relationView: () => ({}), sessionExists: async () => true, renameSession: async () => ({ ok: true }), writeStartToFeishu: async () => ({ ok: true }), fillWorkspaceFields: async () => {}, log: () => {} }
+const h = { backendContext: store, activeCreationKeys: new Set(), createHash, settings: { cliBackend: 'A', cliPath: 'fake', managedTasklist: { enabled: true, guid: 'list' }, comments: {}, contextInjection: false }, state: { tasks: [], taskCreationReceipts: {}, relations: [], relationSync: {}, workspaceLinks: {}, workspaceWrites: {}, suspensions: {} }, lifecycleDisposed: false, asString: v => v == null ? '' : String(v), nowMs: Date.now, updateRelations: () => ({ ok: true, edges: [] }), service: () => undefined, ctx: {}, ensureManagedTasklist: async () => ({ ok: true, guid: 'list' }), defaultsFromState: () => ({ assignee: 'self', tasklistGuid: 'list' }), extractDocLinks: () => [], persistState: async () => {}, taskNo: () => 1, decorateTitle: x => x, feishuTaskNo: () => 0, syncTasks: async () => ({ ok: true }), relationView: () => ({}), sessionExists: async () => true, renameSession: async () => ({ ok: true }), writeStartToFeishu: async () => ({ ok: true }), fillWorkspaceFields: async () => {}, log: () => {} }
 const impl = { createTask: async () => { calls.push('create'); return { ok: true, guid: 'created', tasklistGuid: 'list' } }, actions: async (_settings, actions) => { calls.push(actions[0].op); return { ok: true, actions: actions.map(a => ({ op: a.op, ok: true, task: { guid: a.task } })) } }, complete: async () => { calls.push('complete'); return { ok: true } }, updateTask: async () => { calls.push('update'); return { ok: true } }, comment: async () => { calls.push('comment'); return { ok: true } } }
 const newScope = () => createBackendScope({ getSettings: () => h.settings, getGeneration: () => 0, isDisposed: () => h.lifecycleDisposed, resolveBackend: () => impl, beforeActions: actions => h.pendingCreationWriteBlocked(actions) })
 h.captureBackendScope = () => store.getStore() || newScope()
@@ -35,12 +35,13 @@ const owner = newScope()
 const result = await store.run(owner, () => h.createTaskFromSession('session', { summary: 'normal', requestId: 'one' }))
 assert.equal(result.ok, true); assert.equal(result.bound, true)
 assert.equal(finishes, 1, 'real linkTask cannot prematurely finish the active creation')
-assert.deepEqual(calls, ['create'], 'owned binding needs no recovery RPC and external mutations dispatch nothing')
+/* 建完会 task_get 读飞书任务号（编号来源）；除它之外不该有别的后端调用。 */
+assert.deepEqual(calls, ['create', 'task_get'], 'owned binding needs no recovery RPC and external mutations dispatch nothing')
 assert.equal(Object.values(h.state.taskCreationReceipts)[0].status, 'done')
 assert.equal(h.state.tasks[0].boundOnly, true); assert.equal(owner.creationKey, undefined)
 // An external operation is allowed normally after the receipt is committed.
 assert.equal((await store.run(newScope(), () => h.captureBackendScope().complete('created'))).ok, true)
-assert.deepEqual(calls, ['create','complete'])
+assert.deepEqual(calls, ['create','task_get','complete'])  /* task_get = 读飞书任务号 */
 // A genuine stopped partial receipt still goes through explicit authoritative
 // manual binding recovery, not the active-owner fast path.
 const receipt = Object.values(h.state.taskCreationReceipts)[0]
@@ -49,5 +50,6 @@ assert.equal(h.creationPending('created'), true)
 const recovered = await store.run(newScope(), () => h.linkTask('created', 'session', 'manual'))
 assert.equal(recovered.ok, true)
 assert.equal(Object.values(h.state.taskCreationReceipts)[0].status, 'done')
-assert.deepEqual(calls, ['create','complete','task_get'])
+/* 第 1 个 task_get 是创建后读飞书任务号，最后一个 task_get 是手动绑定的权威核验。 */
+assert.deepEqual(calls, ['create','task_get','complete','task_get'])
 console.log('CREATION_OWNERSHIP_OK: actual create+link finish once, active owner exemption never leaks, all typed mutations guarded, manual recovery retained')

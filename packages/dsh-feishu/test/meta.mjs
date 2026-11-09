@@ -23,7 +23,8 @@ import {
   leadingEmojiOf,
   stripTaskNo,
   taskNoInTitle,
-  assignTaskNumbers,
+  feishuTaskNo,
+  sessionTitleOrigin,
   buildTaskTitle,
   formatTaskTitle,
   sanitizeTaskDescription,
@@ -361,30 +362,14 @@ check('标题编号解析：新格式', taskNoInTitle('🐛 T8-开发游戏'), 8
 check('标题编号解析：旧格式', taskNoInTitle('T3-🐛 开发游戏'), 3)
 check('标题编号解析：没有编号', taskNoInTitle('开发游戏'), 0)
 
-/* ---------- 编号分配：要能跨「任务掉出列表」活下来 ---------- */
+/* ---------- 编号：唯一来源是飞书任务号（平台分配、改名不变） ---------- */
 
-{
-  const numbers = {}
-  const first = [{ id: 'a' }, { id: 'b' }]
-  assignTaskNumbers(first, numbers)
-  check('新任务从 1 开始编号', first.map((t) => t.no), [1, 2])
-  check('编号写回表里', numbers, { a: 1, b: 2 })
-
-  /* b 掉出列表（被删/被过滤），再来一条新任务：应该拿 3，而不是顶替 b 的 2 */
-  const second = [{ id: 'a' }, { id: 'c' }]
-  assignTaskNumbers(second, numbers)
-  check('新任务不复用仍在册任务的号', second.map((t) => t.no), [1, 2])
-
-  /* b 回来了：应该拿回原来的编号 */
-  const third = [{ id: 'a' }, { id: 'b' }]
-  assignTaskNumbers(third, numbers)
-  check('掉出去再回来能拿回原编号', third.find((t) => t.id === 'b').no, 2)
-
-  /* 冲突：两个任务都自称 5 —— 第二个必须顺延，不能撞号 */
-  const clash = [{ id: 'x', no: 5 }, { id: 'y', no: 5 }]
-  assignTaskNumbers(clash, {})
-  check('撞号时后者顺延', clash.map((t) => t.no), [5, 1])
-}
+check('飞书任务号 → 数字', feishuTaskNo('t516027'), 516027)
+check('飞书任务号：大写 T 也认', feishuTaskNo('T516027'), 516027)
+check('飞书任务号：纯数字也认', feishuTaskNo('516027'), 516027)
+check('飞书任务号：解析不出来给 0', feishuTaskNo('task-abc'), 0)
+check('飞书任务号：空值给 0', feishuTaskNo(undefined), 0)
+check('飞书任务号：太短的不当号（避免把随机串当编号）', feishuTaskNo('t12'), 0)
 
 /* ---------- 统一命名：创建 / AI 起名 / 改名同一套 ---------- */
 
@@ -395,6 +380,29 @@ check('构建标题：用户自带表情优先', buildTaskTitle('🐛 修复登�
 check('构建标题：不会叠两个表情', (buildTaskTitle('🐛 修复登录', 5).match(/🐛/g) || []).length, 1)
 check('构建标题：材料参与挑表情', buildTaskTitle('部署检查', 9, '发布上线').startsWith('🚀'), true)
 check('格式化：无表情时纯编号', formatTaskTitle('做事', 2), 'T2-做事')
+check('格式化：不知道飞书号时不写假编号', formatTaskTitle('做事', 0, '🧪'), '🧪 做事')
+check('格式化：大号照写', formatTaskTitle('做事', 516027, '🧪'), '🧪 T516027-做事')
+
+/* ---------- 编号不再本地生成：没有飞书号就不写编号 ---------- */
+
+{
+  check('无任务号 → 0（不假装有编号）', feishuTaskNo(''), 0)
+  check('编号即飞书号：解析结果可直接当 T 号', formatTaskTitle('做事', feishuTaskNo('t516027')), 'T516027-做事')
+}
+
+/* ---------- 会话标题来源：AI 生成的名字不能反向覆盖任务名 ---------- */
+
+{
+  const events = [
+    { type: 'session/title', data: { title: '兜底名', source: { kind: 'fallback' } } },
+    { type: 'session/title', data: { title: '模型起的名字', source: { kind: 'provider' } } },
+  ]
+  check('会话标题来源：AI 生成', sessionTitleOrigin(events), { title: '模型起的名字', source: 'provider' })
+  check('会话标题来源：人改的', sessionTitleOrigin([...events, { type: 'session/title', data: { title: '我改的', source: { kind: 'user' } } }]).source, 'user')
+  check('会话标题来源：没有标题事件', sessionTitleOrigin([{ type: 'turn/start' }]), { title: '', source: '' })
+  check('会话标题来源：空标题跳过', sessionTitleOrigin([{ type: 'session/title', data: { title: '  ', source: { kind: 'user' } } }]).title, '')
+}
+
 
 if (failures > 0) {
   console.error(`\n${failures} 项失败`)

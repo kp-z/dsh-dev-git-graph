@@ -207,7 +207,7 @@ function pluginVersion() {
  * 输出固定 JSON，面板直接渲染，不做二次解析。
  */
 /* 提示词版本：改了默认提示词就把这个数 +1，旧版会被自动替换成新的（用户改过的也换，说明见 PR） */
-export const PROMPT_REV = 13
+export const PROMPT_REV = 15
 
 /**
  * 早会同步专用提示词。
@@ -359,6 +359,9 @@ export const DEFAULT_INSIGHT_PROMPT = `你是团队早会的诊断助手。根�
 - focus=是否集中在少数任务上；throughput=产出节奏；hygiene=收尾与记录（评论、文档）。
 - charts 选 1-3 张，type 与 dataset 只能从给定枚举里选；**不要自己编数字**，数值由系统按 dataset 渲染。
   挑最有说服力的：比如「堆活」用 wip_by_day_14 折线，「注意力分散」用 workspace_distribution 旭日/饼图。
+- **工作区怎么划分**：以工作区名字最前面方括号 [] 里的内容为准，[] 内相同就是同一个工作区，
+  后面的文字只是子方向。例如「[QVIZ] 坐标转换」和「[QVIZ] 预览配色」是同一个工作区 QVIZ。
+  判断注意力是否分散、统计跨了几个工作区时都按这个口径合并，不要把它们当成不同工作区。
 - **summary 是收起卡片时唯一会显示的内容**：2-3 句、不超过 70 字，说清最该注意什么、为什么。
 - 全部内容要能在卡片上 8 行内显示完，宁可少说，不要堆字。
 - **不要在 headline / commentary 里罗列任务计数**。卡片上方已经有一行统计（共几个 / 已绑定几个 /
@@ -395,7 +398,9 @@ const LARK_DEFAULT_DOMAINS = 'task,docs,wiki,drive'
 const LARK_DEFAULT_SCOPES =
   'task:task:read task:task:write drive:drive docx:document docx:document:create wiki:wiki contact:user.base:readonly'
 /* 面板会对照这个号判断宿主里跑的是不是同一版 index.js；不匹配就提示重启，避免「面板是新的、宿主是旧的」。 */
-const API_VERSION = 6
+/* 8：任务编号改用飞书任务号（本地不再发号）——面板据此提示重启。
+   7：归档会话自动完成、未绑定/回执未核对任务可显式完成。 */
+const API_VERSION = 8
 const LARK_BIN = process.platform === 'win32' ? 'lark-cli.exe' : 'lark-cli'
 /* 插件自己维护的任务清单：任务必须进清单才「看得见」，清单里的自定义字段名也要固定。 */
 const LARK_DEFAULT_TASKLIST = 'DSH 任务'
@@ -483,7 +488,8 @@ const DEFAULT_SETTINGS = {
   /* 同步时是否自动把标题里的编号对齐到本地编号。
      默认关：编号一旦在其他状态里被重新分配（另一台机器、临时 DSH_HOME、测试实例），
      自动改标题就会把真实飞书任务改名。需要时在设置里打开，或用「规整标题」手动跑一次。 */
-  autoRepairTitles: false,
+  /* 编号就是飞书任务号：标题里的号必须跟着它，否则一直挂旧号。 */
+  autoRepairTitles: true,
   /* 交给模型前先过滤掉的任务关键词（工作区名/标题命中即跳过）。比在提示词里写「忽略 X」可靠。 */
   insightIgnore: [],
   /* 会话已读水位：sessionId → 已看到的轮次，用来判断「跑完但没看」 */
@@ -537,8 +543,6 @@ const DEFAULT_STATE = {
   docs: [],
   /* url → { title, at }；问过但没标题的记 null，避免每轮同步重复问。 */
   docTitles: {},
-  /* taskId → 编号：任务掉出列表再回来时靠它拿回原来的 T<n>，见 assignTaskNumbers。 */
-  numbers: {},
   /* taskId → 绑定快照：任务暂时掉出列表（被过滤/被归档）时绑定关系别跟着丢，见 persistState。 */
   bindings: {},
   /* taskId → 工作区绑定 {id, path, title, boundAt, titleSyncedAt, stale}。
@@ -557,12 +561,41 @@ const DEFAULT_STATE = {
   feishuFields: {},
   /* 已经归档过的孤儿会话：归档不删目录，不记一笔扫描会一直重复报同一批。 */
   archivedOrphans: [],
+  /* 上次看到的宿主归档集：只有「新出现」的归档才触发绑定任务自动完成；null = 尚未记基线。 */
+  archivedSessionBaseline: null,
   /* 早会诊断：{ at, headline, issues, advice, score } + 生成时的任务签名 */
   insight: null,
   insightSignature: '',
 }
 
 /* ────────────────────────────── 小工具 ────────────────────────────── */
+
+/**
+ * 模型给的任务引用 → 任务：guid 精确 > 编号（T3 / 3）> 唯一标题片段。
+ * 命中多条时不替人选，把候选报回去。
+ */
+export function resolveTaskRef(tasks, ref) {
+  const list = Array.isArray(tasks) ? tasks : []
+  const text = String(ref ?? '').trim()
+  if (!text) return { error: '需要 taskId' }
+  const exact = list.find((task) => task?.id === text)
+  if (exact) return { task: exact }
+  const numbered = /^T?(\d+)$/i.exec(text)
+  if (numbered) {
+    const no = Number(numbered[1])
+    const hit = list.find((task) => Number(task?.no) === no)
+      || list.find((task) => new RegExp(`^\\s*T${no}\\s*[-.、·：:]`, 'i').test(String(task?.title ?? '')))
+    if (hit) return { task: hit }
+    return { error: `没找到编号 T${no} 的任务：先用 feishu_tasks 查一遍。` }
+  }
+  const needle = text.toLowerCase()
+  const hits = list.filter((task) => String(task?.title ?? '').toLowerCase().includes(needle))
+  if (hits.length === 1) return { task: hits[0] }
+  if (hits.length > 1) {
+    return { error: `「${text}」命中 ${hits.length} 条任务，请用编号或 guid 指定：\n${hits.slice(0, 8).map((task) => `- ${String(task.title).slice(0, 40)}（${task.id}）`).join('\n')}` }
+  }
+  return { error: `没找到任务「${text}」：先用 feishu_tasks 查一遍，再传 guid 或编号。` }
+}
 
 function log(ctx, level, message) {
   try {
@@ -785,27 +818,33 @@ export function stripLeadingEmoji(text) {
  *   2) 占掉别的任务原本的号，两个任务撞号。
  * 所以用一张 id→编号 的表兜底，任务回来时优先拿回原来的号。
  */
-export function assignTaskNumbers(tasks, numbers = {}) {
-  let changed = false
-  const used = new Set()
-  let next = 1
-  for (const task of tasks) {
-    if (!task || !task.id) continue
-    const remembered = numbers[task.id]
-    const current = Number.isInteger(task.no) && task.no > 0 ? task.no : 0
-    let no = current || (Number.isInteger(remembered) && remembered > 0 ? remembered : 0)
-    if (!no || used.has(no)) {
-      while (used.has(next)) next += 1
-      no = next
-    }
-    if (task.no !== no) {
-      task.no = no
-      changed = true
-    }
-    used.add(no)
-    if (numbers[task.id] !== no) numbers[task.id] = no
+/**
+ * 飞书任务号（`t516027`）→ 数字（516027）；解析不出来返回 0。
+ *
+ * 编号的唯一来源是**飞书自己发的任务号**：全局唯一、改名不变、重建本地状态也不变。
+ * 本地不再自己发号——那套计数器出过重号（多个 T1）和 65→1 的漂移。
+ */
+/**
+ * 会话最近一次改名的**来源**：`session/title` 事件里的 `source.kind`。
+ *
+ * `user` = 人改的（面板、侧栏、插件改名都算）；`provider` = 宿主用模型重新生成的名字；
+ * `fallback` = 拿首条消息凑的兜底名。返回空 title 表示这条会话没有标题事件可查。
+ */
+export function sessionTitleOrigin(events) {
+  const rows = Array.isArray(events) ? events : []
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const event = rows[index]
+    if (event?.type !== 'session/title') continue
+    const title = asString(event?.data?.title).trim()
+    if (!title) continue
+    return { title, source: asString(event?.data?.source?.kind) }
   }
-  return changed
+  return { title: '', source: '' }
+}
+
+export function feishuTaskNo(taskIdText) {
+  const match = /^t?(\d{4,})$/i.exec(asString(taskIdText).trim())
+  return match ? Number(match[1]) : 0
 }
 
 /** 标题里写的编号（`🐛 T8-xxx` → 8）；没有就返回 0。 */
@@ -818,7 +857,9 @@ export function taskNoInTitle(title) {
 export function formatTaskTitle(text, no, emoji = '') {
   const body = asString(text) || '未命名任务'
   const lead = asString(emoji)
-  return lead ? `${lead} T${no}-${body}` : `T${no}-${body}`
+  /* 还不知道飞书号（新建后还没同步回来）就先不写编号，别写个假的 T0-。 */
+  const head = Number(no) > 0 ? `T${no}-` : ''
+  return lead ? `${lead} ${head}${body}` : `${head}${body}`
 }
 
 /**
@@ -1122,7 +1163,8 @@ function sanitizeSettings(input, base) {
     autoStartMode: normalizeAutoStartMode(next, base),
     autoStartPrompt: asString(next.autoStartPrompt) || base.autoStartPrompt,
     maxAutoStartPerRun: clampInt(next.maxAutoStartPerRun, 1, 10, 1),
-    autoRepairTitles: next.autoRepairTitles === true,
+    /* 编号现在就是飞书任务号，标题里的号必须跟着它；旧配置里显式关掉的照旧尊重。 */
+    autoRepairTitles: next.autoRepairTitles === undefined ? true : next.autoRepairTitles === true,
     schedule: sanitizeScheduleSettings(next.schedule, base.schedule),
     contextInjection: next.contextInjection === true,
     pushChanges: next.pushChanges === true,
@@ -4747,17 +4789,10 @@ function createSyncEngine(ctx) {
       url: asString(raw?.url),
       seenAt: nowMs(),
       firstSeenAt: previousTask?.firstSeenAt ?? nowMs(),
-      /* 编号一旦分配就固定：老任务沿用，新任务取当前最大值 +1。 */
-      no:
-        Number.isInteger(previousTask?.no) && previousTask.no > 0
-          ? previousTask.no
-          : (() => {
-              let max = 0
-              for (const item of state.tasks) {
-                if (item.id !== raw?.guid && Number.isInteger(item?.no) && item.no > max) max = item.no
-              }
-              return max + 1
-            })(),
+      /* 编号 = 飞书自己发的任务号（t516027 → 516027）：平台分配、全局唯一、改名不变。
+         还没拿到飞书号（本地刚建、下一轮才同步回来）时留 0，标题也先不带编号。 */
+      feishuTaskId: asString(raw?.task_id),
+      no: feishuTaskNo(raw?.task_id) || (Number.isInteger(previousTask?.no) && previousTask.no > 0 ? previousTask.no : 0),
       boundOnly: (previousTask?.boundOnly ?? savedBinding?.boundOnly) === true
         && !(previousTask?.started ?? savedBinding?.started),
       isNew: previousTask ? previousTask.isNew === true && !previousTask.started : true,
@@ -4928,11 +4963,8 @@ function createSyncEngine(ctx) {
     if (lifecycleDisposed || backendId !== settings.cliBackend) return { ok: false, stale: true, detail: '后端已切换，取消旧任务发布' }
     const mergedTasks = kept.concat(localDone)
     const audited = auditBindings(mergedTasks)
-    /* 本轮同步前就记过编号的任务：只有这些才可以「按本地编号改飞书标题」。
-       否则一次全新状态（另一台机器 / 临时 DSH_HOME / 测试）会按列表顺序重新编号，
-       然后拿这套新号去改真实飞书标题——历史编号就被改乱了。 */
-    const numbersBefore = new Set(Object.keys(state.numbers ?? {}))
-    renumberTasks(mergedTasks)
+    /* 编号由飞书任务号决定（normalizeTask 里取），这里不再本地重编号。 */
+    const numbersBefore = null
     if (audited) await persistState()
     state.tasks = mergedTasks
     /* 列表携带完整 dependencies 时采纳；未携带则保留，按需刷新。 */
@@ -5328,15 +5360,45 @@ function createSyncEngine(ctx) {
     }
   }
 
-  /** 会话是否真实存在（活着的 agent，或能被 sessionController 读出来）。 */
+  /**
+   * 只读一条会话的档案：{ session: header, events }，不激活 agent。
+   *
+   * DSH 0.2.2 起 sessionController.inspect() 被移除，只读入口挪到 sessionQuery.readSession()；
+   * 两者都回 { session, events }。老宿主照旧走 inspect，新宿主退回 readSession，
+   * 两边都没有才返回 undefined——调用方据此决定是报错还是跳过。
+   */
+  async function readSessionRecord(sessionId, timeoutMs = 15000) {
+    const id = asString(sessionId).trim()
+    if (!id) throw new Error('会话 id 为空')
+    const controller = service(ctx, 'sessionController')
+    if (typeof controller?.inspect === 'function') return controller.inspect(id)
+    const query = service(ctx, 'sessionQuery') ?? await awaitService(ctx, 'sessionQuery', timeoutMs)
+    if (typeof query?.readSession === 'function') return query.readSession(id)
+    return undefined
+  }
+
+  /** 宿主当前能不能只读会话（inspect 或 readSession 任一可用）。 */
+  function canReadSessions() {
+    return typeof service(ctx, 'sessionController')?.inspect === 'function'
+      || typeof service(ctx, 'sessionQuery')?.readSession === 'function'
+  }
+
+  /** 会话标题：老 inspect 把它放在 header 上；新宿主的标题是日志里折叠出来的，要单独读。 */
+  async function readSessionTitle(sessionId, record) {
+    const direct = asString(record?.session?.title || record?.header?.title || record?.title).trim()
+    if (direct) return direct
+    const query = service(ctx, 'sessionQuery')
+    if (typeof query?.readTitle !== 'function') return ''
+    const snapshot = await query.readTitle(sessionId)
+    return asString(snapshot?.title).trim()
+  }
+
+  /** 会话是否真实存在（活着的 agent，或能被宿主只读读出来）。 */
   async function sessionExists(sessionId) {
     if (!sessionId) return false
     if (liveSessionIds().has(sessionId)) return true
-    const sessions = service(ctx, 'sessionController')
-    if (!sessions || typeof sessions.inspect !== 'function') return false
     try {
-      await sessions.inspect(sessionId)
-      return true
+      return (await readSessionRecord(sessionId, 5000)) !== undefined
     } catch {
       return false
     }
@@ -5440,6 +5502,11 @@ function createSyncEngine(ctx) {
     /* 评论同样可能带上 agent 输出里的坏链（[file](/abs/path)），飞书会 400，先清洗。 */
     const body = sanitizeTaskDescription(text)
     if (!body && !complete) return { ok: false, error: '没有要回写的内容' }
+    /* 显式置完成 = 人工确认：先过创建回执核验，评论和完成写回才能放行。 */
+    if (complete) {
+      const hold = await releaseCreationHoldForCompletion(task.id)
+      if (!hold.ok) return { ok: false, error: `标记完成失败：${hold.error}` }
+    }
 
     if (body) {
       const result = await writeTaskComment(task.id, body)
@@ -5447,7 +5514,10 @@ function createSyncEngine(ctx) {
     }
     if (complete) {
       const result = await scope.complete(task.id)
-      if (!result.ok) return { ok: false, error: `标记完成失败：${asString(result.detail).slice(-300)}` }
+      /* 远端已完成：幂等算成功，把本地补齐就算数。 */
+      if (!result.ok && !(await remoteTaskCompleted(task.id))) {
+        return { ok: false, error: `标记完成失败：${asString(result.detail).slice(-300)}` }
+      }
       task = state.tasks.find((item) => item.id === taskId) || task
       task.done = true
       task.status = 'done'
@@ -5540,11 +5610,10 @@ function createSyncEngine(ctx) {
 
   /** 热重载时只补已经重新开工的活跃会话；不激活历史会话、不恢复自动化。 */
   async function reconcileRunningReopens() {
-    const sessions = service(ctx, 'sessionController')
-    if (!sessions?.inspect) return
+    if (!canReadSessions()) return
     for (const task of state.tasks.filter((item) => item.done && item.sessionId && !isSuspended(item.id))) {
       if (liveSessionState().get(task.sessionId)?.kind !== 'running') continue
-      const inspection = await sessions.inspect(task.sessionId)
+      const inspection = await readSessionRecord(task.sessionId)
       const events = inspection?.events || []
       const start = [...events].reverse().find((event) => event.type === 'turn/start')
       if (start && Number(start.time) > Math.max(Number(task.completedAt) || 0, Number(task.endAt) || 0)) {
@@ -5583,16 +5652,13 @@ function createSyncEngine(ctx) {
     const task = state.tasks.find((item) => item.sessionId === id)
     if (!task) return { ok: false, error: '当前会话没有绑定飞书任务：先在任务卡上点「开工（当前会话）」' }
 
-    const sessions = await awaitService(ctx, 'sessionController')
-    if (!sessions || typeof sessions.inspect !== 'function') {
-      return { ok: false, error: '宿主暂时没有会话服务，稍后再试' }
-    }
     let inspection
     try {
-      inspection = await sessions.inspect(id)
+      inspection = await readSessionRecord(id)
     } catch (error) {
       return { ok: false, error: `读取会话失败：${error instanceof Error ? error.message : String(error)}` }
     }
+    if (inspection === undefined) return { ok: false, error: '宿主暂时没有会话服务，稍后再试' }
     const text = lastAssistantText(inspection)
     if (!text) return { ok: false, error: '这条会话还没有助手回复可同步' }
 
@@ -5726,6 +5792,8 @@ function createSyncEngine(ctx) {
    * 把当前会话「变成」一条飞书任务；followUp 保留原任务绑定并建立来源关系。
    */
   async function createTaskFromSession(sessionId, input = {}) {
+    /* 调用方必须经 runEngineOperation 进入 backendContext：creationPending() 靠 getStore().creationKey
+       认出「自己正在创建的任务」。裸调用没有 store，新任务的改名/加清单会被自家回执保护拦下，回执卡死在 partial。 */
     const scope = captureBackendScope()
     const selectedBackend = scope.backend
     const backendChanged = () => !scope.valid()
@@ -5760,8 +5828,7 @@ function createSyncEngine(ctx) {
     creationWorkspace = inherited ? workspaceRows.find((row) => row.id === inherited.id) : workspaceRows.find((row) => row.sessionIds?.includes(id))
     if (!creationWorkspace) {
       try {
-        const sessions = service(ctx, 'sessionController')
-        const inspection = await sessions?.inspect?.(id)
+        const inspection = await readSessionRecord(id)
         const cwd = inspection?.session?.cwd || inspection?.header?.cwd
         if (cwd) creationWorkspace = await registry?.resolveByPath?.(cwd)
       } catch { /* 无上下文时不猜项目 */ }
@@ -5787,6 +5854,8 @@ function createSyncEngine(ctx) {
     if (prepared.reused) return { ...prepared.receipt.result, ok: true, taskId: prepared.receipt.taskId, reused: true }
     scope.creationKey = requestKey
     activeCreationKeys.add(requestKey)
+    /* 编号不再是本地发的：建完立刻 task_get 取飞书任务号（拿不到就先不带编号，下一轮同步补）。 */
+    let draftNo = 0
     try {
       if (backendChanged()) { await taskCreationLedger.cancel(requestKey, { provenNotSent: true }); return { ok: false, error: '创建前配置已变化，尚未发送，允许重试' } }
       const sending = await taskCreationLedger.sending(requestKey)
@@ -5800,18 +5869,21 @@ function createSyncEngine(ctx) {
         return { ok: false, unknownDelivery: created?.unknownDelivery !== false, error }
       }
       const guid = created.guid
+      /* 编号取飞书任务号（t516027 → 516027）：创建响应不一定带，补一次 task_get 读；
+         读不到就先不带编号（标题里不写假号），下一轮同步会补上。 */
+      draftNo = feishuTaskNo((await scope.actions([{ op: 'task_get', task: guid }]).catch(() => ({})))
+        ?.actions?.find((item) => item?.op === 'task_get')?.task?.task_id)
       const saved = await taskCreationLedger.created(requestKey, { taskId: guid, tasklistGuid: created.tasklistGuid || managedTasklistGuid })
       if (!saved.ok) return { ok: false, partial: true, taskId: guid, error: '任务已创建，但回执未能持久化；已停止后续写入：' + saved.error }
       const stopAfterCreate = async () => {
         await taskCreationLedger.markPartial(requestKey, '创建后操作配置已变化或部分完成')
-        if (!state.tasks.some(task => task.id === guid)) state.tasks.unshift({ id: guid, title: summary, description, tasklistGuid: created.tasklistGuid || managedTasklistGuid, done: false, sessionId: boundTask ? null : id, members: [], customFields: [], meta: {}, docs: extractDocLinks(description), creationBackend: selectedBackend, creationReceiptKey: requestKey, creationPending: true, tasklistSyncPending: true })
+        if (!state.tasks.some(task => task.id === guid)) state.tasks.unshift({ id: guid, no: draftNo, task_id: draftNo ? `t${draftNo}` : '', title: summary, description, tasklistGuid: created.tasklistGuid || managedTasklistGuid, done: false, sessionId: boundTask ? null : id, members: [], customFields: [], meta: {}, docs: extractDocLinks(description), creationBackend: selectedBackend, creationReceiptKey: requestKey, creationPending: true, tasklistSyncPending: true })
         await persistState()
         return { ok: false, partial: true, taskId: guid, error: '任务已创建，但后端/配置已切换；已保存回执，勿重复创建，请核对原后端任务' }
       }
       if (backendChanged() || settings.managedTasklist?.guid !== createSettings.managedTasklist?.guid) return stopAfterCreate()
 
       /* 新建任务也套上 T<n>- 前缀和表情，和面板改名、AI 起名保持同一套规则。 */
-      const draftNo = taskNo(undefined)
       let finalTitle = decorateTitle(summary, { no: draftNo }, description)
       if (finalTitle !== summary) {
         const renamed = await scope.updateTask(guid, { summary: finalTitle })
@@ -5830,7 +5902,7 @@ function createSyncEngine(ctx) {
       if (backendChanged()) return stopAfterCreate()
       if (tasklistError) {
         await taskCreationLedger.markPartial(requestKey, tasklistError)
-        state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid: '', intendedTasklistGuid: managedTasklistGuid, creationReceiptKey: requestKey, creationPending: true, creationBackend: selectedBackend, tasklistSyncPending: true, tasklistError, done: false, members: [], customFields: [], meta: {}, docs: extractDocLinks(description) })
+        state.tasks.unshift({ id: guid, no: draftNo, title: finalTitle, description, tasklistGuid: '', intendedTasklistGuid: managedTasklistGuid, creationReceiptKey: requestKey, creationPending: true, creationBackend: selectedBackend, tasklistSyncPending: true, tasklistError, done: false, members: [], customFields: [], meta: {}, docs: extractDocLinks(description) })
         await persistState()
         return { ok: false, partial: true, taskId: guid, error: '任务已创建但未加入清单，勿重复创建：' + tasklistError }
       }
@@ -5841,7 +5913,7 @@ function createSyncEngine(ctx) {
         state.workspaceLinks[guid] = { id: creationWorkspace.id, path: creationWorkspace.path, title: creationWorkspace.title, boundAt: nowMs(), titleSyncedAt: 0, stale: false }
         state.workspaceWrites[guid] = { title: creationWorkspace.title, revision: 1, pending: true, error: null }
       }
-      state.tasks.unshift({ id: guid, title: finalTitle, description, tasklistGuid, done: false, members: [], customFields: [],
+      state.tasks.unshift({ id: guid, no: draftNo, feishuTaskId: draftNo ? `t${draftNo}` : '', title: finalTitle, description, tasklistGuid, done: false, members: [], customFields: [],
         meta: { workspace: creationWorkspace?.title || boundTask?.meta?.workspace || '', trigger: input.trigger, source: 'field' },
         isNew: Boolean(boundTask), sessionId: boundTask ? null : id, started: !boundTask, docs: extractDocLinks(description) })
       /* 跨CLI等待后以最新图重新合并，避免并发创建覆盖先前已落库的关系。 */
@@ -5861,6 +5933,9 @@ function createSyncEngine(ctx) {
       } else if (!task) {
         state.tasks.unshift({
           id: guid,
+          /* 编号就是飞书任务号；这里跟标题一起落库，两边不会再各说各话。 */
+          no: draftNo,
+          feishuTaskId: draftNo ? `t${draftNo}` : '',
           title: finalTitle,
           description,
           meta: { workspace: creationWorkspace?.title || boundTask?.meta?.workspace || '', trigger: input.trigger, source: 'field' },
@@ -5902,7 +5977,11 @@ function createSyncEngine(ctx) {
       if (receipt?.status === 'sending') await taskCreationLedger.fail(requestKey, { error: asString(error?.message || error) })
       if (receipt?.status === 'created') await taskCreationLedger.markPartial(requestKey, asString(error?.message || error))
       return { ok: false, partial: Boolean(receipt?.taskId), taskId: receipt?.taskId, error: '创建流程已停止，请核对创建回执：' + asString(error?.message || error) }
-    } finally { activeCreationKeys.delete(requestKey); if (scope.creationKey === requestKey) delete scope.creationKey }
+    } finally {
+      activeCreationKeys.delete(requestKey)
+      if (scope.creationKey === requestKey) delete scope.creationKey
+      /* 编号由飞书任务号决定，本地不留任何预占状态。 */
+    }
 
   }
 
@@ -5918,16 +5997,13 @@ function createSyncEngine(ctx) {
     if (state.tasks.some((task) => task.sessionId === id)) {
       return { ok: false, error: '当前会话已经绑定任务了' }
     }
-    const sessions = await awaitService(ctx, 'sessionController')
-    if (!sessions || typeof sessions.inspect !== 'function') {
-      return { ok: false, error: '宿主暂时没有会话服务，稍后再试' }
-    }
     let inspection
     try {
-      inspection = await sessions.inspect(id)
+      inspection = await readSessionRecord(id)
     } catch (error) {
       return { ok: false, error: `读取会话失败：${error instanceof Error ? error.message : String(error)}` }
     }
+    if (inspection === undefined) return { ok: false, error: '宿主暂时没有会话服务，稍后再试' }
     const text = lastAssistantText(inspection)
     if (!text) return { ok: false, error: '这条会话还没有助手回复，先聊一轮再同步' }
 
@@ -6128,15 +6204,12 @@ function createSyncEngine(ctx) {
     const parts = [asString(task.title)]
     if (task.description) parts.push(asString(task.description))
     if (task.sessionId) {
-      const sessions = await awaitService(ctx, 'sessionController')
-      if (sessions && typeof sessions.inspect === 'function') {
-        try {
-          const inspection = await sessions.inspect(task.sessionId)
-          const text = lastAssistantText(inspection)
-          if (text) parts.push(text)
-        } catch {
-          /* 读不到会话就只用任务本身的内容 */
-        }
+      try {
+        const inspection = await readSessionRecord(task.sessionId)
+        const text = lastAssistantText(inspection)
+        if (text) parts.push(text)
+      } catch {
+        /* 读不到会话就只用任务本身的内容 */
       }
     }
     return parts.join('\n\n')
@@ -6180,23 +6253,22 @@ function createSyncEngine(ctx) {
     return changed
   }
 
-  function renumberTasks(tasks) {
-    const changed = assignTaskNumbers(tasks, state.numbers ?? (state.numbers = {}))
-    return changed
-  }
 
   /**
    * 任务编号：T1、T2…，按「首次见到」的顺序稳定分配，写进 state 后不再变。
    * 标题格式统一为 `T<n>-<标题>`，用于在飞书、面板、会话名之间对齐同一条任务。
    */
-  function taskNo(task) {
-    if (Number.isInteger(task?.no) && task.no > 0) return task.no
-    let max = 0
-    for (const item of state.tasks) {
-      if (Number.isInteger(item?.no) && item.no > max) max = item.no
-    }
-    return max + 1
+  /* 文案里的编号标签：有号才带 T 前缀（本地刚建、号还没同步回来时不要写 T0）。 */
+  function label(task) {
+    const no = taskNo(task)
+    return no > 0 ? `T${no}` : 'T?'
   }
+
+  /* 任务号只有一个来源：飞书发的任务号。本地不再发号，拿不到就是 0（标题不带编号）。 */
+  function taskNo(task) {
+    return Number.isInteger(task?.no) && task.no > 0 ? task.no : 0
+  }
+
 
   /** 去掉标题里已有的 T<n>- 前缀，避免重复叠加。 */
 
@@ -6218,8 +6290,9 @@ function createSyncEngine(ctx) {
     const text = stripTaskNo(title)
     const body = text || '未命名任务'
     const lead = typed || emoji
-    /* 表情排最前：列表里扫一眼先看到类型，再看到编号。 */
-    return lead ? `${lead} T${no}-${body}` : `T${no}-${body}`
+    /* 表情排最前：列表里扫一眼先看到类型，再看到编号。还不知道飞书号就先不写。 */
+    const head = no > 0 ? `T${no}-` : ''
+    return lead ? `${lead} ${head}${body}` : `${head}${body}`
   }
 
   async function suggestTaskTitle(taskId) {
@@ -6717,7 +6790,7 @@ function createSyncEngine(ctx) {
               const days = Number(entry?.days)
               const span = from && to ? `${formatDay(from)}→${formatDay(to)}` : '改期'
               const delta = Number.isFinite(days) ? `（+${days} 天）` : ''
-              return `T${task.no}「${stripTaskNo(task.title).slice(0, 12)}」 ${span}${delta}${entry?.reason ? ` 原因：${String(entry.reason).slice(0, 30)}` : ''}`
+              return `${label(task)}「${stripTaskNo(task.title).slice(0, 12)}」 ${span}${delta}${entry?.reason ? ` 原因：${String(entry.reason).slice(0, 30)}` : ''}`
             })
             .join(' | '),
       )
@@ -6727,7 +6800,7 @@ function createSyncEngine(ctx) {
         '【逾期未完成】'
           + risk.overdue
             .slice(0, 5)
-            .map((item) => `T${item.no}「${stripTaskNo(item.title).slice(0, 12)}」预期 ${formatStamp(item.expectedAt, false)}，已逾期 ${Math.abs(item.days)} 天`)
+            .map((item) => `${label(item)}「${stripTaskNo(item.title).slice(0, 12)}」预期 ${formatStamp(item.expectedAt, false)}，已逾期 ${Math.abs(item.days)} 天`)
             .join('；'),
       )
     }
@@ -6736,7 +6809,7 @@ function createSyncEngine(ctx) {
         '【承诺了但还没开工】'
           + risk.notStarted
             .slice(0, 5)
-            .map((item) => `T${item.no}「${stripTaskNo(item.title).slice(0, 12)}」预期 ${formatStamp(item.expectedAt, false)}`)
+            .map((item) => `${label(item)}「${stripTaskNo(item.title).slice(0, 12)}」预期 ${formatStamp(item.expectedAt, false)}`)
             .join('；'),
       )
     }
@@ -6745,7 +6818,6 @@ function createSyncEngine(ctx) {
 
   /** 组装喂给模型的上下文：只发摘要，不发代码、不发完整对话。 */
   async function insightContext() {
-    const sessions = await awaitService(ctx, 'sessionController')
     const now = nowMs()
     const lines = []
     const ignore = (settings.insightIgnore ?? []).map((item) => asString(item).toLowerCase()).filter(Boolean)
@@ -6760,7 +6832,7 @@ function createSyncEngine(ctx) {
       const status = task.done
         ? '已完成'
         : (task.started || task.sessionId) ? '进行中（已有会话在推进）' : '未开始（还没有会话）'
-      const bits = [`T${taskNo(task)} ${task.title}`, status]
+      const bits = [`${label(task)} ${task.title}`, status]
       if (task.priority) bits.push(`优先级=${task.priority}`)
       const workspace = task.workspaceTitle || task.workspaceName
       if (workspace) bits.push(`工作区=${workspace}`)
@@ -6786,9 +6858,9 @@ function createSyncEngine(ctx) {
         const delays = Array.isArray(task.delayLog) ? task.delayLog.length : 0
         if (delays) bits.push(`改期=${delays} 次`)
       }
-      if (sessions && typeof sessions.inspect === 'function' && task.sessionId) {
+      if (task.sessionId) {
         try {
-          const inspection = await sessions.inspect(task.sessionId)
+          const inspection = await readSessionRecord(task.sessionId)
           const text = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ')
           if (text) bits.push(`最近对话=${text.slice(0, 200)}`)
         } catch {
@@ -6808,9 +6880,9 @@ function createSyncEngine(ctx) {
         const title = asString(agent.session?.title || agent.title || agent.id).slice(0, 40)
         if (ignore.some((word) => title.toLowerCase().includes(word))) continue
         let snippet = ''
-        if (sessions && typeof sessions.inspect === 'function') {
+        if (canReadSessions()) {
           try {
-            const inspection = await sessions.inspect(agent.id)
+            const inspection = await readSessionRecord(agent.id)
             snippet = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ').slice(0, 160)
           } catch {
             /* 读不到正文就只留标题 */
@@ -6860,7 +6932,7 @@ bucket 只能从枚举里选：
 
   /** 归因材料：一条任务 + 它自己的证据（不把整张清单塞进去，避免模型串行归因）。 */
   async function attributionMaterial(task, now) {
-    const bits = [`任务：T${taskNo(task)}「${asString(task.title).slice(0, 40)}」`]
+    const bits = [`任务：${label(task)}「${asString(task.title).slice(0, 40)}」`]
     if (task.priority) bits.push(`优先级=${task.priority}`)
     const workspace = task.workspaceTitle || task.workspaceName
     if (workspace) bits.push(`工作区=${workspace}`)
@@ -6879,10 +6951,9 @@ bucket 只能从枚举里选：
         return `${reason}${Number(entry?.days) ? `（+${entry.days} 天）` : ''}`
       }).join('；'))
     }
-    const sessions = await awaitService(ctx, 'sessionController')
-    if (sessions && typeof sessions.inspect === 'function' && task.sessionId) {
+    if (task.sessionId) {
       try {
-        const inspection = await sessions.inspect(task.sessionId)
+        const inspection = await readSessionRecord(task.sessionId)
         const text = asString(lastAssistantText(inspection)).replace(/\s+/g, ' ')
         if (text) bits.push(`最近对话=${text.slice(0, 300)}`)
       } catch {
@@ -6969,7 +7040,7 @@ bucket 只能从枚举里选：
         source: 'ai',
       }
       attributed += 1
-      log(ctx, 'info', `[delay] T${taskNo(task)} 逾期归因：${parsed.reason.slice(0, 30)}`)
+      log(ctx, 'info', `[delay] ${label(task)} 逾期归因：${parsed.reason.slice(0, 30)}`)
     }
     state.delayAttributions = attributions
     state.delayAttempts = attempts
@@ -7241,6 +7312,20 @@ bucket 只能从枚举里选：
     return record
   }
 
+  /**
+   * 工作区归组：以工作区名字**最前面方括号 [] 里的内容**为准，[] 内相同就是同一个工作区。
+   *
+   * 例：「[QVIZ] 坐标转换」与「[QVIZ]qviz-scenepack」都归到 QVIZ；
+   * 没有 [] 或 [] 为空时保留原名单列，避免把不同工作区误并成一个。
+   * 只在统计口径上归组，任务行里的工作区名照旧显示全名。
+   */
+  function workspaceGroup(name) {
+    const text = asString(name).trim()
+    const matched = /^\[([^\]]*)\]/.exec(text)
+    const group = matched ? matched[1].trim() : ''
+    return group || text || '未分配'
+  }
+
   /** 趋势数据：补齐缺失的日期（没记录的按 0 显示，而不是断开）。 */
   function insightStats(days = 14) {
     const span = Math.max(3, Math.min(60, Number(days) || 14))
@@ -7273,11 +7358,11 @@ bucket 只能从枚举里选：
         cycleMedianDays: saved?.cycleMedianDays ?? null,
       })
     }
-    /* 状态 × 工作区：旭日图的内外两环都靠它 */
+    /* 状态 × 工作区：旭日图的内外两环都靠它。工作区按 [] 前缀归组（见 workspaceGroup）。 */
     const buckets = new Map()
     for (const task of state.tasks) {
       const stateKey = task.done ? 'done' : (task.started || task.sessionId) ? 'started' : 'idle'
-      const workspace = task.workspaceTitle || task.workspaceName || '未分配'
+      const workspace = workspaceGroup(task.workspaceTitle || task.workspaceName || '未分配')
       const key = `${stateKey}\u0001${workspace}`
       buckets.set(key, (buckets.get(key) ?? 0) + 1)
     }
@@ -7442,10 +7527,10 @@ bucket 只能从枚举里选：
     }
     lines.push('', `今日：活跃 ${local.today.activeCount} · 完成 ${local.today.doneCount} · 新开工 ${local.today.startedCount} · 文档 ${local.today.docsCount}`)
     if (local.stalled.length) {
-      lines.push(`卡住：${local.stalled.map((item) => `T${item.no} ${item.title.slice(0, 18)}`).join('；')}`)
+      lines.push(`卡住：${local.stalled.map((item) => `${label(item)} ${item.title.slice(0, 18)}`).join('；')}`)
     }
     if (local.recommend.length) {
-      lines.push(`今天建议先做：${local.recommend.map((item) => `T${item.no}`).join('、')}`)
+      lines.push(`今天建议先做：${local.recommend.map((item) => label(item)).join('、')}`)
     }
     if (ai?.advice) lines.push('', `建议：${ai.advice}`)
     /* 履约与延期结论也带进评论：写回飞书的摘要应该和面板上看到的是同一套判断 */
@@ -7620,16 +7705,69 @@ bucket 只能从枚举里选：
     return { ok: true, archived: ok, failed }
   }
 
-  /** 「完成」：飞书置完成 + 归档会话。 */
-  function completeTask(taskId) {
-    return withTaskLifecycle(taskId, () => applyTaskCompletion(taskId))
+  /**
+   * 人在面板/工具里显式「完成」一条还挂着创建回执的任务：这和「手动绑定」一样是人工确认。
+   * 按同一口径核验——创建已结束、同一后端、原后端 task_get 返回同一 GUID——通过就关掉回执，
+   * 之后的完成写回才放行。核验不过就照旧拦着，绝不盲写。
+   */
+  async function releaseCreationHoldForCompletion(taskId) {
+    if (!creationPending(taskId)) return { ok: true }
+    const scope = captureBackendScope()
+    const held = (await taskCreationLedger.list()).find(row => row.taskId === taskId && ['created', 'partial', 'unknown', 'sending'].includes(row.status))
+    if (!held) return { ok: true }
+    if (activeCreationKeys.has(held.key) || held.status === 'sending') return { ok: false, error: '任务创建仍在进行，请等创建完成再标记完成' }
+    if (held.backend && held.backend !== scope.backend) return { ok: false, error: '请切回创建这条任务时的后端，再标记完成' }
+    const check = await scope.actions([{ op: 'task_get', task: taskId }])
+    if (!scope.valid() || !check.actions?.[0]?.ok || asString(check.actions[0].task?.guid) !== taskId) {
+      return { ok: false, error: '任务创建回执未通过核验（原后端查不到这条任务），未标记完成' }
+    }
+    const reconciled = await taskCreationLedger.reconcile(held.key, { taskId, evidence: '用户显式标记完成并通过原后端 task_get 核验' })
+    if (!reconciled.ok) return { ok: false, error: reconciled.error }
+    const finished = await taskCreationLedger.finish(held.key, { ok: true, taskId, reconciled: true, completed: true })
+    if (!finished.ok) return { ok: false, error: finished.error }
+    const task = state.tasks.find((item) => item.id === taskId)
+    if (task) {
+      task.creationPending = false
+      task.tasklistSyncPending = false
+    }
+    log(ctx, 'info', `[creation] 回执经 task_get 核验后关闭（显式完成）：${taskId}`)
+    return { ok: true, released: true }
   }
 
-  async function applyTaskCompletion(taskId) {
+  /** 「完成」：飞书置完成 + 归档会话。 */
+  function completeTask(taskId, options = {}) {
+    return withTaskLifecycle(taskId, () => applyTaskCompletion(taskId, options))
+  }
+
+  /**
+   * 远端这条任务是不是已经完成了。
+   *
+   * 「完成」本身是幂等的：在飞书 App 里点过完成、或用 CLI 完成过的任务再来标记一次，
+   * 飞书会报 1470400（要先把它重置为未完成再写），那不是失败——目标状态已经成立。
+   * 这里用 task_get 取证，只有确实查到完成时间才认。
+   */
+  async function remoteTaskCompleted(taskId) {
+    try {
+      const result = await backend().actions(settings, [{ op: 'task_get', task: taskId }])
+      const item = result.actions?.find((action) => action.op === 'task_get')
+      const completedAt = asString(item?.task?.completed_at)
+      return item?.ok === true && completedAt !== '' && completedAt !== '0'
+    } catch {
+      return false
+    }
+  }
+
+  async function applyTaskCompletion(taskId, { sessionArchived = false } = {}) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
+    if (task.done) return { ok: true, already: true, archived: sessionArchived, sessionId: task.sessionId, endAt: task.endAt }
+    const hold = await releaseCreationHoldForCompletion(taskId)
+    if (!hold.ok) return { ok: false, error: `标记完成失败：${hold.error}` }
     const done = await backend().complete(settings, task.id)
-    if (!done.ok) return { ok: false, error: `标记完成失败：${asString(done.detail).slice(-300)}` }
+    /* 远端本来就完成了：算成功，只把本地补齐（否则面板会一直显示未完成）。 */
+    if (!done.ok && !(await remoteTaskCompleted(task.id))) {
+      return { ok: false, error: `标记完成失败：${asString(done.detail).slice(-300)}` }
+    }
     task.done = true
     task.status = 'done'
     task.reopenPending = false
@@ -7640,8 +7778,9 @@ bucket 只能从枚举里选：
     task.completedAt = task.endAt
     /* 只有这里标完成的才算「本地完成」，同步时要把它们留住 */
     task.completedLocally = true
-    let archived = false
-    if (task.sessionId) {
+    let archived = sessionArchived
+    /* 会话是用户在工作区里自己归档的：不再重复归档，绑定保持不动。 */
+    if (task.sessionId && !sessionArchived) {
       const result = await archiveSessionForTask(task.sessionId)
       archived = result.ok
       if (!result.ok) log(ctx, 'warn', `[session] 归档失败：${result.error}`)
@@ -7664,6 +7803,78 @@ bucket 只能从枚举里选：
     task.startedAt = null
     await persistState()
     return { ok: true, archived: archived.ok, archiveError: archived.ok ? undefined : archived.error }
+  }
+
+  /**
+   * 用户在 DSH 工作区/侧栏里归档了会话 → 它绑定的任务自动完成，绑定保留。
+   *
+   * 归档 = 「这件事做完了，收起来」；以前插件对此无感，任务一直挂在未完成里。
+   * 口径：
+   * - 只认「新出现」的归档：首次运行只记基线，不把历史上早就归档的会话一口气全完成；
+   * - 跳过已完成、挂起（挂起自己会归档）、创建回执未核对的任务；
+   * - 不解绑：sessionId 原样保留，之后解归档并开新一轮，reopenSessionTasks 照常重开。
+   */
+  let archiveCheck = null
+  function reconcileArchivedSessions(known) {
+    if (archiveCheck) return archiveCheck
+    archiveCheck = applyArchivedSessions(known).finally(() => { archiveCheck = null })
+    return archiveCheck
+  }
+
+  async function applyArchivedSessions(known) {
+    if (lifecycleDisposed || !stateLoaded) return { ok: true, completed: 0 }
+    const current = known instanceof Set ? known : await archivedSessionIds()
+    const baseline = Array.isArray(state.archivedSessionBaseline) ? new Set(state.archivedSessionBaseline) : null
+    const fresh = baseline ? [...current].filter((id) => !baseline.has(id)) : []
+    const completed = []
+    const failures = []
+    for (const sessionId of fresh) {
+      const targets = state.tasks.filter((task) => task.sessionId === sessionId && !task.done
+        && !isSuspended(task.id) && !task.reopenPending)
+      for (const task of targets) {
+        const result = await completeTask(task.id, { sessionArchived: true })
+        if (result?.ok) {
+          completed.push(task.id)
+          log(ctx, 'info', `[archive] 会话 ${sessionId.slice(0, 28)} 已归档 → 任务「${asString(task.title).slice(0, 30)}」自动完成`)
+        } else if (result) {
+          failures.push(result.error || '自动完成失败')
+          /* 写飞书失败：这条会话不进基线，下一轮再试。 */
+          current.delete(sessionId)
+        }
+      }
+    }
+    state.archivedSessionBaseline = [...current]
+    await persistState()
+    return { ok: failures.length === 0, completed: completed.length, failures }
+  }
+
+  /** 持续跟随宿主归档流：每来一帧就（防抖后）重新对账一次。 */
+  function watchArchivedSessions() {
+    const controller = service(ctx, 'workspaceController')
+    if (!controller || typeof controller.follow !== 'function') return () => {}
+    const abort = new AbortController()
+    let timer = null
+    const schedule = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        void reconcileArchivedSessions().catch((error) => log(ctx, 'warn', `[archive] 归档对账失败：${error.message}`))
+      }, 800)
+    }
+    void (async () => {
+      try {
+        for await (const frame of controller.follow(abort.signal)) {
+          if (abort.signal.aborted || lifecycleDisposed) break
+          if (frame?.type === 'baseline' && Array.isArray(frame.value?.archivedSessionIds)) {
+            await reconcileArchivedSessions(new Set(frame.value.archivedSessionIds)).catch(() => undefined)
+          } else {
+            schedule()
+          }
+        }
+      } catch (error) {
+        if (!abort.signal.aborted) log(ctx, 'warn', `[archive] 归档流中断（同步时仍会对账）：${error?.message || error}`)
+      }
+    })()
+    return () => { clearTimeout(timer); abort.abort() }
   }
 
   /** 从文本里挑出飞书文档链接（docx / docs / wiki / sheets / base）。 */
@@ -7996,10 +8207,9 @@ bucket 只能从枚举里选：
     const lines = []
     if (task.description) lines.push(task.description.trim())
     if (task.sessionId) {
-      const sessions = await awaitService(ctx, 'sessionController')
-      if (sessions?.inspect) {
+      if (canReadSessions()) {
         try {
-          const inspection = await sessions.inspect(task.sessionId)
+          const inspection = await readSessionRecord(task.sessionId)
           const text = lastAssistantText(inspection)
           if (text) lines.push('\n---\n会话结论（' + task.sessionId + '）：\n' + text)
         } catch {
@@ -8110,10 +8320,9 @@ bucket 只能从枚举里选：
     } catch {
       /* 登记表读不到就退回 inspect */
     }
-    const sessions = await awaitService(ctx, 'sessionController')
-    if (!sessions?.inspect || !registry?.resolveByPath) return ''
+    if (!registry?.resolveByPath) return ''
     try {
-      const inspection = await sessions.inspect(id)
+      const inspection = await readSessionRecord(id)
       const cwd = inspection?.session?.cwd || inspection?.header?.cwd || ''
       if (!cwd) return ''
       const workspace = await registry.resolveByPath(cwd)
@@ -8192,7 +8401,7 @@ bucket 只能从枚举里选：
            照它们的顺序去改真实飞书标题会把编号改乱。 */
         return known ? known.has(task.id) : true
       })
-      .slice(0, 3)
+      .slice(0, 20)
     if (!broken.length) return 0
     let fixed = 0
     for (const task of broken) {
@@ -8552,11 +8761,10 @@ bucket 只能从枚举里选：
     /* 本地没解析出工作区时，从绑定会话的 cwd 反查项目名，避免写空值。 */
     let workspaceLabel = task.workspaceTitle || task.workspaceName || ''
     if (!workspaceLabel && task.sessionId) {
-      const sessions = await awaitService(ctx, 'sessionController')
       const registry = await awaitService(ctx, 'workspaceRegistry')
-      if (sessions?.inspect && registry?.resolveByPath) {
+      if (registry?.resolveByPath) {
         try {
-          const inspection = await sessions.inspect(task.sessionId)
+          const inspection = await readSessionRecord(task.sessionId)
           const cwd = inspection?.session?.cwd || inspection?.header?.cwd || ''
           if (cwd) {
             const ws = await registry.resolveByPath(cwd)
@@ -8605,14 +8813,20 @@ bucket 只能从枚举里选：
   async function syncSessionTitles() {
     const bound = state.tasks.filter((task) => task.sessionId && !task.done)
     if (bound.length === 0) return { ok: true, renamed: [] }
-    const sessions = await awaitService(ctx, 'sessionController', 5000)
-    if (!sessions?.inspect) return { ok: false, error: '宿主没有会话服务' }
+    if (!canReadSessions() && !(await awaitService(ctx, 'sessionQuery', 5000))) {
+      return { ok: false, error: '宿主没有会话服务' }
+    }
     const renamed = []
     for (const task of bound) {
       let title = ''
       try {
-        const inspection = await sessions.inspect(task.sessionId)
-        title = asString(inspection?.session?.title || inspection?.header?.title || inspection?.title).trim()
+        const inspection = await readSessionRecord(task.sessionId, 5000)
+        title = await readSessionTitle(task.sessionId, inspection)
+        /* 宿主会不断用模型重生成会话标题（source=provider）。那种名字**不能**反向覆盖任务名：
+           否则人刚在面板改好的任务名，会在两分钟内被 AI 名字顶回去——看起来就像「双击改名触发了 AI」。
+           只有明确由人改的标题（面板 / 侧栏 / 插件自己写的）才同步。 */
+        const origin = sessionTitleOrigin(inspection?.events)
+        if (origin.title && origin.source && origin.source !== 'user') continue
       } catch {
         continue
       }
@@ -8747,6 +8961,7 @@ bucket 只能从枚举里选：
         if (adoptFeishuSchedule()) await persistState()
         retryWorkspaceWrites()
         await stage('工作区对账', reconcileWorkspaces, { optional: true })
+        await stage('归档会话自动完成', () => reconcileArchivedSessions(), { optional: true })
         const attribution = await stage('逾期 AI 归因', attributeOverdueTasks, { optional: true })
         receipt.ai.attributionAttempts = Number(attribution?.modelAttempts) || 0
         receipt.counts.attributions = Number(attribution?.attributed) || 0
@@ -8877,19 +9092,21 @@ bucket 只能从枚举里选：
       globalThis[lifecycleKey] = drain.catch(() => {})
       return drain
     },
-    syncCurrentSession,
+    syncCurrentSession: (...args) => runEngineOperation(syncCurrentSession, args),
     createTaskFromSession: (...args) => runEngineOperation(createTaskFromSession, args),
     relationView,
     setTaskRelations: (...args) => runEngineOperation(setTaskRelations, args),
     suggestTaskRelations,
     refreshTaskRelations: (...args) => runEngineOperation(refreshTaskRelations, args),
-    promoteSessionToTask,
+    promoteSessionToTask: (...args) => runEngineOperation(promoteSessionToTask, args),
     renameSession,
     generateSessionTitle,
     suggestTaskTitle,
     renameTask: (...args) => runEngineOperation(renameTask, args),
     attachSessionToWorkspace,
     completeTask,
+    reconcileArchivedSessions,
+    watchArchivedSessions,
     deleteSessionForTask,
     createTaskDoc: (...args) => runEngineOperation(createTaskDoc, args),
     bindTaskDoc: (...args) => runEngineOperation(bindTaskDoc, args),
@@ -9997,22 +10214,28 @@ function registerTools(ctx, engine) {
   register(
     textTool(
       'feishu_task_report',
-      '把当前会话的结论回写到飞书任务：默认写在这条会话已绑定的任务上（评论），可选同时置完成。' +
-        '用户说「把结果同步到飞书任务 / 这条做完了 / 写回飞书」时用它。不传 taskId 时用当前会话绑定的任务。',
+      '把会话结论回写到飞书任务（评论），可选同时置完成。任务**不需要绑定会话**：' +
+        '传 taskId（guid、编号如 T3，或能唯一命中的标题片段）就能给任意任务写评论/置完成；' +
+        '不传时用当前会话绑定的任务。用户说「这条做完了 / T3 完成 / 写回飞书」时用它。',
       {
-        summary: { type: 'string', description: '要写进评论的结论/进展（纯文本，建议 1-3 句）。' },
+        summary: { type: 'string', description: '要写进评论的结论/进展（纯文本，建议 1-3 句）；只置完成时可省略。' },
         complete: { type: 'boolean', description: '是否同时把飞书任务置为已完成，默认 false。' },
-        taskId: { type: 'string', description: '指定任务 guid；默认取当前会话绑定的任务。' },
+        taskId: { type: 'string', description: '任务 guid / 编号（T3 或 3）/ 唯一标题片段；默认取当前会话绑定的任务。' },
       },
       async (args, exec) => {
         const current = asString(exec?.agent?.id)
-        let taskId = asString(args.taskId)
-        if (!taskId && current) {
+        const ref = asString(args.taskId).trim()
+        let taskId = ''
+        if (ref) {
+          const resolved = resolveTaskRef(engine.getState().tasks, ref)
+          if (resolved.error) return resolved.error
+          taskId = resolved.task.id
+        } else if (current) {
           const bound = engine.getState().tasks.find((task) => task.sessionId === current)
           if (bound) taskId = bound.id
         }
         if (!taskId) {
-          return '当前会话没有绑定飞书任务：先把任务「开工（当前会话）」，或显式传 taskId。'
+          return '当前会话没有绑定飞书任务：直接传 taskId（guid 或编号如 T3）即可，未绑定的任务也能写评论/置完成。'
         }
         const result = await engine.reportTask(taskId, {
           text: asString(args.summary),
@@ -10672,6 +10895,7 @@ export function apply(ctx, config = {}) {
       if (typeof disposeRoutes === 'function') owned.push(disposeRoutes)
       for (const disposeTool of registerTools(ctx, engine)) owned.push(disposeTool)
       schedule.rearm()
+      owned.push(engine.watchArchivedSessions())
     }
 
     ctx.effect(() => {

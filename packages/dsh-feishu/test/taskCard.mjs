@@ -29,6 +29,39 @@ const context = {
   api: async (path, body) => { posts.push({ path, body }); return { ok: true, remote: { ok: false, error: 'mock denied' } } },
 }
 vm.createContext(context)
+context.app.currentSessionId = 'current-session'
+context.PRIORITY_OPTIONS = ['P0', 'P1', 'P2', 'P3']
+context.normPriority = (value) => context.PRIORITY_OPTIONS.includes(value) ? value : ''
+vm.runInContext(fn('sortPanelTasks'), context)
+const activityTasks = [
+  { id: 'idle-p0', priority: 'P0', sessionAlive: true, sessionPhase: 'idle', sessionUnread: false },
+  { id: 'running-p0', priority: 'P0', sessionAlive: true, sessionPhase: 'running', sessionUnread: false },
+  { id: 'finished-p1', priority: 'P1', sessionAlive: true, sessionPhase: 'idle', sessionUnread: true },
+  { id: 'finished-p0', priority: 'P0', sessionAlive: true, sessionPhase: 'idle', sessionUnread: true },
+  { id: 'current-idle', priority: 'P3', sessionId: 'current-session', sessionAlive: true, sessionPhase: 'idle', sessionUnread: false },
+  { id: 'running-p1', priority: 'P1', sessionAlive: true, sessionPhase: 'running', sessionUnread: false },
+  { id: 'idle-p1', priority: 'P1', sessionAlive: false, sessionPhase: 'idle', sessionUnread: false },
+]
+assert.deepEqual(Array.from(context.sortPanelTasks(activityTasks), (task) => task.id), [
+  'current-idle', 'finished-p0', 'finished-p1', 'running-p0', 'running-p1', 'idle-p0', 'idle-p1',
+])
+assert.equal(activityTasks[0].id, 'idle-p0', 'sorting leaves snapshot order unchanged')
+assert.deepEqual(Array.from(context.sortPanelTasks([
+  { id: 'dead', priority: 'P1', sessionAlive: false, sessionPhase: 'running', sessionUnread: true },
+  { id: 'running-unread', priority: 'P3', sessionAlive: true, sessionPhase: 'running', sessionUnread: true },
+  { id: 'finished', priority: 'P3', sessionAlive: true, sessionPhase: 'idle', sessionUnread: true },
+  { id: 'task-done', priority: 'P0', done: true },
+  { id: 'unbound', priority: 'unknown' },
+]), (task) => task.id), ['finished', 'running-unread', 'task-done', 'dead', 'unbound'],
+'completion means idle/unread, not task.done; stale dead states and unbound tasks stay idle')
+context.app.currentSessionId = 42
+assert.equal(context.sortPanelTasks([{ id: 'other', priority: 'P0' }, { id: 'numeric-current', sessionId: '42' }])[0].id, 'numeric-current')
+context.app.currentSessionId = ''
+assert.equal(context.sortPanelTasks([{ id: 'unbound', priority: 'P3' }, { id: 'running', sessionAlive: true, sessionPhase: 'running' }])[0].id, 'running')
+const stableOrder = context.sortPanelTasks([
+  { id: 'stable-a', priority: 'P2' }, { id: 'stable-b', priority: 'P2' },
+]).map((task) => task.id)
+assert.deepEqual(Array.from(stableOrder), ['stable-a', 'stable-b'], 'same-state/same-priority tasks retain snapshot order')
 for (const name of ['relationPreviewNode', 'enterRelatedTask', 'openRelationGraph', 'saveTaskRelation', 'openRelationEditor', 'openTaskDocumentMenu', 'openTaskMoreMenu']) vm.runInContext(fn(name), context)
 const task = { id: 'self', title: 'Self', sessionId: 'session', docs: [{ url: 'offline-doc', title: 'Doc', source: '生成' }], relations: { predecessors: [{ id: 'p', title: 'Prev' }, { id: 'p2', title: 'Prev2' }], successors: [{ id: 's', title: 'Next' }], sourceTasks: [{ id: 'src', title: 'Source' }], derivedTasks: [] } }
 context.app.snap.tasks = [task, { id: 'p', title: 'Prev' }]

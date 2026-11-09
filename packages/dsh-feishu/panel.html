@@ -5894,6 +5894,51 @@
     document.body.insertBefore(bar, document.body.firstChild);
   }
 
+  function sortPanelTasks(tasks) {
+    var currentId = String(app.currentSessionId || '');
+    function activityRank(task) {
+      if (currentId && task.sessionId && String(task.sessionId) === currentId) return 0;
+      if (task.sessionAlive === true) {
+        // 运行中的未读标记不能当作运行完成；与卡片状态灯保持一致。
+        if (task.sessionPhase === 'running') return 2;
+        if (task.sessionUnread === true) return 1;
+      }
+      return 3;
+    }
+    function prioRank(task) {
+      var value = normPriority(task.priority);
+      return value ? PRIORITY_OPTIONS.indexOf(value) : 9;
+    }
+    // 当前 > 运行完成（未读）> 正在运行 > 空闲；同状态按优先级，同档保持快照顺序。
+    // 只排序副本，不改变任务快照。
+    return tasks.slice().sort(function (a, b) {
+      return activityRank(a) - activityRank(b) || prioRank(a) - prioRank(b);
+    });
+  }
+
+  function reorderActivityTaskCards() {
+    var list = $('taskList');
+    if (!list || !app.taskCache) return;
+    // 不搬动正在交互的卡片。菜单关闭/焦点离开后补排，状态灯仍即时更新。
+    if (app.titleEditing || app.docEditing || app.docBinding || app.suspensionEditing ||
+        document.querySelector('.chip-pop') || document.querySelector('.prio-menu') ||
+        (list.contains && list.contains(document.activeElement))) {
+      app.taskOrderPending = true;
+      return;
+    }
+    app.taskOrderPending = false;
+    var children = Array.prototype.slice.call(list.children);
+    var ordered = sortPanelTasks((app.snap && app.snap.tasks) || []).map(function (task) {
+      var entry = app.taskCache[task.id];
+      return entry && entry.node;
+    }).filter(function (node) { return node && children.indexOf(node) !== -1; });
+    var index = 0;
+    // 保留当前会话同步卡/空态位置，只移动已显示的缓存卡，不重建、不改筛选。
+    reconcilePanelChildren(list, children.map(function (node) {
+      return ordered.indexOf(node) !== -1 ? ordered[index++] : node;
+    }));
+  }
+
   function renderTasks() {
     /* 正在就地编辑（任务标题 / 文档标题 / 贴链接）时不要重建：
        面板每 20s 轮询一次，一重建就把输入框和已输入的内容一起丢掉（实测踩过）。
@@ -5907,30 +5952,14 @@
     app.docBinding = false;
     var list = $('taskList');
     if (!list) return;
+    if (list.contains && list.contains(document.activeElement)) {
+      app.taskRenderPending = true;
+      return;
+    }
 
     var tasks = (app.snap && app.snap.tasks) || [];
     if (!Array.isArray(tasks)) tasks = [];
-    /* 当前对话绑定的那条任务置顶：翻面板时第一眼就是「我现在干的这条」。
-       只换顺序、不动数据（slice 一份再排，别把快照本身改了）。 */
-    var currentId = String(app.currentSessionId || '');
-
-    /* 排序只有一条规则，两个键按顺序比：
-         1. 当前对话绑定的那条**永远第一**（翻面板时第一眼就是「我现在干的这条」）；
-         2. 其余按优先级 P0 < P1 < P2 < P3 < 未设置，同档保持原顺序。
-       分成两次 sort 会互相覆盖——优先级那次会把置顶冲掉，所以必须合成一个比较器。 */
-    function prioRank(t) {
-      var v = normPriority(t && t.priority);
-      return v ? PRIORITY_OPTIONS.indexOf(v) : 9;
-    }
-    function isCurrentTask(t) {
-      return Boolean(currentId && t && t.sessionId && String(t.sessionId) === currentId);
-    }
-    tasks = tasks.slice().sort(function (a, b) {
-      var ac = isCurrentTask(a) ? 0 : 1;
-      var bc = isCurrentTask(b) ? 0 : 1;
-      if (ac !== bc) return ac - bc;
-      return prioRank(a) - prioRank(b);
-    });
+    tasks = sortPanelTasks(tasks);
 
     var allTasks = tasks;
     tasks = filterTasksForPanel(allTasks);
@@ -6002,6 +6031,7 @@
 
   function flushPendingTaskRender() {
     if (app.taskRenderPending) renderTasks();
+    if (app.taskOrderPending) reorderActivityTaskCards();
   }
 
   function suspensionWarningText(item) {
@@ -6845,7 +6875,7 @@
       var query = String(search.value || '').trim().toLowerCase();
       var used = existingIds(chosenType);
       return ((app.snap && app.snap.tasks) || []).filter(function (task) {
-        return task.id !== t.id && used.indexOf(task.id) === -1 && (!query || [task.title, task.id, task.no, 'T' + task.no].join(' ').toLowerCase().indexOf(query) !== -1);
+        return task.id !== t.id && used.indexOf(task.id) === -1 && (!query || [task.title, task.id, task.no, task.no ? 'T' + task.no : '', task.feishuTaskId || ''].join(' ').toLowerCase().indexOf(query) !== -1);
       });
     }
     function renderCandidates() {
@@ -7866,6 +7896,7 @@
     /* 标题里本来就有「🐛 T8-」，别和前面的编号重复一遍 */
     var text = String((item && item.title) || '').replace(/^[^T]*T\d+\s*-\s*/u, '').slice(0, 16);
     return 'T' + (item && item.no ? item.no : '?') + ' ' + text;
+    /* 号还没同步回来（本地刚建）时用 ?，不要显示 T0。 */
   }
 
   /* ---------------- 履约摘要（本地统计，不调模型） ---------------- */
@@ -9360,15 +9391,39 @@
   /* 面板是热更新的、宿主 index.js 要重启才更新：版本号不一致时直接说清楚，别让人对着旧逻辑干等。 */
   var MIN_API_VERSION = 6;
 
+  /* apiVersion 在 /api/state 的 state 里（宿主 snapshot 的 state.apiVersion），不是顶层。 */
+  function hostApiVersion() {
+    return Number((app.snap && app.snap.apiVersion) || 0);
+  }
+
   function hostOutdated() {
-    var api = Number((app.snap && app.snap.apiVersion) || 0);
+    var api = hostApiVersion();
+    if (!api) return false;
     return api < MIN_API_VERSION;
+  }
+
+  /* 建议版本：低于它不挡任何流程，只提示「新行为要重启才生效」。 */
+  var LATEST_API_VERSION = 8;
+
+  function hostBehind() {
+    var api = hostApiVersion();
+    return api > 0 && api < LATEST_API_VERSION;
   }
 
   function renderStaleHost() {
     var holder = $('staleHost');
     if (!holder) return;
     clear(holder);
+    if (!hostOutdated() && hostBehind()) {
+      var tip = el('div', { 'class': 'callout info' });
+      tip.appendChild(el('div', { 'class': 'callout-title', text: '宿主还是旧代码，重启 DSH 后新行为才生效' }));
+      tip.appendChild(el('div', {
+        'class': 'callout-desc',
+        text: '面板已更新，但后台 index.js 还是上一版：任务编号改用飞书任务号、未绑定 / 回执未核对任务的「完成」、工作区归档会话自动完成都依赖新代码。重启 DeepSeek Harness 后刷新本页即可。'
+      }));
+      holder.appendChild(tip);
+      return;
+    }
     if (!hostOutdated()) return;
     var box = el('div', { 'class': 'callout info' });
     box.appendChild(el('div', { 'class': 'callout-title', text: '宿主还是旧代码，重启 DSH 后新流程才生效' }));
@@ -9503,11 +9558,16 @@
   function startTitleEdit(t, titleNode, headRow) {
     if (app.titleEditing) return;
     app.titleEditing = true;
+    /* 双击/连点会带出一串 click：编辑器刚出现的那一下点击不算「有意的」，
+       否则 AI 起名会被人手抖点中，名字会被模型改写（用户报的「双击改名触发了 AI」）。 */
+    var openedAt = Date.now();
+    var strayClick = function () { return Date.now() - openedAt < 400; };
 
     var wrap = el('div', { 'class': 'title-edit' });
     var input = el('input', { type: 'text', 'class': 'title-input' });
     input.value = String(t.title || '');
     var aiBtn = makeButton('AI 起名', 'btn btn-ghost btn-xs', null, false, function () {
+      if (strayClick()) return;
       aiBtn.disabled = true;
       aiBtn.textContent = '生成中…';
       api('tasks/suggest-title', { taskId: t.id }).then(function (data) {
@@ -9549,7 +9609,7 @@
         toast('AI 起名失败：' + String(detail).slice(0, 100));
       });
     });
-    var saveBtn = makeButton('保存', 'btn btn-primary btn-xs', null, false, function () { save(); });
+    var saveBtn = makeButton('保存', 'btn btn-primary btn-xs', null, false, function () { if (strayClick()) return; save(); });
     /* 两个按钮都别抢输入框焦点：抢了会触发 blur，把编辑器关掉。 */
     aiBtn.addEventListener('mousedown', function (event) { event.preventDefault(); });
     saveBtn.addEventListener('mousedown', function (event) { event.preventDefault(); });
@@ -9577,7 +9637,12 @@
       app.titleEditing = false;
       input.disabled = true;
       api('tasks/rename', { taskId: t.id, title: next }).then(function (data) {
-        toast(data && data.sessionRenamed ? '已改名（会话同步改名）' : '已改名');
+        /* 会话名没改成功要说出来：否则两分钟内「会话名 → 任务名」的巡检会把它改回去，
+           人只会看到「我改的名字又变回去了」。 */
+        var note = '已改名';
+        if (data && data.sessionRenamed) note = '已改名（会话同步改名）';
+        else if (data && data.sessionReason) note = '已改名（会话名未同步：' + String(data.sessionReason).slice(0, 40) + '）';
+        toast(note);
         wrap.remove();
         load({ quiet: true });
       }, function (error) {
@@ -9682,6 +9747,7 @@
       if (node && !node.isConnected) Array.prototype.forEach.call(node.querySelectorAll('[data-activity-task]'), update);
     });
     renderTaskActivity(tasks, filterTasksForPanel(tasks).length);
+    reorderActivityTaskCards();
   }
 
   function mergeActivitySnapshot(snapshot) {
@@ -10602,6 +10668,9 @@
   loadFilter();
   wire();
   wireInsight();
+  document.addEventListener('focusout', function () {
+    if (app.taskOrderPending || app.taskRenderPending) setTimeout(function () { if (!activityState().disposed) flushPendingTaskRender(); }, 0);
+  });
   if (typeof MutationObserver === 'function') {
     var taskRenderObserver = new MutationObserver(function () { flushPendingTaskRender(); });
     taskRenderObserver.observe(document.body, { childList: true, subtree: true });
