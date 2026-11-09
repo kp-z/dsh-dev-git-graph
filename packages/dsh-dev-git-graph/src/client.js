@@ -67,6 +67,77 @@ window.__ModuleLoader__.load({
       } catch (e) { return null; }
     }
 
+    // ============ diff 桥：iframe -> 父页 -> better-sidebar 原生 DiffTab ============
+    // iframe 收到宿主返回的 diffHost 载荷后 postMessage 过来，这里经
+    // TabComponentProps.onOpenDiff 打开 better-sidebar 原生 DiffTab（与侧边栏
+    // 「文件变动」点文件/提交同一条链路），并给 iframe 回 ack。
+    //
+    // 关键：桥只在挂载时注册一次（见下方 useEffect 的空依赖）。旧实现用
+    // bridgeRef 守卫 + [onOpenDiff] 依赖，而 better-sidebar 每次渲染都传入新的
+    // 内联 onOpenDiff —— 依赖一变，cleanup 先摘掉监听器、effect 重跑又被守卫
+    // 提前 return，监听器从此再没挂回去，点文件只剩 3s 超时弹窗。现改为
+    // 「注册一次 + 经 getDeps() 每次取最新回调」，重渲染不再动监听器。
+
+    /** 兜底页签 id：语法与 dsh-better-sidebar 的 diffTabOf 对齐。 */
+    function diffTabIdOf(diff) {
+      var repo = encodeURIComponent(diff.repoRoot || "");
+      if (diff.kind === "worktree") {
+        return "diff:w:" + repo + ":" + (diff.staged ? "s" : "u") + ":" + diff.path;
+      }
+      return "diff:c:" + repo + ":" + (diff.hashFull || diff.hash || "");
+    }
+
+    /** 兜底页签标题：worktree 用 basename，commit 用 `<短hash> <标题>`。 */
+    function diffTabTitleOf(diff) {
+      if (diff.kind === "worktree") {
+        var filePath = typeof diff.path === "string" ? diff.path : "";
+        return filePath.split("/").pop() || "Diff";
+      }
+      var hash = diff.hash || (diff.hashFull || "").substring(0, 8);
+      var subject = typeof diff.subject === "string" ? diff.subject : "";
+      if (!hash) return subject || "Diff";
+      return subject ? hash + " " + subject : hash;
+    }
+
+    /**
+     * 注册 diff 桥。`getDeps()` 每次消息到达时返回最新依赖
+     * （{ onOpenDiff }），因此调用方可以只在挂载时注册一次。
+     * @returns detach 函数（卸载时摘除监听器）
+     */
+    function attachDiffBridge(win, getDeps) {
+      var onMsg = function (e) {
+        var data = e.data;
+        if (!data || data.type !== "dsh-dev-gg-open-diff") return true;
+        var deps = (typeof getDeps === "function" ? getDeps() : null) || {};
+        var source = e.source;
+        var reply = function (type) {
+          try {
+            if (source && source.postMessage) source.postMessage({ type: type }, win.location.origin);
+          } catch (err) { /* ignore */ }
+        };
+        // 只认 better-sidebar 宿主；未知宿主/载荷不合法 -> unavailable（前端据此报错）
+        var host = typeof data.host === "string" ? data.host : "";
+        var diff = data.diff;
+        var onOpenDiff = deps.onOpenDiff;
+        if (host !== "better-sidebar" || typeof onOpenDiff !== "function" || !diff || (diff.kind !== "worktree" && diff.kind !== "commit")) {
+          reply("dsh-dev-gg-bs-diff-unavailable");
+          return true;
+        }
+        try {
+          var seed = data.tab || {};
+          var id = typeof seed.id === "string" && seed.id !== "" ? seed.id : diffTabIdOf(diff);
+          var title = typeof seed.title === "string" && seed.title !== "" ? seed.title : diffTabTitleOf(diff);
+          onOpenDiff({ id: id, type: "diff", title: title, diff: diff });
+          reply("dsh-dev-gg-bs-diff-ack");
+        } catch (err) {
+          reply("dsh-dev-gg-bs-diff-unavailable");
+        }
+        return true;
+      };
+      win.addEventListener("message", onMsg);
+      return function () { win.removeEventListener("message", onMsg); };
+    }
+
     function GitTreeView(props) {
       var sessionId = props.sessionId;
       var repoHint = props.repoHint || null;
@@ -188,46 +259,12 @@ window.__ModuleLoader__.load({
             single: true,
             component: function (bsProps) {
               var scope = bsProps.scope || {};
-              var onOpenDiff = bsProps.onOpenDiff;
-              // 桥接 iframe 内「View Diff / View Diff with Working File」：
-              // host 路由已把请求转为 SidebarDiffRef 同构载荷，这里经
-              // TabComponentProps.onOpenDiff 打开 better-sidebar 原生 DiffTab，
-              // 并给 iframe 回 ack（无 onOpenDiff 时回 unavailable 让前端报错）。
-              var bridgeRef = React.useRef(null);
+              // 每次渲染刷新最新依赖（onOpenDiff 身份不稳定），桥本身只挂载时注册一次。
+              var latestRef = React.useRef(null);
+              latestRef.current = { onOpenDiff: bsProps.onOpenDiff };
               React.useEffect(function () {
-                if (bridgeRef.current) return undefined;
-                bridgeRef.current = true;
-                var onMsg = function (e) {
-                  var data = e.data;
-                  if (!data || data.type !== "dsh-dev-gg-open-diff") return;
-                  var source = e.source;
-                  var reply = function (type) {
-                    try { source && source.postMessage({ type: type }, window.location.origin); } catch (err) { /* ignore */ }
-                  };
-                  var diff = data.diff;
-                  if (!onOpenDiff || !diff || (diff.kind !== "worktree" && diff.kind !== "commit")) {
-                    reply("dsh-dev-gg-bs-diff-unavailable");
-                    return;
-                  }
-                  try {
-                    var filePath = diff.kind === "worktree" ? diff.path : (diff.subject || diff.hashFull || "diff");
-                    var tabId = diff.kind === "worktree"
-                      ? "diff:w:" + encodeURIComponent(diff.repoRoot || "") + ":" + (diff.staged ? "s" : "u") + ":" + diff.path
-                      : "diff:c:" + encodeURIComponent(diff.repoRoot || "") + ":" + (diff.hashFull || diff.hash);
-                    onOpenDiff({
-                      id: tabId,
-                      type: "diff",
-                      title: typeof filePath === "string" ? filePath.split("/").pop() : "Diff",
-                      diff: diff
-                    });
-                    reply("dsh-dev-gg-bs-diff-ack");
-                  } catch (err) {
-                    reply("dsh-dev-gg-bs-diff-unavailable");
-                  }
-                };
-                window.addEventListener("message", onMsg);
-                return function () { window.removeEventListener("message", onMsg); };
-              }, [onOpenDiff]);
+                return attachDiffBridge(window, function () { return latestRef.current; });
+              }, []);
               return React.createElement(GitTreeView, {
                 sessionId: scope.sessionId,
                 repoHint: scope.repoRoot || scope.cwd || null,
@@ -256,6 +293,13 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply;
     exports.inject = ["sessions", "slots", "betterSidebar"];
+    // 仅供测试使用（宿主只读 apply / inject，多余字段被忽略）：
+    // 直接单测 diff 桥的注册/路由/ack 行为，护栏 R2「重渲染后监听器必须还在」。
+    exports.__internal = {
+      attachDiffBridge: attachDiffBridge,
+      diffTabIdOf: diffTabIdOf,
+      diffTabTitleOf: diffTabTitleOf
+    };
     return module.exports;
   }
 });

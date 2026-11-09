@@ -52,9 +52,32 @@ flowchart LR
 
 | Area | Behaviour |
 |---|---|
-| VS Code-only commands | `openFile` / `viewDiff` / `openTerminal` / `createPullRequest` / `createArchive` return "not supported" |
+| VS Code-only commands | `openFile` / `openTerminal` / `createPullRequest` / `createArchive` return "not supported" (`viewDiff` is supported, see below) |
 | View state persistence | localStorage (the extension used workspaceState); `setGlobalViewState` etc. are ACKed |
 | Repo source | auto-bound to the current session's workspace |
+
+## Opening a diff (click a file / a commit)
+
+Clicking a file in the commit tree (either under **Uncommitted Changes** or inside a commit) opens the
+**native dsh-better-sidebar DiffTab** — the same plumbing the sidebar's 「文件变动」tab uses for its
+files and commits (same `SidebarDiffRef` and same tab-id grammar), so **the same file focuses the same
+tab across both surfaces** instead of opening a duplicate.
+
+| Click target | Tab | Diff content |
+|---|---|---|
+| Uncommitted Changes → file | `diff:w:<repo>:u:<path>`, titled with the file name | that file's worktree diff (`git diff -- <path>`; untracked files render as a full addition) |
+| Inside a commit → file | `diff:c:<repo>:<hash>`, titled `<short-hash> <subject>` | the whole commit patch (`git show`), identical to previewing that commit in 「文件变动」 |
+
+Known limits (capabilities of better-sidebar 0.19.1, not regressions of this plugin):
+
+- **Clicking a file inside a commit still shows that commit's full patch**: the native commit ref has no
+  path field and `git.commit-diff` takes no pathspec — and 「文件变动」's own commit preview is the full
+  patch too. Showing a single file would require a plugin-rendered diff view (not implemented).
+- **No staged/unstaged split**: git-graph does not track the index state of uncommitted changes, so files
+  open as unstaged; the native DiffTab falls back to the other side when a diff is empty.
+- **Commit comparisons** show the `to` commit's patch.
+- The **View Diff with Working File** context action shows that file's current worktree changes (the
+  native contract can express "worktree changes" or "full commit patch", but not "commit vs working file").
 
 ## Security
 
@@ -67,6 +90,7 @@ flowchart LR
 ```sh
 pnpm --filter dsh-dev-git-graph build      # build:web (tsc + pack) -> build:host (tsc) -> cp client.js
 pnpm --filter dsh-dev-git-graph typecheck  # two tsconfigs: host (NodeNext) + web (DOM)
+pnpm --filter dsh-dev-git-graph test       # diff-ref mapping + diff-bridge contract tests
 ```
 
 ## License

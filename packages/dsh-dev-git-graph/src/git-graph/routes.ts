@@ -17,6 +17,7 @@ import {
 	DEFAULT_GIT_GRAPH_VIEW_GLOBAL_STATE,
 	DEFAULT_GIT_GRAPH_VIEW_WORKSPACE_STATE,
 } from './defaultConfig.js';
+import { buildViewDiffOpen, buildWorktreeDiffOpen, DIFF_HOST } from './diff-ref.js';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 // lib/src/git-graph/routes.js -> 包根
@@ -376,28 +377,34 @@ async function handleApi(req: http.IncomingMessage, res: http.ServerResponse): P
 			break;
 
 		/* --- Diff：转化为 dsh-better-sidebar 同构 SidebarDiffRef 载荷返回前端，
-		       前端判 diffHost === 'better-sidebar' 后 postMessage 给父页 client.js，
-		       由父页经 TabComponentProps.onOpenDiff 打开原生 DiffTab（未装 better-sidebar
-		       时父页不注册该 tab，前端收到 bs-diff-unavailable 再回退报错提示）。 --- */
+		       前端判 diffHost 非空后 postMessage 给父页 client.js，由父页经
+		       TabComponentProps.onOpenDiff 打开原生 DiffTab（与侧边栏「文件变动」
+		       点文件/提交同一条链路、同一套页签 id，因此会聚焦同一个页签；未装
+		       better-sidebar 时父页回 bs-diff-unavailable，前端再回退报错提示）。
+		       载荷映射见 ./diff-ref.ts（含未提交哨兵 '*' 的处理）。 --- */
 		case 'viewDiff': {
-			// RequestViewDiff: { fromHash, toHash, oldFilePath, newFilePath, type: GitFileStatus(A/M/D/R/U) }
-			const fromHash = str('fromHash'), toHash = str('toHash');
-			const filePath = str('newFilePath') || str('oldFilePath');
-			const type = str('type');
-			const isWorkingTree = toHash === '' || toHash === 'UNCOMMITTED' || toHash === 'WORKING_TREE';
-			const diff = isWorkingTree
-				? { kind: 'worktree', path: filePath, staged: false, untracked: type === 'U', repoRoot: repo }
-				: { kind: 'commit', hash: toHash.slice(0, 8), hashFull: toHash, subject: `Diff ${fromHash.slice(0, 8)}..${toHash.slice(0, 8)} ${filePath}`, repoRoot: repo };
-			respond({ command: 'viewDiff', error: null, diffHost: 'better-sidebar', diff });
+			// RequestViewDiff: { fromHash, toHash, oldFilePath, newFilePath, type: GitFileStatus(A/M/D/R/U), subject? }
+			const open = buildViewDiffOpen({
+				repoRoot: repo,
+				fromHash: str('fromHash'),
+				toHash: str('toHash'),
+				oldFilePath: str('oldFilePath'),
+				newFilePath: str('newFilePath'),
+				type: str('type'),
+				subject: str('subject'),
+			});
+			if (open === null) return sendBadRequest(res, 'viewDiff 缺少文件路径或提交');
+			respond({ command: 'viewDiff', error: null, diffHost: DIFF_HOST, diff: open.diff, diffTab: open.tab });
 			break;
 		}
 		case 'viewDiffWithWorkingFile': {
-			// RequestViewDiffWithWorkingFile: { hash, filePath } —— 提交态 vs 工作区文件
+			// RequestViewDiffWithWorkingFile: { hash, filePath } —— 提交态 vs 工作区文件。
+			// better-sidebar 只能表达「工作区改动」或「整提交 patch」，故按该文件当前
+			// 工作区改动展示（README 记为近似），不再拼 VS Code 语义的假载荷。
 			const filePath = str('filePath');
-			respond({
-				command: 'viewDiffWithWorkingFile', error: null, diffHost: 'better-sidebar',
-				diff: { kind: 'worktree', path: filePath, staged: false, repoRoot: repo },
-			});
+			if (filePath === '') return sendBadRequest(res, 'viewDiffWithWorkingFile 缺少 filePath');
+			const open = buildWorktreeDiffOpen(repo, filePath, false);
+			respond({ command: 'viewDiffWithWorkingFile', error: null, diffHost: DIFF_HOST, diff: open.diff, diffTab: open.tab });
 			break;
 		}
 

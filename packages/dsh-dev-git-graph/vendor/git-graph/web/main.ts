@@ -2912,6 +2912,9 @@ class GitGraphView {
 			}
 
 			this.cdvUpdateFileState(file, fileElem, true, true);
+			// DSH: 附带 `toHash` 那个提交的标题，供宿主拼原生 DiffTab 页签标题
+			// （对齐 dsh-better-sidebar 的 `${hash} ${subject}`）。
+			const toCommit = typeof this.commitLookup[toHash] === 'number' ? this.commits[this.commitLookup[toHash]] : commit;
 			sendMessage({
 				command: 'viewDiff',
 				repo: this.currentRepo,
@@ -2919,7 +2922,8 @@ class GitGraphView {
 				toHash: toHash,
 				oldFilePath: file.oldFilePath,
 				newFilePath: file.newFilePath,
-				type: fileStatus
+				type: fileStatus,
+				subject: typeof toCommit?.message === 'string' ? toCommit.message : ''
 			});
 		};
 
@@ -3401,59 +3405,12 @@ window.addEventListener('load', () => {
 				}
 				break;
 			case 'viewDiff':
-				// DSH: 宿主路由把 diff 请求转化为 dsh-better-sidebar 同构载荷（diffHost 标记），
-				// 这里 postMessage 给父页 client.js 经 onOpenDiff 打开原生 DiffTab；
-				// 父页 3s 未应答（未装 better-sidebar / 非 sidebar tab 上下文）则回退错误提示。
-				if ((msg as unknown as { diffHost?: string }).diffHost === 'better-sidebar') {
-					const payload = (msg as unknown as { diff?: unknown }).diff;
-					let settled = false;
-					const onAck = (e: MessageEvent) => {
-						const d = e.data as { type?: string } | undefined;
-						if (d && (d.type === 'dsh-dev-gg-bs-diff-ack' || d.type === 'dsh-dev-gg-bs-diff-unavailable')) {
-							settled = true;
-							window.removeEventListener('message', onAck);
-							if (d.type === 'dsh-dev-gg-bs-diff-unavailable') {
-								finishOrDisplayError('当前环境未提供 better-sidebar DiffTab（请在 better-sidebar 侧边栏的 Git Graph 页中使用）', 'Unable to View Diff');
-							}
-						}
-					};
-					window.addEventListener('message', onAck);
-					window.parent.postMessage({ type: 'dsh-dev-gg-open-diff', diff: payload }, window.location.origin);
-					setTimeout(() => {
-						if (!settled) {
-							window.removeEventListener('message', onAck);
-							finishOrDisplayError('当前环境未提供 better-sidebar DiffTab（请在 better-sidebar 侧边栏的 Git Graph 页中使用）', 'Unable to View Diff');
-						}
-					}, 3000);
-					break;
-				}
-				finishOrDisplayError(msg.error, 'Unable to View Diff');
+				// DSH: 宿主路由把 diff 请求转成 dsh-better-sidebar 同构载荷（diffHost 标记），
+				// 这里交给父页 client.js 的 diff 桥打开原生 DiffTab。
+				openDiffViaDshHost(msg as unknown as { diffHost?: unknown, diff?: unknown, diffTab?: unknown }, 'Unable to View Diff');
 				break;
 			case 'viewDiffWithWorkingFile':
-				if ((msg as unknown as { diffHost?: string }).diffHost === 'better-sidebar') {
-					const payload = (msg as unknown as { diff?: unknown }).diff;
-					let settled = false;
-					const onAck = (e: MessageEvent) => {
-						const d = e.data as { type?: string } | undefined;
-						if (d && (d.type === 'dsh-dev-gg-bs-diff-ack' || d.type === 'dsh-dev-gg-bs-diff-unavailable')) {
-							settled = true;
-							window.removeEventListener('message', onAck);
-							if (d.type === 'dsh-dev-gg-bs-diff-unavailable') {
-								finishOrDisplayError('当前环境未提供 better-sidebar DiffTab（请在 better-sidebar 侧边栏的 Git Graph 页中使用）', 'Unable to View Diff with Working File');
-							}
-						}
-					};
-					window.addEventListener('message', onAck);
-					window.parent.postMessage({ type: 'dsh-dev-gg-open-diff', diff: payload }, window.location.origin);
-					setTimeout(() => {
-						if (!settled) {
-							window.removeEventListener('message', onAck);
-							finishOrDisplayError('当前环境未提供 better-sidebar DiffTab（请在 better-sidebar 侧边栏的 Git Graph 页中使用）', 'Unable to View Diff with Working File');
-						}
-					}, 3000);
-					break;
-				}
-				finishOrDisplayError(msg.error, 'Unable to View Diff with Working File');
+				openDiffViaDshHost(msg as unknown as { diffHost?: unknown, diff?: unknown, diffTab?: unknown }, 'Unable to View Diff with Working File');
 				break;
 			case 'viewFileAtRevision':
 				finishOrDisplayError(msg.error, 'Unable to View File at Revision');
@@ -3516,6 +3473,42 @@ window.addEventListener('load', () => {
 		} else if (configChanges) {
 			gitGraph.requestLoadConfig();
 		}
+	}
+
+	/**
+	 * DSH: 把宿主算好的 diff 载荷交给父页（client.js 的 diff 桥），由父页用
+	 * dsh-better-sidebar 的 `onOpenDiff` 打开原生 DiffTab —— 与侧边栏「文件变动」
+	 * 点文件/提交走同一条链路、同一套页签 id。
+	 *
+	 * 父页应答 `dsh-dev-gg-bs-diff-ack`（成功）/ `dsh-dev-gg-bs-diff-unavailable`
+	 * （没装 better-sidebar 或不在 sidebar tab 上下文）；3s 无应答视为桥未响应，
+	 * 与「能力缺失」区分开报错，避免误导。
+	 */
+	function openDiffViaDshHost(msg: { diffHost?: unknown, diff?: unknown, diffTab?: unknown }, errorMessage: string) {
+		const host = typeof msg.diffHost === 'string' ? msg.diffHost : '';
+		if (host === '') {
+			finishOrDisplayError((msg as unknown as { error: GG.ErrorInfo }).error, errorMessage);
+			return;
+		}
+		let settled = false;
+		const onAck = (e: MessageEvent) => {
+			const d = e.data as { type?: string } | undefined;
+			if (d && (d.type === 'dsh-dev-gg-bs-diff-ack' || d.type === 'dsh-dev-gg-bs-diff-unavailable')) {
+				settled = true;
+				window.removeEventListener('message', onAck);
+				if (d.type === 'dsh-dev-gg-bs-diff-unavailable') {
+					finishOrDisplayError('当前环境未提供 better-sidebar DiffTab（请在 better-sidebar 侧边栏的 Git Graph 页中使用）', errorMessage);
+				}
+			}
+		};
+		window.addEventListener('message', onAck);
+		window.parent.postMessage({ type: 'dsh-dev-gg-open-diff', host: host, diff: msg.diff, tab: msg.diffTab }, window.location.origin);
+		setTimeout(() => {
+			if (!settled) {
+				window.removeEventListener('message', onAck);
+				finishOrDisplayError('侧边栏 diff 桥未应答（请确认 dsh-dev-git-graph 面板开在 better-sidebar 侧边栏内，并重启 dsh web 生效）', errorMessage);
+			}
+		}, 3000);
 	}
 
 	function finishOrDisplayError(error: GG.ErrorInfo, errorMessage: string, dismissActionRunning: boolean = false) {

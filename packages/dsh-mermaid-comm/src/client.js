@@ -23,6 +23,20 @@ window.__ModuleLoader__.load({
     var module = { exports: {} };
     var React = require("react");
     var h = React.createElement;
+    // 官方 Tooltip（primitives 是平台 seed，第三方插件已先例直接 require，如
+    // dsh-better-sidebar）。用它而不是原生 title：title 有约 1s 延迟、样式不可控，
+    // 且会被 composer 卡片的 overflow 裁掉；官方 Tooltip 是 position:fixed 气泡，
+    // 即时（delayMs 默认 0）、贴边自动翻上翻下，视觉与官方控件一致。
+    //
+    // require 本身若解析不到会抛——那会让整个客户端插件加载失败、按钮直接消失，
+    // 所以兜住：拿不到就退回原生 title，按钮照常可用。
+    var Tooltip = null;
+    try {
+      var primitives = require("@deepseek-ai/dsh-client-ui-primitives");
+      Tooltip = primitives && primitives.Tooltip ? primitives.Tooltip : null;
+    } catch (error) {
+      Tooltip = null;
+    }
 
     var SLOT = "conversation.input.left";
     var ENTRY_ID = "mermaid-comm.gate";
@@ -123,19 +137,30 @@ window.__ModuleLoader__.load({
       if (!state || state.toggle !== true) return null;
 
       var on = state.inject === true;
+      // Tooltip 气泡的 CSS 是 white-space: pre-line，所以 \n 会真的换行：
+      // 第一行说清这个按钮干什么，第二行说当前状态与点击后果。
       var label = on
-        ? "Mermaid 图表达：已开启，点击关闭"
-        : "Mermaid 图表达：已关闭，点击开启（本插件会引导 AI 优先用 Mermaid 图交流）";
+        ? "Mermaid 图表达：让 AI 优先用图讲清架构、流程、时序\n当前已开启 — 点击关闭"
+        : "Mermaid 图表达：让 AI 优先用图讲清架构、流程、时序\n当前已关闭 — 点击开启";
 
-      return h("button", {
+      // 单行版本给 aria-label / 原生 title（tooltip 气泡里用带换行的 label）。
+      var flat = label.replace("\n", " ");
+      var props = {
         type: "button",
         className: "dmc-gate",
-        title: label,
-        "aria-label": label,
+        "aria-label": flat,
         "aria-pressed": on ? "true" : "false",
         "data-pending": state.pending === true ? "true" : "false",
         onClick: toggle,
-      }, h(Icon));
+      };
+      // 原生 title 只当 Tooltip 不可用时的退路：它有约 1s 延迟、样式不可控，
+      // 而且会被 composer 卡片的 overflow 裁掉。
+      if (!Tooltip) props.title = flat;
+      var button = h("button", props, h(Icon));
+
+      // 官方 Tooltip：position:fixed 气泡，即时显示（delayMs 默认 0），贴边自动翻向，
+      // 且不受 composer 卡片 overflow 影响；视觉与官方控件一致。
+      return Tooltip ? h(Tooltip, { label: label, side: "top" }, button) : button;
     }
 
     function apply(ctx) {

@@ -1217,6 +1217,9 @@ export interface RequestViewDiff extends RepoRequest {
 	readonly oldFilePath: string;
 	readonly newFilePath: string;
 	readonly type: GitFileStatus;
+	// DSH: `toHash` 那个提交的标题 —— 宿主用它拼 dsh-better-sidebar DiffTab 的
+	// 页签标题（该侧语法为 `<短hash> <标题>`），省掉宿主一次 git 调用。
+	readonly subject?: string;
 }
 export interface ResponseViewDiff extends ResponseWithErrorInfo {
 	readonly command: 'viewDiff';
