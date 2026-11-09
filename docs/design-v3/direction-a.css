@@ -1,0 +1,470 @@
+/* ============================================================================
+   dsh-ios-skin v3 preview — Glass Cast / 玻璃铸件
+   Body class: ios-v3-a     Dark mode: body.ios-v3-a[data-ds-dark-theme]
+   Direction A. This file is a complete, injectable override sheet:
+   it carries its own design tokens (light + dark) and its own material layer.
+   Paint only — no layout, no sizing, no pointer events, no structure.
+   ============================================================================ */
+
+body.ios-v3-a{
+  color-scheme:light;
+  --v3-canvas:#EEF1F6;
+  --v3-canvas-image:linear-gradient(155deg,#E9EDF4 0%,#F4F6FA 58%,#ECF0F7 100%);
+  --v3-base:transparent;
+  --v3-surface:#FFFFFF;
+  --v3-glass-thin:rgba(255,255,255,.50);
+  --v3-glass:rgba(255,255,255,.58);
+  --v3-glass-thick:rgba(255,255,255,.66);
+  --v3-rim-outer:rgba(255,255,255,.50);
+  --v3-rim-inner:rgba(0,0,0,.08);
+  --v3-hairline:rgba(60,60,67,.12);
+  --v3-rail-fill:var(--v3-glass-thin);
+  --v3-rail-blur:blur(24px) saturate(180%);
+  --v3-overlay-fill:var(--v3-glass);
+  --v3-overlay-blur:blur(32px) saturate(190%);
+  --v3-card-fill:var(--v3-glass);
+  --v3-card-blur:blur(32px) saturate(180%);
+  --v3-workbench-fill:var(--v3-glass);
+  --v3-workbench-blur:blur(32px) saturate(180%);
+  --v3-bubble-fill:rgba(0,122,255,.10);
+  --v3-overlay-shadow:0 0 0 1px var(--v3-rim-outer),inset 0 0 0 1px var(--v3-rim-inner),var(--v3-shadow-float);
+  --v3-card-shadow:0 0 0 1px var(--v3-rim-outer),inset 0 0 0 1px var(--v3-rim-inner),var(--v3-shadow-card);
+  --v3-shadow-soft:0 2px 12px rgba(23,32,52,.06),0 24px 64px rgba(23,32,52,.12);
+  --v3-shadow-card:0 1px 2px rgba(23,32,52,.04),0 12px 36px rgba(23,32,52,.10);
+  --v3-surface-line:inset 0 0 0 .5px rgba(60,60,67,.08);
+  --v3-shadow-float:0 6px 26px rgba(23,32,52,.10),0 44px 100px rgba(23,32,52,.18);
+  --v3-radius:14px;
+  --v3-accent:#007AFF;
+  --v3-accent-hover:#0A6FE0;
+  --v3-accent-soft:rgba(0,122,255,.12);
+  --v3-accent-strong:#0064D2;
+  --v3-accent-border:rgba(0,122,255,.34);
+  --v3-focus:color-mix(in srgb,#007AFF 34%,transparent);
+  --v3-font:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue',system-ui,sans-serif;
+  --v3-mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,monospace;
+  --v3-sep-strong:rgba(60,60,67,.28);
+  --v3-label-secondary-strong:#1B1D22;
+  --v3-label-tertiary-strong:rgba(60,60,67,.68);
+
+  background-color:var(--v3-canvas)!important;
+  background-image:var(--v3-canvas-image)!important;
+  background-attachment:fixed;
+
+  --dsw-alias-bg-base:transparent!important;
+  --dsw-alias-bg-layer-1:rgba(255,255,255,.50)!important;
+  --dsw-alias-bg-layer-2:rgba(255,255,255,.58)!important;
+  --dsw-alias-bg-layer-3:rgba(255,255,255,.66)!important;
+  --dsw-alias-bg-overlay:rgba(255,255,255,.58)!important;
+  --dsw-alias-bg-mask-1:rgba(0,0,0,.20)!important;
+  --dsw-alias-bg-mask-2:rgba(0,0,0,.10)!important;
+  --dsw-alias-bg-mask-3:rgba(0,0,0,.46)!important;
+  --dsw-alias-bg-mask-drop:rgba(255,255,255,.62)!important;
+  --dsw-alias-bg-module-platform:rgba(255,255,255,.50)!important;
+  --dsw-alias-bg-multi-select:rgba(0,122,255,.12)!important;
+  --dsw-alias-bg-skeleton:rgba(118,118,128,.10)!important;
+  --dsw-alias-border-l1:rgba(60,60,67,.10)!important;
+  --dsw-alias-border-l2:rgba(60,60,67,.14)!important;
+  --dsw-alias-border-l3:rgba(60,60,67,.20)!important;
+  --dsw-alias-border-l4:rgba(60,60,67,.28)!important;
+  --dsw-alias-border-l2-darkmode-thin:rgba(60,60,67,.10)!important;
+  --dsw-alias-border-inverted:transparent!important;
+  --dsw-alias-border-inverted2:rgba(255,255,255,.65)!important;
+  --dsw-font-family:var(--dsh-font-family-text,var(--v3-font)),var(--v3-font)!important;
+  --ds-font-family-code:var(--dsh-font-family-code,var(--v3-mono)),var(--v3-mono)!important;
+  --dsw-alias-label-primary:#1B1D22!important;
+  --dsw-alias-label-primary-foreground:#FFFFFF!important;
+  --dsw-alias-label-primary-inverted:#FFFFFF!important;
+  --dsw-alias-label-primary-dimmed:rgba(27,29,34,.55)!important;
+  --dsw-alias-label-primary-bluish:#1B1D22!important;
+  --dsw-alias-label-secondary:rgba(60,60,67,.68)!important;
+  --dsw-alias-label-tertiary:rgba(60,60,67,.58)!important;
+  --dsw-alias-label-caption:rgba(60,60,67,.40)!important;
+  --dsw-alias-label-dimmed:rgba(60,60,67,.30)!important;
+  --dsw-alias-menu-icon:#3A3D44!important;
+  --dsw-alias-switch-thumb:#FFFFFF!important;
+  --dsw-alias-brand-primary:#007AFF!important;
+  --dsw-alias-brand-primary-invert:#007AFF!important;
+  --dsw-alias-brand-primary-new-colorprimary-new-color:#007AFF!important;
+  --dsw-alias-brand-text:#1B1D22!important;
+  --dsw-alias-link:#0064D2!important;
+  --dsw-alias-state-business-primary:#007AFF!important;
+  --dsw-alias-state-business-tertiary:rgba(0,122,255,.12)!important;
+  --dsw-alias-state-error-primary:#FF3B30!important;
+  --dsw-alias-state-error-secondary:#FF6961!important;
+  --dsw-alias-state-success-primary:#34C759!important;
+  --dsw-alias-state-success-secondary:#5ED67A!important;
+  --dsw-alias-state-success-tertiary:rgba(52,199,89,.16)!important;
+  --dsw-alias-state-warn-primary:#FF9500!important;
+  --dsw-alias-state-warn-secondary:#FFB340!important;
+  --dsw-alias-state-warn-tertiary:rgba(255,149,0,.16)!important;
+  --dsw-alias-state-warn-label:#A35200!important;
+  --dsw-alias-button-primary-fill:#007AFF!important;
+  --dsw-alias-button-primary-hover:#0A6FE0!important;
+  --dsw-alias-button-primary-dimmed:rgba(0,122,255,.42)!important;
+  --dsw-alias-button-contrast-fill:#1C1C1E!important;
+  --dsw-alias-button-elevated-fill:rgba(255,255,255,.66)!important;
+  --dsw-alias-button-floating-fill:rgba(255,255,255,.58)!important;
+  --dsw-alias-button-floating-hover:rgba(255,255,255,.94)!important;
+  --dsw-alias-button-ghost-active-fill:rgba(118,118,128,.14)!important;
+  --dsw-alias-button-ghost-active-hover:rgba(118,118,128,.20)!important;
+  --dsw-alias-button-ghost-active-border:rgba(60,60,67,.20)!important;
+  --dsw-alias-button-info-fill:#007AFF!important;
+  --dsw-alias-button-info-hover:#0A6FE0!important;
+  --dsw-alias-button-tool-bar-fill:rgba(255,255,255,.62)!important;
+  --dsw-alias-button-tool-bar-fill-invisible:rgba(118,118,128,.16)!important;
+  --dsw-alias-button-tool-bar-hover:rgba(255,255,255,.82)!important;
+  --dsw-alias-interactive-bg-hover:rgba(118,118,128,.12)!important;
+  --dsw-alias-interactive-bg-active:rgba(118,118,128,.20)!important;
+  --dsw-alias-interactive-bg-hover-accent:rgba(0,122,255,.12)!important;
+  --dsw-alias-interactive-bg-hover-danger:rgba(255,59,48,.14)!important;
+  --dsw-alias-interactive-bg-hover-solid:rgba(118,118,128,.16)!important;
+  --dsw-alias-markdown-code-block:rgba(118,118,128,.10)!important;
+  --dsw-alias-markdown-code-block-banner:rgba(118,118,128,.07)!important;
+  --dsw-alias-markdown-inline-code:rgba(118,118,128,.14)!important;
+  --dsw-alias-markdown-code-segment-selected:rgba(255,255,255,.66)!important;
+  --dsw-alias-markdown-code-segment-unselected:transparent!important;
+  --dsw-alias-markdown-citation:rgba(118,118,128,.10)!important;
+  --dsw-alias-markdown-placeholder:rgba(118,118,128,.18)!important;
+  --dsw-alias-markdown-tag:rgba(118,118,128,.14)!important;
+  --dsw-alias-tooltip-bg:rgba(22,26,34,.86)!important;
+  --dsw-alias-tooltip-key-bg:color-mix(in srgb,var(--dsw-alias-tooltip-bg),white 18%)!important;
+  --dsw-alias-toast-bg:rgba(255,255,255,.86)!important;
+  --dsw-alias-toast-label:#1B1D22!important;
+  --dsw-alias-scrollbar-bg-l1:rgba(0,0,0,.18)!important;
+  --dsw-alias-scrollbar-bg-l2:rgba(0,0,0,.22)!important;
+  --dsw-alias-scrollbar-hover-l1:rgba(0,0,0,.30)!important;
+  --dsw-alias-scrollbar-hover-l2:rgba(0,0,0,.34)!important;
+  --dsh-scrollbar-thumb:rgba(0,0,0,.22)!important;
+  --dsh-scrollbar-thumb-hover:rgba(0,0,0,.34)!important;
+  --dsw-specific-menu:rgba(255,255,255,.66)!important;
+  --dsw-specific-sidebar-fill:var(--v3-glass-thin)!important;
+  --dsw-specific-sidebar-nav-item-hover:rgba(118,118,128,.12)!important;
+  --dsw-specific-sidebar-nav-item-active:color-mix(in srgb,#007AFF 12%,transparent)!important;
+  --dsw-specific-sidebar-nav-item-active-accent:color-mix(in srgb,#007AFF 18%,transparent)!important;
+  --dsw-specific-input-major:#FFFFFF!important;
+  --dsw-specific-login-input:rgba(255,255,255,.86)!important;
+  --dsw-specific-selector:rgba(118,118,128,.14)!important;
+  --dsw-specific-tip:rgba(255,255,255,.66)!important;
+  --dsw-specific-bubble:rgba(0,122,255,.10)!important;
+  --dsw-specific-bubble-highlight:color-mix(in srgb,#007AFF 18%,transparent)!important;
+  --dsw-menu-surface-fill:var(--v3-glass)!important;
+  --dsw-alias-menu-group-header-fill:rgba(255,255,255,.66)!important;
+  --dsw-menu-backdrop-filter:blur(32px) saturate(190%)!important;
+  --dsw-elevation-stroke-color:rgba(255,255,255,.50)!important;
+  --dsw-shadow-lv1:0 1px 2px rgba(0,0,0,.05)!important;
+  --dsw-shadow-lv1-blur:0 2px 10px rgba(0,0,0,.05)!important;
+  --dsw-shadow-lv2:0 1px 3px rgba(0,0,0,.05),0 8px 20px rgba(0,0,0,.06)!important;
+  --dsw-shadow-lv3:0 6px 26px rgba(23,32,52,.10),0 44px 100px rgba(23,32,52,.18)!important;
+  --dsw-mask-blur:blur(32px) saturate(190%)!important;
+  --dsw-hovercard-bg:rgba(255,255,255,.66)!important;
+}
+
+body.ios-v3-a[data-ds-dark-theme]{
+  color-scheme:dark;
+  --v3-canvas:#0A0C10;
+  --v3-canvas-image:linear-gradient(155deg,#0A0C10 0%,#12151C 60%,#0B0E13 100%);
+  --v3-base:transparent;
+  --v3-surface:#14171F;
+  --v3-glass-thin:rgba(22,26,34,.48);
+  --v3-glass:rgba(22,26,34,.56);
+  --v3-glass-thick:rgba(30,36,46,.66);
+  --v3-rim-outer:rgba(255,255,255,.20);
+  --v3-rim-inner:rgba(0,0,0,.45);
+  --v3-hairline:rgba(235,235,245,.16);
+  --v3-rail-fill:var(--v3-glass-thin);
+  --v3-rail-blur:blur(24px) saturate(180%);
+  --v3-overlay-fill:var(--v3-glass);
+  --v3-overlay-blur:blur(32px) saturate(190%);
+  --v3-card-fill:var(--v3-glass);
+  --v3-card-blur:blur(32px) saturate(180%);
+  --v3-workbench-fill:var(--v3-glass);
+  --v3-workbench-blur:blur(32px) saturate(180%);
+  --v3-bubble-fill:rgba(10,132,255,.18);
+  --v3-overlay-shadow:0 0 0 1px var(--v3-rim-outer),inset 0 0 0 1px var(--v3-rim-inner),var(--v3-shadow-float);
+  --v3-card-shadow:0 0 0 1px var(--v3-rim-outer),inset 0 0 0 1px var(--v3-rim-inner),var(--v3-shadow-card);
+  --v3-shadow-soft:0 2px 14px rgba(0,0,0,.32),0 26px 70px rgba(0,0,0,.44);
+  --v3-shadow-card:0 2px 10px rgba(0,0,0,.28),0 18px 44px rgba(0,0,0,.34);
+  --v3-surface-line:inset 0 0 0 .5px rgba(235,235,245,.14);
+  --v3-shadow-float:0 8px 30px rgba(0,0,0,.42),0 48px 110px rgba(0,0,0,.55);
+  --v3-radius:14px;
+  --v3-accent:#0A84FF;
+  --v3-accent-hover:#3D9BFF;
+  --v3-accent-soft:rgba(10,132,255,.22);
+  --v3-accent-strong:#5AA6FF;
+  --v3-accent-border:rgba(10,132,255,.46);
+  --v3-focus:color-mix(in srgb,#0A84FF 34%,transparent);
+  --v3-font:-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Helvetica Neue',system-ui,sans-serif;
+  --v3-mono:ui-monospace,'SF Mono',SFMono-Regular,Menlo,monospace;
+  --v3-sep-strong:rgba(235,235,245,.28);
+  --v3-label-secondary-strong:#F4F6FA;
+  --v3-label-tertiary-strong:rgba(235,235,245,.68);
+
+  background-color:var(--v3-canvas)!important;
+  background-image:var(--v3-canvas-image)!important;
+
+  --dsw-alias-bg-base:transparent!important;
+  --dsw-alias-bg-layer-1:rgba(22,26,34,.48)!important;
+  --dsw-alias-bg-layer-2:rgba(22,26,34,.56)!important;
+  --dsw-alias-bg-layer-3:rgba(30,36,46,.66)!important;
+  --dsw-alias-bg-overlay:rgba(22,26,34,.56)!important;
+  --dsw-alias-bg-mask-1:rgba(0,0,0,.48)!important;
+  --dsw-alias-bg-mask-2:rgba(0,0,0,.24)!important;
+  --dsw-alias-bg-mask-3:rgba(0,0,0,.60)!important;
+  --dsw-alias-bg-mask-drop:rgba(0,0,0,.45)!important;
+  --dsw-alias-bg-module-platform:rgba(22,26,34,.48)!important;
+  --dsw-alias-bg-multi-select:rgba(10,132,255,.22)!important;
+  --dsw-alias-bg-skeleton:rgba(255,255,255,.08)!important;
+  --dsw-alias-border-l1:rgba(235,235,245,.10)!important;
+  --dsw-alias-border-l2:rgba(235,235,245,.14)!important;
+  --dsw-alias-border-l3:rgba(235,235,245,.20)!important;
+  --dsw-alias-border-l4:rgba(235,235,245,.28)!important;
+  --dsw-alias-border-l2-darkmode-thin:rgba(235,235,245,.14)!important;
+  --dsw-alias-border-inverted:rgba(235,235,245,.14)!important;
+  --dsw-alias-border-inverted2:rgba(255,255,255,.16)!important;
+  --dsw-font-family:var(--dsh-font-family-text,var(--v3-font)),var(--v3-font)!important;
+  --ds-font-family-code:var(--dsh-font-family-code,var(--v3-mono)),var(--v3-mono)!important;
+  --dsw-alias-label-primary:#F4F6FA!important;
+  --dsw-alias-label-primary-foreground:#14171F!important;
+  --dsw-alias-label-primary-inverted:#14171F!important;
+  --dsw-alias-label-primary-dimmed:rgba(244,246,250,.55)!important;
+  --dsw-alias-label-primary-bluish:#F4F6FA!important;
+  --dsw-alias-label-secondary:rgba(235,235,245,.68)!important;
+  --dsw-alias-label-tertiary:rgba(235,235,245,.46)!important;
+  --dsw-alias-label-caption:rgba(235,235,245,.40)!important;
+  --dsw-alias-label-dimmed:rgba(235,235,245,.30)!important;
+  --dsw-alias-menu-icon:rgba(235,235,245,.55)!important;
+  --dsw-alias-switch-thumb:#F4F6FA!important;
+  --dsw-alias-brand-primary:#0A84FF!important;
+  --dsw-alias-brand-primary-invert:#0A84FF!important;
+  --dsw-alias-brand-primary-new-colorprimary-new-color:#0A84FF!important;
+  --dsw-alias-brand-text:#F4F6FA!important;
+  --dsw-alias-link:#5AA6FF!important;
+  --dsw-alias-state-business-primary:#0A84FF!important;
+  --dsw-alias-state-business-tertiary:rgba(10,132,255,.22)!important;
+  --dsw-alias-state-error-primary:#FF453A!important;
+  --dsw-alias-state-error-secondary:#FF6961!important;
+  --dsw-alias-state-success-primary:#30D158!important;
+  --dsw-alias-state-success-secondary:#5ED67A!important;
+  --dsw-alias-state-success-tertiary:rgba(48,209,88,.22)!important;
+  --dsw-alias-state-warn-primary:#FF9F0A!important;
+  --dsw-alias-state-warn-secondary:#FFB340!important;
+  --dsw-alias-state-warn-tertiary:rgba(255,159,10,.22)!important;
+  --dsw-alias-state-warn-label:#FFB340!important;
+  --dsw-alias-button-primary-fill:#0A84FF!important;
+  --dsw-alias-button-primary-hover:#3D9BFF!important;
+  --dsw-alias-button-primary-dimmed:rgba(10,132,255,.42)!important;
+  --dsw-alias-button-contrast-fill:#F2F2F7!important;
+  --dsw-alias-button-elevated-fill:rgba(30,36,46,.66)!important;
+  --dsw-alias-button-floating-fill:rgba(22,26,34,.56)!important;
+  --dsw-alias-button-floating-hover:rgba(58,58,60,.92)!important;
+  --dsw-alias-button-ghost-active-fill:rgba(118,118,128,.28)!important;
+  --dsw-alias-button-ghost-active-hover:rgba(118,118,128,.36)!important;
+  --dsw-alias-button-ghost-active-border:rgba(235,235,245,.28)!important;
+  --dsw-alias-button-info-fill:#0A84FF!important;
+  --dsw-alias-button-info-hover:#3D9BFF!important;
+  --dsw-alias-button-tool-bar-fill:rgba(118,118,128,.32)!important;
+  --dsw-alias-button-tool-bar-fill-invisible:rgba(118,118,128,.24)!important;
+  --dsw-alias-button-tool-bar-hover:rgba(118,118,128,.44)!important;
+  --dsw-alias-interactive-bg-hover:rgba(255,255,255,.10)!important;
+  --dsw-alias-interactive-bg-active:rgba(255,255,255,.16)!important;
+  --dsw-alias-interactive-bg-hover-accent:rgba(10,132,255,.22)!important;
+  --dsw-alias-interactive-bg-hover-danger:rgba(255,69,58,.18)!important;
+  --dsw-alias-interactive-bg-hover-solid:rgba(118,118,128,.28)!important;
+  --dsw-alias-markdown-code-block:rgba(118,118,128,.22)!important;
+  --dsw-alias-markdown-code-block-banner:rgba(118,118,128,.16)!important;
+  --dsw-alias-markdown-inline-code:rgba(118,118,128,.26)!important;
+  --dsw-alias-markdown-code-segment-selected:rgba(30,36,46,.66)!important;
+  --dsw-alias-markdown-code-segment-unselected:transparent!important;
+  --dsw-alias-markdown-citation:rgba(118,118,128,.22)!important;
+  --dsw-alias-markdown-placeholder:rgba(118,118,128,.28)!important;
+  --dsw-alias-markdown-tag:rgba(118,118,128,.26)!important;
+  --dsw-alias-tooltip-bg:rgba(38,44,56,.90)!important;
+  --dsw-alias-tooltip-key-bg:color-mix(in srgb,var(--dsw-alias-tooltip-bg),white 18%)!important;
+  --dsw-alias-toast-bg:var(--v3-glass-thick)!important;
+  --dsw-alias-toast-label:#F4F6FA!important;
+  --dsw-alias-scrollbar-bg-l1:rgba(255,255,255,.20)!important;
+  --dsw-alias-scrollbar-bg-l2:rgba(255,255,255,.24)!important;
+  --dsw-alias-scrollbar-hover-l1:rgba(255,255,255,.32)!important;
+  --dsw-alias-scrollbar-hover-l2:rgba(255,255,255,.38)!important;
+  --dsh-scrollbar-thumb:rgba(255,255,255,.24)!important;
+  --dsh-scrollbar-thumb-hover:rgba(255,255,255,.38)!important;
+  --dsw-specific-menu:rgba(30,36,46,.66)!important;
+  --dsw-specific-sidebar-fill:var(--v3-glass-thin)!important;
+  --dsw-specific-sidebar-nav-item-hover:rgba(255,255,255,.10)!important;
+  --dsw-specific-sidebar-nav-item-active:color-mix(in srgb,#0A84FF 22%,transparent)!important;
+  --dsw-specific-sidebar-nav-item-active-accent:color-mix(in srgb,#0A84FF 30%,transparent)!important;
+  --dsw-specific-input-major:#14171F!important;
+  --dsw-specific-login-input:rgba(255,255,255,.08)!important;
+  --dsw-specific-selector:rgba(118,118,128,.28)!important;
+  --dsw-specific-tip:rgba(30,36,46,.66)!important;
+  --dsw-specific-bubble:rgba(10,132,255,.18)!important;
+  --dsw-specific-bubble-highlight:color-mix(in srgb,#0A84FF 30%,transparent)!important;
+  --dsw-menu-surface-fill:var(--v3-glass)!important;
+  --dsw-alias-menu-group-header-fill:rgba(30,36,46,.66)!important;
+  --dsw-menu-backdrop-filter:blur(32px) saturate(190%)!important;
+  --dsw-elevation-stroke-color:rgba(255,255,255,.20)!important;
+  --dsw-shadow-lv1:0 1px 2px rgba(0,0,0,.28)!important;
+  --dsw-shadow-lv1-blur:0 2px 12px rgba(0,0,0,.32)!important;
+  --dsw-shadow-lv2:0 2px 6px rgba(0,0,0,.30),0 12px 28px rgba(0,0,0,.38)!important;
+  --dsw-shadow-lv3:0 8px 30px rgba(0,0,0,.42),0 48px 110px rgba(0,0,0,.55)!important;
+  --dsw-mask-blur:blur(32px) saturate(190%)!important;
+  --dsw-hovercard-bg:rgba(30,36,46,.66)!important;
+}
+
+
+/* Header is the page plane: never glass, never a card. */
+body.ios-v3-a [class*='_header']:not([data-dsh-panel-host] *):not([data-dsh-better-sidebar] *),
+body.ios-v3-a :is(header,[role='banner']){
+  background-color:transparent!important;
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+  box-shadow:none!important;
+}
+body.ios-v3-a :is(header,[role='banner']) :is(nav,[role='navigation'],[role='tablist'],[class*='_toolbar'],[class*='_titlebar'],[class*='_tabStrip']){
+  background-color:transparent!important;
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+  box-shadow:none!important;
+  border-radius:0;
+}
+
+/* Thin bars: the lightest material. */
+body.ios-v3-a [class*='_toolbar']:not([data-dsh-panel-host] *):not(header *),
+body.ios-v3-a [class*='_titlebar']:not([data-dsh-panel-host] *):not(header *),
+body.ios-v3-a [class*='_tabStrip']:not([data-dsh-panel-host] *):not(header *),
+body.ios-v3-a [role='tablist']:not(header *):not([role='banner'] *),
+body.ios-v3-a [data-dockkit-strip]:not(header *){
+  background-color:var(--v3-glass-thin);
+  -webkit-backdrop-filter:var(--v3-rail-blur);
+  backdrop-filter:var(--v3-rail-blur);
+  border-radius:var(--v3-radius);
+}
+
+/* Rails and docks: material strips, never elevated cards. */
+body.ios-v3-a [class*='_panelList']:not([data-dsh-panel-host] *):not(header *),
+body.ios-v3-a [class*='_floatHost']:not(header *),
+body.ios-v3-a [class*='_composerSeat']:not(header *),
+body.ios-v3-a [class*='_composerStack']:not(header *),
+body.ios-v3-a :is(nav,[role='navigation']):not([data-dsh-panel-host] *):not(header *),
+body.ios-v3-a :is(aside,[role='complementary']):not(header *),
+body.ios-v3-a :is(.dshDesktopSidebarSurface,.dshDesktopRightbarSurface){
+  background-color:var(--v3-rail-fill);
+  -webkit-backdrop-filter:var(--v3-rail-blur);
+  backdrop-filter:var(--v3-rail-blur);
+  border-radius:var(--v3-radius);
+}
+
+/* Floating surfaces. */
+body.ios-v3-a [class*='_dialog'],
+body.ios-v3-a [class*='_toast'],
+body.ios-v3-a [class*='_viewport'],
+body.ios-v3-a :is([role='dialog'],[role='alertdialog'],[role='menu'],[role='listbox'],[role='tooltip']),
+body.ios-v3-a [data-dockkit-float],
+body.ios-v3-a [data-team-panel],
+body.ios-v3-a [data-dsh-md-toc-panel]{
+  background-color:var(--v3-overlay-fill);
+  -webkit-backdrop-filter:var(--v3-overlay-blur);
+  backdrop-filter:var(--v3-overlay-blur);
+  border-radius:var(--v3-radius);
+  box-shadow:var(--v3-overlay-shadow);
+}
+
+/* Docked workbench: fill + blur only; its edge/radius belong to the plugin. */
+body.ios-v3-a [data-dsh-bottom-panel]{
+  background-color:var(--v3-workbench-fill);
+  -webkit-backdrop-filter:var(--v3-workbench-blur);
+  backdrop-filter:var(--v3-workbench-blur);
+}
+
+/* In-flow cards: closer to the page. */
+body.ios-v3-a [class*='_card']:not([class*='_dockHintCard']):not([data-dsh-panel-host] *):not([data-dsh-better-sidebar] *){
+  background-color:var(--v3-card-fill);
+  -webkit-backdrop-filter:var(--v3-card-blur);
+  backdrop-filter:var(--v3-card-blur);
+  border-radius:var(--v3-radius);
+  box-shadow:var(--v3-card-shadow);
+}
+
+/* The user's own bubble (scoped so the primitives tooltip stays alone). */
+body.ios-v3-a :is([class*='_userRow'],[class*='_userStack']) [class*='_bubble']{
+  background-color:var(--v3-bubble-fill);
+  border-radius:var(--v3-radius);
+  -webkit-backdrop-filter:blur(18px) saturate(160%);
+  backdrop-filter:blur(18px) saturate(160%);
+}
+
+/* Active tab / current-page text keeps AA on light canvases: the component's
+   accent text is darkened (paint only; no geometry). */
+body.ios-v3-a [class*='_tabActive'],
+body.ios-v3-a [class*='_tabActive'] *,
+body.ios-v3-a [role='tab'][aria-selected='true'],
+body.ios-v3-a [role='tab'][aria-selected='true'] *,
+body.ios-v3-a [aria-current='page'],
+body.ios-v3-a [aria-current='page'] *{
+  color:var(--v3-accent-strong)!important;
+}
+
+/* Controls: paint only; radius is deliberately not set on buttons/tabs/menuitems
+   so official true circles keep border-radius:50%. */
+body.ios-v3-a :is(button,[role='button'],[role='tab'],[role='menuitem']){
+  transition:background-color .16s ease,box-shadow .16s ease;
+}
+body.ios-v3-a :is(button,[role='button']):focus-visible,
+body.ios-v3-a :is(input,textarea,select,[contenteditable='true']):focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px var(--v3-focus);
+}
+
+/* Text-bearing and editable surfaces stay opaque. */
+body.ios-v3-a :is(pre,code,input,select,textarea,[contenteditable='true']),
+body.ios-v3-a :is(.cm-editor,.cm-scroller,.xterm,.xterm-screen,.xterm-viewport),
+body.ios-v3-a [class*='md-code-block'],
+body.ios-v3-a [data-dsh-md-surface]{
+  -webkit-backdrop-filter:none!important;
+  backdrop-filter:none!important;
+}
+body.ios-v3-a :is(pre,code,input,select,textarea,[contenteditable='true']),
+body.ios-v3-a :is(.cm-editor,.xterm,.xterm-screen),
+body.ios-v3-a [class*='md-code-block']{
+  background-color:var(--v3-surface);
+  box-shadow:var(--v3-surface-line);
+}
+
+/* ── Signature: the double-rim refraction edge is carried by every floating
+   surface's box-shadow: outer 1px white rim + inner 1px dark rim + a wide, low
+   ambient shadow. The canvas is a static low-saturation blue-grey field, and
+   --dsw-alias-bg-base is transparent so the field reads through the app frame
+   while every text-bearing surface is explicitly painted opaque below. ── */
+
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  body.ios-v3-a{--v3-glass-thin:var(--v3-surface);--v3-glass:var(--v3-surface);--v3-glass-thick:var(--v3-surface);
+    --v3-rail-fill:var(--v3-surface);--v3-overlay-fill:var(--v3-surface);--v3-card-fill:var(--v3-surface);
+    --v3-workbench-fill:var(--v3-surface)}
+}
+@media (prefers-reduced-transparency:reduce){
+  body.ios-v3-a{--v3-glass-thin:var(--v3-surface);--v3-glass:var(--v3-surface);--v3-glass-thick:var(--v3-surface);
+    --v3-rail-fill:var(--v3-surface);--v3-overlay-fill:var(--v3-surface);--v3-card-fill:var(--v3-surface);
+    --v3-workbench-fill:var(--v3-surface)}
+  body.ios-v3-a *{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+}
+@media (prefers-contrast:more){
+  body.ios-v3-a{
+    --dsw-alias-border-l1:var(--v3-sep-strong)!important;
+    --dsw-alias-border-l2:var(--v3-sep-strong)!important;
+    --dsw-alias-label-secondary:var(--v3-label-secondary-strong)!important;
+    --dsw-alias-label-tertiary:var(--v3-label-tertiary-strong)!important;
+  }
+}
+@media (prefers-reduced-motion:reduce){
+  body.ios-v3-a *{transition:none!important;animation-duration:.01ms!important}
+}
+
+/* The official sheet re-declares the derived elevation recipes on every element;
+   redeclare them with this direction's rims/shadow so iOS elevation reaches
+   descendants, while component-level stroke-colour rebinds keep working. */
+body.ios-v3-a,body.ios-v3-a *{
+  --dsw-elevation-stroke:0 0 0 .5px var(--dsw-elevation-stroke-color);
+  --dsw-elevation-panel:var(--dsw-elevation-stroke),var(--v3-shadow-soft);
+  --dsw-elevation-prominent:var(--dsw-elevation-stroke),var(--v3-shadow-float);
+  --dsw-elevation-soft:var(--dsw-elevation-stroke),var(--v3-shadow-soft);
+}

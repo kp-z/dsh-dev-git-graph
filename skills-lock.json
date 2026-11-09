@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "skills": {
+    "feishu": {
+      "source": "mcp-hub.momenta.works",
+      "sourceUrl": "https://mcp-hub.momenta.works/wk/Momenta/public/zhixiong-public-skills/dev",
+      "sourceType": "well-known",
+      "computedHash": "50a101c9878f727066ce7c712f95ee3cf01ca3735ecd3417902dcb7e0d4bff9e",
+      "wellKnownDigest": "sha256:0b1b6c6c1486b967a91e13e705fe3c161ec77214cd5239d41919139b148ead2f"
+    }
+  }
+}
