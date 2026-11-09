@@ -1,0 +1,5 @@
+# dsh-tab-split：把本插件插进 profile 的层栈（client-only，无 host 行为）。
+- insert:
+    - id: tab-split
+      name: dsh-tab-split
+      config: {}
