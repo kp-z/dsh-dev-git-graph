@@ -1,0 +1,2087 @@
+[
+  {
+    "block_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "block_type": 1,
+    "children": [
+      "doxcnw7N8tgT3MC6wPdfPtGu8Xg",
+      "doxcnoMVESakQQAIJj5ImfT3Tyf",
+      "doxcnqWLr2jGYR3YAO2xTsqDxKf",
+      "doxcnsSTwSiqokHp9fEkXdwpuSg",
+      "doxcndgFFsr0ZaDL45LMkK8Boyg",
+      "doxcnvvbMlwCrLblChWxJP6trWg",
+      "doxcn7zRVnGumN60r1HgKBCTzse",
+      "doxcnGQpuxYapaDbJ7I1FCaso2c",
+      "doxcn3RkgTFhQI27c14YOfKvwyb",
+      "doxcnV9ElUhIIV0eSRXGnjxuCug",
+      "doxcntsMbDY7xVklcGZYN80u6fg",
+      "doxcnwHfnDizOMI6scuMyGxAV9e",
+      "doxcnHrRENPDzKIdLnK6jNtg65e",
+      "doxcnglJX69xxZjDHRjvhhbr5Ue",
+      "doxcnNiLlpoKGVQmgWtnvbwbBue",
+      "doxcnoqUZukmfQs6gdzxHPADr6e",
+      "doxcnSXkTqG4MmQADaMWBn9SDGh",
+      "doxcnTYi3gIiNcTVo8xKIXO3A9c",
+      "doxcnTSXyN8Va0RZ74OTYxm9Aee",
+      "doxcnFXhZbCHS3LELCOxA4LA2mh",
+      "doxcnzotLa7vBLPVQ3sRocg7pmd",
+      "doxcnbfprsq65dCD6uI1Fhy4d1e",
+      "doxcn3xZpWAjLHi25UUpYmwYq5f",
+      "doxcngLbOTsmMtqckz9AmOLkhWd",
+      "doxcnzuSkLjPS0zFu0dJ1MDjg6b",
+      "doxcnA5M34JiIniRkw01QNq9Ree",
+      "doxcnez8qspweoXEHuxM7Z7Xwzh",
+      "doxcnozrAsrYI53jxMRny74wEib",
+      "doxcnq3Ikn2ck8f5MxVtgIZWDoc",
+      "doxcnV6DHpY9W2aW7NriV4KCfwf",
+      "doxcnefFjUvVnVXH5PdmrfV4pSb",
+      "doxcn2wz9PpD8O5rdnhLLNn2FZb",
+      "doxcnn4miAekiciCdbzGAj3Zame",
+      "doxcnwFi5u0vpazrqElSUfbWkBh",
+      "doxcnPodA1nKOshOnPusOcPiy6c",
+      "doxcnaJ2zS3N1dmYaXanL2zHXtb",
+      "doxcneuGGpIFDaKxVIa4F8oT6wf",
+      "doxcnNKKTX64C59yD6wy5bsxFwh",
+      "doxcnktNgNS2Zs4CRgX34eFSLah",
+      "doxcnT9esMzex3d4XEp6x4END4b",
+      "doxcnLQfDlhfszj2770pYzTV3fc",
+      "doxcnbWT0PrSXL8Xuvd7VUOdWFf",
+      "doxcnxHB2sWl9LU75i3mCIkjewb",
+      "doxcn9qFxugLMzcw7KBDH5FTREd",
+      "doxcn16QFzqi3tqUvrb6MWPZn5b",
+      "doxcna8IfrXutp38UPHyeo6Czdh",
+      "doxcnmOnOGlgraMHW6l76550ykc",
+      "doxcnIyncuMLMeCjfvysXpivb4d",
+      "doxcnZoA6Q2KjwLhN4IySrgALUg",
+      "doxcnvo5XyDokJqyQqUNSSPJevc",
+      "doxcnvSygLNVG3gpmVRhfl9Ltbg",
+      "doxcnSjbKUbI2Vce0cARnmTOLof",
+      "doxcnvEu0Wl4VKjvV7d1B3bwzae",
+      "doxcnTjoTML6NOmZ3RcM6lwHPah",
+      "doxcncEaf45Dqb5ss4HUSnRVXih",
+      "doxcn7dDxiWVrx2SMgKVk0xInKg"
+    ],
+    "page": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 用户使用指南",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1
+      }
+    },
+    "parent_id": ""
+  },
+  {
+    "block_id": "doxcnw7N8tgT3MC6wPdfPtGu8Xg",
+    "block_type": 3,
+    "heading1": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 用户使用指南",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnoMVESakQQAIJj5ImfT3Tyf",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "在 DSH 中查看飞书任务、进入对应会话，并用「今日洞察」安排工作。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnqWLr2jGYR3YAO2xTsqDxKf",
+    "block_type": 15,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "quote": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "本文合并既有说明，截图来自不同界面版本，按钮位置以实际面板为准。部分原图含内部项目与任务信息，仅供内部使用；标注「脱敏」的图片也未重新审查，请勿直接外发。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnsSTwSiqokHp9fEkXdwpuSg",
+    "block_type": 4,
+    "heading2": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "1. 打开面板，找到任务",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcndgFFsr0ZaDL45LMkK8Boyg",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "打开 DSH 侧边面板中的「飞书」：上方是今日洞察，下方是任务列表或看板。按状态、优先级筛选，或按工作区分组。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnvvbMlwCrLblChWxJP6trWg",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 2052,
+      "scale": 1,
+      "token": "TkGHbtTeIo7byOxH6K7cgc51nic",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcn7zRVnGumN60r1HgKBCTzse",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 1270,
+      "scale": 1,
+      "token": "ENDcbCXFgo7lqExepoHc8Bqinnd",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnGQpuxYapaDbJ7I1FCaso2c",
+    "block_type": 4,
+    "heading2": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "2. 看洞察，确定下一步",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcn3RkgTFhQI27c14YOfKvwyb",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "「早会同步」看工作摘要，「诊断」看问题与建议。切换标签只换视图；点击标签的 ",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "↻",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": true,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": " 才重新生成。图表用 ",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "‹",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": true,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": " / ",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "›",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": true,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": " 切换；点击「展开详情」查看每条任务的第一步。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnV9ElUhIIV0eSRXGnjxuCug",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 763,
+      "scale": 1,
+      "token": "UThmbUDp0oBDU6x83ttcvEzUnBf",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcntsMbDY7xVklcGZYN80u6fg",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 919,
+      "scale": 1,
+      "token": "IWFUbyseSoxdZOxWL2ZcFeSPnLf",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnwHfnDizOMI6scuMyGxAV9e",
+    "block_type": 4,
+    "heading2": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "3. 进入会话，处理任务",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnHrRENPDzKIdLnK6jNtg65e",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "点击任务卡的 ",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "Session",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": true,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": " 进入对应会话；标题悬停查看全名，双击改名。当前会话对应的任务会置顶，并显示橙色「当前对话」标记。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnglJX69xxZjDHRjvhhbr5Ue",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 1600,
+      "scale": 1,
+      "token": "UOtIbTvQNosX4nxwYH8c6xiUnme",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnNiLlpoKGVQmgWtnvbwbBue",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "会话指示灯：",
+            "text_element_style": {
+              "bold": true,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "蓝色呼吸＝正在回复；绿色实心＝已跑完、尚未查看；淡绿色＝空闲、已查看；灰色＝会话已结束。会话跑完不代表飞书任务已完成。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnoqUZukmfQs6gdzxHPADr6e",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 1845,
+      "scale": 1,
+      "token": "QCFGbCvoNoPS7lxxOBjcJCfsnUd",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "block_type": 31,
+    "children": [
+      "doxcnRnuYkTDUZUmnZf2233LFGc",
+      "doxcnNZEMrLv5ck6C9r7XBiEKVh",
+      "doxcnIsb9hKnuZko1enGgQ0i5We",
+      "doxcn9R7h3JqKJGRPTV0OGI5oog",
+      "doxcnB8StjUd9VYUgTvk5l1Fzac",
+      "doxcnbgHGGCFVmx8fuKECLlNURb",
+      "doxcnAYiCCiTFbNYsOy8UgRT3ah",
+      "doxcnQ3sb0jxDaQtdK5tLcsMHWf",
+      "doxcnTBczxc1QQGAApIa7EHPKDg",
+      "doxcnPC394a7ml5WfAFeccpvgFg",
+      "doxcnD0CFGp38wR7woO3uJPYDeg",
+      "doxcng7FHtNefvtpwd6UCvH3Ohe",
+      "doxcnp28vpQFoGy3ZYiXDo3Sj6b",
+      "doxcnJ5PsM3JBu6v4ysrkuKJyUh"
+    ],
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "table": {
+      "cells": [
+        "doxcnRnuYkTDUZUmnZf2233LFGc",
+        "doxcnNZEMrLv5ck6C9r7XBiEKVh",
+        "doxcnIsb9hKnuZko1enGgQ0i5We",
+        "doxcn9R7h3JqKJGRPTV0OGI5oog",
+        "doxcnB8StjUd9VYUgTvk5l1Fzac",
+        "doxcnbgHGGCFVmx8fuKECLlNURb",
+        "doxcnAYiCCiTFbNYsOy8UgRT3ah",
+        "doxcnQ3sb0jxDaQtdK5tLcsMHWf",
+        "doxcnTBczxc1QQGAApIa7EHPKDg",
+        "doxcnPC394a7ml5WfAFeccpvgFg",
+        "doxcnD0CFGp38wR7woO3uJPYDeg",
+        "doxcng7FHtNefvtpwd6UCvH3Ohe",
+        "doxcnp28vpQFoGy3ZYiXDo3Sj6b",
+        "doxcnJ5PsM3JBu6v4ysrkuKJyUh"
+      ],
+      "property": {
+        "column_size": 2,
+        "column_width": [
+          365,
+          365
+        ],
+        "merge_info": [
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          },
+          {
+            "col_span": 1,
+            "row_span": 1
+          }
+        ],
+        "row_size": 7
+      }
+    }
+  },
+  {
+    "block_id": "doxcnRnuYkTDUZUmnZf2233LFGc",
+    "block_type": 32,
+    "children": [
+      "doxcnQKnyibgzyPoKRLvyBGw3Ug"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnQKnyibgzyPoKRLvyBGw3Ug",
+    "block_type": 2,
+    "parent_id": "doxcnRnuYkTDUZUmnZf2233LFGc",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "操作",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnNZEMrLv5ck6C9r7XBiEKVh",
+    "block_type": 32,
+    "children": [
+      "doxcn2GutJMIMWLS2iRbEQawHIb"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcn2GutJMIMWLS2iRbEQawHIb",
+    "block_type": 2,
+    "parent_id": "doxcnNZEMrLv5ck6C9r7XBiEKVh",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "作用",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnIsb9hKnuZko1enGgQ0i5We",
+    "block_type": 32,
+    "children": [
+      "doxcnbHmvt8hgzr1f0NknYAQaXh"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnbHmvt8hgzr1f0NknYAQaXh",
+    "block_type": 2,
+    "parent_id": "doxcnIsb9hKnuZko1enGgQ0i5We",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "＋ 文档",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcn9R7h3JqKJGRPTV0OGI5oog",
+    "block_type": 32,
+    "children": [
+      "doxcndYYnmhaL3OOA83tsX3mDxe"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcndYYnmhaL3OOA83tsX3mDxe",
+    "block_type": 2,
+    "parent_id": "doxcn9R7h3JqKJGRPTV0OGI5oog",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "把会话里的文档关联到任务",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnB8StjUd9VYUgTvk5l1Fzac",
+    "block_type": 32,
+    "children": [
+      "doxcnPVptr9qHKkl1V6rmIiTGYe"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnPVptr9qHKkl1V6rmIiTGYe",
+    "block_type": 2,
+    "parent_id": "doxcnB8StjUd9VYUgTvk5l1Fzac",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "生成文档",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnbgHGGCFVmx8fuKECLlNURb",
+    "block_type": 32,
+    "children": [
+      "doxcnBR10H2uhwXrHnSX8PAf3dg"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnBR10H2uhwXrHnSX8PAf3dg",
+    "block_type": 2,
+    "parent_id": "doxcnbgHGGCFVmx8fuKECLlNURb",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "为任务新建飞书文档",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnAYiCCiTFbNYsOy8UgRT3ah",
+    "block_type": 32,
+    "children": [
+      "doxcndrAQCwlLg5enRrquMXwm0d"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcndrAQCwlLg5enRrquMXwm0d",
+    "block_type": 2,
+    "parent_id": "doxcnAYiCCiTFbNYsOy8UgRT3ah",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "同步",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnQ3sb0jxDaQtdK5tLcsMHWf",
+    "block_type": 32,
+    "children": [
+      "doxcnQCmJivTrAUc6Zn274ac2dc"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnQCmJivTrAUc6Zn274ac2dc",
+    "block_type": 2,
+    "parent_id": "doxcnQ3sb0jxDaQtdK5tLcsMHWf",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "按最后修改时间决定写回或拉取",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnTBczxc1QQGAApIa7EHPKDg",
+    "block_type": 32,
+    "children": [
+      "doxcncgb2RmHgboti26ZvbCGESe"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcncgb2RmHgboti26ZvbCGESe",
+    "block_type": 2,
+    "parent_id": "doxcnTBczxc1QQGAApIa7EHPKDg",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "完成",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnPC394a7ml5WfAFeccpvgFg",
+    "block_type": 32,
+    "children": [
+      "doxcnI5W7AXkgUooeFFSLrZGKve"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnI5W7AXkgUooeFFSLrZGKve",
+    "block_type": 2,
+    "parent_id": "doxcnPC394a7ml5WfAFeccpvgFg",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "将飞书任务置完成，并归档会话",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnD0CFGp38wR7woO3uJPYDeg",
+    "block_type": 32,
+    "children": [
+      "doxcnf5iNqEDQtKg4f42aF9MqXe"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnf5iNqEDQtKg4f42aF9MqXe",
+    "block_type": 2,
+    "parent_id": "doxcnD0CFGp38wR7woO3uJPYDeg",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "删除",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcng7FHtNefvtpwd6UCvH3Ohe",
+    "block_type": 32,
+    "children": [
+      "doxcnHHHk34XV0oOdmBuaG5FCKg"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnHHHk34XV0oOdmBuaG5FCKg",
+    "block_type": 2,
+    "parent_id": "doxcng7FHtNefvtpwd6UCvH3Ohe",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "只归档会话，飞书任务状态不变",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnp28vpQFoGy3ZYiXDo3Sj6b",
+    "block_type": 32,
+    "children": [
+      "doxcnnsDdtWsqrchjuSrcIU48Gc"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnnsDdtWsqrchjuSrcIU48Gc",
+    "block_type": 2,
+    "parent_id": "doxcnp28vpQFoGy3ZYiXDo3Sj6b",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "解绑",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnJ5PsM3JBu6v4ysrkuKJyUh",
+    "block_type": 32,
+    "children": [
+      "doxcnySet9kQ3x8WCltd9y7giwb"
+    ],
+    "parent_id": "doxcnSXkTqG4MmQADaMWBn9SDGh",
+    "table_cell": {}
+  },
+  {
+    "block_id": "doxcnySet9kQ3x8WCltd9y7giwb",
+    "block_type": 2,
+    "parent_id": "doxcnJ5PsM3JBu6v4ysrkuKJyUh",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "断开任务与会话关联，任务回到未开工",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnTYi3gIiNcTVo8xKIXO3A9c",
+    "block_type": 4,
+    "heading2": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "4. 调整洞察设置",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnTSXyN8Va0RZ74OTYxm9Aee",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "点击洞察右上角 ",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "⚙",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": true,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "，修改标签名称、提示词或添加自定义标签；点击「完成」保存。「忽略的任务关键词」命中的任务不发送给 AI，旧版默认忽略 ",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "DSH",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": true,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "。面板随 DSH 主题切换浅色／深色。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnFXhZbCHS3LELCOxA4LA2mh",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 919,
+      "scale": 1,
+      "token": "QJLIbh2OUom6CaxQjvLcEcprngf",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnzotLa7vBLPVQ3sRocg7pmd",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 919,
+      "scale": 1,
+      "token": "SiRobiXTXogrAlx8RKPcIDMWnRg",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnbfprsq65dCD6uI1Fhy4d1e",
+    "block_type": 4,
+    "heading2": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "5. 常见问题",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcn3xZpWAjLHi25UUpYmwYq5f",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "洞察为空？",
+            "text_element_style": {
+              "bold": true,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "当天首次打开会自动生成；原说明预计约 15 秒。之后需点击对应标签的 ",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "↻",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": true,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": " 重新生成。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcngLbOTsmMtqckz9AmOLkhWd",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "已完成筛选为空？",
+            "text_element_style": {
+              "bold": true,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "原说明中的版本不拉取飞书历史已完成任务，只保留在面板中标记完成的任务及关联会话。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnzuSkLjPS0zFu0dJ1MDjg6b",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "尚未开始执行，为什么是进行中？",
+            "text_element_style": {
+              "bold": true,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "绑定会话即视为进行中，讨论也算推进。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnA5M34JiIniRkw01QNq9Ree",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "T13 等编号是什么？",
+            "text_element_style": {
+              "bold": true,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        },
+        {
+          "text_run": {
+            "content": "建议中的任务索引，以旁边的任务名识别即可。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnez8qspweoXEHuxM7Z7Xwzh",
+    "block_type": 4,
+    "heading2": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "附录：其他原始截图",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnozrAsrYI53jxMRny74wEib",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "正文只保留一组操作配图，其余不同截图集中于此；完全相同的图片仅保留一次。截图标题中的脱敏状态沿用原文标注，不代表已验证可外发。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnq3Ikn2ck8f5MxVtgIZWDoc",
+    "block_type": 5,
+    "heading3": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "浅色界面（原文标注已模糊） · 长什么样",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnV6DHpY9W2aW7NriV4KCfwf",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 919,
+      "scale": 1,
+      "token": "WtMtbAIFHor6tZxWCidcQe5OnWO",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnefFjUvVnVXH5PdmrfV4pSb",
+    "block_type": 5,
+    "heading3": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "浅色界面（原文标注已模糊） · 任务卡",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcn2wz9PpD8O5rdnhLLNn2FZb",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 919,
+      "scale": 1,
+      "token": "Lux6bkqpHorIhGxHBF2cOsZbnBh",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnn4miAekiciCdbzGAj3Zame",
+    "block_type": 5,
+    "heading3": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "局部界面（原文标注已模糊） · 今日洞察",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnwFi5u0vpazrqElSUfbWkBh",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 919,
+      "scale": 1,
+      "token": "XYvHbTS6Wo332exXoU9cNTvXnBf",
+      "width": 1600
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnPodA1nKOshOnPusOcPiy6c",
+    "block_type": 5,
+    "heading3": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "布局示例（原文标注已脱敏） · 面板在哪儿",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnaJ2zS3N1dmYaXanL2zHXtb",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 1796,
+      "scale": 1,
+      "token": "D5QpbiSIdoapnhxKYSscIuAdnse",
+      "width": 1400
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcneuGGpIFDaKxVIa4F8oT6wf",
+    "block_type": 5,
+    "heading3": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "布局示例（原文标注已脱敏） · 今日洞察",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnNKKTX64C59yD6wy5bsxFwh",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 667,
+      "scale": 1,
+      "token": "JS56bqOQSo0GUJxuPBpcxVlrnNd",
+      "width": 1400
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnktNgNS2Zs4CRgX34eFSLah",
+    "block_type": 5,
+    "heading3": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "布局示例（原文标注已脱敏） · 任务列表",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnT9esMzex3d4XEp6x4END4b",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 1400,
+      "scale": 1,
+      "token": "Cm8UbP1vooWM5YxX5FkcZMmZn9E",
+      "width": 1400
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnLQfDlhfszj2770pYzTV3fc",
+    "block_type": 5,
+    "heading3": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "布局示例（原文标注已脱敏） · 任务卡",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnbWT0PrSXL8Xuvd7VUOdWFf",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 1614,
+      "scale": 1,
+      "token": "S0S7bxXW9oPz6zxLXwzc7OPsnXd",
+      "width": 1400
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnxHB2sWl9LU75i3mCIkjewb",
+    "block_type": 5,
+    "heading3": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "布局示例（原文标注已脱敏） · 任务看板",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcn9qFxugLMzcw7KBDH5FTREd",
+    "block_type": 27,
+    "image": {
+      "align": 2,
+      "height": 1111,
+      "scale": 1,
+      "token": "AycLb9OQKoMOEgx3aiZcZYFTnpb",
+      "width": 1400
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcn16QFzqi3tqUvrb6MWPZn5b",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "原文有 9 处图片实际为同一张「无法导入该图片」错误提示，未作为操作配图保留。开发记录引用的本地截图未嵌入飞书原文，也未在当前工作区找到。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcna8IfrXutp38UPHyeo6Czdh",
+    "block_type": 4,
+    "heading2": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "来源",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnmOnOGlgraMHW6l76550ykc",
+    "block_type": 2,
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f",
+    "text": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "本文由 8 篇使用说明及 1 篇开发记录合并，整理于 2026-11-03；原文档保留不变。",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    }
+  },
+  {
+    "block_id": "doxcnIyncuMLMeCjfvysXpivb4d",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 使用说明",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FDam7dBYhColMBUxbPNZc4sYKnOb"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnZoA6Q2KjwLhN4IySrgALUg",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 使用说明",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FIQJsdiFidotJYTx6bDicLm3AnAd"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnvo5XyDokJqyQqUNSSPJevc",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 使用说明",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FDr1pdH2rboJtEXxiNgLcYNWZnud"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnvSygLNVG3gpmVRhfl9Ltbg",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 使用说明",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FFHuDdz1ZnoCYvFxmwGCcurCqnEQ"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnSjbKUbI2Vce0cARnmTOLof",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 使用说明",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FGjEVdvDPQoxEALxUsEcc9zLLnwd"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnvEu0Wl4VKjvV7d1B3bwzae",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 使用说明（v2 整机截图）",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FJ8OGdCFzWoa8CnxHFNiccLCVnGe"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcnTjoTML6NOmZ3RcM6lwHPah",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 使用说明（v3 浅色整机）",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FSIWdd354uo0bUTxEMSYcU8UPndd"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcncEaf45Dqb5ss4HUSnRVXih",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "DSH 飞书插件 · 使用说明（已脱敏截图）",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FZfK6d7BgKorJ72xNiYBcZUyznJb"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  },
+  {
+    "block_id": "doxcn7dDxiWVrx2SMgKVk0xInKg",
+    "block_type": 12,
+    "bullet": {
+      "elements": [
+        {
+          "text_run": {
+            "content": "飞书插件第一个版本开发完善",
+            "text_element_style": {
+              "bold": false,
+              "inline_code": false,
+              "italic": false,
+              "link": {
+                "url": "https%3A%2F%2Fmomenta.feishu.cn%2Fdocx%2FXKe1dZ6Cbo2x4mxbSshc889xnMf"
+              },
+              "strikethrough": false,
+              "underline": false
+            }
+          }
+        }
+      ],
+      "style": {
+        "align": 1,
+        "folded": false
+      }
+    },
+    "parent_id": "TrMvddkf2oCpmTxf14hcvfLrn6f"
+  }
+]

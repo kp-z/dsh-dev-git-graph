@@ -1,0 +1,40 @@
+{
+  "success": true,
+  "applied": [
+    {
+      "delete_range": [
+        4,
+        14
+      ],
+      "new_chunk_preview": "\n# 命令行安装（DSH Web）\n# 前提：已安装 DSH、Node.js/npm 和 Python，终端能运行 dsh、npx、python3。\n# 先获得本版插件目录；替换下面的实际绝对路径和目标 profile。\n# 同名 npm 旧包不等于当前本地分发版插件。\n\n# 1) 安装飞书 CLI\n# 1) 安装飞书 CLI\npython3 -m pip install --extra-inde",
+      "new_block_ids": [
+        "cbf250e3-1aad-446f-840f-19430a598a77",
+        "73c646c4-ee80-4c9a-a506-d416d6376acd",
+        "935605ef-2a6c-413e-a047-0e41e9c37ae8",
+        "ca3c3747-5b40-4fff-b12b-0896a713b79b",
+        "0efb2160-21d5-42d9-ba09-8c6eb8238924",
+        "43dcd87d-0237-403c-9314-c9e333bf4e3c",
+        "b5e11110-6351-4b83-af3f-a3103076503d",
+        "5e539e2d-82ba-44ee-8234-4c71f0246271",
+        "b1911964-2850-4236-87a9-a7de696a45e2",
+        "1d348566-bf61-486c-8ea0-e9f455e0fdac",
+        "996e0b71-17b0-4559-a997-7d1c8361aad1",
+        "91437916-85d4-4d5d-881a-ec6b35189b6e",
+        "d7871c42-8afc-469b-b7d6-fc8d4c782709",
+        "cf1d7faf-6fae-4f18-93af-bc13f2dfc4b0",
+        "cac9f2f4-e976-43b2-894a-2fb5dd1df324",
+        "88b341ff-c6fc-46d6-934d-8e8be400d17f",
+        "fd35969e-8503-4e68-9487-48fc6e361a13",
+        "0a7ca84b-9617-48d9-b8cf-5fe0087d3bc5",
+        "dd2c99b1-d480-45c4-add8-f63863869dc0",
+        "dba210fc-d0d6-4e93-88e9-eec9579e5eda",
+        "2ae9ad60-d48e-49e5-afbf-f83e418cb04d",
+        "de5ce1ed-8f43-41c3-95fc-ee2177c11e55",
+        "0b99504f-00c6-4a4f-aa70-15877ad271de"
+      ]
+    }
+  ],
+  "failed": [],
+  "skipped": [],
+  "final_revision_id": 48
+}
