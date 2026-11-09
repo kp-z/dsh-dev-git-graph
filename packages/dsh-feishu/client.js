@@ -30,9 +30,17 @@ window.__ModuleLoader__.load({
     var TAB = "feishu";
     var PANEL_URL = "/dsh-feishu/panel";
 
+    /* 左侧栏全局面板。DSH 的约定是：`sidebar.panellist` 的 id 同时就是 `main` 面板的 key，
+       点图标后主面板按同一个 id 切过去；所以两处注册必须用同一个常量。 */
+    var OVERVIEW_KEY = "feishu-overview";
+    var OVERVIEW_URL = "/dsh-feishu/overview";
+
     var CSS = [
       ".dfe-wrap{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}",
-      ".dfe-frame{flex:1;min-height:0;width:100%;border:0;background:transparent;display:block}"
+      ".dfe-frame{flex:1;min-height:0;width:100%;border:0;background:transparent;display:block}",
+      /* 总览占主面板：容器定高 + iframe 铺满（不用 .dfe-frame，避免和右侧栏页签抢 querySelector） */
+      ".dfe-overview{position:relative;width:100%;height:100%;min-height:0;overflow:hidden}",
+      ".dfe-overview-frame{position:absolute;inset:0;width:100%;height:100%;border:0;background:transparent;display:block}"
     ].join("");
 
     function installStyles() {
@@ -52,6 +60,19 @@ window.__ModuleLoader__.load({
       },
         h("path", { d: "M14 2 7 9" }),
         h("path", { d: "M14 2l-4.2 12-2.8-5-5-2.8L14 2z" }));
+    }
+
+    /* 总览图标：三个节点连成一条链（关系图的抽象），和页签纸飞机区分开。 */
+    function FeishuOverviewIcon() {
+      return h("svg", {
+        width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
+        stroke: "currentColor", strokeWidth: 1.4,
+        strokeLinecap: "round", strokeLinejoin: "round"
+      },
+        h("path", { d: "M3.5 12.5 8 8l4.5-4.5" }),
+        h("circle", { cx: 3.4, cy: 12.6, r: 1.7 }),
+        h("circle", { cx: 8, cy: 8, r: 1.7 }),
+        h("circle", { cx: 12.6, cy: 3.4, r: 1.7 }));
     }
 
     function isDark() {
@@ -159,6 +180,43 @@ window.__ModuleLoader__.load({
         title: "飞书同步",
         onLoad: pushContext
       });
+    }
+
+    /**
+     * 左侧栏总览：同样是 iframe，但只推主题、不推会话上下文——
+     * 这是「全局面板」，不跟着某条会话走（页内的「打开会话」仍走同一条 message 桥）。
+     */
+    function FeishuOverviewPanel() {
+      var state = React.useState(0);
+      var tick = state[0], setTick = state[1];
+      var frameRef = React.useRef(null);
+
+      React.useEffect(function () {
+        var observer = new MutationObserver(function () { setTick(function (n) { return n + 1; }); });
+        try {
+          observer.observe(document.body, { attributes: true, attributeFilter: ["class", "style"] });
+          observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style"] });
+        } catch (e) {}
+        return function () { observer.disconnect(); };
+      }, []);
+
+      var pushTheme = function () {
+        var frame = frameRef.current;
+        if (!frame || !frame.contentWindow) return;
+        try {
+          frame.contentWindow.postMessage({ type: "dsh-feishu:theme", dark: isDark() }, "*");
+        } catch (e) {}
+      };
+      React.useEffect(pushTheme, [tick]);
+
+      return h("div", { className: "dfe-overview" },
+        h("iframe", {
+          ref: frameRef,
+          className: "dfe-overview-frame",
+          src: isDark() ? OVERVIEW_URL + "?theme=dark" : OVERVIEW_URL,
+          title: "飞书任务总览",
+          onLoad: pushTheme
+        }));
     }
 
     /**
@@ -314,9 +372,45 @@ window.__ModuleLoader__.load({
       });
     }
 
+    /**
+     * 左侧栏「飞书任务总览」：一个全局面板图标 + 同 key 的主面板。
+     *
+     * 全程防御：slots 服务缺席（老宿主 / 组合里没有）时返回 false，绝不影响右侧栏页签。
+     */
+    function installOverviewPanel(ctx) {
+      var slots = safeService(ctx, "slots");
+      if (!slots || typeof slots.inject !== "function" || typeof slots.register !== "function") return false;
+      var disposers = [
+        slots.inject("sidebar.panellist", function () {
+          return slots.register(
+            { name: "sidebar.panellist", id: OVERVIEW_KEY, order: 24, label: "飞书任务总览" },
+            FeishuOverviewIcon
+          );
+        }),
+        slots.inject("main", function () {
+          return slots.register({ name: "main", key: OVERVIEW_KEY }, FeishuOverviewPanel);
+        })
+      ];
+      if (ctx.effect) {
+        ctx.effect(function () {
+          return function () {
+            for (var i = 0; i < disposers.length; i++) {
+              if (typeof disposers[i] === "function") disposers[i]();
+            }
+          };
+        });
+      }
+      return true;
+    }
+
     function applyInner(ctx) {
       installStyles();
       installSessionBridge(ctx);
+      try {
+        installOverviewPanel(ctx);
+      } catch (e) {
+        /* 总览是增量入口：注册失败不能连右侧栏页签一起丢掉 */
+      }
       waitForSidebar(ctx, function (betterSidebar) {
         try {
           var disposeTab = betterSidebar.registerTab({

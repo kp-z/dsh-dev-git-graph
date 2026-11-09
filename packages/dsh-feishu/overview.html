@@ -1,0 +1,1795 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>飞书任务总览 · DSH</title>
+<style>
+  /* ---------- 主题变量（宿主令牌优先，自有变量兜底；口径沿用 panel.html） ---------- */
+  :root {
+    color-scheme: light;
+    --p-page: #f6f7f9;
+    --p-card: #ffffff;
+    --p-sub: #f1f3f6;
+    --p-text: #14141a;
+    --p-text-2: #5f6470;
+    --p-text-3: #8a8f99;
+    --p-line: #e8e9ee;
+    --p-line-strong: #d7dae1;
+    --p-accent: #3b5bdb;
+    --p-accent-text: #2f4bc8;
+    --p-accent-weak: rgba(59, 91, 219, 0.10);
+    --p-accent-line: rgba(59, 91, 219, 0.28);
+    --p-select: #ea6a12;
+    --p-select-weak: rgba(234, 106, 18, 0.12);
+    --p-select-line: rgba(234, 106, 18, 0.55);
+    --p-ok: #0f7b55;
+    --p-ok-weak: rgba(15, 123, 85, 0.10);
+    --p-warn: #a45d09;
+    --p-warn-weak: rgba(164, 93, 9, 0.10);
+    --p-danger: #c0261b;
+    --p-danger-weak: rgba(192, 38, 27, 0.09);
+    --p-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+    /* 关系图画布：极淡的方格纸，给「工程图」一点材质，但绝不抢内容 */
+    --p-grid: rgba(20, 20, 26, 0.055);
+    --p-ghost: rgba(20, 20, 26, 0.035);
+    --ov-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  body.dark {
+    color-scheme: dark;
+    --p-page: #131418;
+    --p-card: #1b1d22;
+    --p-sub: #222429;
+    --p-text: #e9eaee;
+    --p-text-2: #a7abb4;
+    --p-text-3: #7b808a;
+    --p-line: #2a2d34;
+    --p-line-strong: #3a3e47;
+    --p-accent: #4a63e0;
+    --p-accent-text: #9db0ff;
+    --p-accent-weak: rgba(120, 145, 255, 0.14);
+    --p-accent-line: rgba(120, 145, 255, 0.34);
+    --p-select: #ff9f45;
+    --p-select-weak: rgba(255, 159, 69, 0.16);
+    --p-select-line: rgba(255, 159, 69, 0.60);
+    --p-ok: #4dc38d;
+    --p-ok-weak: rgba(77, 195, 141, 0.12);
+    --p-warn: #e0a458;
+    --p-warn-weak: rgba(224, 164, 88, 0.12);
+    --p-danger: #ff7a70;
+    --p-danger-weak: rgba(255, 122, 112, 0.12);
+    --p-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    --p-grid: rgba(233, 234, 238, 0.05);
+    --p-ghost: rgba(233, 234, 238, 0.03);
+  }
+
+  /* ---------- 基础 ---------- */
+  *, *::before, *::after { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: stretch;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    background: var(--dsw-alias-bg-base, var(--p-page));
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; border-radius: 6px; }
+
+  button { font: inherit; color: inherit; }
+
+  /* ---------- 左侧 rail ---------- */
+  .ov-rail {
+    flex: 0 0 226px;
+    width: 226px;
+    align-self: stretch;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    padding: 20px 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    border-right: 1px solid var(--dsw-alias-line-base, var(--p-line));
+  }
+
+  .ov-brand { display: flex; align-items: center; gap: 10px; }
+  .ov-brand-mark {
+    width: 28px; height: 28px; flex: 0 0 28px;
+    border-radius: 9px;
+    display: grid; place-items: center;
+    background: var(--dsw-alias-brand-primary, var(--p-accent));
+    color: var(--dsw-alias-label-onbrand, #fff);
+    font-size: 13px; font-weight: 600;
+    font-family: var(--ov-mono);
+  }
+  .ov-brand-text { display: flex; flex-direction: column; min-width: 0; }
+  .ov-brand-title { font-size: 13.5px; font-weight: 600; letter-spacing: .01em; }
+  .ov-brand-sub { font-size: 11px; color: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+
+  .ov-group { display: flex; flex-direction: column; gap: 8px; }
+  .ov-group-label {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--dsw-alias-label-secondary, var(--p-text-3));
+  }
+
+  .ov-nav { display: flex; flex-direction: column; gap: 2px; }
+  .ov-nav-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; padding: 8px 10px;
+    border: 1px solid transparent; border-radius: 10px;
+    background: transparent; cursor: pointer; text-align: left;
+    color: var(--dsw-alias-label-secondary, var(--p-text-2));
+  }
+  .ov-nav-item:hover { background: var(--p-sub); color: var(--dsw-alias-label-primary, var(--p-text)); }
+  .ov-nav-item[aria-current="page"] {
+    background: var(--p-accent-weak);
+    border-color: var(--p-accent-line);
+    color: var(--p-accent-text);
+    font-weight: 600;
+  }
+  .ov-nav-glyph { flex: 0 0 16px; display: grid; place-items: center; }
+  .ov-nav-glyph svg { display: block; }
+  .ov-nav-hint {
+    font-size: 11px; font-weight: 400;
+    color: var(--dsw-alias-label-secondary, var(--p-text-3));
+    padding: 0 10px 2px 36px;
+  }
+
+  .ov-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ov-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    max-width: 100%;
+    padding: 4px 9px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 999px;
+    background: transparent;
+    color: var(--dsw-alias-label-secondary, var(--p-text-2));
+    cursor: pointer;
+    font-size: 11.5px;
+  }
+  .ov-chip:hover { border-color: var(--p-line-strong); color: var(--dsw-alias-label-primary, var(--p-text)); }
+  .ov-chip[aria-pressed="true"] {
+    background: var(--p-select-weak);
+    border-color: var(--p-select-line);
+    color: var(--p-select);
+    font-weight: 600;
+  }
+  .ov-chip-count { font-family: var(--ov-mono); font-size: 10.5px; opacity: .75; }
+  .ov-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .ov-status-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ov-status {
+    padding: 4px 9px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    background: transparent; color: var(--dsw-alias-label-secondary, var(--p-text-2));
+    font-size: 11.5px;
+  }
+  .ov-status[aria-pressed="true"] {
+    border-color: var(--p-accent-line); background: var(--p-accent-weak); color: var(--p-accent-text); font-weight: 600;
+  }
+
+  .ov-keyword {
+    width: 100%; padding: 7px 10px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 9px;
+    background: var(--dsw-alias-bg-base, var(--p-page));
+    color: inherit;
+  }
+  .ov-keyword::placeholder { color: var(--p-text-3); }
+
+  .ov-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+  .ov-stat {
+    padding: 8px 10px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 11px;
+    background: var(--dsw-alias-bg-base, var(--p-page));
+  }
+  .ov-stat-value {
+    display: block;
+    font-family: var(--ov-mono); font-size: 17px; font-weight: 600;
+    font-variant-numeric: tabular-nums; line-height: 1.2;
+  }
+  .ov-stat-label { display: block; font-size: 10.5px; color: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+  .ov-stat[data-tone="danger"] .ov-stat-value { color: var(--p-danger); }
+  .ov-stat[data-tone="ok"] .ov-stat-value { color: var(--p-ok); }
+  .ov-stat[data-tone="accent"] .ov-stat-value { color: var(--p-accent-text); }
+
+  .ov-rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; }
+  .ov-legend { display: flex; flex-direction: column; gap: 5px; font-size: 11px; color: var(--dsw-alias-label-secondary, var(--p-text-2)); }
+  .ov-legend-row { display: flex; align-items: center; gap: 8px; }
+  .ov-legend-swatch { flex: 0 0 30px; }
+
+  /* ---------- 主区 ---------- */
+  .ov-main { flex: 1 1 auto; min-width: 0; padding: 22px 24px 48px; display: flex; flex-direction: column; gap: 16px; }
+
+  .ov-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+  .ov-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; }
+  .ov-title { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: -0.01em; }
+  .ov-subtitle { font-size: 12px; color: var(--dsw-alias-label-secondary, var(--p-text-2)); }
+  .ov-head-actions { display: flex; align-items: center; gap: 8px; }
+
+  .ov-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 9px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .ov-btn:hover { border-color: var(--p-line-strong); }
+  .ov-btn[disabled] { opacity: .55; cursor: progress; }
+
+  .ov-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+  .ov-body.has-detail { grid-template-columns: minmax(0, 1fr) 292px; }
+
+  .ov-lanes { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  .ov-lane {
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 16px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    box-shadow: var(--p-shadow);
+    overflow: hidden;
+  }
+  .ov-lane-head {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--dsw-alias-line-base, var(--p-line));
+  }
+  .ov-lane-name { font-size: 13.5px; font-weight: 600; }
+  .ov-lane-path { font-family: var(--ov-mono); font-size: 10.5px; color: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+  .ov-lane-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; align-items: center; }
+  .ov-tag {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    font-size: 11px; font-family: var(--ov-mono); font-variant-numeric: tabular-nums;
+    color: var(--dsw-alias-label-secondary, var(--p-text-2));
+  }
+  .ov-tag[data-tone="danger"] { color: var(--p-danger); border-color: var(--p-danger); background: var(--p-danger-weak); }
+  .ov-tag[data-tone="ok"] { color: var(--p-ok); border-color: var(--p-ok); background: var(--p-ok-weak); }
+  .ov-tag[data-tone="accent"] { color: var(--p-accent-text); border-color: var(--p-accent-line); background: var(--p-accent-weak); }
+
+  .ov-canvas {
+    overflow: auto;
+    max-height: 62vh;
+    background-image:
+      linear-gradient(var(--p-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--p-grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .ov-canvas svg { display: block; }
+
+  .ov-edge { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .ov-edge[data-kind="depends_on"] { stroke: var(--p-accent-line); stroke-width: 1.6; }
+  .ov-edge[data-kind="derived_from"] { stroke: var(--p-line-strong); stroke-width: 1.4; stroke-dasharray: 5 4; }
+  .ov-edge.is-active { stroke: var(--p-select); stroke-width: 2.2; stroke-dasharray: none; }
+
+  .ov-node { cursor: pointer; }
+  .ov-node .ov-node-bg {
+    fill: var(--dsw-alias-bg-layer-1, var(--p-card));
+    stroke: var(--dsw-alias-line-base, var(--p-line));
+    stroke-width: 1.2;
+    transition: stroke-color .12s ease, transform .12s ease;
+  }
+  .ov-node:hover .ov-node-bg { stroke: var(--p-line-strong); }
+  .ov-node.is-selected .ov-node-bg { stroke: var(--p-select); stroke-width: 2; }
+  .ov-node .ov-node-spine { fill: var(--p-accent); }
+  .ov-node[data-state="done"] .ov-node-spine { fill: var(--p-ok); }
+  .ov-node[data-state="blocked"] .ov-node-spine { fill: var(--p-danger); }
+  .ov-node[data-state="suspended"] .ov-node-spine { fill: var(--p-warn); }
+  .ov-node.is-ghost .ov-node-spine { fill: transparent; }
+  .ov-node.is-ghost .ov-node-bg {
+    fill: var(--p-ghost);
+    stroke: var(--dsw-alias-line-strong, var(--p-line-strong));
+    stroke-dasharray: 4 4;
+  }
+  .ov-node-title { fill: var(--dsw-alias-label-primary, var(--p-text)); font-size: 12px; font-weight: 600; }
+  .ov-node-meta { fill: var(--dsw-alias-label-secondary, var(--p-text-3)); font-size: 10.5px; }
+  .ov-node-no { fill: var(--dsw-alias-label-secondary, var(--p-text-2)); font-size: 10.5px; font-family: var(--ov-mono); }
+  .ov-node.is-ghost .ov-node-title { fill: var(--dsw-alias-label-secondary, var(--p-text-2)); font-style: italic; }
+  .ov-node .ov-dot { stroke: var(--dsw-alias-bg-layer-1, var(--p-card)); stroke-width: 1.5; }
+  .ov-node[data-state="done"] .ov-dot { fill: var(--p-ok); }
+  .ov-node[data-state="blocked"] .ov-dot { fill: var(--p-danger); }
+  .ov-node[data-state="suspended"] .ov-dot { fill: var(--p-warn); }
+  .ov-node[data-state="open"] .ov-dot { fill: var(--p-accent); }
+  .ov-node.is-ghost .ov-dot { fill: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+  .ov-node.is-related .ov-node-bg { stroke: var(--p-select-line); }
+
+  .ov-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); gap: 10px; padding: 14px; }
+  .ov-task-card {
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 11px 12px 12px 14px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 12px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    cursor: pointer;
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+  }
+  .ov-task-card::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--p-accent);
+  }
+  .ov-task-card[data-state="done"]::before { background: var(--p-ok); }
+  .ov-task-card[data-state="blocked"]::before { background: var(--p-danger); }
+  .ov-task-card[data-state="suspended"]::before { background: var(--p-warn); }
+  .ov-task-card:hover { border-color: var(--p-line-strong); }
+  .ov-task-card.is-selected { border-color: var(--p-select); box-shadow: 0 0 0 1px var(--p-select-line); }
+  .ov-task-card-top { display: flex; align-items: center; gap: 8px; }
+  .ov-task-no { font-family: var(--ov-mono); font-size: 10.5px; color: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+  .ov-task-title { font-size: 12.5px; font-weight: 600; line-height: 1.35; }
+  .ov-task-foot { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+  .ov-dot-mark { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 7px; background: var(--p-accent); }
+  .ov-dot-mark[data-state="done"] { background: var(--p-ok); }
+  .ov-dot-mark[data-state="blocked"] { background: var(--p-danger); }
+  .ov-dot-mark[data-state="suspended"] { background: var(--p-warn); }
+  .ov-dot-mark[data-state="open"] { background: var(--p-accent); }
+
+  /* ---------- 详情 ---------- */
+  .ov-detail {
+    position: sticky; top: 22px;
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 16px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 16px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    box-shadow: var(--p-shadow);
+    max-height: calc(100vh - 44px);
+    overflow-y: auto;
+  }
+  .ov-detail-eyebrow {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--ov-mono); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--dsw-alias-label-secondary, var(--p-text-3));
+  }
+  .ov-detail-title { margin: 0; font-size: 15px; font-weight: 650; line-height: 1.4; }
+  .ov-detail-sec { display: flex; flex-direction: column; gap: 6px; }
+  .ov-detail-sec-label {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--dsw-alias-label-secondary, var(--p-text-3));
+  }
+  .ov-ref {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 6px 8px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 9px;
+    background: transparent; cursor: pointer; text-align: left;
+    font-size: 12px;
+  }
+  .ov-ref:hover { border-color: var(--p-select-line); background: var(--p-select-weak); }
+  .ov-ref span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov-ref[data-missing="true"] { border-style: dashed; color: var(--dsw-alias-label-secondary, var(--p-text-2)); cursor: default; }
+  .ov-ref[data-missing="true"]:hover { border-color: var(--dsw-alias-line-strong, var(--p-line-strong)); background: transparent; }
+  .ov-muted { font-size: 11.5px; color: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+  .ov-kv { display: grid; grid-template-columns: 68px minmax(0, 1fr); gap: 4px 8px; font-size: 12px; }
+  .ov-kv dt { color: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+  .ov-kv dd { margin: 0; overflow-wrap: anywhere; }
+  .ov-mono { font-family: var(--ov-mono); font-size: 11.5px; }
+
+  /* ---------- 状态块 ---------- */
+  .ov-notice {
+    display: flex; flex-direction: column; gap: 10px; align-items: flex-start;
+    padding: 20px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 16px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    max-width: 560px;
+  }
+  .ov-notice[data-tone="error"] { border-color: var(--p-danger); background: var(--p-danger-weak); }
+  .ov-notice-title { margin: 0; font-size: 14px; font-weight: 650; }
+  .ov-notice-body { margin: 0; font-size: 12.5px; color: var(--dsw-alias-label-secondary, var(--p-text-2)); overflow-wrap: anywhere; }
+  .ov-notice-actions { display: flex; gap: 8px; }
+
+  .ov-skeleton { display: flex; flex-direction: column; gap: 10px; }
+  .ov-skeleton-row {
+    height: 74px; border-radius: 14px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    background: linear-gradient(90deg, var(--p-sub) 0%, var(--dsw-alias-bg-layer-1, var(--p-card)) 45%, var(--p-sub) 100%);
+    background-size: 260% 100%;
+    animation: ov-sheen 1.5s ease-in-out infinite;
+  }
+  @keyframes ov-sheen { from { background-position: 130% 0; } to { background-position: -130% 0; } }
+
+  .ov-sr {
+    position: absolute; width: 1px; height: 1px; margin: -1px;
+    clip-path: inset(50%); overflow: hidden; white-space: nowrap;
+  }
+
+  @media (max-width: 1020px) {
+    .ov-body.has-detail { grid-template-columns: minmax(0, 1fr); }
+    .ov-detail { position: static; max-height: none; }
+  }
+  @media (max-width: 760px) {
+    body { flex-direction: column; }
+    .ov-rail {
+      width: auto; flex: none; height: auto; position: static;
+      border-right: 0; border-bottom: 1px solid var(--dsw-alias-line-base, var(--p-line));
+      padding: 16px;
+    }
+    .ov-main { padding: 16px 16px 40px; }
+    .ov-canvas { max-height: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<script>
+  /* URL ?theme=dark|light → body 类；postMessage 切换见主脚本。口径同 panel.html。
+     宿主（client.js）只在深色时带 ?theme=dark，浅色时给裸 URL，所以默认是浅色；
+     只有「脱离宿主、单独打开」时才跟随系统，避免宿主浅色 + 系统深色先闪一下。 */
+  (function () {
+    var explicit = null;
+    try {
+      var m = /[?&]theme=([^&#]*)/.exec(location.search || '');
+      if (m) explicit = decodeURIComponent(m[1]).toLowerCase();
+    } catch (e) { /* 忽略 */ }
+    var framed = true;
+    try { framed = !!(window.parent && window.parent !== window); } catch (e) { framed = true; }
+    var dark = explicit === 'dark';
+    if (!explicit && !framed) {
+      try { dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) { dark = false; }
+    }
+    if (dark) document.body.classList.add('dark');
+    document.documentElement.setAttribute('data-theme-source', explicit ? 'query' : (framed ? 'host' : 'system'));
+  })();
+</script>
+
+<div class="ov-app" style="display:contents">
+  <aside class="ov-rail" aria-label="总览导航">
+    <div class="ov-brand">
+      <span class="ov-brand-mark" aria-hidden="true">飞</span>
+      <span class="ov-brand-text">
+        <span class="ov-brand-title">飞书任务总览</span>
+        <span class="ov-brand-sub" id="ovVersion">只读视图</span>
+      </span>
+    </div>
+
+    <nav class="ov-group" aria-label="视图">
+      <span class="ov-group-label">视图</span>
+      <div class="ov-nav" id="ovNav"></div>
+      <p class="ov-nav-hint" id="ovNavHint"></p>
+    </nav>
+
+    <div class="ov-group" aria-label="项目筛选">
+      <span class="ov-group-label">项目</span>
+      <div class="ov-chips" id="ovWorkspaceChips"></div>
+    </div>
+
+    <div class="ov-group" aria-label="状态筛选">
+      <span class="ov-group-label">状态</span>
+      <div class="ov-status-row" id="ovStatusChips"></div>
+      <input id="ovKeyword" class="ov-keyword" type="search" placeholder="搜索标题 / 编号" aria-label="搜索任务标题或编号">
+    </div>
+
+    <div class="ov-group" aria-label="统计">
+      <span class="ov-group-label">统计 · 当前筛选</span>
+      <dl class="ov-stats" id="ovStats"></dl>
+    </div>
+
+    <div class="ov-rail-foot">
+      <span class="ov-group-label">图例</span>
+      <div class="ov-legend">
+        <div class="ov-legend-row">
+          <svg class="ov-legend-swatch" width="30" height="8" viewBox="0 0 30 8" aria-hidden="true"><path class="ov-edge" data-kind="depends_on" d="M1 4 H29" stroke="var(--p-accent-line)" stroke-width="1.6"></path></svg>
+          <span>依赖（前置 → 后置）</span>
+        </div>
+        <div class="ov-legend-row">
+          <svg class="ov-legend-swatch" width="30" height="8" viewBox="0 0 30 8" aria-hidden="true"><path class="ov-edge" data-kind="derived_from" d="M1 4 H29" stroke="var(--p-line-strong)" stroke-width="1.4" stroke-dasharray="5 4"></path></svg>
+          <span>派生（来源 → 派生）</span>
+        </div>
+        <div class="ov-legend-row">
+          <svg class="ov-legend-swatch" width="30" height="16" viewBox="0 0 30 16" aria-hidden="true"><rect x="1" y="2" width="28" height="12" rx="4" fill="var(--p-ghost)" stroke="var(--p-line-strong)" stroke-dasharray="4 4"></rect></svg>
+          <span>虚线节点＝项目外 / 缺失任务</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="ov-main">
+    <header class="ov-head">
+      <div class="ov-head-text">
+        <h1 class="ov-title">关系图</h1>
+        <p class="ov-subtitle" id="ovSubtitle">正在读取 /dsh-feishu/api/state …</p>
+      </div>
+      <div class="ov-head-actions">
+        <button type="button" class="ov-btn" id="ovRefresh">刷新</button>
+      </div>
+    </header>
+    <div class="ov-body" id="ovBody">
+      <div class="ov-lanes" id="ovLanes"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* OVERVIEW_LAYOUT:START
+   纯函数布局层：不碰 DOM、不发请求、不看时间，便于 test/overviewPage.mjs 用 vm 抽出来单跑。
+   以后加时间线 / 里程碑视图时，复用这里的分组、node 构造、分层与筛选，只换渲染。 */
+var OVERVIEW_LAYOUT = (function () {
+  'use strict';
+
+  var VERSION = 1;
+  var UNGROUPED_KEY = '__ungrouped__';
+  var UNGROUPED_LABEL = '未归属项目';
+  var NODE_W = 188;
+  var NODE_H = 72;
+  var GAP_X = 56;
+  var GAP_Y = 18;
+  var PAD = 18;
+  var LANE_HEAD = 10;
+  /* 标题预算用「视觉宽度」而不是字符数：中日韩算 1，其余算 0.56，
+     这样中英混排的节点文字宽度都收在卡片内。 */
+  var TITLE_WIDTH = 12.5;
+  var ELLIPSIS = '…';
+  var KINDS = { depends_on: true, derived_from: true };
+
+  function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  function arr(v) { return Array.isArray(v) ? v : []; }
+  function str(v) {
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number' && isFinite(v)) return String(v);
+    return '';
+  }
+  function num(v, fallback) {
+    var n = typeof v === 'number' ? v : Number(v);
+    return isFinite(n) ? n : fallback;
+  }
+  function collapse(v) { return str(v).replace(/\s+/g, ' ').trim(); }
+
+  function measure(value) {
+    var s = str(value);
+    var w = 0;
+    for (var i = 0; i < s.length; i += 1) {
+      var code = s.charCodeAt(i);
+      w += code > 0x2e80 ? 1 : 0.56;
+    }
+    return w;
+  }
+
+  /** 长标题截断：返回 {text, full, truncated}；full 永远是去除多余空白后的全文。 */
+  function truncateTitle(value, budget) {
+    var full = collapse(value);
+    var max = num(budget, TITLE_WIDTH);
+    if (!(max > 1.5)) max = TITLE_WIDTH;
+    if (measure(full) <= max) return { text: full, full: full, truncated: false };
+    var out = '';
+    var used = 0;
+    for (var i = 0; i < full.length; i += 1) {
+      var ch = full.charAt(i);
+      var cost = measure(ch);
+      if (used + cost > max - measure(ELLIPSIS)) break;
+      out += ch;
+      used += cost;
+    }
+    out = out.replace(/\s+$/, '');
+    return { text: (out || full.slice(0, 1)) + ELLIPSIS, full: full, truncated: true };
+  }
+
+  function taskNo(task) {
+    var n = Math.floor(num(isObj(task) ? task.no : 0, 0));
+    return n > 0 ? n : 0;
+  }
+
+  function taskLabel(task) {
+    var no = taskNo(task);
+    if (no > 0) return 'T' + no;
+    return str(isObj(task) ? task.id : '').slice(0, 8) || '任务';
+  }
+
+  function rank(task) {
+    var no = taskNo(task);
+    return no > 0 ? no : 1e9;
+  }
+
+  /** 项目归属：id > path > 名字；都没有就是「未归属项目」。 */
+  function workspaceOf(task) {
+    var t = isObj(task) ? task : {};
+    var id = str(t.workspaceId);
+    var path = str(t.workspacePath);
+    var label = collapse(t.workspaceTitle) || collapse(t.workspaceName) || collapse(isObj(t.meta) ? t.meta.workspace : '');
+    if (!label && path) label = path.replace(/\/+$/, '').split('/').pop() || path;
+    if (!label && id) label = id;
+    if (!label) return { key: UNGROUPED_KEY, label: UNGROUPED_LABEL, id: '', path: '', ungrouped: true };
+    return { key: id || path || ('name:' + label), label: label, id: id, path: path, ungrouped: false };
+  }
+
+  function blockedOf(task) {
+    var t = isObj(task) ? task : {};
+    if (t.done === true) return false;
+    var rel = isObj(t.relations) ? t.relations : null;
+    if (!rel) return false;
+    if (rel.ready === true) return false;
+    if (arr(rel.blockedBy).length > 0) return true;
+    return rel.ready === false;
+  }
+
+  function stateOf(task) {
+    var t = isObj(task) ? task : {};
+    if (t.done === true) return 'done';
+    if (isObj(t.suspension) && t.suspension.active === true) return 'suspended';
+    if (blockedOf(t)) return 'blocked';
+    return 'open';
+  }
+
+  function normalizeEdges(relations) {
+    var seen = Object.create(null);
+    var out = [];
+    arr(relations).forEach(function (edge) {
+      if (!isObj(edge)) return;
+      var from = str(edge.from);
+      var to = str(edge.to);
+      var kind = KINDS[str(edge.kind)] ? str(edge.kind) : '';
+      if (!from || !to || !kind || from === to) return;
+      var key = kind + '|' + from + '|' + to;
+      if (seen[key]) return;
+      seen[key] = true;
+      out.push({ from: from, to: to, kind: kind, source: str(edge.source) });
+    });
+    return out;
+  }
+
+  /** 按项目分组：组内按编号排序；组间「有未完成任务的在前」，未归属沉底。 */
+  function groupTasks(tasks) {
+    var list = arr(tasks).filter(function (t) { return isObj(t) && str(t.id); });
+    var map = new Map();
+    var order = [];
+    list.forEach(function (task) {
+      var ws = workspaceOf(task);
+      var group = map.get(ws.key);
+      if (!group) {
+        group = { key: ws.key, label: ws.label, id: ws.id, path: ws.path, ungrouped: ws.ungrouped, tasks: [] };
+        map.set(ws.key, group);
+        order.push(group);
+      }
+      group.tasks.push(task);
+    });
+    order.forEach(function (group) {
+      group.tasks.sort(function (a, b) {
+        return rank(a) - rank(b) || collapse(a.title).localeCompare(collapse(b.title)) || str(a.id).localeCompare(str(b.id));
+      });
+      group.total = group.tasks.length;
+      group.done = group.tasks.filter(function (t) { return t.done === true; }).length;
+      group.open = group.total - group.done;
+      group.blocked = group.tasks.filter(blockedOf).length;
+    });
+    order.sort(function (a, b) {
+      if (a.ungrouped !== b.ungrouped) return a.ungrouped ? 1 : -1;
+      return b.blocked - a.blocked || b.open - a.open || a.label.localeCompare(b.label);
+    });
+    return order;
+  }
+
+  /** 单个任务 → 结构化 node。x/y/w/h/depth 先置 0，由 layoutGroup 填。 */
+  function nodeOf(task, options) {
+    var o = isObj(options) ? options : {};
+    var t = isObj(task) ? task : {};
+    var id = str(t.id);
+    var title = truncateTitle(t.title || id, o.titleWidth);
+    var ws = workspaceOf(t);
+    var rel = isObj(t.relations) ? t.relations : {};
+    var state = stateOf(t);
+    return {
+      key: 'task:' + id,
+      id: id,
+      kind: 'task',
+      ghost: false,
+      missing: false,
+      label: title.text,
+      fullTitle: title.full,
+      truncated: title.truncated,
+      no: taskNo(t),
+      done: t.done === true,
+      blocked: state === 'blocked',
+      ready: state === 'open',
+      state: state,
+      started: t.started === true,
+      suspended: state === 'suspended',
+      sessionId: str(t.sessionId),
+      workspace: ws.key,
+      workspaceLabel: ws.label,
+      workspacePath: ws.path,
+      w: NODE_W, h: NODE_H, x: 0, y: 0, depth: 0, order: 0,
+      refs: {
+        task: t,
+        predecessors: arr(rel.predecessors),
+        successors: arr(rel.successors),
+        sourceTasks: arr(rel.sourceTasks),
+        derivedTasks: arr(rel.derivedTasks),
+        blockedBy: arr(rel.blockedBy),
+      },
+    };
+  }
+
+  /**
+   * 画布外的端点 → ghost 节点。
+   * missing=true 表示这个 id 在任务表里根本不存在（真正的缺失前驱）；
+   * missing=false 表示任务存在，只是属于别的项目分组（跨项目依赖的锚点）。
+   */
+  function ghostNode(id, laneKey, known, role, hints) {
+    var hit = known.get(id) || null;
+    /* 缺失任务在任务表里查不到，但关系摘要里通常还留着标题：先用手上的信息，别只显示一串 id。 */
+    var hintTitle = (hints && hints.get && hints.get(id)) || '';
+    var title = truncateTitle(hit ? (hit.title || id) : (hintTitle || id));
+    var ws = hit ? workspaceOf(hit) : { key: '', label: '' };
+    return {
+      key: 'ghost:' + laneKey + ':' + id,
+      id: id,
+      kind: 'ghost',
+      ghost: true,
+      missing: !hit,
+      role: role,
+      label: title.text,
+      fullTitle: title.full,
+      truncated: title.truncated,
+      no: taskNo(hit),
+      done: !!hit && hit.done === true,
+      blocked: false,
+      ready: false,
+      state: 'ghost',
+      started: false,
+      suspended: false,
+      sessionId: hit ? str(hit.sessionId) : '',
+      workspace: ws.key,
+      workspaceLabel: ws.label,
+      workspacePath: hit ? str(hit.workspacePath) : '',
+      w: NODE_W, h: NODE_H, x: 0, y: 0, depth: 0, order: 0,
+      refs: { task: hit, predecessors: [], successors: [], sourceTasks: [], derivedTasks: [], blockedBy: [] },
+    };
+  }
+
+  /** 组内分层：只用 depends_on 决定层级；环不抛错，把环上的节点沉到底部一列。 */
+  function depthOf(ids, edges) {
+    var inLane = new Set(ids);
+    var depth = new Map();
+    var indeg = new Map();
+    var out = new Map();
+    ids.forEach(function (id) { depth.set(id, 0); indeg.set(id, 0); out.set(id, []); });
+    edges.forEach(function (edge) {
+      if (edge.kind !== 'depends_on') return;
+      if (!inLane.has(edge.from) || !inLane.has(edge.to)) return;
+      out.get(edge.from).push(edge.to);
+      indeg.set(edge.to, indeg.get(edge.to) + 1);
+    });
+    var queue = ids.filter(function (id) { return indeg.get(id) === 0; });
+    var settled = 0;
+    for (var i = 0; i < queue.length; i += 1) {
+      settled += 1;
+      var cur = queue[i];
+      out.get(cur).forEach(function (next) {
+        if (depth.get(next) < depth.get(cur) + 1) depth.set(next, depth.get(cur) + 1);
+        indeg.set(next, indeg.get(next) - 1);
+        if (indeg.get(next) === 0) queue.push(next);
+      });
+    }
+    if (settled < ids.length) {
+      var max = 0;
+      depth.forEach(function (v) { if (v > max) max = v; });
+      ids.forEach(function (id) { if (indeg.get(id) > 0) depth.set(id, max + 1); });
+    }
+    return depth;
+  }
+
+  function makeEdge(a, b, raw) {
+    var x1 = Math.round(a.x + a.w);
+    var y1 = Math.round(a.y + a.h / 2);
+    var x2 = Math.round(b.x);
+    var y2 = Math.round(b.y + b.h / 2);
+    var path;
+    if (x2 - x1 < 24) {
+      /* 同列（或回折）：绕右侧再折回，从目标右缘进线。 */
+      var endX = Math.round(b.x + b.w);
+      var bend = Math.max(x1, endX) + 22;
+      path = 'M' + x1 + ' ' + y1 + ' H' + bend + ' V' + y2 + ' H' + endX;
+      x2 = endX;
+    } else {
+      var mid = Math.round(x1 + Math.max(20, (x2 - x1) / 2));
+      path = 'M' + x1 + ' ' + y1 + ' H' + mid + ' V' + y2 + ' H' + x2;
+    }
+    return {
+      key: raw.kind + ':' + a.key + '>' + b.key,
+      from: a.id,
+      to: b.id,
+      fromKey: a.key,
+      toKey: b.key,
+      kind: raw.kind,
+      source: raw.source,
+      path: path,
+      x1: x1, y1: y1, x2: x2, y2: y2,
+      fromGhost: a.ghost === true,
+      toGhost: b.ghost === true,
+      viaGhost: a.ghost === true || b.ghost === true,
+      crossProject: a.workspace !== b.workspace,
+    };
+  }
+
+  function layoutGroup(group, edges, known, index, options, hints) {
+    var o = isObj(options) ? options : {};
+    var ids = group.tasks.map(function (t) { return str(t.id); });
+    var inLane = new Set(ids);
+    var nodes = group.tasks.map(function (t) { return nodeOf(t, o); });
+
+    var laneEdges = [];
+    var extPred = [];
+    var extSucc = [];
+    var seenPred = Object.create(null);
+    var seenSucc = Object.create(null);
+    edges.forEach(function (edge) {
+      var fromIn = inLane.has(edge.from);
+      var toIn = inLane.has(edge.to);
+      if (!fromIn && !toIn) return;
+      laneEdges.push(edge);
+      if (!fromIn && !seenPred[edge.from]) { seenPred[edge.from] = true; extPred.push(edge.from); }
+      if (!toIn && !seenSucc[edge.to]) { seenSucc[edge.to] = true; extSucc.push(edge.to); }
+    });
+
+    var depth = depthOf(ids, laneEdges);
+    if (extPred.length) ids.forEach(function (id) { depth.set(id, depth.get(id) + 1); });
+
+    var ghosts = [];
+    var ghostByKey = Object.create(null);
+    function ghostFor(id, role) {
+      var key = role + ':' + id;
+      if (!ghostByKey[key]) {
+        var ghost = ghostNode(id, group.key, known, role, hints);
+        /* 缺失任务的归属信息是空的：它画在哪个项目里，就是哪个项目的节点。
+           跨项目 ghost 保留对方项目名——那正是「它属于别的项目」这条信息。 */
+        if (!ghost.workspace) { ghost.workspace = group.key; ghost.workspaceLabel = group.label; }
+        ghost.lane = group.key;
+        ghost.laneLabel = group.label;
+        ghostByKey[key] = ghost;
+        ghosts.push(ghost);
+      }
+      return ghostByKey[key];
+    }
+    extPred.forEach(function (id) { ghostFor(id, 'predecessor'); });
+    extSucc.forEach(function (id) { ghostFor(id, 'successor'); });
+
+    ghosts.forEach(function (ghost) {
+      if (ghost.role === 'predecessor') {
+        var min = Infinity;
+        laneEdges.forEach(function (edge) {
+          if (edge.from === ghost.id && inLane.has(edge.to)) min = Math.min(min, depth.get(edge.to));
+        });
+        ghost.depth = isFinite(min) ? Math.max(0, min - 1) : 0;
+      } else {
+        var max = 0;
+        laneEdges.forEach(function (edge) {
+          if (edge.to === ghost.id && inLane.has(edge.from)) max = Math.max(max, depth.get(edge.from));
+        });
+        ghost.depth = max + 1;
+      }
+    });
+    nodes.forEach(function (node) { node.depth = depth.get(node.id) || 0; node.lane = group.key; node.laneLabel = group.label; });
+
+    var all = nodes.concat(ghosts);
+    var columns = new Map();
+    all.forEach(function (node) {
+      if (!columns.has(node.depth)) columns.set(node.depth, []);
+      columns.get(node.depth).push(node);
+    });
+    var depthKeys = Array.from(columns.keys()).sort(function (a, b) { return a - b; });
+    var maxRows = 0;
+    depthKeys.forEach(function (d, columnIndex) {
+      var column = columns.get(d);
+      column.sort(function (a, b) {
+        if (a.ghost !== b.ghost) return a.ghost ? 1 : -1;
+        return rank(a.refs.task) - rank(b.refs.task) || a.label.localeCompare(b.label);
+      });
+      if (column.length > maxRows) maxRows = column.length;
+      column.forEach(function (node, i) {
+        /* x 用列序号而不是 depth 数值：ghost 撑出来的空洞不该在画布上留白。 */
+        node.x = PAD + columnIndex * (NODE_W + GAP_X);
+        node.y = PAD + LANE_HEAD + i * (NODE_H + GAP_Y);
+        node.column = columnIndex;
+        node.order = i;
+        node.key = (node.ghost ? 'ghost:' + group.key + ':' : 'task:') + node.id;
+      });
+    });
+
+    var byId = new Map();
+    all.forEach(function (node) { byId.set(node.id, node); });
+    var drawn = [];
+    laneEdges.forEach(function (edge) {
+      var a = byId.get(edge.from);
+      var b = byId.get(edge.to);
+      if (!a || !b) return;
+      drawn.push(makeEdge(a, b, edge));
+    });
+
+    var columnsCount = depthKeys.length;
+    var width = columnsCount ? PAD * 2 + columnsCount * NODE_W + (columnsCount - 1) * GAP_X : PAD * 2;
+    var height = PAD * 2 + LANE_HEAD + (maxRows ? maxRows * NODE_H + (maxRows - 1) * GAP_Y : 0);
+
+    return {
+      key: group.key,
+      label: group.label,
+      path: group.path,
+      ungrouped: group.ungrouped === true,
+      index: index,
+      tasks: group.tasks,
+      total: group.total,
+      open: group.open,
+      done: group.done,
+      blocked: group.blocked,
+      nodes: all,
+      taskNodes: nodes,
+      ghosts: ghosts,
+      edges: drawn,
+      externalEdges: laneEdges.filter(function (e) { return e.crossProject !== false; }).length,
+      width: width,
+      height: height,
+      columns: columnsCount,
+    };
+  }
+
+  function emptyStats() {
+    return {
+      tasks: 0, open: 0, done: 0, blocked: 0, ready: 0,
+      dependencyEdges: 0, provenanceEdges: 0,
+      ghosts: 0, missingGhosts: 0, crossProject: 0, groups: 0,
+    };
+  }
+
+  /**
+   * 统计。默认按「有效边」口径（和宿主的 relationStats 一致）；
+   * onlyVisible=true 时只数两端都在可见任务里的边，用于筛选后的当前选择统计。
+   */
+  function statsOf(tasks, relations, options) {
+    var o = isObj(options) ? options : {};
+    var onlyVisible = o.onlyVisible === true;
+    var list = arr(tasks).filter(function (t) { return isObj(t) && str(t.id); });
+    var edges = normalizeEdges(relations);
+    var stats = emptyStats();
+    stats.tasks = list.length;
+    var known = new Map();
+    list.forEach(function (task) {
+      known.set(str(task.id), task);
+      if (task.done === true) { stats.done += 1; return; }
+      stats.open += 1;
+      if (blockedOf(task)) stats.blocked += 1;
+      else stats.ready += 1;
+    });
+    var missing = Object.create(null);
+    var cross = Object.create(null);
+    edges.forEach(function (edge) {
+      var a = known.get(edge.from);
+      var b = known.get(edge.to);
+      if (onlyVisible && (!a || !b)) return;
+      if (edge.kind === 'depends_on') stats.dependencyEdges += 1;
+      else stats.provenanceEdges += 1;
+      if (!a) missing[edge.from] = true;
+      if (!b) missing[edge.to] = true;
+      if (a && b) {
+        var ka = workspaceOf(a).key;
+        var kb = workspaceOf(b).key;
+        if (ka !== kb) cross[ka + '>' + kb] = true;
+      }
+    });
+    stats.missingGhosts = Object.keys(missing).length;
+    stats.crossProject = Object.keys(cross).length;
+    stats.groups = groupTasks(list).length;
+    return stats;
+  }
+
+  /** 关系摘要里留着的 {id,title} —— 缺失任务的标题只能从这儿捡回来。 */
+  function titleHints(tasks) {
+    var hints = new Map();
+    arr(tasks).forEach(function (task) {
+      var rel = isObj(task) && isObj(task.relations) ? task.relations : null;
+      if (!rel) return;
+      ['predecessors', 'successors', 'sourceTasks', 'derivedTasks', 'blockedBy'].forEach(function (field) {
+        arr(rel[field]).forEach(function (item) {
+          if (!isObj(item)) return;
+          var id = str(item.id);
+          var title = collapse(item.title);
+          if (id && title && !hints.has(id)) hints.set(id, title);
+        });
+      });
+    });
+    return hints;
+  }
+
+  /** 总入口：分组 + 分层 + 连边，返回 {groups, nodes, edges, stats}。任何输入都不抛。 */
+  function layout(tasks, relations, options) {
+    var o = isObj(options) ? options : {};
+    var list = arr(tasks).filter(function (t) { return isObj(t) && str(t.id); });
+    var edges = normalizeEdges(relations);
+    var known = new Map();
+    list.forEach(function (task) { known.set(str(task.id), task); });
+    var hints = titleHints(list);
+    var lanes = groupTasks(list).map(function (group, index) {
+      return layoutGroup(group, edges, known, index, o, hints);
+    });
+    var nodes = [];
+    var drawn = [];
+    lanes.forEach(function (lane) {
+      nodes = nodes.concat(lane.nodes);
+      drawn = drawn.concat(lane.edges);
+    });
+    var stats = statsOf(list, relations);
+    stats.ghosts = nodes.filter(function (n) { return n.ghost === true; }).length;
+    stats.missingGhosts = nodes.filter(function (n) { return n.ghost === true && n.missing === true; }).length;
+    return {
+      version: VERSION,
+      groups: lanes,
+      nodes: nodes,
+      edges: drawn,
+      stats: stats,
+      titleBudget: num(o.titleWidth, TITLE_WIDTH),
+    };
+  }
+
+  /**
+   * 筛选：workspaces 空数组＝全部；status ∈ all|open|done|blocked|ready；keyword 匹配标题/编号/id。
+   */
+  function filterTasks(tasks, criteria) {
+    var c = isObj(criteria) ? criteria : {};
+    var keys = arr(c.workspaces).map(str).filter(Boolean);
+    var keyword = collapse(c.keyword).toLowerCase();
+    var status = str(c.status) || 'all';
+    return arr(tasks).filter(function (task) {
+      if (!isObj(task) || !str(task.id)) return false;
+      if (keys.length) {
+        var ws = workspaceOf(task);
+        if (keys.indexOf(ws.key) < 0 && keys.indexOf(ws.label) < 0) return false;
+      }
+      var state = stateOf(task);
+      if (status === 'open' && state === 'done') return false;
+      if (status === 'done' && state !== 'done') return false;
+      if (status === 'blocked' && state !== 'blocked') return false;
+      if (status === 'ready' && state !== 'open') return false;
+      if (status === 'suspended' && state !== 'suspended') return false;
+      if (keyword) {
+        var no = taskNo(task);
+        var hay = (collapse(task.title) + ' ' + str(task.id) + ' ' + (no > 0 ? ('t' + no + ' #' + no + ' ' + no) : '')).toLowerCase();
+        if (hay.indexOf(keyword) < 0) return false;
+      }
+      return true;
+    });
+  }
+
+  /** 任务 id → 该任务在画布上的节点（优先真实节点，其次 ghost），供详情里跳转用。 */
+  function indexNodes(model) {
+    var index = Object.create(null);
+    arr(isObj(model) ? model.nodes : null).forEach(function (node) {
+      var cur = index[node.id];
+      if (!cur || (cur.ghost === true && node.ghost !== true)) index[node.id] = node;
+    });
+    return index;
+  }
+
+  return {
+    version: VERSION,
+    constants: {
+      UNGROUPED_KEY: UNGROUPED_KEY,
+      UNGROUPED_LABEL: UNGROUPED_LABEL,
+      NODE_W: NODE_W,
+      NODE_H: NODE_H,
+      GAP_X: GAP_X,
+      GAP_Y: GAP_Y,
+      PAD: PAD,
+      LANE_HEAD: LANE_HEAD,
+      TITLE_WIDTH: TITLE_WIDTH,
+      ELLIPSIS: ELLIPSIS,
+    },
+    isObj: isObj,
+    arr: arr,
+    str: str,
+    measure: measure,
+    truncateTitle: truncateTitle,
+    taskNo: taskNo,
+    taskLabel: taskLabel,
+    workspaceOf: workspaceOf,
+    blockedOf: blockedOf,
+    stateOf: stateOf,
+    normalizeEdges: normalizeEdges,
+    groupTasks: groupTasks,
+    nodeOf: nodeOf,
+    ghostNode: ghostNode,
+    titleHints: titleHints,
+    layout: layout,
+    statsOf: statsOf,
+    filterTasks: filterTasks,
+    indexNodes: indexNodes,
+  };
+})();
+/* OVERVIEW_LAYOUT:END */
+</script>
+
+<script>
+(function () {
+  'use strict';
+
+  var L = OVERVIEW_LAYOUT;
+  var STATE_URL = '/dsh-feishu/api/state';
+  var POLL_MS = 60000;
+
+  /* ------------------------------------------------------------------
+     视图注册表：加第 2、3…N 个可视化，只需要往这里 push 一条，
+     写一个 mount(view, mountEl, ctx) 即可。渲染分辨率一律走 renderActiveView()。
+     ------------------------------------------------------------------ */
+  var GLYPH_GRAPH = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">'
+    + '<rect x="1" y="2.5" width="5" height="4" rx="1.4" stroke="currentColor" stroke-width="1.2"></rect>'
+    + '<rect x="10" y="9.5" width="5" height="4" rx="1.4" stroke="currentColor" stroke-width="1.2"></rect>'
+    + '<path d="M6 4.5h2.2a1.5 1.5 0 0 1 1.5 1.5v3.8a1.5 1.5 0 0 0 1.5 1.5H10" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"></path>'
+    + '</svg>';
+
+  var VIEWS = [
+    {
+      id: 'relations',
+      label: '关系图',
+      hint: '节点＝任务，实线＝依赖，虚线＝派生；按项目分组。',
+      glyph: GLYPH_GRAPH,
+      mount: mountRelationsView,
+    },
+  ];
+
+  var STATUS_FILTERS = [
+    { id: 'all', label: '全部' },
+    { id: 'open', label: '未完成' },
+    { id: 'blocked', label: '阻塞' },
+    { id: 'ready', label: '就绪' },
+    { id: 'done', label: '已完成' },
+  ];
+
+  var app = {
+    status: 'loading',
+    error: '',
+    version: '',
+    now: 0,
+    raw: [],
+    relations: [],
+    stats: null,
+    visibleGroups: 0,
+    filtered: [],
+    filters: { workspaces: [], status: 'all', keyword: '' },
+    activeView: VIEWS[0].id,
+    selected: null,
+    model: null,
+    nodeIndex: null,
+    busy: false,
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  function el(tag, attrs, text) {
+    var node = document.createElement(tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      if (attrs[k] === undefined || attrs[k] === null) return;
+      if (k === 'class') node.className = attrs[k];
+      else if (k === 'text') node.textContent = String(attrs[k]);
+      else if (k === 'html') node.innerHTML = attrs[k];
+      else if (k.indexOf('on') === 0 && typeof attrs[k] === 'function') node.addEventListener(k.slice(2), attrs[k]);
+      else node.setAttribute(k, String(attrs[k]));
+    });
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    return node;
+  }
+
+  function svgEl(tag, attrs) {
+    var node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    if (attrs) Object.keys(attrs).forEach(function (k) {
+      if (attrs[k] === undefined || attrs[k] === null) return;
+      node.setAttribute(k, String(attrs[k]));
+    });
+    return node;
+  }
+
+  function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
+
+  /* ---------------- 数据 ---------------- */
+
+  function tasksOf(data) {
+    var state = L.isObj(data.state) ? data.state : {};
+    return L.arr(state.tasks);
+  }
+
+  function relationsOf(data) {
+    var state = L.isObj(data.state) ? data.state : {};
+    return L.arr(state.relations);
+  }
+
+  function load(quiet) {
+    if (app.busy) return Promise.resolve();
+    app.busy = true;
+    if (!quiet) { app.status = app.status === 'ready' ? 'ready' : 'loading'; render(); }
+    return fetch(STATE_URL, { headers: { accept: 'application/json' }, credentials: 'same-origin' })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+        return res.json();
+      })
+      .then(function (data) {
+        if (!L.isObj(data) || data.ok !== true) throw new Error('接口返回 ok=false，宿主可能还没完成首次同步');
+        app.raw = tasksOf(data);
+        app.relations = relationsOf(data);
+        app.version = L.str(data.version);
+        app.now = Number(data.now) || 0;
+        app.status = 'ready';
+        app.error = '';
+      })
+      .catch(function (error) {
+        app.status = 'error';
+        app.error = (error && error.message) ? error.message : String(error);
+      })
+      .then(function () {
+        app.busy = false;
+        render();
+      });
+  }
+
+  /* ---------------- 渲染入口 ---------------- */
+
+  function activeView() {
+    for (var i = 0; i < VIEWS.length; i += 1) if (VIEWS[i].id === app.activeView) return VIEWS[i];
+    return VIEWS[0];
+  }
+
+  function render() {
+    compute();
+    renderRail();
+    renderHeader();
+    renderActiveView();
+  }
+
+  /** 一次算出：筛选后的任务、整张图模型、id→节点索引、可见项目数、当前选择统计。 */
+  function compute() {
+    app.filtered = L.filterTasks(app.raw, app.filters);
+    app.model = L.layout(app.raw, app.relations, {});
+    app.nodeIndex = L.indexNodes(app.model);
+    var visibleIds = Object.create(null);
+    app.filtered.forEach(function (task) { visibleIds[L.str(task.id)] = true; });
+    app.visibleGroups = app.model.groups.filter(function (lane) {
+      return lane.taskNodes.some(function (node) { return visibleIds[node.id] === true; });
+    }).length;
+    app.stats = L.statsOf(app.filtered, app.relations, { onlyVisible: true });
+    if (app.selectedNode) {
+      var stillThere = app.filtered.some(function (task) { return L.str(task.id) === app.selectedNode.id; });
+      if (!stillThere) { app.selectedNode = null; app.selected = null; }
+    }
+  }
+
+  /** 唯一的视图分发点：任何视图都必须从这里被挂载。 */
+  function renderActiveView() {
+    var lanes = $('ovLanes');
+    clear(lanes);
+    var body = $('ovBody');
+    body.classList.remove('has-detail');
+    var detail = $('ovDetail');
+    if (detail && detail.parentNode) detail.parentNode.removeChild(detail);
+
+    if (app.status === 'loading') { lanes.appendChild(skeleton()); return; }
+    if (app.status === 'error') { lanes.appendChild(errorNotice()); return; }
+
+    var view = activeView();
+    if (!view || typeof view.mount !== 'function') {
+      lanes.appendChild(notice('视图不可用', '这个视图没有注册 mount 函数。', null));
+      return;
+    }
+    view.mount(view, lanes, {
+      model: app.model,
+      filtered: app.filtered,
+      openDetail: openDetail,
+    });
+    renderDetail();
+  }
+
+  function renderHeader() {
+    var sub = $('ovSubtitle');
+    if (app.status === 'error') { sub.textContent = '读取失败，右侧数据未更新。'; }
+    else if (app.status === 'loading') { sub.textContent = '正在读取 /dsh-feishu/api/state …'; }
+    else {
+      var s = app.model ? app.model.stats : null;
+      var shown = app.filtered ? app.filtered.length : 0;
+      sub.textContent = s
+        ? ('显示 ' + shown + ' / ' + s.tasks + ' 个任务 · ' + (app.visibleGroups || 0) + ' / ' + s.groups
+           + ' 个项目 · ' + app.stats.dependencyEdges + ' 条依赖边 · ' + app.stats.provenanceEdges + ' 条派生边')
+        : '暂无数据';
+    }
+    var refresh = $('ovRefresh');
+    refresh.disabled = app.busy;
+    refresh.textContent = app.busy ? '读取中…' : '刷新';
+    var ver = $('ovVersion');
+    ver.textContent = app.status === 'ready' ? ('只读 · 插件 ' + (app.version || '?')) : '只读视图';
+  }
+
+  function renderRail() {
+    var nav = $('ovNav');
+    clear(nav);
+    VIEWS.forEach(function (view) {
+      var current = view.id === app.activeView;
+      var btn = el('button', {
+        type: 'button',
+        class: 'ov-nav-item',
+        'aria-current': current ? 'page' : null,
+        title: view.hint || view.label,
+        onclick: function () {
+          if (app.activeView === view.id) return;
+          app.activeView = view.id;
+          render();
+        },
+      });
+      var glyph = el('span', { class: 'ov-nav-glyph', html: view.glyph || '' });
+      btn.appendChild(glyph);
+      btn.appendChild(el('span', { text: view.label }));
+      nav.appendChild(btn);
+    });
+    $('ovNavHint').textContent = activeView().hint || '';
+
+    var chips = $('ovWorkspaceChips');
+    clear(chips);
+    var groups = L.groupTasks(app.raw);
+    var selectedWs = app.filters.workspaces;
+    chips.appendChild(el('button', {
+      type: 'button', class: 'ov-chip',
+      'aria-pressed': selectedWs.length === 0 ? 'true' : 'false',
+      text: '全部',
+      onclick: function () { app.filters.workspaces = []; render(); },
+    }));
+    groups.forEach(function (group) {
+      var on = selectedWs.indexOf(group.key) >= 0;
+      var chip = el('button', {
+        type: 'button', class: 'ov-chip',
+        'aria-pressed': on ? 'true' : 'false',
+        title: group.path || group.label,
+        onclick: function () {
+          var next = app.filters.workspaces.slice();
+          var at = next.indexOf(group.key);
+          if (at >= 0) next.splice(at, 1); else next.push(group.key);
+          app.filters.workspaces = next;
+          render();
+        },
+      });
+      chip.appendChild(el('span', { class: 'ov-chip-label', text: group.label }));
+      chip.appendChild(el('span', { class: 'ov-chip-count', text: String(group.total) }));
+      chips.appendChild(chip);
+    });
+
+    var statusRow = $('ovStatusChips');
+    clear(statusRow);
+    STATUS_FILTERS.forEach(function (item) {
+      statusRow.appendChild(el('button', {
+        type: 'button', class: 'ov-status',
+        'aria-pressed': app.filters.status === item.id ? 'true' : 'false',
+        text: item.label,
+        onclick: function () { app.filters.status = item.id; render(); },
+      }));
+    });
+
+    var keyword = $('ovKeyword');
+    if (keyword.value !== app.filters.keyword) keyword.value = app.filters.keyword;
+
+    var stats = app.stats || L.statsOf([], [], { onlyVisible: true });
+    var dl = $('ovStats');
+    clear(dl);
+    [
+      { label: '任务', value: stats.tasks, tone: '' },
+      { label: '依赖边', value: stats.dependencyEdges, tone: 'accent' },
+      { label: '阻塞', value: stats.blocked, tone: stats.blocked ? 'danger' : '' },
+      { label: '就绪', value: stats.ready, tone: 'ok' },
+    ].forEach(function (item) {
+      var wrap = el('div', { class: 'ov-stat', 'data-tone': item.tone || null });
+      wrap.appendChild(el('span', { class: 'ov-stat-value', text: String(item.value) }));
+      wrap.appendChild(el('span', { class: 'ov-stat-label', text: item.label }));
+      dl.appendChild(wrap);
+    });
+  }
+
+  /* ---------------- 视图：关系图 ---------------- */
+
+  function mountRelationsView(view, mountEl, ctx) {
+    var model = ctx.model;
+    var filtered = ctx.filtered;
+    if (!model || !filtered.length) {
+      mountEl.appendChild(emptyNotice());
+      return;
+    }
+    /* 可见性 = 任务节点在筛选结果里；ghost 只要还连着可见节点就保留，
+       否则依赖方向会断链、看起来像没关系的孤立任务。 */
+    var visibleIds = Object.create(null);
+    filtered.forEach(function (task) { visibleIds[L.str(task.id)] = true; });
+
+    var shown = 0;
+    model.groups.forEach(function (lane) {
+      var visibleKeys = Object.create(null);
+      lane.taskNodes.forEach(function (node) {
+        if (visibleIds[node.id] === true) visibleKeys[node.key] = true;
+      });
+      if (!Object.keys(visibleKeys).length) return;
+      lane.nodes.forEach(function (node) {
+        if (node.ghost !== true) return;
+        var attached = lane.edges.some(function (edge) {
+          return (visibleKeys[edge.fromKey] && edge.toKey === node.key)
+            || (visibleKeys[edge.toKey] && edge.fromKey === node.key);
+        });
+        if (attached) visibleKeys[node.key] = true;
+      });
+      var nodes = lane.nodes.filter(function (node) { return visibleKeys[node.key] === true; });
+      var tasks = lane.taskNodes.filter(function (node) { return visibleIds[node.id] === true; });
+      var edges = lane.edges.filter(function (edge) { return visibleKeys[edge.fromKey] && visibleKeys[edge.toKey]; });
+      shown += 1;
+      mountEl.appendChild(laneCard({ lane: lane, nodes: nodes, tasks: tasks, edges: edges }));
+    });
+    if (!shown) mountEl.appendChild(emptyNotice());
+  }
+
+  function laneCard(entry) {
+    var lane = entry.lane;
+    var card = el('section', { class: 'ov-lane', 'aria-label': lane.label });
+    var head = el('div', { class: 'ov-lane-head' });
+    var titleWrap = el('div', { style: 'display:flex;flex-direction:column;min-width:0' });
+    titleWrap.appendChild(el('span', { class: 'ov-lane-name', text: lane.label }));
+    if (lane.path) titleWrap.appendChild(el('span', { class: 'ov-lane-path', text: lane.path }));
+    head.appendChild(titleWrap);
+
+    var meta = el('div', { class: 'ov-lane-meta' });
+    meta.appendChild(el('span', { class: 'ov-tag', text: entry.tasks.length + ' 任务' }));
+    if (lane.blocked) meta.appendChild(el('span', { class: 'ov-tag', 'data-tone': 'danger', text: lane.blocked + ' 阻塞' }));
+    if (lane.done) meta.appendChild(el('span', { class: 'ov-tag', 'data-tone': 'ok', text: lane.done + ' 完成' }));
+    var ghosts = entry.nodes.filter(function (n) { return n.ghost === true; });
+    if (ghosts.length) meta.appendChild(el('span', { class: 'ov-tag', text: '↔ ' + ghosts.length + ' 跨项目/缺失' }));
+    meta.appendChild(el('button', {
+      type: 'button', class: 'ov-chip', text: '只看这个项目',
+      onclick: function () { app.filters.workspaces = [lane.key]; render(); },
+    }));
+    head.appendChild(meta);
+    card.appendChild(head);
+
+    card.appendChild(graphCanvas(entry));
+
+    var grid = el('div', { class: 'ov-card-grid' });
+    entry.tasks.forEach(function (node) { grid.appendChild(taskCard(node)); });
+    card.appendChild(grid);
+    return card;
+  }
+
+  function graphCanvas(entry) {
+    var wrap = el('div', { class: 'ov-canvas' });
+    var svg = svgEl('svg', {
+      viewBox: '0 0 ' + entry.lane.width + ' ' + entry.lane.height,
+      width: entry.lane.width,
+      height: entry.lane.height,
+      role: 'img',
+      'aria-label': entry.lane.label + ' 的任务关系图，' + entry.tasks.length + ' 个任务',
+    });
+    var defs = svgEl('defs');
+    var marker = svgEl('marker', {
+      id: 'ovArrow',
+      viewBox: '0 0 8 8', refX: '7', refY: '4',
+      markerWidth: '7', markerHeight: '7', orient: 'auto',
+    });
+    marker.appendChild(svgEl('path', { d: 'M0 1.2 L7 4 L0 6.8 z', fill: 'var(--p-accent-line)' }));
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+
+    var edgeLayer = svgEl('g', { 'aria-hidden': 'true' });
+    entry.edges.forEach(function (edge) {
+      var attrs = {
+        class: 'ov-edge',
+        'data-kind': edge.kind,
+        'data-from': edge.from,
+        'data-to': edge.to,
+        d: edge.path,
+      };
+      if (edge.kind === 'depends_on') attrs['marker-end'] = 'url(#ovArrow)';
+      edgeLayer.appendChild(svgEl('path', attrs));
+    });
+    svg.appendChild(edgeLayer);
+
+    var nodeLayer = svgEl('g');
+    entry.nodes.forEach(function (node) { nodeLayer.appendChild(graphNode(node, entry)); });
+    svg.appendChild(nodeLayer);
+    wrap.appendChild(svg);
+    return wrap;
+  }
+
+  function graphNode(node, entry) {
+    var interactive = !node.ghost;
+    var g = svgEl('g', {
+      class: 'ov-node' + (node.ghost ? ' is-ghost' : ''),
+      'data-key': node.key,
+      'data-id': node.id,
+      'data-state': node.state,
+      tabindex: interactive ? '0' : null,
+      /* ghost 不可点选（它不是一个真实任务），但仍要让读屏知道这里缺了什么。 */
+      role: interactive ? 'button' : 'img',
+      'aria-label': describeNode(node),
+    });
+    var tip = svgEl('title');
+    tip.textContent = node.fullTitle || node.id;
+    g.appendChild(tip);
+
+    g.appendChild(svgEl('rect', {
+      class: 'ov-node-bg',
+      x: node.x, y: node.y, width: node.w, height: node.h, rx: 13,
+    }));
+    if (!node.ghost) g.appendChild(svgEl('rect', {
+      class: 'ov-node-spine',
+      x: node.x, y: node.y + 8, width: 3, height: node.h - 16, rx: 1.5,
+    }));
+    g.appendChild(svgEl('circle', { class: 'ov-dot', cx: node.x + 18, cy: node.y + 21, r: 3.6 }));
+
+    var noText = svgEl('text', { class: 'ov-node-no', x: node.x + 29, y: node.y + 25 });
+    noText.textContent = node.no > 0 ? ('T' + node.no) : (node.ghost ? (node.missing ? '缺失' : '跨项目') : node.id.slice(0, 8));
+    g.appendChild(noText);
+
+    var titleText = svgEl('text', { class: 'ov-node-title', x: node.x + 16, y: node.y + 47 });
+    titleText.textContent = node.label || node.id;
+    g.appendChild(titleText);
+
+    var metaText = svgEl('text', { class: 'ov-node-meta', x: node.x + 16, y: node.y + 62 });
+    metaText.textContent = nodeMeta(node);
+    g.appendChild(metaText);
+
+    g.addEventListener('click', function () { openDetail(node); });
+    g.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+        event.preventDefault();
+        openDetail(node);
+      }
+    });
+    return g;
+  }
+
+  function nodeMeta(node) {
+    if (node.ghost) return node.missing ? '任务不存在 · 仅剩关系' : ('属于 ' + (node.workspaceLabel || '其他项目'));
+    var bits = [];
+    if (node.state === 'blocked') bits.push('阻塞 ' + node.refs.blockedBy.length);
+    else if (node.state === 'done') bits.push('已完成');
+    else if (node.state === 'suspended') bits.push('挂起');
+    else bits.push('就绪');
+    var out = node.refs.successors.length;
+    if (out) bits.push('后置 ' + out);
+    return bits.join(' · ');
+  }
+
+  function describeNode(node) {
+    if (node.ghost) return (node.missing ? '缺失任务 ' : '跨项目任务 ') + node.id + '：' + (node.fullTitle || '');
+    return (node.no > 0 ? ('T' + node.no + ' ') : '') + (node.fullTitle || node.id) + '，' + nodeMeta(node);
+  }
+
+  function taskCard(node) {
+    var card = el('article', {
+      class: 'ov-task-card' + (app.selected === node.key ? ' is-selected' : ''),
+      'data-key': node.key,
+      'data-state': node.state,
+      tabindex: '0',
+      role: 'button',
+      title: node.fullTitle || node.id,
+      onclick: function () { openDetail(node); },
+      onkeydown: function (event) {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDetail(node); }
+      },
+    });
+    var top = el('div', { class: 'ov-task-card-top' });
+    top.appendChild(el('span', { class: 'ov-dot-mark', 'data-state': node.state }));
+    top.appendChild(el('span', { class: 'ov-task-no', text: node.no > 0 ? ('T' + node.no) : node.id.slice(0, 8) }));
+    card.appendChild(top);
+    card.appendChild(el('div', { class: 'ov-task-title', text: node.label || node.id }));
+    var foot = el('div', { class: 'ov-task-foot' });
+    foot.appendChild(el('span', { class: 'ov-tag', text: node.workspaceLabel || '未归属' }));
+    if (node.state === 'blocked') foot.appendChild(el('span', { class: 'ov-tag', 'data-tone': 'danger', text: '阻塞 ' + node.refs.blockedBy.length }));
+    else if (node.state === 'done') foot.appendChild(el('span', { class: 'ov-tag', 'data-tone': 'ok', text: '已完成' }));
+    else if (node.state === 'suspended') foot.appendChild(el('span', { class: 'ov-tag', 'data-tone': 'accent', text: '挂起' }));
+    card.appendChild(foot);
+    return card;
+  }
+
+  /* ---------------- 详情 ---------------- */
+
+  function openDetail(node) {
+    app.selected = node.key;
+    app.selectedNode = node;
+    document.querySelectorAll('.ov-node.is-selected').forEach(function (n) { n.classList.remove('is-selected'); });
+    document.querySelectorAll('.ov-task-card.is-selected').forEach(function (n) { n.classList.remove('is-selected'); });
+    var svgHit = document.querySelector('.ov-node[data-key="' + cssEscape(node.key) + '"]');
+    if (svgHit) svgHit.classList.add('is-selected');
+    document.querySelectorAll('.ov-task-card[data-key="' + cssEscape(node.key) + '"]').forEach(function (n) { n.classList.add('is-selected'); });
+    highlightEdges(node);
+    renderDetail();
+  }
+
+  function cssEscape(value) { return String(value).replace(/["\\]/g, '\\$&'); }
+
+  function highlightEdges(node) {
+    document.querySelectorAll('.ov-edge').forEach(function (edge) {
+      var hit = edge.getAttribute('data-from') === node.id || edge.getAttribute('data-to') === node.id;
+      edge.classList.toggle('is-active', hit);
+    });
+  }
+
+  function renderDetail() {
+    var lanes = $('ovLanes');
+    var body = $('ovBody');
+    var node = app.selectedNode;
+    if (!node || app.status !== 'ready') { body.classList.remove('has-detail'); return; }
+    body.classList.add('has-detail');
+    var old = $('ovDetail');
+    if (old) old.parentNode.removeChild(old);
+    var panel = el('aside', { class: 'ov-detail', id: 'ovDetail', 'aria-label': '任务详情' });
+
+    var eyebrow = el('div', { class: 'ov-detail-eyebrow' });
+    eyebrow.appendChild(el('span', { class: 'ov-dot-mark', 'data-state': node.state }));
+    eyebrow.appendChild(el('span', { text: node.ghost ? (node.missing ? '缺失任务' : '跨项目任务') : ('任务 ' + (node.no > 0 ? ('T' + node.no) : node.id.slice(0, 8))) }));
+    panel.appendChild(eyebrow);
+    panel.appendChild(el('h2', { class: 'ov-detail-title', text: node.fullTitle || node.id }));
+
+    var kv = el('dl', { class: 'ov-kv' });
+    function row(key, value, mono) {
+      kv.appendChild(el('dt', { text: key }));
+      kv.appendChild(el('dd', { class: mono ? 'ov-mono' : null, text: value }));
+    }
+    row('项目', node.workspaceLabel || '未归属');
+    if (node.workspacePath) row('目录', node.workspacePath, true);
+    row('状态', statusText(node));
+    row('编号', node.no > 0 ? ('T' + node.no) : '—', true);
+    row('任务 ID', node.id, true);
+    if (node.sessionId) row('绑定会话', node.sessionId, true);
+    else row('绑定会话', '未绑定');
+    panel.appendChild(kv);
+
+    var refs = node.refs || {};
+    appendRefs(panel, '前置（必须先完成）', refs.blockedBy && refs.blockedBy.length ? refs.blockedBy : refs.predecessors, '前置');
+    appendRefs(panel, '后置（等这个）', refs.successors, '后置');
+    appendRefs(panel, '来源任务', refs.sourceTasks, '来源');
+    appendRefs(panel, '派生任务', refs.derivedTasks, '派生');
+
+    if (node.ghost) {
+      panel.appendChild(el('p', {
+        class: 'ov-muted',
+        text: node.missing
+          ? '这个任务只在关系里出现，任务表里查不到：可能是跨清单引用或被删掉的条目。'
+          : '这个任务属于另一个项目，画在这里只是为了让依赖方向不断链。',
+      }));
+    }
+    var close = el('button', {
+      type: 'button', class: 'ov-btn', text: '关闭详情',
+      onclick: function () {
+        app.selectedNode = null;
+        app.selected = null;
+        document.querySelectorAll('.is-selected').forEach(function (n) { n.classList.remove('is-selected'); });
+        document.querySelectorAll('.ov-edge').forEach(function (e) { e.classList.remove('is-active'); });
+        renderDetail();
+      },
+    });
+    panel.appendChild(close);
+    body.appendChild(panel);
+  }
+
+  function statusText(node) {
+    if (node.ghost) return node.missing ? '任务表中不存在' : '属于其他项目';
+    if (node.state === 'done') return '已完成';
+    if (node.state === 'blocked') return '阻塞（' + (node.refs.blockedBy || []).length + ' 个前置未完成）';
+    if (node.state === 'suspended') return '已挂起';
+    return '就绪';
+  }
+
+  function appendRefs(panel, label, list, kind) {
+    var items = L.arr(list);
+    var sec = el('section', { class: 'ov-detail-sec' });
+    sec.appendChild(el('span', { class: 'ov-detail-sec-label', text: label }));
+    if (!items.length) {
+      sec.appendChild(el('span', { class: 'ov-muted', text: '无' }));
+      panel.appendChild(sec);
+      return;
+    }
+    items.forEach(function (item) {
+      var id = typeof item === 'string' ? item : L.str(item && item.id);
+      var title = typeof item === 'string' ? '' : L.str(item && item.title);
+      var known = app.nodeIndex && app.nodeIndex[id];
+      /* 只有「任务表里确实没有这个 id」才算缺失：跨项目 ghost 仍然可以点过去看。 */
+      var missing = (typeof item === 'object' && item && item.missing === true)
+        || !known
+        || (known.ghost === true && known.missing === true);
+      var btn = el('button', {
+        type: 'button', class: 'ov-ref',
+        'data-missing': missing ? 'true' : 'false',
+        title: title || id,
+        disabled: missing ? 'disabled' : null,
+        onclick: missing ? null : function () { openDetail(known); },
+      });
+      btn.appendChild(el('span', { class: 'ov-task-no', text: kind }));
+      btn.appendChild(el('span', { text: title || id }));
+      sec.appendChild(btn);
+    });
+    panel.appendChild(sec);
+  }
+
+  /* ---------------- 状态块 ---------------- */
+
+  function skeleton() {
+    var wrap = el('div', { class: 'ov-skeleton', 'aria-hidden': 'true' });
+    for (var i = 0; i < 3; i += 1) wrap.appendChild(el('div', { class: 'ov-skeleton-row' }));
+    return wrap;
+  }
+
+  function notice(title, body, action) {
+    var box = el('div', { class: 'ov-notice', role: 'status' });
+    box.appendChild(el('h2', { class: 'ov-notice-title', text: title }));
+    if (body) box.appendChild(el('p', { class: 'ov-notice-body', text: body }));
+    if (action) {
+      var actions = el('div', { class: 'ov-notice-actions' });
+      actions.appendChild(action);
+      box.appendChild(actions);
+    }
+    return box;
+  }
+
+  function errorNotice() {
+    var retry = el('button', {
+      type: 'button', class: 'ov-btn', id: 'ovRetry', text: '重试',
+      onclick: function () { load(false); },
+    });
+    var box = notice('读不到飞书任务数据', '请求 GET ' + STATE_URL + ' 失败：' + (app.error || '未知错误'), retry);
+    box.setAttribute('data-tone', 'error');
+    box.setAttribute('role', 'alert');
+    return box;
+  }
+
+  function emptyNotice() {
+    var hasFilter = app.filters.workspaces.length > 0 || app.filters.status !== 'all' || !!app.filters.keyword;
+    var clearBtn = hasFilter ? el('button', {
+      type: 'button', class: 'ov-btn', text: '清除筛选',
+      onclick: function () {
+        app.filters = { workspaces: [], status: 'all', keyword: '' };
+        var kw = $('ovKeyword');
+        if (kw) kw.value = '';
+        render();
+      },
+    }) : null;
+    if (app.raw.length === 0) {
+      return notice('还没有任何任务', '插件同步到飞书任务后，这里会按项目自动分组。可以先用侧边栏里的「同步」拉一次。', null);
+    }
+    return notice('没有匹配的任务', '当前筛选条件下一个任务都没有。', clearBtn);
+  }
+
+  /* ---------------- 启动 ---------------- */
+
+  $('ovRefresh').addEventListener('click', function () { load(false); });
+  $('ovKeyword').addEventListener('input', function (event) {
+    app.filters.keyword = event.target.value || '';
+    render();
+  });
+
+  window.addEventListener('message', function (event) {
+    if (!event || event.source !== window.parent || event.origin !== window.location.origin) return;
+    var data = event.data;
+    if (!data || typeof data !== 'object') return;
+    if (data.type === 'dsh-feishu:theme') {
+      if (data.dark) document.body.classList.add('dark');
+      else document.body.classList.remove('dark');
+      document.documentElement.setAttribute('data-theme-source', 'host');
+    }
+  });
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) load(true);
+  });
+
+  /* 主题不用主动问宿主：client.js 在 iframe onLoad 时推一次，主题变化时再推。
+     本页是「全局面板」，刻意不要会话上下文，所以不发 request-context。 */
+
+  load(false);
+  setInterval(function () { if (!document.hidden) load(true); }, POLL_MS);
+})();
+</script>
+</body>
+</html>

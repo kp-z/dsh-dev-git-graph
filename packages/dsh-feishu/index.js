@@ -9249,6 +9249,7 @@ function readBody(req, limit = 256 * 1024) {
 
 function mountRoutes(ctx, engine) {
   const panelFile = join(HERE, 'panel.html')
+  const overviewFile = join(HERE, 'overview.html')
   return ctx.webServer.register({
     kind: 'prefix',
     path: MOUNT,
@@ -9262,6 +9263,20 @@ function mountRoutes(ctx, engine) {
             const html = await readFile(panelFile, 'utf8')
             res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
             res.end(req.method === 'HEAD' ? undefined : html)
+            return
+          }
+
+          /* 左侧栏「飞书任务总览」全局面板：整页自包含，只读 /api/state，无写接口。 */
+          if (req.method === 'GET' && route === '/overview') {
+            let html = ''
+            try {
+              html = await readFile(overviewFile, 'utf8')
+            } catch (error) {
+              sendJson(res, 503, { ok: false, error: '总览页尚未安装：' + asString(error?.message || error) })
+              return
+            }
+            res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+            res.end(html)
             return
           }
 

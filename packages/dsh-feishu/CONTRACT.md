@@ -3,6 +3,10 @@
 宿主半体（index.js）与面板（panel.html）、侧栏壳（client.js）之间的固定接口。
 **改这里之前先改代码注释里的同一段**：面板不读宿主源码，只认这份契约。
 
+## 左侧栏总览页（只读）
+
+`GET /dsh-feishu/overview` 直出 `overview.html`（自包含整页，文件缺失时 503 `{ok:false,error}`，不回落成空白页）。客户端半体用 `ctx.slots.register({name:'sidebar.panellist',id:'feishu-overview',order:24,label:'飞书任务总览'}, 图标)` 与 `{name:'main',key:'feishu-overview'}` 成对注册；两处必须同 key，slots 服务缺席时整体跳过、不影响右侧栏页签。该页只调 `GET /api/state`（唯一数据源），不调任何写接口、不调模型；`iframe` 用独立 class `dfe-overview-frame`，避免和右侧栏页签的会话上下文推送抢 `iframe.dfe-frame`。
+
 ## 紧凑任务卡
 
 关联为空时不渲染关联区；有依赖显示Tag前置→Tag当前→Tag后置，所有节点字号/字重与任务卡chip一致，来源派生为虚线箭头。编辑器左右Tag端点同排箭头，前置/来源为选择任务→本任务，后置为本任务→选择任务；选择端下拉按需搜索，不允许绕当前任务任意修改其它pair。筛选与立即同步置任务标题行右侧。节点/+N查看局部关联，编辑控件仅在「···」管理入口按需渲染。文档统一短标签菜单；挂起恢复在底栏右侧，原因弹层确认，原API语义不变。次要删除/解绑等收在更多菜单。弹层期间保留任务锚点，关闭后补绘等待中的快照；不破坏keyed缓存。

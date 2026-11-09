@@ -26,6 +26,19 @@ if (!source.includes('workspaceId: lastWorkspaceContext.workspaceId') || !source
 const captured = []
 const registeredSlots = []
 
+/* slots 服务：左侧栏「飞书任务总览」靠它注册（sidebar.panellist 的 id 必须等于 main 的 key）。 */
+const slotRegistrations = []
+const slots = {
+  inject(name, factory) {
+    const dispose = factory()
+    return typeof dispose === 'function' ? dispose : () => {}
+  },
+  register(options, component) {
+    slotRegistrations.push({ options, component })
+    return () => {}
+  },
+}
+
 /* React 只用到 createElement / useState / useRef / useEffect / memo。 */
 const ReactStub = {
   createElement: (type, props, ...children) => ({ type, props, children }),
@@ -59,6 +72,7 @@ const ctx = {
   get(name) {
     if (name === 'betterSidebar') return betterSidebar
     if (name === 'uiWorkspace') return uiWorkspace
+    if (name === 'slots') return slots
     return undefined
   },
   effect(fn) {
@@ -123,6 +137,30 @@ const tree = tab.component({})
 if (tree.type !== 'iframe') throw new Error(`组件根节点不是 iframe：${tree.type}`)
 if (!String(tree.props.src).startsWith('/dsh-feishu/panel')) throw new Error(`iframe src 不对：${tree.props.src}`)
 
+/* 左侧栏全局面板：sidebar.panellist 图标 + 同 key 的 main 面板。 */
+const panellist = slotRegistrations.find((row) => row.options.name === 'sidebar.panellist')
+const mainPanel = slotRegistrations.find((row) => row.options.name === 'main')
+if (!panellist) throw new Error('没有注册 sidebar.panellist（左侧栏不会有「飞书任务总览」入口）')
+if (!mainPanel) throw new Error('没有注册 main 面板')
+if (panellist.options.id !== mainPanel.options.key) {
+  throw new Error(`sidebar.panellist.id 与 main.key 不一致：${panellist.options.id} / ${mainPanel.options.key}`)
+}
+if (panellist.options.id !== 'feishu-overview') throw new Error(`总览面板 id 不对：${panellist.options.id}`)
+if (panellist.options.label !== '飞书任务总览') throw new Error(`总览标签不对：${panellist.options.label}`)
+if (typeof panellist.options.order !== 'number') throw new Error('总览入口没有 order')
+if (typeof panellist.component !== 'function') throw new Error('总览入口没有图标组件')
+
+const overviewTree = mainPanel.component({})
+if (overviewTree.type !== 'div') throw new Error(`总览面板根节点不是 div：${overviewTree.type}`)
+const overviewFrame = (overviewTree.children || [])[0]
+if (!overviewFrame || overviewFrame.type !== 'iframe') throw new Error('总览面板里没有 iframe')
+if (!String(overviewFrame.props.src).startsWith('/dsh-feishu/overview')) {
+  throw new Error(`总览 iframe src 不对：${overviewFrame.props.src}`)
+}
+if (overviewFrame.props.className !== 'dfe-overview-frame') {
+  throw new Error(`总览 iframe 不能用右侧栏的 class（会和会话上下文推送抢 querySelector）：${overviewFrame.props.className}`)
+}
+
 /* 服务缺席时也不能抛（否则会把宿主打成错误页）。 */
 const emptyCtx = { get: () => undefined, effect: () => {} }
 exports.apply(emptyCtx)
@@ -131,6 +169,7 @@ await new Promise((resolve) => setTimeout(resolve, 100))
 console.log(`✓ 模块 ${loaded.id}：inject=${JSON.stringify(exports.inject)}`)
 console.log(`✓ registerTab：id=${tab.id} order=${tab.order} single=${tab.single} title=${tab.title()}`)
 console.log(`✓ 组件渲染：<iframe src="${tree.props.src}">`)
+console.log(`✓ 左侧栏总览：id=${panellist.options.id} label=${panellist.options.label} order=${panellist.options.order} → <iframe src="${overviewFrame.props.src}">`)
 console.log('✓ 服务缺席时 apply() 不抛')
 /* 面板请求「打开会话」→ client 必须转给 uiWorkspace.openSession。 */
 if (messageListeners.length === 0) throw new Error('没有注册 message 监听，面板无法请求跳转')
