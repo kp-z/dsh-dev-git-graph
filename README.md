@@ -22,6 +22,7 @@ dsh-plugins/
 │   ├── install-to-profile.sh   # 构建 + 安装到指定 profile
 │   ├── remove-from-profile.sh  # 从 profile 卸载
 │   ├── reinstall-in-profile.sh # 重装（开发联调用）
+│   ├── sync-profile-links.mjs  # 把构建产物补进 profile（补齐硬链接副本缺失的新文件）
 │   └── new-plugin.sh           # 脚手架：从 templates/ 生成新插件包
 ├── templates/
 │   └── tool-plugin/        # 工具类插件模板（new-plugin.sh 使用）
@@ -29,6 +30,7 @@ dsh-plugins/
 │   └── spellbook/          # 咒语书 · 前端效果库（独立站点，非 workspace 成员）
 └── packages/
     ├── example-tool/       # 最小工具插件示例
+    ├── dsh-feishu/         # 飞书同步：任务/文档定时同步 + 一键开工（右侧栏面板）
     ├── dsh-mermaid-comm/   # 让 AI 优先用 Mermaid 图交流的插件（MVP：prompt 引导 + 校验工具）
     └── dsh-dev-git-graph/      # 会话 Git Graph 面板（移植 vscode-git-graph，自动绑定会话工作区）
 ```
@@ -55,6 +57,8 @@ pnpm install:web
 | `pnpm build` | 构建所有插件包 |
 | `pnpm typecheck` | 类型检查所有插件包 |
 | `pnpm install:web` | 构建并安装全部插件到 web profile |
+| `pnpm sync:web` | 把构建产物补进 web profile（补齐硬链接副本缺失的新文件） |
+| `pnpm sync:web:check` | 只检查副本与源码是否一致；有差异退出码 1 |
 | `pnpm remove:web` | 从 web profile 卸载全部插件 |
 | `pnpm reinstall:web` | 重装（开发联调） |
 | `bash scripts/new-plugin.sh my-plugin` | 从模板生成新插件包 |
@@ -62,6 +66,28 @@ pnpm install:web
 | `pnpm dev:site` | 启动咒语书本地预览（默认 `127.0.0.1:5180`，改内容自动重建） |
 | `pnpm build:site` | 构建咒语书 → `packages/dsh-spellbook/dist/` |
 | `pnpm test:site` | 咒语书的解析与校验测试 |
+
+## DSH Desktop profile 插件体检
+
+DSH Desktop（Electron 版）启动 profile 前会跑一道**兼容性闸门**：逐行读取插件的
+`peerDependencies`，凡是以 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 开头、且版本范围不接纳当前
+runtime 版本的插件，会被 `prepareProfileEntries()` 直接 `disabled`，**静默不加载**（不是报错崩溃，
+所以现象只是「插件消失了」）。当前 App 内置 runtime 为 `0.2.0-rc.2`。
+
+```bash
+# 体检 ~/.dsh/profiles/desktop（默认路径）
+node scripts/verify-desktop-plugin-gate.mjs
+# 体检指定 profile / 输出 JSON
+node scripts/verify-desktop-plugin-gate.mjs ~/.dsh/profiles/other
+node scripts/verify-desktop-plugin-gate.mjs --json
+```
+
+脚本直接 import 已安装 App 里的 `@deepseek-ai/dsh-app-boot`，调用**生产同款**
+`evaluatePluginCompatibility()`，因此不会与 App 行为漂移；全部通过时退出码 0。
+
+修复方式有两条：装一个 `peerDependencies` 已覆盖当前 runtime 的新版本（首选），
+或为确无兼容版本、但愿意承担风险的插件写 `~/.dsh/profiles/desktop/compatibility.json`
+（`{"<pkg>@<ver>": ["<runtime>"]}`，等价于 `dsh plugin allow-version`）。
 
 ## 咒语书 · 前端效果库
 

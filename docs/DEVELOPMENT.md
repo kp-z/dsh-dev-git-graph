@@ -11,7 +11,8 @@
   → pnpm build（产出 lib/）
   → 安装到目标 profile（dsh plugin --profile <name> add <pkg>）
   → 启动 profile 联调
-  → 修改后：重装（reinstall-in-profile.sh）
+  → 修改后：pnpm build + pnpm sync:web（重装用 reinstall-in-profile.sh）
+  → 新增文件后：必须 pnpm sync:web（硬链接副本不会自动带上新文件）
   → 满意后：移除/发布
 ```
 
@@ -151,6 +152,15 @@ export function apply(ctx: Context) {
   ```
 - **不要**用 `dsh plugin add` 之外的方式手工改 `dsh.profile.bundles`；reconcile 逻辑会自动把声明了 `dsh.bundle` 的依赖加进层栈。
 - 官方 bundle（`@deepseek-ai/dsh-base` 等）永远来自 dsh 安装目录，不装进 profile；profile 的 node_modules 只放树外插件。
+- **本地包在 profile 里是「硬链接副本」，新文件不会自动同步**（最容易让人卡住的一条）：
+  - `file:` 依赖装进 profile 时，pnpm（`nodeLinker: hoisted`）按 `files` 白名单做一份**硬链接**副本。
+    已存在的文件被原地重写（`tsc` 的常规行为）会两边自动同步，因为 inode 相同；**但新增文件是全新
+    inode，没有任何环节会把它链接进 profile** → 副本静默缺文件。
+  - 后果很吓人：入口 `index.js` 引用了新模块 → 运行时 `ERR_MODULE_NOT_FOUND`；而 dsh 是「插件树
+    加载失败就整体不启动」，表现为 **`dsh web` 直接打不开**，报错还指向一个源码里明明存在的文件。
+  - 对策：**每次 `pnpm build` 之后跑 `pnpm sync:web`**（`install-to-profile.sh` 已内置这一步）。
+    `pnpm sync:web:check` 只检查不写盘、有差异退出码 1，可当提交前门禁；`--prune` 额外清理副本里
+    源码已删除的文件（默认只报告不删）。
 
 ## 8. 质量红线
 
@@ -164,6 +174,7 @@ export function apply(ctx: Context) {
 
 - [ ] `pnpm typecheck` 通过
 - [ ] `pnpm build` 产出 `lib/`
+- [ ] `pnpm sync:web:check` 无差异（profile 副本与源码一致）
 - [ ] `dsh plugin --profile web add <pkg>` 后，重启 web 能看到工具
 - [ ] 工具调用符合输出 schema，UI 渲染正常
 - [ ] 卸载后 profile 干净（`dsh plugin --profile web remove <pkg>`）

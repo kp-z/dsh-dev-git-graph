@@ -49,9 +49,36 @@ packages/dsh-spellbook/.build.lock/
 .agent-teams/
 .agent-world/
 
-# Internal screenshots are not public source assets.
+# ios-skin 运行时审计用的隔离 DSH_HOME / profile 副本 / 官方主题解包（本地临时资产，不入库）
+.tmp-ios-teams/
+
+# 飞书文档截图测试 profile（含本地认证状态，不入库）
+.tmp-feishu-docs/
+
+# Internal workspace screenshots must not be committed.
 packages/dsh-feishu/docs/shots/
 docs/assets/ios-skin/
 docs/assets/design-v3/
+packages/dsh-contract-butler/butler-verify/
 packages/dsh-agent-world/docs/assets/agent-world-panels-*.png
+.tmp-butler-shots/
 .tmp-screenshot-purge/
+
+# 本地工具目录与临时产物（不属于插件源码，不入库）
+.claude/
+.continue/
+.qoder/
+.windsurf/
+.zcode/
+.mnemon/
+.dsh-vision-router/
+.graphflow-cache/
+.recovery-*/
+.agent-world.bak-*/
+.tmp-*
+
+# 外部项目的本地克隆（自带 .git，不入库）
+dsh-taskboard/
+
+# 飞书文档导出的本地构建产物（图片等，不入库）
+build/
