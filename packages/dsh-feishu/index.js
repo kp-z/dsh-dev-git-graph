@@ -4481,6 +4481,12 @@ function createSyncEngine(ctx) {
            sessionTurn 只作为「跑到第几轮」的进度信号，不做时间戳用。 */
         running: Boolean(task.sessionId) && live.get(asString(task.sessionId))?.kind === 'running',
         sessionTurn: Number(live.get(asString(task.sessionId))?.turn) || 0,
+        /* 时间字段：洞察页要「最近完成/最近开始」、运行页要「跑了多久」。
+           本地任务上本来就有这些字段（同步时会拿到飞书侧时间），这里只是投影出来，不新增写路径。 */
+        createdAt: Number(task.createdAt) || 0,
+        startedAt: Number(task.startedAt) || 0,
+        completedAt: Number(task.completedAt) || Number(task.endAt) || 0,
+        suspendedAt: Number(state.suspensions?.[task.id]?.at) || 0,
         predecessors,
         successors: link.successors.map(summary),
         sourceTasks: link.sourceTasks.map(summary),
@@ -4496,7 +4502,7 @@ function createSyncEngine(ctx) {
       /* 哈希要覆盖**用户看得见的一切**：任务标题/完成/工作区/阻塞，以及挂起与绑定会话——
          这两项曾经漏掉，导致挂起或换绑后 revision 不变，页面按「变了才刷」就不会重拉。 */
       .update(JSON.stringify([
-        tasks.map((task) => [task.id, task.title, task.done, task.workspaceKey, task.blocked, task.suspended, task.sessionId, task.running, task.predecessors.length]),
+        tasks.map((task) => [task.id, task.title, task.done, task.workspaceKey, task.blocked, task.suspended, task.sessionId, task.running, task.completedAt, task.startedAt, task.predecessors.length]),
         relations,
         groups,
       ]))

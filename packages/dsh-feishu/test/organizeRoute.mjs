@@ -79,6 +79,15 @@ const json = async (path, init) => {
 }
 const post = (path, body) => json(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
+/* 运行/洞察页的数据面：任务项要带 running / sessionTurn / 时间戳（有任务时才有意义） */
+const seeded = await json('/api/overview')
+const seededTask = (seeded.data?.tasks || [])[0]
+check('快照任务项带 running / sessionTurn / 四个时间戳', Boolean(seededTask)
+  && typeof seededTask.running === 'boolean' && typeof seededTask.sessionTurn === 'number'
+  && typeof seededTask.createdAt === 'number' && typeof seededTask.startedAt === 'number'
+  && typeof seededTask.completedAt === 'number' && typeof seededTask.suspendedAt === 'number',
+  JSON.stringify(seededTask && Object.fromEntries(Object.entries(seededTask).filter(([k]) => /running|Turn|At$/.test(k)))))
+
 /* ── 1. 还没有建议时是 null，不是 500 ─────────────────────────────── */
 const before = await json('/api/overview/organize?kind=all')
 check('GET 建议：初始为空', before.status === 200 && before.data?.ok === true && before.data.batch === null, JSON.stringify(before.data).slice(0, 120))
