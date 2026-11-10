@@ -45,6 +45,9 @@ function adaptApi(raw) {
     organizeView: fn('organizeView'),
     organizeAccept: fn('organizeAccept'),
     organizeReject: fn('organizeReject'),
+    /* 历史指标（task-21）：洞察页要「更全面」时用它取 /api/insight/stats；
+       旧宿主没有这个方法就是 null —— 洞察页自己降级成「只有快照口径」，不报错。 */
+    insightStats: fn('insightStats'),
   }
 }
 

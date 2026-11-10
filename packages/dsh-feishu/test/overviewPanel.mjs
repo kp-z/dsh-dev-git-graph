@@ -2217,6 +2217,73 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   })
 }
 
+/* ---- 10d. 洞察页的历史指标接线（adaptApi 白名单曾漏掉 insightStats →
+             真机永远显示「历史指标不可用」；这条断言就是为它加的） ---- */
+{
+  const statsCalls = []
+  const statsPayload = {
+    ok: true,
+    stats: {
+      series: [
+        { day: '2026-11-01', done: 3, created: 1, active: 2, wip: 0, docs: 0, cycleMedianDays: 2 },
+        { day: '2026-11-02', done: 5, created: 2, active: 4, wip: 1, docs: 0, cycleMedianDays: 2.5 },
+      ],
+      board: { total: 5, done: 2, started: 1, idle: 2 },
+      distribution: [{ state: 'started', workspace: '项目A', count: 1 }],
+      fulfillment: { tracked: 2, completed: 1, pending: 1, overdue: 1, onTime: 1, finalOnTime: 1, onTimeRate: 0.5, finalOnTimeRate: 0.5, avgSlackMs: -86400000, avgFinalSlackMs: -3600000, lateCount: 1, byWorkspace: [] },
+      quality: { completed: 2, early: 0, onTime: 1, late: 1, cycleSamples: 2, cycleMedianDays: 2.5, cycleP85Days: 4 },
+      delayBuckets: [{ bucket: 'dep', label: '等待依赖', count: 2, days: 3, tasks: [] }],
+      datasets: {},
+      lastRecordAt: 1794338933745,
+    },
+  }
+  const apiWithHistory = {
+    overview: async () => ({ ...SNAPSHOT }),
+    revision: async () => SNAPSHOT.revision,
+    groupAction: async () => ({ ok: true }),
+    insightStats: async (days) => { statsCalls.push(days); return statsPayload },
+  }
+  const hist = await mountPanel({ api: apiWithHistory })
+  let htree = hist.tree
+  const hItems = () => featnavItems(htree)
+  hItems()[hItems().findIndex((item) => textOf(item).includes('洞察'))].props.onClick()
+  htree = await hist.mini.act()
+  htree = await hist.mini.act() /* 等 insightStats 的 promise 落地 */
+
+  check('洞察页：接口在位时会真的去取历史指标（adaptApi 不能吞掉它）', () => {
+    assert.deepEqual(statsCalls, [14], `应调用 insightStats(14)，实际 ${JSON.stringify(statsCalls)}`)
+  })
+  check('洞察页：取到历史后四个新面板都渲染，且不再显示降级提示', () => {
+    const titles = byClass(htree, 'fd-panel-title').map((node) => textOf(node))
+    const joined = titles.join('|')
+    assert.ok(/吞吐趋势/.test(joined), joined)
+    assert.ok(/履约/.test(joined), joined)
+    assert.ok(/延期原因/.test(joined), joined)
+    assert.ok(/质量/.test(joined), joined)
+    assert.equal(/历史指标不可用/.test(joined), false, '不该再显示降级提示')
+    assert.ok(byClass(htree, 'fd-panel').length >= 10, `面板数应 >= 10，实际 ${byClass(htree, 'fd-panel').length}`)
+  })
+  /* 失败降级：**先把挂载与切换做完，再进同步断言**——把 async 塞进 check 里会让断言失败被 Promise 吞掉。 */
+  const apiFail = {
+    overview: async () => ({ ...SNAPSHOT }),
+    revision: async () => SNAPSHOT.revision,
+    groupAction: async () => ({ ok: true }),
+    insightStats: async () => { throw new Error('404 Not Found') },
+  }
+  const broken = await mountPanel({ api: apiFail })
+  let btree = broken.tree
+  const bItems = () => featnavItems(btree)
+  bItems()[bItems().findIndex((item) => textOf(item).includes('洞察'))].props.onClick()
+  btree = await broken.mini.act()
+  btree = await broken.mini.act()
+  check('洞察页：历史取数失败时降级成提示条，六个快照面板照旧', () => {
+    const titles = byClass(btree, 'fd-panel-title').map((node) => textOf(node)).join('|')
+    assert.ok(/历史指标不可用/.test(titles), titles)
+    assert.ok(/关键指标/.test(titles) && /最近动态/.test(titles), '快照口径的六个面板必须还在')
+    assert.equal(/吞吐趋势/.test(titles), false)
+  })
+}
+
 /* ---- 11. 防回退红线：没有字面量颜色 ---- */
 const COLOR_RE = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/
 check('渲染产物里没有字面量颜色（属性 + style，含自定义属性）', () => {
