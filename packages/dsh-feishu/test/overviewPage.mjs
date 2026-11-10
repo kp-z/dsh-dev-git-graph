@@ -4,7 +4,8 @@
  * 抽取风格照 test/filterPanel.mjs：把 <script> 全部拼起来做 vm.Script 语法检查，
  * 再按 OVERVIEW_LAYOUT:START/END 标记截出纯函数块，丢进 vm 上下文单跑。
  * 覆盖：分组、节点/边数量、缺失前驱 ghost、长标题截断、空输入不抛、筛选、
- * 以及「自定义目录」分组（用户把若干 workspace 拖成一组 → 一组一张图）。
+ * 「自定义目录」分组（用户把若干 workspace 拖成一组 → 一组一张图），
+ * 以及左栏那棵 VSCode 式三层树与 scope（全部任务 / 目录 / 项目）对应的画布数。
  */
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -35,16 +36,26 @@ assert.match(script, /title: node\.fullTitle/, '卡片 title 属性要保留全�
 assert.match(script, /data\.type === 'dsh-feishu:theme'/, '要响应宿主 postMessage 主题切换')
 assert.match(script, /\[\?&\]theme=/, '要支持 ?theme=dark|light')
 
-/* 目录成员关系不存本地（以宿主为准），只有「折叠 / 分组方式」这类视图状态落 localStorage。 */
+/* 目录成员关系不存本地（以宿主为准），只有「选中项 / 展开 / 搜索」这类视图状态落 localStorage。 */
 assert.match(script, /STORE_PREFIX = 'dsh-feishu-overview:'/, '视图状态用固定前缀键')
-assert.match(script, /STORE_GROUP_BY/)
-assert.match(script, /STORE_COLLAPSED/)
+assert.match(script, /STORE_SELECTION/)
+assert.match(script, /STORE_TREE/)
+assert.match(script, /STORE_KEYWORD/)
 assert.doesNotMatch(script, /localStorage\.setItem\([^)]*member/i, '成员关系不得写 localStorage')
 
-/* 拖拽必须有非拖拽的等价路径：选中 chip → 「移入目录」下拉（键盘可达）。 */
-assert.match(script, /draggable: 'true'/, 'chip 要可拖')
-assert.match(script, /id: 'ovMoveSelect'/, '要有移入目录的下拉')
-assert.match(script, /addEventListener\('drop'/, '目录卡片要能接收拖放')
+/* 左栏只有一棵树：不许再有 chip 墙 / 分段控件 / 状态筛选 / 统计卡 / 图标例。 */
+assert.doesNotMatch(html, /ov-chip/, '左栏不得再有 chip')
+assert.doesNotMatch(html, /ov-status|ov-groupBy|ov-stats|ovMoveSelect|ovWorkspaceChips/, '旧的筛选标签堆必须删干净')
+assert.match(html, /id="ovTree"[^>]*role="tree"/, '左栏就是一棵 role=tree 的树')
+assert.match(script, /role: 'treeitem'/, '树行必须是 treeitem')
+assert.match(script, /L\.normScope|normScope/, '要用纯函数的 scope 归一化')
+
+/* 树的键盘路径 + 拖拽路径都要有（不能只做鼠标）。 */
+for (const key of ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter']) {
+  assert.ok(script.includes("'" + key + "'"), `键盘要支持 ${key}`)
+}
+assert.match(script, /draggable', 'true'/, '项目行要可拖')
+assert.match(script, /addEventListener\('drop'/, '目录行要能接收拖放')
 assert.match(script, /role: 'alert'/, '写失败要以 role=alert 显示')
 
 /* ---------- 3. 抽出纯函数块 ---------- */
@@ -62,7 +73,8 @@ assert.ok(L && typeof L === 'object', 'OVERVIEW_LAYOUT 未暴露')
 for (const fn of ['truncateTitle', 'measure', 'workspaceOf', 'blockedOf', 'stateOf',
   'normalizeEdges', 'groupTasks', 'nodeOf', 'ghostNode', 'titleHints', 'layout', 'statsOf',
   'filterTasks', 'indexNodes', 'taskNo', 'taskLabel',
-  'dirOf', 'shortenPath', 'normalizeCustomGroups', 'groupByCustom']) {
+  'dirOf', 'shortenPath', 'normalizeCustomGroups', 'groupByCustom',
+  'normScope', 'lanesForScope', 'buildTree']) {
   assert.equal(typeof L[fn], 'function', `缺导出函数 ${fn}`)
 }
 
@@ -533,7 +545,120 @@ assert.deepEqual(plain(shape(oldModel).groups.map((g) => g.key)), ['w1', 'w2', L
 assert.equal(oldModel.groups[0].custom, false, '按项目模式下不是自定义目录')
 assert.equal(oldModel.groups[0].clusters.length, 0, '按项目模式不画背景带')
 
+/* ---------- 19. 左栏那棵树（纯函数） ---------- */
+assert.deepEqual(plain(L.normScope(null)), { kind: 'all', id: '' })
+assert.deepEqual(plain(L.normScope({ kind: 'group', id: 'g1' })), { kind: 'group', id: 'g1' })
+assert.deepEqual(plain(L.normScope({ kind: 'project', id: 'wa' })), { kind: 'project', id: 'wa' })
+assert.deepEqual(plain(L.normScope({ kind: 'group' })), { kind: 'all', id: '' }, 'kind 有但 id 空 → 退回全部')
+assert.deepEqual(plain(L.normScope({ kind: 'nope', id: 'x' })), { kind: 'all', id: '' })
+assert.deepEqual(plain(L.normScope('nope')), { kind: 'all', id: '' })
+
+const tree = L.buildTree(defs, ctasks, {})
+assert.equal(tree.rows[0].key, 'all')
+assert.equal(tree.rows[0].label, '全部任务')
+assert.equal(tree.rows[0].count, 5)
+/* 只有三层：depth 只允许 0/1，kind 只允许 all/group/project */
+for (const row of tree.rows) {
+  assert.ok(row.depth === 0 || row.depth === 1, `depth 只能是 0/1：${row.key}=${row.depth}`)
+  assert.ok(['all', 'group', 'project'].includes(row.kind), `未知 kind：${row.kind}`)
+  assert.ok(typeof row.label === 'string' && row.label.length > 0)
+}
+assert.deepEqual(plain(tree.rows.map((r) => [r.kind, r.depth, r.label, r.count])), [
+  ['all', 0, '全部任务', 5],
+  ['group', 0, 'QV', 2],
+  ['project', 1, 'A项目', 2],
+  ['project', 1, 'B项目', 1],
+  ['group', 0, 'MvizLite', 1],
+  ['project', 1, 'C项目', 1],
+  ['group', 0, '未分组', 1],
+  ['project', 1, 'D项目', 1],
+], '三层结构：全部 / 目录 / 项目，未分组与目录同级')
+assert.equal(tree.rows.find((r) => r.kind === 'group' && r.label === 'QV').missing, 1, '成员不在场要标记')
+assert.equal(tree.byKey['project:wb'].groupId, 'g1', '项目行要记得自己在哪个目录里')
+assert.equal(tree.byKey['project:wd'].groupLabel, '未分组')
+assert.equal(tree.byKey['group:' + L.constants.UNGROUPED_KEY].ungrouped, true)
+
+/* 折叠：目录行收起来就不展开子行 */
+const folded = L.buildTree(defs, ctasks, { collapsed: { 'group:g1': true } })
+assert.deepEqual(plain(folded.rows.map((r) => r.label)), ['全部任务', 'QV', 'MvizLite', 'C项目', '未分组', 'D项目'])
+assert.equal(folded.rows.some((r) => r.key === 'project:wa'), false, '折叠后子行不上屏')
+assert.ok(folded.byKey['project:wa'], '折叠的子行仍要能被查到（否则选中项会被误判成消失）')
+assert.equal(folded.rows[1].collapsed, true)
+
+/* 选中：只有一行 selected */
+const picked = L.buildTree(defs, ctasks, { selection: { kind: 'project', id: 'wb' } })
+assert.equal(picked.rows.filter((r) => r.selected).length, 1)
+assert.equal(picked.selected.key, 'project:wb')
+assert.equal(L.buildTree(defs, ctasks, { selection: { kind: 'group', id: 'g2' } }).selected.key, 'group:g2')
+assert.equal(L.buildTree(defs, ctasks, { selection: { kind: 'all' } }).selected.key, 'all')
+
+/* 空 groups / 坏输入不炸 */
+const bare = L.buildTree([], ctasks, {})
+assert.deepEqual(plain(bare.rows.map((r) => [r.kind, r.label, r.count])), [
+  ['all', '全部任务', 5], ['group', '未分组', 4],
+  ['project', 'A项目', 2], ['project', 'B项目', 1], ['project', 'C项目', 1], ['project', 'D项目', 1],
+], '没有任何目录时只剩「全部任务」+「未分组」')
+assert.deepEqual(plain(L.buildTree(null, null, null).rows.map((r) => r.label)), ['全部任务'])
+for (const bad of [undefined, null, [], {}, 'nope', 0, [null, {}], [{ id: 'g', name: 'x', members: 'nope' }]]) {
+  const out = L.buildTree(bad, bad, bad)
+  assert.ok(out && Array.isArray(out.rows) && out.rows.length >= 1)
+}
+
+/* ---------- 20. scope：全部任务 / 某个目录 / 某个项目 ---------- */
+assert.deepEqual(plain(L.normScope({ kind: 'all' })), { kind: 'all', id: '' })
+assert.equal(L.lanesForScope(defs, ctasks, { kind: 'all' }).length, 3, '全部任务＝每个目录一张图（含未分组）')
+assert.equal(L.lanesForScope(defs, ctasks, { kind: 'group', id: 'g1' }).length, 1, '选中目录＝恰好一张图')
+assert.equal(L.lanesForScope(defs, ctasks, { kind: 'group', id: L.constants.UNGROUPED_KEY }).length, 1)
+assert.equal(L.lanesForScope(defs, ctasks, { kind: 'group', id: 'nope' }).length, 0, '目录没了就没有图，不炸')
+assert.equal(L.lanesForScope(defs, ctasks, { kind: 'project', id: 'wa' }).length, 1, '选中项目＝一张图')
+assert.equal(L.lanesForScope(defs, ctasks, { kind: 'project', id: 'nobody' }).length, 0)
+
+/* 全部任务：按目录各一张，每张自己一个坐标系 */
+const allModel = L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs, scope: { kind: 'all' } })
+assert.equal(allModel.groups.length, 3)
+assert.equal(allModel.scope.kind, 'all')
+assert.equal(allModel.stats.groups, 3)
+allModel.groups.forEach((lane) => {
+  assert.ok(lane.graph.nodes === lane.nodes && lane.graph.edges === lane.edges, '每组一个画布')
+  assert.ok(lane.width > 0 && lane.height > 0)
+})
+
+/* 选中某个目录：恰好一张图，组内所有项目的任务都在里面 */
+const groupModel = L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs, scope: { kind: 'group', id: 'g1' } })
+assert.equal(groupModel.groups.length, 1, '选中目录只画一张图')
+assert.equal(groupModel.groups[0].label, 'QV')
+assert.equal(groupModel.groups[0].projectCount, 2)
+assert.deepEqual(plain(groupModel.groups[0].taskNodes.map((n) => n.id).sort()), ['a1', 'a2', 'b1'])
+assert.equal(groupModel.groups[0].edges.find((e) => e.from === 'b1' && e.to === 'a1').viaGhost, false, '同目录跨项目边直接连')
+assert.equal(groupModel.nodes.some((n) => n.id === 'd1'), false, '别的目录的任务不在这张图里')
+
+/* 选中某个项目：只有这个项目的任务节点；组外端点仍然是 ghost */
+const projModel = L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs, scope: { kind: 'project', id: 'wa' } })
+assert.equal(projModel.groups.length, 1, '选中项目只画一张图')
+assert.equal(projModel.groups[0].singleProject, true)
+assert.deepEqual(plain(projModel.groups[0].taskNodes.map((n) => n.id).sort()), ['a1', 'a2'], '只含本项目的任务')
+assert.equal(projModel.groups[0].projectCount, 1)
+assert.equal(projModel.groups[0].projectColorOf.wa, 0, '项目在自己的图里仍有配色')
+const projNodes = projModel.groups[0].nodes
+assert.equal(projNodes.filter((n) => n.ghost === true).length, 3, 'b1 / c1 / nope 都是组外锚点')
+assert.ok(projNodes.find((n) => n.id === 'b1').groupLabel === 'QV', '同目录里的别的项目也标出目录名')
+for (const edge of projModel.groups[0].edges) {
+  assert.ok(projNodes.some((n) => n.key === edge.fromKey) && projNodes.some((n) => n.key === edge.toKey))
+}
+assert.equal(projModel.groups[0].edges.length, 4)
+
+/* 未分组的项目也一样能单画 */
+const restModel = L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs, scope: { kind: 'project', id: 'wd' } })
+assert.deepEqual(plain(restModel.groups[0].taskNodes.map((n) => n.id)), ['d1'])
+assert.equal(restModel.groups[0].edges.length, 0)
+
+/* scope 坏了就当全部任务 */
+assert.equal(L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs, scope: 'nope' }).groups.length, 3)
+assert.equal(L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs, scope: { kind: 'project', id: 'nobody' } }).groups.length, 0)
+
 console.log('ok overview.html：布局纯函数 ' + Object.keys(L).length + ' 项导出，'
   + model.nodes.length + ' 节点 / ' + model.edges.length + ' 边 / '
   + model.groups.length + ' 分组，自定义目录 ' + cmodel.groups.length + ' 张图（'
-  + cmodel.groups.filter((g) => !g.ungrouped).length + ' 个目录 + 未分组）全部通过断言')
+  + cmodel.groups.filter((g) => !g.ungrouped).length + ' 个目录 + 未分组），树 '
+  + tree.rows.length + ' 行 / scope 全部/目录/项目 = '
+  + allModel.groups.length + '/' + groupModel.groups.length + '/' + projModel.groups.length + ' 张图，全部通过断言')
