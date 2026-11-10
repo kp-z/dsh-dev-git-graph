@@ -236,6 +236,7 @@ export function createOverviewPanel(deps) {
       return model.isObj(value) ? value : {}
     })
     const [detailId, setDetailId] = useState('')
+    const [keyword, setKeyword] = useState(() => model.str(readStore(store, 'keyword')))
     const [renamingId, setRenamingId] = useState('')
     const [creating, setCreating] = useState(false)
     const [creatingFor, setCreatingFor] = useState('')
@@ -314,6 +315,7 @@ export function createOverviewPanel(deps) {
     /* 选中项与折叠状态是纯视图状态：交给注入的 store（组件不碰 localStorage）。 */
     useEffect(() => { writeStore(store, 'selection', scope) }, [scope])
     useEffect(() => { writeStore(store, 'collapsed', collapsed) }, [collapsed])
+    useEffect(() => { writeStore(store, 'keyword', keyword) }, [keyword])
 
     useEffect(() => {
       if (!detailId || typeof document === 'undefined' || !document.addEventListener) return undefined
@@ -327,15 +329,31 @@ export function createOverviewPanel(deps) {
     const relations = useMemo(() => asArray(data && data.relations), [data])
     const groups = useMemo(() => asArray(data && data.groups), [data])
     const workspaces = useMemo(() => asArray(data && data.workspaces), [data])
+    /* 搜索：命中标题 / id / 编号 / 项目名，收窄的范围与树、图、卡片一致。
+       过滤期间不把 workspaces 交给 buildTree/layoutScope —— 否则「0 个匹配的 项目」也会出现在树上。 */
+    const keywordNeedle = model.collapse(keyword).toLowerCase()
+    const visibleTasks = useMemo(() => {
+      if (!keywordNeedle) return tasks
+      return tasks.filter((task) => {
+        const no = model.taskNo(task)
+        const hay = `${model.collapse(task.title)} ${model.str(task.id)} ${model.collapse(task.workspaceTitle)} ${no > 0 ? `t${no} #${no} ${no}` : ''}`.toLowerCase()
+        return hay.indexOf(keywordNeedle) >= 0
+      })
+    }, [tasks, keywordNeedle])
     const tasksById = useMemo(() => {
       const map = {}
       tasks.forEach((task) => { map[model.str(task.id)] = task })
       return map
     }, [tasks])
-    const tree = useMemo(() => model.buildTree(groups, tasks, { collapsed, selection: scope, workspaces }), [groups, tasks, collapsed, scope, workspaces])
-    const drawing = useMemo(() => layout.layoutScope({ tasks, relations, groups, workspaces, scope }), [tasks, relations, groups, workspaces, scope])
-    const graphs = useMemo(() => asArray(drawing && drawing.graphs), [drawing])
-    const scopedTasks = useMemo(() => model.scopeTasks(tasks, scope, groups), [tasks, scope, groups])
+    const scopeWorkspaces = keywordNeedle ? [] : workspaces
+    const tree = useMemo(() => model.buildTree(groups, visibleTasks, { collapsed, selection: scope, workspaces: scopeWorkspaces }), [groups, visibleTasks, collapsed, scope, scopeWorkspaces])
+    const drawing = useMemo(() => layout.layoutScope({ tasks: visibleTasks, relations, groups, workspaces: scopeWorkspaces, scope }), [visibleTasks, relations, groups, scopeWorkspaces, scope])
+    /* 搜索时只留有节点的图：空目录不必在筛选态下占一屏 */
+    const graphs = useMemo(() => {
+      const list = asArray(drawing && drawing.graphs)
+      return keywordNeedle ? list.filter((graph) => asArray(graph.nodes).length > 0) : list
+    }, [drawing, keywordNeedle])
+    const scopedTasks = useMemo(() => model.scopeTasks(visibleTasks, scope, groups), [visibleTasks, scope, groups])
     const stats = useMemo(() => {
       const base = model.statsOf(scopedTasks, relations)
       const nodes = asArray(drawing && drawing.nodes)
@@ -354,10 +372,10 @@ export function createOverviewPanel(deps) {
 
     /* scope 指向的目录/项目已经不在快照里（被删/改名）→ 退回「全部任务」，别停在空图上。 */
     useEffect(() => {
-      if (state.status !== 'ready' || !data || scope.kind === 'all') return
+      if (state.status !== 'ready' || !data || scope.kind === 'all' || keywordNeedle) return
       const first = graphs[0]
       if (!first || first.kind === 'empty') setScope({ kind: 'all', id: '' })
-    }, [state.status, data, scope, graphs])
+    }, [state.status, data, scope, graphs, keywordNeedle])
 
     const runGroup = useCallback((body) => {
       const fn = apiRef.current.groupAction
@@ -515,19 +533,29 @@ export function createOverviewPanel(deps) {
         h('div', { className: 'fo-placeholder-title' }, '还没有任何任务'),
         h('div', { className: 'fo-placeholder-body' }, '插件同步到飞书任务后，这里会按「自定义目录」把多个项目合在一张关系图里画。'),
       )
+    } else if (keywordNeedle && !visibleTasks.length) {
+      content = h('div', { className: 'fo-placeholder', role: 'status' },
+        h('div', { className: 'fo-placeholder-title' }, '没有匹配的任务'),
+        h('div', { className: 'fo-placeholder-body' }, `没有标题 / 编号 / 项目名包含「${model.collapse(keyword)}」的任务。`),
+        h('button', { type: 'button', className: 'fo-btn', 'data-variant': 'primary', onClick: () => setKeyword('') }, '清除搜索'),
+      )
     } else {
+      /* 筛选态下当前范围没有匹配：只留图（它会说明这里没有内容），不再画一张空卡片区 */
+      const showCards = scopedTasks.length > 0 || !keywordNeedle
       content = h('div', null,
         h(GraphView, {
           graphs,
           selectedId: detailTask ? detailId : '',
           onOpenTask: (id) => openTask(id),
         }),
-        h(TaskCards, {
-          tasks: scopedTasks,
-          selectedId: detailId,
-          colorOf,
-          onOpenTask: (id) => openTask(id),
-        }),
+        showCards
+          ? h(TaskCards, {
+            tasks: scopedTasks,
+            selectedId: detailId,
+            colorOf,
+            onOpenTask: (id) => openTask(id),
+          })
+          : null,
       )
     }
 
@@ -563,6 +591,10 @@ export function createOverviewPanel(deps) {
           dragKey,
           dropKey,
           busy,
+          keyword,
+          matchCount: scopedTasks.length,
+          onKeywordChange: setKeyword,
+          onClearKeyword: () => setKeyword(''),
           onSelect: onSelectRow,
           onToggle: onToggleRow,
           onMenu,

@@ -54,16 +54,18 @@ export function createGraphView(deps) {
         ? `未分组：${taskCount} 个任务`
         : `${graph.label}：${(graph.projects || []).length} 个项目、${taskCount} 个任务${graph.kind === 'group' ? '画在同一张图里' : ''}`
 
+      /* 箭头：6×6 实心三角，fill 跟边同色（与参考站 WorkflowEditor 的 marker 一寸不差） */
       const defs = h('defs', null, ['depends_on', 'derived_from'].map((kind) => h('marker', {
         key: kind,
         id: `${markerBase}-${kind}`,
-        viewBox: '0 0 8 8',
-        refX: '7',
-        refY: '4',
-        markerWidth: '7',
-        markerHeight: '7',
+        viewBox: '0 0 6 6',
+        refX: '5',
+        refY: '3',
+        markerWidth: '6',
+        markerHeight: '6',
+        markerUnits: 'userSpaceOnUse',
         orient: 'auto',
-      }, h('path', { className: 'fo-arrow', 'data-kind': kind, d: 'M0 1.2 L7 4 L0 6.8 z' }))))
+      }, h('path', { className: 'fo-arrow', 'data-kind': kind, d: 'M 0 0 L 6 3 L 0 6 z' }))))
 
       const bandLayer = h('g', { 'aria-hidden': 'true' }, bands.map((band) => {
         const external = band.external === true
@@ -152,23 +154,27 @@ export function createGraphView(deps) {
               : null,
           ),
         ),
-        nodes.length
-          ? h('div', { className: 'fo-graph-body' },
-            h('svg', {
-              className: 'fo-svg',
-              viewBox,
-              width: graph.width,
-              height: graph.height,
-              /* role=group 而不是 img：图里的节点本身是可聚焦的 button，img 会把它们从无障碍树里挡掉。 */
-              role: 'group',
-              'aria-label': label,
-            }, defs, bandLayer, edgeLayer, nodeLayer))
-          : h('div', { className: 'fo-placeholder' },
-            h('div', { className: 'fo-placeholder-title' }, graph.kind === 'ungrouped' ? '没有未分组的项目' : '这个目录里还没有在场的工作区'),
-            h('div', { className: 'fo-placeholder-body' }, graph.kind === 'ungrouped'
-              ? '所有项目都已经归入某个自定义目录。'
-              : '它的成员当前都不在任务集里（可能被删或改名）。把左栏的项目拖进这个目录即可。'),
-          ),
+        /* 画布：网格层在最底、不拦点击；SVG 在上层。空图也显示网格（参考站画布一直在）。 */
+        h('div', { className: 'fo-canvas' },
+          h('div', { className: 'fo-grid', 'aria-hidden': 'true' }),
+          nodes.length
+            ? h('div', { className: 'fo-graph-body' },
+              h('svg', {
+                className: 'fo-svg',
+                viewBox,
+                width: graph.width,
+                height: graph.height,
+                /* role=group 而不是 img：图里的节点本身是可聚焦的 button，img 会把它们从无障碍树里挡掉。 */
+                role: 'group',
+                'aria-label': label,
+              }, defs, bandLayer, edgeLayer, nodeLayer))
+            : h('div', { className: 'fo-placeholder' },
+              h('div', { className: 'fo-placeholder-title' }, graph.kind === 'ungrouped' ? '没有未分组的项目' : '这个目录里还没有在场的工作区'),
+              h('div', { className: 'fo-placeholder-body' }, graph.kind === 'ungrouped'
+                ? '所有项目都已经归入某个自定义目录。'
+                : '它的成员当前都不在任务集里（可能被删或改名）。把左栏的项目拖进这个目录即可。'),
+            ),
+        ),
       )
     }))
   }

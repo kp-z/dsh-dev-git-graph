@@ -11,6 +11,8 @@
  *
  * props（由 OverviewPanel 传）：
  *   tree                     model.buildTree(...) 的结果 {rows, byKey, lanes, scope, selected}
+ *   keyword, matchCount       搜索关键词（在 rail 顶部输入）/ 当前匹配条数
+ *   onKeywordChange(value) onClearKeyword()
  *   renamingId, creating     '' / 目录 id；creating=true 时显示新建输入行
  *   creatingFor              '' | 项目 key（新建后自动移入该项目）
  *   dragKey, dropKey         拖拽中的行 key / 悬停的放置目标 key
@@ -41,6 +43,10 @@ export function createTreeNav(deps) {
       dragKey = '',
       dropKey = '',
       busy = false,
+      keyword = '',
+      matchCount = 0,
+      onKeywordChange,
+      onClearKeyword,
       onSelect,
       onToggle,
       onMenu,
@@ -119,7 +125,7 @@ export function createTreeNav(deps) {
 
       const rename = renamingId && renamingId === row.id && isGroup
       if (rename) {
-        return h('div', { key: row.key, className: 'fo-row', 'data-kind': row.kind, style: { paddingLeft: `${row.depth * 14 + 6}px`, '--fo-i': stagger } },
+        return h('div', { key: row.key, className: 'fo-row', 'data-kind': row.kind, style: { paddingLeft: `${12 + row.depth * 14}px`, '--fo-i': stagger } },
           h('input', {
             className: 'fo-input',
             defaultValue: row.label,
@@ -148,7 +154,7 @@ export function createTreeNav(deps) {
         'data-kind': row.kind,
         'data-key': row.key,
         'data-id': row.id,
-        style: { paddingLeft: `${row.depth * 14 + 6}px`, '--fo-i': stagger },
+        style: { paddingLeft: `${12 + row.depth * 14}px`, '--fo-i': stagger },
         draggable: isProject,
         title: `${KIND_LABEL[row.kind] || ''}：${label}`,
         onClick: () => { focusKey(row.key); if (typeof onSelect === 'function') onSelect(row) },
@@ -260,6 +266,32 @@ export function createTreeNav(deps) {
     }
 
     return h('div', { className: 'fo-tree' },
+      /* 搜索框放 rail 顶部（对齐参考站 "Search everything..." 的位置），关键词收窄任务集 */
+      h('div', { className: 'fo-rail-top' },
+        h('div', { className: 'fo-rail-search-row' },
+          h('input', {
+            className: 'fo-search',
+            type: 'text',
+            value: keyword,
+            placeholder: '搜索任务…',
+            'aria-label': '搜索任务',
+            onChange: (event) => { if (typeof onKeywordChange === 'function') onKeywordChange(event.currentTarget.value) },
+            onKeyDown: (event) => { if (event.key === 'Escape' && typeof onClearKeyword === 'function') onClearKeyword() },
+          }),
+          keyword
+            ? h('button', {
+              type: 'button',
+              className: 'fo-btn',
+              'data-size': 'sm',
+              'data-variant': 'ghost',
+              title: '清除搜索',
+              'aria-label': '清除搜索',
+              onClick: () => { if (typeof onClearKeyword === 'function') onClearKeyword() },
+            }, '×')
+            : null,
+        ),
+        keyword ? h('span', { className: 'fo-rail-hint' }, `匹配 ${Number(matchCount) || 0} 条`) : null,
+      ),
       h('div', { className: 'fo-tree-head' },
         h('span', { className: 'fo-tree-title' }, '任务分组'),
         h('button', {

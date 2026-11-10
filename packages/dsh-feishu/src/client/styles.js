@@ -80,8 +80,17 @@ export const CSS = `
   --fo-glass-shadow: ${GLASS.shadow};
   --fo-glass-wash: ${GLASS.wash};
   --fo-glass-blur: blur(12px);
-  --fo-selected-bg: ${g(T.brand, 14)};
-  --fo-selected-line: ${g(T.brand, 34)};
+  /* 侧栏：288px 与参考站的 aside 同宽（--fo-rail-w 便于以后调） */
+  --fo-rail-w: 288px;
+  --fo-rail-line: ${g(T.border1, 40)};
+  --fo-row-hover-bg: ${g(T.bgLayer2, 55)};
+  --fo-selected-bg: ${g(T.brand, 20)};
+  --fo-selected-line: ${g(T.brand, 30)};
+  /* 画布：40px 网格 + 品牌调渐变底（参考站 WorkflowEditor 同款） */
+  --fo-grid-size: 40px;
+  --fo-grid-line: ${g(T.border1, 12)};
+  --fo-canvas-bg: linear-gradient(135deg, ${g(T.bgBase, 55)}, ${g(T.bgLayer1, 35)});
+  --fo-canvas-line: ${g(T.border1, 35)};
   --fo-ease: cubic-bezier(.2, .8, .2, 1);
   --fo-dur: 300ms;
 
@@ -159,45 +168,69 @@ export const CSS = `
 /* ============ 主体三栏 ============ */
 .fo-body {
   display: grid;
-  grid-template-columns: 248px minmax(0, 1fr);
+  grid-template-columns: var(--fo-rail-w) minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
 }
-.fo-root[data-detail="1"] .fo-body { grid-template-columns: 248px minmax(0, 1fr) 336px; }
+.fo-root[data-detail="1"] .fo-body { grid-template-columns: var(--fo-rail-w) minmax(0, 1fr) 336px; }
+/* 视口不够时先压详情栏；rail 只在很窄时才收（288 是参考站口径） */
 @media (max-width: 1280px) {
-  .fo-body { grid-template-columns: 216px minmax(0, 1fr); }
-  .fo-root[data-detail="1"] .fo-body { grid-template-columns: 216px minmax(0, 1fr) 300px; }
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: var(--fo-rail-w) minmax(0, 1fr) 300px; }
+}
+@media (max-width: 1140px) {
+  .fo-root { --fo-rail-w: 264px; }
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: var(--fo-rail-w) minmax(0, 1fr) 288px; }
+}
+@media (max-width: 1080px) {
+  .fo-root { --fo-rail-w: 248px; }
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: var(--fo-rail-w) minmax(0, 1fr) 264px; }
 }
 
 /* ============ 左栏：三层树 ============ */
 .fo-tree {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
-  border-right: 1px solid var(--fo-glass-line);
-  background: color-mix(in oklab, ${T.sidebar} 92%, transparent);
-  backdrop-filter: var(--fo-glass-blur);
-  -webkit-backdrop-filter: var(--fo-glass-blur);
+  border-right: 1px solid var(--fo-rail-line);
+  /* 参考站 aside 是「极深蓝黑 80% + blur(40px)」。这里用宿主的 sidebar-fill（「宿主侧栏底」的令牌）
+     铺同一层 80% 半透明底，模糊取 24px（性能与 40 取中） */
+  background: color-mix(in oklab, ${T.sidebar} 80%, transparent);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
+/* rail 顶部：搜索框（对齐参考站 "Search everything..." 的位置） */
+.fo-rail-top { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px 8px; }
+.fo-rail-search-row { display: flex; align-items: center; gap: 8px; }
+.fo-search {
+  flex: 1; min-width: 0; height: 32px;
+  padding: 0 10px; border-radius: 10px;
+  font: inherit; font-size: 12px;
+  color: ${T.label1};
+  background: ${g(T.bgBase, 70)};
+  border: 1px solid var(--fo-glass-line);
+}
+.fo-search::placeholder { color: ${T.label2}; }
+.fo-search:focus-visible { border-color: var(--fo-selected-line); outline: none; }
+.fo-rail-hint { font-size: 11px; color: ${T.label2}; }
 .fo-tree-head {
   display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px; border-bottom: 1px solid var(--fo-glass-line);
+  padding: 4px 16px 12px; border-bottom: 1px solid var(--fo-glass-line);
 }
-.fo-tree-title { font-size: 11px; font-weight: 600; color: ${T.label2}; letter-spacing: .04em; text-transform: uppercase; }
+.fo-tree-title { font-size: 11px; font-weight: 600; color: ${T.label2}; letter-spacing: .06em; text-transform: uppercase; }
 .fo-tree-head .fo-btn { margin-left: auto; }
-.fo-tree-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 8px 16px; }
-.fo-tree-list { display: flex; flex-direction: column; gap: 2px; }
+.fo-tree-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 16px 16px; }
+.fo-tree-list { display: flex; flex-direction: column; gap: 4px; }
 .fo-row {
-  display: flex; align-items: center; gap: 8px;
-  width: 100%; min-width: 0; height: 26px; padding: 0 8px;
-  border: 1px solid transparent; border-radius: 8px;
-  background: transparent; color: inherit; font: inherit; text-align: left;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-width: 0; height: 40px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: 12px;
+  background: transparent; color: ${T.label2}; font: inherit; font-size: 13px; text-align: left;
   cursor: pointer;
-  transition: transform var(--fo-dur) var(--fo-ease), border-color var(--fo-dur) var(--fo-ease), background-color var(--fo-dur) var(--fo-ease);
+  transition: transform var(--fo-dur) var(--fo-ease), border-color var(--fo-dur) var(--fo-ease), background-color var(--fo-dur) var(--fo-ease), color var(--fo-dur) var(--fo-ease);
 }
-.fo-row:hover { background: var(--fo-glass-sub); border-color: var(--fo-glass-line); transform: translateY(-1px); }
+.fo-row:hover { background: var(--fo-row-hover-bg); border-color: var(--fo-glass-line); color: ${T.label1}; }
 .fo-row[aria-selected="true"] {
   background: var(--fo-selected-bg);
   border-color: var(--fo-selected-line);
-  color: ${T.label1}; font-weight: 600;
+  color: ${T.brand}; font-weight: 500;
 }
 .fo-row.is-drop { border-color: ${T.brand}; background: ${g(T.brand, 20)}; }
 .fo-row.is-drag { opacity: .45; }
@@ -219,7 +252,7 @@ export const CSS = `
   min-width: 0; flex: 1;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.fo-row-count { flex: 0 0 auto; font-size: 11px; color: ${T.label2}; font-variant-numeric: tabular-nums; }
+.fo-row-count { flex: 0 0 auto; font-size: 12px; color: ${T.label2}; font-variant-numeric: tabular-nums; }
 .fo-row-badge {
   flex: 0 0 auto; font-size: 10px; padding: 0 6px; border-radius: 999px;
   color: ${T.error}; background: ${g(T.error, 14)}; border: 1px solid ${g(T.error, 30)};
@@ -278,37 +311,55 @@ export const CSS = `
 
 /* 一张图 = 一个玻璃容器（容器圆角 10px） */
 .fo-graph {
-  margin: 0 0 16px; border: 1px solid var(--fo-glass-line); border-radius: 10px;
-  background: var(--fo-glass-card);
-  backdrop-filter: var(--fo-glass-blur);
-  -webkit-backdrop-filter: var(--fo-glass-blur);
-  box-shadow: var(--fo-glass-shadow);
+  margin: 0 0 16px; border: 1px solid var(--fo-canvas-line); border-radius: 16px;
+  background: var(--fo-canvas-bg);
   overflow: hidden;
   transition: border-color var(--fo-dur) var(--fo-ease);
 }
 .fo-graph:hover { border-color: var(--fo-glass-line-hover); }
 .fo-graph-head {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 10px 16px; border-bottom: 1px solid var(--fo-glass-line);
+  padding: 12px 16px; border-bottom: 1px solid var(--fo-glass-line);
 }
 .fo-graph-name { font-size: 13px; font-weight: 600; }
 .fo-graph-meta { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
-.fo-graph-body { overflow: auto; padding: 6px; }
+/* 画布区：24px 内边距 + 固定 40px 双层网格（网格层不滚动、不拦点击） */
+.fo-canvas { position: relative; padding: 24px; }
+.fo-grid {
+  position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--fo-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--fo-grid-line) 1px, transparent 1px);
+  background-size: var(--fo-grid-size) var(--fo-grid-size);
+}
+.fo-graph-body { position: relative; overflow: auto; }
 .fo-svg { display: block; }
 .fo-band { fill: color-mix(in oklab, var(--fo-c, ${T.label2}) 6%, transparent); stroke: color-mix(in oklab, var(--fo-c, ${T.label2}) 30%, transparent); stroke-width: 1; }
 .fo-band[data-external="1"] { fill: color-mix(in oklab, ${T.label2} 5%, transparent); stroke: var(--fo-glass-line-hover); stroke-dasharray: 4 4; }
 .fo-band-label { fill: var(--fo-c, ${T.label2}); font-size: 11px; font-weight: 600; }
 .fo-band-label[data-external="1"] { fill: ${T.label2}; font-weight: 400; }
-.fo-edge { fill: none; stroke: var(--fo-glass-line-hover); stroke-width: 1.4; }
+.fo-edge {
+  fill: none; stroke: var(--fo-glass-line-hover);
+  stroke-width: 2; stroke-opacity: .7;
+  pointer-events: stroke;
+  transition: stroke-width var(--fo-dur) var(--fo-ease), stroke-opacity var(--fo-dur) var(--fo-ease), stroke var(--fo-dur) var(--fo-ease);
+}
 .fo-edge[data-kind="derived_from"] { stroke-dasharray: 5 4; stroke: ${T.idle}; }
-.fo-edge.is-active { stroke: ${T.brand}; stroke-width: 2; }
-.fo-arrow { fill: var(--fo-glass-line-hover); }
+.fo-edge:hover, .fo-edge.is-active { stroke-width: 3; stroke-opacity: 1; }
+.fo-edge.is-active { stroke: ${T.brand}; }
+/* 箭头：6×6 实心三角，fill 跟边同色（参考站 markerWidth/Height=6、d="M 0 0 L 6 3 L 0 6 z"） */
+.fo-arrow { fill: var(--fo-glass-line-hover); fill-opacity: .85; }
 .fo-arrow[data-kind="derived_from"] { fill: ${T.idle}; }
-.fo-node { cursor: pointer; }
-.fo-node-bg { fill: var(--fo-glass-sub); stroke: var(--fo-glass-line); stroke-width: 1; }
+.fo-node {
+  cursor: pointer;
+  /* SVG 没有 box-shadow：用 drop-shadow 复刻「0 8px 24px 品牌 8%」的蓝调投影 */
+  filter: drop-shadow(0 8px 24px ${g(T.brand, 8)});
+}
+.fo-node-bg { fill: var(--fo-glass-sub); stroke: ${g(T.border1, 60)}; stroke-width: 2; }
 .fo-node.is-ghost .fo-node-bg { fill: transparent; stroke: var(--fo-glass-line-hover); stroke-dasharray: 4 3; }
-.fo-node:hover .fo-node-bg { stroke: var(--fo-glass-line-hover); }
+.fo-node:hover .fo-node-bg { stroke: ${g(T.border2, 80)}; }
 .fo-node.is-selected .fo-node-bg { stroke: ${T.brand}; stroke-width: 2; }
+.fo-node.is-selected { filter: drop-shadow(0 0 6px ${g(T.brand, 25)}); }
 .fo-node-spine { fill: var(--fo-c, ${T.idle}); }
 .fo-node-dot { fill: var(--fo-c, ${T.idle}); }
 .fo-node-no { fill: ${T.label2}; font-size: 10px; font-weight: 600; }
