@@ -5,7 +5,7 @@
 
 ## 左侧栏总览（React 槽位）与自定义目录
 
-总览页是**宿主页面里的 React 组件**：客户端半体用 `ctx.slots.register({name:'sidebar.panellist',id:'feishu-overview',order:24,label:()=>'飞书任务总览'}, 图标)` 与 `{name:'main',key:'feishu-overview'}` 成对注册（两处必须同 key；图标收宿主的 `{size,active}`；label 用 thunk 以便日后接 locale），组件从 `src/client/*.js` 构建成经典脚本 `lib/client.iife.js`（`pnpm run build:client`，tsdown；产物不入库，`pnpm build` / 安装脚本会重建）。**总览页不再有 `/dsh-feishu/overview` 整页路由、不再有 iframe**（右侧栏「飞书」页签仍是 iframe → `panel.html`，那是上一代实现，本轮范围外）：DSH 官方插件实践要求插件页面以 React 组件渲染在槽位里，否则拿不到宿主主题令牌、明暗切换与 locale。样式只消费 `--dsw-*` 主题令牌（13 个 `--dsw-alias-*` + `--dsw-specific-sidebar-fill`，见 `src/client/styles.js`，类前缀 `fo-`），不得自造调色板。
+总览页是**宿主页面里的 React 组件**：客户端半体用 `ctx.slots.register({name:'sidebar.panellist',id:'feishu-overview',order:24,label:()=>'飞书任务集'}, 图标)` 与 `{name:'main',key:'feishu-overview'}` 成对注册（两处必须同 key；图标收宿主的 `{size,active}`；label 用 thunk 以便日后接 locale），组件从 `src/client/*.js` 构建成经典脚本 `lib/client.iife.js`（`pnpm run build:client`，tsdown；产物不入库，`pnpm build` / 安装脚本会重建）。**总览页不再有 `/dsh-feishu/overview` 整页路由、不再有 iframe**（右侧栏「飞书」页签仍是 iframe → `panel.html`，那是上一代实现，本轮范围外）：DSH 官方插件实践要求插件页面以 React 组件渲染在槽位里，否则拿不到宿主主题令牌、明暗切换与 locale。样式只消费 `--dsw-*` 主题令牌（13 个 `--dsw-alias-*` + `--dsw-specific-sidebar-fill`，见 `src/client/styles.js`，类前缀 `fo-`），不得自造调色板。
 
 数据面（页面只碰这三个）：
 - `GET /api/overview`：瘦快照 `{ok,revision,now,groups,workspaces,tasks,relations,stats}`。`tasks[]` 带 `workspaceKey`（由 `workspaceGroups.js` 的 `workspaceKeyOf` 唯一计算）、依赖/来源摘要与 `blocked/ready/done/suspended/started/sessionId`；`relations[]` 只有 `{from,to,kind}`；`stats` 为 `{tasks,groups,dependencyEdges,provenanceEdges,blocked,ready}`。**不再下发整份 state**（settings/排期/会话水位都不进响应）。

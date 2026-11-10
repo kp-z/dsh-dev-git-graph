@@ -539,7 +539,7 @@ export function createOverviewPanel(deps) {
     },
       h('header', { className: 'fo-head' },
         h('div', { className: 'fo-head-main' },
-          h('span', { className: 'fo-title' }, model.str(options.title) || '飞书任务总览'),
+          h('span', { className: 'fo-title' }, model.str(options.title) || '飞书任务集'),
           h('span', { className: 'fo-sub' }, subtitle.join(' · ')),
         ),
         chips.length ? h('div', { className: 'fo-stats' }, chips) : null,

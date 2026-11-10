@@ -1,5 +1,5 @@
 /**
- * 飞书任务总览 · 关系图几何层（纯函数）
+ * 飞书任务集 · 关系图几何层（纯函数）
  *
  * 输入 `{tasks, relations, groups, workspaces, scope}` → 输出可以直接喂给 SVG 的
  * `{graphs[], nodes, edges, bands, width, height}`。

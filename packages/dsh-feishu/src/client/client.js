@@ -3,7 +3,7 @@
  *
  * 两件事：
  *   1. 右侧栏「飞书」页签 —— 既有实现，仍然是 iframe（panel.html 是上一代整页面板，本轮不动它）；
- *   2. 左侧栏「飞书任务总览」—— **宿主页面里的 React 组件**，挂到 `sidebar.panellist` + `main`。
+ *   2. 左侧栏「飞书任务集」—— **宿主页面里的 React 组件**，挂到 `sidebar.panellist` + `main`。
  *
  * 为什么总览是 React 而不是 iframe（DSH 官方插件实践）：
  *   「Render plugin pages as React components in a slot. Do not serve an HTML page from the Host and
@@ -24,7 +24,7 @@ import * as layout from '../overview/layout.js';
 
 /* sidebar.panellist 的 id 同时就是 main 面板的 key（DSH 约定），两处必须同源。 */
 const OVERVIEW_KEY = 'feishu-overview';
-const OVERVIEW_LABEL = '飞书任务总览';
+const OVERVIEW_LABEL = '飞书任务集';
 const SCROLL_HOST_CSS = [
   '.dfe-wrap{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}',
   '.dfe-frame{flex:1;min-height:0;width:100%;border:0;background:transparent;display:block}',
