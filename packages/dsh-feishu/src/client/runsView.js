@@ -3,7 +3,7 @@
  *
  * 零依赖、零副作用，可离线单测。输入是宿主快照的 tasks（字段见 index.js 的 overview 组装）：
  *   { id, no, title, done, workspaceKey, workspaceTitle, sessionId, running, sessionTurn,
- *     blocked, ready, started, suspended, createdAt, startedAt, completedAt, suspendedAt,
+ *     blocked, ready, started, suspended, createdAt, startedAt, completedAt, suspendedAt, runningSince,
  *     predecessors[], blockedBy[] }
  *
  * **状态判定优先级（写死在这张表里，顺序即优先级）**：
@@ -115,7 +115,15 @@ export function buildRuns(snapshot) {
     const meta = STATE_META[state] || STATE_META.idle
     const sessionId = str(task.sessionId)
     const startedAt = num(task.startedAt, 0)
-    const elapsed = startedAt > 0 && state !== 'done' ? Math.max(0, now - startedAt) : 0
+    /* 运行起点只有一个，但来源分两种（都在数据面里，不猜）：
+       - runningSince：宿主**观察到会话在跑**的最早时刻（本次连续运行的起点，重启后重算）
+       - startedAt：任务自己的「开工」时间（历史任务大多没有）
+       画面上要让人看出用的是哪一个，所以带上 source 与文案。 */
+    const runningSince = num(task.runningSince, 0)
+    const hasStart = state !== 'done' && (runningSince > 0 || startedAt > 0)
+    const startFrom = runningSince > 0 ? runningSince : startedAt
+    const startSource = runningSince > 0 ? 'observed' : (startedAt > 0 ? 'task' : 'none')
+    const elapsed = hasStart ? Math.max(0, now - startFrom) : 0
     return {
       id: str(task.id),
       no: num(task.no, 0),
@@ -131,6 +139,10 @@ export function buildRuns(snapshot) {
       canOpenSession: Boolean(sessionId),
       sessionTurn: num(task.sessionTurn, 0),
       startedAt,
+      runningSince,
+      startFrom,
+      startSource,
+      startedText: startSource === 'observed' ? '观察到运行' : (startSource === 'task' ? '开工时间' : '未记录开始时间'),
       completedAt: num(task.completedAt, 0),
       suspendedAt: num(task.suspendedAt, 0),
       elapsed,
@@ -195,15 +207,16 @@ export function buildRuns(snapshot) {
     }
   })
 
-  /* 运行时长 Top5：now - startedAt，越早开始越靠前；
-     **没记开始时间的排在最后并标「未记录开始时间」**（不猜、不拿轮次冒充时长）。 */
+  /* 运行时长 Top5：now - 起点，越早开始越靠前。
+     起点优先取**观察到运行**的时刻（runningSince），没有才退回任务开工时间（startedAt）；
+     两者都没有的排最后并标「未记录开始时间」——不猜、不拿轮次冒充时长。 */
   const live = bubbles.filter((bubble) => bubble.state !== 'done')
   const timed = live
-    .filter((bubble) => bubble.startedAt > 0)
-    .map((bubble) => ({ ...bubble, elapsed: Math.max(0, now - bubble.startedAt), elapsedText: formatDuration(Math.max(0, now - bubble.startedAt)), untimed: false }))
+    .filter((bubble) => bubble.startFrom > 0)
+    .map((bubble) => ({ ...bubble, elapsed: Math.max(0, now - bubble.startFrom), elapsedText: formatDuration(Math.max(0, now - bubble.startFrom)), untimed: false }))
     .sort((a, b) => (b.elapsed - a.elapsed) || (a.no - b.no))
   const untimedRows = live
-    .filter((bubble) => bubble.startedAt <= 0)
+    .filter((bubble) => bubble.startFrom <= 0)
     .sort((a, b) => (a.no - b.no))
     .map((bubble) => ({ ...bubble, elapsed: 0, elapsedText: '未记录开始时间', untimed: true }))
   const longest = timed.concat(untimedRows).slice(0, 5)

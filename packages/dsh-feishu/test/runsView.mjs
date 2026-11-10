@@ -25,7 +25,7 @@ function check(name, fn) {
   try {
     fn()
     passed += 1
-    console.log(`  ok  ${name}`)
+console.log(`  ok  ${name}`)
   } catch (error) {
     failed.push({ name, error })
     console.log(`  FAIL ${name}`)
@@ -336,6 +336,39 @@ check('大量任务（400 条）也稳：分组计数守恒、Top5 不越界', (
 })
 
 /* ---------------- 收尾 ---------------- */
+
+    /* ---- 运行起点：优先用宿主观察到的 runningSince，其次任务开工时间 ---- */
+check('时长优先用 runningSince（观察到在跑），并标出用的是什么起点', () => {
+  const view = buildRuns({
+    now: 1_000_000,
+    tasks: [
+      { id: 'a', no: 1, title: 'A', running: true, started: true, runningSince: 400_000, startedAt: 100_000 },
+      { id: 'b', no: 2, title: 'B', running: true, started: true, runningSince: 0, startedAt: 700_000 },
+      { id: 'c', no: 3, title: 'C', running: true, started: true, runningSince: 0, startedAt: 0 },
+    ],
+  })
+  const byId = Object.fromEntries(view.bubbles.map((bubble) => [bubble.id, bubble]))
+  assert.equal(byId.a.startSource, 'observed')
+  assert.equal(byId.a.elapsed, 600_000, '观察到运行起 400s → 已跑 600s')
+  assert.equal(byId.a.elapsedText, formatDuration(600_000))
+  assert.equal(byId.b.startSource, 'task')
+  assert.equal(byId.b.elapsed, 300_000, '没有 runningSince 时退回 startedAt')
+  assert.equal(byId.c.startSource, 'none')
+  assert.equal(byId.c.elapsed, 0)
+  /* Top5：有起点的按最久排前，没起点的排最后并标明 */
+  assert.deepEqual(view.longest.map((row) => row.id), ['a', 'b', 'c'])
+  assert.equal(view.longest[2].untimed, true)
+  assert.equal(view.longest[2].elapsedText, '未记录开始时间')
+})
+
+check('已完成的任务不参与时长（不给完成的任务算「跑了多久」）', () => {
+  const view = buildRuns({
+    now: 1_000_000,
+    tasks: [{ id: 'd', no: 9, title: 'D', done: true, runningSince: 100_000, startedAt: 100_000 }],
+  })
+  assert.equal(view.bubbles[0].elapsed, 0)
+  assert.equal(view.longest.length, 0)
+})
 
 console.log('')
 if (failed.length) {

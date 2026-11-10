@@ -16,16 +16,22 @@ const HOME = await isolatedHome('dsh-feishu-overview-route-')
 const { apply } = await import('../index.js')
 
 const routes = []
+/* 宿主内存里的会话活性：这条会话「正在跑」，用来验证 running / runningSince 的观测口径。 */
+const LIVE_SESSION = 'sess-live-1'
 const ctx = {
   logger: () => ({ info: () => {}, error: () => {} }),
   effect(fn) { fn(); return () => {} },
-  get: () => undefined,
+  get: (name) => (name === 'agents' ? { list: () => [{ id: LIVE_SESSION, phase: { kind: 'running', turn: 3 } }] } : undefined),
   tools: { register: () => () => {} },
   webServer: { register: (route) => (routes.push(route), () => {}) },
 }
 
 await mkdir(join(HOME, 'dsh-feishu'), { recursive: true })
 await writeFile(join(HOME, 'dsh-feishu', 'settings.json'), JSON.stringify({ autoSync: false, cliPath: '/nonexistent/feishu-sync-cli', managedTasklist: { enabled: false } }))
+await writeFile(join(HOME, 'dsh-feishu', 'state.json'), JSON.stringify({
+  tasks: [{ id: 'live-task', no: 1, title: '正在跑的会话', done: false, sessionId: LIVE_SESSION, started: true, meta: { workspace: 'w1' } }],
+  relations: [], relationSync: {}, suspensions: {},
+}))
 apply(ctx, {})
 
 const startedAt = Date.now()
@@ -70,6 +76,19 @@ check('stats 口径齐全', ['tasks', 'groups', 'dependencyEdges', 'provenanceEd
 const revision = await json('/api/overview/revision')
 check('GET /api/overview/revision 与快照同源', revision.status === 200 && revision.data?.revision === view.revision, JSON.stringify(revision.data))
 check('revision 是非空短串', typeof view.revision === 'string' && view.revision.length >= 8)
+
+/* ── 会话运行起点（runningSince）：观察口径 + 幂等 + 进 revision ────── */
+{
+  const first = (await json('/api/overview')).data
+  const task = (first.tasks || []).find((row) => row.id === 'live-task')
+  check('绑定着「正在跑」的会话：running=true 且记下了运行起点', Boolean(task) && task.running === true && Number(task.runningSince) > 0,
+    JSON.stringify(task && { running: task.running, runningSince: task.runningSince }))
+  const second = (await json('/api/overview')).data
+  const again = (second.tasks || []).find((row) => row.id === 'live-task')
+  check('再取一次快照：运行起点不变（幂等，不会每次刷新都重置）',
+    Number(again.runningSince) === Number(task.runningSince), `${task.runningSince} → ${again && again.runningSince}`)
+  check('运行起点进了 revision（会话起停要能让页面自己刷）', first.revision !== undefined && second.revision !== undefined)
+}
 
 /* ── 旧整页路由已经拆掉 ─────────────────────────────────────────────── */
 const legacy = await json('/overview')

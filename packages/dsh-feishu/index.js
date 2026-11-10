@@ -553,6 +553,10 @@ const DEFAULT_STATE = {
   relationSync: {},
   /* 一键整理的 AI 关系建议单：按 batchId 存，pending 只是建议，不写 relations、不写飞书。 */
   organizeSuggestions: {},
+  /* 「第一次观察到这条会话在跑」的时刻（sessionId → epoch）。只用来给运行页算时长：
+     任务自己的 startedAt 是「绑定/开工」语义、而且老任务多半没有，不能拿它冒充运行起点。
+     不跑了就清掉，所以它表达的是「本次连续运行至少从这一刻开始」。 */
+  sessionRunSeen: {},
   /* 自定义目录（工作区分组）：用户自己拖出来的一组 workspace，共用一个名字与一张关系图。 */
   workspaceGroups: [],
   /* 挂起独立于完成标志；保存归档/自动化恢复凭据，不能同步时丢失。 */
@@ -3193,6 +3197,7 @@ function createSyncEngine(ctx) {
     state.relationSync = savedState.relationSync && typeof savedState.relationSync === 'object' ? savedState.relationSync : {}
     /* 一键整理的建议单：坏值退回空对象，别让手改过的 state.json 把面板打崩。 */
     state.organizeSuggestions = savedState.organizeSuggestions && typeof savedState.organizeSuggestions === 'object' && !Array.isArray(savedState.organizeSuggestions) ? savedState.organizeSuggestions : {}
+    state.sessionRunSeen = savedState.sessionRunSeen && typeof savedState.sessionRunSeen === 'object' && !Array.isArray(savedState.sessionRunSeen) ? savedState.sessionRunSeen : {}
     /* 自定义目录：坏行直接丢掉，不让一份手改过的 state.json 拖垮整个面板。 */
     state.workspaceGroups = normalizeGroups(savedState.workspaceGroups)
     state.suspensions = savedState.suspensions && typeof savedState.suspensions === 'object' ? savedState.suspensions : {}
@@ -3437,6 +3442,10 @@ function createSyncEngine(ctx) {
     const seen = state.sessionSeen ?? (state.sessionSeen = {})
     if (seen[id] === undefined) seen[id] = Math.max(0, (patch.turn || old.turn || 0) - ((patch.kind === 'running' || old.kind === 'running') ? 1 : 0))
     activityOverrides.set(id, { ...old, ...patch, turn: Math.max(old.turn || 0, patch.turn || 0) })
+    /* 观测到「在跑」就记下最早时刻；不跑了清掉（与 noteRunningSessions 同一口径）。 */
+    const runSeen = state.sessionRunSeen ?? (state.sessionRunSeen = {})
+    const kind = asString(patch.kind) || asString(old.kind)
+    if (kind === 'running') { if (!runSeen[id]) runSeen[id] = nowMs() } else if (runSeen[id]) delete runSeen[id]
     activityFeed.changed()
   }
 
@@ -3470,6 +3479,34 @@ function createSyncEngine(ctx) {
       else map.set(id, { kind: item.kind, turn: item.turn })
     }
     return map
+  }
+
+  /**
+   * 记「第一次看到这条会话在跑」的时刻（state.sessionRunSeen）。
+   *
+   * 为什么需要它：任务自己的 `startedAt` 是「绑定/开工」的语义，而且历史任务大多没有这个值
+   * （live 复核：52 条里只有 2 条有）——运行页拿它算「跑了多久」会大面积显示「未记录开始时间」。
+   * 这里记的是**观察**：某条会话连续在跑的这段时间里，我们最早一次见到它的时刻。
+   * 不跑了就把记录清掉，所以它不会把上一次运行的时间算进这一次。
+   * 返回是否发生变化（调用方决定要不要落盘）。
+   */
+  function noteRunningSessions() {
+    const live = liveSessionState()
+    const runSeen = state.sessionRunSeen ?? (state.sessionRunSeen = {})
+    let changed = false
+    for (const [id, item] of live) {
+      if (item && item.kind === 'running') {
+        if (!runSeen[id]) { runSeen[id] = nowMs(); changed = true }
+      } else if (runSeen[id]) {
+        delete runSeen[id]
+        changed = true
+      }
+    }
+    /* 已经不在 live 里的会话（跑完 / 宿主重启）：顺手清掉，别留陈旧起点。 */
+    for (const id of Object.keys(runSeen)) {
+      if (!live.has(id)) { delete runSeen[id]; changed = true }
+    }
+    return changed
   }
 
   function workspaces() {
@@ -4433,6 +4470,9 @@ function createSyncEngine(ctx) {
    * 保证目录成员、分组、统计三边说的是同一个 key。
    */
   function overviewView() {
+    /* 顺手更新「观察到在跑」的起点：面板每 30s 拉一次快照，粒度足够，
+       而且不写盘（这个标记与 running 一样是宿主内存态，重启后自然重算）。 */
+    noteRunningSessions()
     const workspaceRows = workspaceList()
     const byId = new Map(state.tasks.map((task) => [task.id, task]))
     const summary = (id) => ({ id, title: byId.get(id)?.title || id, done: byId.get(id)?.done === true, missing: !byId.has(id) })
@@ -4481,6 +4521,8 @@ function createSyncEngine(ctx) {
            sessionTurn 只作为「跑到第几轮」的进度信号，不做时间戳用。 */
         running: Boolean(task.sessionId) && live.get(asString(task.sessionId))?.kind === 'running',
         sessionTurn: Number(live.get(asString(task.sessionId))?.turn) || 0,
+        /* 本次连续运行「至少从这一刻开始」（观察值）；0 = 还没观察到。运行页用它算时长。 */
+        runningSince: Number(state.sessionRunSeen?.[asString(task.sessionId)]) || 0,
         /* 时间字段：洞察页要「最近完成/最近开始」、运行页要「跑了多久」。
            本地任务上本来就有这些字段（同步时会拿到飞书侧时间），这里只是投影出来，不新增写路径。 */
         createdAt: Number(task.createdAt) || 0,
@@ -4502,7 +4544,7 @@ function createSyncEngine(ctx) {
       /* 哈希要覆盖**用户看得见的一切**：任务标题/完成/工作区/阻塞，以及挂起与绑定会话——
          这两项曾经漏掉，导致挂起或换绑后 revision 不变，页面按「变了才刷」就不会重拉。 */
       .update(JSON.stringify([
-        tasks.map((task) => [task.id, task.title, task.done, task.workspaceKey, task.blocked, task.suspended, task.sessionId, task.running, task.completedAt, task.startedAt, task.predecessors.length]),
+        tasks.map((task) => [task.id, task.title, task.done, task.workspaceKey, task.blocked, task.suspended, task.sessionId, task.running, task.runningSince, task.completedAt, task.startedAt, task.predecessors.length]),
         relations,
         groups,
       ]))

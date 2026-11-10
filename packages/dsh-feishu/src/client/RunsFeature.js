@@ -152,7 +152,7 @@ export function createRunsFeature(deps) {
 
     /* 4) 运行时长 Top5 */
     const longestMax = view.longest.reduce((max, row) => Math.max(max, row.elapsed), 0)
-    const longest = panel(3, 'longest', '运行时长 Top 5', 'now − 开始时间', view.longestUntimed ? `${view.longestUntimed} 条缺开始时间` : '',
+    const longest = panel(3, 'longest', '运行时长 Top 5', '起点优先取「观察到在跑」，其次任务开工时间', view.longestUntimed ? `${view.longestUntimed} 条缺开始时间` : '',
       view.longest.length
         ? h('div', { className: 'fr-list' }, view.longest.map((row) => h('button', {
           key: row.id,
@@ -163,7 +163,7 @@ export function createRunsFeature(deps) {
         },
           h('span', { className: 'fr-item-main' },
             h('span', { className: 'fr-item-title' }, row.title),
-            h('span', { className: 'fr-item-sub' }, row.workspaceTitle),
+            h('span', { className: 'fr-item-sub' }, `${row.workspaceTitle}${row.untimed ? '' : ` · ${row.startedText}`}`),
           ),
           h('span', { className: 'fr-item-bar' },
             h('span', { className: 'fr-bar' }, h('i', { style: { width: `${row.untimed || !longestMax ? 0 : Math.max(4, Math.round((row.elapsed / longestMax) * 100))}%` } })),
