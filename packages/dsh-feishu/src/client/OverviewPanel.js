@@ -830,9 +830,9 @@ export function createOverviewPanel(deps) {
         onRun: runOrganize,
         onToggle: toggleOrganize,
       },
-      /* 仪表盘页（洞察 / 运行）看的是**全局**，不受当前范围与搜索影响：
-         它们要的是整份快照 + 现在时刻，自己做统计。 */
-      tasks: visibleTasks,
+      /* 仪表盘页（洞察 / 运行）看的是**全局**：不受当前范围、也不受搜索词影响，
+         所以要传未过滤的 tasks（复核 R1：传 visibleTasks 会让搜索时 ghosts 虚高、KPI 总数缩水）。 */
+      tasks,
       relations,
       groups,
       workspaces,
@@ -946,26 +946,30 @@ export function createOverviewPanel(deps) {
               h('span', { className: 'fo-crumb-title' }, scopeName),
               h('span', { className: 'fo-crumb-sub' }, subtitle.join(' · ')),
             ),
-            h('div', { className: 'fo-search-wrap' },
-              h('span', { className: 'fo-search-icon', 'aria-hidden': 'true' },
-                h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' },
-                  h('circle', { cx: 8.5, cy: 8.5, r: 5 }),
-                  h('path', { d: 'M12.3 12.3 16.5 16.5' }),
+            /* 搜索框只属于「会按搜索收窄」的功能（注册表里 search:true，今天只有关系图）：
+               洞察/运行看全局，摆在它们头上会让人以为数字被搜没了（复核 R1）。 */
+            activeFeature && activeFeature.search === true
+              ? h('div', { className: 'fo-search-wrap' },
+                h('span', { className: 'fo-search-icon', 'aria-hidden': 'true' },
+                  h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' },
+                    h('circle', { cx: 8.5, cy: 8.5, r: 5 }),
+                    h('path', { d: 'M12.3 12.3 16.5 16.5' }),
+                  ),
                 ),
-              ),
-              h('input', {
-                className: 'fo-search',
-                type: 'text',
-                value: keyword,
-                placeholder: '搜索任务 / 编号 / 项目…',
-                'aria-label': '搜索任务',
-                onChange: (event) => setKeyword(event.currentTarget.value),
-                onKeyDown: (event) => { if (event.key === 'Escape') setKeyword('') },
-              }),
-              keyword ? h('span', { className: 'fo-search-hint' }, `匹配 ${scopedTasks.length} 条`) : null,
-            ),
+                h('input', {
+                  className: 'fo-search',
+                  type: 'text',
+                  value: keyword,
+                  placeholder: '搜索任务 / 编号 / 项目…',
+                  'aria-label': '搜索任务',
+                  onChange: (event) => setKeyword(event.currentTarget.value),
+                  onKeyDown: (event) => { if (event.key === 'Escape') setKeyword('') },
+                }),
+                keyword ? h('span', { className: 'fo-search-hint' }, `匹配 ${scopedTasks.length} 条`) : null,
+              )
+              : null,
             h('div', { className: 'fo-head-actions' },
-              scope.kind !== 'all'
+              activeFeature && activeFeature.search === true && scope.kind !== 'all'
                 ? h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => setScope({ kind: 'all', id: '' }) }, '全部任务')
                 : null,
             ),

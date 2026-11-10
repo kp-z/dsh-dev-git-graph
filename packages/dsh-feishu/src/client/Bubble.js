@@ -43,7 +43,7 @@ export function createBubble(deps) {
         'aria-label': `${bubble.title || bubble.id}（${bubble.label || ''}）`,
         title: `${bubble.title || ''} · ${bubble.label || ''}${bubble.elapsedText && bubble.elapsedText !== '—' ? ` · ${bubble.elapsedText}` : ''}`,
         onClick: () => { if (typeof p.onSelect === 'function') p.onSelect(bubble.id) },
-        onDoubleClick: () => { if (canOpen) p.onOpenSession(bubble.sessionId) },
+        onDoubleClick: () => { if (canOpen) p.onOpenSession(bubble.sessionId, bubble.title) },
       },
         h('span', { className: 'fr-bubble-num' }, label),
         bubble.breathing ? h('span', { className: 'fr-bubble-pulse', 'aria-hidden': 'true' }) : null,
@@ -61,7 +61,7 @@ export function createBubble(deps) {
             disabled: !bubble.canOpenSession,
             title: bubble.canOpenSession ? '打开这条任务的会话' : '这个任务没有绑定会话',
             'aria-label': bubble.canOpenSession ? '打开会话' : '没有绑定会话',
-            onClick: () => { if (bubble.canOpenSession) p.onOpenSession(bubble.sessionId) },
+            onClick: () => { if (bubble.canOpenSession) p.onOpenSession(bubble.sessionId, bubble.title) },
           }, '↗')
           : null,
       ),

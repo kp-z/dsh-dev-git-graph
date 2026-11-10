@@ -170,7 +170,13 @@ export function createInsightFeature(deps) {
 
     /* 3) 项目分布 */
     const workspaces = panel(2, 'projects', '项目分布', `Top 8${view.workspaces.length > 8 ? ' + 其他' : ''}`, `${view.projectCount} 个项目`,
-      h('div', { className: 'fd-list fd-scroll' }, view.workspaces.map((row) => h('div', { key: row.key, className: `fd-list-row fd-tone-${row.tone || row.tone}` },
+      h('div', { className: 'fd-list fd-scroll' }, view.workspaces.map((row) => h('div', {
+        key: row.key,
+        className: 'fd-list-row',
+        /* 项目分色：insightView 算好的 deco 指到 --fo-deco-N（与画布上同一个色板），
+           不要用 fd-tone-*（那是状态色调，项目行没有 tone，会拿到 fd-tone-undefined → 全部回退品牌色）。 */
+        style: { '--fd-tone': `var(--fo-deco-${row.deco}, var(--dsw-alias-brand-primary))` },
+      },
         h('span', { className: 'fd-list-label', title: row.label }, row.label),
         h('span', { className: 'fd-list-bar' },
           h('span', { className: 'fd-bar-split' },

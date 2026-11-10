@@ -91,6 +91,8 @@ export function createFeatures(deps) {
       /* 一级菜单口径（用户原话）：「当前第二列变成二级菜单，一级菜单叫关系」。 */
       label: '关系',
       hint: '同一目录的任务与依赖画在一张画布上',
+      /* 只有这个功能会用头部搜索框（按关键词收窄树/图）。仪表盘看全局，不声明。 */
+      search: true,
       icon: graphIcon,
       /**
        * 二级菜单 = 范围树（全部任务 / 各目录 / 未分组，未分组下再列项目）。
@@ -112,7 +114,7 @@ export function createFeatures(deps) {
     {
       id: 'runs',
       label: '运行',
-      hint: '一个任务一个气泡：绿色在呼吸就是在跑',
+      hint: '一个任务一个气泡：绿色在呼吸就是在跑（运行态来自宿主内存，重启后清零、会话恢复后自愈）',
       icon: bubbleIcon,
       Component: createRunsFeature(d),
     },

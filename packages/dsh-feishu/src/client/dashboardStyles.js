@@ -409,12 +409,15 @@ export const CSS = `
 }
 
 /* ============ 尊重系统「减少动态效果」 ============ */
+/* 减少动效：一律 !important —— 不能靠「块在文件最后 + 同特异度」生效，
+   否则以后任何追加的动画规则（或特异度更高的选择器）会静默压过它（复核 R3）。
+   与 styles.js 的 fo- 段同一口径。 */
 @media (prefers-reduced-motion: reduce) {
-  .fd-panel, .fr-panel { animation: none; }
-  .fd-bar > i, .fd-bar-split > i, .fd-bar-split > b, .fd-donut-arc, .fr-bar > i { transition: none; }
+  .fd-panel, .fr-panel { animation: none !important; }
+  .fd-bar > i, .fd-bar-split > i, .fd-bar-split > b, .fd-donut-arc, .fr-bar > i { transition: none !important; }
   /* 用户口径：只在系统允许动效时才呼吸 */
-  .fr-bubble.is-running, .fr-stat-ring.is-running, .fr-bubble-pulse { animation: none; }
-  .fr-bubble:hover { transform: none; }
+  .fr-bubble.is-running, .fr-stat-ring.is-running, .fr-bubble-pulse { animation: none !important; }
+  .fr-bubble:hover { transform: none !important; }
 }
 `
 

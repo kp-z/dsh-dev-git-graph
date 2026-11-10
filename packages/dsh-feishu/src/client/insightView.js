@@ -131,7 +131,7 @@ function kpiOf(id, label, value, total, tone, suffix) {
  * 返回：
  *   empty      是否没有任何任务
  *   totals     { tasks, done, open, blocked, suspended, ready, running }
- *   kpis       4-5 个气泡指标卡
+ *   kpis       6 个气泡指标卡（总数 / 完成率 / 阻塞 / 就绪 / 挂起 / 今日完成）
  *   statusMix  互斥四桶 + 百分比（和恰好 100）
  *   workspaces 按任务数倒序，Top 8 + 「其他」
  *   relations  { dependencyEdges, provenanceEdges, ghosts, maxChain }

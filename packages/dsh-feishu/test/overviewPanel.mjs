@@ -2090,7 +2090,9 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   check('假功能页仍复用同一套 rail / 内容头部骨架', () => {
     assert.equal(byClass(railOf(), 'fo-brand').length, 1)
     assert.equal(featnavItems(itree).length, injected.features.length)
-    assert.equal(searchInputs(itree).length, 1, '头部搜索框是骨架的一部分')
+    /* 搜索框只属于声明 search:true 的功能（今天只有关系图）：仪表盘看全局，
+       摆在它们头上会让人以为数字被搜没了（复核 R1 的修法）。 */
+    assert.equal(searchInputs(itree).length, 0, '没声明 search 的功能不显示搜索框')
   })
 
   featnavItems(itree)[0].props.onClick()
@@ -2151,6 +2153,67 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.equal(rootOf(tree).props['data-feature'], 'graph')
     assert.ok(graphSections(tree).length >= 1)
     assert.ok(byClass(tree, 'fo-subnav').length >= 1)
+  })
+}
+
+/* ---- 10c. 运行页的气泡交互（复核 R3：此前这条链路零覆盖） ---- */
+{
+  const hostCalls = []
+  const fakeHost = {
+    canOpenSession: () => ({ ok: true }),
+    openSession: (sessionId, expectedTitle) => {
+      hostCalls.push({ sessionId, expectedTitle })
+      return Promise.resolve({ ok: true })
+    },
+  }
+  const snapshot = Object.assign({}, SNAPSHOT, {
+    tasks: [
+      makeTask('r1', 21, 'wA', '项目A', { running: true, started: true, sessionId: 'sess-running' }),
+      makeTask('r2', 22, 'wA', '项目A', { running: false, started: true, sessionId: '' }),
+    ],
+    relations: [],
+    stats: { tasks: 2, groups: 0, dependencyEdges: 0, provenanceEdges: 0, blocked: 0, ready: 2 },
+  })
+  const run = await mountPanel({ snapshot, host: fakeHost })
+  let rtree = run.tree
+  const runItems = () => featnavItems(rtree)
+  runItems()[runItems().findIndex((item) => textOf(item).includes('运行'))].props.onClick()
+  rtree = await run.mini.act()
+
+  const bubbles = () => byClass(rtree, 'fr-bubble-item')
+  check('运行页：一个任务一个气泡（2 条任务 = 2 个气泡）', () => {
+    assert.equal(bubbles().length, 2)
+  })
+
+  /* 可点的是气泡本身（.fr-bubble 那个 button），.fr-bubble-item 只是外壳 */
+  const firstBubble = () => byClass(bubbles()[0], 'fr-bubble')[0]
+  firstBubble().props.onClick()
+  rtree = await run.mini.act()
+  check('点气泡 = 选中该任务并打开右侧详情', () => {
+    assert.equal(rootOf(rtree).props['data-detail'], '1')
+    assert.ok(textOf(rtree).includes('任务 r1'), textOf(rtree).slice(0, 80))
+  })
+
+  /* ↗ = 打开会话：有 sessionId 的那个应该真的把 id 交给宿主 */
+  const bubblesNow = bubbles()
+  const goButtons = bubblesNow.map((bubble) => byClass(bubble, 'fr-bubble-go')[0]).filter(Boolean)
+  check('每个气泡都有「打开会话」按钮', () => {
+    assert.equal(goButtons.length, 2)
+  })
+  const withSession = goButtons.find((button) => button.props.disabled !== true)
+  assert.ok(withSession, '应有一个可点的「打开会话」')
+  withSession.props.onClick({ stopPropagation() {} })
+  rtree = await run.mini.act()
+  check('点「打开会话」→ 调 host.openSession(sessionId, 任务标题)', () => {
+    assert.equal(hostCalls.length, 1, JSON.stringify(hostCalls))
+    assert.equal(hostCalls[0].sessionId, 'sess-running')
+    assert.ok(String(hostCalls[0].expectedTitle).includes('任务 r1'), hostCalls[0].expectedTitle)
+  })
+
+  const withoutSession = goButtons.find((button) => button.props.disabled === true)
+  check('没绑会话的任务：按钮 disabled 且 title 说明原因', () => {
+    assert.ok(withoutSession, '没有 sessionId 的气泡按钮应 disabled')
+    assert.match(String(withoutSession.props.title), /没有绑定会话/)
   })
 }
 
