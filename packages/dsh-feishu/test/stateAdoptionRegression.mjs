@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto'
 import { basename } from 'node:path'
 import vm from 'node:vm'
 import { createCreationLedger } from '../creationLedger.js'
+/* 用生产实现而不是复制一份算法：load() 现在也要归一化自定义目录。 */
+import { normalizeGroups } from '../workspaceGroups.js'
 
 // Run the actual production load/normalization/retry functions in an isolated VM.
 // Only reading production source/modules is real IO. State/settings reads and
@@ -62,6 +64,7 @@ function harness(current, old = legacy) {
     basename, log: (_ctx, level, message) => { logs.push({ level, message }) }, ctx: {},
     lifecycleDisposed: false, stateLoaded: false, cli: {}, earlyReopenTurns: new Map(),
     recoverSyncHistory: rows => Array.isArray(rows) ? plain(rows) : [],
+    normalizeGroups,
     rememberSelfUser: () => {}, applySelfNames: () => {},
     reopenSessionTasks: unexpected('reopen'),
     asString: value => value == null ? '' : String(value), nowMs: () => 12345,

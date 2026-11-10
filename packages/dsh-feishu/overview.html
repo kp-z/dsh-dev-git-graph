@@ -34,6 +34,15 @@
     /* 关系图画布：极淡的方格纸，给「工程图」一点材质，但绝不抢内容 */
     --p-grid: rgba(20, 20, 26, 0.055);
     --p-ghost: rgba(20, 20, 26, 0.035);
+    /* 项目配色：同一个目录下的项目共用一张图，靠这组颜色分辨项目 */
+    --ov-c0: #3b5bdb;
+    --ov-c1: #0f7b55;
+    --ov-c2: #a45d09;
+    --ov-c3: #b5179e;
+    --ov-c4: #0e7490;
+    --ov-c5: #c0261b;
+    --ov-c6: #6d28d9;
+    --ov-c7: #4d7c0f;
     --ov-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   }
 
@@ -63,6 +72,14 @@
     --p-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
     --p-grid: rgba(233, 234, 238, 0.05);
     --p-ghost: rgba(233, 234, 238, 0.03);
+    --ov-c0: #7f96ff;
+    --ov-c1: #4dc38d;
+    --ov-c2: #e0a458;
+    --ov-c3: #f38bd8;
+    --ov-c4: #4bc6e0;
+    --ov-c5: #ff8a80;
+    --ov-c6: #b79cff;
+    --ov-c7: #b6d95c;
   }
 
   /* ---------- 基础 ---------- */
@@ -169,6 +186,42 @@
   }
   .ov-chip-count { font-family: var(--ov-mono); font-size: 10.5px; opacity: .75; }
   .ov-chip-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov-chip.is-selected { border-color: var(--p-accent-line); background: var(--p-accent-weak); color: var(--p-accent-text); }
+  .ov-chip[draggable="true"] { cursor: grab; }
+  .ov-chip[draggable="true"]:active { cursor: grabbing; }
+  .ov-chip-clear { border-color: var(--p-select-line); color: var(--p-select); }
+
+  /* 自定义目录：移动菜单 / 新建 / 拖放落点 */
+  .ov-move { display: flex; flex-direction: column; gap: 6px; }
+  .ov-inline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .ov-select {
+    flex: 1 1 auto; min-width: 0; max-width: 100%;
+    padding: 6px 8px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 9px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    color: inherit; font-size: 12px;
+  }
+  .ov-group-actions { display: flex; flex-direction: column; gap: 6px; }
+  .ov-alert {
+    margin: 0; padding: 7px 10px; border-radius: 9px;
+    border: 1px solid var(--p-danger); background: var(--p-danger-weak);
+    color: var(--p-danger); font-size: 11.5px;
+  }
+  .ov-lane.is-droppable.is-drop-target { border-color: var(--p-accent); box-shadow: 0 0 0 2px var(--p-accent-weak); }
+  .ov-lane.is-drop-target .ov-lane-head { background: var(--p-accent-weak); }
+  .ov-legend-btn {
+    padding: 1px 4px; border: 0; border-radius: 6px; background: transparent;
+    color: inherit; cursor: pointer; font-size: 11px; max-width: 18ch;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ov-legend-btn:hover { background: var(--p-sub); color: var(--dsw-alias-label-primary, var(--p-text)); }
+  .ov-legend-btn[aria-pressed="true"] { background: var(--p-select-weak); color: var(--p-select); font-weight: 600; }
+  .ov-legend-out {
+    padding: 1px 6px; border: 1px solid var(--dsw-alias-line-base, var(--p-line)); border-radius: 999px;
+    background: transparent; color: var(--dsw-alias-label-secondary, var(--p-text-3)); cursor: pointer; font-size: 10.5px;
+  }
+  .ov-legend-out:hover { border-color: var(--p-danger); color: var(--p-danger); }
 
   .ov-status-row { display: flex; flex-wrap: wrap; gap: 6px; }
   .ov-status {
@@ -309,6 +362,39 @@
   .ov-node[data-state="open"] .ov-dot { fill: var(--p-accent); }
   .ov-node.is-ghost .ov-dot { fill: var(--dsw-alias-label-secondary, var(--p-text-3)); }
   .ov-node.is-related .ov-node-bg { stroke: var(--p-select-line); }
+
+  /* ---------- 按目录分组：一个项目一条泳道，共用一个坐标系 ---------- */
+  .ov-band { stroke-width: 1; }
+  .ov-band-label { font-size: 11px; font-weight: 600; font-family: var(--ov-mono); }
+  .ov-canvas[data-mode="dir"] .ov-node[data-state="blocked"] .ov-node-bg { stroke: var(--p-danger); }
+  .ov-canvas[data-mode="dir"] .ov-node[data-state="done"] .ov-node-bg { stroke: var(--p-ok); }
+
+  .ov-proj-legend {
+    display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    background: var(--dsw-alias-bg-base, var(--p-page));
+  }
+  .ov-proj-legend-item {
+    display: inline-flex; align-items: center; gap: 5px; min-width: 0;
+    font-size: 11px; color: var(--dsw-alias-label-secondary, var(--p-text-2));
+  }
+  .ov-proj-legend-item > [data-role="name"] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 18ch; }
+  .ov-swatch { width: 9px; height: 9px; flex: 0 0 9px; border-radius: 3px; }
+
+  .ov-seg {
+    display: inline-flex; gap: 2px; padding: 2px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 10px;
+    background: var(--dsw-alias-bg-base, var(--p-page));
+  }
+  .ov-seg-item {
+    padding: 4px 10px;
+    border: 0; border-radius: 8px; background: transparent; cursor: pointer;
+    font-size: 12px; color: var(--dsw-alias-label-secondary, var(--p-text-2));
+  }
+  .ov-seg-item[aria-pressed="true"] { background: var(--p-accent-weak); color: var(--p-accent-text); font-weight: 600; }
+  .ov-lane.is-collapsed .ov-lane-head { border-bottom-color: transparent; }
 
   .ov-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(228px, 1fr)); gap: 10px; padding: 14px; }
   .ov-task-card {
@@ -469,9 +555,11 @@
       <p class="ov-nav-hint" id="ovNavHint"></p>
     </nav>
 
-    <div class="ov-group" aria-label="项目筛选">
-      <span class="ov-group-label">项目</span>
+    <div class="ov-group" aria-label="项目与自定义目录">
+      <span class="ov-group-label" id="ovChipsLabel">项目</span>
       <div class="ov-chips" id="ovWorkspaceChips"></div>
+      <div class="ov-move" id="ovMoveBox" hidden></div>
+      <div class="ov-group-actions" id="ovGroupActions"></div>
     </div>
 
     <div class="ov-group" aria-label="状态筛选">
@@ -498,7 +586,11 @@
         </div>
         <div class="ov-legend-row">
           <svg class="ov-legend-swatch" width="30" height="16" viewBox="0 0 30 16" aria-hidden="true"><rect x="1" y="2" width="28" height="12" rx="4" fill="var(--p-ghost)" stroke="var(--p-line-strong)" stroke-dasharray="4 4"></rect></svg>
-          <span>虚线节点＝项目外 / 缺失任务</span>
+          <span>虚线节点＝目录外 / 缺失任务</span>
+        </div>
+        <div class="ov-legend-row" id="ovLegendProject" hidden>
+          <svg class="ov-legend-swatch" width="30" height="16" viewBox="0 0 30 16" aria-hidden="true"><rect x="10" y="3" width="4" height="10" rx="2" fill="var(--ov-c0)"></rect><rect x="17" y="3" width="4" height="10" rx="2" fill="var(--ov-c3)"></rect></svg>
+          <span>色条 / 背景带＝项目</span>
         </div>
       </div>
     </div>
@@ -511,6 +603,7 @@
         <p class="ov-subtitle" id="ovSubtitle">正在读取 /dsh-feishu/api/state …</p>
       </div>
       <div class="ov-head-actions">
+        <div class="ov-seg" id="ovGroupBy" role="group" aria-label="分组方式"></div>
         <button type="button" class="ov-btn" id="ovRefresh">刷新</button>
       </div>
     </header>
@@ -530,12 +623,23 @@ var OVERVIEW_LAYOUT = (function () {
   var VERSION = 1;
   var UNGROUPED_KEY = '__ungrouped__';
   var UNGROUPED_LABEL = '未归属项目';
+  /* 自定义目录口径下的「未分组」桶：没被拖进任何目录的 workspace 都落在这里。 */
+  var UNGROUPED_BUCKET_LABEL = '未分组';
+  /* 「组外」桶：不在本组、但和本组任务有关系的端点（别的目录里的任务 / 缺失任务）。 */
+  var EXTERNAL_KEY = '__external__';
+  var EXTERNAL_LABEL = '组外 / 缺失端点';
+  var GROUP_BY = { custom: true, project: true };
+  var GROUP_PREFIX = 'group:';
   var NODE_W = 188;
   var NODE_H = 72;
   var GAP_X = 56;
   var GAP_Y = 18;
   var PAD = 18;
   var LANE_HEAD = 10;
+  /* 自定义目录：一个项目一条泳道，泳道头留出项目名 + 色条的位置 */
+  var PROJECT_HEAD = 24;
+  var PROJECT_COLORS = 8;
+  var BAND_GAP = 4;
   /* 标题预算用「视觉宽度」而不是字符数：中日韩算 1，其余算 0.56，
      这样中英混排的节点文字宽度都收在卡片内。 */
   var TITLE_WIDTH = 12.5;
@@ -612,6 +716,29 @@ var OVERVIEW_LAYOUT = (function () {
     return { key: id || path || ('name:' + label), label: label, id: id, path: path, ungrouped: false };
   }
 
+  /**
+   * 路径 → 上一级目录（/Users/kp/DEV/dsh-plugins → /Users/kp/DEV）。
+   * 只用于显示（芯片 tooltip / 缺失成员的兜底），**不再作为分组依据**：
+   * 分组是用户自己拖出来的自定义目录（见 groupByCustom）。
+   */
+  function dirOf(path) {
+    var p = str(path).replace(/\\/g, '/').trim().replace(/\/+$/, '');
+    if (!p) return '';
+    var at = p.lastIndexOf('/');
+    if (at < 0) return '';
+    if (at === 0) return '/';
+    return p.slice(0, at);
+  }
+
+  /** 目录缩写：/Users/<user>/… 与 /home/<user>/… 缩成 ~/…，其余原样。 */
+  function shortenPath(value) {
+    var raw = str(value).trim();
+    if (!raw) return '';
+    var hit = /^\/(?:Users|home)\/([^/]+)(\/.*)?$/.exec(raw);
+    if (!hit) return raw;
+    return '~' + (hit[2] || '');
+  }
+
   function blockedOf(task) {
     var t = isObj(task) ? task : {};
     if (t.done === true) return false;
@@ -666,6 +793,14 @@ var OVERVIEW_LAYOUT = (function () {
       group.tasks.sort(function (a, b) {
         return rank(a) - rank(b) || collapse(a.title).localeCompare(collapse(b.title)) || str(a.id).localeCompare(str(b.id));
       });
+      /* 同一项目的任务未必每行都带 workspacePath：整组取第一个非空路径。
+         否则按目录分组时，同一个项目会被拆到「它自己的目录」和「未归属」两处。 */
+      if (!group.path) {
+        for (var i = 0; i < group.tasks.length; i += 1) {
+          var p = str(group.tasks[i].workspacePath);
+          if (p) { group.path = p; break; }
+        }
+      }
       group.total = group.tasks.length;
       group.done = group.tasks.filter(function (t) { return t.done === true; }).length;
       group.open = group.total - group.done;
@@ -676,6 +811,108 @@ var OVERVIEW_LAYOUT = (function () {
       return b.blocked - a.blocked || b.open - a.open || a.label.localeCompare(b.label);
     });
     return order;
+  }
+
+  /**
+   * 自定义目录（工作区分组）的规整：宿主快照 → 纯数据。
+   * 坏行丢掉、成员去重保序，任何输入都不抛。
+   */
+  function normalizeCustomGroups(raw) {
+    var seen = Object.create(null);
+    var out = [];
+    arr(raw).forEach(function (row) {
+      if (!isObj(row)) return;
+      var id = str(row.id).trim();
+      var name = collapse(row.name);
+      if (!id || !name || seen[id]) return;
+      seen[id] = true;
+      var members = [];
+      var memberSeen = Object.create(null);
+      arr(row.members).forEach(function (value) {
+        var key = str(value).trim();
+        if (!key || memberSeen[key]) return;
+        memberSeen[key] = true;
+        members.push(key);
+      });
+      out.push({
+        id: id,
+        name: name,
+        members: members,
+        labels: isObj(row.labels) ? row.labels : {},
+        presentMembers: num(row.presentMembers, NaN),
+        createdAt: num(row.createdAt, 0),
+        updatedAt: num(row.updatedAt, 0),
+      });
+    });
+    return out;
+  }
+
+  /**
+   * 按自定义目录分组：用户自己把若干个 workspace 拖在一起、起个名字（比如「QV」），
+   * 这一组就是「一个项目」——它的全部任务画在**同一张图**（一个画布、一个坐标系）里。
+   *
+   * groups 来自宿主快照 data.state.workspaceGroups；members 就是 workspaceOf(task).key。
+   * 一个 workspace 只属于一个目录（先到先得，重复的不重复画）；没进任何目录的落到「未分组」桶。
+   * 组内 projects[i] 是一条泳道，配 colorIndex 用于分色。
+   */
+  function groupByCustom(groups, tasks) {
+    var projects = groupTasks(tasks);
+    var byKey = Object.create(null);
+    projects.forEach(function (project) { byKey[project.key] = project; });
+    var claimed = Object.create(null);
+    var order = [];
+
+    normalizeCustomGroups(groups).forEach(function (def) {
+      var lane = {
+        key: GROUP_PREFIX + def.id, id: def.id, name: def.name, label: def.name,
+        custom: true, ungrouped: false,
+        members: def.members.slice(), labels: def.labels, missingMembers: [],
+        projects: [], tasks: [], total: 0, open: 0, done: 0, blocked: 0,
+      };
+      def.members.forEach(function (key) {
+        var project = byKey[key];
+        if (!project) {
+          /* 工作区被删/改名了：成员还在，但当前任务集里没有它 —— 只提示，不画。 */
+          lane.missingMembers.push({ key: key, label: collapse(def.labels[key]) || key });
+          return;
+        }
+        if (claimed[key]) return;
+        claimed[key] = true;
+        lane.projects.push(project);
+      });
+      fillLane(lane, def.id);
+      order.push(lane);
+    });
+
+    var rest = projects.filter(function (project) { return !claimed[project.key]; });
+    if (rest.length) {
+      var bucket = {
+        key: UNGROUPED_KEY, id: '', name: UNGROUPED_BUCKET_LABEL, label: UNGROUPED_BUCKET_LABEL,
+        custom: true, ungrouped: true, members: [], labels: {}, missingMembers: [],
+        projects: rest, tasks: [], total: 0, open: 0, done: 0, blocked: 0,
+      };
+      fillLane(bucket, '');
+      order.push(bucket);
+    }
+    return order;
+  }
+
+  /** 把一条泳道（组）的统计与配色算齐：项目顺序＝用户拖进来的顺序。 */
+  function fillLane(lane, groupId) {
+    lane.projects.forEach(function (project, index) {
+      project.colorIndex = index % PROJECT_COLORS;
+      project.customGroupId = groupId;
+      lane.tasks = lane.tasks.concat(project.tasks);
+      lane.total += project.total;
+      lane.open += project.open;
+      lane.done += project.done;
+      lane.blocked += project.blocked;
+    });
+    lane.taskCount = lane.total;
+    lane.projectCount = lane.projects.length;
+    lane.colorOf = Object.create(null);
+    lane.projects.forEach(function (project) { lane.colorOf[project.key] = project.colorIndex; });
+    return lane;
   }
 
   /** 单个任务 → 结构化 node。x/y/w/h/depth 先置 0，由 layoutGroup 填。 */
@@ -730,6 +967,7 @@ var OVERVIEW_LAYOUT = (function () {
     var hintTitle = (hints && hints.get && hints.get(id)) || '';
     var title = truncateTitle(hit ? (hit.title || id) : (hintTitle || id));
     var ws = hit ? workspaceOf(hit) : { key: '', label: '' };
+    var dir = hit ? dirOf(ws.path) : '';
     return {
       key: 'ghost:' + laneKey + ':' + id,
       id: id,
@@ -751,6 +989,10 @@ var OVERVIEW_LAYOUT = (function () {
       workspace: ws.key,
       workspaceLabel: ws.label,
       workspacePath: hit ? str(hit.workspacePath) : '',
+      /* 跨目录端点的落脚点：画在这里，但标注它其实属于哪个目录，不拉长线跨组。 */
+      dir: dir,
+      dirLabel: shortenPath(dir),
+      dirKey: dir ? ('dir:' + dir) : '',
       w: NODE_W, h: NODE_H, x: 0, y: 0, depth: 0, order: 0,
       refs: { task: hit, predecessors: [], successors: [], sourceTasks: [], derivedTasks: [], blockedBy: [] },
     };
@@ -821,8 +1063,83 @@ var OVERVIEW_LAYOUT = (function () {
     };
   }
 
+  /**
+   * 目录组的摆位：整组共用一套 x 坐标（列＝全组统一的依赖深度），y 上按项目切成泳道。
+   * 于是「同一个目录下的项目」画在**同一张图**里：项目簇之间可以直接连边，
+   * 泳道背景带负责把项目分开，而不是把每个项目拆成一张独立的图。
+   * 泳道内按「同一行列号必须递增」贪心打包，尽量少占行高。
+   */
+  function placeProjectLanes(group, all, columnOf, width) {
+    var byProject = Object.create(null);
+    var lanes = [];
+    arr(group.projects).forEach(function (project) {
+      var lane = {
+        key: project.key, label: project.label, path: project.path,
+        colorIndex: num(project.colorIndex, 0), total: project.total, nodes: [],
+      };
+      byProject[lane.key] = lane;
+      lanes.push(lane);
+    });
+    var external = null;
+    all.forEach(function (node) {
+      var lane = byProject[node.laneKey];
+      if (!lane) {
+        if (!external) {
+          external = { key: EXTERNAL_KEY, label: EXTERNAL_LABEL, colorIndex: -1, external: true, nodes: [] };
+          lanes.push(external);
+        }
+        lane = external;
+      }
+      lane.nodes.push(node);
+    });
+    lanes.forEach(function (lane) {
+      lane.nodes.sort(function (a, b) {
+        return columnOf[a.depth] - columnOf[b.depth]
+          || rank(a.refs.task) - rank(b.refs.task)
+          || a.label.localeCompare(b.label) || str(a.id).localeCompare(str(b.id));
+      });
+      lane.lastColumn = [];
+      lane.nodes.forEach(function (node) {
+        var column = columnOf[node.depth];
+        node.column = column === undefined ? 0 : column;
+        var row = 0;
+        while (row < lane.lastColumn.length && lane.lastColumn[row] >= node.column) row += 1;
+        if (row === lane.lastColumn.length) lane.lastColumn.push(node.column);
+        else lane.lastColumn[row] = node.column;
+        node.order = row;
+      });
+    });
+
+    var y = PAD;
+    var clusters = [];
+    lanes.forEach(function (lane) {
+      if (!lane.nodes.length) return;
+      lane.rows = lane.lastColumn.length;
+      lane.top = y;
+      lane.head = PROJECT_HEAD;
+      lane.height = lane.head + lane.rows * NODE_H + (lane.rows - 1) * GAP_Y;
+      lane.nodes.forEach(function (node) {
+        node.x = PAD + node.column * (NODE_W + GAP_X);
+        node.y = lane.top + lane.head + node.order * (NODE_H + GAP_Y);
+      });
+      clusters.push({
+        key: lane.key,
+        label: lane.label,
+        color: lane.colorIndex,
+        external: lane.external === true,
+        x: BAND_GAP, y: lane.top,
+        width: Math.max(0, width - BAND_GAP * 2), height: lane.height,
+        labelX: PAD - BAND_GAP, labelY: lane.top + 16,
+        rows: lane.rows, nodes: lane.nodes.length,
+      });
+      y += lane.height + GAP_Y;
+    });
+    return { height: y - GAP_Y + PAD, clusters: clusters, lanes: lanes };
+  }
+
   function layoutGroup(group, edges, known, index, options, hints) {
     var o = isObj(options) ? options : {};
+    var mode = str(o.groupBy) === 'custom' ? 'custom' : 'project';
     var ids = group.tasks.map(function (t) { return str(t.id); });
     var inLane = new Set(ids);
     var nodes = group.tasks.map(function (t) { return nodeOf(t, o); });
@@ -850,9 +1167,10 @@ var OVERVIEW_LAYOUT = (function () {
       var key = role + ':' + id;
       if (!ghostByKey[key]) {
         var ghost = ghostNode(id, group.key, known, role, hints);
-        /* 缺失任务的归属信息是空的：它画在哪个项目里，就是哪个项目的节点。
-           跨项目 ghost 保留对方项目名——那正是「它属于别的项目」这条信息。 */
-        if (!ghost.workspace) { ghost.workspace = group.key; ghost.workspaceLabel = group.label; }
+        /* 缺失任务的归属信息是空的：在「按项目」下它画在哪个项目里，就算哪个项目的节点。
+           跨项目 ghost 保留对方项目名——那正是「它属于别的项目」这条信息。
+           「按目录」下组外端点不冒充本组项目：落到哪条泳道由 laneKey 决定，标签保留真实归属。 */
+        if (mode === 'project' && !ghost.workspace) { ghost.workspace = group.key; ghost.workspaceLabel = group.label; }
         ghost.lane = group.key;
         ghost.laneLabel = group.label;
         ghostByKey[key] = ghost;
@@ -881,29 +1199,69 @@ var OVERVIEW_LAYOUT = (function () {
     nodes.forEach(function (node) { node.depth = depth.get(node.id) || 0; node.lane = group.key; node.laneLabel = group.label; });
 
     var all = nodes.concat(ghosts);
-    var columns = new Map();
+    /* 键、模式、泳道归属必须在摆位之前定下来：摆位要按 laneKey 把节点分到项目泳道。 */
     all.forEach(function (node) {
-      if (!columns.has(node.depth)) columns.set(node.depth, []);
-      columns.get(node.depth).push(node);
+      /* ghost 的键要带角色：同一张图里，同一个 id 可能既是某项目的前置又是另一项目的后置。 */
+      node.key = (node.ghost ? ('ghost:' + group.key + ':' + (node.role || 'ref') + ':') : 'task:') + node.id;
+      node.mode = mode;
+      if (mode === 'custom') {
+        /* laneKey：本组项目节点按项目分道，组外端点（别的目录/缺失）统一落到最后一条泳道。 */
+        node.laneKey = node.ghost ? EXTERNAL_KEY : node.workspace;
+        node.project = node.workspace;
+        node.projectLabel = node.workspaceLabel;
+        /* 只有本组项目才有配色；组外 ghost 保持中性。 */
+        node.projectColor = isObj(group.colorOf) ? group.colorOf[node.workspace] : undefined;
+      } else {
+        node.laneKey = group.key;
+      }
     });
-    var depthKeys = Array.from(columns.keys()).sort(function (a, b) { return a - b; });
-    var maxRows = 0;
-    depthKeys.forEach(function (d, columnIndex) {
-      var column = columns.get(d);
-      column.sort(function (a, b) {
-        if (a.ghost !== b.ghost) return a.ghost ? 1 : -1;
-        return rank(a.refs.task) - rank(b.refs.task) || a.label.localeCompare(b.label);
-      });
-      if (column.length > maxRows) maxRows = column.length;
-      column.forEach(function (node, i) {
-        /* x 用列序号而不是 depth 数值：ghost 撑出来的空洞不该在画布上留白。 */
-        node.x = PAD + columnIndex * (NODE_W + GAP_X);
-        node.y = PAD + LANE_HEAD + i * (NODE_H + GAP_Y);
-        node.column = columnIndex;
-        node.order = i;
-        node.key = (node.ghost ? 'ghost:' + group.key + ':' : 'task:') + node.id;
-      });
+    /* 组外端点：标注它其实属于哪个自定义目录，而不是把线拉过去。 */
+    ghosts.forEach(function (ghost) {
+      var hit = known.get(ghost.id);
+      if (!hit || !isObj(o.groupNames)) return;
+      var name = o.groupNames[workspaceOf(hit).key];
+      if (name) ghost.groupLabel = name;
     });
+    var depthKeys = [];
+    all.forEach(function (node) { if (depthKeys.indexOf(node.depth) < 0) depthKeys.push(node.depth); });
+    depthKeys.sort(function (a, b) { return a - b; });
+    var columnOf = Object.create(null);
+    depthKeys.forEach(function (d, i) { columnOf[d] = i; });
+
+    var columnsCount = depthKeys.length;
+    var width = columnsCount ? PAD * 2 + columnsCount * NODE_W + (columnsCount - 1) * GAP_X : PAD * 2;
+    var clusters = [];
+    var swimlanes = null;
+    var height;
+
+    if (mode === 'custom') {
+      swimlanes = placeProjectLanes(group, all, columnOf, width);
+      height = swimlanes.height;
+      clusters = swimlanes.clusters;
+    } else {
+      var columns = new Map();
+      all.forEach(function (node) {
+        if (!columns.has(node.depth)) columns.set(node.depth, []);
+        columns.get(node.depth).push(node);
+      });
+      var maxRows = 0;
+      depthKeys.forEach(function (d, columnIndex) {
+        var column = columns.get(d);
+        column.sort(function (a, b) {
+          if (a.ghost !== b.ghost) return a.ghost ? 1 : -1;
+          return rank(a.refs.task) - rank(b.refs.task) || a.label.localeCompare(b.label);
+        });
+        if (column.length > maxRows) maxRows = column.length;
+        column.forEach(function (node, i) {
+          /* x 用列序号而不是 depth 数值：ghost 撑出来的空洞不该在画布上留白。 */
+          node.x = PAD + columnIndex * (NODE_W + GAP_X);
+          node.y = PAD + LANE_HEAD + i * (NODE_H + GAP_Y);
+          node.column = columnIndex;
+          node.order = i;
+        });
+      });
+      height = PAD * 2 + LANE_HEAD + (maxRows ? maxRows * NODE_H + (maxRows - 1) * GAP_Y : 0);
+    }
 
     var byId = new Map();
     all.forEach(function (node) { byId.set(node.id, node); });
@@ -915,14 +1273,23 @@ var OVERVIEW_LAYOUT = (function () {
       drawn.push(makeEdge(a, b, edge));
     });
 
-    var columnsCount = depthKeys.length;
-    var width = columnsCount ? PAD * 2 + columnsCount * NODE_W + (columnsCount - 1) * GAP_X : PAD * 2;
-    var height = PAD * 2 + LANE_HEAD + (maxRows ? maxRows * NODE_H + (maxRows - 1) * GAP_Y : 0);
+    var graph = {
+      mode: mode,
+      nodes: all,
+      edges: drawn,
+      width: width,
+      height: height,
+      clusters: clusters,
+    };
 
     return {
       key: group.key,
+      id: str(group.id) || '',
+      name: str(group.name) || str(group.label),
       label: group.label,
       path: group.path,
+      custom: group.custom === true,
+      mode: mode,
       ungrouped: group.ungrouped === true,
       index: index,
       tasks: group.tasks,
@@ -930,10 +1297,17 @@ var OVERVIEW_LAYOUT = (function () {
       open: group.open,
       done: group.done,
       blocked: group.blocked,
+      members: arr(group.members),
+      missingMembers: arr(group.missingMembers),
+      projects: arr(group.projects),
+      projectCount: group.projects ? group.projects.length : (group.tasks.length ? 1 : 0),
+      projectColorOf: isObj(group.colorOf) ? group.colorOf : Object.create(null),
+      clusters: clusters,
       nodes: all,
       taskNodes: nodes,
       ghosts: ghosts,
       edges: drawn,
+      graph: graph,
       externalEdges: laneEdges.filter(function (e) { return e.crossProject !== false; }).length,
       width: width,
       height: height,
@@ -1011,13 +1385,29 @@ var OVERVIEW_LAYOUT = (function () {
   /** 总入口：分组 + 分层 + 连边，返回 {groups, nodes, edges, stats}。任何输入都不抛。 */
   function layout(tasks, relations, options) {
     var o = isObj(options) ? options : {};
+    var groupBy = GROUP_BY[str(o.groupBy)] ? str(o.groupBy) : 'project';
+    var opts = {
+      groupBy: groupBy,
+      titleWidth: o.titleWidth,
+      groupNames: Object.create(null),
+    };
     var list = arr(tasks).filter(function (t) { return isObj(t) && str(t.id); });
     var edges = normalizeEdges(relations);
     var known = new Map();
     list.forEach(function (task) { known.set(str(task.id), task); });
     var hints = titleHints(list);
-    var lanes = groupTasks(list).map(function (group, index) {
-      return layoutGroup(group, edges, known, index, o, hints);
+    /* 按自定义目录：每个目录一张图；按项目：每个项目一张图（默认，保持旧口径）。 */
+    var custom = groupBy === 'custom' ? groupByCustom(o.groups, list) : null;
+    var source = custom || groupTasks(list);
+    /* 组外端点要知道自己属于哪个目录（用来在 ghost 上标注），先建一张 workspace key → 目录名 的表。 */
+    if (custom) {
+      custom.forEach(function (lane) {
+        if (lane.ungrouped) return;
+        lane.members.forEach(function (key) { opts.groupNames[key] = lane.name; });
+      });
+    }
+    var lanes = source.map(function (group, index) {
+      return layoutGroup(group, edges, known, index, opts, hints);
     });
     var nodes = [];
     var drawn = [];
@@ -1026,10 +1416,13 @@ var OVERVIEW_LAYOUT = (function () {
       drawn = drawn.concat(lane.edges);
     });
     var stats = statsOf(list, relations);
+    /* 分组数按「这次真的画了几张图」算：自定义目录口径和按项目口径都成立。 */
+    stats.groups = lanes.length;
     stats.ghosts = nodes.filter(function (n) { return n.ghost === true; }).length;
     stats.missingGhosts = nodes.filter(function (n) { return n.ghost === true && n.missing === true; }).length;
     return {
       version: VERSION,
+      groupBy: groupBy,
       groups: lanes,
       nodes: nodes,
       edges: drawn,
@@ -1082,12 +1475,18 @@ var OVERVIEW_LAYOUT = (function () {
     constants: {
       UNGROUPED_KEY: UNGROUPED_KEY,
       UNGROUPED_LABEL: UNGROUPED_LABEL,
+      EXTERNAL_KEY: EXTERNAL_KEY,
+      EXTERNAL_LABEL: EXTERNAL_LABEL,
+      GROUP_PREFIX: GROUP_PREFIX,
       NODE_W: NODE_W,
       NODE_H: NODE_H,
       GAP_X: GAP_X,
       GAP_Y: GAP_Y,
       PAD: PAD,
       LANE_HEAD: LANE_HEAD,
+      PROJECT_HEAD: PROJECT_HEAD,
+      PROJECT_COLORS: PROJECT_COLORS,
+      BAND_GAP: BAND_GAP,
       TITLE_WIDTH: TITLE_WIDTH,
       ELLIPSIS: ELLIPSIS,
     },
@@ -1099,10 +1498,14 @@ var OVERVIEW_LAYOUT = (function () {
     taskNo: taskNo,
     taskLabel: taskLabel,
     workspaceOf: workspaceOf,
+    dirOf: dirOf,
+    shortenPath: shortenPath,
     blockedOf: blockedOf,
     stateOf: stateOf,
     normalizeEdges: normalizeEdges,
     groupTasks: groupTasks,
+    normalizeCustomGroups: normalizeCustomGroups,
+    groupByCustom: groupByCustom,
     nodeOf: nodeOf,
     ghostNode: ghostNode,
     titleHints: titleHints,
@@ -1121,7 +1524,37 @@ var OVERVIEW_LAYOUT = (function () {
 
   var L = OVERVIEW_LAYOUT;
   var STATE_URL = '/dsh-feishu/api/state';
+  /* 本页唯一允许写的接口：自定义目录（把若干个 workspace 拖成一个「项目」）。
+     不碰任务 / 同步 / 授权 / 评论那些写接口。 */
+  var GROUPS_URL = '/dsh-feishu/api/workspace-groups';
   var POLL_MS = 60000;
+
+  /* 分组方式与折叠状态存 localStorage（固定前缀键），刷新后保持。
+     目录的成员关系**不存本地**：以宿主快照 data.state.workspaceGroups 为准。 */
+  var STORE_PREFIX = 'dsh-feishu-overview:';
+  var STORE_GROUP_BY = STORE_PREFIX + 'group-by';
+  var STORE_COLLAPSED = STORE_PREFIX + 'collapsed';
+
+  var GROUP_BY_FILTERS = [
+    { id: 'custom', label: '自定义目录', hint: '把若干 workspace 拖成一个目录（比如「QV」），这一组的全部任务画在同一张图里' },
+    { id: 'project', label: '按项目', hint: '每个项目一张图（旧口径，用于对照）' },
+  ];
+
+  function readStore(key, fallback) {
+    try {
+      var raw = window.localStorage.getItem(key);
+      return raw === null ? fallback : JSON.parse(raw);
+    } catch (error) { return fallback; }
+  }
+
+  function writeStore(key, value) {
+    try { window.localStorage.setItem(key, JSON.stringify(value)); } catch (error) { /* 隐私模式：忽略 */ }
+  }
+
+  function groupBySetting() {
+    var value = readStore(STORE_GROUP_BY, 'custom');
+    return value === 'project' ? 'project' : 'custom';
+  }
 
   /* ------------------------------------------------------------------
      视图注册表：加第 2、3…N 个可视化，只需要往这里 push 一条，
@@ -1137,7 +1570,7 @@ var OVERVIEW_LAYOUT = (function () {
     {
       id: 'relations',
       label: '关系图',
-      hint: '节点＝任务，实线＝依赖，虚线＝派生；按项目分组。',
+      hint: '节点＝任务，实线＝依赖，虚线＝派生；可切「自定义目录」（同目录项目共用一张图）或「按项目」。',
       glyph: GLYPH_GRAPH,
       mount: mountRelationsView,
     },
@@ -1161,6 +1594,20 @@ var OVERVIEW_LAYOUT = (function () {
     stats: null,
     visibleGroups: 0,
     filtered: [],
+    groupBy: 'custom',
+    /* 宿主是目录成员关系的唯一事实来源：本地只缓存快照，写操作后以返回的 groups 覆盖。 */
+    customGroups: [],
+    collapsed: {},
+    /* 被选中的 workspace key（点 chip）：拖拽的源，也是「移入目录」菜单的作用对象。 */
+    selectedWorkspace: '',
+    creating: false,
+    renamingId: '',
+    /* 正在输入的目录名：整个 render 都是重建 DOM，不镜像的话轮询一刷新就把用户打的字吞掉。 */
+    draftName: '',
+    focusPending: false,
+    focusPrev: '',
+    groupError: null,
+    saving: false,
     filters: { workspaces: [], status: 'all', keyword: '' },
     activeView: VIEWS[0].id,
     selected: null,
@@ -1208,6 +1655,11 @@ var OVERVIEW_LAYOUT = (function () {
     return L.arr(state.relations);
   }
 
+  function groupsOf(data) {
+    var state = L.isObj(data.state) ? data.state : {};
+    return L.normalizeCustomGroups(state.workspaceGroups);
+  }
+
   function load(quiet) {
     if (app.busy) return Promise.resolve();
     app.busy = true;
@@ -1221,6 +1673,7 @@ var OVERVIEW_LAYOUT = (function () {
         if (!L.isObj(data) || data.ok !== true) throw new Error('接口返回 ok=false，宿主可能还没完成首次同步');
         app.raw = tasksOf(data);
         app.relations = relationsOf(data);
+        app.customGroups = groupsOf(data);
         app.version = L.str(data.version);
         app.now = Number(data.now) || 0;
         app.status = 'ready';
@@ -1236,6 +1689,226 @@ var OVERVIEW_LAYOUT = (function () {
       });
   }
 
+  /**
+   * 唯一写入口：POST 自定义目录。**不做乐观更新**——成功后一律以宿主返回的 groups 为准，
+   * 失败就把 error 放到对应位置（组头或新建区）用 role=alert 显示，不假装成功。
+   */
+  function saveGroups(body) {
+    if (app.saving) return Promise.resolve();
+    app.saving = true;
+    render();
+    return fetch(GROUPS_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          return { ok: res.ok && data.ok === true, data: data };
+        });
+      })
+      .then(function (out) {
+        if (!out.ok) throw new Error(L.str(out.data.error) || '目录操作失败');
+        var groups = Array.isArray(out.data.groups) ? out.data.groups : app.customGroups;
+        app.customGroups = L.normalizeCustomGroups(groups);
+        app.groupError = null;
+        app.creating = false;
+        app.renamingId = '';
+        app.draftName = '';
+      })
+      .catch(function (error) {
+        app.groupError = {
+          groupId: L.str(body && body.id),
+          text: (error && error.message) ? error.message : String(error),
+        };
+      })
+      .then(function () {
+        app.saving = false;
+        render();
+      });
+  }
+
+  /* ---------------- 自定义目录：成员关系与写操作 ---------------- */
+
+  /** workspace key → 它所在的自定义目录（含配色），芯片色点与「移入目录」的当前值都看它。 */
+  function workspaceMembership(customMode) {
+    var out = Object.create(null);
+    if (!customMode || !app.model) return out;
+    app.model.groups.forEach(function (lane) {
+      if (!lane.custom || lane.ungrouped) return;
+      lane.projects.forEach(function (project) {
+        out[project.key] = { id: lane.id, name: lane.name, colorIndex: project.colorIndex };
+      });
+    });
+    return out;
+  }
+
+  function projectByKey(key) {
+    var hit = null;
+    L.groupTasks(app.raw).forEach(function (project) { if (project.key === key) hit = project; });
+    return hit;
+  }
+
+  /** 某个 workspace 当前所在的目录 id（''＝未分组）。 */
+  function currentGroupId(key) {
+    var found = '';
+    app.customGroups.forEach(function (def) {
+      if (def.members.indexOf(key) >= 0) found = def.id;
+    });
+    return found;
+  }
+
+  /**
+   * 非拖拽路径（无障碍底线）：选中芯片后出现「移入目录 ▾」下拉，
+   * 选目标即移入、选「未分组」即移出、选「＋ 新建目录」进入新建输入。
+   */
+  function renderMoveBox(customMode, membership) {
+    var box = $('ovMoveBox');
+    if (!box) return;
+    clear(box);
+    var key = app.selectedWorkspace;
+    if (!customMode || !key) { box.hidden = true; return; }
+    box.hidden = false;
+    var project = projectByKey(key);
+    box.appendChild(el('span', {
+      class: 'ov-nav-hint',
+      text: '已选中：' + (project ? project.label : key) + (project && project.total ? '（' + project.total + ' 任务）' : ''),
+    }));
+    var row = el('div', { class: 'ov-inline' });
+    var select = el('select', {
+      class: 'ov-select', id: 'ovMoveSelect',
+      'aria-label': '把选中的项目移入目录',
+      disabled: app.saving ? 'disabled' : null,
+      onchange: function (event) { moveWorkspace(key, event.target.value); },
+    });
+    var current = currentGroupId(key);
+    select.appendChild(el('option', { value: '', text: '未分组（不属于任何目录）' }));
+    app.customGroups.forEach(function (def) {
+      select.appendChild(el('option', { value: def.id, text: def.name + '（' + def.members.length + ' 个项目）' }));
+    });
+    select.appendChild(el('option', { value: '__new__', text: '＋ 新建目录…' }));
+    select.value = current;
+    row.appendChild(select);
+    row.appendChild(el('button', {
+      type: 'button', class: 'ov-btn', text: '取消选择',
+      onclick: function () { app.selectedWorkspace = ''; render(); },
+    }));
+    box.appendChild(row);
+    if (app.groupError && !app.groupError.groupId) box.appendChild(alertBox(app.groupError.text));
+  }
+
+  /** 新建目录：输入名字 → POST create（当前选中的 workspace 顺带成为第一个成员）。 */
+  function renderGroupActions(customMode) {
+    var box = $('ovGroupActions');
+    if (!box) return;
+    clear(box);
+    if (!customMode) { box.hidden = true; return; }
+    box.hidden = false;
+    if (!app.creating) {
+      box.appendChild(el('button', {
+        type: 'button', class: 'ov-btn', id: 'ovNewGroup',
+        disabled: app.saving ? 'disabled' : null,
+        text: app.saving ? '保存中…' : '＋ 新建目录',
+        onclick: function () { openCreate(); },
+      }));
+      if (app.groupError && !app.groupError.groupId) box.appendChild(alertBox(app.groupError.text));
+      return;
+    }
+    var input = el('input', {
+      class: 'ov-keyword', type: 'text', id: 'ovNewGroupName', maxlength: '40',
+      placeholder: '目录名，比如 QV', 'aria-label': '新目录的名字',
+      value: app.draftName,
+      oninput: function (event) { app.draftName = String(event.target.value || ''); },
+      onkeydown: function (event) {
+        if (event.key === 'Enter') { event.preventDefault(); createGroup(); }
+        else if (event.key === 'Escape') { closeCreate(); }
+      },
+    });
+    var row = el('div', { class: 'ov-inline' });
+    row.appendChild(input);
+    row.appendChild(el('button', { type: 'button', class: 'ov-btn', text: '创建', onclick: createGroup }));
+    row.appendChild(el('button', { type: 'button', class: 'ov-btn', text: '取消', onclick: closeCreate }));
+    box.appendChild(row);
+    if (app.groupError && !app.groupError.groupId) box.appendChild(alertBox(app.groupError.text));
+    keepFocus(input, 'ovNewGroupName', false);
+  }
+
+  function openCreate() {
+    app.creating = true;
+    app.draftName = '';
+    app.focusPending = true;
+    app.groupError = null;
+    render();
+  }
+
+  function closeCreate() {
+    app.creating = false;
+    app.draftName = '';
+    app.groupError = null;
+    render();
+  }
+
+  /**
+   * 重建 DOM 之后把光标还回去：
+   * - 刚点开（focusPending）：聚焦空框；
+   * - 刚才是它拿着焦点（focusPrev）：轮询刷新后的续写。
+   * 注意不要在轮询里把焦点从别处抢过来。
+   */
+  function keepFocus(input, id, selectAllOnOpen) {
+    var opened = app.focusPending === true;
+    var wanted = opened || app.focusPrev === id;
+    app.focusPending = false;
+    if (!wanted) return;
+    setTimeout(function () {
+      if (!input.isConnected) return;
+      input.focus();
+      /* 刚点开时全选方便覆盖；轮询刷新导致的重建则把光标放回末尾，别打断续写。 */
+      if (opened && selectAllOnOpen) input.select();
+      else { try { input.setSelectionRange(input.value.length, input.value.length); } catch (error) { /* 忽略 */ } }
+    }, 0);
+  }
+
+  function createGroup() {
+    var input = $('ovNewGroupName');
+    var name = collapseName(input ? input.value : app.draftName);
+    if (!name) { app.groupError = { groupId: '', text: '目录名不能为空' }; render(); return; }
+    var body = { action: 'create', name: name };
+    var key = app.selectedWorkspace;
+    if (key) {
+      var project = projectByKey(key);
+      if (project) {
+        body.members = [project.key];
+        body.labels = {};
+        body.labels[project.key] = project.label;
+      }
+    }
+    saveGroups(body);
+  }
+
+  /** 把一个 workspace 移入 / 移出目录；target 为 ''＝移出，'__new__'＝去新建。 */
+  function moveWorkspace(key, target) {
+    if (!key) return;
+    if (target === '__new__') { openCreate(); return; }
+    var current = currentGroupId(key);
+    if (target === current) return;
+    app.groupError = null;
+    if (!target) {
+      if (!current) return;
+      saveGroups({ action: 'remove', id: current, key: key });
+      return;
+    }
+    var project = projectByKey(key);
+    saveGroups({ action: 'add', id: target, member: { key: key, label: project ? project.label : key } });
+  }
+
+  /** 写操作失败的提示：贴着出事的地方显示（组头 / 新建区），不假装成功。 */
+  function alertBox(text) {
+    return el('p', { class: 'ov-alert', role: 'alert', text: '目录操作失败：' + text });
+  }
+
+  function collapseName(value) { return String(value === undefined || value === null ? '' : value).replace(/\s+/g, ' ').trim(); }
+
   /* ---------------- 渲染入口 ---------------- */
 
   function activeView() {
@@ -1244,6 +1917,8 @@ var OVERVIEW_LAYOUT = (function () {
   }
 
   function render() {
+    /* 记住焦点在谁身上：重建 DOM 之后好把光标还给正在输入的那个框。 */
+    app.focusPrev = (document.activeElement && document.activeElement.id) ? document.activeElement.id : '';
     compute();
     renderRail();
     renderHeader();
@@ -1253,7 +1928,7 @@ var OVERVIEW_LAYOUT = (function () {
   /** 一次算出：筛选后的任务、整张图模型、id→节点索引、可见项目数、当前选择统计。 */
   function compute() {
     app.filtered = L.filterTasks(app.raw, app.filters);
-    app.model = L.layout(app.raw, app.relations, {});
+    app.model = L.layout(app.raw, app.relations, { groupBy: app.groupBy, groups: app.customGroups });
     app.nodeIndex = L.indexNodes(app.model);
     var visibleIds = Object.create(null);
     app.filtered.forEach(function (task) { visibleIds[L.str(task.id)] = true; });
@@ -1293,17 +1968,50 @@ var OVERVIEW_LAYOUT = (function () {
   }
 
   function renderHeader() {
+    var customMode = app.groupBy === 'custom';
     var sub = $('ovSubtitle');
     if (app.status === 'error') { sub.textContent = '读取失败，右侧数据未更新。'; }
     else if (app.status === 'loading') { sub.textContent = '正在读取 /dsh-feishu/api/state …'; }
     else {
       var s = app.model ? app.model.stats : null;
       var shown = app.filtered ? app.filtered.length : 0;
+      var projects = 0;
+      if (app.model) app.model.groups.forEach(function (lane) { projects += lane.projectCount || 1; });
       sub.textContent = s
         ? ('显示 ' + shown + ' / ' + s.tasks + ' 个任务 · ' + (app.visibleGroups || 0) + ' / ' + s.groups
-           + ' 个项目 · ' + app.stats.dependencyEdges + ' 条依赖边 · ' + app.stats.provenanceEdges + ' 条派生边')
+           + ' 个' + (customMode ? '目录' : '项目')
+           + (customMode ? (' · ' + projects + ' 个项目') : '')
+           + ' · ' + app.stats.dependencyEdges + ' 条依赖边 · ' + app.stats.provenanceEdges + ' 条派生边')
         : '暂无数据';
     }
+
+    var seg = $('ovGroupBy');
+    clear(seg);
+    GROUP_BY_FILTERS.forEach(function (item) {
+      var on = app.groupBy === item.id;
+      seg.appendChild(el('button', {
+        type: 'button', class: 'ov-seg-item',
+        'aria-pressed': on ? 'true' : 'false',
+        title: item.hint,
+        text: item.label,
+        onclick: function () {
+          if (app.groupBy === item.id) return;
+          app.groupBy = item.id;
+          app.filters.workspaces = [];
+          app.selectedWorkspace = '';
+          app.groupError = null;
+          app.creating = false;
+          app.renamingId = '';
+          app.draftName = '';
+          writeStore(STORE_GROUP_BY, app.groupBy);
+          render();
+        },
+      }));
+    });
+
+    var legendProject = $('ovLegendProject');
+    if (legendProject) legendProject.hidden = !customMode;
+
     var refresh = $('ovRefresh');
     refresh.disabled = app.busy;
     refresh.textContent = app.busy ? '读取中…' : '刷新';
@@ -1334,34 +2042,57 @@ var OVERVIEW_LAYOUT = (function () {
     });
     $('ovNavHint').textContent = activeView().hint || '';
 
+    /* 芯片＝workspace：可以点选（键盘可达），选中后从「移入目录」下拉里选目标；
+       也可以直接拖到左边的目录卡片上。目录的成员关系以宿主为准，页面上不存本地。 */
     var chips = $('ovWorkspaceChips');
     clear(chips);
-    var groups = L.groupTasks(app.raw);
-    var selectedWs = app.filters.workspaces;
-    chips.appendChild(el('button', {
-      type: 'button', class: 'ov-chip',
-      'aria-pressed': selectedWs.length === 0 ? 'true' : 'false',
-      text: '全部',
-      onclick: function () { app.filters.workspaces = []; render(); },
-    }));
-    groups.forEach(function (group) {
-      var on = selectedWs.indexOf(group.key) >= 0;
+    var customMode = app.groupBy === 'custom';
+    var chipsLabel = $('ovChipsLabel');
+    if (chipsLabel) chipsLabel.textContent = '项目';
+    var projects = L.groupTasks(app.raw);
+    var membership = workspaceMembership(customMode);
+
+    if (app.filters.workspaces.length) {
+      chips.appendChild(el('button', {
+        type: 'button', class: 'ov-chip ov-chip-clear',
+        text: '清除筛选 ' + app.filters.workspaces.length,
+        title: '取消「只看某个目录 / 项目」的筛选',
+        onclick: function () { app.filters.workspaces = []; render(); },
+      }));
+    }
+    projects.forEach(function (project) {
+      var hit = membership[project.key] || null;
+      var selected = app.selectedWorkspace === project.key;
       var chip = el('button', {
-        type: 'button', class: 'ov-chip',
-        'aria-pressed': on ? 'true' : 'false',
-        title: group.path || group.label,
+        type: 'button',
+        class: 'ov-chip' + (selected ? ' is-selected' : ''),
+        'data-key': project.key,
+        'aria-pressed': selected ? 'true' : 'false',
+        draggable: 'true',
+        title: (hit ? ('已在目录「' + hit.name + '」的') : '未分组的')
+          + '项目 ' + project.label + (project.path ? ('（' + project.path + '）') : '')
+          + ' · 共 ' + project.total + ' 个任务。点选后可从「移入目录」里选，或直接拖到目录卡片上。',
         onclick: function () {
-          var next = app.filters.workspaces.slice();
-          var at = next.indexOf(group.key);
-          if (at >= 0) next.splice(at, 1); else next.push(group.key);
-          app.filters.workspaces = next;
+          app.selectedWorkspace = selected ? '' : project.key;
+          app.groupError = null;
           render();
         },
+        ondragstart: function (event) {
+          app.selectedWorkspace = project.key;
+          try {
+            event.dataTransfer.setData('text/plain', project.key);
+            event.dataTransfer.effectAllowed = 'move';
+          } catch (error) { /* 某些宿主不给 dataTransfer：靠 app.selectedWorkspace 兜底 */ }
+        },
       });
-      chip.appendChild(el('span', { class: 'ov-chip-label', text: group.label }));
-      chip.appendChild(el('span', { class: 'ov-chip-count', text: String(group.total) }));
+      if (hit) chip.appendChild(el('span', { class: 'ov-swatch', style: 'background: var(--ov-c' + hit.colorIndex + ')' }));
+      chip.appendChild(el('span', { class: 'ov-chip-label', text: project.label }));
+      chip.appendChild(el('span', { class: 'ov-chip-count', text: String(project.total) }));
       chips.appendChild(chip);
     });
+
+    renderMoveBox(customMode, membership);
+    renderGroupActions(customMode);
 
     var statusRow = $('ovStatusChips');
     clear(statusRow);
@@ -1413,7 +2144,14 @@ var OVERVIEW_LAYOUT = (function () {
       lane.taskNodes.forEach(function (node) {
         if (visibleIds[node.id] === true) visibleKeys[node.key] = true;
       });
-      if (!Object.keys(visibleKeys).length) return;
+      if (!Object.keys(visibleKeys).length) {
+        /* 空目录（成员都不在场）也要露一张卡片：否则它连重命名/删除的入口都没有。 */
+        if (lane.mode === 'custom' && !lane.ungrouped && !lane.projectCount) {
+          shown += 1;
+          mountEl.appendChild(laneCard({ lane: lane, nodes: [], tasks: [], edges: [] }));
+        }
+        return;
+      }
       lane.nodes.forEach(function (node) {
         if (node.ghost !== true) return;
         var attached = lane.edges.some(function (edge) {
@@ -1431,44 +2169,242 @@ var OVERVIEW_LAYOUT = (function () {
     if (!shown) mountEl.appendChild(emptyNotice());
   }
 
+  /**
+   * 一张图＝一个自定义目录（按项目模式就是一个项目）。
+   * 自定义目录的卡片是可放置目标：把 chip 拖上来即「移入这个目录」；
+   * 组头有重命名 / 删除，组内图例既是配色说明也是「只看这个项目」的筛选按钮。
+   */
   function laneCard(entry) {
     var lane = entry.lane;
-    var card = el('section', { class: 'ov-lane', 'aria-label': lane.label });
+    var customMode = lane.mode === 'custom';
+    var collapsed = app.collapsed[lane.key] === true;
+    var card = el('section', {
+      class: 'ov-lane' + (collapsed ? ' is-collapsed' : '') + (customMode && !lane.ungrouped ? ' is-droppable' : ''),
+      'aria-label': lane.label,
+    });
+
     var head = el('div', { class: 'ov-lane-head' });
-    var titleWrap = el('div', { style: 'display:flex;flex-direction:column;min-width:0' });
-    titleWrap.appendChild(el('span', { class: 'ov-lane-name', text: lane.label }));
-    if (lane.path) titleWrap.appendChild(el('span', { class: 'ov-lane-path', text: lane.path }));
+    var titleWrap = el('div', { style: 'display:flex;flex-direction:column;min-width:0;flex:1 1 220px' });
+    if (customMode && lane.id && lane.id === app.renamingId) {
+      var input = el('input', {
+        class: 'ov-keyword', type: 'text', id: 'ovRenameInput', maxlength: '40',
+        value: app.draftName, 'aria-label': '目录名',
+        oninput: function (event) { app.draftName = String(event.target.value || ''); },
+        onkeydown: function (event) {
+          if (event.key === 'Enter') { event.preventDefault(); commitRename(lane); }
+          else if (event.key === 'Escape') { closeRename(); }
+        },
+      });
+      titleWrap.appendChild(input);
+      titleWrap.appendChild(el('span', { class: 'ov-lane-path', text: '回车保存，Esc 取消' }));
+      keepFocus(input, 'ovRenameInput', true);
+    } else {
+      titleWrap.appendChild(el('span', { class: 'ov-lane-name', text: lane.label }));
+      if (lane.path) titleWrap.appendChild(el('span', { class: 'ov-lane-path', text: lane.path }));
+      else if (customMode && !lane.ungrouped && lane.members.length) {
+        titleWrap.appendChild(el('span', { class: 'ov-lane-path', text: lane.members.length + ' 个 workspace 由你自定义成组' }));
+      }
+    }
     head.appendChild(titleWrap);
 
     var meta = el('div', { class: 'ov-lane-meta' });
+    if (customMode) meta.appendChild(el('span', { class: 'ov-tag', 'data-tone': 'accent', text: lane.projectCount + ' 个项目' }));
     meta.appendChild(el('span', { class: 'ov-tag', text: entry.tasks.length + ' 任务' }));
+    meta.appendChild(el('span', { class: 'ov-tag', text: entry.edges.length + ' 条边' }));
     if (lane.blocked) meta.appendChild(el('span', { class: 'ov-tag', 'data-tone': 'danger', text: lane.blocked + ' 阻塞' }));
     if (lane.done) meta.appendChild(el('span', { class: 'ov-tag', 'data-tone': 'ok', text: lane.done + ' 完成' }));
     var ghosts = entry.nodes.filter(function (n) { return n.ghost === true; });
-    if (ghosts.length) meta.appendChild(el('span', { class: 'ov-tag', text: '↔ ' + ghosts.length + ' 跨项目/缺失' }));
-    meta.appendChild(el('button', {
-      type: 'button', class: 'ov-chip', text: '只看这个项目',
-      onclick: function () { app.filters.workspaces = [lane.key]; render(); },
-    }));
+    if (ghosts.length) meta.appendChild(el('span', { class: 'ov-tag', text: '↔ ' + ghosts.length + (customMode ? ' 组外/缺失' : ' 跨项目/缺失') }));
+    if (customMode && lane.missingMembers.length) {
+      meta.appendChild(el('span', {
+        class: 'ov-tag', 'data-tone': 'danger',
+        text: '⚠ ' + lane.missingMembers.length + ' 个成员不在场',
+        title: lane.missingMembers.map(function (m) { return m.label || m.key; }).join('\n'),
+      }));
+    }
+    if (customMode && !lane.ungrouped) {
+      meta.appendChild(el('button', {
+        type: 'button', class: 'ov-chip', id: 'ovFocusGroup-' + lane.id,
+        'aria-pressed': groupFocused(lane) ? 'true' : 'false',
+        text: groupFocused(lane) ? '显示全部' : '只看这个目录',
+        onclick: function () {
+          app.filters.workspaces = groupFocused(lane) ? [] : lane.projects.map(function (p) { return p.key; });
+          render();
+        },
+      }));
+      if (lane.id === app.renamingId) {
+        meta.appendChild(el('button', { type: 'button', class: 'ov-btn', text: '保存', onclick: function () { commitRename(lane); } }));
+        meta.appendChild(el('button', { type: 'button', class: 'ov-btn', text: '取消', onclick: closeRename }));
+      } else {
+        meta.appendChild(el('button', {
+          type: 'button', class: 'ov-btn', id: 'ovRenameGroup-' + lane.id, text: '重命名',
+          onclick: function () { openRename(lane); },
+        }));
+        meta.appendChild(el('button', {
+          type: 'button', class: 'ov-btn', id: 'ovDeleteGroup-' + lane.id, text: '删除',
+          onclick: function () {
+            if (!window.confirm('删除目录「' + lane.name + '」？只删分组，任务和项目都不动。')) return;
+            saveGroups({ action: 'delete', id: lane.id });
+          },
+        }));
+      }
+    } else if (!customMode) {
+      meta.appendChild(el('button', {
+        type: 'button', class: 'ov-chip', text: '只看这个项目',
+        onclick: function () { app.filters.workspaces = [lane.key]; render(); },
+      }));
+    }
+
+    var body = el('div', { class: 'ov-lane-body' });
+    var toggle = el('button', {
+      type: 'button', class: 'ov-btn ov-lane-toggle',
+      'aria-expanded': collapsed ? 'false' : 'true',
+      text: collapsed ? '展开' : '折叠',
+      onclick: function () {
+        var next = !(app.collapsed[lane.key] === true);
+        app.collapsed[lane.key] = next;
+        writeStore(STORE_COLLAPSED, app.collapsed);
+        card.classList.toggle('is-collapsed', next);
+        body.hidden = next;
+        toggle.setAttribute('aria-expanded', next ? 'false' : 'true');
+        toggle.textContent = next ? '展开' : '折叠';
+      },
+    });
+    meta.appendChild(toggle);
     head.appendChild(meta);
     card.appendChild(head);
 
-    card.appendChild(graphCanvas(entry));
+    /* 失败信息落在组头附近，role=alert；不做乐观更新，所以这里的数字仍是宿主的真相。 */
+    if (app.groupError && lane.id && app.groupError.groupId === lane.id) {
+      card.appendChild(alertBox(app.groupError.text));
+    }
+
+    if (customMode) body.appendChild(projectLegend(lane));
+    if (!entry.tasks.length && !entry.nodes.length) {
+      body.appendChild(notice(
+        lane.ungrouped ? '所有项目都进了目录' : '这个目录里还没有在场的工作区',
+        lane.ungrouped
+          ? '每个 workspace 都已经归入某个自定义目录。'
+          : '它的成员当前任务集里一个都没有（可能被删或改名）。把左侧的 workspace chip 拖到这张卡片上，或选中 chip 后用「移入目录」。',
+        null,
+      ));
+    } else {
+      body.appendChild(graphCanvas(entry));
+    }
 
     var grid = el('div', { class: 'ov-card-grid' });
     entry.tasks.forEach(function (node) { grid.appendChild(taskCard(node)); });
-    card.appendChild(grid);
+    body.appendChild(grid);
+    body.hidden = collapsed;
+    card.appendChild(body);
+
+    if (customMode && !lane.ungrouped) {
+      /* 拖进来即「移入这个目录」。dragover 必须 preventDefault，否则浏览器不给 drop。 */
+      card.addEventListener('dragover', function (event) {
+        event.preventDefault();
+        try { event.dataTransfer.dropEffect = 'move'; } catch (error) { /* 忽略 */ }
+        card.classList.add('is-drop-target');
+      });
+      card.addEventListener('dragleave', function () { card.classList.remove('is-drop-target'); });
+      card.addEventListener('drop', function (event) {
+        event.preventDefault();
+        card.classList.remove('is-drop-target');
+        var key = '';
+        try { key = event.dataTransfer.getData('text/plain') || ''; } catch (error) { key = ''; }
+        if (!key) key = app.selectedWorkspace;
+        if (!key) return;
+        app.selectedWorkspace = key;
+        moveWorkspace(key, lane.id);
+      });
+    }
     return card;
   }
 
+  /** 这张图的筛选是不是就等于「只看这个目录」。 */
+  function groupFocused(lane) {
+    var keys = lane.projects.map(function (project) { return project.key; });
+    if (!keys.length) return false;
+    var current = app.filters.workspaces;
+    return current.length === keys.length && keys.every(function (key) { return current.indexOf(key) >= 0; });
+  }
+
+  function commitRename(lane) {
+    var input = $('ovRenameInput');
+    var name = collapseName(input ? input.value : app.draftName);
+    if (!name) { app.groupError = { groupId: lane.id, text: '目录名不能为空' }; render(); return; }
+    if (name === lane.name) { closeRename(); return; }
+    saveGroups({ action: 'rename', id: lane.id, name: name });
+  }
+
+  function openRename(lane) {
+    app.renamingId = lane.id;
+    app.draftName = lane.name;
+    app.focusPending = true;
+    app.groupError = null;
+    render();
+  }
+
+  function closeRename() {
+    app.renamingId = '';
+    app.draftName = '';
+    app.groupError = null;
+    render();
+  }
+
+  /** 组内图例：项目色 → 项目名。点一下＝只看这个项目；「移出」＝把它从这个目录里摘出来。 */
+  function projectLegend(lane) {
+    var wrap = el('div', { class: 'ov-proj-legend' });
+    wrap.appendChild(el('span', { class: 'ov-group-label', text: '项目' }));
+    if (!lane.projects.length) {
+      wrap.appendChild(el('span', { class: 'ov-muted', text: '（还没有成员）' }));
+      return wrap;
+    }
+    lane.projects.forEach(function (project) {
+      var item = el('span', { class: 'ov-proj-legend-item' });
+      item.appendChild(el('span', { class: 'ov-swatch', style: 'background: var(--ov-c' + project.colorIndex + ')' }));
+      var only = app.filters.workspaces.length === 1 && app.filters.workspaces[0] === project.key;
+      item.appendChild(el('button', {
+        type: 'button', class: 'ov-legend-btn',
+        'data-key': project.key,
+        'aria-pressed': only ? 'true' : 'false',
+        title: (project.path || project.label) + ' · ' + project.total + ' 任务 · 只看这个项目',
+        text: project.label,
+        onclick: function () { app.filters.workspaces = only ? [] : [project.key]; render(); },
+      }));
+      item.appendChild(el('span', { class: 'ov-chip-count', text: String(project.total) }));
+      if (!lane.ungrouped && lane.id) {
+        item.appendChild(el('button', {
+          type: 'button', class: 'ov-legend-out',
+          'data-key': project.key,
+          title: '把「' + project.label + '」移出目录「' + lane.name + '」',
+          text: '移出',
+          onclick: function () { saveGroups({ action: 'remove', id: lane.id, key: project.key }); },
+        }));
+      }
+      wrap.appendChild(item);
+    });
+    if (lane.missingMembers.length) {
+      wrap.appendChild(el('span', {
+        class: 'ov-muted',
+        text: '不在场：' + lane.missingMembers.map(function (m) { return m.label || m.key; }).join('、'),
+      }));
+    }
+    return wrap;
+  }
+
   function graphCanvas(entry) {
-    var wrap = el('div', { class: 'ov-canvas' });
+    var lane = entry.lane;
+    var customMode = lane.mode === 'custom';
+    var wrap = el('div', { class: 'ov-canvas', 'data-mode': customMode ? 'custom' : 'project' });
     var svg = svgEl('svg', {
-      viewBox: '0 0 ' + entry.lane.width + ' ' + entry.lane.height,
-      width: entry.lane.width,
-      height: entry.lane.height,
+      viewBox: '0 0 ' + lane.width + ' ' + lane.height,
+      width: lane.width,
+      height: lane.height,
+      'data-mode': customMode ? 'custom' : 'project',
       role: 'img',
-      'aria-label': entry.lane.label + ' 的任务关系图，' + entry.tasks.length + ' 个任务',
+      'aria-label': customMode
+        ? (lane.label + '：' + lane.projectCount + ' 个项目、' + entry.tasks.length + ' 个任务画在同一张图里')
+        : (lane.label + ' 的任务关系图，' + entry.tasks.length + ' 个任务'),
     });
     var defs = svgEl('defs');
     var marker = svgEl('marker', {
@@ -1479,6 +2415,8 @@ var OVERVIEW_LAYOUT = (function () {
     marker.appendChild(svgEl('path', { d: 'M0 1.2 L7 4 L0 6.8 z', fill: 'var(--p-accent-line)' }));
     defs.appendChild(marker);
     svg.appendChild(defs);
+
+    if (customMode) svg.appendChild(bandLayer(lane));
 
     var edgeLayer = svgEl('g', { 'aria-hidden': 'true' });
     entry.edges.forEach(function (edge) {
@@ -1501,6 +2439,31 @@ var OVERVIEW_LAYOUT = (function () {
     return wrap;
   }
 
+  /**
+   * 项目背景带：同一张图里把项目分开，但**不切坐标空间**——
+   * 带与带之间照样是一条条正交的边，直接从项目簇连到项目簇。
+   */
+  function bandLayer(lane) {
+    var layer = svgEl('g', { 'aria-hidden': 'true', class: 'ov-band-layer' });
+    L.arr(lane.clusters).forEach(function (band) {
+      var attrs = {
+        class: 'ov-band',
+        x: band.x, y: band.y, width: band.width, height: band.height, rx: 14,
+      };
+      if (band.external) {
+        attrs.style = 'fill: var(--p-ghost); stroke: var(--p-line-strong); stroke-dasharray: 4 4; stroke-opacity: .9';
+      } else {
+        attrs.style = 'fill: var(--ov-c' + band.color + '); fill-opacity: .055; stroke: var(--ov-c' + band.color + '); stroke-opacity: .32';
+      }
+      layer.appendChild(svgEl('rect', attrs));
+      var label = svgEl('text', { class: 'ov-band-label', x: band.labelX, y: band.labelY });
+      label.setAttribute('style', band.external ? 'fill: var(--p-text-3)' : ('fill: var(--ov-c' + band.color + ')'));
+      label.textContent = band.external ? band.label : (band.label + ' · ' + band.nodes + ' 任务');
+      layer.appendChild(label);
+    });
+    return layer;
+  }
+
   function graphNode(node, entry) {
     var interactive = !node.ghost;
     var g = svgEl('g', {
@@ -1508,6 +2471,7 @@ var OVERVIEW_LAYOUT = (function () {
       'data-key': node.key,
       'data-id': node.id,
       'data-state': node.state,
+      'data-project': node.projectColor === undefined ? null : String(node.projectColor),
       tabindex: interactive ? '0' : null,
       /* ghost 不可点选（它不是一个真实任务），但仍要让读屏知道这里缺了什么。 */
       role: interactive ? 'button' : 'img',
@@ -1521,14 +2485,19 @@ var OVERVIEW_LAYOUT = (function () {
       class: 'ov-node-bg',
       x: node.x, y: node.y, width: node.w, height: node.h, rx: 13,
     }));
-    if (!node.ghost) g.appendChild(svgEl('rect', {
-      class: 'ov-node-spine',
-      x: node.x, y: node.y + 8, width: 3, height: node.h - 16, rx: 1.5,
-    }));
+    if (!node.ghost) {
+      var spine = svgEl('rect', {
+        class: 'ov-node-spine',
+        x: node.x, y: node.y + 8, width: 3, height: node.h - 16, rx: 1.5,
+      });
+      /* 按目录分组：色条＝项目（状态由圆点与文案表达）；按项目分组：色条＝状态。 */
+      if (node.projectColor !== undefined) spine.setAttribute('style', 'fill: var(--ov-c' + node.projectColor + ')');
+      g.appendChild(spine);
+    }
     g.appendChild(svgEl('circle', { class: 'ov-dot', cx: node.x + 18, cy: node.y + 21, r: 3.6 }));
 
     var noText = svgEl('text', { class: 'ov-node-no', x: node.x + 29, y: node.y + 25 });
-    noText.textContent = node.no > 0 ? ('T' + node.no) : (node.ghost ? (node.missing ? '缺失' : '跨项目') : node.id.slice(0, 8));
+    noText.textContent = node.no > 0 ? ('T' + node.no) : (node.ghost ? (node.missing ? '缺失' : (node.mode === 'custom' ? '组外' : '跨项目')) : node.id.slice(0, 8));
     g.appendChild(noText);
 
     var titleText = svgEl('text', { class: 'ov-node-title', x: node.x + 16, y: node.y + 47 });
@@ -1550,7 +2519,12 @@ var OVERVIEW_LAYOUT = (function () {
   }
 
   function nodeMeta(node) {
-    if (node.ghost) return node.missing ? '任务不存在 · 仅剩关系' : ('属于 ' + (node.workspaceLabel || '其他项目'));
+    if (node.ghost) {
+      if (node.missing) return '任务不存在 · 仅剩关系';
+      var owner = node.workspaceLabel || '其他项目';
+      if (node.groupLabel) return '属于 ' + owner + '（目录 ' + node.groupLabel + '）';
+      return '属于 ' + owner + (node.dirLabel ? ' · ' + node.dirLabel : '');
+    }
     var bits = [];
     if (node.state === 'blocked') bits.push('阻塞 ' + node.refs.blockedBy.length);
     else if (node.state === 'done') bits.push('已完成');
@@ -1562,7 +2536,10 @@ var OVERVIEW_LAYOUT = (function () {
   }
 
   function describeNode(node) {
-    if (node.ghost) return (node.missing ? '缺失任务 ' : '跨项目任务 ') + node.id + '：' + (node.fullTitle || '');
+    if (node.ghost) {
+      var where = node.groupLabel ? ('目录 ' + node.groupLabel) : (node.dirLabel || '');
+      return (node.missing ? '缺失任务 ' : '组外任务 ') + node.id + '：' + (node.fullTitle || '') + (where ? ('（' + where + '）') : '');
+    }
     return (node.no > 0 ? ('T' + node.no + ' ') : '') + (node.fullTitle || node.id) + '，' + nodeMeta(node);
   }
 
@@ -1657,7 +2634,9 @@ var OVERVIEW_LAYOUT = (function () {
         class: 'ov-muted',
         text: node.missing
           ? '这个任务只在关系里出现，任务表里查不到：可能是跨清单引用或被删掉的条目。'
-          : '这个任务属于另一个项目，画在这里只是为了让依赖方向不断链。',
+          : ('这个任务属于 ' + (node.workspaceLabel || '另一个项目')
+             + (node.groupLabel ? ('（目录「' + node.groupLabel + '」）') : (node.dirLabel ? ('（' + node.dirLabel + '）') : ''))
+             + '，画在这里只是为了让依赖方向不断链，不跨组拉长线。'),
       }));
     }
     var close = el('button', {
@@ -1675,7 +2654,11 @@ var OVERVIEW_LAYOUT = (function () {
   }
 
   function statusText(node) {
-    if (node.ghost) return node.missing ? '任务表中不存在' : '属于其他项目';
+    if (node.ghost) {
+      if (node.missing) return '任务表中不存在';
+      if (node.groupLabel) return '属于目录「' + node.groupLabel + '」';
+      return '属于其他项目' + (node.dirLabel ? ('（' + node.dirLabel + '）') : '');
+    }
     if (node.state === 'done') return '已完成';
     if (node.state === 'blocked') return '阻塞（' + (node.refs.blockedBy || []).length + ' 个前置未完成）';
     if (node.state === 'suspended') return '已挂起';
@@ -1756,7 +2739,7 @@ var OVERVIEW_LAYOUT = (function () {
       },
     }) : null;
     if (app.raw.length === 0) {
-      return notice('还没有任何任务', '插件同步到飞书任务后，这里会按项目自动分组。可以先用侧边栏里的「同步」拉一次。', null);
+      return notice('还没有任何任务', '插件同步到飞书任务后，这里会按「自定义目录」把项目合起来画。可以先用侧边栏里的「同步」拉一次。', null);
     }
     return notice('没有匹配的任务', '当前筛选条件下一个任务都没有。', clearBtn);
   }
@@ -1768,6 +2751,11 @@ var OVERVIEW_LAYOUT = (function () {
     app.filters.keyword = event.target.value || '';
     render();
   });
+
+  /* 分组方式与折叠状态是「上次怎么看的，这次还怎么看」；目录成员关系以宿主为准，不存本地。 */
+  app.groupBy = groupBySetting();
+  var collapsedSetting = readStore(STORE_COLLAPSED, {});
+  app.collapsed = L.isObj(collapsedSetting) ? collapsedSetting : {};
 
   window.addEventListener('message', function (event) {
     if (!event || event.source !== window.parent || event.origin !== window.location.origin) return;

@@ -45,6 +45,7 @@ import { createCreationLedger } from './creationLedger.js'
 const backendIOContext = new AsyncLocalStorage()
 import { matchWorkspace, titleChangeOf } from './workspace.js'
 import { updateRelations, projectRelations, relationStats } from './relations.js'
+import { normalizeGroups, applyGroupAction, projectGroups } from './workspaceGroups.js'
 import {
   TZ_DEFAULT,
   advance as advanceSchedule,
@@ -537,6 +538,8 @@ const DEFAULT_STATE = {
   /* 独立于任务过滤与会话绑定的有向关系；飞书原生依赖是同步投影。 */
   relations: [],
   relationSync: {},
+  /* 自定义目录（工作区分组）：用户自己拖出来的一组 workspace，共用一个名字与一张关系图。 */
+  workspaceGroups: [],
   /* 挂起独立于完成标志；保存归档/自动化恢复凭据，不能同步时丢失。 */
   suspensions: {},
   workspaceWrites: {},
@@ -3101,6 +3104,8 @@ function createSyncEngine(ctx) {
 
     state.relations = Array.isArray(savedState.relations) ? savedState.relations : []
     state.relationSync = savedState.relationSync && typeof savedState.relationSync === 'object' ? savedState.relationSync : {}
+    /* 自定义目录：坏行直接丢掉，不让一份手改过的 state.json 拖垮整个面板。 */
+    state.workspaceGroups = normalizeGroups(savedState.workspaceGroups)
     state.suspensions = savedState.suspensions && typeof savedState.suspensions === 'object' ? savedState.suspensions : {}
     state.workspaceWrites = savedState.workspaceWrites && typeof savedState.workspaceWrites === 'object' ? savedState.workspaceWrites : {}
     state.docs = Array.isArray(savedState.docs) ? savedState.docs : []
@@ -4279,14 +4284,7 @@ function createSyncEngine(ctx) {
       view.ready = !view.blockedBy.length
       relationViews.set(task.id, view)
     }
-    return {
-      version: pluginVersion(),
-      settings,
-      workspaces: workspaces(),
-      state: {
-        ...state,
-        relationStats: relationStats(state.relations, state.tasks),
-        tasks: state.tasks.map((task) => {
+    const taskViews = state.tasks.map((task) => {
           /* 排期视图只进快照、不进 state 文件：它随时间变，存下来只会过期。 */
           const enriched = {
             ...enrichWorkspace(task, workspaceRows),
@@ -4318,7 +4316,18 @@ function createSyncEngine(ctx) {
             sessionTurn: alive.turn,
             sessionUnread: alive.kind !== 'running' && alive.turn > seen,
           }
-        }),
+        })
+    return {
+      version: pluginVersion(),
+      settings,
+      workspaces: workspaces(),
+      state: {
+        ...state,
+        relationStats: relationStats(state.relations, state.tasks),
+        /* 自定义目录：统计在场成员必须用**同一批**任务对象（含 enrichWorkspace 补出的
+           workspaceId/Path），否则面板按 UUID 分组、这里按名字统计，两边会各说各话。 */
+        workspaceGroups: projectGroups(state.workspaceGroups, taskViews),
+        tasks: taskViews,
         syncing: inFlight !== null,
         cli,
         apiVersion: API_VERSION,
@@ -9065,9 +9074,22 @@ bucket 只能从枚举里选：
     return { ok: true, backend: id, settings, state: snapshot().state }
   }
 
+  /**
+   * 自定义目录：把一组 workspace 合成一个「项目」。纯本地组织方式——
+   * 不触发同步、不调模型、不写飞书；失败只返回错误，不改内存态。
+   */
+  async function setWorkspaceGroups(input = {}) {
+    const updated = applyGroupAction(state.workspaceGroups, input)
+    if (!updated.ok) return updated
+    state.workspaceGroups = updated.groups
+    await persistState()
+    return { ok: true, group: updated.group ?? null, groups: projectGroups(state.workspaceGroups, state.tasks) }
+  }
+
   return {
     load,
     snapshot,
+    setWorkspaceGroups,
     saveSettings,
     ensureManagedTasklist,
     switchBackend,
@@ -9422,6 +9444,14 @@ function mountRoutes(ctx, engine) {
           if (route === '/api/tasks/suspension' && req.method === 'POST') {
             const body = await readBody(req)
             const result = await engine.changeTaskSuspension(asString(body.taskId ?? body.id), body)
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          /* 自定义目录（工作区分组）：只改本地组织方式，不碰飞书、不碰任务本身。 */
+          if (route === '/api/workspace-groups' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.setWorkspaceGroups(body)
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }

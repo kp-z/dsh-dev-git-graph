@@ -3,7 +3,8 @@
  *
  * 抽取风格照 test/filterPanel.mjs：把 <script> 全部拼起来做 vm.Script 语法检查，
  * 再按 OVERVIEW_LAYOUT:START/END 标记截出纯函数块，丢进 vm 上下文单跑。
- * 覆盖：分组、节点/边数量、缺失前驱 ghost、长标题截断、空输入不抛、筛选。
+ * 覆盖：分组、节点/边数量、缺失前驱 ghost、长标题截断、空输入不抛、筛选、
+ * 以及「自定义目录」分组（用户把若干 workspace 拖成一组 → 一组一张图）。
  */
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
@@ -17,18 +18,34 @@ assert.ok(blocks.length >= 3, `期望至少 3 个内联脚本块（主题引导/
 const script = blocks.join('\n')
 new vm.Script(script)
 
-/* ---------- 2. 页面卫生：自包含、只读、不用官方私有类名 ---------- */
+/* ---------- 2. 页面卫生：自包含、只写自定义目录、不用官方私有类名 ---------- */
 assert.match(html, /var OVERVIEW_LAYOUT = \(function \(\) \{/) // 硬要求：暴露形式
 assert.doesNotMatch(html, /<iframe\b/i, '不得用 iframe')
 assert.doesNotMatch(html, /(?:src|href)\s*=\s*["']https?:/i, '不得引外链资源/CDN')
 assert.doesNotMatch(script, /\.dsw-[a-z0-9-]+\s*[{,]/i, '不得拿官方私有 class 名做选择器')
 assert.doesNotMatch(script, /querySelector(?:All)?\([^)]*dsw-/i, '不得用官方私有 class 名查询')
 assert.match(script, /var STATE_URL = '\/dsh-feishu\/api\/state'/)
-assert.doesNotMatch(script, /method:\s*['"]POST/i, '本页只读，不得有写操作')
-assert.doesNotMatch(script, /\/dsh-feishu\/api\/(?!state)/, '除 /api/state 外不得请求别的接口')
+assert.match(script, /var GROUPS_URL = '\/dsh-feishu\/api\/workspace-groups'/, '自定义目录是唯一写接口')
+/* 总览页只写「自定义目录」这一个接口：POST 只允许出现在 saveGroups 里一处。 */
+const posts = script.match(/method:\s*['"]POST['"]/g) || []
+assert.equal(posts.length, 1, '页面只允许一个写接口调用')
+assert.doesNotMatch(script, /method:\s*['"](?:PUT|PATCH|DELETE)['"]/i, '不得有别的写方法')
+assert.doesNotMatch(script, /\/dsh-feishu\/api\/(?!state|workspace-groups)/, '除 state 与 workspace-groups 外不得请求别的接口')
 assert.match(script, /title: node\.fullTitle/, '卡片 title 属性要保留全文')
 assert.match(script, /data\.type === 'dsh-feishu:theme'/, '要响应宿主 postMessage 主题切换')
 assert.match(script, /\[\?&\]theme=/, '要支持 ?theme=dark|light')
+
+/* 目录成员关系不存本地（以宿主为准），只有「折叠 / 分组方式」这类视图状态落 localStorage。 */
+assert.match(script, /STORE_PREFIX = 'dsh-feishu-overview:'/, '视图状态用固定前缀键')
+assert.match(script, /STORE_GROUP_BY/)
+assert.match(script, /STORE_COLLAPSED/)
+assert.doesNotMatch(script, /localStorage\.setItem\([^)]*member/i, '成员关系不得写 localStorage')
+
+/* 拖拽必须有非拖拽的等价路径：选中 chip → 「移入目录」下拉（键盘可达）。 */
+assert.match(script, /draggable: 'true'/, 'chip 要可拖')
+assert.match(script, /id: 'ovMoveSelect'/, '要有移入目录的下拉')
+assert.match(script, /addEventListener\('drop'/, '目录卡片要能接收拖放')
+assert.match(script, /role: 'alert'/, '写失败要以 role=alert 显示')
 
 /* ---------- 3. 抽出纯函数块 ---------- */
 const START = '/* OVERVIEW_LAYOUT:START'
@@ -44,7 +61,8 @@ assert.ok(L && typeof L === 'object', 'OVERVIEW_LAYOUT 未暴露')
 
 for (const fn of ['truncateTitle', 'measure', 'workspaceOf', 'blockedOf', 'stateOf',
   'normalizeEdges', 'groupTasks', 'nodeOf', 'ghostNode', 'titleHints', 'layout', 'statsOf',
-  'filterTasks', 'indexNodes', 'taskNo', 'taskLabel']) {
+  'filterTasks', 'indexNodes', 'taskNo', 'taskLabel',
+  'dirOf', 'shortenPath', 'normalizeCustomGroups', 'groupByCustom']) {
   assert.equal(typeof L[fn], 'function', `缺导出函数 ${fn}`)
 }
 
@@ -317,6 +335,205 @@ assert.equal(index.d1.key, 'task:d1', '真实节点优先于 ghost')
 assert.equal(index.t9.ghost, true)
 assert.equal(Object.keys(L.indexNodes(null)).length, 0)
 
+/* ---------- 15. 路径显示工具（不再作为分组依据，但芯片与缺失成员还要用） ---------- */
+assert.equal(L.dirOf('/Users/kp/DEV/dsh-plugins'), '/Users/kp/DEV')
+assert.equal(L.dirOf('/Users/kp/DEV/dsh-plugins/'), '/Users/kp/DEV')
+assert.equal(L.dirOf('/a'), '/')
+assert.equal(L.dirOf('solo'), '')
+assert.equal(L.dirOf(''), '')
+assert.equal(L.dirOf(null), '')
+assert.equal(L.shortenPath('/Users/kp/DEV'), '~/DEV')
+assert.equal(L.shortenPath('/home/me/x/y'), '~/x/y')
+assert.equal(L.shortenPath('/opt/data'), '/opt/data')
+assert.equal(L.shortenPath(''), '')
+
+/* ---------- 16. 自定义目录快照规整 ---------- */
+assert.deepEqual(plain(L.normalizeCustomGroups(null)), [])
+assert.deepEqual(plain(L.normalizeCustomGroups('nope')), [])
+assert.deepEqual(plain(L.normalizeCustomGroups([null, 1, 'x', {}, { id: '' }, { id: 'a' }])), [], '没有 id / 名字的目录丢掉')
+const norm = L.normalizeCustomGroups([
+  { id: 'g1', name: '  QV   后端 ', members: ['wa', 'wa', '', 'wb'], labels: { wa: 'A项目' } },
+  { id: 'g1', name: '重复 id' },
+  { id: 'g2', name: 'MvizLite', members: null },
+])
+assert.deepEqual(plain(norm.map((g) => [g.id, g.name, g.members])), [
+  ['g1', 'QV 后端', ['wa', 'wb']],
+  ['g2', 'MvizLite', []],
+], '空白折叠、成员去重保序、重复 id 只留一个')
+assert.deepEqual(plain(norm[0].labels), { wa: 'A项目' })
+
+/* ---------- 17. 按自定义目录分组：一组一张图 ---------- */
+const wt = (id, title, ws, done) => ({
+  id, title, done: done === true,
+  workspaceId: ws.id, workspaceTitle: ws.title, workspacePath: ws.path || '',
+  relations: { predecessors: [], successors: [], sourceTasks: [], derivedTasks: [], blockedBy: [], ready: true },
+})
+const A = { id: 'wa', title: 'A项目', path: '/Users/kp/DEV/a' }
+const B = { id: 'wb', title: 'B项目', path: '/Users/kp/DEV/b' }
+const C = { id: 'wc', title: 'C项目', path: '/Users/kp/DEV/c' }
+const D = { id: 'wd', title: 'D项目', path: '/Users/kp/OTHER/d' }
+const ctasks = [
+  wt('a1', 'A 的前置', A, true),
+  wt('a2', 'A 的后置', A),
+  wt('b1', 'B 的任务', B),
+  wt('c1', 'C 的任务', C),
+  wt('d1', 'D 的任务', D),
+]
+const cedges = [
+  { from: 'a1', to: 'a2', kind: 'depends_on' },   // 同项目
+  { from: 'b1', to: 'a1', kind: 'depends_on' },   // 同目录跨项目 → 直接连，不画 ghost
+  { from: 'c1', to: 'a1', kind: 'depends_on' },   // 跨目录 → ghost 锚点
+  { from: 'a2', to: 'nope', kind: 'depends_on' }, // 缺失 → ghost
+]
+const defs = [
+  { id: 'g1', name: 'QV', members: ['wa', 'wb', 'wz-gone'], labels: { 'wz-gone': '老项目' }, presentMembers: 2 },
+  { id: 'g2', name: 'MvizLite', members: ['wc'], labels: {}, presentMembers: 1 },
+]
+const cmodel = L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs })
+assert.equal(cmodel.groupBy, 'custom')
+assert.equal(cmodel.groups.length, 3, '2 个自定义目录 + 1 个未分组桶')
+assert.deepEqual(plain(cmodel.groups.map((g) => [g.key, g.label, g.ungrouped])), [
+  ['group:g1', 'QV', false],
+  ['group:g2', 'MvizLite', false],
+  [L.constants.UNGROUPED_KEY, '未分组', true],
+])
+const cByKey = Object.fromEntries(cmodel.groups.map((g) => [g.key, g]))
+
+// QV：A、B 两个项目共用一张图
+const qv = cByKey['group:g1']
+assert.equal(qv.projectCount, 2, 'QV 里 2 个项目')
+assert.deepEqual(plain(qv.projects.map((p) => p.label)), ['A项目', 'B项目'], '组内项目顺序＝成员顺序')
+assert.deepEqual(plain(qv.projects.map((p) => p.colorIndex)), [0, 1], '组内按项目分色')
+assert.equal(qv.taskNodes.length, 3, '图上节点数＝成员项目的任务和')
+assert.equal(qv.missingMembers.length, 1, '成员不在场要记下来但不炸')
+assert.equal(qv.missingMembers[0].key, 'wz-gone')
+assert.equal(qv.missingMembers[0].label, '老项目', '成员不在场时用 labels 兜底显示人话')
+assert.deepEqual(plain(qv.clusters.map((c) => c.label)), ['A项目', 'B项目', L.constants.EXTERNAL_LABEL], '项目背景带 + 组外带')
+assert.equal(qv.graph.nodes, qv.nodes, 'groups[].graph 就是这一组的画布内容')
+assert.equal(qv.graph.edges, qv.edges)
+assert.equal(qv.graph.width, qv.width)
+assert.equal(qv.graph.mode, 'custom')
+
+// 同一目录内的跨项目边：直接连，两端都是真实节点
+const cross = qv.edges.find((e) => e.from === 'b1' && e.to === 'a1')
+assert.ok(cross, '同目录跨项目的边必须画在**同一张图**里')
+assert.equal(cross.viaGhost, false, '同组内的跨项目边不该走 ghost')
+// 跨目录 / 缺失端点：ghost 锚点，不跨组拉长线
+const ghostC = qv.nodes.find((n) => n.id === 'c1')
+assert.equal(ghostC.ghost, true)
+assert.equal(ghostC.missing, false)
+assert.equal(ghostC.workspace, 'wc', 'ghost 保留真实归属')
+assert.equal(ghostC.groupLabel, 'MvizLite', 'ghost 要标注它属于哪个自定义目录')
+assert.equal(ghostC.workspaceLabel, 'C项目')
+assert.equal(ghostC.laneKey, L.constants.EXTERNAL_KEY, '组外端点落在「组外」泳道')
+assert.equal(qv.nodes.find((n) => n.id === 'nope').missing, true)
+assert.equal(qv.edges.length, 4, 'QV 里 4 条边都画出来（2 条内部 + 2 条带 ghost）')
+// 配色只给本组项目
+assert.equal(qv.taskNodes.find((n) => n.id === 'a1').projectColor, 0)
+assert.equal(qv.taskNodes.find((n) => n.id === 'b1').projectColor, 1)
+assert.equal(ghostC.projectColor, undefined, '组外 ghost 不参与项目配色')
+
+// MvizLite：C 项目；指向 A 的边在这里是 ghost
+const mv = cByKey['group:g2']
+assert.equal(mv.projectCount, 1)
+assert.equal(mv.taskNodes.length, 1)
+assert.equal(mv.nodes.length, 2)
+assert.equal(mv.edges.length, 1)
+assert.equal(mv.nodes.find((n) => n.id === 'a1').ghost, true)
+assert.equal(mv.nodes.find((n) => n.id === 'a1').groupLabel, 'QV')
+
+// 未分组桶：没进任何目录的项目
+const rest = cByKey[L.constants.UNGROUPED_KEY]
+assert.equal(rest.ungrouped, true)
+assert.deepEqual(plain(rest.taskNodes.map((n) => n.id)), ['d1'])
+assert.equal(rest.edges.length, 0)
+assert.equal(rest.projectCount, 1)
+assert.equal(cmodel.stats.groups, 3, 'stats.groups＝这次画了几张图')
+assert.equal(cmodel.nodes.length, 5 + 2 + 1, '全量节点＝各组节点之和（QV 3+2ghost、MvizLite 1+1ghost、未分组 1）')
+assert.equal(cmodel.stats.tasks, 5)
+
+// 每张图都是自己的一个坐标系：几何自洽，组间不共用节点对象
+const keys = new Set()
+for (const lane of cmodel.groups) {
+  assert.ok(lane.width > 0 && lane.height > 0)
+  for (const node of lane.nodes) {
+    assert.equal(keys.has(node.key), false, `node.key 全局唯一：${node.key}`)
+    keys.add(node.key)
+    assert.ok(node.x >= 0 && node.y >= 0, '节点坐标非负')
+    assert.ok(node.x + node.w <= lane.width, `${lane.label}：节点不超画布宽`)
+    assert.ok(node.y + node.h <= lane.height, `${lane.label}：节点不超画布高`)
+  }
+  for (const band of lane.clusters) {
+    assert.ok(band.x >= 0 && band.y >= 0 && band.x + band.width <= lane.width + 1e-9, '背景带在画布内')
+    assert.ok(band.y + band.height <= lane.height + 1e-9, '背景带在画布内')
+  }
+  for (const edge of lane.edges) {
+    assert.match(edge.path, /^M-?\d+ -?\d+ H-?\d+ V-?\d+ H-?\d+$/, '边必须是正交路径')
+    assert.ok(lane.nodes.some((n) => n.key === edge.fromKey), '边起点在本组')
+    assert.ok(lane.nodes.some((n) => n.key === edge.toKey), '边终点在本组')
+  }
+  // 同一泳道同一行不能重叠
+  const rows = new Map()
+  for (const node of lane.nodes) {
+    const key = (node.laneKey || '') + '#' + node.order
+    if (!rows.has(key)) rows.set(key, [])
+    rows.get(key).push(node)
+  }
+  for (const row of rows.values()) {
+    const sorted = row.slice().sort((a, b) => a.x - b.x)
+    for (let i = 1; i < sorted.length; i += 1) {
+      assert.ok(sorted[i].x >= sorted[i - 1].x + sorted[i - 1].w, '同一行不得重叠')
+    }
+  }
+}
+
+// 一个 workspace 只属于一个目录：前面已经认领的不再重复画
+const claimed = L.groupByCustom([
+  { id: 'g1', name: '一', members: ['wa'] },
+  { id: 'g2', name: '二', members: ['wa', 'wb'] },
+], ctasks)
+assert.deepEqual(plain(claimed.map((g) => [g.label, g.projects.map((p) => p.label)])), [
+  ['一', ['A项目']],
+  ['二', ['B项目']],
+  ['未分组', ['C项目', 'D项目']],
+], '同一个 workspace 不会同时出现在两个目录里；剩下的落到未分组')
+
+// 成员不在场 / 空 groups / 坏输入都不炸
+const empty = L.groupByCustom([{ id: 'g1', name: '空目录', members: ['nobody'] }], ctasks)
+assert.equal(empty.length, 2)
+assert.equal(empty[0].total, 0)
+assert.equal(empty[0].missingMembers.length, 1)
+const emptyModel = L.layout(ctasks, cedges, { groupBy: 'custom', groups: [{ id: 'g1', name: '空目录', members: ['nobody'] }] })
+assert.equal(emptyModel.groups.length, 2)
+assert.equal(emptyModel.groups[0].nodes.length, 0)
+assert.ok(emptyModel.groups[0].width >= 0)
+const noGroups = L.layout(ctasks, cedges, { groupBy: 'custom' })
+assert.equal(noGroups.groups.length, 1, '没有目录时只剩「未分组」一张图')
+assert.equal(noGroups.groups[0].taskNodes.length, 5)
+assert.deepEqual(plain(L.groupByCustom(null, null)), [])
+assert.deepEqual(plain(L.groupByCustom('nope', 'nope')), [])
+for (const bad of [undefined, null, [], {}, 'nope', 0]) {
+  const out = L.layout(bad, bad, { groupBy: 'custom', groups: bad })
+  assert.ok(out && Array.isArray(out.groups) && Array.isArray(out.nodes))
+  assert.equal(typeof out.stats.tasks, 'number')
+}
+
+/* ---------- 18. 按项目模式与旧口径逐字段等价 ---------- */
+const oldModel = L.layout(tasks, relations)
+const newModel = L.layout(tasks, relations, { groupBy: 'project' })
+const shape = (m) => ({
+  groupBy: m.groupBy,
+  groups: m.groups.map((g) => ({ key: g.key, label: g.label, nodes: g.nodes.map((n) => [n.key, n.x, n.y, n.column, n.order]) })),
+  nodes: m.nodes.map((n) => n.key),
+  edges: m.edges.map((e) => e.path),
+  stats: m.stats,
+})
+assert.deepEqual(plain(shape(newModel)), plain(shape(oldModel)), '显式按项目必须与默认口径完全一致')
+assert.deepEqual(plain(shape(oldModel).groups.map((g) => g.key)), ['w1', 'w2', L.constants.UNGROUPED_KEY])
+assert.equal(oldModel.groups[0].custom, false, '按项目模式下不是自定义目录')
+assert.equal(oldModel.groups[0].clusters.length, 0, '按项目模式不画背景带')
+
 console.log('ok overview.html：布局纯函数 ' + Object.keys(L).length + ' 项导出，'
   + model.nodes.length + ' 节点 / ' + model.edges.length + ' 边 / '
-  + model.groups.length + ' 分组全部通过断言')
+  + model.groups.length + ' 分组，自定义目录 ' + cmodel.groups.length + ' 张图（'
+  + cmodel.groups.filter((g) => !g.ungrouped).length + ' 个目录 + 未分组）全部通过断言')
