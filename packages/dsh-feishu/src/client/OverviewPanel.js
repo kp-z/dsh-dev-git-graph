@@ -19,8 +19,7 @@
 import * as modelModule from '../overview/model.js'
 import * as layoutModule from '../overview/layout.js'
 import { createDetailPanel } from './DetailPanel.js'
-import { createGraphView } from './GraphView.js'
-import { createTreeNav } from './TreeNav.js'
+import { createFeatures, featureById } from './features.js'
 
 const MIN_POLL_MS = 15000
 const DEFAULT_POLL_MS = 30000
@@ -212,9 +211,12 @@ export function createOverviewPanel(deps) {
   const store = (deps && deps.store) || null
   const pollMs = Math.max(MIN_POLL_MS, Number(deps && deps.pollMs) || DEFAULT_POLL_MS)
 
-  const TreeNav = createTreeNav({ React, h, model })
-  const GraphView = createGraphView({ React, h, model, layout })
   const DetailPanel = createDetailPanel({ React, h, model })
+  /* 功能注册表：rail 导航项、正文渲染、activeFeature 全从它派生。
+     `features` 允许注入（测试用它加一个假功能验证「注册表驱动」与切换）。 */
+  const features = Array.isArray(deps && deps.features) && deps.features.length
+    ? deps.features
+    : createFeatures({ React, h, model, layout, api, store })
 
   const { useCallback, useEffect, useMemo, useRef, useState } = React
 
@@ -230,6 +232,12 @@ export function createOverviewPanel(deps) {
 
     const [state, setState] = useState({ status: 'loading', error: '', data: null })
     const [scope, setScope] = useState(() => model.normScope(readStore(store, 'selection')))
+    const [activeFeatureId, setActiveFeatureId] = useState(() => {
+      const hit = featureById(features, model.str(readStore(store, 'feature')))
+      return hit ? hit.id : ''
+    })
+    const [scopeCollapsed, setScopeCollapsed] = useState(() => readStore(store, 'scope') === true)
+    const [railOpen, setRailOpen] = useState(() => readStore(store, 'rail') !== false)
     const [collapsed, setCollapsed] = useState(() => {
       const value = readStore(store, 'collapsed')
       return model.isObj(value) ? value : {}
@@ -315,6 +323,9 @@ export function createOverviewPanel(deps) {
     useEffect(() => { writeStore(store, 'selection', scope) }, [scope])
     useEffect(() => { writeStore(store, 'collapsed', collapsed) }, [collapsed])
     useEffect(() => { writeStore(store, 'keyword', keyword) }, [keyword])
+    useEffect(() => { writeStore(store, 'feature', activeFeatureId) }, [activeFeatureId])
+    useEffect(() => { writeStore(store, 'scope', scopeCollapsed) }, [scopeCollapsed])
+    useEffect(() => { writeStore(store, 'rail', railOpen) }, [railOpen])
 
     useEffect(() => {
       if (!detailId || typeof document === 'undefined' || !document.addEventListener) return undefined
@@ -518,33 +529,63 @@ export function createOverviewPanel(deps) {
     const clock = clockOf(data && data.now)
     if (clock) subtitle.push(clock)
 
-    let content
+    /* 骨架只负责「数据层面还没法渲染功能页」的几种状态；有数据时正文交给功能注册表。 */
+    let shellNode = null
     if (state.status === 'loading' && !data) {
-      content = h('div', { className: 'fo-skeleton', 'aria-hidden': 'true' }, [0, 1, 2].map((i) => h('div', { key: i, className: 'fo-skeleton-row' })))
+      shellNode = h('div', { className: 'fo-skeleton', 'aria-hidden': 'true' }, [0, 1, 2].map((i) => h('div', { key: i, className: 'fo-skeleton-row' })))
     } else if (!data) {
-      content = h('div', { className: 'fo-placeholder', role: 'status' },
+      shellNode = h('div', { className: 'fo-placeholder', role: 'status' },
         h('div', { className: 'fo-placeholder-title' }, '读不到飞书任务数据'),
         h('div', { className: 'fo-placeholder-body' }, state.error || '宿主接口没有返回快照。'),
         h('button', { type: 'button', className: 'fo-btn', 'data-variant': 'primary', onClick: () => load(false) }, '重试'),
       )
     } else if (!tasks.length) {
-      content = h('div', { className: 'fo-placeholder', role: 'status' },
+      shellNode = h('div', { className: 'fo-placeholder', role: 'status' },
         h('div', { className: 'fo-placeholder-title' }, '还没有任何任务'),
         h('div', { className: 'fo-placeholder-body' }, '插件同步到飞书任务后，这里会按「自定义目录」把多个项目合在一张关系图里画。'),
       )
     } else if (keywordNeedle && !visibleTasks.length) {
-      content = h('div', { className: 'fo-placeholder', role: 'status' },
+      shellNode = h('div', { className: 'fo-placeholder', role: 'status' },
         h('div', { className: 'fo-placeholder-title' }, '没有匹配的任务'),
         h('div', { className: 'fo-placeholder-body' }, `没有标题 / 编号 / 项目名包含「${model.collapse(keyword)}」的任务。`),
         h('button', { type: 'button', className: 'fo-btn', 'data-variant': 'primary', onClick: () => setKeyword('') }, '清除搜索'),
       )
-    } else {
-      /* 只有图：图上的节点就是任务列表（task-13 删掉了图下面那份重复的卡片区） */
-      content = h(GraphView, {
-        graphs,
-        selectedId: detailTask ? detailId : '',
-        onOpenTask: (id) => openTask(id),
-      })
+    }
+
+    const activeFeature = featureById(features, activeFeatureId)
+    const featureComponent = activeFeature && typeof activeFeature.Component === 'function' ? activeFeature.Component : null
+    const featureHint = activeFeature ? model.str(activeFeature.hint) : ''
+
+    /* 功能页的 ctx：数据 + 交互全在这里，功能组件自己不取数据、不碰 store。 */
+    const featureCtx = {
+      featureHint,
+      scopeText: subtitle.slice(0, 2).join(' · '),
+      scopeCollapsed,
+      onToggleScope: () => setScopeCollapsed((prev) => prev !== true),
+      graphs,
+      selectedId: detailTask ? detailId : '',
+      onOpenTask: (id) => openTask(id),
+      treeProps: {
+        tree,
+        renamingId,
+        creating,
+        creatingFor,
+        dragKey,
+        dropKey,
+        busy,
+        onSelect: onSelectRow,
+        onToggle: onToggleRow,
+        onMenu,
+        onDragKey: setDragKey,
+        onDropKey: setDropKey,
+        onDrop,
+        onRenameStart: (row) => setRenamingId(row.id),
+        onRenameCommit,
+        onRenameCancel: () => setRenamingId(''),
+        onCreateStart: (projectKey) => { setCreatingFor(projectKey || ''); setCreating(true) },
+        onCreateCommit,
+        onCreateCancel: () => { setCreating(false); setCreatingFor('') },
+      },
     }
 
     return h('div', {
@@ -552,60 +593,102 @@ export function createOverviewPanel(deps) {
       'data-detail': detailTask || detailNode ? '1' : '0',
       'data-busy': busy ? '1' : '0',
       'data-scope': scope.kind,
+      'data-scope-open': scopeCollapsed ? '0' : '1',
+      'data-rail': railOpen ? '1' : '0',
+      'data-feature': activeFeatureId,
     },
-      h('header', { className: 'fo-head' },
-        h('div', { className: 'fo-head-main' },
-          h('span', { className: 'fo-title' }, model.str(options.title) || '飞书任务集'),
-          h('span', { className: 'fo-sub' }, subtitle.join(' · ')),
+      /* 侧栏三段：品牌 / 功能导航 / 底部固定区（折叠按钮在这里，折起来 rail 变 56px 图标条） */
+      h('aside', { className: 'fo-rail', 'aria-label': '功能导航' },
+        h('div', { className: 'fo-brand' },
+          h('span', { className: 'fo-brand-logo', 'aria-hidden': 'true' },
+            h('svg', { width: 20, height: 20, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' },
+              h('path', { d: 'M3 5.5h9M3 10h14M3 14.5h7' }),
+              h('circle', { cx: 15.5, cy: 5.5, r: 1.4 }),
+              h('circle', { cx: 13, cy: 14.5, r: 1.4 }),
+            ),
+          ),
+          h('span', { className: 'fo-brand-text' },
+            h('span', { className: 'fo-brand-title' }, model.str(options.title) || '飞书任务集'),
+            h('span', { className: 'fo-brand-sub' }, model.str(options.subtitle) || 'DeepSeek Harness'),
+          ),
         ),
-        chips.length ? h('div', { className: 'fo-stats' }, chips) : null,
-        scope.kind !== 'all'
-          ? h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => setScope({ kind: 'all', id: '' }) }, '全部任务')
-          : null,
-        h('button', {
-          type: 'button',
-          className: 'fo-btn',
-          'data-size': 'sm',
-          disabled: state.status === 'loading' || busy,
-          onClick: () => load(false),
-        }, state.status === 'loading' ? '刷新中…' : '刷新'),
+        h('nav', { className: 'fo-featnav', 'aria-label': '功能' },
+          features.map((feature) => h('button', {
+            key: feature.id,
+            type: 'button',
+            className: 'fo-featnav-item',
+            'data-active': feature.id === activeFeatureId ? '1' : '0',
+            'aria-current': feature.id === activeFeatureId ? 'page' : undefined,
+            title: model.str(feature.hint) || model.str(feature.label),
+            onClick: () => setActiveFeatureId(feature.id),
+          },
+            typeof feature.icon === 'function' ? feature.icon(h) : null,
+            h('span', { className: 'fo-nav-label' }, model.str(feature.label) || feature.id),
+          )),
+        ),
+        h('div', { className: 'fo-rail-foot' },
+          h('button', {
+            type: 'button',
+            className: 'fo-btn',
+            'data-size': 'sm',
+            'data-variant': 'ghost',
+            disabled: state.status === 'loading' || busy,
+            onClick: () => load(false),
+          }, state.status === 'loading' ? '刷新中…' : '刷新'),
+          h('button', {
+            type: 'button',
+            className: 'fo-btn',
+            'data-size': 'sm',
+            'data-variant': 'ghost',
+            'aria-expanded': railOpen ? 'true' : 'false',
+            title: railOpen ? '收起侧栏' : '展开侧栏',
+            onClick: () => setRailOpen((prev) => prev !== true),
+          }, railOpen ? '«' : '»'),
+        ),
       ),
       h('div', { className: 'fo-body' },
-        h(TreeNav, {
-          tree,
-          renamingId,
-          creating,
-          creatingFor,
-          dragKey,
-          dropKey,
-          busy,
-          keyword,
-          matchCount: scopedTasks.length,
-          onKeywordChange: setKeyword,
-          onClearKeyword: () => setKeyword(''),
-          onSelect: onSelectRow,
-          onToggle: onToggleRow,
-          onMenu,
-          onDragKey: setDragKey,
-          onDropKey: setDropKey,
-          onDrop,
-          onRenameStart: (row) => setRenamingId(row.id),
-          onRenameCommit,
-          onRenameCancel: () => setRenamingId(''),
-          onCreateStart: (projectKey) => { setCreatingFor(projectKey || ''); setCreating(true) },
-          onCreateCommit,
-          onCreateCancel: () => { setCreating(false); setCreatingFor('') },
-        }),
         h('div', { className: 'fo-main' },
-          h('div', { className: 'fo-main-scroll' },
-            state.error
-              ? h('div', { className: 'fo-banner', role: 'alert' },
-                h('span', null, state.error),
-                h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => load(false) }, '重试'),
-                h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', onClick: () => setState((prev) => ({ ...prev, error: '' })) }, '知道了'),
-              )
-              : null,
-            content,
+          /* 内容头部：面包屑/标题 + 搜索框（42px / 圆角 14 / 左侧 40px 图标位）+ 动作 */
+          h('header', { className: 'fo-main-head' },
+            h('div', { className: 'fo-crumb' },
+              h('span', { className: 'fo-crumb-title' }, activeFeature ? model.str(activeFeature.label) : '飞书任务集'),
+              h('span', { className: 'fo-crumb-sub' }, subtitle.join(' · ')),
+            ),
+            h('div', { className: 'fo-search-wrap' },
+              h('span', { className: 'fo-search-icon', 'aria-hidden': 'true' },
+                h('svg', { width: 16, height: 16, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' },
+                  h('circle', { cx: 8.5, cy: 8.5, r: 5 }),
+                  h('path', { d: 'M12.3 12.3 16.5 16.5' }),
+                ),
+              ),
+              h('input', {
+                className: 'fo-search',
+                type: 'text',
+                value: keyword,
+                placeholder: '搜索任务 / 编号 / 项目…',
+                'aria-label': '搜索任务',
+                onChange: (event) => setKeyword(event.currentTarget.value),
+                onKeyDown: (event) => { if (event.key === 'Escape') setKeyword('') },
+              }),
+              keyword ? h('span', { className: 'fo-search-hint' }, `匹配 ${scopedTasks.length} 条`) : null,
+            ),
+            h('div', { className: 'fo-head-actions' },
+              chips.length ? h('div', { className: 'fo-stats' }, chips) : null,
+              scope.kind !== 'all'
+                ? h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => setScope({ kind: 'all', id: '' }) }, '全部任务')
+                : null,
+            ),
+          ),
+          state.error
+            ? h('div', { className: 'fo-banner', role: 'alert' },
+              h('span', null, state.error),
+              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => load(false) }, '重试'),
+              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', onClick: () => setState((prev) => ({ ...prev, error: '' })) }, '知道了'),
+            )
+            : null,
+          /* 正文 = 当前功能页；功能从注册表来，骨架不认识任何具体功能 */
+          h('div', { className: 'fo-feature-host', 'data-feature': activeFeatureId },
+            shellNode || (featureComponent ? h(featureComponent, featureCtx) : null),
           ),
         ),
         (detailTask || detailNode)

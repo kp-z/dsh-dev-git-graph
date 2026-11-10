@@ -1,5 +1,8 @@
 /**
- * 左栏三层树（全部任务 / 自定义目录 / 项目）—— 工厂组件，模块顶层不 import react。
+ * 范围列：三层树（全部任务 / 自定义目录 / 项目）—— 工厂组件，模块顶层不 import react。
+ *
+ * task-14 起它不再挂在 rail 上，而是「任务关系图」功能页内部的 `.fo-scope` 子导航列
+ * （搜索框已搬到正文头部，这里只管范围树）。
  *
  * 能力（照 task-8 规格）：
  * - ARIA tree：role=tree/treeitem、aria-level / aria-expanded / aria-selected + roving tabindex；
@@ -11,8 +14,6 @@
  *
  * props（由 OverviewPanel 传）：
  *   tree                     model.buildTree(...) 的结果 {rows, byKey, lanes, scope, selected}
- *   keyword, matchCount       搜索关键词（在 rail 顶部输入）/ 当前匹配条数
- *   onKeywordChange(value) onClearKeyword()
  *   renamingId, creating     '' / 目录 id；creating=true 时显示新建输入行
  *   creatingFor              '' | 项目 key（新建后自动移入该项目）
  *   dragKey, dropKey         拖拽中的行 key / 悬停的放置目标 key
@@ -43,10 +44,6 @@ export function createTreeNav(deps) {
       dragKey = '',
       dropKey = '',
       busy = false,
-      keyword = '',
-      matchCount = 0,
-      onKeywordChange,
-      onClearKeyword,
       onSelect,
       onToggle,
       onMenu,
@@ -245,7 +242,7 @@ export function createTreeNav(deps) {
     visible.forEach((row, index) => {
       items.push(rowElement(row, index))
       if (row.kind === 'group' && row.missing > 0 && row.collapsed !== true) {
-        items.push(h('div', { key: `note:${row.key}`, className: 'fo-tree-note' }, `${row.missing} 个成员已不在当前任务集里`))
+        items.push(h('div', { key: `note:${row.key}`, className: 'fo-scope-note' }, `${row.missing} 个成员已不在当前任务集里`))
       }
     })
     if (creating) {
@@ -265,35 +262,9 @@ export function createTreeNav(deps) {
       ))
     }
 
-    return h('div', { className: 'fo-tree' },
-      /* 搜索框放 rail 顶部（对齐参考站 "Search everything..." 的位置），关键词收窄任务集 */
-      h('div', { className: 'fo-rail-top' },
-        h('div', { className: 'fo-rail-search-row' },
-          h('input', {
-            className: 'fo-search',
-            type: 'text',
-            value: keyword,
-            placeholder: '搜索任务…',
-            'aria-label': '搜索任务',
-            onChange: (event) => { if (typeof onKeywordChange === 'function') onKeywordChange(event.currentTarget.value) },
-            onKeyDown: (event) => { if (event.key === 'Escape' && typeof onClearKeyword === 'function') onClearKeyword() },
-          }),
-          keyword
-            ? h('button', {
-              type: 'button',
-              className: 'fo-btn',
-              'data-size': 'sm',
-              'data-variant': 'ghost',
-              title: '清除搜索',
-              'aria-label': '清除搜索',
-              onClick: () => { if (typeof onClearKeyword === 'function') onClearKeyword() },
-            }, '×')
-            : null,
-        ),
-        keyword ? h('span', { className: 'fo-rail-hint' }, `匹配 ${Number(matchCount) || 0} 条`) : null,
-      ),
-      h('div', { className: 'fo-tree-head' },
-        h('span', { className: 'fo-tree-title' }, '任务分组'),
+    return h('div', { className: 'fo-scope' },
+      h('div', { className: 'fo-scope-head' },
+        h('span', { className: 'fo-scope-title' }, '任务分组'),
         h('button', {
           type: 'button',
           className: 'fo-btn',
@@ -302,9 +273,9 @@ export function createTreeNav(deps) {
           onClick: () => { if (typeof onCreateStart === 'function') onCreateStart('') },
         }, '新建目录'),
       ),
-      h('div', { className: 'fo-tree-body', onDragOver: (event) => { if (dragKey) event.preventDefault() }, onDrop: onListDrop },
+      h('div', { className: 'fo-scope-body', onDragOver: (event) => { if (dragKey) event.preventDefault() }, onDrop: onListDrop },
         h('div', {
-          className: 'fo-tree-list',
+          className: 'fo-scope-list',
           role: 'tree',
           'aria-label': '任务分组（全部任务 / 自定义目录 / 项目）',
           'aria-multiselectable': false,

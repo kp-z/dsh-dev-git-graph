@@ -25,6 +25,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { createOverviewPanel } from '../src/client/OverviewPanel.js'
+import { createFeatures } from '../src/client/features.js'
 import { CSS, STYLE_ID, decoVar, injectStyles, stateVar } from '../src/client/styles.js'
 import * as layout from '../src/overview/layout.js'
 import * as model from '../src/overview/model.js'
@@ -313,15 +314,9 @@ async function mountPanel(options) {
   const mini = createMiniReact()
   const api = opts.api || makeApi(opts.snapshot === undefined ? SNAPSHOT : opts.snapshot, opts)
   const store = opts.store && typeof opts.store.get === 'function' ? opts.store : makeStore(opts.store)
-  const Panel = createOverviewPanel({
-    React: mini.React,
-    h: mini.React.createElement,
-    model,
-    layout,
-    api,
-    store,
-    pollMs: 60000,
-  })
+  const bag = { React: mini.React, h: mini.React.createElement, model, layout, api, store }
+  const features = typeof opts.features === 'function' ? opts.features(bag) : opts.features
+  const Panel = createOverviewPanel(Object.assign({}, bag, { features, pollMs: 60000 }))
   const loadingTree = mini.renderOnce(mini.React.createElement(Panel, {}))
   const tree = await mini.act()
   return { mini, api, store, tree, loadingTree }
@@ -382,6 +377,12 @@ const edgePaths = (tree) => findAll(tree, (node) => node.kind === 'host' && node
 const bandRects = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'rect' && classNameOf(node).includes('fo-band'))
 /* task-13 起没有卡片区：任务在图上就是节点，所以断言一律对节点做。 */
 const legendItems = (tree) => findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-legend-item')
+const railEl = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node).split(/\s+/).includes('fo-rail'))[0]
+const detailEls = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node).split(/\s+/).includes('fo-detail'))
+const featnavItems = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && classNameOf(node) === 'fo-featnav-item')
+const searchInputs = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'input' && classNameOf(node) === 'fo-search')
+const scopeColumns = (tree) => findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope-column')
+const graphSvgs = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'svg' && classNameOf(node) === 'fo-svg')
 const menus = (tree) => findAll(tree, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-menu'))
 const menuItemsOf = (menu) => findAll(menu, (node) => node.kind === 'host' && node.type === 'button' && classNameOf(node) === 'fo-menu-item')
 const rowByDataId = (tree, id) => treeItems(tree).find((row) => row.props['data-id'] === id)
@@ -416,7 +417,7 @@ check('styles：decoVar / stateVar 只产出宿主令牌引用', () => {
 check('玻璃面：详情栏 / 菜单仍带 backdrop-filter blur(12px) 与玻璃底色', () => {
   const root = ruleBody('.fo-root')
   assert.ok(root.includes('--fo-glass-blur: blur(12px)'), '模糊半径 12px 定义在根上')
-  for (const selector of ['.fo-detail', '.fo-menu', '.fo-head', '.fo-tree']) {
+  for (const selector of ['.fo-detail', '.fo-menu', '.fo-rail']) {
     const body = ruleBody(selector)
     assert.ok(body.includes('backdrop-filter'), `${selector} 要有 backdrop-filter`)
     assert.ok(body.includes('-webkit-backdrop-filter'), `${selector} 补一份 -webkit- 前缀`)
@@ -429,9 +430,16 @@ check('玻璃面：详情栏 / 菜单仍带 backdrop-filter blur(12px) 与玻璃
 })
 
 check('画布铺满：主区纵向 flex、画布/网格/body/svg 全 100%', () => {
-  const scroll = ruleBody('.fo-main-scroll')
-  assert.ok(scroll.includes('display: flex') && scroll.includes('flex-direction: column'), '主区纵向 flex')
+  const scroll = ruleBody('.fo-canvas-area')
+  assert.ok(scroll.includes('display: flex') && scroll.includes('flex-direction: column'), '画布区纵向 flex')
   assert.ok(scroll.includes('padding: 10px'))
+  assert.ok(scroll.includes('flex: 1 1 auto'), '画布区拿剩余空间')
+  const host = ruleBody('.fo-feature-host')
+  assert.ok(host.includes('flex: 1 1 auto') && host.includes('min-height: 0'), '功能页宿主撑满')
+  const feature = ruleBody('.fo-feature')
+  assert.ok(feature.includes('flex: 1 1 auto') && feature.includes('min-height: 0'))
+  const fbody = ruleBody('.fo-feature-body')
+  assert.ok(fbody.includes('display: flex') && fbody.includes('flex: 1 1 auto'), '范围列 | 画布 横向 flex')
   const graphs = ruleBody('.fo-graphs')
   assert.ok(graphs.includes('flex: 1 1 auto'), '画布列表撑满主区')
   assert.ok(graphs.includes('display: flex') && graphs.includes('flex-direction: column'))
@@ -460,9 +468,9 @@ check('玻璃分层：三层透明度 92% / 88%（面板底是不透明的 bg-ba
   assert.ok(root.includes('--fo-glass-line-hover: color-mix(in oklab, var(--dsw-alias-border-l2'))
   assert.ok(root.includes('--fo-glass-shadow: 0 8px 24px color-mix(in oklab, var(--dsw-alias-label-primary) 10%, transparent)'))
   assert.ok(root.includes('background: var(--dsw-alias-bg-base'), '面板底仍是不透明的 bg-base')
-  assert.ok(ruleBody('.fo-tree').includes('color-mix(in oklab, var(--dsw-specific-sidebar-fill'), '侧栏用 sidebar-fill 的混合')
-  assert.ok(ruleBody('.fo-tree').includes('80%, transparent)'), 'rail 半透明底 80%（对齐参考站 aside /80）')
-  assert.ok(ruleBody('.fo-tree').includes('blur(24px)'), 'rail 用 blur(24px)')
+  assert.ok(ruleBody('.fo-rail').includes('color-mix(in oklab, var(--dsw-specific-sidebar-fill'), 'rail 用 sidebar-fill 的混合')
+  assert.ok(ruleBody('.fo-rail').includes('80%, transparent)'), 'rail 半透明底 80%（对齐参考站 aside /80）')
+  assert.ok(ruleBody('.fo-rail').includes('blur(24px)'), 'rail 用 blur(24px)')
 })
 check('玻璃风格全部走 color-mix(in oklab, …)，没有 in srgb 残留', () => {
   const mixes = CSS_BARE.match(/color-mix\(in oklab,/g) || []
@@ -526,23 +534,59 @@ check('prefers-reduced-motion：关掉动画、过渡与位移，渐变也不再
 })
 check('紧密密度：正文 12px / 标题 13px / 卡片内边距 16px / 正文行 13px', () => {
   assert.ok(ruleBody('.fo-root').includes('font-size: 12px'))
-  assert.ok(ruleBody('.fo-title').includes('font-size: 13px'))
-  assert.ok(ruleBody('.fo-title').includes('font-weight: 600'))
+  assert.ok(ruleBody('.fo-crumb-title').includes('font-size: 13px'))
+  assert.ok(ruleBody('.fo-crumb-title').includes('font-weight: 600'))
+  assert.ok(ruleBody('.fo-brand-title').includes('font-size: 13px'))
   assert.ok(ruleBody('.fo-detail-title').includes('font-size: 13px'))
   assert.ok(ruleBody('.fo-graph-name').includes('font-size: 13px'))
   assert.ok(ruleBody('.fo-ref').includes('padding: 8px 10px'), '详情关系项内边距')
-  assert.ok(ruleBody('.fo-sub').includes('font-size: 11px'))
+  assert.ok(ruleBody('.fo-crumb-sub').includes('font-size: 11px'))
   assert.ok(ruleBody('.fo-canvas').includes('padding: 24px'), '画布内边距 24px')
   assert.ok(ruleBody('.fo-row').includes('font-size: 13px'), 'rail 正文 13px')
   assert.ok(ruleBody('.fo-row-count').includes('font-size: 12px'), 'rail 次级 12px')
 })
 
 /* ---- 0c. task-12：侧边栏与画布对齐参考站实测值 ---- */
-check('侧栏宽度 288px（--fo-rail-w，栅格用它）', () => {
+check('侧栏宽度 288px（--fo-rail-w，根栅格第一列用它）', () => {
   assert.ok(ruleBody('.fo-root').includes('--fo-rail-w: 288px'), 'rail 宽 288px')
-  assert.ok(ruleBody('.fo-body').includes('grid-template-columns: var(--fo-rail-w) minmax(0, 1fr)'))
-  assert.ok(ruleBody('.fo-root[data-detail="1"] .fo-body').includes('var(--fo-rail-w)'))
+  assert.ok(ruleBody('.fo-root').includes('grid-template-columns: var(--fo-rail-w) minmax(0, 1fr)'), '根：rail | 正文')
+  assert.ok(ruleBody('.fo-root[data-rail="0"]').includes('--fo-rail-w: 56px'), '收起成 56px 图标条')
+  assert.ok(ruleBody('.fo-body').includes('grid-template-columns: minmax(0, 1fr)'), '正文只有功能页一列')
+  assert.ok(ruleBody('.fo-root[data-detail="1"] .fo-body').includes('minmax(0, 1fr) 336px'), '开详情才多一列')
   assert.ok(mediaBody('(max-width: 1080px)').includes('--fo-rail-w: 248px'), '窄视口才收窄')
+})
+
+/* ---- task-14：rail = 品牌 + 功能导航 + 底部固定区 ---- */
+check('rail 三段：品牌 / 功能导航 / 底部固定区', () => {
+  const rail = ruleBody('.fo-rail')
+  assert.ok(rail.includes('display: flex') && rail.includes('flex-direction: column'))
+  assert.ok(rail.includes('border-right: 1px solid var(--fo-rail-line)'))
+  const brand = ruleBody('.fo-brand')
+  assert.ok(brand.includes('min-height: 68px'), '品牌区高 68px（参考站 96px，我们按 64-72 的口径）')
+  assert.ok(brand.includes('border-bottom: 1px solid var(--fo-glass-line)'), '品牌区下边框')
+  const logo = ruleBody('.fo-brand-logo')
+  assert.ok(logo.includes('width: 40px') && logo.includes('height: 40px') && logo.includes('border-radius: 12px'))
+  const nav = ruleBody('.fo-featnav')
+  assert.ok(nav.includes('flex: 1'), '导航区 flex-1')
+  assert.ok(nav.includes('gap: 8px') && nav.includes('padding: 10px'))
+  const foot = ruleBody('.fo-rail-foot')
+  assert.ok(foot.includes('margin-top: auto'), '底部固定区 mt-auto')
+  assert.ok(foot.includes('border-top: 1px solid var(--fo-glass-line)'))
+})
+check('功能项：高 44 / 圆角 12 / gap 10 / 图标 20 / 文字 13 / 选中沿用品牌口径', () => {
+  const item = ruleBody('.fo-featnav-item')
+  assert.ok(item.includes('height: 44px'))
+  assert.ok(item.includes('border-radius: 12px'))
+  assert.ok(item.includes('gap: 10px'))
+  assert.ok(item.includes('font-size: 13px'))
+  assert.ok(item.includes('color: var(--dsw-alias-label-secondary'), '未选中 label-secondary')
+  const active = ruleBody('.fo-featnav-item[data-active="1"]')
+  assert.ok(active.includes('background: var(--fo-selected-bg)'), '选中 = 品牌 20% 底')
+  assert.ok(active.includes('border-color: var(--fo-selected-line)'), '选中 = 品牌 30% 描边')
+  assert.ok(active.includes('color: var(--dsw-alias-brand-primary)'))
+  assert.ok(active.includes('font-weight: 500'))
+  const icon = ruleBody('.fo-nav-icon')
+  assert.ok(icon.includes('width: 20px') && icon.includes('height: 20px'), '图标 20px')
 })
 check('rail 行：高 ≥40px、圆角 ≥12px、padding 0 12px、gap 10px', () => {
   const row = ruleBody('.fo-row')
@@ -567,15 +611,18 @@ check('rail 选中态：品牌 20% 底 + 30% 描边 + 品牌色文字 + 字重 5
   assert.ok(hover.includes('color: var(--dsw-alias-label-primary)'), 'hover 文字提亮')
   assert.ok(root.includes('--fo-row-hover-bg: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 55%, transparent)'))
 })
-check('搜索框在 rail 顶部：32px 高 / 圆角 10px / bg-base 70% / 1px 边框', () => {
+check('搜索框在**内容头部**：42px 高 / 圆角 14 / 左内边距 40 留图标位', () => {
   const search = ruleBody('.fo-search')
-  assert.ok(search.includes('height: 32px'))
-  assert.ok(search.includes('border-radius: 10px'))
+  assert.ok(search.includes('height: 42px'))
+  assert.ok(search.includes('border-radius: 14px'))
+  assert.ok(search.includes('padding: 0 12px 0 40px'), '左边 40px 留给图标')
   assert.ok(search.includes('color-mix(in oklab, var(--dsw-alias-bg-base'), '底色走 bg-base 的混合')
   assert.ok(search.includes('70%, transparent)'))
   assert.ok(search.includes('border: 1px solid var(--fo-glass-line)'))
   assert.ok(ruleBody('.fo-search::placeholder').includes('var(--dsw-alias-label-secondary'), 'placeholder 用 label-secondary')
-  assert.ok(ruleBody('.fo-rail-top').length > 0, 'rail 顶部有独立容器')
+  assert.ok(ruleBody('.fo-search-icon').includes('left: 12px'), '图标绝对定位在左侧')
+  assert.ok(ruleBody('.fo-main-head').includes('border-bottom: 1px solid var(--fo-glass-line)'), '头部分隔线')
+  assert.equal(CSS_BARE.includes('fo-rail-top'), false, 'rail 里不该再有搜索容器')
 })
 check('画布：16px 圆角 + border-l1 35% 描边 + 品牌调渐变底 + 24px 内边距', () => {
   const graph = ruleBody('.fo-graph')
@@ -645,7 +692,7 @@ check('数据态：根节点 scope=all、data-detail=0', () => {
 })
 check('数据态：两个目录 → 两张图（同一画布纵向切片）', () => {
   assert.equal(graphSections(tree).length, 2)
-  assert.equal(findAll(tree, (node) => node.kind === 'host' && node.type === 'svg').length, 2)
+  assert.equal(graphSvgs(tree).length, 2, '画布 SVG 两个（rail 的品牌/功能图标不算）')
 })
 check('数据态：节点 8 个 = 5 任务 + 3 ghost（组外 c1 / a1 + 缺失 zz）', () => {
   assert.equal(taskNodes(tree).length, 5)
@@ -691,6 +738,76 @@ check('代表性类名没被改坏（节点/图容器/图例/行/详情）', () 
 })
 
 /* ---- task-12：画布 DOM（网格层 + 实心三角箭头）与 rail 搜索框 ---- */
+/* ---- task-14：rail = 功能导航（品牌 / 功能列表 / 底部固定区），树搬进功能页 ---- */
+check('rail 三段 DOM：品牌（两行文字）/ 功能导航 / 底部固定区', () => {
+  const rail = railEl(tree)
+  assert.ok(rail, 'rail 在')
+  assert.equal(byClass(rail, 'fo-brand').length, 1)
+  assert.equal(byClass(rail, 'fo-featnav').length, 1)
+  assert.equal(byClass(rail, 'fo-rail-foot').length, 1)
+  const brandText = textOf(byClass(rail, 'fo-brand')[0])
+  assert.ok(brandText.includes('飞书任务集'), '主标题')
+  assert.ok(brandText.includes('DeepSeek Harness'), '副标题')
+  assert.equal(byClass(rail, 'fo-brand-logo').length, 1, 'logo 方块')
+  assert.ok(byClass(rail, 'fo-rail-foot')[0].children.length >= 2, '底部有刷新 + 折叠按钮')
+})
+check('rail 里既没有搜索框也没有目录树（都搬走了）', () => {
+  const rail = railEl(tree)
+  assert.equal(findAll(rail, (node) => node.kind === 'host' && classNameOf(node) === 'fo-search').length, 0)
+  assert.equal(findAll(rail, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope').length, 0)
+  assert.equal(findAll(rail, (node) => node.kind === 'host' && node.props.role === 'treeitem').length, 0)
+})
+check('功能项数量 == 注册表长度（今天只有「任务关系图」）', () => {
+  assert.equal(featnavItems(tree).length, 1)
+  assert.ok(textOf(featnavItems(tree)[0]).includes('任务关系图'))
+  assert.equal(featnavItems(tree)[0].props['data-active'], '1')
+  assert.equal(featnavItems(tree)[0].props['aria-current'], 'page')
+})
+check('关系图功能页：.fo-scope 列在 .fo-main 内，画布区在它右边', () => {
+  const main = findAll(tree, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-main'))[0]
+  assert.ok(main, '正文在')
+  assert.equal(findAll(main, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope').length, 1, 'scope 列在正文里')
+  assert.equal(scopeColumns(tree).length, 1)
+  assert.equal(findAll(main, (node) => node.kind === 'host' && classNameOf(node) === 'fo-canvas-area').length, 1)
+  const scope = scopeColumns(tree)[0]
+  assert.ok(findAll(scope, (node) => node.kind === 'host' && node.props.role === 'tree').length === 1, 'ARIA tree 还在')
+  assert.equal(rootOf(tree).props['data-scope-open'], '1')
+})
+check('功能页头部有范围列折叠按钮', () => {
+  const bar = byClass(tree, 'fo-feature-bar')[0]
+  assert.ok(bar)
+  const toggle = findAll(bar, (node) => node.kind === 'host' && node.type === 'button')[0]
+  assert.ok(toggle)
+  assert.equal(toggle.props['aria-expanded'], 'true')
+  assert.equal(toggle.props['aria-controls'], 'fo-scope-column')
+})
+findAll(byClass(tree, 'fo-feature-bar')[0], (node) => node.kind === 'host' && node.type === 'button')[0].props.onClick()
+tree = await main.mini.act()
+check('折叠范围列：列不渲染、折叠态落 store、画布还在（拿全部宽度）', () => {
+  assert.equal(scopeColumns(tree).length, 0)
+  assert.equal(main.store.data.get('scope'), true)
+  assert.equal(rootOf(tree).props['data-scope-open'], '0')
+  assert.ok(graphSections(tree).length > 0, '画布不跟着消失')
+})
+check('折叠后画布区仍是唯一的主内容（没有残留空列）', () => {
+  const featureBody = byClass(tree, 'fo-feature-body')[0]
+  assert.equal(featureBody.children.filter((child) => child && child.kind === 'host').length, 1, '只剩画布区')
+})
+findAll(byClass(tree, 'fo-feature-bar')[0], (node) => node.kind === 'host' && node.type === 'button')[0].props.onClick()
+tree = await main.mini.act()
+check('再展开：列回来、折叠态归位', () => {
+  assert.equal(scopeColumns(tree).length, 1)
+  assert.equal(main.store.data.get('scope'), false)
+  assert.equal(rootOf(tree).props['data-scope-open'], '1')
+})
+check('目录树搬家后行为不变：树行/拖拽/右键入口都还在', () => {
+  const rows = treeItems(tree)
+  assert.ok(rows.length >= 8)
+  assert.equal(rows.every((row) => row.props.role === 'treeitem'), true)
+  assert.equal(rows.filter((row) => row.props.draggable === true).length > 0, true, '项目行可拖')
+  assert.equal(typeof rowByDataId(tree, 'g1').props.onContextMenu, 'function', '目录行有右键')
+})
+
 check('画布 DOM：每张图都有 .fo-canvas + .fo-grid 网格层，SVG 铺满（100% + meet）', () => {
   assert.equal(byClass(tree, 'fo-canvas').length, graphSections(tree).length)
   assert.equal(byClass(tree, 'fo-grid').length, graphSections(tree).length)
@@ -719,21 +836,23 @@ check('画布 DOM：箭头是 6×6 实心闭合三角（fill 跟边同色）', (
     assert.ok(classNameOf(path).includes('fo-arrow'))
   }
 })
-const searchBox = findAll(tree, (node) => node.kind === 'host' && node.type === 'input' && classNameOf(node) === 'fo-search')[0]
-check('搜索框在 rail 顶部（全页只有这一个）', () => {
-  assert.ok(searchBox, 'rail 里要有搜索框')
-  assert.equal(searchBox.props.placeholder, '搜索任务…')
+const searchBox = searchInputs(tree)[0]
+check('搜索框在 .fo-main 内、不在 .fo-rail 内（task-14 从 rail 搬回正文头部）', () => {
+  assert.ok(searchBox, '正文头部要有搜索框')
+  assert.equal(searchBox.props.placeholder, '搜索任务 / 编号 / 项目…')
   assert.equal(searchBox.props['aria-label'], '搜索任务')
-  const rail = byClass(tree, 'fo-tree')[0]
-  assert.equal(findAll(rail, (node) => node.kind === 'host' && classNameOf(node) === 'fo-search').length, 1)
-  assert.equal(byClass(tree, 'fo-search').length, 1)
+  assert.equal(searchInputs(tree).length, 1, '全页只有一个搜索框')
+  const main = findAll(tree, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-main'))[0]
+  assert.equal(findAll(main, (node) => node.kind === 'host' && classNameOf(node) === 'fo-search').length, 1, '在正文里')
+  const rail = railEl(tree)
+  assert.equal(findAll(rail, (node) => node.kind === 'host' && classNameOf(node) === 'fo-search').length, 0, 'rail 里没有')
 })
 searchBox.props.onChange({ currentTarget: { value: 'a1' } })
 tree = await main.mini.act()
-check('搜索命中：图上只剩 1 个真实节点，匹配条数显示在 rail 上', () => {
+check('搜索命中：图上只剩 1 个真实节点，匹配条数显示在头部', () => {
   assert.equal(taskNodes(tree).length, 1)
   assert.equal(taskNodes(tree)[0].props['data-id'], 'a1')
-  assert.equal(textOf(byClass(tree, 'fo-rail-hint')[0]).includes('1'), true)
+  assert.equal(textOf(byClass(tree, 'fo-search-hint')[0]).includes('1'), true)
   assert.ok(textOf(tree).includes('任务 a1'), '节点标题就是任务标题')
 })
 searchBox.props.onChange({ currentTarget: { value: 'no-such-task-xyz' } })
@@ -828,14 +947,15 @@ check('项目 scope：选中项写进 store', () => {
 })
 
 /* ---- 4b. 详情面板：删掉卡片区后，点节点 / 键盘 Enter 是看单任务的唯一入口 ---- */
-check('详情面板默认不出现', () => {
-  assert.equal(findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node) === 'fo-detail').length, 0)
+check('详情面板默认不出现（rail 也是 aside，所以只数 .fo-detail）', () => {
+  assert.equal(detailEls(tree).length, 0)
+  assert.ok(railEl(tree), 'rail 在')
   assert.equal(rootOf(tree).props['data-detail'], '0')
 })
 taskNodes(tree)[0].props.onClick()
 tree = await main.mini.act()
 check('点节点打开详情面板（任务 ID / 绑定会话 / 四组关系都在）', () => {
-  const aside = findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node) === 'fo-detail')
+  const aside = detailEls(tree)
   assert.equal(aside.length, 1)
   const text = textOf(aside[0])
   assert.ok(text.includes('任务 ID'), '详情要有任务 ID')
@@ -851,7 +971,8 @@ check('键盘 Enter 也能打开节点详情', () => {
 findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('关闭详情'))[0].props.onClick()
 tree = await main.mini.act()
 check('关闭详情后回到两栏布局', () => {
-  assert.equal(findAll(tree, (node) => node.kind === 'host' && node.type === 'aside').length, 0)
+  assert.equal(detailEls(tree).length, 0)
+  assert.ok(railEl(tree), 'rail 仍在')
   assert.equal(rootOf(tree).props['data-detail'], '0')
 })
 const secondNode = taskNodes(tree)[1]
@@ -865,7 +986,7 @@ check('节点上按 Enter 同样打开详情（键盘可达）', () => {
 findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('关闭详情'))[0].props.onClick()
 tree = await main.mini.act()
 check('再次关闭，流程回到干净状态', () => {
-  assert.equal(findAll(tree, (node) => node.kind === 'host' && node.type === 'aside').length, 0)
+  assert.equal(detailEls(tree).length, 0)
 })
 
 /* ---- 5. 展开 / 折叠：写 store ---- */
@@ -1090,6 +1211,79 @@ check('R2b：旧回包也没把 revision.current 拉回写前值', () => {
   assert.equal(textOf(raceTree).includes('rev-fixe'), false)
 })
 check('R2b：两次悬着的请求都已返回，没有再堆积', () => { assert.equal(queued.length, 2) })
+
+/* ---- 11b. task-14：功能注册表驱动 —— 临时注入第二个功能，验证切换与状态保留 ---- */
+{
+  /* 假功能：只渲染一段文字（不碰数据），足够证明「正文由注册表决定」。
+     元素要用注入包里的 h（harness 的 createElement），不能直接引用外层的 h。 */
+  const withFake = (deps) => {
+    const hh = deps.h
+    return [
+      ...createFeatures(deps),
+      {
+        id: 'fake',
+        label: '假功能',
+        hint: '测试注入的功能页',
+        icon: (h) => h('svg', { className: 'fo-nav-icon', width: 20, height: 20, viewBox: '0 0 20 20' }),
+        Component: (ctx) => hh('div', { className: 'fo-fake-feature' }, ctx.featureHint || '假功能正文'),
+      },
+    ]
+  }
+  const injected = await mountPanel({ features: withFake })
+  let itree = injected.tree
+  const railOf = () => railEl(itree)
+
+  check('注入第二个功能：rail 出现两项、正文仍停在关系图', () => {
+    assert.equal(featnavItems(itree).length, 2, '功能项数量 == 注册表长度')
+    assert.equal(textOf(featnavItems(itree)[1]).includes('假功能'), true)
+    assert.equal(featnavItems(itree)[0].props['data-active'], '1')
+    assert.equal(rootOf(itree).props['data-feature'], 'graph')
+    assert.ok(graphSections(itree).length > 0)
+  })
+
+  /* 先在关系图里造一个「会被带走」的状态：切到目录 scope + 选中一个项目 */
+  rowByDataId(itree, 'g1').props.onClick()
+  itree = await injected.mini.act()
+  const savedSelection = injected.store.data.get('selection')
+  check('切换前：关系图处于目录 scope', () => {
+    assert.equal(rootOf(itree).props['data-scope'], 'group')
+    assert.deepEqual(savedSelection, { kind: 'group', id: 'g1' })
+  })
+
+  featnavItems(itree)[1].props.onClick()
+  itree = await injected.mini.act()
+  check('点第二项 → 正文换成假功能，画布与目录树都卸载', () => {
+    assert.equal(byClass(itree, 'fo-fake-feature').length, 1)
+    assert.equal(graphSections(itree).length, 0)
+    assert.equal(scopeColumns(itree).length, 0)
+    assert.equal(rootOf(itree).props['data-feature'], 'fake')
+    assert.equal(injected.store.data.get('feature'), 'fake', 'activeFeature 落 store')
+    assert.equal(featnavItems(itree)[1].props['data-active'], '1')
+    assert.equal(featnavItems(itree)[1].props['aria-current'], 'page')
+  })
+  check('假功能页仍复用同一套 rail / 内容头部骨架', () => {
+    assert.equal(byClass(railOf(), 'fo-brand').length, 1)
+    assert.equal(featnavItems(itree).length, 2)
+    assert.equal(searchInputs(itree).length, 1, '头部搜索框是骨架的一部分')
+  })
+
+  featnavItems(itree)[0].props.onClick()
+  itree = await injected.mini.act()
+  check('切回关系图：scope / 选中项都还在（状态没被功能切换清掉）', () => {
+    assert.equal(rootOf(itree).props['data-feature'], 'graph')
+    assert.equal(rootOf(itree).props['data-scope'], 'group')
+    assert.deepEqual(injected.store.data.get('selection'), savedSelection)
+    assert.equal(injected.store.data.get('feature'), 'graph')
+    assert.equal(scopeColumns(itree).length, 1)
+    assert.ok(graphSections(itree).length === 1, '目录 scope 仍是那一张图')
+    assert.equal(String(rowByDataId(itree, 'g1').props['aria-selected']), 'true', '树上的选中态还在')
+  })
+  check('注入的功能不污染真注册表（模块级 createFeatures 仍只有一项）', () => {
+    const base = createFeatures({ React: injected.mini.React, h: injected.mini.React.createElement, model, layout, api: injected.api, store: injected.store })
+    assert.equal(base.length, 1)
+    assert.equal(base[0].id, 'graph')
+  })
+}
 
 /* ---- 11. 防回退红线：没有字面量颜色 ---- */
 const COLOR_RE = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/

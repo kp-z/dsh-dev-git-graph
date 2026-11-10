@@ -95,7 +95,8 @@ export const CSS = `
   --fo-dur: 300ms;
 
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  /* rail（功能导航）| 正文（功能页 + 详情） */
+  grid-template-columns: var(--fo-rail-w) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   background: ${T.bgBase};
@@ -112,25 +113,97 @@ export const CSS = `
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
-.fo-head, .fo-tree-head, .fo-row, .fo-graph, .fo-sec, .fo-ref {
+.fo-brand, .fo-featnav-item, .fo-row, .fo-graph, .fo-sec, .fo-ref, .fo-scope-head {
   animation: fo-rise 120ms var(--fo-ease) backwards;
   animation-delay: calc(var(--fo-i, 0) * 20ms);
 }
 
-/* ============ 头部 ============ */
-.fo-head {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 16px;
-  min-height: 52px;
-  border-bottom: 1px solid var(--fo-glass-line);
-  background: var(--fo-glass-card);
-  backdrop-filter: var(--fo-glass-blur);
-  -webkit-backdrop-filter: var(--fo-glass-blur);
+/* ============ rail 三段：品牌 / 功能导航 / 底部固定区 ============ */
+.fo-rail {
+  display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  border-right: 1px solid var(--fo-rail-line);
+  /* 参考站 aside 是「极深蓝黑 80% + blur(40px)」；这里用宿主的 sidebar-fill 铺同一层 80% 半透明底 */
+  background: color-mix(in oklab, ${T.sidebar} 80%, transparent);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
 }
-.fo-head-main { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
-.fo-title { font-size: 13px; font-weight: 600; letter-spacing: .01em; }
-.fo-sub { font-size: 11px; color: ${T.label2}; }
-.fo-stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+.fo-brand {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 68px; padding: 10px 16px;
+  border-bottom: 1px solid var(--fo-glass-line);
+}
+.fo-brand-logo {
+  flex: 0 0 40px; width: 40px; height: 40px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: ${T.brand};
+  background: var(--fo-selected-bg);
+  border: 1px solid var(--fo-selected-line);
+}
+.fo-brand-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.fo-brand-title { font-size: 13px; font-weight: 600; color: ${T.label1}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fo-brand-sub { font-size: 11px; color: ${T.label2}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fo-featnav { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
+.fo-featnav-item {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; min-width: 0; height: 44px; padding: 0 12px;
+  border: 1px solid transparent; border-radius: 12px;
+  background: transparent; color: ${T.label2}; font: inherit; font-size: 13px; text-align: left;
+  cursor: pointer;
+  transition: background-color var(--fo-dur) var(--fo-ease), border-color var(--fo-dur) var(--fo-ease), color var(--fo-dur) var(--fo-ease);
+}
+.fo-featnav-item:hover { background: var(--fo-row-hover-bg); border-color: var(--fo-glass-line); color: ${T.label1}; }
+.fo-featnav-item[data-active="1"] {
+  background: var(--fo-selected-bg);
+  border-color: var(--fo-selected-line);
+  color: ${T.brand}; font-weight: 500;
+}
+.fo-nav-icon { flex: 0 0 20px; width: 20px; height: 20px; }
+.fo-nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-rail-foot {
+  margin-top: auto;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--fo-glass-line);
+}
+/* rail 收起：只留 56px 图标条（按钮仍可点，能再展开） */
+.fo-root[data-rail="0"] { --fo-rail-w: 56px; }
+.fo-root[data-rail="0"] .fo-brand { justify-content: center; padding: 10px 8px; }
+.fo-root[data-rail="0"] .fo-brand-text,
+.fo-root[data-rail="0"] .fo-nav-label,
+.fo-root[data-rail="0"] .fo-rail-foot .fo-btn:first-child { display: none; }
+.fo-root[data-rail="0"] .fo-featnav-item { justify-content: center; padding: 0; }
+.fo-root[data-rail="0"] .fo-rail-foot { justify-content: center; }
+
+/* ============ 内容头部：面包屑/标题 + 搜索框 + 动作 ============ */
+.fo-main-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  min-height: 64px; padding: 10px 16px;
+  border-bottom: 1px solid var(--fo-glass-line);
+  background: color-mix(in oklab, ${T.bgBase} 40%, transparent);
+}
+.fo-crumb { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.fo-crumb-title { font-size: 13px; font-weight: 600; letter-spacing: .01em; }
+.fo-crumb-sub { font-size: 11px; color: ${T.label2}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 搜索框在**正文头部**（参考站也是 main > header），左侧 40px 留给图标 */
+.fo-search-wrap { position: relative; display: flex; align-items: center; gap: 8px; flex: 1 1 220px; min-width: 0; max-width: 460px; }
+.fo-search-icon {
+  position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  display: inline-flex; color: ${T.label2}; pointer-events: none;
+}
+.fo-search {
+  width: 100%; min-width: 0; height: 42px;
+  padding: 0 12px 0 40px; border-radius: 14px;
+  font: inherit; font-size: 12px;
+  color: ${T.label1};
+  background: ${g(T.bgBase, 70)};
+  border: 1px solid var(--fo-glass-line);
+}
+.fo-search::placeholder { color: ${T.label2}; }
+.fo-search:focus-visible { border-color: var(--fo-selected-line); outline: none; }
+.fo-search-hint { flex: 0 0 auto; font-size: 11px; color: ${T.label2}; white-space: nowrap; }
+.fo-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+/* 统计胶囊（内容头部右侧） */
+.fo-stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .fo-chip {
   display: inline-flex; align-items: center; gap: 4px;
   height: 22px; padding: 0 10px; border-radius: 999px;
@@ -166,28 +239,29 @@ export const CSS = `
 .fo-btn[data-size="sm"] { height: 22px; padding: 0 8px; font-size: 11px; }
 
 /* ============ 主体三栏 ============ */
+/* 正文区：功能页 | 详情（rail 由根栅格的第一列承担） */
 .fo-body {
   display: grid;
-  grid-template-columns: var(--fo-rail-w) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
 }
-.fo-root[data-detail="1"] .fo-body { grid-template-columns: var(--fo-rail-w) minmax(0, 1fr) 336px; }
+.fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 336px; }
 /* 视口不够时先压详情栏；rail 只在很窄时才收（288 是参考站口径） */
 @media (max-width: 1280px) {
-  .fo-root[data-detail="1"] .fo-body { grid-template-columns: var(--fo-rail-w) minmax(0, 1fr) 300px; }
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 300px; }
 }
 @media (max-width: 1140px) {
-  .fo-root { --fo-rail-w: 264px; }
-  .fo-root[data-detail="1"] .fo-body { grid-template-columns: var(--fo-rail-w) minmax(0, 1fr) 288px; }
+  .fo-root:not([data-rail="0"]) { --fo-rail-w: 264px; }
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 288px; }
 }
 @media (max-width: 1080px) {
-  .fo-root { --fo-rail-w: 248px; }
-  .fo-root[data-detail="1"] .fo-body { grid-template-columns: var(--fo-rail-w) minmax(0, 1fr) 264px; }
+  .fo-root:not([data-rail="0"]) { --fo-rail-w: 248px; }
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 264px; }
 }
 
-/* ============ 左栏：三层树 ============ */
-.fo-tree {
+/* ============ 功能页内的范围列（三层树，task-14 从 rail 搬进来） ============ */
+.fo-scope {
   display: flex; flex-direction: column; min-width: 0; min-height: 0;
   border-right: 1px solid var(--fo-rail-line);
   /* 参考站 aside 是「极深蓝黑 80% + blur(40px)」。这里用宿主的 sidebar-fill（「宿主侧栏底」的令牌）
@@ -197,27 +271,14 @@ export const CSS = `
   -webkit-backdrop-filter: blur(24px);
 }
 /* rail 顶部：搜索框（对齐参考站 "Search everything..." 的位置） */
-.fo-rail-top { display: flex; flex-direction: column; gap: 6px; padding: 12px 16px 8px; }
-.fo-rail-search-row { display: flex; align-items: center; gap: 8px; }
-.fo-search {
-  flex: 1; min-width: 0; height: 32px;
-  padding: 0 10px; border-radius: 10px;
-  font: inherit; font-size: 12px;
-  color: ${T.label1};
-  background: ${g(T.bgBase, 70)};
-  border: 1px solid var(--fo-glass-line);
-}
-.fo-search::placeholder { color: ${T.label2}; }
-.fo-search:focus-visible { border-color: var(--fo-selected-line); outline: none; }
-.fo-rail-hint { font-size: 11px; color: ${T.label2}; }
-.fo-tree-head {
+.fo-scope-head {
   display: flex; align-items: center; gap: 8px;
   padding: 4px 16px 12px; border-bottom: 1px solid var(--fo-glass-line);
 }
-.fo-tree-title { font-size: 11px; font-weight: 600; color: ${T.label2}; letter-spacing: .06em; text-transform: uppercase; }
-.fo-tree-head .fo-btn { margin-left: auto; }
-.fo-tree-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 16px 16px; }
-.fo-tree-list { display: flex; flex-direction: column; gap: 4px; }
+.fo-scope-title { font-size: 11px; font-weight: 600; color: ${T.label2}; letter-spacing: .06em; text-transform: uppercase; }
+.fo-scope-head .fo-btn { margin-left: auto; }
+.fo-scope-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 16px 16px; }
+.fo-scope-list { display: flex; flex-direction: column; gap: 4px; }
 .fo-row {
   display: flex; align-items: center; gap: 10px;
   width: 100%; min-width: 0; height: 40px; padding: 0 12px;
@@ -258,7 +319,7 @@ export const CSS = `
   color: ${T.error}; background: ${g(T.error, 14)}; border: 1px solid ${g(T.error, 30)};
 }
 .fo-row-menu { flex: 0 0 auto; }
-.fo-tree-note { padding: 1px 8px 3px 34px; font-size: 11px; color: ${T.label2}; }
+.fo-scope-note { padding: 1px 8px 3px 34px; font-size: 11px; color: ${T.label2}; }
 .fo-input {
   height: 26px; min-width: 0; width: 100%;
   padding: 0 8px; border-radius: 8px;
@@ -296,18 +357,33 @@ export const CSS = `
 .fo-menu-sep { height: 1px; margin: 4px 6px; background: var(--fo-glass-line); }
 .fo-menu-sub { position: fixed; z-index: 61; }
 
-/* ============ 中栏 ============ */
+/* ============ 中栏：功能页骨架（骨架不认识具体功能） ============ */
 .fo-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: ${T.bgBase}; }
-/* 画布要铺满：主区纵向 flex，图按剩余高度均分（一张图时就是整块） */
-.fo-main-scroll {
-  flex: 1; min-height: 0; overflow: auto;
+.fo-feature-host { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.fo-feature { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+.fo-feature-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 10px; min-height: 40px;
+  border-bottom: 1px solid var(--fo-glass-line);
+}
+.fo-feature-hint { font-size: 11px; color: ${T.label2}; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-feature-meta { margin-left: auto; font-size: 11px; color: ${T.label2}; white-space: nowrap; }
+.fo-feature-body { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+/* 范围列：功能页内的子导航；折叠时整列不渲染，画布拿全部宽度 */
+.fo-scope-column {
+  flex: 0 0 240px; width: 240px; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--fo-glass-line);
+  background: color-mix(in oklab, ${T.sidebar} 55%, transparent);
+}
+/* 画布区：占满剩余空间，10px 内边距 */
+.fo-canvas-area {
+  flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto;
   padding: 10px; display: flex; flex-direction: column;
 }
-/* 画布列表：一张图时占满高度，多张时均分（撑满主区） */
-.fo-graphs { display: flex; flex-direction: column; gap: 12px; flex: 1 1 auto; min-height: 0; }
 .fo-banner {
   display: flex; align-items: center; gap: 8px;
-  margin: 0 0 12px; padding: 12px 16px;
+  margin: 10px 10px 0; padding: 12px 16px;
   border-radius: 10px; font-size: 12px;
   color: ${T.error};
   background: ${g(T.error, 12)};
@@ -315,9 +391,13 @@ export const CSS = `
 }
 .fo-banner .fo-btn { margin-left: auto; }
 
-/* 一张图 = 一个玻璃容器（容器圆角 10px） */
+/* 画布列表：一张图时占满高度，多张时均分（撑满功能页的剩余空间） */
+.fo-graphs { display: flex; flex-direction: column; gap: 12px; flex: 1 1 auto; min-height: 0; }
+/* 一张图 = 一块画布容器：16px 圆角 + border-l1 35% 描边 + 品牌调渐变底
+   min-height 只做「不至于压成一条」的下限：多张图时靠 flex 均分撑满，不顶出滚动条
+   （340px 时两张图会超出容器高度，画布反而出现滚动） */
 .fo-graph {
-  flex: 1 1 auto; min-height: 340px;
+  flex: 1 1 auto; min-height: 220px;
   display: flex; flex-direction: column;
   border: 1px solid var(--fo-canvas-line); border-radius: 16px;
   background: var(--fo-canvas-bg);
@@ -344,6 +424,7 @@ export const CSS = `
 .fo-legend-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fo-legend-count { font-variant-numeric: tabular-nums; }
 .fo-graph-meta { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+
 /* 画布区：占满图容器剩下的高度 + 24px 内边距；40px 双层网格铺满整块画布（不拦点击） */
 .fo-canvas {
   position: relative; display: flex; flex-direction: column;
