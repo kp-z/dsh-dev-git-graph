@@ -147,6 +147,29 @@
       传 ctx（`{tasks, relations, workspaces, stats, now, selectedOn...}` / `onOpenSession: 走 host.openSession`），
       然后：build + 三个页面真机复量 + 提交 + 派 task-20 只读复核。
 
+**第 2 轮（01:45–02:00，三条需求全部落地）**
+
+- [x] **task-17 完成并提交**（`e2f9924`）：rail 两级菜单（一级「关系」可展开；二级 = 范围树，compact 形态
+      行 30px / 缩进 24-48）；页面单列（`.fo-scope-column` 删除，画布 536 → **776px**，正好 +240）；
+      拖拽/右键/键盘 ARIA 一行未改、断言全绿。
+- [x] **接线完成**：`features.js` 追加 `insight` / `runs`（自绘 enchantchart / 气泡图标），
+      `OverviewPanel.featureCtx` 补 `tasks/relations/groups/workspaces/stats/now`；
+      面板测试改成**按注册表长度驱动**（不再写死 1/2 项），并加了接线断言：
+      点「洞察」→ `fd-page` + ≥5 面板 + KPI 有真实数字；点「运行」→ `fr-page` + `fr-bubble-item` + 分组；
+      切回「关系」→ 画布与二级菜单都回来。overviewPanel 191 → **195**。
+- [x] **验证**：`npm test` exit 0；`npm run test:offline` → **79 JS + 7 Python** 全绿；
+      产物含三个功能与 `fd-page`/`fr-page` 样式；live 快照 revision 正常（52 任务 / running 1 / done 48）。
+- [x] 已派 **task-20 独立只读复核**（overview-rewrite-reviewer）。
+
+**第 2 轮捞出的两个真实数据缺口（写给下一轮的自己）**
+
+1. **`startedAt` 几乎没人有**：live 52 条任务里只有 **2 条**有开始时间（48 条已完成里 47 条有 completedAt）。
+   所以运行页的「运行时长 Top5」目前大都是「未记录开始时间」（实现已优雅降级，不猜轮次）。
+   要真做起来，需要宿主在**观察到会话从 idle 变 running 的那一刻**记一次 startedAt（几行改动，
+   但属于新写路径，要连测试一起补——不要偷偷改）。
+2. **`running` 是宿主内存态**：DSH 重启后全部变「等待中」直到会话再次活跃；运行页已注明口径。
+   若用户觉得别扭，可以在宿主落一个「上次活跃时刻」的水位（`state.sessionSeen` 已有轮次，但没有时间）。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
