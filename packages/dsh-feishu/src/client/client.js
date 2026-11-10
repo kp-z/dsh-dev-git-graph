@@ -19,6 +19,8 @@ import { createSidebarHalf } from './sidebar-tab.js';
 import { createApi } from './api.js';
 import { createOverviewPanel } from './OverviewPanel.js';
 import { CSS as OVERVIEW_CSS, STYLE_ID as OVERVIEW_STYLE_ID, injectStyles } from './styles.js';
+/* 仪表盘页（洞察/运行）的样式：带自己的 style id 与前缀（fd-/fr-），同一套宿主令牌口径。 */
+import { CSS as DASHBOARD_CSS, STYLE_ID as DASHBOARD_STYLE_ID, injectStyles as injectDashboardStyles } from './dashboardStyles.js';
 import * as model from '../overview/model.js';
 import * as layout from '../overview/layout.js';
 
@@ -177,8 +179,10 @@ window.__ModuleLoader__.load({
         installStyle('dsh-feishu-style', SCROLL_HOST_CSS);
         if (typeof injectStyles === 'function') injectStyles(document);
         else installStyle(OVERVIEW_STYLE_ID, OVERVIEW_CSS);
+        if (typeof injectDashboardStyles === 'function') injectDashboardStyles(document);
+        else installStyle(DASHBOARD_STYLE_ID, DASHBOARD_CSS);
         return () => {
-          for (const id of ['dsh-feishu-style', OVERVIEW_STYLE_ID]) {
+          for (const id of ['dsh-feishu-style', OVERVIEW_STYLE_ID, DASHBOARD_STYLE_ID]) {
             try {
               const node = document.getElementById(id);
               if (node && node.parentNode) node.parentNode.removeChild(node);
