@@ -170,6 +170,26 @@
 2. **`running` 是宿主内存态**：DSH 重启后全部变「等待中」直到会话再次活跃；运行页已注明口径。
    若用户觉得别扭，可以在宿主落一个「上次活跃时刻」的水位（`state.sessionSeen` 已有轮次，但没有时间）。
 
+**第 3 轮（02:00–02:15，独立复核 + 逐条修）**
+
+- [x] **task-20 独立只读复核完成**：报告 `docs/REVIEW-tab-pages-round1.md`（25KB）。
+      结论：需求 1/3 与三条红线**成立**；需求 2 的六面板/纯函数/填满成立，但「看全局」在搜索态下不成立；
+      新样式表零测试覆盖是最缺口。复核者还确认上一轮的 revision 哈希漏洞已修。
+- [x] **R1（我的接线 bug）**：仪表盘拿到的是 keyword 过滤后的 tasks 而 relations 没过滤
+      （live 复现 ghosts 0→3、KPI 52→25）→ 改成传未过滤 tasks；搜索框与「返回全部任务」按钮改成
+      只在声明 `search:true` 的功能（今天只有关系图）下渲染。
+- [x] **R2**：新增 `test/dashboardStyles.mjs`（7 条：零字面量颜色 / 令牌 ⊆ 14 / fd-·fr- 前缀 /
+      reduced-motion 关动效 / 呼吸只挂 is-running / 网格 auto-fit+1fr），挂进 test 链与 `test:dashboard`。
+- [x] **R3**：`fr-` 的 reduced-motion 全部加 `!important`（不再靠源码顺序）。
+- [x] **R4**（NODE_H=88）按复核结论保留（常量自洽、不溢出；代价是长标题固定截断），已写进口径。
+- [x] **R5a**：运行页 hint 补上「运行态来自宿主内存，重启后清零、会话恢复后自愈」。
+- [x] **顺手修三个真问题**：项目分布横条因 `fd-tone-undefined` 全回退同一色（现指 `--fo-deco-N`）；
+      气泡跳会话没传任务标题导致「切后核对」退化（现与画布节点同口径，并有测试钉住）；
+      insightView 注释「kpis 4-5」与实际 6 个不符。
+- [x] **补上复核指出的覆盖缺口**：气泡交互 4 条断言（点=选中开详情 / ↗ 调 host.openSession(id,title) /
+      没绑会话 disabled + title / 每气泡都有按钮）。
+- [x] 提交 `60409fd`；`npm test` exit 0、offline **80 JS + 7 Python** 全绿；overviewPanel 200 全绿。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
