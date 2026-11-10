@@ -42,7 +42,7 @@ export function createTaskCards(deps) {
         h('span', null, '任务'),
         h('span', { className: 'fo-chip' }, `${list.length}`),
       ),
-      h('div', { className: 'fo-cards' }, list.map((task) => {
+      h('div', { className: 'fo-cards' }, list.map((task, index) => {
         const id = String(task.id)
         const state = model.stateOf(task)
         const no = model.taskNo(task)
@@ -52,7 +52,11 @@ export function createTaskCards(deps) {
         const blocked = state === 'blocked' ? refs.blockedBy.length : 0
         const successors = refs.successors.length
         const colorIndex = colorOf ? colorOf[model.workspaceOf(task).key] : undefined
-        const style = Number.isFinite(colorIndex) ? { '--fo-c': decoVar(colorIndex) } : undefined
+        /* --fo-c：项目分色槽；--fo-i：入场逐张递延（上限 8 张）。 */
+        const style = {
+          '--fo-c': Number.isFinite(colorIndex) ? decoVar(colorIndex) : undefined,
+          '--fo-i': Math.min(index, 7),
+        }
         const activate = () => { if (typeof onOpenTask === 'function') onOpenTask(id, task) }
         return h('button', {
           key: id,
@@ -61,6 +65,7 @@ export function createTaskCards(deps) {
           'data-state': state,
           'aria-current': selectedId === id ? 'true' : 'false',
           title,
+          style,
           onClick: activate,
         },
           h('div', { className: 'fo-card-top' },

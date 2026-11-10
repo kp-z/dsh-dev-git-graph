@@ -48,12 +48,12 @@ export function createDetailPanel(deps) {
     rows.push(['任务 ID', id, true])
     rows.push(['绑定会话', model.str(task && task.sessionId) || '未绑定', true])
 
-    const sections = REF_SECTIONS.map((section) => {
+    const sections = REF_SECTIONS.map((section, sectionIndex) => {
       const items = refs[section.field] || []
-      return h('section', { key: section.field, className: 'fo-sec' },
+      return h('section', { key: section.field, className: 'fo-sec', style: { '--fo-i': Math.min(sectionIndex + 1, 7) } },
         h('span', { className: 'fo-sec-label' }, section.label),
         items.length
-          ? h('div', { className: 'fo-refs' }, items.map((ref) => {
+          ? h('div', { className: 'fo-refs' }, items.map((ref, refIndex) => {
             /* 判缺失只看「任务表里有没有这条记录」：跨分组的引用仍然是能点过去的。 */
             const hit = known(ref.id)
             const missing = !hit
@@ -64,6 +64,7 @@ export function createDetailPanel(deps) {
               className: 'fo-ref',
               'data-missing': missing ? '1' : '0',
               disabled: missing,
+              style: { '--fo-i': Math.min(refIndex, 7) },
               title: missing ? `${ref.id}（任务表里没有这条记录）` : label,
               onClick: missing ? undefined : () => { if (typeof onSelectTask === 'function') onSelectTask(ref.id) },
             },

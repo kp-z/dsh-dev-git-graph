@@ -342,6 +342,31 @@ function check(name, fn) {
   }
 }
 
+/* CSS 断言的小工具：先剥掉注释，再按选择器 / @media 取规则体。
+   不剥注释的话，注释里出现的 translateY/backwards 这类字眼会让断言「假绿」。 */
+const CSS_BARE = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
+function blockAfter(text, start) {
+  const open = text.indexOf('{', start)
+  if (open < 0) return ''
+  let depth = 0
+  for (let i = open; i < text.length; i += 1) {
+    if (text[i] === '{') depth += 1
+    else if (text[i] === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(open + 1, i)
+    }
+  }
+  return ''
+}
+const ruleBody = (selector) => {
+  const at = CSS_BARE.indexOf(`${selector} {`)
+  return at < 0 ? '' : blockAfter(CSS_BARE, at)
+}
+const mediaBody = (query) => {
+  const at = CSS_BARE.indexOf(`@media ${query}`)
+  return at < 0 ? '' : blockAfter(CSS_BARE, at)
+}
+
 const rootOf = (tree) => findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-root')[0]
 const treeItems = (tree) => findAll(tree, (node) => node.kind === 'host' && node.props.role === 'treeitem')
 const graphSections = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'section' && classNameOf(node).includes('fo-graph'))
@@ -379,6 +404,96 @@ check('styles：decoVar / stateVar 只产出宿主令牌引用', () => {
   assert.ok(stateVar('blocked').includes('--dsw-alias-state-error-primary'))
   assert.ok(stateVar('done').includes('--dsw-alias-state-success-primary'))
   assert.equal(decoVar(-1), 'var(--fo-deco-0)')
+})
+
+/* ---- 0b. 借来的玻璃风格：全部落在 CSS 上，逐条钉住「像参考项目」的那几处 ---- */
+check('玻璃卡片：卡片规则含 backdrop-filter blur(12px) 与玻璃底色', () => {
+  const card = ruleBody('.fo-card')
+  const img = card.indexOf('backdrop-filter')
+  assert.ok(card.includes('background: var(--fo-glass-card)'), card.slice(0, 200))
+  assert.ok(img > 0, '卡片规则里要有 backdrop-filter')
+  assert.ok(card.includes('-webkit-backdrop-filter'), '补一份 -webkit- 前缀')
+  assert.ok(ruleBody('.fo-root').includes('--fo-glass-blur: blur(12px)'), '模糊半径 12px 定义在根上')
+  assert.ok(card.includes('border-radius: 12px'), '卡片圆角 12px')
+  assert.ok(ruleBody('.fo-graph').includes('border-radius: 10px'), '容器圆角 10px')
+  assert.ok(ruleBody('.fo-chip').includes('border-radius: 999px'), '胶囊圆角 999px')
+})
+check('玻璃分层：三层透明度 92% / 88%（面板底是不透明的 bg-base）', () => {
+  const root = ruleBody('.fo-root')
+  assert.ok(root.includes('--fo-glass-card: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 92%, transparent)'))
+  assert.ok(root.includes('--fo-glass-sub: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 88%, transparent)'))
+  /* border 令牌带一层「仍是宿主令牌」的回退链，所以这里钉住前缀与百分比，不逐字符比 */
+  assert.ok(root.includes('--fo-glass-line: color-mix(in oklab, var(--dsw-alias-border-l1'))
+  assert.ok(root.includes('65%, transparent)'))
+  assert.ok(root.includes('--fo-glass-line-hover: color-mix(in oklab, var(--dsw-alias-border-l2'))
+  assert.ok(root.includes('--fo-glass-shadow: 0 8px 24px color-mix(in oklab, var(--dsw-alias-label-primary) 10%, transparent)'))
+  assert.ok(root.includes('background: var(--dsw-alias-bg-base'), '面板底仍是不透明的 bg-base')
+  assert.ok(ruleBody('.fo-tree').includes('color-mix(in oklab, var(--dsw-specific-sidebar-fill'), '侧栏用 sidebar-fill 的混合')
+  assert.ok(ruleBody('.fo-tree').includes('92%, transparent)'))
+})
+check('玻璃风格全部走 color-mix(in oklab, …)，没有 in srgb 残留', () => {
+  const mixes = CSS_BARE.match(/color-mix\(in oklab,/g) || []
+  assert.ok(mixes.length >= 25, `oklab 混合只找到 ${mixes.length} 处`)
+  assert.equal(CSS_BARE.includes('in srgb'), false)
+})
+check('状态光晕：成功/警告/错误/idle 各一个 35% 混合（借参考项目的 rarity 光晕写法）', () => {
+  const root = ruleBody('.fo-root')
+  for (const state of ['success', 'warn', 'error', 'idle']) {
+    assert.ok(root.includes(`--fo-glow-${state}: color-mix(in oklab, var(--dsw-alias-state-${state}-primary) 35%, transparent)`), `缺 ${state} 光晕`)
+  }
+  assert.ok(root.includes('--fo-glow-brand: color-mix(in oklab, var(--dsw-alias-brand-primary) 35%, transparent)'))
+  /* 定义了就一定要用上（否则就是死 CSS）：五条光晕都出现在卡片状态光条上 */
+  for (const state of ['success', 'warn', 'error', 'idle', 'brand']) {
+    assert.ok(CSS_BARE.includes(`background: var(--fo-card-glow, var(--fo-glow-idle))`) || CSS_BARE.includes(`var(--fo-glow-${state})`), `${state} 光晕没被用到`)
+  }
+  for (const state of ['blocked', 'suspended', 'done', 'open']) {
+    assert.ok(ruleBody(`.fo-card[data-state="${state}"]`).includes('--fo-card-glow'), `${state} 卡片没有光晕`)
+  }
+})
+check('悬停：卡片 hover 有 translateY(-3px) scale(1.01) + 300ms cubic-bezier 过渡', () => {
+  const root = ruleBody('.fo-root')
+  assert.ok(root.includes('--fo-dur: 300ms'), '过渡时长 300ms')
+  assert.ok(root.includes('--fo-ease: cubic-bezier(.2, .8, .2, 1)'), '缓动曲线照参考项目')
+  const card = ruleBody('.fo-card')
+  assert.ok(card.includes('transition: transform var(--fo-dur) var(--fo-ease)'), card.slice(0, 200))
+  const hover = ruleBody('.fo-card:hover')
+  assert.ok(hover.includes('transform: translateY(-3px) scale(1.01)'), hover)
+  assert.ok(hover.includes('border-color: var(--fo-glass-line-hover)'), '边框升到 border-l2 的混合色')
+})
+check('悬停：叠一层品牌色 6% → 透明的渐变淡入（品牌色不硬编码色相）', () => {
+  const root = ruleBody('.fo-root')
+  assert.ok(root.includes('--fo-glass-wash: linear-gradient(135deg, color-mix(in oklab, var(--dsw-alias-brand-primary) 6%, transparent), transparent 72%)'))
+  const after = ruleBody('.fo-card::after')
+  assert.ok(after.includes('background: var(--fo-glass-wash)'))
+  assert.ok(after.includes('opacity: 0'), '默认不可见')
+  assert.ok(ruleBody('.fo-card:hover::after').includes('opacity: 1'), 'hover 才淡入')
+})
+check('入场动画：120ms 上浮淡入 + 逐行 20ms 递延（上限 8 行），用 backwards 不挡 hover', () => {
+  const keyframes = blockAfter(CSS_BARE, CSS_BARE.indexOf('@keyframes fo-rise'))
+  assert.ok(keyframes.includes('opacity: 0') && keyframes.includes('translateY(4px)'), keyframes)
+  assert.ok(keyframes.includes('opacity: 1'))
+  assert.ok(CSS_BARE.includes('animation: fo-rise 120ms var(--fo-ease) backwards'), '120ms + backwards 填充')
+  assert.ok(CSS_BARE.includes('animation-delay: calc(var(--fo-i, 0) * 20ms)'), '逐行 20ms')
+  assert.ok(CSS_BARE.includes('animation: none !important'), '不引动画库')
+})
+check('prefers-reduced-motion：关掉动画、过渡与位移，渐变也不再淡入', () => {
+  const reduced = mediaBody('(prefers-reduced-motion: reduce)')
+  assert.ok(reduced.length > 0, '缺 prefers-reduced-motion 分支')
+  assert.ok(reduced.includes('animation: none !important'))
+  assert.ok(reduced.includes('transition: none !important'))
+  assert.ok(reduced.includes('transform: none !important'))
+  assert.ok(reduced.includes('opacity: 0 !important'), '落影渐变在减弱动效下不出现')
+})
+check('紧密密度：正文 12px / 标题 13px / 树行 26px / 卡片内边距 16px', () => {
+  assert.ok(ruleBody('.fo-root').includes('font-size: 12px'))
+  assert.ok(ruleBody('.fo-title').includes('font-size: 13px'))
+  assert.ok(ruleBody('.fo-title').includes('font-weight: 600'))
+  assert.ok(ruleBody('.fo-detail-title').includes('font-size: 13px'))
+  assert.ok(ruleBody('.fo-graph-name').includes('font-size: 13px'))
+  assert.ok(ruleBody('.fo-row').includes('height: 26px'), '树行高不超过 26px')
+  assert.ok(ruleBody('.fo-card').includes('padding: 16px'), '卡片内边距 16-20px')
+  assert.ok(ruleBody('.fo-sub').includes('font-size: 11px'))
+  assert.ok(ruleBody('.fo-cards').includes('gap: 12px'))
 })
 
 /* ---- 1. 加载态 → 数据态 ---- */
@@ -422,6 +537,19 @@ check('数据态：跨项目边 b1→a1 在同一张图里直连（两端都不�
 check('数据态：泳道 6 条 = g1 两项目 + 未分组两项目 + 两条「组外·缺失」', () => {
   assert.equal(bandRects(tree).length, 6)
   assert.equal(bandRects(tree).filter((b) => b.props['data-external'] === '1').length, 2)
+})
+check('入场递延真的接上了：树行与卡片都带 --fo-i，且 ≤ 7（上限 8 行）', () => {
+  const rows = treeItems(tree).map((row) => row.props.style && row.props.style['--fo-i'])
+  const cards = cardButtons(tree).map((card) => card.props.style && card.props.style['--fo-i'])
+  assert.deepEqual(rows.slice(0, 4), [0, 1, 2, 3], `树行递延序号：${JSON.stringify(rows)}`)
+  assert.deepEqual(cards.slice(0, 3), [0, 1, 2], `卡片递延序号：${JSON.stringify(cards)}`)
+  assert.ok(rows.every((value) => Number.isInteger(value) && value >= 0 && value <= 7))
+  assert.ok(cards.every((value) => Number.isInteger(value) && value >= 0 && value <= 7))
+})
+check('代表性节点的玻璃类名没被改坏（卡片/图容器/行/详情）', () => {
+  assert.ok(cardButtons(tree).length > 0)
+  assert.ok(graphSections(tree).length > 0)
+  assert.ok(ruleBody('.fo-card').length > 0 && ruleBody('.fo-graph').length > 0 && ruleBody('.fo-row').length > 0)
 })
 check('数据态：任务卡片 5 张，标题与项目标签都在', () => {
   const cards = cardButtons(tree)

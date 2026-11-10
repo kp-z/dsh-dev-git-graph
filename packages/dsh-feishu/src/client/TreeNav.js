@@ -73,8 +73,10 @@ export function createTreeNav(deps) {
       if (tree && tree.selected && tree.selected.key !== active) setActive(tree.selected.key)
     }, [tree && tree.selected ? tree.selected.key : ''])
 
-    const rowElement = (row) => {
+    const rowElement = (row, index) => {
       if (!row) return null
+      /* 入场递延：--fo-i 让 CSS 用 calc(i * 20ms) 逐行错开，上限 8 行（styles.js 里做动画）。 */
+      const stagger = Math.min(Math.max(Number(index) || 0, 0), 7)
       const isGroup = row.kind === 'group'
       const isProject = row.kind === 'project'
       const canDrop = row.kind === 'all' || isGroup
@@ -117,7 +119,7 @@ export function createTreeNav(deps) {
 
       const rename = renamingId && renamingId === row.id && isGroup
       if (rename) {
-        return h('div', { key: row.key, className: 'fo-row', 'data-kind': row.kind, style: { paddingLeft: `${row.depth * 14 + 6}px` } },
+        return h('div', { key: row.key, className: 'fo-row', 'data-kind': row.kind, style: { paddingLeft: `${row.depth * 14 + 6}px`, '--fo-i': stagger } },
           h('input', {
             className: 'fo-input',
             defaultValue: row.label,
@@ -146,7 +148,7 @@ export function createTreeNav(deps) {
         'data-kind': row.kind,
         'data-key': row.key,
         'data-id': row.id,
-        style: { paddingLeft: `${row.depth * 14 + 6}px` },
+        style: { paddingLeft: `${row.depth * 14 + 6}px`, '--fo-i': stagger },
         draggable: isProject,
         title: `${KIND_LABEL[row.kind] || ''}：${label}`,
         onClick: () => { focusKey(row.key); if (typeof onSelect === 'function') onSelect(row) },
@@ -234,8 +236,8 @@ export function createTreeNav(deps) {
     }
 
     const items = []
-    visible.forEach((row) => {
-      items.push(rowElement(row))
+    visible.forEach((row, index) => {
+      items.push(rowElement(row, index))
       if (row.kind === 'group' && row.missing > 0 && row.collapsed !== true) {
         items.push(h('div', { key: `note:${row.key}`, className: 'fo-tree-note' }, `${row.missing} 个成员已不在当前任务集里`))
       }

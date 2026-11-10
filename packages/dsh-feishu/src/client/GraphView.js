@@ -130,7 +130,12 @@ export function createGraphView(deps) {
         }, children)
       }))
 
-      return h('section', { key: graph.key || index, className: 'fo-graph', 'aria-label': label },
+      return h('section', {
+        key: graph.key || index,
+        className: 'fo-graph',
+        'aria-label': label,
+        style: { '--fo-i': Math.min(index, 7) },
+      },
         h('div', { className: 'fo-graph-head' },
           h('span', { className: 'fo-graph-name' }, graph.kind === 'ungrouped' ? '未分组' : graph.label),
           h('div', { className: 'fo-graph-meta' },
