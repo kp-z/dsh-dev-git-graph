@@ -11,9 +11,11 @@
  *
  * 兼容两套注入命名（lead 早期冻结名与最终名都吃）：
  *   api.overview | api.loadOverview；api.groupAction | api.saveGroups；api.revision() → 值或 {revision}
- *   store.get(key, fallback) / store.set(key, value)，本组件只写 'selection' 与 'collapsed'
+ *   store.get(key, fallback) / store.set(key, value)，本组件只写 'selection' / 'collapsed' / 'keyword' /
+ *   'feature' / 'scope' / 'rail' / 'nodePos'（最后一个是画布上拖动过的节点位置）
+ *   宿主能力位 deps.host：canOpenSession() → {ok,reason}、openSession(id, title) → Promise<{ok,reason}>
  *
- * props（都可选）：api、store、pollMs、title、api 覆写
+ * props（都可选）：api、store、host、pollMs、title、subtitle、api 覆写
  */
 
 import * as modelModule from '../overview/model.js'
@@ -66,6 +68,45 @@ function clockOf(now) {
   const value = Number(now)
   if (!isFinite(value) || value <= 0) return ''
   try { return new Date(value).toLocaleTimeString() } catch (error) { return '' }
+}
+
+/**
+ * 宿主能力位：`host.canOpenSession() → {ok, reason}`（lead 在 client.js 注入）。
+ * 可能整个缺失、返回形状不对、或直接抛 —— 一律折成 `{ok:false, reason}`，
+ * 绝不让 undefined 漏到节点上（那样按钮会「看着能点、点了没反应」）。
+ */
+function hostCapability(host) {
+  const fallback = { ok: false, reason: '当前宿主不支持打开会话' }
+  if (!host || typeof host.canOpenSession !== 'function') return fallback
+  try {
+    const res = host.canOpenSession()
+    if (!res || typeof res !== 'object') return fallback
+    const ok = res.ok === true
+    return { ok, reason: String(res.reason || (ok ? '' : '当前宿主不支持打开会话')) }
+  } catch (error) {
+    return { ok: false, reason: String((error && error.message) || fallback.reason) }
+  }
+}
+
+/** 本地拖动位置（store 键 nodePos）：形状坏掉就整块丢掉，别让坏数据把画布画歪。 */
+function readNodePos(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const out = {}
+  Object.keys(value).forEach((graphKey) => {
+    const bag = value[graphKey]
+    if (!bag || typeof bag !== 'object' || Array.isArray(bag)) return
+    const clean = {}
+    Object.keys(bag).forEach((id) => {
+      const pos = bag[id]
+      if (!pos || typeof pos !== 'object') return
+      const x = Number(pos.x)
+      const y = Number(pos.y)
+      if (!isFinite(x) || !isFinite(y)) return
+      clean[id] = { x, y }
+    })
+    if (Object.keys(clean).length) out[graphKey] = clean
+  })
+  return out
 }
 
 /* ---------------- 右键菜单（纯展示，动作由 runMenu 决定） ----------------
@@ -209,6 +250,8 @@ export function createOverviewPanel(deps) {
   const layout = (deps && deps.layout) || layoutModule
   const api = adaptApi(deps && deps.api)
   const store = (deps && deps.store) || null
+  /* 宿主能力位（openSession / canOpenSession）：由 lead 在 client.js 注入，本组件只依赖接口本身。 */
+  const host = (deps && deps.host) || null
   const pollMs = Math.max(MIN_POLL_MS, Number(deps && deps.pollMs) || DEFAULT_POLL_MS)
 
   const DetailPanel = createDetailPanel({ React, h, model })
@@ -243,6 +286,12 @@ export function createOverviewPanel(deps) {
       return model.isObj(value) ? value : {}
     })
     const [detailId, setDetailId] = useState('')
+    /* 画布聚焦：点节点/按 F 都会落到这里；点空白或 Esc 取消。纯前端瞬态，不进 store。 */
+    const [focusedId, setFocusedId] = useState('')
+    /* 本地拖动位置：{ 图 key: { 任务 id: {x,y} } }，落 store（键 nodePos），「复位布局」清图。 */
+    const [nodePos, setNodePos] = useState(() => readNodePos(readStore(store, 'nodePos')))
+    /* 宿主动作（打开会话）失败时的可读提示：role=status，绝不静默。 */
+    const [hostNote, setHostNote] = useState('')
     const [keyword, setKeyword] = useState(() => model.str(readStore(store, 'keyword')))
     const [renamingId, setRenamingId] = useState('')
     const [creating, setCreating] = useState(false)
@@ -326,10 +375,11 @@ export function createOverviewPanel(deps) {
     useEffect(() => { writeStore(store, 'feature', activeFeatureId) }, [activeFeatureId])
     useEffect(() => { writeStore(store, 'scope', scopeCollapsed) }, [scopeCollapsed])
     useEffect(() => { writeStore(store, 'rail', railOpen) }, [railOpen])
+    useEffect(() => { writeStore(store, 'nodePos', nodePos) }, [nodePos])
 
     useEffect(() => {
       if (!detailId || typeof document === 'undefined' || !document.addEventListener) return undefined
-      const onKey = (event) => { if (event.key === 'Escape') setDetailId('') }
+      const onKey = (event) => { if (event.key === 'Escape') { setDetailId(''); setFocusedId('') } }
       document.addEventListener('keydown', onKey)
       return () => document.removeEventListener('keydown', onKey)
     }, [detailId])
@@ -364,14 +414,6 @@ export function createOverviewPanel(deps) {
       return keywordNeedle ? list.filter((graph) => asArray(graph.nodes).length > 0) : list
     }, [drawing, keywordNeedle])
     const scopedTasks = useMemo(() => model.scopeTasks(visibleTasks, scope, groups), [visibleTasks, scope, groups])
-    const stats = useMemo(() => {
-      const base = model.statsOf(scopedTasks, relations)
-      const nodes = asArray(drawing && drawing.nodes)
-      base.ghosts = nodes.filter((node) => node.ghost === true).length
-      base.missingGhosts = nodes.filter((node) => node.ghost === true && node.missing === true).length
-      base.graphs = graphs.length
-      return base
-    }, [scopedTasks, relations, drawing, graphs.length])
     const colorOf = useMemo(() => {
       const map = {}
       asArray(tree && tree.lanes).forEach((lane) => {
@@ -492,7 +534,73 @@ export function createOverviewPanel(deps) {
       runGroup({ action: 'rename', id, name })
     }, [runGroup])
 
-    const openTask = useCallback((id) => { setDetailId(model.str(id)) }, [])
+    const openTask = useCallback((id) => {
+      const key = model.str(id)
+      if (!key) return
+      setDetailId(key)
+      /* 点节点 = 选中 + 聚焦（task-15）：其余节点随之降透明度。 */
+      setFocusedId(key)
+    }, [])
+
+    const focusTask = useCallback((id) => {
+      const key = model.str(id)
+      if (key) setFocusedId(key)
+    }, [])
+
+    /** 点画布空白 / Esc：取消聚焦（详情也一起收起来，两个状态本来就是一回事的两面）。 */
+    const blurCanvas = useCallback(() => {
+      setFocusedId('')
+      setDetailId('')
+    }, [])
+
+    /* 拖动落位：松手时 GraphView 已经吸附过网格，这里只负责按「图 key + 任务 id」存下来。 */
+    const moveNode = useCallback((graphKey, id, pos) => {
+      const gk = model.str(graphKey)
+      const key = model.str(id)
+      if (!gk || !key || !pos) return
+      const x = Number(pos.x)
+      const y = Number(pos.y)
+      if (!isFinite(x) || !isFinite(y)) return
+      setNodePos((prev) => ({ ...prev, [gk]: { ...(prev[gk] || {}), [key]: { x, y } } }))
+    }, [])
+
+    /* 复位布局：只清这张图的本地位置，回到 layout 给的坐标。 */
+    const resetLayout = useCallback((graphKey) => {
+      const gk = model.str(graphKey)
+      setNodePos((prev) => {
+        if (!gk) return {}
+        if (!prev[gk]) return prev
+        const next = { ...prev }
+        delete next[gk]
+        return next
+      })
+    }, [])
+
+    /**
+     * 打开会话：host.openSession 是「尽力而为 + 读回核对」的异步动作，
+     * 失败（含返回 false / 抛错）一律给一条 role=status 的可读提示，不静默。
+     */
+    const openSession = useCallback((sessionId, expectedTitle) => {
+      const key = model.str(sessionId)
+      if (!key) { setHostNote('这个任务没有绑定会话'); return Promise.resolve(false) }
+      if (!host || typeof host.openSession !== 'function') {
+        setHostNote(hostCapability(host).reason)
+        return Promise.resolve(false)
+      }
+      return Promise.resolve()
+        .then(() => host.openSession(key, model.str(expectedTitle)))
+        .then((res) => {
+          if (res && res.ok === true) { setHostNote(''); return true }
+          const reason = (res && model.str(res.reason)) || '宿主没能打开这条会话'
+          if (alive.current) setHostNote(reason)
+          return false
+        })
+        .catch((error) => {
+          const reason = model.str((error && error.message) || error) || '宿主没能打开这条会话'
+          if (alive.current) setHostNote(reason)
+          return false
+        })
+    }, [host])
 
     /** 关系里点过来的任务：能点过去就一定让它可见（不在当前 scope 里就切回全部）。 */
     const jumpToTask = useCallback((id) => {
@@ -509,22 +617,14 @@ export function createOverviewPanel(deps) {
       return nodes.find((node) => node.id === detailId && node.ghost !== true) || nodes.find((node) => node.id === detailId) || null
     }, [detailId, drawing])
 
-    const chips = []
-    if (data) {
-      chips.push(h('span', { key: 'tasks', className: 'fo-chip', 'data-tone': 'brand' }, `${stats.tasks} 任务`))
-      chips.push(h('span', { key: 'open', className: 'fo-chip' }, `未完成 ${stats.open}`))
-      if (stats.blocked) chips.push(h('span', { key: 'blocked', className: 'fo-chip', 'data-tone': 'danger' }, `阻塞 ${stats.blocked}`))
-      chips.push(h('span', { key: 'ready', className: 'fo-chip', 'data-tone': 'ok' }, `就绪 ${stats.ready}`))
-      if (stats.suspended) chips.push(h('span', { key: 'suspended', className: 'fo-chip', 'data-tone': 'warn' }, `挂起 ${stats.suspended}`))
-      chips.push(h('span', { key: 'dep', className: 'fo-chip' }, `依赖 ${stats.dependencyEdges}`))
-      chips.push(h('span', { key: 'prov', className: 'fo-chip' }, `来源 ${stats.provenanceEdges}`))
-      if (stats.ghosts) chips.push(h('span', { key: 'ghost', className: 'fo-chip', 'data-tone': 'idle' }, `组外/缺失 ${stats.ghosts}`))
-      chips.push(h('span', { key: 'graphs', className: 'fo-chip' }, `${stats.graphs} 张图`))
-    }
+    /* task-15 冗余审计：正文头部只留「当前范围（面包屑）+ 搜索框 + 必要动作」。
+       - 功能名删掉：它已经在 rail 品牌区、功能项、以及这里的第三次出现 —— 三处只留功能项。
+       - `.fo-stats` 计数胶囊整串删掉：图数/节点数/阻塞数在树上、图头、节点 meta 上各有一份，
+         同一份信息只该出现在离它描述的对象最近的那一处。
+       - 副标题不再重复范围名；只留这份视图独有的上下文（revision / 快照时钟）。 */
+    const scopeName = model.scopeLabel(scope, groups)
 
     const subtitle = []
-    subtitle.push(model.scopeLabel(scope, groups))
-    if (scope.kind !== 'all') subtitle.push('已筛选')
     if (revision.current != null) subtitle.push(`revision ${model.str(revision.current).slice(0, 8)}`)
     const clock = clockOf(data && data.now)
     if (clock) subtitle.push(clock)
@@ -555,16 +655,25 @@ export function createOverviewPanel(deps) {
     const activeFeature = featureById(features, activeFeatureId)
     const featureComponent = activeFeature && typeof activeFeature.Component === 'function' ? activeFeature.Component : null
     const featureHint = activeFeature ? model.str(activeFeature.hint) : ''
+    const hostCan = hostCapability(host)
 
     /* 功能页的 ctx：数据 + 交互全在这里，功能组件自己不取数据、不碰 store。 */
     const featureCtx = {
       featureHint,
-      scopeText: subtitle.slice(0, 2).join(' · '),
       scopeCollapsed,
       onToggleScope: () => setScopeCollapsed((prev) => prev !== true),
       graphs,
       selectedId: detailTask ? detailId : '',
+      focusedId,
+      nodePos,
+      hostReady: hostCan.ok,
+      hostReason: hostCan.reason,
       onOpenTask: (id) => openTask(id),
+      onFocusTask: focusTask,
+      onNodeMove: moveNode,
+      onResetLayout: resetLayout,
+      onBlur: blurCanvas,
+      onOpenSession: openSession,
       treeProps: {
         tree,
         renamingId,
@@ -651,7 +760,7 @@ export function createOverviewPanel(deps) {
           /* 内容头部：面包屑/标题 + 搜索框（42px / 圆角 14 / 左侧 40px 图标位）+ 动作 */
           h('header', { className: 'fo-main-head' },
             h('div', { className: 'fo-crumb' },
-              h('span', { className: 'fo-crumb-title' }, activeFeature ? model.str(activeFeature.label) : '飞书任务集'),
+              h('span', { className: 'fo-crumb-title' }, scopeName),
               h('span', { className: 'fo-crumb-sub' }, subtitle.join(' · ')),
             ),
             h('div', { className: 'fo-search-wrap' },
@@ -673,12 +782,18 @@ export function createOverviewPanel(deps) {
               keyword ? h('span', { className: 'fo-search-hint' }, `匹配 ${scopedTasks.length} 条`) : null,
             ),
             h('div', { className: 'fo-head-actions' },
-              chips.length ? h('div', { className: 'fo-stats' }, chips) : null,
               scope.kind !== 'all'
                 ? h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => setScope({ kind: 'all', id: '' }) }, '全部任务')
                 : null,
             ),
           ),
+          /* 宿主动作失败的提示（role=status）：打开会话没成功时给一句人话，别静默。 */
+          hostNote
+            ? h('div', { className: 'fo-note', role: 'status' },
+              h('span', null, hostNote),
+              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', onClick: () => setHostNote('') }, '知道了'),
+            )
+            : null,
           state.error
             ? h('div', { className: 'fo-banner', role: 'alert' },
               h('span', null, state.error),
@@ -697,7 +812,10 @@ export function createOverviewPanel(deps) {
             node: detailNode,
             tasksById,
             colorOf,
-            onClose: () => setDetailId(''),
+            hostReady: hostCan.ok,
+            hostReason: hostCan.reason,
+            onOpenSession: openSession,
+            onClose: () => { setDetailId(''); setFocusedId('') },
             onSelectTask: jumpToTask,
             onFocusProject: (key) => setScope({ kind: 'project', id: key }),
           })

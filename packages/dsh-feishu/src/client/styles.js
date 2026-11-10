@@ -202,21 +202,16 @@ export const CSS = `
 .fo-search:focus-visible { border-color: var(--fo-selected-line); outline: none; }
 .fo-search-hint { flex: 0 0 auto; font-size: 11px; color: ${T.label2}; white-space: nowrap; }
 .fo-head-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-left: auto; }
-/* 统计胶囊（内容头部右侧） */
-.fo-stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.fo-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 22px; padding: 0 10px; border-radius: 999px;
-  font-size: 11px; font-variant-numeric: tabular-nums;
-  background: var(--fo-glass-sub); color: ${T.label2};
-  border: 1px solid transparent;
-  white-space: nowrap;
+/* 提示条（role=status）：动作没做成时给一句人话，别静默。与 role=alert 的错误条分开。 */
+.fo-note {
+  display: flex; align-items: center; gap: 8px;
+  margin: 10px 10px 0; padding: 8px 12px;
+  border-radius: 10px; font-size: 12px;
+  color: ${T.label1};
+  background: var(--fo-glass-sub);
+  border: 1px solid var(--fo-glass-line);
 }
-.fo-chip[data-tone="brand"] { color: ${T.brand}; background: var(--fo-selected-bg); border-color: var(--fo-selected-line); }
-.fo-chip[data-tone="danger"] { color: ${T.error}; background: ${g(T.error, 13)}; border-color: ${g(T.error, 30)}; }
-.fo-chip[data-tone="warn"] { color: ${T.warn}; background: ${g(T.warn, 14)}; border-color: ${g(T.warn, 30)}; }
-.fo-chip[data-tone="ok"] { color: ${T.success}; background: ${g(T.success, 13)}; border-color: ${g(T.success, 30)}; }
-.fo-chip[data-tone="idle"] { color: ${T.idle}; background: ${g(T.idle, 16)}; border-color: ${g(T.idle, 32)}; }
+.fo-note .fo-btn { margin-left: auto; }
 
 /* ============ 按钮 ============ */
 .fo-btn {
@@ -363,11 +358,9 @@ export const CSS = `
 .fo-feature { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .fo-feature-bar {
   display: flex; align-items: center; gap: 10px;
-  padding: 6px 10px; min-height: 40px;
+  padding: 6px 10px; min-height: 36px;
   border-bottom: 1px solid var(--fo-glass-line);
 }
-.fo-feature-hint { font-size: 11px; color: ${T.label2}; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fo-feature-meta { margin-left: auto; font-size: 11px; color: ${T.label2}; white-space: nowrap; }
 .fo-feature-body { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
 /* 范围列：功能页内的子导航；折叠时整列不渲染，画布拿全部宽度 */
 .fo-scope-column {
@@ -423,7 +416,8 @@ export const CSS = `
 }
 .fo-legend-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fo-legend-count { font-variant-numeric: tabular-nums; }
-.fo-graph-meta { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
+/* 图头右侧只剩**动作**；计数胶囊已删（同一份数在树上与节点上各有一份，离对象最近的那处胜出）。 */
+.fo-graph-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
 /* 画布区：占满图容器剩下的高度 + 24px 内边距；40px 双层网格铺满整块画布（不拦点击） */
 .fo-canvas {
@@ -452,18 +446,33 @@ export const CSS = `
 /* 箭头：6×6 实心三角，fill 跟边同色（参考站 markerWidth/Height=6、d="M 0 0 L 6 3 L 0 6 z"） */
 .fo-arrow { fill: var(--fo-glass-line-hover); fill-opacity: .85; }
 .fo-arrow[data-kind="derived_from"] { fill: ${T.idle}; }
+/* ============ 画布节点 = workflow 式三段卡片（task-15） ============
+   参考站 WorkflowEditor 的节点口径：rounded-xl + border-2 + shadow-xl + 玻璃底 +「左动作列 | 中信息 |
+   右状态」。这里全落在 SVG 上：卡片 = rect（rx 12 / stroke 2），各段坐标由 layout.cardGeometry 给。
+   状态色走 --fo-s（卡片描边 / 编号 eyebrow / 状态胶囊三者同色），项目分色仍走 --fo-c（左侧色条）。 */
 .fo-node {
-  cursor: pointer;
+  --fo-s: ${T.idle};
+  cursor: grab;
   /* SVG 没有 box-shadow：用 drop-shadow 复刻「0 8px 24px 品牌 8%」的蓝调投影 */
   filter: drop-shadow(0 8px 24px ${g(T.brand, 8)});
+  transition: opacity var(--fo-dur) var(--fo-ease);
 }
-.fo-node-bg { fill: var(--fo-glass-sub); stroke: ${g(T.border1, 60)}; stroke-width: 2; }
-.fo-node.is-ghost .fo-node-bg { fill: transparent; stroke: var(--fo-glass-line-hover); stroke-dasharray: 4 3; }
-.fo-node:hover .fo-node-bg { stroke: ${g(T.border2, 80)}; }
-.fo-node.is-selected .fo-node-bg { stroke: ${T.brand}; stroke-width: 2; }
-.fo-node.is-selected { filter: drop-shadow(0 0 6px ${g(T.brand, 25)}); }
-/* 状态光晕：成功/警告/错误/idle/品牌 五个 35% 混合，落到画布节点状态点的同色外发光上
-   （卡片区删掉后它们的新家；--fo-C 是项目分色，光晕表达的是状态）。 */
+.fo-node:active { cursor: grabbing; }
+.fo-node-bg { fill: var(--fo-glass-card); stroke: color-mix(in oklab, var(--fo-s) 45%, transparent); stroke-width: 2; }
+.fo-node[data-state="blocked"] { --fo-s: ${T.error}; }
+.fo-node[data-state="suspended"] { --fo-s: ${T.warn}; }
+.fo-node[data-state="done"] { --fo-s: ${T.success}; }
+.fo-node[data-state="open"] { --fo-s: ${T.brand}; }
+.fo-node[data-state="ghost"] { --fo-s: ${T.idle}; }
+.fo-node:hover .fo-node-bg { stroke: color-mix(in oklab, var(--fo-s) 70%, transparent); }
+.fo-node.is-selected .fo-node-bg { stroke: var(--fo-s); stroke-width: 2; }
+/* 选中加外发光（参考站 shadow-2xl + ring-4 的等价物，色随状态） */
+.fo-node.is-selected { filter: drop-shadow(0 0 8px color-mix(in oklab, var(--fo-s) 50%, transparent)); }
+.fo-node.is-ghost .fo-node-bg { fill: transparent; stroke: color-mix(in oklab, var(--fo-s) 55%, transparent); stroke-dasharray: 4 3; }
+/* 聚焦：选中的卡片是主角，其余节点降到低透明度（hover 时回一点，仍可点） */
+.fo-node.is-dimmed { opacity: .28; }
+.fo-node.is-dimmed:hover { opacity: .72; }
+/* 状态光晕：成功/警告/错误/idle/品牌 五个 35% 混合，落在状态胶囊里的光点上 */
 .fo-node[data-state="blocked"] { --fo-node-glow: var(--fo-glow-error); }
 .fo-node[data-state="suspended"] { --fo-node-glow: var(--fo-glow-warn); }
 .fo-node[data-state="done"] { --fo-node-glow: var(--fo-glow-success); }
@@ -471,13 +480,24 @@ export const CSS = `
 .fo-node[data-state="ghost"] { --fo-node-glow: var(--fo-glow-idle); }
 .fo-node-spine { fill: var(--fo-c, ${T.idle}); }
 .fo-node-dot {
-  fill: var(--fo-c, ${T.idle});
+  fill: var(--fo-s);
   filter: drop-shadow(0 0 5px var(--fo-node-glow, transparent));
 }
-.fo-node-no { fill: ${T.label2}; font-size: 10px; font-weight: 600; }
-.fo-node-title { fill: ${T.label1}; font-size: 12px; }
-.fo-node.is-ghost .fo-node-title { fill: ${T.label2}; }
+/* 中段信息：8-9px 大写彩色 eyebrow（编号，状态色）+ 12px 标题 + 10px meta */
+.fo-node-eyebrow { fill: var(--fo-s); font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.fo-node-title { fill: ${T.label1}; font-size: 12px; font-weight: 600; }
 .fo-node-meta { fill: ${T.label2}; font-size: 10px; }
+.fo-node.is-ghost .fo-node-title { fill: ${T.label2}; }
+/* 右段状态胶囊：状态色 14% 底 + 34% 描边 + 状态色文字 */
+.fo-node-status { fill: color-mix(in oklab, var(--fo-s) 14%, transparent); stroke: color-mix(in oklab, var(--fo-s) 34%, transparent); stroke-width: 1; }
+.fo-node-status-text { fill: var(--fo-s); font-size: 9px; font-weight: 700; }
+/* 左段动作列：22×22 圆角按钮，品牌 18% 底 → hover 40%（参考站 p-1.5 / 20%→40%） */
+.fo-node-action { cursor: pointer; }
+.fo-node-action-bg { fill: color-mix(in oklab, ${T.brand} 18%, transparent); stroke: none; }
+.fo-node-action-icon { fill: none; stroke: ${T.brand}; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.fo-node-action:hover .fo-node-action-bg { fill: color-mix(in oklab, ${T.brand} 40%, transparent); }
+.fo-node-action[data-disabled="1"] { cursor: default; opacity: .35; }
+.fo-node-action[data-disabled="1"]:hover .fo-node-action-bg { fill: color-mix(in oklab, ${T.brand} 18%, transparent); }
 .fo-node:focus-visible { outline: none; }
 .fo-node:focus-visible .fo-node-bg { stroke: ${T.brand}; stroke-width: 2; }
 

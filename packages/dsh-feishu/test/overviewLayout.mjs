@@ -13,7 +13,15 @@
  */
 import assert from 'node:assert/strict'
 import { UNGROUPED_KEY } from '../src/overview/model.js'
-import { GEOMETRY, layoutScope } from '../src/overview/layout.js'
+import {
+  CARD,
+  GEOMETRY,
+  cardGeometry,
+  describeNodeCard,
+  layoutScope,
+  snapToGrid,
+  statusLabel,
+} from '../src/overview/layout.js'
 
 let passed = 0
 const failures = []
@@ -403,6 +411,120 @@ test('真实快照规模下也不越界（48+ 任务的回归底线）', () => {
       assert.equal(overlaps(nodes[i], nodes[j]), false, `${nodes[i].id}/${nodes[j].id} 重叠`)
     }
   }
+})
+
+/* ---------------- task-15：workflow 式节点卡片的几何 ---------------- */
+
+test('卡片口径：节点 264×88、圆角 12、边框 2、吸附网格 40', () => {
+  assert.equal(GEOMETRY.NODE_W, 264)
+  assert.equal(GEOMETRY.NODE_H, 88)
+  assert.equal(GEOMETRY.GRID, 40)
+  assert.equal(CARD.RADIUS, 12)
+  assert.equal(CARD.BORDER, 2)
+  /* 三段刚好放得下：左动作列 + 中间文字 + 右状态胶囊 + 三段间距 + 两侧内边距 = 卡片宽 */
+  const used = CARD.PAD + CARD.ACTION_W + CARD.COL_GAP + CARD.STATUS_W + CARD.PAD + CARD.COL_GAP
+  assert.ok(used < GEOMETRY.NODE_W, `三段占宽 ${used} 应该留得出文字列`)
+  assert.ok(GEOMETRY.NODE_W - used >= 120, `中间文字列只剩 ${GEOMETRY.NODE_W - used}px`)
+  /* 两个动作按钮竖排 + 居中：不超出卡片高 */
+  const actionH = CARD.ACTION_SIZE * 2 + CARD.ACTION_GAP
+  assert.ok(actionH <= GEOMETRY.NODE_H - CARD.PAD * 2, '动作列放得下')
+})
+
+test('snapToGrid：吸附到 40px 网格（与参考站 GRID_SIZE 一致）', () => {
+  assert.equal(snapToGrid(0), 0)
+  assert.equal(snapToGrid(19), 0)
+  assert.equal(snapToGrid(20), 40)
+  assert.equal(snapToGrid(46), 40)
+  assert.equal(snapToGrid(118), 120)
+  assert.equal(snapToGrid(348.4), 360)
+  assert.equal(snapToGrid(-3), -0)
+  /* 坏输入不抛，回 0 */
+  assert.equal(snapToGrid('nope'), 0)
+  assert.equal(snapToGrid(undefined), 0)
+})
+
+test('cardGeometry：三段互不重叠、都在卡片内、动作列留够', () => {
+  const card = cardGeometry({ x: 100, y: 50, w: GEOMETRY.NODE_W, h: GEOMETRY.NODE_H, ghost: false })
+  assert.equal(card.x, 100)
+  assert.equal(card.y, 50)
+  assert.equal(card.radius, CARD.RADIUS)
+  assert.equal(card.border, CARD.BORDER)
+  /* 动作列 2 个按钮，竖排、间距 6、尺寸 22 */
+  assert.equal(card.action.buttons.length, 2)
+  assert.deepEqual(card.action.buttons.map((box) => box.key), ['open', 'focus'])
+  const [open, focus] = card.action.buttons
+  assert.equal(open.x, 100 + CARD.PAD)
+  assert.equal(open.w, CARD.ACTION_SIZE)
+  assert.equal(open.h, CARD.ACTION_SIZE)
+  assert.equal(open.radius, CARD.ACTION_RADIUS)
+  assert.equal(focus.y - open.y, CARD.ACTION_SIZE + CARD.ACTION_GAP)
+  /* 中间文字从动作列右边起，右边留出状态胶囊 */
+  assert.equal(card.text.x, open.x + CARD.ACTION_W + CARD.COL_GAP)
+  assert.ok(card.text.x > open.x + open.w, '文字不能在动作按钮上')
+  assert.ok(card.text.x + card.text.w <= card.status.x, '文字不能压到状态胶囊')
+  /* 状态胶囊在卡片右侧、垂直居中 */
+  assert.equal(card.status.x + card.status.w, 100 + GEOMETRY.NODE_W - CARD.PAD)
+  assert.equal(card.status.y, 50 + Math.round((GEOMETRY.NODE_H - CARD.STATUS_H) / 2))
+  /* 三行基线的顺序：eyebrow → title → meta，且都在卡片里 */
+  assert.ok(card.text.eyebrow < card.text.title && card.text.title < card.text.meta)
+  assert.ok(card.text.eyebrow > 50 && card.text.meta < 50 + GEOMETRY.NODE_H)
+  /* 动作列垂直居中 */
+  assert.equal(card.action.y, 50 + Math.round((GEOMETRY.NODE_H - card.action.h) / 2))
+  assert.ok(card.action.y >= 50 + CARD.PAD && card.action.y + card.action.h <= 50 + GEOMETRY.NODE_H - CARD.PAD)
+})
+
+test('cardGeometry：ghost 没有动作列，文字铺满卡片', () => {
+  const card = cardGeometry({ x: 0, y: 0, w: GEOMETRY.NODE_W, h: GEOMETRY.NODE_H, ghost: true })
+  assert.equal(card.ghost, true)
+  assert.deepEqual(card.action.buttons, [])
+  assert.equal(card.text.x, CARD.PAD)
+  assert.ok(card.text.w > GEOMETRY.NODE_W / 2, 'ghost 的文字列更宽')
+  assert.equal(card.status.w, CARD.STATUS_W, 'ghost 也有状态胶囊（缺失/组外）')
+})
+
+test('layoutScope：每个节点都带 card，且三段不越出节点自己的框', () => {
+  ALL.graphs.forEach((graph) => {
+    graph.nodes.forEach((node) => {
+      assert.ok(node.card, `${node.id} 缺 card`)
+      assert.equal(node.card.x, node.x)
+      assert.equal(node.card.y, node.y)
+      assert.equal(node.card.w, node.w)
+      assert.equal(node.card.h, node.h)
+      assert.equal(node.card.radius, CARD.RADIUS)
+      assert.ok(node.card.action.buttons.length === (node.ghost ? 0 : 2))
+      node.card.action.buttons.forEach((box) => {
+        assert.ok(box.x >= node.x && box.x + box.w <= node.x + node.w, `${node.id} 动作按钮横向越界`)
+        assert.ok(box.y >= node.y && box.y + box.h <= node.y + node.h, `${node.id} 动作按钮纵向越界`)
+      })
+      assert.ok(node.card.status.x >= node.x && node.card.status.x + node.card.status.w <= node.x + node.w)
+      assert.ok(node.card.text.w > 0)
+    })
+  })
+})
+
+test('describeNodeCard：一行里说清 前置/后置/阻塞计数 + 项目名', () => {
+  const graph = graphOf(ALL, 'group:g1')
+  const a1 = graph.nodes.find((node) => node.id === 'a1')
+  const a2 = graph.nodes.find((node) => node.id === 'a2')
+  const b1 = graph.nodes.find((node) => node.id === 'b1')
+  assert.ok(describeNodeCard(a1).includes('前置1'), describeNodeCard(a1))
+  assert.ok(describeNodeCard(a1).includes('阻塞1'))
+  assert.ok(describeNodeCard(a1).includes('wA'), '项目名要出现（归属）')
+  assert.ok(describeNodeCard(b1).includes('后置1'), describeNodeCard(b1))
+  assert.ok(describeNodeCard(a2).includes('已完成'), describeNodeCard(a2))
+  const ghost = graph.nodes.find((node) => node.ghost === true)
+  assert.ok(describeNodeCard(ghost).length > 0)
+  /* 长 meta 会被截断（卡片中间列只有 ~162px），但绝不返回空 */
+  assert.ok(describeNodeCard({ state: 'open', workspaceLabel: '一个特别特别特别长的项目名', refs: { predecessors: [1, 2, 3], successors: [1, 2, 3] } }).length > 0)
+})
+
+test('statusLabel：状态 → 状态胶囊里那两三个字', () => {
+  assert.equal(statusLabel({ state: 'open' }), '就绪')
+  assert.equal(statusLabel({ state: 'blocked' }), '阻塞')
+  assert.equal(statusLabel({ state: 'done' }), '完成')
+  assert.equal(statusLabel({ state: 'suspended' }), '挂起')
+  assert.equal(statusLabel({ state: 'ghost', missing: true }), '缺失')
+  assert.equal(statusLabel({ state: 'ghost', missing: false }), '组外')
 })
 
 console.log(`\noverview/layout.js: ${passed} passed, ${failures.length} failed`)

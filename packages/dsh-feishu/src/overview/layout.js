@@ -45,12 +45,106 @@ import {
 
 /** 几何口径：间距/圆角与宿主列表页同量级，节点尺寸按「放得下 T编号 + 标题 + 一行元信息」定。 */
 export const GEOMETRY = {
-  NODE_W: 232,
-  NODE_H: 76,
+  /** 节点卡片宽：左侧动作列 + 中间信息列 + 右侧状态胶囊刚好放得下（见 CARD）。 */
+  NODE_W: 264,
+  NODE_H: 88,
   GAP_X: 64,
   GAP_Y: 16,
   PAD: 20,
-  TITLE_WIDTH: 16,
+  /** 标题预算（measure 口径：一个汉字 1、一个 ASCII 0.56）。中间信息列 162px / 12px 字号 ≈ 13.5 */
+  TITLE_WIDTH: 13,
+  /** 拖动吸附网格：与参考站 WorkflowEditor 的 GRID_SIZE 一致，也是画布格线间距（--fo-grid-size）。 */
+  GRID: 40,
+}
+
+/**
+ * 节点卡片内部口径（task-15：参考项目 workflow 式的「左动作列 | 中信息 | 右状态」三段结构）。
+ *
+ * 坐标系是**节点局部**的：`cardGeometry(node)` 把 node.x/node.y 也算进去，返回各处可直接喂给
+ * SVG 的绝对坐标。这样纯函数层就能断言「三段不重叠 / 动作列留够 / 都在卡片内」，
+ * 组件只负责把 svg rect / text / path 摆到这些坐标上（拖动时用新位置重算一次即可）。
+ */
+export const CARD = {
+  RADIUS: 12,
+  BORDER: 2,
+  /** 卡片内边距：元素离卡片边缘的距离。 */
+  PAD: 10,
+  /** 左侧动作列：两个 22×22 的动作按钮竖排（图标 14px），列宽 22、间距 6。 */
+  ACTION_W: 22,
+  ACTION_SIZE: 22,
+  ACTION_GAP: 6,
+  ACTION_RADIUS: 6,
+  /** 右侧状态胶囊：44×24，居中。 */
+  STATUS_W: 44,
+  STATUS_H: 24,
+  STATUS_RADIUS: 8,
+  /** 三段之间的水平间距。 */
+  COL_GAP: 8,
+  /** 中间信息列三行文字的基线（相对节点左上角）：编号 eyebrow / 标题 / meta。 */
+  ROW_EYEBROW: 24,
+  ROW_TITLE: 46,
+  ROW_META: 66,
+  /** meta 行的截断预算（measure 口径）。 */
+  META_WIDTH: 20,
+}
+
+/** 吸附到网格（参考站 `Math.round(v / GRID_SIZE) * GRID_SIZE`；GRID=40）。 */
+export function snapToGrid(value, grid) {
+  const step = num(grid, GEOMETRY.GRID) > 0 ? num(grid, GEOMETRY.GRID) : GEOMETRY.GRID
+  return Math.round(num(value, 0) / step) * step
+}
+
+/**
+ * 节点卡片几何：卡片外框 + 左侧动作列（含两个按钮的矩形）+ 中间三行文字 + 右侧状态胶囊。
+ * ghost 节点没有动作列（不可操作），文字直接铺满卡片，右侧仍是状态胶囊（缺失/组外）。
+ */
+export function cardGeometry(node) {
+  const n = isObj(node) ? node : {}
+  const x = num(n.x, 0)
+  const y = num(n.y, 0)
+  const w = num(n.w, GEOMETRY.NODE_W)
+  const h = num(n.h, GEOMETRY.NODE_H)
+  const ghost = n.ghost === true
+  const actionX = x + CARD.PAD
+  const actionY = y + Math.round((h - (CARD.ACTION_SIZE * 2 + CARD.ACTION_GAP)) / 2)
+  const statusX = x + w - CARD.PAD - CARD.STATUS_W
+  const statusY = y + Math.round((h - CARD.STATUS_H) / 2)
+  const textX = ghost ? x + CARD.PAD : actionX + CARD.ACTION_W + CARD.COL_GAP
+  const textRight = ghost ? x + w - CARD.PAD : statusX - CARD.COL_GAP
+  const buttons = ghost ? [] : [
+    { key: 'open', x: actionX, y: actionY, w: CARD.ACTION_SIZE, h: CARD.ACTION_SIZE, radius: CARD.ACTION_RADIUS },
+    { key: 'focus', x: actionX, y: actionY + CARD.ACTION_SIZE + CARD.ACTION_GAP, w: CARD.ACTION_SIZE, h: CARD.ACTION_SIZE, radius: CARD.ACTION_RADIUS },
+  ]
+  return {
+    x, y, w, h, ghost,
+    radius: CARD.RADIUS,
+    border: CARD.BORDER,
+    action: {
+      x: actionX, y: actionY, w: CARD.ACTION_W,
+      h: CARD.ACTION_SIZE * 2 + CARD.ACTION_GAP,
+      size: CARD.ACTION_SIZE, gap: CARD.ACTION_GAP, radius: CARD.ACTION_RADIUS,
+      buttons,
+    },
+    text: {
+      x: textX,
+      right: textRight,
+      w: Math.max(24, textRight - textX),
+      eyebrow: y + CARD.ROW_EYEBROW,
+      title: y + CARD.ROW_TITLE,
+      meta: y + CARD.ROW_META,
+    },
+    status: { x: statusX, y: statusY, w: CARD.STATUS_W, h: CARD.STATUS_H, radius: CARD.STATUS_RADIUS },
+  }
+}
+
+/** 状态胶囊里那两三个字（大写口径，与参考站右栏的 RUN/OK/WAIT 同量级）。 */
+export function statusLabel(node) {
+  const n = isObj(node) ? node : {}
+  if (n.ghost === true || n.state === 'ghost') return n.missing === true ? '缺失' : '组外'
+  if (n.state === 'done') return '完成'
+  if (n.state === 'blocked') return '阻塞'
+  if (n.state === 'suspended') return '挂起'
+  return '就绪'
 }
 
 /** 一个任务 → 结构化节点；x/y/列/泳道由摆位阶段填。 */
@@ -305,6 +399,9 @@ export function buildGraph(lane, edges, known, hints, index, originY, options) {
       })
     }
   })
+  /* 卡片三段几何：位置由上面的摆位阶段定，这里按最终 x/y 算一次，组件直接用（拖动时重算）。 */
+  all.forEach((node) => { node.card = cardGeometry(node) })
+
   const width = Math.max(
     g.PAD * 2 + g.NODE_W,
     physicalColumns ? g.PAD * 2 + physicalColumns * g.NODE_W + (physicalColumns - 1) * g.GAP_X : g.PAD * 2,
@@ -469,6 +566,29 @@ export function describeNodeMeta(node) {
   const out = arr(refs.successors).length
   if (out) bits.push(`后置 ${out}`)
   return bits.join(' · ')
+}
+
+/**
+ * 卡片中间信息列的 meta 行：**离这个节点最近的一份事实** —— 前置/后置/阻塞计数 + 项目名。
+ * 与 describeNodeMeta 分开：那个是无障碍读屏用的完整句子，这个是画在 162px 里的一行小字。
+ */
+export function describeNodeCard(node) {
+  const n = isObj(node) ? node : {}
+  const refs = isObj(n.refs) ? n.refs : {}
+  const bits = []
+  const pre = arr(refs.predecessors).length
+  const post = arr(refs.successors).length
+  if (pre) bits.push(`前置${pre}`)
+  if (post) bits.push(`后置${post}`)
+  if (n.state === 'blocked') bits.push(`阻塞${arr(refs.blockedBy).length}`)
+  if (n.ghost === true) {
+    /* ghost：编号 eyebrow 走 id（右边状态胶囊已经说了「缺失/组外」，别再重复三遍）。 */
+    bits.push(n.missing === true ? '任务不存在' : (n.workspaceLabel || '其它分组'))
+    return truncateTitle(bits.join(' · '), CARD.META_WIDTH).text
+  }
+  if (!pre && !post) bits.push(n.state === 'done' ? '已完成' : (n.state === 'suspended' ? '已挂起' : '就绪'))
+  bits.push(n.workspaceLabel || '未归属')
+  return truncateTitle(bits.join(' · '), CARD.META_WIDTH).text
 }
 
 /** 便捷：节点标题在节点宽度内是否还需要 tooltip。 */

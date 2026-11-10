@@ -10,6 +10,7 @@
  *   node        layout 里对应的节点（可能是 ghost；用来显示状态与归属）
  *   tasksById   {id: task} 用于判断关系项是否还存在
  *   colorOf     workspaceKey → 分色索引
+ *   hostReady / hostReason / onOpenSession  宿主能力位：绑定会话能不能打开、不能打开时给个原因
  *   onClose() onSelectTask(id) onFocusProject(workspaceKey)
  */
 
@@ -28,7 +29,10 @@ export function createDetailPanel(deps) {
   const model = (deps && deps.model) || modelModule
 
   return function DetailPanel(props) {
-    const { task, node, tasksById, colorOf, onClose, onSelectTask, onFocusProject } = props || {}
+    const {
+      task, node, tasksById, colorOf, onClose, onSelectTask, onFocusProject,
+      hostReady, hostReason, onOpenSession,
+    } = props || {}
     if (!task && !node) return null
 
     const id = model.str((task && task.id) || (node && node.id))
@@ -39,6 +43,8 @@ export function createDetailPanel(deps) {
     const refs = model.refsOf(task || {})
     const colorIndex = colorOf ? colorOf[workspace.key] : undefined
     const known = (refId) => (tasksById && tasksById[refId]) || null
+    /* 绑定会话：面板里能直接跳过去（与节点动作列同一个宿主能力位，口径一致）。 */
+    const sessionId = model.str((task && task.sessionId) || (node && node.sessionId))
 
     const rows = []
     rows.push(['项目', workspace.label || '未归属', false])
@@ -78,6 +84,19 @@ export function createDetailPanel(deps) {
     })
 
     const actions = []
+    /* 「打开会话」：与节点上那个动作按钮同一套 disabled/title 口径，缺一不可时就地说明原因。 */
+    const canOpen = hostReady === true && !!sessionId
+    const openTitle = hostReady !== true
+      ? (model.str(hostReason) || '当前宿主不支持打开会话')
+      : (sessionId ? '在宿主里打开这个任务绑定的会话' : '这个任务没有绑定会话')
+    actions.push(h('button', {
+      key: 'session',
+      type: 'button',
+      className: 'fo-btn',
+      disabled: !canOpen,
+      title: openTitle,
+      onClick: () => { if (canOpen && typeof onOpenSession === 'function') onOpenSession(sessionId, title) },
+    }, '打开会话'))
     if (typeof onClose === 'function') actions.push(h('button', { key: 'close', type: 'button', className: 'fo-btn', onClick: onClose }, '关闭详情'))
     if (workspace.key && workspace.key !== model.UNGROUPED_KEY && typeof onFocusProject === 'function') {
       actions.push(h('button', {

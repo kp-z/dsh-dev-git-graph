@@ -314,7 +314,7 @@ async function mountPanel(options) {
   const mini = createMiniReact()
   const api = opts.api || makeApi(opts.snapshot === undefined ? SNAPSHOT : opts.snapshot, opts)
   const store = opts.store && typeof opts.store.get === 'function' ? opts.store : makeStore(opts.store)
-  const bag = { React: mini.React, h: mini.React.createElement, model, layout, api, store }
+  const bag = { React: mini.React, h: mini.React.createElement, model, layout, api, store, host: opts.host }
   const features = typeof opts.features === 'function' ? opts.features(bag) : opts.features
   const Panel = createOverviewPanel(Object.assign({}, bag, { features, pollMs: 60000 }))
   const loadingTree = mini.renderOnce(mini.React.createElement(Panel, {}))
@@ -370,9 +370,12 @@ const mediaBody = (query) => {
 const rootOf = (tree) => findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-root')[0]
 const treeItems = (tree) => findAll(tree, (node) => node.kind === 'host' && node.props.role === 'treeitem')
 const graphSections = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'section' && classNameOf(node).includes('fo-graph'))
-const nodeGroups = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'g' && classNameOf(node).startsWith('fo-node'))
+/* 节点 = 卡片本体那个 <g class="fo-node …">；动作按钮是 <g class="fo-node-action">，
+   所以这里按**类名整词**匹配，不能用 startsWith（否则每个动作按钮都会被数成一个节点）。 */
+const nodeGroups = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'g' && classNameOf(node).split(/\s+/).includes('fo-node'))
 const taskNodes = (tree) => nodeGroups(tree).filter((node) => !classNameOf(node).includes('is-ghost'))
 const ghostNodes = (tree) => nodeGroups(tree).filter((node) => classNameOf(node).includes('is-ghost'))
+const nodeActions = (tree, key) => findAll(tree, (node) => node.kind === 'host' && node.type === 'g' && classNameOf(node).split(/\s+/).includes('fo-node-action') && (!key || node.props['data-key'] === key))
 const edgePaths = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'path' && classNameOf(node).includes('fo-edge'))
 const bandRects = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'rect' && classNameOf(node).includes('fo-band'))
 /* task-13 起没有卡片区：任务在图上就是节点，所以断言一律对节点做。 */
@@ -423,7 +426,11 @@ check('玻璃面：详情栏 / 菜单仍带 backdrop-filter blur(12px) 与玻璃
     assert.ok(body.includes('-webkit-backdrop-filter'), `${selector} 补一份 -webkit- 前缀`)
   }
   assert.ok(ruleBody('.fo-graph').includes('border-radius: 16px'), '画布圆角 16px（对齐参考站 rounded-2xl）')
-  assert.ok(ruleBody('.fo-chip').includes('border-radius: 999px'), '胶囊圆角 999px')
+  assert.ok(ruleBody('.fo-node-status').includes('stroke-width: 1'), '状态胶囊描边 1px（圆角 rx 在 layout.cardGeometry 里给）')
+  /* 计数胶囊（.fo-chip / .fo-stats）与图头元信息一起删掉了：同一份数只留离对象最近的那处 */
+  assert.equal(CSS_BARE.includes('.fo-chip'), false, '统计胶囊 CSS 应该整段删掉')
+  assert.equal(CSS_BARE.includes('.fo-stats'), false, '头部统计条 CSS 也应该删掉')
+  assert.equal(CSS_BARE.includes('.fo-graph-meta'), false, '图头计数胶囊 CSS 也应该删掉')
   /* 卡片区删掉后，卡片类名不该再有残留 */
   assert.equal(CSS_BARE.includes('fo-card'), false, '卡片 CSS 应该整段删掉')
   assert.equal(CSS_BARE.includes('fo-tag'), false, '卡片标签 CSS 也应该删掉')
@@ -645,18 +652,44 @@ check('画布网格：40px 双层 linear-gradient、线色 border-l1 12%、不�
   assert.ok(root.includes('--fo-grid-line: color-mix(in oklab, var(--dsw-alias-border-l1'))
   assert.ok(root.includes('--fo-grid-line: color-mix(in oklab, var(--dsw-alias-border-l1, var(--dsw-alias-border-l2)) 12%, transparent)'))
 })
-check('节点：border-width 2px、常态 border-l1 60%、hover border-l2 80%、选中品牌外发光', () => {
+check('节点卡片：border-width 2px、描边=状态色、hover 提亮、选中外发光、聚焦降透明度', () => {
   const bg = ruleBody('.fo-node-bg')
+  assert.ok(bg.includes('fill: var(--fo-glass-card)'), '卡片底 = 玻璃卡片层')
   assert.ok(bg.includes('stroke-width: 2'), '节点边框 2px')
-  assert.ok(bg.includes('color-mix(in oklab, var(--dsw-alias-border-l1'))
-  assert.ok(bg.includes('60%, transparent)'))
+  assert.ok(bg.includes('color-mix(in oklab, var(--fo-s) 45%, transparent)'), '常态描边 = 状态色 45%')
+  /* 状态色映射：blocked=error / suspended=warn / done=success / ready(open)=brand / ghost=idle */
+  const stateMap = { blocked: 'error', suspended: 'warn', done: 'success', open: 'brand' }
+  for (const [state, token] of Object.entries(stateMap)) {
+    const body = ruleBody(`.fo-node[data-state="${state}"]`)
+    const expect = token === 'brand'
+      ? '--fo-s: var(--dsw-alias-brand-primary)'
+      : `--fo-s: var(--dsw-alias-state-${token}-primary)`
+    assert.ok(body.includes(expect), `${state} → ${expect}`)
+  }
   const hover = ruleBody('.fo-node:hover .fo-node-bg')
-  assert.ok(hover.includes('color-mix(in oklab, var(--dsw-alias-border-l2'))
-  assert.ok(hover.includes('80%, transparent)'))
+  assert.ok(hover.includes('color-mix(in oklab, var(--fo-s) 70%, transparent)'), 'hover 描边提到 70%')
   assert.ok(ruleBody('.fo-node').includes('drop-shadow(0 8px 24px'), '节点品牌调投影')
   const selected = ruleBody('.fo-node.is-selected')
-  assert.ok(selected.includes('drop-shadow(0 0 6px'), '选中外发光')
-  assert.ok(selected.includes('25%, transparent)'))
+  assert.ok(selected.includes('drop-shadow(0 0 8px'), '选中外发光')
+  assert.ok(selected.includes('50%, transparent)'))
+  assert.ok(ruleBody('.fo-node.is-dimmed').includes('opacity: .28'), '聚焦时其余节点降到 28%')
+  assert.ok(ruleBody('.fo-node.is-selected .fo-node-bg').includes('stroke: var(--fo-s)'), '选中描边 = 纯状态色')
+})
+check('节点卡片三段 CSS：eyebrow（状态色）/ 标题 / meta / 状态胶囊 / 动作按钮', () => {
+  assert.ok(ruleBody('.fo-node-eyebrow').includes('fill: var(--fo-s)'), 'eyebrow 用状态色')
+  assert.ok(ruleBody('.fo-node-eyebrow').includes('font-size: 9px'), 'eyebrow 9px 小字')
+  assert.ok(ruleBody('.fo-node-eyebrow').includes('text-transform: uppercase'), 'eyebrow 大写口径')
+  assert.ok(ruleBody('.fo-node-title').includes('font-size: 12px'), '标题 12px')
+  assert.ok(ruleBody('.fo-node-meta').includes('font-size: 10px'), 'meta 10px')
+  const status = ruleBody('.fo-node-status')
+  assert.ok(status.includes('color-mix(in oklab, var(--fo-s) 14%, transparent)'), '状态胶囊底 = 状态色 14%')
+  assert.ok(status.includes('34%, transparent)'), '状态胶囊描边 = 状态色 34%')
+  assert.ok(ruleBody('.fo-node-status-text').includes('fill: var(--fo-s)'), '状态文字用状态色')
+  const action = ruleBody('.fo-node-action-bg')
+  assert.ok(action.includes('18%, transparent)'), '动作按钮底 = 品牌 18%')
+  assert.ok(ruleBody('.fo-node-action:hover .fo-node-action-bg').includes('40%, transparent)'), 'hover 到 40%（对齐参考站 20%→40%）')
+  assert.ok(ruleBody('.fo-node-action[data-disabled="1"]').includes('opacity: .35'), '禁用动作降透明度')
+  assert.ok(ruleBody('.fo-node-dot').includes('var(--fo-node-glow'), '状态点仍带光晕（状态光晕的新家）')
 })
 check('边：常态 2px / opacity .7，hover 与选中 3px / 1', () => {
   const edge = ruleBody('.fo-edge')
@@ -988,6 +1021,403 @@ tree = await main.mini.act()
 check('再次关闭，流程回到干净状态', () => {
   assert.equal(detailEls(tree).length, 0)
 })
+
+/* ============================================================================
+ * 4c. task-15：workflow 式节点卡片 + 拖动（吸附 40）+ 聚焦 + 跳会话
+ * ========================================================================== */
+
+const PANEL_GEOM = layout.GEOMETRY
+const PANEL_CARD = layout.CARD
+
+{
+  const sessions = []
+  const host = {
+    canOpenSession: () => ({ ok: true, reason: '' }),
+    openSession: (id, title) => { sessions.push({ id, title }); return Promise.resolve({ ok: true }) },
+  }
+  const fx = await mountPanel({ host })
+  let ft = fx.tree
+  const nodeById = (id) => taskNodes(ft).find((node) => node.props['data-id'] === id)
+  const bgOf = (node) => byClass(node, 'fo-node-bg')[0]
+
+  /* ---- 三段 DOM 与几何 ---- */
+  check('卡片 DOM：编号 eyebrow + 标题 + meta + 右状态胶囊，四段都在节点里', () => {
+    const node = nodeById('a1')
+    assert.ok(node, 'a1 节点在')
+    assert.equal(byClass(node, 'fo-node-bg').length, 1)
+    assert.equal(byClass(node, 'fo-node-eyebrow').length, 1)
+    assert.equal(byClass(node, 'fo-node-title').length, 1)
+    assert.equal(byClass(node, 'fo-node-meta').length, 1)
+    assert.equal(byClass(node, 'fo-node-status').length, 1)
+    assert.equal(byClass(node, 'fo-node-status-text').length, 1)
+  })
+  check('卡片 DOM：eyebrow=T11、标题=任务名、状态胶囊=阻塞、meta=前置/阻塞计数+项目名', () => {
+    const node = nodeById('a1')
+    assert.equal(textOf(byClass(node, 'fo-node-eyebrow')[0]).trim(), 'T11')
+    assert.ok(textOf(byClass(node, 'fo-node-title')[0]).includes('任务 a1'))
+    assert.equal(textOf(byClass(node, 'fo-node-status-text')[0]).trim(), '阻塞')
+    const meta = textOf(byClass(node, 'fo-node-meta')[0])
+    assert.ok(meta.includes('前置1'), meta)
+    assert.ok(meta.includes('阻塞1'), meta)
+    assert.ok(meta.includes('项目A'), meta)
+  })
+  check('卡片几何：宽 264 / 高 88 / rx 12 / 边框 2（layout 口径，组件不自己算尺寸）', () => {
+    const bg = bgOf(nodeById('a1'))
+    assert.equal(Number(bg.props.width), PANEL_GEOM.NODE_W)
+    assert.equal(Number(bg.props.height), PANEL_GEOM.NODE_H)
+    assert.equal(PANEL_GEOM.NODE_W, 264)
+    assert.equal(PANEL_GEOM.NODE_H, 88)
+    assert.equal(Number(bg.props.rx), PANEL_CARD.RADIUS)
+    assert.equal(PANEL_CARD.RADIUS, 12)
+    assert.equal(PANEL_CARD.BORDER, 2)
+  })
+  check('卡片三段互不重叠：动作列 | 中间文字 | 右状态胶囊，都按 cardGeometry 摆', () => {
+    const node = nodeById('a1')
+    const bg = bgOf(node)
+    const nx = Number(bg.props.x)
+    const ny = Number(bg.props.y)
+    const actions = nodeActions(node)
+    assert.equal(actions.length, 2, '左动作列两个按钮')
+    const boxes = actions.map((action) => byClass(action, 'fo-node-action-bg')[0])
+    actions.forEach((action, i) => {
+      assert.equal(Number(boxes[i].props.x), nx + PANEL_CARD.PAD)
+      assert.equal(Number(boxes[i].props.width), PANEL_CARD.ACTION_SIZE)
+      assert.equal(Number(boxes[i].props.height), PANEL_CARD.ACTION_SIZE)
+      assert.equal(Number(boxes[i].props.rx), PANEL_CARD.ACTION_RADIUS)
+    })
+    assert.equal(Number(boxes[1].props.y) - Number(boxes[0].props.y), PANEL_CARD.ACTION_SIZE + PANEL_CARD.ACTION_GAP)
+    const eyebrow = byClass(node, 'fo-node-eyebrow')[0]
+    const meta = byClass(node, 'fo-node-meta')[0]
+    const status = byClass(node, 'fo-node-status')[0]
+    const textX = nx + PANEL_CARD.PAD + PANEL_CARD.ACTION_W + PANEL_CARD.COL_GAP
+    assert.equal(Number(eyebrow.props.x), textX)
+    assert.equal(Number(meta.props.x), textX)
+    assert.equal(Number(status.props.x), nx + PANEL_GEOM.NODE_W - PANEL_CARD.PAD - PANEL_CARD.STATUS_W)
+    assert.equal(Number(status.props.width), PANEL_CARD.STATUS_W)
+    assert.equal(Number(status.props.height), PANEL_CARD.STATUS_H)
+    assert.ok(Number(status.props.x) > textX, '状态胶囊在文字右边')
+    assert.ok(Number(eyebrow.props.x) > Number(boxes[0].props.x) + PANEL_CARD.ACTION_SIZE, '文字在动作列右边')
+    assert.equal(Number(byClass(node, 'fo-node-eyebrow')[0].props.y), ny + PANEL_CARD.ROW_EYEBROW)
+    assert.equal(Number(byClass(node, 'fo-node-title')[0].props.y), ny + PANEL_CARD.ROW_TITLE)
+    assert.equal(Number(meta.props.y), ny + PANEL_CARD.ROW_META)
+  })
+  check('卡片状态：data-state 与状态词一一对应（blocked=阻塞 / done=完成 / open=就绪）', () => {
+    assert.equal(nodeById('a1').props['data-state'], 'blocked')
+    assert.equal(textOf(byClass(nodeById('a1'), 'fo-node-status-text')[0]).trim(), '阻塞')
+    assert.equal(nodeById('a2').props['data-state'], 'done')
+    assert.equal(textOf(byClass(nodeById('a2'), 'fo-node-status-text')[0]).trim(), '完成')
+    assert.equal(nodeById('b1').props['data-state'], 'open')
+    assert.equal(textOf(byClass(nodeById('b1'), 'fo-node-status-text')[0]).trim(), '就绪')
+  })
+  check('ghost 卡片：没有动作列、虚线框、状态胶囊 = 缺失 / 组外', () => {
+    const missing = ghostNodes(ft).find((node) => node.props['data-id'] === 'zz-missing')
+    assert.ok(missing, '缺失 ghost 在')
+    assert.equal(classNameOf(missing).includes('is-ghost'), true)
+    assert.equal(nodeActions(missing).length, 0, 'ghost 不可操作')
+    assert.equal(textOf(byClass(missing, 'fo-node-status-text')[0]).trim(), '缺失')
+    const outside = ghostNodes(ft).find((node) => node.props['data-id'] === 'c1')
+    assert.equal(textOf(byClass(outside, 'fo-node-status-text')[0]).trim(), '组外')
+  })
+
+  /* ---- 拖动：跟手 → 松手吸附 40 → 落 store ---- */
+  const edgePathD = () => String(edgePaths(ft).find((edge) => edge.props['data-from'] === 'b1' && edge.props['data-to'] === 'a1').props.d)
+  const before = { x: Number(bgOf(nodeById('a1')).props.x), y: Number(bgOf(nodeById('a1')).props.y) }
+  const pathBefore = edgePathD()
+  check('拖动前：复位布局按钮是禁用的（这张图还没拖动过）', () => {
+    const btn = findAll(ft, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '复位布局')[0]
+    assert.ok(btn, '图头有复位布局按钮')
+    assert.equal(btn.props.disabled, true)
+    assert.ok(String(btn.props.title).includes('还没有拖动过'))
+  })
+  const fire = (id, kind, clientX, clientY) => {
+    const node = nodeById(id)
+    const handler = node.props[kind]
+    assert.equal(typeof handler, 'function', `${kind} 没接上`)
+    handler({
+      clientX,
+      clientY,
+      pointerId: 7,
+      button: 0,
+      currentTarget: { setPointerCapture() {} },
+      stopPropagation() {},
+      preventDefault() {},
+    })
+  }
+  fire('a1', 'onPointerDown', 100, 100)
+  ft = await fx.mini.act()
+  fire('a1', 'onPointerMove', 146, 118)
+  ft = await fx.mini.act()
+  check('拖动中：节点实时跟手（未吸附，1:1 跟随指针）', () => {
+    const moved = bgOf(nodeById('a1'))
+    assert.equal(Number(moved.props.x), before.x + 46)
+    assert.equal(Number(moved.props.y), before.y + 18)
+  })
+  fire('a1', 'onPointerUp', 146, 118)
+  ft = await fx.mini.act()
+  check('松手吸附 40px 网格，位置按「图 key + 任务 id」落 store.nodePos', () => {
+    const expectX = Math.round((before.x + 46) / 40) * 40
+    const expectY = Math.round((before.y + 18) / 40) * 40
+    const bag = fx.store.data.get('nodePos')
+    assert.ok(bag && bag['group:g1'], `nodePos 应该有 group:g1：${JSON.stringify(bag)}`)
+    assert.deepEqual(bag['group:g1'].a1, { x: expectX, y: expectY })
+    assert.equal(expectX % 40, 0)
+    assert.equal(expectY % 40, 0)
+    const moved = bgOf(nodeById('a1'))
+    assert.equal(Number(moved.props.x), expectX)
+    assert.equal(Number(moved.props.y), expectY)
+    assert.notEqual(expectX, before.x, '确实位移了（测试本身有效）')
+  })
+  check('拖动后边的端点跟着走（b1→a1 的折线终点重算）', () => {
+    const after = edgePathD()
+    assert.notEqual(after, pathBefore, '折线必须重算')
+    assert.ok(after.endsWith(`H${Number(bgOf(nodeById('a1')).props.x)}`), after)
+  })
+  check('拖动之后复位布局按钮变成可点', () => {
+    const btn = findAll(ft, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '复位布局')[0]
+    assert.equal(btn.props.disabled, false)
+  })
+
+  /* ---- 拖动不误触详情 ---- */
+  nodeById('a1').props.onClick()
+  ft = await fx.mini.act()
+  check('拖动后紧跟的那次 click 不算选中（拖动不误触详情）', () => {
+    assert.equal(detailEls(ft).length, 0, '详情不该弹出来')
+    assert.equal(nodeById('a1').props['data-focused'], '0')
+  })
+
+  /* ---- 聚焦 ---- */
+  nodeById('a1').props.onClick()
+  ft = await fx.mini.act()
+  check('点节点 = 选中 + 聚焦：详情打开、焦点节点 aria-current=focused', () => {
+    assert.equal(detailEls(ft).length, 1)
+    const focused = nodeById('a1')
+    assert.equal(focused.props['data-focused'], '1')
+    assert.equal(focused.props['data-dimmed'], '0')
+    assert.equal(focused.props['aria-current'], 'true')
+    assert.equal(classNameOf(focused).includes('is-selected'), true)
+  })
+  check('聚焦：同一张图里其余节点降到低透明度（is-dimmed + data-dimmed）', () => {
+    const sameGraph = graphSections(ft)[0]
+    const others = taskNodes(sameGraph).filter((node) => node.props['data-id'] !== 'a1')
+    assert.ok(others.length > 0)
+    others.forEach((node) => {
+      assert.equal(classNameOf(node).includes('is-dimmed'), true)
+      assert.equal(node.props['data-dimmed'], '1')
+      assert.equal(node.props['data-focused'], '0')
+    })
+    /* ghost 也一起暗下去（它就是背景信息），但 aria 仍在 */
+    ghostNodes(sameGraph).forEach((node) => assert.equal(node.props['data-dimmed'], '1'))
+  })
+  check('聚焦：别的图里没有焦点节点时，那张图的节点不该被暗掉', () => {
+    const otherGraph = graphSections(ft)[1]
+    taskNodes(otherGraph).forEach((node) => assert.equal(node.props['data-dimmed'], '0'))
+  })
+  byClass(ft, 'fo-canvas')[0].props.onClick({ target: null, currentTarget: null })
+  ft = await fx.mini.act()
+  check('点画布空白 = 取消聚焦（详情一起收起来，节点全部恢复）', () => {
+    assert.equal(detailEls(ft).length, 0)
+    taskNodes(ft).forEach((node) => {
+      assert.equal(node.props['data-dimmed'], '0')
+      assert.equal(node.props['data-focused'], '0')
+    })
+  })
+  nodeById('a1').props.onKeyDown({ key: 'f', preventDefault() {} })
+  ft = await fx.mini.act()
+  check('键盘 F：聚焦节点但不弹详情', () => {
+    assert.equal(nodeById('a1').props['data-focused'], '1')
+    assert.equal(detailEls(ft).length, 0)
+  })
+  byClass(ft, 'fo-canvas')[0].props.onClick({ target: null, currentTarget: null })
+  ft = await fx.mini.act()
+  check('再点空白：焦点清掉', () => {
+    taskNodes(ft).forEach((node) => assert.equal(node.props['data-focused'], '0'))
+  })
+  nodeById('b1').props.onKeyDown({ key: 'f', preventDefault() {} })
+  ft = await fx.mini.act()
+  check('F 聚焦 b1（Tab 之外的第二条键盘路径）', () => {
+    assert.equal(nodeById('b1').props['data-focused'], '1')
+  })
+  nodeById('b1').props.onKeyDown({ key: 'ArrowRight', preventDefault() {} })
+  ft = await fx.mini.act()
+  check('再按 →：焦点按几何走位到右边那个节点（a1），只聚焦不开详情', () => {
+    assert.equal(nodeById('a1').props['data-focused'], '1')
+    assert.equal(nodeById('b1').props['data-focused'], '0')
+    assert.equal(detailEls(ft).length, 0)
+  })
+
+  /* ---- 复位布局 ---- */
+  findAll(ft, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '复位布局')[0].props.onClick()
+  ft = await fx.mini.act()
+  check('复位布局：这张图的本地位置被清空，节点回到 layout 坐标', () => {
+    assert.deepEqual(fx.store.data.get('nodePos'), {})
+    const back = bgOf(nodeById('a1'))
+    assert.equal(Number(back.props.x), before.x)
+    assert.equal(Number(back.props.y), before.y)
+  })
+  check('复位后按钮又变回禁用', () => {
+    const btn = findAll(ft, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '复位布局')[0]
+    assert.equal(btn.props.disabled, true)
+  })
+
+  /* ---- 跳转到会话 ---- */
+  const openButton = () => nodeActions(nodeById('a1'), 'open')[0]
+  check('节点动作列第一个按钮 = 打开会话（有会话时可用）', () => {
+    const btn = openButton()
+    assert.equal(btn.props['data-key'], 'open')
+    assert.equal(btn.props['data-disabled'], '0')
+    assert.equal(btn.props['aria-disabled'], 'false')
+    const tip = findAll(btn, (node) => node.kind === 'host' && node.type === 'title')[0]
+    assert.equal(textOf(tip).trim(), '打开会话')
+  })
+  openButton().props.onClick({ stopPropagation() {} })
+  ft = await fx.mini.act()
+  check('点「打开会话」→ host.openSession(task.sessionId, 标题)', () => {
+    assert.deepEqual(sessions, [{ id: 's-a1', title: '任务 a1' }])
+  })
+  check('成功时不留提示条（role=status 只在失败时出现）', () => {
+    assert.equal(findAll(ft, (node) => node.kind === 'host' && node.props.role === 'status').length, 0)
+  })
+  check('动作按钮的 click 不会冒泡成节点选中（stopPropagation 被调用）', () => {
+    let stopped = 0
+    openButton().props.onClick({ stopPropagation() { stopped += 1 } })
+    assert.equal(stopped, 1)
+  })
+}
+
+/* ---- 4d. 打开会话：缺 sessionId / 缺宿主 / 宿主说不成功，三种都不许静默 ---- */
+{
+  const noSession = {
+    ...SNAPSHOT,
+    tasks: TASKS.map((task) => (task.id === 'a1' ? { ...task, sessionId: '' } : task)),
+  }
+  const asked = []
+  const host = {
+    canOpenSession: () => ({ ok: true, reason: '' }),
+    openSession: (id) => { asked.push(id); return Promise.resolve({ ok: true }) },
+  }
+  const fx = await mountPanel({ snapshot: noSession, host })
+  const node = () => taskNodes(fx.tree).find((row) => row.props['data-id'] === 'a1')
+  check('任务没绑定会话：按钮 disabled，title 说明「这个任务没有绑定会话」', () => {
+    const btn = nodeActions(node(), 'open')[0]
+    assert.equal(btn.props['data-disabled'], '1')
+    assert.equal(btn.props['aria-disabled'], 'true')
+    const tip = findAll(btn, (node2) => node2.kind === 'host' && node2.type === 'title')[0]
+    assert.equal(textOf(tip).trim(), '这个任务没有绑定会话')
+    assert.ok(String(btn.props['aria-label']).includes('这个任务没有绑定会话'))
+  })
+  nodeActions(node(), 'open')[0].props.onClick({ stopPropagation() {} })
+  await fx.mini.act()
+  check('没会话时点它也不发请求：原因就在按钮上，不静默空转', () => {
+    assert.deepEqual(asked, [])
+  })
+
+  const bare = await mountPanel({})
+  check('宿主没有能力位：按钮 disabled，title 说明「当前宿主不支持打开会话」', () => {
+    const btn = nodeActions(taskNodes(bare.tree).find((row) => row.props['data-id'] === 'a1'), 'open')[0]
+    assert.equal(btn.props['data-disabled'], '1')
+    const tip = findAll(btn, (node2) => node2.kind === 'host' && node2.type === 'title')[0]
+    assert.equal(textOf(tip).trim(), '当前宿主不支持打开会话')
+  })
+  taskNodes(bare.tree)[0].props.onClick()
+  const detailTree = await bare.mini.act()
+  check('详情面板里也有「打开会话」，同一套 disabled/原因口径', () => {
+    const btn = findAll(detailTree, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '打开会话')[0]
+    assert.ok(btn, '详情面板要有打开会话按钮')
+    assert.equal(btn.props.disabled, true)
+    assert.equal(String(btn.props.title), '当前宿主不支持打开会话')
+  })
+}
+
+{
+  /* 宿主说自己失败（例如切过去了但不是这条会话）：面板必须给 role=status 的可读提示。 */
+  const host = {
+    canOpenSession: () => ({ ok: true, reason: '' }),
+    openSession: () => Promise.resolve({ ok: false, reason: '宿主切到了 xxx，不是这条会话' }),
+  }
+  const fx = await mountPanel({ host })
+  let ft = fx.tree
+  nodeActions(taskNodes(ft).find((row) => row.props['data-id'] === 'a1'), 'open')[0].props.onClick({ stopPropagation() {} })
+  ft = await fx.mini.act()
+  check('openSession 返回 ok:false → role=status 提示条带上宿主给的原因', () => {
+    const notes = findAll(ft, (node) => node.kind === 'host' && node.props.role === 'status')
+    assert.equal(notes.length, 1)
+    assert.ok(textOf(notes[0]).includes('宿主切到了 xxx'), textOf(notes[0]))
+  })
+  check('提示条渲染在正文里（不在 rail / 详情里）', () => {
+    const main = findAll(ft, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-main'))[0]
+    assert.equal(findAll(main, (node) => node.kind === 'host' && node.props.role === 'status').length, 1)
+    assert.equal(alertBoxes(ft).length, 0, '这不是错误条（role=alert），是提示')
+  })
+  const close = findAll(ft, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '知道了')[0]
+  check('提示条可以关掉', () => { assert.ok(close) })
+  close.props.onClick()
+  ft = await fx.mini.act()
+  check('关掉后提示条消失', () => {
+    assert.equal(findAll(ft, (node) => node.kind === 'host' && node.props.role === 'status').length, 0)
+  })
+}
+
+/* ---- 4e. 冗余审计：同一份信息只出现在离对象最近的那一处 ---- */
+{
+  const fx = await mountPanel({ host: { canOpenSession: () => ({ ok: true, reason: '' }), openSession: () => Promise.resolve({ ok: true }) } })
+  const ft = fx.tree
+  const count = (text, needle) => String(text).split(needle).length - 1
+
+  check('功能名「任务关系图」全页只出现一次（rail 功能项），品牌名只出现一次', () => {
+    const text = textOf(ft)
+    assert.equal(count(text, '任务关系图'), 1, text.slice(0, 200))
+    assert.equal(count(text, '飞书任务集'), 1)
+  })
+  check('正文头部：没有计数胶囊、没有功能名、副标题不再重复范围名', () => {
+    const head = byClass(ft, 'fo-main-head')[0]
+    assert.ok(head, '头部在')
+    assert.equal(byClass(head, 'fo-stats').length, 0)
+    assert.equal(findAll(head, (node) => classNameOf(node).split(/\s+/).includes('fo-chip')).length, 0)
+    assert.equal(textOf(head).includes('任务关系图'), false)
+    assert.equal(textOf(head).includes('张图'), false)
+    assert.equal(textOf(head).includes('未完成'), false)
+    const title = byClass(ft, 'fo-crumb-title')[0]
+    assert.equal(textOf(title).trim(), '全部任务', '面包屑 = 当前范围')
+    const sub = byClass(ft, 'fo-crumb-sub')[0]
+    assert.equal(textOf(sub).includes('全部任务'), false, '副标题不再重复范围名')
+    assert.equal(textOf(sub).includes('已筛选'), false)
+  })
+  check('头部剩下的就是「当前范围 + 搜索框 + 动作」三样', () => {
+    const head = byClass(ft, 'fo-main-head')[0]
+    assert.equal(byClass(head, 'fo-crumb').length, 1)
+    assert.equal(byClass(head, 'fo-search').length, 1)
+    assert.equal(byClass(head, 'fo-head-actions').length, 1)
+    assert.equal(head.children.filter((child) => child && child.kind === 'host').length, 3)
+  })
+  check('功能页工具条只剩范围列折叠按钮（featureHint / scopeText 两个 span 已删）', () => {
+    const bar = byClass(ft, 'fo-feature-bar')[0]
+    assert.ok(bar)
+    assert.equal(byClass(bar, 'fo-feature-hint').length, 0)
+    assert.equal(byClass(bar, 'fo-feature-meta').length, 0)
+    assert.equal(bar.children.filter((child) => child && child.kind === 'host').length, 1)
+    assert.ok(textOf(bar).includes('范围'), '留下的那个是范围列折叠按钮')
+  })
+  check('图头：只剩 图名 + 图例 + 复位布局（计数胶囊删掉，图例保留）', () => {
+    const head = byClass(ft, 'fo-graph-head')[0]
+    assert.equal(byClass(head, 'fo-graph-meta').length, 0)
+    assert.equal(byClass(head, 'fo-graph-legend').length, 1)
+    assert.equal(byClass(head, 'fo-graph-actions').length, 1)
+    assert.equal(legendItems(head).length >= 1, true)
+    const text = textOf(head)
+    assert.equal(text.includes('任务'), false, `图头不该再念一遍计数：${text}`)
+    assert.equal(text.includes('关系'), false)
+    assert.equal(text.includes('组外/缺失'), false)
+  })
+  check('全页不再有 .fo-chip / .fo-stats（装饰性重复已删干净）', () => {
+    assert.equal(findAll(ft, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-chip')).length, 0)
+    assert.equal(byClass(ft, 'fo-stats').length, 0)
+  })
+  check('CSS 里的重复件也一起删了（没有死样式）', () => {
+    for (const dead of ['.fo-chip', '.fo-stats', '.fo-graph-meta', '.fo-feature-hint', '.fo-feature-meta', '.fo-node-no']) {
+      assert.equal(CSS_BARE.includes(dead), false, `${dead} 应该已经删掉`)
+    }
+  })
+}
 
 /* ---- 5. 展开 / 折叠：写 store ---- */
 tree = await main.mini.act()
