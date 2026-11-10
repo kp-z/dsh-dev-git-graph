@@ -229,6 +229,24 @@
       `tab-2-insight-v2.jpg`（洞察六面板）、`tab-3-runs-v2.jpg`（运行：52 气泡、1 个绿色呼吸、5 张卡）。
 - [x] 验证：offline 80 JS + 7 Python、`npm test` exit 0。
 
+**第 5 轮（03:30–04:00）：洞察页「更全面」+ 端到端抓到一个接线缺陷**
+
+- [x] **洞察页接历史指标**（`9127822`，task-21 = overview-react-dev）：
+      `api.insightStats(days)` → 宿主已有的 `/api/insight/stats`（复用同一套口径，不新造第二套）；
+      新增四个面板：吞吐趋势（28 柱 + 活跃折线，手绘 SVG）/ 履约（准时率环 + 逾期 + 平均早/晚 X 天）/
+      延期原因（横条 + 平均天数）/ 质量·周期（提前·准时·延迟 + 中位数·P85）；
+      降级四态（旧宿主 / 失败 / 7s 超时 / 形状怪）都只加页头一行 `role="status"` + 重试，
+      六个快照面板原样保留；0 样本一律「—」，不拿 0 冒充数据。
+- [x] **端到端抓到并修掉一个接线缺陷**（`414c0ff`）：`OverviewPanel.adaptApi` 的白名单没有 `insightStats`，
+      于是洞察页在真机上**永远**显示「历史指标不可用」——单元级验证（直接渲染 InsightFeature）看不见，
+      只有从面板真挂载才暴露。修好补了 3 条接线断言（调用参数、新面板渲染、失败降级），
+      并把其中一条从 async-check 改成先挂载再同步断言（避免断言失败被 Promise 吞掉）。
+- [x] **真机复核（真数据 52 条任务）**：`data-history=1`，10 个面板
+      关键指标 / 状态分布 / 项目分布 / 关系概览 / 阻塞榜 / 最近动态 / 吞吐趋势 / 履约 / 延期原因 / 质量·周期；
+      趋势 28 柱 + 1 折线；延期原因「其他/未写 7 次 平均 2.2 天」；履约「已完成 13 / 逾期 1 / 延期记录 6」。
+      截图 `/Users/kp/Downloads/tab-2-insight-v3-history.jpg`（真数据）。
+- [x] 证据：overviewPanel 200 → 203、insightView 47、runsView 30、offline 80 JS + 7 Python、`npm test` exit 0。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
