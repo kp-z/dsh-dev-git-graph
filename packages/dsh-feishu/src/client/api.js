@@ -76,5 +76,14 @@ export function createApi({ fetchImpl } = {}) {
     organizeReject(batchId, itemIds) {
       return post('/api/overview/organize/reject', { batchId, itemIds: itemIds || [] });
     },
+    /**
+     * 历史指标（洞察页要「更全面」时用）：宿主已有的 /api/insight/stats。
+     * 返回 { stats: { series, distribution, board, fulfillment, quality, delayBuckets, datasets, ... } }。
+     * 旧宿主没有这条路由 → 抛错，调用方自己降级（不要把整页打崩）。
+     */
+    insightStats(days) {
+      const span = Number(days) > 0 ? Math.min(365, Math.floor(Number(days))) : 14;
+      return request(`/api/insight/stats?days=${span}`, { headers: { accept: 'application/json' } });
+    },
   };
 }
