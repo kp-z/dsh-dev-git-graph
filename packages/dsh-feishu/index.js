@@ -4453,6 +4453,8 @@ function createSyncEngine(ctx) {
     }
     let blocked = 0
     let ready = 0
+    /* 宿主内存里的会话活性；取一次，避免每个任务各查一遍。 */
+    const live = liveSessionState()
     const tasks = state.tasks.map((task) => {
       const enriched = enrichWorkspace(task, workspaceRows)
       const link = linksOf(task.id)
@@ -4475,6 +4477,10 @@ function createSyncEngine(ctx) {
         started: task.started === true,
         suspended: state.suspensions?.[task.id]?.active === true,
         sessionId: asString(task.sessionId),
+        /* 运行 tab 的口径：「运行中」= 这条会话此刻真的在跑（宿主内存态，重启后清零）；
+           sessionTurn 只作为「跑到第几轮」的进度信号，不做时间戳用。 */
+        running: Boolean(task.sessionId) && live.get(asString(task.sessionId))?.kind === 'running',
+        sessionTurn: Number(live.get(asString(task.sessionId))?.turn) || 0,
         predecessors,
         successors: link.successors.map(summary),
         sourceTasks: link.sourceTasks.map(summary),
@@ -4490,7 +4496,7 @@ function createSyncEngine(ctx) {
       /* 哈希要覆盖**用户看得见的一切**：任务标题/完成/工作区/阻塞，以及挂起与绑定会话——
          这两项曾经漏掉，导致挂起或换绑后 revision 不变，页面按「变了才刷」就不会重拉。 */
       .update(JSON.stringify([
-        tasks.map((task) => [task.id, task.title, task.done, task.workspaceKey, task.blocked, task.suspended, task.sessionId, task.predecessors.length]),
+        tasks.map((task) => [task.id, task.title, task.done, task.workspaceKey, task.blocked, task.suspended, task.sessionId, task.running, task.predecessors.length]),
         relations,
         groups,
       ]))

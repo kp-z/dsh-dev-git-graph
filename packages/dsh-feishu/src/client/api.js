@@ -1,10 +1,13 @@
 /**
  * 总览页的数据面（唯一网络出口）。
  *
- * 只碰三个接口，全部在插件自己的挂载点下：
- *   GET  /dsh-feishu/api/overview           瘦快照（任务 + 关系摘要 + 目录 + 工作区 + 统计 + revision）
- *   GET  /dsh-feishu/api/overview/revision  只有 revision，用来「变了才刷」
- *   POST /dsh-feishu/api/workspace-groups   自定义目录（唯一写操作）
+ * 只碰插件自己挂载点下的接口：
+ *   GET  /dsh-feishu/api/overview            瘦快照（任务 + 关系摘要 + 目录 + 工作区 + 统计 + revision）
+ *   GET  /dsh-feishu/api/overview/revision   只有 revision，用来「变了才刷」
+ *   POST /dsh-feishu/api/workspace-groups    自定义目录（写操作）
+ *   GET  /dsh-feishu/api/overview/organize   某范围最近一批「一键整理」建议
+ *   POST /dsh-feishu/api/overview/organize   跑一次整理（**零副作用**：只出建议）
+ *   POST /dsh-feishu/api/overview/organize/accept|reject  逐条接受 / 拒绝
  *
  * `fetchImpl` 可注入，组件层因此可以在测试里跑而不碰网络。
  */
@@ -30,6 +33,12 @@ export function createApi({ fetchImpl } = {}) {
     return data;
   }
 
+  const post = (path, body) => request(path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+
   return {
     /** 瘦快照：任务 + 关系摘要 + 目录 + 工作区 + 统计 + revision。 */
     overview() {
@@ -40,13 +49,32 @@ export function createApi({ fetchImpl } = {}) {
       const data = await request('/api/overview/revision', { headers: { accept: 'application/json' } });
       return data.revision;
     },
-    /** 自定义目录：唯一写操作。body 即 { action, ... }。 */
+    /** 自定义目录：写操作。body 即 { action, ... }。 */
     groupAction(body) {
-      return request('/api/workspace-groups', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify(body || {}),
-      });
+      return post('/api/workspace-groups', body);
+    },
+    /**
+     * 一键整理。scopeKind/scopeId 省略表示「全部任务」。
+     * 返回 { batch, dropped, complete, candidates }：**只出建议**，不会写关系。
+     */
+    organize(scope) {
+      return post('/api/overview/organize', { scope: scope || { kind: 'all', id: '' } });
+    },
+    /** 某范围最近一批建议（面板重开时取回；没有就是 batch:null）。 */
+    async organizeView(scope) {
+      const s = scope || { kind: 'all', id: '' };
+      const query = `?kind=${encodeURIComponent(s.kind || 'all')}&id=${encodeURIComponent(s.id || '')}`;
+      const data = await request(`/api/overview/organize${query}`, { headers: { accept: 'application/json' } });
+      return data.batch || null;
+    },
+    /** 接受若干条建议（itemIds 省略/空 = 全部待处理）。writeBack=false 只写本地关系。 */
+    organizeAccept(batchId, itemIds, options) {
+      const o = options || {};
+      return post('/api/overview/organize/accept', { batchId, itemIds: itemIds || [], writeBack: o.writeBack !== false });
+    },
+    /** 拒绝若干条建议（只改建议单状态）。 */
+    organizeReject(batchId, itemIds) {
+      return post('/api/overview/organize/reject', { batchId, itemIds: itemIds || [] });
     },
   };
 }

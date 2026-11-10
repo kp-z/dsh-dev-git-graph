@@ -1,0 +1,106 @@
+# 计划：飞书任务集三个 tab 页面（关系菜单两级化 / 洞察 / 运行）
+
+> 本文件是**每小时自动推进**的主计划（用户睡前口径：每小时触发一次、每次都要设计+规划任务+用 agent team、
+> 至少 review 一次才开始开发、自己 review、不要打扰他）。
+> 每轮循环：读本文件 → 更新「本轮进度」→ 设计/评审 → 派活 → 实现 → 自验 → 提交。
+
+## 0. 用户原文（三条需求）
+
+1. 「左侧只需要一个侧边栏，不能有两列，当前的两列需要放在一页。当前第二列变成二级菜单，一级菜单叫关系。」
+2. 「需要添加一个洞察 tab，使用 dashboard 的风格配置一个更全面的洞察页面，需要填满，布局好看。」
+3. 「还需要加一个运行 tab。也是 dashboard，参考 adventure 里的首页有一个气泡组件，把这个组件拿过来，
+   作为正在运行的 session 显示的前端界面，有一个任务就有一个气泡，如果在运行就是绿色，其他的卡片需要你设计下。」
+
+## 1. 现状（代码事实，避免凭记忆）
+
+- 骨架：`OverviewPanel.js` = rail（`.fo-rail`：`.fo-brand` 品牌区 + `.fo-featnav` 功能导航 + `.fo-rail-foot`）+ `.fo-main`（头部：面包屑 + 搜索 + 动作）。
+- 功能注册表：`features.js` → `createFeatures(deps)` 返回 `[{id,label,hint,icon,Component}]`，今天只有 `graph`；rail 导航、正文渲染、store 的 `feature` 全从它派生。
+- 「关系图」功能页：`GraphFeature.js` → `.fo-feature-bar`（范围列折叠 + 说明 + 范围）+ `.fo-feature-body`（`.fo-scope-column` 范围树 | `.fo-canvas-area` 画布）。
+  **这里就是用户说的「两列」**：rail 一列 + 页面内范围树一列。
+- 数据面：`GET /api/overview`（瘦快照：tasks/relations/groups/workspaces/stats + revision）、`GET /api/overview/revision`、`POST /api/workspace-groups`；
+  本轮新增 `GET|POST /api/overview/organize`（一键整理，仅出建议）与 accept/reject。
+- 任务字段（瘦快照里现成的）：`id,no,title,done,workspaceKey,workspaceTitle,workspacePath,blocked,ready,started,suspended,sessionId,predecessors,successors,sourceTasks,derivedTasks,blockedBy`。
+  **没有 `running`**——运行 tab 需要它，见 §2.4。
+- 宿主能力位：`deps.host = { canOpenSession(), openSession(sessionId, expectedTitle) }`（走 `uiWorkspace.openSession`，切后读回核对）。
+- 参考项目：`/Users/kp/DEV/Claudeadventure`（Claude Manager），本地跑在 http://localhost:5599/；风格提取见 `docs/STYLE-borrowed-claude-manager.md`。
+  气泡实测（`src/app/pages/Dashboard.tsx:69/81/91`）：`w-16 h-16 rounded-full bg-<色>-500/20 border-2 border-<色>-500 shadow-[0_0_20px_…]`，圈里放数字/图标；
+  状态点 `w-3 h-3 rounded-full`（绿=完成 / **蓝 + animate-pulse = 运行中** / 红=失败），列表行是 `p-4 rounded-xl bg-white/5 hover:bg-white/10`。
+
+## 2. 设计决策（本轮口径）
+
+### 2.1 单侧边栏 + 两级菜单（需求 1）
+- **一件事两个层级**：一级菜单 = 功能（今天：`关系`；洞察/运行是另外两个一级项，见 §2.2/§2.3）；二级菜单 = **该功能自己的范围**。
+- 具体到「关系」：一级项 `关系` 可展开，二级项 = `全部任务` / 各自定义目录 / `未分组`（未分组下再列项目）。二级项就是现在的范围树（含拖拽入组、右键菜单、键盘 ARIA tree），**原样搬进 rail**，页面内不再有 `.fo-scope-column`。
+- 页面因此变成单列：画布独占 `.fo-main` 剩余空间（task-13 的「画布铺满」口径不回退）。
+- 折叠：rail 的一级项可折叠（记住展开态，落 store `nav`）。范围列的折叠按钮（`.fo-feature-bar`）随之删除——范围选择已经在 rail 里。
+- 为什么把范围树放 rail 而不是做成下拉框：拖拽入组与右键菜单需要一列可见列表；下拉框撑不住（且这是用户在 task-14 里已经接受过的取舍）。
+
+### 2.2 洞察页（需求 2）
+仪表盘风格，**填满**主区（CSS grid，`grid-template-columns: repeat(auto-fit, minmax(240px, 1fr))`，行高 `auto`，最后一行用 `grid-auto-rows: 1fr` 撑满）。
+面板（数据全部来自现有瘦快照，纯函数计算，便于离线测）：
+1. **KPI 条**（4~5 个气泡式指标卡）：任务总数、完成率、阻塞中、就绪待开工、挂起。
+2. **状态分布**：donut（完成 / 就绪 / 阻塞 / 挂起）——用 SVG 弧线手绘，不引图表库。
+3. **项目分布**：横向条（每个 workspace/目录的任务数 + 完成率），按数量排序，Top 8 + 其余归「其他」。
+4. **关系概览**：依赖边数 / 来源边数 / ghost（未同步端点）数 + 最长依赖链深度。
+5. **阻塞榜**：被阻塞任务 Top 5（含「等谁」的名称）。
+6. **最近动态**：最近完成/最近开始/最近挂起的任务清单（时间倒序，各 5 条）。
+- 「全面」的边界：只做**能由本地快照真实推出**的指标，不编造履约/工时（那要走 `feishu_insight` 工具，属于后续增量，本轮不做）。
+
+### 2.3 运行页（需求 3）
+- **气泡组件**（照 reference 的形制，用宿主令牌重写）：圆形气泡，直径 64px（小屏 56），`border: 2px`，`background: color-mix(状态色 20%, transparent)`，`box-shadow: 0 0 20px color-mix(状态色 40%, transparent)`；圈内放**任务编号**（等宽数字）或状态图标。
+  状态：**运行中 = 绿 + 呼吸（pulse）**（用户口径「如果在运行就是绿色」）、等待中 = idle 灰、阻塞 = error 红、已挂起 = warn 黄、已完成 = success 绿（静态，不呼吸）。
+  气泡下方：任务标题（12px，两行截断）+ 项目名 + 耗时；点气泡 = 选中该任务（右侧详情抽屉，复用 DetailPanel）。
+- **其他卡片**（我设计，dashboard 风格）：
+  a. **运行概览**：运行中 / 等待 / 挂起 / 今日完成 四个计数卡（气泡式小圆 + 数字）。
+  b. **会话活跃度**：按「最近 N 分钟内有活动」分档的条形（需 host 提供 `activityAt`，见 §2.4；拿不到就只显示「已绑定会话数」）。
+  c. **运行时长 Top**：`now - startedAt` 最长的 5 条（横向条）。
+  d. **异常提醒**：`suspended` 且挂起原因存在的、`blocked` 且前置已完成的（需要人看一眼的）。
+- 数据来源：瘦快照 + §2.4 新增的 `running` / `activityAt`。
+
+### 2.4 宿主侧新增（本轮唯一非前端改动）
+- `overviewView()` 的任务项加 `running: boolean`（由 `liveSessionState()` 判定）与 `activityAt: number`（该会话最近活动时间，取不到为 0）。
+- 这两项进 revision 哈希（否则「运行中」变了页面不刷）；`running` 是「看得见的状态」，符合既有的哈希口径。
+- 单独一条路由不做：洞察用现有快照 + 纯函数算。
+
+### 2.5 写范围与冲突避免（重要）
+- 共享文件（`OverviewPanel.js` / `GraphFeature.js` / `TreeNav.js` / `features.js` / `styles.js` / `client.js`）= **单写者**，串行。
+- 新页面写成**自包含功能模块**（`InsightFeature.js` / `RunsFeature.js` / `Bubble.js` + `dashboardStyles.js`），本轮不碰共享文件；集成（features.js 注册 + client.js 注入 dashboard CSS）由 lead 在共享文件空出来之后一次做完。
+- 这样可以让两个 teammate 真并行：canvas-node-dev 做「关系菜单两级化」，dashboard-dev 做两个新页面的模块。
+
+## 3. 任务分解
+
+| id | 内容 | 写范围 | 依赖 | 验收 |
+| --- | --- | --- | --- | --- |
+| task-17 | 关系一级菜单 + 二级菜单（单侧边栏，删掉页面内范围列） | OverviewPanel / GraphFeature / TreeNav / styles / test/overviewPanel | task-16（同一批文件在别的任务手上） | 单列布局；一级项「关系」可展开收缩；二级项=范围树全功能（拖拽/右键/键盘）；`.fo-scope-column` 不再存在；断言覆盖 |
+| task-18 | 洞察页（dashboard，填满） | **新文件** InsightFeature.js + insightView 纯函数 + test/insightView.mjs | 无（新文件） | 6 个面板都渲染；数字与纯函数一致；空数据不崩；三条样式红线 |
+| task-19 | 运行页 + 气泡组件 | **新文件** RunsFeature.js / Bubble.js / runsView 纯函数 + test/runsView.mjs | task-20（要 `running`） | 气泡状态映射正确（运行=绿+呼吸）；其他 4 张卡；空/坏数据不崩 |
+| task-20 | 宿主：`running` + `activityAt`（进 revision） | index.js + test/overviewRoute.mjs | 无 | 接口返回两字段；写操作/会话变化能改 revision；offline 全绿 |
+| task-21 | 独立复核本轮成果（只读） | 无（写一份报告） | 17/18/19 完成 | 逐条对照需求给证据；列风险 |
+
+## 4. 自审（**开发前必须做的那一次 review**，lead 自己写）
+
+**R0 结论：计划可执行，但有三处必须先钉死，否则会在实现阶段返工。**
+
+1. **需求 1 的「二级菜单」有歧义，风险最高。** 两种读法：(a) 二级项 = 范围（全部/目录/项目）；(b) 二级项 = 关系功能内部的子视图（图/列表/建议）。
+   我的判断是 (a)：用户说「当前第二列变成二级菜单」，而当前第二列**就是范围树**；一级菜单叫「关系」也印证了「一级=功能、二级=功能内的范围」。
+   反证检查：如果按 (b) 理解，范围树就没地方放了，而拖拽入组是用户明确要求保留的能力——所以 (a) 是唯一自洽的读法。
+   **若下一轮或用户反馈推翻，只需改 rail 的渲染来源（features.js 里给功能加 `subItems`），不影响画布。**
+2. **运行页的「运行中」在宿主里没有现成字段**，必须由 `liveSessionState()` 推导（task-20）。风险：该状态是宿主内存态，重启后一段时间内可能全是「等待中」。
+   对策：气泡状态以「`suspended` → `blocked` → `running` → `started` → `done` → 就绪」的顺序判定，并在页面注明「运行态来自当前宿主实例」。这条要在 test 里钉住优先级。
+3. **并行写文件的风险**：洞察/运行页要注册到 `features.js`、CSS 要进 `styles.js`——这两个文件是共享单写者。已按 §2.5 把新页面写成自包含模块，本轮**不碰**共享文件，集成留给我在 task-17 之后一次做完。若发现必须改共享文件，则降级为串行（宁可慢一小时，不要合并冲突）。
+
+**其他自查（逐条过）**
+- 可测性：三个页面都能用现有「迷你 React runtime + 固定 fixture」测（component 断言）+ 纯函数断言（insightView/runsView）；host 侧用 isolatedHome 的路由测试。
+- 不违反既有硬约束：三条样式红线（零字面量颜色 / 恰好 14 个 `--dsw-*` / `fo-` 前缀）在 dashboard 里同样适用——**气泡的发光一律 `color-mix(in oklab, var(--dsw-alias-*) X%, transparent)`**，不许写 rgba。
+- 不引依赖：donut / 条形全部手绘 SVG/div，不引图表库（插件包体积与宿主一致性都要求这样）。
+- 回退路径：三个新页面都是**新增文件 + 注册表加条目**，出问题删条目即回退，不影响关系图。
+- 用户睡觉 → 不提问。三处歧义按 §2 的判断做，并在提交信息里写明「按 (a) 读法实现」。
+- 每轮必须留痕：本文件的「本轮进度」+ git 提交 + 测试输出，方便用户醒来一次性看懂。
+
+## 5. 本轮进度
+
+- [x] 计划 + 自审（本文件 §0–§4）
+- [x] 建每小时循环（schedule）
+- [ ] task-20 宿主 `running` / `activityAt`
+- [ ] task-17 / 18 / 19 派活并开工
+- [ ] 下一轮：集成 + 复核 + 提交

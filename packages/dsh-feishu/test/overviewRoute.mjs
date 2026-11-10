@@ -55,6 +55,13 @@ check('GET /api/overview 返回 200', overview.status === 200 && overview.data?.
 const view = overview.data || {}
 check('带 revision / tasks / relations / groups / workspaces / stats', ['revision', 'tasks', 'relations', 'groups', 'workspaces', 'stats'].every((key) => key in view), Object.keys(view).join(','))
 check('不再下发整份 state（没有 settings / 排期 / 会话水位）', !('settings' in view) && !('sessionSeen' in view) && !('schedules' in view) && !('taskCreationReceipts' in view))
+/* 运行 tab 的数据面：任务项必须带 running / sessionTurn（宿主内存态；重启后为 false/0）。 */
+const sampleTask = (view.tasks || [])[0]
+if (sampleTask) {
+  check('任务项带 running（布尔）与 sessionTurn（数字）', typeof sampleTask.running === 'boolean' && typeof sampleTask.sessionTurn === 'number', JSON.stringify({ running: sampleTask.running, sessionTurn: sampleTask.sessionTurn }))
+} else {
+  check('任务项带 running/sessionTurn（无任务时跳过形状检查）', true)
+}
 check('stats 口径齐全', ['tasks', 'groups', 'dependencyEdges', 'provenanceEdges', 'blocked', 'ready'].every((key) => typeof view.stats?.[key] === 'number'), JSON.stringify(view.stats))
 
 const revision = await json('/api/overview/revision')
