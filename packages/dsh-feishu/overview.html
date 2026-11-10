@@ -188,14 +188,51 @@
     border: 1px solid var(--p-danger); background: var(--p-danger-weak);
     color: var(--p-danger); font-size: 11px;
   }
-  .ov-tree-foot { padding-top: 2px; }
-  .ov-tree-new {
+  .ov-tree-foot { padding-top: 2px; }  .ov-tree-new {
     display: block; width: 100%; padding: 5px 6px;
     border: 1px dashed var(--dsw-alias-line-base, var(--p-line)); border-radius: 6px;
     background: transparent; color: var(--dsw-alias-label-secondary, var(--p-text-2));
     cursor: pointer; text-align: left; font-size: 12px;
   }
   .ov-tree-new:hover { border-color: var(--p-accent-line); color: var(--p-accent-text); }
+
+  /* 拖动把手：hover / 键盘聚焦时才出现，明示「这行能拖」 */
+  .ov-tree-grip { flex: 0 0 10px; font-size: 10px; line-height: 1; color: var(--p-text-3); opacity: 0; cursor: grab; }
+  .ov-tree-row:hover .ov-tree-grip { opacity: .75; }
+  .ov-tree-row:focus-within .ov-tree-grip { opacity: .75; }
+  .ov-tree-row.is-dragging { opacity: .5; }
+  /* 拖动中的落点：浅色/深色都要一眼看得见 */
+  .ov-tree-row.is-drop-target {
+    background: var(--p-accent-weak);
+    box-shadow: inset 0 0 0 2px var(--p-accent-line);
+  }
+  .ov-tree-row.is-drop-target .ov-tree-name { font-weight: 600; }
+  body.dark .ov-tree-row.is-drop-target { box-shadow: inset 0 0 0 2px var(--p-accent); }
+
+  /* 右键菜单：页面内自绘（role=menu），不用宿主菜单 */
+  .ov-menu {
+    position: fixed; z-index: 60; min-width: 170px; max-width: 260px; padding: 4px;
+    display: flex; flex-direction: column; gap: 1px;
+    border: 1px solid var(--dsw-alias-line-base, var(--p-line));
+    border-radius: 9px;
+    background: var(--dsw-alias-bg-layer-1, var(--p-card));
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .22);
+  }
+  .ov-menu-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 5px 8px;
+    border: 0; border-radius: 6px; background: transparent;
+    color: var(--dsw-alias-label-primary, var(--p-text));
+    cursor: pointer; text-align: left; font-size: 12.5px;
+  }
+  .ov-menu-item:hover, .ov-menu-item.is-active { background: var(--p-accent-weak); color: var(--p-accent-text); }
+  .ov-menu-item[aria-disabled="true"] { color: var(--dsw-alias-label-secondary, var(--p-text-3)); cursor: default; }
+  .ov-menu-item[aria-disabled="true"]:hover, .ov-menu-item[aria-disabled="true"].is-active { background: transparent; color: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+  .ov-menu-item[data-danger="true"] { color: var(--p-danger); }
+  .ov-menu-item[data-danger="true"]:hover, .ov-menu-item[data-danger="true"].is-active { background: var(--p-danger-weak); color: var(--p-danger); }
+  .ov-menu-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ov-menu-mark { flex: 0 0 auto; font-size: 10px; color: var(--dsw-alias-label-secondary, var(--p-text-3)); }
+  .ov-menu-sep { height: 1px; margin: 4px 6px; background: var(--dsw-alias-line-base, var(--p-line)); }
 
   .ov-inline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .ov-keyword {
@@ -1394,6 +1431,59 @@ var OVERVIEW_LAYOUT = (function () {
     return { rows: rows, byKey: byKey, lanes: lanes, scope: scope, selected: selected };
   }
 
+  /**
+   * 行的右键菜单：纯构造，不碰 DOM、不写存储。返回菜单项数组（可带 submenu）。
+   * 项目行：移入目录 ▸（各目录 + 分隔线 +「新建目录并移入…」）/ 移出目录（未分组时禁用）/ 只看这个项目
+   * 目录行：重命名 / 删除 / 分隔线 / 新建目录；「未分组」行：新建目录；「全部任务」行：刷新
+   * 每项 {id, label, kind:'item'|'separator', disabled?, checked?, danger?, submenu?, ...}。
+   */
+  function buildRowMenu(row, groups, scope) {
+    var r = isObj(row) ? row : {};
+    var defs = normalizeCustomGroups(groups);
+    var s = normScope(scope);
+    var kind = str(r.kind);
+    var key = str(r.id);
+
+    if (kind === 'all') return [{ id: 'refresh', label: '刷新', kind: 'item' }];
+
+    if (kind === 'group') {
+      if (r.ungrouped === true) return [{ id: 'new-group', label: '新建目录', kind: 'item' }];
+      return [
+        { id: 'rename', label: '重命名', kind: 'item', groupId: key },
+        { id: 'delete', label: '删除', kind: 'item', groupId: key, danger: true },
+        { kind: 'separator' },
+        { id: 'new-group', label: '新建目录', kind: 'item' },
+      ];
+    }
+
+    if (kind === 'project') {
+      var current = '';
+      defs.forEach(function (def) {
+        if (def.members.indexOf(key) >= 0) current = def.id;
+      });
+      var submenu = defs.map(function (def) {
+        return {
+          id: 'move:' + def.id, label: def.name, kind: 'item',
+          groupId: def.id, projectKey: key,
+          disabled: def.id === current,
+          checked: def.id === current,
+        };
+      });
+      submenu.push({ kind: 'separator' });
+      submenu.push({ id: 'move-new', label: '新建目录并移入…', kind: 'item', projectKey: key });
+      return [
+        { id: 'move', label: '移入目录', kind: 'item', submenu: submenu, projectKey: key },
+        { id: 'remove', label: '移出目录', kind: 'item', projectKey: key, disabled: !current },
+        { kind: 'separator' },
+        {
+          id: 'focus', label: '只看这个项目', kind: 'item', projectKey: key,
+          checked: s.kind === 'project' && s.id === key,
+        },
+      ];
+    }
+    return [];
+  }
+
   function layout(tasks, relations, options) {
     var o = isObj(options) ? options : {};
     var groupBy = GROUP_BY[str(o.groupBy)] ? str(o.groupBy) : 'project';
@@ -1523,6 +1613,7 @@ var OVERVIEW_LAYOUT = (function () {
     normScope: normScope,
     lanesForScope: lanesForScope,
     buildTree: buildTree,
+    buildRowMenu: buildRowMenu,
     nodeOf: nodeOf,
     ghostNode: ghostNode,
     titleHints: titleHints,
@@ -1599,6 +1690,11 @@ var OVERVIEW_LAYOUT = (function () {
     /* 正在输入的目录名：整个 render 都是重建 DOM，不镜像的话轮询一刷新就把用户打的字吞掉。 */
     draftName: '',
     dragKey: '',
+    renderPending: false,
+    /* 右键菜单：{rowKey, x, y, items, active, subIndex, subActive}；null＝关着。 */
+    menu: null,
+    /* 「新建目录并移入…」记下的项目 key，创建成功后直接作为成员。 */
+    newGroupMember: '',
     focusPending: false,
     focusPrev: '',
     groupError: null,
@@ -1818,10 +1914,14 @@ var OVERVIEW_LAYOUT = (function () {
       'aria-selected': row.selected ? 'true' : 'false',
       'aria-level': String(row.depth + 1),
       'aria-expanded': isGroup ? (row.collapsed ? 'false' : 'true') : null,
+      'aria-haspopup': 'menu',
       tabindex: '-1',
-      title: row.kind === 'project' ? (row.path || row.label) : row.label,
+      title: row.kind === 'project'
+        ? ((row.path ? (row.path + ' · ') : '') + '拖到目录里，或右键打开菜单')
+        : (row.label + ' · 右键打开菜单'),
       onclick: function () { selectRow(row); },
       ondblclick: isGroup && !row.ungrouped ? function () { toggleGroup(row); } : null,
+      oncontextmenu: function (event) { openMenuAt(event, row, node); },
       onfocus: function () { app.focusKey = row.key; },
     });
 
@@ -1831,6 +1931,12 @@ var OVERVIEW_LAYOUT = (function () {
 
     if (row.kind === 'project') node.appendChild(el('span', { class: 'ov-tree-dot', 'data-state': projectState(row) }));
     node.appendChild(el('span', { class: 'ov-tree-name', text: row.label }));
+    /* 拖拽把手：鼠标停在行上才显形，明示这行能拖进目录（键盘路径靠右键菜单）。 */
+    if (row.kind === 'project') {
+      node.appendChild(el('span', {
+        class: 'ov-tree-grip', 'aria-hidden': 'true', title: '拖到目录里', text: '⠿',
+      }));
+    }
     node.appendChild(el('span', { class: 'ov-tree-count', text: String(row.count) }));
 
     if (isGroup && !row.ungrouped) {
@@ -1850,8 +1956,9 @@ var OVERVIEW_LAYOUT = (function () {
       node.appendChild(actions);
     }
 
-    /* 拖拽：项目行拖到目录行＝移入，拖到「未分组」＝移出。 */
-    if (row.kind === 'project' && row.groupId) {
+    /* 拖拽：任何项目行（含「未归属项目」，key=__ungrouped__）拖到目录行＝移入，
+       拖到「未分组」行＝移出；悬停在折叠的目录行上 600ms 就地展开。 */
+    if (row.kind === 'project') {
       node.setAttribute('draggable', 'true');
       node.addEventListener('dragstart', function (event) {
         app.dragKey = row.id;
@@ -1861,18 +1968,35 @@ var OVERVIEW_LAYOUT = (function () {
           event.dataTransfer.effectAllowed = 'move';
         } catch (error) { /* 某些宿主不给 dataTransfer：靠 app.dragKey 兜底 */ }
       });
-      node.addEventListener('dragend', function () { node.classList.remove('is-dragging'); app.dragKey = ''; });
+      node.addEventListener('dragend', function () {
+        node.classList.remove('is-dragging');
+        app.dragKey = '';
+        /* 拖动期间压下来的渲染在这里补一次（轮询不该在拖动中抽走 DOM）。 */
+        if (app.renderPending) { app.renderPending = false; render(); }
+      });
     }
     if (isGroup) {
+      var clearHover = function () {
+        node.classList.remove('is-drop-target');
+        if (node.__ovExpandTimer) { clearTimeout(node.__ovExpandTimer); node.__ovExpandTimer = null; }
+      };
       node.addEventListener('dragover', function (event) {
         event.preventDefault();
         try { event.dataTransfer.dropEffect = 'move'; } catch (error) { /* 忽略 */ }
         node.classList.add('is-drop-target');
+        /* 折叠的目录：悬停 600ms 就地展开（就地＝不整树重渲染，否则拖拽源会被抽掉）。 */
+        if (row.collapsed && !node.__ovExpandTimer) {
+          node.__ovExpandTimer = setTimeout(function () {
+            node.__ovExpandTimer = null;
+            if (!node.isConnected) return;
+            expandGroupInPlace(row);
+          }, 600);
+        }
       });
-      node.addEventListener('dragleave', function () { node.classList.remove('is-drop-target'); });
+      node.addEventListener('dragleave', clearHover);
       node.addEventListener('drop', function (event) {
         event.preventDefault();
-        node.classList.remove('is-drop-target');
+        clearHover();
         var key = '';
         try { key = event.dataTransfer.getData('text/plain') || ''; } catch (error) { key = ''; }
         if (!key) key = app.dragKey;
@@ -1881,6 +2005,36 @@ var OVERVIEW_LAYOUT = (function () {
       });
     }
     return node;
+  }
+
+  /**
+   * 拖动中悬停展开目录：**只补这一段 DOM**，不整树重渲染。
+   * 整树重建会把拖拽源节点抽掉，浏览器随即取消这次拖拽，drop 永远不会来。
+   */
+  function expandGroupInPlace(row) {
+    if (!row || !row.id || app.treeCollapsed['group:' + row.id] !== true) return;
+    delete app.treeCollapsed['group:' + row.id];
+    writeStore(STORE_TREE, app.treeCollapsed);
+    app.tree = L.buildTree(app.customGroups, app.raw, {
+      collapsed: app.treeCollapsed,
+      selection: app.selection,
+    });
+    var host = $('ovTree');
+    var key = 'group:' + row.id;
+    var groupNode = host && host.querySelector('.ov-tree-row[data-key="' + cssEscape(key) + '"]');
+    if (!groupNode) { render(); return; }
+    groupNode.setAttribute('aria-expanded', 'true');
+    var twist = groupNode.querySelector('.ov-tree-twist');
+    if (twist) twist.textContent = '▾';
+    var anchor = groupNode;
+    app.tree.rows.forEach(function (child) {
+      if (child.kind !== 'project' || child.groupId !== row.id) return;
+      if (host.querySelector('.ov-tree-row[data-key="' + cssEscape(child.key) + '"]')) return;
+      var childNode = treeRow(child);
+      anchor.parentNode.insertBefore(childNode, anchor.nextSibling);
+      anchor = childNode;
+    });
+    row.collapsed = false;
   }
 
   /** 目录行的就地重命名：回车保存、Esc 取消，输入内容由 app.draftName 镜像。 */
@@ -1937,7 +2091,9 @@ var OVERVIEW_LAYOUT = (function () {
 
   function toggleGroup(row) {
     var key = 'group:' + row.id;
-    app.treeCollapsed[key] = !(app.treeCollapsed[key] === true);
+    /* 只存「折叠」这一个状态，展开就把键删掉（localStorage 里不堆 false）。 */
+    if (app.treeCollapsed[key] === true) delete app.treeCollapsed[key];
+    else app.treeCollapsed[key] = true;
     writeStore(STORE_TREE, app.treeCollapsed);
     app.focusKey = row.key;
     render();
@@ -1948,6 +2104,11 @@ var OVERVIEW_LAYOUT = (function () {
    * ↑↓ 移动、→ 展开或进第一个子行、← 折叠或回父行、Enter/Space 选中、Home/End 到两端。
    */
   function treeKeydown(event) {
+    if (app.menu) return;
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      treeContextMenuKey(event);
+      return;
+    }
     var host = event.currentTarget;
     var rows = Array.prototype.slice.call(host.querySelectorAll('.ov-tree-row'));
     if (!rows.length) return;
@@ -1997,12 +2158,234 @@ var OVERVIEW_LAYOUT = (function () {
     }
   }
 
+  /* ---------------- 右键菜单（页面内自绘，role=menu） ---------------- */
+
+  function rowByKey(key) {
+    return app.tree ? (app.tree.byKey[key] || null) : null;
+  }
+
+  /** 打开菜单：定位在光标处并做翻边处理。右键与 Shift+F10 都走这里。 */
+  function openMenuAt(event, row, node) {
+    if (event && event.preventDefault) event.preventDefault();
+    if (app.dragKey) return;
+    var items = L.buildRowMenu(row, app.customGroups, app.selection);
+    if (!items.length) return;
+    var rect = node && node.getBoundingClientRect ? node.getBoundingClientRect() : null;
+    var x = event && typeof event.clientX === 'number' && event.clientX ? event.clientX : (rect ? rect.left + 24 : 24);
+    var y = event && typeof event.clientY === 'number' && event.clientY ? event.clientY : (rect ? rect.bottom - 2 : 24);
+    if (event && event.clientX === 0 && event.clientY === 0 && rect) { x = rect.left + 24; y = rect.bottom - 2; }
+    app.focusKey = row.key;
+    app.menu = {
+      rowKey: row.key, x: x, y: y, items: items,
+      active: firstEnabled(items, 0, 1),
+      subIndex: -1, subActive: 0,
+    };
+    renderMenu();
+  }
+
+  function menuKeydown(event) {
+    if (!app.menu) return;
+    var items = app.menu.items;
+    var inSub = app.menu.subIndex >= 0;
+    var list = inSub ? (items[app.menu.subIndex].submenu || []) : items;
+    var active = inSub ? app.menu.subActive : app.menu.active;
+    var key = event.key;
+    var step = (from, dir) => {
+      var at = from;
+      for (var i = 0; i < list.length; i += 1) {
+        at += dir;
+        if (at < 0) at = list.length - 1;
+        if (at >= list.length) at = 0;
+        if (list[at].kind !== 'separator' && list[at].disabled !== true) return at;
+      }
+      return from;
+    };
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
+      event.preventDefault();
+      var next = step(active, key === 'ArrowDown' ? 1 : -1);
+      if (inSub) app.menu.subActive = next; else app.menu.active = next;
+      renderMenu();
+      return;
+    }
+    if (key === 'ArrowRight') {
+      event.preventDefault();
+      if (inSub) return;
+      var item = items[app.menu.active];
+      if (item && item.submenu) {
+        app.menu.subIndex = app.menu.active;
+        app.menu.subActive = firstEnabled(item.submenu, 0, 1);
+        renderMenu();
+      }
+      return;
+    }
+    if (key === 'ArrowLeft') {
+      event.preventDefault();
+      if (inSub) { app.menu.subIndex = -1; renderMenu(); }
+      return;
+    }
+    if (key === 'Escape') {
+      event.preventDefault();
+      if (inSub) { app.menu.subIndex = -1; renderMenu(); return; }
+      closeMenu();
+      return;
+    }
+    if (key === 'Tab') { closeMenu(); return; }
+    if (key === 'Enter' || key === ' ' || key === 'Spacebar') {
+      event.preventDefault();
+      var hit = inSub ? list[app.menu.subActive] : list[app.menu.active];
+      if (!hit) return;
+      if (hit.submenu) {
+        app.menu.subIndex = app.menu.active;
+        app.menu.subActive = firstEnabled(hit.submenu, 0, 1);
+        renderMenu();
+        return;
+      }
+      runMenuItem(hit);
+    }
+  }
+
+  function firstEnabled(items, from, dir) {
+    for (var i = from; i < items.length; i += 1) {
+      if (items[i].kind !== 'separator' && items[i].disabled !== true) return i;
+    }
+    return from;
+  }
+
+  function closeMenu() {
+    var rowKey = app.menu ? app.menu.rowKey : '';
+    app.menu = null;
+    var layer = $('ovMenuLayer');
+    if (layer && layer.parentNode) layer.parentNode.removeChild(layer);
+    if (rowKey) {
+      /* 执行完/关掉之后把焦点还给原来那一行。 */
+      app.focusKey = rowKey;
+      app.treeHadFocus = true;
+      render();
+      var row = $('ovTree') && $('ovTree').querySelector('.ov-tree-row[data-key="' + cssEscape(rowKey) + '"]');
+      if (row) row.focus();
+    }
+  }
+
+  function runMenuItem(item) {
+    var row = rowByKey(app.menu ? app.menu.rowKey : '');
+    var key = item.projectKey || '';
+    var groupId = item.groupId || '';
+    if (item.id === 'move' || item.submenu) return;
+    /* 先关菜单（并还焦点），再干活：写操作返回后会整树重渲染。 */
+    closeMenu();
+    if (item.id === 'refresh') { load(false); return; }
+    if (item.id === 'new-group') { openCreate(); return; }
+    if (item.id === 'rename' && row) { openRename(row); return; }
+    if (item.id === 'delete' && row) { askDelete(row); return; }
+    if (item.id === 'focus' && row) { selectRow(row); return; }
+    if (item.id === 'remove') { moveWorkspace(key, ''); return; }
+    if (item.id === 'move-new') {
+      app.newGroupMember = key;
+      openCreate();
+      return;
+    }
+    if (item.id.indexOf('move:') === 0) { moveWorkspace(key, groupId); return; }
+  }
+
+  /** 画菜单（含子菜单）；位置按视口翻边，键盘高亮跟着 app.menu.active/subActive。 */
+  function renderMenu() {
+    var layer = $('ovMenuLayer');
+    var old = layer;
+    layer = el('div', { class: 'ov-menu-layer', id: 'ovMenuLayer' });
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    document.body.appendChild(layer);
+    if (!app.menu) return;
+
+    function menuBox(items, activeIndex, isSub) {
+      var box = el('div', {
+        class: 'ov-menu', role: 'menu',
+        'aria-label': isSub ? '移入目录' : '行菜单',
+        'aria-orientation': 'vertical',
+      });
+      items.forEach(function (item, index) {
+        if (item.kind === 'separator') { box.appendChild(el('div', { class: 'ov-menu-sep', role: 'separator' })); return; }
+        var btn = el('button', {
+          type: 'button', role: 'menuitem', class: 'ov-menu-item' + (index === activeIndex ? ' is-active' : ''),
+          'data-menu-id': item.id,
+          'aria-disabled': item.disabled === true ? 'true' : null,
+          'aria-haspopup': item.submenu ? 'menu' : null,
+          'data-danger': item.danger === true ? 'true' : null,
+          tabindex: '-1',
+          onmouseenter: function () {
+            if (isSub) app.menu.subActive = index; else app.menu.active = index;
+            renderMenu();
+          },
+          onclick: function (event) {
+            event.stopPropagation();
+            if (item.disabled === true) return;
+            if (item.submenu) { app.menu.subIndex = app.menu.active; app.menu.subActive = firstEnabled(item.submenu, 0, 1); renderMenu(); return; }
+            runMenuItem(item);
+          },
+        });
+        btn.appendChild(el('span', { class: 'ov-menu-label', text: item.label }));
+        if (item.submenu) btn.appendChild(el('span', { class: 'ov-menu-mark', text: '▸', 'aria-hidden': 'true' }));
+        else if (item.checked) btn.appendChild(el('span', { class: 'ov-menu-mark', text: '✓', 'aria-hidden': 'true' }));
+        box.appendChild(btn);
+      });
+      return box;
+    }
+
+    var main = menuBox(app.menu.items, app.menu.active, false);
+    layer.appendChild(main);
+    placeBox(main, app.menu.x, app.menu.y);
+
+    if (app.menu.subIndex >= 0) {
+      var parentItem = app.menu.items[app.menu.subIndex];
+      var items = parentItem && parentItem.submenu ? parentItem.submenu : [];
+      if (items.length) {
+        var sub = menuBox(items, app.menu.subActive, true);
+        layer.appendChild(sub);
+        var parentBtn = main.querySelector('[data-menu-id="' + cssEscape(parentItem.id) + '"]');
+        var rect = parentBtn ? parentBtn.getBoundingClientRect() : main.getBoundingClientRect();
+        placeBox(sub, rect.right - 6, rect.top - 4);
+      }
+    }
+    /* 鼠标移出整个菜单区不关（VSCode 也是这样），点空白/滚动/失焦才关。 */
+  }
+
+  /** 视口翻边：右/下越界就翻到另一侧。 */
+  function placeBox(box, x, y) {
+    box.style.left = Math.max(4, x) + 'px';
+    box.style.top = Math.max(4, y) + 'px';
+    var rect = box.getBoundingClientRect();
+    var vw = window.innerWidth || 1024;
+    var vh = window.innerHeight || 768;
+    if (rect.right > vw - 4) box.style.left = Math.max(4, vw - rect.width - 4) + 'px';
+    if (rect.bottom > vh - 4) box.style.top = Math.max(4, vh - rect.height - 4) + 'px';
+  }
+
+  function treeContextMenuKey(event) {
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault();
+      var host = $('ovTree');
+      if (!host) return;
+      var rowKey = app.focusKey || 'all';
+      var node = host.querySelector('.ov-tree-row[data-key="' + cssEscape(rowKey) + '"]');
+      var row = rowByKey(rowKey);
+      if (!row || !node) return;
+      openMenuAt(null, row, node);
+    }
+  }
+
+  function dismissMenuOnOutside(event) {
+    if (!app.menu) return;
+    var layer = $('ovMenuLayer');
+    if (layer && layer.contains(event.target)) return;
+    closeMenu();
+  }
+
   function askDelete(row) {
     if (!window.confirm('删除目录「' + row.label + '」？只删分组，任务和项目都不动。')) return;
     saveGroups({ action: 'delete', id: row.id });
   }
 
   function openRename(row) {
+    app.menu = null;
     app.renamingId = row.id;
     app.draftName = row.label;
     app.focusPending = true;
@@ -2027,6 +2410,7 @@ var OVERVIEW_LAYOUT = (function () {
   }
 
   function openCreate() {
+    app.menu = null;
     app.creating = true;
     app.draftName = '';
     app.focusPending = true;
@@ -2036,6 +2420,7 @@ var OVERVIEW_LAYOUT = (function () {
 
   function closeCreate() {
     app.creating = false;
+    app.newGroupMember = '';
     app.draftName = '';
     app.groupError = null;
     render();
@@ -2045,10 +2430,11 @@ var OVERVIEW_LAYOUT = (function () {
     var input = $('ovNewGroupName');
     var name = collapseName(input ? input.value : app.draftName);
     if (!name) { app.groupError = { groupId: '', text: '目录名不能为空' }; render(); return; }
-    /* 当前选中的项目顺手成为第一个成员：新建目录→拖进去这两步并成一步。 */
+    /* 成员来源：「新建目录并移入…」记下的项目，否则是当前选中的项目 —— 新建＝顺手放进去。 */
+    var memberKey = app.newGroupMember || (app.selection.kind === 'project' ? app.selection.id : '');
     var body = { action: 'create', name: name };
-    if (app.selection.kind === 'project') {
-      var project = projectByKey(app.selection.id);
+    if (memberKey) {
+      var project = projectByKey(memberKey);
       if (project) {
         body.members = [project.key];
         body.labels = {};
@@ -2109,10 +2495,17 @@ var OVERVIEW_LAYOUT = (function () {
   }
 
   function render() {
+    /* 拖动中绝不重建 DOM：拖拽源节点一被抽掉，浏览器就取消这次拖拽，drop 永远不会来。
+       挂起的渲染在 dragend 里补（见 treeRow 的 dragend）。 */
+    if (app.dragKey) { app.renderPending = true; return; }
     /* 记住焦点在谁身上：重建 DOM 之后好把光标还给正在输入的那个框 / 树里那一行。 */
     app.focusPrev = (document.activeElement && document.activeElement.id) ? document.activeElement.id : '';
     var active = document.activeElement;
     app.treeHadFocus = !!(active && active.closest && active.closest('#ovTree'));
+    if (!app.menu) {
+      var staleMenu = $('ovMenuLayer');
+      if (staleMenu && staleMenu.parentNode) staleMenu.parentNode.removeChild(staleMenu);
+    }
     compute();
     renderTree();
     renderScopeName();
@@ -2699,8 +3092,16 @@ var OVERVIEW_LAYOUT = (function () {
   });
   $('ovNewGroup').addEventListener('click', function () { openCreate(); });
 
-  /* 键盘走 ARIA tree 口径：↑↓ 移动、←→ 折叠展开、Enter 选中、Home/End 到两端。 */
+  /* 键盘走 ARIA tree 口径：↑↓ 移动、←→ 折叠展开、Enter 选中、Home/End 到两端，
+     Shift+F10 / ContextMenu 在聚焦行开右键菜单。 */
   $('ovTree').addEventListener('keydown', treeKeydown);
+
+  /* 菜单开着时键盘归菜单（捕获阶段先拿），点空白 / 滚动 / 失焦 / 改窗口大小都关掉。 */
+  document.addEventListener('keydown', function (event) { if (app.menu) menuKeydown(event); }, true);
+  document.addEventListener('mousedown', dismissMenuOnOutside, true);
+  window.addEventListener('blur', function () { if (app.menu) closeMenu(); });
+  window.addEventListener('resize', function () { if (app.menu) closeMenu(); });
+  window.addEventListener('scroll', function () { if (app.menu) closeMenu(); }, true);
 
   /* 视图状态是「上次怎么看的，这次还怎么看」；目录成员关系以宿主为准，不存本地。 */
   app.selection = selectionSetting();

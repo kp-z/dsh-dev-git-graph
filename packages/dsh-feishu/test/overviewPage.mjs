@@ -58,6 +58,22 @@ assert.match(script, /draggable', 'true'/, '项目行要可拖')
 assert.match(script, /addEventListener\('drop'/, '目录行要能接收拖放')
 assert.match(script, /role: 'alert'/, '写失败要以 role=alert 显示')
 
+/* 右键菜单：页面内自绘 role=menu，行上 aria-haspopup，键盘 Shift+F10 / ContextMenu。 */
+assert.match(script, /role: 'menu'/, '菜单要自绘成 role=menu')
+assert.match(script, /role: 'menuitem'/, '菜单项要是 role=menuitem')
+assert.match(script, /'aria-haspopup': 'menu'/, '可开菜单的行要有 aria-haspopup')
+assert.match(script, /'aria-disabled'/, '禁用项要 aria-disabled')
+assert.match(script, /oncontextmenu/, '要接管 contextmenu')
+assert.match(script, /'F10'/, 'Shift+F10 要能开菜单')
+assert.match(script, /'ContextMenu'/, 'ContextMenu 键要能开菜单')
+assert.match(script, /dismissMenuOnOutside/, '点空白要关菜单')
+/* 拖动中最容易被轮询抽掉 DOM：render 必须先看 app.dragKey。 */
+assert.match(script, /if \(app\.dragKey\) \{ app\.renderPending = true; return; \}/, '拖动中不得重建 DOM')
+assert.match(script, /expandGroupInPlace/, '悬停折叠目录要就地展开（不整树重渲染）')
+assert.match(script, /ov-tree-grip/, '项目行要有拖拽把手提示')
+/* 纯函数层不许碰存储（菜单项构造也不许）。 */
+assert.doesNotMatch(script.slice(script.indexOf('OVERVIEW_LAYOUT:START'), script.indexOf('OVERVIEW_LAYOUT:END')), /localStorage/, '纯函数层不得读写 localStorage')
+
 /* ---------- 3. 抽出纯函数块 ---------- */
 const START = '/* OVERVIEW_LAYOUT:START'
 const END = '/* OVERVIEW_LAYOUT:END */'
@@ -74,7 +90,7 @@ for (const fn of ['truncateTitle', 'measure', 'workspaceOf', 'blockedOf', 'state
   'normalizeEdges', 'groupTasks', 'nodeOf', 'ghostNode', 'titleHints', 'layout', 'statsOf',
   'filterTasks', 'indexNodes', 'taskNo', 'taskLabel',
   'dirOf', 'shortenPath', 'normalizeCustomGroups', 'groupByCustom',
-  'normScope', 'lanesForScope', 'buildTree']) {
+  'normScope', 'lanesForScope', 'buildTree', 'buildRowMenu']) {
   assert.equal(typeof L[fn], 'function', `缺导出函数 ${fn}`)
 }
 
@@ -656,9 +672,58 @@ assert.equal(restModel.groups[0].edges.length, 0)
 assert.equal(L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs, scope: 'nope' }).groups.length, 3)
 assert.equal(L.layout(ctasks, cedges, { groupBy: 'custom', groups: defs, scope: { kind: 'project', id: 'nobody' } }).groups.length, 0)
 
+/* ---------- 21. 行的右键菜单（纯函数） ---------- */
+const menuProject = L.buildRowMenu(tree.byKey['project:wa'], defs, { kind: 'all' })
+assert.deepEqual(plain(menuProject.map((m) => m.id || 'sep')), ['move', 'remove', 'sep', 'focus'])
+const moveItem = menuProject[0]
+assert.equal(moveItem.label, '移入目录')
+assert.equal(moveItem.submenu.length, defs.length + 2, '子菜单 = 目录数 + 分隔线 + 「新建目录并移入…」')
+const moveSub = moveItem.submenu.filter((m) => m.kind !== 'separator')
+assert.equal(moveSub.length, defs.length + 1, '可点子项 = 目录数 + 1')
+assert.deepEqual(plain(moveSub.map((m) => m.label)), ['QV', 'MvizLite', '新建目录并移入…'])
+assert.deepEqual(plain(moveSub.map((m) => m.groupId || '')), ['g1', 'g2', ''], '子项带目标目录 id')
+assert.equal(moveSub[0].disabled, true, '已经在 QV 里的项目，「移入 QV」置灰')
+assert.equal(moveSub[0].checked, true)
+assert.equal(moveSub[1].disabled, false)
+assert.equal(moveSub[1].projectKey, 'wa', '子项知道要移动哪个项目')
+
+/* 未分组里的项目：「移出目录」不可用 */
+const menuRest = L.buildRowMenu(tree.byKey['project:wd'], defs, { kind: 'all' })
+const removeItem = menuRest.find((m) => m.id === 'remove')
+assert.ok(removeItem, '未分组项目也有「移出目录」这一项')
+assert.equal(removeItem.disabled, true, '未分组时「移出目录」必须禁用')
+assert.equal(L.buildRowMenu(tree.byKey['project:wb'], defs, { kind: 'all' }).find((m) => m.id === 'remove').disabled, false, '在目录里的项目可以移出')
+
+/* 「只看这个项目」跟着 scope 打勾 */
+const menuFocused = L.buildRowMenu(tree.byKey['project:wa'], defs, { kind: 'project', id: 'wa' })
+assert.equal(menuFocused.find((m) => m.id === 'focus').checked, true)
+assert.equal(L.buildRowMenu(tree.byKey['project:wa'], defs, { kind: 'all' }).find((m) => m.id === 'focus').checked, false)
+
+/* 目录行：重命名 / 删除 / 分隔线 / 新建目录 */
+assert.deepEqual(plain(L.buildRowMenu(tree.byKey['group:g1'], defs, {}).map((m) => m.id || 'sep')), ['rename', 'delete', 'sep', 'new-group'])
+assert.equal(L.buildRowMenu(tree.byKey['group:g1'], defs, {}).find((m) => m.id === 'delete').danger, true)
+/* 未分组行：只能新建目录 */
+assert.deepEqual(plain(L.buildRowMenu(tree.byKey['group:' + L.constants.UNGROUPED_KEY], defs, {}).map((m) => m.id)), ['new-group'])
+/* 全部任务行：只有刷新 */
+assert.deepEqual(plain(L.buildRowMenu(tree.byKey.all, defs, {}).map((m) => m.id)), ['refresh'])
+/* 没进任何目录时，项目的子菜单只剩「新建目录并移入…」 */
+assert.deepEqual(plain(L.buildRowMenu(tree.byKey['project:wd'], [], {}).map((m) => m.id || 'sep')), ['move', 'remove', 'sep', 'focus'])
+assert.equal(L.buildRowMenu(tree.byKey['project:wd'], [], {}).find((m) => m.id === 'move').submenu.filter((m) => m.kind !== 'separator').length, 1)
+
+/* 坏输入不抛、不产生副作用 */
+for (const bad of [undefined, null, [], {}, 'nope', 0, [null, 1], { kind: 'nope' }]) {
+  const out = L.buildRowMenu(bad, bad, bad)
+  assert.ok(Array.isArray(out), '坏输入也要返回数组')
+}
+assert.deepEqual(plain(L.buildRowMenu(null, null, null)), [])
+assert.deepEqual(plain(L.buildRowMenu({ kind: 'all' }, defs, null).map((m) => m.id)), ['refresh'])
+assert.deepEqual(plain(L.buildRowMenu({ kind: 'group', ungrouped: true }, defs, null).map((m) => m.id)), ['new-group'])
+assert.deepEqual(plain(L.buildRowMenu({ kind: 'nope' }, defs, null)), [])
+
 console.log('ok overview.html：布局纯函数 ' + Object.keys(L).length + ' 项导出，'
   + model.nodes.length + ' 节点 / ' + model.edges.length + ' 边 / '
   + model.groups.length + ' 分组，自定义目录 ' + cmodel.groups.length + ' 张图（'
   + cmodel.groups.filter((g) => !g.ungrouped).length + ' 个目录 + 未分组），树 '
   + tree.rows.length + ' 行 / scope 全部/目录/项目 = '
-  + allModel.groups.length + '/' + groupModel.groups.length + '/' + projModel.groups.length + ' 张图，全部通过断言')
+  + allModel.groups.length + '/' + groupModel.groups.length + '/' + projModel.groups.length + ' 张图，行菜单 '
+  + menuProject.length + ' 项 / 移入子项 ' + moveSub.length + ' 个，全部通过断言')
