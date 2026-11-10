@@ -133,6 +133,20 @@
 - [ ] **注意**：`test/insightView.mjs` 此刻是红的（24/28），原因是 overview-react-dev 正在按上面的新字段改「最近动态」——
       属在飞状态，等它回报。lead 已提交的 host 改动与路由测试是绿的（overviewRoute / organizeRoute 单独跑均 OK）。
 
+- [x] **task-16（一键整理 UI）完成并提交**（`b741ff0`）：建议抽屉（340 宽、作为 `.fo-body` 第三列）、
+      逐条/全部接受与拒绝、evidence 引用块、影响预览、dropped 折叠、错误条 role=alert；
+      overviewPanel 163 → 191。真机点接受 → `overview()` 重拉、计数与状态都变。
+- [x] **task-18/19（洞察 + 运行）完成并提交**（`9803383`）：洞察六面板（donut 手绘、最近动态用真实时间戳、
+      今日完成 KPI）；运行页气泡墙（64px 圆、运行中绿色 + `fr-breathe` 呼吸、已完成静态、未开始虚线）、
+      运行概览四卡、会话活跃度四档、时长 Top5、「需要人看一眼」。insightView 32 / runsView 28 全绿。
+      lead 独立复核：剥掉注释后字面量颜色 0、29 处 color-mix 全 in oklab、`g()` 助手只收白名单内 token。
+      `client.js` 已把 dashboardStyles 注入进同一个 ctx.effect（卸载一起移除）。
+- [x] **`npm test` 全链 + offline 都绿**：offline 79 JS + 7 Python；`npm test` exit 0。
+- [ ] **唯一剩下的一步（下一轮第一件事）**：task-17（rail 两级菜单 + 单列）落地后，由 lead 接线：
+      `features.js` 追加 `insight` / `runs` 两项（图标自绘、label「洞察」「运行」）+ OverviewPanel 给这两个功能
+      传 ctx（`{tasks, relations, workspaces, stats, now, selectedOn...}` / `onOpenSession: 走 host.openSession`），
+      然后：build + 三个页面真机复量 + 提交 + 派 task-20 只读复核。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
