@@ -874,6 +874,33 @@ def main():
         print(json.dumps({'ok': False, 'errors': [str(exc)], 'tasklists': {}, 'fields': {}, 'users': {}}))
         return
 
+    if payload.get('self') is True:
+        res = call(token, '/authen/v1/user_info')
+        user = res.get('data') or {}
+        if res.get('code') == 0 and re.fullmatch(r'ou_[A-Za-z0-9]+', str(user.get('open_id') or '')):
+            out['self'] = {'openId': user['open_id']}
+        else:
+            out['errors'].append('无法核验当前登录用户身份；不能发送关注人提及')
+
+    if payload.get('commentApi') is not None:
+        api = payload['commentApi']
+        method, path = api.get('method'), api.get('path', '')
+        allowed = ((method == 'GET' and re.fullmatch(r'/open-apis/task/v2/comments/[0-9]{1,20}', path)) or
+                   (method == 'POST' and (path == '/open-apis/task/v2/comments' or re.fullmatch(r'/open-apis/task/v1/tasks/[A-Za-z0-9-]{1,100}/comments', path))))
+        if not allowed:
+            out['commentApi'] = {'ok': False, 'beforeRequest': True, 'detail': '不支持的评论桥接路径'}
+        else:
+            res = call(token, path.removeprefix('/open-apis') + '?user_id_type=open_id', method=method, body=api.get('data'))
+            data = res.get('data')
+            if isinstance(data, dict) and isinstance(data.get('comment'), dict):
+                data = dict(data)
+                data['comment'] = _comment_resource(data['comment'])
+                if data['comment'].get('parent_id') is not None:
+                    data['comment']['parent_id'] = str(data['comment']['parent_id'])
+            out['commentApi'] = {'ok': res.get('code') == 0, 'data': data, 'error': {'code': res.get('code')}, 'detail': str(res.get('msg') or '')[:200]}
+        print(json.dumps(out, ensure_ascii=False))
+        return
+
     out['actions'] = run_actions(token, payload.get('actions'))
 
     for guid in payload.get('tasklists') or []:

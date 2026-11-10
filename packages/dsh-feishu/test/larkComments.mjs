@@ -65,4 +65,9 @@ await test('task snapshots cannot accept truncated pages', async () => {
   const result = await listLarkPages(async () => ({ ok: true, data: { items: [], has_more: true } }), '/tasks')
   assert.equal(result.ok, false); assert.equal(result.incomplete, true)
 })
+await test('final mention guard runs after parent GET and blocks POST on changed binding', async () => {
+  let bound = true, requests = 0, guardCalls = 0
+  const result = await createLarkComment(async method => { requests++; assert.equal(method, 'GET'); bound = false; return { ok: true, data: { comment: original } } }, { ...action, beforePost: async () => { guardCalls++; return { ok: bound, error: 'binding changed' } } })
+  assert.equal(result.ok, false); assert.equal(result.unknownDelivery, false); assert.equal(requests, 1); assert.equal(guardCalls, 1)
+})
 console.log(`LARK_COMMENTS_OK: ${tests} strict transport, receipt and pagination checks`)

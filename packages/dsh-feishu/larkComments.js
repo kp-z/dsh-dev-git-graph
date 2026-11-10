@@ -104,6 +104,10 @@ export async function createLarkComment(api, action = {}) {
       path = '/open-apis/task/v1/tasks/' + encodeURIComponent(task) + '/comments'
       data = { content: text, rich_content: richContent, parent_id: reply || '0' }
     }
+    if (typeof action.beforePost === 'function') {
+      const guard = await action.beforePost()
+      if (guard?.ok !== true) return fail(op, guard?.error || '发送前收件人核验失败')
+    }
     posted = true
     const response = await api('POST', path, { params: { user_id_type: 'open_id' }, data, timeoutMs: 60000 })
     if (!response?.ok) return fail(op, response?.detail || '评论写回失败', !response || !definitiveRejection(response))

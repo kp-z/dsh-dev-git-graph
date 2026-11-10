@@ -143,16 +143,22 @@ export function createCommentCoordinator(deps) {
     const key = identity(taskId, options.key)
     let row = state.outbound[key]
     const payload = { text: formatAIComment(str(text)), replyTo: str(options.replyTo), mentionIds: [...new Set((options.mentionIds ?? []).map(str).filter(Boolean))] }
+    if (row && options.scopeIdentity && row.scopeIdentity !== options.scopeIdentity) return { ok: false, error: '发送 requestId 已绑定其他账号或后端，不能跨身份重用' }
     if (row && JSON.stringify(row.payload) !== JSON.stringify(payload)) return { ok: false, error: 'Stable outbound key cannot change payload' }
     if (row?.status === 'sent') return { ok: true, commentId: row.commentId, reused: true, warning: row.warning || '', mentionSupported: row.mentionSupported === true }
     if (blocked(taskId)) return { ok: false, unknown: true, error: 'Task outbound ledger requires reconciliation' }
     const eligible = options.requireActive === true ? await current(taskId, options.sessionId) : await deps.getTask(taskId)
     if (!eligible || str(eligible.id) !== taskId) return { ok: false, blocked: true, error: 'Task missing, or active reply task paused, done, unbound or rebound' }
-    row ??= state.outbound[key] = { taskId, key: str(options.key), payload, mentionMode: config.mentionMode, createdAt: deps.now() }
+    row ??= state.outbound[key] = { taskId, key: str(options.key), payload, mentionMode: options.mentionMode === 'task-v1' ? 'task-v1' : config.mentionMode, ...(options.scopeIdentity ? { scopeIdentity: options.scopeIdentity } : {}), createdAt: deps.now() }
     row.status = 'sending'
     await persist()
     let result
-    try { result = await deps.writeComment(taskId, row.payload.text, { key: row.key, replyTo: row.payload.replyTo, mentionIds: row.payload.mentionIds, mentionMode: row.mentionMode || 'native' }) } catch (error) { result = { error: str(error?.message ?? error) } }
+    try {
+      const check = options.beforeSend ? await options.beforeSend() : { ok: true }
+      result = check?.ok === true
+        ? await deps.writeComment(taskId, row.payload.text, { key: row.key, replyTo: row.payload.replyTo, mentionIds: row.payload.mentionIds, mentionMode: row.mentionMode || 'native' })
+        : { ok: false, definitive: true, error: check?.error || '发送前收件人核验失败' }
+    } catch (error) { result = { error: str(error?.message ?? error) } }
     if (result?.ok === true && str(result.commentId)) {
       row.status = 'sent'; row.commentId = str(result.commentId); row.warning = str(result.warning); row.mentionSupported = result.mentionSupported === true; delete row.error
     } else {

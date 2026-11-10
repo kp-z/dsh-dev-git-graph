@@ -38,6 +38,7 @@ import { createActivityFeed } from './activity.js'
 import { DEFAULT_TASKLIST_NAME, TASKLIST_SCHEMA_VERSION, tasklistFields, schemaSignature, selectTaskList } from './tasklistSchema.js'
 import { beginSyncHistory, finishSyncHistory, recordSyncStage, recoverSyncHistory, safeSyncDetail } from './syncHistory.js'
 import { createCommentCoordinator } from './comments.js'
+import { createTaskMentionResolver } from './taskMentions.js'
 import { randomUUID, createHash } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createBackendScope } from './backendScope.js'
@@ -2105,6 +2106,19 @@ const feishuBackend = {
 
   async actions(settings, actions) {
     const python = resolvePython(this.resolve(settings))
+    // Guarded mentions use the shared JS transport so Host binding checks can run
+    // after the parent GET and immediately before the POST, on both backends.
+    if (actions.some(action => typeof action.beforePost === 'function')) {
+      const results = []
+      for (const action of actions) {
+        if (typeof action.beforePost !== 'function') { results.push(...(await runBridgeRaw(python, { actions: [action] })).actions || []); continue }
+        results.push(await createLarkComment(async (method, path, opts) => {
+          const result = await runBridgeRaw(python, { commentApi: { method, path, data: opts?.data } })
+          return result.commentApi || { ok: false, detail: result.error || '评论桥接结果不明' }
+        }, action))
+      }
+      return { ok: true, actions: results, errors: [] }
+    }
     return runBridgeRaw(python, { actions })
   },
 }
@@ -2515,6 +2529,11 @@ const larkBackend = {
 
   async enrich(settings, payload) {
     const out = { ok: true, tasklists: {}, fields: {}, users: {}, actions: [], errors: [] }
+    if (payload?.self === true) {
+      const result = await larkApi(settings, 'GET', '/open-apis/authen/v1/user_info', { timeoutMs: 60_000 })
+      if (result.ok && /^ou_[A-Za-z0-9]+$/.test(asString(result.data?.open_id))) out.self = { openId: result.data.open_id }
+      else out.errors.push('无法核验当前登录用户身份；不能发送关注人提及')
+    }
     for (const guid of payload?.tasklists ?? []) {
       if (!guid) continue
       const result = await larkApi(settings, 'GET', `/open-apis/task/v2/tasklists/${encodeURIComponent(guid)}`, {
@@ -2982,7 +3001,7 @@ function createSyncEngine(ctx) {
     writeComment: async (taskId, text, options) => {
       if (commentsDisposed) return { ok: false, definitive: true, error: '评论插件已卸载' }
       const result = await backend().actions(settings, [
-        { op: 'task_comment', task: taskId, text, reply_to_comment_id: options.replyTo, mentionIds: options.mentionIds, mentionMode: options.mentionMode, allowMentionFallback: options.mentionMode !== 'task-v1' },
+        { op: 'task_comment', task: taskId, text, reply_to_comment_id: options.replyTo, mentionIds: options.mentionIds, mentionMode: options.mentionMode, allowMentionFallback: options.mentionMode !== 'task-v1', beforePost: backendContext.getStore()?.mentionBeforePost },
       ])
       const row = result.actions?.[0]
       return row?.ok && row.commentId ? { ok: true, commentId: row.commentId, warning: row.warning || '', mentionSupported: row.mentionSupported === true } : { ok: false, definitive: row?.unknownDelivery === false, error: row?.error || result.error || '评论写回结果不明' }
@@ -3048,6 +3067,60 @@ function createSyncEngine(ctx) {
     if (!result.ok) return false
     activeCommentTurns.delete(sessionId)
     return true
+  }
+  const taskMentionResolver = createTaskMentionResolver({ now: nowMs })
+  let mentionBindingEpoch = 0
+  function mentionBoundTask(taskId, sessionId) {
+    const matches = state.tasks.filter(task => task.sessionId === sessionId && (!taskId || task.id === taskId))
+    if (!sessionId || matches.length !== 1) return null
+    const task = matches[0]
+    return !task.done && !isSuspended(task.id) && !creationPending(task.id) ? task : null
+  }
+  async function mentionContext(taskId, sessionId) {
+    if (activeCommentTurns.has(sessionId)) return { ok: false, error: '评论协作轮次只能回复原评论，不能向其他关注人发送' }
+    const operation = captureBackendScope(), task = mentionBoundTask(taskId, sessionId)
+    if (!task || !operation.valid()) return { ok: false, error: '需要当前会话唯一绑定的活跃任务；已完成、挂起或创建待核验的任务不可提及' }
+    const binding = JSON.stringify([task.id, task.sessionId, task.startedAt, task.linkSource, mentionBindingEpoch])
+    const stillBound = () => {
+      const latest = mentionBoundTask(task.id, sessionId)
+      return operation.valid() && latest && binding === JSON.stringify([latest.id, latest.sessionId, latest.startedAt, latest.linkSource, mentionBindingEpoch]) && !activeCommentTurns.has(sessionId)
+    }
+    const identity = await backend().enrich(settings, { self: true })
+    if (!stillBound() || !/^ou_[A-Za-z0-9]+$/.test(asString(identity.self?.openId))) return { ok: false, error: '无法核验登录身份或会话绑定已变化，请重新解析关注人' }
+    const result = await backend().actions(settings, [{ op: 'task_get', task: task.id }])
+    const remote = result.actions?.[0]?.task
+    if (!result.actions?.[0]?.ok || !remote || remote.guid !== task.id || !Array.isArray(remote.members) || (remote.completed_at && String(remote.completed_at) !== '0') || !stillBound()) return { ok: false, error: '远端任务/成员无法完整核验，或任务已完成、绑定已变化' }
+    const ids = [...new Set(remote.members.filter(member => member.type === 'user' && member.role === 'follower' && /^ou_[A-Za-z0-9]+$/.test(asString(member.id))).map(member => member.id))]
+    if (ids.length > 100) return { ok: false, error: '关注人超过安全解析上限，请缩小任务成员范围' }
+    const people = ids.length ? await backend().enrich(settings, { users: ids }) : { users: {} }
+    if (!stillBound()) return { ok: false, error: '解析期间配置或会话绑定已变化，请重新解析' }
+    if ((people.errors || []).length || ids.some(id => !people.users?.[id] || typeof people.users[id].name !== 'string')) return { ok: false, error: '关注人姓名读取不完整，不能排除同名；请补齐通讯录权限后重试' }
+    const members = remote.members.map(member => ({ ...member, name: asString(people.users?.[member.id]?.name) }))
+    const scope = JSON.stringify([operation.generation, operation.settings.cliBackend, operation.settings.cliPath, operation.settings.larkCliPath, operation.settings.larkAccountMode, identity.self.openId, binding])
+    return { ok: true, taskId: task.id, sessionId, scope, members, stillBound }
+  }
+  async function resolveTaskMentions(taskId, sessionId, names) {
+    const context = await mentionContext(taskId, sessionId)
+    return context.ok ? taskMentionResolver.resolve({ ...context, names }) : context
+  }
+  async function writeMentionComment(taskId, sessionId, text, options = {}) {
+    if (!asString(text).trim() || !Array.isArray(options.mentionRefs) || !options.mentionRefs.length || options.mentionRefs.length > 5) return { ok: false, error: '需要非空正文和1–5个解析工具返回的 mentionRefs' }
+    if (options.replyToCommentId != null && (typeof options.replyToCommentId !== 'string' || !/^\d{1,20}$/.test(options.replyToCommentId))) return { ok: false, error: '回复评论 ID 必须是同任务的数字字符串' }
+    if (typeof options.requestId !== 'string' || !options.requestId.trim() || options.requestId.length > 200) return { ok: false, error: '需要稳定 requestId；重试同一次发送必须复用' }
+    const context = await mentionContext(taskId, sessionId)
+    if (!context.ok) return context
+    const recipients = taskMentionResolver.validate({ ...context, mentionRefs: options.mentionRefs })
+    if (!recipients.ok) return recipients
+    const beforeSend = async () => {
+      const fresh = await mentionContext(context.taskId, sessionId)
+      if (!fresh.ok || fresh.scope !== context.scope) return { ok: false, error: fresh.error || '登录身份或绑定已变化，请重新解析关注人' }
+      return taskMentionResolver.validate({ ...fresh, mentionRefs: options.mentionRefs })
+    }
+    const key = 'mention:' + createHash('sha256').update(JSON.stringify([context.taskId, sessionId, options.requestId])).digest('hex')
+    const operation = captureBackendScope()
+    const guarded = { ...operation, mentionBeforePost: beforeSend, valid: () => operation.valid() && Boolean(context.stillBound()) }
+    const result = await backendContext.run(guarded, () => comments.writeOutbound(context.taskId, sanitizeTaskDescription(text), { key, scopeIdentity: JSON.stringify([operation.settings.cliBackend, operation.settings.cliPath, operation.settings.larkCliPath, operation.settings.larkAccountMode, JSON.parse(context.scope)[5]]), replyTo: options.replyToCommentId || '', mentionIds: recipients.mentionIds, mentionMode: 'task-v1', requireActive: true, sessionId, beforeSend }))
+    return { ...result, taskId: context.taskId }
   }
   async function writeTaskComment(taskId, text, options = {}) {
     const key = options.key || 'manual:' + randomUUID()
@@ -4781,6 +4854,7 @@ function createSyncEngine(ctx) {
       return {
         id,
         role: asString(member?.role),
+        type: asString(member?.type),
         name: asString(user?.name) || selfName(id),
         avatar: asString(user?.avatar) || selfAvatar(id),
       }
@@ -5533,6 +5607,7 @@ function createSyncEngine(ctx) {
 
     /* 「绑定」= 建立关系 + 同步名字，但不投递开工指令。
        按需求：**绑定即开始计时**（startAt = 绑定时刻），并写回飞书开始时间。 */
+    mentionBindingEpoch++
     task.sessionId = id
     task.boundOnly = true
     task.started = false
@@ -5574,6 +5649,7 @@ function createSyncEngine(ctx) {
     if (isSuspended(taskId)) return { ok: false, error: '任务已挂起，请先恢复再解绑，避免遗失会话恢复关系' }
     if (!task.sessionId) return { ok: false, error: '这条任务还没有绑定会话' }
     const previous = task.sessionId
+    mentionBindingEpoch++
     task.sessionId = null
     task.started = false
     task.startedAt = null
@@ -9265,6 +9341,8 @@ bucket 只能从枚举里选：
     replyToComment: (...args) => runEngineOperation(replyToComment, args),
     endCommentTurn,
     writeTaskComment: (...args) => runEngineOperation(writeTaskComment, args),
+    resolveTaskMentions: (...args) => runEngineOperation(resolveTaskMentions, args),
+    writeMentionComment: (...args) => runEngineOperation(writeMentionComment, args),
     disposeComments,
     setCommentGuardAvailable: (value) => { commentGuardAvailable = value === true },
     flushPendingProgress: (...args) => runEngineOperation(flushPendingProgress, args),
@@ -10247,16 +10325,36 @@ function registerTools(ctx, engine) {
 
   register(
     textTool(
+      'feishu_task_mentions',
+      '只读解析当前会话绑定任务的关注人。会话中明确要求在飞书评论里 @ 某人时，先用本工具匹配姓名；返回 mentionRef 供 feishu_task_comment 使用。同名或未命中时先请用户选择，不猜人员 ID；仅出现 @ 字符不代表授权发送。',
+      {
+        taskId: { type: 'string', description: '当前会话绑定任务 GUID；省略自动取唯一绑定任务。' },
+        names: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5, description: '需要匹配的完整姓名；省略列出关注人候选。同名候选须用户明确选择。' },
+      },
+      async (args, exec) => JSON.stringify(await engine.resolveTaskMentions(asString(args.taskId), asString(exec?.agent?.id), args.names)),
+    ),
+  )
+
+  register(
+    textTool(
       'feishu_task_comment',
       '给一条飞书任务写评论（**写操作**，会真的发到飞书里，同事能看到）。' +
-        '「开工」处理完一条任务后，用这个把结论写回去。id 必须是 feishu_tasks 返回过的任务 id。',
+        '可用 feishu_task_mentions 返回的 mentionRefs 真实 @ 当前任务关注人；仅在用户明确要求发送时调用，不把普通 @ 文本当提及。',
       {
-        id: { type: 'string', description: '飞书任务 guid（feishu_tasks 的输出里有）。' },
+        id: { type: 'string', description: '飞书任务 GUID；普通评论必填，带 mentionRefs 时省略取当前会话唯一绑定任务。' },
         text: { type: 'string', description: '评论正文，纯文本。' },
+        mentionRefs: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 5, description: 'feishu_task_mentions 返回的收件人引用；同名须先由用户选择。' },
+        replyToCommentId: { type: 'string', description: '带 mentionRefs 时可选，明确要回复的同任务原评论 ID；省略创建顶层评论。' },
+        requestId: { type: 'string', description: '带 mentionRefs 时必填，为本次发送生成稳定标识；失败重试必须复用，新的独立发送用新值。' },
       },
-      async (args) => {
+      async (args, exec) => {
         const id = asString(args.id).trim()
         const text = asString(args.text).trim()
+        if (args.mentionRefs !== undefined) {
+          const result = await engine.writeMentionComment(id, asString(exec?.agent?.id), text, args)
+          return result.ok ? `已创建真实 @ 评论 ${result.commentId}${result.reused ? '（复用已发送回执）' : ''}；未核验通知送达` : `写评论失败：${result.error || '结果不明，请核验后再处理'}`
+        }
+        if (args.replyToCommentId !== undefined || args.requestId !== undefined) return 'replyToCommentId/requestId 仅用于带 mentionRefs 的发送；不能静默忽略收件人。'
         if (!id || !text) return '需要 id 和 text 两个参数。'
         if (!engine.getState().tasks.some((task) => task.id === id)) {
           return `本地快照里没有这条任务（${id}）：先 feishu_sync 同步一次，或确认 id 抄对了。`
