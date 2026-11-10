@@ -159,6 +159,29 @@ export const CSS = `
 }
 .fo-nav-icon { flex: 0 0 20px; width: 20px; height: 20px; }
 .fo-nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 两级菜单：一级项 +（可展开项的）二级菜单。caret 是唯一的展开指示，不额外加文字。 */
+.fo-featnav-group { display: flex; flex-direction: column; min-width: 0; }
+.fo-nav-caret { margin-left: auto; flex: 0 0 auto; font-size: 10px; color: ${T.label2}; transition: transform .12s var(--fo-ease); }
+.fo-nav-caret[data-open="1"] { transform: rotate(180deg); }
+/* 二级菜单（「关系」下面是范围树）：不再自带侧栏底色/描边与 blur —— 它就是 rail 的一部分。
+   行更矮（30px）、字号 12px、左侧缩进 24px 起（一级项 padding 是 12px），长文案用省略号。 */
+.fo-subnav { display: flex; flex-direction: column; min-width: 0; padding: 2px 0 6px; }
+.fo-subnav .fo-scope {
+  border-right: 0; background: transparent;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.fo-subnav .fo-scope-head { padding: 2px 10px 6px 24px; border-bottom: 0; }
+.fo-subnav .fo-scope-body { padding: 0 10px 4px 0; }
+.fo-subnav .fo-scope-list { gap: 2px; }
+.fo-subnav .fo-row { height: 30px; padding: 0 8px; gap: 6px; border-radius: 8px; font-size: 12px; }
+.fo-subnav .fo-row-count { font-size: 11px; }
+.fo-subnav .fo-row-badge { font-size: 9px; }
+.fo-subnav .fo-caret { flex: 0 0 10px; width: 10px; height: 10px; font-size: 8px; }
+.fo-subnav .fo-dot { flex: 0 0 6px; width: 6px; height: 6px; box-shadow: 0 0 0 2px color-mix(in oklab, var(--fo-c, ${T.idle}) 22%, transparent); }
+.fo-subnav .fo-scope-note { padding: 1px 8px 3px 30px; font-size: 10px; }
+.fo-subnav .fo-input { height: 24px; }
+/* rail 收成 56px 图标条时二级菜单整个藏起来（列不下，也没法操作） */
+.fo-root[data-rail="0"] .fo-subnav { display: none; }
 .fo-rail-foot {
   margin-top: auto;
   display: flex; align-items: center; gap: 8px;
@@ -367,14 +390,7 @@ export const CSS = `
   border-bottom: 1px solid var(--fo-glass-line);
 }
 .fo-feature-body { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
-/* 范围列：功能页内的子导航；折叠时整列不渲染，画布拿全部宽度 */
-.fo-scope-column {
-  flex: 0 0 240px; width: 240px; min-width: 0; min-height: 0;
-  display: flex; flex-direction: column;
-  border-right: 1px solid var(--fo-glass-line);
-  background: color-mix(in oklab, ${T.sidebar} 55%, transparent);
-}
-/* 画布区：占满剩余空间，10px 内边距 */
+/* task-17：范围树搬进 rail 之后，功能页只剩画布一块主内容（单列，画布拿全部宽度）。 */
 .fo-canvas-area {
   flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto;
   padding: 10px; display: flex; flex-direction: column;

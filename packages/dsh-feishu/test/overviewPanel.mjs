@@ -340,7 +340,8 @@ async function mountPanel(options) {
   const Panel = createOverviewPanel(Object.assign({}, bag, { features, pollMs: 60000 }))
   const loadingTree = mini.renderOnce(mini.React.createElement(Panel, {}))
   const tree = await mini.act()
-  return { mini, api, store, tree, loadingTree }
+  /* 把实际用的注册表回传：测试断言「一级项数量 = 注册表长度」时用它，避免写死数字。 */
+  return { mini, api, store, tree, loadingTree, features: features && features.length ? features : createFeatures(bag) }
 }
 
 /* ============================================================================
@@ -805,55 +806,75 @@ check('rail 三段 DOM：品牌（两行文字）/ 功能导航 / 底部固定�
   assert.equal(byClass(rail, 'fo-brand-logo').length, 1, 'logo 方块')
   assert.ok(byClass(rail, 'fo-rail-foot')[0].children.length >= 2, '底部有刷新 + 折叠按钮')
 })
-check('rail 里既没有搜索框也没有目录树（都搬走了）', () => {
+check('rail 两级菜单：一级项「关系」（可展开）+ 它的二级菜单就是范围树', () => {
+  const rail = railEl(tree)
+  const items = featnavItems(tree)
+  /* 一级项数量 = 注册表长度（注册表加功能，这里自动跟随，不写死数字） */
+  assert.equal(items.length, main.features.length, '一级项数量 = 注册表长度')
+  assert.ok(items.length >= 3, '至少三项：关系 / 洞察 / 运行')
+  const labels = items.map((item) => textOf(item))
+  assert.ok(labels.some((text) => text.includes('关系')), `一级菜单要有「关系」，实际 ${labels}`)
+  assert.ok(labels.some((text) => text.includes('洞察')), `一级菜单要有「洞察」，实际 ${labels}`)
+  assert.ok(labels.some((text) => text.includes('运行')), `一级菜单要有「运行」，实际 ${labels}`)
+  assert.ok(textOf(items[0]).includes('关系'), '一级菜单第一项叫「关系」')
+  assert.equal(items[0].props['data-active'], '1')
+  assert.equal(items[0].props['aria-current'], 'page')
+  assert.equal(items[0].props['data-expandable'], '1')
+  assert.equal(items[0].props['aria-expanded'], 'true', '默认展开')
+  const sub = byClass(rail, 'fo-subnav')
+  assert.equal(sub.length, 1, '二级菜单挂在 rail 里')
+  assert.equal(findAll(sub[0], (node) => node.kind === 'host' && node.props.role === 'tree').length, 1, 'ARIA tree 原样保留')
+  assert.equal(findAll(sub[0], (node) => node.kind === 'host' && node.props.role === 'treeitem').length, treeItems(tree).length)
+  assert.ok(textOf(sub[0]).includes('全部任务') && textOf(sub[0]).includes('未分组'))
+})
+check('范围树搬家后：二级项就在 rail 里，rail 里仍然没有搜索框', () => {
   const rail = railEl(tree)
   assert.equal(findAll(rail, (node) => node.kind === 'host' && classNameOf(node) === 'fo-search').length, 0)
-  assert.equal(findAll(rail, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope').length, 0)
-  assert.equal(findAll(rail, (node) => node.kind === 'host' && node.props.role === 'treeitem').length, 0)
+  assert.equal(findAll(rail, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope').length, 1, '树就在 rail 里')
+  assert.equal(findAll(rail, (node) => node.kind === 'host' && node.props.role === 'treeitem').length >= 8, true)
 })
-check('功能项数量 == 注册表长度（今天只有「任务关系图」）', () => {
-  assert.equal(featnavItems(tree).length, 1)
-  assert.ok(textOf(featnavItems(tree)[0]).includes('任务关系图'))
-  assert.equal(featnavItems(tree)[0].props['data-active'], '1')
-  assert.equal(featnavItems(tree)[0].props['aria-current'], 'page')
-})
-check('关系图功能页：.fo-scope 列在 .fo-main 内，画布区在它右边', () => {
+check('关系页单列：.fo-scope-column 不存在，画布是唯一的主内容块', () => {
   const main = findAll(tree, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-main'))[0]
   assert.ok(main, '正文在')
-  assert.equal(findAll(main, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope').length, 1, 'scope 列在正文里')
-  assert.equal(scopeColumns(tree).length, 1)
-  assert.equal(findAll(main, (node) => node.kind === 'host' && classNameOf(node) === 'fo-canvas-area').length, 1)
-  const scope = scopeColumns(tree)[0]
-  assert.ok(findAll(scope, (node) => node.kind === 'host' && node.props.role === 'tree').length === 1, 'ARIA tree 还在')
-  assert.equal(rootOf(tree).props['data-scope-open'], '1')
+  assert.equal(scopeColumns(tree).length, 0, '第二列已经删掉')
+  assert.equal(findAll(main, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope').length, 0, '树不在正文里了')
+  const featureBody = byClass(tree, 'fo-feature-body')[0]
+  const blocks = featureBody.children.filter((child) => child && child.kind === 'host')
+  assert.equal(blocks.length, 1, '功能页正文只剩一块')
+  assert.ok(classNameOf(blocks[0]).includes('fo-canvas-area'), '剩下的那块就是画布')
+  assert.equal(findAll(blocks[0], (node) => node.kind === 'host' && classNameOf(node) === 'fo-svg').length, 2, '画布照旧铺满（两张图）')
+  assert.equal(findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope-column').length, 0)
 })
-check('功能页头部有范围列折叠按钮', () => {
-  const bar = byClass(tree, 'fo-feature-bar')[0]
-  assert.ok(bar)
-  const toggle = findAll(bar, (node) => node.kind === 'host' && node.type === 'button')[0]
-  assert.ok(toggle)
-  assert.equal(toggle.props['aria-expanded'], 'true')
-  assert.equal(toggle.props['aria-controls'], 'fo-scope-column')
+check('二级菜单里不再重复一个分组标题（「任务分组」已删）', () => {
+  const sub = byClass(railEl(tree), 'fo-subnav')[0]
+  assert.equal(byClass(sub, 'fo-scope-title').length, 0)
+  assert.ok(textOf(sub).includes('新建目录'), '新建目录入口还在')
 })
-findAll(byClass(tree, 'fo-feature-bar')[0], (node) => node.kind === 'host' && node.type === 'button')[0].props.onClick()
+/* 折叠一级项：二级菜单整个不渲染，展开态落 store 键 nav */
+const navItem = () => featnavItems(tree)[0]
+check('一级项可折叠：aria-expanded 反映状态', () => {
+  assert.equal(navItem().props['aria-expanded'], 'true')
+  assert.equal(navItem().props['data-expanded'], '1')
+})
+navItem().props.onClick()
 tree = await main.mini.act()
-check('折叠范围列：列不渲染、折叠态落 store、画布还在（拿全部宽度）', () => {
-  assert.equal(scopeColumns(tree).length, 0)
-  assert.equal(main.store.data.get('scope'), true)
-  assert.equal(rootOf(tree).props['data-scope-open'], '0')
+check('点一级项收起：二级菜单从 DOM 消失、折叠态落 store 键 nav、画布不动', () => {
+  assert.equal(byClass(tree, 'fo-subnav').length, 0)
+  assert.equal(treeItems(tree).length, 0, '二级项也没了')
+  assert.equal(main.store.data.get('nav').graph, false)
+  assert.equal(featnavItems(tree)[0].props['aria-expanded'], 'false')
+  assert.equal(featnavItems(tree)[0].props['data-active'], '1', '收起二级菜单不等于切走功能')
   assert.ok(graphSections(tree).length > 0, '画布不跟着消失')
 })
-check('折叠后画布区仍是唯一的主内容（没有残留空列）', () => {
-  const featureBody = byClass(tree, 'fo-feature-body')[0]
-  assert.equal(featureBody.children.filter((child) => child && child.kind === 'host').length, 1, '只剩画布区')
-})
-findAll(byClass(tree, 'fo-feature-bar')[0], (node) => node.kind === 'host' && node.type === 'button')[0].props.onClick()
+navItem().props.onClick()
 tree = await main.mini.act()
-check('再展开：列回来、折叠态归位', () => {
-  assert.equal(scopeColumns(tree).length, 1)
-  assert.equal(main.store.data.get('scope'), false)
-  assert.equal(rootOf(tree).props['data-scope-open'], '1')
+check('再点一级项展开：二级菜单回来、展开态归位', () => {
+  assert.equal(byClass(tree, 'fo-subnav').length, 1)
+  assert.equal(treeItems(tree).length, 8)
+  assert.equal(main.store.data.get('nav').graph, true)
+  assert.equal(featnavItems(tree)[0].props['aria-expanded'], 'true')
 })
+
 check('目录树搬家后行为不变：树行/拖拽/右键入口都还在', () => {
   const rows = treeItems(tree)
   assert.ok(rows.length >= 8)
@@ -1384,10 +1405,12 @@ const PANEL_CARD = layout.CARD
   const ft = fx.tree
   const count = (text, needle) => String(text).split(needle).length - 1
 
-  check('功能名「任务关系图」全页只出现一次（rail 功能项），品牌名只出现一次', () => {
+  check('一级菜单名唯一、品牌名唯一、旧名「任务关系图」已不再出现', () => {
     const text = textOf(ft)
-    assert.equal(count(text, '任务关系图'), 1, text.slice(0, 200))
-    assert.equal(count(text, '飞书任务集'), 1)
+    assert.equal(count(text, '任务关系图'), 0, '旧的功能名（三次出现那份）已经删掉')
+    assert.equal(textOf(featnavItems(ft)[0]).replace(/\s/g, ''), '关系▾', '一级项就是「关系」+ caret')
+    assert.equal(count(text, '飞书任务集'), 1, '品牌名只在 rail 品牌区')
+    assert.equal(count(text, '任务分组'), 0, '二级菜单里不再重复一个分组标题')
   })
   check('正文头部：没有计数胶囊、没有功能名、副标题不再重复范围名', () => {
     const head = byClass(ft, 'fo-main-head')[0]
@@ -1410,14 +1433,15 @@ const PANEL_CARD = layout.CARD
     assert.equal(byClass(head, 'fo-head-actions').length, 1)
     assert.equal(head.children.filter((child) => child && child.kind === 'host').length, 3)
   })
-  check('功能页工具条只剩控件（featureHint / scopeText 两个文字 span 已删）', () => {
+  check('功能页工具条只剩控件（featureHint / scopeText / 范围折叠按钮都已删）', () => {
     const bar = byClass(ft, 'fo-feature-bar')[0]
     assert.ok(bar)
     assert.equal(byClass(bar, 'fo-feature-hint').length, 0)
     assert.equal(byClass(bar, 'fo-feature-meta').length, 0)
     const hosts = bar.children.filter((child) => child && child.kind === 'host')
     assert.equal(hosts.every((child) => child.type === 'button'), true, '工具条里只留按钮，不留说明文字')
-    assert.ok(textOf(bar).includes('范围'), '其中一个还是范围列折叠按钮')
+    assert.equal(findAll(bar, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 1, '留下的是一键整理')
+    assert.equal(textOf(bar).includes('范围'), false, '范围选择已经搬进 rail，工具条不再有折叠按钮')
   })
   check('图头：只剩 图名 + 图例 + 复位布局（计数胶囊删掉，图例保留）', () => {
     const head = byClass(ft, 'fo-graph-head')[0]
@@ -2033,9 +2057,10 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   let itree = injected.tree
   const railOf = () => railEl(itree)
 
-  check('注入第二个功能：rail 出现两项、正文仍停在关系图', () => {
-    assert.equal(featnavItems(itree).length, 2, '功能项数量 == 注册表长度')
-    assert.equal(textOf(featnavItems(itree)[1]).includes('假功能'), true)
+  const fakeIndex = (list) => list.findIndex((item) => textOf(item).includes('假功能'))
+  check('注入一个假功能：rail 出现它、正文仍停在关系图', () => {
+    assert.equal(featnavItems(itree).length, injected.features.length, '功能项数量 == 注册表长度')
+    assert.ok(fakeIndex(featnavItems(itree)) > 0, '假功能出现在 rail 里')
     assert.equal(featnavItems(itree)[0].props['data-active'], '1')
     assert.equal(rootOf(itree).props['data-feature'], 'graph')
     assert.ok(graphSections(itree).length > 0)
@@ -2050,20 +2075,21 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.deepEqual(savedSelection, { kind: 'group', id: 'g1' })
   })
 
-  featnavItems(itree)[1].props.onClick()
+  featnavItems(itree)[fakeIndex(featnavItems(itree))].props.onClick()
   itree = await injected.mini.act()
-  check('点第二项 → 正文换成假功能，画布与目录树都卸载', () => {
+  check('点假功能 → 正文换成它，画布与 rail 里的二级菜单都卸载', () => {
     assert.equal(byClass(itree, 'fo-fake-feature').length, 1)
     assert.equal(graphSections(itree).length, 0)
+    assert.equal(byClass(itree, 'fo-subnav').length, 0, '假功能没有二级菜单')
     assert.equal(scopeColumns(itree).length, 0)
     assert.equal(rootOf(itree).props['data-feature'], 'fake')
     assert.equal(injected.store.data.get('feature'), 'fake', 'activeFeature 落 store')
-    assert.equal(featnavItems(itree)[1].props['data-active'], '1')
-    assert.equal(featnavItems(itree)[1].props['aria-current'], 'page')
+    assert.equal(featnavItems(itree)[fakeIndex(featnavItems(itree))].props['data-active'], '1')
+    assert.equal(featnavItems(itree)[fakeIndex(featnavItems(itree))].props['aria-current'], 'page')
   })
   check('假功能页仍复用同一套 rail / 内容头部骨架', () => {
     assert.equal(byClass(railOf(), 'fo-brand').length, 1)
-    assert.equal(featnavItems(itree).length, 2)
+    assert.equal(featnavItems(itree).length, injected.features.length)
     assert.equal(searchInputs(itree).length, 1, '头部搜索框是骨架的一部分')
   })
 
@@ -2074,14 +2100,57 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.equal(rootOf(itree).props['data-scope'], 'group')
     assert.deepEqual(injected.store.data.get('selection'), savedSelection)
     assert.equal(injected.store.data.get('feature'), 'graph')
-    assert.equal(scopeColumns(itree).length, 1)
+    assert.equal(byClass(itree, 'fo-subnav').length, 1, '切回来二级菜单又挂上 rail')
     assert.ok(graphSections(itree).length === 1, '目录 scope 仍是那一张图')
     assert.equal(String(rowByDataId(itree, 'g1').props['aria-selected']), 'true', '树上的选中态还在')
   })
   check('注入的功能不污染真注册表（模块级 createFeatures 仍只有一项）', () => {
     const base = createFeatures({ React: injected.mini.React, h: injected.mini.React.createElement, model, layout, api: injected.api, store: injected.store })
-    assert.equal(base.length, 1)
-    assert.equal(base[0].id, 'graph')
+    assert.equal(base.some((row) => row.id === 'fake'), false, '模块级注册表不该被注入的假功能污染')
+    assert.deepEqual(base.map((row) => row.id), ['graph', 'insight', 'runs'])
+  })
+}
+
+/* ---- 10b. 注册表接线：洞察 / 运行两个新功能页真的能切过去、真的渲染 ---- */
+{
+  const items = () => featnavItems(tree)
+  const clickFeature = async (label) => {
+    const index = items().findIndex((item) => textOf(item).includes(label))
+    assert.ok(index >= 0, `rail 里没有「${label}」`)
+    items()[index].props.onClick()
+    tree = await main.mini.act()
+    return index
+  }
+
+  await clickFeature('洞察')
+  check('切到「洞察」：正文是洞察页（fd- 面板），画布与二级菜单都卸载', () => {
+    assert.equal(rootOf(tree).props['data-feature'], 'insight')
+    assert.ok(byClass(tree, 'fd-page').length >= 1, '洞察页根容器在')
+    assert.ok(byClass(tree, 'fd-panel').length >= 5, '至少 5 个面板')
+    assert.equal(graphSections(tree).length, 0)
+    assert.equal(byClass(tree, 'fo-subnav').length, 0, '洞察没有二级菜单')
+  })
+  check('洞察页 KPI 用的是快照里的真实数字（不是占位）', () => {
+    const text = textOf(tree)
+    assert.ok(text.includes('任务总数') || text.includes('完成率'), text.slice(0, 120))
+    assert.ok(/\d/.test(text), '应有数字')
+  })
+
+  await clickFeature('运行')
+  check('切到「运行」：气泡墙渲染，运行中的气泡带 is-running', () => {
+    assert.equal(rootOf(tree).props['data-feature'], 'runs')
+    assert.ok(byClass(tree, 'fr-page').length >= 1, '运行页根容器在')
+    const bubbles = byClass(tree, 'fr-bubble-item')
+    assert.ok(bubbles.length >= 1, `应有气泡，实际 ${bubbles.length}`)
+    assert.ok(byClass(tree, 'fr-group').length >= 1, '气泡墙的分组在')
+    assert.equal(byClass(tree, 'fo-subnav').length, 0, '运行没有二级菜单')
+  })
+
+  await clickFeature('关系')
+  check('切回「关系」：画布与二级菜单都回来（状态仍是之前那个）', () => {
+    assert.equal(rootOf(tree).props['data-feature'], 'graph')
+    assert.ok(graphSections(tree).length >= 1)
+    assert.ok(byClass(tree, 'fo-subnav').length >= 1)
   })
 }
 

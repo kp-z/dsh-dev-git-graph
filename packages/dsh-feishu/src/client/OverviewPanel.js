@@ -287,7 +287,11 @@ export function createOverviewPanel(deps) {
       const hit = featureById(features, model.str(readStore(store, 'feature')))
       return hit ? hit.id : ''
     })
-    const [scopeCollapsed, setScopeCollapsed] = useState(() => readStore(store, 'scope') === true)
+    /* rail 两级菜单：一级项（功能）的展开态，落 store 键 nav（如 { graph: true }），默认展开。 */
+    const [navOpen, setNavOpen] = useState(() => {
+      const saved = readStore(store, 'nav')
+      return model.isObj(saved) ? saved : {}
+    })
     const [railOpen, setRailOpen] = useState(() => readStore(store, 'rail') !== false)
     const [collapsed, setCollapsed] = useState(() => {
       const value = readStore(store, 'collapsed')
@@ -395,7 +399,7 @@ export function createOverviewPanel(deps) {
     useEffect(() => { writeStore(store, 'collapsed', collapsed) }, [collapsed])
     useEffect(() => { writeStore(store, 'keyword', keyword) }, [keyword])
     useEffect(() => { writeStore(store, 'feature', activeFeatureId) }, [activeFeatureId])
-    useEffect(() => { writeStore(store, 'scope', scopeCollapsed) }, [scopeCollapsed])
+    useEffect(() => { writeStore(store, 'nav', navOpen) }, [navOpen])
     useEffect(() => { writeStore(store, 'rail', railOpen) }, [railOpen])
     useEffect(() => { writeStore(store, 'nodePos', nodePos) }, [nodePos])
     useEffect(() => { writeStore(store, 'organize', { open: org.open, batchId: org.batchId }) }, [org.open, org.batchId])
@@ -806,8 +810,6 @@ export function createOverviewPanel(deps) {
     /* 功能页的 ctx：数据 + 交互全在这里，功能组件自己不取数据、不碰 store。 */
     const featureCtx = {
       featureHint,
-      scopeCollapsed,
-      onToggleScope: () => setScopeCollapsed((prev) => prev !== true),
       graphs,
       selectedId: detailTask ? detailId : '',
       focusedId,
@@ -828,6 +830,14 @@ export function createOverviewPanel(deps) {
         onRun: runOrganize,
         onToggle: toggleOrganize,
       },
+      /* 仪表盘页（洞察 / 运行）看的是**全局**，不受当前范围与搜索影响：
+         它们要的是整份快照 + 现在时刻，自己做统计。 */
+      tasks: visibleTasks,
+      relations,
+      groups,
+      workspaces,
+      stats: model.isObj(data && data.stats) ? data.stats : {},
+      now: Number(data && data.now) || Date.now(),
       treeProps: {
         tree,
         renamingId,
@@ -856,7 +866,6 @@ export function createOverviewPanel(deps) {
       'data-detail': detailTask || detailNode ? '1' : '0',
       'data-busy': busy ? '1' : '0',
       'data-scope': scope.kind,
-      'data-scope-open': scopeCollapsed ? '0' : '1',
       'data-rail': railOpen ? '1' : '0',
       'data-feature': activeFeatureId,
       'data-organize': org.open ? '1' : '0',
@@ -876,19 +885,38 @@ export function createOverviewPanel(deps) {
             h('span', { className: 'fo-brand-sub' }, model.str(options.subtitle) || 'DeepSeek Harness'),
           ),
         ),
+        /* 功能导航 = 两级菜单：一级项是功能（数量 = 注册表长度），可展开的项下面是它的二级菜单
+           （「关系」下面是范围树）。展开态落 store 键 nav，默认展开；点当前已展开的一级项 = 收起。 */
         h('nav', { className: 'fo-featnav', 'aria-label': '功能' },
-          features.map((feature) => h('button', {
-            key: feature.id,
-            type: 'button',
-            className: 'fo-featnav-item',
-            'data-active': feature.id === activeFeatureId ? '1' : '0',
-            'aria-current': feature.id === activeFeatureId ? 'page' : undefined,
-            title: model.str(feature.hint) || model.str(feature.label),
-            onClick: () => setActiveFeatureId(feature.id),
-          },
-            typeof feature.icon === 'function' ? feature.icon(h) : null,
-            h('span', { className: 'fo-nav-label' }, model.str(feature.label) || feature.id),
-          )),
+          features.map((feature) => {
+            const active = feature.id === activeFeatureId
+            const expandable = typeof feature.SubNav === 'function'
+            const open = expandable && active && navOpen[feature.id] !== false
+            return h('div', { key: feature.id, className: 'fo-featnav-group' },
+              h('button', {
+                type: 'button',
+                className: 'fo-featnav-item',
+                'data-active': active ? '1' : '0',
+                'data-expandable': expandable ? '1' : '0',
+                'data-expanded': open ? '1' : '0',
+                'aria-current': active ? 'page' : undefined,
+                'aria-expanded': expandable ? (open ? 'true' : 'false') : undefined,
+                title: model.str(feature.hint) || model.str(feature.label),
+                onClick: () => {
+                  if (active && expandable) {
+                    setNavOpen((prev) => ({ ...prev, [feature.id]: prev[feature.id] === false }))
+                    return
+                  }
+                  setActiveFeatureId(feature.id)
+                },
+              },
+                typeof feature.icon === 'function' ? feature.icon(h) : null,
+                h('span', { className: 'fo-nav-label' }, model.str(feature.label) || feature.id),
+                expandable ? h('span', { className: 'fo-nav-caret', 'data-open': open ? '1' : '0', 'aria-hidden': 'true' }, '▾') : null,
+              ),
+              open ? h(feature.SubNav, { key: 'sub', ...featureCtx }) : null,
+            )
+          }),
         ),
         h('div', { className: 'fo-rail-foot' },
           h('button', {

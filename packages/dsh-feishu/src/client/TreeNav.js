@@ -1,8 +1,8 @@
 /**
- * 范围列：三层树（全部任务 / 自定义目录 / 项目）—— 工厂组件，模块顶层不 import react。
+ * 范围树：三层（全部任务 / 自定义目录 / 项目）—— 工厂组件，模块顶层不 import react。
  *
- * task-14 起它不再挂在 rail 上，而是「任务关系图」功能页内部的 `.fo-scope` 子导航列
- * （搜索框已搬到正文头部，这里只管范围树）。
+ * task-17 起它是 **rail 里「关系」这个一级菜单的二级菜单**（`.fo-subnav`），页面里不再有第二列；
+ * `compact` = 二级菜单形态：行更矮更小（30px / 12px）、左侧缩进按层级给、不再重复一个分组标题。
  *
  * 能力（照 task-8 规格）：
  * - ARIA tree：role=tree/treeitem、aria-level / aria-expanded / aria-selected + roving tabindex；
@@ -22,6 +22,7 @@
  *   onDragKey(key) onDropKey(key) onDrop(projectKey, targetRow)
  *   onRenameStart(row) onRenameCommit(id, name) onRenameCancel()
  *   onCreateStart(projectKey) onCreateCommit(name) onCreateCancel()
+ *   compact                  二级菜单形态（rail 里用），默认 false
  */
 
 import { brandVar, decoVar } from './styles.js'
@@ -56,7 +57,10 @@ export function createTreeNav(deps) {
       onCreateStart,
       onCreateCommit,
       onCreateCancel,
+      compact = false,
     } = props || {}
+    /* 二级菜单形态：行更紧凑、缩进从 24px 起（一级项 padding 是 12px），字号交给 CSS。 */
+    const indent = (depth) => `${(compact ? 24 : 12) + (Number(depth) || 0) * (compact ? 12 : 14)}px`
 
     const rows = tree && Array.isArray(tree.rows) ? tree.rows : []
     const [active, setActive] = useState(() => (tree && tree.selected ? tree.selected.key : 'all'))
@@ -122,7 +126,7 @@ export function createTreeNav(deps) {
 
       const rename = renamingId && renamingId === row.id && isGroup
       if (rename) {
-        return h('div', { key: row.key, className: 'fo-row', 'data-kind': row.kind, style: { paddingLeft: `${12 + row.depth * 14}px`, '--fo-i': stagger } },
+        return h('div', { key: row.key, className: 'fo-row', 'data-kind': row.kind, style: { paddingLeft: indent(row.depth), '--fo-i': stagger } },
           h('input', {
             className: 'fo-input',
             defaultValue: row.label,
@@ -151,7 +155,7 @@ export function createTreeNav(deps) {
         'data-kind': row.kind,
         'data-key': row.key,
         'data-id': row.id,
-        style: { paddingLeft: `${12 + row.depth * 14}px`, '--fo-i': stagger },
+        style: { paddingLeft: indent(row.depth), '--fo-i': stagger },
         draggable: isProject,
         title: `${KIND_LABEL[row.kind] || ''}：${label}`,
         onClick: () => { focusKey(row.key); if (typeof onSelect === 'function') onSelect(row) },
@@ -262,9 +266,10 @@ export function createTreeNav(deps) {
       ))
     }
 
-    return h('div', { className: 'fo-scope' },
+    return h('div', { className: 'fo-scope', 'data-compact': compact ? '1' : '0' },
       h('div', { className: 'fo-scope-head' },
-        h('span', { className: 'fo-scope-title' }, '任务分组'),
+        /* 二级菜单里不再重复一个分组标题：一级项已经叫「关系」，标题只会是第二份同义文案。 */
+        compact ? null : h('span', { className: 'fo-scope-title' }, '任务分组'),
         h('button', {
           type: 'button',
           className: 'fo-btn',

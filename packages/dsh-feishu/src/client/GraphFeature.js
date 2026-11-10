@@ -1,24 +1,22 @@
 /**
- * 「任务关系图」功能页（功能注册表里的第一项）—— 工厂组件，模块顶层不 import react。
+ * 「关系」功能页（功能注册表里的第一项）—— 工厂组件，模块顶层不 import react。
  *
- * 页面布局（task-14 起目录树从 rail 搬进来；task-15 起工具条只剩一个**控件**）：
+ * 页面布局（task-17 起**单列**）：
  *   .fo-feature
- *     .fo-feature-bar   范围列折叠按钮（唯一的控件；功能说明/当前范围已删，见下）
- *     .fo-feature-body  .fo-scope（目录树列，可折叠）| .fo-canvas-area（画布，铺满剩余空间）
+ *     .fo-feature-bar   画布工具条：一键整理 / 建议 N（没有 organize 接口时整条不渲染）
+ *     .fo-feature-body  .fo-canvas-area（画布铺满）
  *
- * task-15 冗余审计：这里原来还有 `.fo-feature-hint`（功能说明）与 `.fo-feature-meta`（当前范围）两个
- * 纯文字 span。功能名已在 rail 品牌区 / 功能项出现，范围名已由树上的选中态 + 正文头部面包屑 + 图头
- * 图名三处承担 —— 同一份信息只该出现在**离它描述的对象最近**的那一处，所以这两个 span 连同它的
- * ctx 字段（scopeText）一起删掉；`ctx.featureHint` 仍在（rail 功能项的 title、以及别的功能页要用）。
+ * task-17：范围树（原 `.fo-scope-column`）搬进 rail，成为一级项「关系」的**二级菜单**；
+ * 页面里不再有第二列，范围折叠按钮与 `id="fo-scope-column"` 一起删除。
+ * task-15 冗余审计：`.fo-feature-hint`（功能说明）与 `.fo-feature-meta`（当前范围）两个纯文字
+ * span 已删 —— 功能名在 rail 一级项上，范围名由树上的选中态 + 正文头部面包屑 + 图头图名承担。
  *
  * 数据与交互状态全部由宿主 OverviewPanel 通过 ctx 传进来（本组件不取数据、不碰 store）：
- *   ctx.scopeCollapsed, ctx.onToggleScope
- *   ctx.treeProps                 原样转交 TreeNav（拖拽/右键/键盘 ARIA tree 全在它内部）
- *   ctx.graphs, ctx.selectedId, ctx.onOpenTask, ctx.nodePos, ctx.onNodeMove …
+ *   ctx.treeProps（交给 rail 的 SubNav）、ctx.graphs、ctx.selectedId、ctx.onOpenTask、
+ *   ctx.nodePos、ctx.onNodeMove、ctx.hostReady、ctx.organize …
  */
 
 import { createGraphView } from './GraphView.js'
-import { createTreeNav } from './TreeNav.js'
 
 /** 「一键整理」的图标：20px 线性 sparkle（自绘，不引图标字体/图片）。 */
 export function sparkleIcon(h) {
@@ -41,44 +39,29 @@ export function sparkleIcon(h) {
 
 export function createGraphFeature(deps) {
   const { h } = deps || {}
-  const TreeNav = createTreeNav(deps)
   const GraphView = createGraphView(deps)
 
   return function GraphFeature(props) {
     const ctx = props || {}
-    const collapsed = ctx.scopeCollapsed === true
     const org = ctx.organize && typeof ctx.organize === 'object' ? ctx.organize : null
     const orgAvailable = !!(org && org.available)
     const orgRunning = !!(org && org.running)
     const orgOpen = !!(org && org.open)
     const orgPending = org && Number(org.pending) > 0 ? Number(org.pending) : 0
-
-    return h('div', { className: 'fo-feature' },
-      h('div', { className: 'fo-feature-bar' },
+    /* 没有整理接口（旧宿主）时工具条整条不渲染 —— 画布直接铺满，不留一条空条。 */
+    const bar = orgAvailable
+      ? h('div', { className: 'fo-feature-bar' },
         h('button', {
           type: 'button',
           className: 'fo-btn',
           'data-size': 'sm',
-          'data-variant': 'ghost',
-          'aria-expanded': collapsed ? 'false' : 'true',
-          'aria-controls': 'fo-scope-column',
-          title: collapsed ? '展开范围列' : '折叠范围列',
-          onClick: () => { if (typeof ctx.onToggleScope === 'function') ctx.onToggleScope() },
-        }, collapsed ? '› 范围' : '‹ 范围'),
-        /* 一键整理：宿主没有 organize 接口（旧宿主）时整块不渲染，而不是点了报错。 */
-        orgAvailable
-          ? h('button', {
-            type: 'button',
-            className: 'fo-btn',
-            'data-size': 'sm',
-            'data-action': 'organize',
-            disabled: orgRunning,
-            title: '让 AI 为当前范围找前置/后置/来源关系，先出建议再落库',
-            onClick: () => { if (!orgRunning && typeof org.onRun === 'function') org.onRun() },
-          }, orgRunning ? '整理中…' : '一键整理', orgRunning ? null : sparkleIcon(h))
-          : null,
+          'data-action': 'organize',
+          disabled: orgRunning,
+          title: '让 AI 为当前范围找前置/后置/来源关系，先出建议再落库',
+          onClick: () => { if (!orgRunning && typeof org.onRun === 'function') org.onRun() },
+        }, orgRunning ? '整理中…' : '一键整理', orgRunning ? null : sparkleIcon(h)),
         /* 有建议时给一个折叠开关：用来把抽屉收起来再打开，不用重跑一次模型。 */
-        orgAvailable && orgPending > 0
+        orgPending > 0
           ? h('button', {
             type: 'button',
             className: 'fo-btn',
@@ -90,11 +73,12 @@ export function createGraphFeature(deps) {
             onClick: () => { if (typeof org.onToggle === 'function') org.onToggle() },
           }, orgOpen ? '收起建议' : `建议 ${orgPending}`)
           : null,
-      ),
+      )
+      : null
+
+    return h('div', { className: 'fo-feature' },
+      bar,
       h('div', { className: 'fo-feature-body' },
-        collapsed
-          ? null
-          : h('div', { className: 'fo-scope-column', id: 'fo-scope-column' }, h(TreeNav, ctx.treeProps || {})),
         h('div', { className: 'fo-canvas-area' }, h(GraphView, {
           graphs: ctx.graphs,
           selectedId: ctx.selectedId,
