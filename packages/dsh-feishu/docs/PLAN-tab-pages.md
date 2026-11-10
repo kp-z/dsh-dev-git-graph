@@ -99,8 +99,24 @@
 
 ## 5. 本轮进度
 
-- [x] 计划 + 自审（本文件 §0–§4）
-- [x] 建每小时循环（schedule）
-- [ ] task-20 宿主 `running` / `activityAt`
-- [ ] task-17 / 18 / 19 派活并开工
-- [ ] 下一轮：集成 + 复核 + 提交
+**第 1 轮（2026-11-11 01:2x–01:5x，用户睡前那一轮）**
+
+- [x] 计划 + 自审（本文件 §0–§4）——已提交 `4425c01`
+- [x] 每小时循环已建：`schedule-3ce1d66b`（`FREQ=HOURLY`，02:30 起每小时，投递到本会话）
+- [x] **task-20 宿主 `running` / `sessionTurn`**：已实现并进 revision 哈希；offline 全绿；live 复核
+      `GET /dsh-feishu/api/overview` → 52 任务、**running 2 条**（含本会话 T516451 turn 23）、字段形状齐全
+- [x] `api.js` 加 `organize / organizeView / organizeAccept / organizeReject`（一键整理 UI 的前置）
+- [x] 派活与开工：
+      - **task-15/16**（canvas-node-dev）：节点卡片化 + 拖动/聚焦/跳会话、一键整理 UI —— 进行中
+      - **task-17**（同上，依赖 task-16）：关系一级菜单 + 范围二级菜单（单侧边栏单列）
+      - **task-18/19**（overview-react-dev，team 名额已满所以复用）：洞察页、运行页（气泡墙）—— 只写新文件
+      - **task-20**（复核，只读）：待 17/18/19 完成后派给空闲的 reviewer
+- [ ] 下一轮要做的（入口）：
+      1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
+         `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
+      2. 收 task-15/16/17（canvas-node-dev 串行三个任务），合并前先跑 `test:offline`
+      3. 三件都落地后：真 Chromium 复量三个页面 → 提交 → 派 task-20 只读复核
+      4. 时间够就做「一键整理」的真机验收（点一次按钮、看建议单、接受一条、确认关系真的出现）
+
+**已知风险（下一轮先看这里）**：team 成员上限 8 个，已满 → 新工作必须复用现有成员；teammate 有两次
+「动手前就崩」的记录 → 派活时都要给「一步步做、每步落地就回报」的约束，并且我自己保留兜底实现。
