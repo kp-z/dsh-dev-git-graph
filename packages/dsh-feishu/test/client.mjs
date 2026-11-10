@@ -33,6 +33,15 @@ assert.equal(projectContext.workspaceId, 'w1')
 assert.equal(projectContext.workspacePath, '/one')
 console.log('✓ 源码：workspaceContextOf 从 scope 读出项目上下文')
 
+/* 总览面板的宿主能力位：面板在宿主页面里，开不了 iframe 那套 postMessage，
+   「打开会话」直接走 uiWorkspace —— 这条接线断了按钮就是死的，所以钉在源码层。 */
+const clientSrc = await readFile(new URL('../src/client/client.js', import.meta.url), 'utf8')
+assert.match(clientSrc, /createOverviewPanel\(\{[^}]*\bhost\b/, '总览面板要拿到 host 能力位')
+assert.match(clientSrc, /host\.__ctx = ctx/, 'apply 时要把 ctx 晚绑定给 host（factory 里没有 ctx）')
+assert.match(clientSrc, /openSession\(sessionId/, 'host 要提供 openSession')
+assert.match(clientSrc, /canOpenSession\(\)/, 'host 要能回答「当前宿主支不支持打开会话」')
+console.log('✓ 源码：总览面板的 host 能力位（openSession / canOpenSession）已接线')
+
 const captured = []
 const slotRegistrations = []
 const slots = {

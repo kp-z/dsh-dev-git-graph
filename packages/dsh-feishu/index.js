@@ -46,7 +46,19 @@ import { createCreationLedger } from './creationLedger.js'
 const backendIOContext = new AsyncLocalStorage()
 import { matchWorkspace, titleChangeOf } from './workspace.js'
 import { updateRelations, projectRelations, relationStats } from './relations.js'
+import {
+  ORGANIZE_SYSTEM,
+  buildEvidencePack,
+  makeOrganizeBatch,
+  organizeBatchId,
+  parseOrganizeResponse,
+  projectOrganize,
+  scopeKeyOf,
+  validateOrganizeItems,
+} from './organizeSuggestions.js'
 import { normalizeGroups, applyGroupAction, projectGroups, workspaceKeyOf } from './workspaceGroups.js'
+/* 未分组桶的 key 与总览页同一个来源（src/overview/model.js 的纯常量，无 react 依赖）。 */
+import { UNGROUPED_KEY } from './src/overview/model.js'
 import {
   TZ_DEFAULT,
   advance as advanceSchedule,
@@ -539,6 +551,8 @@ const DEFAULT_STATE = {
   /* 独立于任务过滤与会话绑定的有向关系；飞书原生依赖是同步投影。 */
   relations: [],
   relationSync: {},
+  /* 一键整理的 AI 关系建议单：按 batchId 存，pending 只是建议，不写 relations、不写飞书。 */
+  organizeSuggestions: {},
   /* 自定义目录（工作区分组）：用户自己拖出来的一组 workspace，共用一个名字与一张关系图。 */
   workspaceGroups: [],
   /* 挂起独立于完成标志；保存归档/自动化恢复凭据，不能同步时丢失。 */
@@ -3177,6 +3191,8 @@ function createSyncEngine(ctx) {
 
     state.relations = Array.isArray(savedState.relations) ? savedState.relations : []
     state.relationSync = savedState.relationSync && typeof savedState.relationSync === 'object' ? savedState.relationSync : {}
+    /* 一键整理的建议单：坏值退回空对象，别让手改过的 state.json 把面板打崩。 */
+    state.organizeSuggestions = savedState.organizeSuggestions && typeof savedState.organizeSuggestions === 'object' && !Array.isArray(savedState.organizeSuggestions) ? savedState.organizeSuggestions : {}
     /* 自定义目录：坏行直接丢掉，不让一份手改过的 state.json 拖垮整个面板。 */
     state.workspaceGroups = normalizeGroups(savedState.workspaceGroups)
     state.suspensions = savedState.suspensions && typeof savedState.suspensions === 'object' ? savedState.suspensions : {}
@@ -5961,6 +5977,175 @@ function createSyncEngine(ctx) {
     const checked = updateRelations(state.relations, state.tasks, { ...proposal, taskId, mode: 'merge', source: 'ai' })
     if (!checked.ok) return { ok: false, error: checked.error }
     return { ok: true, proposal: { predecessorIds: proposal.predecessorIds, successorIds: proposal.successorIds, sourceTaskIds: proposal.sourceTaskIds, reason: asString(proposal.reason).slice(0, 300) } }
+  }
+
+  /* ==========================================================================
+   * 一键整理：AI 为某个范围（目录 / 项目 / 全部）找前置·后置·来源关系。
+   *
+   * 口径（用户已确认 + docs/DESIGN-task-organize-suggestions.md）：
+   *  - **只出建议**：生成阶段零副作用——不写 state.relations、不写飞书、不阻塞创建；
+   *  - 建议逐条接受/拒绝，接受才走 setTaskRelations（它会先 refresh 再 merge 并写回）；
+   *  - depends_on 的置信度门槛更高、必须有正文证据（写错的代价是后继永远开不了工）。
+   * ======================================================================== */
+
+  /** 范围内的任务（scope: {kind:'all'|'group'|'project', id}）。 */
+  function organizeScopeTasks(scope) {
+    const s = scope && typeof scope === 'object' ? { kind: asString(scope.kind) || 'all', id: asString(scope.id) } : { kind: 'all', id: '' }
+    if (s.kind === 'project') return state.tasks.filter((task) => workspaceKeyOf(task) === s.id)
+    if (s.kind === 'group') {
+      const rows = projectGroups(state.workspaceGroups, state.tasks)
+      const lane = s.id === UNGROUPED_KEY
+        ? rows.find((row) => row.ungrouped === true) || { members: ungroupedKeys() }
+        : rows.find((row) => row.id === s.id)
+      const members = new Set(Array.isArray(lane?.members) ? lane.members : [])
+      return state.tasks.filter((task) => members.has(workspaceKeyOf(task)))
+    }
+    return state.tasks
+  }
+
+  /** 未分组桶 = 不属于任何自定义目录的 workspace key。 */
+  function ungroupedKeys() {
+    const claimed = new Set()
+    for (const group of normalizeGroups(state.workspaceGroups)) for (const key of group.members) claimed.add(key)
+    const keys = new Set()
+    for (const task of state.tasks) {
+      const key = workspaceKeyOf(task)
+      if (key && !claimed.has(key)) keys.add(key)
+    }
+    return [...keys]
+  }
+
+  /** 把已有关系摊回任务上，供取材段使用（模型要能看到「现在已有哪些边」）。 */
+  function organizeTaskViews(tasks) {
+    const predecessors = new Map()
+    const successors = new Map()
+    const sources = new Map()
+    const push = (map, key, value) => {
+      const list = map.get(key)
+      if (list) list.push(value)
+      else map.set(key, [value])
+    }
+    for (const edge of state.relations) {
+      const from = asString(edge?.from)
+      const to = asString(edge?.to)
+      if (!from || !to) continue
+      if (edge.kind === 'depends_on') {
+        push(predecessors, to, from)
+        push(successors, from, to)
+      } else if (edge.kind === 'derived_from') {
+        push(sources, to, from)
+      }
+    }
+    return tasks.map((task) => ({
+      id: task.id,
+      no: task.no,
+      title: task.title,
+      description: task.description,
+      done: task.done === true,
+      createdAt: task.createdAt,
+      meta: { workspace: asString(task.meta?.workspace) || asString(task.workspaceTitle) },
+      predecessors: predecessors.get(task.id) || [],
+      successors: successors.get(task.id) || [],
+      sourceTasks: sources.get(task.id) || [],
+    }))
+  }
+
+  /** 某个范围最近一批建议（面板打开整理抽屉时取它）。 */
+  function viewOrganize(scope) {
+    const key = scopeKeyOf(scope)
+    const rows = Object.values(state.organizeSuggestions).filter((batch) => batch && scopeKeyOf(batch.scope) === key)
+    rows.sort((a, b) => Number(b.at) - Number(a.at))
+    return rows.length ? projectOrganize(rows[0], state.tasks) : null
+  }
+
+  /**
+   * 跑一次整理：取材 → 模型识别 → 纯函数校验 → 存建议单。**不写关系、不写飞书。**
+   */
+  async function organizeScope(scope) {
+    const s = scope && typeof scope === 'object' ? { kind: asString(scope.kind) || 'all', id: asString(scope.id) } : { kind: 'all', id: '' }
+    const tasks = organizeScopeTasks(s)
+    if (tasks.length < 2) return { ok: false, error: '这个范围里没有足够的任务可以整理' }
+    const pack = buildEvidencePack({ tasks: organizeTaskViews(tasks), relations: state.relations })
+    if (!pack.items.length) return { ok: false, error: '没有可用的任务内容' }
+    const models = await awaitService(ctx, 'agentDefaultModel')
+    const selection = typeof models?.currentSelection === 'function' ? models.currentSelection() : undefined
+    const asked = await askModelForInsight(ORGANIZE_SYSTEM, pack.text, 2000)
+    if (!asked.text) return { ok: false, error: asked.reason || '模型没有返回建议' }
+    const parsed = parseOrganizeResponse(asked.text)
+    if (parsed.error) return { ok: false, error: parsed.error }
+    const checked = validateOrganizeItems({ items: parsed.items, tasks: organizeTaskViews(tasks), relations: state.relations, now: nowMs() })
+    const batch = makeOrganizeBatch({
+      batchId: organizeBatchId(s, nowMs()),
+      at: nowMs(),
+      scope: s,
+      model: { provider: asString(selection?.provider), model: asString(selection?.model), candidates: pack.items.length, truncated: pack.truncated > 0 },
+      notes: parsed.notes,
+      items: checked.items,
+    })
+    state.organizeSuggestions[batch.batchId] = batch
+    /* 只留最近 5 个批次：建议单是回看用的，不需要无限增长。 */
+    const all = Object.values(state.organizeSuggestions).sort((a, b) => Number(b.at) - Number(a.at))
+    for (const stale of all.slice(5)) delete state.organizeSuggestions[stale.batchId]
+    await persistState()
+    return { ok: true, batch: projectOrganize(batch, state.tasks), dropped: checked.dropped, complete: pack.complete, candidates: pack.items.length }
+  }
+
+  /** 找批次里待处理的条目（itemIds 省略或空数组 = 全部 pending）。 */
+  function organizePending(batchId, itemIds) {
+    const batch = state.organizeSuggestions[asString(batchId)]
+    if (!batch) return null
+    const wanted = Array.isArray(itemIds) && itemIds.length ? new Set(itemIds.map((id) => asString(id))) : null
+    return { batch, items: batch.items.filter((item) => item.status === 'pending' && (!wanted || wanted.has(item.id))) }
+  }
+
+  /**
+   * 接受若干条建议：逐条走 setTaskRelations（先 refresh 再 merge，写回飞书原生依赖）。
+   * 逐条汇报成功/失败，不做事务——远端本来就可能部分失败。
+   */
+  async function acceptOrganizeItems(batchId, itemIds, options = {}) {
+    const found = organizePending(batchId, itemIds)
+    if (!found) return { ok: false, error: '没找到这批建议（可能已被新批次替换）' }
+    if (!found.items.length) return { ok: false, error: '没有待接受的建议' }
+    const writeBack = options.writeBack !== false
+    const results = []
+    for (const item of found.items) {
+      const input = item.kind === 'depends_on' ? { predecessorIds: [item.from] } : { sourceTaskIds: [item.from] }
+      let written
+      try {
+        written = await setTaskRelations(item.to, {
+          ...input,
+          mode: 'merge',
+          source: 'ai',
+          reason: `整理建议（batchId=${found.batch.batchId}）：${asString(item.evidence).slice(0, 80)}`,
+          writeBack,
+        })
+      } catch (error) {
+        written = { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+      if (written.ok) {
+        item.status = 'accepted'
+        item.acceptedAt = nowMs()
+        item.reason = ''
+      } else {
+        item.reason = asString(written.error) || '写入失败'
+      }
+      results.push({ id: item.id, kind: item.kind, from: item.from, to: item.to, ok: written.ok === true, error: item.reason })
+    }
+    await persistState()
+    return { ok: true, results, batch: projectOrganize(found.batch, state.tasks) }
+  }
+
+  /** 拒绝若干条建议：只改建议单状态，不碰关系。 */
+  async function rejectOrganizeItems(batchId, itemIds) {
+    const found = organizePending(batchId, itemIds)
+    if (!found) return { ok: false, error: '没找到这批建议（可能已被新批次替换）' }
+    if (!found.items.length) return { ok: false, error: '没有待处理的建议' }
+    for (const item of found.items) {
+      item.status = 'rejected'
+      item.rejectedAt = nowMs()
+    }
+    await persistState()
+    return { ok: true, rejected: found.items.length, batch: projectOrganize(found.batch, state.tasks) }
   }
 
   /**
@@ -9257,6 +9442,10 @@ bucket 只能从枚举里选：
     snapshot,
     overviewView,
     setWorkspaceGroups,
+    organizeScope: (...args) => runEngineOperation(organizeScope, args),
+    viewOrganize,
+    acceptOrganizeItems: (...args) => runEngineOperation(acceptOrganizeItems, args),
+    rejectOrganizeItems: (...args) => runEngineOperation(rejectOrganizeItems, args),
     saveSettings,
     ensureManagedTasklist,
     switchBackend,
@@ -9464,6 +9653,38 @@ function mountRoutes(ctx, engine) {
 
           if (req.method === 'GET' && route === '/api/overview/revision') {
             sendJson(res, 200, { ok: true, revision: engine.overviewView().revision })
+            return
+          }
+
+          /* 一键整理：GET 看某范围最近一批建议；POST 跑一次（零副作用）；accept/reject 逐条处理。 */
+          if (req.method === 'GET' && route === '/api/overview/organize') {
+            const query = new URL(req.url || '/', 'http://127.0.0.1')
+            const scope = {
+              kind: asString(query.searchParams.get('kind')) || 'all',
+              id: asString(query.searchParams.get('id')),
+            }
+            sendJson(res, 200, { ok: true, batch: engine.viewOrganize(scope) })
+            return
+          }
+
+          if (req.method === 'POST' && route === '/api/overview/organize') {
+            const body = await readBody(req)
+            const result = await engine.organizeScope(body?.scope)
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (req.method === 'POST' && route === '/api/overview/organize/accept') {
+            const body = await readBody(req)
+            const result = await engine.acceptOrganizeItems(asString(body?.batchId), Array.isArray(body?.itemIds) ? body.itemIds : [], { writeBack: body?.writeBack !== false })
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (req.method === 'POST' && route === '/api/overview/organize/reject') {
+            const body = await readBody(req)
+            const result = await engine.rejectOrganizeItems(asString(body?.batchId), Array.isArray(body?.itemIds) ? body.itemIds : [])
+            sendJson(res, result.ok ? 200 : 400, result)
             return
           }
 

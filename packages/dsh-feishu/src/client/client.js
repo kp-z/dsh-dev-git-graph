@@ -93,6 +93,70 @@ function createStore() {
   };
 }
 
+/**
+ * 宿主能力位：面板是宿主页面里的 React 组件，拿不到 iframe 那套 postMessage，
+ * 所以「打开会话」直接调宿主的 uiWorkspace 服务。ctx 只有在 apply 时才有，
+ * 因此用一个**晚绑定**的 holder：factory 里先把它交给面板，apply 时再填实现。
+ */
+function makeHostHolder() {
+  return {
+    /** 面板用它决定「打开会话」按钮是否可用；返回原因便于 tooltip。 */
+    canOpenSession() {
+      const ui = serviceOf(this.__ctx, 'uiWorkspace');
+      if (!ui) return { ok: false, reason: '当前宿主没有 uiWorkspace 服务' };
+      if (typeof ui.openSession !== 'function') return { ok: false, reason: '当前宿主不支持打开会话' };
+      return { ok: true };
+    },
+    /**
+     * 打开某条会话。openSession 是「尽力而为」的：宿主解析不到时不一定抛错，
+     * 所以切过去后读回宿主真正选中的会话核对一次，对不上就把真相告诉调用方。
+     * 返回 Promise<{ok, reason}>。
+     */
+    openSession(sessionId, expectedTitle) {
+      const ui = serviceOf(this.__ctx, 'uiWorkspace');
+      if (!ui || typeof ui.openSession !== 'function') {
+        return Promise.resolve({ ok: false, reason: '当前宿主不支持打开会话' });
+      }
+      try {
+        ui.openSession(sessionId);
+      } catch (error) {
+        return Promise.resolve({ ok: false, reason: (error && error.message) || '打开会话失败' });
+      }
+      return new Promise((resolve) => {
+        const settle = typeof setTimeout === 'function' ? setTimeout : null;
+        const check = () => {
+          let actual = '';
+          try {
+            const snap = ui.selection && typeof ui.selection.getSnapshot === 'function' ? ui.selection.getSnapshot() : null;
+            if (snap && typeof snap.sessionId === 'string') actual = snap.sessionId;
+          } catch (error) {
+            actual = '';
+          }
+          if (actual) {
+            resolve(actual === sessionId ? { ok: true } : { ok: false, reason: `宿主切到了 ${actual}，不是这条会话` });
+            return;
+          }
+          /* 读不到 selection 时退回窗口标题（会话名默认 = 任务名）；无从判断就算成功。 */
+          let docTitle = '';
+          try {
+            docTitle = document && document.title ? String(document.title) : '';
+          } catch (error) {
+            docTitle = '';
+          }
+          const snippet = String(expectedTitle || '').replace(/\s+/g, '').slice(0, 8);
+          if (!snippet || !docTitle) {
+            resolve({ ok: true });
+            return;
+          }
+          resolve(docTitle.replace(/\s+/g, '').includes(snippet) ? { ok: true } : { ok: false, reason: `窗口标题是「${docTitle.slice(0, 28)}」，对不上这张卡的任务名` });
+        };
+        if (settle) settle(check, 260);
+        else check();
+      });
+    },
+  };
+}
+
 window.__ModuleLoader__.load({
   id: 'dsh-feishu',
   factory: (require) => {
@@ -101,9 +165,11 @@ window.__ModuleLoader__.load({
 
     const sidebar = createSidebarHalf({ React, h });
     const api = createApi();
-    const OverviewPanel = createOverviewPanel({ React, h, api, model, layout, store: createStore() });
+    const host = makeHostHolder();
+    const OverviewPanel = createOverviewPanel({ React, h, api, model, layout, store: createStore(), host });
 
     function installOverview(ctx) {
+      host.__ctx = ctx;
       const slots = serviceOf(ctx, 'slots');
       if (!slots || typeof slots.inject !== 'function' || typeof slots.register !== 'function') return false;
       /* 样式算 effect：卸载/禁用插件时把两个 style 标签带走（官方实践：资源在 apply 里用 ctx.effect 注册并清理）。 */
