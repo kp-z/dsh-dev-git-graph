@@ -124,6 +124,15 @@
       原始任务只有 `meta.workspace`、没有 workspaceId 时两者算不出同一个 key → 按项目筛出 0 条
       （第一次真机跑就报「没有足够的任务可以整理」）。现已统一走 enrich 版本。
 
+- [x] **task-18（洞察 tab）完成，lead 已独立验过**：新文件 `insightView.js`（纯函数）/ `dashboardStyles.js`（`fd-` 前缀）/
+      `InsightFeature.js` / `test/insightView.mjs`；`node --check` 全过、纯函数 28 条断言、
+      字面量颜色 0（唯一 grep 命中是注释里写的「#hex / rgb() / hsl()」）、用到 8 个令牌全在白名单内。
+      **接线按住不动**：`features.js` 在 canvas-node-dev 手上（task-17），等它落地我立刻注册 `insight` + 注入 dashboardStyles。
+- [x] **补任务级时间戳**（`0c10078`）：快照任务项加 `createdAt/startedAt/completedAt/suspendedAt`，`completedAt`、`startedAt` 进哈希。
+      洞察页的「最近动态」与运行页的「跑了多久」从此有真实时间可用（不再拿编号倒序冒充）。
+- [ ] **注意**：`test/insightView.mjs` 此刻是红的（24/28），原因是 overview-react-dev 正在按上面的新字段改「最近动态」——
+      属在飞状态，等它回报。lead 已提交的 host 改动与路由测试是绿的（overviewRoute / organizeRoute 单独跑均 OK）。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
