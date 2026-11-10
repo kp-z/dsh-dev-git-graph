@@ -111,6 +111,19 @@
       - **task-17**（同上，依赖 task-16）：关系一级菜单 + 范围二级菜单（单侧边栏单列）
       - **task-18/19**（overview-react-dev，team 名额已满所以复用）：洞察页、运行页（气泡墙）—— 只写新文件
       - **task-20**（复核，只读）：待 17/18/19 完成后派给空闲的 reviewer
+**第 1 轮追加（同一小时内继续推进）**
+
+- [x] **task-15 完成并提交**（`964b031`）：画布节点做成 workflow 式卡片（264×88 / rx12 / 2px 描边 / 三段结构）、
+      拖动吸附 40px 网格（落 store `nodePos`）、聚焦（其余节点 dim 到 0.28）、节点与详情都能「打开会话」、
+      删掉 `.fo-stats` 计数胶囊与图头计数等重复标签；overviewPanel 121 → 163、overviewLayout 17 → 24
+- [x] **一键整理的真机验收（零副作用那条）**：live `POST /api/overview/organize`（scope=QVIZ 后端主线开发）
+      → `candidates: 5`、`complete: true`、`dropped: 0`，模型回答**一条建议都没提**并说明
+      「标题和描述未明确给出候选任务间的等待关系」——这正是「宁少勿错」的预期行为，也证明生成阶段确实零写入。
+- [x] **真机验收捞出一个真 bug 并修掉**：`organizeScopeTasks` 原来用 `workspaceKeyOf(rawTask)`，
+      而 `/api/overview` 用的是 `workspaceKeyOf(enrichWorkspace(task, workspaceList()))`；
+      原始任务只有 `meta.workspace`、没有 workspaceId 时两者算不出同一个 key → 按项目筛出 0 条
+      （第一次真机跑就报「没有足够的任务可以整理」）。现已统一走 enrich 版本。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言

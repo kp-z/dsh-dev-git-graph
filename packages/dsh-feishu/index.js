@@ -5994,19 +5994,26 @@ function createSyncEngine(ctx) {
    *  - depends_on 的置信度门槛更高、必须有正文证据（写错的代价是后继永远开不了工）。
    * ======================================================================== */
 
-  /** 范围内的任务（scope: {kind:'all'|'group'|'project', id}）。 */
+  /**
+   * 范围内的任务（scope: {kind:'all'|'group'|'project', id}）。
+   *
+   * 关键：workspace key 必须与 `/api/overview` 里那条**同一口径**——快照用的是
+   * `workspaceKeyOf(enrichWorkspace(task, workspaceList()))`（可能从工作区注册表补出 id/路径），
+   * 直接用 `workspaceKeyOf(rawTask)` 会在「原始任务没有 workspaceId、只有 meta.workspace」时算不出同一个 key，
+   * 于是按项目筛出 0 条（这正是 live 上第一次跑「一键整理」踩到的）。所以这里统一走 enrich 版本。
+   */
   function organizeScopeTasks(scope) {
     const s = scope && typeof scope === 'object' ? { kind: asString(scope.kind) || 'all', id: asString(scope.id) } : { kind: 'all', id: '' }
-    if (s.kind === 'project') return state.tasks.filter((task) => workspaceKeyOf(task) === s.id)
-    if (s.kind === 'group') {
-      const rows = projectGroups(state.workspaceGroups, state.tasks)
-      const lane = s.id === UNGROUPED_KEY
-        ? rows.find((row) => row.ungrouped === true) || { members: ungroupedKeys() }
-        : rows.find((row) => row.id === s.id)
-      const members = new Set(Array.isArray(lane?.members) ? lane.members : [])
-      return state.tasks.filter((task) => members.has(workspaceKeyOf(task)))
-    }
-    return state.tasks
+    if (s.kind === 'all') return state.tasks
+    const workspaceRows = workspaceList()
+    const keyOf = (task) => workspaceKeyOf(enrichWorkspace(task, workspaceRows))
+    if (s.kind === 'project') return state.tasks.filter((task) => keyOf(task) === s.id)
+    const rows = projectGroups(state.workspaceGroups, state.tasks)
+    const lane = s.id === UNGROUPED_KEY
+      ? rows.find((row) => row.ungrouped === true) || { members: ungroupedKeys() }
+      : rows.find((row) => row.id === s.id)
+    const members = new Set(Array.isArray(lane?.members) ? lane.members : [])
+    return state.tasks.filter((task) => members.has(keyOf(task)))
   }
 
   /** 未分组桶 = 不属于任何自定义目录的 workspace key。 */
