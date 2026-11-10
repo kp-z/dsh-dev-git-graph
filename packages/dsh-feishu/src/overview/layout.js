@@ -4,10 +4,11 @@
  * 输入 `{tasks, relations, groups, workspaces, scope}` → 输出可以直接喂给 SVG 的
  * `{graphs[], nodes, edges, bands, width, height}`。
  *
- * 关键设计（照 task-8 规格）：
- * - **一个自定义目录 = 恰好一张图、一套坐标系**。目录里的多个项目用横向「泳道」(band)
- *   分开，但共用同一组列（列＝依赖深度）——所以跨项目的边可以在同一张图里**直连**，
- *   而不是被切成两张图再靠 ghost 假装接上。
+ * 关键设计（task-13 起）：
+ * - **一个自定义目录 = 恰好一张画布、一套坐标系，且不再按项目分块**：目录内的全部任务
+ *   一次性布局（列＝依赖深度，同列内按项目色→编号排行）。跨项目的边因此天然直连。
+ *   项目身份由**节点分色**（`colorRef` → --fo-deco-N）与**图头图例**（`legend`）承担。
+ * - 泳道（bands）已废弃：返回值里保留 `bands: []` 只是为了让形状稳定，组件不再画泳道。
  * - scope=all：每个目录一张图（graphs[] 多张）；scope=group：恰好一张；scope=project：
  *   恰好一张且只含该项目任务。
  * - 边的端点只要有一个不在本图的可见任务里，就补一个 **ghost 节点**（kind:'ghost'）：
@@ -21,8 +22,6 @@
  */
 
 import {
-  EXTERNAL_KEY,
-  EXTERNAL_LABEL,
   GROUP_PREFIX,
   arr,
   collapse,
@@ -51,9 +50,6 @@ export const GEOMETRY = {
   GAP_X: 64,
   GAP_Y: 16,
   PAD: 20,
-  BAND_HEAD: 28,
-  BAND_GAP: 14,
-  BAND_INSET: 6,
   TITLE_WIDTH: 16,
 }
 
@@ -93,8 +89,8 @@ export function nodeOf(task, options) {
     y: 0,
     depth: 0,
     column: 0,
+    subColumn: 0,
     row: 0,
-    bandKey: '',
     graphKey: '',
     colorRef: null,
   }
@@ -139,8 +135,8 @@ export function ghostNode(id, graphKey, known, role, hints, options) {
     y: 0,
     depth: 0,
     column: 0,
+    subColumn: 0,
     row: 0,
-    bandKey: '',
     graphKey,
     colorRef: null,
   }
@@ -212,6 +208,7 @@ function emptyGraph(key, label) {
     nodes: [],
     edges: [],
     bands: [],
+    legend: [],
     width: GEOMETRY.PAD * 2,
     height: GEOMETRY.PAD * 2,
     top: 0,
@@ -265,73 +262,66 @@ export function buildGraph(lane, edges, known, hints, index, originY, options) {
   })
 
   const depthKeys = Array.from(new Set(all.map((node) => node.depth))).sort((a, b) => a - b)
-  const columnOf = new Map(depthKeys.map((d, i) => [d, i]))
-  const columns = depthKeys.length
+
+  /* 节点分色：项目身份现在只靠颜色 + 图头图例（没有泳道了）。
+     颜色索引来自 lane.colorOf（由 model.groupByCustom 按目录内项目顺序分配）。 */
+  const colorOf = isObj(lane.colorOf) ? lane.colorOf : {}
+  all.forEach((node) => {
+    const hit = colorOf[node.workspaceKey]
+    node.colorRef = hit == null || !isFinite(Number(hit)) ? null : Number(hit)
+  })
+
+  /* 合并布局：整张画布 = 该目录的全部任务 + ghost 一次性铺开，不再按项目切块。
+     列 = 依赖深度（左→右就是依赖方向），行 = 列内序号；**列太长就折成多根物理列**，
+     否则「40 个互不依赖的任务」会变成一条 40 行的细长条，铺满画布缩放后小到看不清。
+     不重叠的理由：同一根物理列里行号各不相同；不同列 x 区间互不相交。 */
+  const rowsPerColumn = Math.max(3, Math.min(14, Math.ceil(Math.sqrt(2 * Math.max(1, all.length)))))
+  const columnNodes = new Map(depthKeys.map((depth) => [depth, []]))
+  all.forEach((node) => { columnNodes.get(node.depth).push(node) })
+  let physicalColumns = 0
+  let maxRows = 0
+  depthKeys.forEach((depth) => {
+    const column = columnNodes.get(depth)
+    column.sort((a, b) => {
+      const ca = a.colorRef == null ? Infinity : a.colorRef
+      const cb = b.colorRef == null ? Infinity : b.colorRef
+      return (ca - cb)
+        || (a.ghost === b.ghost ? 0 : (a.ghost ? 1 : -1))
+        || (rank(a) - rank(b))
+        || str(a.label).localeCompare(str(b.label))
+        || str(a.id).localeCompare(str(b.id))
+    })
+    for (let offset = 0; offset < column.length; offset += rowsPerColumn) {
+      const chunk = column.slice(offset, offset + rowsPerColumn)
+      const physical = physicalColumns
+      physicalColumns += 1
+      if (chunk.length > maxRows) maxRows = chunk.length
+      chunk.forEach((node, row) => {
+        node.column = physical
+        node.subColumn = Math.floor(offset / rowsPerColumn)
+        node.row = row
+        node.x = g.PAD + physical * (g.NODE_W + g.GAP_X)
+        node.y = originY + g.PAD + row * (g.NODE_H + g.GAP_Y)
+      })
+    }
+  })
   const width = Math.max(
     g.PAD * 2 + g.NODE_W,
-    columns ? g.PAD * 2 + columns * g.NODE_W + (columns - 1) * g.GAP_X : g.PAD * 2,
+    physicalColumns ? g.PAD * 2 + physicalColumns * g.NODE_W + (physicalColumns - 1) * g.GAP_X : g.PAD * 2,
   )
+  const height = maxRows
+    ? g.PAD * 2 + maxRows * g.NODE_H + (maxRows - 1) * g.GAP_Y
+    : g.PAD * 2 + g.NODE_H
 
-  /* 泳道：目录里的每个项目一条；本组之外的 ghost 统一落「组外 · 缺失」。
-     只有一条泳道时（项目 scope）ghost 直接进这条泳道，免得出现只有 ghost 的孤带。 */
-  const bandDefs = arr(lane.projects)
+  /* 图头图例：没有泳道后，这是「哪个颜色 = 哪个项目」的唯一标识。 */
+  const legend = arr(lane.projects)
     .filter((project) => arr(project.tasks).length > 0)
     .map((project, i) => ({
       key: project.key,
       label: project.label,
       colorRef: num(project.colorIndex, i),
-      external: false,
+      count: arr(project.tasks).length,
     }))
-  const bandIndex = new Set(bandDefs.map((band) => band.key))
-  const loneBand = bandDefs.length === 1 ? bandDefs[0].key : ''
-  const needExternal = ghosts.some((ghost) => !loneBand && !bandIndex.has(ghost.workspaceKey))
-  if (needExternal) bandDefs.push({ key: EXTERNAL_KEY, label: EXTERNAL_LABEL, colorRef: -1, external: true })
-
-  all.forEach((node) => {
-    if (bandIndex.has(node.workspaceKey)) { node.bandKey = node.workspaceKey; return }
-    node.bandKey = loneBand || EXTERNAL_KEY
-  })
-
-  const bands = []
-  let cursor = originY + g.PAD
-  bandDefs.forEach((def) => {
-    const members = all.filter((node) => node.bandKey === def.key)
-    if (!members.length) return
-    members.sort((a, b) => (columnOf.get(a.depth) - columnOf.get(b.depth))
-      || (rank(a) - rank(b))
-      || str(a.label).localeCompare(str(b.label))
-      || str(a.id).localeCompare(str(b.id)))
-    /* 同一行里列号必须严格递增：贪心打包，尽量少占行高。 */
-    const lastColumn = []
-    members.forEach((node) => {
-      const column = columnOf.get(node.depth) ?? 0
-      node.column = column
-      let row = 0
-      while (row < lastColumn.length && lastColumn[row] >= column) row += 1
-      if (row === lastColumn.length) lastColumn.push(column)
-      else lastColumn[row] = column
-      node.row = row
-      node.x = g.PAD + column * (g.NODE_W + g.GAP_X)
-      node.y = cursor + g.BAND_HEAD + row * (g.NODE_H + g.GAP_Y)
-      node.colorRef = def.external ? null : def.colorRef
-    })
-    const rows = lastColumn.length
-    const h = g.BAND_HEAD + rows * g.NODE_H + (rows - 1) * g.GAP_Y
-    bands.push({
-      key: def.key,
-      label: def.label,
-      colorRef: def.colorRef,
-      external: def.external === true,
-      x: g.BAND_INSET,
-      y: cursor,
-      w: Math.max(0, width - g.BAND_INSET * 2),
-      h,
-      rows,
-      count: members.length,
-    })
-    cursor += h + g.BAND_GAP
-  })
-  const height = bands.length ? (cursor - g.BAND_GAP + g.PAD) - originY : g.PAD * 2
 
   const byId = new Map()
   all.forEach((node) => { byId.set(node.id, node) })
@@ -381,11 +371,13 @@ export function buildGraph(lane, edges, known, hints, index, originY, options) {
       total: num(project.total, 0),
     })),
     missingMembers: arr(lane.missingMembers).map((row) => ({ key: str(row.key), label: str(row.label) || str(row.key) })),
+    /* 泳道已废（task-13）：一张画布装一个目录的全部任务；空数组是为了形状稳定。 */
+    legend,
     tasks: tasks.map((task) => str(task.id)),
     taskCount: tasks.length,
     nodes: all,
     edges: drawn,
-    bands,
+    bands: [],
     width,
     height,
     top: originY,
@@ -402,7 +394,10 @@ export function buildGraph(lane, edges, known, hints, index, originY, options) {
  *
  * 各图的 `nodes[].y` 已经在**同一个画布坐标系**里（graphs[i].top/height 是本图切片），
  * 所以 `nodes` 直接拼接也是全局不重叠的；渲染时用
- * `viewBox="0 {graph.top} {graph.width} {graph.height}"` 取本图那一窗即可。
+ * `viewBox="0 {graph.top} {graph.width} {graph.height}"` 取本图那一窗即可
+ * （task-13 起 SVG 铺满画布，preserveAspectRatio="xMidYMid meet" 自适应缩放）。
+ *
+ * `bands` 恒为 `[]`：泳道已废，一张画布装一个目录的全部任务，项目身份走颜色 + 图例。
  */
 export function layoutScope(input) {
   const o = isObj(input) ? input : {}

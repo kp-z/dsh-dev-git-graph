@@ -2,6 +2,9 @@
  * 总览页几何层（layout.js）的单元测试。
  *
  * 坐标口径（很重要，别按单图直觉读）：
+ * - task-13 起：**一个目录 = 一张画布，不再按项目分泳道**（bands 恒为 []），项目身份靠
+ *   节点分色（colorRef）+ 图头图例（graph.legend）；列 = 依赖深度，列太长会折成多根物理列。
+ *
  * - 每张图的 `nodes[].y` 都在**同一个画布坐标系**里，`graphs[i].top/height` 是本图在这个画布里的
  *   纵向切片；渲染时用 `viewBox="0 {top} {width} {height}"` 取自己那一窗。
  * - 因此「几何不重叠 / 不越界」既按图成立（x 用本图宽度），也按整块画布成立（y 用全局高度）。
@@ -120,9 +123,10 @@ test('scope=项目：只有该项目任务，普通任务节点没有外人', ()
   const taskNodes = nodesOf(PROJECT.graphs[0], 'task')
   assert.deepEqual(taskNodes.map((node) => node.id).sort(), ['a1', 'a2'])
   assert.deepEqual([...new Set(taskNodes.map((node) => node.workspaceKey))], ['wA'])
-  // 项目 scope 只有一条泳道：ghost 也落在这条里，不另开「组外」带
-  assert.equal(PROJECT.graphs[0].bands.length, 1)
-  assert.equal(PROJECT.graphs[0].bands[0].key, 'wA')
+  // 不再有泳道：项目 scope 也是一张无泳道画布，项目身份由图例承担
+  assert.equal(PROJECT.graphs[0].bands.length, 0)
+  assert.deepEqual(PROJECT.graphs[0].legend.map((row) => row.key), ['wA'])
+  assert.equal(PROJECT.graphs[0].legend[0].count, 2)
   // 不存在的项目 → 空图，但不抛
   const gone = layoutScope({ tasks: TASKS, relations: RELATIONS, groups: GROUPS, scope: { kind: 'project', id: 'nope' } })
   assert.equal(gone.graphs.length, 1)
@@ -146,10 +150,11 @@ test('跨项目边在同一张图内直连（不是 ghost、不是两张图）',
   const b1 = graph.nodes.find((node) => node.id === 'b1')
   const a1 = graph.nodes.find((node) => node.id === 'a1')
   assert.ok(b1.x < a1.x, '依赖方向必须从左到右')
-  assert.equal(b1.bandKey, 'wB')
-  assert.equal(a1.bandKey, 'wA')
-  // 项目泳道 + 一个「组外 · 缺失」带（c1 与 zz-missing 都不属于 g1）
-  assert.deepEqual(graph.bands.map((band) => band.key), ['wA', 'wB', '__external__'])
+  // 项目身份：节点分色 + 图头图例（没有泳道了）
+  assert.equal(b1.colorRef, 1)
+  assert.equal(a1.colorRef, 0)
+  assert.deepEqual(graph.legend.map((row) => [row.key, row.colorRef, row.count]), [['wA', 0, 2], ['wB', 1, 1]])
+  assert.deepEqual(graph.bands, [], '泳道已废：一张画布装一个目录的全部任务')
 })
 
 test('缺失端点 / 组外端点都变 ghost，且 missing 能区分', () => {
@@ -187,12 +192,12 @@ test('derived_from 保持自己的 kind（虚线口径），且不参与分层',
   assert.equal(derived.length, 1)
   assert.equal(derived[0].from, 'a1')
   assert.equal(derived[0].to, 'c1')
-  // derived_from 不拉层：c1 与 d1 都在第 0 列
+  // derived_from 不拉层：c1 与 d1 的依赖深度都是 0（物理列可能因折列而不同）
   const c1 = graph.nodes.find((node) => node.id === 'c1')
   const d1 = graph.nodes.find((node) => node.id === 'd1')
-  assert.equal(c1.column, 0)
-  assert.equal(d1.column, 0)
-  assert.equal(c1.x, d1.x)
+  assert.equal(c1.depth, 0)
+  assert.equal(d1.depth, 0)
+  assert.equal(c1.depth, d1.depth)
 })
 
 /* ---------------- 几何 ---------------- */
@@ -231,16 +236,33 @@ test('几何：节点与泳道都不越界（图内 + 全局画布）', () => {
   }
 })
 
-test('几何：节点落在自己的泳道里，同带行不重叠', () => {
+test('几何：同一根物理列里行号互不相同（没有泳道后靠这个保证不重叠）', () => {
   ALL.graphs.forEach((graph) => {
+    const byColumn = new Map()
     graph.nodes.forEach((node) => {
-      const band = graph.bands.find((row) => row.key === node.bandKey)
-      assert.ok(band, `${node.id} 没有归属的泳道`)
-      assert.ok(node.y >= band.y, `${node.id} 跑到泳道上方`)
-      assert.ok(node.y + node.h <= band.y + band.h, `${node.id} 跑出泳道`)
-      assert.ok(node.x >= band.x && node.x + node.w <= band.x + band.w)
+      assert.ok(Number.isInteger(node.column) && node.column >= 0, `${node.id} 缺少物理列号`)
+      if (!byColumn.has(node.column)) byColumn.set(node.column, [])
+      byColumn.get(node.column).push(node)
+      // x 由物理列唯一决定；y 由行号唯一决定
+      assert.equal(node.x, GEOMETRY.PAD + node.column * (GEOMETRY.NODE_W + GEOMETRY.GAP_X))
+      // y 是**全局**坐标：本图切片从 graph.top 起算
+      assert.equal(node.y, graph.top + GEOMETRY.PAD + node.row * (GEOMETRY.NODE_H + GEOMETRY.GAP_Y))
+    })
+    byColumn.forEach((column, index) => {
+      assert.equal(new Set(column.map((node) => node.row)).size, column.length, `列 ${index} 里有重复行号`)
     })
   })
+})
+
+test('几何：列太长会折成多根物理列（40 个互不依赖的任务不会变成一条细长条）', () => {
+  const tasks = Array.from({ length: 40 }, (_, i) => task(`t${i}`, i + 1, 'wSolo'))
+  const layout = layoutScope({ tasks, relations: [], scope: { kind: 'all' } })
+  const graph = layout.graphs[0]
+  const columns = new Set(graph.nodes.map((node) => node.column)).size
+  assert.ok(columns > 1, `物理列只有 ${columns} 根`)
+  assert.ok(graph.nodes.every((node) => node.depth === 0), '没有依赖时所有节点都在第 0 层')
+  const ratio = graph.width / graph.height
+  assert.ok(ratio > 0.6 && ratio < 4.5, `长宽比 ${ratio.toFixed(2)} 太极端`)
 })
 
 /* ---------------- 字段形状 ---------------- */
@@ -264,9 +286,11 @@ test('节点 / 边字段形状满足组件契约', () => {
     for (const field of ['from', 'to', 'kind', 'path']) assert.ok(edge[field] !== undefined, `edge 缺字段 ${field}`)
     assert.ok(['depends_on', 'derived_from'].includes(edge.kind))
   })
-  graph.bands.forEach((band) => {
-    for (const field of ['key', 'label', 'x', 'y', 'w', 'h', 'colorRef']) assert.ok(band[field] !== undefined, `band 缺字段 ${field}`)
+  assert.deepEqual(graph.bands, [], 'bands 恒为空（泳道已废）')
+  graph.legend.forEach((row) => {
+    for (const field of ['key', 'label', 'colorRef', 'count']) assert.ok(row[field] !== undefined, `legend 缺字段 ${field}`)
   })
+  assert.ok(graph.nodes.every((node) => node.colorRef === null || Number.isInteger(node.colorRef)), '节点分色要么是整数要么是 null')
   // 节点在图上点得动：真实任务有编号、状态、会话
   const a1 = graph.nodes.find((node) => node.id === 'a1')
   assert.equal(a1.no, 1)
@@ -279,7 +303,7 @@ test('节点 / 边字段形状满足组件契约', () => {
   const bucket = graphOf(ALL, UNGROUPED_KEY)
   assert.equal(bucket.projects.some((project) => project.key === 'wF'), true)
   assert.equal(bucket.nodes.some((node) => node.workspaceKey === 'wF'), false)
-  assert.equal(bucket.bands.some((band) => band.key === 'wF'), false)
+  assert.equal(bucket.legend.some((row) => row.key === 'wF'), false, '0 任务的项目不进图例')
 })
 
 test('节点 key 在整块画布里唯一（ghost 键带图与角色）', () => {
@@ -292,6 +316,31 @@ test('节点 key 在整块画布里唯一（ghost 键带图与角色）', () => 
 })
 
 /* ---------------- 空输入 / 坏输入 ---------------- */
+
+test('同目录多项目 = 一张画布：全部任务在同一 nodes，跨项目边照旧连', () => {
+  const graph = GROUP.graphs[0]
+  assert.equal(GROUP.graphs.length, 1, '目录 scope 仍然只有一张图')
+  const taskNodes = graph.nodes.filter((node) => node.ghost !== true)
+  assert.deepEqual(taskNodes.map((node) => node.id).sort(), ['a1', 'a2', 'b1'])
+  assert.equal(new Set(taskNodes.map((node) => node.workspaceKey)).size, 2, '两个项目的任务在同一张画布的 nodes 里')
+  assert.deepEqual(graph.legend.map((row) => row.key), ['wA', 'wB'])
+  const cross = graph.edges.filter((edge) => {
+    const from = graph.nodes.find((node) => node.id === edge.from)
+    const to = graph.nodes.find((node) => node.id === edge.to)
+    return from && to && from.workspaceKey !== to.workspaceKey
+  })
+  assert.ok(cross.length >= 1, '跨项目依赖边必须还在同一坐标系里连起来')
+  assert.ok(cross.some((edge) => edge.crossProject === true))
+})
+
+test('每个目录一张画布：scope=all 时图数 = 目录数（不合并目录）', () => {
+  assert.equal(ALL.graphs.length, 2)
+  const g1 = graphOf(ALL, 'group:g1')
+  const bucket = graphOf(ALL, UNGROUPED_KEY)
+  assert.deepEqual(g1.nodes.filter((n) => n.ghost !== true).map((n) => n.id).sort(), ['a1', 'a2', 'b1'])
+  assert.deepEqual(bucket.nodes.filter((n) => n.ghost !== true).map((n) => n.id).sort(), ['c1', 'd1', 'e1'])
+  assert.ok(ALL.graphs.every((graph) => Array.isArray(graph.bands) && graph.bands.length === 0))
+})
 
 test('空输入 / 坏输入不抛', () => {
   const nothing = layoutScope(null)
@@ -343,7 +392,8 @@ test('真实快照规模下也不越界（48+ 任务的回归底线）', () => {
   const layout = layoutScope({ tasks, relations, groups: [{ id: 'g1', name: 'wide', members: ['w0', 'w1', 'w2'] }], scope: { kind: 'all' } })
   const graph = layout.graphs[0]
   assert.equal(graph.nodes.length, 90)
-  assert.equal(graph.bands.length, 3)
+  assert.deepEqual(graph.bands, [])
+  assert.equal(graph.legend.length, 3, '三个项目 → 三条图例')
   assert.equal(graph.stats.dependencyEdges, 87)
   const nodes = layout.nodes
   for (let i = 0; i < nodes.length; i += 1) {

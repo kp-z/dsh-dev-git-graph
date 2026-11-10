@@ -6,6 +6,9 @@
  * scope 切了图没换、菜单动作没打到接口、写失败没有可读提示、又悄悄混进字面量颜色。
  * 那些只有把组件真跑一遍才看得见，所以在 node 里跑。
  *
+ * task-13 起：图下面的卡片区已删（和图上节点是同一批任务），这里所有「几条任务」的断言
+ * 都改成对**节点**（.fo-node，区分 task / ghost）与**图头图例**断言。
+ *
  * 三条刻意的设计：
  * 1. **固定 fixture**（5 个任务 / 2 个目录 / 1 条跨项目依赖 / 1 个缺失端点），不碰 live 数据，
  *    离线可复现、断言能写死数；
@@ -359,7 +362,9 @@ function blockAfter(text, start) {
   return ''
 }
 const ruleBody = (selector) => {
-  const at = CSS_BARE.indexOf(`${selector} {`)
+  /* 必须匹配「行首的规则」，否则 `.fo-ref {` 会撞上
+     「.fo-head, .fo-tree-head, …, .fo-ref {」那条逗号选择器列表（它不是我们要的规则体）。 */
+  const at = CSS_BARE.indexOf(`\n${selector} {`)
   return at < 0 ? '' : blockAfter(CSS_BARE, at)
 }
 const mediaBody = (query) => {
@@ -375,7 +380,8 @@ const taskNodes = (tree) => nodeGroups(tree).filter((node) => !classNameOf(node)
 const ghostNodes = (tree) => nodeGroups(tree).filter((node) => classNameOf(node).includes('is-ghost'))
 const edgePaths = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'path' && classNameOf(node).includes('fo-edge'))
 const bandRects = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'rect' && classNameOf(node).includes('fo-band'))
-const cardButtons = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && classNameOf(node) === 'fo-card')
+/* task-13 起没有卡片区：任务在图上就是节点，所以断言一律对节点做。 */
+const legendItems = (tree) => findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-legend-item')
 const menus = (tree) => findAll(tree, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-menu'))
 const menuItemsOf = (menu) => findAll(menu, (node) => node.kind === 'host' && node.type === 'button' && classNameOf(node) === 'fo-menu-item')
 const rowByDataId = (tree, id) => treeItems(tree).find((row) => row.props['data-id'] === id)
@@ -407,16 +413,42 @@ check('styles：decoVar / stateVar 只产出宿主令牌引用', () => {
 })
 
 /* ---- 0b. 借来的玻璃风格：全部落在 CSS 上，逐条钉住「像参考项目」的那几处 ---- */
-check('玻璃卡片：卡片规则含 backdrop-filter blur(12px) 与玻璃底色', () => {
-  const card = ruleBody('.fo-card')
-  const img = card.indexOf('backdrop-filter')
-  assert.ok(card.includes('background: var(--fo-glass-card)'), card.slice(0, 200))
-  assert.ok(img > 0, '卡片规则里要有 backdrop-filter')
-  assert.ok(card.includes('-webkit-backdrop-filter'), '补一份 -webkit- 前缀')
-  assert.ok(ruleBody('.fo-root').includes('--fo-glass-blur: blur(12px)'), '模糊半径 12px 定义在根上')
-  assert.ok(card.includes('border-radius: 12px'), '卡片圆角 12px')
-  assert.ok(ruleBody('.fo-graph').includes('border-radius: 16px'), '画布圆角 16px（task-12：对齐参考站 rounded-2xl）')
+check('玻璃面：详情栏 / 菜单仍带 backdrop-filter blur(12px) 与玻璃底色', () => {
+  const root = ruleBody('.fo-root')
+  assert.ok(root.includes('--fo-glass-blur: blur(12px)'), '模糊半径 12px 定义在根上')
+  for (const selector of ['.fo-detail', '.fo-menu', '.fo-head', '.fo-tree']) {
+    const body = ruleBody(selector)
+    assert.ok(body.includes('backdrop-filter'), `${selector} 要有 backdrop-filter`)
+    assert.ok(body.includes('-webkit-backdrop-filter'), `${selector} 补一份 -webkit- 前缀`)
+  }
+  assert.ok(ruleBody('.fo-graph').includes('border-radius: 16px'), '画布圆角 16px（对齐参考站 rounded-2xl）')
   assert.ok(ruleBody('.fo-chip').includes('border-radius: 999px'), '胶囊圆角 999px')
+  /* 卡片区删掉后，卡片类名不该再有残留 */
+  assert.equal(CSS_BARE.includes('fo-card'), false, '卡片 CSS 应该整段删掉')
+  assert.equal(CSS_BARE.includes('fo-tag'), false, '卡片标签 CSS 也应该删掉')
+})
+
+check('画布铺满：主区纵向 flex、画布/网格/body/svg 全 100%', () => {
+  const scroll = ruleBody('.fo-main-scroll')
+  assert.ok(scroll.includes('display: flex') && scroll.includes('flex-direction: column'), '主区纵向 flex')
+  assert.ok(scroll.includes('padding: 10px'))
+  const graphs = ruleBody('.fo-graphs')
+  assert.ok(graphs.includes('flex: 1 1 auto'), '画布列表撑满主区')
+  assert.ok(graphs.includes('display: flex') && graphs.includes('flex-direction: column'))
+  assert.ok(graphs.includes('gap: 12px'))
+  const graph = ruleBody('.fo-graph')
+  assert.ok(graph.includes('flex: 1 1 auto'), '一张图时占满高度')
+  assert.ok(graph.includes('display: flex') && graph.includes('flex-direction: column'))
+  const canvas = ruleBody('.fo-canvas')
+  assert.ok(canvas.includes('flex: 1 1 auto') && canvas.includes('width: 100%'))
+  const grid = ruleBody('.fo-grid')
+  assert.ok(grid.includes('width: 100%') && grid.includes('height: 100%'))
+  assert.ok(grid.includes('inset: 0'), '网格铺满整块画布')
+  const body = ruleBody('.fo-graph-body')
+  assert.ok(body.includes('flex: 1 1 auto') && body.includes('height: 100%'))
+  const svg = ruleBody('.fo-svg')
+  assert.ok(svg.includes('width: 100%') && svg.includes('height: 100%'))
+  assert.ok(svg.includes('inset: 0'))
 })
 check('玻璃分层：三层透明度 92% / 88%（面板底是不透明的 bg-base）', () => {
   const root = ruleBody('.fo-root')
@@ -437,37 +469,44 @@ check('玻璃风格全部走 color-mix(in oklab, …)，没有 in srgb 残留', 
   assert.ok(mixes.length >= 25, `oklab 混合只找到 ${mixes.length} 处`)
   assert.equal(CSS_BARE.includes('in srgb'), false)
 })
-check('状态光晕：成功/警告/错误/idle 各一个 35% 混合（借参考项目的 rarity 光晕写法）', () => {
+check('状态光晕：成功/警告/错误/idle 各一个 35% 混合，且都落在图例色点上', () => {
   const root = ruleBody('.fo-root')
   for (const state of ['success', 'warn', 'error', 'idle']) {
     assert.ok(root.includes(`--fo-glow-${state}: color-mix(in oklab, var(--dsw-alias-state-${state}-primary) 35%, transparent)`), `缺 ${state} 光晕`)
   }
   assert.ok(root.includes('--fo-glow-brand: color-mix(in oklab, var(--dsw-alias-brand-primary) 35%, transparent)'))
-  /* 定义了就一定要用上（否则就是死 CSS）：五条光晕都出现在卡片状态光条上 */
   for (const state of ['success', 'warn', 'error', 'idle', 'brand']) {
-    assert.ok(CSS_BARE.includes(`background: var(--fo-card-glow, var(--fo-glow-idle))`) || CSS_BARE.includes(`var(--fo-glow-${state})`), `${state} 光晕没被用到`)
+    assert.ok(CSS_BARE.includes(`var(--fo-glow-${state})`), `${state} 光晕没被用到（死 CSS）`)
   }
-  for (const state of ['blocked', 'suspended', 'done', 'open']) {
-    assert.ok(ruleBody(`.fo-card[data-state="${state}"]`).includes('--fo-card-glow'), `${state} 卡片没有光晕`)
-  }
+  /* 图例色点 + 节点状态点都要能拿到光晕/分色 */
+  assert.ok(ruleBody('.fo-legend-dot').includes('box-shadow'), '图例色点带同色光环')
+  assert.ok(ruleBody('.fo-dot').includes('box-shadow'))
+})
+
+check('图头图例：色点 + 项目名 + 计数（没有泳道后唯一的项目标识）', () => {
+  const legend = ruleBody('.fo-graph-legend')
+  assert.ok(legend.includes('display: flex'))
+  assert.ok(ruleBody('.fo-legend-dot').includes('background: var(--fo-c'))
+  assert.ok(ruleBody('.fo-legend-label').includes('text-overflow: ellipsis'))
+  assert.ok(ruleBody('.fo-legend-count').includes('tabular-nums'))
 })
 check('悬停：卡片 hover 有 translateY(-3px) scale(1.01) + 300ms cubic-bezier 过渡', () => {
   const root = ruleBody('.fo-root')
   assert.ok(root.includes('--fo-dur: 300ms'), '过渡时长 300ms')
   assert.ok(root.includes('--fo-ease: cubic-bezier(.2, .8, .2, 1)'), '缓动曲线照参考项目')
-  const card = ruleBody('.fo-card')
-  assert.ok(card.includes('transition: transform var(--fo-dur) var(--fo-ease)'), card.slice(0, 200))
-  const hover = ruleBody('.fo-card:hover')
+  const ref = ruleBody('.fo-ref')
+  assert.ok(ref.includes('transition: transform var(--fo-dur) var(--fo-ease)'), ref.slice(0, 200))
+  const hover = ruleBody('.fo-ref:hover:not(:disabled)')
   assert.ok(hover.includes('transform: translateY(-3px) scale(1.01)'), hover)
   assert.ok(hover.includes('border-color: var(--fo-glass-line-hover)'), '边框升到 border-l2 的混合色')
 })
 check('悬停：叠一层品牌色 6% → 透明的渐变淡入（品牌色不硬编码色相）', () => {
   const root = ruleBody('.fo-root')
   assert.ok(root.includes('--fo-glass-wash: linear-gradient(135deg, color-mix(in oklab, var(--dsw-alias-brand-primary) 6%, transparent), transparent 72%)'))
-  const after = ruleBody('.fo-card::after')
+  const after = ruleBody('.fo-ref::after')
   assert.ok(after.includes('background: var(--fo-glass-wash)'))
   assert.ok(after.includes('opacity: 0'), '默认不可见')
-  assert.ok(ruleBody('.fo-card:hover::after').includes('opacity: 1'), 'hover 才淡入')
+  assert.ok(ruleBody('.fo-ref:hover:not(:disabled)::after').includes('opacity: 1'), 'hover 才淡入')
 })
 check('入场动画：120ms 上浮淡入 + 逐行 20ms 递延（上限 8 行），用 backwards 不挡 hover', () => {
   const keyframes = blockAfter(CSS_BARE, CSS_BARE.indexOf('@keyframes fo-rise'))
@@ -491,9 +530,9 @@ check('紧密密度：正文 12px / 标题 13px / 卡片内边距 16px / 正文�
   assert.ok(ruleBody('.fo-title').includes('font-weight: 600'))
   assert.ok(ruleBody('.fo-detail-title').includes('font-size: 13px'))
   assert.ok(ruleBody('.fo-graph-name').includes('font-size: 13px'))
-  assert.ok(ruleBody('.fo-card').includes('padding: 16px'), '卡片内边距 16-20px')
+  assert.ok(ruleBody('.fo-ref').includes('padding: 8px 10px'), '详情关系项内边距')
   assert.ok(ruleBody('.fo-sub').includes('font-size: 11px'))
-  assert.ok(ruleBody('.fo-cards').includes('gap: 12px'))
+  assert.ok(ruleBody('.fo-canvas').includes('padding: 24px'), '画布内边距 24px')
   assert.ok(ruleBody('.fo-row').includes('font-size: 13px'), 'rail 正文 13px')
   assert.ok(ruleBody('.fo-row-count').includes('font-size: 12px'), 'rail 次级 12px')
 })
@@ -627,31 +666,45 @@ check('数据态：跨项目边 b1→a1 在同一张图里直连（两端都不�
   const ids = taskNodes(graph).map((n) => n.props['data-id'])
   assert.ok(ids.includes('a1') && ids.includes('b1'))
 })
-check('数据态：泳道 6 条 = g1 两项目 + 未分组两项目 + 两条「组外·缺失」', () => {
-  assert.equal(bandRects(tree).length, 6)
-  assert.equal(bandRects(tree).filter((b) => b.props['data-external'] === '1').length, 2)
+check('数据态：没有泳道（bands 恒空 / 没有 band 矩形），项目身份走图例', () => {
+  assert.equal(bandRects(tree).length, 0)
+  assert.equal(legendItems(tree).length, 4, 'g1 的 wA/wB + 未分组的 wC/wD = 四条图例（0 任务的 wF 不进图例）')
+  const legends = findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-graph-legend')
+  assert.equal(legends.length, 2, '每张画布一个图例')
 })
-check('入场递延真的接上了：树行与卡片都带 --fo-i，且 ≤ 7（上限 8 行）', () => {
+check('入场递延真的接上了：树行与图容器都带 --fo-i，且 ≤ 7（上限 8 行）', () => {
   const rows = treeItems(tree).map((row) => row.props.style && row.props.style['--fo-i'])
-  const cards = cardButtons(tree).map((card) => card.props.style && card.props.style['--fo-i'])
+  const graphs = graphSections(tree).map((graph) => graph.props.style && graph.props.style['--fo-i'])
   assert.deepEqual(rows.slice(0, 4), [0, 1, 2, 3], `树行递延序号：${JSON.stringify(rows)}`)
-  assert.deepEqual(cards.slice(0, 3), [0, 1, 2], `卡片递延序号：${JSON.stringify(cards)}`)
+  assert.deepEqual(graphs, [0, 1], `图容器递延序号：${JSON.stringify(graphs)}`)
   assert.ok(rows.every((value) => Number.isInteger(value) && value >= 0 && value <= 7))
-  assert.ok(cards.every((value) => Number.isInteger(value) && value >= 0 && value <= 7))
+  assert.ok(graphs.every((value) => Number.isInteger(value) && value >= 0 && value <= 7))
 })
-check('代表性节点的玻璃类名没被改坏（卡片/图容器/行/详情）', () => {
-  assert.ok(cardButtons(tree).length > 0)
+check('代表性类名没被改坏（节点/图容器/图例/行/详情）', () => {
+  assert.ok(taskNodes(tree).length > 0)
   assert.ok(graphSections(tree).length > 0)
-  assert.ok(ruleBody('.fo-card').length > 0 && ruleBody('.fo-graph').length > 0 && ruleBody('.fo-row').length > 0)
+  assert.ok(legendItems(tree).length > 0)
+  assert.ok(ruleBody('.fo-node').length > 0 && ruleBody('.fo-graph').length > 0 && ruleBody('.fo-row').length > 0)
+  /* 卡片区已删：DOM 与 CSS 里都不该再出现卡片类名 */
+  assert.equal(byClass(tree, 'fo-card').length, 0)
+  assert.equal(byClass(tree, 'fo-cards').length, 0)
 })
 
 /* ---- task-12：画布 DOM（网格层 + 实心三角箭头）与 rail 搜索框 ---- */
-check('画布 DOM：每张图都有 .fo-canvas + .fo-grid 网格层', () => {
+check('画布 DOM：每张图都有 .fo-canvas + .fo-grid 网格层，SVG 铺满（100% + meet）', () => {
   assert.equal(byClass(tree, 'fo-canvas').length, graphSections(tree).length)
   assert.equal(byClass(tree, 'fo-grid').length, graphSections(tree).length)
   byClass(tree, 'fo-canvas').forEach((canvas) => {
     assert.equal(findAll(canvas, (node) => node.kind === 'host' && classNameOf(node) === 'fo-grid').length, 1, '网格层在图内')
-    assert.ok(findAll(canvas, (node) => node.kind === 'host' && classNameOf(node) === 'fo-graph-body').length === 1)
+    assert.equal(findAll(canvas, (node) => node.kind === 'host' && classNameOf(node) === 'fo-graph-body').length, 1)
+  })
+  const svgs = findAll(tree, (node) => node.kind === 'host' && node.type === 'svg' && classNameOf(node) === 'fo-svg')
+  assert.equal(svgs.length, graphSections(tree).length)
+  svgs.forEach((svg) => {
+    assert.equal(svg.props.width, '100%', 'SVG 宽度属性 100%')
+    assert.equal(svg.props.height, '100%', 'SVG 高度属性 100%')
+    assert.equal(svg.props.preserveAspectRatio, 'xMidYMid meet')
+    assert.ok(String(svg.props.viewBox).startsWith('0 '), 'viewBox 仍是 layout 坐标系')
   })
 })
 check('画布 DOM：箭头是 6×6 实心闭合三角（fill 跟边同色）', () => {
@@ -677,33 +730,35 @@ check('搜索框在 rail 顶部（全页只有这一个）', () => {
 })
 searchBox.props.onChange({ currentTarget: { value: 'a1' } })
 tree = await main.mini.act()
-check('搜索命中：卡片收窄到 1 张，匹配条数显示在 rail 上', () => {
-  assert.equal(cardButtons(tree).length, 1)
+check('搜索命中：图上只剩 1 个真实节点，匹配条数显示在 rail 上', () => {
+  assert.equal(taskNodes(tree).length, 1)
+  assert.equal(taskNodes(tree)[0].props['data-id'], 'a1')
   assert.equal(textOf(byClass(tree, 'fo-rail-hint')[0]).includes('1'), true)
-  assert.ok(textOf(cardButtons(tree)[0]).includes('任务 a1'))
+  assert.ok(textOf(tree).includes('任务 a1'), '节点标题就是任务标题')
 })
 searchBox.props.onChange({ currentTarget: { value: 'no-such-task-xyz' } })
 tree = await main.mini.act()
-check('搜索无匹配：「没有匹配的任务」+ 清除按钮，不画空图与空卡片', () => {
+check('搜索无匹配：「没有匹配的任务」+ 清除按钮，不画空画布', () => {
   assert.ok(textOf(tree).includes('没有匹配的任务'))
-  assert.equal(cardButtons(tree).length, 0)
+  assert.equal(nodeGroups(tree).length, 0)
   assert.equal(graphSections(tree).length, 0)
 })
 findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('清除搜索'))[0].props.onClick()
 tree = await main.mini.act()
-check('清除搜索：恢复 5 张卡片 / 2 张图，关键词落 store', () => {
-  assert.equal(cardButtons(tree).length, 5)
+check('清除搜索：恢复 5 个真实节点 / 2 张画布，关键词落 store', () => {
+  assert.equal(taskNodes(tree).length, 5)
   assert.equal(graphSections(tree).length, 2)
   assert.equal(main.store.data.get('keyword'), '')
   assert.equal(byClass(tree, 'fo-search')[0].props.value, '')
 })
-check('数据态：任务卡片 5 张，标题与项目标签都在', () => {
-  const cards = cardButtons(tree)
-  assert.equal(cards.length, 5)
-  const text = textOf(cards)
-  for (const id of ['a1', 'a2', 'b1', 'c1', 'e1']) assert.ok(text.includes(`任务 ${id}`), `卡片缺 ${id}`)
-  assert.ok(text.includes('项目A') && text.includes('项目D'))
-  assert.ok(text.includes('阻塞'))
+check('数据态：图上的节点就是任务列表（5 真实 + 3 ghost），不再有第二份列表', () => {
+  assert.equal(taskNodes(tree).length, 5)
+  const text = textOf(tree)
+  for (const id of ['a1', 'a2', 'b1', 'c1', 'e1']) assert.ok(text.includes(`任务 ${id}`), `节点缺 ${id}`)
+  assert.ok(text.includes('阻塞'), '节点元信息里有阻塞')
+  assert.ok(textOf(byClass(tree, 'fo-graph-legend')[0]).includes('项目A'), '项目名在图例里')
+  assert.equal(byClass(tree, 'fo-card').length, 0, '卡片区已删')
+  assert.equal(byClass(tree, 'fo-cards').length, 0)
 })
 
 /* ---- 2. 树行数与 depth ---- */
@@ -738,8 +793,8 @@ check('点目录行：scope=group，只剩一张图', () => {
   assert.equal(graphSections(tree).length, 1)
   assert.equal(taskNodes(tree).length, 3)
   assert.equal(ghostNodes(tree).length, 1)
-  assert.equal(bandRects(tree).length, 3)
-  assert.equal(cardButtons(tree).length, 3)
+  assert.equal(bandRects(tree).length, 0, '没有泳道')
+  assert.equal(taskNodes(tree).length, 3)
 })
 check('点目录行：选中项写进注入的 store（不是 localStorage）', () => {
   assert.deepEqual(main.store.data.get('selection'), { kind: 'group', id: 'g1' })
@@ -753,13 +808,13 @@ check('目录 scope：跨项目边 b1→a1 仍在同一张图里直连（两端�
 /* ---- 4. 点项目行 → 只剩该项目节点 ---- */
 rowByDataId(tree, 'wA').props.onClick()
 tree = await main.mini.act()
-check('点项目行：scope=project，只有该项目任务 + 恰好一条泳道', () => {
+check('点项目行：scope=project，只有该项目任务，仍然没有泳道', () => {
   assert.equal(rootOf(tree).props['data-scope'], 'project')
   assert.equal(graphSections(tree).length, 1)
   assert.equal(taskNodes(tree).length, 2)
   assert.deepEqual([...new Set(taskNodes(tree).map((n) => n.props['data-state']))].length >= 1, true)
-  assert.equal(bandRects(tree).length, 1)
-  assert.equal(cardButtons(tree).length, 2)
+  assert.equal(bandRects(tree).length, 0)
+  assert.equal(legendItems(tree).length, 1, '项目 scope 的图例只有该项目')
 })
 check('项目 scope：前置 b1 与后置 c1 都成了组外 ghost（missing=false 的锚点）', () => {
   assert.equal(ghostNodes(tree).length, 2)
@@ -770,6 +825,47 @@ check('项目 scope：前置 b1 与后置 c1 都成了组外 ghost（missing=fal
 })
 check('项目 scope：选中项写进 store', () => {
   assert.deepEqual(main.store.data.get('selection'), { kind: 'project', id: 'wA' })
+})
+
+/* ---- 4b. 详情面板：删掉卡片区后，点节点 / 键盘 Enter 是看单任务的唯一入口 ---- */
+check('详情面板默认不出现', () => {
+  assert.equal(findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node) === 'fo-detail').length, 0)
+  assert.equal(rootOf(tree).props['data-detail'], '0')
+})
+taskNodes(tree)[0].props.onClick()
+tree = await main.mini.act()
+check('点节点打开详情面板（任务 ID / 绑定会话 / 四组关系都在）', () => {
+  const aside = findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node) === 'fo-detail')
+  assert.equal(aside.length, 1)
+  const text = textOf(aside[0])
+  assert.ok(text.includes('任务 ID'), '详情要有任务 ID')
+  assert.ok(text.includes('绑定会话'))
+  assert.equal(findAll(aside[0], (node) => node.kind === 'host' && classNameOf(node) === 'fo-sec').length, 4, '四组关系')
+  assert.equal(rootOf(tree).props['data-detail'], '1', '打开详情后是三栏布局')
+})
+check('键盘 Enter 也能打开节点详情', () => {
+  const aside = findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node) === 'fo-detail')[0]
+  const close = findAll(aside, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('关闭详情'))[0]
+  assert.ok(close, '详情里有「关闭详情」')
+})
+findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('关闭详情'))[0].props.onClick()
+tree = await main.mini.act()
+check('关闭详情后回到两栏布局', () => {
+  assert.equal(findAll(tree, (node) => node.kind === 'host' && node.type === 'aside').length, 0)
+  assert.equal(rootOf(tree).props['data-detail'], '0')
+})
+const secondNode = taskNodes(tree)[1]
+secondNode.props.onKeyDown({ key: 'Enter', preventDefault() {} })
+tree = await main.mini.act()
+check('节点上按 Enter 同样打开详情（键盘可达）', () => {
+  const aside = findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node) === 'fo-detail')
+  assert.equal(aside.length, 1)
+  assert.equal(taskNodes(tree).length > 0, true, '打开详情不影响画布上的节点')
+})
+findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('关闭详情'))[0].props.onClick()
+tree = await main.mini.act()
+check('再次关闭，流程回到干净状态', () => {
+  assert.equal(findAll(tree, (node) => node.kind === 'host' && node.type === 'aside').length, 0)
 })
 
 /* ---- 5. 展开 / 折叠：写 store ---- */
@@ -898,9 +994,9 @@ check('groupAction 抛错 → 出现 role=alert 的提示条，且带宿主给�
   assert.ok(textOf(alerts[0]).includes('目录名不能为空'))
   assert.ok(textOf(alerts[0]).includes('重试'))
 })
-check('写失败不清空已有数据（图和卡片还在）', () => {
+check('写失败不清空已有数据（画布与节点还在）', () => {
   assert.equal(graphSections(failTree).length, 2)
-  assert.equal(cardButtons(failTree).length, 5)
+  assert.equal(taskNodes(failTree).length, 5)
 })
 
 /* ---- 10. 读失败 / 坏快照都不炸 ---- */
@@ -922,7 +1018,7 @@ const garbage = await mountPanel({ snapshot: badSnapshot })
 check('坏快照（字段类型全错）：不抛，渲染成「还没有任何任务」的空态', () => {
   assert.ok(rootOf(garbage.tree))
   assert.equal(graphSections(garbage.tree).length, 0)
-  assert.equal(cardButtons(garbage.tree).length, 0)
+  assert.equal(nodeGroups(garbage.tree).length, 0)
   assert.ok(textOf(garbage.tree).includes('还没有任何任务'))
 })
 const muddy = await mountPanel({
@@ -937,7 +1033,6 @@ const muddy = await mountPanel({
 })
 check('坏快照（字段半对）：坏行丢掉，剩下的一条照样画出来', () => {
   assert.equal(taskNodes(muddy.tree).length, 1)
-  assert.equal(cardButtons(muddy.tree).length, 1)
   assert.equal(ghostNodes(muddy.tree).length, 1) // x→yy：yy 不存在 → 缺失 ghost
   assert.equal(ghostNodes(muddy.tree)[0].props['data-state'], 'ghost')
 })
@@ -1035,7 +1130,7 @@ check('CSS 的选择器都以 fo- 类为根（状态类只作为 .fo-x 的复合
 })
 
 /* ---- 12. 防回退红线：模块顶层不 import react ---- */
-const COMPONENT_FILES = ['OverviewPanel.js', 'TreeNav.js', 'GraphView.js', 'TaskCards.js', 'DetailPanel.js', 'styles.js']
+const COMPONENT_FILES = ['OverviewPanel.js', 'TreeNav.js', 'GraphView.js', 'DetailPanel.js', 'styles.js']
 for (const file of COMPONENT_FILES) {
   const source = await readFile(join(HERE, '..', 'src', 'client', file), 'utf8')
   check(`${file}：模块顶层不 import react、不 require('react')`, () => {
@@ -1043,6 +1138,28 @@ for (const file of COMPONENT_FILES) {
     assert.equal(/require\(\s*['"]react['"]\s*\)/.test(source), false)
   })
 }
+/* task-13：图下面的卡片区已删 —— 文件删掉、入口不再引用、类名不再出现，都钉住。 */
+let taskCardsExists = true
+try {
+  await readFile(join(HERE, '..', 'src', 'client', 'TaskCards.js'), 'utf8')
+} catch (error) {
+  taskCardsExists = false
+}
+const overviewSource = await readFile(join(HERE, '..', 'src', 'client', 'OverviewPanel.js'), 'utf8')
+const graphSource = await readFile(join(HERE, '..', 'src', 'client', 'GraphView.js'), 'utf8')
+check('卡片区已删：TaskCards.js 不在仓库里，入口也不再有卡片引用', () => {
+  assert.equal(taskCardsExists, false, 'src/client/TaskCards.js 应该已经删掉')
+  assert.equal(/TaskCards|createTaskCards/.test(overviewSource), false, 'OverviewPanel 不该再引用 TaskCards')
+  assert.equal(/fo-card|fo-cards|fo-tag/.test(overviewSource), false, '入口里不该再有卡片类名')
+})
+check('画布合并：GraphView 不再有泳道，改为图例 + 铺满 SVG', () => {
+  assert.equal(/fo-band|bandLayer/.test(graphSource), false, '泳道渲染应该整段删掉')
+  assert.ok(/fo-grid/.test(graphSource), '要有网格层')
+  assert.ok(/fo-legend-item/.test(graphSource), '要有图头图例')
+  assert.ok(/preserveAspectRatio: 'xMidYMid meet'/.test(graphSource), 'SVG 用 meet 自适应')
+  assert.ok(/width: '100%'/.test(graphSource) && /height: '100%'/.test(graphSource), 'SVG 宽高 100%')
+})
+
 const modelSource = await readFile(join(HERE, '..', 'src', 'overview', 'model.js'), 'utf8')
 check('model.js：零 import、零副作用（node 可直接 import）', () => {
   assert.deepEqual(modelSource.match(/^\s*import\s/gm) || [], [])

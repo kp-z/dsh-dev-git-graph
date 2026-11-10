@@ -112,7 +112,7 @@ export const CSS = `
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
-.fo-head, .fo-tree-head, .fo-row, .fo-graph, .fo-card, .fo-sec, .fo-ref {
+.fo-head, .fo-tree-head, .fo-row, .fo-graph, .fo-sec, .fo-ref {
   animation: fo-rise 120ms var(--fo-ease) backwards;
   animation-delay: calc(var(--fo-i, 0) * 20ms);
 }
@@ -298,7 +298,13 @@ export const CSS = `
 
 /* ============ 中栏 ============ */
 .fo-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: ${T.bgBase}; }
-.fo-main-scroll { flex: 1; min-height: 0; overflow: auto; padding: 16px; }
+/* 画布要铺满：主区纵向 flex，图按剩余高度均分（一张图时就是整块） */
+.fo-main-scroll {
+  flex: 1; min-height: 0; overflow: auto;
+  padding: 10px; display: flex; flex-direction: column;
+}
+/* 画布列表：一张图时占满高度，多张时均分（撑满主区） */
+.fo-graphs { display: flex; flex-direction: column; gap: 12px; flex: 1 1 auto; min-height: 0; }
 .fo-banner {
   display: flex; align-items: center; gap: 8px;
   margin: 0 0 12px; padding: 12px 16px;
@@ -311,7 +317,9 @@ export const CSS = `
 
 /* 一张图 = 一个玻璃容器（容器圆角 10px） */
 .fo-graph {
-  margin: 0 0 16px; border: 1px solid var(--fo-canvas-line); border-radius: 16px;
+  flex: 1 1 auto; min-height: 340px;
+  display: flex; flex-direction: column;
+  border: 1px solid var(--fo-canvas-line); border-radius: 16px;
   background: var(--fo-canvas-bg);
   overflow: hidden;
   transition: border-color var(--fo-dur) var(--fo-ease);
@@ -322,22 +330,35 @@ export const CSS = `
   padding: 12px 16px; border-bottom: 1px solid var(--fo-glass-line);
 }
 .fo-graph-name { font-size: 13px; font-weight: 600; }
+/* 图例：没有泳道后，这是「哪个颜色 = 哪个项目」的唯一标识 */
+.fo-graph-legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.fo-legend-item {
+  display: inline-flex; align-items: center; gap: 5px; min-width: 0;
+  font-size: 11px; color: ${T.label2};
+}
+.fo-legend-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex: 0 0 8px;
+  background: var(--fo-c, ${T.brand});
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--fo-c, ${T.brand}) 20%, transparent);
+}
+.fo-legend-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-legend-count { font-variant-numeric: tabular-nums; }
 .fo-graph-meta { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
-/* 画布区：24px 内边距 + 固定 40px 双层网格（网格层不滚动、不拦点击） */
-.fo-canvas { position: relative; padding: 24px; }
+/* 画布区：占满图容器剩下的高度 + 24px 内边距；40px 双层网格铺满整块画布（不拦点击） */
+.fo-canvas {
+  position: relative; display: flex; flex-direction: column;
+  flex: 1 1 auto; min-height: 0; width: 100%;
+  padding: 24px;
+}
 .fo-grid {
-  position: absolute; inset: 0; pointer-events: none;
+  position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
   background-image:
     linear-gradient(to right, var(--fo-grid-line) 1px, transparent 1px),
     linear-gradient(to bottom, var(--fo-grid-line) 1px, transparent 1px);
   background-size: var(--fo-grid-size) var(--fo-grid-size);
 }
-.fo-graph-body { position: relative; overflow: auto; }
-.fo-svg { display: block; }
-.fo-band { fill: color-mix(in oklab, var(--fo-c, ${T.label2}) 6%, transparent); stroke: color-mix(in oklab, var(--fo-c, ${T.label2}) 30%, transparent); stroke-width: 1; }
-.fo-band[data-external="1"] { fill: color-mix(in oklab, ${T.label2} 5%, transparent); stroke: var(--fo-glass-line-hover); stroke-dasharray: 4 4; }
-.fo-band-label { fill: var(--fo-c, ${T.label2}); font-size: 11px; font-weight: 600; }
-.fo-band-label[data-external="1"] { fill: ${T.label2}; font-weight: 400; }
+.fo-graph-body { position: relative; flex: 1 1 auto; min-height: 0; width: 100%; height: 100%; }
+.fo-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .fo-edge {
   fill: none; stroke: var(--fo-glass-line-hover);
   stroke-width: 2; stroke-opacity: .7;
@@ -360,75 +381,24 @@ export const CSS = `
 .fo-node:hover .fo-node-bg { stroke: ${g(T.border2, 80)}; }
 .fo-node.is-selected .fo-node-bg { stroke: ${T.brand}; stroke-width: 2; }
 .fo-node.is-selected { filter: drop-shadow(0 0 6px ${g(T.brand, 25)}); }
+/* 状态光晕：成功/警告/错误/idle/品牌 五个 35% 混合，落到画布节点状态点的同色外发光上
+   （卡片区删掉后它们的新家；--fo-C 是项目分色，光晕表达的是状态）。 */
+.fo-node[data-state="blocked"] { --fo-node-glow: var(--fo-glow-error); }
+.fo-node[data-state="suspended"] { --fo-node-glow: var(--fo-glow-warn); }
+.fo-node[data-state="done"] { --fo-node-glow: var(--fo-glow-success); }
+.fo-node[data-state="open"] { --fo-node-glow: var(--fo-glow-brand); }
+.fo-node[data-state="ghost"] { --fo-node-glow: var(--fo-glow-idle); }
 .fo-node-spine { fill: var(--fo-c, ${T.idle}); }
-.fo-node-dot { fill: var(--fo-c, ${T.idle}); }
+.fo-node-dot {
+  fill: var(--fo-c, ${T.idle});
+  filter: drop-shadow(0 0 5px var(--fo-node-glow, transparent));
+}
 .fo-node-no { fill: ${T.label2}; font-size: 10px; font-weight: 600; }
 .fo-node-title { fill: ${T.label1}; font-size: 12px; }
 .fo-node.is-ghost .fo-node-title { fill: ${T.label2}; }
 .fo-node-meta { fill: ${T.label2}; font-size: 10px; }
 .fo-node:focus-visible { outline: none; }
 .fo-node:focus-visible .fo-node-bg { stroke: ${T.brand}; stroke-width: 2; }
-
-/* ============ 任务卡片：玻璃卡片 + 悬停上浮 + 品牌渐变淡入 ============ */
-.fo-cards-title {
-  display: flex; align-items: center; gap: 8px;
-  margin: 4px 2px 12px; font-size: 11px; font-weight: 600;
-  color: ${T.label2}; letter-spacing: .04em; text-transform: uppercase;
-}
-.fo-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-.fo-card {
-  position: relative; overflow: hidden;
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 16px; min-width: 0;
-  border: 1px solid var(--fo-glass-line); border-radius: 12px;
-  background: var(--fo-glass-card);
-  backdrop-filter: var(--fo-glass-blur);
-  -webkit-backdrop-filter: var(--fo-glass-blur);
-  box-shadow: var(--fo-glass-shadow);
-  color: inherit; font: inherit; text-align: left;
-  cursor: pointer;
-  transition: transform var(--fo-dur) var(--fo-ease), border-color var(--fo-dur) var(--fo-ease), box-shadow var(--fo-dur) var(--fo-ease);
-}
-.fo-card::after {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  background: var(--fo-glass-wash);
-  opacity: 0; pointer-events: none;
-  transition: opacity var(--fo-dur) var(--fo-ease);
-}
-.fo-card:hover { transform: translateY(-3px) scale(1.01); border-color: var(--fo-glass-line-hover); }
-.fo-card:hover::after { opacity: 1; }
-/* 状态光晕：借参考项目「稀有度光晕」的写法，落到我们的四态上——卡片左侧一条 3px 光条。
-   品牌/成功/警告/错误/idle 五个光晕色都来自状态令牌的 35% 混合，不新增颜色。 */
-.fo-card[data-state="blocked"] { --fo-card-glow: var(--fo-glow-error); border-color: ${g(T.error, 30)}; }
-.fo-card[data-state="suspended"] { --fo-card-glow: var(--fo-glow-warn); border-color: ${g(T.warn, 30)}; }
-.fo-card[data-state="done"] { --fo-card-glow: var(--fo-glow-success); border-color: ${g(T.success, 24)}; }
-.fo-card[data-state="open"] { --fo-card-glow: var(--fo-glow-brand); }
-.fo-card::before {
-  content: ''; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px;
-  border-radius: 999px;
-  background: var(--fo-card-glow, var(--fo-glow-idle));
-}
-.fo-card[aria-current="true"] { border-color: var(--fo-selected-line); background: var(--fo-selected-bg); }
-.fo-card-top { display: flex; align-items: center; gap: 8px; }
-.fo-card-no { font-size: 11px; color: ${T.label2}; font-variant-numeric: tabular-nums; }
-.fo-card-title {
-  font-size: 12px; color: ${T.label1};
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.fo-card-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
-.fo-tag {
-  display: inline-flex; align-items: center; gap: 3px;
-  max-width: 100%; height: 18px; padding: 0 8px;
-  border-radius: 999px; font-size: 10px;
-  color: ${T.label2}; background: var(--fo-glass-sub);
-  border: 1px solid var(--fo-glass-line);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.fo-tag[data-tone="danger"] { color: ${T.error}; background: ${g(T.error, 13)}; border-color: ${g(T.error, 30)}; }
-.fo-tag[data-tone="ok"] { color: ${T.success}; background: ${g(T.success, 13)}; border-color: ${g(T.success, 30)}; }
-.fo-tag[data-tone="warn"] { color: ${T.warn}; background: ${g(T.warn, 14)}; border-color: ${g(T.warn, 30)}; }
-.fo-tag[data-tone="idle"] { color: ${T.idle}; background: ${g(T.idle, 16)}; border-color: ${g(T.idle, 32)}; }
 
 /* ============ 右栏：详情（独立玻璃层） ============ */
 .fo-detail {
@@ -494,8 +464,8 @@ export const CSS = `
     animation: none !important;
     transition: none !important;
   }
-  .fo-card:hover, .fo-ref:hover:not(:disabled), .fo-btn:hover:not(:disabled), .fo-row:hover { transform: none !important; }
-  .fo-card:hover::after, .fo-ref:hover:not(:disabled)::after { opacity: 0 !important; }
+  .fo-ref:hover:not(:disabled), .fo-btn:hover:not(:disabled), .fo-row:hover { transform: none !important; }
+  .fo-ref:hover:not(:disabled)::after { opacity: 0 !important; }
 }
 `
 

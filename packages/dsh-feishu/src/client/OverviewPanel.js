@@ -6,7 +6,8 @@
  *   不碰 localStorage（走注入的 store）、不写 document.body、不做 DOM 查询；
  * - 持有纯视图状态：当前 scope、目录折叠、展开的详情、右键菜单、拖拽高亮、就地重命名/新建；
  * - 按 revision 变化轮询刷新（间隔下限 15s，宿主侧是瘦快照）；
- * - 把树 / 图 / 卡片 / 详情四个子组件按同一份 {React, h, model} 实例化并接线。
+ * - 把树 / 图 / 详情三个子组件按同一份 {React, h, model} 实例化并接线（卡片区已删：
+ *   图上的节点就是任务列表，再列一遍只是重复）。
  *
  * 兼容两套注入命名（lead 早期冻结名与最终名都吃）：
  *   api.overview | api.loadOverview；api.groupAction | api.saveGroups；api.revision() → 值或 {revision}
@@ -19,7 +20,6 @@ import * as modelModule from '../overview/model.js'
 import * as layoutModule from '../overview/layout.js'
 import { createDetailPanel } from './DetailPanel.js'
 import { createGraphView } from './GraphView.js'
-import { createTaskCards } from './TaskCards.js'
 import { createTreeNav } from './TreeNav.js'
 
 const MIN_POLL_MS = 15000
@@ -214,7 +214,6 @@ export function createOverviewPanel(deps) {
 
   const TreeNav = createTreeNav({ React, h, model })
   const GraphView = createGraphView({ React, h, model, layout })
-  const TaskCards = createTaskCards({ React, h, model })
   const DetailPanel = createDetailPanel({ React, h, model })
 
   const { useCallback, useEffect, useMemo, useRef, useState } = React
@@ -540,23 +539,12 @@ export function createOverviewPanel(deps) {
         h('button', { type: 'button', className: 'fo-btn', 'data-variant': 'primary', onClick: () => setKeyword('') }, '清除搜索'),
       )
     } else {
-      /* 筛选态下当前范围没有匹配：只留图（它会说明这里没有内容），不再画一张空卡片区 */
-      const showCards = scopedTasks.length > 0 || !keywordNeedle
-      content = h('div', null,
-        h(GraphView, {
-          graphs,
-          selectedId: detailTask ? detailId : '',
-          onOpenTask: (id) => openTask(id),
-        }),
-        showCards
-          ? h(TaskCards, {
-            tasks: scopedTasks,
-            selectedId: detailId,
-            colorOf,
-            onOpenTask: (id) => openTask(id),
-          })
-          : null,
-      )
+      /* 只有图：图上的节点就是任务列表（task-13 删掉了图下面那份重复的卡片区） */
+      content = h(GraphView, {
+        graphs,
+        selectedId: detailTask ? detailId : '',
+        onOpenTask: (id) => openTask(id),
+      })
     }
 
     return h('div', {
