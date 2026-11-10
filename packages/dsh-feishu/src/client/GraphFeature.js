@@ -20,6 +20,25 @@
 import { createGraphView } from './GraphView.js'
 import { createTreeNav } from './TreeNav.js'
 
+/** 「一键整理」的图标：20px 线性 sparkle（自绘，不引图标字体/图片）。 */
+export function sparkleIcon(h) {
+  return h('svg', {
+    className: 'fo-btn-icon',
+    width: 14,
+    height: 14,
+    viewBox: '0 0 20 20',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.5,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+  },
+    h('path', { d: 'M10 2.4l1.5 4.1 4.1 1.5-4.1 1.5L10 13.6 8.5 9.5 4.4 8l4.1-1.5z' }),
+    h('path', { d: 'M15.6 13.4l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z' }),
+  )
+}
+
 export function createGraphFeature(deps) {
   const { h } = deps || {}
   const TreeNav = createTreeNav(deps)
@@ -28,6 +47,11 @@ export function createGraphFeature(deps) {
   return function GraphFeature(props) {
     const ctx = props || {}
     const collapsed = ctx.scopeCollapsed === true
+    const org = ctx.organize && typeof ctx.organize === 'object' ? ctx.organize : null
+    const orgAvailable = !!(org && org.available)
+    const orgRunning = !!(org && org.running)
+    const orgOpen = !!(org && org.open)
+    const orgPending = org && Number(org.pending) > 0 ? Number(org.pending) : 0
 
     return h('div', { className: 'fo-feature' },
       h('div', { className: 'fo-feature-bar' },
@@ -41,6 +65,31 @@ export function createGraphFeature(deps) {
           title: collapsed ? '展开范围列' : '折叠范围列',
           onClick: () => { if (typeof ctx.onToggleScope === 'function') ctx.onToggleScope() },
         }, collapsed ? '› 范围' : '‹ 范围'),
+        /* 一键整理：宿主没有 organize 接口（旧宿主）时整块不渲染，而不是点了报错。 */
+        orgAvailable
+          ? h('button', {
+            type: 'button',
+            className: 'fo-btn',
+            'data-size': 'sm',
+            'data-action': 'organize',
+            disabled: orgRunning,
+            title: '让 AI 为当前范围找前置/后置/来源关系，先出建议再落库',
+            onClick: () => { if (!orgRunning && typeof org.onRun === 'function') org.onRun() },
+          }, orgRunning ? '整理中…' : '一键整理', orgRunning ? null : sparkleIcon(h))
+          : null,
+        /* 有建议时给一个折叠开关：用来把抽屉收起来再打开，不用重跑一次模型。 */
+        orgAvailable && orgPending > 0
+          ? h('button', {
+            type: 'button',
+            className: 'fo-btn',
+            'data-size': 'sm',
+            'data-variant': 'ghost',
+            'data-action': 'organize-toggle',
+            'aria-expanded': orgOpen ? 'true' : 'false',
+            'aria-controls': 'fo-organize-column',
+            onClick: () => { if (typeof org.onToggle === 'function') org.onToggle() },
+          }, orgOpen ? '收起建议' : `建议 ${orgPending}`)
+          : null,
       ),
       h('div', { className: 'fo-feature-body' },
         collapsed

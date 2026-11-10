@@ -22,6 +22,7 @@ import * as modelModule from '../overview/model.js'
 import * as layoutModule from '../overview/layout.js'
 import { createDetailPanel } from './DetailPanel.js'
 import { createFeatures, featureById } from './features.js'
+import { createOrganizeDrawer } from './OrganizeDrawer.js'
 
 const MIN_POLL_MS = 15000
 const DEFAULT_POLL_MS = 30000
@@ -30,6 +31,7 @@ const asArray = (value) => (Array.isArray(value) ? value : [])
 
 function adaptApi(raw) {
   const source = raw && typeof raw === 'object' ? raw : {}
+  const fn = (name) => (typeof source[name] === 'function' ? (...args) => source[name](...args) : null)
   return {
     overview: typeof source.overview === 'function'
       ? () => source.overview()
@@ -38,6 +40,11 @@ function adaptApi(raw) {
     groupAction: typeof source.groupAction === 'function'
       ? (body) => source.groupAction(body)
       : (typeof source.saveGroups === 'function' ? (body) => source.saveGroups(body) : null),
+    /* 一键整理（task-16）：旧宿主没有这四个方法时是 null —— 按钮不渲染，而不是点了报错。 */
+    organize: fn('organize'),
+    organizeView: fn('organizeView'),
+    organizeAccept: fn('organizeAccept'),
+    organizeReject: fn('organizeReject'),
   }
 }
 
@@ -255,6 +262,7 @@ export function createOverviewPanel(deps) {
   const pollMs = Math.max(MIN_POLL_MS, Number(deps && deps.pollMs) || DEFAULT_POLL_MS)
 
   const DetailPanel = createDetailPanel({ React, h, model })
+  const OrganizeDrawer = createOrganizeDrawer({ React, h, model })
   /* 功能注册表：rail 导航项、正文渲染、activeFeature 全从它派生。
      `features` 允许注入（测试用它加一个假功能验证「注册表驱动」与切换）。 */
   const features = Array.isArray(deps && deps.features) && deps.features.length
@@ -292,6 +300,20 @@ export function createOverviewPanel(deps) {
     const [nodePos, setNodePos] = useState(() => readNodePos(readStore(store, 'nodePos')))
     /* 宿主动作（打开会话）失败时的可读提示：role=status，绝不静默。 */
     const [hostNote, setHostNote] = useState('')
+    /* 一键整理（task-16）：抽屉开关 + 最近一批建议 + 逐条失败原因。整块状态放一个对象里，
+       因为「跑」是异步的，分开的 setState 会出现抽屉和 batch 短暂对不上的中间态。 */
+    const [org, setOrg] = useState(() => {
+      const saved = readStore(store, 'organize')
+      return {
+        open: model.isObj(saved) ? saved.open === true : false,
+        batchId: model.isObj(saved) ? model.str(saved.batchId) : '',
+        batch: null,
+        status: 'idle',
+        error: '',
+        failed: {},
+        droppedOpen: false,
+      }
+    })
     const [keyword, setKeyword] = useState(() => model.str(readStore(store, 'keyword')))
     const [renamingId, setRenamingId] = useState('')
     const [creating, setCreating] = useState(false)
@@ -376,6 +398,7 @@ export function createOverviewPanel(deps) {
     useEffect(() => { writeStore(store, 'scope', scopeCollapsed) }, [scopeCollapsed])
     useEffect(() => { writeStore(store, 'rail', railOpen) }, [railOpen])
     useEffect(() => { writeStore(store, 'nodePos', nodePos) }, [nodePos])
+    useEffect(() => { writeStore(store, 'organize', { open: org.open, batchId: org.batchId }) }, [org.open, org.batchId])
 
     useEffect(() => {
       if (!detailId || typeof document === 'undefined' || !document.addEventListener) return undefined
@@ -602,6 +625,129 @@ export function createOverviewPanel(deps) {
         })
     }, [host])
 
+    /* ---------------- 一键整理（task-16）：只出建议、人点了才落库 ---------------- */
+
+    /* 换范围或首次挂载：把这个范围最近一批建议取回来（没有就是 null），抽屉内容跟着走。 */
+    useEffect(() => {
+      const fn = apiRef.current.organizeView
+      if (!fn) return undefined
+      let stale = false
+      Promise.resolve()
+        .then(() => fn(scope))
+        .then((batch) => {
+          if (stale || !alive.current || !batch) return
+          setOrg((prev) => ({
+            ...prev,
+            batch,
+            batchId: model.str(batch.batchId) || prev.batchId,
+            status: 'ready',
+          }))
+        })
+        .catch(() => { /* 恢复失败不打扰用户：画布照用，按钮还在 */ })
+      return () => { stale = true }
+    }, [scope])
+
+    const toggleOrganize = useCallback(() => {
+      setOrg((prev) => ({ ...prev, open: prev.open !== true }))
+    }, [])
+
+    const closeOrganize = useCallback(() => {
+      setOrg((prev) => ({ ...prev, open: false }))
+    }, [])
+
+    const toggleDropped = useCallback(() => {
+      setOrg((prev) => ({ ...prev, droppedOpen: prev.droppedOpen !== true }))
+    }, [])
+
+    /** 跑一次整理：零副作用，只出建议；失败给 role=alert 的错误条（重试按钮再跑一次）。 */
+    const runOrganize = useCallback(() => {
+      const fn = apiRef.current.organize
+      if (!fn) return Promise.resolve(null)
+      setOrg((prev) => ({ ...prev, status: 'running', error: '', failed: {} }))
+      return Promise.resolve()
+        .then(() => fn(scope))
+        .then((res) => {
+          if (!alive.current) return null
+          const batch = res && res.batch ? res.batch : null
+          setOrg((prev) => ({
+            ...prev,
+            open: true,
+            batch,
+            batchId: model.str(batch && batch.batchId) || prev.batchId,
+            status: 'ready',
+            error: '',
+            failed: {},
+          }))
+          return batch
+        })
+        .catch((error) => {
+          const message = model.str((error && error.message) || error) || '一键整理失败'
+          if (alive.current) setOrg((prev) => ({ ...prev, status: 'error', error: message }))
+          return null
+        })
+    }, [scope])
+
+    /** 接受若干条（空数组 = 全部待处理）：用返回的 batch 就地更新抽屉，并重拉快照让新边立刻上画布。 */
+    const acceptOrganize = useCallback((itemIds) => {
+      const fn = apiRef.current.organizeAccept
+      const batchId = org.batchId
+      if (!fn || !batchId) return Promise.resolve(null)
+      setOrg((prev) => ({ ...prev, status: 'running' }))
+      return Promise.resolve()
+        .then(() => fn(batchId, itemIds || []))
+        .then((res) => {
+          const batch = res && res.batch ? res.batch : null
+          const failed = {}
+          asArray(res && res.results).forEach((row) => {
+            if (!row || row.ok === true) return
+            failed[model.str(row.id)] = model.str(row.error) || '写入失败'
+          })
+          if (alive.current) {
+            setOrg((prev) => ({
+              ...prev,
+              batch: batch || prev.batch,
+              batchId: model.str(batch && batch.batchId) || prev.batchId,
+              status: 'ready',
+              failed,
+            }))
+            /* 接受过的关系要立刻出现在画布上：拉一次权威快照。 */
+            load(true)
+          }
+          return res
+        })
+        .catch((error) => {
+          const message = model.str((error && error.message) || error) || '接受建议失败'
+          if (alive.current) setOrg((prev) => ({ ...prev, status: 'error', error: message }))
+          return null
+        })
+    }, [load, org.batchId])
+
+    const rejectOrganize = useCallback((itemIds) => {
+      const fn = apiRef.current.organizeReject
+      const batchId = org.batchId
+      if (!fn || !batchId) return Promise.resolve(null)
+      setOrg((prev) => ({ ...prev, status: 'running' }))
+      return Promise.resolve()
+        .then(() => fn(batchId, itemIds || []))
+        .then((res) => {
+          const batch = res && res.batch ? res.batch : null
+          if (alive.current) {
+            setOrg((prev) => ({
+              ...prev,
+              batch: batch || prev.batch,
+              batchId: model.str(batch && batch.batchId) || prev.batchId,
+              status: 'ready',
+            }))
+          }
+          return res
+        })
+        .catch((error) => {
+          const message = model.str((error && error.message) || error) || '拒绝建议失败'
+          if (alive.current) setOrg((prev) => ({ ...prev, status: 'error', error: message }))
+          return null
+        })
+    }, [org.batchId])
+
     /** 关系里点过来的任务：能点过去就一定让它可见（不在当前 scope 里就切回全部）。 */
     const jumpToTask = useCallback((id) => {
       const key = model.str(id)
@@ -674,6 +820,14 @@ export function createOverviewPanel(deps) {
       onResetLayout: resetLayout,
       onBlur: blurCanvas,
       onOpenSession: openSession,
+      organize: {
+        available: typeof apiRef.current.organize === 'function',
+        running: org.status === 'running',
+        open: org.open,
+        pending: Number(org.batch && org.batch.pending) || 0,
+        onRun: runOrganize,
+        onToggle: toggleOrganize,
+      },
       treeProps: {
         tree,
         renamingId,
@@ -705,6 +859,7 @@ export function createOverviewPanel(deps) {
       'data-scope-open': scopeCollapsed ? '0' : '1',
       'data-rail': railOpen ? '1' : '0',
       'data-feature': activeFeatureId,
+      'data-organize': org.open ? '1' : '0',
     },
       /* 侧栏三段：品牌 / 功能导航 / 底部固定区（折叠按钮在这里，折起来 rail 变 56px 图标条） */
       h('aside', { className: 'fo-rail', 'aria-label': '功能导航' },
@@ -801,6 +956,14 @@ export function createOverviewPanel(deps) {
               h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', onClick: () => setState((prev) => ({ ...prev, error: '' })) }, '知道了'),
             )
             : null,
+          /* 一键整理失败：同一套错误条口径（role=alert + 重试），不静默。 */
+          org.error
+            ? h('div', { className: 'fo-banner', role: 'alert' },
+              h('span', null, org.error),
+              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => runOrganize() }, '重试'),
+              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', onClick: () => setOrg((prev) => ({ ...prev, error: '' })) }, '知道了'),
+            )
+            : null,
           /* 正文 = 当前功能页；功能从注册表来，骨架不认识任何具体功能 */
           h('div', { className: 'fo-feature-host', 'data-feature': activeFeatureId },
             shellNode || (featureComponent ? h(featureComponent, featureCtx) : null),
@@ -818,6 +981,19 @@ export function createOverviewPanel(deps) {
             onClose: () => { setDetailId(''); setFocusedId('') },
             onSelectTask: jumpToTask,
             onFocusProject: (key) => setScope({ kind: 'project', id: key }),
+          })
+          : null,
+        org.open
+          ? h(OrganizeDrawer, {
+            open: true,
+            batch: org.batch,
+            status: org.status,
+            failed: org.failed,
+            droppedOpen: org.droppedOpen,
+            onAccept: acceptOrganize,
+            onReject: rejectOrganize,
+            onClose: closeOrganize,
+            onToggleDropped: toggleDropped,
           })
           : null,
       ),

@@ -242,9 +242,14 @@ export const CSS = `
   min-width: 0;
 }
 .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 336px; }
+/* 一键整理抽屉：正文右边的玻璃抽屉；与详情同时开时是第三列（正文 | 详情 | 建议） */
+.fo-root[data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 340px; }
+.fo-root[data-detail="1"][data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 336px 340px; }
 /* 视口不够时先压详情栏；rail 只在很窄时才收（288 是参考站口径） */
 @media (max-width: 1280px) {
   .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 300px; }
+  .fo-root[data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 320px; }
+  .fo-root[data-detail="1"][data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 300px 320px; }
 }
 @media (max-width: 1140px) {
   .fo-root:not([data-rail="0"]) { --fo-rail-w: 264px; }
@@ -542,6 +547,65 @@ export const CSS = `
 .fo-ref-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fo-muted { margin: 0; font-size: 12px; color: ${T.label2}; }
 .fo-detail-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: auto; padding-top: 8px; }
+
+/* ============ 右栏：一键整理建议抽屉（task-16） ============
+   每条建议 = 一次「改一条关系」的动作，所以卡片上必须同时有：类型徽标、两端标题、模型自评的把握、
+   evidence 原文（引用块）、代价预览（会让谁变阻塞）。健康色/警告色都走宿主状态令牌。 */
+.fo-organize {
+  display: flex; flex-direction: column; gap: 10px;
+  min-width: 0; min-height: 0; overflow: auto;
+  padding: 14px;
+  border-left: 1px solid var(--fo-glass-line);
+  background: var(--fo-glass-card);
+  backdrop-filter: var(--fo-glass-blur);
+  -webkit-backdrop-filter: var(--fo-glass-blur);
+}
+.fo-org-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.fo-org-title { font-size: 13px; font-weight: 600; }
+.fo-org-counts { margin-left: auto; font-size: 11px; color: ${T.label2}; font-variant-numeric: tabular-nums; }
+.fo-org-notes { margin: 0; font-size: 12px; color: ${T.label2}; line-height: 1.5; }
+.fo-org-list { display: flex; flex-direction: column; gap: 10px; }
+.fo-org-item {
+  display: flex; flex-direction: column; gap: 6px;
+  padding: 10px 12px; border-radius: 12px;
+  background: var(--fo-glass-sub);
+  border: 1px solid var(--fo-glass-line);
+}
+.fo-org-item[data-status="accepted"] { border-color: ${g(T.success, 34)}; }
+.fo-org-item[data-status="rejected"] { opacity: .6; }
+.fo-org-top { display: flex; align-items: center; gap: 8px; }
+.fo-org-kind {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 8px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; white-space: nowrap;
+  color: ${T.brand}; background: var(--fo-selected-bg); border: 1px solid var(--fo-selected-line);
+}
+.fo-org-kind[data-kind="derived_from"] { color: ${T.idle}; background: ${g(T.idle, 16)}; border-color: ${g(T.idle, 32)}; }
+.fo-org-conf { margin-left: auto; font-size: 11px; color: ${T.label2}; font-variant-numeric: tabular-nums; }
+.fo-org-route { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
+.fo-org-from, .fo-org-to { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-org-arrow { flex: 0 0 auto; color: ${T.brand}; }
+.fo-org-evidence {
+  margin: 0; padding: 6px 8px;
+  border-left: 2px solid var(--fo-selected-line); border-radius: 0 8px 8px 0;
+  background: ${g(T.bgBase, 60)};
+  font-size: 11px; color: ${T.label2}; line-height: 1.5; word-break: break-word;
+}
+.fo-org-impact { margin: 0; font-size: 11px; color: ${T.warn}; }
+.fo-org-fail { margin: 0; font-size: 11px; color: ${T.error}; }
+.fo-org-item-actions { display: flex; align-items: center; gap: 8px; }
+.fo-org-done { font-size: 11px; color: ${T.label2}; }
+.fo-org-empty { margin: 0; font-size: 12px; color: ${T.label2}; line-height: 1.5; }
+.fo-org-dropped { display: flex; flex-direction: column; gap: 6px; }
+.fo-org-dropped > .fo-btn { align-self: flex-start; }
+.fo-org-dropped-list { display: flex; flex-direction: column; gap: 4px; }
+.fo-org-dropped-item { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-radius: 8px; background: var(--fo-glass-sub); }
+.fo-org-dropped-route { font-size: 11px; color: ${T.label2}; }
+.fo-org-dropped-reason { font-size: 11px; color: ${T.label2}; }
+.fo-org-foot {
+  margin-top: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-top: 8px; border-top: 1px solid var(--fo-glass-line);
+}
+.fo-btn-icon { flex: 0 0 auto; width: 14px; height: 14px; }
 
 /* ============ 空态 / 加载态 ============ */
 .fo-placeholder {

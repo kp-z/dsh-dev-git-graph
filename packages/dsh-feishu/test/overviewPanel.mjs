@@ -265,6 +265,26 @@ function makeApi(snapshot, options) {
   let revision = (snapshot && snapshot.revision) || 'rev-fixed-1'
   let overviewCount = 0
   const stateOf = () => ({ ...snapshot, groups: cloneGroups(groups), revision })
+  /* 一键整理（task-16）：默认**不提供**这四个方法（旧宿主口径），注入 organizeApi 才有。 */
+  const org = opts.organizeApi && typeof opts.organizeApi === 'object' ? opts.organizeApi : null
+  const organizeApi = org ? org : (opts.noOrganize ? {} : {
+    organize: async (scope) => {
+      calls.push({ method: 'organize', scope })
+      return { ok: true, batch: opts.organizeResult || null, dropped: 0, complete: true, candidates: 0 }
+    },
+    organizeView: async (scope) => {
+      calls.push({ method: 'organizeView', scope })
+      return opts.organizeResult || null
+    },
+    organizeAccept: async (batchId, itemIds) => {
+      calls.push({ method: 'organizeAccept', batchId, itemIds })
+      return { ok: true, results: [], batch: opts.organizeResult || null }
+    },
+    organizeReject: async (batchId, itemIds) => {
+      calls.push({ method: 'organizeReject', batchId, itemIds })
+      return { ok: true, batch: opts.organizeResult || null }
+    },
+  })
 
   return {
     calls,
@@ -296,6 +316,7 @@ function makeApi(snapshot, options) {
       revision = `rev-write-${calls.filter((call) => call.method === 'groupAction').length}`
       return { ok: true, group: groups.find((group) => group.id === body.id) || groups[0] || null, groups: cloneGroups(groups) }
     },
+    ...organizeApi,
   }
 }
 
@@ -1389,13 +1410,14 @@ const PANEL_CARD = layout.CARD
     assert.equal(byClass(head, 'fo-head-actions').length, 1)
     assert.equal(head.children.filter((child) => child && child.kind === 'host').length, 3)
   })
-  check('功能页工具条只剩范围列折叠按钮（featureHint / scopeText 两个 span 已删）', () => {
+  check('功能页工具条只剩控件（featureHint / scopeText 两个文字 span 已删）', () => {
     const bar = byClass(ft, 'fo-feature-bar')[0]
     assert.ok(bar)
     assert.equal(byClass(bar, 'fo-feature-hint').length, 0)
     assert.equal(byClass(bar, 'fo-feature-meta').length, 0)
-    assert.equal(bar.children.filter((child) => child && child.kind === 'host').length, 1)
-    assert.ok(textOf(bar).includes('范围'), '留下的那个是范围列折叠按钮')
+    const hosts = bar.children.filter((child) => child && child.kind === 'host')
+    assert.equal(hosts.every((child) => child.type === 'button'), true, '工具条里只留按钮，不留说明文字')
+    assert.ok(textOf(bar).includes('范围'), '其中一个还是范围列折叠按钮')
   })
   check('图头：只剩 图名 + 图例 + 复位布局（计数胶囊删掉，图例保留）', () => {
     const head = byClass(ft, 'fo-graph-head')[0]
@@ -1418,6 +1440,354 @@ const PANEL_CARD = layout.CARD
     }
   })
 }
+
+/* ============================================================================
+ * 4f. task-16：一键整理（建议抽屉 + 逐条接受/拒绝）
+ * ========================================================================== */
+
+function organizeBatchFixture() {
+  return {
+    batchId: 'b-1',
+    at: 1794298146389,
+    scope: { kind: 'all', id: '' },
+    model: { provider: 'prov', model: 'm', candidates: 5, truncated: false },
+    notes: '两条建议都来自描述里的先后措辞',
+    pending: 2,
+    accepted: 0,
+    rejected: 0,
+    dropped: 1,
+    items: [
+      { id: 'it-1', kind: 'depends_on', from: 'b1', to: 'a2', fromTitle: '任务 b1', toTitle: '任务 a2', confidence: 0.86, evidence: '描述里写着「等 b1 合并后再做」', status: 'pending', reason: '', impact: { blocked: ['任务 a2'], blockedCount: 1 } },
+      { id: 'it-2', kind: 'derived_from', from: 'a1', to: 'c1', fromTitle: '任务 a1', toTitle: '任务 c1', confidence: 0.72, evidence: '同一交付范围内的收口任务', status: 'pending', reason: '', impact: { blocked: [], blockedCount: 0 } },
+      { id: 'it-3', kind: 'depends_on', from: 'e1', to: 'e1', fromTitle: '任务 e1', toTitle: '任务 e1', confidence: 0.9, evidence: '自环', status: 'dropped', reason: '自环', impact: { blocked: [], blockedCount: 0 } },
+    ],
+  }
+}
+
+/** 假的一键整理后端：够跑「跑 → 出建议 → 逐条接受/拒绝 → 就地更新」。 */
+function makeOrganizeBackend(options) {
+  const o = options || {}
+  const log = { organize: [], view: [], accept: [], reject: [] }
+  const state = { batch: o.initial === undefined ? null : o.initial }
+  const recount = (batch) => {
+    const items = Array.isArray(batch.items) ? batch.items : []
+    return {
+      ...batch,
+      pending: items.filter((item) => item.status === 'pending').length,
+      accepted: items.filter((item) => item.status === 'accepted').length,
+      rejected: items.filter((item) => item.status === 'rejected').length,
+      dropped: items.filter((item) => item.status === 'dropped').length,
+    }
+  }
+  const pendingIds = () => (state.batch ? state.batch.items.filter((item) => item.status === 'pending').map((item) => item.id) : [])
+  return {
+    log,
+    getBatch: () => state.batch,
+    api: {
+      organize: async (scope) => {
+        log.organize.push(scope)
+        if (o.defer) { await new Promise((resolve) => { o.defer.push(resolve) }) }
+        if (o.fail) throw new Error(o.fail)
+        state.batch = o.result === undefined ? organizeBatchFixture() : o.result
+        return { ok: true, batch: state.batch, dropped: 1, complete: false, candidates: 2 }
+      },
+      organizeView: async (scope) => {
+        log.view.push(scope)
+        if (o.restore) state.batch = o.restore
+        return state.batch
+      },
+      organizeAccept: async (batchId, itemIds) => {
+        log.accept.push({ batchId, itemIds })
+        const wanted = Array.isArray(itemIds) && itemIds.length ? itemIds : pendingIds()
+        const results = []
+        const items = state.batch.items.map((item) => {
+          if (!wanted.includes(item.id) || item.status !== 'pending') return item
+          if (o.acceptFails && o.acceptFails[item.id]) {
+            results.push({ id: item.id, ok: false, error: o.acceptFails[item.id] })
+            return { ...item, reason: o.acceptFails[item.id] }
+          }
+          results.push({ id: item.id, ok: true, error: '' })
+          return { ...item, status: 'accepted' }
+        })
+        state.batch = recount({ ...state.batch, items })
+        return { ok: true, results, batch: state.batch }
+      },
+      organizeReject: async (batchId, itemIds) => {
+        log.reject.push({ batchId, itemIds })
+        const wanted = Array.isArray(itemIds) && itemIds.length ? itemIds : pendingIds()
+        state.batch = recount({
+          ...state.batch,
+          items: state.batch.items.map((item) => (wanted.includes(item.id) && item.status === 'pending' ? { ...item, status: 'rejected' } : item)),
+        })
+        return { ok: true, batch: state.batch }
+      },
+    },
+  }
+}
+
+const ORGANIZE_TRIGGER = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'organize')[0]
+const organizeDrawers = (tree) => findAll(tree, (node) => node.kind === 'host' && node.type === 'aside' && classNameOf(node).split(/\s+/).includes('fo-organize'))
+const orgItems = (tree, status) => findAll(tree, (node) => node.kind === 'host' && node.type === 'article'
+  && classNameOf(node).split(/\s+/).includes('fo-org-item') && (!status || node.props['data-status'] === status))
+const orgButton = (item, action) => findAll(item, (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === action)[0]
+
+{
+  const backend = makeOrganizeBackend()
+  const fx = await mountPanel({ organizeApi: backend.api })
+  let ft = fx.tree
+
+  check('工具条：有「一键整理」按钮（自绘 sparkle 图标 + title 说明），没有建议时不显示折叠开关', () => {
+    const btn = ORGANIZE_TRIGGER(ft)
+    assert.ok(btn, '一键整理按钮在')
+    assert.ok(textOf(btn).includes('一键整理'))
+    assert.ok(String(btn.props.title).includes('先出建议再落库'))
+    assert.equal(btn.props.disabled, false)
+    const icon = findAll(btn, (node) => node.kind === 'host' && node.type === 'svg' && classNameOf(node).includes('fo-btn-icon'))[0]
+    assert.ok(icon, '图标是自绘 svg')
+    assert.equal(findAll(ft, (node) => node.kind === 'host' && node.props['data-action'] === 'organize-toggle').length, 0)
+    assert.equal(organizeDrawers(ft).length, 0, '没点之前抽屉不出现')
+  })
+
+  ORGANIZE_TRIGGER(ft).props.onClick()
+  ft = await fx.mini.act()
+  check('点一键整理 → api.organize 收到的是**当前 scope**（全部任务）', () => {
+    assert.equal(backend.log.organize.length, 1)
+    assert.equal(backend.log.organize[0].kind, 'all')
+    assert.equal(backend.log.organize[0].id, '')
+    assert.ok(backend.log.organize[0].members === undefined || Array.isArray(backend.log.organize[0].members))
+  })
+  check('数据态：抽屉打开、标题/notes/计数都在，待处理 2 条', () => {
+    const drawer = organizeDrawers(ft)
+    assert.equal(drawer.length, 1)
+    const text = textOf(drawer[0])
+    assert.ok(text.includes('整理建议'))
+    assert.ok(text.includes('两条建议都来自描述里的先后措辞'), 'notes 要显示')
+    assert.ok(text.includes('待处理 2'))
+    assert.equal(orgItems(ft, 'pending').length, 2)
+    assert.equal(rootOf(ft).props['data-organize'], '1')
+  })
+  check('条目：kind 徽标（前置/来源）+ 两端标题 + 置信度 + evidence 原文引用块', () => {
+    const first = orgItems(ft, 'pending')[0]
+    assert.equal(textOf(byClass(first, 'fo-org-kind')[0]).trim(), '前置')
+    assert.equal(textOf(byClass(first, 'fo-org-conf')[0]).trim(), '86%')
+    const route = textOf(byClass(first, 'fo-org-route')[0])
+    assert.ok(route.includes('任务 b1') && route.includes('任务 a2'), route)
+    const quote = byClass(first, 'fo-org-evidence')[0]
+    assert.ok(quote, 'evidence 要有引用块')
+    assert.equal(textOf(quote).trim(), '描述里写着「等 b1 合并后再做」')
+    const second = orgItems(ft, 'pending')[1]
+    assert.equal(textOf(byClass(second, 'fo-org-kind')[0]).trim(), '来源', 'derived_from 徽标 = 来源')
+  })
+  check('影响预览：会让谁变阻塞用 warn 语气写出来（没影响的条目不写）', () => {
+    const first = orgItems(ft, 'pending')[0]
+    const impact = byClass(first, 'fo-org-impact')[0]
+    assert.ok(impact, '第一条会让 a2 变阻塞')
+    assert.equal(impact.props['data-tone'], 'warn')
+    assert.ok(textOf(impact).includes('任务 a2'))
+    assert.ok(textOf(impact).includes('前置没完成它就开不了工'))
+    assert.equal(byClass(orgItems(ft, 'pending')[1], 'fo-org-impact').length, 0, 'derived_from 没有阻塞代价')
+  })
+  check('已丢弃条目：默认折叠（只说条数，不渲染原因）', () => {
+    const drawer = organizeDrawers(ft)[0]
+    const toggle = findAll(drawer, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('已丢弃'))[0]
+    assert.ok(toggle, '要有「已丢弃 N 条」的折叠开关')
+    assert.ok(textOf(toggle).includes('1'))
+    assert.equal(toggle.props['aria-expanded'], 'false')
+    assert.equal(byClass(drawer, 'fo-org-dropped-list').length, 0, '默认不渲染原因列表')
+    assert.equal(orgItems(ft, 'dropped').length, 0)
+  })
+  findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('已丢弃'))[0].props.onClick()
+  ft = await fx.mini.act()
+  check('展开已丢弃：逐条给出原因', () => {
+    const toggle = findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('已丢弃'))[0]
+    assert.equal(toggle.props['aria-expanded'], 'true')
+    const list = byClass(organizeDrawers(ft)[0], 'fo-org-dropped-list')[0]
+    assert.ok(list)
+    assert.ok(textOf(list).includes('自环'), '原因要写出来')
+    assert.equal(byClass(list, 'fo-org-dropped-item').length, 1)
+  })
+  const overviewCallsBefore = fx.api.calls.filter((call) => call.method === 'overview').length
+  orgButton(orgItems(ft, 'pending')[0], 'accept').props.onClick()
+  ft = await fx.mini.act()
+  check('接受一条 → organizeAccept(batchId, [id])', () => {
+    assert.deepEqual(backend.log.accept, [{ batchId: 'b-1', itemIds: ['it-1'] }])
+  })
+  check('接受后：就地用返回的 batch 更新抽屉（待处理 1 / 已接受 1）', () => {
+    const drawer = organizeDrawers(ft)[0]
+    assert.ok(textOf(drawer).includes('待处理 1'))
+    assert.ok(textOf(drawer).includes('已接受 1'))
+    assert.equal(orgItems(ft, 'accepted').length, 1)
+    assert.ok(textOf(orgItems(ft, 'accepted')[0]).includes('已接受'))
+  })
+  check('接受后立刻重拉快照（新边要马上出现在画布上）', () => {
+    assert.ok(fx.api.calls.filter((call) => call.method === 'overview').length > overviewCallsBefore)
+  })
+  orgButton(orgItems(ft, 'pending')[0], 'reject').props.onClick()
+  ft = await fx.mini.act()
+  check('拒绝一条 → organizeReject(batchId, [id])，且不重拉快照', () => {
+    assert.deepEqual(backend.log.reject, [{ batchId: 'b-1', itemIds: ['it-2'] }])
+    assert.ok(textOf(organizeDrawers(ft)[0]).includes('已拒绝 1'))
+  })
+  check('待处理清空后：全部接受/全部拒绝按钮禁用', () => {
+    const drawer = organizeDrawers(ft)[0]
+    const acceptAll = findAll(drawer, (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'accept-all')[0]
+    assert.equal(acceptAll.props.disabled, true)
+  })
+  findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'close')[0].props.onClick()
+  ft = await fx.mini.act()
+  check('关闭抽屉：抽屉卸载、根节点 data-organize=0，但建议还在（折叠开关变「建议 N」）', () => {
+    assert.equal(organizeDrawers(ft).length, 0)
+    assert.equal(rootOf(ft).props['data-organize'], '0')
+    const toggle = findAll(ft, (node) => node.kind === 'host' && node.props['data-action'] === 'organize-toggle')[0]
+    assert.equal(toggle, undefined, '没有待处理建议时不显示折叠开关')
+  })
+  check('抽屉开关落 store（键 organize）', () => {
+    const saved = fx.store.data.get('organize')
+    assert.equal(saved.open, false)
+    assert.equal(saved.batchId, 'b-1')
+  })
+}
+
+{
+  /* 全部接受（itemIds 传空数组 = 全部待处理）+ 逐条失败汇报 */
+  const backend = makeOrganizeBackend({ acceptFails: { 'it-2': '飞书那边超时了' } })
+  const fx = await mountPanel({ organizeApi: backend.api })
+  let ft = fx.tree
+  ORGANIZE_TRIGGER(ft).props.onClick()
+  ft = await fx.mini.act()
+  findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'accept-all')[0].props.onClick()
+  ft = await fx.mini.act()
+  check('全部接受 → organizeAccept(batchId, [])（空数组 = 全部待处理）', () => {
+    assert.deepEqual(backend.log.accept, [{ batchId: 'b-1', itemIds: [] }])
+  })
+  check('逐条失败不静默：失败的那条就地写原因（role=alert）', () => {
+    const failed = orgItems(ft, 'pending')[0]
+    const alert = findAll(failed, (node) => node.kind === 'host' && node.props.role === 'alert')[0]
+    assert.ok(alert, '失败原因要在条目里')
+    assert.ok(textOf(alert).includes('飞书那边超时了'))
+  })
+  check('成功的那条照样进「已接受」', () => {
+    assert.equal(orgItems(ft, 'accepted').length, 1)
+  })
+}
+
+{
+  /* 错误态：模型/接口失败 → role=alert + 重试 */
+  const backend = makeOrganizeBackend({ fail: '模型没有返回建议' })
+  const fx = await mountPanel({ organizeApi: backend.api })
+  let ft = fx.tree
+  ORGANIZE_TRIGGER(ft).props.onClick()
+  ft = await fx.mini.act()
+  check('整理失败 → role=alert 错误条带宿主文案 + 重试按钮', () => {
+    const alerts = alertBoxes(ft)
+    assert.equal(alerts.length, 1)
+    assert.ok(textOf(alerts[0]).includes('模型没有返回建议'))
+    assert.ok(textOf(alerts[0]).includes('重试'))
+  })
+  const retry = findAll(ft, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '重试')[0]
+  check('重试按钮在', () => { assert.ok(retry) })
+  retry.props.onClick()
+  ft = await fx.mini.act()
+  check('重试真的又打了一次接口', () => {
+    assert.equal(backend.log.organize.length, 2, `organize 调用 ${backend.log.organize.length} 次`)
+  })
+}
+
+{
+  /* 空态：AI 没找到新关系 */
+  const empty = { ...organizeBatchFixture(), items: [], pending: 0, accepted: 0, rejected: 0, dropped: 0, notes: '' }
+  const backend = makeOrganizeBackend({ result: empty })
+  const fx = await mountPanel({ organizeApi: backend.api })
+  let ft = fx.tree
+  ORGANIZE_TRIGGER(ft).props.onClick()
+  ft = await fx.mini.act()
+  check('空态文案：宁可少而准', () => {
+    const drawer = organizeDrawers(ft)
+    assert.equal(drawer.length, 1)
+    assert.ok(textOf(drawer[0]).includes('AI 没有找到新的关系——这常常是正确答案，宁可少而准'))
+  })
+  check('空态也不给假的「全部接受」按钮（禁用）', () => {
+    const acceptAll = findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'accept-all')[0]
+    assert.equal(acceptAll.props.disabled, true)
+  })
+}
+
+{
+  /* 跑的时候要看得见「在跑」 */
+  const defer = []
+  const backend = makeOrganizeBackend({ defer })
+  const fx = await mountPanel({ organizeApi: backend.api })
+  let ft = fx.tree
+  ORGANIZE_TRIGGER(ft).props.onClick()
+  ft = await fx.mini.act()
+  check('loading 态：按钮 disabled + 「整理中…」', () => {
+    const btn = ORGANIZE_TRIGGER(ft)
+    assert.equal(btn.props.disabled, true)
+    assert.ok(textOf(btn).includes('整理中…'))
+  })
+  defer.forEach((resolve) => resolve())
+  ft = await fx.mini.act()
+  check('跑完回到可点状态，抽屉有内容', () => {
+    const btn = ORGANIZE_TRIGGER(ft)
+    assert.equal(btn.props.disabled, false)
+    assert.ok(textOf(btn).includes('一键整理'))
+    assert.equal(organizeDrawers(ft).length, 1)
+  })
+}
+
+{
+  /* 旧宿主：没有 organize 接口 → 按钮不渲染（而不是点了报错） */
+  const fx = await mountPanel({ noOrganize: true })
+  const ft = fx.tree
+  check('宿主没有 organize 接口：按钮整块不渲染', () => {
+    assert.equal(ORGANIZE_TRIGGER(ft), undefined)
+    assert.equal(organizeDrawers(ft).length, 0)
+  })
+}
+
+{
+  /* 挂载恢复：store 里开着抽屉 + organizeView 有最近一批 → 直接显示那一批 */
+  const backend = makeOrganizeBackend({ restore: organizeBatchFixture() })
+  const store = makeStore({ organize: { open: true, batchId: 'b-1' } })
+  const fx = await mountPanel({ organizeApi: backend.api, store })
+  const ft = fx.tree
+  check('挂载时按当前 scope 恢复最近一批建议', () => {
+    assert.equal(backend.log.view.length, 1)
+    assert.equal(backend.log.view[0].kind, 'all')
+    assert.equal(organizeDrawers(ft).length, 1, 'store 说开着，就要开着')
+    assert.equal(orgItems(ft, 'pending').length, 2)
+    assert.equal(rootOf(ft).props['data-organize'], '1')
+  })
+  check('恢复出来的抽屉里计数与条目一致', () => {
+    assert.ok(textOf(organizeDrawers(ft)[0]).includes('待处理 2'))
+  })
+}
+
+{
+  /* CSS：抽屉与条目样式（红线断言之外的口径） */
+  check('抽屉 CSS：340px 玻璃列 + 条目/引用块/影响预览/页脚', () => {
+    const grid = ruleBody('.fo-root[data-organize="1"] .fo-body')
+    assert.ok(grid.includes('minmax(0, 1fr) 340px'), grid)
+    const both = ruleBody('.fo-root[data-detail="1"][data-organize="1"] .fo-body')
+    assert.ok(both.includes('minmax(0, 1fr) 336px 340px'), both)
+    const drawer = ruleBody('.fo-organize')
+    assert.ok(drawer.includes('overflow: auto'))
+    assert.ok(drawer.includes('border-left: 1px solid var(--fo-glass-line)'))
+    assert.ok(drawer.includes('backdrop-filter'))
+    const item = ruleBody('.fo-org-item')
+    assert.ok(item.includes('border-radius: 12px'))
+    assert.ok(item.includes('background: var(--fo-glass-sub)'))
+    const quote = ruleBody('.fo-org-evidence')
+    assert.ok(quote.includes('border-left: 2px solid var(--fo-selected-line)'), '引用块有竖线')
+    const impact = ruleBody('.fo-org-impact')
+    assert.ok(impact.includes('color: var(--dsw-alias-state-warn-primary)'), '影响预览用 warn 色')
+    const kind = ruleBody('.fo-org-kind')
+    assert.ok(kind.includes('border-radius: 999px'), 'kind 徽标是胶囊')
+    assert.ok(ruleBody('.fo-org-foot').includes('margin-top: auto'))
+    assert.ok(ruleBody('.fo-btn-icon').includes('width: 14px'))
+  })
+}
+
 
 /* ---- 5. 展开 / 折叠：写 store ---- */
 tree = await main.mini.act()
