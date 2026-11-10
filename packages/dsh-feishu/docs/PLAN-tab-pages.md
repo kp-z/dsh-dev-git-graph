@@ -190,6 +190,20 @@
       没绑会话 disabled + title / 每气泡都有按钮）。
 - [x] 提交 `60409fd`；`npm test` exit 0、offline **80 JS + 7 Python** 全绿；overviewPanel 200 全绿。
 
+**第 4 轮（02:30–02:45，每小时循环的第一轮真正推进）**
+
+- [x] **补上运行页缺失的真实起点**：新增 `state.sessionRunSeen`（sessionId → 第一次**观察到**这条会话在跑的时刻），
+      观测点两处（宿主报活动时 + 面板每次取快照时扫一遍，不写盘）；快照任务项加 `runningSince` 并进 revision；
+      `runsView` 的时长起点改成 `runningSince || startedAt` 并带来源（「观察到运行」/「开工时间」/「未记录开始时间」）。
+      提交 `e0ddcd1`；runsView 28 → 30、overviewRoute 加假 agents 服务钉住 `running=true` + `runningSince>0` + 幂等 + 进哈希。
+- [x] **live 复核**：插件重载后真快照里 running 任务（就是本会话 T516451）出现 `runningSince`，
+      再取一次快照数值不变（幂等）；运行页「运行时长 Top 5」实测同时出现三种来源：
+      「开工时间 18 天 3 小时」/「观察到运行 9 秒」/「未记录开始时间」。
+- [x] **给用户的真实数据截图**（本机真 React + 真组件 + 通过代理取真快照，1600×919）：
+      `/Users/kp/Downloads/tab-1-relation-v2.jpg`（单列 + rail 两级 + 52 个节点）、
+      `tab-2-insight-v2.jpg`（洞察六面板）、`tab-3-runs-v2.jpg`（运行：52 气泡、1 个绿色呼吸、5 张卡）。
+- [x] 验证：offline 80 JS + 7 Python、`npm test` exit 0。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
