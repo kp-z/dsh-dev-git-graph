@@ -14,6 +14,14 @@ import {
   longestDepChain,
   formatAgo,
   startOfDay,
+  buildTrend,
+  buildFulfillment,
+  buildDelayReasons,
+  buildQuality,
+  buildHistory,
+  formatDays,
+  formatSlack,
+  TREND_BOX,
   TONES,
 } from '../src/client/insightView.js'
 
@@ -382,6 +390,203 @@ check('大量任务（500 条 / 200 条关系）也能算，且状态和守恒',
   assert.equal(view.statusMix.reduce((acc, row) => acc + row.pct, 0), 100)
   assert.equal(view.workspaces.length, 9)
   assert.equal(view.relations.maxChain, 201)
+})
+
+/* ==================================================================
+ * 历史指标（task-21）：吞吐趋势 / 履约 / 延期原因 / 质量周期
+ * ================================================================== */
+
+const DAYS14 = Array.from({ length: 14 }, (_, i) => ({
+  day: `2026-10-${String(29 + i).padStart(2, '0')}`,
+  done: i,
+  created: 14 - i,
+  started: i % 3,
+  active: i * 2,
+  wip: 1,
+  docs: 0,
+  cycleMedianDays: i % 2 ? 5.63 : null,
+}))
+const STATS = {
+  series: DAYS14,
+  fulfillment: {
+    tracked: 12, completed: 8, pending: 2, overdue: 2, onTime: 6, finalOnTime: 7,
+    onTimeRate: 0.75, finalOnTimeRate: 0.875, avgSlackMs: 2.3 * 86400000, lateCount: 5,
+  },
+  quality: { completed: 10, early: 3, onTime: 5, late: 2, cycleSamples: 9, cycleMedianDays: 5.63, cycleP85Days: 12.4 },
+  delayBuckets: [
+    { bucket: 'dependency', label: '等上游', count: 4, days: 12, tasks: [{ id: 'a1', no: 1, title: '任务 a1' }] },
+    { bucket: 'other', label: '其他/未写', count: 7, days: 15.7, tasks: [] },
+  ],
+  lastRecordAt: NOW - 60 * MIN,
+  file: '/x/metrics.jsonl',
+}
+
+check('formatDays / formatSlack：0 与 null 不显示 NaN', () => {
+  assert.equal(formatDays(5.63), '5.6 天')
+  assert.equal(formatDays(12.4), '12 天')
+  assert.equal(formatDays(null), '—')
+  assert.equal(formatDays('bogus'), '—')
+  assert.equal(formatSlack(null), '')
+  assert.equal(formatSlack(0), '正好卡在承诺时间')
+  assert.equal(formatSlack(2.3 * 86400000), '平均比承诺晚 2.3 天')
+  assert.equal(formatSlack(-1.1 * 86400000), '平均比承诺早 1.1 天')
+})
+
+check('buildTrend：14 天 → 每天一根 done/created 柱 + 一条 active 折线，几何不越界', () => {
+  const trend = buildTrend(STATS)
+  assert.equal(trend.hasData, true)
+  assert.equal(trend.days, 14)
+  assert.equal(trend.bars.done.length, 14)
+  assert.equal(trend.bars.created.length, 14)
+  assert.equal(trend.line.points.length, 14)
+  assert.ok(trend.line.path.startsWith('M'))
+  assert.equal(trend.width, TREND_BOX.width)
+  assert.equal(trend.height, TREND_BOX.height)
+  assert.deepEqual(trend.totals, { done: 91, created: 105, active: 182 })
+  assert.equal(trend.ticks.length, 3)
+  assert.equal(trend.ticks[0].label, '10-29')
+  // 所有柱子都在画布内，且 y + h 落在基线
+  const baseline = trend.baseline
+  for (const bar of [...trend.bars.done, ...trend.bars.created]) {
+    assert.ok(bar.x >= 0 && bar.x + bar.w <= trend.width + 0.01, `柱越界 ${bar.key}`)
+    assert.ok(Math.abs(bar.y + bar.h - baseline) < 0.01, `柱底不在基线 ${bar.key}`)
+    assert.ok(bar.h >= 0 && bar.h <= baseline)
+  }
+  for (const point of trend.line.points) {
+    assert.ok(point.x >= 0 && point.x <= trend.width, '折线越界')
+    assert.ok(point.y >= TREND_BOX.top - 0.01 && point.y <= baseline + 0.01)
+  }
+})
+
+check('buildTrend：空 / 坏 / 只有 series 的 stats 都给稳定结构', () => {
+  for (const bad of [null, undefined, 'x', 42, [], {}, { series: 'nope' }, { series: [null, 1] }]) {
+    const trend = buildTrend(bad)
+    assert.equal(trend.days, 0)
+    assert.deepEqual(trend.bars.done, [])
+    assert.equal(trend.line.path, '')
+    assert.equal(trend.hasData, false)
+    assert.ok(trend.emptyText.includes('历史'))
+  }
+})
+
+check('buildTrend：全是 0 时不平地起高，max 兜底为 1', () => {
+  const trend = buildTrend({ series: [{ day: '2026-11-01', done: 0, created: 0, active: 0 }] })
+  assert.equal(trend.max, 1)
+  assert.equal(trend.bars.done[0].h, 0)
+  assert.equal(trend.bars.created[0].h, 0)
+})
+
+check('buildFulfillment：准时率/逾期/追踪中 + 平均富余人话', () => {
+  const f = buildFulfillment(STATS, NOW)
+  assert.equal(f.hasData, true)
+  assert.equal(f.onTimePct, 75)
+  assert.equal(f.onTimeText, '75%')
+  assert.equal(f.rows.length, 4)
+  assert.deepEqual(f.rows.map((row) => row.key), ['tracked', 'completed', 'overdue', 'late'])
+  assert.equal(f.overdue, 2)
+  assert.equal(f.tracked, 12)
+  assert.equal(f.slackText, '平均比承诺晚 2.3 天')
+  assert.equal(f.slackDays, 2.3)
+  assert.ok(f.ring.dash > 0 && f.ring.dash <= f.ring.circ)
+})
+
+check('buildFulfillment：0 样本 → 准时率是 null（不显示 0% 假装有数据）', () => {
+  const f = buildFulfillment({ fulfillment: { tracked: 0, completed: 0, onTimeRate: null, avgSlackMs: null } }, NOW)
+  assert.equal(f.hasData, false)
+  assert.equal(f.onTimeRate, null)
+  assert.equal(f.onTimeText, '—')
+  assert.equal(f.slackText, '还没有已完成的承诺')
+  assert.equal(f.ring.dash, 0)
+  assert.ok(f.emptyText.includes('预期完成时间'))
+})
+
+check('buildFulfillment：坏形状不崩，字段缺省为 0', () => {
+  for (const bad of [null, {}, { fulfillment: 'x' }, { fulfillment: { tracked: 'abc', overdue: -3 } }]) {
+    const f = buildFulfillment(bad, NOW)
+    assert.equal(typeof f.tracked, 'number')
+    assert.equal(f.overdue, 0)
+    assert.equal(f.onTimeRate, null)
+  }
+})
+
+check('buildDelayReasons：按次数倒序 + 平均天数 + 涉及任务截断', () => {
+  const d = buildDelayReasons(STATS)
+  assert.equal(d.hasData, true)
+  assert.deepEqual(d.rows.map((row) => row.label), ['其他/未写', '等上游'])
+  assert.equal(d.total, 11)
+  assert.equal(d.rows[0].count, 7)
+  assert.equal(d.rows[0].avgDays, 2.2, '15.7 / 7 = 2.24 → 2.2')
+  assert.equal(d.rows[0].avgDaysText, '2.2 天')
+  assert.equal(d.rows[1].tasks.length, 1)
+  assert.equal(d.rows[0].pct, 64)
+  assert.equal(d.rows[0].ratio, 1)
+})
+
+check('buildDelayReasons：空 / 坏输入 → hasData=false + 人话空文案', () => {
+  for (const bad of [null, {}, { delayBuckets: 'x' }, { delayBuckets: [{ count: 0 }] }]) {
+    const d = buildDelayReasons(bad)
+    assert.equal(d.hasData, false)
+    assert.deepEqual(d.rows, [])
+    assert.ok(d.emptyText.includes('延期'))
+  }
+})
+
+check('buildQuality：三档百分比和恰好 100 + 中位数/P85 人话', () => {
+  const q = buildQuality(STATS)
+  assert.equal(q.hasData, true)
+  assert.deepEqual(q.segments.map((row) => row.count), [3, 5, 2])
+  assert.equal(q.segments.reduce((sum, row) => sum + row.pct, 0), 100)
+  assert.equal(q.cycleMedianText, '5.6 天')
+  assert.equal(q.cycleP85Text, '12 天')
+  assert.equal(q.samplesText, '9 个样本')
+})
+
+check('buildQuality：0 样本 → 三档 0%、周期 —、样本不足', () => {
+  const q = buildQuality({ quality: { completed: 0, early: 0, onTime: 0, late: 0, cycleSamples: 0, cycleMedianDays: null, cycleP85Days: null } })
+  assert.equal(q.hasData, false)
+  assert.deepEqual(q.segments.map((row) => row.pct), [0, 0, 0])
+  assert.equal(q.cycleMedianText, '—')
+  assert.equal(q.cycleP85Text, '—')
+  assert.equal(q.samplesText, '样本不足')
+})
+
+check('buildQuality：坏形状不崩', () => {
+  for (const bad of [null, {}, { quality: 7 }, { quality: { early: 'x', late: -1 } }]) {
+    const q = buildQuality(bad)
+    assert.equal(Array.isArray(q.segments), true)
+    assert.equal(q.segments.length, 3)
+  }
+})
+
+check('buildHistory：正常回包 → ok:true 且四段都在', () => {
+  const h = buildHistory({ ok: true, stats: STATS }, NOW)
+  assert.equal(h.ok, true)
+  assert.equal(h.hasAnything, true)
+  assert.equal(h.trend.days, 14)
+  assert.equal(h.fulfillment.onTimePct, 75)
+  assert.equal(h.delay.total, 11)
+  assert.equal(h.quality.samples, 9)
+  assert.equal(h.file, '/x/metrics.jsonl')
+})
+
+check('buildHistory：降级判定（缺接口 / 非 200 / 形状怪 / 全空）', () => {
+  assert.deepEqual(buildHistory(null), { ok: false, reason: 'bad-shape' })
+  assert.deepEqual(buildHistory({ ok: false, error: '404' }), { ok: false, reason: 'failed' })
+  assert.deepEqual(buildHistory({ ok: true }), { ok: false, reason: 'bad-shape' })
+  assert.deepEqual(buildHistory({ ok: true, stats: { series: [], fulfillment: {}, quality: {}, delayBuckets: [] } }), { ok: false, reason: 'empty' })
+  // 只给 series 也算能用（其余面板显示自己的空文案）
+  const onlySeries = buildHistory({ ok: true, stats: { series: DAYS14 } }, NOW)
+  assert.equal(onlySeries.ok, true)
+  assert.equal(onlySeries.trend.days, 14)
+  assert.equal(onlySeries.fulfillment.hasData, false)
+})
+
+check('buildHistory：裸 stats（没包一层）也认，超大 days 不炸', () => {
+  const h = buildHistory(STATS, NOW)
+  assert.equal(h.ok, true)
+  const big = buildTrend({ series: Array.from({ length: 400 }, (_, i) => ({ day: `d${i}`, done: i % 7, created: i % 5, active: i % 3 })) })
+  assert.equal(big.days, 400)
+  assert.ok(big.bars.done.every((bar) => bar.w >= 2), '柱宽有下限')
 })
 
 /* ---------------- 收尾 ---------------- */

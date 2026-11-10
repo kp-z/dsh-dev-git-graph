@@ -348,3 +348,245 @@ export function buildInsight(snapshot) {
 }
 
 export default buildInsight
+
+/* ==========================================================================================
+ * 历史指标（宿主 /api/insight/stats）——同样是零 IO 纯函数，组件只负责取数与渲染。
+ * 降级口径：任何一段缺字段/形状怪，对应的 builder 都返回「hasData:false + 人话空文案」，
+ * 绝不返回 NaN / 0% 假装有数据。
+ * ========================================================================================== */
+
+/** 数字安全转换：非有限值一律 null（用来区分「0」和「没有数据」）。 */
+function finiteOrNull(value) {
+  /* 注意：Number(null) === 0，所以「缺值」必须显式排除，否则 — 会变成 0 天 */
+  if (value === null || value === undefined || value === '') return null
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
+}
+
+/** 天数的中文人话：5.63 → 5.6 天；0.4 → 0.4 天。 */
+export function formatDays(value) {
+  const n = finiteOrNull(value)
+  if (n === null) return '—'
+  if (Math.abs(n) >= 10) return `${Math.round(n)} 天`
+  return `${Math.round(n * 10) / 10} 天`
+}
+
+/** 毫秒 → 「早/晚 X 天」人话（负数是提前完成）。 */
+export function formatSlack(ms) {
+  const n = finiteOrNull(ms)
+  if (n === null) return ''
+  const days = n / 86400000
+  if (Math.abs(days) < 0.05) return '正好卡在承诺时间'
+  const text = formatDays(Math.abs(n) / 86400000)
+  return days > 0 ? `平均比承诺晚 ${text}` : `平均比承诺早 ${text}`
+}
+
+export const TREND_BOX = { width: 320, height: 128, top: 8, bottom: 20, left: 2, right: 2 }
+
+/**
+ * 吞吐趋势：近 N 天 done / created 双色柱 + active 折线（手绘 SVG 几何也在这里算，组件不碰数学）。
+ * 返回 `{ hasData, days, width, height, max, bars:{done,created}, line, ticks, totals, peak, emptyText }`。
+ */
+export function buildTrend(stats) {
+  const src = isObj(stats) ? stats : {}
+  const raw = arr(src.series).filter(isObj)
+  const box = TREND_BOX
+  const days = raw.length
+  const rows = raw.map((row, index) => {
+    const day = str(row.day)
+    return {
+      index,
+      day,
+      label: day.length >= 10 ? day.slice(5) : day,
+      done: Math.max(0, num(row.done, 0)),
+      created: Math.max(0, num(row.created, 0)),
+      started: Math.max(0, num(row.started, 0)),
+      active: Math.max(0, num(row.active, 0)),
+      wip: Math.max(0, num(row.wip, 0)),
+      cycleMedianDays: finiteOrNull(row.cycleMedianDays),
+    }
+  })
+  const totals = rows.reduce((acc, row) => ({
+    done: acc.done + row.done,
+    created: acc.created + row.created,
+    active: acc.active + row.active,
+  }), { done: 0, created: 0, active: 0 })
+  const maxValue = Math.max(1, ...rows.map((row) => Math.max(row.done, row.created, row.active)))
+  const innerW = box.width - box.left - box.right
+  const innerH = box.height - box.top - box.bottom
+  const slot = days > 0 ? innerW / days : innerW
+  const barW = Math.max(2, Math.min(10, slot * 0.3))
+  const yOf = (value) => box.top + innerH - (Math.max(0, value) / maxValue) * innerH
+  const bars = { done: [], created: [] }
+  const points = []
+  rows.forEach((row) => {
+    const x0 = box.left + row.index * slot
+    bars.done.push({ key: `d:${row.day}`, day: row.day, value: row.done, x: x0 + slot * 0.16, y: yOf(row.done), w: barW, h: Math.max(0, box.top + innerH - yOf(row.done)) })
+    bars.created.push({ key: `c:${row.day}`, day: row.day, value: row.created, x: x0 + slot * 0.52, y: yOf(row.created), w: barW, h: Math.max(0, box.top + innerH - yOf(row.created)) })
+    points.push({ x: x0 + slot / 2, y: yOf(row.active), value: row.active, day: row.day })
+  })
+  const path = points.length
+    ? points.map((point, index) => `${index === 0 ? 'M' : 'L'}${Math.round(point.x * 100) / 100} ${Math.round(point.y * 100) / 100}`).join(' ')
+    : ''
+  const ticks = days > 0
+    ? [0, Math.floor((days - 1) / 2), days - 1]
+      .filter((index, position, list) => list.indexOf(index) === position)
+      .map((index) => ({ key: `t:${index}`, x: box.left + index * slot + slot / 2, label: rows[index].label }))
+    : []
+  const peak = rows.reduce((best, row) => (row.done > best.done ? { day: row.day, done: row.done } : best), { day: '', done: 0 })
+  return {
+    hasData: days > 0,
+    days,
+    width: box.width,
+    height: box.height,
+    max: maxValue,
+    rows,
+    bars,
+    line: { points, path, latest: points.length ? points[points.length - 1].value : 0 },
+    ticks,
+    totals,
+    peak,
+    baseline: box.top + innerH,
+    emptyText: days > 0 ? '' : '还没有历史记录（宿主每天记一条）',
+  }
+}
+
+/**
+ * 履约：准时率大数字 + 逾期 + 追踪中 + 「平均比承诺早/晚 X 天」。
+ * 0 样本时 `onTimeRate` 返回 null（面板显示「还没有已完成的承诺」，不显示 0%）。
+ */
+export function buildFulfillment(stats, now) {
+  const src = isObj(stats) ? stats : {}
+  const f = isObj(src.fulfillment) ? src.fulfillment : {}
+  const tracked = Math.max(0, num(f.tracked, 0))
+  const completed = Math.max(0, num(f.completed, 0))
+  const pending = Math.max(0, num(f.pending, 0))
+  const overdue = Math.max(0, num(f.overdue, 0))
+  const lateCount = Math.max(0, num(f.lateCount, 0))
+  const rateRaw = finiteOrNull(f.onTimeRate)
+  const rate = completed > 0 ? Math.max(0, Math.min(1, rateRaw === null ? 0 : rateRaw)) : null
+  const slackMs = finiteOrNull(f.avgSlackMs)
+  const slackText = completed > 0 ? formatSlack(slackMs) : ''
+  const circ = 2 * Math.PI * 26
+  return {
+    hasData: tracked > 0,
+    tracked,
+    completed,
+    pending,
+    overdue,
+    lateCount,
+    onTimeRate: rate,
+    onTimePct: rate === null ? null : Math.round(rate * 100),
+    onTimeText: rate === null ? '—' : `${Math.round(rate * 100)}%`,
+    slackMs,
+    slackDays: slackMs === null ? null : Math.round((slackMs / 86400000) * 10) / 10,
+    slackText: slackText || (completed === 0 ? '还没有已完成的承诺' : '缺少完成时间'),
+    ring: { circ: Math.round(circ * 100) / 100, dash: Math.round(circ * (rate === null ? 0 : rate) * 100) / 100 },
+    rows: [
+      { key: 'tracked', label: '追踪中', value: tracked, text: String(tracked), tone: 'brand', hint: '有预期完成时间的任务' },
+      { key: 'completed', label: '已完成', value: completed, text: String(completed), tone: 'ok', hint: '近 28 天完成' },
+      { key: 'overdue', label: '逾期', value: overdue, text: String(overdue), tone: overdue > 0 ? 'danger' : 'ok', hint: '过了承诺时间还没完成' },
+      { key: 'late', label: '延期记录', value: lateCount, text: String(lateCount), tone: lateCount > 0 ? 'warn' : 'ok', hint: '写过原因的延期次数' },
+    ],
+    emptyText: tracked > 0 ? '' : '还没有设过「预期完成时间」的任务',
+  }
+}
+
+/**
+ * 延期原因：`delayBuckets` → 横向条（label + 次数 + 平均天数 + 涉及任务）。
+ * `days` 是这些记录的总天数，面板显示的是**平均**（totalDays / count），另附总数。
+ */
+export function buildDelayReasons(stats) {
+  const src = isObj(stats) ? stats : {}
+  const raw = arr(src.delayBuckets).filter(isObj)
+  const rows = raw
+    .map((row, index) => {
+      const count = Math.max(0, num(row.count, 0))
+      const totalDays = Math.max(0, num(row.days, 0))
+      return {
+        key: str(row.bucket) || `bucket-${index}`,
+        label: str(row.label) || str(row.bucket) || '未分类',
+        count,
+        totalDays: Math.round(totalDays * 10) / 10,
+        avgDays: count > 0 ? Math.round((totalDays / count) * 10) / 10 : null,
+        avgDaysText: count > 0 ? formatDays(totalDays / count) : '—',
+        tasks: arr(row.tasks).filter(isObj).slice(0, 5).map((task) => ({ id: str(task.id), no: num(task.no, 0), title: str(task.title) || str(task.id) })),
+        ai: Math.max(0, num(row.ai, 0)),
+        samples: arr(row.samples).map((sample) => str(sample)).filter(Boolean).slice(0, 2),
+      }
+    })
+    .filter((row) => row.count > 0)
+    .sort((a, b) => (b.count - a.count) || (b.totalDays - a.totalDays) || a.key.localeCompare(b.key))
+  const total = rows.reduce((sum, row) => sum + row.count, 0)
+  const max = rows.reduce((best, row) => Math.max(best, row.count), 0)
+  return {
+    hasData: rows.length > 0,
+    rows: rows.map((row) => ({ ...row, ratio: max > 0 ? row.count / max : 0, pct: total > 0 ? Math.round((row.count / total) * 100) : 0 })),
+    total,
+    max,
+    emptyText: rows.length ? '' : '还没有延期记录（延期时写一句原因就会出现在这里）',
+  }
+}
+
+/**
+ * 质量 / 周期：提前 / 准时 / 延迟三档 + 周期中位数 / P85。
+ * 百分比用最大余数法保证和恰好 100；0 样本时三档都是 null（面板显示「样本不足」）。
+ */
+export function buildQuality(stats) {
+  const src = isObj(stats) ? stats : {}
+  const q = isObj(src.quality) ? src.quality : {}
+  const completed = Math.max(0, num(q.completed, 0))
+  const early = Math.max(0, num(q.early, 0))
+  const onTime = Math.max(0, num(q.onTime, 0))
+  const late = Math.max(0, num(q.late, 0))
+  const samples = Math.max(0, num(q.cycleSamples, 0))
+  const sum = early + onTime + late
+  const pcts = sum > 0 ? sharePct([early, onTime, late]) : [0, 0, 0]
+  const median = finiteOrNull(q.cycleMedianDays)
+  const p85 = finiteOrNull(q.cycleP85Days)
+  return {
+    hasData: completed > 0 || sum > 0,
+    completed,
+    samples,
+    segments: [
+      { key: 'early', label: '提前', count: early, pct: pcts[0], tone: 'ok' },
+      { key: 'onTime', label: '准时', count: onTime, pct: pcts[1], tone: 'brand' },
+      { key: 'late', label: '延迟', count: late, pct: pcts[2], tone: 'danger' },
+    ],
+    cycleMedianDays: median,
+    cycleP85Days: p85,
+    cycleMedianText: median === null ? '—' : formatDays(median),
+    cycleP85Text: p85 === null ? '—' : formatDays(p85),
+    samplesText: samples > 0 ? `${samples} 个样本` : '样本不足',
+    emptyText: completed > 0 || sum > 0 || samples > 0 ? '' : '还没有完成的样本（需要开始时间 + 完成时间）',
+  }
+}
+
+/**
+ * 把接口回包整成一个面板可直接用的结构（也是降级判定的唯一入口）：
+ *   { ok:true, trend, fulfillment, delay, quality, hasAnything, lastRecordAt }
+ *   { ok:false, reason:'unsupported'|'empty'|'bad-shape'|'failed' }
+ * 组件不猜形状：这里说 ok 才渲染新面板，否则只保留快照口径的六个面板。
+ */
+export function buildHistory(payload, now) {
+  if (!isObj(payload)) return { ok: false, reason: 'bad-shape' }
+  if (payload.ok === false) return { ok: false, reason: 'failed' }
+  const stats = isObj(payload.stats) ? payload.stats : (isObj(payload) && (Array.isArray(payload.series) || isObj(payload.fulfillment) || isObj(payload.quality)) ? payload : null)
+  if (!stats) return { ok: false, reason: 'bad-shape' }
+  const trend = buildTrend(stats)
+  const fulfillment = buildFulfillment(stats, now)
+  const delay = buildDelayReasons(stats)
+  const quality = buildQuality(stats)
+  const hasAnything = trend.hasData || fulfillment.hasData || delay.hasData || quality.hasData
+  if (!hasAnything) return { ok: false, reason: 'empty' }
+  return {
+    ok: true,
+    trend,
+    fulfillment,
+    delay,
+    quality,
+    hasAnything,
+    lastRecordAt: Math.max(0, num(stats.lastRecordAt, 0)),
+    file: str(stats.file),
+  }
+}
