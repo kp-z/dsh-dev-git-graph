@@ -1,0 +1,284 @@
+/**
+ * 左栏三层树（全部任务 / 自定义目录 / 项目）—— 工厂组件，模块顶层不 import react。
+ *
+ * 能力（照 task-8 规格）：
+ * - ARIA tree：role=tree/treeitem、aria-level / aria-expanded / aria-selected + roving tabindex；
+ *   ←→ 折叠展开、↑↓ 移动、Home/End 到两端、Enter/Space 选中、F2 就地重命名、
+ *   Shift+F10 / 菜单键在行上开右键菜单。
+ * - 目录的新建 / 就地重命名 / 删除：输入框与按钮都在**组件内**，写操作通过 props 回调交给
+ *   OverviewPanel（组件自己不 fetch、不碰 localStorage、不碰 document.body）。
+ * - 拖拽：项目行可拖，目录行 / 未分组行 / 全部任务行是放置目标；拖到「未分组」= 移出目录。
+ *
+ * props（由 OverviewPanel 传）：
+ *   tree                     model.buildTree(...) 的结果 {rows, byKey, lanes, scope, selected}
+ *   renamingId, creating     '' / 目录 id；creating=true 时显示新建输入行
+ *   creatingFor              '' | 项目 key（新建后自动移入该项目）
+ *   dragKey, dropKey         拖拽中的行 key / 悬停的放置目标 key
+ *   busy                     写操作进行中（禁用按钮）
+ *   onSelect(row) onToggle(row) onMenu(row, {x,y})
+ *   onDragKey(key) onDropKey(key) onDrop(projectKey, targetRow)
+ *   onRenameStart(row) onRenameCommit(id, name) onRenameCancel()
+ *   onCreateStart(projectKey) onCreateCommit(name) onCreateCancel()
+ */
+
+import { brandVar, decoVar } from './styles.js'
+
+const KIND_LABEL = { all: '全部任务', group: '目录', project: '项目' }
+
+export function createTreeNav(deps) {
+  const { React, h, model } = deps || {}
+  const { useCallback, useEffect, useRef, useState } = React
+
+  return function TreeNav(props) {
+    /** 行 key → 元素，用于 roving tabindex 的 .focus()（只走 ref，不做 DOM 查询）。 */
+    const itemRefs = useRef({})
+    const pendingFocus = useRef(false)
+    const {
+      tree,
+      renamingId = '',
+      creating = false,
+      creatingFor = '',
+      dragKey = '',
+      dropKey = '',
+      busy = false,
+      onSelect,
+      onToggle,
+      onMenu,
+      onDragKey,
+      onDropKey,
+      onDrop,
+      onRenameStart,
+      onRenameCommit,
+      onRenameCancel,
+      onCreateStart,
+      onCreateCommit,
+      onCreateCancel,
+    } = props || {}
+
+    const rows = tree && Array.isArray(tree.rows) ? tree.rows : []
+    const [active, setActive] = useState(() => (tree && tree.selected ? tree.selected.key : 'all'))
+
+    const visible = rows
+    const focusKey = (key) => { pendingFocus.current = true; setActive(key) }
+
+    useEffect(() => {
+      if (!pendingFocus.current) return
+      pendingFocus.current = false
+      const node = itemRefs.current[active]
+      if (node && typeof node.focus === 'function') node.focus()
+    })
+
+    /* 选中项变了（含从 store 恢复）→ 光标跟着走，别停在空气上。 */
+    useEffect(() => {
+      if (tree && tree.selected && tree.selected.key !== active) setActive(tree.selected.key)
+    }, [tree && tree.selected ? tree.selected.key : ''])
+
+    const rowElement = (row) => {
+      if (!row) return null
+      const isGroup = row.kind === 'group'
+      const isProject = row.kind === 'project'
+      const canDrop = row.kind === 'all' || isGroup
+      /* 色点：项目行 = 该项目在目录里的分色槽；根行 = 品牌色；目录行 = 中性色。 */
+      const color = isProject && Number.isFinite(row.colorIndex)
+        ? { '--fo-c': decoVar(row.colorIndex) }
+        : (row.kind === 'all' ? { '--fo-c': brandVar() } : undefined)
+      const label = row.label
+      const count = isGroup ? `${row.count} 项目` : `${row.count} 任务`
+
+      const children = []
+      children.push(h('span', {
+        key: 'caret',
+        className: 'fo-caret',
+        'data-collapsed': row.collapsed === true ? '1' : '0',
+        'data-leaf': isProject ? '1' : '0',
+        'aria-hidden': 'true',
+        onClick: (event) => { if (isProject) return; event.stopPropagation(); toggleOf(row) },
+      }, isProject ? '' : '▾'))
+      children.push(h('span', { key: 'dot', className: 'fo-dot', style: color, 'aria-hidden': 'true' }))
+      children.push(h('span', { key: 'label', className: 'fo-row-label', title: row.path || label }, label))
+      if (row.blocked > 0) children.push(h('span', { key: 'badge', className: 'fo-row-badge', title: `${row.blocked} 个任务被阻塞` }, String(row.blocked)))
+      children.push(h('span', { key: 'count', className: 'fo-row-count' }, count))
+      if (isGroup && !row.ungrouped) {
+        children.push(h('button', {
+          key: 'menu',
+          type: 'button',
+          className: 'fo-btn fo-row-menu',
+          'data-size': 'sm',
+          'data-variant': 'ghost',
+          'aria-label': `目录 ${row.label} 的操作`,
+          disabled: busy,
+          onClick: (event) => {
+            event.stopPropagation()
+            const box = event.currentTarget.getBoundingClientRect()
+            if (typeof onMenu === 'function') onMenu(row, { x: box.left, y: box.bottom + 4 })
+          },
+        }, '⋯'))
+      }
+
+      const rename = renamingId && renamingId === row.id && isGroup
+      if (rename) {
+        return h('div', { key: row.key, className: 'fo-row', 'data-kind': row.kind, style: { paddingLeft: `${row.depth * 14 + 6}px` } },
+          h('input', {
+            className: 'fo-input',
+            defaultValue: row.label,
+            autoFocus: true,
+            'aria-label': '目录名',
+            disabled: busy,
+            onFocus: (event) => event.currentTarget.select(),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') { event.preventDefault(); const value = String(event.currentTarget.value || '').trim(); if (value) onRenameCommit(row.id, value); else onRenameCancel() }
+              else if (event.key === 'Escape') { event.preventDefault(); onRenameCancel() }
+            },
+            onBlur: (event) => { const value = String(event.currentTarget.value || '').trim(); if (value && value !== row.label) onRenameCommit(row.id, value); else onRenameCancel() },
+          }),
+        )
+      }
+
+      return h('div', {
+        key: row.key,
+        ref: (node) => { itemRefs.current[row.key] = node },
+        className: `fo-row${dropKey === row.key ? ' is-drop' : ''}${dragKey === row.key ? ' is-drag' : ''}`,
+        role: 'treeitem',
+        tabIndex: (active === row.key || (!visible.some((item) => item.key === active) && visible[0] && visible[0].key === row.key)) ? 0 : -1,
+        'aria-level': row.depth + 1,
+        'aria-selected': row.selected === true,
+        'aria-expanded': (isGroup && !row.ungrouped) || row.kind === 'all' ? (row.collapsed !== true) : undefined,
+        'data-kind': row.kind,
+        'data-key': row.key,
+        'data-id': row.id,
+        style: { paddingLeft: `${row.depth * 14 + 6}px` },
+        draggable: isProject,
+        title: `${KIND_LABEL[row.kind] || ''}：${label}`,
+        onClick: () => { focusKey(row.key); if (typeof onSelect === 'function') onSelect(row) },
+        onDoubleClick: () => { if (isGroup && !row.ungrouped && typeof onRenameStart === 'function') onRenameStart(row) },
+        onContextMenu: (event) => {
+          event.preventDefault()
+          focusKey(row.key)
+          if (typeof onMenu === 'function') onMenu(row, { x: event.clientX, y: event.clientY })
+        },
+        onDragStart: (event) => {
+          if (!isProject) return
+          if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move'
+            try { event.dataTransfer.setData('text/plain', row.id) } catch (error) { /* 某些宿主禁止 setData */ }
+          }
+          if (typeof onDragKey === 'function') onDragKey(row.key)
+        },
+        onDragEnd: () => { if (typeof onDragKey === 'function') onDragKey('') },
+        onDragOver: (event) => {
+          if (!canDrop) return
+          event.preventDefault()
+          if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+          if (dropKey !== row.key && typeof onDropKey === 'function') onDropKey(row.key)
+        },
+        onDragLeave: () => { if (dropKey === row.key && typeof onDropKey === 'function') onDropKey('') },
+        onDrop: (event) => {
+          if (!canDrop) return
+          event.preventDefault()
+          let key = ''
+          try { key = event.dataTransfer ? event.dataTransfer.getData('text/plain') : '' } catch (error) { key = '' }
+          if (!key && dragKey) key = String(dragKey).replace(/^project:/, '')
+          if (typeof onDropKey === 'function') onDropKey('')
+          if (key && typeof onDrop === 'function') onDrop(key, row)
+        },
+      }, children)
+    }
+
+    const toggleOf = (row) => {
+      if (!row) return
+      if (typeof onToggle === 'function') onToggle(row)
+    }
+
+    const onKeyDown = useCallback((event) => {
+      if (!visible.length) return
+      const at = visible.findIndex((row) => row.key === active)
+      const index = at < 0 ? 0 : at
+      const current = visible[index]
+      const move = (target) => { if (target) { event.preventDefault(); focusKey(target.key) } }
+
+      if (event.key === 'ArrowDown') move(visible[index + 1])
+      else if (event.key === 'ArrowUp') move(visible[index - 1])
+      else if (event.key === 'Home') move(visible[0])
+      else if (event.key === 'End') move(visible[visible.length - 1])
+      else if (event.key === 'ArrowRight') {
+        if ((current.kind === 'group' || current.kind === 'all') && current.collapsed === true) toggleOf(current)
+        else {
+          const next = visible[index + 1]
+          move(next && next.depth > current.depth ? next : null)
+        }
+      } else if (event.key === 'ArrowLeft') {
+        if ((current.kind === 'group' || current.kind === 'all') && current.collapsed !== true && current.count > 0) toggleOf(current)
+        else {
+          let parent = null
+          for (let i = index - 1; i >= 0; i -= 1) { if (visible[i].depth < current.depth) { parent = visible[i]; break } }
+          move(parent)
+        }
+      } else if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+        event.preventDefault()
+        if (typeof onSelect === 'function') onSelect(current)
+      } else if (event.key === 'F2') {
+        if (current.kind === 'group' && !current.ungrouped && typeof onRenameStart === 'function') { event.preventDefault(); onRenameStart(current) }
+      } else if ((event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) && typeof onMenu === 'function') {
+        event.preventDefault()
+        const node = itemRefs.current[current.key]
+        const box = node && typeof node.getBoundingClientRect === 'function' ? node.getBoundingClientRect() : null
+        if (box) onMenu(current, { x: box.left + 24, y: box.bottom })
+      }
+    }, [active, visible, onSelect, onToggle, onMenu, onRenameStart])
+
+    const onListDrop = (event) => {
+      if (!dragKey) return
+      event.preventDefault()
+      if (typeof onDropKey === 'function') onDropKey('')
+      if (typeof onDrop === 'function') onDrop(String(dragKey).replace(/^project:/, ''), null)
+    }
+
+    const items = []
+    visible.forEach((row) => {
+      items.push(rowElement(row))
+      if (row.kind === 'group' && row.missing > 0 && row.collapsed !== true) {
+        items.push(h('div', { key: `note:${row.key}`, className: 'fo-tree-note' }, `${row.missing} 个成员已不在当前任务集里`))
+      }
+    })
+    if (creating) {
+      items.push(h('div', { key: 'create', className: 'fo-create-row' },
+        h('input', {
+          className: 'fo-input',
+          autoFocus: true,
+          placeholder: creatingFor ? '新目录名（创建后自动移入）' : '新目录名',
+          'aria-label': '新目录名',
+          disabled: busy,
+          onKeyDown: (event) => {
+            if (event.key === 'Enter') { event.preventDefault(); const value = String(event.currentTarget.value || '').trim(); if (value) onCreateCommit(value); else onCreateCancel() }
+            else if (event.key === 'Escape') { event.preventDefault(); onCreateCancel() }
+          },
+          onBlur: () => onCreateCancel(),
+        }),
+      ))
+    }
+
+    return h('div', { className: 'fo-tree' },
+      h('div', { className: 'fo-tree-head' },
+        h('span', { className: 'fo-tree-title' }, '任务分组'),
+        h('button', {
+          type: 'button',
+          className: 'fo-btn',
+          'data-size': 'sm',
+          disabled: busy,
+          onClick: () => { if (typeof onCreateStart === 'function') onCreateStart('') },
+        }, '新建目录'),
+      ),
+      h('div', { className: 'fo-tree-body', onDragOver: (event) => { if (dragKey) event.preventDefault() }, onDrop: onListDrop },
+        h('div', {
+          className: 'fo-tree-list',
+          role: 'tree',
+          'aria-label': '任务分组（全部任务 / 自定义目录 / 项目）',
+          'aria-multiselectable': false,
+          onKeyDown,
+        }, items),
+      ),
+    )
+  }
+}
+
+export default createTreeNav

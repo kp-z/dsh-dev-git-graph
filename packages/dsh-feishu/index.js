@@ -45,7 +45,7 @@ import { createCreationLedger } from './creationLedger.js'
 const backendIOContext = new AsyncLocalStorage()
 import { matchWorkspace, titleChangeOf } from './workspace.js'
 import { updateRelations, projectRelations, relationStats } from './relations.js'
-import { normalizeGroups, applyGroupAction, projectGroups } from './workspaceGroups.js'
+import { normalizeGroups, applyGroupAction, projectGroups, workspaceKeyOf } from './workspaceGroups.js'
 import {
   TZ_DEFAULT,
   advance as advanceSchedule,
@@ -4331,6 +4331,96 @@ function createSyncEngine(ctx) {
         syncing: inFlight !== null,
         cli,
         apiVersion: API_VERSION,
+      },
+    }
+  }
+
+  /**
+   * 总览页的瘦快照。
+   *
+   * 页面曾经直接拉 `/api/state`（含 settings、会话运行灯、排期、履约等一整包，实测 438KB），
+   * 60 秒轮询一次全量重渲染。这里只给页面真正要的东西：任务 + 关系摘要 + 目录 + 工作区 + 统计，
+   * 外加一个 `revision` 让页面「变了才刷」；workspaceKey 用 workspaceGroups.js 里唯一那处定义，
+   * 保证目录成员、分组、统计三边说的是同一个 key。
+   */
+  function overviewView() {
+    const workspaceRows = workspaceList()
+    const byId = new Map(state.tasks.map((task) => [task.id, task]))
+    const summary = (id) => ({ id, title: byId.get(id)?.title || id, done: byId.get(id)?.done === true, missing: !byId.has(id) })
+    const links = new Map()
+    const linksOf = (id) => {
+      if (!links.has(id)) links.set(id, { predecessors: [], successors: [], sourceTasks: [], derivedTasks: [] })
+      return links.get(id)
+    }
+    for (const edge of state.relations) {
+      if (!edge?.from || !edge?.to) continue
+      if (edge.kind === 'depends_on') {
+        linksOf(edge.to).predecessors.push(edge.from)
+        linksOf(edge.from).successors.push(edge.to)
+      } else if (edge.kind === 'derived_from') {
+        linksOf(edge.to).sourceTasks.push(edge.from)
+        linksOf(edge.from).derivedTasks.push(edge.to)
+      }
+    }
+    let blocked = 0
+    let ready = 0
+    const tasks = state.tasks.map((task) => {
+      const enriched = enrichWorkspace(task, workspaceRows)
+      const link = linksOf(task.id)
+      const predecessors = link.predecessors.map(summary)
+      const blockedBy = predecessors.filter((item) => !item.done)
+      if (task.done) {
+        /* 已完成的任务不计入就绪/阻塞的口径（和 relationStats 一致）。 */
+      } else if (blockedBy.length) blocked += 1
+      else ready += 1
+      return {
+        id: task.id,
+        no: Number(task.no) || 0,
+        title: task.title || '',
+        done: task.done === true,
+        workspaceKey: workspaceKeyOf(enriched),
+        workspaceTitle: asString(enriched.workspaceTitle) || asString(task.meta?.workspace),
+        workspacePath: asString(enriched.workspacePath),
+        blocked: blockedBy.length > 0,
+        ready: blockedBy.length === 0,
+        started: task.started === true,
+        suspended: state.suspensions?.[task.id]?.active === true,
+        sessionId: asString(task.sessionId),
+        predecessors,
+        successors: link.successors.map(summary),
+        sourceTasks: link.sourceTasks.map(summary),
+        derivedTasks: link.derivedTasks.map(summary),
+        blockedBy,
+      }
+    })
+    const relations = state.relations
+      .filter((edge) => edge?.from && edge?.to && (edge.kind === 'depends_on' || edge.kind === 'derived_from'))
+      .map((edge) => ({ from: edge.from, to: edge.to, kind: edge.kind }))
+    const groups = projectGroups(state.workspaceGroups, state.tasks)
+    const revision = createHash('sha256')
+      /* 哈希要覆盖**用户看得见的一切**：任务标题/完成/工作区/阻塞，以及挂起与绑定会话——
+         这两项曾经漏掉，导致挂起或换绑后 revision 不变，页面按「变了才刷」就不会重拉。 */
+      .update(JSON.stringify([
+        tasks.map((task) => [task.id, task.title, task.done, task.workspaceKey, task.blocked, task.suspended, task.sessionId, task.predecessors.length]),
+        relations,
+        groups,
+      ]))
+      .digest('hex')
+      .slice(0, 16)
+    return {
+      revision,
+      now: nowMs(),
+      groups,
+      workspaces: workspaceRows.map((row) => ({ key: row.id || row.path || '', id: row.id || '', title: row.title || '', path: row.path || '' })),
+      tasks,
+      relations,
+      stats: {
+        tasks: tasks.length,
+        groups: groups.length,
+        dependencyEdges: relations.filter((edge) => edge.kind === 'depends_on').length,
+        provenanceEdges: relations.filter((edge) => edge.kind === 'derived_from').length,
+        blocked,
+        ready,
       },
     }
   }
@@ -9089,6 +9179,7 @@ bucket 只能从枚举里选：
   return {
     load,
     snapshot,
+    overviewView,
     setWorkspaceGroups,
     saveSettings,
     ensureManagedTasklist,
@@ -9271,7 +9362,6 @@ function readBody(req, limit = 256 * 1024) {
 
 function mountRoutes(ctx, engine) {
   const panelFile = join(HERE, 'panel.html')
-  const overviewFile = join(HERE, 'overview.html')
   return ctx.webServer.register({
     kind: 'prefix',
     path: MOUNT,
@@ -9288,17 +9378,14 @@ function mountRoutes(ctx, engine) {
             return
           }
 
-          /* 左侧栏「飞书任务总览」全局面板：整页自包含，只读 /api/state，无写接口。 */
-          if (req.method === 'GET' && route === '/overview') {
-            let html = ''
-            try {
-              html = await readFile(overviewFile, 'utf8')
-            } catch (error) {
-              sendJson(res, 503, { ok: false, error: '总览页尚未安装：' + asString(error?.message || error) })
-              return
-            }
-            res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
-            res.end(html)
+          /* 总览页的数据面：React 组件在宿主页面里直接渲染，只从这里取数。 */
+          if (req.method === 'GET' && route === '/api/overview') {
+            sendJson(res, 200, { ok: true, ...engine.overviewView() })
+            return
+          }
+
+          if (req.method === 'GET' && route === '/api/overview/revision') {
+            sendJson(res, 200, { ok: true, revision: engine.overviewView().revision })
             return
           }
 

@@ -3,15 +3,20 @@
 宿主半体（index.js）与面板（panel.html）、侧栏壳（client.js）之间的固定接口。
 **改这里之前先改代码注释里的同一段**：面板不读宿主源码，只认这份契约。
 
-## 左侧栏总览页与自定义目录
+## 左侧栏总览（React 槽位）与自定义目录
 
-`GET /dsh-feishu/overview` 直出 `overview.html`（自包含整页，文件缺失时 503 `{ok:false,error}`，不回落成空白页）。客户端半体用 `ctx.slots.register({name:'sidebar.panellist',id:'feishu-overview',order:24,label:'飞书任务总览'}, 图标)` 与 `{name:'main',key:'feishu-overview'}` 成对注册；两处必须同 key，slots 服务缺席时整体跳过、不影响右侧栏页签。总览页读 `GET /api/state`，**唯一允许写的接口是 `POST /api/workspace-groups`**（自定义目录），不碰任务/同步/授权写接口、不调模型；`iframe` 用独立 class `dfe-overview-frame`，避免和右侧栏页签的会话上下文推送抢 `iframe.dfe-frame`。
+总览页是**宿主页面里的 React 组件**：客户端半体用 `ctx.slots.register({name:'sidebar.panellist',id:'feishu-overview',order:24,label:()=>'飞书任务总览'}, 图标)` 与 `{name:'main',key:'feishu-overview'}` 成对注册（两处必须同 key；图标收宿主的 `{size,active}`；label 用 thunk 以便日后接 locale），组件从 `src/client/*.js` 构建成经典脚本 `lib/client.iife.js`（`pnpm run build:client`，tsdown；产物不入库，`pnpm build` / 安装脚本会重建）。**总览页不再有 `/dsh-feishu/overview` 整页路由、不再有 iframe**（右侧栏「飞书」页签仍是 iframe → `panel.html`，那是上一代实现，本轮范围外）：DSH 官方插件实践要求插件页面以 React 组件渲染在槽位里，否则拿不到宿主主题令牌、明暗切换与 locale。样式只消费 `--dsw-*` 主题令牌（13 个 `--dsw-alias-*` + `--dsw-specific-sidebar-fill`，见 `src/client/styles.js`，类前缀 `fo-`），不得自造调色板。
+
+数据面（页面只碰这三个）：
+- `GET /api/overview`：瘦快照 `{ok,revision,now,groups,workspaces,tasks,relations,stats}`。`tasks[]` 带 `workspaceKey`（由 `workspaceGroups.js` 的 `workspaceKeyOf` 唯一计算）、依赖/来源摘要与 `blocked/ready/done/suspended/started/sessionId`；`relations[]` 只有 `{from,to,kind}`；`stats` 为 `{tasks,groups,dependencyEdges,provenanceEdges,blocked,ready}`。**不再下发整份 state**（settings/排期/会话水位都不进响应）。
+- `GET /api/overview/revision`：只有 `{ok,revision}`，供页面「变了才刷」。
+- `POST /api/workspace-groups`：唯一写接口（见下）。
 
 **自定义目录**：用户把若干 workspace 拖到一起、自己取名（如「QV」），于是「多个项目 = 一个项目」，该组在总览里共用一张关系图。
 
-`state.workspaceGroups` 为 `[{id,name,members:string[],labels:{[key]:string},createdAt,updatedAt}]`。`members` 是总览页同一套 workspace key（`workspaceId || workspacePath || 'name:'+label`），宿主只当不透明字符串，不解析路径、不校验存在性；`labels` 是 key → 名字快照，成员消失后仍能显示人话。**一个 workspace 只能属于一个目录**：create/update/add 都会把它从别的目录摘掉（含 labels）。目录名唯一（忽略大小写与空白，重名报错），名长上限 40，目录数上限 50，单目录成员上限 200。
+`state.workspaceGroups` 为 `[{id,name,members:string[],labels:{[key]:string},createdAt,updatedAt}]`。`members` 是 `workspaceKeyOf(task)`（`workspaceId || workspacePath || 'name:'+label`），宿主只当不透明字符串，不解析路径、不校验存在性；`labels` 是 key → 名字快照，成员消失后仍能显示人话。**一个 workspace 只能属于一个目录**：create/update/add 都会把它从别的目录摘掉（含 labels）。目录名唯一（忽略大小写与空白，重名报错），名长上限 40，目录数上限 50，单目录成员上限 200。
 
-`POST /api/workspace-groups`：`{action:create,name,members?,labels?,id?}` / `{action:rename|update,id,name?,members?,labels?}` / `{action:add,id,member:key|{key,label}}` / `{action:remove,id,key}` / `{action:delete,id}`；成功 `{ok:true,group,groups}`，失败 400 `{ok:false,error}`。快照里 `state.workspaceGroups` 额外带 `presentMembers`（成员里当前任务集真在场的个数）。读盘经 `normalizeGroups()`：坏行、重号、空名、重复成员直接丢掉，不抛。整块操作**只落本地 state.json**，不触发同步、不写飞书。
+`POST /api/workspace-groups`：`{action:create,name,members?,labels?,id?}` / `{action:rename|update,id,name?,members?,labels?}` / `{action:add,id,member:key|{key,label}}` / `{action:remove,id,key}` / `{action:delete,id}`；成功 `{ok:true,group,groups}`，失败 400 `{ok:false,error}`。快照里 `state.workspaceGroups` 额外带 `presentMembers`。读盘经 `normalizeGroups()`：坏行、重号、空名、重复成员直接丢掉，不抛。整块操作**只落本地 state.json**，不触发同步、不写飞书。
 
 ## 紧凑任务卡
 

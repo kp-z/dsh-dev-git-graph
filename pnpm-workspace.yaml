@@ -9,5 +9,6 @@
 
 packages:
   - 'packages/*'
+# esbuild 的安装脚本需要被允许运行（pnpm 11 的 allowBuilds；之前是一行占位提示，会让每个 pnpm run 都失败）
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true

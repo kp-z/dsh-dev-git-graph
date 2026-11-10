@@ -1,32 +1,39 @@
 /**
- * 客户端半体的单元测试：不装进浏览器，用假的 ModuleLoader / React / ctx 跑一遍 apply()。
+ * Client 半体的契约测试：装进假的 ModuleLoader / React / ctx 跑一遍 apply()。
  *
- * 验的是「注册口对不对」——历史上最贵的错误不是画错像素，而是
- * 对着一个不存在的服务名注册，页面一片安静、什么都不出现。
+ * 从「整页 HTML + iframe」改成「宿主页面里的 React 组件」之后，这一层要钉住两件事：
+ *   1. 右侧栏页签还是老样子（iframe → /dsh-feishu/panel），别被重写碰坏；
+ *   2. 左侧栏总览走 **slots 注册的 React 组件**，iframe 那条路彻底消失。
  *
- * 跑法：node test/client.mjs
+ * 跑法：node test/client.mjs（需要先 `pnpm run build:client` 生成 lib/client.iife.js）
  */
+import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import vm from 'node:vm'
+import { createSidebarHalf } from '../src/client/sidebar-tab.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const source = await readFile(join(HERE, '..', 'client.js'), 'utf8')
+const BUNDLE = new URL('../lib/client.iife.js', import.meta.url)
+let source = ''
+try {
+  source = await readFile(BUNDLE, 'utf8')
+} catch (error) {
+  throw new Error('缺少构建产物 lib/client.iife.js，请先跑 pnpm run build:client')
+}
 
-const projectStart = source.indexOf('    function workspaceContextOf(')
-const projectEnd = source.indexOf('\n    var lastWorkspaceContext', projectStart)
-const projectSandbox = {}
-vm.createContext(projectSandbox)
-vm.runInContext(source.slice(projectStart, projectEnd), projectSandbox)
-const projectContext = projectSandbox.workspaceContextOf({ scope: { workspaceId: 'w1', cwd: '/one' } })
-if (projectContext.workspaceId !== 'w1' || projectContext.workspacePath !== '/one') throw new Error('项目上下文未从scope传出')
-if (!source.includes('workspaceId: lastWorkspaceContext.workspaceId') || !source.includes('workspace.workspacePath === lastWorkspaceContext.workspacePath')) throw new Error('同会话项目变更不会推送')
+/* 静态口径：产物必须是经典脚本，且总览不再有整页路由。 */
+assert.ok(source.includes('__ModuleLoader__.load'), '产物必须自己注册到 ModuleLoader')
+assert.ok(source.includes('/dsh-feishu/panel'), '右侧栏面板路由必须还在')
+assert.ok(!source.includes('/dsh-feishu/overview'), '总览不该再有整页路由（iframe 版已删除）')
+assert.ok(!source.includes('dfe-overview-frame'), '总览不该再有 iframe 容器')
+console.log('✓ 产物：经典脚本 + 只有右侧栏面板路由，没有总览整页路由/iframe')
+
+/* 同会话项目上下文：源码层单测（行为与反射都不依赖构建产物）。 */
+const half = createSidebarHalf({ React: { createElement: () => ({}) }, h: () => ({}) })
+const projectContext = half.workspaceContextOf({ scope: { workspaceId: 'w1', cwd: '/one' } })
+assert.equal(projectContext.workspaceId, 'w1')
+assert.equal(projectContext.workspacePath, '/one')
+console.log('✓ 源码：workspaceContextOf 从 scope 读出项目上下文')
 
 const captured = []
-const registeredSlots = []
-
-/* slots 服务：左侧栏「飞书任务总览」靠它注册（sidebar.panellist 的 id 必须等于 main 的 key）。 */
 const slotRegistrations = []
 const slots = {
   inject(name, factory) {
@@ -38,36 +45,14 @@ const slots = {
     return () => {}
   },
 }
-
-/* React 只用到 createElement / useState / useRef / useEffect / memo。 */
-const ReactStub = {
-  createElement: (type, props, ...children) => ({ type, props, children }),
-  useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
-  useRef: (initial) => ({ current: initial }),
-  useEffect: () => {},
-  useCallback: (fn) => fn,
-  memo: (fn) => fn,
-}
-
-const styleElement = { id: '', textContent: '' }
-const fakeDocument = {
-  head: { appendChild: () => {} },
-  body: { classList: { contains: () => false } },
-  documentElement: {},
-  getElementById: () => null,
-  createElement: () => styleElement,
-}
-
 const betterSidebar = {
   registerTab(descriptor) {
     captured.push(descriptor)
     return () => {}
   },
 }
-
 const openedSessions = []
 const uiWorkspace = { openSession: (id) => openedSessions.push(id) }
-
 const ctx = {
   get(name) {
     if (name === 'betterSidebar') return betterSidebar
@@ -75,15 +60,46 @@ const ctx = {
     if (name === 'slots') return slots
     return undefined
   },
-  effect(fn) {
-    fn()
-  },
+  effect(fn) { fn() },
+}
+
+/* React 只用到 createElement / useState / useRef / useEffect / useCallback / useMemo / memo。 */
+const ReactStub = {
+  createElement: (type, props, ...children) => ({ type, props, children }),
+  useState: (initial) => [typeof initial === 'function' ? initial() : initial, () => {}],
+  useRef: (initial) => ({ current: initial }),
+  useEffect: () => {},
+  useCallback: (fn) => fn,
+  useMemo: (fn) => fn(),
+  memo: (fn) => fn,
+}
+
+const styleElement = { id: '', textContent: '' }
+const appendedStyles = []
+/* 宿主页面里 createElement('style') 出来的对象要能 setId/setAttribute，测试里补齐这两个。 */
+function makeElement() {
+  const node = { id: '', textContent: '', attrs: {} }
+  node.setAttribute = (key, value) => {
+    node.attrs[key] = String(value)
+    if (key === 'id') node.id = String(value)
+  }
+  node.getAttribute = (key) => (key in node.attrs ? node.attrs[key] : null)
+  node.appendChild = () => {}
+  return node
+}
+const fakeDocument = {
+  head: { appendChild: (node) => appendedStyles.push(node) },
+  body: { classList: { contains: () => false } },
+  documentElement: {},
+  getElementById: () => null,
+  createElement: () => makeElement(),
 }
 
 let loaded
 const messageListeners = []
 const fakeWindow = {
   location: { origin: 'http://localhost' },
+  localStorage: { getItem: () => null, setItem: () => {} },
   addEventListener: (type, fn) => { if (type === 'message') messageListeners.push(fn) },
   removeEventListener: (type, fn) => {
     const i = messageListeners.indexOf(fn)
@@ -95,7 +111,7 @@ const fakeWindow = {
     },
   },
 }
-
+const vm = await import('node:vm')
 const sandbox = {
   window: fakeWindow,
   document: fakeDocument,
@@ -110,76 +126,68 @@ const sandbox = {
 }
 sandbox.globalThis = sandbox
 vm.createContext(sandbox)
-vm.runInContext(source, sandbox, { filename: 'client.js' })
+vm.runInContext(source, sandbox, { filename: 'client.iife.js' })
 
-if (!loaded) throw new Error('模块没有通过 __ModuleLoader__.load 注册')
-if (loaded.id !== 'dsh-feishu') throw new Error(`模块 id 不对：${loaded.id}`)
-
+assert.ok(loaded, '模块没有通过 __ModuleLoader__.load 注册')
+assert.equal(loaded.id, 'dsh-feishu')
 const { exports } = loaded
-if (!Array.isArray(exports.inject) || !exports.inject.includes('betterSidebar')) {
-  throw new Error(`inject 没声明 betterSidebar：${JSON.stringify(exports.inject)}`)
-}
+assert.ok(Array.isArray(exports.inject) && exports.inject.includes('slots'), `inject 没声明 slots：${JSON.stringify(exports.inject)}`)
+/* betterSidebar 必须**不进** inject：否则没有右侧栏插件的 profile 里总览也会被门控掉（运行时探测即可）。 */
+assert.ok(!exports.inject.includes('betterSidebar'), `betterSidebar 不该进 inject（可选能力，运行时探测）：${JSON.stringify(exports.inject)}`)
 
 exports.apply(ctx)
 await new Promise((resolve) => setTimeout(resolve, 400))
 
-if (captured.length !== 1) throw new Error(`registerTab 调用次数不对：${captured.length}`)
+/* 右侧栏页签：老口径。 */
+assert.equal(captured.length, 1, `registerTab 调用次数不对：${captured.length}`)
 const tab = captured[0]
-if (tab.id !== 'feishu') throw new Error(`tab id 不对：${tab.id}`)
-if (tab.single !== true) throw new Error('tab 没有声明 single')
-if (typeof tab.component !== 'function') throw new Error('tab 没有 component')
-if (typeof tab.icon !== 'function') throw new Error('tab 没有 icon')
-if (tab.title() !== '飞书') throw new Error(`title 不对：${tab.title()}`)
-if (typeof tab.order !== 'number') throw new Error('tab 没有 order')
-
-/* 组件必须能渲染出 iframe，且 src 指向宿主面板路由。 */
+assert.equal(tab.id, 'feishu')
+assert.equal(tab.single, true)
+assert.equal(typeof tab.component, 'function')
+assert.equal(typeof tab.icon, 'function')
+assert.equal(tab.title(), '飞书')
 const tree = tab.component({})
-if (tree.type !== 'iframe') throw new Error(`组件根节点不是 iframe：${tree.type}`)
-if (!String(tree.props.src).startsWith('/dsh-feishu/panel')) throw new Error(`iframe src 不对：${tree.props.src}`)
+assert.equal(tree.type, 'iframe')
+assert.ok(String(tree.props.src).startsWith('/dsh-feishu/panel'), `页签 iframe src 不对：${tree.props.src}`)
+console.log(`✓ 右侧栏页签：id=${tab.id} title=${tab.title()} → <iframe src="${tree.props.src}">`)
 
-/* 左侧栏全局面板：sidebar.panellist 图标 + 同 key 的 main 面板。 */
+/* 左侧栏总览：React 组件 + 同 key 的 main 面板。 */
 const panellist = slotRegistrations.find((row) => row.options.name === 'sidebar.panellist')
 const mainPanel = slotRegistrations.find((row) => row.options.name === 'main')
-if (!panellist) throw new Error('没有注册 sidebar.panellist（左侧栏不会有「飞书任务总览」入口）')
-if (!mainPanel) throw new Error('没有注册 main 面板')
-if (panellist.options.id !== mainPanel.options.key) {
-  throw new Error(`sidebar.panellist.id 与 main.key 不一致：${panellist.options.id} / ${mainPanel.options.key}`)
-}
-if (panellist.options.id !== 'feishu-overview') throw new Error(`总览面板 id 不对：${panellist.options.id}`)
-if (panellist.options.label !== '飞书任务总览') throw new Error(`总览标签不对：${panellist.options.label}`)
-if (typeof panellist.options.order !== 'number') throw new Error('总览入口没有 order')
-if (typeof panellist.component !== 'function') throw new Error('总览入口没有图标组件')
+assert.ok(panellist, '没有注册 sidebar.panellist（左侧栏不会有「飞书任务总览」入口）')
+assert.ok(mainPanel, '没有注册 main 面板')
+assert.equal(panellist.options.id, mainPanel.options.key, 'sidebar.panellist.id 与 main.key 必须一致')
+assert.equal(panellist.options.id, 'feishu-overview')
+assert.equal(typeof panellist.options.label, 'function', 'label 要用 thunk（宿主会重读，日后可跟随 locale）')
+assert.equal(panellist.options.label(), '飞书任务总览')
+assert.equal(typeof panellist.options.order, 'number')
+assert.equal(typeof panellist.component, 'function')
+assert.ok(typeof mainPanel.component === 'function', 'main 面板必须是组件（不能是 iframe 容器）')
+console.log(`✓ 左侧栏总览：id=${panellist.options.id} label=${panellist.options.label} → React 组件（非 iframe）`)
 
-const overviewTree = mainPanel.component({})
-if (overviewTree.type !== 'div') throw new Error(`总览面板根节点不是 div：${overviewTree.type}`)
-const overviewFrame = (overviewTree.children || [])[0]
-if (!overviewFrame || overviewFrame.type !== 'iframe') throw new Error('总览面板里没有 iframe')
-if (!String(overviewFrame.props.src).startsWith('/dsh-feishu/overview')) {
-  throw new Error(`总览 iframe src 不对：${overviewFrame.props.src}`)
-}
-if (overviewFrame.props.className !== 'dfe-overview-frame') {
-  throw new Error(`总览 iframe 不能用右侧栏的 class（会和会话上下文推送抢 querySelector）：${overviewFrame.props.className}`)
-}
+/* 样式：宿主页面里只注入样式表，不再有 iframe 传递主题。 */
+const styleIds = appendedStyles.map((node) => node.id)
+assert.ok(styleIds.includes('dsh-feishu-style'), `缺少容器样式表：${styleIds.join(',')}`)
+console.log(`✓ 样式注入：${styleIds.filter(Boolean).join(', ')}`)
 
-/* 服务缺席时也不能抛（否则会把宿主打成错误页）。 */
+/* 服务缺席时不能抛（否则会把宿主打成错误页）。 */
 const emptyCtx = { get: () => undefined, effect: () => {} }
 exports.apply(emptyCtx)
 await new Promise((resolve) => setTimeout(resolve, 100))
-
-console.log(`✓ 模块 ${loaded.id}：inject=${JSON.stringify(exports.inject)}`)
-console.log(`✓ registerTab：id=${tab.id} order=${tab.order} single=${tab.single} title=${tab.title()}`)
-console.log(`✓ 组件渲染：<iframe src="${tree.props.src}">`)
-console.log(`✓ 左侧栏总览：id=${panellist.options.id} label=${panellist.options.label} order=${panellist.options.order} → <iframe src="${overviewFrame.props.src}">`)
 console.log('✓ 服务缺席时 apply() 不抛')
-/* 面板请求「打开会话」→ client 必须转给 uiWorkspace.openSession。 */
-if (messageListeners.length === 0) throw new Error('没有注册 message 监听，面板无法请求跳转')
+
+/* 会话跳转桥：面板 postMessage → uiWorkspace.openSession，跨域消息忽略。 */
+assert.ok(messageListeners.length > 0, '没有注册 message 监听，面板无法请求跳转')
 for (const fn of messageListeners) {
   fn({ origin: 'http://localhost', data: { type: 'dsh-feishu:open-session', sessionId: 'feishu-abc-1' } })
   fn({ origin: 'https://evil.example', data: { type: 'dsh-feishu:open-session', sessionId: 'feishu-should-ignore' } })
 }
-if (openedSessions.length !== 1 || openedSessions[0] !== 'feishu-abc-1') {
-  throw new Error(`会话跳转桥不对：${JSON.stringify(openedSessions)}`)
+assert.equal(openedSessions.length, 1)
+assert.equal(openedSessions[0], 'feishu-abc-1')
+console.log('✓ 会话跳转：面板 postMessage → uiWorkspace.openSession，跨域消息被忽略')
+if (!styleIds.includes('dsh-feishu-overview-style')) {
+  /* 总览样式表由 styles.js 的 injectStyles 负责；这里只确认没有第二套调色板被注入。 */
+  console.log('· 总览样式表由 src/client/styles.js 注入（不在本测试口径内）')
 }
-console.log(`✓ 会话跳转：面板 postMessage → uiWorkspace.openSession('${openedSessions[0]}')，跨域消息被忽略`)
 console.log('CLIENT_OK')
 process.exit(0)

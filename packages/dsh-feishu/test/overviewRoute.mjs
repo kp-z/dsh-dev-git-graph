@@ -1,9 +1,9 @@
 /**
- * 左侧栏「飞书任务总览」的路由测试：整页必须由宿主直出，且只读。
+ * 总览页的数据面测试：瘦快照 / revision / 自定义目录写接口，以及「旧整页路由已经不存在」。
  *
- * 为什么单独测这一条：总览页是**全局面板**（sidebar.panellist + main），
- * 页面本身走 /dsh-feishu/overview。历史上最容易犯的错是「客户端注册写好了、
- * 宿主没挂路由」——表现就是左侧栏点了图标出来一个空白/404 页。
+ * 为什么单独测这条：总览从「宿主直出整页 HTML + iframe」改成了「宿主页面里的 React 组件」，
+ * 最容易犯的错是**接口换了但页面当天的口径没换**——旧路由还在、或者又悄悄把整份 state（含
+ * settings/排期/会话水位）塞回响应里。这里把它钉住。
  *
  * 跑法：node test/overviewRoute.mjs
  */
@@ -39,52 +39,49 @@ const server = createServer((req, res) => mounted.handler(req, res))
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
 const base = `http://127.0.0.1:${server.address().port}/dsh-feishu`
 
+let failed = 0
 const check = (label, ok, detail = '') => {
+  if (!ok) failed += 1
   console.log(`${ok ? '✓' : '✗'} ${label}${ok ? '' : ` — ${detail}`}`)
-  if (!ok) process.exitCode = 1
+}
+const json = async (path, init) => {
+  const res = await fetch(base + path, init)
+  return { status: res.status, data: await res.json().catch(() => null), headers: res.headers }
 }
 
-const overview = await fetch(base + '/overview')
-const html = await overview.text()
-check('GET /overview 返回 200', overview.status === 200, `status=${overview.status}`)
-check('content-type 是 html', String(overview.headers.get('content-type')).includes('text/html'))
-check('页面带有标题与数据源脚本', html.includes('飞书任务总览') && html.includes('/dsh-feishu/api/state'))
-check('内联脚本非空（整页自包含，不依赖外部资源）', html.length > 20_000, `length=${html.length}`)
+/* ── 瘦快照 ─────────────────────────────────────────────────────────── */
+const overview = await json('/api/overview')
+check('GET /api/overview 返回 200', overview.status === 200 && overview.data?.ok === true, JSON.stringify(overview.data).slice(0, 120))
+const view = overview.data || {}
+check('带 revision / tasks / relations / groups / workspaces / stats', ['revision', 'tasks', 'relations', 'groups', 'workspaces', 'stats'].every((key) => key in view), Object.keys(view).join(','))
+check('不再下发整份 state（没有 settings / 排期 / 会话水位）', !('settings' in view) && !('sessionSeen' in view) && !('schedules' in view) && !('taskCreationReceipts' in view))
+check('stats 口径齐全', ['tasks', 'groups', 'dependencyEdges', 'provenanceEdges', 'blocked', 'ready'].every((key) => typeof view.stats?.[key] === 'number'), JSON.stringify(view.stats))
 
-/* 总览页只改「组织方式」（自定义目录），不碰任务/同步/授权这些写接口。 */
-const forbidden = ['/api/settings', '/api/sync', '/api/tasks/', '/api/comments', '/api/sessions/', '/api/auth/']
-const leaked = forbidden.filter((route) => html.includes(route))
-check('页面不碰任务/同步/授权写接口', leaked.length === 0, leaked.join(', '))
-check('页面只写自定义目录这一个接口', html.includes('/api/workspace-groups'))
-const external = (html.match(/https?:\/\/[^"'\s>]+/g) || []).filter((url) => !url.startsWith('http://www.w3.org/'))
-check('页面不引用外链资源', external.length === 0, external.join(', '))
+const revision = await json('/api/overview/revision')
+check('GET /api/overview/revision 与快照同源', revision.status === 200 && revision.data?.revision === view.revision, JSON.stringify(revision.data))
+check('revision 是非空短串', typeof view.revision === 'string' && view.revision.length >= 8)
 
+/* ── 旧整页路由已经拆掉 ─────────────────────────────────────────────── */
+const legacy = await json('/overview')
+check('旧的 GET /overview 整页路由已移除（404）', legacy.status === 404, `status=${legacy.status}`)
 const panel = await fetch(base + '/panel')
-check('GET /panel 仍然 200（旧入口没被挤掉）', panel.status === 200, `status=${panel.status}`)
+check('右侧栏面板仍然 200（旧入口没被挤掉）', panel.status === 200, `status=${panel.status}`)
 
-const missing = await fetch(base + '/definitely-not-a-route')
-const missingBody = await missing.json().catch(() => ({}))
-check('未知路由仍然 404', missing.status === 404, `status=${missing.status}`)
-check('404 是 JSON 错误体', missingBody.ok === false, JSON.stringify(missingBody).slice(0, 120))
-
-/* 页面与测试同源：overview.html 的静态检查必须与测试里的断言一致。 */
-const local = await readFile(new URL('../overview.html', import.meta.url), 'utf8')
-check('直出的 HTML 与仓库文件一致', local === html || local.length === html.length, `local=${local.length} served=${html.length}`)
-
-/* ── 自定义目录接口：总览页唯一会写的东西 ───────────────────────────── */
-const post = (body) =>
-  fetch(base + '/api/workspace-groups', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  }).then(async (res) => ({ status: res.status, data: await res.json().catch(() => ({})) }))
+/* ── 自定义目录：总览页唯一写接口 ───────────────────────────────────── */
+const post = (body) => json('/api/workspace-groups', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(body),
+})
 
 const created = await post({ action: 'create', name: 'QV', members: ['/p/qviz-service', '/p/qviz-scenepack'], labels: { '/p/qviz-service': 'msim-qviz-service' } })
-check('POST create 返回 200 且带目录', created.status === 200 && created.data.ok === true && created.data.group?.name === 'QV', JSON.stringify(created.data).slice(0, 160))
-const groupId = created.data.group?.id || ''
-const groupList = () => fetch(base + '/api/state').then((res) => res.json()).then((data) => data.state?.workspaceGroups || [])
-check('成员被登记，且 labels 跟着走', JSON.stringify(await groupList()).includes('msim-qviz-service'))
-check('快照带 presentMembers（这里没有对应任务，应为 0）', (await groupList())[0]?.presentMembers === 0)
+check('POST create 返回 200 且带目录', created.status === 200 && created.data?.ok === true && created.data.group?.name === 'QV', JSON.stringify(created.data).slice(0, 160))
+/* 「变了才刷」的前提：写操作必须让 revision 变，否则页面永远不重拉。 */
+const revisionAfterWrite = (await json('/api/overview')).data.revision
+check('目录写操作后 revision 变化', revisionAfterWrite !== view.revision, `${view.revision} → ${revisionAfterWrite}`)
+const groupId = created.data?.group?.id || ''
+const groupsOf = async () => (await json('/api/overview')).data.groups || []
+check('成员被登记，且 labels 跟着走', JSON.stringify(await groupsOf()).includes('msim-qviz-service'))
 
 const renamed = await post({ action: 'rename', id: groupId, name: 'QV 后端' })
 check('rename 生效', renamed.status === 200 && renamed.data.group?.name === 'QV 后端')
@@ -94,9 +91,9 @@ const removed = await post({ action: 'remove', id: groupId, key: '/p/node-api' }
 check('remove 拖出后成员回到 2 个', removed.status === 200 && removed.data.group?.members.length === 2)
 
 const bad = await post({ action: 'frobnicate', id: groupId })
-check('坏 action 返回 400 而不是 500', bad.status === 400 && bad.data.ok === false, JSON.stringify(bad.data).slice(0, 120))
+check('坏 action 返回 400 而不是 500', bad.status === 400 && bad.data?.ok === false, JSON.stringify(bad.data).slice(0, 120))
 const dupName = await post({ action: 'create', name: 'QV 后端' })
-check('重名目录被拒', dupName.status === 400 && /QV/.test(dupName.data.error || ''))
+check('重名目录被拒', dupName.status === 400 && /QV/.test(dupName.data?.error || ''))
 
 const stateFile = join(HOME, 'dsh-feishu', 'state.json')
 const persisted = JSON.parse(await readFile(stateFile, 'utf8'))
@@ -107,9 +104,9 @@ const dropped = await post({ action: 'delete', id: groupId })
 check('delete 之后目录清空', dropped.status === 200 && dropped.data.groups.length === 0)
 
 server.close()
-if (process.exitCode) {
-  console.log('OVERVIEW_ROUTE_FAILED')
+if (failed) {
+  console.log(`\nOVERVIEW_API_FAILED：${failed} 项未通过`)
   process.exit(1)
 }
-console.log('OVERVIEW_ROUTE_OK')
+console.log('\nOVERVIEW_API_OK')
 process.exit(0)

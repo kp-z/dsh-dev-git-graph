@@ -177,12 +177,7 @@ export function applyGroupAction(groups, input, { now = Date.now(), makeId } = {
 export function projectGroups(groups, tasks) {
   const list = normalizeGroups(groups)
   const keys = new Set()
-  for (const task of Array.isArray(tasks) ? tasks : []) {
-    const id = str(task?.workspaceId).trim()
-    const path = str(task?.workspacePath).trim()
-    const label = str(task?.workspaceTitle || task?.workspaceName || task?.meta?.workspace).trim()
-    keys.add(id || path || (label ? `name:${label}` : ''))
-  }
+  for (const task of Array.isArray(tasks) ? tasks : []) keys.add(workspaceKeyOf(task))
   return list.map((group) => ({
     id: group.id,
     name: group.name,
@@ -192,4 +187,21 @@ export function projectGroups(groups, tasks) {
     createdAt: group.createdAt,
     updatedAt: group.updatedAt,
   }))
+}
+
+/**
+ * 一个任务的 workspace 身份 —— **全插件只有这一处定义**。
+ *
+ * 总览页的分组、/api/overview 的 `workspaceKey`、以及自定义目录的 `members`
+ * 必须用同一个 key，否则会出现「面板按 UUID 分组、宿主按路径统计」这种两边各说各话。
+ * 优先级：工作区 id（最稳）→ 路径 → 名字兜底（只带名字的历史数据）。
+ */
+export function workspaceKeyOf(task) {
+  const t = task && typeof task === 'object' ? task : {}
+  const id = str(t.workspaceId).trim()
+  if (id) return id
+  const path = str(t.workspacePath).trim()
+  if (path) return path
+  const label = str(t.workspaceTitle || t.workspaceName || t.meta?.workspace).trim()
+  return label ? `name:${label}` : ''
 }
