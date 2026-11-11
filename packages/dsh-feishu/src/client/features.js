@@ -79,13 +79,29 @@ export function bubbleIcon(h) {
 
 /**
  * 功能注册表：rail 一级菜单 = 这里每一项；哪一项要二级菜单就给它 `SubNav`。
- * 现在三项：关系（带范围的二级菜单）/ 洞察（全局指标）/ 运行（会话气泡墙）。
+ *
+ * **顺序即优先级**（用户口径：「侧边栏运行排第一，洞察第二，关系第三」）；
+ * `featureById` 在坏 store / 被删 id 时退回第一项，所以第一项同时是默认落地页。
  */
 export function createFeatures(deps) {
   const d = deps || {}
   const h = d.h
   const TreeNav = createTreeNav(d)
   return [
+    {
+      id: 'runs',
+      label: '运行',
+      hint: '一个任务一个气泡：绿色在呼吸就是在跑（运行态来自宿主内存，重启后清零、会话恢复后自愈）',
+      icon: bubbleIcon,
+      Component: createRunsFeature(d),
+    },
+    {
+      id: 'insight',
+      label: '洞察',
+      hint: '指标、分布、阻塞与最近动态（看全局，不跟范围走）',
+      icon: chartIcon,
+      Component: createInsightFeature(d),
+    },
     {
       id: 'graph',
       /* 一级菜单口径（用户原话）：「当前第二列变成二级菜单，一级菜单叫关系」。 */
@@ -103,20 +119,6 @@ export function createFeatures(deps) {
         return h('div', { className: 'fo-subnav' }, h(TreeNav, { ...(ctx.treeProps || {}), compact: true }))
       },
       Component: createGraphFeature(d),
-    },
-    {
-      id: 'insight',
-      label: '洞察',
-      hint: '指标、分布、阻塞与最近动态（看全局，不跟范围走）',
-      icon: chartIcon,
-      Component: createInsightFeature(d),
-    },
-    {
-      id: 'runs',
-      label: '运行',
-      hint: '一个任务一个气泡：绿色在呼吸就是在跑（运行态来自宿主内存，重启后清零、会话恢复后自愈）',
-      icon: bubbleIcon,
-      Component: createRunsFeature(d),
     },
   ]
 }

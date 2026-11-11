@@ -335,6 +335,10 @@ async function mountPanel(options) {
   const mini = createMiniReact()
   const api = opts.api || makeApi(opts.snapshot === undefined ? SNAPSHOT : opts.snapshot, opts)
   const store = opts.store && typeof opts.store.get === 'function' ? opts.store : makeStore(opts.store)
+  /* 注册表顺序改成「运行 → 洞察 → 关系」后，默认落地页变成运行。
+     绝大多数断言测的是关系图，所以默认先把 store 的 feature 种成 graph；
+     想验「真实默认落地页」的用例显式传 startFeature: null。 */
+  if (opts.startFeature !== null && typeof store.set === 'function') store.set('feature', opts.startFeature || 'graph')
   const bag = { React: mini.React, h: mini.React.createElement, model, layout, api, store, host: opts.host }
   const features = typeof opts.features === 'function' ? opts.features(bag) : opts.features
   const Panel = createOverviewPanel(Object.assign({}, bag, { features, pollMs: 60000 }))
@@ -419,8 +423,21 @@ const alertBoxes = (tree) => findAll(tree, (node) => node.kind === 'host' && nod
 
 console.log('overview/面板组件（迷你 React + 固定 fixture：5 任务 / 2 目录 / 1 跨项目边 / 1 缺失端点）')
 
-const main = await mountPanel()
+const main = await mountPanel({ startFeature: null })
 let tree = main.tree
+/* 注册表顺序 = 用户口径「运行排第一，洞察第二，关系第三」，所以默认落地页是运行。
+   下面这一大段测的是关系图的行为，先切过去。 */
+const activateFeature = async (label) => {
+  const items = findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && classNameOf(node) === 'fo-featnav-item')
+  const hit = items.find((item) => textOf(item).includes(label))
+  if (hit) { hit.props.onClick(); tree = await main.mini.act() }
+  return Boolean(hit)
+}
+check('注册表第一项就是默认落地页（运行），且顺序是 运行 → 洞察 → 关系', () => {
+  assert.deepEqual(main.features.map((row) => row.id), ['runs', 'insight', 'graph'], '注册表顺序')
+  assert.deepEqual(main.features.map((row) => row.label), ['运行', '洞察', '关系'], '一级菜单文案')
+})
+await activateFeature('关系')
 
 check('styles：STYLE_ID 稳定、CSS 是 fo- 前缀的一段字符串', () => {
   assert.equal(STYLE_ID, 'dsh-feishu-overview-style')
@@ -816,11 +833,14 @@ check('rail 两级菜单：一级项「关系」（可展开）+ 它的二级菜
   assert.ok(labels.some((text) => text.includes('关系')), `一级菜单要有「关系」，实际 ${labels}`)
   assert.ok(labels.some((text) => text.includes('洞察')), `一级菜单要有「洞察」，实际 ${labels}`)
   assert.ok(labels.some((text) => text.includes('运行')), `一级菜单要有「运行」，实际 ${labels}`)
-  assert.ok(textOf(items[0]).includes('关系'), '一级菜单第一项叫「关系」')
-  assert.equal(items[0].props['data-active'], '1')
-  assert.equal(items[0].props['aria-current'], 'page')
-  assert.equal(items[0].props['data-expandable'], '1')
-  assert.equal(items[0].props['aria-expanded'], 'true', '默认展开')
+  const graphItem = items.find((item) => textOf(item).includes('关系'))
+  assert.ok(graphItem, 'rail 里有「关系」这一项')
+  assert.ok(textOf(items[0]).includes('运行'), '一级菜单第一项是「运行」（用户口径：运行排第一）')
+  assert.notEqual(items[0].props['data-expandable'], '1', '运行没有二级菜单')
+  assert.equal(graphItem.props['data-active'], '1')
+  assert.equal(graphItem.props['aria-current'], 'page')
+  assert.equal(graphItem.props['data-expandable'], '1')
+  assert.equal(graphItem.props['aria-expanded'], 'true', '默认展开')
   const sub = byClass(rail, 'fo-subnav')
   assert.equal(sub.length, 1, '二级菜单挂在 rail 里')
   assert.equal(findAll(sub[0], (node) => node.kind === 'host' && node.props.role === 'tree').length, 1, 'ARIA tree 原样保留')
@@ -851,7 +871,7 @@ check('二级菜单里不再重复一个分组标题（「任务分组」已删�
   assert.ok(textOf(sub).includes('新建目录'), '新建目录入口还在')
 })
 /* 折叠一级项：二级菜单整个不渲染，展开态落 store 键 nav */
-const navItem = () => featnavItems(tree)[0]
+const navItem = () => featnavItems(tree).find((item) => textOf(item).includes('关系'))
 check('一级项可折叠：aria-expanded 反映状态', () => {
   assert.equal(navItem().props['aria-expanded'], 'true')
   assert.equal(navItem().props['data-expanded'], '1')
@@ -862,8 +882,8 @@ check('点一级项收起：二级菜单从 DOM 消失、折叠态落 store 键 
   assert.equal(byClass(tree, 'fo-subnav').length, 0)
   assert.equal(treeItems(tree).length, 0, '二级项也没了')
   assert.equal(main.store.data.get('nav').graph, false)
-  assert.equal(featnavItems(tree)[0].props['aria-expanded'], 'false')
-  assert.equal(featnavItems(tree)[0].props['data-active'], '1', '收起二级菜单不等于切走功能')
+  assert.equal(navItem().props['aria-expanded'], 'false')
+  assert.equal(navItem().props['data-active'], '1', '收起二级菜单不等于切走功能')
   assert.ok(graphSections(tree).length > 0, '画布不跟着消失')
 })
 navItem().props.onClick()
@@ -872,7 +892,7 @@ check('再点一级项展开：二级菜单回来、展开态归位', () => {
   assert.equal(byClass(tree, 'fo-subnav').length, 1)
   assert.equal(treeItems(tree).length, 8)
   assert.equal(main.store.data.get('nav').graph, true)
-  assert.equal(featnavItems(tree)[0].props['aria-expanded'], 'true')
+  assert.equal(navItem().props['aria-expanded'], 'true')
 })
 
 check('目录树搬家后行为不变：树行/拖拽/右键入口都还在', () => {
@@ -1408,7 +1428,9 @@ const PANEL_CARD = layout.CARD
   check('一级菜单名唯一、品牌名唯一、旧名「任务关系图」已不再出现', () => {
     const text = textOf(ft)
     assert.equal(count(text, '任务关系图'), 0, '旧的功能名（三次出现那份）已经删掉')
-    assert.equal(textOf(featnavItems(ft)[0]).replace(/\s/g, ''), '关系▾', '一级项就是「关系」+ caret')
+    const graphNav = featnavItems(ft).find((item) => textOf(item).includes('关系'))
+    assert.ok(graphNav, 'rail 里有「关系」')
+    assert.equal(textOf(graphNav).replace(/\s/g, ''), '关系▾', '「关系」项带 caret')
     assert.equal(count(text, '飞书任务集'), 1, '品牌名只在 rail 品牌区')
     assert.equal(count(text, '任务分组'), 0, '二级菜单里不再重复一个分组标题')
   })
@@ -2080,7 +2102,7 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   check('注入一个假功能：rail 出现它、正文仍停在关系图', () => {
     assert.equal(featnavItems(itree).length, injected.features.length, '功能项数量 == 注册表长度')
     assert.ok(fakeIndex(featnavItems(itree)) > 0, '假功能出现在 rail 里')
-    assert.equal(featnavItems(itree)[0].props['data-active'], '1')
+    assert.equal(featnavItems(itree).find((item) => textOf(item).includes('关系')).props['data-active'], '1')
     assert.equal(rootOf(itree).props['data-feature'], 'graph')
     assert.ok(graphSections(itree).length > 0)
   })
@@ -2114,7 +2136,7 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.equal(searchInputs(itree).length, 0, '没声明 search 的功能不显示搜索框')
   })
 
-  featnavItems(itree)[0].props.onClick()
+  featnavItems(itree).find((item) => textOf(item).includes('关系')).props.onClick()
   itree = await injected.mini.act()
   check('切回关系图：scope / 选中项都还在（状态没被功能切换清掉）', () => {
     assert.equal(rootOf(itree).props['data-feature'], 'graph')
@@ -2128,7 +2150,7 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   check('注入的功能不污染真注册表（模块级 createFeatures 仍只有一项）', () => {
     const base = createFeatures({ React: injected.mini.React, h: injected.mini.React.createElement, model, layout, api: injected.api, store: injected.store })
     assert.equal(base.some((row) => row.id === 'fake'), false, '模块级注册表不该被注入的假功能污染')
-    assert.deepEqual(base.map((row) => row.id), ['graph', 'insight', 'runs'])
+    assert.deepEqual(base.map((row) => row.id), ['runs', 'insight', 'graph'], '注册表顺序 = 运行 → 洞察 → 关系')
   })
 }
 
