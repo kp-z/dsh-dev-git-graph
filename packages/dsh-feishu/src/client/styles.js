@@ -139,8 +139,10 @@ export const CSS = `
   min-height: 68px; padding: 10px 16px;
   border-bottom: 1px solid var(--fo-glass-line);
 }
+/* logo 与一级项**同高**（44px）：展开态两者都是 44 高，收起态两者都是 36×36 正方形。
+   只改一处尺寸会让「大小不一致」反复出现，所以这里按「和导航项对齐」定尺寸。 */
 .fo-brand-logo {
-  flex: 0 0 40px; width: 40px; height: 40px; border-radius: 12px;
+  flex: 0 0 44px; width: 44px; height: 44px; border-radius: 12px;
   display: inline-flex; align-items: center; justify-content: center;
   color: ${T.brand};
   background: var(--fo-selected-bg);
@@ -196,7 +198,11 @@ export const CSS = `
 .fo-root[data-rail="0"] { --fo-rail-w: 52px; }
 /* 收起态：logo 与下面的一级项**同尺寸正方形**（36×36 / 圆角 10），整条 rail 只留图标列 */
 .fo-root[data-rail="0"] .fo-brand { justify-content: center; padding: 8px 0; }
-.fo-root[data-rail="0"] .fo-brand-logo { width: 36px; height: 36px; border-radius: 10px; }
+/* 收起态 logo：必须显式改 flex-basis —— 基础规则里的 flex 是 0 0 40px，
+   只改 width/height 的话 flex 仍按 40px 排版，于是 logo 比一级项宽 4px（用户看到的「大小不一致」）。 */
+.fo-root[data-rail="0"] .fo-brand-logo {
+  flex: 0 0 36px; width: 36px; height: 36px; padding: 0; border-radius: 10px;
+}
 /* 收起态：文字与 caret 都隐藏（只藏文字会让图标偏左） */
 .fo-root[data-rail="0"] .fo-brand-text,
 .fo-root[data-rail="0"] .fo-nav-label,

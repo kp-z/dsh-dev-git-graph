@@ -624,7 +624,10 @@ check('rail 两段：品牌（logo 是折叠按钮）/ 功能导航（底部固�
   assert.ok(brand.includes('min-height: 68px'), '品牌区高 68px（参考站 96px，我们按 64-72 的口径）')
   assert.ok(brand.includes('border-bottom: 1px solid var(--fo-glass-line)'), '品牌区下边框')
   const logo = ruleBody('.fo-brand-logo')
-  assert.ok(logo.includes('width: 40px') && logo.includes('height: 40px') && logo.includes('border-radius: 12px'))
+  /* logo 与一级项同高（44px）：展开态同高、收起态同为 36×36 正方形（用户口径「大小要一致」） */
+  assert.ok(logo.includes('width: 44px') && logo.includes('height: 44px') && logo.includes('border-radius: 12px'), logo)
+  assert.ok(ruleBody('.fo-root[data-rail="0"] .fo-brand-logo').includes('flex: 0 0 36px'), '收起态 logo 的 flex-basis 也要跟着改')
+  assert.ok(ruleBody('.fo-root[data-rail="0"] .fo-featnav-item').includes('width: 36px'), '收起态一级项 36×36')
   const nav = ruleBody('.fo-featnav')
   assert.ok(nav.includes('flex: 1'), '导航区 flex-1')
   assert.ok(nav.includes('gap: 8px') && nav.includes('padding: 10px'))
