@@ -221,6 +221,9 @@ export const CSS = `
   border-color: var(--frx-orb-dim-border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
+/* 交互层（透明 button）：不画任何形状，只给焦点环，避免宿主 button 样式影响圆的形状 */
+.frx-orb-hit:focus-visible { outline: 2px solid color-mix(in oklab, var(--dsw-alias-brand-primary) 70%, transparent); outline-offset: 2px; }
+
 /* 球面高光：左上 30% 的模糊白光 + 右上一个 18% 小亮点 */
 .frx-orb-shine {
   position: absolute; top: 18%; left: 28%; width: 30%; height: 30%; border-radius: 9999px;

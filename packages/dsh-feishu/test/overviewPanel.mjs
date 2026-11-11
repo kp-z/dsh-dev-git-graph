@@ -2200,7 +2200,7 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.ok(byClass(tree, 'frx-grid').length >= 1, '4 列网格在')
     assert.ok(byClass(tree, 'frx-card').length >= 3, 'GlassCard 风格的卡片在')
     assert.equal(byClass(tree, 'fr-bubbles').length, 0, '旧的 fr- 气泡墙不该再出现')
-    const orbs = byClass(tree, 'frx-orb')
+    const orbs = byClass(tree, 'frx-orb-hit')
     assert.ok(orbs.length >= 1, `应有气泡，实际 ${orbs.length}`)
     /* 散点位：绝对定位 + 参考表的 8 个 top/left 之一 */
     const slots = byClass(tree, 'frx-orb-slot')
@@ -2209,7 +2209,7 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.ok(/^frx-float /.test(String(slots[0].props.style.animation)), `漂浮动画来自参考项目，实际 ${slots[0].props.style.animation}`)
     /* 圆内水位：只有运行中的气泡才画（WaterLevel 的 SVG 两层）。
        这份快照里不一定有运行中的任务，所以「有运行泡 ⇔ 有水位」两头都断言。 */
-    const runningOrbs = orbs.filter((orb) => /is-(ok|current)/.test(classNameOf(orb)))
+    const runningOrbs = findAll(tree, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('frx-orb') && /is-(ok|current)/.test(classNameOf(node)))
     const waterSvgs = byClass(tree, 'frx-water')
     assert.equal(waterSvgs.length > 0, runningOrbs.length > 0,
       `水位只画在运行中的气泡上（运行泡 ${runningOrbs.length} 个，水位 ${waterSvgs.length} 处）`)
@@ -2248,7 +2248,9 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   runItems()[runItems().findIndex((item) => textOf(item).includes('运行'))].props.onClick()
   rtree = await run.mini.act()
 
-  const bubbles = () => byClass(rtree, 'frx-orb')
+  /* 视觉层（span.frx-orb）与交互层（button.frx-orb-hit）是分开的：
+     形状不受宿主 button 样式影响，交互仍走 button。测试点 button。 */
+  const bubbles = () => byClass(rtree, 'frx-orb-hit')
   check('运行页：一个任务一个气泡（2 条任务 = 2 个气泡）', () => {
     assert.equal(bubbles().length, 2)
   })

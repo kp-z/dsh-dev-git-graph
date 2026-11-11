@@ -242,34 +242,55 @@ export function createRunsFeature(deps) {
                   'data-state': row.state,
                   'data-id': String(row.id),
                   style: {
+                    /* position 必须内联：这条规则只写在样式表里，样式表一旦没生效，
+                       slot 就退回普通块级元素（宽度=整行、高度自动），
+                       里面那个 50% 圆角的 button 就被拉成「圆角矩形」——正是用户看到的方块。 */
+                    position: 'absolute',
                     top: pos.top, left: pos.left, width: `${pos.size}px`, height: `${pos.size}px`,
                     animation: `frx-float ${(3 + index * 0.5).toFixed(1)}s ease-in-out infinite`,
                     animationDelay: `${(index * 0.3).toFixed(1)}s`,
                   },
                 },
+                  /* 圆是 <span>、交互是覆在上面的透明 <button>。
+                     为什么不用 button 画圆：宿主对 button 有通用圆角/内边距规则，
+                     会把 50% 的圆拉成圆角矩形（用户两次实测都是「方块」）。
+                     视觉层与交互层分开，形状就不受宿主控件样式影响。 */
+                  h('span', {
+                    className: `frx-orb ${tone}`,
+                    'aria-hidden': 'true',
+                    style: {
+                      display: 'block', width: '100%', height: '100%',
+                      borderRadius: '50%', overflow: 'hidden', position: 'relative',
+                    },
+                  },
+                    h('span', { className: 'frx-orb-shine', 'aria-hidden': 'true' }),
+                    h('span', { className: 'frx-orb-spark', 'aria-hidden': 'true' }),
+                    isRunning ? waterLevel(pct, pos.size, row.id) : null,
+                  ),
                   h('button', {
                     type: 'button',
-                    className: `frx-orb ${tone}`,
+                    className: 'frx-orb-hit',
                     title: meta,
                     'aria-label': meta,
-                    /* 圆与尺寸用内联样式钉死：宿主对 button 有通用圆角，样式表一丢就变方块 */
                     style: {
-                      width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden',
-                      padding: 0, display: 'block', position: 'relative', cursor: 'pointer',
+                      position: 'absolute', inset: 0, width: '100%', height: '100%',
+                      borderRadius: '50%', padding: 0, margin: 0, border: 'none',
+                      background: 'transparent', color: 'inherit', cursor: 'pointer',
+                      display: 'grid', placeItems: 'center',
                     },
                     onMouseEnter: () => { if (typeof setHoveredId === 'function') setHoveredId(row.id) },
                     onMouseLeave: () => { if (typeof setHoveredId === 'function') setHoveredId(null) },
                     onClick: () => select(row.id),
                     onDoubleClick: () => { if (canOpen && openSession) openSession(row.sessionId, row.title) },
                   },
-                    h('span', { className: 'frx-orb-shine', 'aria-hidden': 'true' }),
-                    h('span', { className: 'frx-orb-spark', 'aria-hidden': 'true' }),
-                    isRunning ? waterLevel(pct, pos.size, row.id) : null,
                     h('span', {
                       className: 'frx-orb-label',
                       style: {
-                        position: 'absolute', inset: 0, zIndex: 22, display: 'grid', placeItems: 'center',
-                        fontSize: `${Math.max(9, Math.round(pos.size / 6))}px`, lineHeight: 1, textAlign: 'center',
+                        position: 'static', display: 'block',
+                        fontSize: `${Math.max(9, Math.round(pos.size / 6))}px`,
+                        lineHeight: 1, textAlign: 'center', fontWeight: 700,
+                        fontVariantNumeric: 'tabular-nums',
+                        color: 'var(--dsw-alias-label-primary)',
                       },
                     }, String(row.no || '').slice(-4) || String(row.id).slice(-3)),
                   ),
