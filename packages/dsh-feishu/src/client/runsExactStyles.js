@@ -102,12 +102,6 @@ export const CSS = `
 .frx-version { text-align: right; }
 .frx-version-label { margin: 0; font-size: 12px; color: var(--frx-text-dim); }
 .frx-version-value { margin: 0; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--frx-text); }
-.frx-icon-btn {
-  width: 32px; height: 32px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center;
-  background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); color: #60a5fa;
-  cursor: pointer; transition: background .2s ease;
-}
-.frx-icon-btn:hover { background: rgba(59, 130, 246, 0.3); }
 
 /* ---------- 卡片底部两个小盒（Health Score / Status） ---------- */
 .frx-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: auto; }

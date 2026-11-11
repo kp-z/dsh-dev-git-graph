@@ -344,13 +344,11 @@ export function createRunsFeature(deps) {
               h('p', { className: `frx-card-sub ${runningList.length ? 'is-ok' : 'is-idle'}` },
                 runningList.length ? '会话正在跑 · 实时同步' : '空闲 · 等待任务开工'))),
           h('div', { key: 'right', style: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' } },
+            /* 用户口径：「运行状态卡片右上的刷新按钮去掉」——只留「未完成 N 条」。
+               刷新入口仍有：内容头部的刷新图标按钮（OverviewPanel 的 data-action="refresh"）。 */
             h('div', { className: 'frx-version' },
               h('p', { className: 'frx-version-label' }, '未完成'),
-              h('p', { className: 'frx-version-value' }, `${unfinished} 条`)),
-            h('button', {
-              type: 'button', className: 'frx-icon-btn', title: '刷新快照',
-              onClick: () => { if (typeof ctx.onRefresh === 'function') ctx.onRefresh() },
-            }, icon('refresh', 16)))),
+              h('p', { className: 'frx-version-value' }, `${unfinished} 条`)))),
         /* AVAILABLE MODELS → 可用任务 */
         h('div', { key: 'bubbles' },
           h('p', { className: 'frx-bubbles-label' }, '可用任务'),
