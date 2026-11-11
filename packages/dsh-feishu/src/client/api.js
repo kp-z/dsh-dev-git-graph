@@ -7,7 +7,7 @@
  *   POST /dsh-feishu/api/workspace-groups    自定义目录（写操作）
  *   GET  /dsh-feishu/api/overview/organize   某范围最近一批「一键整理」建议
  *   POST /dsh-feishu/api/overview/organize   跑一次整理（**零副作用**：只出建议）
- *   POST /dsh-feishu/api/overview/organize/accept|reject  逐条接受 / 拒绝
+ *   POST /dsh-feishu/api/overview/organize/accept|reject|undo  逐条接受 / 拒绝 / 撤销已接受
  *
  * `fetchImpl` 可注入，组件层因此可以在测试里跑而不碰网络。
  */
@@ -75,6 +75,13 @@ export function createApi({ fetchImpl } = {}) {
     /** 拒绝若干条建议（只改建议单状态）。 */
     organizeReject(batchId, itemIds) {
       return post('/api/overview/organize/reject', { batchId, itemIds: itemIds || [] });
+    },
+    /**
+     * 撤销**已接受**的建议：把那条边从关系里拿掉（itemIds 省略 = 撤销本批全部已接受）。
+     * 接受必须可回退——写错一条 depends_on 会让后继永远开不了工。
+     */
+    organizeUndo(batchId, itemIds) {
+      return post('/api/overview/organize/undo', { batchId, itemIds: itemIds || [] });
     },
     /**
      * 历史指标（洞察页要「更全面」时用）：宿主已有的 /api/insight/stats。

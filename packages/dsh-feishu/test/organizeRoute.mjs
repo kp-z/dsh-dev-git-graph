@@ -135,6 +135,18 @@ check('接受后建议单状态变成 accepted', accepted.data.batch?.accepted =
 const repeat = await post('/api/overview/organize/accept', { batchId: batch.batchId })
 check('重复接受没有待处理项 → 400（幂等，不会重复写）', repeat.status === 400 && repeat.data?.ok === false, JSON.stringify(repeat.data).slice(0, 120))
 
+/* ── 6. 撤销：接受必须可回退（设计稿 §9.1：写错一条 depends_on = 后继永远开不了工） ── */
+const undone = await post('/api/overview/organize/undo', { batchId: batch.batchId })
+check('撤销返回 200 且逐条汇报', undone.status === 200 && undone.data?.ok === true
+  && undone.data.results?.length === 1 && undone.data.results[0].ok === true, JSON.stringify(undone.data).slice(0, 200))
+const afterUndo = await json('/api/overview')
+check('撤销后那条边真的从关系里没了', !(afterUndo.data.relations || []).some((edge) => edge.from === 't1' && edge.to === 't2'), JSON.stringify(afterUndo.data.relations).slice(0, 160))
+check('撤销后建议单状态变成 undone', undone.data.batch?.undone === 1 && undone.data.batch?.accepted === 0, JSON.stringify(undone.data.batch).slice(0, 160))
+const undoAgain = await post('/api/overview/organize/undo', { batchId: batch.batchId })
+check('重复撤销 → 400（没有可撤销的条目）', undoAgain.status === 400 && undoAgain.data?.ok === false, JSON.stringify(undoAgain.data).slice(0, 120))
+const undoUnknown = await post('/api/overview/organize/undo', { batchId: 'sg:all:0' })
+check('未知 batchId 的撤销 → 400 而不是 500', undoUnknown.status === 400 && undoUnknown.data?.ok === false, JSON.stringify(undoUnknown.data).slice(0, 120))
+
 const badScope = await post('/api/overview/organize', { scope: { kind: 'project', id: 'nope' } })
 check('范围里没有任务时返回 400 且说明原因', badScope.status === 400 && /没有足够/.test(badScope.data?.error || ''), JSON.stringify(badScope.data).slice(0, 120))
 

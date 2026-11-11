@@ -238,6 +238,8 @@ export function projectOrganize(batch, tasks) {
     accepted: arr(batch.items).filter((item) => str(item.status) === 'accepted').length,
     rejected: arr(batch.items).filter((item) => str(item.status) === 'rejected').length,
     dropped: arr(batch.items).filter((item) => str(item.status) === 'dropped').length,
+    /* 已撤销：接受后又撤回的条目（设计稿 §4.1 的「接受/拒绝后条目保留，便于回看与撤销」）。 */
+    undone: arr(batch.items).filter((item) => str(item.status) === 'undone').length,
   }
 }
 

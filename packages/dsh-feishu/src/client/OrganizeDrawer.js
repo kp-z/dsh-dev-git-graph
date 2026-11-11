@@ -46,6 +46,7 @@ export function createOrganizeDrawer(deps) {
     const { batch, status = 'idle', failed, droppedOpen = false } = p
     const onAccept = typeof p.onAccept === 'function' ? p.onAccept : () => {}
     const onReject = typeof p.onReject === 'function' ? p.onReject : () => {}
+    const onUndo = typeof p.onUndo === 'function' ? p.onUndo : null
     const items = Array.isArray(batch && batch.items) ? batch.items : []
     const pending = items.filter((item) => item.status === 'pending')
     const dropped = items.filter((item) => item.status === 'dropped')
@@ -97,7 +98,9 @@ export function createOrganizeDrawer(deps) {
         ))
       } else {
         children.push(h('span', { key: 'done', className: 'fo-org-done' },
-          item.status === 'accepted' ? '已接受' : (item.status === 'rejected' ? '已拒绝' : '')))
+          item.status === 'accepted' ? '已接受'
+            : (item.status === 'undone' ? '已撤销'
+              : (item.status === 'rejected' ? '已拒绝' : ''))))
       }
       return h('article', {
         key: item.id,
@@ -112,7 +115,8 @@ export function createOrganizeDrawer(deps) {
       h('div', { className: 'fo-org-head' },
         h('span', { className: 'fo-org-title' }, '整理建议'),
         h('span', { className: 'fo-org-counts' },
-          `待处理 ${counts.pending} · 已接受 ${counts.accepted} · 已拒绝 ${counts.rejected}`),
+          `待处理 ${counts.pending} · 已接受 ${counts.accepted} · 已拒绝 ${counts.rejected}`
+          + (counts.undone ? ` · 已撤销 ${counts.undone}` : '')),
       ),
       model.str(batch && batch.notes)
         ? h('p', { className: 'fo-org-notes' }, model.str(batch.notes))
@@ -126,7 +130,7 @@ export function createOrganizeDrawer(deps) {
               ? '待处理的建议都处理完了。'
               : 'AI 没有找到新的关系——这常常是正确答案，宁可少而准')),
       ),
-      items.filter((item) => item.status === 'accepted' || item.status === 'rejected').map(itemNode),
+      items.filter((item) => item.status === 'accepted' || item.status === 'rejected' || item.status === 'undone').map(itemNode),
       dropped.length
         ? h('div', { className: 'fo-org-dropped' },
           h('button', {
@@ -155,6 +159,15 @@ export function createOrganizeDrawer(deps) {
           disabled: running || !pending.length,
           onClick: () => onReject([]),
         }, '全部拒绝'),
+        /* 接受必须可回退：写错一条 depends_on 会让后继永远开不了工（设计稿 §9.1）。 */
+        onUndo && counts.accepted
+          ? h('button', {
+            type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', 'data-action': 'undo-accepted',
+            disabled: running,
+            title: '把已接受的关系从飞书与本地一起撤掉',
+            onClick: () => onUndo([]),
+          }, `撤销已接受 ${counts.accepted}`)
+          : null,
         h('button', {
           type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', 'data-action': 'close',
           onClick: () => { if (typeof p.onClose === 'function') p.onClose() },

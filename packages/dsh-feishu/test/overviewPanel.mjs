@@ -1491,7 +1491,7 @@ function organizeBatchFixture() {
 /** 假的一键整理后端：够跑「跑 → 出建议 → 逐条接受/拒绝 → 就地更新」。 */
 function makeOrganizeBackend(options) {
   const o = options || {}
-  const log = { organize: [], view: [], accept: [], reject: [] }
+  const log = { organize: [], view: [], accept: [], reject: [], undo: [] }
   const state = { batch: o.initial === undefined ? null : o.initial }
   const recount = (batch) => {
     const items = Array.isArray(batch.items) ? batch.items : []
@@ -1501,6 +1501,7 @@ function makeOrganizeBackend(options) {
       accepted: items.filter((item) => item.status === 'accepted').length,
       rejected: items.filter((item) => item.status === 'rejected').length,
       dropped: items.filter((item) => item.status === 'dropped').length,
+      undone: items.filter((item) => item.status === 'undone').length,
     }
   }
   const pendingIds = () => (state.batch ? state.batch.items.filter((item) => item.status === 'pending').map((item) => item.id) : [])
@@ -1544,6 +1545,24 @@ function makeOrganizeBackend(options) {
           items: state.batch.items.map((item) => (wanted.includes(item.id) && item.status === 'pending' ? { ...item, status: 'rejected' } : item)),
         })
         return { ok: true, batch: state.batch }
+      },
+      /* 撤销已接受的建议（task-22）：把 accepted 的条目退回 undone，并逐条汇报 */
+      organizeUndo: async (batchId, itemIds) => {
+        log.undo.push({ batchId, itemIds })
+        const acceptedIds = state.batch.items.filter((item) => item.status === 'accepted').map((item) => item.id)
+        const wanted = Array.isArray(itemIds) && itemIds.length ? itemIds : acceptedIds
+        const results = []
+        const items = state.batch.items.map((item) => {
+          if (!wanted.includes(item.id) || item.status !== 'accepted') return item
+          if (o.undoFails && o.undoFails[item.id]) {
+            results.push({ id: item.id, ok: false, error: o.undoFails[item.id] })
+            return { ...item, reason: o.undoFails[item.id] }
+          }
+          results.push({ id: item.id, ok: true, error: '' })
+          return { ...item, status: 'undone' }
+        })
+        state.batch = recount({ ...state.batch, items })
+        return { ok: true, results, batch: state.batch }
       },
     },
   }
@@ -2281,6 +2300,46 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.ok(/历史指标不可用/.test(titles), titles)
     assert.ok(/关键指标/.test(titles) && /最近动态/.test(titles), '快照口径的六个面板必须还在')
     assert.equal(/吞吐趋势/.test(titles), false)
+  })
+}
+
+/* ---- 10e. 一键整理的撤销链路（接受必须可回退，设计稿 §9.1） ---- */
+{
+  const backend = makeOrganizeBackend()
+  /* overviewDriver 既能拿快照、又能数调用次数：用来证明「接受/撤销之后都重拉了一次」 */
+  let overviewCalls = 0
+  const fx = await mountPanel({
+    organizeApi: backend.api,
+    overviewDriver: (callIndex, readState) => { overviewCalls = callIndex; return readState() },
+  })
+  let ft = fx.tree
+  ORGANIZE_TRIGGER(ft).props.onClick()
+  ft = await fx.mini.act()
+  /* 先全部接受，制造「有已接受的条目」 */
+  findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'accept-all')[0].props.onClick()
+  ft = await fx.mini.act()
+  const callsAfterAccept = overviewCalls
+
+  const undoBtn = findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'undo-accepted')[0]
+  check('有已接受的条目时，抽屉里出现「撤销已接受 N」按钮', () => {
+    assert.ok(undoBtn, '撤销按钮要在')
+    assert.ok(textOf(undoBtn).includes('撤销已接受'), textOf(undoBtn))
+    assert.equal(undoBtn.props.disabled, false)
+  })
+  undoBtn.props.onClick()
+  ft = await fx.mini.act()
+  check('点撤销 → organizeUndo(batchId, [])（空数组 = 全部已接受）', () => {
+    assert.deepEqual(backend.log.undo, [{ batchId: 'b-1', itemIds: [] }])
+  })
+  check('撤销后条目变「已撤销」、计数与按钮同步（没有可撤销的就不再显示按钮）', () => {
+    assert.equal(orgItems(ft, 'undone').length, backend.getBatch().items.filter((item) => item.status === 'undone').length)
+    assert.ok(orgItems(ft, 'undone').length >= 1, '至少一条已撤销')
+    assert.equal(findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'undo-accepted').length, 0)
+    assert.ok(textOf(organizeDrawers(ft)[0]).includes('已撤销'), textOf(organizeDrawers(ft)[0]).slice(0, 120))
+  })
+  check('撤销后也拉了一次权威快照（边要立刻从画布上消失）', () => {
+    assert.ok(callsAfterAccept >= 2, `接受后应重拉一次快照，实际 ${callsAfterAccept}`)
+    assert.ok(overviewCalls > callsAfterAccept, `撤销后还要再拉一次：撤销前 ${callsAfterAccept} → 撤销后 ${overviewCalls}`)
   })
 }
 

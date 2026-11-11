@@ -45,6 +45,7 @@ function adaptApi(raw) {
     organizeView: fn('organizeView'),
     organizeAccept: fn('organizeAccept'),
     organizeReject: fn('organizeReject'),
+    organizeUndo: fn('organizeUndo'),
     /* 历史指标（task-21）：洞察页要「更全面」时用它取 /api/insight/stats；
        旧宿主没有这个方法就是 null —— 洞察页自己降级成「只有快照口径」，不报错。 */
     insightStats: fn('insightStats'),
@@ -755,6 +756,43 @@ export function createOverviewPanel(deps) {
         })
     }, [org.batchId])
 
+    /**
+     * 撤销已接受的建议：接受必须可回退（写错一条 depends_on，那条后继就永远开不了工）。
+     * 与接受同一条路径：撤销成功后也拉一次权威快照，让边立刻从画布上消失。
+     */
+    const undoOrganize = useCallback((itemIds) => {
+      const fn = apiRef.current.organizeUndo
+      const batchId = org.batchId
+      if (!fn || !batchId) return Promise.resolve(null)
+      setOrg((prev) => ({ ...prev, status: 'running' }))
+      return Promise.resolve()
+        .then(() => fn(batchId, itemIds || []))
+        .then((res) => {
+          const batch = res && res.batch ? res.batch : null
+          const failed = {}
+          asArray(res && res.results).forEach((row) => {
+            if (!row || row.ok === true) return
+            failed[model.str(row.id)] = model.str(row.error) || '撤销失败'
+          })
+          if (alive.current) {
+            setOrg((prev) => ({
+              ...prev,
+              batch: batch || prev.batch,
+              batchId: model.str(batch && batch.batchId) || prev.batchId,
+              status: 'ready',
+              failed,
+            }))
+            load(true)
+          }
+          return res
+        })
+        .catch((error) => {
+          const message = model.str((error && error.message) || error) || '撤销建议失败'
+          if (alive.current) setOrg((prev) => ({ ...prev, status: 'error', error: message }))
+          return null
+        })
+    }, [load, org.batchId])
+
     /** 关系里点过来的任务：能点过去就一定让它可见（不在当前 scope 里就切回全部）。 */
     const jumpToTask = useCallback((id) => {
       const key = model.str(id)
@@ -1027,6 +1065,7 @@ export function createOverviewPanel(deps) {
             droppedOpen: org.droppedOpen,
             onAccept: acceptOrganize,
             onReject: rejectOrganize,
+            onUndo: undoOrganize,
             onClose: closeOrganize,
             onToggleDropped: toggleDropped,
           })

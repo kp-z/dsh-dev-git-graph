@@ -6196,6 +6196,56 @@ function createSyncEngine(ctx) {
     return { ok: true, results, batch: projectOrganize(found.batch, state.tasks) }
   }
 
+  /**
+   * 撤销已接受的建议：把「接受时新增的那条边」从关系里拿掉。
+   *
+   * 为什么必须要有：设计稿 §9.1 的最高风险是「写错一条 depends_on = 后继永远开不了工」，
+   * 所以「接受」必须是可回退的——否则用户点错一次就只能去飞书里手删。
+   *
+   * 做法：对那条边的**下游任务**做一次定向 replace —— 把它在该方向上的其它边原样保留，
+   * 只去掉这一条。先 refresh 再 replace（与接受同一条路径），不直接调 writeTaskRelations
+   * （那玩意会按本地图删远端多余依赖，本地图没先刷新时会误删别人加的依赖）。
+   */
+  async function undoOrganizeItems(batchId, itemIds) {
+    const batch = state.organizeSuggestions[asString(batchId)]
+    if (!batch) return { ok: false, error: '没找到这批建议（可能已被新批次替换）' }
+    const wanted = Array.isArray(itemIds) && itemIds.length ? new Set(itemIds.map((id) => asString(id))) : null
+    const items = batch.items.filter((item) => item.status === 'accepted' && (!wanted || wanted.has(item.id)))
+    if (!items.length) return { ok: false, error: '没有可撤销的已接受建议' }
+    const results = []
+    for (const item of items) {
+      const taskId = asString(item.to)
+      const fromId = asString(item.from)
+      const field = item.kind === 'depends_on' ? 'predecessorIds' : 'sourceTaskIds'
+      /* 该任务在这个方向上除这条以外的边，原样留下（replace 只动这个方向）。 */
+      const others = state.relations
+        .filter((edge) => edge && edge.kind === item.kind && asString(edge.to) === taskId)
+        .map((edge) => asString(edge.from))
+        .filter((id) => id && id !== fromId)
+      let written
+      try {
+        written = await setTaskRelations(taskId, {
+          [field]: others,
+          mode: 'replace',
+          source: 'ai',
+          reason: `撤销整理建议（batchId=${batch.batchId}）`,
+        })
+      } catch (error) {
+        written = { ok: false, error: error instanceof Error ? error.message : String(error) }
+      }
+      if (written.ok) {
+        item.status = 'undone'
+        item.undoneAt = nowMs()
+        item.reason = ''
+      } else {
+        item.reason = asString(written.error) || '撤销失败'
+      }
+      results.push({ id: item.id, kind: item.kind, from: fromId, to: taskId, ok: written.ok === true, error: item.reason })
+    }
+    await persistState()
+    return { ok: true, results, batch: projectOrganize(batch, state.tasks) }
+  }
+
   /** 拒绝若干条建议：只改建议单状态，不碰关系。 */
   async function rejectOrganizeItems(batchId, itemIds) {
     const found = organizePending(batchId, itemIds)
@@ -9507,6 +9557,7 @@ bucket 只能从枚举里选：
     viewOrganize,
     acceptOrganizeItems: (...args) => runEngineOperation(acceptOrganizeItems, args),
     rejectOrganizeItems: (...args) => runEngineOperation(rejectOrganizeItems, args),
+    undoOrganizeItems: (...args) => runEngineOperation(undoOrganizeItems, args),
     saveSettings,
     ensureManagedTasklist,
     switchBackend,
@@ -9738,6 +9789,13 @@ function mountRoutes(ctx, engine) {
           if (req.method === 'POST' && route === '/api/overview/organize/accept') {
             const body = await readBody(req)
             const result = await engine.acceptOrganizeItems(asString(body?.batchId), Array.isArray(body?.itemIds) ? body.itemIds : [], { writeBack: body?.writeBack !== false })
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (req.method === 'POST' && route === '/api/overview/organize/undo') {
+            const body = await readBody(req)
+            const result = await engine.undoOrganizeItems(asString(body?.batchId), Array.isArray(body?.itemIds) ? body.itemIds : [])
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }
