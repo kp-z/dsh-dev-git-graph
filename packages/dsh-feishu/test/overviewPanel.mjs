@@ -2182,22 +2182,23 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   await clickFeature('运行')
   check('切到「运行」：气泡群渲染，运行中的气泡带 is-running', () => {
     assert.equal(rootOf(tree).props['data-feature'], 'runs')
-    assert.ok(byClass(tree, 'fr-page').length >= 1, '运行页根容器在')
-    /* 用户第三次口径：气泡墙从参考项目 kp-z/open_adventure 直接搬过来
-       （ClaudeModelBubbles + WaterLevel）→ 容器是 .fr-bubbles、圆本体是 .fr-bubble-orb */
-    assert.equal(byClass(tree, 'fr-bubbles').length, 1, '气泡墙容器在')
-    const orbs = byClass(tree, 'fr-bubble-orb')
+    /* 用户口径：整个运行页照参考项目（kp-z/open_adventure 的 Dashboard）重排 →
+       页面骨架是 .frx-page / .frx-grid / .frx-card，气泡是 .frx-orb-slot + .frx-orb */
+    assert.equal(byClass(tree, 'frx-page').length, 1, '运行页根容器是 frx-page')
+    assert.ok(byClass(tree, 'frx-grid').length >= 1, '4 列网格在')
+    assert.ok(byClass(tree, 'frx-card').length >= 3, 'GlassCard 风格的卡片在')
+    assert.equal(byClass(tree, 'fr-bubbles').length, 0, '旧的 fr- 气泡墙不该再出现')
+    const orbs = byClass(tree, 'frx-orb')
     assert.ok(orbs.length >= 1, `应有气泡，实际 ${orbs.length}`)
-    assert.equal(byClass(tree, 'fr-group').length, 0, '旧的分组墙不该再出现')
     /* 散点位：绝对定位 + 参考表的 8 个 top/left 之一 */
-    const slots = byClass(tree, 'fr-bubble-slot')
+    const slots = byClass(tree, 'frx-orb-slot')
     assert.ok(slots.length >= 1, '气泡槽在')
     assert.ok(String(slots[0].props.style.top).endsWith('%'), `槽位用百分比定位（参考表），实际 ${slots[0].props.style.top}`)
-    assert.ok(/^fr-float /.test(String(slots[0].props.style.animation)), `漂浮动画来自参考项目，实际 ${slots[0].props.style.animation}`)
+    assert.ok(/^frx-float /.test(String(slots[0].props.style.animation)), `漂浮动画来自参考项目，实际 ${slots[0].props.style.animation}`)
     /* 圆内水位：只有运行中的气泡才画（WaterLevel 的 SVG 两层）。
        这份快照里不一定有运行中的任务，所以「有运行泡 ⇔ 有水位」两头都断言。 */
-    const runningOrbs = orbs.filter((orb) => classNameOf(orb).includes('is-running'))
-    const waterSvgs = byClass(tree, 'fr-water-svg')
+    const runningOrbs = orbs.filter((orb) => /is-(ok|current)/.test(classNameOf(orb)))
+    const waterSvgs = byClass(tree, 'frx-water')
     assert.equal(waterSvgs.length > 0, runningOrbs.length > 0,
       `水位只画在运行中的气泡上（运行泡 ${runningOrbs.length} 个，水位 ${waterSvgs.length} 处）`)
     assert.equal(byClass(tree, 'fo-subnav').length, 0, '运行没有二级菜单')
@@ -2235,7 +2236,7 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   runItems()[runItems().findIndex((item) => textOf(item).includes('运行'))].props.onClick()
   rtree = await run.mini.act()
 
-  const bubbles = () => byClass(rtree, 'fr-bubble-orb')
+  const bubbles = () => byClass(rtree, 'frx-orb')
   check('运行页：一个任务一个气泡（2 条任务 = 2 个气泡）', () => {
     assert.equal(bubbles().length, 2)
   })

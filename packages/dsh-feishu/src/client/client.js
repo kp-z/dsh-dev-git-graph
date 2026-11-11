@@ -21,6 +21,9 @@ import { createOverviewPanel } from './OverviewPanel.js';
 import { CSS as OVERVIEW_CSS, STYLE_ID as OVERVIEW_STYLE_ID, injectStyles } from './styles.js';
 /* 仪表盘页（洞察/运行）的样式：带自己的 style id 与前缀（fd-/fr-），同一套宿主令牌口径。 */
 import { CSS as DASHBOARD_CSS, STYLE_ID as DASHBOARD_STYLE_ID, injectStyles as injectDashboardStyles } from './dashboardStyles.js';
+/* 运行页「照抄参考项目」的皮肤（.frx- 前缀、独立 style id）：颜色按参考项目原值，
+   只被运行页使用，卸载时一起移除。 */
+import { CSS as RUNS_EXACT_CSS, STYLE_ID as RUNS_EXACT_STYLE_ID } from './runsExactStyles.js';
 import * as model from '../overview/model.js';
 import * as layout from '../overview/layout.js';
 
@@ -181,8 +184,9 @@ window.__ModuleLoader__.load({
         else installStyle(OVERVIEW_STYLE_ID, OVERVIEW_CSS);
         if (typeof injectDashboardStyles === 'function') injectDashboardStyles(document);
         else installStyle(DASHBOARD_STYLE_ID, DASHBOARD_CSS);
+        installStyle(RUNS_EXACT_STYLE_ID, RUNS_EXACT_CSS);
         return () => {
-          for (const id of ['dsh-feishu-style', OVERVIEW_STYLE_ID, DASHBOARD_STYLE_ID]) {
+          for (const id of ['dsh-feishu-style', OVERVIEW_STYLE_ID, DASHBOARD_STYLE_ID, RUNS_EXACT_STYLE_ID]) {
             try {
               const node = document.getElementById(id);
               if (node && node.parentNode) node.parentNode.removeChild(node);
