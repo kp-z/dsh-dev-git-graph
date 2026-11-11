@@ -25,6 +25,7 @@
  *   compact                  二级菜单形态（rail 里用），默认 false
  */
 
+import { renderIcon, normalizeIcon, colorHex } from './projectIcons.js'
 import { brandVar, decoVar } from './styles.js'
 
 const KIND_LABEL = { all: '全部任务', group: '目录', project: '项目' }
@@ -103,7 +104,19 @@ export function createTreeNav(deps) {
         'aria-hidden': 'true',
         onClick: (event) => { if (isProject) return; event.stopPropagation(); toggleOf(row) },
       }, isProject ? '' : '▾'))
-      children.push(h('span', { key: 'dot', className: 'fo-dot', style: color, 'aria-hidden': 'true' }))
+      /* 项目行：配了图标就把色点换成图标（颜色沿用项目选的颜色），没配才是色点 */
+      const logoIcon = isProject ? normalizeIcon(row.logo) : ''
+      if (logoIcon) {
+        const tint = colorHex(row.logoColor)
+        children.push(h('span', {
+          key: 'dot',
+          className: 'fo-dot is-logo',
+          style: tint ? { color: tint } : (color || undefined),
+          'aria-hidden': 'true',
+        }, renderIcon({ h }, logoIcon, 12)))
+      } else {
+        children.push(h('span', { key: 'dot', className: 'fo-dot', style: color, 'aria-hidden': 'true' }))
+      }
       children.push(h('span', { key: 'label', className: 'fo-row-label', title: row.path || label }, label))
       if (row.blocked > 0) children.push(h('span', { key: 'badge', className: 'fo-row-badge', title: `${row.blocked} 个任务被阻塞` }, String(row.blocked)))
       children.push(h('span', { key: 'count', className: 'fo-row-count' }, count))

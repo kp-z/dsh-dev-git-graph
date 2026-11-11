@@ -291,9 +291,14 @@ export function groupTasks(tasks, workspaces) {
     const hit = map.get(key)
     if (hit) {
       if (!hit.path && path) hit.path = path
+      /* 项目图标/颜色：纯展示配置，跟着 workspace 行走（气泡、树行、详情都用它） */
+      hit.logo = str(row.logo)
+      hit.logoColor = str(row.logoColor)
       continue
     }
     const project = emptyProject(key, title || key, path, false)
+    project.logo = str(row.logo)
+    project.logoColor = str(row.logoColor)
     map.set(key, project)
     order.push(project)
   }
@@ -609,6 +614,8 @@ export function buildTree(groups, tasks, options) {
         kind: 'project',
         id: project.key,
         label: project.label,
+        logo: project.logo || '',
+        logoColor: project.logoColor || '',
         depth: 2,
         count: project.total,
         tasks: project.total,

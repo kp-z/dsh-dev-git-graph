@@ -189,7 +189,10 @@ export const CSS = `
 .fo-subnav .fo-row-count { font-size: 11px; }
 .fo-subnav .fo-row-badge { font-size: 9px; }
 .fo-subnav .fo-caret { flex: 0 0 10px; width: 10px; height: 10px; font-size: 8px; }
-.fo-subnav .fo-dot { flex: 0 0 6px; width: 6px; height: 6px; box-shadow: 0 0 0 2px color-mix(in oklab, var(--fo-c, ${T.idle}) 22%, transparent); }
+.fo-subnav .fo-dot {
+  /* 项目行可以把色点换成图标（.is-logo）：保持同样的 8px 占位不跳动 */ flex: 0 0 6px; width: 6px; height: 6px; box-shadow: 0 0 0 2px color-mix(in oklab, var(--fo-c, ${T.idle}
+.fo-dot.is-logo { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; background: none; border: 0; }
+) 22%, transparent); }
 .fo-subnav .fo-scope-note { padding: 1px 8px 3px 30px; font-size: 10px; }
 .fo-subnav .fo-input { height: 24px; }
 /* rail 收成 56px 图标条时二级菜单整个藏起来（列不下，也没法操作） */
