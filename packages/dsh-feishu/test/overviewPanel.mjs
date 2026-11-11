@@ -2200,7 +2200,11 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.ok(byClass(tree, 'frx-grid').length >= 1, '4 列网格在')
     assert.ok(byClass(tree, 'frx-card').length >= 3, 'GlassCard 风格的卡片在')
     assert.equal(byClass(tree, 'fr-bubbles').length, 0, '旧的 fr- 气泡墙不该再出现')
+    /* 视觉层是内联 SVG（circle 几何就是圆），交互层是 frx-orb-hit */
     const orbs = byClass(tree, 'frx-orb-hit')
+    const orbSvgs = findAll(tree, (node) => node.kind === 'host' && node.type === 'svg' && String(node.props.viewBox) === '0 0 100 100')
+    assert.ok(orbSvgs.length >= 1, `气泡应该用 SVG 画圆，实际 ${orbSvgs.length} 个`)
+    assert.ok(findAll(orbSvgs[0], (node) => node.kind === 'host' && node.type === 'circle').length >= 1, 'SVG 里要有 circle')
     assert.ok(orbs.length >= 1, `应有气泡，实际 ${orbs.length}`)
     /* 散点位：绝对定位 + 参考表的 8 个 top/left 之一 */
     const slots = byClass(tree, 'frx-orb-slot')

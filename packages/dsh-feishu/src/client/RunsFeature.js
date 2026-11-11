@@ -86,6 +86,72 @@ export function createRunsFeature(deps) {
     return h('svg', common, paths[name] || paths.activity)
   }
 
+  /**
+   * 气泡 = **一个内联 SVG**。
+   *
+   * 为什么不用 CSS 画圆：宿主对 `div/button/span` 都可能带通用圆角或内边距规则，
+   * `border-radius: 50%` 在不同宿主里被压掉过好几次（用户连续三次看到「圆角方块」）。
+   * SVG 的 <circle> 是几何图元 —— 只要 viewBox 是正方形，它就是正圆，没有「被样式覆盖」这回事。
+   *
+   * 一层 SVG 里画完：底色圆 + 描边 + 球面高光（radialGradient）+ 水位（clipPath + 矩形 + 波浪线）+ 数字（<text>）。
+   */
+  const orbSvg = (opts) => {
+    const o = opts || {}
+    const size = Math.max(24, Number(o.size) || 48)
+    const pct = Math.max(0, Math.min(100, Number(o.percent) || 0))
+    const running = o.running === true
+    const suspended = o.suspended === true
+    const label = String(o.label || '')
+    const uid = `o${String(o.id || 'x').replace(/[^a-zA-Z0-9]/g, '')}`
+    const R = 46
+    const lineY = 100 - (pct / 100) * (R * 2)   // viewBox 100 单位下的水位线
+    const wave1 = `M0,${lineY} Q25,${lineY - 2} 50,${lineY} T100,${lineY}`
+    const wave2 = `M0,${lineY} Q25,${lineY + 2} 50,${lineY} T100,${lineY}`
+    /* 颜色：运行=绿、挂起=琥珀、未开始=中性灰。用 CSS 变量 + 兜底值，亮暗都能看。 */
+    const stroke = running
+      ? 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 55%, transparent)'
+      : (suspended ? 'color-mix(in oklab, var(--dsw-alias-state-warn-primary) 52%, transparent)' : 'color-mix(in oklab, var(--dsw-alias-label-secondary) 78%, transparent)')
+    const fill = running
+      ? 'color-mix(in oklab, var(--dsw-alias-bg-layer-2) 96%, transparent)'
+      : 'color-mix(in oklab, var(--dsw-alias-bg-layer-1) 92%, transparent)'
+    const glow = running ? 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 30%, transparent)' : 'transparent'
+    const waterFill = 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 46%, transparent)'
+    const waterStroke = 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 96%, transparent)'
+    return h('svg', {
+      key: 'orb',
+      width: size, height: size, viewBox: '0 0 100 100',
+      'aria-hidden': 'true', focusable: 'false',
+      style: { display: 'block', overflow: 'visible' },
+    },
+      h('defs', null,
+        h('radialGradient', { id: `${uid}-shine`, cx: '32%', cy: '26%', r: '42%' },
+          h('stop', { offset: '0%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0.5 }),
+          h('stop', { offset: '60%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0.08 }),
+          h('stop', { offset: '100%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0 })),
+        h('clipPath', { id: `${uid}-clip` }, h('circle', { cx: 50, cy: 50, r: R - 2 }))),
+      /* 外发光：运行中才画，用一圈半透明粗描边模拟（不依赖 box-shadow） */
+      running ? h('circle', { cx: 50, cy: 50, r: R + 2, fill: 'none', stroke: glow, strokeWidth: 8, opacity: 0.55 }) : null,
+      /* 底色圆 + 描边：几何即圆形 */
+      h('circle', { cx: 50, cy: 50, r: R, fill, stroke, strokeWidth: 2 }),
+      /* 球面高光（在水位之前画：水位是主体信息，不能被高光糊掉） */
+      h('circle', { cx: 50, cy: 50, r: R, fill: `url(#${uid}-shine)`, opacity: 0.9 }),
+      /* 水位（裁剪在圆内） */
+      running
+        ? h('g', { clipPath: `url(#${uid}-clip)` },
+          h('rect', { x: 0, y: lineY, width: 100, height: Math.max(0, 100 - lineY), fill: waterFill }),
+          h('path', { d: wave1, fill: 'none', stroke: waterStroke, strokeWidth: 2.5 },
+            h('animate', { attributeName: 'd', dur: '3s', repeatCount: 'indefinite', values: `${wave1};${wave2};${wave1}` })))
+        : null,
+      /* 数字：SVG 文本，text-anchor + dominant-baseline 严格居中 */
+      h('text', {
+        x: 50, y: 50, textAnchor: 'middle', dominantBaseline: 'central',
+        fontSize: label.length > 3 ? 20 : 24, fontWeight: 700,
+        fill: 'var(--dsw-alias-label-primary)',
+        style: { fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' },
+      }, label),
+    )
+  }
+
   /** 圆内水位（WaterLevel.tsx 的搬运：clipPath 圆裁剪 + 填充矩形 + SMIL 波浪线） */
   const waterLevel = (percent, size, seed) => {
     const pct = Math.max(0, Math.min(100, Number(percent) || 0))
@@ -251,22 +317,15 @@ export function createRunsFeature(deps) {
                     animationDelay: `${(index * 0.3).toFixed(1)}s`,
                   },
                 },
-                  /* 圆是 <span>、交互是覆在上面的透明 <button>。
-                     为什么不用 button 画圆：宿主对 button 有通用圆角/内边距规则，
-                     会把 50% 的圆拉成圆角矩形（用户两次实测都是「方块」）。
-                     视觉层与交互层分开，形状就不受宿主控件样式影响。 */
-                  h('span', {
-                    className: `frx-orb ${tone}`,
-                    'aria-hidden': 'true',
-                    style: {
-                      display: 'block', width: '100%', height: '100%',
-                      borderRadius: '50%', overflow: 'hidden', position: 'relative',
-                    },
-                  },
-                    h('span', { className: 'frx-orb-shine', 'aria-hidden': 'true' }),
-                    h('span', { className: 'frx-orb-spark', 'aria-hidden': 'true' }),
-                    isRunning ? waterLevel(pct, pos.size, row.id) : null,
-                  ),
+                  /* 视觉：一层内联 SVG（正圆是几何，不是 CSS 圆角）；交互：覆在上面的透明 button。 */
+                  orbSvg({
+                    size: pos.size,
+                    percent: pct,
+                    running: isRunning,
+                    suspended: isSuspended,
+                    label: String(row.no || '').slice(-4) || String(row.id).slice(-3),
+                    id: row.id,
+                  }),
                   h('button', {
                     type: 'button',
                     className: 'frx-orb-hit',
@@ -275,25 +334,13 @@ export function createRunsFeature(deps) {
                     style: {
                       position: 'absolute', inset: 0, width: '100%', height: '100%',
                       borderRadius: '50%', padding: 0, margin: 0, border: 'none',
-                      background: 'transparent', color: 'inherit', cursor: 'pointer',
-                      display: 'grid', placeItems: 'center',
+                      background: 'transparent', color: 'transparent', cursor: 'pointer',
                     },
                     onMouseEnter: () => { if (typeof setHoveredId === 'function') setHoveredId(row.id) },
                     onMouseLeave: () => { if (typeof setHoveredId === 'function') setHoveredId(null) },
                     onClick: () => select(row.id),
                     onDoubleClick: () => { if (canOpen && openSession) openSession(row.sessionId, row.title) },
-                  },
-                    h('span', {
-                      className: 'frx-orb-label',
-                      style: {
-                        position: 'static', display: 'block',
-                        fontSize: `${Math.max(9, Math.round(pos.size / 6))}px`,
-                        lineHeight: 1, textAlign: 'center', fontWeight: 700,
-                        fontVariantNumeric: 'tabular-nums',
-                        color: 'var(--dsw-alias-label-primary)',
-                      },
-                    }, String(row.no || '').slice(-4) || String(row.id).slice(-3)),
-                  ),
+                  }),
                   hoveredId === row.id
                     ? h('span', { className: 'frx-orb-tip', role: 'tooltip' },
                       h('span', { className: 'frx-orb-tip-name' }, row.title || ''),
