@@ -25,7 +25,7 @@
  *   compact                  二级菜单形态（rail 里用），默认 false
  */
 
-import { renderIcon, normalizeIcon, colorHex } from './projectIcons.js'
+import { renderIcon, normalizeIcon, autoIconFor } from './projectIcons.js'
 import { brandVar, decoVar } from './styles.js'
 
 const KIND_LABEL = { all: '全部任务', group: '目录', project: '项目' }
@@ -105,13 +105,17 @@ export function createTreeNav(deps) {
         onClick: (event) => { if (isProject) return; event.stopPropagation(); toggleOf(row) },
       }, isProject ? '' : '▾'))
       /* 项目行：配了图标就把色点换成图标（颜色沿用项目选的颜色），没配才是色点 */
-      const logoIcon = isProject ? normalizeIcon(row.logo) : ''
+      /* 手动配的图标优先；没配就按项目名自动推（与气泡同一套规则） */
+      const manualLogo = isProject ? normalizeIcon(row.logo) : ''
+      const autoLogo = isProject && !manualLogo ? autoIconFor(row.label) : null
+      const logoIcon = manualLogo || (autoLogo ? autoLogo.icon : '')
       if (logoIcon) {
-        const tint = colorHex(row.logoColor)
+        /* 面板这一层的红线是「只用宿主令牌、零字面量颜色」，所以这里**不注入十六进制色**，
+           沿用该项目的 deco 色（--fo-deco-N）或品牌色；八色板只用于运行页气泡（那张表允许原值）。 */
         children.push(h('span', {
           key: 'dot',
           className: 'fo-dot is-logo',
-          style: tint ? { color: tint } : (color || undefined),
+          style: color || undefined,
           'aria-hidden': 'true',
         }, renderIcon({ h }, logoIcon, 12)))
       } else {

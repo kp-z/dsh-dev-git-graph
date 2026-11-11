@@ -15,7 +15,7 @@
 
 import { buildRuns } from './runsView.js'
 import { injectExactStyles } from './runsExactStyles.js'
-import { iconDrawNodes, normalizeIcon, colorHex } from './projectIcons.js'
+import { iconDrawNodes, normalizeIcon, colorHex, autoIconFor } from './projectIcons.js'
 
 let styleReady = false
 function ensureStyles() {
@@ -254,7 +254,14 @@ export function createRunsFeature(deps) {
       })
       return map
     })()
-    const logoFor = (key) => logoMap.get(String(key || '')) || null
+    /* 手动配置优先；没配就按项目名自动推一个（确定性），保证气泡开箱就能看出是哪个项目 */
+    const logoFor = (key, title) => {
+      const manual = logoMap.get(String(key || ''))
+      if (manual && manual.icon) return manual
+      const auto = autoIconFor(title || '')
+      if (!auto.icon) return manual || null
+      return { icon: auto.icon, color: (manual && manual.color) || colorHex(auto.color) }
+    }
     const openSession = typeof ctx.onOpenSession === 'function' ? ctx.onOpenSession : null
     const select = (id) => { if (typeof ctx.onOpenTask === 'function') ctx.onOpenTask(id) }
 
@@ -367,8 +374,8 @@ export function createRunsFeature(deps) {
                     running: isRunning,
                     suspended: isSuspended,
                     label: String(row.no || '').slice(-4) || String(row.id).slice(-3),
-                    icon: (logoFor(row.workspaceKey) || {}).icon || '',
-                    tint: (logoFor(row.workspaceKey) || {}).color || '',
+                    icon: (logoFor(row.workspaceKey, row.workspaceTitle) || {}).icon || '',
+                    tint: (logoFor(row.workspaceKey, row.workspaceTitle) || {}).color || '',
                     id: row.id,
                   }),
                   h('button', {
