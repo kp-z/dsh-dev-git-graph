@@ -23,7 +23,8 @@ import * as layoutModule from '../overview/layout.js'
 import { createDetailPanel } from './DetailPanel.js'
 import { createFeatures, featureById } from './features.js'
 import { createOrganizeDrawer } from './OrganizeDrawer.js'
-import { renderIcon, searchIcons, suggestIcons, iconLabel, emojiGroups, ICON_COLORS, normalizeIcon } from './projectIcons.js'
+import { renderIcon, searchIcons, suggestIcons, iconLabel, emojiGroups, ICON_COLORS, normalizeIcon, ICON_IDS } from './projectIcons.js'
+import { BUILD_LABEL } from './buildInfo.js'
 
 const MIN_POLL_MS = 15000
 const DEFAULT_POLL_MS = 30000
@@ -944,6 +945,8 @@ export function createOverviewPanel(deps) {
       'data-rail': railOpen ? '1' : '0',
       'data-feature': activeFeatureId,
       'data-organize': org.open ? '1' : '0',
+      /* 构建号：DevTools 里 document.querySelector('.fo-root').dataset.build 就能确认跑的是哪次构建 */
+      'data-build': BUILD_LABEL,
     },
       /* 侧栏三段：品牌 / 功能导航 / 底部固定区（折叠按钮在这里，折起来 rail 变 56px 图标条） */
       h('aside', { className: 'fo-rail', 'aria-label': '功能导航' },
@@ -1118,8 +1121,10 @@ export function createOverviewPanel(deps) {
         ? h('div', { className: 'fo-logo-backdrop', role: 'dialog', 'aria-modal': 'true', 'aria-label': '设置项目图标', onClick: () => setLogoPicker(null) },
           h('div', { className: 'fo-logo-pop', onClick: (event) => { if (event && event.stopPropagation) event.stopPropagation() } },
             h('div', { className: 'fo-logo-head' },
-              h('span', { className: 'fo-logo-title' }, '项目图标'),
+              h('span', { className: 'fo-logo-title' }, `项目图标 · ${ICON_IDS.length} 个`),
               h('span', { className: 'fo-logo-sub' }, model.str(logoPicker.title)),
+              /* 构建号放这里：图标选择器是这次改动的核心，能直接确认是否加载了新包 */
+              h('span', { className: 'fo-logo-build', title: '当前客户端构建' }, BUILD_LABEL),
             ),
             /* 搜索：英文 id 与中文别名都能搜（1400+ 图标直接铺出来找不到） */
             h('div', { className: 'fo-logo-search' },

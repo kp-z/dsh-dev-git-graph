@@ -239,6 +239,7 @@ export const CSS = `
 }
 .fo-logo-head { display: flex; align-items: baseline; gap: 8px; }
 .fo-logo-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.fo-logo-build { margin-left: auto; font-size: 10px; font-family: ui-monospace, Menlo, monospace; color: color-mix(in oklab, var(--dsw-alias-label-secondary) 70%, transparent); }
 .fo-logo-sub { font-size: 11px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fo-logo-search { display: flex; flex-direction: column; gap: 8px; }
 .fo-logo-input {
