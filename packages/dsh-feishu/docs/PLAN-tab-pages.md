@@ -247,6 +247,18 @@
       截图 `/Users/kp/Downloads/tab-2-insight-v3-history.jpg`（真数据）。
 - [x] 证据：overviewPanel 200 → 203、insightView 47、runsView 30、offline 80 JS + 7 Python、`npm test` exit 0。
 
+**第 6 轮（09:55 起，用户醒来说「继续」）：一键整理支持撤销**
+
+- [x] **接受可回退**（`4846f26`）：宿主 `undoOrganizeItems` + `POST /api/overview/organize/undo`；
+      做法是对那条边的**下游任务**做定向 replace（保留同方向其它边、只去掉这一条），先 refresh 再 replace；
+      建议单加 `undone` 状态与计数；客户端抽屉出现「撤销已接受 N」按钮（有已接受条目时），
+      撤销后同样重拉快照让边立刻从画布消失。
+- [x] 为什么必须做：设计稿 §9.1 的最高风险是「写错一条 depends_on = 后继永远开不了工」，
+      没有撤销就只能去飞书手删。
+- [x] **同一类坑又抓到一次**：`adaptApi` 白名单这次漏的是 `organizeUndo`（上一轮漏的是 `insightStats`）
+      → 所以补的是**断言**（面板测试钉住撤销链路），不是只补方法。
+- [x] 证据：organizeRoute +5 条撤销断言；overviewPanel 203 → 207；offline 80 JS + 7 Python；npm test exit 0。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
