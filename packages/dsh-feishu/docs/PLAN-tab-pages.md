@@ -340,6 +340,24 @@
       建议→接受→撤销链路、为什么是 React 而不是 iframe、以及各接口边界），旧版还停留在「只有一棵树 + 一张图」。
 - [x] 提交 `9cff68d`（代码）+ 本轮文档提交；证据：overviewPanel 207 / dashboardStyles 9 / offline 80 JS + 7 Python。
 
+**第 10 轮（13:20–13:40，用户要求「从架构上系统性地检查」）**
+
+- [x] **架构体检报告**：新增 `docs/AUDIT-tab-pages-architecture.md`。结论是三层的「看不见的假设」：
+      ① **投递层**：客户端包在插件 apply 时只读一次（宿主 11-10 09:37 起、包 11-11 13:17 才重建
+      → 实机一直跑旧包，这是「气泡不是圆的」的真因）；② **布局层**：响应式按视口判断，但这块面板宽度
+      由宿主 tab 决定 → 必须 `@container`；③ **配色层**：写死颜色在亮色模式必崩 → 表面/文字从令牌派生。
+- [x] **rail 宽度 288 → 232**（288 是参考站整页 aside 的口径），窄面板断点 212 / 196。
+- [x] **收起态图标对齐**：原来只藏文字没藏 caret → 图标被挤偏；现在 caret 一起隐藏、gap 归零、居中，宽度 52。
+- [x] **@media → @container**：`.fo-root` / `.frx-page` 挂 `container-type: inline-size`；
+      详情栏/抽屉列改 `clamp(260px,30%,336px)`。全仓现在只剩 `prefers-reduced-motion` 用 @media。
+- [x] **插件已重载**（disable → enable），实机现在加载的是新包。
+- [x] 证据：overviewPanel 207（含容器查询与收起的断言）、dashboardStyles 8、npm test exit 0、
+      offline 80 JS + 7 Python；提交 `d0dbb3e`。
+- [ ] **下一轮候选**（按价值排序）：
+      1) 把「重建 → 重载插件」做成脚本/提醒（现在靠人记，是这次事故的直接原因）；
+      2) 统一 z-index 分层表（现在 5/10/20/21/30/60/61 分散在 4 张样式表）；
+      3) 气泡墙在 <480px 的 tab 里减少展示数量（固定取前 8 个在窄框里会挤）。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
