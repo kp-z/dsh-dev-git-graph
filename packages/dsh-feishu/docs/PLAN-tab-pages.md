@@ -327,6 +327,19 @@
 - [ ] **待用户定口径**（已问，未答）：① 气泡「当前」用蓝还是全绿；② 两张小卡要不要换成真实趋势图
       （复用 `/api/insight/stats` 的 series）。
 
+**第 9 轮（用户实测三条反馈 + 文档更新）**
+
+- [x] **亮色模式**：`runsExactStyles.js` 原来把表面/文字写死成深色主题的浅灰与白色透明层 →
+      亮色下是浅灰字压白底。现在这些全部**从宿主令牌派生**（label-primary/secondary、bg-layer-1/2、
+      border-l1/l2、bg-overlay），亮暗自动跟随；只有气泡的品牌绿/蓝光晕保留参考项目原值（语义色）。
+      好处是不用猜宿主用 `.dark` 类还是 `prefers-color-scheme`。
+- [x] **rail 与卡片留白**：`.frx-page` 从 `padding: 24px 0 0` 改成 `16px 20px 28px`。
+- [x] **气泡不是圆的**：宿主对 `button` 的通用样式会顶掉 `9999px` → 改成 `border-radius: 50% !important`
+      + `aspect-ratio: 1/1`，实测 55×55 / radius 50%。
+- [x] **文档**：README 的「飞书任务集」一节整段重写（三个 tab 的分工、气泡墙与水位的语义、一键整理的
+      建议→接受→撤销链路、为什么是 React 而不是 iframe、以及各接口边界），旧版还停留在「只有一棵树 + 一张图」。
+- [x] 提交 `9cff68d`（代码）+ 本轮文档提交；证据：overviewPanel 207 / dashboardStyles 9 / offline 80 JS + 7 Python。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
