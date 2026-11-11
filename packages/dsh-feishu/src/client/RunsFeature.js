@@ -268,7 +268,10 @@ export function createRunsFeature(deps) {
     /* 气泡：只放未完成任务（runsView 已过滤 done）。排在前面的拿参考表里更大的点：
        运行中优先、其次跑得久的 —— 大小天然表达紧迫度。 */
     const rank = (row) => (row.state === 'running' ? 0 : (row.state === 'suspended' ? 1 : (row.state === 'idle' ? 3 : 2)))
-    const orbRows = view.bubbles.slice().sort((a, b) => {
+    /* 气泡只放「活着且在跑/待跑」的：挂起 = 暂时不做，不占气泡墙（用户在运行页看到挂起的
+       「车位」任务会以为是多出来的）。挂起仍会出现在 KPI 与「需要人看一眼」里。 */
+    const wallRows = view.bubbles.filter((row) => row.state !== 'suspended')
+    const orbRows = wallRows.slice().sort((a, b) => {
       const diff = rank(a) - rank(b)
       if (diff !== 0) return diff
       return (Number(b.elapsed) || 0) - (Number(a.elapsed) || 0)
@@ -307,6 +310,7 @@ export function createRunsFeature(deps) {
 
     const runningList = view.bubbles.filter((row) => row.state === 'running')
     const unfinished = view.bubbles.length
+    const suspendedCount = view.bubbles.filter((row) => row.state === 'suspended').length
     const bindSessions = view.boundSessions || 0
 
     /* ---------- 卡片 1：运行状态（参考项目的 Claude CLI Status，跨 2 列） ---------- */
