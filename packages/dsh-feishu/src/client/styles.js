@@ -57,6 +57,11 @@ const GLASS = {
 export const CSS = `
 /* ============ 根容器：玻璃层的所有变量都在这里定义，组件只引用 ============ */
 .fo-root {
+  /* **容器查询的锚点**：这块面板活在宿主侧栏的 tab 里，宽度由宿主决定、与视口无关。
+     所以响应式一律按「面板自己有多宽」判断（@container fopanel），不要用 @media（视口）——
+     否则「桌面大屏 + 很窄的 tab」会让卡片挤爆、rail 又过宽。 */
+  container-type: inline-size;
+  container-name: fopanel;
   /* 项目分色槽（品牌/状态令牌派生，图形装饰用） */
   --fo-deco-0: ${T.brand};
   --fo-deco-1: color-mix(in oklab, ${T.brand} 64%, ${T.success});
@@ -80,8 +85,10 @@ export const CSS = `
   --fo-glass-shadow: ${GLASS.shadow};
   --fo-glass-wash: ${GLASS.wash};
   --fo-glass-blur: blur(12px);
-  /* 侧栏：288px 与参考站的 aside 同宽（--fo-rail-w 便于以后调） */
-  --fo-rail-w: 288px;
+  /* 侧栏宽度。参考站是 288px，但那是**整页**的 aside；我们这块是宿主侧栏里的一个 tab，
+     288px 会把正文挤得很窄（用户实测「展开太宽」）。所以收到 232px：
+     标签最长的「洞察」「运行」两字 + 图标 + caret 在这个宽度里仍然舒展。 */
+  --fo-rail-w: 232px;
   --fo-rail-line: ${g(T.border1, 40)};
   --fo-row-hover-bg: ${g(T.bgLayer2, 55)};
   --fo-selected-bg: ${g(T.brand, 20)};
@@ -189,12 +196,19 @@ export const CSS = `
   border-top: 1px solid var(--fo-glass-line);
 }
 /* rail 收起：只留 56px 图标条（按钮仍可点，能再展开） */
-.fo-root[data-rail="0"] { --fo-rail-w: 56px; }
+/* rail 收起：只留 52px 图标条。**caret 必须一起藏**——只藏文字、留着 ▾ 会让图标偏左，
+   用户实测「折叠时图标没对齐」就是这么来的。 */
+.fo-root[data-rail="0"] { --fo-rail-w: 52px; }
 .fo-root[data-rail="0"] .fo-brand { justify-content: center; padding: 10px 8px; }
 .fo-root[data-rail="0"] .fo-brand-text,
 .fo-root[data-rail="0"] .fo-nav-label,
+.fo-root[data-rail="0"] .fo-nav-caret,
 .fo-root[data-rail="0"] .fo-rail-foot .fo-btn:first-child { display: none; }
-.fo-root[data-rail="0"] .fo-featnav-item { justify-content: center; padding: 0; }
+.fo-root[data-rail="0"] .fo-featnav-item { justify-content: center; padding: 0; gap: 0; }
+/* 收起态：图标本身严格居中（不靠子元素宽度凑），并禁掉 caret 的旋转占位 */
+.fo-root[data-rail="0"] .fo-featnav-item > svg,
+.fo-root[data-rail="0"] .fo-featnav-item > .fo-nav-icon { margin: 0 auto; flex: 0 0 auto; }
+.fo-root[data-rail="0"] .fo-featnav-item[data-active="1"]::before { left: 4px; }
 .fo-root[data-rail="0"] .fo-rail-foot { justify-content: center; }
 
 /* ============ 内容头部：面包屑/标题 + 搜索框 + 动作 ============ */
@@ -264,23 +278,23 @@ export const CSS = `
   min-height: 0;
   min-width: 0;
 }
-.fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 336px; }
+.fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) clamp(260px, 30%, 336px); }
 /* 一键整理抽屉：正文右边的玻璃抽屉；与详情同时开时是第三列（正文 | 详情 | 建议） */
-.fo-root[data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 340px; }
-.fo-root[data-detail="1"][data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 336px 340px; }
+.fo-root[data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) clamp(260px, 30%, 340px); }
+.fo-root[data-detail="1"][data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) clamp(240px, 26%, 336px) clamp(240px, 26%, 340px); }
 /* 视口不够时先压详情栏；rail 只在很窄时才收（288 是参考站口径） */
-@media (max-width: 1280px) {
-  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 300px; }
-  .fo-root[data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 320px; }
-  .fo-root[data-detail="1"][data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 300px 320px; }
+@container fopanel (max-width: 1180px) {
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) clamp(240px, 30%, 300px); }
+  .fo-root[data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) clamp(240px, 30%, 320px); }
+  .fo-root[data-detail="1"][data-organize="1"] .fo-body { grid-template-columns: minmax(0, 1fr) clamp(220px, 25%, 300px) clamp(220px, 25%, 320px); }
 }
-@media (max-width: 1140px) {
-  .fo-root:not([data-rail="0"]) { --fo-rail-w: 264px; }
-  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 288px; }
+@container fopanel (max-width: 1040px) {
+  .fo-root:not([data-rail="0"]) { --fo-rail-w: 212px; }
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) clamp(230px, 30%, 288px); }
 }
-@media (max-width: 1080px) {
-  .fo-root:not([data-rail="0"]) { --fo-rail-w: 248px; }
-  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) 264px; }
+@container fopanel (max-width: 960px) {
+  .fo-root:not([data-rail="0"]) { --fo-rail-w: 196px; }
+  .fo-root[data-detail="1"] .fo-body { grid-template-columns: minmax(0, 1fr) clamp(220px, 30%, 264px); }
 }
 
 /* ============ 功能页内的范围列（三层树，task-14 从 rail 搬进来） ============ */

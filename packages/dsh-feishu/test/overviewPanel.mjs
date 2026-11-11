@@ -392,6 +392,11 @@ const mediaBody = (query) => {
   const at = CSS_BARE.indexOf(`@media ${query}`)
   return at < 0 ? '' : blockAfter(CSS_BARE, at)
 }
+/* 容器查询（@container fopanel (max-width: …)）：面板宽度自适应一律走这个 */
+const containerBody = (query) => {
+  const at = CSS_BARE.indexOf(`@container ${query}`)
+  return at < 0 ? '' : blockAfter(CSS_BARE, at)
+}
 
 const rootOf = (tree) => findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-root')[0]
 const treeItems = (tree) => findAll(tree, (node) => node.kind === 'host' && node.props.role === 'treeitem')
@@ -593,13 +598,20 @@ check('紧密密度：正文 12px / 标题 13px / 卡片内边距 16px / 正文�
 })
 
 /* ---- 0c. task-12：侧边栏与画布对齐参考站实测值 ---- */
-check('侧栏宽度 288px（--fo-rail-w，根栅格第一列用它）', () => {
-  assert.ok(ruleBody('.fo-root').includes('--fo-rail-w: 288px'), 'rail 宽 288px')
+check('侧栏宽度 232px（--fo-rail-w，根栅格第一列用它）', () => {
+  /* 参考站的 288px 是整页 aside；我们是宿主侧栏里的一个 tab，288 会把正文挤窄（用户实测「展开太宽」） */
+  assert.ok(ruleBody('.fo-root').includes('--fo-rail-w: 232px'), 'rail 宽 232px')
   assert.ok(ruleBody('.fo-root').includes('grid-template-columns: var(--fo-rail-w) minmax(0, 1fr)'), '根：rail | 正文')
-  assert.ok(ruleBody('.fo-root[data-rail="0"]').includes('--fo-rail-w: 56px'), '收起成 56px 图标条')
+  assert.ok(ruleBody('.fo-root[data-rail="0"]').includes('--fo-rail-w: 52px'), '收起成 52px 图标条')
+  /* 收起态必须把 caret 一起藏掉：只藏文字会让图标偏左（用户实测「折叠时图标没对齐」） */
+  /* caret 与另外两条选择器写在同一个规则组里（逗号列表），所以按整份 CSS 断言 */
+  assert.ok(/\.fo-root\[data-rail="0"\] \.fo-nav-caret,[\s\S]{0,120}display: none/.test(CSS_BARE), '收起态连同 caret 一起隐藏')
   assert.ok(ruleBody('.fo-body').includes('grid-template-columns: minmax(0, 1fr)'), '正文只有功能页一列')
-  assert.ok(ruleBody('.fo-root[data-detail="1"] .fo-body').includes('minmax(0, 1fr) 336px'), '开详情才多一列')
-  assert.ok(mediaBody('(max-width: 1080px)').includes('--fo-rail-w: 248px'), '窄视口才收窄')
+  /* 详情列改成弹性宽度：面板本身很窄时不能强行占 336（那是整页 aside 的口径） */
+  assert.ok(ruleBody('.fo-root[data-detail="1"] .fo-body').includes('clamp(260px, 30%, 336px)'), '开详情才多一列（弹性）')
+  /* 响应式按**面板自身宽度**判断（容器查询），不是视口：这块面板活在宿主 tab 里 */
+  assert.ok(ruleBody('.fo-root').includes('container-type: inline-size'), '面板是容器查询锚点')
+  assert.ok(containerBody('fopanel (max-width: 960px)').includes('--fo-rail-w: 196px'), '面板窄了才收窄 rail')
 })
 
 /* ---- task-14：rail = 品牌 + 功能导航 + 底部固定区 ---- */
@@ -1832,9 +1844,9 @@ const orgButton = (item, action) => findAll(item, (node) => node.kind === 'host'
   /* CSS：抽屉与条目样式（红线断言之外的口径） */
   check('抽屉 CSS：340px 玻璃列 + 条目/引用块/影响预览/页脚', () => {
     const grid = ruleBody('.fo-root[data-organize="1"] .fo-body')
-    assert.ok(grid.includes('minmax(0, 1fr) 340px'), grid)
+    assert.ok(grid.includes('clamp(260px, 30%, 340px)'), grid)
     const both = ruleBody('.fo-root[data-detail="1"][data-organize="1"] .fo-body')
-    assert.ok(both.includes('minmax(0, 1fr) 336px 340px'), both)
+    assert.ok(both.includes('clamp(240px, 26%, 336px)') && both.includes('clamp(240px, 26%, 340px)'), both)
     const drawer = ruleBody('.fo-organize')
     assert.ok(drawer.includes('overflow: auto'))
     assert.ok(drawer.includes('border-left: 1px solid var(--fo-glass-line)'))

@@ -21,6 +21,8 @@ export const STYLE_ID = 'dsh-feishu-runs-exact-style'
 export const CSS = `
 /* ---------- 页面骨架（Dashboard.tsx 的 space-y-8 + 4 列网格） ---------- */
 .frx-page {
+  container-type: inline-size;
+  container-name: frxpage;
   display: flex; flex-direction: column; gap: 24px;
   /* 侧边栏（rail）与卡片之间要留出呼吸位：左右各 20px + 上下 16/28px，
      否则卡片会贴着 rail 的边线，看起来像「挤在一起」。 */
@@ -298,11 +300,11 @@ export const CSS = `
 .frx-rows::-webkit-scrollbar-thumb { background: var(--frx-scrollbar); border-radius: 999px; }
 
 /* ---------- 窄屏：参考项目的 md/lg 断点 ---------- */
-@media (max-width: 1100px) {
+@container frxpage (max-width: 1100px) {
   .frx-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); height: auto; }
   .frx-card.is-span2 { grid-column: span 2; }
 }
-@media (max-width: 640px) {
+@container frxpage (max-width: 640px) {
   .frx-grid { grid-template-columns: minmax(0, 1fr); }
   .frx-card.is-span2 { grid-column: span 1; }
 }
