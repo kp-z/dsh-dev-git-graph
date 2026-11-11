@@ -303,6 +303,30 @@
 - [x] 证据：runsView 31、overviewPanel 208、dashboardStyles 8、offline 80 JS + 7 Python；
       真机 50% → 528px / 100% → 99.6px / 0% → 0px。
 
+**第 8 轮（用户醒着，连续三轮指正后定版）：运行页整页照参考项目取值重做**
+
+用户连续三句口径：「先找到对应的气泡墙的代码直接搬过来包括这个页面的布局」→「搬的还不对，整个风格都不对，
+也不是圆形，水位线也不对，整个运行页面的卡片布局样式和大小都不对」→「卡片的布局要自适应，不要出现一行里会有空白部分」。
+
+- [x] **定位真正的参考实现**：`kp-z/open_adventure`（私有，`gh repo clone` 拉到 `/tmp`）的
+      `frontend/src/app/components/ClaudeModelBubbles.tsx` + `WaterLevel.tsx` + `pages/Dashboard.tsx`
+      + `components/ui-shared.tsx`（GlassCard）。我前两版都错在**用自己的样式体系重画**，所以永远差一层。
+- [x] **新增 `src/client/runsExactStyles.js`**（`.frx-` 前缀、独立 style id、卸载一起移除）：
+      卡片 = GlassCard 原值（rgba(255,255,255,.05)/blur 12px/1px 白 10%/radius 16/padding 24/shadow-xl）；
+      网格 = 4 列 + gap 24 + `clamp(320px,(100vh-220px)/3,520px)` 行高、状态卡跨 2 列、窄屏自适应；
+      气泡 = 8 个散点位 + 55/52/48/45/38/35/32/28 + float(-8/-4/-10px) + border-2 + 绿/蓝/暗三态光晕；
+      水位 = clipPath 圆裁剪 + 填充 rgba(34,197,94,.2) + SMIL 波浪线 3s，**圆 overflow:hidden**（上一版是 visible，
+      所以看不出「装液体」——这是「水位线不对」的直接原因）。
+- [x] **取舍记录**：这张表**故意不遵守**「只用 14 个宿主令牌」，按参考项目原始色值写死（用户口径「颜色要和参考
+      项目完全一致」优先于内部约定），但严格收敛在 `.frx-` 前缀与独立 style id 里，不污染宿主。
+- [x] **整页重写**：页头 → 第一行[运行状态(跨2列)：图标/标题/版本/刷新 + 可用任务气泡墙 + 两个小盒] +
+      [未完成任务：大数字 + 迷你柱图 + pills] + [运行中] → 第二行[执行历史(跨2列)] + [快捷操作(跨2列, 2×2)]。
+- [x] **行内零空白**：实测第一行 3 张卡合计 1112px = 容器 1112px；第二行 2 张卡合计 1112px。
+- [x] 证据：overviewPanel 207、runsView 40、dashboardStyles 9、insightView 47、offline 80 JS + 7 Python、
+      `npm test` exit 0；提交 `d3276ec`。
+- [ ] **待用户定口径**（已问，未答）：① 气泡「当前」用蓝还是全绿；② 两张小卡要不要换成真实趋势图
+      （复用 `/api/insight/stats` 的 series）。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
