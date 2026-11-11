@@ -259,6 +259,29 @@
       → 所以补的是**断言**（面板测试钉住撤销链路），不是只补方法。
 - [x] 证据：organizeRoute +5 条撤销断言；overviewPanel 203 → 207；offline 80 JS + 7 Python；npm test exit 0。
 
+**第 7 轮（10:00–10:20，用户醒来后的两条新口径）**
+
+用户口径（原文）：「侧边栏运行排第一，洞察第二，关系第三。运行里面你使用的 UI 不是我想要的悬浮 UI，
+布局要和 adventure 首页一样，你需要找下有一个空气泡水位的组件需要完全复现，运行完成的任务不需要在卡片里显示。」
+
+- [x] **侧边栏顺序**（`a816969`）：注册表 = runs / insight / graph，顺序即优先级，第一项同时是默认落地页；
+      测试改成顺序感知（mountPanel 新增 startFeature，main 用 null 验真实默认），并钉住顺序与「运行没有二级菜单」。
+      顺手修掉自己引入的 `},,` 双逗号（数组空洞会让 rail 出现空项）。
+- [x] **找到「空气泡水位」= 参考站 `BaseView.tsx:87-97` 的经验值水位条**，在 `Bubble.js` 里做成 `createWaterLevel`：
+      16px/999px/1px 描边/overflow hidden 轨道 + 三段渐变填充 + 横扫高光（2.4s 循环）+ 1s/.3s easeOut 入场；
+      另做 8px 迷你版给 KPI 卡。**一处口径我自己裁了**：参考站是「首尾同色、中间换色相」，
+      我按「完全复现」保留这个结构（我原本在任务里写「三色全不同」是误读）。
+- [x] **运行页改成 adventure 首页布局**（`9d6ce6e`）：水位 hero + 5 张 KPI 卡（64px 圆球 + eyebrow +
+      迷你水位条）→ 气泡墙 → 执行历史列表（40px 头像块 + 状态点 + #编号·相对时间 + 详情）→
+      活跃度/时长 + 待人工（双列小块，`spansForTail(2, cols)` 每排铺满）。
+- [x] **完成任务完全不上页**：`buildRuns` 入口过滤 done 并回 `skippedDone`；KPI 分母/分组/气泡/执行历史/
+      时长/告警全部基于未完成；「已完成」分组与「今日完成」卡删除。真机 `skippedDone=48`。
+- [x] **真机抓到组件 bug 并修掉**：把 `var()` 写进 `@keyframes` 的 width，Chrome 解析成 fallback 0%
+      → 动画结束水位条永远是空的（实测 0px，去掉动画才回到 50%）。改成 `transform: scaleX(0→1)` 入场，
+      宽度只由 `--fr-water-pct` 决定，并补了断言（keyframes 里不许 var()、轨道几何、高光在动）。
+- [x] 证据：runsView 31、overviewPanel 208、dashboardStyles 8、offline 80 JS + 7 Python；
+      真机 50% → 528px / 100% → 99.6px / 0% → 0px。
+
 - [ ] 下一轮要做的（入口）：
       1. 收 task-18/19（新文件）→ 我接线：`features.js` 注册 `insight`/`runs` 两个功能项 +
          `client.js` 注入 `dashboardStyles.js`；用迷你 React harness 给两个功能页补组件级断言
