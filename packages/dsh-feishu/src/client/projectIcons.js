@@ -60,13 +60,13 @@ const ALIASES = {
 
 /** Emoji 面板：按场景分组，给「图标不够直观」的项目用（零字节开销） */
 const EMOJI_GROUPS = [
-  { key: 'dev', label: '开发', items: ['💻', '🖥️', '⌨️', '🐛', '🧪', '🧰', '🔧', '⚙️', '🧩', '📦', '🧱', '🔌', '🛠️', '🚧', '🔬', '🧬'] },
-  { key: 'data', label: '数据', items: ['📊', '📈', '📉', '🗄️', '🗃️', '📋', '🧮', '📑', '🔢', '💾', '🗂️', '📌'] },
-  { key: 'ai', label: 'AI', items: ['🤖', '🧠', '✨', '🔮', '🪄', '🛰️', '⚡', '🌀', '🧿', '🫧'] },
-  { key: 'cloud', label: '云端/运维', items: ['☁️', '🌐', '🛰️', '🔐', '🛡️', '🔥', '💧', '🧊', '🚀', '🛫', '🏗️', '🧯'] },
-  { key: 'media', label: '媒体', items: ['🎮', '🎬', '🎨', '🎵', '📷', '🖼️', '🎧', '📺', '🕹️', '🎯'] },
-  { key: 'work', label: '工作', items: ['📝', '📚', '📅', '⏰', '✅', '📌', '🏁', '🎓', '💡', '📢', '🤝', '🧭'] },
-  { key: 'misc', label: '其他', items: ['⭐', '❤️', '🍀', '🌱', '🌊', '🏔️', '🌙', '☀️', '🧭', '🎁', '🏆', '⚗️'] },
+  { key: 'dev', label: '开发', keys: '开发 编程 代码 电脑 键盘 缺陷 bug 测试 实验 工具 配置 插件 包 构建 硬件 研究 基因', items: ['💻', '🖥️', '⌨️', '🐛', '🧪', '🧰', '🔧', '⚙️', '🧩', '📦', '🧱', '🔌', '🛠️', '🚧', '🔬', '🧬'] },
+  { key: 'data', label: '数据', keys: '数据 图表 统计 报表 趋势 数据库 表格 计算 存档 编号', items: ['📊', '📈', '📉', '🗄️', '🗃️', '📋', '🧮', '📑', '🔢', '💾', '🗂️', '📌'] },
+  { key: 'ai', label: 'AI', keys: 'AI 智能 模型 机器人 魔法 卫星 闪电 大脑 算法', items: ['🤖', '🧠', '✨', '🔮', '🪄', '🛰️', '⚡', '🌀', '🧿', '🫧'] },
+  { key: 'cloud', label: '云端/运维', keys: '云端 运维 云 网络 安全 锁 防护 火 水 冰 发布 上线 构建 灭火', items: ['☁️', '🌐', '🛰️', '🔐', '🛡️', '🔥', '💧', '🧊', '🚀', '🛫', '🏗️', '🧯'] },
+  { key: 'media', label: '媒体', keys: '媒体 游戏 视频 设计 音乐 图片 相机 播放 目标', items: ['🎮', '🎬', '🎨', '🎵', '📷', '🖼️', '🎧', '📺', '🕹️', '🎯'] },
+  { key: 'work', label: '工作', keys: '工作 文档 书 日历 时间 完成 里程碑 学习 想法 通知 协作 方向', items: ['📝', '📚', '📅', '⏰', '✅', '📌', '🏁', '🎓', '💡', '📢', '🤝', '🧭'] },
+  { key: 'misc', label: '其他', keys: '其他 星 喜欢 幸运 植物 自然 山 月亮 太阳 礼物 奖杯', items: ['⭐', '❤️', '🍀', '🌱', '🌊', '🏔️', '🌙', '☀️', '🧭', '🎁', '🏆', '⚗️'] },
 ]
 
 /** 项目名 → 推荐图标的规则（先命中先生效；只给「一眼能猜对」的映射） */
@@ -111,6 +111,16 @@ export const PROJECT_ICONS = Object.fromEntries(ICON_IDS.map((id) => [id, { labe
 
 export function iconLabel(id) {
   return ALIASES[id] || id
+}
+
+/**
+ * 搜 Emoji：按分区的中文关键词过滤（空查询返回全部分区）。
+ * 只按**分区**过滤而不是逐个 emoji 打标签——emoji 的语义太宽，硬标反而搜不准。
+ */
+export function searchEmojiGroups(query) {
+  const q = String(query || '').trim().toLowerCase()
+  if (!q) return EMOJI_GROUPS
+  return EMOJI_GROUPS.filter((group) => `${group.label} ${group.keys || ''}`.toLowerCase().includes(q))
 }
 
 export function emojiGroups() {

@@ -23,7 +23,7 @@ import * as layoutModule from '../overview/layout.js'
 import { createDetailPanel } from './DetailPanel.js'
 import { createFeatures, featureById } from './features.js'
 import { createOrganizeDrawer } from './OrganizeDrawer.js'
-import { renderIcon, searchIcons, suggestIcons, iconLabel, emojiGroups, ICON_COLORS, normalizeIcon, ICON_IDS } from './projectIcons.js'
+import { renderIcon, searchIcons, suggestIcons, iconLabel, emojiGroups, searchEmojiGroups, ICON_COLORS, normalizeIcon, ICON_IDS } from './projectIcons.js'
 import { BUILD_LABEL } from './buildInfo.js'
 
 const MIN_POLL_MS = 15000
@@ -892,17 +892,6 @@ export function createOverviewPanel(deps) {
       nodePos,
       hostReady: hostCan.ok,
       hostReason: hostCan.reason,
-      /* 运行页的气泡放大档位：存在宿主的 store 里（刷新/重开面板后保持） */
-      orbZoom: (() => {
-        const raw = readStore(store, 'runsZoom')
-        const n = Number(raw)
-        return Number.isFinite(n) && n >= 0.5 && n <= 2 ? n : 1
-      })(),
-      onOrbZoom: (value) => {
-        const n = Number(value)
-        if (!Number.isFinite(n)) return
-        writeStore(store, 'runsZoom', n)
-      },
       onOpenTask: (id) => openTask(id),
       onFocusTask: focusTask,
       onNodeMove: moveNode,
@@ -1177,7 +1166,7 @@ export function createOverviewPanel(deps) {
                   onClick: () => { applyLogo(`lucide:${id}`) },
                 }, renderIcon({ h }, `lucide:${id}`, 18)))))
               : h('div', { className: 'fo-logo-section fo-logo-emoji-scroll' },
-                emojiGroups().map((group) => h('div', { key: group.key, className: 'fo-logo-emoji-group' },
+                searchEmojiGroups(logoQuery).map((group) => h('div', { key: group.key, className: 'fo-logo-emoji-group' },
                   h('span', { className: 'fo-logo-section-title' }, group.label),
                   h('div', { className: 'fo-logo-emoji-grid' }, group.items.map((ch) => h('button', {
                     key: `${group.key}-${ch}`,
