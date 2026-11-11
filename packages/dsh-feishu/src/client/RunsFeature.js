@@ -27,6 +27,10 @@ function ensureStyles() {
   }
 }
 
+/* 模块加载时就注入一次：组件首次渲染前样式就已经在 <head> 里，
+   避免「首帧白方块闪一下」；渲染时再兜一次（宿主可能清过 head）。 */
+ensureStyles()
+
 const toNum = (value) => {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
@@ -106,7 +110,14 @@ export function createRunsFeature(deps) {
   return function RunsFeature(props) {
     const ctx = props || {}
     ensureStyles()
-    if (useEffect) useEffect(() => { ensureStyles() }, [])
+    if (useEffect) {
+      useEffect(() => {
+        /* 宿主热重载/主题切换可能会替换 head：挂载后再确认一次样式还在 */
+        try {
+          if (typeof document !== 'undefined' && !document.getElementById('dsh-feishu-runs-exact-style')) injectExactStyles()
+        } catch (error) { /* 忽略 */ }
+      }, [])
+    }
 
     const hostRef = useRef ? useRef(null) : null
     const [colState, setColState] = useState ? useState(toNum(ctx.columns) || 0) : [toNum(ctx.columns) || 0, () => {}]
@@ -150,7 +161,14 @@ export function createRunsFeature(deps) {
 
     const card = (key, opts) => {
       const o = opts || {}
-      return h('section', { key, className: `frx-card${o.span2 ? ' is-span2' : ''}`, 'aria-label': o.label || '' },
+      return h('section', {
+        key,
+        className: `frx-card${o.span2 ? ' is-span2' : ''}`,
+        'aria-label': o.label || '',
+        /* 关键几何写进内联样式：插件样式表在宿主里万一没注入（或被宿主 button/card 规则压掉），
+           页面也不会塌成「一堆白方块」。外链样式只负责细节。 */
+        style: { gridColumn: o.span2 ? 'span 2' : 'auto' },
+      },
         h('div', { className: 'frx-card-glow', 'aria-hidden': 'true' }),
         h('div', { className: 'frx-card-inner' }, o.children))
     }
@@ -199,7 +217,12 @@ export function createRunsFeature(deps) {
         h('div', { key: 'bubbles' },
           h('p', { className: 'frx-bubbles-label' }, '可用任务'),
           orbRows.length
-            ? h('div', { className: 'frx-bubbles', role: 'list', 'aria-label': '任务气泡墙' },
+            ? h('div', {
+              className: 'frx-bubbles',
+              role: 'list',
+              'aria-label': '任务气泡墙',
+              style: { position: 'relative', width: '100%', maxWidth: '520px', height: '116px', margin: '4px auto 0' },
+            },
               orbRows.map((row, index) => {
                 const pos = POSITIONS[index]
                 const isRunning = row.state === 'running'
@@ -229,6 +252,11 @@ export function createRunsFeature(deps) {
                     className: `frx-orb ${tone}`,
                     title: meta,
                     'aria-label': meta,
+                    /* 圆与尺寸用内联样式钉死：宿主对 button 有通用圆角，样式表一丢就变方块 */
+                    style: {
+                      width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden',
+                      padding: 0, display: 'block', position: 'relative', cursor: 'pointer',
+                    },
                     onMouseEnter: () => { if (typeof setHoveredId === 'function') setHoveredId(row.id) },
                     onMouseLeave: () => { if (typeof setHoveredId === 'function') setHoveredId(null) },
                     onClick: () => select(row.id),
@@ -237,7 +265,13 @@ export function createRunsFeature(deps) {
                     h('span', { className: 'frx-orb-shine', 'aria-hidden': 'true' }),
                     h('span', { className: 'frx-orb-spark', 'aria-hidden': 'true' }),
                     isRunning ? waterLevel(pct, pos.size, row.id) : null,
-                    h('span', { className: 'frx-orb-label' }, String(row.no || '').slice(-4) || String(row.id).slice(-3)),
+                    h('span', {
+                      className: 'frx-orb-label',
+                      style: {
+                        position: 'absolute', inset: 0, zIndex: 22, display: 'grid', placeItems: 'center',
+                        fontSize: `${Math.max(9, Math.round(pos.size / 6))}px`, lineHeight: 1, textAlign: 'center',
+                      },
+                    }, String(row.no || '').slice(-4) || String(row.id).slice(-3)),
                   ),
                   hoveredId === row.id
                     ? h('span', { className: 'frx-orb-tip', role: 'tooltip' },
@@ -393,8 +427,16 @@ export function createRunsFeature(deps) {
         h('h1', { className: 'frx-title' }, '运行'),
         h('p', { className: 'frx-subtitle' },
           `${unfinished} 条未完成任务 · ${runningList.length} 条正在跑 · ${view.skippedDone || 0} 条已完成（不上页）`)),
-      h('div', { key: 'row1', className: 'frx-grid' }, statusCard, totalCard, runningCard),
-      h('div', { key: 'row2', className: 'frx-grid is-tight', style: { gridAutoRows: 'minmax(0, 1fr)' } }, historyCard, actionCard),
+      h('div', {
+        key: 'row1',
+        className: 'frx-grid',
+        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' },
+      }, statusCard, totalCard, runningCard),
+      h('div', {
+        key: 'row2',
+        className: 'frx-grid is-tight',
+        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' },
+      }, historyCard, actionCard),
     )
   }
 }
