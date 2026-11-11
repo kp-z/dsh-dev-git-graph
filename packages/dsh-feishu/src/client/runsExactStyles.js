@@ -121,7 +121,7 @@ export const CSS = `
   text-transform: uppercase; color: var(--frx-text-dim);
 }
 .frx-box-value { margin: 0; margin-top: auto; font-size: 24px; line-height: 1.15; font-weight: 700; color: #60a5fa; }
-.frx-box-value.is-purple { color: #c084fc; }
+.frx-box-value.is-purple { color: color-mix(in oklab, var(--dsw-alias-brand-primary) 88%, transparent); }
 .frx-box-value.is-green { color: #4ade80; }
 .frx-box-unit { font-size: 12px; color: var(--frx-text-faint); margin-left: 4px; }
 
@@ -129,17 +129,17 @@ export const CSS = `
 .frx-bigrow { display: flex; align-items: flex-start; justify-content: space-between; }
 .frx-chip { padding: 8px; border-radius: 8px; display: inline-flex; }
 .frx-chip.is-blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-.frx-chip.is-purple { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+.frx-chip.is-purple { background: color-mix(in oklab, var(--dsw-alias-brand-primary) 18%, transparent); color: color-mix(in oklab, var(--dsw-alias-brand-primary) 90%, transparent); }
 .frx-delta { font-size: 12px; font-weight: 700; }
 .frx-delta.is-up { color: #22c55e; }
 .frx-delta.is-flat { color: #9ca3af; }
 .frx-stat-label { margin: 0; font-size: 14px; color: var(--frx-text-dim); }
 .frx-stat-value { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 700; color: var(--frx-text-strong); }
-.frx-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.frx-pills { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }
 .frx-pill {
-  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
-  padding: 4px 8px; border-radius: 6px; font-size: 11px;
-  background: var(--frx-inner); color: var(--frx-text-dim);
+  display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%;
+  padding: 0; border-radius: 0; font-size: 11px;
+  background: none; color: var(--frx-text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .frx-pill em { font-style: normal; color: #93c5fd; font-weight: 700; }
@@ -233,8 +233,8 @@ export const CSS = `
 }
 .frx-orb-label {
   /* 必须在水位之上（水位是 20/21）：否则数字被液体盖住、视觉上就「不在圆心」 */
-  position: absolute; inset: 0; z-index: 22; display: flex; align-items: center; justify-content: center;
-  padding: 0 4px; font-size: 9px; font-weight: 700; line-height: 1; text-align: center;
+  position: absolute; inset: 0; z-index: 22; display: grid; place-items: center;
+  padding: 0; font-size: 9px; font-weight: 700; line-height: 1; text-align: center;
   /* 不再写死纯白：深色主题下用主文字色（近白），亮色主题下它自动变成深色，
      压在水位上的可读性两边都成立。 */
   color: var(--dsw-alias-label-primary);
@@ -276,6 +276,25 @@ export const CSS = `
   background: linear-gradient(to top, rgba(59, 130, 246, 0.35), rgba(59, 130, 246, 0.9));
 }
 
+/* 按项目分布（Total Skills 卡下半部分）：标签 + 轨道 + 数值 */
+.frx-bydist { display: flex; flex-direction: column; gap: 10px; margin-top: auto; padding-top: 16px; }
+.frx-bydist-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px auto; align-items: center; gap: 10px; }
+.frx-bydist-label {
+  font-size: 11px; color: var(--frx-text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.frx-bydist-track {
+  height: 6px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in oklab, var(--dsw-alias-label-primary) 10%, transparent);
+}
+.frx-bydist-track > i {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(to right,
+    color-mix(in oklab, var(--dsw-alias-brand-primary) 55%, transparent),
+    color-mix(in oklab, var(--dsw-alias-brand-primary) 95%, transparent));
+}
+.frx-bydist-value { font-size: 12px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
+
 /* ---------- 快捷操作（Quick Actions） ---------- */
 .frx-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: auto; flex: 1 1 auto; align-content: stretch; }
 .frx-action {
@@ -285,7 +304,7 @@ export const CSS = `
 }
 .frx-action:hover { filter: brightness(1.15); }
 .frx-action.is-blue { background: linear-gradient(to right, rgba(37, 99, 235, 0.9), rgba(59, 130, 246, 0.9)); }
-.frx-action.is-purple { background: linear-gradient(to right, rgba(147, 51, 234, 0.9), rgba(219, 39, 119, 0.9)); }
+.frx-action.is-purple { background: color-mix(in oklab, var(--dsw-alias-brand-primary) 88%, transparent); }
 /* ghost：参考项目那种「次要动作」——半透明底 + 细边框，铺满网格但视觉更轻 */
 .frx-action.is-ghost {
   background: var(--frx-surface);

@@ -205,7 +205,10 @@ export function createRunsFeature(deps) {
                 const isRunning = row.state === 'running'
                 const isSuspended = row.state === 'suspended'
                 const canOpen = Boolean(row.sessionId)
-                const tone = isRunning ? (index === 0 ? 'is-current' : 'is-ok') : (isSuspended ? 'is-ok' : 'is-dim')
+                /* 只有一套颜色语义：绿=在跑、琥珀边=挂起、灰=未开始。
+                   参考项目里「蓝=当前模型」是模型的「选中」概念，任务里没有对应物，
+                   硬套会让「绿光气泡」和上方 KPI 的绿色对不上（用户实测指出的问题）。 */
+                const tone = isRunning ? 'is-ok' : (isSuspended ? 'is-suspended' : 'is-dim')
                 const pct = maxElapsed > 0 && isRunning ? Math.round(((Number(row.elapsed) || 0) / maxElapsed) * 100) : 0
                 const meta = [row.title || '', isRunning ? '运行中' : (isSuspended ? '挂起' : '未开始'),
                   row.elapsedText && row.elapsedText !== '—' ? row.elapsedText : ''].filter(Boolean).join(' · ')
@@ -268,16 +271,23 @@ export function createRunsFeature(deps) {
         h('div', { key: 'stat', style: { marginTop: 'auto' } },
           h('p', { className: 'frx-stat-label' }, '未完成任务'),
           h('p', { className: 'frx-stat-value' }, String(unfinished))),
-        /* 迷你柱图（状态分布）：参考项目这张卡底部是一张趋势图，用它把卡片填满 */
-        h('div', { key: 'chart', className: 'frx-minichart', 'aria-hidden': 'true' },
-          (view.overview || []).slice(0, 5).map((row) => {
-            const max = Math.max(1, ...(view.overview || []).map((r) => Number(r.value) || 0))
-            const hgt = Math.max(6, Math.round(((Number(row.value) || 0) / max) * 48))
-            return h('span', { key: row.key || row.label, className: 'frx-minibar', style: { height: `${hgt}px` } })
-          })),
-        h('div', { key: 'pills', className: 'frx-pills' },
-          (view.overview || []).slice(0, 3).map((row) => h('span', { key: row.key || row.label, className: 'frx-pill' },
-            row.label, ' ', h('em', null, String(row.value || 0))))),
+        /* 按项目分布：横向条 + 名称 + 条数。比「一排没有坐标的柱子」有信息量，
+           也把这张卡的下半部分填满（用户口径：一行里不要留大片空白）。 */
+        h('div', { key: 'chart', className: 'frx-bydist' },
+          (() => {
+            const counts = new Map()
+            view.bubbles.forEach((row) => {
+              const key = row.workspaceTitle || '未归属项目'
+              counts.set(key, (counts.get(key) || 0) + 1)
+            })
+            const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
+            const max = Math.max(1, ...rows.map((entry) => entry[1]))
+            return rows.map(([label, count]) => h('div', { key: label, className: 'frx-bydist-row' },
+              h('span', { className: 'frx-bydist-label', title: label }, label),
+              h('span', { className: 'frx-bydist-track' },
+                h('i', { style: { width: `${Math.max(8, Math.round((count / max) * 100))}%` } })),
+              h('span', { className: 'frx-bydist-value' }, String(count))))
+          })()),
       ],
     })
 
