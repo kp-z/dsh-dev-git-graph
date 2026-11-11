@@ -60,10 +60,9 @@ export function createRunsFeature(deps) {
   const useState = React && typeof React.useState === 'function' ? React.useState : null
 
   /* 参考项目的气泡坐标表（DASHBOARD_POSITIONS 原值） */
-  /* 参考项目的 8 个散点位，但**往中心收了一档**（top/left 各向 50% 压缩 22%）。
-     原因：参考卡只占 4 列网格的 2 列（~520px），我们这块面板更宽，照抄会显得「四周大片空白」；
-     收一档后仍保持「星座式、不重叠」的观感，但成簇感更强。 */
-  const compress = (pct) => `${Math.round(50 + (Number.parseFloat(pct) - 50) * 0.78)}%`
+  /* 参考项目 DASHBOARD_POSITIONS 的**原值**。
+     之前为了填满更宽的面板把坐标往中心压了 22%，结果泡挤成一团（用户：「气泡不要那么集中」）——
+     现在照抄散点，靠容器宽度（560）承担留白。 */
   const RAW_POSITIONS = [
     { size: 55, top: '8%', left: '75%' },
     { size: 52, top: '10%', left: '28%' },
@@ -74,7 +73,7 @@ export function createRunsFeature(deps) {
     { size: 32, top: '65%', left: '35%' },
     { size: 28, top: '15%', left: '8%' },
   ]
-  const POSITIONS = RAW_POSITIONS.map((pos) => ({ ...pos, top: compress(pos.top), left: compress(pos.left) }))
+  const POSITIONS = RAW_POSITIONS.map((pos) => ({ ...pos }))
   const MAX_ORBS = 8
   /* 极简标记 → SVG 标签（图标数据为了体积压缩过标签名） */
   const TAG_MAP = { p: 'path', c: 'circle', r: 'rect', l: 'line', pl: 'polyline', pg: 'polygon' }
@@ -150,7 +149,15 @@ export function createRunsFeature(deps) {
     const fill = running
       ? 'color-mix(in oklab, var(--dsw-alias-bg-layer-2) 96%, transparent)'
       : 'color-mix(in oklab, var(--dsw-alias-bg-layer-1) 92%, transparent)'
-    const glow = running ? 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 30%, transparent)' : 'transparent'
+    /* 状态色（发光的颜色来源）：运行=绿、挂起=琥珀、其余=中性 */
+    const accent = running
+      ? 'var(--dsw-alias-state-success-primary)'
+      : (suspended ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-label-secondary)')
+    /* 参考项目 ClaudeModelBubbles 的发光配方（box-shadow 两层外发光 + 一层内发光 + 顶部内高光），
+       这里用 SVG 还原：两层半透明粗描边当外发光、radialGradient 当内发光、顶部弧线当内高光。 */
+    const glowOuter = `color-mix(in oklab, ${accent} 40%, transparent)`
+    const glowOuter2 = `color-mix(in oklab, ${accent} 20%, transparent)`
+    const glowInner = `color-mix(in oklab, ${accent} 15%, transparent)`
     const waterFill = 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 46%, transparent)'
     const waterStroke = 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 96%, transparent)'
     return h('svg', {
@@ -164,13 +171,23 @@ export function createRunsFeature(deps) {
           h('stop', { offset: '0%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0.5 }),
           h('stop', { offset: '60%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0.08 }),
           h('stop', { offset: '100%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0 })),
+        /* 内发光：中心向外 15% 状态色（对应 box-shadow 的 inset 0 0 30px） */
+        h('radialGradient', { id: `${uid}-innerglow`, cx: '50%', cy: '50%', r: '50%' },
+          h('stop', { offset: '55%', stopColor: accent, stopOpacity: 0.16 }),
+          h('stop', { offset: '100%', stopColor: accent, stopOpacity: 0.02 })),
         h('clipPath', { id: `${uid}-clip` }, h('circle', { cx: 50, cy: 50, r: R - 2 }))),
-      /* 外发光：运行中才画，用一圈半透明粗描边模拟（不依赖 box-shadow） */
-      running ? h('circle', { cx: 50, cy: 50, r: R + 2, fill: 'none', stroke: glow, strokeWidth: 8, opacity: 0.55 }) : null,
+      /* 外发光：两层（≈20px 与 ≈40px，对应参考的 0 0 20px / 0 0 40px），所有泡都有 */
+      h('circle', { cx: 50, cy: 50, r: R + 3, fill: 'none', stroke: glowOuter, strokeWidth: 6, opacity: 0.6 }),
+      h('circle', { cx: 50, cy: 50, r: R + 7, fill: 'none', stroke: glowOuter2, strokeWidth: 10, opacity: 0.5 }),
       /* 底色圆 + 描边：几何即圆形 */
       h('circle', { cx: 50, cy: 50, r: R, fill, stroke, strokeWidth: 2 }),
       /* 球面高光（在水位之前画：水位是主体信息，不能被高光糊掉） */
-      h('circle', { cx: 50, cy: 50, r: R, fill: `url(#${uid}-shine)`, opacity: 0.9 }),
+      h('circle', { cx: 50, cy: 50, r: R, fill: `url(#${uid}-shine)`, opacity: 0.5 }),
+      /* 内发光 + 顶部内高光（inset 0 1px 0 white/40）：一起裁剪在圆内 */
+      h('g', { clipPath: `url(#${uid}-clip)` },
+        h('circle', { cx: 50, cy: 50, r: R, fill: `url(#${uid}-innerglow)` }),
+        h('path', { d: `M${50 - R * 0.78},${50 - R * 0.5} Q50,${50 - R * 0.98} ${50 + R * 0.78},${50 - R * 0.5}`,
+          fill: 'none', stroke: 'var(--dsw-alias-label-primary)', strokeWidth: 1.6, opacity: 0.35 })),
       /* 水位（裁剪在圆内） */
       running
         ? h('g', { clipPath: `url(#${uid}-clip)` },
@@ -342,7 +359,8 @@ export function createRunsFeature(deps) {
               className: 'frx-bubbles',
               role: 'list',
               'aria-label': '任务气泡墙',
-              style: { position: 'relative', width: '100%', maxWidth: '430px', height: '112px', margin: '4px auto 0' },
+              /* 与参考一致：固定高度的散点场；宽一点让 8 个泡摊开（不挤成一团） */
+              style: { position: 'relative', width: '100%', maxWidth: '560px', height: '132px', margin: '4px auto 0' },
             },
               orbRows.map((row, index) => {
                 const pos = POSITIONS[index]
