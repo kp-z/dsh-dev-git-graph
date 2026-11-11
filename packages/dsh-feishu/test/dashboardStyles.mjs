@@ -100,6 +100,31 @@ check('运行中气泡真的接了呼吸动画（正反向都钉住）', () => {
   assert.equal(anyBubbleAnimation, null, '普通气泡不该无条件呼吸')
 })
 
+check('水位条：宽度只由 --fr-water-pct 决定，keyframes 里不许出现 var()', () => {
+  /* 真机踩过的坑：把 var() 写进 @keyframes 的 width，Chrome 会解析成 fallback 0%，
+     动画一结束水位条就永远是空的。所以入场动画只能用 transform 缩放。 */
+  const rise = CSS_CODE.match(/@keyframes fr-water-rise \{([\s\S]*?)\n\}/)
+  assert.ok(rise, '要有 fr-water-rise 关键帧')
+  assert.equal(/var\(/.test(rise[1]), false, '`@keyframes` 里出现 var() 会解析成 fallback：' + rise[1])
+  assert.ok(/scaleX\(0\)/.test(rise[1]) && /scaleX\(1\)/.test(rise[1]), '入场用 scaleX')
+  const fill = CSS_CODE.match(/\.fr-water-fill \{([\s\S]*?)\n\}/)
+  assert.ok(fill, '要有 .fr-water-fill 规则')
+  assert.ok(/width:\s*var\(--fr-water-pct/.test(fill[1]), '宽度来自变量')
+  assert.ok(/transform-origin:\s*left/.test(fill[1]), '缩放原点在左端（水位从左往右涨）')
+  /* 轨道严格复现参考站：16px / 999px 圆角 / 1px 描边 / 裁剪 */
+  const track = CSS_CODE.match(/\.fr-water \{([\s\S]*?)\n\}/)
+  assert.ok(track, '要有 .fr-water 轨道规则')
+  assert.ok(/height:\s*16px/.test(track[1]), '轨道 16px 高')
+  assert.ok(/border-radius:\s*999px/.test(track[1]), '全圆角')
+  assert.ok(/border:\s*1px/.test(track[1]), '1px 描边')
+  assert.ok(/overflow:\s*hidden/.test(track[1]), '裁剪填充')
+  /* 高光：transparent → label-primary 30% → transparent + 循环动画 */
+  const shine = CSS_CODE.match(/\.fr-water-shine \{([\s\S]*?)\n\}/)
+  assert.ok(shine && /linear-gradient\(90deg, transparent/.test(shine[1]), '高光是横向渐变')
+  assert.ok(/animation:\s*fr-water-shine/.test(shine[1]), '高光在动')
+  assert.ok(/@keyframes fr-water-shine/.test(CSS_CODE))
+})
+
 check('填满：网格是 auto-fit + 1fr 行高（不是固定列数）', () => {
   assert.ok(/grid-template-columns: repeat\(auto-fit, minmax\(240px, 1fr\)\)/.test(CSS_CODE))
   assert.ok(/grid-auto-rows: 1fr/.test(CSS_CODE))

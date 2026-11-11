@@ -28,8 +28,27 @@ export const STATE_META = {
   idle: { key: 'idle', label: '未开始', tone: 'idle', breathing: false, dashed: true },
 }
 
-/** 气泡墙的分组顺序（运行中的排最前，未开始垫底）。 */
-export const GROUP_ORDER = ['running', 'started', 'blocked', 'suspended', 'done', 'idle']
+/** 气泡墙的分组顺序（运行中的排最前，未开始垫底）。
+ *  **已完成的任务不上运pages**：done 在 buildRuns 入口就被过滤掉，所以这里没有 done 组。 */
+export const GROUP_ORDER = ['running', 'started', 'blocked', 'suspended', 'idle']
+
+/** KPI 行的五张卡（adventure 首页那种：圆球 + eyebrow + 大数值 + 迷你水位条）。 */
+export const KPI_KEYS = ['running', 'started', 'suspended', 'blocked', 'sessions']
+
+/** 相对时间：刚刚 / 5 分钟前 / 3 小时前 / 2 天前（没有时间戳就回空串，不猜）。 */
+export function formatAgo(ms) {
+  const value = num(ms, 0)
+  if (value < 0) return ''
+  const sec = Math.floor(value / 1000)
+  if (sec < 60) return '刚刚'
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min} 分钟前`
+  const hour = Math.floor(min / 60)
+  if (hour < 24) return `${hour} 小时前`
+  const day = Math.floor(hour / 24)
+  if (day < 30) return `${day} 天前`
+  return `${Math.floor(day / 30)} 个月前`
+}
 
 const isObj = (value) => !!value && typeof value === 'object' && !Array.isArray(value)
 const arr = (value) => (Array.isArray(value) ? value : [])
@@ -105,9 +124,12 @@ export const TURN_BUCKETS = [
  */
 export function buildRuns(snapshot) {
   const snap = isObj(snapshot) ? snapshot : {}
-  const tasks = arr(snap.tasks).filter((task) => isObj(task) && str(task.id))
+  /* 硬口径（用户明确要求）：已完成的任务在运行页**完全不出现** —— 入口就丢掉，
+     所以气泡墙 / KPI 分母 / 执行历史 / 时长 Top / 告警里都不可能有 done。
+     下面所有 counts/分母都基于这份 unfinished。 */
+  const allTasks = arr(snap.tasks).filter((task) => isObj(task) && str(task.id))
+  const tasks = allTasks.filter((task) => task.done !== true)
   const now = num(snap.now, Date.now())
-  const todayStart = startOfDay(now)
   const titleOf = new Map(tasks.map((task) => [str(task.id), str(task.title) || str(task.id)]))
 
   const bubbles = tasks.map((task) => {
@@ -155,7 +177,7 @@ export function buildRuns(snapshot) {
     }
   })
 
-  const counts = { running: 0, started: 0, blocked: 0, suspended: 0, done: 0, idle: 0 }
+  const counts = { running: 0, started: 0, blocked: 0, suspended: 0, idle: 0 }
   bubbles.forEach((bubble) => { counts[bubble.state] = (counts[bubble.state] || 0) + 1 })
   const boundSessions = bubbles.filter((bubble) => bubble.sessionId).length
 
@@ -175,23 +197,20 @@ export function buildRuns(snapshot) {
     })
     .filter((group) => group.count > 0)
 
-  /* 今日完成：靠 completedAt（快照已投影）；没有时间戳时退化为「全部已完成」 */
-  const doneAll = bubbles.filter((bubble) => bubble.state === 'done')
-  const doneToday = doneAll.filter((bubble) => bubble.completedAt >= todayStart && bubble.completedAt > 0)
-  const hasCompletionTime = doneAll.some((bubble) => bubble.completedAt > 0)
-
-  const overview = [
-    { key: 'running', label: '运行中', value: counts.running, tone: 'success', hint: '会话正在跑', breathing: true },
-    { key: 'started', label: '等待', value: counts.started, tone: 'idle', hint: '已开始、没在跑' },
-    { key: 'suspended', label: '挂起', value: counts.suspended, tone: 'warn', hint: '暂停中' },
-    {
-      key: 'todayDone',
-      label: hasCompletionTime ? '今日完成' : '已完成',
-      value: hasCompletionTime ? doneToday.length : counts.done,
-      tone: 'success',
-      hint: hasCompletionTime ? '今天完成的任务' : '快照无完成时间，暂为累计',
-    },
+  /* KPI 行：五张卡，分母一律是「未完成任务数」（done 已在入口被过滤） */
+  const unfinished = tasks.length
+  const kpiDefs = [
+    { key: 'running', label: '运行中', eyebrow: 'RUNNING', value: counts.running, tone: 'success', hint: '会话正在跑', breathing: true },
+    { key: 'started', label: '等待中', eyebrow: 'WAITING', value: counts.started, tone: 'idle', hint: '已开始、没在跑' },
+    { key: 'suspended', label: '挂起', eyebrow: 'PAUSED', value: counts.suspended, tone: 'warn', hint: '暂停中' },
+    { key: 'blocked', label: '阻塞', eyebrow: 'BLOCKED', value: counts.blocked, tone: 'error', hint: '在等前置任务' },
+    { key: 'sessions', label: '已绑会话', eyebrow: 'SESSIONS', value: 0, tone: 'brand', hint: '能一句话跳过去' },
   ]
+  const overview = kpiDefs.map((def) => {
+    const value = def.key === 'sessions' ? bubbles.filter((bubble) => bubble.sessionId).length : def.value
+    const ratio = unfinished > 0 ? Math.max(0, Math.min(1, value / unfinished)) : 0
+    return { ...def, value, total: unfinished, ratio, pct: Math.round(ratio * 100) }
+  })
 
   /* 会话活跃度：按 sessionTurn 分档，只统计已绑会话的任务 */
   const bound = bubbles.filter((bubble) => bubble.sessionId)
@@ -248,10 +267,37 @@ export function buildRuns(snapshot) {
     }))
   const alerts = suspendedAlerts.concat(staleBlocked).slice(0, 8)
 
+  /* 执行历史风格列表：未完成任务，按「最近活跃 → 编号」倒序，最近的在上面 */
+  const lastActiveOf = (bubble) => Math.max(bubble.startedAt, bubble.runningSince || 0, bubble.suspendedAt, bubble.completedAt)
+  const history = bubbles
+    .map((bubble) => {
+      const lastActiveAt = lastActiveOf(bubble)
+      return {
+        id: bubble.id,
+        no: bubble.no,
+        noText: bubble.no > 0 ? `#${bubble.no}` : '未编号',
+        title: bubble.title,
+        state: bubble.state,
+        label: bubble.label,
+        tone: bubble.tone,
+        breathing: bubble.breathing,
+        dashed: bubble.dashed,
+        workspaceTitle: bubble.workspaceTitle,
+        sessionId: bubble.sessionId,
+        canOpenSession: bubble.canOpenSession,
+        lastActiveAt,
+        agoText: lastActiveAt > 0 ? formatAgo(now - lastActiveAt) : '时间未记录',
+      }
+    })
+    .sort((a, b) => (b.lastActiveAt - a.lastActiveAt) || (b.no - a.no) || a.id.localeCompare(b.id))
+
   return {
     empty: tasks.length === 0,
     now,
     total: tasks.length,
+    /** 入口被过滤掉的已完成任务数（自证「done 不上页面」，也方便测试断言） */
+    skippedDone: allTasks.length - tasks.length,
+    history,
     counts,
     boundSessions,
     groups,
@@ -261,8 +307,6 @@ export function buildRuns(snapshot) {
     longest,
     longestUntimed: untimed,
     alerts,
-    todayDone: doneToday.length,
-    hasCompletionTime,
   }
 }
 

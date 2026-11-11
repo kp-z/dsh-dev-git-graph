@@ -70,3 +70,50 @@ export function createBubble(deps) {
 }
 
 export default createBubble
+
+/**
+ * 「空气泡水位」—— 完全复现参考站的**经验值水位条** `BaseView.tsx:87-97`：
+ *
+ *   <div class="w-full h-4 bg-black/40 rounded-full overflow-hidden border border-yellow-600/20">
+ *     <motion.div initial={{width:0}} animate={{width:`${expPercent}%`}}
+ *                 transition={{duration:1, ease:'easeOut', delay:0.3}}
+ *                 class="h-full bg-gradient-to-r from-yellow-600 via-orange-500 to-yellow-600 relative">
+ *       <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-pulse" />
+ *     </motion.div>
+ *   </div>
+ *
+ * 三件事一一对应（颜色换成宿主令牌，`fr-` 段在 dashboardStyles.js）：
+ * 1. 轨道：16px 高（`size='sm'` 是 8px 迷你版）、圆角 999px、深色底 + 1px 描边、overflow hidden
+ * 2. 填充：**三段** linear-gradient（左/中/右三个色标，中间那道是另一种色相），宽度 = pct
+ * 3. 横扫高光：填充内叠一条 `transparent → 高光 30% → transparent`，`fr-water-shine` 循环 2.4s
+ * 宽度有入场动画：`fr-water-rise` 0 → 目标宽度，easeOut 1s，延迟 0.3s（首次渲染就能看到水位涨上去）。
+ * `prefers-reduced-motion` 下两条动画都关掉，宽度直接落位。
+ */
+export function createWaterLevel(deps) {
+  const { h } = deps || {}
+
+  return function WaterLevel(props) {
+    const p = props || {}
+    const pct = Math.max(0, Math.min(100, Number(p.pct) || 0))
+    const size = p.size === 'sm' ? 'sm' : 'md'
+    const tone = p.tone ? ` fr-tone-${p.tone}` : ''
+    const label = p.label || ''
+    return h('div', {
+      className: `fr-water fr-water-${size}${tone}`,
+      role: 'progressbar',
+      'aria-valuenow': Math.round(pct),
+      'aria-valuemin': 0,
+      'aria-valuemax': 100,
+      'aria-label': label ? `${label} ${Math.round(pct)}%` : `${Math.round(pct)}%`,
+      title: label ? `${label} ${Math.round(pct)}%` : `${Math.round(pct)}%`,
+    },
+      h('span', {
+        className: 'fr-water-fill',
+        style: { '--fr-water-pct': `${pct}%` },
+      },
+        h('span', { className: 'fr-water-shine', 'aria-hidden': 'true' }),
+      ),
+    )
+  }
+}
+

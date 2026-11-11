@@ -338,26 +338,123 @@ export const CSS = `
 .fr-bubble-go:not(:disabled):hover { color: var(--fr-text); border-color: var(--fr-line-strong); background: var(--fr-surface-2); }
 .fr-bubble-go:disabled { opacity: .45; cursor: not-allowed; }
 
-/* 运行概览：四个气泡式计数卡 */
-.fr-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; align-content: start; }
-.fr-stat {
-  display: flex; align-items: center; gap: 10px; min-width: 0;
-  padding: 8px 10px; border-radius: 12px;
+/* fr- 子树统一 border-box：水位条 16px / 圆球 64px 都要是「含边框的实数」 */
+.fr-page, .fr-page * { box-sizing: border-box; }
+/* 水位 hero：16px 的「空气泡水位」（参考站 h-4 那条） */
+.fr-level { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.fr-level-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.fr-level-value { font-size: 11px; color: var(--fr-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 顶部 KPI 行：圆球 + eyebrow + 数值 + 迷你水位条（adventure 首页形制） */
+.fr-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; align-content: start; }
+.fr-kpi {
+  display: flex; align-items: center; gap: 12px; min-width: 0;
+  padding: 10px 12px; border-radius: 14px;
   background: var(--fr-sunken); border: 1px solid var(--fr-line);
 }
-.fr-stat-ring {
-  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 50%;
+.fr-kpi-ball {
+  flex: 0 0 auto; width: 64px; height: 64px; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
-  font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums;
+  font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.02em;
   color: var(--fr-tone, var(--fr-brand));
   background: color-mix(in oklab, var(--fr-tone, var(--fr-brand)) 20%, transparent);
-  border: 2px solid color-mix(in oklab, var(--fr-tone, var(--fr-brand)) 45%, transparent);
-  box-shadow: 0 0 18px color-mix(in oklab, var(--fr-tone, var(--fr-brand)) 24%, transparent);
+  border: 2px solid color-mix(in oklab, var(--fr-tone, var(--fr-brand)) 55%, transparent);
+  box-shadow: 0 0 20px color-mix(in oklab, var(--fr-tone, var(--fr-brand)) 28%, transparent);
 }
-.fr-stat-ring.is-running { animation: fr-breathe 2.4s ease-in-out infinite; }
-.fr-stat-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.fr-stat-label { font-size: 11px; color: var(--fr-text); white-space: nowrap; }
-.fr-stat-hint { font-size: 10px; color: var(--fr-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fr-kpi-ball.is-running { animation: fr-breathe 2.4s ease-in-out infinite; }
+.fr-kpi-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; }
+.fr-kpi-eyebrow {
+  font-size: 10px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--fr-tone, var(--fr-brand));
+}
+.fr-kpi-label { font-size: 12px; font-weight: 600; color: var(--fr-text); }
+.fr-kpi-hint { font-size: 10px; color: var(--fr-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ============ 空气泡水位条（复现 BaseView.tsx:87-97 的经验值条） ============ */
+.fr-water {
+  position: relative; width: 100%; height: 16px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in oklab, var(--dsw-alias-bg-base) 62%, transparent);
+  border: 1px solid color-mix(in oklab, var(--dsw-alias-border-l1) 55%, transparent);
+}
+.fr-water-sm { height: 8px; }
+.fr-water-fill {
+  position: absolute; top: 0; bottom: 0; left: 0;
+  width: var(--fr-water-pct, 0%); border-radius: 999px;
+  /* 三段：左/中/右三个色标（中间那道换色相），与参考站 from-via-to 同构 */
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--dsw-alias-brand-primary) 85%, transparent),
+    color-mix(in oklab, var(--dsw-alias-state-warn-primary) 92%, transparent),
+    color-mix(in oklab, var(--fr-tone, var(--dsw-alias-brand-primary)) 80%, transparent));
+  /* 入场动画用 transform 缩放，**宽度本身只由 --fr-water-pct 决定**：
+     把 var() 写进 @keyframes 的 width 里在 Chrome 上会解析成 fallback 0%，
+     结果动画结束后水位条永远是空的（真机实测 0px，去掉动画才变回 50%）。 */
+  transform-origin: left center;
+  animation: fr-water-rise 1s cubic-bezier(.22, .61, .36, 1) both;
+  animation-delay: .3s;
+}
+.fr-water-shine {
+  position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(90deg, transparent,
+    color-mix(in oklab, var(--dsw-alias-label-primary) 30%, transparent), transparent);
+  animation: fr-water-shine 2.4s ease-in-out infinite;
+}
+@keyframes fr-water-rise { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes fr-water-shine {
+  0%, 100% { transform: translateX(-70%); opacity: .35; }
+  50% { transform: translateX(70%); opacity: 1; }
+}
+
+/* ============ 执行历史风格列表：头像块 + 状态点 + 标题 + 编号·时间 + 详情 ============ */
+.fr-rows { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.fr-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-width: 0; padding: 10px 12px; border-radius: 12px;
+  background: var(--fr-surface-2); border: 1px solid transparent;
+  transition: background-color 160ms cubic-bezier(.22, .61, .36, 1), border-color 160ms cubic-bezier(.22, .61, .36, 1);
+}
+.fr-row:hover { border-color: var(--fr-line); background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 70%, transparent); }
+.fr-avatar {
+  position: relative; flex: 0 0 auto; width: 40px; height: 40px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--fr-tone, var(--fr-brand));
+  background: color-mix(in oklab, var(--fr-tone, var(--fr-brand)) 16%, transparent);
+  border: 1px solid var(--fr-line);
+}
+.fr-avatar-glyph { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fr-avatar-dot {
+  position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--fr-tone, var(--fr-idle));
+  border: 2px solid var(--dsw-alias-bg-base);
+}
+.fr-avatar-dot.is-running { animation: fr-breathe 2.4s ease-in-out infinite; }
+.fr-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.fr-row-title { font-size: 12px; color: var(--fr-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-row-meta { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--fr-dim); font-variant-numeric: tabular-nums; }
+.fr-row-action {
+  flex: 0 0 auto; font: inherit; font-size: 11px; cursor: pointer;
+  padding: 4px 10px; border-radius: 8px;
+  color: var(--fr-text); background: transparent;
+  border: 1px solid var(--fr-line);
+  transition: border-color 160ms cubic-bezier(.22, .61, .36, 1), background-color 160ms cubic-bezier(.22, .61, .36, 1);
+}
+.fr-row-action:hover { border-color: var(--fr-line-strong); background: var(--fr-surface); }
+
+/* ============ 双列小块（活跃度 / 时长） ============ */
+.fr-split { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; min-height: 0; }
+.fr-split-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; min-height: 0; }
+.fr-mini-head { font-size: 10px; color: var(--fr-dim); }
+.fr-mini-list { display: flex; flex-direction: column; gap: 7px; min-height: 0; }
+.fr-mini-row {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 4px 6px; border-radius: 8px;
+  font: inherit; font-size: 11px; color: var(--fr-text); text-align: left;
+  background: transparent; border: 1px solid transparent;
+}
+.fr-mini-row-btn { cursor: pointer; }
+.fr-mini-row-btn:hover { background: var(--fr-surface-2); border-color: var(--fr-line); }
+.fr-mini-label { flex: 0 0 88px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-mini-bar { flex: 1 1 auto; min-width: 32px; display: flex; }
+.fr-mini-value { flex: 0 0 auto; font-size: 10px; color: var(--fr-dim); font-variant-numeric: tabular-nums; }
 
 /* 横向条 */
 .fr-list { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
@@ -416,7 +513,9 @@ export const CSS = `
   .fd-panel, .fr-panel { animation: none !important; }
   .fd-bar > i, .fd-bar-split > i, .fd-bar-split > b, .fd-donut-arc, .fr-bar > i { transition: none !important; }
   /* 用户口径：只在系统允许动效时才呼吸 */
-  .fr-bubble.is-running, .fr-stat-ring.is-running, .fr-bubble-pulse { animation: none !important; }
+  .fr-bubble.is-running, .fr-bubble-pulse, .fr-kpi-ball.is-running, .fr-avatar-dot.is-running { animation: none !important; }
+  /* 水位条：入场动画关掉后宽度直接落位（width 变量），横扫高光也停 */
+  .fr-water-fill, .fr-water-shine { animation: none !important; }
   .fr-bubble:hover { transform: none !important; }
 }
 `

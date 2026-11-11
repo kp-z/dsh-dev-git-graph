@@ -11,11 +11,13 @@ import {
   buildRuns,
   stateOfTask,
   formatDuration,
+  formatAgo,
   turnBucket,
   startOfDay,
   STATE_ORDER,
   STATE_META,
   GROUP_ORDER,
+  KPI_KEYS,
   TURN_BUCKETS,
 } from '../src/client/runsView.js'
 
@@ -64,9 +66,11 @@ const task = (id, extra) => Object.assign({
 
 /* ---------------- 状态优先级 ---------------- */
 
-check('STATE_ORDER 就是口径顺序（改口径只动这张表）', () => {
+check('STATE_ORDER 就是口径顺序（改口径只动这张表），分组里没有 done', () => {
   assert.deepEqual(STATE_ORDER, ['suspended', 'blocked', 'running', 'started', 'done'])
-  assert.deepEqual(GROUP_ORDER, ['running', 'started', 'blocked', 'suspended', 'done', 'idle'])
+  assert.deepEqual(GROUP_ORDER, ['running', 'started', 'blocked', 'suspended', 'idle'])
+  assert.equal(GROUP_ORDER.includes('done'), false, '已完成不上运行页')
+  assert.deepEqual(KPI_KEYS, ['running', 'started', 'suspended', 'blocked', 'sessions'])
 })
 
 check('优先级：全开时挂起赢', () => {
@@ -138,13 +142,14 @@ check('startOfDay 用本地时区取 0 点', () => {
 
 /* ---------------- 空 / 坏数据 ---------------- */
 
-check('空数据：empty=true、没有分组、四个概览卡全 0，不抛', () => {
+check('空数据：empty=true、没有分组、五张 KPI 全 0，不抛', () => {
   const view = buildRuns({ tasks: [], now: NOW })
   assert.equal(view.empty, true)
   assert.deepEqual(view.groups, [])
   assert.equal(view.bubbles.length, 0)
-  assert.equal(view.overview.length, 4)
-  assert.deepEqual(view.overview.map((row) => row.value), [0, 0, 0, 0])
+  assert.equal(view.overview.length, 5)
+  assert.deepEqual(view.overview.map((row) => row.value), [0, 0, 0, 0, 0])
+  assert.deepEqual(view.overview.map((row) => row.ratio), [0, 0, 0, 0, 0])
   assert.equal(view.activity.length, 4)
   assert.deepEqual(view.longest, [])
   assert.deepEqual(view.alerts, [])
@@ -155,7 +160,7 @@ check('坏数据：null / 字符串 / 数组里混垃圾都不崩', () => {
     const view = buildRuns(bad)
     assert.equal(typeof view.empty, 'boolean')
     assert.equal(Array.isArray(view.groups), true)
-    assert.equal(view.overview.length, 4)
+    assert.equal(view.overview.length, 5)
   }
 })
 
@@ -176,11 +181,12 @@ const MIX = [
   task('idle1', { no: 7, sessionId: '' }),
 ]
 
-check('分组：按 GROUP_ORDER 排，空组不出现，计数对', () => {
+check('分组：按 GROUP_ORDER 排，空组不出现，已完成整组不出现', () => {
   const view = buildRuns({ tasks: MIX, now: NOW })
-  assert.deepEqual(view.groups.map((group) => group.key), ['running', 'started', 'blocked', 'suspended', 'done', 'idle'])
-  assert.deepEqual(view.groups.map((group) => group.count), [2, 1, 1, 1, 1, 1])
-  assert.equal(view.groups.reduce((sum, group) => sum + group.count, 0), MIX.length, '每个任务恰好进一个组')
+  assert.deepEqual(view.groups.map((group) => group.key), ['running', 'started', 'blocked', 'suspended', 'idle'])
+  assert.deepEqual(view.groups.map((group) => group.count), [2, 1, 1, 1, 1])
+  assert.equal(view.skippedDone, 1, 'MIX 里那条已完成被入口过滤掉')
+  assert.equal(view.groups.reduce((sum, group) => sum + group.count, 0), view.total, '每个未完成任务恰好进一个组')
   assert.equal(view.groups[0].label, '运行中')
   assert.equal(view.groups[0].breathing, true, '运行中的组要呼吸')
 })
@@ -209,30 +215,47 @@ check('气泡字段：编号/标题/项目/状态/是否呼吸/会话可用性/�
 
 /* ---------------- 概览 / 活跃度 ---------------- */
 
-check('运行概览四卡：运行中 / 等待 / 挂起 / 今日完成', () => {
+check('KPI 五卡：运行中 / 等待中 / 挂起 / 阻塞 / 已绑会话，分母是未完成任务数', () => {
   const view = buildRuns({ tasks: MIX, now: NOW })
-  assert.deepEqual(view.overview.map((row) => row.key), ['running', 'started', 'suspended', 'todayDone'])
-  assert.deepEqual(view.overview.map((row) => row.value), [2, 1, 1, 1])
+  assert.deepEqual(view.overview.map((row) => row.key), ['running', 'started', 'suspended', 'blocked', 'sessions'])
+  assert.deepEqual(view.overview.map((row) => row.value), [2, 1, 1, 1, 5])
+  assert.equal(view.overview.every((row) => row.total === 6), true, '分母 = 未完成 6 条（done 不算）')
+  assert.equal(view.overview[0].pct, 33)
   assert.equal(view.overview[0].breathing, true)
+  assert.equal(view.overview[4].pct, 83, '已绑会话 5/6')
+  assert.ok(view.overview.every((row) => row.ratio >= 0 && row.ratio <= 1))
+  assert.ok(view.overview.every((row) => row.eyebrow && row.eyebrow === row.eyebrow.toUpperCase()))
 })
 
-check('今日完成：只有完成时间落在今天 0 点之后才算', () => {
+check('已完成的任务：入口过滤，KPI 分母 / 气泡 / 历史 / 时长 / 告警全都没有它', () => {
   const tasks = [
-    task('d1', { done: true, completedAt: NOW - HOUR }),
-    task('d2', { done: true, completedAt: NOW - 2 * 24 * HOUR }),
+    task('d1', { done: true, completedAt: NOW - HOUR, startedAt: NOW - 5 * HOUR, sessionId: 's-d1', running: true }),
+    task('d2', { done: true, completedAt: NOW - 2 * 24 * HOUR, suspended: true }),
+    task('live', { running: true, startedAt: NOW - HOUR }),
   ]
   const view = buildRuns({ tasks, now: NOW })
-  assert.equal(view.todayDone, 1)
-  assert.equal(view.hasCompletionTime, true)
-  assert.equal(view.overview[3].label, '今日完成')
-  assert.equal(view.overview[3].value, 1)
+  assert.equal(view.total, 1, '只剩未完成的 1 条')
+  assert.equal(view.skippedDone, 2)
+  const text = JSON.stringify(view)
+  assert.equal(text.includes('"d1"'), false, '气泡/历史/告警里都不许出现 d1')
+  assert.equal(text.includes('"d2"'), false, 'd2 也一样')
+  assert.equal(view.bubbles.length, 1)
+  assert.equal(view.history.length, 1)
+  assert.deepEqual(view.longest.map((row) => row.id), ['live'])
+  assert.deepEqual(view.alerts, [])
+  assert.equal(view.overview.every((row) => row.total === 1), true, 'KPI 分母不含 done')
+  assert.equal(view.overview[1].value, 0, 'd2 明明是 suspended，但已完成 → 不进等待/挂起')
 })
 
-check('今日完成：一个完成时间都没有时退化为「累计已完成」并改标题', () => {
+check('全是已完成 → 运pages 空态（empty=true），不会假装有数据', () => {
   const view = buildRuns({ tasks: [task('d1', { done: true }), task('d2', { done: true })], now: NOW })
-  assert.equal(view.hasCompletionTime, false)
-  assert.equal(view.overview[3].label, '已完成')
-  assert.equal(view.overview[3].value, 2)
+  assert.equal(view.empty, true)
+  assert.equal(view.total, 0)
+  assert.equal(view.skippedDone, 2)
+  assert.deepEqual(view.bubbles, [])
+  assert.deepEqual(view.history, [])
+  assert.deepEqual(view.groups, [])
+  assert.equal(view.overview.every((row) => row.value === 0), true)
 })
 
 check('会话活跃度：只统计已绑会话，四档计数与占比守恒', () => {
@@ -315,6 +338,24 @@ check('需要人看一眼：最多 8 条', () => {
 
 /* ---------------- 规模 ---------------- */
 
+check('执行历史列表：按最近活跃倒序，带 编号 / 相对时间 / 状态', () => {
+  const tasks = [
+    task('old', { no: 3, started: true, startedAt: NOW - 6 * HOUR }),
+    task('newest', { no: 2, running: true, startedAt: NOW - 5 * 60 * 1000 }),
+    task('sus', { no: 1, suspended: true, suspendedAt: NOW - 30 * 60 * 1000 }),
+    task('none', { no: 9, sessionId: '' }),
+  ]
+  const view = buildRuns({ tasks, now: NOW })
+  assert.deepEqual(view.history.map((row) => row.id), ['newest', 'sus', 'old', 'none'])
+  assert.equal(view.history[0].agoText, '5 分钟前')
+  assert.equal(view.history[1].agoText, '30 分钟前')
+  assert.equal(view.history[3].agoText, '时间未记录')
+  assert.equal(view.history[0].noText, '#2')
+  assert.equal(view.history[0].tone, 'success')
+  assert.equal(view.history[0].breathing, true)
+  assert.equal(view.history[3].canOpenSession, false)
+})
+
 check('大量任务（400 条）也稳：分组计数守恒、Top5 不越界', () => {
   const tasks = Array.from({ length: 400 }, (_, i) => task(`t${i}`, {
     no: i + 1,
@@ -329,8 +370,9 @@ check('大量任务（400 条）也稳：分组计数守恒、Top5 不越界', (
     completedAt: i % 5 === 0 ? NOW - HOUR : 0,
   }))
   const view = buildRuns({ tasks, now: NOW })
-  assert.equal(view.total, 400)
-  assert.equal(view.groups.reduce((sum, group) => sum + group.count, 0), 400)
+  assert.equal(view.total, 320, '400 条里有 80 条已完成，被入口过滤')
+  assert.equal(view.skippedDone, 80)
+  assert.equal(view.groups.reduce((sum, group) => sum + group.count, 0), view.total)
   assert.equal(view.longest.length, 5)
   assert.ok(view.alerts.length <= 8)
 })
@@ -366,8 +408,11 @@ check('已完成的任务不参与时长（不给完成的任务算「跑了多�
     now: 1_000_000,
     tasks: [{ id: 'd', no: 9, title: 'D', done: true, runningSince: 100_000, startedAt: 100_000 }],
   })
-  assert.equal(view.bubbles[0].elapsed, 0)
+  assert.equal(view.bubbles.length, 0, '已完成的任务入口就被滤掉，气泡里没有它')
+  assert.equal(view.history.length, 0)
   assert.equal(view.longest.length, 0)
+  assert.equal(view.skippedDone, 1)
+  assert.equal(view.empty, true)
 })
 
 console.log('')
