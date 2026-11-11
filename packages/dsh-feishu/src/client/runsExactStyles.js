@@ -33,14 +33,14 @@ export const CSS = `
      （上一版把文字色写死成浅灰，亮色模式下就是「浅灰字压白底」——用户实测反馈的问题）。
      只有气泡的品牌绿/蓝光晕保留参考项目的原始色值：那是语义色，亮暗两种模式下都成立。 */
   --frx-text: var(--dsw-alias-label-primary);
-  --frx-text-strong: var(--dsw-alias-label-primary);
-  --frx-text-dim: var(--dsw-alias-label-secondary);
+  --frx-text-strong: color-mix(in oklab, var(--dsw-alias-label-primary) 94%, transparent);
+  --frx-text-dim: color-mix(in oklab, var(--dsw-alias-label-secondary) 92%, transparent);
   --frx-text-faint: color-mix(in oklab, var(--dsw-alias-label-secondary) 75%, transparent);
-  --frx-surface: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 55%, transparent);
-  --frx-surface-hover: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 70%, transparent);
-  --frx-border: color-mix(in oklab, var(--dsw-alias-border-l1) 80%, transparent);
+  --frx-surface: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 82%, transparent);
+  --frx-surface-hover: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 92%, transparent);
+  --frx-border: color-mix(in oklab, var(--dsw-alias-border-l1) 62%, transparent);
   --frx-border-hover: var(--dsw-alias-border-l2);
-  --frx-inner: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 55%, transparent);
+  --frx-inner: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 70%, transparent);
   --frx-orb-bg-1: color-mix(in oklab, var(--dsw-alias-label-primary) 9%, transparent);
   --frx-orb-bg-2: color-mix(in oklab, var(--dsw-alias-label-primary) 4%, transparent);
   --frx-orb-dim-border: color-mix(in oklab, var(--dsw-alias-label-secondary) 40%, transparent);
@@ -50,16 +50,16 @@ export const CSS = `
   --frx-tip-bg: var(--dsw-alias-bg-overlay);
   --frx-tip-fg: var(--dsw-alias-label-primary);
   --frx-tip-meta: var(--dsw-alias-label-secondary);
-  --frx-shadow: 0 18px 24px -12px color-mix(in oklab, var(--dsw-alias-bg-base) 55%, transparent);
+  --frx-shadow: 0 1px 2px color-mix(in oklab, var(--dsw-alias-bg-base) 22%, transparent), 0 10px 22px -16px color-mix(in oklab, var(--dsw-alias-bg-base) 60%, transparent);
   --frx-scrollbar: color-mix(in oklab, var(--dsw-alias-label-secondary) 30%, transparent);
   /* 参考项目：lg:[--dashboard-row-h:clamp(320px,calc((100vh-220px)/3),520px)] */
   --frx-row-h: clamp(320px, calc((100vh - 220px) / 3), 520px);
 }
-.frx-header { display: flex; flex-direction: column; gap: 8px; }
+.frx-header { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; }
 .frx-title {
-  margin: 0; font-size: 24px; line-height: 1.1; font-weight: 700; letter-spacing: -0.01em; color: #f9fafb;
+  margin: 0; font-size: 20px; line-height: 1.1; font-weight: 700; letter-spacing: -0.01em; color: #f9fafb;
 }
-.frx-subtitle { margin: 0; font-size: 13px; color: var(--frx-text-dim); }
+.frx-subtitle { margin: 0; font-size: 12px; line-height: 1.5; color: var(--frx-text-dim); }
 
 /* ---------- 卡片（GlassCard：bg-white/5 + backdrop-blur-md + border-white/10 + rounded-2xl + p-6 + shadow-xl） ---------- */
 .frx-grid {
@@ -70,7 +70,7 @@ export const CSS = `
 .frx-grid.is-tight { height: auto; }
 .frx-card {
   position: relative; overflow: hidden; display: flex; flex-direction: column;
-  padding: 24px; border-radius: 16px; cursor: default;
+  padding: 20px; border-radius: 14px; cursor: default;
   background: var(--frx-surface);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
   border: 1px solid var(--frx-border);
@@ -99,7 +99,7 @@ export const CSS = `
 .frx-icon.is-ok { background: rgba(34, 197, 94, 0.2); border: 1px solid rgba(34, 197, 94, 0.5); color: #22c55e; }
 .frx-icon.is-idle { background: rgba(156, 163, 175, 0.15); border: 1px solid rgba(156, 163, 175, 0.4); color: #9ca3af; }
 .frx-icon.is-brand { background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); color: #60a5fa; }
-.frx-card-title { margin: 0; font-size: 18px; font-weight: 700; color: #f9fafb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.frx-card-title { margin: 0; font-size: 15px; font-weight: 700; color: #f9fafb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .frx-card-sub { margin: 0; font-size: 12px; font-weight: 500; }
 .frx-card-sub.is-ok { color: #22c55e; }
 .frx-card-sub.is-idle { color: var(--frx-text-dim); }
@@ -184,7 +184,7 @@ export const CSS = `
   margin: 0 0 12px; font-size: 10px; font-weight: 700; letter-spacing: .12em;
   text-transform: uppercase; color: var(--frx-text-dim);
 }
-.frx-bubbles { position: relative; height: 96px; display: flex; align-items: center; justify-content: center; }
+.frx-bubbles { position: relative; width: 100%; max-width: 520px; height: 116px; margin: 4px auto 0; }
 .frx-orb-slot { position: absolute; }
 .frx-orb-slot:hover { z-index: 20; }
 /* 圆本体：rounded-full + overflow-hidden + border-2 + bg-gradient-to-br from-white/8 via-white/4 to-transparent */
@@ -232,9 +232,14 @@ export const CSS = `
   background: rgba(255, 255, 255, 0.3); filter: blur(1px); pointer-events: none;
 }
 .frx-orb-label {
-  position: absolute; inset: 0; z-index: 5; display: flex; align-items: center; justify-content: center;
-  padding: 0 4px; font-size: 8px; font-weight: 700; line-height: 1.15; text-align: center; color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 1px rgba(0, 0, 0, 0.5);
+  /* 必须在水位之上（水位是 20/21）：否则数字被液体盖住、视觉上就「不在圆心」 */
+  position: absolute; inset: 0; z-index: 22; display: flex; align-items: center; justify-content: center;
+  padding: 0 4px; font-size: 9px; font-weight: 700; line-height: 1; text-align: center;
+  /* 不再写死纯白：深色主题下用主文字色（近白），亮色主题下它自动变成深色，
+     压在水位上的可读性两边都成立。 */
+  color: var(--dsw-alias-label-primary);
+  font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  text-shadow: 0 1px 2px color-mix(in oklab, var(--dsw-alias-bg-base) 65%, transparent);
   pointer-events: none; word-break: break-word;
 }
 /* 水位（WaterLevel.tsx）：两层 SVG，填充 + 波浪线，都被圆形裁剪 */
