@@ -15,7 +15,7 @@
 
 import { buildRuns } from './runsView.js'
 import { injectExactStyles } from './runsExactStyles.js'
-import { PROJECT_ICONS, normalizeIconId } from './projectIcons.js'
+import { iconDrawNodes, normalizeIcon, colorHex } from './projectIcons.js'
 
 let styleReady = false
 function ensureStyles() {
@@ -76,6 +76,8 @@ export function createRunsFeature(deps) {
   ]
   const POSITIONS = RAW_POSITIONS.map((pos) => ({ ...pos, top: compress(pos.top), left: compress(pos.left) }))
   const MAX_ORBS = 8
+  /* 极简标记 → SVG 标签（图标数据为了体积压缩过标签名） */
+  const TAG_MAP = { p: 'path', c: 'circle', r: 'rect', l: 'line', pl: 'polyline', pg: 'polygon' }
 
   /** 图标（内联 SVG，不引图标库；参考项目用的是 lucide） */
   const icon = (name, size) => {
@@ -101,6 +103,33 @@ export function createRunsFeature(deps) {
    *
    * 一层 SVG 里画完：底色圆 + 描边 + 球面高光（radialGradient）+ 水位（clipPath + 矩形 + 波浪线）+ 数字（<text>）。
    */
+  /**
+   * 圆内内容：项目图标（Lucide 节点）/ Emoji / 任务编号，三选一。
+   * 项目配了颜色就用到图标描边（emoji 无法上色，靠气泡描边表达）。
+   */
+  const orbInner = (o) => {
+    const icon = String(o.icon || '')
+    if (icon.startsWith('emoji:')) {
+      return h('text', { x: 50, y: 53, textAnchor: 'middle', dominantBaseline: 'central', fontSize: 50, fill: 'currentColor' }, icon.slice(6))
+    }
+    const nodes = iconDrawNodes(icon)
+    if (nodes && nodes.length) {
+      return h('g', {
+        transform: `translate(23 23) scale(${(54 / 24).toFixed(4)})`,
+        fill: 'none',
+        stroke: o.tint || 'var(--dsw-alias-label-primary)',
+        strokeWidth: (2.4 / (54 / 24)).toFixed(3),
+        strokeLinecap: 'round', strokeLinejoin: 'round',
+      }, nodes.map((node, i) => h(TAG_MAP[node.tag] || 'path', { key: i, ...node.attrs })))
+    }
+    return h('text', {
+      x: 50, y: 50, textAnchor: 'middle', dominantBaseline: 'central',
+      fontSize: String(o.label || '').length > 3 ? 20 : 24, fontWeight: 700,
+      fill: 'var(--dsw-alias-label-primary)',
+      style: { fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' },
+    }, o.label || '')
+  }
+
   const orbSvg = (opts) => {
     const o = opts || {}
     const size = Math.max(24, Number(o.size) || 48)
@@ -108,7 +137,6 @@ export function createRunsFeature(deps) {
     const running = o.running === true
     const suspended = o.suspended === true
     const label = String(o.label || '')
-    const iconPaths = Array.isArray(o.iconPaths) && o.iconPaths.length ? o.iconPaths : null
     const uid = `o${String(o.id || 'x').replace(/[^a-zA-Z0-9]/g, '')}`
     const R = 46
     const lineY = 100 - (pct / 100) * (R * 2)   // viewBox 100 单位下的水位线
@@ -150,23 +178,8 @@ export function createRunsFeature(deps) {
             h('animate', { attributeName: 'd', dur: '3s', repeatCount: 'indefinite', values: `${wave1};${wave2};${wave1}` })))
         : null,
       /* 数字：SVG 文本，text-anchor + dominant-baseline 严格居中 */
-      /* 圆内内容：项目配了图标就画图标（24×24 缩放到 ~44 单位，线宽反向补偿），
-         没配才画任务编号（SVG 文本，严格居中）。 */
-      iconPaths
-        ? h('g', {
-          /* 图标占圆内约 54/100（视觉重量更足），线宽做反向补偿让视觉线宽≈2.4 */
-          transform: `translate(${(50 - 27).toFixed(1)} ${(50 - 27).toFixed(1)}) scale(${(54 / 24).toFixed(4)})`,
-          fill: 'none',
-          stroke: running ? 'var(--dsw-alias-label-primary)' : 'color-mix(in oklab, var(--dsw-alias-label-primary) 82%, transparent)',
-          strokeWidth: (2.4 / (54 / 24)).toFixed(3),
-          strokeLinecap: 'round', strokeLinejoin: 'round',
-        }, iconPaths.map((d, i) => h('path', { key: i, d })))
-        : h('text', {
-          x: 50, y: 50, textAnchor: 'middle', dominantBaseline: 'central',
-          fontSize: label.length > 3 ? 20 : 24, fontWeight: 700,
-          fill: 'var(--dsw-alias-label-primary)',
-          style: { fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' },
-        }, label),
+      /* 圆内内容：项目图标 / emoji / 任务编号 */
+      orbInner({ icon: o.icon || '', tint: o.tint || '', label }),
     )
   }
 
@@ -236,16 +249,12 @@ export function createRunsFeature(deps) {
       const map = new Map()
       const rows = Array.isArray((ctx.snapshot || ctx).workspaces) ? (ctx.snapshot || ctx).workspaces : []
       rows.forEach((row) => {
-        const id = normalizeIconId(row && row.logo)
-        if (id && row && row.key) map.set(String(row.key), id)
+        const icon = normalizeIcon(row && row.logo)
+        if (icon && row && row.key) map.set(String(row.key), { icon, color: colorHex(row.logoColor) })
       })
       return map
     })()
-    const iconPathsOf = (key) => {
-      const id = logoMap.get(String(key || '')) || ''
-      const icon = id ? PROJECT_ICONS[id] : null
-      return icon ? icon.paths : null
-    }
+    const logoFor = (key) => logoMap.get(String(key || '')) || null
     const openSession = typeof ctx.onOpenSession === 'function' ? ctx.onOpenSession : null
     const select = (id) => { if (typeof ctx.onOpenTask === 'function') ctx.onOpenTask(id) }
 
@@ -358,7 +367,8 @@ export function createRunsFeature(deps) {
                     running: isRunning,
                     suspended: isSuspended,
                     label: String(row.no || '').slice(-4) || String(row.id).slice(-3),
-                    iconPaths: iconPathsOf(row.workspaceKey),
+                    icon: (logoFor(row.workspaceKey) || {}).icon || '',
+                    tint: (logoFor(row.workspaceKey) || {}).color || '',
                     id: row.id,
                   }),
                   h('button', {

@@ -237,7 +237,50 @@ export const CSS = `
 .fo-logo-head { display: flex; align-items: baseline; gap: 8px; }
 .fo-logo-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .fo-logo-sub { font-size: 11px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fo-logo-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.fo-logo-search { display: flex; flex-direction: column; gap: 8px; }
+.fo-logo-input {
+  width: 100%; height: 34px; padding: 0 10px; border-radius: 9px; font: inherit; font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 70%, transparent);
+  border: 1px solid var(--fo-glass-line);
+}
+.fo-logo-input::placeholder { color: var(--dsw-alias-label-secondary); }
+.fo-logo-tabs { display: flex; gap: 6px; }
+.fo-logo-tab {
+  padding: 4px 10px; border-radius: 8px; font: inherit; font-size: 12px; cursor: pointer;
+  color: var(--dsw-alias-label-secondary); background: transparent;
+  border: 1px solid var(--fo-glass-line);
+}
+.fo-logo-tab[data-active="1"] {
+  color: var(--dsw-alias-label-primary);
+  background: color-mix(in oklab, var(--dsw-alias-brand-primary) 20%, transparent);
+  border-color: color-mix(in oklab, var(--dsw-alias-brand-primary) 45%, transparent);
+}
+.fo-logo-section { display: flex; flex-direction: column; gap: 6px; }
+.fo-logo-section-title { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--dsw-alias-label-secondary); }
+.fo-logo-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.fo-logo-grid-scroll { max-height: 210px; overflow-y: auto; padding-right: 4px; }
+.fo-logo-grid-scroll::-webkit-scrollbar { width: 6px; }
+.fo-logo-grid-scroll::-webkit-scrollbar-thumb { background: color-mix(in oklab, var(--dsw-alias-label-secondary) 30%, transparent); border-radius: 999px; }
+.fo-logo-emoji-scroll { max-height: 230px; overflow-y: auto; gap: 10px; }
+.fo-logo-emoji-group { display: flex; flex-direction: column; gap: 4px; }
+.fo-logo-emoji-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.fo-logo-emoji-cell {
+  height: 30px; border-radius: 8px; font-size: 17px; line-height: 1; cursor: pointer;
+  background: transparent; border: 1px solid transparent;
+}
+.fo-logo-emoji-cell:hover { background: color-mix(in oklab, var(--dsw-alias-brand-primary) 16%, transparent); border-color: color-mix(in oklab, var(--dsw-alias-brand-primary) 40%, transparent); }
+.fo-logo-colors { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fo-logo-color {
+  width: 22px; height: 22px; border-radius: 999px; cursor: pointer; font-size: 13px; line-height: 1;
+  color: var(--dsw-alias-label-secondary);
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 60%, transparent);
+  border: 1px solid var(--fo-glass-line);
+}
+.fo-logo-color[data-active="1"] {
+  outline: 2px solid color-mix(in oklab, var(--dsw-alias-brand-primary) 75%, transparent);
+  outline-offset: 1px;
+}
 .fo-logo-cell {
   display: flex; align-items: center; justify-content: center;
   height: 40px; border-radius: 10px; cursor: pointer;

@@ -4563,8 +4563,10 @@ function createSyncEngine(ctx) {
         id: row.id || '',
         title: row.title || '',
         path: row.path || '',
-        /* 项目图标（纯展示）：没配就是空串，客户端回退到任务编号 */
-        logo: asString(state.workspaceLogos?.[row.id || row.path || '']),
+        /* 项目图标（纯展示）：没配就是空串，客户端回退到任务编号。
+           icon 形如 `lucide:code` / `emoji:🚀`；color 是八色板的 id。 */
+        logo: logoOfKey(row.id || row.path || '').icon,
+        logoColor: logoOfKey(row.id || row.path || '').color,
       })),
       tasks,
       relations,
@@ -6262,15 +6264,26 @@ function createSyncEngine(ctx) {
    * @param {string} workspaceKey 与快照里 workspaces[].key 一致（id 优先，其次 path）
    * @param {string} iconId 内置图标 id；空串 = 清除
    */
-  async function setWorkspaceLogo(workspaceKey, iconId) {
+  async function setWorkspaceLogo(workspaceKey, icon, color) {
     const key = asString(workspaceKey)
     if (!key) return { ok: false, error: '缺少项目 key' }
-    const id = asString(iconId)
+    const id = asString(icon)
+    const tone = asString(color)
     const logos = state.workspaceLogos ?? (state.workspaceLogos = {})
-    if (id) logos[key] = id
-    else delete logos[key]
+    if (id || tone) {
+      /* 兼容两种历史形状：早期存字符串（只有图标 id），现在存 { icon, color } */
+      logos[key] = id ? { icon: id, color: tone } : { icon: '', color: tone }
+    } else delete logos[key]
     await persistState()
-    return { ok: true, workspaceKey: key, logo: id, logos: { ...logos } }
+    return { ok: true, workspaceKey: key, logo: id, color: tone, logos: { ...logos } }
+  }
+
+  /** 读某项目的图标/颜色（兼容旧字符串值） */
+  function logoOfKey(key) {
+    const raw = state.workspaceLogos?.[asString(key)]
+    if (!raw) return { icon: '', color: '' }
+    if (typeof raw === 'string') return { icon: raw, color: '' }
+    return { icon: asString(raw.icon), color: asString(raw.color) }
   }
 
   /** 拒绝若干条建议：只改建议单状态，不碰关系。 */
@@ -9991,7 +10004,11 @@ function mountRoutes(ctx, engine) {
 
           if (route === '/api/workspace-logos' && req.method === 'POST') {
             const body = await readBody(req)
-            const result = await engine.setWorkspaceLogo(asString(body?.workspaceKey ?? body?.id), asString(body?.icon ?? body?.logo))
+            const result = await engine.setWorkspaceLogo(
+              asString(body?.workspaceKey ?? body?.id),
+              asString(body?.icon ?? body?.logo),
+              asString(body?.color),
+            )
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }

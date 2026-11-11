@@ -23,7 +23,7 @@ import * as layoutModule from '../overview/layout.js'
 import { createDetailPanel } from './DetailPanel.js'
 import { createFeatures, featureById } from './features.js'
 import { createOrganizeDrawer } from './OrganizeDrawer.js'
-import { ICON_IDS, PROJECT_ICONS, renderIcon, normalizeIconId } from './projectIcons.js'
+import { renderIcon, searchIcons, suggestIcons, iconLabel, emojiGroups, ICON_COLORS, normalizeIcon } from './projectIcons.js'
 
 const MIN_POLL_MS = 15000
 const DEFAULT_POLL_MS = 30000
@@ -313,6 +313,10 @@ export function createOverviewPanel(deps) {
     const [hostNote, setHostNote] = useState('')
     /* 项目图标选择器：{ key, title } | null（纯本地展示配置，不写飞书） */
     const [logoPicker, setLogoPicker] = useState(null)
+    /* 图标选择器的临时状态：搜索词 / 图标或 emoji 页 / 选中的颜色 */
+    const [logoQuery, setLogoQuery] = useState('')
+    const [logoTab, setLogoTab] = useState('icon')
+    const [logoColor, setLogoColor] = useState('')
     /* 一键整理（task-16）：抽屉开关 + 最近一批建议 + 逐条失败原因。整块状态放一个对象里，
        因为「跑」是异步的，分开的 setState 会出现抽屉和 batch 短暂对不上的中间态。 */
     const [org, setOrg] = useState(() => {
@@ -503,7 +507,14 @@ export function createOverviewPanel(deps) {
       if (id === 'new-group') { setCreatingFor(''); setCreating(true); return }
       if (id === 'move-new') { setCreatingFor(row.id); setCreating(true); return }
       if (id === 'focus') { setScope({ kind: 'project', id: row.id }); return }
-      if (id === 'logo') { setLogoPicker({ key: String(row.id || ''), title: String(row.label || row.id || '') }); return }
+      if (id === 'logo') {
+        const current = Array.isArray(workspaces) ? workspaces.find((w) => String(w.key || '') === String(row.id || '')) : null
+        setLogoPicker({ key: String(row.id || ''), title: String(row.label || row.id || '') })
+        setLogoQuery('')
+        setLogoTab('icon')
+        setLogoColor(String((current && current.logoColor) || ''))
+        return
+      }
       if (id === 'delete') {
         runGroup({ action: 'delete', id: row.id }).then((res) => {
           if (res && scope.kind === 'group' && scope.id === row.id) setScope({ kind: 'all', id: '' })
@@ -521,20 +532,21 @@ export function createOverviewPanel(deps) {
     }, [groups, load, runGroup, scope])
 
     /** 选一个项目图标（空串 = 清除）；失败写 hostNote，成功重拉快照让气泡立刻换图标 */
-    const applyLogo = useCallback((iconId) => {
+    const applyLogo = useCallback((iconId, colorId) => {
       const picker = logoPicker
       if (!picker || !picker.key) return Promise.resolve(false)
       const fn = apiRef.current.setWorkspaceLogo
       if (!fn) { setHostNote('当前宿主不支持设置项目图标'); return Promise.resolve(false) }
+      const color = colorId === undefined ? logoColor : colorId
       return Promise.resolve()
-        .then(() => fn(picker.key, iconId || ''))
+        .then(() => fn(picker.key, iconId || '', color || ''))
         .then((res) => {
-          if (res && res.ok === true) { setLogoPicker(null); load(true); return true }
+          if (res && res.ok === true) { setLogoPicker(null); setLogoQuery(''); setLogoColor(''); load(true); return true }
           setHostNote((res && res.error) || '设置项目图标失败')
           return false
         })
         .catch((error) => { setHostNote(String((error && error.message) || error) || '设置项目图标失败'); return false })
-    }, [load, logoPicker])
+    }, [load, logoPicker, logoColor])
 
     const onSelectRow = useCallback((row) => {
       if (!row) return
@@ -1109,16 +1121,70 @@ export function createOverviewPanel(deps) {
               h('span', { className: 'fo-logo-title' }, '项目图标'),
               h('span', { className: 'fo-logo-sub' }, model.str(logoPicker.title)),
             ),
-            h('div', { className: 'fo-logo-grid' }, ICON_IDS.map((id) => h('button', {
-              key: id,
-              type: 'button',
-              className: 'fo-logo-cell',
-              'data-icon': id,
-              title: PROJECT_ICONS[id].label,
-              onClick: () => { applyLogo(id) },
-            }, renderIcon({ h }, id, 18)))),
+            /* 搜索：英文 id 与中文别名都能搜（1400+ 图标直接铺出来找不到） */
+            h('div', { className: 'fo-logo-search' },
+              h('input', {
+                className: 'fo-logo-input',
+                type: 'text',
+                value: logoQuery,
+                placeholder: logoTab === 'icon' ? '搜索图标：代码 / 数据 / cloud / chart…' : '搜索 Emoji 分类…',
+                'aria-label': '搜索图标',
+                autoFocus: true,
+                onChange: (event) => setLogoQuery(event.currentTarget.value),
+                onKeyDown: (event) => { if (event.key === 'Escape') setLogoPicker(null) },
+              }),
+              h('div', { className: 'fo-logo-tabs', role: 'tablist' },
+                h('button', { type: 'button', className: 'fo-logo-tab', 'data-active': logoTab === 'icon' ? '1' : '0', onClick: () => setLogoTab('icon') }, '图标'),
+                h('button', { type: 'button', className: 'fo-logo-tab', 'data-active': logoTab === 'emoji' ? '1' : '0', onClick: () => setLogoTab('emoji') }, 'Emoji'),
+              ),
+            ),
+            /* 按项目名推荐：打开就给出几个「像这个项目」的图标 */
+            logoTab === 'icon' && !logoQuery.trim()
+              ? h('div', { className: 'fo-logo-section' },
+                h('span', { className: 'fo-logo-section-title' }, '按项目名推荐'),
+                h('div', { className: 'fo-logo-grid' }, suggestIcons(logoPicker.title, 8).map((id) => h('button', {
+                  key: `s-${id}`,
+                  type: 'button',
+                  className: 'fo-logo-cell',
+                  title: iconLabel(id),
+                  onClick: () => { applyLogo(`lucide:${id}`) },
+                }, renderIcon({ h }, `lucide:${id}`, 18)))))
+              : null,
+            logoTab === 'icon'
+              ? h('div', { className: 'fo-logo-section' },
+                h('span', { className: 'fo-logo-section-title' }, logoQuery.trim() ? '搜索结果' : '全部图标（可搜索）'),
+                h('div', { className: 'fo-logo-grid fo-logo-grid-scroll' }, searchIcons(logoQuery, 240).map((id) => h('button', {
+                  key: id,
+                  type: 'button',
+                  className: 'fo-logo-cell',
+                  title: iconLabel(id),
+                  onClick: () => { applyLogo(`lucide:${id}`) },
+                }, renderIcon({ h }, `lucide:${id}`, 18)))))
+              : h('div', { className: 'fo-logo-section fo-logo-emoji-scroll' },
+                emojiGroups().map((group) => h('div', { key: group.key, className: 'fo-logo-emoji-group' },
+                  h('span', { className: 'fo-logo-section-title' }, group.label),
+                  h('div', { className: 'fo-logo-emoji-grid' }, group.items.map((ch) => h('button', {
+                    key: `${group.key}-${ch}`,
+                    type: 'button',
+                    className: 'fo-logo-emoji-cell',
+                    onClick: () => { applyLogo(`emoji:${ch}`) },
+                  }, ch))))),
+              ),
+            /* 颜色：不同项目用不同色的图标，气泡一眼可分 */
+            h('div', { className: 'fo-logo-colors' },
+              h('span', { className: 'fo-logo-section-title' }, '颜色'),
+              ICON_COLORS.map((color) => h('button', {
+                key: color.id || 'default',
+                type: 'button',
+                className: 'fo-logo-color',
+                'data-active': (logoColor || '') === color.id ? '1' : '0',
+                title: color.label,
+                style: color.hex ? { background: color.hex } : undefined,
+                onClick: () => setLogoColor(color.id),
+              }, color.hex ? '' : '·')),
+            ),
             h('div', { className: 'fo-logo-foot' },
-              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', 'data-action': 'logo-clear', onClick: () => { applyLogo('') } }, '清除图标（回到任务编号）'),
+              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', 'data-action': 'logo-clear', onClick: () => { applyLogo('', '') } }, '清除（回到任务编号）'),
               h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-action': 'logo-close', onClick: () => setLogoPicker(null) }, '关闭'),
             ),
           ))
