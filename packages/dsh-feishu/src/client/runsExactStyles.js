@@ -21,9 +21,35 @@ export const STYLE_ID = 'dsh-feishu-runs-exact-style'
 export const CSS = `
 /* ---------- 页面骨架（Dashboard.tsx 的 space-y-8 + 4 列网格） ---------- */
 .frx-page {
-  display: flex; flex-direction: column; gap: 32px;
-  padding: 24px 0 0;
-  color: #e5e7eb;
+  display: flex; flex-direction: column; gap: 24px;
+  /* 侧边栏（rail）与卡片之间要留出呼吸位：左右各 20px + 上下 16/28px，
+     否则卡片会贴着 rail 的边线，看起来像「挤在一起」。 */
+  padding: 16px 20px 28px;
+  color: var(--frx-text);
+
+  /* 表面/文字/描边一律**从宿主令牌派生**：亮色深色自动跟着变，不需要我自己判断主题
+     （上一版把文字色写死成浅灰，亮色模式下就是「浅灰字压白底」——用户实测反馈的问题）。
+     只有气泡的品牌绿/蓝光晕保留参考项目的原始色值：那是语义色，亮暗两种模式下都成立。 */
+  --frx-text: var(--dsw-alias-label-primary);
+  --frx-text-strong: var(--dsw-alias-label-primary);
+  --frx-text-dim: var(--dsw-alias-label-secondary);
+  --frx-text-faint: color-mix(in oklab, var(--dsw-alias-label-secondary) 75%, transparent);
+  --frx-surface: color-mix(in oklab, var(--dsw-alias-bg-layer-1) 55%, transparent);
+  --frx-surface-hover: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 70%, transparent);
+  --frx-border: color-mix(in oklab, var(--dsw-alias-border-l1) 80%, transparent);
+  --frx-border-hover: var(--dsw-alias-border-l2);
+  --frx-inner: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 55%, transparent);
+  --frx-orb-bg-1: color-mix(in oklab, var(--dsw-alias-label-primary) 9%, transparent);
+  --frx-orb-bg-2: color-mix(in oklab, var(--dsw-alias-label-primary) 4%, transparent);
+  --frx-orb-dim-border: color-mix(in oklab, var(--dsw-alias-label-secondary) 40%, transparent);
+  --frx-avatar-border: color-mix(in oklab, var(--dsw-alias-border-l1) 80%, transparent);
+  --frx-avatar-bg: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 60%, transparent);
+  --frx-avatar-ring: var(--dsw-alias-bg-base);
+  --frx-tip-bg: var(--dsw-alias-bg-overlay);
+  --frx-tip-fg: var(--dsw-alias-label-primary);
+  --frx-tip-meta: var(--dsw-alias-label-secondary);
+  --frx-shadow: 0 18px 24px -12px color-mix(in oklab, var(--dsw-alias-bg-base) 55%, transparent);
+  --frx-scrollbar: color-mix(in oklab, var(--dsw-alias-label-secondary) 30%, transparent);
   /* 参考项目：lg:[--dashboard-row-h:clamp(320px,calc((100vh-220px)/3),520px)] */
   --frx-row-h: clamp(320px, calc((100vh - 220px) / 3), 520px);
 }
@@ -31,7 +57,7 @@ export const CSS = `
 .frx-title {
   margin: 0; font-size: 24px; line-height: 1.1; font-weight: 700; letter-spacing: -0.01em; color: #f9fafb;
 }
-.frx-subtitle { margin: 0; font-size: 13px; color: #9ca3af; }
+.frx-subtitle { margin: 0; font-size: 13px; color: var(--frx-text-dim); }
 
 /* ---------- 卡片（GlassCard：bg-white/5 + backdrop-blur-md + border-white/10 + rounded-2xl + p-6 + shadow-xl） ---------- */
 .frx-grid {
@@ -43,13 +69,13 @@ export const CSS = `
 .frx-card {
   position: relative; overflow: hidden; display: flex; flex-direction: column;
   padding: 24px; border-radius: 16px; cursor: default;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--frx-surface);
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--frx-border);
+  box-shadow: var(--frx-shadow);
   transition: border-color .3s ease, transform .3s ease;
 }
-.frx-card:hover { border-color: rgba(255, 255, 255, 0.2); }
+.frx-card:hover { border-color: var(--frx-border-hover); }
 .frx-card.is-span2 { grid-column: span 2; }
 .frx-card.is-half-row { height: calc((var(--frx-row-h) - 24px) / 2); }
 /* 参考项目卡片内那层 hover 才出现的蓝紫渐变 */
@@ -74,10 +100,10 @@ export const CSS = `
 .frx-card-title { margin: 0; font-size: 18px; font-weight: 700; color: #f9fafb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .frx-card-sub { margin: 0; font-size: 12px; font-weight: 500; }
 .frx-card-sub.is-ok { color: #22c55e; }
-.frx-card-sub.is-idle { color: #9ca3af; }
+.frx-card-sub.is-idle { color: var(--frx-text-dim); }
 .frx-version { text-align: right; }
-.frx-version-label { margin: 0; font-size: 12px; color: #9ca3af; }
-.frx-version-value { margin: 0; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #e5e7eb; }
+.frx-version-label { margin: 0; font-size: 12px; color: var(--frx-text-dim); }
+.frx-version-value { margin: 0; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--frx-text); }
 .frx-icon-btn {
   width: 32px; height: 32px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center;
   background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); color: #60a5fa;
@@ -87,15 +113,15 @@ export const CSS = `
 
 /* ---------- 卡片底部两个小盒（Health Score / Status） ---------- */
 .frx-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: auto; }
-.frx-box { background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; }
+.frx-box { background: var(--frx-surface); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; }
 .frx-box-label {
   margin: 0 0 4px; font-size: 10px; font-weight: 700; letter-spacing: .12em;
-  text-transform: uppercase; color: #9ca3af;
+  text-transform: uppercase; color: var(--frx-text-dim);
 }
 .frx-box-value { margin: 0; margin-top: auto; font-size: 24px; line-height: 1.15; font-weight: 700; color: #60a5fa; }
 .frx-box-value.is-purple { color: #c084fc; }
 .frx-box-value.is-green { color: #4ade80; }
-.frx-box-unit { font-size: 12px; color: #6b7280; margin-left: 4px; }
+.frx-box-unit { font-size: 12px; color: var(--frx-text-faint); margin-left: 4px; }
 
 /* ---------- 大数字卡（Total Skills / Agents Running） ---------- */
 .frx-bigrow { display: flex; align-items: flex-start; justify-content: space-between; }
@@ -105,13 +131,13 @@ export const CSS = `
 .frx-delta { font-size: 12px; font-weight: 700; }
 .frx-delta.is-up { color: #22c55e; }
 .frx-delta.is-flat { color: #9ca3af; }
-.frx-stat-label { margin: 0; font-size: 14px; color: #9ca3af; }
-.frx-stat-value { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 700; color: #f9fafb; }
+.frx-stat-label { margin: 0; font-size: 14px; color: var(--frx-text-dim); }
+.frx-stat-value { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 700; color: var(--frx-text-strong); }
 .frx-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .frx-pill {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
   padding: 4px 8px; border-radius: 6px; font-size: 11px;
-  background: rgba(255, 255, 255, 0.06); color: #d1d5db;
+  background: var(--frx-inner); color: var(--frx-text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .frx-pill em { font-style: normal; color: #93c5fd; font-weight: 700; }
@@ -121,40 +147,40 @@ export const CSS = `
 .frx-rows { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
 .frx-row {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 16px; border-radius: 12px; background: rgba(255, 255, 255, 0.05);
+  padding: 16px; border-radius: 12px; background: var(--frx-surface);
   transition: background .2s ease; cursor: pointer; text-align: left; border: 0; width: 100%;
   color: inherit;
 }
-.frx-row:hover { background: rgba(255, 255, 255, 0.1); }
+.frx-row:hover { background: var(--frx-surface-hover); }
 .frx-row-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .frx-avatar {
   position: relative; width: 40px; height: 40px; flex: 0 0 auto; border-radius: 10px; overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1); display: flex; align-items: center; justify-content: center;
-  background: rgba(255, 255, 255, 0.06); font-size: 12px; font-weight: 700; color: #e5e7eb;
+  border: 1px solid var(--frx-avatar-border); display: flex; align-items: center; justify-content: center;
+  background: var(--frx-avatar-bg); font-size: 12px; font-weight: 700; color: var(--frx-text);
 }
 .frx-avatar-dot {
   position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 999px;
-  border: 2px solid #101018; background: #6b7280;
+  border: 2px solid var(--frx-avatar-ring); background: #6b7280;
 }
 .frx-avatar-dot.is-running { background: #22c55e; }
 .frx-avatar-dot.is-suspended { background: #f59e0b; }
 .frx-row-main { min-width: 0; }
-.frx-row-title { margin: 0; font-size: 13px; font-weight: 600; color: #f3f4f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.frx-row-meta { margin: 0; font-size: 11px; color: #9ca3af; }
+.frx-row-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--frx-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frx-row-meta { margin: 0; font-size: 11px; color: var(--frx-text-dim); }
 .frx-row-status { font-size: 11px; font-weight: 700; letter-spacing: .04em; }
 .frx-row-status.is-running { color: #60a5fa; }
 .frx-row-status.is-suspended { color: #fbbf24; }
 .frx-row-status.is-idle { color: #9ca3af; }
 .frx-row-btn {
   padding: 6px 12px; border-radius: 8px; font-size: 12px; cursor: pointer;
-  background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); color: #e5e7eb;
+  background: var(--frx-inner); border: 1px solid var(--frx-border); color: var(--frx-text);
 }
-.frx-row-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.frx-row-btn:hover { background: var(--frx-surface-hover); }
 
 /* ---------- 气泡群（ClaudeModelBubbles dashboard-desktop） ---------- */
 .frx-bubbles-label {
   margin: 0 0 12px; font-size: 10px; font-weight: 700; letter-spacing: .12em;
-  text-transform: uppercase; color: #9ca3af;
+  text-transform: uppercase; color: var(--frx-text-dim);
 }
 .frx-bubbles { position: relative; height: 96px; display: flex; align-items: center; justify-content: center; }
 .frx-orb-slot { position: absolute; }
@@ -162,9 +188,10 @@ export const CSS = `
 /* 圆本体：rounded-full + overflow-hidden + border-2 + bg-gradient-to-br from-white/8 via-white/4 to-transparent */
 .frx-orb {
   position: relative; display: block; width: 100%; height: 100%; padding: 0; cursor: pointer;
-  border-radius: 9999px; overflow: hidden; border: 2px solid transparent;
-  background: linear-gradient(to bottom right,
-    rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
+  /* 强制正圆：宿主可能对 button 有通用圆角/尺寸样式，这里用 !important 钉死，
+     否则实机上会出现「不是圆的」（用户实测反馈）。 */
+  border-radius: 50% !important; aspect-ratio: 1 / 1; overflow: hidden; border: 2px solid transparent;
+  background: linear-gradient(to bottom right, var(--frx-orb-bg-1), var(--frx-orb-bg-2), rgba(255, 255, 255, 0));
   transition: transform .3s ease, border-color .3s ease, box-shadow .3s ease;
 }
 .frx-orb:hover { transform: scale(1.1); }
@@ -189,7 +216,7 @@ export const CSS = `
 /* 不可用 / 未开始：1px 白 15% + 轻微投影 */
 .frx-orb.is-dim {
   border-width: 1px;
-  border-color: rgba(255, 255, 255, 0.15);
+  border-color: var(--frx-orb-dim-border);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 /* 球面高光：左上 30% 的模糊白光 + 右上一个 18% 小亮点 */
@@ -219,12 +246,12 @@ export const CSS = `
   position: absolute; left: 50%; bottom: 100%; z-index: 30; transform: translateX(-50%);
   margin-bottom: 8px; display: flex; flex-direction: column; gap: 3px;
   padding: 8px 12px; border-radius: 8px; white-space: nowrap;
-  background: rgba(0, 0, 0, 0.95); border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--frx-tip-bg); border: 1px solid var(--frx-border);
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
   pointer-events: none;
 }
-.frx-orb-tip-name { font-size: 10px; font-weight: 700; color: #fff; }
-.frx-orb-tip-meta { font-size: 9px; color: #d1d5db; }
+.frx-orb-tip-name { font-size: 10px; font-weight: 700; color: var(--frx-tip-fg); }
+.frx-orb-tip-meta { font-size: 9px; color: var(--frx-tip-meta); }
 .frx-orb-tip-hint { font-size: 8px; color: #4ade80; }
 
 /* 漂浮：参考项目 @keyframes float 原样（-8/-4/-10px，+3/-3/+2px） */
@@ -254,10 +281,11 @@ export const CSS = `
 .frx-action.is-purple { background: linear-gradient(to right, rgba(147, 51, 234, 0.9), rgba(219, 39, 119, 0.9)); }
 /* ghost：参考项目那种「次要动作」——半透明底 + 细边框，铺满网格但视觉更轻 */
 .frx-action.is-ghost {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--frx-surface);
+  border: 1px solid var(--frx-border);
+  color: var(--frx-text);
 }
-.frx-action.is-ghost:hover { background: rgba(255, 255, 255, 0.1); }
+.frx-action.is-ghost:hover { background: var(--frx-surface-hover); }
 .frx-action-icon {
   width: 40px; height: 40px; border-radius: 12px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
   background: rgba(255, 255, 255, 0.18);
@@ -267,7 +295,7 @@ export const CSS = `
 
 /* ---------- 细滚动条 ---------- */
 .frx-rows::-webkit-scrollbar { width: 6px; }
-.frx-rows::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 999px; }
+.frx-rows::-webkit-scrollbar-thumb { background: var(--frx-scrollbar); border-radius: 999px; }
 
 /* ---------- 窄屏：参考项目的 md/lg 断点 ---------- */
 @media (max-width: 1100px) {
