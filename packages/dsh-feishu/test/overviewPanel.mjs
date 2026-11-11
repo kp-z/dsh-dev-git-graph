@@ -603,9 +603,10 @@ check('侧栏宽度 232px（--fo-rail-w，根栅格第一列用它）', () => {
   assert.ok(ruleBody('.fo-root').includes('--fo-rail-w: 232px'), 'rail 宽 232px')
   assert.ok(ruleBody('.fo-root').includes('grid-template-columns: var(--fo-rail-w) minmax(0, 1fr)'), '根：rail | 正文')
   assert.ok(ruleBody('.fo-root[data-rail="0"]').includes('--fo-rail-w: 52px'), '收起成 52px 图标条')
-  /* 收起态必须把 caret 一起藏掉：只藏文字会让图标偏左（用户实测「折叠时图标没对齐」） */
-  /* caret 与另外两条选择器写在同一个规则组里（逗号列表），所以按整份 CSS 断言 */
-  assert.ok(/\.fo-root\[data-rail="0"\] \.fo-nav-caret,[\s\S]{0,120}display: none/.test(CSS_BARE), '收起态连同 caret 一起隐藏')
+  /* 收起态必须把 caret 一起藏掉：只藏文字会让图标偏左（用户实测「折叠时图标没对齐」）。
+     caret 与 .fo-nav-label 写在同一个逗号选择器组里，所以按整份 CSS 断言。 */
+  assert.ok(/\.fo-root\[data-rail="0"\] \.fo-nav-label,[\s\S]{0,200}\.fo-nav-caret[\s\S]{0,120}display: none/.test(CSS_BARE)
+    || /\.fo-root\[data-rail="0"\] \.fo-nav-caret[\s\S]{0,120}display: none/.test(CSS_BARE), '收起态连同 caret 一起隐藏')
   assert.ok(ruleBody('.fo-body').includes('grid-template-columns: minmax(0, 1fr)'), '正文只有功能页一列')
   /* 详情列改成弹性宽度：面板本身很窄时不能强行占 336（那是整页 aside 的口径） */
   assert.ok(ruleBody('.fo-root[data-detail="1"] .fo-body').includes('clamp(260px, 30%, 336px)'), '开详情才多一列（弹性）')
@@ -614,8 +615,8 @@ check('侧栏宽度 232px（--fo-rail-w，根栅格第一列用它）', () => {
   assert.ok(containerBody('fopanel (max-width: 960px)').includes('--fo-rail-w: 196px'), '面板窄了才收窄 rail')
 })
 
-/* ---- task-14：rail = 品牌 + 功能导航 + 底部固定区 ---- */
-check('rail 三段：品牌 / 功能导航 / 底部固定区', () => {
+/* ---- task-14 → 用户口径：rail = 品牌（logo 即折叠按钮）+ 功能导航 ---- */
+check('rail 两段：品牌（logo 是折叠按钮）/ 功能导航（底部固定区已移除）', () => {
   const rail = ruleBody('.fo-rail')
   assert.ok(rail.includes('display: flex') && rail.includes('flex-direction: column'))
   assert.ok(rail.includes('border-right: 1px solid var(--fo-rail-line)'))
@@ -627,9 +628,8 @@ check('rail 三段：品牌 / 功能导航 / 底部固定区', () => {
   const nav = ruleBody('.fo-featnav')
   assert.ok(nav.includes('flex: 1'), '导航区 flex-1')
   assert.ok(nav.includes('gap: 8px') && nav.includes('padding: 10px'))
-  const foot = ruleBody('.fo-rail-foot')
-  assert.ok(foot.includes('margin-top: auto'), '底部固定区 mt-auto')
-  assert.ok(foot.includes('border-top: 1px solid var(--fo-glass-line)'))
+  /* 用户口径：「去掉刷新按钮，折叠按钮放在侧边栏上方的 logo」→ 底部固定区整块不存在了 */
+  assert.equal(ruleBody('.fo-rail-foot'), '', '底部固定区已移除')
 })
 check('功能项：高 44 / 圆角 12 / gap 10 / 图标 20 / 文字 13 / 选中沿用品牌口径', () => {
   const item = ruleBody('.fo-featnav-item')
@@ -828,12 +828,14 @@ check('rail 三段 DOM：品牌（两行文字）/ 功能导航 / 底部固定�
   assert.ok(rail, 'rail 在')
   assert.equal(byClass(rail, 'fo-brand').length, 1)
   assert.equal(byClass(rail, 'fo-featnav').length, 1)
-  assert.equal(byClass(rail, 'fo-rail-foot').length, 1)
+  /* 侧栏底部不再有刷新/折叠按钮：折叠移到品牌 logo 上，刷新挪到正文头部 */
+  assert.equal(byClass(rail, 'fo-rail-foot').length, 0, '侧栏底部整块去掉')
   const brandText = textOf(byClass(rail, 'fo-brand')[0])
   assert.ok(brandText.includes('任务'), '主标题')
   assert.ok(brandText.includes('DeepSeek Harness'), '副标题')
   assert.equal(byClass(rail, 'fo-brand-logo').length, 1, 'logo 方块')
-  assert.ok(byClass(rail, 'fo-rail-foot')[0].children.length >= 2, '底部有刷新 + 折叠按钮')
+  assert.equal(byClass(rail, 'fo-brand-logo')[0].props.type, 'button', 'logo 本身就是折叠按钮')
+  assert.ok('aria-expanded' in byClass(rail, 'fo-brand-logo')[0].props, 'logo 带 aria-expanded')
 })
 check('rail 两级菜单：一级项「关系」（可展开）+ 它的二级菜单就是范围树', () => {
   const rail = railEl(tree)
@@ -2059,7 +2061,7 @@ let raceTree = race.tree
 check('竞态前置：首屏就绪（g1 = 2 项目）', () => {
   assert.ok(textOf(rowByDataId(raceTree, 'g1')).includes('2 项目'))
 })
-const refreshButton = findAll(raceTree, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '刷新')[0]
+const refreshButton = findAll(raceTree, (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'refresh')[0]
 check('竞态前提前提：刷新按钮在（点它 = 发一次会悬着的 load）', () => { assert.ok(refreshButton) })
 refreshButton.props.onClick()
 raceTree = await race.mini.act()

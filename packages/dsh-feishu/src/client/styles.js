@@ -189,22 +189,23 @@ export const CSS = `
 .fo-subnav .fo-input { height: 24px; }
 /* rail 收成 56px 图标条时二级菜单整个藏起来（列不下，也没法操作） */
 .fo-root[data-rail="0"] .fo-subnav { display: none; }
-.fo-rail-foot {
-  margin-top: auto;
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--fo-glass-line);
-}
+/* 说明：底部固定区（刷新/折叠）已按用户口径移除 —— 折叠在品牌 logo 上，刷新在正文头部。 */
 /* rail 收起：只留 56px 图标条（按钮仍可点，能再展开） */
 /* rail 收起：只留 52px 图标条。**caret 必须一起藏**——只藏文字、留着 ▾ 会让图标偏左，
    用户实测「折叠时图标没对齐」就是这么来的。 */
 .fo-root[data-rail="0"] { --fo-rail-w: 52px; }
-.fo-root[data-rail="0"] .fo-brand { justify-content: center; padding: 10px 8px; }
+/* 收起态：logo 与下面的一级项**同尺寸正方形**（36×36 / 圆角 10），整条 rail 只留图标列 */
+.fo-root[data-rail="0"] .fo-brand { justify-content: center; padding: 8px 0; }
+.fo-root[data-rail="0"] .fo-brand-logo { width: 36px; height: 36px; border-radius: 10px; }
+/* 收起态：文字与 caret 都隐藏（只藏文字会让图标偏左） */
 .fo-root[data-rail="0"] .fo-brand-text,
 .fo-root[data-rail="0"] .fo-nav-label,
-.fo-root[data-rail="0"] .fo-nav-caret,
-.fo-root[data-rail="0"] .fo-rail-foot .fo-btn:first-child { display: none; }
-.fo-root[data-rail="0"] .fo-featnav-item { justify-content: center; padding: 0; gap: 0; }
+.fo-root[data-rail="0"] .fo-nav-caret { display: none; }
+/* 收起态：一级项是 36×36 的正方形，与 logo 同尺寸 */
+.fo-root[data-rail="0"] .fo-featnav-item {
+  justify-content: center; padding: 0; gap: 0;
+  width: 36px; height: 36px; margin: 0 auto; border-radius: 10px;
+}
 /* 收起态：图标本身严格居中（不靠子元素宽度凑），并禁掉 caret 的旋转占位 */
 .fo-root[data-rail="0"] .fo-featnav-item > svg,
 .fo-root[data-rail="0"] .fo-featnav-item > .fo-nav-icon { margin: 0 auto; flex: 0 0 auto; }

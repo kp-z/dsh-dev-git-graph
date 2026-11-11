@@ -914,7 +914,16 @@ export function createOverviewPanel(deps) {
       /* 侧栏三段：品牌 / 功能导航 / 底部固定区（折叠按钮在这里，折起来 rail 变 56px 图标条） */
       h('aside', { className: 'fo-rail', 'aria-label': '功能导航' },
         h('div', { className: 'fo-brand' },
-          h('span', { className: 'fo-brand-logo', 'aria-hidden': 'true' },
+          /* 折叠按钮就是 logo 本身（用户口径：折叠按钮放在侧边栏上方的 logo）。
+             收起后它和下面的一级项一样是正方形图标块，点一下展开。 */
+          h('button', {
+            type: 'button',
+            className: 'fo-brand-logo',
+            'aria-expanded': railOpen ? 'true' : 'false',
+            'aria-label': railOpen ? '收起侧栏' : '展开侧栏',
+            title: railOpen ? '收起侧栏' : '展开侧栏',
+            onClick: () => setRailOpen((prev) => prev !== true),
+          },
             h('svg', { width: 20, height: 20, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' },
               h('path', { d: 'M3 5.5h9M3 10h14M3 14.5h7' }),
               h('circle', { cx: 15.5, cy: 5.5, r: 1.4 }),
@@ -959,25 +968,6 @@ export function createOverviewPanel(deps) {
             )
           }),
         ),
-        h('div', { className: 'fo-rail-foot' },
-          h('button', {
-            type: 'button',
-            className: 'fo-btn',
-            'data-size': 'sm',
-            'data-variant': 'ghost',
-            disabled: state.status === 'loading' || busy,
-            onClick: () => load(false),
-          }, state.status === 'loading' ? '刷新中…' : '刷新'),
-          h('button', {
-            type: 'button',
-            className: 'fo-btn',
-            'data-size': 'sm',
-            'data-variant': 'ghost',
-            'aria-expanded': railOpen ? 'true' : 'false',
-            title: railOpen ? '收起侧栏' : '展开侧栏',
-            onClick: () => setRailOpen((prev) => prev !== true),
-          }, railOpen ? '«' : '»'),
-        ),
       ),
       h('div', { className: 'fo-body' },
         h('div', { className: 'fo-main' },
@@ -1013,6 +1003,24 @@ export function createOverviewPanel(deps) {
               activeFeature && activeFeature.search === true && scope.kind !== 'all'
                 ? h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => setScope({ kind: 'all', id: '' }) }, '全部任务')
                 : null,
+              /* 侧栏不再放刷新（用户口径）；刷新挪到正文头部，做成只有图标的按钮，不抢视线。 */
+              h('button', {
+                type: 'button',
+                className: 'fo-btn',
+                'data-size': 'sm',
+                'data-variant': 'ghost',
+                'data-action': 'refresh',
+                title: state.status === 'loading' ? '正在刷新…' : '刷新',
+                'aria-label': '刷新',
+                disabled: state.status === 'loading' || busy,
+                onClick: () => load(false),
+              }, h('svg', {
+                width: 14, height: 14, viewBox: '0 0 20 20', fill: 'none', stroke: 'currentColor',
+                strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': 'true',
+              },
+                h('path', { d: 'M16.5 10a6.5 6.5 0 1 1-2-4.6' }),
+                h('path', { d: 'M16.8 2.6v4.2h-4.2' }),
+              )),
             ),
           ),
           /* 宿主动作失败的提示（role=status）：打开会话没成功时给一句人话，别静默。 */
