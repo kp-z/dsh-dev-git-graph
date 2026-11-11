@@ -428,6 +428,12 @@
       MIX 夹具的分母（5）、已绑会话（4）、活跃度分档（1/1/1/1）、历史排序、400 条总量（291）全部重算。
 - [x] 证据：runsView 30、overviewPanel 207、dashboardStyles 8、npm test 0、offline 80 JS + 7 Python。
 
+**第 22 轮（20:30，小步收尾）**
+
+- [x] **气泡放大档位持久化**（`1e114b5`）：档位存宿主 store 键 `runsZoom`（0.5~2 之外回落 1），
+      重开面板/刷新后保持；新增两条断言（三档存在、点「大」后 store=1.3 且高亮切换）。
+- [x] 证据：overviewPanel 209、npm test 0、offline 80 JS + 7 Python。
+
 - [ ] **下一轮入口（重要）**：
       1) **等用户确认「1461 个」出现在选择器标题里**；若没有 → 客户端包是进程启动时缓存的，
          必须 `Cmd+Q` 完全退出 DSH 再打开（plugin toggle 换不掉）；
