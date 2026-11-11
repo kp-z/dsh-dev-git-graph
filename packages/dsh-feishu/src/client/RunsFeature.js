@@ -222,9 +222,20 @@ export function createRunsFeature(deps) {
     const cols = Array.isArray(colState) ? colState[0] : colState
     const setCols = Array.isArray(colState) ? colState[1] : setColState
     /* 气泡放大显示：0.85 / 1 / 1.3 三档（面板头部有「小/中/大」按钮） */
-    const [zoomState, setZoomState] = useState ? useState(1) : [1, () => {}]
+    const initialZoom = (() => {
+      const n = Number(ctx.orbZoom)
+      return Number.isFinite(n) && n >= 0.5 && n <= 2 ? n : 1
+    })()
+    const [zoomState, setZoomState] = useState ? useState(initialZoom) : [initialZoom, () => {}]
     const orbZoom = Array.isArray(zoomState) ? zoomState[0] : zoomState
-    const setOrbZoom = Array.isArray(zoomState) ? zoomState[1] : setZoomState
+    const setOrbZoomRaw = Array.isArray(zoomState) ? zoomState[1] : setZoomState
+    /* 档位既改本地 state，也回写到宿主的 store（刷新后保持） */
+    const setOrbZoom = (value) => {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return
+      setOrbZoomRaw(n)
+      if (typeof ctx.onOrbZoom === 'function') ctx.onOrbZoom(n)
+    }
     const [hoverState, setHoverState] = useState ? useState(null) : [null, () => {}]
     const hoveredId = Array.isArray(hoverState) ? hoverState[0] : hoverState
     const setHoveredId = Array.isArray(hoverState) ? hoverState[1] : setHoverState

@@ -892,6 +892,17 @@ export function createOverviewPanel(deps) {
       nodePos,
       hostReady: hostCan.ok,
       hostReason: hostCan.reason,
+      /* 运行页的气泡放大档位：存在宿主的 store 里（刷新/重开面板后保持） */
+      orbZoom: (() => {
+        const raw = readStore(store, 'runsZoom')
+        const n = Number(raw)
+        return Number.isFinite(n) && n >= 0.5 && n <= 2 ? n : 1
+      })(),
+      onOrbZoom: (value) => {
+        const n = Number(value)
+        if (!Number.isFinite(n)) return
+        writeStore(store, 'runsZoom', n)
+      },
       onOpenTask: (id) => openTask(id),
       onFocusTask: focusTask,
       onNodeMove: moveNode,

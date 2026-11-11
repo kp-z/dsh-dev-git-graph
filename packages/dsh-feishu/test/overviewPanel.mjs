@@ -2298,6 +2298,25 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   })
 }
 
+/* ---- 10c2. 气泡放大档位：点「大」会回写 store（刷新后保持） ---- */
+{
+  const zoom = await mountPanel({ startFeature: 'runs' })
+  let ztree = zoom.tree
+  const buttons = () => findAll(ztree, (node) => node.kind === 'host' && node.type === 'button' && classNameOf(node) === 'frx-zoom-btn')
+  check('运行页有「小/中/大」三档放大按钮', () => {
+    assert.equal(buttons().length, 3, `实际 ${buttons().length}`)
+    assert.deepEqual(buttons().map((b) => textOf(b).trim()), ['小', '中', '大'])
+  })
+  const big = buttons().find((b) => textOf(b).trim() === '大')
+  big.props.onClick()
+  ztree = await zoom.mini.act()
+  check('点「大」→ 档位落 store（重开面板还在）', () => {
+    assert.equal(Number(zoom.store.data.get('runsZoom')), 1.3)
+    const active = buttons().find((b) => b.props['data-active'] === '1')
+    assert.ok(active && textOf(active).trim() === '大', textOf(active || {}))
+  })
+}
+
 /* ---- 10d. 洞察页的历史指标接线（adaptApi 白名单曾漏掉 insightStats →
              真机永远显示「历史指标不可用」；这条断言就是为它加的） ---- */
 {
