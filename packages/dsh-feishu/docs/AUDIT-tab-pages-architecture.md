@@ -85,6 +85,20 @@
 
 ---
 
+## 5b. 怎么一眼判断「页面跑的是不是最新包」（构建号）
+
+这个插件反复出现「改了 → 重建 → 刷新 → 看起来没变」。为了不再靠猜，客户端现在带**构建号**：
+
+- `scripts/stamp-build.mjs` 在 `build:client` 前把 git short sha + 构建时间写进 `src/client/buildInfo.js`；
+- 面板根节点有 `data-build="<sha> · <时间>"`；
+- 图标选择器标题显示「项目图标 · 1461 个」+ 右侧构建号。
+
+判断方法：
+- DevTools：`document.querySelector('.fo-root').dataset.build` → 与最新提交比对；
+- 或者打开图标选择器看标题右侧那串；
+- 看不到新构建号 = 包没换：先 `Cmd+R`，再不行 `Cmd+Q` 完全退出 DSH 重开
+  （plugin_manager 的 disable→enable 只重载宿主半体，客户端文件在某些宿主版本里是启动时缓存的）。
+
 ## 6. 每次改样式的验收清单（照着做就不会「改了没生效」）
 
 1. `node --check` 改过的文件；
