@@ -88,7 +88,9 @@ check('减少动效：呼吸/脉冲一律 !important 关掉（不能靠源码顺
   assert.ok(block, '没有 prefers-reduced-motion 分支')
   const body = block[1]
   assert.ok(/\.fr-bubble\.is-running[^{]*\{[^}]*animation: none !important/.test(body), '运行中气泡要 animation: none !important')
-  assert.ok(/\.fr-bubble-pulse[^{]*\{[^}]*animation: none !important/.test(body), '外圈脉冲要关')
+  /* 气泡墙换成参考项目的实现后不再有 `.fr-bubble-pulse` 外圈脉冲，
+     所以这里改钉「脉冲类没有残留」，呼吸仍由 fr-breathe / fr-orb-breathe 承担。 */
+  assert.equal(/\.fr-bubble-pulse/.test(CSS_CODE), false, '气泡墙不再有 .fr-bubble-pulse 残留')
   assert.ok(/animation: none !important/.test(body) && /transition: none !important/.test(body), '动效与过渡都要关')
 })
 
