@@ -343,15 +343,19 @@ export function createRunsFeature(deps) {
                     },
                     onMouseEnter: () => { if (typeof setHoveredId === 'function') setHoveredId(row.id) },
                     onMouseLeave: () => { if (typeof setHoveredId === 'function') setHoveredId(null) },
-                    onClick: () => select(row.id),
-                    onDoubleClick: () => { if (canOpen && openSession) openSession(row.sessionId, row.title) },
+                    /* 单击就跳会话（用户口径）：有绑定会话的泡点一下直接切过去；
+                       没绑会话的泡退化成「选中并看详情」，不留死点。 */
+                    onClick: () => {
+                      if (canOpen && openSession) openSession(row.sessionId, row.title)
+                      else select(row.id)
+                    },
                   }),
                   hoveredId === row.id
                     ? h('span', { className: 'frx-orb-tip', role: 'tooltip' },
                       h('span', { className: 'frx-orb-tip-name' }, row.title || ''),
                       h('span', { className: 'frx-orb-tip-meta' },
                         `${isRunning ? '运行中' : (isSuspended ? '挂起' : '未开始')}${pct > 0 ? ` · 水位 ${pct}%` : ''}`),
-                      h('span', { className: 'frx-orb-tip-hint' }, canOpen ? '双击打开会话' : '没有绑定会话'))
+                      h('span', { className: 'frx-orb-tip-hint' }, canOpen ? '单击打开会话' : '没有绑定会话 · 单击看详情'))
                     : null)
               }))
             : h('p', { className: 'frx-subtitle' }, '没有未完成的任务')),

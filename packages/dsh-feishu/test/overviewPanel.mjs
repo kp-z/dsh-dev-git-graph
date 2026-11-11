@@ -2259,31 +2259,34 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.equal(bubbles().length, 2)
   })
 
-  const firstBubble = () => bubbles()[0]
-  firstBubble().props.onClick()
+  /* 用户口径：单击有会话的泡直接跳会话；没会话的泡才退化成「选中看详情」。
+     所以「点气泡开详情」这条要拿**没绑会话**的那条来验。 */
+  const noSessionBubble = () => bubbles().find((orb) => orb.props['aria-label'].includes('任务 r2'))
+  noSessionBubble().props.onClick()
   rtree = await run.mini.act()
-  check('点气泡 = 选中该任务并打开右侧详情', () => {
+  check('点没绑会话的气泡 = 选中该任务并打开右侧详情', () => {
     assert.equal(rootOf(rtree).props['data-detail'], '1')
-    assert.ok(textOf(rtree).includes('任务 r1'), textOf(rtree).slice(0, 80))
+    assert.ok(textOf(rtree).includes('任务 r2'), textOf(rtree).slice(0, 80))
   })
 
-  /* 参考项目的气泡没有独立「↗」按钮：**双击气泡**打开会话（title 里给提示） */
+  /* 用户口径：**单击**气泡就跳会话（不是双击）；没绑会话的泡退化成「选中看详情」。 */
   const withSession = bubbles().find((orb) => orb.props['aria-label'].includes('任务 r1'))
   assert.ok(withSession, '应能找到任务 r1 的气泡')
-  withSession.props.onDoubleClick()
+  withSession.props.onClick()
   rtree = await run.mini.act()
-  check('双击气泡 → 调 host.openSession(sessionId, 任务标题)', () => {
+  check('单击气泡 → 调 host.openSession(sessionId, 任务标题)', () => {
     assert.equal(hostCalls.length, 1, JSON.stringify(hostCalls))
     assert.equal(hostCalls[0].sessionId, 'sess-running')
     assert.ok(String(hostCalls[0].expectedTitle).includes('任务 r1'), hostCalls[0].expectedTitle)
   })
-  check('没绑会话的气泡：双击不报错、title 里说明「没有绑定会话」', () => {
+  check('没绑会话的气泡：单击不调宿主，退化成「选中看详情」', () => {
+    const before = rootOf(rtree).props['data-detail']
     const noSession = bubbles().find((orb) => orb.props['aria-label'].includes('任务 r2'))
     assert.ok(noSession, '任务 r2 的气泡在')
-    noSession.props.onDoubleClick()
+    noSession.props.onClick()
     assert.equal(hostCalls.length, 1, '没有会话时不该调用宿主')
-    /* hover 浮层里也要写清原因 */
-    return true
+    assert.ok(noSession.props.title.includes('未开始') || noSession.props.title.includes('挂起'), String(noSession.props.title))
+    return before === '1'
   })
 }
 
