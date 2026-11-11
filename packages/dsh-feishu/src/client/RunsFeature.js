@@ -59,7 +59,11 @@ export function createRunsFeature(deps) {
   const useState = React && typeof React.useState === 'function' ? React.useState : null
 
   /* 参考项目的气泡坐标表（DASHBOARD_POSITIONS 原值） */
-  const POSITIONS = [
+  /* 参考项目的 8 个散点位，但**往中心收了一档**（top/left 各向 50% 压缩 22%）。
+     原因：参考卡只占 4 列网格的 2 列（~520px），我们这块面板更宽，照抄会显得「四周大片空白」；
+     收一档后仍保持「星座式、不重叠」的观感，但成簇感更强。 */
+  const compress = (pct) => `${Math.round(50 + (Number.parseFloat(pct) - 50) * 0.78)}%`
+  const RAW_POSITIONS = [
     { size: 55, top: '8%', left: '75%' },
     { size: 52, top: '10%', left: '28%' },
     { size: 48, top: '50%', left: '12%' },
@@ -69,6 +73,7 @@ export function createRunsFeature(deps) {
     { size: 32, top: '65%', left: '35%' },
     { size: 28, top: '15%', left: '8%' },
   ]
+  const POSITIONS = RAW_POSITIONS.map((pos) => ({ ...pos, top: compress(pos.top), left: compress(pos.left) }))
   const MAX_ORBS = 8
 
   /** 图标（内联 SVG，不引图标库；参考项目用的是 lucide） */
@@ -287,7 +292,7 @@ export function createRunsFeature(deps) {
               className: 'frx-bubbles',
               role: 'list',
               'aria-label': '任务气泡墙',
-              style: { position: 'relative', width: '100%', maxWidth: '520px', height: '116px', margin: '4px auto 0' },
+              style: { position: 'relative', width: '100%', maxWidth: '430px', height: '112px', margin: '4px auto 0' },
             },
               orbRows.map((row, index) => {
                 const pos = POSITIONS[index]
