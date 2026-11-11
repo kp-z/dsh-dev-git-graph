@@ -55,10 +55,6 @@ export const CSS = `
   /* 参考项目：lg:[--dashboard-row-h:clamp(320px,calc((100vh-220px)/3),520px)] */
   --frx-row-h: clamp(320px, calc((100vh - 220px) / 3), 520px);
 }
-.frx-header { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; }
-.frx-title {
-  margin: 0; font-size: 20px; line-height: 1.1; font-weight: 700; letter-spacing: -0.01em; color: #f9fafb;
-}
 .frx-subtitle { margin: 0; font-size: 12px; line-height: 1.5; color: var(--frx-text-dim); }
 
 /* ---------- 卡片（GlassCard：bg-white/5 + backdrop-blur-md + border-white/10 + rounded-2xl + p-6 + shadow-xl） ---------- */

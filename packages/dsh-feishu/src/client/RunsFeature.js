@@ -565,11 +565,10 @@ export function createRunsFeature(deps) {
       ],
     })
 
-    return h('div', { ref: hostRef, className: 'frx-page', 'data-skipped-done': String(view.skippedDone || 0) },
-      h('header', { key: 'h', className: 'frx-header' },
-        h('h1', { className: 'frx-title' }, '运行'),
-        h('p', { className: 'frx-subtitle' },
-          `${unfinished} 条未完成任务 · ${runningList.length} 条正在跑 · ${view.skippedDone || 0} 条已完成（不上页）`)),
+    return h('div', { ref: hostRef, className: 'frx-page', 'data-skipped-done': String(view.skippedDone || 0), 'data-skipped-suspended': String(view.skippedSuspended || 0) },
+      /* 这里**不放页头**：用户口径「『运行 / N 条未完成任务…』这一行都不需要显示」。
+         页面名已经在左侧导航与内容头部有，本页直接进卡片。
+         被过滤掉的已完成/挂起数量仍挂在根节点的 data-skipped-* 上（自证用，不占版面）。 */
       h('div', {
         key: 'row1',
         className: 'frx-grid',
