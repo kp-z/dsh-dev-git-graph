@@ -214,10 +214,8 @@ export function autoIconFor(name) {
   const text = String(name || '')
   const [icon] = suggestIcons(text, 1)
   if (!icon) return { icon: '', color: '' }
-  let hash = 0
-  for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) % 100000
-  const palette = ICON_COLORS.filter((c) => c.hex)
-  return { icon: `lucide:${icon}`, color: palette[hash % palette.length].id }
+  /* 颜色默认不启用：用户口径是「图标就用正常文字色」。保留字段是为了以后想分色时不用改结构。 */
+  return { icon: `lucide:${icon}`, color: '' }
 }
 
 /** 搜索：匹配 id 与中文别名（空格分隔任一词命中） */

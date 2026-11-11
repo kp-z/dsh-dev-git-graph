@@ -375,7 +375,8 @@ export function createRunsFeature(deps) {
                     suspended: isSuspended,
                     label: String(row.no || '').slice(-4) || String(row.id).slice(-3),
                     icon: (logoFor(row.workspaceKey, row.workspaceTitle) || {}).icon || '',
-                    tint: (logoFor(row.workspaceKey, row.workspaceTitle) || {}).color || '',
+                    /* 用户口径：图标就用正常文字色，不要彩色的（彩图标太跳）。 */
+                    tint: '',
                     id: row.id,
                   }),
                   h('button', {
