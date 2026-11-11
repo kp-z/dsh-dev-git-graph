@@ -89,6 +89,9 @@ export const CSS = `
      288px 会把正文挤得很窄（用户实测「展开太宽」）。所以收到 232px：
      标签最长的「洞察」「运行」两字 + 图标 + caret 在这个宽度里仍然舒展。 */
   --fo-rail-w: 232px;
+  /* rail 里「一个方块」的边长：logo 与一级项**共用**这一个值，
+     以后只调这里，两者不可能再不一致（用户反复踩到的就是「改一处、另一处没跟上」）。 */
+  --fo-rail-item: 44px;
   --fo-rail-line: ${g(T.border1, 40)};
   --fo-row-hover-bg: ${g(T.bgLayer2, 55)};
   --fo-selected-bg: ${g(T.brand, 20)};
@@ -142,7 +145,7 @@ export const CSS = `
 /* logo 与一级项**同高**（44px）：展开态两者都是 44 高，收起态两者都是 36×36 正方形。
    只改一处尺寸会让「大小不一致」反复出现，所以这里按「和导航项对齐」定尺寸。 */
 .fo-brand-logo {
-  flex: 0 0 44px; width: 44px; height: 44px; border-radius: 12px;
+  flex: 0 0 var(--fo-rail-item); width: var(--fo-rail-item); height: var(--fo-rail-item); border-radius: 12px;
   display: inline-flex; align-items: center; justify-content: center;
   color: ${T.brand};
   background: var(--fo-selected-bg);
@@ -154,7 +157,7 @@ export const CSS = `
 .fo-featnav { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .fo-featnav-item {
   display: flex; align-items: center; gap: 10px;
-  width: 100%; min-width: 0; height: 44px; padding: 0 12px;
+  width: 100%; min-width: 0; height: var(--fo-rail-item); padding: 0 12px;
   border: 1px solid transparent; border-radius: 12px;
   background: transparent; color: ${T.label2}; font: inherit; font-size: 13px; text-align: left;
   cursor: pointer;
@@ -195,14 +198,12 @@ export const CSS = `
 /* rail 收起：只留 56px 图标条（按钮仍可点，能再展开） */
 /* rail 收起：只留 52px 图标条。**caret 必须一起藏**——只藏文字、留着 ▾ 会让图标偏左，
    用户实测「折叠时图标没对齐」就是这么来的。 */
-.fo-root[data-rail="0"] { --fo-rail-w: 52px; }
+.fo-root[data-rail="0"] { --fo-rail-w: 52px; --fo-rail-item: 36px; }
 /* 收起态：logo 与下面的一级项**同尺寸正方形**（36×36 / 圆角 10），整条 rail 只留图标列 */
 .fo-root[data-rail="0"] .fo-brand { justify-content: center; padding: 8px 0; }
 /* 收起态 logo：必须显式改 flex-basis —— 基础规则里的 flex 是 0 0 40px，
    只改 width/height 的话 flex 仍按 40px 排版，于是 logo 比一级项宽 4px（用户看到的「大小不一致」）。 */
-.fo-root[data-rail="0"] .fo-brand-logo {
-  flex: 0 0 36px; width: 36px; height: 36px; padding: 0; border-radius: 10px;
-}
+.fo-root[data-rail="0"] .fo-brand-logo { padding: 0; border-radius: 10px; }
 /* 收起态：文字与 caret 都隐藏（只藏文字会让图标偏左） */
 .fo-root[data-rail="0"] .fo-brand-text,
 .fo-root[data-rail="0"] .fo-nav-label,
@@ -210,7 +211,7 @@ export const CSS = `
 /* 收起态：一级项是 36×36 的正方形，与 logo 同尺寸 */
 .fo-root[data-rail="0"] .fo-featnav-item {
   justify-content: center; padding: 0; gap: 0;
-  width: 36px; height: 36px; margin: 0 auto; border-radius: 10px;
+  width: var(--fo-rail-item); height: var(--fo-rail-item); margin: 0 auto; border-radius: 10px;
 }
 /* 收起态：图标本身严格居中（不靠子元素宽度凑），并禁掉 caret 的旋转占位 */
 .fo-root[data-rail="0"] .fo-featnav-item > svg,

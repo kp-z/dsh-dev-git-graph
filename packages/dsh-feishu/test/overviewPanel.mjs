@@ -625,9 +625,12 @@ check('rail 两段：品牌（logo 是折叠按钮）/ 功能导航（底部固�
   assert.ok(brand.includes('border-bottom: 1px solid var(--fo-glass-line)'), '品牌区下边框')
   const logo = ruleBody('.fo-brand-logo')
   /* logo 与一级项同高（44px）：展开态同高、收起态同为 36×36 正方形（用户口径「大小要一致」） */
-  assert.ok(logo.includes('width: 44px') && logo.includes('height: 44px') && logo.includes('border-radius: 12px'), logo)
-  assert.ok(ruleBody('.fo-root[data-rail="0"] .fo-brand-logo').includes('flex: 0 0 36px'), '收起态 logo 的 flex-basis 也要跟着改')
-  assert.ok(ruleBody('.fo-root[data-rail="0"] .fo-featnav-item').includes('width: 36px'), '收起态一级项 36×36')
+  /* logo 与一级项共用 --fo-rail-item：以后只调一个变量，两者不可能再不一致 */
+  assert.ok(logo.includes('var(--fo-rail-item)'), logo)
+  assert.ok(ruleBody('.fo-root').includes('--fo-rail-item: 44px'), '展开态方块 44px')
+  assert.ok(ruleBody('.fo-root[data-rail="0"]').includes('--fo-rail-item: 36px'), '收起态方块 36px')
+  assert.ok(ruleBody('.fo-brand-logo').includes('var(--fo-rail-item)'), 'logo 用同一变量')
+  assert.ok(ruleBody('.fo-featnav-item').includes('var(--fo-rail-item)'), '一级项用同一变量')
   const nav = ruleBody('.fo-featnav')
   assert.ok(nav.includes('flex: 1'), '导航区 flex-1')
   assert.ok(nav.includes('gap: 8px') && nav.includes('padding: 10px'))
@@ -636,7 +639,7 @@ check('rail 两段：品牌（logo 是折叠按钮）/ 功能导航（底部固�
 })
 check('功能项：高 44 / 圆角 12 / gap 10 / 图标 20 / 文字 13 / 选中沿用品牌口径', () => {
   const item = ruleBody('.fo-featnav-item')
-  assert.ok(item.includes('height: 44px'))
+  assert.ok(item.includes('height: var(--fo-rail-item)'))
   assert.ok(item.includes('border-radius: 12px'))
   assert.ok(item.includes('gap: 10px'))
   assert.ok(item.includes('font-size: 13px'))
