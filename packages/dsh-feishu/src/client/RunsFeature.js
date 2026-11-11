@@ -115,10 +115,11 @@ export function createRunsFeature(deps) {
     const nodes = iconDrawNodes(icon)
     if (nodes && nodes.length) {
       return h('g', {
-        transform: `translate(23 23) scale(${(54 / 24).toFixed(4)})`,
+        /* 图标只占圆内约 1/3（32/100）：之前 54 太大，圆里显得糊 */
+        transform: `translate(34 34) scale(${(32 / 24).toFixed(4)})`,
         fill: 'none',
         stroke: o.tint || 'var(--dsw-alias-label-primary)',
-        strokeWidth: (2.4 / (54 / 24)).toFixed(3),
+        strokeWidth: (2 / (32 / 24)).toFixed(3),
         strokeLinecap: 'round', strokeLinejoin: 'round',
       }, nodes.map((node, i) => h(TAG_MAP[node.tag] || 'path', { key: i, ...node.attrs })))
     }
@@ -220,6 +221,10 @@ export function createRunsFeature(deps) {
     const [colState, setColState] = useState ? useState(toNum(ctx.columns) || 0) : [toNum(ctx.columns) || 0, () => {}]
     const cols = Array.isArray(colState) ? colState[0] : colState
     const setCols = Array.isArray(colState) ? colState[1] : setColState
+    /* 气泡放大显示：0.85 / 1 / 1.3 三档（面板头部有「小/中/大」按钮） */
+    const [zoomState, setZoomState] = useState ? useState(1) : [1, () => {}]
+    const orbZoom = Array.isArray(zoomState) ? zoomState[0] : zoomState
+    const setOrbZoom = Array.isArray(zoomState) ? zoomState[1] : setZoomState
     const [hoverState, setHoverState] = useState ? useState(null) : [null, () => {}]
     const hoveredId = Array.isArray(hoverState) ? hoverState[0] : hoverState
     const setHoveredId = Array.isArray(hoverState) ? hoverState[1] : setHoverState
@@ -335,13 +340,28 @@ export function createRunsFeature(deps) {
             }, icon('refresh', 16)))),
         /* AVAILABLE MODELS → 可用任务 */
         h('div', { key: 'bubbles' },
-          h('p', { className: 'frx-bubbles-label' }, '可用任务'),
+          h('div', { key: 'labelrow', className: 'frx-bubbles-labelrow' },
+            h('p', { className: 'frx-bubbles-label' }, '可用任务'),
+            /* 放大显示：三档（小/中/大），让气泡在小窗口里也能看清 */
+            h('span', { className: 'frx-zoom', role: 'group', 'aria-label': '气泡大小' },
+              [[0.85, '小'], [1, '中'], [1.3, '大']].map(([z, label]) => h('button', {
+                key: label,
+                type: 'button',
+                className: 'frx-zoom-btn',
+                'data-active': Math.abs((Number(orbZoom) || 1) - z) < 0.01 ? '1' : '0',
+                title: `气泡${label}`,
+                onClick: () => setOrbZoom(z),
+              }, label)))),
           orbRows.length
             ? h('div', {
               className: 'frx-bubbles',
               role: 'list',
               'aria-label': '任务气泡墙',
-              style: { position: 'relative', width: '100%', maxWidth: '430px', height: '112px', margin: '4px auto 0' },
+              style: {
+                position: 'relative', width: '100%',
+                maxWidth: `${Math.round(430 * (Number(orbZoom) || 1))}px`,
+                height: `${Math.round(112 * (Number(orbZoom) || 1))}px`, margin: '4px auto 0',
+              },
             },
               orbRows.map((row, index) => {
                 const pos = POSITIONS[index]

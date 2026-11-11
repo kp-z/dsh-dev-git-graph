@@ -179,6 +179,15 @@ export const CSS = `
 }
 .frx-row-btn:hover { background: var(--frx-surface-hover); }
 
+/* 气泡标题行：左边「可用任务」，右边放大档位 */
+.frx-bubbles-labelrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.frx-zoom { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--frx-inner); }
+.frx-zoom-btn {
+  padding: 2px 8px; border-radius: 6px; font-size: 11px; line-height: 1.6; cursor: pointer;
+  color: var(--frx-text-dim); background: transparent; border: 0;
+}
+.frx-zoom-btn[data-active="1"] { color: var(--frx-text-strong); background: var(--frx-surface-hover); }
+
 /* ---------- 气泡群（ClaudeModelBubbles dashboard-desktop） ---------- */
 .frx-bubbles-label {
   margin: 0 0 12px; font-size: 10px; font-weight: 700; letter-spacing: .12em;

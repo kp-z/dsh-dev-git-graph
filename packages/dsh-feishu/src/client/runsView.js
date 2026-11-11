@@ -30,10 +30,10 @@ export const STATE_META = {
 
 /** 气泡墙的分组顺序（运行中的排最前，未开始垫底）。
  *  **已完成的任务不上运pages**：done 在 buildRuns 入口就被过滤掉，所以这里没有 done 组。 */
-export const GROUP_ORDER = ['running', 'started', 'blocked', 'suspended', 'idle']
+export const GROUP_ORDER = ['running', 'started', 'blocked', 'idle']
 
 /** KPI 行的五张卡（adventure 首页那种：圆球 + eyebrow + 大数值 + 迷你水位条）。 */
-export const KPI_KEYS = ['running', 'started', 'suspended', 'blocked', 'sessions']
+export const KPI_KEYS = ['running', 'started', 'blocked', 'sessions']
 
 /** 相对时间：刚刚 / 5 分钟前 / 3 小时前 / 2 天前（没有时间戳就回空串，不猜）。 */
 export function formatAgo(ms) {
@@ -128,7 +128,11 @@ export function buildRuns(snapshot) {
      所以气泡墙 / KPI 分母 / 执行历史 / 时长 Top / 告警里都不可能有 done。
      下面所有 counts/分母都基于这份 unfinished。 */
   const allTasks = arr(snap.tasks).filter((task) => isObj(task) && str(task.id))
-  const tasks = allTasks.filter((task) => task.done !== true)
+  /* 运行页只呈现「还在推进」的任务：
+       - done      = 做完了；
+       - suspended = 暂时不做（挂起）。
+     两者都不上面（用户口径：先是「完成的不要显示」，再是「挂起的也不显示」），只保留计数用于自证。 */
+  const tasks = allTasks.filter((task) => task.done !== true && task.suspended !== true)
   const now = num(snap.now, Date.now())
   const titleOf = new Map(tasks.map((task) => [str(task.id), str(task.title) || str(task.id)]))
 
@@ -202,7 +206,6 @@ export function buildRuns(snapshot) {
   const kpiDefs = [
     { key: 'running', label: '运行中', eyebrow: 'RUNNING', value: counts.running, tone: 'success', hint: '会话正在跑', breathing: true },
     { key: 'started', label: '等待中', eyebrow: 'WAITING', value: counts.started, tone: 'idle', hint: '已开始、没在跑' },
-    { key: 'suspended', label: '挂起', eyebrow: 'PAUSED', value: counts.suspended, tone: 'warn', hint: '暂停中' },
     { key: 'blocked', label: '阻塞', eyebrow: 'BLOCKED', value: counts.blocked, tone: 'error', hint: '在等前置任务' },
     { key: 'sessions', label: '已绑会话', eyebrow: 'SESSIONS', value: 0, tone: 'brand', hint: '能一句话跳过去' },
   ]
@@ -241,19 +244,8 @@ export function buildRuns(snapshot) {
   const longest = timed.concat(untimedRows).slice(0, 5)
   const untimed = untimedRows.length
 
-  /* 需要人看一眼：挂起中 + 被阻塞但前置其实都完成了（说明关系数据可能过期） */
-  const suspendedAlerts = bubbles
-    .filter((bubble) => bubble.state === 'suspended')
-    .sort((a, b) => (b.suspendedAt - a.suspendedAt) || (a.no - b.no))
-    .map((bubble) => ({
-      id: bubble.id,
-      no: bubble.no,
-      title: bubble.title,
-      workspaceTitle: bubble.workspaceTitle,
-      reason: 'suspended',
-      reasonText: '挂起中',
-      detail: bubble.suspendedAt > 0 ? `挂起于 ${formatDuration(now - bubble.suspendedAt)}前` : '等待恢复',
-    }))
+  /* 需要人看一眼：被阻塞但前置其实都完成了（说明关系数据可能过期）。
+     挂起任务已经不在这页，所以告警里不再列「挂起中」那一类。 */
   const staleBlocked = bubbles
     .filter((bubble) => bubble.state === 'blocked' && bubble.blockedBy.length > 0 && bubble.blockedBy.every((ref) => ref.done === true))
     .map((bubble) => ({
@@ -265,7 +257,7 @@ export function buildRuns(snapshot) {
       reasonText: '前置都已完成',
       detail: `等 ${bubble.blockedBy.map((ref) => ref.title).join('、')}`,
     }))
-  const alerts = suspendedAlerts.concat(staleBlocked).slice(0, 8)
+  const alerts = staleBlocked.slice(0, 8)
 
   /* 执行历史风格列表：未完成任务，按「最近活跃 → 编号」倒序，最近的在上面 */
   const lastActiveOf = (bubble) => Math.max(bubble.startedAt, bubble.runningSince || 0, bubble.suspendedAt, bubble.completedAt)
@@ -296,7 +288,9 @@ export function buildRuns(snapshot) {
     now,
     total: tasks.length,
     /** 入口被过滤掉的已完成任务数（自证「done 不上页面」，也方便测试断言） */
-    skippedDone: allTasks.length - tasks.length,
+    skippedDone: allTasks.filter((task) => task.done === true).length,
+    /** 入口被过滤掉的挂起任务数（挂起 = 暂时不做，同样不上运行页） */
+    skippedSuspended: allTasks.filter((task) => task.done !== true && task.suspended === true).length,
     history,
     counts,
     boundSessions,
