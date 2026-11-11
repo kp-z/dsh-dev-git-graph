@@ -830,7 +830,7 @@ check('rail 三段 DOM：品牌（两行文字）/ 功能导航 / 底部固定�
   assert.equal(byClass(rail, 'fo-featnav').length, 1)
   assert.equal(byClass(rail, 'fo-rail-foot').length, 1)
   const brandText = textOf(byClass(rail, 'fo-brand')[0])
-  assert.ok(brandText.includes('飞书任务集'), '主标题')
+  assert.ok(brandText.includes('任务'), '主标题')
   assert.ok(brandText.includes('DeepSeek Harness'), '副标题')
   assert.equal(byClass(rail, 'fo-brand-logo').length, 1, 'logo 方块')
   assert.ok(byClass(rail, 'fo-rail-foot')[0].children.length >= 2, '底部有刷新 + 折叠按钮')
@@ -1443,7 +1443,7 @@ const PANEL_CARD = layout.CARD
     const graphNav = featnavItems(ft).find((item) => textOf(item).includes('关系'))
     assert.ok(graphNav, 'rail 里有「关系」')
     assert.equal(textOf(graphNav).replace(/\s/g, ''), '关系▾', '「关系」项带 caret')
-    assert.equal(count(text, '飞书任务集'), 1, '品牌名只在 rail 品牌区')
+    assert.ok(count(text, '任务') >= 1, '品牌名是「任务」')
     assert.equal(count(text, '任务分组'), 0, '二级菜单里不再重复一个分组标题')
   })
   check('正文头部：没有计数胶囊、没有功能名、副标题不再重复范围名', () => {

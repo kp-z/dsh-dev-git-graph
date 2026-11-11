@@ -922,7 +922,7 @@ export function createOverviewPanel(deps) {
             ),
           ),
           h('span', { className: 'fo-brand-text' },
-            h('span', { className: 'fo-brand-title' }, model.str(options.title) || '飞书任务集'),
+            h('span', { className: 'fo-brand-title' }, model.str(options.title) || '任务'),
             h('span', { className: 'fo-brand-sub' }, model.str(options.subtitle) || 'DeepSeek Harness'),
           ),
         ),
