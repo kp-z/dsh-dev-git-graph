@@ -403,29 +403,31 @@ test('rowMenu：目录行 = 重命名 / 删除 / 分隔线 / 新建目录', () =
   ])
 })
 
-test('rowMenu：项目行 = 移入目录 ▸ / 移出目录 / 只看这个项目', () => {
+test('rowMenu：项目行 = 设置图标 / 移入目录 ▸ / 移出目录 / 只看这个项目', () => {
   const items = rowMenu({ kind: 'project', id: 'wA' }, GROUPS, { kind: 'all' })
-  assert.deepEqual(items.map((item) => item.kind), ['item', 'item', 'separator', 'item'])
-  assert.deepEqual(items.filter((item) => item.kind === 'item').map((item) => item.id), ['move', 'remove', 'focus'])
-  const move = items[0]
+  assert.deepEqual(items.filter((item) => item.kind === 'item').map((item) => item.id), ['logo', 'move', 'remove', 'focus'])
+  /* 项目图标是纯本地展示配置，排在菜单最前面 */
+  assert.equal(items[0].id, 'logo')
+  assert.equal(items[0].projectKey, 'wA')
+  const move = items.find((item) => item.id === 'move')
   assert.ok(Array.isArray(move.submenu))
   const submenuItems = move.submenu.filter((item) => item.kind === 'item')
   assert.deepEqual(submenuItems.map((item) => item.id), ['move:g1', 'move-new'])
   assert.equal(submenuItems[0].checked, true, '已在 g1 里的项目必须打勾')
   assert.equal(submenuItems[0].disabled, true)
   assert.equal(move.submenu[1].kind, 'separator')
-  assert.equal(items[1].disabled, false)
-  assert.equal(items[3].checked, false)
+  assert.equal(items.find((item) => item.id === 'remove').disabled, false)
+  assert.equal(items.find((item) => item.id === 'focus').checked, false)
 
   // 不在任何目录里：移出目录禁用
   const loose = rowMenu({ kind: 'project', id: 'wB' }, GROUPS, { kind: 'project', id: 'wB' })
-  assert.equal(loose[1].disabled, true)
-  assert.equal(loose[0].submenu[0].checked, false)
-  assert.equal(loose[3].checked, true, 'scope 已经是这个项目 → 菜单打勾')
+  assert.equal(loose.find((item) => item.id === 'remove').disabled, true)
+  assert.equal(loose.find((item) => item.id === 'move').submenu[0].checked, false)
+  assert.equal(loose.find((item) => item.id === 'focus').checked, true, 'scope 已经是这个项目 → 菜单打勾')
 
   // 没有目录时：submenu 只剩「新建目录并移入…」
   const none = rowMenu({ kind: 'project', id: 'wA' }, [], { kind: 'all' })
-  assert.deepEqual(none[0].submenu.filter((item) => item.kind === 'item').map((item) => item.id), ['move-new'])
+  assert.deepEqual(none.find((item) => item.id === 'move').submenu.filter((item) => item.kind === 'item').map((item) => item.id), ['move-new'])
 })
 
 test('rowMenu：坏输入不抛', () => {

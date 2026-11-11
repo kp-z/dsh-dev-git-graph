@@ -657,6 +657,8 @@ export function rowMenu(row, groups, scope) {
   }
 
   if (kind === 'project') {
+    /* 项目图标（纯本地展示）：放在最前面，和「移入目录」分开 */
+    const logoItem = { id: 'logo', label: '设置图标…', kind: 'item', projectKey: key }
     let current = ''
     defs.forEach((def) => { if (def.members.includes(key)) current = def.id })
     const submenu = defs.map((def) => ({
@@ -671,6 +673,7 @@ export function rowMenu(row, groups, scope) {
     submenu.push({ kind: 'separator' })
     submenu.push({ id: 'move-new', label: '新建目录并移入…', kind: 'item', projectKey: key })
     return [
+      logoItem,
       { id: 'move', label: '移入目录', kind: 'item', submenu, projectKey: key },
       { id: 'remove', label: '移出目录', kind: 'item', projectKey: key, disabled: !current },
       { kind: 'separator' },

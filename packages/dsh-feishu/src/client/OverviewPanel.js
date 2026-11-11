@@ -23,6 +23,7 @@ import * as layoutModule from '../overview/layout.js'
 import { createDetailPanel } from './DetailPanel.js'
 import { createFeatures, featureById } from './features.js'
 import { createOrganizeDrawer } from './OrganizeDrawer.js'
+import { ICON_IDS, PROJECT_ICONS, renderIcon, normalizeIconId } from './projectIcons.js'
 
 const MIN_POLL_MS = 15000
 const DEFAULT_POLL_MS = 30000
@@ -49,6 +50,8 @@ function adaptApi(raw) {
     /* 历史指标（task-21）：洞察页要「更全面」时用它取 /api/insight/stats；
        旧宿主没有这个方法就是 null —— 洞察页自己降级成「只有快照口径」，不报错。 */
     insightStats: fn('insightStats'),
+    /* 项目图标（纯本地展示）：旧宿主没有就退化成 null，气泡回退到任务编号 */
+    setWorkspaceLogo: fn('setWorkspaceLogo'),
   }
 }
 
@@ -308,6 +311,8 @@ export function createOverviewPanel(deps) {
     const [nodePos, setNodePos] = useState(() => readNodePos(readStore(store, 'nodePos')))
     /* 宿主动作（打开会话）失败时的可读提示：role=status，绝不静默。 */
     const [hostNote, setHostNote] = useState('')
+    /* 项目图标选择器：{ key, title } | null（纯本地展示配置，不写飞书） */
+    const [logoPicker, setLogoPicker] = useState(null)
     /* 一键整理（task-16）：抽屉开关 + 最近一批建议 + 逐条失败原因。整块状态放一个对象里，
        因为「跑」是异步的，分开的 setState 会出现抽屉和 batch 短暂对不上的中间态。 */
     const [org, setOrg] = useState(() => {
@@ -498,6 +503,7 @@ export function createOverviewPanel(deps) {
       if (id === 'new-group') { setCreatingFor(''); setCreating(true); return }
       if (id === 'move-new') { setCreatingFor(row.id); setCreating(true); return }
       if (id === 'focus') { setScope({ kind: 'project', id: row.id }); return }
+      if (id === 'logo') { setLogoPicker({ key: String(row.id || ''), title: String(row.label || row.id || '') }); return }
       if (id === 'delete') {
         runGroup({ action: 'delete', id: row.id }).then((res) => {
           if (res && scope.kind === 'group' && scope.id === row.id) setScope({ kind: 'all', id: '' })
@@ -513,6 +519,22 @@ export function createOverviewPanel(deps) {
         if (owner) runGroup({ action: 'remove', id: owner.id, key: row.id })
       }
     }, [groups, load, runGroup, scope])
+
+    /** 选一个项目图标（空串 = 清除）；失败写 hostNote，成功重拉快照让气泡立刻换图标 */
+    const applyLogo = useCallback((iconId) => {
+      const picker = logoPicker
+      if (!picker || !picker.key) return Promise.resolve(false)
+      const fn = apiRef.current.setWorkspaceLogo
+      if (!fn) { setHostNote('当前宿主不支持设置项目图标'); return Promise.resolve(false) }
+      return Promise.resolve()
+        .then(() => fn(picker.key, iconId || ''))
+        .then((res) => {
+          if (res && res.ok === true) { setLogoPicker(null); load(true); return true }
+          setHostNote((res && res.error) || '设置项目图标失败')
+          return false
+        })
+        .catch((error) => { setHostNote(String((error && error.message) || error) || '设置项目图标失败'); return false })
+    }, [load, logoPicker])
 
     const onSelectRow = useCallback((row) => {
       if (!row) return
@@ -1080,6 +1102,27 @@ export function createOverviewPanel(deps) {
           : null,
       ),
       menu ? h(Menu, { React, h, menu, onRun: runMenu, onClose: () => setMenu(null) }) : null,
+      logoPicker
+        ? h('div', { className: 'fo-logo-backdrop', role: 'dialog', 'aria-modal': 'true', 'aria-label': '设置项目图标', onClick: () => setLogoPicker(null) },
+          h('div', { className: 'fo-logo-pop', onClick: (event) => { if (event && event.stopPropagation) event.stopPropagation() } },
+            h('div', { className: 'fo-logo-head' },
+              h('span', { className: 'fo-logo-title' }, '项目图标'),
+              h('span', { className: 'fo-logo-sub' }, model.str(logoPicker.title)),
+            ),
+            h('div', { className: 'fo-logo-grid' }, ICON_IDS.map((id) => h('button', {
+              key: id,
+              type: 'button',
+              className: 'fo-logo-cell',
+              'data-icon': id,
+              title: PROJECT_ICONS[id].label,
+              onClick: () => { applyLogo(id) },
+            }, renderIcon({ h }, id, 18)))),
+            h('div', { className: 'fo-logo-foot' },
+              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', 'data-action': 'logo-clear', onClick: () => { applyLogo('') } }, '清除图标（回到任务编号）'),
+              h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-action': 'logo-close', onClick: () => setLogoPicker(null) }, '关闭'),
+            ),
+          ))
+        : null,
     )
   }
 }

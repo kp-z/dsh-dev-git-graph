@@ -84,6 +84,14 @@ export function createApi({ fetchImpl } = {}) {
       return post('/api/overview/organize/undo', { batchId, itemIds: itemIds || [] });
     },
     /**
+     * 设置某个项目的图标（纯本地展示配置）。
+     * @param {string} workspaceKey 快照里 workspaces[].key
+     * @param {string} icon 内置图标 id；空串 = 清除
+     */
+    setWorkspaceLogo(workspaceKey, icon) {
+      return post('/api/workspace-logos', { workspaceKey, icon: icon || '' });
+    },
+    /**
      * 历史指标（洞察页要「更全面」时用）：宿主已有的 /api/insight/stats。
      * 返回 { stats: { series, distribution, board, fulfillment, quality, delayBuckets, datasets, ... } }。
      * 旧宿主没有这条路由 → 抛错，调用方自己降级（不要把整页打崩）。

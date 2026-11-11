@@ -559,6 +559,9 @@ const DEFAULT_STATE = {
   sessionRunSeen: {},
   /* 自定义目录（工作区分组）：用户自己拖出来的一组 workspace，共用一个名字与一张关系图。 */
   workspaceGroups: [],
+  /* 项目图标：workspaceKey → 图标 id（内置图标集见 src/client/projectIcons.js）。
+     纯本地展示配置：不写飞书、不影响同步与统计。 */
+  workspaceLogos: {},
   /* 挂起独立于完成标志；保存归档/自动化恢复凭据，不能同步时丢失。 */
   suspensions: {},
   workspaceWrites: {},
@@ -3200,6 +3203,7 @@ function createSyncEngine(ctx) {
     state.sessionRunSeen = savedState.sessionRunSeen && typeof savedState.sessionRunSeen === 'object' && !Array.isArray(savedState.sessionRunSeen) ? savedState.sessionRunSeen : {}
     /* 自定义目录：坏行直接丢掉，不让一份手改过的 state.json 拖垮整个面板。 */
     state.workspaceGroups = normalizeGroups(savedState.workspaceGroups)
+    state.workspaceLogos = savedState.workspaceLogos && typeof savedState.workspaceLogos === 'object' && !Array.isArray(savedState.workspaceLogos) ? savedState.workspaceLogos : {}
     state.suspensions = savedState.suspensions && typeof savedState.suspensions === 'object' ? savedState.suspensions : {}
     state.workspaceWrites = savedState.workspaceWrites && typeof savedState.workspaceWrites === 'object' ? savedState.workspaceWrites : {}
     state.docs = Array.isArray(savedState.docs) ? savedState.docs : []
@@ -4554,7 +4558,14 @@ function createSyncEngine(ctx) {
       revision,
       now: nowMs(),
       groups,
-      workspaces: workspaceRows.map((row) => ({ key: row.id || row.path || '', id: row.id || '', title: row.title || '', path: row.path || '' })),
+      workspaces: workspaceRows.map((row) => ({
+        key: row.id || row.path || '',
+        id: row.id || '',
+        title: row.title || '',
+        path: row.path || '',
+        /* 项目图标（纯展示）：没配就是空串，客户端回退到任务编号 */
+        logo: asString(state.workspaceLogos?.[row.id || row.path || '']),
+      })),
       tasks,
       relations,
       stats: {
@@ -6244,6 +6255,22 @@ function createSyncEngine(ctx) {
     }
     await persistState()
     return { ok: true, results, batch: projectOrganize(batch, state.tasks) }
+  }
+
+  /**
+   * 设置某个项目的图标（纯本地展示配置，不写飞书、不触发同步）。
+   * @param {string} workspaceKey 与快照里 workspaces[].key 一致（id 优先，其次 path）
+   * @param {string} iconId 内置图标 id；空串 = 清除
+   */
+  async function setWorkspaceLogo(workspaceKey, iconId) {
+    const key = asString(workspaceKey)
+    if (!key) return { ok: false, error: '缺少项目 key' }
+    const id = asString(iconId)
+    const logos = state.workspaceLogos ?? (state.workspaceLogos = {})
+    if (id) logos[key] = id
+    else delete logos[key]
+    await persistState()
+    return { ok: true, workspaceKey: key, logo: id, logos: { ...logos } }
   }
 
   /** 拒绝若干条建议：只改建议单状态，不碰关系。 */
@@ -9558,6 +9585,7 @@ bucket 只能从枚举里选：
     acceptOrganizeItems: (...args) => runEngineOperation(acceptOrganizeItems, args),
     rejectOrganizeItems: (...args) => runEngineOperation(rejectOrganizeItems, args),
     undoOrganizeItems: (...args) => runEngineOperation(undoOrganizeItems, args),
+    setWorkspaceLogo: (...args) => runEngineOperation(setWorkspaceLogo, args),
     saveSettings,
     ensureManagedTasklist,
     switchBackend,
@@ -9957,6 +9985,13 @@ function mountRoutes(ctx, engine) {
           if (route === '/api/workspace-groups' && req.method === 'POST') {
             const body = await readBody(req)
             const result = await engine.setWorkspaceGroups(body)
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (route === '/api/workspace-logos' && req.method === 'POST') {
+            const body = await readBody(req)
+            const result = await engine.setWorkspaceLogo(asString(body?.workspaceKey ?? body?.id), asString(body?.icon ?? body?.logo))
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }

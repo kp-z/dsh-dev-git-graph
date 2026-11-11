@@ -219,6 +219,40 @@ export const CSS = `
 .fo-root[data-rail="0"] .fo-featnav-item[data-active="1"]::before { left: 4px; }
 .fo-root[data-rail="0"] .fo-rail-foot { justify-content: center; }
 
+/* ============ 项目图标选择器（纯本地展示配置） ============ */
+.fo-logo-backdrop {
+  position: fixed; inset: 0; z-index: 61;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in oklab, var(--dsw-alias-bg-base) 55%, transparent);
+  backdrop-filter: blur(2px);
+}
+.fo-logo-pop {
+  width: min(420px, calc(100vw - 48px));
+  padding: 16px; border-radius: 16px;
+  background: color-mix(in oklab, var(--dsw-alias-bg-overlay) 96%, transparent);
+  border: 1px solid var(--fo-glass-line);
+  box-shadow: 0 24px 48px color-mix(in oklab, var(--dsw-alias-bg-base) 60%, transparent);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.fo-logo-head { display: flex; align-items: baseline; gap: 8px; }
+.fo-logo-title { font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.fo-logo-sub { font-size: 11px; color: var(--dsw-alias-label-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fo-logo-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.fo-logo-cell {
+  display: flex; align-items: center; justify-content: center;
+  height: 40px; border-radius: 10px; cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 60%, transparent);
+  border: 1px solid transparent;
+  transition: background-color var(--fo-dur) var(--fo-ease), color var(--fo-dur) var(--fo-ease), border-color var(--fo-dur) var(--fo-ease);
+}
+.fo-logo-cell:hover {
+  color: var(--dsw-alias-label-primary);
+  background: color-mix(in oklab, var(--dsw-alias-brand-primary) 18%, transparent);
+  border-color: color-mix(in oklab, var(--dsw-alias-brand-primary) 45%, transparent);
+}
+.fo-logo-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
 /* ============ 内容头部：面包屑/标题 + 搜索框 + 动作 ============ */
 .fo-main-head {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;

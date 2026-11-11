@@ -15,6 +15,7 @@
 
 import { buildRuns } from './runsView.js'
 import { injectExactStyles } from './runsExactStyles.js'
+import { PROJECT_ICONS, normalizeIconId } from './projectIcons.js'
 
 let styleReady = false
 function ensureStyles() {
@@ -107,6 +108,7 @@ export function createRunsFeature(deps) {
     const running = o.running === true
     const suspended = o.suspended === true
     const label = String(o.label || '')
+    const iconPaths = Array.isArray(o.iconPaths) && o.iconPaths.length ? o.iconPaths : null
     const uid = `o${String(o.id || 'x').replace(/[^a-zA-Z0-9]/g, '')}`
     const R = 46
     const lineY = 100 - (pct / 100) * (R * 2)   // viewBox 100 单位下的水位线
@@ -148,12 +150,23 @@ export function createRunsFeature(deps) {
             h('animate', { attributeName: 'd', dur: '3s', repeatCount: 'indefinite', values: `${wave1};${wave2};${wave1}` })))
         : null,
       /* 数字：SVG 文本，text-anchor + dominant-baseline 严格居中 */
-      h('text', {
-        x: 50, y: 50, textAnchor: 'middle', dominantBaseline: 'central',
-        fontSize: label.length > 3 ? 20 : 24, fontWeight: 700,
-        fill: 'var(--dsw-alias-label-primary)',
-        style: { fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' },
-      }, label),
+      /* 圆内内容：项目配了图标就画图标（24×24 缩放到 ~44 单位，线宽反向补偿），
+         没配才画任务编号（SVG 文本，严格居中）。 */
+      iconPaths
+        ? h('g', {
+          /* 图标占圆内约 54/100（视觉重量更足），线宽做反向补偿让视觉线宽≈2.4 */
+          transform: `translate(${(50 - 27).toFixed(1)} ${(50 - 27).toFixed(1)}) scale(${(54 / 24).toFixed(4)})`,
+          fill: 'none',
+          stroke: running ? 'var(--dsw-alias-label-primary)' : 'color-mix(in oklab, var(--dsw-alias-label-primary) 82%, transparent)',
+          strokeWidth: (2.4 / (54 / 24)).toFixed(3),
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+        }, iconPaths.map((d, i) => h('path', { key: i, d })))
+        : h('text', {
+          x: 50, y: 50, textAnchor: 'middle', dominantBaseline: 'central',
+          fontSize: label.length > 3 ? 20 : 24, fontWeight: 700,
+          fill: 'var(--dsw-alias-label-primary)',
+          style: { fontVariantNumeric: 'tabular-nums', letterSpacing: '0.02em' },
+        }, label),
     )
   }
 
@@ -217,6 +230,22 @@ export function createRunsFeature(deps) {
     }
 
     const view = buildRuns(ctx.snapshot || ctx)
+    /* 项目图标（纯本地配置，宿主快照 workspaces[].logo 带下来）。
+       气泡是 SVG，所以这里拿的是**路径数据**，不是 DOM 元素。 */
+    const logoMap = (() => {
+      const map = new Map()
+      const rows = Array.isArray((ctx.snapshot || ctx).workspaces) ? (ctx.snapshot || ctx).workspaces : []
+      rows.forEach((row) => {
+        const id = normalizeIconId(row && row.logo)
+        if (id && row && row.key) map.set(String(row.key), id)
+      })
+      return map
+    })()
+    const iconPathsOf = (key) => {
+      const id = logoMap.get(String(key || '')) || ''
+      const icon = id ? PROJECT_ICONS[id] : null
+      return icon ? icon.paths : null
+    }
     const openSession = typeof ctx.onOpenSession === 'function' ? ctx.onOpenSession : null
     const select = (id) => { if (typeof ctx.onOpenTask === 'function') ctx.onOpenTask(id) }
 
@@ -329,6 +358,7 @@ export function createRunsFeature(deps) {
                     running: isRunning,
                     suspended: isSuspended,
                     label: String(row.no || '').slice(-4) || String(row.id).slice(-3),
+                    iconPaths: iconPathsOf(row.workspaceKey),
                     id: row.id,
                   }),
                   h('button', {
