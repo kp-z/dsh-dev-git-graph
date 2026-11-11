@@ -69,7 +69,7 @@
   },
   "scripts": {
     "build": "pnpm run build:client",
-    "build:client": "tsdown -c tsdown.config.mjs",
+    "build:client": "tsdown -c tsdown.config.mjs && node -e \"console.log('\\n⚠  客户端包已重建。宿主在插件 apply 时只读一次 —— 请重载插件（plugin_manager disable→enable）或重启 DSH，否则实机还在跑旧包。\\n')\"",
     "test:safety": "node test/safety.mjs",
     "test:meta": "node test/meta.mjs",
     "test:client": "pnpm run build:client && node test/client.mjs",
