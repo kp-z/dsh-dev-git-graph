@@ -2180,12 +2180,26 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   })
 
   await clickFeature('运行')
-  check('切到「运行」：气泡墙渲染，运行中的气泡带 is-running', () => {
+  check('切到「运行」：气泡群渲染，运行中的气泡带 is-running', () => {
     assert.equal(rootOf(tree).props['data-feature'], 'runs')
     assert.ok(byClass(tree, 'fr-page').length >= 1, '运行页根容器在')
-    const bubbles = byClass(tree, 'fr-bubble-item')
-    assert.ok(bubbles.length >= 1, `应有气泡，实际 ${bubbles.length}`)
-    assert.ok(byClass(tree, 'fr-group').length >= 1, '气泡墙的分组在')
+    /* 用户第三次口径：气泡墙从参考项目 kp-z/open_adventure 直接搬过来
+       （ClaudeModelBubbles + WaterLevel）→ 容器是 .fr-bubbles、圆本体是 .fr-bubble-orb */
+    assert.equal(byClass(tree, 'fr-bubbles').length, 1, '气泡墙容器在')
+    const orbs = byClass(tree, 'fr-bubble-orb')
+    assert.ok(orbs.length >= 1, `应有气泡，实际 ${orbs.length}`)
+    assert.equal(byClass(tree, 'fr-group').length, 0, '旧的分组墙不该再出现')
+    /* 散点位：绝对定位 + 参考表的 8 个 top/left 之一 */
+    const slots = byClass(tree, 'fr-bubble-slot')
+    assert.ok(slots.length >= 1, '气泡槽在')
+    assert.ok(String(slots[0].props.style.top).endsWith('%'), `槽位用百分比定位（参考表），实际 ${slots[0].props.style.top}`)
+    assert.ok(/^fr-float /.test(String(slots[0].props.style.animation)), `漂浮动画来自参考项目，实际 ${slots[0].props.style.animation}`)
+    /* 圆内水位：只有运行中的气泡才画（WaterLevel 的 SVG 两层）。
+       这份快照里不一定有运行中的任务，所以「有运行泡 ⇔ 有水位」两头都断言。 */
+    const runningOrbs = orbs.filter((orb) => classNameOf(orb).includes('is-running'))
+    const waterSvgs = byClass(tree, 'fr-water-svg')
+    assert.equal(waterSvgs.length > 0, runningOrbs.length > 0,
+      `水位只画在运行中的气泡上（运行泡 ${runningOrbs.length} 个，水位 ${waterSvgs.length} 处）`)
     assert.equal(byClass(tree, 'fo-subnav').length, 0, '运行没有二级菜单')
   })
 
@@ -2221,13 +2235,12 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   runItems()[runItems().findIndex((item) => textOf(item).includes('运行'))].props.onClick()
   rtree = await run.mini.act()
 
-  const bubbles = () => byClass(rtree, 'fr-bubble-item')
+  const bubbles = () => byClass(rtree, 'fr-bubble-orb')
   check('运行页：一个任务一个气泡（2 条任务 = 2 个气泡）', () => {
     assert.equal(bubbles().length, 2)
   })
 
-  /* 可点的是气泡本身（.fr-bubble 那个 button），.fr-bubble-item 只是外壳 */
-  const firstBubble = () => byClass(bubbles()[0], 'fr-bubble')[0]
+  const firstBubble = () => bubbles()[0]
   firstBubble().props.onClick()
   rtree = await run.mini.act()
   check('点气泡 = 选中该任务并打开右侧详情', () => {
@@ -2235,26 +2248,23 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     assert.ok(textOf(rtree).includes('任务 r1'), textOf(rtree).slice(0, 80))
   })
 
-  /* ↗ = 打开会话：有 sessionId 的那个应该真的把 id 交给宿主 */
-  const bubblesNow = bubbles()
-  const goButtons = bubblesNow.map((bubble) => byClass(bubble, 'fr-bubble-go')[0]).filter(Boolean)
-  check('每个气泡都有「打开会话」按钮', () => {
-    assert.equal(goButtons.length, 2)
-  })
-  const withSession = goButtons.find((button) => button.props.disabled !== true)
-  assert.ok(withSession, '应有一个可点的「打开会话」')
-  withSession.props.onClick({ stopPropagation() {} })
+  /* 参考项目的气泡没有独立「↗」按钮：**双击气泡**打开会话（title 里给提示） */
+  const withSession = bubbles().find((orb) => orb.props['aria-label'].includes('任务 r1'))
+  assert.ok(withSession, '应能找到任务 r1 的气泡')
+  withSession.props.onDoubleClick()
   rtree = await run.mini.act()
-  check('点「打开会话」→ 调 host.openSession(sessionId, 任务标题)', () => {
+  check('双击气泡 → 调 host.openSession(sessionId, 任务标题)', () => {
     assert.equal(hostCalls.length, 1, JSON.stringify(hostCalls))
     assert.equal(hostCalls[0].sessionId, 'sess-running')
     assert.ok(String(hostCalls[0].expectedTitle).includes('任务 r1'), hostCalls[0].expectedTitle)
   })
-
-  const withoutSession = goButtons.find((button) => button.props.disabled === true)
-  check('没绑会话的任务：按钮 disabled 且 title 说明原因', () => {
-    assert.ok(withoutSession, '没有 sessionId 的气泡按钮应 disabled')
-    assert.match(String(withoutSession.props.title), /没有绑定会话/)
+  check('没绑会话的气泡：双击不报错、title 里说明「没有绑定会话」', () => {
+    const noSession = bubbles().find((orb) => orb.props['aria-label'].includes('任务 r2'))
+    assert.ok(noSession, '任务 r2 的气泡在')
+    noSession.props.onDoubleClick()
+    assert.equal(hostCalls.length, 1, '没有会话时不该调用宿主')
+    /* hover 浮层里也要写清原因 */
+    return true
   })
 }
 

@@ -10,6 +10,8 @@
 
 import { buildRuns } from './runsView.js'
 import { createBubble, createWaterLevel } from './Bubble.js'
+/* 气泡墙：从参考项目（kp-z/open_adventure）**直接搬**过来的组件，见 waterBubble.js 顶部注释 */
+import { createBubbleWall, toOrbWall, DASHBOARD_LAYOUT } from './waterBubble.js'
 import { injectStyles } from './dashboardStyles.js'
 
 let styleReady = false
@@ -47,6 +49,7 @@ export function spansForTail(count, cols) {
 export function createRunsFeature(deps) {
   const { React, h } = deps || {}
   const Bubble = createBubble(deps)
+  const BubbleWall = createBubbleWall(deps)
   const WaterLevel = createWaterLevel(deps)
   const useEffect = React && typeof React.useEffect === 'function' ? React.useEffect : null
   const useRef = React && typeof React.useRef === 'function' ? React.useRef : null
@@ -63,6 +66,10 @@ export function createRunsFeature(deps) {
     const [colsState, setColsState] = useState ? useState(toNum(ctx.columns) || 0) : [toNum(ctx.columns) || 0, () => {}]
     const cols = Array.isArray(colsState) ? colsState[0] : colsState
     const setCols = Array.isArray(colsState) ? colsState[1] : setColsState
+    /* 气泡墙的 hover 态：参考项目的浮层说明要靠它（鼠标进出气泡时设/清） */
+    const [hoverState, setHoverState] = useState ? useState(null) : [null, () => {}]
+    const hoveredId = Array.isArray(hoverState) ? hoverState[0] : hoverState
+    const setHoveredId = Array.isArray(hoverState) ? hoverState[1] : setHoverState
 
     if (useEffect) {
       useEffect(() => {
@@ -137,23 +144,37 @@ export function createRunsFeature(deps) {
       ))),
       ), 'all')
 
-    /* 2) 气泡墙：一个未完成任务一个气泡（运行中绿色 + 呼吸） */
-    const wall = panel(1, 'wall', '气泡墙', '绿色在呼吸就是正在跑', `${view.total} 个气泡`,
-      h('div', { className: 'fr-groups fr-scroll' }, view.groups.map((group) => h('div', { key: group.key, className: 'fr-group' },
-        h('div', { className: 'fr-group-head' },
-          h('span', { className: `fr-group-dot fr-tone-${group.tone}` }),
-          h('span', { className: 'fr-group-title' }, group.label),
-          h('span', { className: 'fr-group-count' }, String(group.count)),
-        ),
-        h('div', { className: 'fr-wall' }, group.bubbles.map((bubble) => h(Bubble, {
-          key: bubble.id,
-          bubble,
-          size: 64,
-          selected: bubble.id === selectedId,
-          onSelect: select,
-          onOpenSession: openSession,
-        }))),
-      ))), 'all')
+    /* 2) 气泡墙（从参考项目直接搬）：8 个散点位 + float 漂浮 + 圆内水位（绿泡）。
+          位置/尺寸/动画时长/层级全部沿用参考表，只有颜色换成宿主令牌。
+          「谁排前面谁拿大泡」= 顺便表达了紧迫度：正在跑 + 跑得最久的先占位。 */
+    const orbWall = toOrbWall(view.bubbles, { max: DASHBOARD_LAYOUT.maxBubbles })
+    const cloudPanel = panel(1, 'cloud', '可用任务气泡', '水位越高＝这条跑得越久 · 双击气泡打开会话',
+      orbWall.total > orbWall.items.length ? `${orbWall.items.length} / ${orbWall.total} 个` : `${orbWall.total} 个`,
+      orbWall.items.length
+        ? h('div', null,
+          /* 参考卡片：eyebrow 在上、气泡簇居中、下面两个小盒（Health Score / Status 的对应物） */
+          h('p', { className: 'fr-bubbles-eyebrow' }, '可用任务'),
+          h('div', { className: 'fr-bubbles-wrap' },
+            h(BubbleWall, {
+              bubbles: orbWall.items,
+              hoveredId,
+              onHover: setHoveredId,
+              onSelect: select,
+              onOpenSession: openSession,
+            })),
+          h('div', { className: 'fr-bubbles-boxes' },
+            h('div', { className: 'fr-bubbles-box' },
+              h('span', { className: 'fr-bubbles-box-label' }, '运行中'),
+              h('span', { className: 'fr-bubbles-box-value is-ok' }, String(view.counts.running || 0),
+                h('span', { className: 'fr-panel-hint' }, ' 条正在跑')),
+            ),
+            h('div', { className: 'fr-bubbles-box' },
+              h('span', { className: 'fr-bubbles-box-label' }, '未完成任务'),
+              h('span', { className: 'fr-bubbles-box-value is-brand' }, String(orbWall.total),
+                h('span', { className: 'fr-panel-hint' }, orbWall.hidden ? ` · 另有 ${orbWall.hidden} 条排在后面` : ' 条')),
+            ),
+          ))
+        : h('div', { className: 'fr-empty-line' }, '没有未完成的任务'), 'all')
 
     /* 3) 执行历史风格列表：头像块 + 状态点 + 标题 + 「编号 • 相对时间」+ 详情按钮 */
     const history = panel(2, 'history', '执行历史', '按最近活跃排序 · 已完成的任务不在这里', `${view.history.length} 条`,
@@ -231,7 +252,7 @@ export function createRunsFeature(deps) {
       'data-cols': String(cols || ''),
       'data-skipped-done': String(view.skippedDone || 0),
       ref: hostRef || undefined,
-    }, kpiRow, wall, history, rhythm, alerts)
+    }, kpiRow, cloudPanel, history, rhythm, alerts)
   }
 }
 
