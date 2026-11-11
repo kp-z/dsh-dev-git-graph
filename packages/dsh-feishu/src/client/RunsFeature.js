@@ -351,7 +351,20 @@ export function createRunsFeature(deps) {
                     },
                   }),
                   hoveredId === row.id
-                    ? h('span', { className: 'frx-orb-tip', role: 'tooltip' },
+                    ? h('span', {
+                      className: 'frx-orb-tip',
+                      role: 'tooltip',
+                      /* 靠右的气泡把浮层往左拉、靠左的往右拉：卡片是 overflow:hidden，
+                         否则最外侧的浮层还会被卡片边裁掉。 */
+                      style: {
+                        transform: `translateX(${(() => {
+                          const left = Number.parseFloat(pos.left) || 50
+                          if (left > 55) return -85
+                          if (left < 15) return -15
+                          return -50
+                        })()}%)`,
+                      },
+                    },
                       h('span', { className: 'frx-orb-tip-name' }, row.title || ''),
                       h('span', { className: 'frx-orb-tip-meta' },
                         `${isRunning ? '运行中' : (isSuspended ? '挂起' : '未开始')}${pct > 0 ? ` · 水位 ${pct}%` : ''}`),

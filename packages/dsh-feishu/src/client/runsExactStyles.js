@@ -253,14 +253,17 @@ export const CSS = `
 .frx-water-wave { stroke: rgba(34, 197, 94, 0.6); transition: stroke 1s ease-out; }
 /* hover 浮层（bg-black/95 + rounded-lg + 小三角） */
 .frx-orb-tip {
-  position: absolute; left: 50%; bottom: 100%; z-index: 30; transform: translateX(-50%);
-  margin-bottom: 8px; display: flex; flex-direction: column; gap: 3px;
+  /* 浮层放在气泡**下方**：卡片本身 overflow:hidden（玻璃效果需要它），
+     放上方会被卡片顶边裁掉（用户实测「hover 被 hidden 了」）。 */
+  position: absolute; left: 50%; top: 100%; z-index: 60; transform: translateX(-50%); /* 内联会覆盖这条做左右自适应 */
+  margin-top: 8px; display: flex; flex-direction: column; gap: 3px;
+  max-width: 240px;
   padding: 8px 12px; border-radius: 8px; white-space: nowrap;
   background: var(--frx-tip-bg); border: 1px solid var(--frx-border);
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
   pointer-events: none;
 }
-.frx-orb-tip-name { font-size: 10px; font-weight: 700; color: var(--frx-tip-fg); }
+.frx-orb-tip-name { font-size: 11px; font-weight: 700; color: var(--frx-tip-fg); overflow: hidden; text-overflow: ellipsis; }
 .frx-orb-tip-meta { font-size: 9px; color: var(--frx-tip-meta); }
 .frx-orb-tip-hint { font-size: 8px; color: #4ade80; }
 
