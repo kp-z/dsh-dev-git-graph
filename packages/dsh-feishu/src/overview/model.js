@@ -27,10 +27,11 @@ export const GROUP_PREFIX = 'group:'
 /** 项目分色槽位数（真正的颜色由 client/styles.js 的 --fo-deco-N 给，这里只发索引）。 */
 export const DECO_SLOTS = 8
 /** 关系摘要里带标题的字段：缺失任务的标题只能从这儿捡回来。 */
-export const REF_FIELDS = ['predecessors', 'successors', 'sourceTasks', 'derivedTasks', 'blockedBy']
+export const REF_FIELDS = ['predecessors', 'successors', 'sourceTasks', 'derivedTasks', 'earlierTasks', 'laterTasks', 'blockedBy']
 export const SCOPES = { all: true, group: true, project: true }
 
-const KINDS = { depends_on: true, derived_from: true }
+/* 画布上认的三种边：依赖（实线）、来源（虚线）、时间先后（点线）。 */
+const KINDS = { depends_on: true, derived_from: true, temporal: true }
 const ELLIPSIS = '…'
 
 export function isObj(value) { return !!value && typeof value === 'object' && !Array.isArray(value) }
@@ -211,7 +212,7 @@ export function stateLabel(state) {
   return '就绪'
 }
 
-/** 关系去重：只认 depends_on / derived_from，自环丢弃；坏行静默跳过。 */
+/** 关系去重：只认 depends_on / derived_from / temporal，自环丢弃；坏行静默跳过。 */
 export function normalizeEdges(relations) {
   const seen = new Set()
   const out = []
@@ -712,6 +713,7 @@ export function statsOf(tasks, relations) {
     suspended: 0,
     dependencyEdges: 0,
     provenanceEdges: 0,
+    temporalEdges: 0,
     externalEdges: 0,
     missingGhosts: 0,
     crossProject: 0,
@@ -735,6 +737,7 @@ export function statsOf(tasks, relations) {
     const b = known.get(edge.to)
     if (!a && !b) return
     if (edge.kind === 'depends_on') stats.dependencyEdges += 1
+    else if (edge.kind === 'temporal') stats.temporalEdges += 1
     else stats.provenanceEdges += 1
     if (!a || !b) stats.externalEdges += 1
     if (!a) missing.add(edge.from)

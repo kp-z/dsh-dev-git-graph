@@ -15,6 +15,7 @@ import {
   MIN_CONFIDENCE,
   ORGANIZE_SYSTEM,
   buildEvidencePack,
+  buildTemporalSuggestions,
   describeImpact,
   makeOrganizeBatch,
   organizeBatchId,
@@ -217,6 +218,93 @@ check('系统提示词钉住了硬规则：证据、不猜顺序、宁少勿错'
   assert.ok(ORGANIZE_SYSTEM.includes('evidence'))
   assert.ok(ORGANIZE_SYSTEM.includes('不猜任务顺序'))
   assert.ok(ORGANIZE_SYSTEM.includes('数据'))
+})
+
+/* ---- 7. 时间兜底（temporal）：确定性、不猜、不跨项目 ---- */
+const TX = (id, extra = {}) => ({
+  id,
+  title: id,
+  description: '',
+  done: false,
+  expectedAt: 0,
+  completedAt: 0,
+  workspaceKey: 'w1',
+  ...extra,
+})
+const fmt = (at) => `T${at}`
+
+check('时间建议：待办按预期完成时间串成相邻链', () => {
+  const { items } = buildTemporalSuggestions({
+    tasks: [TX('a', { expectedAt: 10 }), TX('b', { expectedAt: 20 }), TX('c', { expectedAt: 30 })],
+    relations: [],
+    format: fmt,
+  })
+  assert.deepEqual(items.map((item) => `${item.from}>${item.to}`), ['a>b', 'b>c'])
+  assert.ok(items.every((item) => item.kind === 'temporal' && item.confidence === 1 && item.status === 'pending'))
+  assert.match(items[0].evidence, /T10 早于 T20/)
+})
+
+check('时间建议：同一时刻并列不连，没有时间的任务不参与', () => {
+  const { items } = buildTemporalSuggestions({
+    tasks: [TX('a', { expectedAt: 10 }), TX('b', { expectedAt: 10 }), TX('c', { expectedAt: 0 }), TX('d', { expectedAt: 5 })],
+    relations: [],
+    format: fmt,
+  })
+  const pairs = items.map((item) => `${item.from}>${item.to}`)
+  assert.equal(pairs.includes('a>b'), false)
+  assert.equal(pairs.includes('b>a'), false)
+  assert.equal(pairs.some((pair) => pair.includes('c')), false)
+  /* 同刻的两条只保留一条通往更晚任务：d>a、a>b 恰是 5 < 10，10 与 10 不连。 */
+  assert.deepEqual(pairs, ['d>a'])
+})
+
+check('时间建议：待办与已完成分开串、跨项目不连', () => {
+  const { items } = buildTemporalSuggestions({
+    tasks: [
+      TX('open1', { expectedAt: 100 }),
+      TX('open2', { expectedAt: 200 }),
+      TX('done1', { done: true, completedAt: 50 }),
+      TX('done2', { done: true, completedAt: 60 }),
+      TX('other1', { expectedAt: 100, workspaceKey: 'w2' }),
+      TX('other2', { expectedAt: 300, workspaceKey: 'w2' }),
+    ],
+    relations: [],
+    format: fmt,
+  })
+  const pairs = items.map((item) => `${item.from}>${item.to}`)
+  assert.deepEqual(pairs.sort(), ['done1>done2', 'open1>open2', 'other1>other2'].sort())
+  assert.equal(pairs.some((pair) => pair.includes('open') && pair.includes('done')), false)
+})
+
+check('时间建议：已存在的时间边不重复提，且受上限约束', () => {
+  const tasks = Array.from({ length: 30 }, (_, index) => TX(`t${index}`, { expectedAt: index + 1 }))
+  const existing = [{ kind: 'temporal', from: 't0', to: 't1' }]
+  const result = buildTemporalSuggestions({ tasks, relations: existing, max: 5, format: fmt })
+  assert.equal(result.items.length, 5)
+  assert.equal(result.truncated > 0, true)
+  assert.equal(result.items.some((item) => item.from === 't0' && item.to === 't1'), false)
+})
+
+check('校验：temporal 走时间方向，不阻塞也不被当成依赖', () => {
+  const tasks = [TX('a', { expectedAt: 1 }), TX('b', { expectedAt: 2 })]
+  const temporal = { kind: 'temporal', from: 'a', to: 'b', confidence: 1, evidence: 'T1 早于 T2（按时间先后排序，不代表必须等待）' }
+  const checked = validateOrganizeItems({ items: [temporal], tasks, relations: [], now: 1 })
+  assert.equal(checked.items[0].status, 'pending')
+  const impact = describeImpact(checked.items[0], tasks)
+  assert.equal(impact.blockedCount, 0)
+  assert.match(impact.note, /不阻塞/)
+})
+
+check('校验：模型给的时间建议置信度不够也丢（门槛 0.9）', () => {
+  const tasks = [TX('a', { expectedAt: 1 }), TX('b', { expectedAt: 2 })]
+  const checked = validateOrganizeItems({
+    items: [{ kind: 'temporal', from: 'a', to: 'b', confidence: 0.5, evidence: 'T1 早于 T2（按时间先后排序）' }],
+    tasks,
+    relations: [],
+    now: 1,
+  })
+  assert.equal(checked.items[0].status, 'dropped')
+  assert.match(checked.items[0].reason, /置信度/)
 })
 
 console.log(`\norganizeSuggestions.js: ${passed} passed, ${failures.length} failed`)

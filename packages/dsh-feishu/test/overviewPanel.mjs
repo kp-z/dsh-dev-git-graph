@@ -885,10 +885,12 @@ check('关系页单列：.fo-scope-column 不存在，画布是唯一的主内�
   assert.equal(findAll(blocks[0], (node) => node.kind === 'host' && classNameOf(node) === 'fo-svg').length, 2, '画布照旧铺满（两张图）')
   assert.equal(findAll(tree, (node) => node.kind === 'host' && classNameOf(node) === 'fo-scope-column').length, 0)
 })
-check('二级菜单里不再重复一个分组标题（「任务分组」已删）', () => {
+check('二级菜单里不再重复一个分组标题，也不再单起一行放「新建目录」', () => {
   const sub = byClass(railEl(tree), 'fo-subnav')[0]
   assert.equal(byClass(sub, 'fo-scope-title').length, 0)
-  assert.ok(textOf(sub).includes('新建目录'), '新建目录入口还在')
+  /* 用户口径：去掉「新建目录」按钮。新建入口仍在目录行右键菜单里（下面有专门的断言）。 */
+  assert.equal(textOf(sub).includes('新建目录'), false, '顶部的「新建目录」按钮已删除')
+  assert.equal(byClass(sub, 'fo-scope-head').length, 0, '没有按钮之后，head 整块不渲染')
 })
 /* 折叠一级项：二级菜单整个不渲染，展开态落 store 键 nav */
 const navItem = () => featnavItems(tree).find((item) => textOf(item).includes('关系'))
@@ -1207,7 +1209,7 @@ const PANEL_CARD = layout.CARD
   const pathBefore = edgePathD()
   check('拖动前：复位布局按钮是禁用的（这张图还没拖动过）', () => {
     const btn = findAll(ft, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).trim() === '复位布局')[0]
-    assert.ok(btn, '图头有复位布局按钮')
+    assert.ok(btn, '画布卡片里有复位布局按钮')
     assert.equal(btn.props.disabled, true)
     assert.ok(String(btn.props.title).includes('还没有拖动过'))
   })
@@ -1475,27 +1477,43 @@ const PANEL_CARD = layout.CARD
     assert.equal(byClass(head, 'fo-head-actions').length, 1)
     assert.equal(head.children.filter((child) => child && child.kind === 'host').length, 3)
   })
-  check('功能页工具条只剩控件（featureHint / scopeText / 范围折叠按钮都已删）', () => {
-    const bar = byClass(ft, 'fo-feature-bar')[0]
-    assert.ok(bar)
-    assert.equal(byClass(bar, 'fo-feature-hint').length, 0)
-    assert.equal(byClass(bar, 'fo-feature-meta').length, 0)
-    const hosts = bar.children.filter((child) => child && child.kind === 'host')
-    assert.equal(hosts.every((child) => child.type === 'button'), true, '工具条里只留按钮，不留说明文字')
-    assert.equal(findAll(bar, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 1, '留下的是一键整理')
-    assert.equal(textOf(bar).includes('范围'), false, '范围选择已经搬进 rail，工具条不再有折叠按钮')
+  check('按钮不再单起一行：顶部工具条删掉，动作全进画布左下的浮动卡片', () => {
+    assert.equal(byClass(ft, 'fo-feature-bar').length, 0, '旧工具条已删')
+    const card = byClass(ft, 'fo-canvas-card')[0]
+    assert.ok(card, '画布里有浮动卡片')
+    assert.equal(card.props.role, 'toolbar')
+    assert.equal(findAll(card, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 1, '一键整理在卡片里')
+    for (const action of ['zoom-out', 'zoom-in', 'fit', 'reset-layout']) {
+      assert.equal(findAll(card, (node) => node.kind === 'host' && node.props['data-action'] === action).length, 1, `${action} 在卡片里`)
+    }
+    assert.equal(byClass(card, 'fo-zoom-value').length, 1, '卡片里有缩放百分比')
+    assert.equal(textOf(card).includes('范围'), false, '范围选择在 rail，不在卡片里')
   })
-  check('图头：只剩 图名 + 图例 + 复位布局（计数胶囊删掉，图例保留）', () => {
+  check('图头：只剩 图名 + 图例（动作按钮搬进卡片）', () => {
     const head = byClass(ft, 'fo-graph-head')[0]
     assert.equal(byClass(head, 'fo-graph-meta').length, 0)
     assert.equal(byClass(head, 'fo-graph-legend').length, 1)
-    assert.equal(byClass(head, 'fo-graph-actions').length, 1)
+    assert.equal(byClass(head, 'fo-graph-actions').length, 0, '图头不再挂「复位布局」')
     assert.equal(legendItems(head).length >= 1, true)
     const text = textOf(head)
     assert.equal(text.includes('任务'), false, `图头不该再念一遍计数：${text}`)
     assert.equal(text.includes('关系'), false)
     assert.equal(text.includes('组外/缺失'), false)
   })
+  /* ---- 画布缩放：卡片上的 − / 百分比 / + / 适应 ----
+     几何（以光标为锚点缩放、平移、聚焦居中）在 test/graphViewport.mjs 里单测；
+     这里只钉住「入口都在卡片里、有可读的名字、初始是 100%」。 */
+  const zoomBtn = (action) => findAll(ft, (node) => node.kind === 'host' && node.props['data-action'] === action)[0]
+  check('缩放控件齐全：− / 100% / + / 适应，初始是恒等视口', () => {
+    assert.equal(zoomBtn('zoom-out').props['aria-label'], '缩小画布')
+    assert.equal(zoomBtn('zoom-in').props['aria-label'], '放大画布')
+    assert.ok(zoomBtn('fit'), '适应按钮在')
+    const pct = byClass(ft, 'fo-zoom-value')[0]
+    assert.equal(textOf(pct).trim(), '100%')
+    assert.equal(pct.props['data-action'], 'zoom-reset')
+    assert.ok(byClass(ft, 'fo-svg').every((svg) => svg.props['data-zoom'] === '1'), '初始就是 100%')
+  })
+
   check('全页不再有 .fo-chip / .fo-stats（装饰性重复已删干净）', () => {
     assert.equal(findAll(ft, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-chip')).length, 0)
     assert.equal(byClass(ft, 'fo-stats').length, 0)
@@ -1789,7 +1807,8 @@ const orgButton = (item, action) => findAll(item, (node) => node.kind === 'host'
   check('空态文案：宁可少而准', () => {
     const drawer = organizeDrawers(ft)
     assert.equal(drawer.length, 1)
-    assert.ok(textOf(drawer[0]).includes('AI 没有找到新的关系——这常常是正确答案，宁可少而准'))
+    /* 时间兜底也会出建议，所以这里不再把「没有找到关系」归因给 AI。 */
+    assert.ok(textOf(drawer[0]).includes('没有找到新的关系——这常常是正确答案，宁可少而准'))
   })
   check('空态也不给假的「全部接受」按钮（禁用）', () => {
     const acceptAll = findAll(organizeDrawers(ft)[0], (node) => node.kind === 'host' && node.type === 'button' && node.props['data-action'] === 'accept-all')[0]
@@ -2490,6 +2509,109 @@ check('layout.js：只 import 同目录的 model.js，不碰 document/window/fet
   assert.deepEqual(imports, ['./model.js'])
   assert.equal(/document\b|window\b|localStorage\b|fetch\(/.test(layoutSource), false)
 })
+
+/* ---- 接受建议后画布立刻变化（用户报的「接受了没反应」就是这条链路） ---- */
+{
+  const batch = {
+    ...organizeBatchFixture(),
+    pending: 1,
+    items: [{
+      id: 'it-t', kind: 'temporal', from: 'a1', to: 'b1',
+      fromTitle: '任务 a1', toTitle: '任务 b1', confidence: 1,
+      evidence: '预期时间 2026-11-12 18:00 早于 2026-11-13 18:00（按时间先后排序，不代表必须等待）',
+      status: 'pending', reason: '',
+      impact: { blocked: [], blockedCount: 0, note: '时间先后：只表示谁在前谁在后，不阻塞任何任务的开工。' },
+    }],
+  }
+  const backend = makeOrganizeBackend({ result: batch })
+  /* 关键：接受之后宿主真的会多一条 temporal —— 假 api 也照这个口径回快照。 */
+  const live = { accepted: false }
+  const api = {
+    ...backend.api,
+    organizeAccept: async (batchId, itemIds) => {
+      live.accepted = true
+      return backend.api.organizeAccept(batchId, itemIds)
+    },
+    overview: async () => ({
+      ...SNAPSHOT,
+      relations: live.accepted ? [...RELATIONS, { from: 'a1', to: 'b1', kind: 'temporal' }] : RELATIONS,
+    }),
+  }
+  const fx = await mountPanel({ api, startFeature: 'graph' })
+  let at = fx.tree
+  const temporalEdges = () => findAll(at, (node) => node.kind === 'host' && classNameOf(node) === 'fo-edge' && node.props['data-kind'] === 'temporal')
+  check('接受前：画布上还没有时间边', () => {
+    assert.equal(temporalEdges().length, 0)
+  })
+  ORGANIZE_TRIGGER(at).props.onClick()
+  at = await fx.mini.act()
+  orgButton(orgItems(at, 'pending')[0], 'accept').props.onClick()
+  at = await fx.mini.act()
+  check('接受时间建议后：画布立刻多出点线（不用手动刷新）', () => {
+    assert.equal(live.accepted, true, '接受走了宿主接口')
+    assert.equal(temporalEdges().length >= 1, true, '重拉快照后时间边进了画布')
+  })
+  check('接受后图头图例也出现「时间」计数', () => {
+    const legend = byClass(at, 'fo-edge-legend')[0]
+    assert.ok(legend, '边的图例在')
+    assert.ok(textOf(legend).includes('时间'))
+  })
+}
+
+/* ---- 时间先后（temporal）进画布：独立 mount，避免污染主 fixture 的计数断言 ---- */
+{
+  const snap = {
+    ...SNAPSHOT,
+    relations: [
+      { from: 'a1', to: 'b1', kind: 'temporal' },
+      { from: 'b1', to: 'a1', kind: 'depends_on' },
+    ],
+    stats: { tasks: 5, groups: 1, dependencyEdges: 1, provenanceEdges: 0, temporalEdges: 1, blocked: 1, ready: 2 },
+  }
+  const fx = await mountPanel({ snapshot: snap, startFeature: 'graph' })
+  let tt = fx.tree
+  check('时间先后画成点线：SVG 里有 data-kind="temporal" 的边', () => {
+    const edges = findAll(tt, (node) => node.kind === 'host' && classNameOf(node) === 'fo-edge')
+    assert.equal(edges.filter((edge) => edge.props['data-kind'] === 'temporal').length >= 1, true)
+    assert.equal(fx.tree && byClass(tt, 'fo-viewport').length >= 1, true)
+  })
+  check('图头有边的图例：前置 1 / 时间 1（来源 0 不占位）', () => {
+    const legend = byClass(tt, 'fo-edge-legend')[0]
+    assert.ok(legend, '边的图例在')
+    const kinds = findAll(legend, (node) => node.kind === 'host' && classNameOf(node) === 'fo-edge-item')
+      .map((node) => node.props['data-kind'])
+    assert.deepEqual(kinds, ['depends_on', 'temporal'])
+    assert.ok(textOf(legend).includes('前置') && textOf(legend).includes('时间'))
+  })
+  /* 「不阻塞」的权威口径在宿主侧：test/organizeTemporal.mjs 钉住 blocked / ready / blockedBy 与
+     relationSync 不被污染；画布这层只负责把 temporal 画成一条独立的点线（上面两条已覆盖）。 */
+}
+
+/* ---- 画布缩放接线（独立一轮 mount，避免被前面用例的 scope / 聚焦状态干扰） ---- */
+{
+  const fx = await mountPanel({ snapshot: SNAPSHOT, startFeature: 'graph' })
+  let vt = fx.tree
+  const btn = (action) => findAll(vt, (node) => node.kind === 'host' && node.props['data-action'] === action)[0]
+  const pct = () => textOf(byClass(vt, 'fo-zoom-value')[0]).trim()
+  check('缩放接线：初始 100%，且没有 transform（恒等视口）', () => {
+    assert.equal(pct(), '100%')
+    assert.ok(byClass(vt, 'fo-svg').every((svg) => svg.props['data-zoom'] === '1'))
+  })
+  btn('zoom-in').props.onClick()
+  vt = await fx.mini.act()
+  check('缩放接线：点 + 后百分比变 125%，SVG 挂上 scale(1.25) 的视口变换', () => {
+    assert.equal(pct(), '125%')
+    const scaled = byClass(vt, 'fo-svg').filter((svg) => svg.props['data-zoom'] === '1.25')
+    assert.equal(scaled.length >= 1, true, '至少一张图被放大')
+    assert.ok(byClass(vt, 'fo-viewport').some((vp) => /scale\(1\.25\)/.test(String(vp.props.transform))))
+  })
+  btn('zoom-reset').props.onClick()
+  vt = await fx.mini.act()
+  check('缩放接线：点百分比回到 100%（transform 一起撤掉）', () => {
+    assert.equal(pct(), '100%')
+    assert.ok(byClass(vt, 'fo-viewport').every((vp) => vp.props.transform === undefined))
+  })
+}
 
 /* ---- 汇总 ---- */
 console.log(`\noverviewPanel.mjs: ${passed} passed, ${failures.length} failed`)

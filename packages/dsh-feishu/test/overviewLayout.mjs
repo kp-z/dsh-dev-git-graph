@@ -514,6 +514,11 @@ test('describeNodeCard：一行里说清 前置/后置/阻塞计数 + 项目名'
   assert.ok(describeNodeCard(a2).includes('已完成'), describeNodeCard(a2))
   const ghost = graph.nodes.find((node) => node.ghost === true)
   assert.ok(describeNodeCard(ghost).length > 0)
+  /* 时间先后单独计数：接受时间建议后卡片要看得出变化，但它不是依赖。
+     宽度有限，用短一点的项目名免得「时间3」被截断掉。 */
+  const timed = describeNodeCard({ state: 'open', workspaceLabel: 'wA', refs: { earlierTasks: [1], laterTasks: [1, 2] } })
+  assert.ok(timed.includes('时间3'), timed)
+  assert.equal(timed.includes('前置'), false, '时间边不能混进前置计数')
   /* 长 meta 会被截断（卡片中间列只有 ~162px），但绝不返回空 */
   assert.ok(describeNodeCard({ state: 'open', workspaceLabel: '一个特别特别特别长的项目名', refs: { predecessors: [1, 2, 3], successors: [1, 2, 3] } }).length > 0)
 })

@@ -487,17 +487,44 @@ export const CSS = `
 .fo-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: ${T.bgBase}; }
 .fo-feature-host { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .fo-feature { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.fo-feature-bar {
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 10px; min-height: 36px;
-  border-bottom: 1px solid var(--fo-glass-line);
-}
+/* 旧版顶部工具条（.fo-feature-bar）已删：关系页的动作全部收进画布左下的浮动卡片
+   （.fo-canvas-card），页面不再为按钮单起一行。 */
 .fo-feature-body { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
 /* task-17：范围树搬进 rail 之后，功能页只剩画布一块主内容（单列，画布拿全部宽度）。 */
 .fo-canvas-area {
+  position: relative;
   flex: 1 1 auto; min-width: 0; min-height: 0; overflow: auto;
   padding: 10px; display: flex; flex-direction: column;
 }
+/* 画布舞台：图列表 + 浮层（浮动卡片以它为定位基准，滚动时跟着画布走）。 */
+.fo-canvas-stage {
+  position: relative;
+  flex: 1 1 auto; min-height: 0;
+  display: flex; flex-direction: column;
+}
+
+/* ============ 画布浮动工具卡片（左下角） ============
+   玻璃底 + 细描边 + 阴影：压在画布上但不抢内容；窄屏自动换行，不顶出画布。 */
+.fo-canvas-card {
+  position: absolute; left: 22px; bottom: 22px; z-index: 3;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 8px 10px; border-radius: 14px;
+  background: var(--fo-glass-bg, color-mix(in oklab, ${T.bgBase} 78%, transparent));
+  border: 1px solid var(--fo-glass-line);
+  box-shadow: 0 10px 26px -18px ${g(T.idle, 60)}, 0 2px 8px -6px ${g(T.idle, 40)};
+  backdrop-filter: blur(10px);
+  max-width: calc(100% - 44px);
+}
+.fo-canvas-card-group { display: inline-flex; align-items: center; gap: 6px; }
+.fo-canvas-card-sep { width: 1px; height: 18px; background: var(--fo-glass-line); flex: 0 0 1px; }
+.fo-zoom-value {
+  min-width: 46px; padding: 0 4px;
+  font-size: 12px; font-variant-numeric: tabular-nums; text-align: center;
+  color: ${T.label2}; background: none; border: 0; border-radius: 8px;
+  cursor: pointer;
+}
+.fo-zoom-value:hover { color: ${T.label1}; background: ${g(T.idle, 12)}; }
+.fo-zoom-value:disabled { cursor: default; opacity: .55; }
 .fo-banner {
   display: flex; align-items: center; gap: 8px;
   margin: 10px 10px 0; padding: 12px 16px;
@@ -527,6 +554,14 @@ export const CSS = `
   padding: 12px 16px; border-bottom: 1px solid var(--fo-glass-line);
 }
 .fo-graph-name { font-size: 13px; font-weight: 600; }
+/* 边的图例（前置 / 来源 / 时间）：细线段 + 名称 + 数量，样式与画布上的线一一对应
+   （实线 / 虚线 / 点线）。少了它，接受建议后「多了几条点线」很容易被当成没变化。 */
+.fo-edge-legend { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.fo-edge-item { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: ${T.label2}; }
+.fo-edge-swatch { width: 16px; height: 0; border-top: 2px solid var(--fo-glass-line-hover); flex: 0 0 16px; }
+.fo-edge-swatch[data-kind="derived_from"] { border-top-style: dashed; border-top-color: ${T.idle}; }
+.fo-edge-swatch[data-kind="temporal"] { border-top-style: dotted; border-top-color: ${T.idle}; opacity: .8; }
+.fo-edge-count { font-variant-numeric: tabular-nums; }
 /* 图例：没有泳道后，这是「哪个颜色 = 哪个项目」的唯一标识 */
 .fo-graph-legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .fo-legend-item {
@@ -543,12 +578,18 @@ export const CSS = `
 /* 图头右侧只剩**动作**；计数胶囊已删（同一份数在树上与节点上各有一份，离对象最近的那处胜出）。 */
 .fo-graph-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 
-/* 画布区：占满图容器剩下的高度 + 24px 内边距；40px 双层网格铺满整块画布（不拦点击） */
+/* 画布区：占满图容器剩下的高度 + 24px 内边距；40px 双层网格铺满整块画布（不拦点击）。
+   空白处按下拖动 = 平移（grab / grabbing 给手感），滚轮 = 以光标为锚点缩放。 */
 .fo-canvas {
   position: relative; display: flex; flex-direction: column;
   flex: 1 1 auto; min-height: 0; width: 100%;
   padding: 24px;
+  cursor: grab;
+  touch-action: none;
+  overscroll-behavior: contain;
 }
+.fo-canvas.is-panning { cursor: grabbing; }
+.fo-viewport { transform-origin: 0 0; }
 .fo-grid {
   position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;
   background-image:
@@ -565,11 +606,16 @@ export const CSS = `
   transition: stroke-width var(--fo-dur) var(--fo-ease), stroke-opacity var(--fo-dur) var(--fo-ease), stroke var(--fo-dur) var(--fo-ease);
 }
 .fo-edge[data-kind="derived_from"] { stroke-dasharray: 5 4; stroke: ${T.idle}; }
+/* 时间先后：点线 + 更淡的灰。它表达的是「谁在前谁在后」，不是必须等待——
+   所以视觉上必须比依赖线弱一档，否则用户会把它当成阻塞关系。 */
+.fo-edge[data-kind="temporal"] { stroke-dasharray: 1.5 5; stroke: ${T.idle}; stroke-opacity: .55; }
+.fo-edge[data-kind="temporal"].is-active { stroke-opacity: 1; }
 .fo-edge:hover, .fo-edge.is-active { stroke-width: 3; stroke-opacity: 1; }
 .fo-edge.is-active { stroke: ${T.brand}; }
 /* 箭头：6×6 实心三角，fill 跟边同色（参考站 markerWidth/Height=6、d="M 0 0 L 6 3 L 0 6 z"） */
 .fo-arrow { fill: var(--fo-glass-line-hover); fill-opacity: .85; }
 .fo-arrow[data-kind="derived_from"] { fill: ${T.idle}; }
+.fo-arrow[data-kind="temporal"] { fill: ${T.idle}; fill-opacity: .55; }
 /* ============ 画布节点 = workflow 式三段卡片（task-15） ============
    参考站 WorkflowEditor 的节点口径：rounded-xl + border-2 + shadow-xl + 玻璃底 +「左动作列 | 中信息 |
    右状态」。这里全落在 SVG 上：卡片 = rect（rx 12 / stroke 2），各段坐标由 layout.cardGeometry 给。
@@ -699,6 +745,7 @@ export const CSS = `
   color: ${T.brand}; background: var(--fo-selected-bg); border: 1px solid var(--fo-selected-line);
 }
 .fo-org-kind[data-kind="derived_from"] { color: ${T.idle}; background: ${g(T.idle, 16)}; border-color: ${g(T.idle, 32)}; }
+.fo-org-kind[data-kind="temporal"] { color: ${T.idle}; background: ${g(T.idle, 12)}; border-color: ${g(T.idle, 24)}; }
 .fo-org-conf { margin-left: auto; font-size: 11px; color: ${T.label2}; font-variant-numeric: tabular-nums; }
 .fo-org-route { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12px; }
 .fo-org-from, .fo-org-to { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -710,6 +757,7 @@ export const CSS = `
   font-size: 11px; color: ${T.label2}; line-height: 1.5; word-break: break-word;
 }
 .fo-org-impact { margin: 0; font-size: 11px; color: ${T.warn}; }
+.fo-org-impact[data-tone="idle"] { color: ${T.label2}; }
 .fo-org-fail { margin: 0; font-size: 11px; color: ${T.error}; }
 .fo-org-item-actions { display: flex; align-items: center; gap: 8px; }
 .fo-org-done { font-size: 11px; color: ${T.label2}; }

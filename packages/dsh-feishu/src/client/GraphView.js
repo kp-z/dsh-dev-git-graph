@@ -26,6 +26,85 @@
 import { cardGeometry, describeNode, describeNodeCard, edgePath, snapToGrid, statusLabel } from '../overview/layout.js'
 import { decoVar } from './styles.js'
 
+/* ============ 画布视口（缩放 / 平移）============
+   纯函数放在模块顶层：组件只管把指针事件换算成「用户坐标」再丢进来，
+   这样几何（尤其是「以光标为锚点缩放」）可以离线单测，不依赖 DOM。 */
+
+export const IDENTITY_VIEW = Object.freeze({ k: 1, x: 0, y: 0 })
+export const VIEW_ZOOM_MIN = 0.35
+export const VIEW_ZOOM_MAX = 2.6
+
+/** 缩放钳制：太小看不清线、太大只剩一个节点，都没有意义。 */
+export function clampZoom(value) {
+  const k = Number(value)
+  if (!isFinite(k) || k <= 0) return 1
+  return Math.min(VIEW_ZOOM_MAX, Math.max(VIEW_ZOOM_MIN, k))
+}
+
+/** 视口值归一：坏值一律退回恒等视口（不做半截缩放）。 */
+export function normalizeView(raw) {
+  if (!raw || typeof raw !== 'object') return IDENTITY_VIEW
+  const k = Number(raw.k)
+  const x = Number(raw.x)
+  const y = Number(raw.y)
+  if (!isFinite(k) || !isFinite(x) || !isFinite(y) || k <= 0) return IDENTITY_VIEW
+  return { k: clampZoom(k), x, y }
+}
+
+/** 某个图的当前视口。 */
+export function viewOf(views, key) {
+  return normalizeView(views && typeof views === 'object' ? views[key] : null)
+}
+
+/**
+ * 以 anchor（**视口坐标**，即 viewBox 里的位置）为锚点缩放。
+ * 推导：user = content * k + t；要让 anchor 在缩放前后落在同一处，
+ * 就得 t' = anchor - (anchor - t) * k'/k。
+ */
+export function zoomView(view, factor, anchor) {
+  const cur = normalizeView(view)
+  const nextK = clampZoom(cur.k * (Number(factor) || 1))
+  const a = anchor && isFinite(Number(anchor.x)) && isFinite(Number(anchor.y)) ? anchor : { x: 0, y: 0 }
+  const ratio = nextK / cur.k
+  return { k: nextK, x: a.x - (a.x - cur.x) * ratio, y: a.y - (a.y - cur.y) * ratio }
+}
+
+/** 平移：dx/dy 是**视口坐标**下的位移（调用方负责把屏幕像素除以缩放比）。 */
+export function panView(view, dx, dy) {
+  const cur = normalizeView(view)
+  const nx = Number(dx)
+  const ny = Number(dy)
+  if (!isFinite(nx) || !isFinite(ny)) return cur
+  return { k: cur.k, x: cur.x + nx, y: cur.y + ny }
+}
+
+/** 让某个内容坐标点落在视口中心（聚焦时用）。 */
+export function centerOn(view, point, box) {
+  const cur = normalizeView(view)
+  const b = box && typeof box === 'object' ? box : {}
+  const width = Number(b.width) || 0
+  const height = Number(b.height) || 0
+  const top = Number(b.top) || 0
+  const cx = Number(point && point.x)
+  const cy = Number(point && point.y)
+  if (!isFinite(cx) || !isFinite(cy) || !width || !height) return cur
+  return { k: cur.k, x: width / 2 - cx * cur.k, y: top + height / 2 - cy * cur.k }
+}
+
+/** SVG 上的 transform：先缩放再平移（与上面所有公式同一口径）。 */
+export function viewportTransform(view) {
+  const v = normalizeView(view)
+  if (v.k === 1 && v.x === 0 && v.y === 0) return undefined
+  return `translate(${round(v.x)} ${round(v.y)}) scale(${round(v.k, 4)})`
+}
+
+const round = (value, digits = 2) => {
+  const n = Number(value)
+  if (!isFinite(n)) return 0
+  const p = 10 ** digits
+  return Math.round(n * p) / p
+}
+
 function safeId(value) {
   return String(value == null ? '' : value).replace(/[^A-Za-z0-9_-]/g, '_')
 }
@@ -34,6 +113,27 @@ function safeId(value) {
 function decoStyle(colorRef) {
   if (colorRef == null || !(Number(colorRef) >= 0)) return undefined
   return { '--fo-c': decoVar(colorRef) }
+}
+
+const ZOOM_STEP = 1.25
+
+/** 「一键整理」的图标：20px 线性 sparkle（自绘，不引图标字体/图片）。 */
+export function sparkleIcon(h) {
+  return h('svg', {
+    className: 'fo-btn-icon',
+    width: 14,
+    height: 14,
+    viewBox: '0 0 20 20',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.5,
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    'aria-hidden': 'true',
+  },
+    h('path', { d: 'M10 2.4l1.5 4.1 4.1 1.5-4.1 1.5L10 13.6 8.5 9.5 4.4 8l4.1-1.5z' }),
+    h('path', { d: 'M15.6 13.4l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z' }),
+  )
 }
 
 const num = (value, fallback) => {
@@ -49,19 +149,27 @@ const ACTION_ICONS = {
 
 export function createGraphView(deps) {
   const { h, React } = deps || {}
-  const { useCallback, useRef, useState } = React
+  const { useCallback, useEffect, useRef, useState } = React
 
   return function GraphView(props) {
     const {
       graphs, selectedId = '', focusedId = '', nodePos, onOpenTask, onFocusTask,
-      onNodeMove, onResetLayout, onBlur, hostReady, hostReason, onOpenSession,
+      onNodeMove, onResetLayout, onBlur, hostReady, hostReason, onOpenSession, organize,
     } = props || {}
+    const [views, setViews] = useState({})
     const list = Array.isArray(graphs) ? graphs : []
     const [drag, setDrag] = useState(null)
     /* 拖动过就不算点击：pointerup 之后浏览器还会补一个 click，用它把选中/详情挡掉。 */
     const dragMoved = useRef(false)
     const svgRefs = useRef({})
     const nodeRefs = useRef({})
+    const canvasRefs = useRef({})
+    /* 平移：空画布上按下左键拖动；超过 3px 才算拖动，避免和「点空白取消聚焦」打架。 */
+    const [pan, setPan] = useState(null)
+    const panMoved = useRef(false)
+    /* 事件处理器里要读最新视口/回调，但不能每次 setState 都重新绑事件。 */
+    const viewsRef = useRef(views)
+    viewsRef.current = views
 
     const posOf = useCallback((graphKey, node) => {
       const bag = nodePos && typeof nodePos === 'object' ? nodePos[graphKey] : null
@@ -70,16 +178,114 @@ export function createGraphView(deps) {
       return { x: Number(hit.x), y: Number(hit.y) }
     }, [nodePos])
 
-    /* 视图缩放：viewBox 是 layout 坐标系，元素是 CSS 尺寸，跟随指针要除以这个比例。 */
+    /* 视图缩放：viewBox 是 layout 坐标系，元素是 CSS 尺寸，跟随指针要除以这个比例。
+       画布自身的放大（视口 k）也要算进去：放大 2 倍时同样 10px 只该走一半的内容距离。 */
     const scaleOf = useCallback((graph) => {
+      const k = viewOf(viewsRef.current, graph.key).k
       const el = svgRefs.current[graph.key]
-      if (!el || typeof el.getBoundingClientRect !== 'function') return 1
+      if (!el || typeof el.getBoundingClientRect !== 'function') return k
       let rect = null
       try { rect = el.getBoundingClientRect() } catch (error) { rect = null }
-      if (!rect || !rect.width || !rect.height || !graph.width || !graph.height) return 1
+      if (!rect || !rect.width || !rect.height || !graph.width || !graph.height) return k
       const scale = Math.min(rect.width / graph.width, rect.height / graph.height)
-      return isFinite(scale) && scale > 0 ? scale : 1
+      return isFinite(scale) && scale > 0 ? scale * k : k
     }, [])
+
+    /* 屏幕坐标 → viewBox 坐标。preserveAspectRatio="xMidYMid meet" 会留边，
+       所以要把「居中留边」也扣掉，否则滚轮缩放的锚点会偏。 */
+    const userPointOf = useCallback((graph, el, clientX, clientY) => {
+      const left = num(clientX, 0)
+      const top = num(clientY, 0)
+      if (!el || typeof el.getBoundingClientRect !== 'function') return null
+      let rect = null
+      try { rect = el.getBoundingClientRect() } catch (error) { return null }
+      if (!rect || !rect.width || !rect.height || !graph.width || !graph.height) return null
+      const scale = Math.min(rect.width / graph.width, rect.height / graph.height)
+      if (!(scale > 0)) return null
+      const offsetX = (rect.width - graph.width * scale) / 2
+      const offsetY = (rect.height - graph.height * scale) / 2
+      return {
+        x: (left - rect.left - offsetX) / scale,
+        y: (top - rect.top - offsetY) / scale + (Number(graph.top) || 0),
+      }
+    }, [])
+
+    /* 视口状态就放在这里：缩放/平移/聚焦都在本组件内闭环，卡片也由它渲染
+       （GraphFeature 只负责把 organize 之类的宿主能力透传进来）。 */
+    const setView = useCallback((graphKey, next) => {
+      const key = String(graphKey || '')
+      if (!key) return
+      setViews((prev) => ({ ...(prev && typeof prev === 'object' ? prev : {}), [key]: next }))
+    }, [])
+
+    /* 滚轮缩放：必须用原生监听（React 的 onWheel 是 passive，preventDefault 无效，
+       否则画布会跟着整页滚）。以光标为锚点，手感与常见画布一致。 */
+    useEffect(() => {
+      const cleanups = []
+      list.forEach((graph) => {
+        const el = canvasRefs.current[graph.key]
+        if (!el || typeof el.addEventListener !== 'function') return
+        const onWheel = (event) => {
+          if (typeof event.preventDefault === 'function') event.preventDefault()
+          const delta = num(event.deltaY, 0)
+          if (!delta) return
+          const factor = Math.exp(-delta * (event.ctrlKey ? 0.01 : 0.0016))
+          const anchor = userPointOf(graph, el, event.clientX, event.clientY)
+          const v = viewOf(viewsRef.current, graph.key)
+          setView(graph.key, zoomView(v, factor, anchor || { x: graph.width / 2, y: (Number(graph.top) || 0) + graph.height / 2 }))
+        }
+        el.addEventListener('wheel', onWheel, { passive: false })
+        cleanups.push(() => { try { el.removeEventListener('wheel', onWheel) } catch (error) { /* 元素没了就算了 */ } })
+      })
+      return () => cleanups.forEach((fn) => fn())
+    })
+
+    /* 聚焦：把聚焦节点送到视口中心（「聚焦」不只是调暗别人，还要看得见主角）。 */
+    const lastFocused = useRef('')
+    useEffect(() => {
+      const id = String(focusedId || '')
+      if (!id || id === lastFocused.current) return
+      lastFocused.current = id
+      const graph = list.find((item) => (item.nodes || []).some((node) => node.id === id && node.ghost !== true))
+      if (!graph) return
+      const node = graph.nodes.find((item) => item.id === id) || null
+      if (!node) return
+      const pos = posOf(graph.key, node)
+      const box = { width: graph.width, height: graph.height, top: graph.top }
+      setView(graph.key, centerOn(viewOf(viewsRef.current, graph.key), {
+        x: pos.x + num(node.w, 0) / 2,
+        y: pos.y + num(node.h, 0) / 2,
+      }, box))
+    }, [focusedId, list, posOf, setView])
+
+    const beginPan = (event, graph) => {
+      if (event.button != null && Number(event.button) !== 0) return
+      panMoved.current = false
+      setPan({
+        graphKey: graph.key,
+        clientX: num(event.clientX, 0),
+        clientY: num(event.clientY, 0),
+        base: viewOf(viewsRef.current, graph.key),
+      })
+    }
+
+    const movePan = (event, graph) => {
+      if (!pan || pan.graphKey !== graph.key) return
+      const dx = num(event.clientX, 0) - pan.clientX
+      const dy = num(event.clientY, 0) - pan.clientY
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+        panMoved.current = true
+        if (typeof event.preventDefault === 'function') event.preventDefault()
+      }
+      if (!panMoved.current) return
+      const scale = scaleOf(graph)
+      if (!(scale > 0)) return
+      setView(graph.key, panView(pan.base, dx / scale, dy / scale))
+    }
+
+    const endPan = () => {
+      if (pan) setPan(null)
+    }
 
     const beginDrag = (event, graph, node) => {
       if (typeof event.stopPropagation === 'function') event.stopPropagation()
@@ -182,7 +388,116 @@ export function createGraphView(deps) {
       )
     }
 
-    return h('div', { className: 'fo-graphs' }, list.map((graph, index) => {
+    /* ---------------- 浮动工具卡片 ----------------
+       位置固定在画布左下角：不占版面（不再单起一行），但随时可达。 */
+    const org = organize && typeof organize === 'object' ? organize : null
+    const orgAvailable = !!(org && org.available)
+    const orgRunning = !!(org && org.running)
+    const orgOpen = !!(org && org.open)
+    const orgPending = org && Number(org.pending) > 0 ? Number(org.pending) : 0
+    const hasLocal = !!(nodePos && typeof nodePos === 'object' && Object.keys(nodePos).length > 0)
+    const graphHas = (graph, id) => !!id && (graph.nodes || []).some((node) => node.id === id && node.ghost !== true)
+    /* 缩放按钮跟随「聚焦 / 选中」的那张图；都没有时作用在第一张。 */
+    const active = list.find((graph) => graphHas(graph, focusedId))
+      || list.find((graph) => graphHas(graph, selectedId))
+      || list[0]
+      || null
+    const activeView = active ? viewOf(views, active.key) : IDENTITY_VIEW
+    const percent = Math.round(activeView.k * 100)
+    const zoomBy = (factor) => {
+      if (!active) return
+      const anchor = {
+        x: (Number(active.width) || 0) / 2,
+        y: (Number(active.top) || 0) + (Number(active.height) || 0) / 2,
+      }
+      setView(active.key, zoomView(viewOf(viewsRef.current, active.key), factor, anchor))
+    }
+    const fitAll = () => setViews({})
+    const resetLayoutAll = () => {
+      if (typeof onResetLayout !== 'function') return
+      onResetLayout(list.length > 1 ? '' : (active ? active.key : ''))
+    }
+
+    const card = h('div', {
+      className: 'fo-canvas-card',
+      role: 'toolbar',
+      'aria-label': '画布工具',
+      /* 卡片自己吃掉指针事件，别让它变成「点空白取消聚焦」或拖动画布。 */
+      onPointerDown: (event) => { if (typeof event.stopPropagation === 'function') event.stopPropagation() },
+      onClick: (event) => { if (typeof event.stopPropagation === 'function') event.stopPropagation() },
+    },
+      orgAvailable
+        ? h('div', { className: 'fo-canvas-card-group' },
+          h('button', {
+            type: 'button',
+            className: 'fo-btn',
+            'data-size': 'sm',
+            'data-action': 'organize',
+            disabled: orgRunning,
+            title: '让 AI 找前置/后置/来源关系，并按完成时间补一条时间先后；先出建议再落库',
+            onClick: () => { if (!orgRunning && typeof org.onRun === 'function') org.onRun() },
+          }, orgRunning ? '整理中…' : '一键整理', orgRunning ? null : sparkleIcon(h)),
+          orgPending > 0
+            ? h('button', {
+              type: 'button',
+              className: 'fo-btn',
+              'data-size': 'sm',
+              'data-variant': 'ghost',
+              'data-action': 'organize-toggle',
+              'aria-expanded': orgOpen ? 'true' : 'false',
+              'aria-controls': 'fo-organize-column',
+              onClick: () => { if (typeof org.onToggle === 'function') org.onToggle() },
+            }, orgOpen ? '收起建议' : `建议 ${orgPending}`)
+            : null,
+        )
+        : null,
+      orgAvailable ? h('span', { className: 'fo-canvas-card-sep', 'aria-hidden': 'true' }) : null,
+      h('div', { className: 'fo-canvas-card-group' },
+        h('button', {
+          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+          'data-action': 'zoom-out', 'aria-label': '缩小画布', title: '缩小画布（也可以滚轮）',
+          disabled: !active || percent <= Math.round(VIEW_ZOOM_MIN * 100),
+          onClick: () => zoomBy(1 / ZOOM_STEP),
+        }, '−'),
+        h('button', {
+          type: 'button', className: 'fo-zoom-value', 'data-action': 'zoom-reset',
+          'aria-label': `当前缩放 ${percent}%，点击回到 100%`, title: '当前缩放；点击回到 100%',
+          disabled: !active,
+          onClick: () => { if (active) setView(active.key, { k: 1, x: 0, y: 0 }) },
+        }, `${percent}%`),
+        h('button', {
+          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+          'data-action': 'zoom-in', 'aria-label': '放大画布', title: '放大画布（也可以滚轮）',
+          disabled: !active || percent >= Math.round(VIEW_ZOOM_MAX * 100),
+          onClick: () => zoomBy(ZOOM_STEP),
+        }, '+'),
+        h('button', {
+          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+          'data-action': 'fit', title: '把所有图恢复到适应画布（100%）',
+          disabled: !active,
+          onClick: fitAll,
+        }, '适应'),
+      ),
+      h('span', { className: 'fo-canvas-card-sep', 'aria-hidden': 'true' }),
+      h('div', { className: 'fo-canvas-card-group' },
+        h('button', {
+          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+          'data-action': 'reset-layout', disabled: !hasLocal,
+          title: hasLocal ? '清掉本地拖动位置，回到自动布局（不影响缩放）' : '还没有拖动过节点',
+          onClick: resetLayoutAll,
+        }, '复位布局'),
+        focusedId
+          ? h('button', {
+            type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+            'data-action': 'blur', title: '取消聚焦（Esc）',
+            onClick: () => { if (typeof onBlur === 'function') onBlur() },
+          }, '取消聚焦')
+          : null,
+      ),
+    )
+
+    return h('div', { className: 'fo-canvas-stage' },
+      h('div', { className: 'fo-graphs' }, list.map((graph, index) => {
       const markerBase = `fo-arrow-${index}-${safeId(graph.key)}`
       const nodes = Array.isArray(graph.nodes) ? graph.nodes : []
       const edges = Array.isArray(graph.edges) ? graph.edges : []
@@ -193,8 +508,7 @@ export function createGraphView(deps) {
       const label = graph.kind === 'ungrouped'
         ? `未分组：${taskCount} 个任务`
         : `${graph.label}：${(graph.projects || []).length} 个项目、${taskCount} 个任务${graph.kind === 'group' ? '画在同一张图里' : ''}`
-      const localBag = nodePos && typeof nodePos === 'object' ? nodePos[graph.key] : null
-      const hasLocal = !!localBag && typeof localBag === 'object' && Object.keys(localBag).length > 0
+      const view = viewOf(views, graph.key)
       const anyFocused = !!focusedId && nodes.some((node) => node.ghost !== true && node.id === focusedId)
 
       /* 拖动中的那个节点跟手（不吸附），其余用本地位置或布局位置。 */
@@ -381,6 +695,18 @@ export function createGraphView(deps) {
       },
         h('div', { className: 'fo-graph-head' },
           h('span', { className: 'fo-graph-name' }, graph.kind === 'ungrouped' ? '未分组' : graph.label),
+          /* 边的图例：接受建议后画布变了，这里要能立刻看出「多了几条什么线」
+             （时间先后是点线、颜色更淡，只靠眼睛扫画布很容易以为没变化）。 */
+          h('div', { className: 'fo-edge-legend', 'aria-label': '关系图例' },
+            [['depends_on', '前置'], ['derived_from', '来源'], ['temporal', '时间']].map(([kind, label]) => {
+              const total = edges.filter((edge) => edge.kind === kind).length
+              if (!total) return null
+              return h('span', { key: kind, className: 'fo-edge-item', 'data-kind': kind },
+                h('i', { className: 'fo-edge-swatch', 'data-kind': kind, 'aria-hidden': 'true' }),
+                h('span', { className: 'fo-edge-label' }, label),
+                h('span', { className: 'fo-edge-count' }, String(total)))
+            }),
+          ),
           h('div', { className: 'fo-graph-legend', 'aria-label': '项目图例' },
             legend.map((item) => h('span', { key: item.key, className: 'fo-legend-item', title: item.label },
               h('i', { className: 'fo-legend-dot', style: { '--fo-c': decoVar(item.colorRef) }, 'aria-hidden': 'true' }),
@@ -388,23 +714,21 @@ export function createGraphView(deps) {
               h('span', { className: 'fo-legend-count' }, String(item.count)),
             )),
           ),
-          h('div', { className: 'fo-graph-actions' },
-            h('button', {
-              type: 'button',
-              className: 'fo-btn',
-              'data-size': 'sm',
-              'data-variant': 'ghost',
-              disabled: !hasLocal,
-              title: hasLocal ? '清掉这张图的本地拖动位置，回到自动布局' : '这张图还没有拖动过',
-              onClick: () => { if (typeof onResetLayout === 'function') onResetLayout(graph.key) },
-            }, '复位布局'),
-          ),
+          /* 动作按钮全部收进画布上的浮动卡片（GraphFeature），图头只留名字与图例。 */
         ),
         /* 画布：网格层在最底、不拦点击；SVG 在上层。空图也显示网格（参考站画布一直在）。
-           点空白（画布底/网格/SVG 空白处，不在任何节点里）= 取消聚焦。 */
+           点空白（画布底/网格/SVG 空白处，不在任何节点里）= 取消聚焦；
+           拖动空白 = 平移；滚轮 = 以光标为锚点缩放（见上面 useEffect）。 */
         h('div', {
-          className: 'fo-canvas',
+          ref: (el) => { canvasRefs.current[graph.key] = el },
+          className: `fo-canvas${pan && pan.graphKey === graph.key ? ' is-panning' : ''}`,
+          'data-zoom': String(round(view.k, 3)),
+          onPointerDown: (event) => beginPan(event, graph),
+          onPointerMove: (event) => movePan(event, graph),
+          onPointerUp: endPan,
+          onPointerLeave: endPan,
           onClick: (event) => {
+            if (panMoved.current) { panMoved.current = false; return }
             if (typeof onBlur !== 'function') return
             if (insideNode(event && event.target, event && event.currentTarget)) return
             onBlur()
@@ -425,7 +749,10 @@ export function createGraphView(deps) {
                 role: 'group',
                 'aria-label': label,
                 'data-graph': graph.key,
-              }, defs, edgeLayer, nodeLayer))
+                'data-zoom': String(round(view.k, 3)),
+              }, defs,
+                /* 视口层：缩放/平移只作用在内容上，defs（箭头 marker）留在外面。 */
+                h('g', { className: 'fo-viewport', transform: viewportTransform(view) }, edgeLayer, nodeLayer)))
             : h('div', { className: 'fo-placeholder' },
               h('div', { className: 'fo-placeholder-title' }, graph.kind === 'ungrouped' ? '没有未分组的项目' : '这个目录里还没有在场的工作区'),
               h('div', { className: 'fo-placeholder-body' }, graph.kind === 'ungrouped'
@@ -434,7 +761,9 @@ export function createGraphView(deps) {
             ),
         ),
       )
-    }))
+    })),
+      card,
+    )
   }
 }
 

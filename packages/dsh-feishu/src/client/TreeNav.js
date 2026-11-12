@@ -21,7 +21,7 @@
  *   onSelect(row) onToggle(row) onMenu(row, {x,y})
  *   onDragKey(key) onDropKey(key) onDrop(projectKey, targetRow)
  *   onRenameStart(row) onRenameCommit(id, name) onRenameCancel()
- *   onCreateStart(projectKey) onCreateCommit(name) onCreateCancel()
+ *   onCreateCommit(name) onCreateCancel()  —— creating 由宿主置真（右键菜单的「新建目录」）
  *   compact                  二级菜单形态（rail 里用），默认 false
  */
 
@@ -55,7 +55,6 @@ export function createTreeNav(deps) {
       onRenameStart,
       onRenameCommit,
       onRenameCancel,
-      onCreateStart,
       onCreateCommit,
       onCreateCancel,
       compact = false,
@@ -284,17 +283,11 @@ export function createTreeNav(deps) {
     }
 
     return h('div', { className: 'fo-scope', 'data-compact': compact ? '1' : '0' },
-      h('div', { className: 'fo-scope-head' },
-        /* 二级菜单里不再重复一个分组标题：一级项已经叫「关系」，标题只会是第二份同义文案。 */
-        compact ? null : h('span', { className: 'fo-scope-title' }, '任务分组'),
-        h('button', {
-          type: 'button',
-          className: 'fo-btn',
-          'data-size': 'sm',
-          disabled: busy,
-          onClick: () => { if (typeof onCreateStart === 'function') onCreateStart('') },
-        }, '新建目录'),
-      ),
+      /* 用户口径：去掉「新建目录」按钮。新建入口保留在目录行 / 未分组行的右键菜单里
+         （见 model.rowMenu 的 new-group / move-new），那里才是「对着某个目录操作」的语境。 */
+      compact
+        ? null
+        : h('div', { className: 'fo-scope-head' }, h('span', { className: 'fo-scope-title' }, '任务分组')),
       h('div', { className: 'fo-scope-body', onDragOver: (event) => { if (dragKey) event.preventDefault() }, onDrop: onListDrop },
         h('div', {
           className: 'fo-scope-list',

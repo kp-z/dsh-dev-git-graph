@@ -22,6 +22,10 @@ const REF_SECTIONS = [
   { field: 'successors', label: '后置（等这个）', kind: '后置' },
   { field: 'sourceTasks', label: '来源任务', kind: '来源' },
   { field: 'derivedTasks', label: '派生任务', kind: '派生' },
+  /* 时间先后只是「谁在前谁在后」，不阻塞；放在最后，别让人误读成依赖。
+     optional：没有时间边时整段不渲染，别给每条任务都挂两个空标题。 */
+  { field: 'earlierTasks', label: '更早的任务（时间先后）', kind: '更早', optional: true },
+  { field: 'laterTasks', label: '更晚的任务（时间先后）', kind: '更晚', optional: true },
 ]
 
 export function createDetailPanel(deps) {
@@ -56,6 +60,7 @@ export function createDetailPanel(deps) {
 
     const sections = REF_SECTIONS.map((section, sectionIndex) => {
       const items = refs[section.field] || []
+      if (section.optional === true && !items.length) return null
       return h('section', { key: section.field, className: 'fo-sec', style: { '--fo-i': Math.min(sectionIndex + 1, 7) } },
         h('span', { className: 'fo-sec-label' }, section.label),
         items.length

@@ -578,8 +578,12 @@ export function describeNodeCard(node) {
   const bits = []
   const pre = arr(refs.predecessors).length
   const post = arr(refs.successors).length
+  /* 时间先后单独计数：它不是依赖，不能并进「前置/后置」，
+     但接受时间建议后卡片必须看得出变化（否则用户会以为没生效）。 */
+  const time = arr(refs.earlierTasks).length + arr(refs.laterTasks).length
   if (pre) bits.push(`前置${pre}`)
   if (post) bits.push(`后置${post}`)
+  if (time) bits.push(`时间${time}`)
   if (n.state === 'blocked') bits.push(`阻塞${arr(refs.blockedBy).length}`)
   if (n.ghost === true) {
     /* ghost：编号 eyebrow 走 id（右边状态胶囊已经说了「缺失/组外」，别再重复三遍）。 */
