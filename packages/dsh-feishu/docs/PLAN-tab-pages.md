@@ -567,6 +567,20 @@
       顺手钉住 activityFeed 帧里有 `revision`。sessionPulse 19 → 21 条。
 - [x] 证据：sessionPulse 21、offline 84 JS + 7 Python。
 
+**第 40 轮（21:30，让「运行完也能显示状态」真正成立）**
+
+用户的两句口径互相拉扯：「运行中和运行完都可以显示（状态）」vs「运行完成的任务不需要在卡片里显示」。
+同时成立只能靠**短暂停留**：
+
+- [x] **「刚做完」的任务在气泡墙上留 25 秒**（`5694275`）：
+      - `runsView` 新增 `recentDoneMs` 选项 + `justDone` 输出：完成时间在窗口内**且有 completedAt**
+        的任务生成绿泡（没有完成时刻的不猜）；`justDone` **只给气泡墙用**——
+        KPI 分母 / 分组 / 执行历史 / 时长 Top 一律不含（3 条断言钉住）；
+      - 顺手把气泡行构造抽成 `toBubble(task)`，未完成与刚做完共用一套字段；
+      - `RECENT_DONE_MS = 25s`：绿泡上会先挂 8 秒「已完成」状态泡，然后整颗泡自己消失；
+        想彻底不显示把它改成 0 即可（有断言保证 0 时行为与旧版一致）。
+- [x] 证据：runsView 30 → 33、overviewPanel 219、npm test 0、offline 84 JS + 7 Python。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
          是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
