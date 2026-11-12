@@ -92,6 +92,14 @@ runs-green*.jpg
 
 # 离线渲染产物（scripts/render-runs-preview.mjs 生成）
 .runs-preview.html
+# 设计稿草稿（给用户 review 用的线框/方案图，不入库）
+.kpi-design-options.html
+.runs-page-design.html
+.modern-card-design.html
+.running-indicator-design.html
+.insight-crop.png
+.graph-card-check.jpg
+.graph-card2.jpg
 
 # 状态泡设计稿（本地可视化草稿）
 .status-badge-design.html
