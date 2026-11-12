@@ -473,6 +473,18 @@
       在全套绿之后统一入库。
 - [x] 证据：npm test 0、offline 83 JS + 7 Python、overviewPanel 216、runsOrbInvariants 10、dashboardStyles 8。
 
+**第 31 轮（12:30，滚动与防复发）**
+
+- [x] **运行页恢复上下滚动**（`41813ab`）：宿主 `.fo-feature-host` 是 `flex:1 + min-height:0` 但**自己不滚**，
+  `.frx-page`（气泡卡 + 三个统计卡 + 历史 + 动作卡）没设 overflow → 超出一屏就被裁掉。
+  改成 `.frx-page` 自己滚（`flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain`）。
+  本机把 `.fo-feature-host` 压到 300px 实测：`clientHeight=300 / scrollHeight=1020`，`scrollTop` 0→150 生效。
+- [x] **钉住这条不变量**（`b0b2ba4`）：`.frx-page` 必须同时有 `overflow-y:auto` / `min-height:0` /
+  `overscroll-behavior:contain`，否则测试直接红（这类问题在界面上「看不出错」，只能靠断言）。
+- [x] 顺带确认洞察页没有同类问题：`.fd-page` 早就带了 `overflow:auto`。
+- [ ] 注意：本轮 `b0b2ba4` **尚未推到远端** —— `ghssh`（ssh.github.com:443）连接被对端关闭，
+  重试 5 次都失败；本地提交已在，等网络恢复再推。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区还有 4 个文件是**别的会话/进程**在写（DetailPanel.js / styles.js / overview/model.js /
          test/organizeSuggestions.mjs，时间边 UI 与断言）——不要碰，等它写完或用户指派；
