@@ -76,6 +76,10 @@ export function createRunsFeature(deps) {
   ]
   const POSITIONS = RAW_POSITIONS.map((pos) => ({ ...pos }))
   const MAX_ORBS = 8
+  /* 「刚做完」的气泡在墙上停留多久（毫秒）：用户口径「运行中和运行完都可以显示」，
+     而已完成的任务按另一个口径不长驻运行页 —— 只留一小会儿，看到「已完成」就消失。
+     想彻底不显示就把它改成 0。 */
+  const RECENT_DONE_MS = 25 * 1000
   /* 极简标记 → SVG 标签（图标数据为了体积压缩过标签名） */
   const TAG_MAP = { p: 'path', c: 'circle', r: 'rect', l: 'line', pl: 'polyline', pg: 'polygon' }
 
@@ -315,7 +319,9 @@ export function createRunsFeature(deps) {
       }, [])
     }
 
-    const view = buildRuns(ctx.snapshot || ctx)
+    /* 把「刚做完」的窗口告诉 runsView（单位毫秒）；0 = 不上墙 */
+    const snapshotForView = { ...(ctx.snapshot || ctx), recentDoneMs: RECENT_DONE_MS }
+    const view = buildRuns(snapshotForView)
     /* 项目图标（纯本地配置，宿主快照 workspaces[].logo 带下来）。
        气泡是 SVG，所以这里拿的是**路径数据**，不是 DOM 元素。 */
     const logoMap = (() => {
@@ -365,7 +371,10 @@ export function createRunsFeature(deps) {
     const rank = (row) => (row.state === 'running' ? 0 : (row.state === 'suspended' ? 1 : (row.state === 'idle' ? 3 : 2)))
     /* 气泡只放「活着且在跑/待跑」的：挂起 = 暂时不做，不占气泡墙（用户在运行页看到挂起的
        「车位」任务会以为是多出来的）。挂起仍会出现在 KPI 与「需要人看一眼」里。 */
-    const wallRows = view.bubbles.filter((row) => row.state !== 'suspended')
+    /* 气泡墙 = 未完成（不含挂起） + **刚做完还留在墙上的绿泡**（view.justDone）。
+       「刚做完」的窗口由宿主快照的 recentDoneMs 决定（见 runsView 的说明）：
+       它只影响气泡墙，KPI / 分组 / 历史 / 时长都不含它们。 */
+    const wallRows = view.bubbles.filter((row) => row.state !== 'suspended').concat(view.justDone || [])
     /* 结算状态泡：快照（终态/阻塞/在跑）+ 活动流（phase/turn）→ 每个任务一句状态。
        同一条状态不重置计时，所以「没有新消息」会自然到点消失（见 sessionPulse.js）。 */
     /* 用**快照原始任务行**而不是 view.bubbles：气泡行只带 state，没有 running/started/blocked

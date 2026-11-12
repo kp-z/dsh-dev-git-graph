@@ -215,6 +215,38 @@ check('气泡字段：编号/标题/项目/状态/是否呼吸/会话可用性/�
   assert.equal(idle1.dashed, true)
 })
 
+/* ---------------- 刚做完（只上气泡墙） ---------------- */
+
+check('刚做完：窗口内进 justDone（气泡墙），但 KPI/分组/历史/时长都不含它', () => {
+  const tasks = [
+    task('d1', { no: 1, done: true, completedAt: NOW - 5 * 1000 }),
+    task('d2', { no: 2, done: true, completedAt: NOW - 10 * 60 * 1000 }),
+    task('live', { no: 3, running: true, startedAt: NOW - HOUR }),
+  ]
+  const view = buildRuns({ tasks, now: NOW, recentDoneMs: 25 * 1000 })
+  assert.deepEqual(view.justDone.map((b) => b.id), ['d1'], '只有 25 秒内完成的进墙')
+  assert.equal(view.justDone[0].state, 'done')
+  assert.equal(view.bubbles.length, 1, '未完成气泡仍只有 live 一条')
+  assert.equal(view.total, 1, '分母不含刚做完的')
+  assert.equal(view.overview.every((row) => row.total === 1), true)
+  assert.deepEqual(view.groups.map((g) => g.key), ['running'])
+  assert.equal(view.history.some((row) => row.id === 'd1'), false, '历史里不该出现')
+  assert.equal(view.longest.some((row) => row.id === 'd1'), false, '时长榜里不该出现')
+})
+
+check('刚做完：不给窗口（recentDoneMs=0）时行为与旧版一致（完全不上墙）', () => {
+  const tasks = [task('d1', { done: true, completedAt: NOW - 1000 })]
+  const view = buildRuns({ tasks, now: NOW })
+  assert.deepEqual(view.justDone, [])
+  assert.equal(view.total, 0)
+})
+
+check('刚做完：没有 completedAt 的完成态不进墙（不猜完成时刻）', () => {
+  const tasks = [task('d1', { done: true, completedAt: 0 })]
+  const view = buildRuns({ tasks, now: NOW, recentDoneMs: 60 * 1000 })
+  assert.deepEqual(view.justDone, [])
+})
+
 /* ---------------- 概览 / 活跃度 ---------------- */
 
 check('KPI 四卡：运行中 / 等待中 / 阻塞 / 已绑会话，分母是未完成任务数', () => {

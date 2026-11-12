@@ -134,9 +134,21 @@ export function buildRuns(snapshot) {
      两者都不上面（用户口径：先是「完成的不要显示」，再是「挂起的也不显示」），只保留计数用于自证。 */
   const tasks = allTasks.filter((task) => task.done !== true && task.suspended !== true)
   const now = num(snap.now, Date.now())
+  const nowMs = now
   const titleOf = new Map(tasks.map((task) => [str(task.id), str(task.title) || str(task.id)]))
 
-  const bubbles = tasks.map((task) => {
+  /* 「刚做完」的任务：**只给气泡墙用**，不参与 KPI 分母 / 分组 / 历史 / 时长。
+     为什么需要它：用户口径是「运行中和运行完都可以显示（状态）」，但已完成的任务按另一个口径
+     不上运行页 —— 两者只有靠「短暂停留」才能同时成立：完成后的 RECENT_DONE_MS 内留一个绿泡
+     （带「已完成」状态对话气泡），然后自己消失。默认 0 = 完全不上墙（保持旧行为）。 */
+  const recentDoneMs = Math.max(0, num(snap.recentDoneMs, 0))
+  const recentDone = recentDoneMs > 0
+    ? allTasks.filter((task) => task.done === true && num(task.completedAt, 0) > 0
+      && nowMs - num(task.completedAt, 0) <= recentDoneMs)
+    : []
+
+  /** 任务 → 气泡行（未完成任务与「刚做完」的任务共用同一套字段） */
+  const toBubble = (task) => {
     const state = stateOfTask(task)
     const meta = STATE_META[state] || STATE_META.idle
     const sessionId = str(task.sessionId)
@@ -179,7 +191,10 @@ export function buildRuns(snapshot) {
         return { id, title: str(ref.title) || titleOf.get(id) || id, done: ref.done === true }
       }),
     }
-  })
+  }
+  const bubbles = tasks.map(toBubble)
+  /* 只给气泡墙用：完成不久的绿泡（KPI/分组/历史/时长都用不到它们） */
+  const justDone = recentDone.map(toBubble)
 
   const counts = { running: 0, started: 0, blocked: 0, suspended: 0, idle: 0 }
   bubbles.forEach((bubble) => { counts[bubble.state] = (counts[bubble.state] || 0) + 1 })
@@ -291,6 +306,8 @@ export function buildRuns(snapshot) {
     skippedDone: allTasks.filter((task) => task.done === true).length,
     /** 入口被过滤掉的挂起任务数（挂起 = 暂时不做，同样不上运行页） */
     skippedSuspended: allTasks.filter((task) => task.done !== true && task.suspended === true).length,
+    /** 完成不久、仍留在气泡墙上的任务（只影响气泡墙；KPI/分组/历史/时长都不含它们） */
+    justDone,
     history,
     counts,
     boundSessions,
