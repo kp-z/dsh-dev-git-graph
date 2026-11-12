@@ -11,7 +11,7 @@
 import { writeFileSync } from 'node:fs'
 import { CSS as PANEL_CSS } from '../src/client/styles.js'
 import { CSS as RUNS_CSS } from '../src/client/runsExactStyles.js'
-import { createRunsFeature } from '../src/client/RunsFeature.js'
+import { createFeatures } from '../src/client/features.js'
 
 /* ---------------- 迷你 React ---------------- */
 function createMiniReact() {
@@ -145,21 +145,30 @@ const snapshot = {
 
 const { React, mount, act } = createMiniReact()
 globalThis.EventSource = undefined
-globalThis.__DSH_PULSE_DEBUG = (map, ids) => { console.log('PULSE', map.size, JSON.stringify([...map.keys()]), 'bubbles', JSON.stringify(ids)) }
-const RunsFeature = createRunsFeature({ React, h: React.createElement })
-const tree = mount(React.createElement(RunsFeature, { snapshot, onOpenSession: () => {}, onOpenTask: () => {}, onRefresh: () => {} }))
-void act()
-
-const found = []
-const walkTree = (n) => {
-  if (!n) return
-  if (Array.isArray(n)) { n.forEach(walkTree); return }
-  if (n.kind === 'host' && String(n.props && n.props.className || '').includes('frx-speech')) found.push(n.props)
-  if (n.children) walkTree(n.children)
+const h = React.createElement
+const features = createFeatures({ React, h })
+const ctx = {
+  snapshot,
+  trees: [], graphs: [], selectedId: '', focusedId: '', nodePos: {}, hostReady: false, hostReason: '',
+  insightStats: null,
+  onOpenSession: () => {}, onOpenTask: () => {}, onRefresh: () => {}, onFocusTask: () => {},
+  onNodeMove: () => {}, onResetLayout: () => {}, onBlur: () => {},
+  organize: { available: false, running: false, open: false, pending: 0, onRun: () => {}, onToggle: () => {} },
 }
-walkTree(tree)
-console.log('SPEECH NODES', found.length, JSON.stringify(found.slice(0, 2)))
 
+/** 逐页渲染；某一页需要更多 ctx 时不要让整个预览挂掉，把它写进页面里 */
+const panels = features.map((feature) => {
+  try {
+    const tree = mount(h(feature.Component, ctx))
+    void act()
+    return { id: feature.id, label: feature.label, tree, error: '' }
+  } catch (error) {
+    console.log(`页面 ${feature.id} 渲染失败：${error.message}`)
+    return { id: feature.id, label: feature.label, tree: null, error: String(error && error.message) }
+  }
+})
+
+/* 每页各自渲染，失败只影响那一页（把错误写进产物，方便定位缺哪个 ctx） */
 const hostTokens = `
   html,body{margin:0;background:var(--dsw-alias-bg-base);font:13px/1.5 -apple-system,'PingFang SC',sans-serif}
   body{
@@ -178,16 +187,29 @@ const hostTokens = `
     --dsw-alias-state-idle-primary: oklch(0.60 0.01 285);
     --dsw-specific-sidebar-fill: oklch(0.21 0.009 285);
   }
-  .preview-frame{width:900px;height:620px;display:flex;flex-direction:column;margin:0 auto;background:var(--dsw-alias-bg-base)}
-  .preview-frame > *{flex:1 1 auto;min-height:0}
+  body{padding:0 0 40px}
+  .preview-head{display:flex;flex-direction:column;gap:4px;padding:16px 22px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+  .preview-head b{font-size:14px}
+  .preview-head span{font-size:11px;color:var(--dsw-alias-label-secondary)}
+  .frame{padding:14px 22px 0;display:flex;flex-direction:column;gap:8px}
+  .frame h2{margin:0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--dsw-alias-label-secondary)}
+  .err{margin:0;padding:12px;border-radius:10px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);font-size:12px}
+  .viewport{width:1100px;height:620px;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;overflow:hidden}
+  .viewport > *{flex:1 1 auto;min-height:0}
 `
 
+const frames = panels.map((panel) => {
+  if (panel.error) return `<section class="frame"><h2>${panel.label}</h2><p class="err">渲染失败：${escapeHtml(panel.error)}</p></section>`
+  if (!panel.tree) return ''
+  return `<section class="frame"><h2>${panel.label}</h2><div class="viewport">${toHtml(panel.tree)}</div></section>`
+}).join('')
+
 writeFileSync(new URL('../.runs-preview.html', import.meta.url), `<!doctype html><html lang="zh"><head><meta charset="utf-8">
-<title>运行页离线预览</title>
+<title>离线预览：运行 / 洞察 / 关系</title>
 <style>${hostTokens}</style>
 <style>${PANEL_CSS}</style>
 <style>${RUNS_CSS}</style>
-</head><body><div class="preview-frame">${toHtml(tree)}</div></body></html>`)
+</head><body><header class="preview-head"><b>dsh-feishu 离线预览</b><span>真实组件 + 真实样式，由迷你 React 在 Node 里渲染；不需要网络</span></header>${frames}</body></html>`)
 console.log('written packages/dsh-feishu/.runs-preview.html（离线渲染，不依赖网络）')
 /* RunsFeature 里有一个 1 秒的结算定时器（prunePulses），它会吊住 Node；
    这是开发期的一次性渲染脚本，写完就退出。 */
