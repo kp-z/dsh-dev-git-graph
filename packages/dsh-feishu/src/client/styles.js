@@ -487,73 +487,50 @@ export const CSS = `
 .fo-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: ${T.bgBase}; }
 .fo-feature-host { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 .fo-feature { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-/* 旧版顶部工具条（.fo-feature-bar）已删：关系页的动作全部收进画布右上的浮动卡片
-   （.fo-canvas-card），页面不再为按钮单起一行。 */
+/* 旧版顶部工具条（.fo-feature-bar）与画布浮动卡片（.fo-canvas-card）都已删：
+   整页动作在正文头部（.fo-head-organize），逐图工具在每张卡片的 header（.fo-graph-actions）。 */
 .fo-feature-body { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
 /* task-17：范围树搬进 rail 之后，功能页只剩画布一块主内容（单列，画布拿全部宽度）。 */
 .fo-canvas-area {
   position: relative;
   flex: 1 1 auto; min-width: 0; min-height: 0;
-  /* 滚动交给 .fo-graphs：工具卡片钉在右上角，不跟着图列表一起滚走。 */
   overflow: hidden;
   padding: 10px; display: flex; flex-direction: column;
 }
-/* 画布舞台：图列表 + 浮层（浮动卡片以它为定位基准，滚动时跟着画布走）。 */
+/* 画布舞台：图列表（每张卡片自己是独立的玻璃卡）。 */
 .fo-canvas-stage {
   position: relative;
   flex: 1 1 auto; min-height: 0;
   display: flex; flex-direction: column;
 }
 
-/* ============ 画布工具卡片（右上角） ============
-   完全对齐 adventure WorkflowEditor 的控件口径（用户口径：「里面按钮也要一致，功能可以改」）：
-     · 容器 = flex + 黑底 40% + p-1 + rounded-xl + border-white/5（分段控件）；
-     · 分段 = px-5 py-2 + rounded-lg + text-[10px] + font-black + uppercase，选中态品牌色实心 + shadow-lg；
-     · 主按钮 = px-6 py-2 + rounded-xl + font-black + uppercase + shadow-xl，悬停放大 1.05。
-   位置按用户要求放右上：盖在画布上，不占版面。 */
-.fo-canvas-card {
-  position: absolute; top: 18px; right: 18px; z-index: 3;
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  max-width: calc(100% - 36px);
-}
-.fo-canvas-card-group {
+/* ============ 卡片头部工具（.fo-graph-head 右侧） ============
+   用户口径：「右上的按钮应该在卡片的 header 里而不是悬浮」——没有浮层，工具就长在卡片头上。
+   视觉沿用 adventure WorkflowEditor 的分段控件口径：深底 + 细边 + 大圆角；
+   整页的「建议」是主按钮口径（品牌色实心 + shadow），落在正文头部。 */
+.fo-zoom-group {
   display: inline-flex; align-items: center; gap: 2px;
-  padding: 4px; border-radius: 12px;
-  background: ${g(T.bgBase, 55)};
-  border: 1px solid ${g(T.border1, 30)};
-  box-shadow: 0 20px 25px -5px ${g(T.label1, 8)}, 0 8px 10px -6px ${g(T.label1, 6)};
-  backdrop-filter: blur(20px);
-}
-/* 主按钮那一组不包胶囊（参考站里 AI Orchestrate 也是独立按钮，不塞进分段控件）。 */
-.fo-canvas-card-group[data-plain="1"] {
-  background: none; border: 0; box-shadow: none; padding: 0; backdrop-filter: none;
-}
-.fo-canvas-card .fo-btn {
-  height: 28px; padding: 0 12px; border-radius: 8px;
-  font-size: 10px; font-weight: 900; letter-spacing: .04em;
-  background: transparent; border: 0; color: ${T.label2};
-  box-shadow: none;
-}
-.fo-canvas-card .fo-btn:hover:not(:disabled) {
-  background: ${g(T.label1, 6)}; color: ${T.label1}; transform: none;
-}
-.fo-canvas-card .fo-btn:disabled { opacity: .45; }
-.fo-canvas-card .fo-btn[data-action="organize"] {
-  padding: 0 16px; border-radius: 12px; background: ${T.brand}; color: ${T.label1};
-  box-shadow: 0 10px 15px -3px ${g(T.brand, 45)}, 0 4px 6px -4px ${g(T.brand, 35)};
-}
-.fo-canvas-card .fo-btn[data-action="organize"]:hover:not(:disabled) {
-  background: ${T.brand}; color: ${T.label1}; transform: scale(1.05);
+  padding: 3px; border-radius: 10px;
+  background: ${g(T.bgBase, 45)};
+  border: 1px solid ${g(T.border1, 26)};
 }
 .fo-zoom-value {
-  height: 28px; min-width: 46px; padding: 0 6px;
-  font-size: 10px; font-weight: 900; letter-spacing: .04em;
-  font-variant-numeric: tabular-nums; text-align: center;
+  height: 26px; min-width: 44px; padding: 0 4px;
+  font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center;
   color: ${T.label2}; background: none; border: 0; border-radius: 8px;
   cursor: pointer;
 }
 .fo-zoom-value:hover { color: ${T.label1}; background: ${g(T.label1, 6)}; }
 .fo-zoom-value:disabled { cursor: default; opacity: .45; }
+/* 正文头部里的整理入口：主按钮口径（品牌色实心 + shadow），与参考站 AI Orchestrate 一致。 */
+.fo-head-organize { display: inline-flex; align-items: center; gap: 6px; }
+.fo-head-organize .fo-btn[data-action="organize"] {
+  background: ${T.brand}; color: ${T.label1}; border-color: transparent;
+  box-shadow: 0 10px 15px -3px ${g(T.brand, 45)}, 0 4px 6px -4px ${g(T.brand, 35)};
+}
+.fo-head-organize .fo-btn[data-action="organize"]:hover:not(:disabled) {
+  background: ${T.brand}; color: ${T.label1}; transform: scale(1.05);
+}
 .fo-banner {
   display: flex; align-items: center; gap: 8px;
   margin: 10px 10px 0; padding: 12px 16px;
@@ -605,7 +582,15 @@ export const CSS = `
 .fo-legend-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fo-legend-count { font-variant-numeric: tabular-nums; }
 /* 图头右侧只剩**动作**；计数胶囊已删（同一份数在树上与节点上各有一份，离对象最近的那处胜出）。 */
-.fo-graph-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.fo-graph-actions {
+  display: flex; align-items: center; gap: 4px; margin-left: auto;
+  flex-wrap: wrap; justify-content: flex-end; min-width: 0;
+}
+.fo-graph-actions .fo-btn {
+  height: 26px; padding: 0 10px; border-radius: 8px;
+  font-size: 11px; font-weight: 700; letter-spacing: .02em;
+}
+.fo-graph-actions .fo-btn[data-action="toggle-done"][aria-pressed="true"] { color: ${T.label1}; }
 
 /* 画布区：占满图容器剩下的高度 + 24px 内边距；40px 双层网格铺满整块画布（不拦点击）。
    空白处按下拖动 = 平移（grab / grabbing 给手感），滚轮 = 以光标为锚点缩放。 */

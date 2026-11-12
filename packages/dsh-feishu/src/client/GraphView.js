@@ -136,6 +136,8 @@ export function sparkleIcon(h) {
   )
 }
 
+const asArray = (value) => (Array.isArray(value) ? value : [])
+
 const num = (value, fallback) => {
   const n = Number(value)
   return isFinite(n) ? n : fallback
@@ -154,7 +156,8 @@ export function createGraphView(deps) {
   return function GraphView(props) {
     const {
       graphs, selectedId = '', focusedId = '', nodePos, onOpenTask, onFocusTask,
-      onNodeMove, onResetLayout, onBlur, hostReady, hostReason, onOpenSession, organize,
+      onNodeMove, onResetLayout, onBlur, hostReady, hostReason, onOpenSession,
+      hideDone = false, hiddenDone = 0, onToggleHideDone,
     } = props || {}
     const [views, setViews] = useState({})
     const list = Array.isArray(graphs) ? graphs : []
@@ -211,7 +214,7 @@ export function createGraphView(deps) {
     }, [])
 
     /* 视口状态就放在这里：缩放/平移/聚焦都在本组件内闭环，卡片也由它渲染
-       （GraphFeature 只负责把 organize 之类的宿主能力透传进来）。 */
+       （GraphFeature 只负责把 ctx 透传进来）。 */
     const setView = useCallback((graphKey, next) => {
       const key = String(graphKey || '')
       if (!key) return
@@ -388,111 +391,25 @@ export function createGraphView(deps) {
       )
     }
 
-    /* ---------------- 浮动工具卡片 ----------------
-       位置固定在画布右上角（用户口径：按钮都放右上卡片里）：不占版面（不再单起一行），但随时可达。 */
-    const org = organize && typeof organize === 'object' ? organize : null
-    const orgAvailable = !!(org && org.available)
-    const orgRunning = !!(org && org.running)
-    const orgOpen = !!(org && org.open)
-    const orgPending = org && Number(org.pending) > 0 ? Number(org.pending) : 0
+    /* ---------------- 卡片头部工具 ----------------
+       用户口径：按钮放进**卡片自己的 header**（.fo-graph-head），不再悬浮在画布上。
+       这些控制是逐张图的（缩放 / 复位），所以每张卡片各有一套。 */
     const hasLocal = !!(nodePos && typeof nodePos === 'object' && Object.keys(nodePos).length > 0)
     const graphHas = (graph, id) => !!id && (graph.nodes || []).some((node) => node.id === id && node.ghost !== true)
-    /* 缩放按钮跟随「聚焦 / 选中」的那张图；都没有时作用在第一张。 */
-    const active = list.find((graph) => graphHas(graph, focusedId))
-      || list.find((graph) => graphHas(graph, selectedId))
-      || list[0]
-      || null
-    const activeView = active ? viewOf(views, active.key) : IDENTITY_VIEW
-    const percent = Math.round(activeView.k * 100)
-    const zoomBy = (factor) => {
-      if (!active) return
-      const anchor = {
-        x: (Number(active.width) || 0) / 2,
-        y: (Number(active.top) || 0) + (Number(active.height) || 0) / 2,
-      }
-      setView(active.key, zoomView(viewOf(viewsRef.current, active.key), factor, anchor))
-    }
-    const fitAll = () => setViews({})
-    const resetLayoutAll = () => {
-      if (typeof onResetLayout !== 'function') return
-      onResetLayout(list.length > 1 ? '' : (active ? active.key : ''))
-    }
 
-    const card = h('div', {
-      className: 'fo-canvas-card',
-      role: 'toolbar',
-      'aria-label': '画布工具',
-      /* 卡片自己吃掉指针事件，别让它变成「点空白取消聚焦」或拖动画布。 */
-      onPointerDown: (event) => { if (typeof event.stopPropagation === 'function') event.stopPropagation() },
-      onClick: (event) => { if (typeof event.stopPropagation === 'function') event.stopPropagation() },
-    },
-      /* 与参考站（adventure WorkflowEditor）一致的顺序：左边分段控件，右边主按钮。 */
-      h('div', { className: 'fo-canvas-card-group' },
-        h('button', {
-          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
-          'data-action': 'zoom-out', 'aria-label': '缩小画布', title: '缩小画布（也可以滚轮）',
-          disabled: !active || percent <= Math.round(VIEW_ZOOM_MIN * 100),
-          onClick: () => zoomBy(1 / ZOOM_STEP),
-        }, '−'),
-        h('button', {
-          type: 'button', className: 'fo-zoom-value', 'data-action': 'zoom-reset',
-          'aria-label': `当前缩放 ${percent}%，点击回到 100%`, title: '当前缩放；点击回到 100%',
-          disabled: !active,
-          onClick: () => { if (active) setView(active.key, { k: 1, x: 0, y: 0 }) },
-        }, `${percent}%`),
-        h('button', {
-          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
-          'data-action': 'zoom-in', 'aria-label': '放大画布', title: '放大画布（也可以滚轮）',
-          disabled: !active || percent >= Math.round(VIEW_ZOOM_MAX * 100),
-          onClick: () => zoomBy(ZOOM_STEP),
-        }, '+'),
-        h('button', {
-          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
-          'data-action': 'fit', title: '把所有图恢复到适应画布（100%）',
-          disabled: !active,
-          onClick: fitAll,
-        }, '适应'),
-      ),
-      h('div', { className: 'fo-canvas-card-group' },
-        h('button', {
-          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
-          'data-action': 'reset-layout', disabled: !hasLocal,
-          title: hasLocal ? '清掉本地拖动位置，回到自动布局（不影响缩放）' : '还没有拖动过节点',
-          onClick: resetLayoutAll,
-        }, '复位布局'),
-        focusedId
-          ? h('button', {
-            type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
-            'data-action': 'blur', title: '取消聚焦（Esc）',
-            onClick: () => { if (typeof onBlur === 'function') onBlur() },
-          }, '取消聚焦')
-          : null,
-      ),
-      orgAvailable
-        ? h('div', { className: 'fo-canvas-card-group', 'data-plain': '1' },
-          orgPending > 0
-            ? h('button', {
-              type: 'button',
-              className: 'fo-btn',
-              'data-size': 'sm',
-              'data-action': 'organize-toggle',
-              'aria-expanded': orgOpen ? 'true' : 'false',
-              'aria-controls': 'fo-organize-column',
-              onClick: () => { if (typeof org.onToggle === 'function') org.onToggle() },
-            }, orgOpen ? '收起建议' : `建议 ${orgPending}`)
-            : null,
-          h('button', {
-            type: 'button',
-            className: 'fo-btn',
-            'data-size': 'sm',
-            'data-action': 'organize',
-            disabled: orgRunning,
-            title: '让 AI 找前置/后置/来源关系，并按完成时间补一条时间先后；先出建议再落库',
-            onClick: () => { if (!orgRunning && typeof org.onRun === 'function') org.onRun() },
-          }, orgRunning ? '分析中…' : '建议', orgRunning ? null : sparkleIcon(h)),
-        )
-        : null,
-    )
+    /** 单张图的缩放：以这张图 viewBox 的中心为锚点。 */
+    const zoomGraph = (graph, factor) => {
+      const anchor = {
+        x: (Number(graph.width) || 0) / 2,
+        y: (Number(graph.top) || 0) + (Number(graph.height) || 0) / 2,
+      }
+      setView(graph.key, zoomView(viewOf(viewsRef.current, graph.key), factor, anchor))
+    }
+    const resetGraphView = (graph) => setView(graph.key, { k: 1, x: 0, y: 0 })
+    const resetLayoutGraph = (graph) => {
+      if (typeof onResetLayout !== 'function') return
+      onResetLayout(list.length > 1 ? '' : graph.key)
+    }
 
     return h('div', { className: 'fo-canvas-stage' },
       h('div', { className: 'fo-graphs' }, list.map((graph, index) => {
@@ -507,6 +424,7 @@ export function createGraphView(deps) {
         ? `未分组：${taskCount} 个任务`
         : `${graph.label}：${(graph.projects || []).length} 个项目、${taskCount} 个任务${graph.kind === 'group' ? '画在同一张图里' : ''}`
       const view = viewOf(views, graph.key)
+      const graphPercent = Math.round(view.k * 100)
       const anyFocused = !!focusedId && nodes.some((node) => node.ghost !== true && node.id === focusedId)
 
       /* 拖动中的那个节点跟手（不吸附），其余用本地位置或布局位置。 */
@@ -712,7 +630,55 @@ export function createGraphView(deps) {
               h('span', { className: 'fo-legend-count' }, String(item.count)),
             )),
           ),
-          /* 动作按钮全部收进画布上的浮动卡片（GraphFeature），图头只留名字与图例。 */
+          /* 动作就在卡片自己的 header 右侧：不悬浮、不占额外一行。 */
+          h('div', { className: 'fo-graph-actions', role: 'toolbar', 'aria-label': '画布工具' },
+            h('button', {
+              type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+              'data-action': 'toggle-done',
+              'aria-pressed': hideDone ? 'true' : 'false',
+              title: hideDone
+                ? `已完成的任务默认不画${hiddenDone > 0 ? `（这次隐藏了 ${hiddenDone} 条）` : ''}；点一下显示它们`
+                : '点一下把已完成的任务从画布上收起来',
+              onClick: () => { if (typeof onToggleHideDone === 'function') onToggleHideDone() },
+            }, hideDone ? `显示已完成${hiddenDone > 0 ? ` ${hiddenDone}` : ''}` : '隐藏已完成'),
+            h('div', { className: 'fo-zoom-group' },
+              h('button', {
+                type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+                'data-action': 'zoom-out', 'aria-label': '缩小画布', title: '缩小画布（也可以滚轮）',
+                disabled: graphPercent <= Math.round(VIEW_ZOOM_MIN * 100),
+                onClick: () => zoomGraph(graph, 1 / ZOOM_STEP),
+              }, '−'),
+              h('button', {
+                type: 'button', className: 'fo-zoom-value', 'data-action': 'zoom-reset',
+                'aria-label': `当前缩放 ${graphPercent}%，点击回到 100%`, title: '当前缩放；点击回到 100%',
+                onClick: () => resetGraphView(graph),
+              }, `${graphPercent}%`),
+              h('button', {
+                type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+                'data-action': 'zoom-in', 'aria-label': '放大画布', title: '放大画布（也可以滚轮）',
+                disabled: graphPercent >= Math.round(VIEW_ZOOM_MAX * 100),
+                onClick: () => zoomGraph(graph, ZOOM_STEP),
+              }, '+'),
+              h('button', {
+                type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+                'data-action': 'fit', title: '把这张图恢复到适应画布（100%）',
+                onClick: () => resetGraphView(graph),
+              }, '适应'),
+            ),
+            h('button', {
+              type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+              'data-action': 'reset-layout', disabled: !hasLocal,
+              title: hasLocal ? '清掉本地拖动位置，回到自动布局（不影响缩放）' : '还没有拖动过节点',
+              onClick: () => resetLayoutGraph(graph),
+            }, '复位布局'),
+            focusedId && graphHas(graph, focusedId)
+              ? h('button', {
+                type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+                'data-action': 'blur', title: '取消聚焦（Esc）',
+                onClick: () => { if (typeof onBlur === 'function') onBlur() },
+              }, '取消聚焦')
+              : null,
+          ),
         ),
         /* 画布：网格层在最底、不拦点击；SVG 在上层。空图也显示网格（参考站画布一直在）。
            点空白（画布底/网格/SVG 空白处，不在任何节点里）= 取消聚焦；
@@ -752,16 +718,20 @@ export function createGraphView(deps) {
                 /* 视口层：缩放/平移只作用在内容上，defs（箭头 marker）留在外面。 */
                 h('g', { className: 'fo-viewport', transform: viewportTransform(view) }, edgeLayer, nodeLayer)))
             : h('div', { className: 'fo-placeholder' },
-              h('div', { className: 'fo-placeholder-title' }, graph.kind === 'ungrouped' ? '没有未分组的项目' : '这个目录里还没有在场的工作区'),
-              h('div', { className: 'fo-placeholder-body' }, graph.kind === 'ungrouped'
-                ? '所有项目都已经归入某个自定义目录。'
-                : '它的成员当前都不在任务集里（可能被删或改名）。把左栏的项目拖进这个目录即可。'),
+              h('div', { className: 'fo-placeholder-title' },
+                hideDone && asArray(graph.tasks).length > 0
+                  ? '这里的任务都已完成'
+                  : (graph.kind === 'ungrouped' ? '没有未分组的项目' : '这个目录里还没有在场的工作区')),
+              h('div', { className: 'fo-placeholder-body' },
+                hideDone && asArray(graph.tasks).length > 0
+                  ? '已完成的任务默认不画。点卡片头部右侧的「显示已完成」就能展开它们。'
+                  : (graph.kind === 'ungrouped'
+                    ? '所有项目都已经归入某个自定义目录。'
+                    : '它的成员当前都不在任务集里（可能被删或改名）。把左栏的项目拖进这个目录即可。')),
             ),
         ),
       )
-    })),
-      card,
-    )
+    })))
   }
 }
 

@@ -8,7 +8,7 @@
  *
  * 用户口径：
  *  - 「关系页面的按钮都要放在下面卡片里面，不要单起一行」→ 旧的 `.fo-feature-bar` 整条删掉；
- *    动作按钮（一键整理 / 建议 / 缩放 / 适应 / 复位布局 / 取消聚焦）全在画布右上的浮动卡片里。
+ *    「建议」在正文头部；缩放/适应/复位布局/显示已完成在每张卡片的 header 里。
  *  - 「关系图画板要支持缩放平移聚焦」→ 这些交互与卡片一起落在 GraphView（状态在那里闭环），
  *    本组件只负责把宿主 ctx 透传下去。
  *
@@ -36,7 +36,9 @@ export function createGraphFeature(deps) {
             selectedId: ctx.selectedId,
             focusedId: ctx.focusedId,
             nodePos: ctx.nodePos,
-            organize: ctx.organize,
+            hideDone: ctx.hideDone,
+            hiddenDone: ctx.hiddenDone,
+            onToggleHideDone: ctx.onToggleHideDone,
             onOpenTask: ctx.onOpenTask,
             onFocusTask: ctx.onFocusTask,
             onNodeMove: ctx.onNodeMove,

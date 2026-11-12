@@ -133,7 +133,7 @@ export function createOrganizeDrawer(deps) {
         pending.length
           ? pending.map(itemNode)
           : h('p', { className: 'fo-org-empty' }, !batch
-            ? '还没有跑过整理：点画布工具条上的「一键整理」，让 AI 和时间排序先出建议。'
+            ? '还没有跑过整理：点页面右上角的「建议」，让 AI 和时间排序先出建议。'
             : (items.length
               ? '待处理的建议都处理完了。'
               : '没有找到新的关系——这常常是正确答案，宁可少而准')),

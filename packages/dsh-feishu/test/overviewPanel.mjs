@@ -784,10 +784,11 @@ check('数据态：两个目录 → 两张图（同一画布纵向切片）', ()
   assert.equal(graphSections(tree).length, 2)
   assert.equal(graphSvgs(tree).length, 2, '画布 SVG 两个（rail 的品牌/功能图标不算）')
 })
-check('数据态：节点 8 个 = 5 任务 + 3 ghost（组外 c1 / a1 + 缺失 zz）', () => {
-  assert.equal(taskNodes(tree).length, 5)
+check('数据态：默认隐藏已完成 → 4 张任务卡 + 3 ghost（已完成的 a2 不画）', () => {
+  assert.equal(taskNodes(tree).length, 4)
+  assert.equal(taskNodes(tree).some((node) => node.props['data-id'] === 'a2'), false, '已完成的任务默认不上画布')
   assert.equal(ghostNodes(tree).length, 3)
-  assert.equal(nodeGroups(tree).length, 8)
+  assert.equal(nodeGroups(tree).length, 7)
 })
 check('数据态：4 条边 = b1→a1 + zz→e1 + a1→c1 的两条腿（跨目录边在两张图里各以 ghost 锚点呈现）', () => {
   const edges = edgePaths(tree)
@@ -981,16 +982,17 @@ check('搜索无匹配：「没有匹配的任务」+ 清除按钮，不画空�
 })
 findAll(tree, (node) => node.kind === 'host' && node.type === 'button' && textOf(node).includes('清除搜索'))[0].props.onClick()
 tree = await main.mini.act()
-check('清除搜索：恢复 5 个真实节点 / 2 张画布，关键词落 store', () => {
-  assert.equal(taskNodes(tree).length, 5)
+check('清除搜索：恢复 4 个真实节点（已完成仍隐藏）/ 2 张画布，关键词落 store', () => {
+  assert.equal(taskNodes(tree).length, 4)
   assert.equal(graphSections(tree).length, 2)
   assert.equal(main.store.data.get('keyword'), '')
   assert.equal(byClass(tree, 'fo-search')[0].props.value, '')
 })
-check('数据态：图上的节点就是任务列表（5 真实 + 3 ghost），不再有第二份列表', () => {
-  assert.equal(taskNodes(tree).length, 5)
+check('数据态：图上的节点就是任务列表（4 真实 + 3 ghost，已完成的 a2 除外），不再有第二份列表', () => {
+  assert.equal(taskNodes(tree).length, 4)
   const text = textOf(tree)
-  for (const id of ['a1', 'a2', 'b1', 'c1', 'e1']) assert.ok(text.includes(`任务 ${id}`), `节点缺 ${id}`)
+  for (const id of ['a1', 'b1', 'c1', 'e1']) assert.ok(text.includes(`任务 ${id}`), `节点缺 ${id}`)
+  assert.equal(text.includes('任务 a2'), false, '已完成任务默认不出现')
   assert.ok(text.includes('阻塞'), '节点元信息里有阻塞')
   assert.ok(textOf(byClass(tree, 'fo-graph-legend')[0]).includes('项目A'), '项目名在图例里')
   assert.equal(byClass(tree, 'fo-card').length, 0, '卡片区已删')
@@ -1027,10 +1029,10 @@ tree = await main.mini.act()
 check('点目录行：scope=group，只剩一张图', () => {
   assert.equal(rootOf(tree).props['data-scope'], 'group')
   assert.equal(graphSections(tree).length, 1)
-  assert.equal(taskNodes(tree).length, 3)
+  /* g1 成员 wA/wB：a1、b1 在场；a2 已完成 → 默认隐藏。 */
+  assert.equal(taskNodes(tree).length, 2)
   assert.equal(ghostNodes(tree).length, 1)
   assert.equal(bandRects(tree).length, 0, '没有泳道')
-  assert.equal(taskNodes(tree).length, 3)
 })
 check('点目录行：选中项写进注入的 store（不是 localStorage）', () => {
   assert.deepEqual(main.store.data.get('selection'), { kind: 'group', id: 'g1' })
@@ -1044,10 +1046,11 @@ check('目录 scope：跨项目边 b1→a1 仍在同一张图里直连（两端�
 /* ---- 4. 点项目行 → 只剩该项目节点 ---- */
 rowByDataId(tree, 'wA').props.onClick()
 tree = await main.mini.act()
-check('点项目行：scope=project，只有该项目任务，仍然没有泳道', () => {
+check('点项目行：scope=project，只有该项目未完成任务，仍然没有泳道', () => {
   assert.equal(rootOf(tree).props['data-scope'], 'project')
   assert.equal(graphSections(tree).length, 1)
-  assert.equal(taskNodes(tree).length, 2)
+  /* wA 里 a1 未完成、a2 已完成（默认隐藏）→ 只剩一张卡。 */
+  assert.equal(taskNodes(tree).length, 1)
   assert.deepEqual([...new Set(taskNodes(tree).map((n) => n.props['data-state']))].length >= 1, true)
   assert.equal(bandRects(tree).length, 0)
   assert.equal(legendItems(tree).length, 1, '项目 scope 的图例只有该项目')
@@ -1092,7 +1095,8 @@ check('关闭详情后回到两栏布局', () => {
   assert.ok(railEl(tree), 'rail 仍在')
   assert.equal(rootOf(tree).props['data-detail'], '0')
 })
-const secondNode = taskNodes(tree)[1]
+/* 项目 scope 下 wA 只剩 1 张未完成卡（a2 默认隐藏），所以直接取第 1 张。 */
+const secondNode = taskNodes(tree)[1] || taskNodes(tree)[0]
 secondNode.props.onKeyDown({ key: 'Enter', preventDefault() {} })
 tree = await main.mini.act()
 check('节点上按 Enter 同样打开详情（键盘可达）', () => {
@@ -1185,13 +1189,30 @@ const PANEL_CARD = layout.CARD
     assert.equal(Number(byClass(node, 'fo-node-title')[0].props.y), ny + PANEL_CARD.ROW_TITLE)
     assert.equal(Number(meta.props.y), ny + PANEL_CARD.ROW_META)
   })
-  check('卡片状态：data-state 与状态词一一对应（blocked=阻塞 / done=完成 / open=就绪）', () => {
+  check('卡片状态：data-state 与状态词一一对应（blocked=阻塞 / open=就绪）', () => {
     assert.equal(nodeById('a1').props['data-state'], 'blocked')
     assert.equal(textOf(byClass(nodeById('a1'), 'fo-node-status-text')[0]).trim(), '阻塞')
-    assert.equal(nodeById('a2').props['data-state'], 'done')
-    assert.equal(textOf(byClass(nodeById('a2'), 'fo-node-status-text')[0]).trim(), '完成')
     assert.equal(nodeById('b1').props['data-state'], 'open')
     assert.equal(textOf(byClass(nodeById('b1'), 'fo-node-status-text')[0]).trim(), '就绪')
+  })
+  check('默认隐藏已完成：a2 不在画布上，头部开关给出「显示已完成 1」', () => {
+    assert.equal(nodeById('a2'), undefined, '已完成的 a2 默认不画')
+    const toggle = findAll(ft, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-done')[0]
+    assert.ok(toggle, '卡片头部有开关')
+    assert.equal(toggle.props['aria-pressed'], 'true')
+    assert.ok(textOf(toggle).includes('显示已完成 1'), textOf(toggle))
+  })
+  /* 打开「显示已完成」再验 done 卡片：颜色/状态词的口径仍然要对。 */
+  findAll(ft, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-done')[0].props.onClick()
+  ft = await fx.mini.act()
+  check('点开关后：已完成的 a2 回到画布，状态词是「完成」', () => {
+    assert.equal(nodeById('a2').props['data-state'], 'done')
+    assert.equal(textOf(byClass(nodeById('a2'), 'fo-node-status-text')[0]).trim(), '完成')
+  })
+  findAll(ft, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-done')[0].props.onClick()
+  ft = await fx.mini.act()
+  check('再点一次：又回到隐藏已完成（开关是双向的）', () => {
+    assert.equal(nodeById('a2'), undefined)
   })
   check('ghost 卡片：没有动作列、虚线框、状态胶囊 = 缺失 / 组外', () => {
     const missing = ghostNodes(ft).find((node) => node.props['data-id'] === 'zz-missing')
@@ -1477,28 +1498,28 @@ const PANEL_CARD = layout.CARD
     assert.equal(byClass(head, 'fo-head-actions').length, 1)
     assert.equal(head.children.filter((child) => child && child.kind === 'host').length, 3)
   })
-  check('按钮不再单起一行：顶部工具条删掉，动作全进画布左下的浮动卡片', () => {
+  check('按钮不单起一行、也不悬浮：整页动作在正文头部，逐图工具在卡片 header 里', () => {
     assert.equal(byClass(ft, 'fo-feature-bar').length, 0, '旧工具条已删')
-    const card = byClass(ft, 'fo-canvas-card')[0]
-    assert.ok(card, '画布里有浮动卡片')
-    assert.equal(card.props.role, 'toolbar')
-    assert.equal(findAll(card, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 1, '「建议」在卡片里')
-    for (const action of ['zoom-out', 'zoom-in', 'fit', 'reset-layout']) {
-      assert.equal(findAll(card, (node) => node.kind === 'host' && node.props['data-action'] === action).length, 1, `${action} 在卡片里`)
-    }
-    assert.equal(byClass(card, 'fo-zoom-value').length, 1, '卡片里有缩放百分比')
-    assert.equal(textOf(card).includes('范围'), false, '范围选择在 rail，不在卡片里')
+    assert.equal(byClass(ft, 'fo-canvas-card').length, 0, '浮动卡片已删')
+    const head = byClass(ft, 'fo-main-head')[0]
+    const actions = byClass(head, 'fo-head-actions')[0]
+    assert.equal(findAll(actions, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 1, '「建议」在正文头部')
+    assert.equal(findAll(actions, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 1)
+    assert.equal(byClass(actions, 'fo-head-organize').length, 1)
   })
-  check('图头：只剩 图名 + 图例（动作按钮搬进卡片）', () => {
+  check('图头：图名 + 图例 + 右侧工具（缩放/适应/复位布局/显示已完成）都在 header 里', () => {
     const head = byClass(ft, 'fo-graph-head')[0]
     assert.equal(byClass(head, 'fo-graph-meta').length, 0)
     assert.equal(byClass(head, 'fo-graph-legend').length, 1)
-    assert.equal(byClass(head, 'fo-graph-actions').length, 0, '图头不再挂「复位布局」')
-    assert.equal(legendItems(head).length >= 1, true)
-    const text = textOf(head)
-    assert.equal(text.includes('任务'), false, `图头不该再念一遍计数：${text}`)
-    assert.equal(text.includes('关系'), false)
-    assert.equal(text.includes('组外/缺失'), false)
+    const actions = byClass(head, 'fo-graph-actions')[0]
+    assert.ok(actions, '卡片头部有工具区')
+    assert.equal(actions.props.role, 'toolbar')
+    for (const action of ['toggle-done', 'zoom-out', 'zoom-in', 'fit', 'reset-layout']) {
+      assert.equal(findAll(actions, (node) => node.kind === 'host' && node.props['data-action'] === action).length, 1, `${action} 在卡片 header 里`)
+    }
+    assert.equal(byClass(actions, 'fo-zoom-value').length, 1, 'header 里有缩放百分比')
+    assert.equal(findAll(actions, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 0, '「建议」不在单张卡片上（它是整页动作）')
+    assert.equal(textOf(head).includes('组外/缺失'), false)
   })
   /* ---- 画布缩放：卡片上的 − / 百分比 / + / 适应 ----
      几何（以光标为锚点缩放、平移、聚焦居中）在 test/graphViewport.mjs 里单测；
@@ -2020,9 +2041,9 @@ check('groupAction 抛错 → 出现 role=alert 的提示条，且带宿主给�
   assert.ok(textOf(alerts[0]).includes('目录名不能为空'))
   assert.ok(textOf(alerts[0]).includes('重试'))
 })
-check('写失败不清空已有数据（画布与节点还在）', () => {
+check('写失败不清空已有数据（画布与节点还在；已完成默认仍隐藏）', () => {
   assert.equal(graphSections(failTree).length, 2)
-  assert.equal(taskNodes(failTree).length, 5)
+  assert.equal(taskNodes(failTree).length, 4)
 })
 
 /* ---- 10. 读失败 / 坏快照都不炸 ---- */
@@ -2292,6 +2313,16 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   })
 
   /* ---- 状态对话气泡（用户口径：只看状态、贴泡沿外、无新消息自动消失） ---- */
+  /* 用户口径：「运行卡片下方的已绑定和右上信息是重复的」→ 同一个数字全页只出现一次。
+     这里钉住三对最容易复发的重复。 */
+  check('信息不重复：未完成 / 运行中 / 已绑会话 各自只出现一次', () => {
+    const text = textOf(rootOf(rtree))
+    const count = (needle) => text.split(needle).length - 1
+    assert.equal(count('未完成'), 1, `「未完成」出现 ${count('未完成')} 次`)
+    assert.equal(count('绑会话') + count('已绑会话'), 1, '会话绑定数只能出现在一处')
+    assert.equal(count('运行中'), 2, `「运行中」只该出现在「运行中」卡（标题+大数字）里，实际 ${count('运行中')} 次`)
+  })
+
   check('运行中的泡挂一句状态对话泡：运行中/刚开工', () => {
     const speech = byClass(rtree, 'frx-speech')
     assert.equal(speech.length, 1, `只有运行中的泡该有状态泡，实际 ${speech.length}`)

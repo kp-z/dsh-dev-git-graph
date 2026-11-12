@@ -22,6 +22,7 @@ import * as modelModule from '../overview/model.js'
 import * as layoutModule from '../overview/layout.js'
 import { createDetailPanel } from './DetailPanel.js'
 import { createFeatures, featureById } from './features.js'
+import { sparkleIcon } from './GraphView.js'
 import { createOrganizeDrawer } from './OrganizeDrawer.js'
 import { renderIcon, searchIcons, suggestIcons, iconLabel, emojiGroups, searchEmojiGroups, ICON_COLORS, normalizeIcon, ICON_IDS } from './projectIcons.js'
 import { BUILD_LABEL } from './buildInfo.js'
@@ -333,6 +334,9 @@ export function createOverviewPanel(deps) {
       }
     })
     const [keyword, setKeyword] = useState(() => model.str(readStore(store, 'keyword')))
+    /* 已完成默认不画（用户口径）：「全部任务」里已完成往往占绝大多数（实测 57 条里 49 条已完成），
+       画布会被已完成的卡片淹掉，看不出还剩哪些活。开关在关系页卡片头部，选择记进 store。 */
+    const [hideDone, setHideDone] = useState(() => readStore(store, 'hideDone') !== false)
     const [renamingId, setRenamingId] = useState('')
     const [creating, setCreating] = useState(false)
     const [creatingFor, setCreatingFor] = useState('')
@@ -412,6 +416,7 @@ export function createOverviewPanel(deps) {
     useEffect(() => { writeStore(store, 'selection', scope) }, [scope])
     useEffect(() => { writeStore(store, 'collapsed', collapsed) }, [collapsed])
     useEffect(() => { writeStore(store, 'keyword', keyword) }, [keyword])
+    useEffect(() => { writeStore(store, 'hideDone', hideDone) }, [hideDone])
     useEffect(() => { writeStore(store, 'feature', activeFeatureId) }, [activeFeatureId])
     useEffect(() => { writeStore(store, 'nav', navOpen) }, [navOpen])
     useEffect(() => { writeStore(store, 'rail', railOpen) }, [railOpen])
@@ -448,10 +453,26 @@ export function createOverviewPanel(deps) {
     }, [tasks])
     const scopeWorkspaces = keywordNeedle ? [] : workspaces
     const tree = useMemo(() => model.buildTree(groups, visibleTasks, { collapsed, selection: scope, workspaces: scopeWorkspaces }), [groups, visibleTasks, collapsed, scope, scopeWorkspaces])
-    const drawing = useMemo(() => layout.layoutScope({ tasks: visibleTasks, relations, groups, workspaces: scopeWorkspaces, scope }), [visibleTasks, relations, groups, scopeWorkspaces, scope])
+
+    /* 画布上的任务集 = 可见任务 − （默认）已完成。
+       树仍按全部可见任务统计：那里是「这个项目有多少活」的全局口径，画布才是「现在看什么」。 */
+    const hiddenDone = useMemo(() => (hideDone ? visibleTasks.filter((task) => task.done === true).length : 0), [visibleTasks, hideDone])
+    const graphTasks = useMemo(() => (hideDone ? visibleTasks.filter((task) => task.done !== true) : visibleTasks), [visibleTasks, hideDone])
+    /* 边两端都必须在画布上：否则每条指向已完成任务的边都会长出一个 ghost 节点，
+       等于「隐藏了卡片但把线头留在原地」，比不隐藏更乱。 */
+    const graphRelations = useMemo(() => {
+      if (!hideDone) return relations
+      /* 只砍「端点是被隐藏的已完成任务」的边。指向**根本不存在**的任务的边要留着：
+         那是「依赖一个已经没了的任务」的真实缺口，藏起来反而丢信号（图上仍是缺失 ghost）。 */
+      const hidden = new Set(visibleTasks.filter((task) => task.done === true).map((task) => model.str(task.id)))
+      return relations.filter((edge) => edge && !hidden.has(model.str(edge.from)) && !hidden.has(model.str(edge.to)))
+    }, [relations, hideDone, visibleTasks])
+    const drawing = useMemo(() => layout.layoutScope({ tasks: graphTasks, relations: graphRelations, groups, workspaces: scopeWorkspaces, scope }), [graphTasks, graphRelations, groups, scopeWorkspaces, scope])
     /* 搜索时只留有节点的图：空目录不必在筛选态下占一屏 */
     const graphs = useMemo(() => {
       const list = asArray(drawing && drawing.graphs)
+      /* 搜索时只留有节点的图。隐藏已完成**不**删空图：目录本身还在（重命名/删除入口在卡片上），
+         一个「只剩已完成」的目录仍要看得见，只是没有节点。 */
       return keywordNeedle ? list.filter((graph) => asArray(graph.nodes).length > 0) : list
     }, [drawing, keywordNeedle])
     const scopedTasks = useMemo(() => model.scopeTasks(visibleTasks, scope, groups), [visibleTasks, scope, groups])
@@ -897,6 +918,10 @@ export function createOverviewPanel(deps) {
       onResetLayout: resetLayout,
       onBlur: blurCanvas,
       onOpenSession: openSession,
+      /* 已完成默认隐藏 + 卡片头部的开关（见 GraphView 的 .fo-graph-actions）。 */
+      hideDone,
+      hiddenDone,
+      onToggleHideDone: () => setHideDone((prev) => prev !== true),
       organize: {
         available: typeof apiRef.current.organize === 'function',
         running: org.status === 'running',
@@ -1038,6 +1063,27 @@ export function createOverviewPanel(deps) {
             h('div', { className: 'fo-head-actions' },
               activeFeature && activeFeature.search === true && scope.kind !== 'all'
                 ? h('button', { type: 'button', className: 'fo-btn', 'data-size': 'sm', onClick: () => setScope({ kind: 'all', id: '' }) }, '全部任务')
+                : null,
+              /* 一键整理 = 整页动作（作用在当前范围），所以它属于正文头部，而不是某一张卡片。
+                 卡片 header 里只有逐图的东西（缩放 / 复位 / 显示已完成）。 */
+              activeFeatureId === 'graph' && typeof apiRef.current.organize === 'function'
+                ? h('span', { className: 'fo-head-organize' },
+                  Number(org.batch && org.batch.pending) > 0
+                    ? h('button', {
+                      type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+                      'data-action': 'organize-toggle',
+                      'aria-expanded': org.open ? 'true' : 'false',
+                      'aria-controls': 'fo-organize-column',
+                      onClick: toggleOrganize,
+                    }, org.open ? '收起建议' : `建议 ${Number(org.batch && org.batch.pending)}`)
+                    : null,
+                  h('button', {
+                    type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-action': 'organize',
+                    disabled: org.status === 'running',
+                    title: '让 AI 找前置/后置/来源关系，并按完成时间补一条时间先后；先出建议再落库',
+                    onClick: runOrganize,
+                  }, org.status === 'running' ? '分析中…' : '建议', org.status === 'running' ? null : sparkleIcon(h)),
+                )
                 : null,
               /* 侧栏不再放刷新（用户口径）；刷新挪到正文头部，做成只有图标的按钮，不抢视线。 */
               h('button', {
