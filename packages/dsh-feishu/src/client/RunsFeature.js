@@ -151,6 +151,16 @@ export function createRunsFeature(deps) {
   const BADGE_ICON = { check: 'lucide:check', alert: 'lucide:triangle-alert', pause: 'lucide:pause', clock: 'lucide:clock' }
   const badgeIcon = (name, size) => (BADGE_ICON[name] ? renderIcon({ h }, BADGE_ICON[name], size || 11) : null)
 
+  /** 相对时间（只用于「挂起于 …」这类说明文字，避免再引一个依赖） */
+  const sinceText = (from) => {
+    const ms = Math.max(0, Date.now() - Number(from || 0))
+    const min = Math.floor(ms / 60000)
+    if (min < 60) return `${min} 分钟前`
+    const hour = Math.floor(min / 60)
+    if (hour < 24) return `${hour} 小时前`
+    return `${Math.floor(hour / 24)} 天前`
+  }
+
   /** 状态色口径的单一出处：class 后缀（样式表里给颜色） */
   const stateClass = (state) => (state === 'running' ? 'running'
     : (state === 'blocked' ? 'blocked'
@@ -678,6 +688,69 @@ export function createRunsFeature(deps) {
       ],
     })
 
+    /* ---------- 补位卡：暂缓（挂起的任务） ----------
+       用户口径是「挂起的不上气泡墙」，但**监控不能瞎**：挂起也算在「未完成」里，
+       却没在任何地方露过面。这里给一张只读卡（计数 + 最近几条 + 挂起了多久）。 */
+    const suspendedList = view.bubbles.filter((row) => row.state === 'suspended')
+    const suspendedCard = card('suspended', {
+      label: '暂缓',
+      children: [
+        h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '10px' } },
+          h('div', { className: 'frx-card-head-left' },
+            h('div', { className: `frx-icon ${suspendedList.length ? 'is-idle' : 'is-idle'}` }, icon('activity', 20)),
+            h('div', { key: 'tt' },
+              h('h2', { className: 'frx-card-title' }, '暂缓'),
+              h('p', { className: 'frx-card-sub is-idle' },
+                suspendedList.length ? '挂在墙上但不上气泡墙' : '没有挂起的任务')))),
+        suspendedList.length
+          ? h('div', { key: 'rows', className: 'frx-rows' },
+            suspendedList.slice(0, 4).map((row) => h('button', {
+              key: row.id, type: 'button', className: 'frx-row', onClick: () => select(row.id),
+            },
+              h('span', { className: 'frx-row-left' },
+                h('span', { className: 'frx-avatar' }, String(row.no || '').slice(-2) || '··',
+                  h('span', { className: 'frx-avatar-dot is-idle', 'aria-hidden': 'true' })),
+                h('span', { className: 'frx-row-main' },
+                  h('span', { className: 'frx-row-title' }, row.title || ''),
+                  h('span', { className: 'frx-row-meta' },
+                    row.suspendedAt ? `挂起于 ${sinceText(row.suspendedAt)}` : '已挂起'))),
+              h('span', { className: 'frx-row-status is-idle' }, row.elapsedText || '—'))))
+          : h('p', { className: 'frx-subtitle' }, '没有挂起的任务'),
+      ],
+    })
+
+    /* ---------- 补位卡：计时覆盖（有多少任务真的能算时长） ----------
+       宿主只对「观察到在跑」的任务记时间，历史任务大多没有 startedAt —— 这直接影响
+       「跑得最久」这类卡的可信度，所以单独把覆盖率摆出来（数据质量监控）。 */
+    const timedCount = (view.longest || []).filter((row) => row.timed).length
+    const untimedCount = (view.longestUntimed || []).length
+    const timingCard = card('timing', {
+      label: '计时覆盖',
+      children: [
+        h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '10px' } },
+          h('div', { className: 'frx-card-head-left' },
+            h('div', { className: 'frx-icon is-brand' }, icon('refresh', 20)),
+            h('div', { key: 'tt' },
+              h('h2', { className: 'frx-card-title' }, '计时覆盖'),
+              h('p', { className: 'frx-card-sub is-idle' }, '有多少任务能算出时长')))),
+        h('div', { key: 'bars', className: 'frx-bars' },
+          h('div', { className: 'frx-bar-row', title: '有开工时间（宿主观察到在跑 / 任务自带）' },
+            h('span', { className: 'frx-bar-label' }, '有开始时间'),
+            h('span', { className: 'frx-bar-track' },
+              h('i', { style: { width: `${Math.round((timedCount / Math.max(1, timedCount + untimedCount)) * 100)}%` } })),
+            h('span', { className: 'frx-bar-value' }, `${timedCount} 条`)),
+          h('div', { className: 'frx-bar-row', title: '没记开始时间 —— 时长类指标对它们不成立' },
+            h('span', { className: 'frx-bar-label' }, '未记录'),
+            h('span', { className: 'frx-bar-track is-warn' },
+              h('i', { style: { width: `${Math.round((untimedCount / Math.max(1, timedCount + untimedCount)) * 100)}%` } })),
+            h('span', { className: 'frx-bar-value' }, `${untimedCount} 条`)),
+          h('p', {
+            className: 'frx-card-sub is-idle',
+            style: { marginTop: '2px' },
+          }, '未记录的任务跑起来后，宿主观测到就会补上')),
+      ],
+    })
+
     /* ---------- 卡片 2：待处理（阻塞 / 要人看一眼） ----------
        用户口径「运行页面卡片太少了，之前的两个没了，需要把必要的监控都加上」。
        这张卡只放**需要人动手**的东西，且每行给原因，与 KPI 胶囊里的计数不重复。 */
@@ -786,7 +859,7 @@ export function createRunsFeature(deps) {
 
     /* ---------- 卡片 5：快捷操作（参考项目的 Quick Actions） ---------- */
     const actionCard = card('actions', {
-      span: 4,
+      span: 2,
       label: '快捷操作',
       children: [
         h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '12px' } },
@@ -836,13 +909,15 @@ export function createRunsFeature(deps) {
       /* 这里**不放页头**：用户口径「『运行 / N 条未完成任务…』这一行都不需要显示」。
          页面名已经在左侧导航与内容头部有，本页直接进卡片。
          被过滤掉的已完成/挂起数量仍挂在根节点的 data-skipped-* 上（自证用，不占版面）。 */
-      /* 整页一个 **4 列网格**（用户口径：最起码 2×4），卡片自带跨度决定占几列：
-           第 1 行 = 运行状态(2) + 按项目分布(1) + 阻塞排行(1)
-           第 2 行 = 待处理(1) + 跑得最久(1) + 执行历史(2)
-           第 3 行 = 快捷操作(4)
+      /* 整页 **3 行 × 4 列**（用户口径：「应该是 3*4」），卡片自带跨度决定占几列：
+           第 1 行 = 运行状态(2) + 按项目分布(1) + 阻塞排行(1) = 4
+           第 2 行 = 待处理(1) + 跑得最久(1) + 暂缓(1) + 计时覆盖(1) = 4
+           第 3 行 = 执行历史(2) + 快捷操作(2) = 4
          固定列数（不用 auto-fit）才能保证每行都是 4 列；窄面板由容器查询降列。 */
       h('div', { key: 'grid', className: 'frx-grid' },
-        statusCard, projectCard, blockerCard, todoCard, longestCard, historyCard, actionCard),
+        statusCard, projectCard, blockerCard,
+        todoCard, longestCard, suspendedCard, timingCard,
+        historyCard, actionCard),
     )
   }
 }

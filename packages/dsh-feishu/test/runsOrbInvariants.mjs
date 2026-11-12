@@ -166,11 +166,14 @@ check('运行状态右侧恢复两张「图统计」卡，且数字不与胶囊�
   assert.ok(src.includes("card('blockers'"), '缺「阻塞排行」卡')
   /* 布局口径（用户：最起码 2×4）：整页一个 4 列网格，卡片自带跨度 */
   assert.ok(src.includes("className: 'frx-grid'"), '整页应是一个 4 列网格容器')
-  assert.ok(src.includes('statusCard, projectCard, blockerCard, todoCard, longestCard, historyCard, actionCard'),
-    '七张卡要按顺序铺进同一个网格')
-  for (const span of ["card('status', {\n      span: 2", "card('history', {\n      span: 2", "card('actions', {\n      span: 4"]) {
+  /* 用户口径「应该是 3*4」：三行、每行四列，跨度之和每行 = 4 */
+  assert.ok(src.includes('statusCard, projectCard, blockerCard,'), '第 1 行：状态卡(2) + 两张图卡(1+1)')
+  assert.ok(src.includes('todoCard, longestCard, suspendedCard, timingCard,'), '第 2 行：待处理 + 跑得最久 + 暂缓 + 计时覆盖')
+  assert.ok(src.includes('historyCard, actionCard'), '第 3 行：执行历史(2) + 快捷操作(2)')
+  for (const span of ["card('status', {\n      span: 2", "card('history', {\n      span: 2", "card('actions', {\n      span: 2"]) {
     assert.ok(src.includes(span), `跨度不对：${span}`)
   }
+  assert.equal(src.includes('span: 4'), false, '3×4 口径下不该再有占满整行的卡')
   assert.ok(src.includes('is-span${span}'), 'card() 要把跨度落成 class，容器查询才压得住')
   const bars = stripComments(src.slice(src.indexOf("const blockers = (() =>"), src.indexOf("const blockerCard")))
   assert.ok(bars.includes('blockedBy'), '阻塞排行要按依赖关系聚合（blockedBy）')
