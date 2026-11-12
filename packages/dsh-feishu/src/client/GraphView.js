@@ -5,7 +5,7 @@
  * - 一个目录 = 一张画布：该目录的**全部任务一次性布局**，不再按项目切泳道/分块；
  * - 横向列 = 依赖深度（只在 depends_on 上分层），列太长会折成多根物理列；行 = 列内序号；
  * - 项目身份靠**节点分色**（--fo-deco-N）+ **图头图例**；跨项目的边在同一坐标系里天然直连；
- * - 实线箭头 = depends_on，虚线 = derived_from；端点在图外的补 ghost 节点（虚线框，不可点选）；
+ * - 实线箭头 = depends_on，虚线 = derived_from，点线 = temporal（时间先后，不阻塞）；端点在图外的补 ghost 节点（虚线框，不可点选）；
  * - 节点可点、可 Tab、可 Enter/Space，选中项与它相连的边一起高亮。
  *
  * task-15：
@@ -210,7 +210,7 @@ export function createGraphView(deps) {
       placed.forEach((row) => { byId.set(row.node.id, row) })
 
       /* 箭头：6×6 实心三角，fill 跟边同色（与参考站 WorkflowEditor 的 marker 一寸不差） */
-      const defs = h('defs', null, ['depends_on', 'derived_from'].map((kind) => h('marker', {
+      const defs = h('defs', null, ['depends_on', 'derived_from', 'temporal'].map((kind) => h('marker', {
         key: kind,
         id: `${markerBase}-${kind}`,
         viewBox: '0 0 6 6',

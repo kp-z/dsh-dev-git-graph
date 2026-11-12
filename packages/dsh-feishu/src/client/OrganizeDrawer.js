@@ -18,7 +18,7 @@
 
 import * as modelModule from '../overview/model.js'
 
-const KIND_LABEL = { depends_on: '前置', derived_from: '来源' }
+const KIND_LABEL = { depends_on: '前置', derived_from: '来源', temporal: '时间' }
 
 /** 置信度 → 百分比。模型有时给 0~1、有时手滑给 0~100，两种都认。 */
 export function confidenceText(value) {
@@ -81,6 +81,9 @@ export function createOrganizeDrawer(deps) {
       if (blocked.length) {
         children.push(h('p', { key: 'impact', className: 'fo-org-impact', 'data-tone': 'warn' },
           `会让《${blocked[0]}》变成阻塞：前置没完成它就开不了工`))
+      } else if (model.str(impact.note)) {
+        /* temporal：没有代价可讲，但要说清它是什么，避免被当成阻塞关系。 */
+        children.push(h('p', { key: 'impact', className: 'fo-org-impact', 'data-tone': 'idle' }, model.str(impact.note)))
       }
       if (failure) {
         children.push(h('p', { key: 'fail', className: 'fo-org-fail', role: 'alert' }, `没落库：${failure}`))
@@ -121,14 +124,19 @@ export function createOrganizeDrawer(deps) {
       model.str(batch && batch.notes)
         ? h('p', { className: 'fo-org-notes' }, model.str(batch.notes))
         : null,
+      /* 模型没给出建议但落下了时间兜底：说清这一批是怎么来的，别让人以为是 AI 的结论。 */
+      model.str(batch?.model?.error) && pending.length
+        ? h('p', { className: 'fo-org-notes', 'data-tone': 'muted' },
+          `AI 这次没有给出建议（${model.str(batch.model.error)}）；下面是按完成时间排序的兜底建议。`)
+        : null,
       h('div', { className: 'fo-org-list' },
         pending.length
           ? pending.map(itemNode)
           : h('p', { className: 'fo-org-empty' }, !batch
-            ? '还没有跑过整理：点画布工具条上的「一键整理」，让 AI 先出建议。'
+            ? '还没有跑过整理：点画布工具条上的「一键整理」，让 AI 和时间排序先出建议。'
             : (items.length
               ? '待处理的建议都处理完了。'
-              : 'AI 没有找到新的关系——这常常是正确答案，宁可少而准')),
+              : '没有找到新的关系——这常常是正确答案，宁可少而准')),
       ),
       items.filter((item) => item.status === 'accepted' || item.status === 'rejected' || item.status === 'undone').map(itemNode),
       dropped.length
@@ -164,7 +172,7 @@ export function createOrganizeDrawer(deps) {
           ? h('button', {
             type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost', 'data-action': 'undo-accepted',
             disabled: running,
-            title: '把已接受的关系从飞书与本地一起撤掉',
+            title: '把已接受的关系撤掉（依赖会同时写回飞书，时间先后只在本机）',
             onClick: () => onUndo([]),
           }, `撤销已接受 ${counts.accepted}`)
           : null,

@@ -47,8 +47,10 @@ const backendIOContext = new AsyncLocalStorage()
 import { matchWorkspace, titleChangeOf } from './workspace.js'
 import { updateRelations, projectRelations, relationStats } from './relations.js'
 import {
+  MAX_TEMPORAL_ITEMS,
   ORGANIZE_SYSTEM,
   buildEvidencePack,
+  buildTemporalSuggestions,
   makeOrganizeBatch,
   organizeBatchId,
   parseOrganizeResponse,
@@ -4401,11 +4403,12 @@ function createSyncEngine(ctx) {
     const byId = new Map(taskRows.map((task) => [task.id, task]))
     const summaries = (id) => ({ id, title: byId.get(id)?.title || id, done: byId.get(id)?.done === true, missing: !byId.has(id) })
     const groups = new Map()
-    const groupOf = (id) => { if (!groups.has(id)) groups.set(id, { predecessors: new Set(), successors: new Set(), sourceTasks: new Set(), derivedTasks: new Set() }); return groups.get(id) }
+    const groupOf = (id) => { if (!groups.has(id)) groups.set(id, { predecessors: new Set(), successors: new Set(), sourceTasks: new Set(), derivedTasks: new Set(), earlierTasks: new Set(), laterTasks: new Set() }); return groups.get(id) }
     for (const edge of state.relations) {
       if (!edge?.from || !edge?.to) continue
       if (edge.kind === 'depends_on') { groupOf(edge.to).predecessors.add(edge.from); groupOf(edge.from).successors.add(edge.to) }
       else if (edge.kind === 'derived_from') { groupOf(edge.to).sourceTasks.add(edge.from); groupOf(edge.from).derivedTasks.add(edge.to) }
+      else if (edge.kind === 'temporal') { groupOf(edge.to).earlierTasks.add(edge.from); groupOf(edge.from).laterTasks.add(edge.to) }
     }
     for (const task of taskRows) {
       const group = groupOf(task.id)
@@ -4482,7 +4485,7 @@ function createSyncEngine(ctx) {
     const summary = (id) => ({ id, title: byId.get(id)?.title || id, done: byId.get(id)?.done === true, missing: !byId.has(id) })
     const links = new Map()
     const linksOf = (id) => {
-      if (!links.has(id)) links.set(id, { predecessors: [], successors: [], sourceTasks: [], derivedTasks: [] })
+      if (!links.has(id)) links.set(id, { predecessors: [], successors: [], sourceTasks: [], derivedTasks: [], earlierTasks: [], laterTasks: [] })
       return links.get(id)
     }
     for (const edge of state.relations) {
@@ -4493,6 +4496,10 @@ function createSyncEngine(ctx) {
       } else if (edge.kind === 'derived_from') {
         linksOf(edge.to).sourceTasks.push(edge.from)
         linksOf(edge.from).derivedTasks.push(edge.to)
+      } else if (edge.kind === 'temporal') {
+        /* 时间先后：只是画布上的一条顺序线，绝不进 blockedBy（不阻塞开工）。 */
+        linksOf(edge.to).earlierTasks.push(edge.from)
+        linksOf(edge.from).laterTasks.push(edge.to)
       }
     }
     let blocked = 0
@@ -4537,11 +4544,14 @@ function createSyncEngine(ctx) {
         successors: link.successors.map(summary),
         sourceTasks: link.sourceTasks.map(summary),
         derivedTasks: link.derivedTasks.map(summary),
+        /* 时间先后（temporal）：只给画布画线用，不参与 blocked/ready 口径。 */
+        earlierTasks: link.earlierTasks.map(summary),
+        laterTasks: link.laterTasks.map(summary),
         blockedBy,
       }
     })
     const relations = state.relations
-      .filter((edge) => edge?.from && edge?.to && (edge.kind === 'depends_on' || edge.kind === 'derived_from'))
+      .filter((edge) => edge?.from && edge?.to && (edge.kind === 'depends_on' || edge.kind === 'derived_from' || edge.kind === 'temporal'))
       .map((edge) => ({ from: edge.from, to: edge.to, kind: edge.kind }))
     const groups = projectGroups(state.workspaceGroups, state.tasks)
     const revision = createHash('sha256')
@@ -4575,6 +4585,7 @@ function createSyncEngine(ctx) {
         groups: groups.length,
         dependencyEdges: relations.filter((edge) => edge.kind === 'depends_on').length,
         provenanceEdges: relations.filter((edge) => edge.kind === 'derived_from').length,
+        temporalEdges: relations.filter((edge) => edge.kind === 'temporal').length,
         blocked,
         ready,
       },
@@ -6094,6 +6105,8 @@ function createSyncEngine(ctx) {
     const predecessors = new Map()
     const successors = new Map()
     const sources = new Map()
+    const earlier = new Map()
+    const later = new Map()
     const push = (map, key, value) => {
       const list = map.get(key)
       if (list) list.push(value)
@@ -6108,8 +6121,12 @@ function createSyncEngine(ctx) {
         push(successors, from, to)
       } else if (edge.kind === 'derived_from') {
         push(sources, to, from)
+      } else if (edge.kind === 'temporal') {
+        push(earlier, to, from)
+        push(later, from, to)
       }
     }
+    const workspaceRows = workspaceList()
     return tasks.map((task) => ({
       id: task.id,
       no: task.no,
@@ -6117,10 +6134,17 @@ function createSyncEngine(ctx) {
       description: task.description,
       done: task.done === true,
       createdAt: task.createdAt,
+      /* 时间兜底要用的两个时间：待办看预期完成、已完成看实际完成。 */
+      expectedAt: Number(task.expectedAt) || 0,
+      completedAt: Number(task.completedAt) || Number(task.endAt) || 0,
+      /* 项目 key 必须与画布同一个口径，否则时间链会跨项目连出假关系。 */
+      workspaceKey: workspaceKeyOf(enrichWorkspace(task, workspaceRows)),
       meta: { workspace: asString(task.meta?.workspace) || asString(task.workspaceTitle) },
       predecessors: predecessors.get(task.id) || [],
       successors: successors.get(task.id) || [],
       sourceTasks: sources.get(task.id) || [],
+      earlierTasks: earlier.get(task.id) || [],
+      laterTasks: later.get(task.id) || [],
     }))
   }
 
@@ -6133,27 +6157,55 @@ function createSyncEngine(ctx) {
   }
 
   /**
-   * 跑一次整理：取材 → 模型识别 → 纯函数校验 → 存建议单。**不写关系、不写飞书。**
+   * 跑一次整理：取材 → 模型识别 + 时间兜底 → 纯函数校验 → 存建议单。**不写关系、不写飞书。**
+   *
+   * 时间先后（temporal）是**确定性**的，不依赖模型：模型不可用、返回空、返回坏 JSON 时，
+   * 这一批仍然会带着时间建议出来。只有「时间建议和模型建议都没有」才是一条真错误。
    */
   async function organizeScope(scope) {
     const s = scope && typeof scope === 'object' ? { kind: asString(scope.kind) || 'all', id: asString(scope.id) } : { kind: 'all', id: '' }
     const tasks = organizeScopeTasks(s)
     if (tasks.length < 2) return { ok: false, error: '这个范围里没有足够的任务可以整理' }
-    const pack = buildEvidencePack({ tasks: organizeTaskViews(tasks), relations: state.relations })
-    if (!pack.items.length) return { ok: false, error: '没有可用的任务内容' }
+    const views = organizeTaskViews(tasks)
+    const tz = settings.schedule?.timeZone
+    const temporal = buildTemporalSuggestions({
+      tasks: views,
+      relations: state.relations,
+      max: MAX_TEMPORAL_ITEMS,
+      format: (at) => formatEta(Number(at), tz),
+    })
+    const pack = buildEvidencePack({ tasks: views, relations: state.relations })
     const models = await awaitService(ctx, 'agentDefaultModel')
     const selection = typeof models?.currentSelection === 'function' ? models.currentSelection() : undefined
-    const asked = await askModelForInsight(ORGANIZE_SYSTEM, pack.text, 2000)
-    if (!asked.text) return { ok: false, error: asked.reason || '模型没有返回建议' }
-    const parsed = parseOrganizeResponse(asked.text)
-    if (parsed.error) return { ok: false, error: parsed.error }
-    const checked = validateOrganizeItems({ items: parsed.items, tasks: organizeTaskViews(tasks), relations: state.relations, now: nowMs() })
+    let modelItems = []
+    let notes = ''
+    let modelError = ''
+    if (pack.items.length) {
+      const asked = await askModelForInsight(ORGANIZE_SYSTEM, pack.text, 2000)
+      if (!asked.text) modelError = asked.reason || '模型没有返回建议'
+      else {
+        const parsed = parseOrganizeResponse(asked.text)
+        if (parsed.error) modelError = parsed.error
+        else { modelItems = parsed.items; notes = parsed.notes }
+      }
+    }
+    if (!modelItems.length && !temporal.items.length) {
+      return { ok: false, error: modelError || '没有可用的任务内容' }
+    }
+    const checked = validateOrganizeItems({ items: [...modelItems, ...temporal.items], tasks: views, relations: state.relations, now: nowMs() })
     const batch = makeOrganizeBatch({
       batchId: organizeBatchId(s, nowMs()),
       at: nowMs(),
       scope: s,
-      model: { provider: asString(selection?.provider), model: asString(selection?.model), candidates: pack.items.length, truncated: pack.truncated > 0 },
-      notes: parsed.notes,
+      model: {
+        provider: asString(selection?.provider),
+        model: asString(selection?.model),
+        candidates: pack.items.length,
+        truncated: pack.truncated > 0,
+        error: modelError,
+        temporal: temporal.items.length,
+      },
+      notes,
       items: checked.items,
     })
     state.organizeSuggestions[batch.batchId] = batch
@@ -6161,7 +6213,16 @@ function createSyncEngine(ctx) {
     const all = Object.values(state.organizeSuggestions).sort((a, b) => Number(b.at) - Number(a.at))
     for (const stale of all.slice(5)) delete state.organizeSuggestions[stale.batchId]
     await persistState()
-    return { ok: true, batch: projectOrganize(batch, state.tasks), dropped: checked.dropped, complete: pack.complete, candidates: pack.items.length }
+    return {
+      ok: true,
+      batch: projectOrganize(batch, state.tasks),
+      dropped: checked.dropped,
+      complete: pack.complete,
+      candidates: pack.items.length,
+      temporal: temporal.items.length,
+      temporalTruncated: temporal.truncated,
+      modelError,
+    }
   }
 
   /** 找批次里待处理的条目（itemIds 省略或空数组 = 全部 pending）。 */
@@ -6173,8 +6234,38 @@ function createSyncEngine(ctx) {
   }
 
   /**
-   * 接受若干条建议：逐条走 setTaskRelations（先 refresh 再 merge，写回飞书原生依赖）。
-   * 逐条汇报成功/失败，不做事务——远端本来就可能部分失败。
+   * 时间先后（temporal）只落本地：**不 refresh 远端、不写飞书原生依赖、不动 relationSync**。
+   *
+   * 为什么单独一条路径：`setTaskRelations` 默认先 refresh 再把整份前置/后置推回飞书，
+   * 时间边根本不是依赖，走那条路会把「时间先后」误写进飞书的依赖字段，
+   * 还会把 relationSync 标成 pending，影响后续真正的依赖同步。
+   */
+  function applyTemporalRelation(item, mode) {
+    const taskId = asString(item?.to)
+    const fromId = asString(item?.from)
+    if (!taskId || !fromId || taskId === fromId) return { ok: false, error: '时间建议缺少有效的 from/to' }
+    /* replace 时把该任务在「更早」方向上除这条以外的边原样留下。 */
+    const earlierIds = mode === 'replace'
+      ? state.relations
+        .filter((edge) => edge && edge.kind === 'temporal' && asString(edge.to) === taskId)
+        .map((edge) => asString(edge.from))
+        .filter((id) => id && id !== fromId)
+      : [fromId]
+    const updated = updateRelations(state.relations, state.tasks, {
+      taskId,
+      earlierIds,
+      mode,
+      source: 'time',
+      reason: asString(item?.evidence).slice(0, 120) || '按完成时间排序',
+    })
+    if (!updated.ok) return { ok: false, error: updated.error || '时间关系写入失败' }
+    state.relations = updated.edges
+    return { ok: true }
+  }
+
+  /**
+   * 接受若干条建议：依赖/来源走 setTaskRelations（先 refresh 再 merge，写回飞书原生依赖）；
+   * 时间先后只落本地（见 applyTemporalRelation）。逐条汇报成功/失败，不做事务。
    */
   async function acceptOrganizeItems(batchId, itemIds, options = {}) {
     const found = organizePending(batchId, itemIds)
@@ -6183,16 +6274,17 @@ function createSyncEngine(ctx) {
     const writeBack = options.writeBack !== false
     const results = []
     for (const item of found.items) {
-      const input = item.kind === 'depends_on' ? { predecessorIds: [item.from] } : { sourceTaskIds: [item.from] }
       let written
       try {
-        written = await setTaskRelations(item.to, {
-          ...input,
-          mode: 'merge',
-          source: 'ai',
-          reason: `整理建议（batchId=${found.batch.batchId}）：${asString(item.evidence).slice(0, 80)}`,
-          writeBack,
-        })
+        written = item.kind === 'temporal'
+          ? applyTemporalRelation(item, 'merge')
+          : await setTaskRelations(item.to, {
+            ...(item.kind === 'depends_on' ? { predecessorIds: [item.from] } : { sourceTaskIds: [item.from] }),
+            mode: 'merge',
+            source: 'ai',
+            reason: `整理建议（batchId=${found.batch.batchId}）：${asString(item.evidence).slice(0, 80)}`,
+            writeBack,
+          })
       } catch (error) {
         written = { ok: false, error: error instanceof Error ? error.message : String(error) }
       }
@@ -6229,20 +6321,24 @@ function createSyncEngine(ctx) {
     for (const item of items) {
       const taskId = asString(item.to)
       const fromId = asString(item.from)
-      const field = item.kind === 'depends_on' ? 'predecessorIds' : 'sourceTaskIds'
-      /* 该任务在这个方向上除这条以外的边，原样留下（replace 只动这个方向）。 */
-      const others = state.relations
-        .filter((edge) => edge && edge.kind === item.kind && asString(edge.to) === taskId)
-        .map((edge) => asString(edge.from))
-        .filter((id) => id && id !== fromId)
       let written
       try {
-        written = await setTaskRelations(taskId, {
-          [field]: others,
-          mode: 'replace',
-          source: 'ai',
-          reason: `撤销整理建议（batchId=${batch.batchId}）`,
-        })
+        if (item.kind === 'temporal') {
+          written = applyTemporalRelation(item, 'replace')
+        } else {
+          const field = item.kind === 'depends_on' ? 'predecessorIds' : 'sourceTaskIds'
+          /* 该任务在这个方向上除这条以外的边，原样留下（replace 只动这个方向）。 */
+          const others = state.relations
+            .filter((edge) => edge && edge.kind === item.kind && asString(edge.to) === taskId)
+            .map((edge) => asString(edge.from))
+            .filter((id) => id && id !== fromId)
+          written = await setTaskRelations(taskId, {
+            [field]: others,
+            mode: 'replace',
+            source: 'ai',
+            reason: `撤销整理建议（batchId=${batch.batchId}）`,
+          })
+        }
       } catch (error) {
         written = { ok: false, error: error instanceof Error ? error.message : String(error) }
       }

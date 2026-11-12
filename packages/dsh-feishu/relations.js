@@ -1,6 +1,17 @@
-/** Pure task relation graph. No persistence or remote API calls. */
-const KINDS = new Set(['depends_on', 'derived_from'])
-const SOURCES = new Set(['manual', 'ai', 'creation'])
+/**
+ * Pure task relation graph. No persistence or remote API calls.
+ *
+ * 三种边：
+ *  - `depends_on`  前置 → 后置，**会阻塞开工**（写回飞书原生依赖）；
+ *  - `derived_from` 来源 → 派生，不阻塞（纯本地标注）；
+ *  - `temporal`    时间上更早 → 更晚，**只是先后顺序，绝不阻塞**。
+ *
+ * `temporal` 是「一键整理」的时间兜底：正文里没有依赖证据时，按完成时间把任务串起来，
+ * 让画布至少能表达「谁在前谁在后」。它不参与 blockedBy/ready 判定，也不写飞书——
+ * 否则两条本来可以并行的任务会因为时间不同而被误判成阻塞。
+ */
+const KINDS = new Set(['depends_on', 'derived_from', 'temporal'])
+const SOURCES = new Set(['manual', 'ai', 'creation', 'time'])
 const idValid = (id) => typeof id === 'string' && id.trim().length > 0
 const edgeValid = (edge) => edge && idValid(edge.from) && idValid(edge.to) && KINDS.has(edge.kind)
 const edgeKey = (edge) => JSON.stringify([edge.kind, edge.from, edge.to])
@@ -50,6 +61,8 @@ export function updateRelations(edges, tasks, input, { now = Date.now() } = {}) 
     { field: 'predecessorIds', kind: 'depends_on', incoming: true },
     { field: 'successorIds', kind: 'depends_on', incoming: false },
     { field: 'sourceTaskIds', kind: 'derived_from', incoming: true },
+    { field: 'earlierIds', kind: 'temporal', incoming: true },
+    { field: 'laterIds', kind: 'temporal', incoming: false },
   ]
   const supplied = []
   for (const direction of directions) {
@@ -87,6 +100,7 @@ export function updateRelations(edges, tasks, input, { now = Date.now() } = {}) 
   }
   if (hasCycle(next, 'depends_on')) return fail('任务依赖不能成环')
   if (hasCycle(next, 'derived_from')) return fail('任务来源不能成环')
+  if (hasCycle(next, 'temporal')) return fail('任务时间先后不能成环')
   return { ok: true, edges: next }
 }
 
@@ -97,12 +111,15 @@ export function projectRelations(edges, tasks, taskId) {
     const task = known.get(id)
     return { id, title: typeof task?.title === 'string' ? task.title : id, done: Boolean(task?.done), missing: !task }
   }
-  const groups = { predecessors: new Set(), successors: new Set(), sourceTasks: new Set(), derivedTasks: new Set() }
+  const groups = { predecessors: new Set(), successors: new Set(), sourceTasks: new Set(), derivedTasks: new Set(), earlierTasks: new Set(), laterTasks: new Set() }
   for (const edge of Array.isArray(edges) ? edges : []) {
     if (!edgeValid(edge)) continue
     if (edge.kind === 'depends_on') {
       if (edge.to === taskId) groups.predecessors.add(edge.from)
       if (edge.from === taskId) groups.successors.add(edge.to)
+    } else if (edge.kind === 'temporal') {
+      if (edge.to === taskId) groups.earlierTasks.add(edge.from)
+      if (edge.from === taskId) groups.laterTasks.add(edge.to)
     } else {
       if (edge.to === taskId) groups.sourceTasks.add(edge.from)
       if (edge.from === taskId) groups.derivedTasks.add(edge.to)
@@ -117,14 +134,15 @@ export function projectRelations(edges, tasks, taskId) {
 /** Edge counts are unique valid triples; task counts only include known unfinished tasks. */
 export function relationStats(edges, tasks) {
   const unique = new Map((Array.isArray(edges) ? edges : []).filter(edgeValid).map((edge) => [edgeKey(edge), edge]))
-  const counts = { dependencyEdges: 0, provenanceEdges: 0, blockedTasks: 0, readyTasks: 0 }
+  const counts = { dependencyEdges: 0, provenanceEdges: 0, temporalEdges: 0, blockedTasks: 0, readyTasks: 0 }
   const blocked = new Set()
   const known = taskMap(tasks)
   for (const edge of unique.values()) {
     if (edge.kind === 'depends_on') {
       counts.dependencyEdges += 1
       if (!known.get(edge.from)?.done) blocked.add(edge.to)
-    } else counts.provenanceEdges += 1
+    } else if (edge.kind === 'temporal') counts.temporalEdges += 1
+    else counts.provenanceEdges += 1
   }
   for (const task of known.values()) {
     if (task.done) continue

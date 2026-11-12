@@ -26,6 +26,7 @@
     "workspace.js",
     "commitment.js",
     "relations.js",
+    "organizeSuggestions.js",
     "workspaceGroups.js",
     "comments.js",
     "taskMentions.js",
@@ -79,7 +80,7 @@
     "test:tasklist": "node test/tasklistSchema.mjs && node test/managedTasklist.mjs && node test/tasklistPanel.mjs && node test/tasklistBridge.mjs && python3 -B test/fields_api.py",
     "test:mentions": "node test/taskMentions.mjs && node test/taskMentionsHost.mjs && node test/mentionMode.mjs && node test/larkComments.mjs && python3 -B test/mentions_api.py && python3 -B test/mentionIdentity_api.py",
     "test:comments": "node test/taskMentions.mjs && node test/taskMentionsHost.mjs && node test/commentFormat.mjs && node test/cardCommentsPanel.mjs && node test/liveActivityPanel.mjs && node test/taskActivityPanel.mjs && node test/comments.mjs && node test/commentsBridge.mjs && node test/commentsPanel.mjs && python3 -B test/comments_api.py",
-    "test": "pnpm run build:client && node test/safety.mjs && node test/meta.mjs && node test/sessionReadCompat.mjs && node test/schedule.mjs && node test/commitment.mjs && node test/dshSchedule.mjs && node test/dshBridge.mjs && node test/workspace.mjs && node test/workspaceBridge.mjs && node test/attribution.mjs && node test/client.mjs && node test/smoke.mjs && node test/lark-policy.mjs && node test/lark.mjs && node test/larkWrites.mjs && npm run test:lark-transport && npm run test:pr3-regressions && node test/setup.mjs && node test/relations.mjs && node test/relationsBridge.mjs && python3 -B test/relations_api.py && node test/suspensionBridge.mjs && node test/archiveComplete.mjs && node test/creationHoldCompletion.mjs && node test/suspensionPanel.mjs && node test/filterPanel.mjs && node test/taskMenu.mjs && node test/dashboardStyles.mjs && node test/insightView.mjs && node test/runsView.mjs && node test/organizeSuggestions.mjs && node test/organizeRoute.mjs && node test/overviewModel.mjs && node test/overviewLayout.mjs && node test/overviewPanel.mjs && node test/overviewRoute.mjs && node test/workspaceGroups.mjs && node test/performanceBridge.mjs && node test/performancePanel.mjs && node test/taskCard.mjs && node test/avatarTip.mjs && node test/configurationPanel.mjs && node test/syncHistory.mjs && node test/syncHistoryPanel.mjs && npm run test:tasklist && npm run test:insight && npm run test:comments",
+    "test": "pnpm run build:client && node test/safety.mjs && node test/meta.mjs && node test/sessionReadCompat.mjs && node test/schedule.mjs && node test/commitment.mjs && node test/dshSchedule.mjs && node test/dshBridge.mjs && node test/workspace.mjs && node test/workspaceBridge.mjs && node test/attribution.mjs && node test/client.mjs && node test/smoke.mjs && node test/lark-policy.mjs && node test/lark.mjs && node test/larkWrites.mjs && npm run test:lark-transport && npm run test:pr3-regressions && node test/setup.mjs && node test/relations.mjs && node test/relationsBridge.mjs && python3 -B test/relations_api.py && node test/suspensionBridge.mjs && node test/archiveComplete.mjs && node test/creationHoldCompletion.mjs && node test/suspensionPanel.mjs && node test/filterPanel.mjs && node test/taskMenu.mjs && node test/dashboardStyles.mjs && node test/insightView.mjs && node test/runsView.mjs && node test/organizeSuggestions.mjs && node test/organizeRoute.mjs && node test/organizeTemporal.mjs && node test/overviewModel.mjs && node test/overviewLayout.mjs && node test/overviewPanel.mjs && node test/overviewRoute.mjs && node test/workspaceGroups.mjs && node test/performanceBridge.mjs && node test/performancePanel.mjs && node test/taskCard.mjs && node test/avatarTip.mjs && node test/configurationPanel.mjs && node test/syncHistory.mjs && node test/syncHistoryPanel.mjs && npm run test:tasklist && npm run test:insight && npm run test:comments",
     "test:schedule": "node test/schedule.mjs",
     "test:commitment": "node test/commitment.mjs",
     "test:dsh": "node test/dshSchedule.mjs && node test/dshBridge.mjs",
@@ -94,7 +95,7 @@
     "test:lark-transport": "node test/larkComments.mjs && node test/larkTasklist.mjs && node test/larkJson.mjs && node test/pr3Compatibility.mjs",
     "test:pr3-regressions": "node test/backendScope.mjs && node test/creationLedger.mjs && node test/feishuTaskNumbering.mjs && node test/pr3LifecycleRegression.mjs && node test/creationOwnershipRegression.mjs && node test/docReceiptRegression.mjs && node test/documentRecoveryRegression.mjs && node test/jsonPersistence.mjs && node test/stateAdoptionRegression.mjs && node test/larkProtocolRegression.mjs && node test/setupPanelRegression.mjs",
     "test:workspace-groups": "node test/workspaceGroups.mjs",
-    "test:organize": "node test/organizeSuggestions.mjs && node test/organizeRoute.mjs",
+    "test:organize": "node test/organizeSuggestions.mjs && node test/organizeRoute.mjs && node test/organizeTemporal.mjs",
     "test:dashboard": "node test/dashboardStyles.mjs && node test/insightView.mjs && node test/runsView.mjs"
   }
 }
