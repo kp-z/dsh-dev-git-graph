@@ -455,22 +455,21 @@ export function createRunsFeature(deps) {
             h('div', { key: 'tt' },
               h('h2', { className: 'frx-card-title' }, '运行状态'),
               h('p', { className: `frx-card-sub ${runningList.length ? 'is-ok' : 'is-idle'}` },
-                runningList.length ? '会话正在跑 · 实时同步' : '空闲 · 等待任务开工')))),
-        /* KPI 胶囊（用户 review 后实施）：四个数字带图标横排在标题下 —— 数字只在这出现一次，
-           原来那两张 KPI 卡随之删除。图标复用内置的 Lucide 图标集。 */
-        h('div', { key: 'kpis', className: 'frx-kpis' },
-          [['未完成', unfinished, 'lucide:chart-spline'],
-            ['在跑', runningList.length, 'lucide:play'],
-            ['会话', bindSessions, 'lucide:link'],
-            ['阻塞', blockedList.length, 'lucide:triangle-alert']]
-            .map(([label, value, iconId]) => h('span', {
-              key: label,
-              className: 'frx-kpi',
-              'data-tone': label === '阻塞' && value > 0 ? 'warn' : 'flat',
-            },
-              h('span', { className: 'frx-kpi-icon', 'aria-hidden': 'true' }, renderIcon({ h }, iconId, 13)),
-              h('b', null, String(value)),
-              h('span', { className: 'frx-kpi-label' }, label)))),
+                runningList.length ? '会话正在跑 · 实时同步' : '空闲 · 等待任务开工'))),
+          /* 用户口径：左上的这排状态监控放在**右上**（与标题同一行，右对齐） */
+          h('div', { key: 'kpis', className: 'frx-kpis' },
+            [['未完成', unfinished, 'lucide:chart-spline'],
+              ['在跑', runningList.length, 'lucide:play'],
+              ['会话', bindSessions, 'lucide:link'],
+              ['阻塞', blockedList.length, 'lucide:triangle-alert']]
+              .map(([label, value, iconId]) => h('span', {
+                key: label,
+                className: 'frx-kpi',
+                'data-tone': label === '阻塞' && value > 0 ? 'warn' : 'flat',
+              },
+                h('span', { className: 'frx-kpi-icon', 'aria-hidden': 'true' }, renderIcon({ h }, iconId, 13)),
+                h('b', null, String(value)),
+                h('span', { className: 'frx-kpi-label' }, label))))),
         /* AVAILABLE MODELS → 可用任务 */
         h('div', { key: 'bubbles' },
           h('p', { className: 'frx-bubbles-label', title: '水位 = 该项目已完成任务占比（越高越接近收尾）' }, '可用任务'),
@@ -599,30 +598,86 @@ export function createRunsFeature(deps) {
                     : null)
               }))
             : h('p', { className: 'frx-subtitle' }, '没有未完成的任务')),
-        /* 底部只留「未完成的项目占比」（用户口径：卡片有重复信息标签、位置也不对）——
-           原来的四色图例与上面的 KPI 胶囊（未完成 / 在跑 / 会话 / 阻塞）语义重复，删掉；
-           占比条与气泡墙同一列宽、居中，视觉上归属这张卡。 */
-        (() => {
-          const counts = new Map()
-          view.bubbles.forEach((row) => {
-            const key = row.workspaceTitle || '未归属项目'
-            counts.set(key, (counts.get(key) || 0) + 1)
-          })
-          const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
-          if (!rows.length) return null
-          const total = view.bubbles.length || 1
-          const max = Math.max(1, ...rows.map((entry) => entry[1]))
-          return h('div', { key: 'dist', className: 'frx-dist', style: { maxWidth: '560px', margin: '10px auto 0' } },
-            rows.map(([label, count]) => h('div', { key: label, className: 'frx-dist-row' },
-              h('span', { className: 'frx-dist-label', title: label }, label),
-              h('span', { className: 'frx-dist-track' }, h('i', { style: { width: `${Math.max(8, Math.round((count / max) * 100))}%` } })),
-              h('span', { className: 'frx-dist-value' }, String(count)))))
-        })(),
+        /* 用户口径：「下方的项目名删掉」——原来贴在状态卡底部的项目占比列表整块移除，
+           项目维度的统计改到**右侧的「按项目分布」卡**里，用横向柱表达。 */
       ],
     })
 
     /* 卡片 2「未完成任务」与卡片 3「运行中」已删除：数字进状态卡的 KPI 胶囊，
        在跑任务的明细在执行历史里（按最近活跃排序，在跑的排最前）。 */
+
+    /* ---------- 右侧卡 A：按项目分布（横向柱） ----------
+       用户口径：「运行状态右侧需要恢复之前的两个卡片，但里面的内容可以用图统计其他重要信息」。
+       这张卡用**图表**回答「活压在哪个项目上」——这个数字不在 KPI 胶囊里，不重复。 */
+    const byProject = (() => {
+      const counts = new Map()
+      view.bubbles.forEach((row) => {
+        const key = row.workspaceTitle || '未归属项目'
+        counts.set(key, (counts.get(key) || 0) + 1)
+      })
+      return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+    })()
+    const projectCard = card('projects', {
+      label: '按项目分布',
+      children: [
+        h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '10px' } },
+          h('div', { className: 'frx-card-head-left' },
+            h('div', { className: 'frx-icon is-brand' }, icon('cpu', 20)),
+            h('div', { key: 'tt' },
+              h('h2', { className: 'frx-card-title' }, '按项目分布'),
+              h('p', { className: 'frx-card-sub is-idle' }, '活压在哪个项目上')))),
+        h('div', { key: 'bars', className: 'frx-bars' },
+          byProject.map(([label, count], index) => h('div', {
+            key: label, className: 'frx-bar-row', title: `${label}：${count} 条未完成`,
+          },
+            h('span', { className: 'frx-bar-label' }, label),
+            h('span', { className: 'frx-bar-track' },
+              h('i', { style: { width: `${Math.max(10, Math.round((count / Math.max(1, byProject[0][1])) * 100))}%` } })),
+            h('span', { className: 'frx-bar-value' }, `${count} 条`)))),
+      ],
+    })
+
+    /* ---------- 右侧卡 B：阻塞排行（谁卡住了最多的任务） ----------
+       按依赖关系聚合：被未完成的前置任务各记一票 —— 排最前的就是「卡住一片」的那个，
+       比单纯数「阻塞 N 条」有用（直接告诉你该先动谁）。 */
+    const blockers = (() => {
+      const votes = new Map()
+      view.bubbles.forEach((row) => {
+        row.blockedBy.filter((item) => !item.done).forEach((item) => {
+          const key = String(item.id || item.title)
+          const cur = votes.get(key) || { id: item.id, title: item.title || item.id, stuck: 0 }
+          cur.stuck += 1
+          votes.set(key, cur)
+        })
+      })
+      return [...votes.values()].sort((a, b) => b.stuck - a.stuck).slice(0, 5)
+    })()
+    const blockerCard = card('blockers', {
+      label: '阻塞排行',
+      children: [
+        h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '10px' } },
+          h('div', { className: 'frx-card-head-left' },
+            h('div', { className: `frx-icon ${blockers.length ? 'is-warn' : 'is-idle'}` }, icon('activity', 20)),
+            h('div', { key: 'tt' },
+              h('h2', { className: 'frx-card-title' }, '阻塞排行'),
+              h('p', { className: 'frx-card-sub is-idle' },
+                blockers.length ? '卡住别人最多的任务（先动它）' : '没有被前置卡住的任务')))),
+        blockers.length
+          ? h('div', { key: 'bars', className: 'frx-bars' },
+            blockers.map((row) => h('button', {
+              key: row.id || row.title,
+              type: 'button',
+              className: 'frx-bar-row is-click',
+              title: `${row.title}：卡住 ${row.stuck} 条`,
+              onClick: () => { if (row.id) select(row.id) },
+            },
+              h('span', { className: 'frx-bar-label' }, row.title),
+              h('span', { className: 'frx-bar-track is-warn' },
+                h('i', { style: { width: `${Math.max(10, Math.round((row.stuck / Math.max(1, blockers[0].stuck)) * 100))}%` } })),
+              h('span', { className: 'frx-bar-value' }, `${row.stuck} 条`))))
+          : h('p', { className: 'frx-subtitle' }, '没有被阻塞的任务'),
+      ],
+    })
 
     /* ---------- 卡片 2：待处理（阻塞 / 要人看一眼） ----------
        用户口径「运行页面卡片太少了，之前的两个没了，需要把必要的监控都加上」。
@@ -784,13 +839,11 @@ export function createRunsFeature(deps) {
          被过滤掉的已完成/挂起数量仍挂在根节点的 data-skipped-* 上（自证用，不占版面）。 */
       h('div', {
         key: 'row1',
-        className: 'frx-grid',
-        /* 第一行：**运行状态卡独占一整行**，下面两张卡并排。
-           原来用 minmax(240px)，面板宽时 auto-fit 会排出 3 列，于是 span2 的状态卡把
-           「未完成任务」挤到第 3 列、「运行中」被挤到第二行 → 两张卡高度不一致、内间距也不一致。
-           320px 的下限保证：宽面板=2 列（状态卡占满一行），窄面板自动落成 1 列。 */
-        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' },
-      }, statusCard),
+        /* 第一行（用户口径）：**运行状态在左，右侧两张统计卡竖排** ——
+           左 2fr / 右 1fr，状态卡跨两行；窄面板由容器查询落成单列。 */
+        className: 'frx-grid is-main',
+        style: { display: 'grid', gap: '16px' },
+      }, statusCard, projectCard, blockerCard),
       h('div', {
         key: 'row15',
         className: 'frx-grid',

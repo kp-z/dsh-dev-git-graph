@@ -65,6 +65,10 @@ export const CSS = `
 .frx-subtitle { margin: 0; font-size: 12px; line-height: 1.5; color: var(--frx-text-dim); }
 
 /* ---------- 卡片（GlassCard：bg-white/5 + backdrop-blur-md + border-white/10 + rounded-2xl + p-6 + shadow-xl） ---------- */
+/* 第一行（用户口径）：运行状态在左、**右侧两张统计卡**竖排。
+   宽面板 = 左 2fr / 右 1fr；窄面板（容器查询）自动落成单列。 */
+.frx-grid.is-main { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.frx-grid.is-main > .frx-card:first-child { grid-row: span 2; }
 .frx-grid {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 24px; align-items: stretch;
@@ -129,17 +133,23 @@ export const CSS = `
 .frx-kpi b { font-size: 15px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
 .frx-kpi-label { font-size: 11px; color: var(--frx-text-dim); }
 
-/* ---------- 状态卡底部：未完成的项目占比 ----------
-   用户口径：原来那行四色图例与 KPI 胶囊语义重复，删掉；只留占比条，并与气泡墙同宽居中。 */
-.frx-dist { display: flex; flex-direction: column; gap: 6px; }
-.frx-dist-row { display: grid; grid-template-columns: minmax(0, 120px) 1fr auto; align-items: center; gap: 10px; }
-.frx-dist-label { font-size: 11px; color: var(--frx-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.frx-dist-track {
+/* ---------- 横向柱：按项目分布 / 阻塞排行（右侧两张统计卡） ---------- */
+.frx-bars { display: flex; flex-direction: column; gap: 9px; }
+.frx-bar-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; align-items: center; gap: 10px;
+  font: inherit; color: inherit; width: 100%; text-align: left;
+  background: none; border: none; padding: 0; margin: 0;
+}
+.frx-bar-row.is-click { cursor: pointer; }
+.frx-bar-row.is-click:hover .frx-bar-label { color: var(--frx-text-strong); }
+.frx-bar-label { font-size: 11px; color: var(--frx-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frx-bar-track {
   height: 6px; border-radius: 999px; overflow: hidden;
   background: color-mix(in oklab, var(--dsw-alias-label-primary) 10%, transparent);
 }
-.frx-dist-track > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(to right, rgba(96, 165, 250, 0.9), rgba(59, 130, 246, 0.35)); }
-.frx-dist-value { font-size: 11px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
+.frx-bar-track > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(to right, rgba(96, 165, 250, 0.9), rgba(59, 130, 246, 0.35)); }
+.frx-bar-track.is-warn > i { background: linear-gradient(to right, rgba(251, 191, 36, 0.9), rgba(245, 158, 11, 0.35)); }
+.frx-bar-value { font-size: 11px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ---------- 卡片底部两个小盒（Health Score / Status） ---------- */
 .frx-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: auto; }
@@ -428,6 +438,10 @@ export const CSS = `
 @container frxpage (max-width: 1100px) {
   .frx-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); height: auto; }
   .frx-card.is-span2 { grid-column: span 2; }
+}
+@container frxpage (max-width: 760px) {
+  .frx-grid.is-main { grid-template-columns: minmax(0, 1fr); }
+  .frx-grid.is-main > .frx-card:first-child { grid-row: auto; }
 }
 @container frxpage (max-width: 640px) {
   .frx-grid { grid-template-columns: minmax(0, 1fr); }

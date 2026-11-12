@@ -150,14 +150,24 @@ check('气泡墙高度 104（用户口径：太高了）', () => {
   assert.equal(src.includes("height: '132px'"), false, '旧的 132px 高度应已去掉')
 })
 
-check('状态卡自带 KPI 胶囊 + 底部占比（数字只在这出现一次）', () => {
+check('状态卡：KPI 胶囊在**右上**、底部不再有项目名列表', () => {
   const card = stripComments(src.slice(src.indexOf("const statusCard = card('status'"), src.indexOf('/* 卡片 2')))
-  assert.ok(card.includes('frx-kpi'), '状态卡头部要有 KPI 胶囊')
-  assert.ok(card.includes('frx-dist'), '状态卡底部要有未完成的项目占比')
-  assert.equal(card.includes('frx-legend'), false, '四色图例与 KPI 胶囊语义重复，应已删除')
+  assert.ok(card.includes('frx-kpi'), '状态卡要有 KPI 胶囊')
   assert.ok(card.includes("'lucide:"), 'KPI 图标要复用内置 Lucide 图标集')
-  assert.equal(src.includes("card('total'"), false, '「未完成任务」卡应已删除（数字进胶囊）')
-  assert.equal(src.includes("card('running'"), false, '「运行中」卡应已删除（数字进胶囊）')
+  assert.equal(card.includes('frx-dist'), false, '底部项目名列表已删（用户口径：下方的项目名删掉）')
+  assert.equal(card.includes('frx-legend'), false, '四色图例与 KPI 胶囊语义重复，应已删除')
+  /* 胶囊必须在 head 里（右上），不能再挂在标题下方 */
+  const head = card.slice(card.indexOf("className: 'frx-card-head'"))
+  assert.ok(head.indexOf('frx-kpis') < head.indexOf('frx-bubbles'), 'KPI 胶囊要在卡片头部（右上）')
+})
+
+check('运行状态右侧恢复两张「图统计」卡，且数字不与胶囊重复', () => {
+  assert.ok(src.includes("card('projects'"), '缺「按项目分布」卡')
+  assert.ok(src.includes("card('blockers'"), '缺「阻塞排行」卡')
+  assert.ok(src.includes("className: 'frx-grid is-main'") && src.includes('statusCard, projectCard, blockerCard'),
+    '第一行应是「状态卡 + 右侧两张统计卡」')
+  const bars = stripComments(src.slice(src.indexOf("const blockers = (() =>"), src.indexOf("const blockerCard")))
+  assert.ok(bars.includes('blockedBy'), '阻塞排行要按依赖关系聚合（blockedBy）')
 })
 
 check('监控卡回来了（用户口径：卡片太少，必要的监控都要有）', () => {
