@@ -7,15 +7,35 @@
 | 路径 | 职责 | 规则 |
 |---|---|---|
 | `packages/` | 所有插件包（pnpm workspace 成员） | 一包一个目录，包名用 kebab-case，目录名与包名一致 |
-| `apps/` | 独立可运行的站点/应用（**不是** workspace 成员） | 一应用一目录；自带 `build`/`dev` 脚本；不参与 `pnpm -r run build` |
-| `scripts/` | 开发/构建/安装脚本 | 只放 `.sh`（bash）或 `.mjs`（node），不放一次性命令 |
-| `docs/` | 规范与参考文档 | 与代码同步维护 |
+| `apps/` | 独立可运行的站点/应用（**不是** workspace 成员） | 目前为空、预留；一应用一目录；自带 `build`/`dev` 脚本；不参与 `pnpm -r run build` |
+| `scripts/` | **工作区级**开发/构建/安装脚本 | 只放 `.sh`（bash）或 `.mjs`（node）；插件专属脚本放回该插件的 `scripts/` |
+| `docs/` | **工作区级**规范与参考文档 | 与代码同步维护；插件专属文档放回 `packages/<name>/docs/` |
 | `templates/` | 脚手架模板 | 由 `new-plugin.sh` 引用，模板里用 `<placeholder>` 标注需替换处 |
+| `archive/` | 已停用但值得留作参考的实现 | 只进不出：不再修改、不再被引用 |
+| `artifacts/` | 生成的交付物（文档导出、截图等） | 生成物优先不进版本库；确需入库时按批次建子目录 |
+| `tsconfig.base.json` | 各插件 `tsconfig.json` 的 `extends` 目标 | **必须保留**：6 个包直接 extends 它 |
 
 > `apps/` 与 `packages/` 的分界：**要成为插件**的放 `packages/`，**只是网页**的放 `apps/`。
 > 站点刻意不进 workspace，这样根目录的 `pnpm -r run build` 和插件安装流程都不受影响。
 
+### 根目录禁止清单 🚫
+
+本仓库曾长期「既是 workspace 根、又是 `dsh-dev-git-graph` 的插件根」，于是同一份插件源码在根目录和包内各存一份，
+并各自演进、逐渐分叉（2026-09 清理时，根副本落后包内两个多月）。**根目录不得出现下列任何一项**，
+它们只属于 `packages/<name>/`：
+
+| 禁止出现 | 原因 |
+|---|---|
+| `src/` | 插件源码只在包内。根副本会与包内分叉，改错文件也不报错 |
+| `cordis.patch.yml` | 同上；根目录那份会被误当成某个插件的 bundle patch |
+| `vendor/` | vendored 第三方资源落位是**包内** `src/vendor/`（见下文） |
+| `tsconfig.json`、`web.tsconfig.json` | 编译范围只应落在包内；根级 tsconfig 会顺手把上面的残留一起编译 |
+| `lib/`、`dist/`、`node_modules/` | 构建产物与依赖一律 gitignore |
+
 ## 应用内目录规范（apps/<name>/）
+
+> `apps/` 目前是空的。下面这套站内形态当前由 `packages/dsh-spellbook/`（咒语书）承担——它既是站点又是插件包，
+> 站点部分沿用同一套约定；将来出现「只是网页、不做插件」的项目，再落 `apps/<name>/`。
 
 以 `packages/dsh-spellbook/`（咒语书）为准：
 
@@ -97,6 +117,8 @@ packages/<name>/
   「在白名单里 + 路由取得到 + src 与 lib 逐字节一致」，漏改就在这里红。
 - **参照实现**：`packages/dsh-contract-butler`（Tabulator 6.5.3，MIT，`src/vendor/README.md`
   里记着三个文件的 sha256）。
+- 落位是**包内** `src/vendor/`。`packages/dsh-dev-git-graph/vendor/`（包根、无 `src/` 前缀）是早期遗留，
+  待迁移到 `src/vendor/`；新插件不要照它抄。
 
 ## 脚本规范
 
@@ -106,8 +128,15 @@ packages/<name>/
 
 ## 文档规范
 
+`docs/` 只放**工作区级**文档。三类内容分开，别再混着长；已有文件按此迁移，新文件直接按目标落位：
+
+| 类别 | 目标落位 | 现状 |
+|---|---|---|
+| 规范 / 参考 | `docs/` 根 | `DIRECTORY.md`、`DEVELOPMENT.md`、`REFERENCE.md`、`RELEASE.md` ✅ 已就位 |
+| 插件专属（发布指引、设计稿、调研） | `packages/<name>/docs/` | 仍在 `docs/` 根，靠 `dsh-<插件名>` 前缀区分；**待迁移** |
+| 预览 / 资产（HTML、设计稿 CSS） | `docs/assets/<主题>/` | 仍在 `docs/` 根（`ios-glass-demo.html`、`design-v3/` 等）；**待迁移** |
+
 - 根 README：工作区总览 + 快速开始。
-- `docs/DIRECTORY.md`：本文件（目录规范）。
-- `docs/DEVELOPMENT.md`：开发规范（工具链、生命周期、profile 策略）。
-- `docs/REFERENCE.md`：dsh 插件 API 速查。
 - 每个插件包自带 `README.md`，说明用途、配置项、暴露的工具。
+- 插件专属文档在迁移之前，文件名必须带 `dsh-<插件名>` 前缀（如 `RELEASE-dsh-ios-skin.md`），
+  否则将来无法按前缀判断该归哪个包。
