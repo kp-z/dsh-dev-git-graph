@@ -58,9 +58,12 @@ export function createTreeNav(deps) {
       onCreateCommit,
       onCreateCancel,
       compact = false,
+      hideDone = false,
     } = props || {}
     /* 二级菜单形态：行更紧凑、缩进从 24px 起（一级项 padding 是 12px），字号交给 CSS。 */
-    const indent = (depth) => `${(compact ? 24 : 12) + (Number(depth) || 0) * (compact ? 12 : 14)}px`
+    /* 二级菜单挂在 rail 里只有 232px 宽：缩进必须省着给，项目行才放得下名字。
+       compact=12px 起、每层 8px；非 compact（旧的两列布局）保留宽一点的手感。 */
+    const indent = (depth) => `${(compact ? 12 : 12) + (Number(depth) || 0) * (compact ? 8 : 14)}px`
 
     const rows = tree && Array.isArray(tree.rows) ? tree.rows : []
     const [active, setActive] = useState(() => (tree && tree.selected ? tree.selected.key : 'all'))
@@ -92,17 +95,25 @@ export function createTreeNav(deps) {
         ? { '--fo-c': decoVar(row.colorIndex) }
         : (row.kind === 'all' ? { '--fo-c': brandVar() } : undefined)
       const label = row.label
-      const count = isGroup ? `${row.count} 项目` : `${row.count} 任务`
+      /* 计数要和画布说同一件事：隐藏已完成时，行上的数就是画布上会出现的任务数
+         （否则侧栏写 12、画布只画 2，用户会以为图丢了东西）。目录行仍是「几个项目」。 */
+      const count = isGroup
+        ? `${row.count} 项目`
+        : String(hideDone ? row.open : row.count)
+      const countTip = isGroup
+        ? `${row.count} 个项目 · ${row.open} 条待办`
+        : `${row.open} 条待办 · 共 ${row.count} 条${hideDone && row.done ? `（${row.done} 条已完成已隐藏）` : ''}`
 
       const children = []
-      children.push(h('span', {
-        key: 'caret',
-        className: 'fo-caret',
-        'data-collapsed': row.collapsed === true ? '1' : '0',
-        'data-leaf': isProject ? '1' : '0',
-        'aria-hidden': 'true',
-        onClick: (event) => { if (isProject) return; event.stopPropagation(); toggleOf(row) },
-      }, isProject ? '' : '▾'))
+      if (!isProject) {
+        children.push(h('span', {
+          key: 'caret',
+          className: 'fo-caret',
+          'data-collapsed': row.collapsed === true ? '1' : '0',
+          'aria-hidden': 'true',
+          onClick: (event) => { event.stopPropagation(); toggleOf(row) },
+        }, '▾'))
+      }
       /* 项目行：配了图标就把色点换成图标（颜色沿用项目选的颜色），没配才是色点 */
       /* 手动配的图标优先；没配就按项目名自动推（与气泡同一套规则） */
       const manualLogo = isProject ? normalizeIcon(row.logo) : ''
@@ -121,16 +132,29 @@ export function createTreeNav(deps) {
         children.push(h('span', { key: 'dot', className: 'fo-dot', style: color, 'aria-hidden': 'true' }))
       }
       children.push(h('span', { key: 'label', className: 'fo-row-label', title: row.path || label }, label))
-      if (row.blocked > 0) children.push(h('span', { key: 'badge', className: 'fo-row-badge', title: `${row.blocked} 个任务被阻塞` }, String(row.blocked)))
-      children.push(h('span', { key: 'count', className: 'fo-row-count' }, count))
-      if (isGroup && !row.ungrouped) {
+      if (row.blocked > 0) {
+        children.push(h('span', {
+          key: 'badge',
+          className: 'fo-row-badge',
+          title: `${row.blocked} 个任务被阻塞`,
+          'aria-label': `${row.blocked} 个任务被阻塞`,
+          'data-count': String(row.blocked),
+        }))
+      }
+      children.push(h('span', {
+        key: 'count',
+        className: 'fo-row-count',
+        'data-kind': isGroup ? 'group' : 'project',
+        title: countTip,
+      }, count))
+      if ((isGroup && !row.ungrouped) || isProject) {
         children.push(h('button', {
           key: 'menu',
           type: 'button',
           className: 'fo-btn fo-row-menu',
           'data-size': 'sm',
           'data-variant': 'ghost',
-          'aria-label': `目录 ${row.label} 的操作`,
+          'aria-label': isGroup ? `目录 ${row.label} 的操作` : `项目 ${row.label} 的操作`,
           disabled: busy,
           onClick: (event) => {
             event.stopPropagation()

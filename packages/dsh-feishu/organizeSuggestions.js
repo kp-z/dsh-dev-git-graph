@@ -305,6 +305,8 @@ export function projectOrganize(batch, tasks) {
       evidence: str(item.evidence).slice(0, 240),
       status: str(item.status) || 'pending',
       reason: str(item.reason),
+      /* 落库成功但远端没同步上时的那句话（「已存本机，飞书未同步」）。 */
+      warning: str(item.warning),
       impact: describeImpact(item, arr(tasks)),
     })),
     pending: arr(batch.items).filter((item) => str(item.status) === 'pending').length,

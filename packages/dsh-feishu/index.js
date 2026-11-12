@@ -4522,6 +4522,8 @@ function createSyncEngine(ctx) {
         done: task.done === true,
         workspaceKey: workspaceKeyOf(enriched),
         workspaceTitle: asString(enriched.workspaceTitle) || asString(task.meta?.workspace),
+        /* 优先级：画布卡片的 P0-P3 徽标要用（列表卡上本来就有，别在图上丢掉）。 */
+        priority: asString(task.priority),
         workspacePath: asString(enriched.workspacePath),
         blocked: blockedBy.length > 0,
         ready: blockedBy.length === 0,
@@ -6275,6 +6277,7 @@ function createSyncEngine(ctx) {
     const results = []
     for (const item of found.items) {
       let written
+      let warning = ''
       try {
         written = item.kind === 'temporal'
           ? applyTemporalRelation(item, 'merge')
@@ -6285,6 +6288,19 @@ function createSyncEngine(ctx) {
             reason: `整理建议（batchId=${found.batch.batchId}）：${asString(item.evidence).slice(0, 80)}`,
             writeBack,
           })
+        /* 远端不可用（没装 CLI / 离线 / 飞书报错）时不能让建议白丢掉：
+           先落本地，并把「只在本机」这件事逐条说清楚，之后正常同步会补上去。 */
+        if (!written.ok && writeBack && item.kind !== 'temporal') {
+          warning = asString(written.error) || '飞书同步失败'
+          written = await setTaskRelations(item.to, {
+            ...(item.kind === 'depends_on' ? { predecessorIds: [item.from] } : { sourceTaskIds: [item.from] }),
+            mode: 'merge',
+            source: 'ai',
+            reason: `整理建议（batchId=${found.batch.batchId}）：${asString(item.evidence).slice(0, 80)}（仅本地：${warning}）`,
+            writeBack: false,
+          })
+          if (written.ok) warning = `已存到本机；飞书同步未完成（${warning}）`
+        }
       } catch (error) {
         written = { ok: false, error: error instanceof Error ? error.message : String(error) }
       }
@@ -6292,10 +6308,11 @@ function createSyncEngine(ctx) {
         item.status = 'accepted'
         item.acceptedAt = nowMs()
         item.reason = ''
+        item.warning = warning
       } else {
         item.reason = asString(written.error) || '写入失败'
       }
-      results.push({ id: item.id, kind: item.kind, from: item.from, to: item.to, ok: written.ok === true, error: item.reason })
+      results.push({ id: item.id, kind: item.kind, from: item.from, to: item.to, ok: written.ok === true, error: item.reason, warning })
     }
     await persistState()
     return { ok: true, results, batch: projectOrganize(found.batch, state.tasks) }

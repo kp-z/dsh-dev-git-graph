@@ -415,19 +415,22 @@ test('真实快照规模下也不越界（48+ 任务的回归底线）', () => {
 
 /* ---------------- task-15：workflow 式节点卡片的几何 ---------------- */
 
-test('卡片口径：节点 264×88、圆角 12、边框 2、吸附网格 40', () => {
-  assert.equal(GEOMETRY.NODE_W, 264)
-  assert.equal(GEOMETRY.NODE_H, 88)
+test('卡片口径：与面板飞书任务卡同规格（300×84、圆角 9、1px 描边、三行）', () => {
+  /* 用户口径：直接用当期飞书卡片的设计，且「先不要简化」——标题 / 徽标 / 页脚三行都给。 */
+  assert.equal(GEOMETRY.NODE_W, 300)
+  assert.equal(GEOMETRY.NODE_H, 84)
   assert.equal(GEOMETRY.GRID, 40)
-  assert.equal(CARD.RADIUS, 12)
-  assert.equal(CARD.BORDER, 2)
-  /* 三段刚好放得下：左动作列 + 中间文字 + 右状态胶囊 + 三段间距 + 两侧内边距 = 卡片宽 */
-  const used = CARD.PAD + CARD.ACTION_W + CARD.COL_GAP + CARD.STATUS_W + CARD.PAD + CARD.COL_GAP
-  assert.ok(used < GEOMETRY.NODE_W, `三段占宽 ${used} 应该留得出文字列`)
-  assert.ok(GEOMETRY.NODE_W - used >= 120, `中间文字列只剩 ${GEOMETRY.NODE_W - used}px`)
-  /* 两个动作按钮竖排 + 居中：不超出卡片高 */
-  const actionH = CARD.ACTION_SIZE * 2 + CARD.ACTION_GAP
-  assert.ok(actionH <= GEOMETRY.NODE_H - CARD.PAD * 2, '动作列放得下')
+  assert.equal(CARD.RADIUS, 9)
+  assert.equal(CARD.BORDER, 1)
+  assert.equal(CARD.PAD_X, 10)
+  assert.equal(CARD.PAD_Y, 7)
+  assert.equal(CARD.BADGE_H, 18)
+  assert.equal(CARD.BADGE_RADIUS, 5)
+  assert.equal(CARD.PRIO_W, 26)
+  assert.equal(CARD.SESSION_W, 58)
+  /* 三行依次排开，最后一行仍留得出下内边距 */
+  assert.ok(CARD.ROW_TITLE < CARD.ROW_META && CARD.ROW_META < CARD.ROW_FOOT)
+  assert.ok(CARD.ROW_FOOT + CARD.ROW_H <= GEOMETRY.NODE_H, '页脚行不能出卡片')
 })
 
 test('snapToGrid：吸附到 40px 网格（与参考站 GRID_SIZE 一致）', () => {
@@ -443,46 +446,51 @@ test('snapToGrid：吸附到 40px 网格（与参考站 GRID_SIZE 一致）', ()
   assert.equal(snapToGrid(undefined), 0)
 })
 
-test('cardGeometry：三段互不重叠、都在卡片内、动作列留够', () => {
-  const card = cardGeometry({ x: 100, y: 50, w: GEOMETRY.NODE_W, h: GEOMETRY.NODE_H, ghost: false })
+test('cardGeometry：三行结构（优先级+标题+会话 / 徽标 / 编号+动作）', () => {
+  const card = cardGeometry({ x: 100, y: 50, w: GEOMETRY.NODE_W, h: GEOMETRY.NODE_H, ghost: false, sessionId: 's-1', priority: 'P1' })
   assert.equal(card.x, 100)
   assert.equal(card.y, 50)
   assert.equal(card.radius, CARD.RADIUS)
   assert.equal(card.border, CARD.BORDER)
-  /* 动作列 2 个按钮，竖排、间距 6、尺寸 22 */
-  assert.equal(card.action.buttons.length, 2)
+  /* row1：优先级徽标 → 标题 → 会话胶囊（同一行，互不重叠） */
+  assert.ok(card.prio, '有优先级就有徽标')
+  assert.equal(card.prio.x, 100 + CARD.PAD_X)
+  assert.equal(card.prio.y, 50 + CARD.ROW_TITLE)
+  assert.equal(card.title.x, card.prio.x + CARD.PRIO_W + CARD.CHIP_GAP)
+  assert.equal(card.title.baseline, 50 + CARD.TITLE_BASELINE)
+  assert.equal(card.session.x, 100 + GEOMETRY.NODE_W - CARD.PAD_X - CARD.SESSION_W)
+  assert.equal(card.title.right, card.session.x - CARD.COL_GAP)
+  assert.ok(card.title.w > 100, `标题列只剩 ${card.title.w}px`)
+  /* row2：徽标行 */
+  assert.equal(card.meta.x, 100 + CARD.PAD_X)
+  assert.equal(card.meta.y, 50 + CARD.ROW_META)
+  assert.equal(card.meta.h, CARD.BADGE_H)
+  /* row3：编号在左、动作在右，都在同一行 */
+  assert.equal(card.foot.x, 100 + CARD.PAD_X)
+  assert.equal(card.foot.y, 50 + CARD.ROW_FOOT)
   assert.deepEqual(card.action.buttons.map((box) => box.key), ['open', 'focus'])
   const [open, focus] = card.action.buttons
-  assert.equal(open.x, 100 + CARD.PAD)
-  assert.equal(open.w, CARD.ACTION_SIZE)
-  assert.equal(open.h, CARD.ACTION_SIZE)
-  assert.equal(open.radius, CARD.ACTION_RADIUS)
-  assert.equal(focus.y - open.y, CARD.ACTION_SIZE + CARD.ACTION_GAP)
-  /* 中间文字从动作列右边起，右边留出状态胶囊 */
-  assert.equal(card.text.x, open.x + CARD.ACTION_W + CARD.COL_GAP)
-  assert.ok(card.text.x > open.x + open.w, '文字不能在动作按钮上')
-  assert.ok(card.text.x + card.text.w <= card.status.x, '文字不能压到状态胶囊')
-  /* 状态胶囊在卡片右侧、垂直居中 */
-  assert.equal(card.status.x + card.status.w, 100 + GEOMETRY.NODE_W - CARD.PAD)
-  assert.equal(card.status.y, 50 + Math.round((GEOMETRY.NODE_H - CARD.STATUS_H) / 2))
-  /* 三行基线的顺序：eyebrow → title → meta，且都在卡片里 */
-  assert.ok(card.text.eyebrow < card.text.title && card.text.title < card.text.meta)
-  assert.ok(card.text.eyebrow > 50 && card.text.meta < 50 + GEOMETRY.NODE_H)
-  /* 动作列垂直居中 */
-  assert.equal(card.action.y, 50 + Math.round((GEOMETRY.NODE_H - card.action.h) / 2))
-  assert.ok(card.action.y >= 50 + CARD.PAD && card.action.y + card.action.h <= 50 + GEOMETRY.NODE_H - CARD.PAD)
+  assert.equal(open.y, 50 + CARD.ROW_FOOT)
+  assert.equal(focus.x - (open.x + open.w), CARD.ACTION_GAP)
+  assert.equal(focus.x + focus.w, 100 + GEOMETRY.NODE_W - CARD.PAD_X)
+  assert.ok(card.foot.right < open.x, '编号区在动作按钮左边')
+  /* 行序：标题 → 徽标 → 页脚 */
+  assert.ok(card.title.baseline < card.meta.y && card.meta.y + card.meta.h < card.foot.y)
 })
 
-test('cardGeometry：ghost 没有动作列，文字铺满卡片', () => {
-  const card = cardGeometry({ x: 0, y: 0, w: GEOMETRY.NODE_W, h: GEOMETRY.NODE_H, ghost: true })
-  assert.equal(card.ghost, true)
-  assert.deepEqual(card.action.buttons, [])
-  assert.equal(card.text.x, CARD.PAD)
-  assert.ok(card.text.w > GEOMETRY.NODE_W / 2, 'ghost 的文字列更宽')
-  assert.equal(card.status.w, CARD.STATUS_W, 'ghost 也有状态胶囊（缺失/组外）')
+test('cardGeometry：没绑会话 → 标题铺满右侧；ghost → 没有会话胶囊也没有动作', () => {
+  const plain = cardGeometry({ x: 0, y: 0, w: GEOMETRY.NODE_W, h: GEOMETRY.NODE_H, sessionId: '' })
+  assert.equal(plain.session, null)
+  assert.equal(plain.title.right, GEOMETRY.NODE_W - CARD.PAD_X)
+  assert.ok(plain.title.w > GEOMETRY.NODE_W / 2)
+  const ghost = cardGeometry({ x: 0, y: 0, w: GEOMETRY.NODE_W, h: GEOMETRY.NODE_H, ghost: true, sessionId: 's-1' })
+  assert.equal(ghost.ghost, true)
+  assert.equal(ghost.session, null, 'ghost 不显示会话')
+  assert.deepEqual(ghost.action.buttons, [])
+  assert.equal(ghost.meta.right, GEOMETRY.NODE_W - CARD.PAD_X, 'ghost 的徽标行铺满（没有动作区）')
 })
 
-test('layoutScope：每个节点都带 card，且三段不越出节点自己的框', () => {
+test('layoutScope：每个节点都带 card，且各段不越出节点自己的框', () => {
   ALL.graphs.forEach((graph) => {
     graph.nodes.forEach((node) => {
       assert.ok(node.card, `${node.id} 缺 card`)
@@ -496,10 +504,28 @@ test('layoutScope：每个节点都带 card，且三段不越出节点自己的�
         assert.ok(box.x >= node.x && box.x + box.w <= node.x + node.w, `${node.id} 动作按钮横向越界`)
         assert.ok(box.y >= node.y && box.y + box.h <= node.y + node.h, `${node.id} 动作按钮纵向越界`)
       })
-      assert.ok(node.card.status.x >= node.x && node.card.status.x + node.card.status.w <= node.x + node.w)
-      assert.ok(node.card.text.w > 0)
+      assert.ok(node.card.title.w > 0)
+      assert.ok(node.card.title.x >= node.x && node.card.title.right <= node.x + node.w)
+      if (node.card.session) {
+        assert.ok(node.card.session.x >= node.x && node.card.session.x + node.card.session.w <= node.x + node.w)
+      }
     })
   })
+})
+
+test('边带 reason：画布上悬停能读到「为什么有这条线」', () => {
+  const edges = layoutScope({
+    tasks: [
+      { id: 'a', title: 'A', done: false, workspaceKey: 'w', workspaceTitle: 'W' },
+      { id: 'b', title: 'B', done: false, workspaceKey: 'w', workspaceTitle: 'W' },
+    ],
+    relations: [{ from: 'a', to: 'b', kind: 'depends_on', source: 'ai', reason: '描述里写着「等 A 合并后再做」' }],
+    groups: [], workspaces: [], scope: { kind: 'all', id: '' },
+  })
+  const edge = (edges.edges || []).find((item) => item.from === 'a' && item.to === 'b')
+  assert.ok(edge, '边在')
+  assert.equal(edge.reason, '描述里写着「等 A 合并后再做」', 'reason 要透传到画布层')
+  assert.equal(edge.source, 'ai')
 })
 
 test('describeNodeCard：一行里说清 前置/后置/阻塞计数 + 项目名', () => {

@@ -334,6 +334,8 @@ export function createOverviewPanel(deps) {
       }
     })
     const [keyword, setKeyword] = useState(() => model.str(readStore(store, 'keyword')))
+    /* 整理后的结果提示（接受了几条、有几条落在隐藏的已完成任务上）。 */
+    const [orgNote, setOrgNote] = useState('')
     /* 已完成默认不画（用户口径）：「全部任务」里已完成往往占绝大多数（实测 57 条里 49 条已完成），
        画布会被已完成的卡片淹掉，看不出还剩哪些活。开关在关系页卡片头部，选择记进 store。 */
     const [hideDone, setHideDone] = useState(() => readStore(store, 'hideDone') !== false)
@@ -776,6 +778,17 @@ export function createOverviewPanel(deps) {
             }))
             /* 接受过的关系要立刻出现在画布上：拉一次权威快照。 */
             load(true)
+            /* 已完成的任务默认不画，落在它们身上的关系在画布上看不见 —— 明确说一句，
+               否则用户会以为「接受了但没生效」。 */
+            const accepted = asArray(res && res.results).filter((row) => row && row.ok === true)
+            const doneIds = new Set(tasks.filter((task) => task.done === true).map((task) => model.str(task.id)))
+            const hiddenHits = accepted.filter((row) => doneIds.has(model.str(row.from)) || doneIds.has(model.str(row.to))).length
+            const localOnly = accepted.filter((row) => model.str(row.warning)).length
+            const bits = []
+            if (accepted.length) bits.push(`已接受 ${accepted.length} 条关系，画布已更新`)
+            if (hiddenHits > 0) bits.push(`其中 ${hiddenHits} 条连的是已完成任务（默认不画，点「显示已完成」可见）`)
+            if (localOnly > 0) bits.push(`${localOnly} 条只写进了本机，飞书同步待完成`)
+            setOrgNote(bits.length ? `${bits.join('；')}。` : '')
           }
           return res
         })
@@ -784,7 +797,7 @@ export function createOverviewPanel(deps) {
           if (alive.current) setOrg((prev) => ({ ...prev, status: 'error', error: message }))
           return null
         })
-    }, [load, org.batchId])
+    }, [load, org.batchId, tasks])
 
     const rejectOrganize = useCallback((itemIds) => {
       const fn = apiRef.current.organizeReject
@@ -922,6 +935,10 @@ export function createOverviewPanel(deps) {
       hideDone,
       hiddenDone,
       onToggleHideDone: () => setHideDone((prev) => prev !== true),
+      /* 接受建议后的一句话结论（含「有几条落在默认隐藏的已完成任务上」）。 */
+      organizeNote: orgNote,
+      onDismissOrganizeNote: () => setOrgNote(''),
+      onShowDone: () => setHideDone(false),
       organize: {
         available: typeof apiRef.current.organize === 'function',
         running: org.status === 'running',
@@ -940,6 +957,7 @@ export function createOverviewPanel(deps) {
       now: Number(data && data.now) || Date.now(),
       treeProps: {
         tree,
+        hideDone,
         renamingId,
         creating,
         creatingFor,
@@ -1078,7 +1096,7 @@ export function createOverviewPanel(deps) {
                     }, org.open ? '收起建议' : `建议 ${Number(org.batch && org.batch.pending)}`)
                     : null,
                   h('button', {
-                    type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-action': 'organize',
+                    type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'primary', 'data-action': 'organize',
                     disabled: org.status === 'running',
                     title: '让 AI 找前置/后置/来源关系，并按完成时间补一条时间先后；先出建议再落库',
                     onClick: runOrganize,

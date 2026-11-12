@@ -225,7 +225,7 @@ export function normalizeEdges(relations) {
     const key = `${kind}|${from}|${to}`
     if (seen.has(key)) continue
     seen.add(key)
-    out.push({ from, to, kind, source: str(edge.source) })
+    out.push({ from, to, kind, source: str(edge.source), reason: str(edge.reason) })
   }
   return out
 }

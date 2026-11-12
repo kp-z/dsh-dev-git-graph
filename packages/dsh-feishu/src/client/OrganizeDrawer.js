@@ -87,6 +87,9 @@ export function createOrganizeDrawer(deps) {
       }
       if (failure) {
         children.push(h('p', { key: 'fail', className: 'fo-org-fail', role: 'alert' }, `没落库：${failure}`))
+      } else if (model.str(item.warning)) {
+        /* 已落库但只在本机：说清楚，别让人以为飞书那边也有了。 */
+        children.push(h('p', { key: 'warn', className: 'fo-org-impact', 'data-tone': 'idle' }, model.str(item.warning)))
       }
       if (isPending) {
         children.push(h('div', { key: 'actions', className: 'fo-org-item-actions' },

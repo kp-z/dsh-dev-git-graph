@@ -123,10 +123,12 @@ check('落盘的建议单里没有把 pending 当关系写进去', (onDisk.relat
 const rejected = await post('/api/overview/organize/reject', { batchId: 'sg:all:0' })
 check('未知 batchId 的拒绝返回 400（不是 500）', rejected.status === 400 && rejected.data?.ok === false, JSON.stringify(rejected.data).slice(0, 120))
 
-/* ── 5. 接受：写本地关系（writeBack=false，避免碰真实飞书） ──────── */
-const accepted = await post('/api/overview/organize/accept', { batchId: batch.batchId, itemIds: pending.map((item) => item.id), writeBack: false })
-check('接受返回 200 且逐条汇报', accepted.status === 200 && accepted.data?.ok === true
-  && accepted.data.results?.length === 1 && accepted.data.results[0].ok === true, JSON.stringify(accepted.data).slice(0, 200))
+/* ── 5. 接受：远端不可用（这台机器没有 CLI）也必须落本地 ──────────────
+   这是用户报的「接受建议后没生效」的那条路：以前 refresh 失败会整条丢掉。 */
+const accepted = await post('/api/overview/organize/accept', { batchId: batch.batchId, itemIds: pending.map((item) => item.id) })
+check('远端不可用时接受仍成功（先落本地，不丢建议）', accepted.status === 200 && accepted.data?.ok === true
+  && accepted.data.results?.length === 1 && accepted.data.results[0].ok === true, JSON.stringify(accepted.data).slice(0, 240))
+check('逐条汇报里写明「只在本机」', /本机/.test(accepted.data.results[0].warning || ''), JSON.stringify(accepted.data.results[0]))
 const afterAccept = await json('/api/overview')
 const edges = afterAccept.data.relations || []
 check('接受后关系真的写进去了（t1 → t2 的 depends_on）', edges.some((edge) => edge.from === 't1' && edge.to === 't2' && edge.kind === 'depends_on'), JSON.stringify(edges).slice(0, 200))

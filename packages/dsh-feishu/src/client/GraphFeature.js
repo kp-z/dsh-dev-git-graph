@@ -28,7 +28,26 @@ export function createGraphFeature(deps) {
 
   return function GraphFeature(props) {
     const ctx = props || {}
+    const note = typeof ctx.organizeNote === 'string' ? ctx.organizeNote.trim() : ''
+    const noteBar = note
+      ? h('div', { className: 'fo-note-bar', role: 'status' },
+        h('span', { className: 'fo-note-text' }, note),
+        ctx.hideDone && typeof ctx.onShowDone === 'function'
+          ? h('button', {
+            type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+            onClick: () => ctx.onShowDone(),
+          }, '显示已完成')
+          : null,
+        h('button', {
+          type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
+          'aria-label': '关闭提示',
+          onClick: () => { if (typeof ctx.onDismissOrganizeNote === 'function') ctx.onDismissOrganizeNote() },
+        }, '关闭'),
+      )
+      : null
+
     return h('div', { className: 'fo-feature' },
+      noteBar,
       h('div', { className: 'fo-feature-body' },
         h('div', { className: 'fo-canvas-area' },
           h(GraphView, {

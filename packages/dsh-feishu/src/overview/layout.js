@@ -45,14 +45,14 @@ import {
 
 /** 几何口径：间距/圆角与宿主列表页同量级，节点尺寸按「放得下 T编号 + 标题 + 一行元信息」定。 */
 export const GEOMETRY = {
-  /** 节点卡片宽：左侧动作列 + 中间信息列 + 右侧状态胶囊刚好放得下（见 CARD）。 */
-  NODE_W: 264,
-  NODE_H: 88,
-  GAP_X: 64,
-  GAP_Y: 16,
+  /** 节点卡片宽：与飞书任务卡同一个语言（标题行 + 徽标行 + 页脚行），横向放得下 19 个汉字。 */
+  NODE_W: 300,
+  NODE_H: 84,
+  GAP_X: 56,
+  GAP_Y: 14,
   PAD: 20,
-  /** 标题预算（measure 口径：一个汉字 1、一个 ASCII 0.56）。中间信息列 162px / 12px 字号 ≈ 13.5 */
-  TITLE_WIDTH: 13,
+  /** 标题预算（measure 口径：一个汉字 1、一个 ASCII 0.56）。238px / 12.5px 字号 ≈ 19 */
+  TITLE_WIDTH: 19,
   /** 拖动吸附网格：与参考站 WorkflowEditor 的 GRID_SIZE 一致，也是画布格线间距（--fo-grid-size）。 */
   GRID: 40,
 }
@@ -65,25 +65,36 @@ export const GEOMETRY = {
  * 组件只负责把 svg rect / text / path 摆到这些坐标上（拖动时用新位置重算一次即可）。
  */
 export const CARD = {
-  RADIUS: 12,
-  BORDER: 2,
-  /** 卡片内边距：元素离卡片边缘的距离。 */
-  PAD: 10,
-  /** 左侧动作列：两个 22×22 的动作按钮竖排（图标 14px），列宽 22、间距 6。 */
-  ACTION_W: 22,
-  ACTION_SIZE: 22,
-  ACTION_GAP: 6,
+  /** 与面板里的任务卡同一套：1px 描边、9px 圆角、7/10 内边距。 */
+  RADIUS: 9,
+  BORDER: 1,
+  PAD_X: 10,
+  PAD_Y: 7,
+  /** 三行的顶边（相对卡片左上角）：优先级+标题 / 徽标 / 页脚（编号 + 动作）。 */
+  ROW_TITLE: 7,
+  ROW_META: 32,
+  ROW_FOOT: 58,
+  ROW_H: 18,
+  /** 标题基线（行内垂直居中）。 */
+  TITLE_BASELINE: 21,
+  /** 徽标（状态 / 计数 / 项目）高 18、圆角 5，和面板 .badge 一致。 */
+  BADGE_H: 18,
+  BADGE_RADIUS: 5,
+  /** 优先级徽标：与面板 .prio 同尺寸（最小 26-28 宽、18 高、圆角 5）。 */
+  PRIO_W: 26,
+  PRIO_H: 18,
+  /** 会话胶囊：与面板 .sess-inline 同形（16 高、全圆角）。 */
+  SESSION_W: 58,
+  SESSION_H: 16,
+  SESSION_RADIUS: 8,
+  /** 页脚右侧两个动作按钮（20×20）。 */
+  ACTION_SIZE: 20,
+  ACTION_GAP: 4,
   ACTION_RADIUS: 6,
-  /** 右侧状态胶囊：44×24，居中。 */
-  STATUS_W: 44,
-  STATUS_H: 24,
-  STATUS_RADIUS: 8,
-  /** 三段之间的水平间距。 */
+  ACTION_RESERVE: 44,
+  /** 间距。 */
   COL_GAP: 8,
-  /** 中间信息列三行文字的基线（相对节点左上角）：编号 eyebrow / 标题 / meta。 */
-  ROW_EYEBROW: 24,
-  ROW_TITLE: 46,
-  ROW_META: 66,
+  CHIP_GAP: 5,
   /** meta 行的截断预算（measure 口径）。 */
   META_WIDTH: 20,
 }
@@ -95,8 +106,11 @@ export function snapToGrid(value, grid) {
 }
 
 /**
- * 节点卡片几何：卡片外框 + 左侧动作列（含两个按钮的矩形）+ 中间三行文字 + 右侧状态胶囊。
- * ghost 节点没有动作列（不可操作），文字直接铺满卡片，右侧仍是状态胶囊（缺失/组外）。
+ * 节点卡片几何：三行结构（与面板任务卡一致，不做简化）。
+ *   row1 优先级徽标 + 标题 + 会话胶囊
+ *   row2 状态 / 前置 / 后置 / 时间 / 项目 徽标
+ *   row3 编号 + 右侧动作按钮
+ * ghost 没有优先级、会话与动作，三行收成标题 + 徽标。
  */
 export function cardGeometry(node) {
   const n = isObj(node) ? node : {}
@@ -105,35 +119,56 @@ export function cardGeometry(node) {
   const w = num(n.w, GEOMETRY.NODE_W)
   const h = num(n.h, GEOMETRY.NODE_H)
   const ghost = n.ghost === true
-  const actionX = x + CARD.PAD
-  const actionY = y + Math.round((h - (CARD.ACTION_SIZE * 2 + CARD.ACTION_GAP)) / 2)
-  const statusX = x + w - CARD.PAD - CARD.STATUS_W
-  const statusY = y + Math.round((h - CARD.STATUS_H) / 2)
-  const textX = ghost ? x + CARD.PAD : actionX + CARD.ACTION_W + CARD.COL_GAP
-  const textRight = ghost ? x + w - CARD.PAD : statusX - CARD.COL_GAP
+  const hasSession = !ghost && !!str(n.sessionId)
+  const hasPrio = !ghost && /^P[0-3]$/.test(str(n.priority))
+  const prio = hasPrio
+    ? { x: x + CARD.PAD_X, y: y + CARD.ROW_TITLE, w: CARD.PRIO_W, h: CARD.PRIO_H, radius: CARD.BADGE_RADIUS }
+    : null
+  const session = hasSession
+    ? { x: x + w - CARD.PAD_X - CARD.SESSION_W, y: y + CARD.ROW_TITLE, w: CARD.SESSION_W, h: CARD.SESSION_H, radius: CARD.SESSION_RADIUS }
+    : null
+  const titleX = x + CARD.PAD_X + (prio ? CARD.PRIO_W + CARD.CHIP_GAP : 0)
+  const titleRight = session ? session.x - CARD.COL_GAP : x + w - CARD.PAD_X
+  const actionX = x + w - CARD.PAD_X - CARD.ACTION_SIZE
+  const actionY = y + CARD.ROW_FOOT
   const buttons = ghost ? [] : [
-    { key: 'open', x: actionX, y: actionY, w: CARD.ACTION_SIZE, h: CARD.ACTION_SIZE, radius: CARD.ACTION_RADIUS },
-    { key: 'focus', x: actionX, y: actionY + CARD.ACTION_SIZE + CARD.ACTION_GAP, w: CARD.ACTION_SIZE, h: CARD.ACTION_SIZE, radius: CARD.ACTION_RADIUS },
+    { key: 'open', x: actionX - CARD.ACTION_SIZE - CARD.ACTION_GAP, y: actionY, w: CARD.ACTION_SIZE, h: CARD.ACTION_SIZE, radius: CARD.ACTION_RADIUS },
+    { key: 'focus', x: actionX, y: actionY, w: CARD.ACTION_SIZE, h: CARD.ACTION_SIZE, radius: CARD.ACTION_RADIUS },
   ]
+  const footRight = ghost ? x + w - CARD.PAD_X : actionX - CARD.ACTION_SIZE - CARD.ACTION_GAP - CARD.COL_GAP
   return {
     x, y, w, h, ghost,
     radius: CARD.RADIUS,
     border: CARD.BORDER,
+    prio,
+    title: {
+      x: titleX,
+      right: titleRight,
+      w: Math.max(24, titleRight - titleX),
+      baseline: y + CARD.TITLE_BASELINE,
+    },
+    session,
+    meta: {
+      x: x + CARD.PAD_X,
+      right: ghost ? x + w - CARD.PAD_X : x + w - CARD.PAD_X,
+      w: Math.max(24, w - CARD.PAD_X * 2),
+      y: y + CARD.ROW_META,
+      h: CARD.BADGE_H,
+    },
+    foot: {
+      x: x + CARD.PAD_X,
+      right: footRight,
+      y: y + CARD.ROW_FOOT,
+      h: CARD.ROW_H,
+      baseline: y + CARD.ROW_FOOT + 13,
+    },
     action: {
-      x: actionX, y: actionY, w: CARD.ACTION_W,
-      h: CARD.ACTION_SIZE * 2 + CARD.ACTION_GAP,
-      size: CARD.ACTION_SIZE, gap: CARD.ACTION_GAP, radius: CARD.ACTION_RADIUS,
+      h: CARD.ACTION_SIZE,
+      size: CARD.ACTION_SIZE,
+      gap: CARD.ACTION_GAP,
+      radius: CARD.ACTION_RADIUS,
       buttons,
     },
-    text: {
-      x: textX,
-      right: textRight,
-      w: Math.max(24, textRight - textX),
-      eyebrow: y + CARD.ROW_EYEBROW,
-      title: y + CARD.ROW_TITLE,
-      meta: y + CARD.ROW_META,
-    },
-    status: { x: statusX, y: statusY, w: CARD.STATUS_W, h: CARD.STATUS_H, radius: CARD.STATUS_RADIUS },
   }
 }
 
@@ -173,6 +208,7 @@ export function nodeOf(task, options) {
     started: t.started === true,
     state,
     sessionId: str(t.sessionId),
+    priority: /^P[0-3]$/.test(str(t.priority)) ? str(t.priority) : '',
     workspaceKey: ws.key,
     workspaceLabel: ws.label,
     workspacePath: ws.path,
@@ -436,6 +472,8 @@ export function buildGraph(lane, edges, known, hints, index, originY, options) {
       toKey: b.key,
       kind: edge.kind,
       source: edge.source,
+      /* 边为什么存在（AI 证据 / 时间排序 / 飞书原生依赖）：画布上悬停能读，不用点开。 */
+      reason: str(edge.reason),
       path: geo.path,
       x1: geo.x1,
       y1: geo.y1,
