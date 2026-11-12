@@ -558,6 +558,15 @@
       孤立节点全在第 0 列、链条深的节点被推到很右），而 mock 数据边很少，所以显得空。
       真机上是否同样明显**需要用户确认**；在确认之前不动布局（这块刚由并行工作流改过）。
 
+**第 39 轮（20:30，接线契约）**
+
+- [x] **补「客户端↔宿主」契约测试**（`4e2b50d`）：状态对话气泡依赖两条隐性约定，改坏不会报错、
+      只会「状态不再更新」：① 客户端订阅 `/dsh-feishu/api/sessions/activity` 而宿主内部注册的是
+      `route === '/api/sessions/activity'`（前缀由宿主路由层加）——测试自动去前缀后比对；
+      ② 客户端读 `phase`/`turn`，宿主 sessions 项构造为 `{ id, alive, phase: item.kind, turn: item.turn }`。
+      顺手钉住 activityFeed 帧里有 `revision`。sessionPulse 19 → 21 条。
+- [x] 证据：sessionPulse 21、offline 84 JS + 7 Python。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
          是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
