@@ -12,15 +12,16 @@
  *   colorOf     workspaceKey → 分色索引
  *   hostReady / hostReason / onOpenSession  宿主能力位：绑定会话能不能打开、不能打开时给个原因
  *   onClose() onSelectTask(id) onFocusProject(workspaceKey)
+ *   onAddRelation({kind, otherId}) onRemoveRelation({kind, otherId}) candidates[{id,label}]
  */
 
 import * as modelModule from '../overview/model.js'
 import { decoVar, stateVar } from './styles.js'
 
 const REF_SECTIONS = [
-  { field: 'blockedBy', label: '前置（必须先完成）', kind: '前置' },
-  { field: 'successors', label: '后置（等这个）', kind: '后置' },
-  { field: 'sourceTasks', label: '来源任务', kind: '来源' },
+  { field: 'blockedBy', label: '前置（必须先完成）', kind: '前置', edgeKind: 'depends_on' },
+  { field: 'successors', label: '后置（等这个）', kind: '后置', edgeKind: 'depends_on' },
+  { field: 'sourceTasks', label: '来源任务', kind: '来源', edgeKind: 'derived_from' },
   { field: 'derivedTasks', label: '派生任务', kind: '派生' },
   /* 时间先后只是「谁在前谁在后」，不阻塞；放在最后，别让人误读成依赖。
      optional：没有时间边时整段不渲染，别给每条任务都挂两个空标题。 */
@@ -31,14 +32,20 @@ const REF_SECTIONS = [
 export function createDetailPanel(deps) {
   const { h } = deps || {}
   const model = (deps && deps.model) || modelModule
+  const React = (deps && deps.React) || null
+  const useState = React && typeof React.useState === 'function' ? React.useState : null
 
   return function DetailPanel(props) {
     const {
       task, node, tasksById, colorOf, onClose, onSelectTask, onFocusProject,
       hostReady, hostReason, onOpenSession,
+      onAddRelation, onRemoveRelation, candidates: candidateProp,
     } = props || {}
     if (!task && !node) return null
 
+    /* 手动连边：两个下拉（类型 + 目标），提交走 onAddRelation。没有 hook 的测试环境退化成只读。 */
+    const [addKind, setAddKind] = useState ? useState('depends_on') : ['depends_on', () => {}]
+    const [addTarget, setAddTarget] = useState ? useState('') : ['', () => {}]
     const id = model.str((task && task.id) || (node && node.id))
     const title = model.collapse(task && task.title) || (node && node.fullTitle) || id
     const workspace = model.workspaceOf(task || {})
@@ -69,19 +76,32 @@ export function createDetailPanel(deps) {
             const hit = known(ref.id)
             const missing = !hit
             const label = ref.title || (hit ? model.collapse(hit.title) : '') || ref.id
-            return h('button', {
-              key: `${section.field}:${ref.id}`,
-              type: 'button',
-              className: 'fo-ref',
-              'data-missing': missing ? '1' : '0',
-              disabled: missing,
-              style: { '--fo-i': Math.min(refIndex, 7) },
-              title: missing ? `${ref.id}（任务表里没有这条记录）` : label,
-              onClick: missing ? undefined : () => { if (typeof onSelectTask === 'function') onSelectTask(ref.id) },
-            },
-              h('span', { className: 'fo-ref-kind' }, section.kind),
-              h('span', { className: 'fo-ref-label' }, label),
-              missing ? h('span', { className: 'fo-ref-kind' }, '缺失') : null,
+            /* 每条关系「可跳转 + 可断开」：断开走 onRemoveRelation，与手动添加同一条宿主路径。 */
+            const removable = typeof onRemoveRelation === 'function' && !!section.edgeKind
+            return h('div', { key: `${section.field}:${ref.id}`, className: 'fo-ref-row', style: { '--fo-i': Math.min(refIndex, 7) } },
+              h('button', {
+                type: 'button',
+                className: 'fo-ref',
+                'data-missing': missing ? '1' : '0',
+                disabled: missing,
+                title: missing ? `${ref.id}（任务表里没有这条记录）` : label,
+                onClick: missing ? undefined : () => { if (typeof onSelectTask === 'function') onSelectTask(ref.id) },
+              },
+                h('span', { className: 'fo-ref-kind' }, section.kind),
+                h('span', { className: 'fo-ref-label' }, label),
+                missing ? h('span', { className: 'fo-ref-kind' }, '缺失') : null,
+              ),
+              removable
+                ? h('button', {
+                  type: 'button',
+                  className: 'fo-ref-del',
+                  'data-kind': section.edgeKind,
+                  disabled: missing,
+                  title: `断开这条${section.kind}关系`,
+                  'aria-label': `断开与 ${label} 的${section.kind}关系`,
+                  onClick: () => onRemoveRelation({ kind: section.edgeKind, otherId: ref.id }),
+                }, '×')
+                : null,
             )
           }))
           : h('span', { className: 'fo-muted' }, '无'),
@@ -113,6 +133,42 @@ export function createDetailPanel(deps) {
       }, '只看这个项目'))
     }
 
+    const candidates = (Array.isArray(candidateProp) ? candidateProp : [])
+      .filter((row) => row && model.str(row.id) && model.str(row.id) !== id)
+    const canAdd = candidates.length > 0 && typeof onAddRelation === 'function'
+    const addBlock = canAdd
+      ? h('section', { className: 'fo-sec fo-rel-add' },
+        h('span', { className: 'fo-sec-label' }, '添加关系'),
+        h('div', { className: 'fo-rel-add-row' },
+          h('select', {
+            className: 'fo-select', 'data-role': 'rel-kind', 'aria-label': '关系类型',
+            value: addKind, onChange: (event) => setAddKind(event.currentTarget.value),
+          },
+            h('option', { value: 'depends_on' }, '前置（要等它）'),
+            h('option', { value: 'derived_from' }, '来源（由它派生）'),
+            h('option', { value: 'temporal' }, '时间先后（不阻塞）'),
+          ),
+          h('select', {
+            className: 'fo-select', 'data-role': 'rel-target', 'aria-label': '关联的任务',
+            value: addTarget, onChange: (event) => setAddTarget(event.currentTarget.value),
+          },
+            h('option', { value: '' }, '选择任务…'),
+            candidates.slice(0, 200).map((row) => h('option', { key: model.str(row.id), value: model.str(row.id) }, model.str(row.label) || model.str(row.id))),
+          ),
+          h('button', {
+            type: 'button', className: 'fo-btn', 'data-action': 'add-relation',
+            disabled: !addTarget,
+            title: addTarget ? '把这条关系写进本地，并同步到飞书' : '先选一个任务',
+            onClick: () => {
+              if (!addTarget) return
+              onAddRelation({ kind: addKind, otherId: addTarget })
+              setAddTarget('')
+            },
+          }, '添加'),
+        ),
+      )
+      : null
+
     return h('aside', { className: 'fo-detail', 'aria-label': '任务详情' },
       h('div', { className: 'fo-detail-eyebrow' },
         h('span', { className: 'fo-dot', style: { '--fo-c': stateVar(state) }, 'aria-hidden': 'true' }),
@@ -129,6 +185,7 @@ export function createDetailPanel(deps) {
         h('dd', { key: `${key}-v`, className: mono ? 'fo-mono' : undefined }, value),
       ])),
       ...sections,
+      addBlock,
       node && node.ghost === true
         ? h('p', { className: 'fo-muted' }, node.missing === true
           ? '这个任务只在关系里出现，任务表里查不到：可能是跨清单引用，或者条目已经被删掉。'

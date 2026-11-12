@@ -753,6 +753,34 @@ export function createOverviewPanel(deps) {
         })
     }, [scope])
 
+    /**
+     * 手动连边 / 断开：走宿主的 /api/overview/relations（与建议接受同一条落库路径）。
+     * 成功就重拉快照；远端没同步上时宿主会给 warning，用同一条结论条说清楚。
+     */
+    const writeRelation = useCallback((payload) => {
+      const fn = typeof apiRef.current.relationWrite === 'function' ? apiRef.current.relationWrite : null
+      if (!fn) { setOrgNote('当前宿主版本不支持手动改关系，请升级插件。'); return Promise.resolve(null) }
+      const verb = payload && payload.action === 'remove' ? '断开' : '添加'
+      setOrgNote('')
+      return Promise.resolve()
+        .then(() => fn(payload || {}))
+        .then((res) => {
+          if (!alive.current) return null
+          const warning = model.str(res && res.warning)
+          setOrgNote(warning ? `关系已存到本机；${warning}` : `已${verb}一条关系，画布已更新。`)
+          load(true)
+          return res
+        })
+        .catch((error) => {
+          const message = model.str((error && error.message) || error) || `${verb}关系失败`
+          if (alive.current) setOrgNote(`${verb}关系失败：${message}`)
+          return null
+        })
+    }, [load])
+
+    const addRelation = useCallback((input) => writeRelation({ ...input, action: 'add', taskId: detailId }), [writeRelation, detailId])
+    const removeRelation = useCallback((input) => writeRelation({ ...input, action: 'remove', taskId: detailId }), [writeRelation, detailId])
+
     /** 接受若干条（空数组 = 全部待处理）：用返回的 batch 就地更新抽屉，并重拉快照让新边立刻上画布。 */
     const acceptOrganize = useCallback((itemIds) => {
       const fn = apiRef.current.organizeAccept
@@ -1162,6 +1190,10 @@ export function createOverviewPanel(deps) {
             onClose: () => { setDetailId(''); setFocusedId('') },
             onSelectTask: jumpToTask,
             onFocusProject: (key) => setScope({ kind: 'project', id: key }),
+            onAddRelation: addRelation,
+            onRemoveRelation: removeRelation,
+            /* 候选：全部任务，最近的在前（关系图里连边常常是跨目录的，所以不做范围裁剪） */
+            candidates: tasks.map((item) => ({ id: model.str(item.id), label: `T${model.taskNo(item) || ''} ${model.collapse(item.title)}`.trim() })),
           })
           : null,
         org.open

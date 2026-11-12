@@ -8,6 +8,7 @@
  *   GET  /dsh-feishu/api/overview/organize   某范围最近一批「一键整理」建议
  *   POST /dsh-feishu/api/overview/organize   跑一次整理（**零副作用**：只出建议）
  *   POST /dsh-feishu/api/overview/organize/accept|reject|undo  逐条接受 / 拒绝 / 撤销已接受
+ *   POST /dsh-feishu/api/overview/relations  手动连边 / 断开（{ taskId, otherId, kind, action }）
  *
  * `fetchImpl` 可注入，组件层因此可以在测试里跑而不碰网络。
  */
@@ -48,6 +49,13 @@ export function createApi({ fetchImpl } = {}) {
     async revision() {
       const data = await request('/api/overview/revision', { headers: { accept: 'application/json' } });
       return data.revision;
+    },
+    /**
+     * 手动连边 / 断开。body = { taskId, otherId, kind:'depends_on'|'derived_from'|'temporal', action:'add'|'remove' }。
+     * 远端同步失败时宿主会回退成本地写入，并在 `warning` 里说明。
+     */
+    relationWrite(body) {
+      return post('/api/overview/relations', body);
     },
     /** 自定义目录：写操作。body 即 { action, ... }。 */
     groupAction(body) {

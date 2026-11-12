@@ -832,6 +832,26 @@ export const CSS = `
 .fo-ref:hover:not(:disabled) { transform: translateY(-3px) scale(1.01); border-color: var(--fo-glass-line-hover); }
 .fo-ref:hover:not(:disabled)::after { opacity: 1; }
 .fo-ref:disabled, .fo-ref[data-missing="1"] { cursor: default; color: ${T.label2}; border-style: dashed; background: transparent; }
+.fo-ref-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.fo-ref-row .fo-ref { flex: 1 1 auto; min-width: 0; }
+.fo-ref-del {
+  flex: 0 0 20px; width: 20px; height: 20px; padding: 0;
+  border: 1px solid transparent; border-radius: 6px;
+  background: transparent; color: ${T.label2};
+  font-size: 13px; line-height: 1; cursor: pointer;
+  opacity: 0; transition: opacity var(--fo-dur) var(--fo-ease), color var(--fo-dur) var(--fo-ease);
+}
+.fo-ref-row:hover .fo-ref-del, .fo-ref-del:focus-visible { opacity: 1; }
+.fo-ref-del:hover { color: ${T.error}; border-color: ${g(T.error, 30)}; background: ${g(T.error, 10)}; }
+/* 手动加关系：类型 + 目标两个下拉 + 添加 */
+.fo-rel-add-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.fo-select {
+  min-width: 0; height: 26px; padding: 0 6px;
+  border-radius: 8px; font: inherit; font-size: 11.5px;
+  color: ${T.label1}; background: ${T.bgLayer2};
+  border: 1px solid var(--fo-glass-line);
+}
+.fo-select[data-role="rel-target"] { flex: 1 1 120px; }
 .fo-ref-kind { flex: 0 0 auto; font-size: 10px; color: ${T.label2}; }
 .fo-ref-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fo-muted { margin: 0; font-size: 12px; color: ${T.label2}; }

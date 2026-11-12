@@ -125,6 +125,7 @@ const SERVER_FEATURES = [
   'morning.standup',
   'insight.capabilities',
   'tasks.relations',
+  'tasks.relations.manual',
   'tasks.suspension',
   'tasks.reopen-on-turn',
   'sessions.activity-stream',
@@ -6039,6 +6040,53 @@ function createSyncEngine(ctx) {
     return { ok: true, taskId, relations: relationView(taskId), remote }
   }
 
+  /**
+   * 手动连边 / 断开（关系页的「＋ 添加」与边的「断开」）。
+   *
+   * 与一键整理同一条落库路径（setTaskRelations：先 refresh 再 merge 并写回飞书原生依赖），
+   * 但**远端失败不能让用户白点**：回退成只写本地，并把「飞书未同步」作为 warning 返回。
+   * temporal（时间先后）永远只落本地，不碰飞书。
+   */
+  async function writeRelationManually(input = {}) {
+    const taskId = asString(input.taskId)
+    const otherId = asString(input.otherId)
+    const kind = asString(input.kind) || 'depends_on'
+    const action = asString(input.action) || 'add'
+    if (!taskId || !otherId) return { ok: false, error: '缺少任务 id' }
+    if (taskId === otherId) return { ok: false, error: '任务不能关联自身' }
+    if (!['depends_on', 'derived_from', 'temporal'].includes(kind)) return { ok: false, error: '关系类型不支持' }
+    if (!['add', 'remove'].includes(action)) return { ok: false, error: '动作只能是 add 或 remove' }
+    const field = kind === 'depends_on' ? 'predecessorIds' : kind === 'derived_from' ? 'sourceTaskIds' : 'earlierIds'
+    const current = state.relations
+      .filter((edge) => edge && edge.kind === kind && asString(edge.to) === taskId)
+      .map((edge) => asString(edge.from))
+    const wanted = action === 'add'
+      ? [...new Set([...current, otherId])]
+      : current.filter((id) => id !== otherId)
+    if (action === 'add' && current.includes(otherId)) return { ok: true, unchanged: true, relations: relationView(taskId) }
+
+    const reason = asString(input.reason) || (kind === 'temporal' ? '手动指定时间先后' : '手动指定关系')
+    let result
+    let warning = ''
+    if (kind === 'temporal') {
+      /* 时间先后只落本地：一条 updateRelations 就够（replace 时显式给「剩下的更早任务」）。 */
+      const updated = updateRelations(state.relations, state.tasks, {
+        taskId, earlierIds: wanted, mode: 'replace', source: 'manual', reason,
+      })
+      if (updated.ok) state.relations = updated.edges
+      result = updated.ok ? { ok: true } : updated
+    } else {
+      result = await setTaskRelations(taskId, { [field]: wanted, mode: 'replace', source: 'manual', reason })
+      if (!result.ok) {
+        warning = asString(result.error) || '飞书同步失败'
+        result = await setTaskRelations(taskId, { [field]: wanted, mode: 'replace', source: 'manual', reason: `${reason}（仅本地：${warning}）`, writeBack: false })
+        if (result.ok) warning = `已存到本机；飞书同步未完成（${warning}）`
+      }
+    }
+    if (!result.ok) return result
+    return { ok: true, taskId, warning, relations: relationView(taskId) }
+  }
+
   async function suggestTaskRelations(taskId) {
     const task = state.tasks.find((item) => item.id === taskId)
     if (!task) return { ok: false, error: '没找到这条任务' }
@@ -9707,6 +9755,7 @@ bucket 只能从枚举里选：
     overviewView,
     setWorkspaceGroups,
     organizeScope: (...args) => runEngineOperation(organizeScope, args),
+    writeRelationManually: (...args) => runEngineOperation(writeRelationManually, args),
     viewOrganize,
     acceptOrganizeItems: (...args) => runEngineOperation(acceptOrganizeItems, args),
     rejectOrganizeItems: (...args) => runEngineOperation(rejectOrganizeItems, args),
@@ -9957,6 +10006,13 @@ function mountRoutes(ctx, engine) {
           if (req.method === 'POST' && route === '/api/overview/organize/reject') {
             const body = await readBody(req)
             const result = await engine.rejectOrganizeItems(asString(body?.batchId), Array.isArray(body?.itemIds) ? body.itemIds : [])
+            sendJson(res, result.ok ? 200 : 400, result)
+            return
+          }
+
+          if (req.method === 'POST' && route === '/api/overview/relations') {
+            const body = await readBody(req)
+            const result = await engine.writeRelationManually(body || {})
             sendJson(res, result.ok ? 200 : 400, result)
             return
           }
