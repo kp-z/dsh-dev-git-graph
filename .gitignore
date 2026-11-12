@@ -92,3 +92,10 @@ runs-green*.jpg
 
 # 离线渲染产物（scripts/render-runs-preview.mjs 生成）
 .runs-preview.html
+
+# 状态泡设计稿（本地可视化草稿）
+.status-badge-design.html
+.status-bubble-design.html
+.status-mini-design.html
+.status-pill-design.html
+.status-speech-design.html
