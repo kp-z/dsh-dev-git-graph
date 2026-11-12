@@ -144,17 +144,24 @@ export function createRunsFeature(deps) {
     const wave2 = `M0,${lineY} Q25,${lineY + 2} 50,${lineY} T100,${lineY}`
     /* 颜色一律用**参考项目的原值 rgba**，不用 color-mix()：
        color-mix() 在 SVG 的 fill/stroke 表现属性里不生效（水与发光会整块不可见 —— 这正是
-       「气泡里的水面动画和效果都失效了」的根因）。运行=绿、挂起=琥珀、未开始=中性灰。 */
-    const accent = running ? [34, 197, 94] : (suspended ? [251, 191, 36] : [156, 163, 175])
+       「气泡里的水面动画和效果都失效了」的根因）。
+
+       配色口径（对齐参考项目的「可用模型泡」）：**一律绿**。参考页面上所有泡都是绿色玻璃球
+       （绿=可用，蓝=当前选中）；我们这页上的泡本来就都是「未完成/可用」，之前按 running/idle
+       分成绿/灰，而真实数据里常年 0 条在跑 → 整片灰扑扑（用户：「和之前 adventure 还是不一样」）。
+       运行中的绿更实一点，其余同色系。 */
+    const accent = [34, 197, 94]
     const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`
-    const stroke = rgba(accent, running ? 0.4 : (suspended ? 0.5 : 0.35))
-    const fill = running ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.04)'
+    const stroke = running ? 'rgba(34, 197, 94, 0.6)' : 'rgba(34, 197, 94, 0.4)'
+    /* 玻璃球体：参考项目 from-white/8 via-white/4 to-transparent + 绿色内发光 */
+    const fill = 'rgba(255, 255, 255, 0.035)'
     /* 参考项目 ClaudeModelBubbles 的发光配方：两层外发光 + 一层内发光 + 顶部内高光 */
-    const glowOuter = rgba(accent, 0.4)
-    const glowOuter2 = rgba(accent, 0.2)
+    const glowOuter = rgba(accent, running ? 0.55 : 0.5)
+    const glowOuter2 = rgba(accent, running ? 0.28 : 0.25)
     const glowInner = rgba(accent, 0.15)
-    const waterFill = rgba(accent, running ? 0.2 : 0.16)
-    const waterStroke = rgba(accent, 0.6)
+    /* 水位：参考 WaterLevel.tsx 的填充 20% 绿 + 波浪线 60% 绿 */
+    const waterFill = 'rgba(34, 197, 94, 0.3)'
+    const waterStroke = 'rgba(34, 197, 94, 0.82)'
     return h('svg', {
       key: 'orb',
       width: size, height: size, viewBox: '0 0 100 100',
@@ -171,10 +178,16 @@ export function createRunsFeature(deps) {
         h('radialGradient', { id: `${uid}-innerglow`, cx: '50%', cy: '50%', r: '50%' },
           h('stop', { offset: '55%', stopColor: accent, stopOpacity: 0.16 }),
           h('stop', { offset: '100%', stopColor: accent, stopOpacity: 0.02 })),
+        /* 发光滤镜：参考项目用 box-shadow（本身带模糊），SVG 里必须用 feGaussianBlur 才是柔光，
+           否则只是两个硬边圆环 —— 用户对比时看到的就是「我们的光是平的」。 */
+        h('filter', { id: `${uid}-blur1`, x: '-60%', y: '-60%', width: '220%', height: '220%' },
+          h('feGaussianBlur', { stdDeviation: 2.6 })),
+        h('filter', { id: `${uid}-blur2`, x: '-80%', y: '-80%', width: '260%', height: '260%' },
+          h('feGaussianBlur', { stdDeviation: 5.5 })),
         h('clipPath', { id: `${uid}-clip` }, h('circle', { cx: 50, cy: 50, r: R - 2 }))),
       /* 外发光：两层（≈20px 与 ≈40px，对应参考的 0 0 20px / 0 0 40px），所有泡都有 */
-      h('circle', { cx: 50, cy: 50, r: R + 3, fill: 'none', stroke: glowOuter, strokeWidth: 6, opacity: 0.6 }),
-      h('circle', { cx: 50, cy: 50, r: R + 7, fill: 'none', stroke: glowOuter2, strokeWidth: 10, opacity: 0.5 }),
+      h('circle', { cx: 50, cy: 50, r: R + 1, fill: 'none', stroke: glowOuter, strokeWidth: 7, filter: `url(#${uid}-blur1)` }),
+      h('circle', { cx: 50, cy: 50, r: R + 4, fill: 'none', stroke: glowOuter2, strokeWidth: 11, filter: `url(#${uid}-blur2)` }),
       /* 底色圆 + 描边：几何即圆形 */
       h('circle', { cx: 50, cy: 50, r: R, fill, stroke, strokeWidth: 2 }),
       /* 球面高光（在水位之前画：水位是主体信息，不能被高光糊掉） */
@@ -269,6 +282,28 @@ export function createRunsFeature(deps) {
       return map
     })()
     /* 手动配置优先；没配就按项目名自动推一个（确定性），保证气泡开箱就能看出是哪个项目 */
+    /* 水位口径：**该项目已完成任务占比**（0~100）。
+       为什么不用「这条跑了多久」：真实数据里只有少数任务有开始时间，水位全挤在底部、
+       整片泡看起来一模一样（用户对比参考项目时就说「还是不一样」）。
+       项目完成占比是同一份快照里的真实数据，天然有高有低：水位越高 = 这个项目越接近收尾。 */
+    const progressOf = (() => {
+      const map = new Map()
+      const rows = Array.isArray((ctx.snapshot || ctx).tasks) ? (ctx.snapshot || ctx).tasks : []
+      rows.forEach((row) => {
+        const key = String((row && row.workspaceKey) || '')
+        if (!key) return
+        const cell = map.get(key) || { total: 0, done: 0 }
+        cell.total += 1
+        if (row && row.done === true) cell.done += 1
+        map.set(key, cell)
+      })
+      return (key) => {
+        const cell = map.get(String(key || ''))
+        if (!cell || !cell.total) return 0
+        return Math.round((cell.done / cell.total) * 100)
+      }
+    })()
+
     const logoFor = (key, title) => {
       const manual = logoMap.get(String(key || ''))
       if (manual && manual.icon) return manual
@@ -347,7 +382,7 @@ export function createRunsFeature(deps) {
               h('p', { className: 'frx-version-value' }, `${unfinished} 条`)))),
         /* AVAILABLE MODELS → 可用任务 */
         h('div', { key: 'bubbles' },
-          h('p', { className: 'frx-bubbles-label' }, '可用任务'),
+          h('p', { className: 'frx-bubbles-label', title: '水位 = 该项目已完成任务占比（越高越接近收尾）' }, '可用任务'),
           orbRows.length
             ? h('div', {
               className: 'frx-bubbles',
@@ -368,8 +403,8 @@ export function createRunsFeature(deps) {
                 /* 水位 = 这条已跑时长 ÷ 未完成里最长的那个（相对量）。
                    给 10% 下限只是让波浪线可见（0 时水面贴在圆底、裁剪后看不出来）；
                    水位高 ≠ 好/坏，只表达「谁跑得久」。 */
-                const share = maxElapsed > 0 ? ((Number(row.elapsed) || 0) / maxElapsed) * 100 : 0
-                const pct = Math.max(10, Math.min(100, Math.round(share)))
+                /* 水位 = 该项目已完成占比（≥8% 只为了让波浪线可见） */
+                const pct = Math.max(8, Math.min(100, progressOf(row.workspaceKey)))
                 const meta = [row.title || '', isRunning ? '运行中' : (isSuspended ? '挂起' : '未开始'),
                   row.elapsedText && row.elapsedText !== '—' ? row.elapsedText : ''].filter(Boolean).join(' · ')
                 return h('div', {
