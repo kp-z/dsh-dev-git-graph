@@ -18,12 +18,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kp-z/dsh-dev-git-graph.git",
+    "url": "git+https://github.com/kp-z/dsh-plugins.git",
     "directory": "packages/dsh-spellbook"
   },
-  "homepage": "https://github.com/kp-z/dsh-dev-git-graph/tree/main/packages/dsh-spellbook#readme",
+  "homepage": "https://github.com/kp-z/dsh-plugins/tree/main/packages/dsh-spellbook#readme",
   "bugs": {
-    "url": "https://github.com/kp-z/dsh-dev-git-graph/issues"
+    "url": "https://github.com/kp-z/dsh-plugins/issues"
   },
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",

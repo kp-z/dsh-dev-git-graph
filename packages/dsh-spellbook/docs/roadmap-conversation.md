@@ -964,7 +964,7 @@ SSH 那条路本来就封着（见 09 节）。**这台机器恢复之前，推�
 所以恢复网络后这一次推送会把它们一起带上去。`main` 最后成功推送的位置是 `5ba7466`。
 
 **下个窗口第一件事**：
-`git push https://github.com/kp-z/dsh-dev-git-graph.git HEAD:feat/dsh-daily HEAD:main`，
+`git push https://github.com/kp-z/dsh-plugins.git HEAD:feat/dsh-daily HEAD:main`，
 再用 `git ls-remote ... refs/heads/main` 确认真到了。若 TLS 还是断的，就继续在本地攒，
 **别改走 SSH**（那条是封的）。
 
@@ -996,11 +996,11 @@ SSH 那条路本来就封着（见 09 节）。**这台机器恢复之前，推�
 FWD_TARGET=140.82.121.4 FWD_PORT=18923 node /tmp/git-forward.mjs &
 
 # 2) 让 git 走这个转发
-git -c http.proxy=http://127.0.0.1:18923 push https://github.com/kp-z/dsh-dev-git-graph.git \
+git -c http.proxy=http://127.0.0.1:18923 push https://github.com/kp-z/dsh-plugins.git \
     HEAD:feat/dsh-daily HEAD:main
 
 # 3) 核对
-git -c http.proxy=http://127.0.0.1:18923 ls-remote https://github.com/kp-z/dsh-dev-git-graph.git \
+git -c http.proxy=http://127.0.0.1:18923 ls-remote https://github.com/kp-z/dsh-plugins.git \
     refs/heads/main refs/heads/feat/dsh-daily
 ```
 

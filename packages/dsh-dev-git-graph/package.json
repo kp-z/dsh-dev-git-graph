@@ -18,9 +18,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/kp-z/dsh-dev-git-graph.git"
+    "url": "git+https://github.com/kp-z/dsh-plugins.git"
   },
-  "homepage": "https://github.com/kp-z/dsh-dev-git-graph#readme",
+  "homepage": "https://github.com/kp-z/dsh-plugins#readme",
   "type": "module",
   "main": "./lib/src/index.js",
   "types": "./lib/src/index.d.ts",

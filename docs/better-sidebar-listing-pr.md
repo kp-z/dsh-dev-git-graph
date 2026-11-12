@@ -9,7 +9,7 @@
 {
   id: 'dsh-dev-git-graph',
   name: 'dsh-dev-git-graph 提交图',
-  url: 'https://github.com/kp-z/dsh-dev-git-graph',
+  url: 'https://github.com/kp-z/dsh-plugins',
   description: () => t('pluginDevGitGraphDesc'),
   install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-dev-git-graph',
 },
@@ -37,4 +37,4 @@ pnpm vitest run tests/plugin-list.spec.ts
 
 - 能力层：`dsh-dev-git-graph@0.1.1` 已内置 `ctx.betterSidebar.registerTab`（可选探测，未装回退 overlay）
 - `package.json`：optional peerDependency `dsh-better-sidebar >= 0.12.0`、keywords 含 `dsh-better-sidebar`
-- 待办：GitHub repo `kp-z/dsh-dev-git-graph` → Settings → Topics 加 `dsh-better-sidebar`
+- 待办：GitHub repo `kp-z/dsh-plugins` → Settings → Topics 加 `dsh-better-sidebar`

@@ -248,6 +248,6 @@
    `ssh-agent` 里也没有 key）。而 HTTPS 可用（`curl https://github.com` → 200，`git ls-remote https://…` 成功）。
    可用的推送命令（**不改 remote 配置**，避免影响并行 Agent）：
    ```bash
-   git push https://github.com/kp-z/dsh-dev-git-graph.git <branch>:<branch>
+   git push https://github.com/kp-z/dsh-plugins.git <branch>:<branch>
    ```
    分支 `feat/dsh-agent-world` 已按此推上去（远程 = 本地 `cc34b77`）。

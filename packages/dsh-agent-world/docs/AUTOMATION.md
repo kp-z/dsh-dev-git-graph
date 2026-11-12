@@ -45,7 +45,7 @@ schedule_create({
 - 测试钉关系不钉数值，每次改判据配反证。
 - 归零判据连注释一起算；故障注入恢复放 `try/finally`；崩溃通知不是验收结论。
 - 新增 web 文件先 `curl` 探 404（profile 硬链可能缺）。
-- 推送走 HTTPS：`git push https://github.com/kp-z/dsh-dev-git-graph.git feat/dsh-agent-world:feat/dsh-agent-world`；GitHub 常单独不通，失败就留到下轮再推。
+- 推送走 HTTPS：`git push https://github.com/kp-z/dsh-plugins.git feat/dsh-agent-world:feat/dsh-agent-world`；GitHub 常单独不通，失败就留到下轮再推。
 - 状态色不当文字；`opacity` 不做弱化。
 
 ## 产品红线

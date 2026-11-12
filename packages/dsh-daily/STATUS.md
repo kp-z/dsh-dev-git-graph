@@ -856,7 +856,7 @@ B站的视频索引不受影响——用户要的"视频索引"目前由 B站稳
 
 **先查清前置条件（而不是直接跑 publish）**
 - npm 凭据：已认证为 **`kpeace`**（registry.npmjs.org）✓
-- git 远端：`git@github.com:kp-z/dsh-dev-git-graph.git`；`HEAD` = `origin/feat/dsh-daily` = `origin/main`
+- git 远端：`git@github.com:kp-z/dsh-plugins.git`；`HEAD` = `origin/feat/dsh-daily` = `origin/main`
   **= `45e00ec`，没有未推送的提交** —— git 侧本来就是最新的（另一个 agent 已推过）
 - **`dsh-daily` 这个包名已被占用**：`npm view dsh-daily` → 存在，version `0.0.1`，
   description `"Daily - the daily brief - name reserved; first release in development."`，

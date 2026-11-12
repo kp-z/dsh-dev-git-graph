@@ -108,7 +108,7 @@ better-sidebar（`omdsh-dev/DSH-better-sidebar`）生态入口两层，均需 re
 
 ### B. 目录层（上架，两步）
 
-1. **GitHub topic**：仓库 `kp-z/dsh-dev-git-graph` → Settings → Topics 加 `dsh-better-sidebar`，
+1. **GitHub topic**：仓库 `kp-z/dsh-plugins` → Settings → Topics 加 `dsh-better-sidebar`，
    自动出现在 https://github.com/topics/dsh-better-sidebar 。
 2. **内置推荐目录 PR**（fork `omdsh-dev/DSH-better-sidebar`）：
    - `src/client/plugins-tabs.ts`（按字母序）追加：
@@ -116,7 +116,7 @@ better-sidebar（`omdsh-dev/DSH-better-sidebar`）生态入口两层，均需 re
      {
        id: 'dsh-dev-git-graph',
        name: 'dsh-dev-git-graph 提交图',
-       url: 'https://github.com/kp-z/dsh-dev-git-graph',
+       url: 'https://github.com/kp-z/dsh-plugins',
        description: () => t('pluginDevGitGraphDesc'),
        install: 'cd ~/.dsh && dsh plugin --profile web add dsh-better-sidebar && dsh plugin --profile web add dsh-dev-git-graph',
      },
