@@ -518,7 +518,24 @@
   嵌套数组，状态泡在组件树里、产物里却被静默丢弃（真机上就是「看不见」）。
 - [x] 测试：`test/sessionPulse.mjs` 19 条 + overviewPanel 3 条渲染断言（219）。
 
+**第 36 轮（16:30–17:30，网络恢复后的收尾）**
+
+- [x] **远端恢复，积压 11 个提交一次性推上去了**（`41813ab..bcb834f`）。
+- [x] **awesome-dsh-plugin 的 PR 已经存在**：[#21](https://github.com/Anil-matcha/awesome-dsh-plugin/pull/21)
+      （state=OPEN、mergeable=MERGEABLE、作者 kp-z）；fork `kp-z/awesome-dsh-plugin` 的
+      `add-kp-z-dsh-feishu` 分支已同步。
+- [x] **状态对话气泡真机复量**（真 Chromium + mock 快照）：两个运行中的泡各挂一句「刚开工」，
+      左边泡挂右上角、右边泡（left≥55%）自动翻到左上角，尾巴指向泡，23px 高 / 48px 宽，未被裁。
+- [x] `sessionPulse` 纳入 `npm test` 显式清单（`9c13d01`）——`test:offline` 会自动发现，
+      但 `npm test` 是手工清单，不加就会漏。
+- [x] 本地可视化草稿（设计稿 / 预览产物）全部进 `.gitignore`。
+
 - [ ] **下一轮入口（重要）**：
+      1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
+         是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
+         别动，等它落定后再验收；
+      2) 参考项目还剩两处未对齐（用户未表态）：hover `scale(1.1)`、水位颜色随剩余量变黄/红；
+      3) 合并 PR #21 前如需补充证据，可在 PR 里回一条「插件可安装 + 描述属实」的说明。
       1) **远端推送仍未恢复**（`ssh.github.com:443` 被对端关闭），本地累计 **9 个提交**待推；
       2) 网络恢复后：重推 + 用 `submit.sh` 提交 awesome-dsh-plugin（`gh` 令牌也过期了）；
       3) 待用户确认：状态泡的静默时长（现 8s）、是否也显示「已完成」常驻。
