@@ -121,5 +121,14 @@ check('历史行的状态色口径：运行=蓝 / 阻塞=黄 / 完成=绿（样�
   assert.ok(src.includes("state === 'blocked' ? '阻塞'"), '历史行文案要能表达阻塞')
 })
 
+check('运行页自己是滚动容器（宿主 .fo-feature-host 不滚，页面比一屏高）', () => {
+  const css = readFileSync(new URL('../src/client/runsExactStyles.js', import.meta.url), 'utf8')
+  const start = css.indexOf('.frx-page {')
+  const block = css.slice(start, css.indexOf('}', start))
+  assert.ok(block.includes('overflow-y: auto'), '.frx-page 必须能纵向滚动（曾经被父层裁掉，用户说「页面无法滚动」）')
+  assert.ok(block.includes('min-height: 0'), '.frx-page 要有 min-height:0，否则 flex 子项撑高、滚动条不出现')
+  assert.ok(block.includes('overscroll-behavior: contain'), '滚到底不要带着宿主页面一起滚')
+})
+
 console.log(`\nrunsOrbInvariants.mjs: ${passed} passed, ${failed.length} failed`)
 if (failed.length) process.exitCode = 1
