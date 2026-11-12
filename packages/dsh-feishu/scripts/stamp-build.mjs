@@ -9,11 +9,16 @@ import { execSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 
 let sha = 'dev'
-let at = new Date().toISOString().slice(0, 16).replace('T', ' ')
+/* 时间取**提交时间**而不是构建时间：否则每次 build 都会重写这个文件，
+   工作区永远显示 modified（构建号本身反而变成噪音）。 */
+let at = ''
 try {
   sha = execSync('git rev-parse --short HEAD', { cwd: new URL('..', import.meta.url), stdio: ['ignore', 'pipe', 'ignore'] })
     .toString().trim()
+  at = execSync("git log -1 --format=%cd --date=format:'%m-%d %H:%M'", { cwd: new URL('..', import.meta.url), stdio: ['ignore', 'pipe', 'ignore'] })
+    .toString().trim()
 } catch { /* 不是 git 仓库就用 dev */ }
+if (!at) at = '未记录'
 try {
   const dirty = execSync('git status --porcelain --untracked-files=no', { cwd: new URL('..', import.meta.url), stdio: ['ignore', 'pipe', 'ignore'] })
     .toString().trim()
@@ -29,4 +34,4 @@ export const BUILD_AT = ${JSON.stringify(at)}
 export const BUILD_LABEL = ${JSON.stringify(`${sha} · ${at}`)}
 `
 writeFileSync(new URL('../src/client/buildInfo.js', import.meta.url), file)
-console.log(`build stamp: ${sha} @ ${at}`)
+console.log(`build stamp: ${sha} @ ${at}（提交时间）`)
