@@ -123,14 +123,14 @@ test('legacy malformed/unknown/duplicate data is tolerated without metadata loss
   assert.equal(result.ok, true)
   assert.deepEqual(result.edges.slice(0, dirty.length), dirty)
   assert.deepEqual(ids(projectRelations(dirty, tasks, 'b').blockedBy), ['gone'])
-  assert.deepEqual(relationStats(dirty, tasks), { dependencyEdges: 1, provenanceEdges: 0, blockedTasks: 1, readyTasks: 2 })
-  assert.deepEqual(relationStats(null, null), { dependencyEdges: 0, provenanceEdges: 0, blockedTasks: 0, readyTasks: 0 })
+  assert.deepEqual(relationStats(dirty, tasks), { dependencyEdges: 1, provenanceEdges: 0, temporalEdges: 0, blockedTasks: 1, readyTasks: 2 })
+  assert.deepEqual(relationStats(null, null), { dependencyEdges: 0, provenanceEdges: 0, temporalEdges: 0, blockedTasks: 0, readyTasks: 0 })
   assert.equal(projectRelations(null, null, 'b').ready, true)
 })
 
 test('stats count only known unfinished tasks but retain unique dangling edge counts', () => {
   const edges = [edge('a', 'b'), edge('a', 'b'), edge('c', 'd'), edge('a', 'c'), edge('gone', 'd'), edge('a', 'unknown'), edge('b', 'a', 'derived_from')]
-  assert.deepEqual(relationStats(edges, [...tasks, tasks[0]]), { dependencyEdges: 5, provenanceEdges: 1, blockedTasks: 2, readyTasks: 1 })
+  assert.deepEqual(relationStats(edges, [...tasks, tasks[0]]), { dependencyEdges: 5, provenanceEdges: 1, temporalEdges: 0, blockedTasks: 2, readyTasks: 1 })
 })
 
 test('deep graphs validate without recursive stack overflow', () => {

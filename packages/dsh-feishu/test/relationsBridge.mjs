@@ -148,7 +148,7 @@ try {
     assert.equal(state.relations.length, 3)
     assert.ok(state.relations.every((edge) => edge.source === 'manual' && edge.reason === 'explicit evidence' && edge.sessionId === 'session-origin' && edge.createdAt > 0))
     assert.deepEqual(ids(state.tasks.find((task) => task.id === 'c').relations.derivedTasks), ['b'])
-    assert.deepEqual(state.relationStats, { dependencyEdges: 2, provenanceEdges: 1, blockedTasks: 2, readyTasks: 2 })
+    assert.deepEqual(state.relationStats, { dependencyEdges: 2, provenanceEdges: 1, temporalEdges: 0, blockedTasks: 2, readyTasks: 2 })
   })
   await test('get does not refresh or mutate; repeated merge preserves provenance/session metadata', async () => {
     const before = (await app.state()).relations
