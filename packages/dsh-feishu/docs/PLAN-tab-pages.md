@@ -663,6 +663,18 @@
       接受后关系真的写进 `/api/overview` 的 relations / 撤销后那条边真的没了」—— 全绿。
 - [x] 证据：npm test 0、offline 85 JS + 7 Python、organizeRoute ORGANIZE_ROUTE_OK。
 
+**第 55 轮（04:30，对齐参考项目剩下的两项）**
+
+- [x] **水位颜色跟着剩余量**（对齐参考 `WaterLevel.tsx` 绿→黄→红）：`pct>=66` 绿 / `>=33` 黄 / 否则红。
+      水位 = 该项目已完成占比，水位低 = 还有越多活没干 → 水色偏暖。**只改水**，
+      气泡描边与外发光仍是**状态色**（蓝=跑/黄=阻塞/绿=其余）—— 用户点名过的状态色口径不能被冲掉
+      （断言钉住 `stroke` / `glowOuter` 必须还从 `accent` 取）。
+      离线复核：mock 项目都在 33–65% → 水面 `rgba(245,158,11,.3)`、波浪 `rgba(245,158,11,.82)`，描边仍是绿。
+- [x] **气泡 hover 放大 1.1**（对齐参考 `hover:scale-110`）：作用在 `.frx-orb-slot`（定位锚点）上，
+      徽标跟着走不会脱开；用 transform 不改 width/height；`prefers-reduced-motion` 下关掉。
+- [x] 证据：runsOrbInvariants 20 → **22**、overviewPanel 227、runsView 37、npm test 0、offline 86 JS + 7 Python。
+- [ ] 剩下：关系侧边栏导航的继续打磨（并行批次已做了一版分组成块）。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
          是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
