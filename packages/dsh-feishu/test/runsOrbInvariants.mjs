@@ -75,9 +75,11 @@ check('发光是两层外圈 + 一层内发光，并且不再画「顶部高光�
 
 check('发光/水面颜色用 rgba 原值（与参考项目一致），不依赖令牌表达式', () => {
   assert.ok(/rgba\(\$\{c\[0\]\}/.test(orbBody) || orbBody.includes('const rgba = (c, a)'), '颜色应走 rgba 助手')
-  /* 口径：对齐参考项目的「可用模型泡」——一律绿（运行中的绿更实）。
-     曾经按 running/idle 分绿/灰，真实数据常年 0 条在跑 → 整片灰扑扑，用户说「和 adventure 不一样」。 */
-  assert.ok(orbBody.includes('const accent = [34, 197, 94]'), '气泡应统一用参考项目的绿色（可用态）')
+  /* 口径（用户）：运行中=蓝、完成=绿、报错（阻塞）=黄；等待/未开工沿用绿。
+     注意不要再回到「未开始=灰」——那会让整片泡看着没颜色。 */
+  assert.ok(orbBody.includes('state === \'running\' ? [59, 130, 246]'), '运行中必须是蓝色')
+  assert.ok(orbBody.includes('state === \'blocked\' ? [251, 191, 36]'), '阻塞（报错）必须是黄色')
+  assert.ok(orbBody.includes(': [34, 197, 94]'), '完成/等待用绿色')
   assert.equal(orbBody.includes('156, 163, 175'), false, '不该再按「未开始=灰」分色')
 })
 
@@ -107,6 +109,16 @@ check('运行状态卡片右上没有刷新按钮', () => {
 check('页面头部不再显示 revision / 快照时钟', () => {
   assert.equal(panel.includes('revision ${model.str'), false, '不该再拼 revision 文案')
   assert.equal(panel.includes('clockOf(data && data.now)'), false, '不该再拼快照时钟')
+})
+
+check('历史行的状态色口径：运行=蓝 / 阻塞=黄 / 完成=绿（样式表里三色都在）', () => {
+  const css = readFileSync(new URL('../src/client/runsExactStyles.js', import.meta.url), 'utf8')
+  assert.ok(css.includes('.frx-avatar-dot.is-running { background: #3b82f6; }'), '运行中小圆点应为蓝')
+  assert.ok(css.includes('.frx-avatar-dot.is-blocked { background: #f59e0b; }'), '阻塞小圆点应为黄')
+  assert.ok(css.includes('.frx-avatar-dot.is-done { background: #22c55e; }'), '完成小圆点应为绿')
+  assert.ok(css.includes('.frx-row-status.is-blocked { color: #fbbf24; }'), '阻塞文字应为黄')
+  assert.ok(css.includes('.frx-row-status.is-done { color: #4ade80; }'), '完成文字应为绿')
+  assert.ok(src.includes("state === 'blocked' ? '阻塞'"), '历史行文案要能表达阻塞')
 })
 
 console.log(`\nrunsOrbInvariants.mjs: ${passed} passed, ${failed.length} failed`)

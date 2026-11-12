@@ -154,13 +154,17 @@ export const CSS = `
   position: absolute; right: -2px; bottom: -2px; width: 12px; height: 12px; border-radius: 999px;
   border: 2px solid var(--frx-avatar-ring); background: #6b7280;
 }
-.frx-avatar-dot.is-running { background: #22c55e; }
+.frx-avatar-dot.is-running { background: #3b82f6; }   /* 运行中=蓝 */
+.frx-avatar-dot.is-blocked { background: #f59e0b; }   /* 阻塞/报错=黄 */
+.frx-avatar-dot.is-done { background: #22c55e; }      /* 完成=绿 */
 .frx-avatar-dot.is-suspended { background: #f59e0b; }
 .frx-row-main { min-width: 0; }
 .frx-row-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--frx-text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .frx-row-meta { margin: 0; font-size: 11px; color: var(--frx-text-dim); }
 .frx-row-status { font-size: 11px; font-weight: 700; letter-spacing: .04em; }
 .frx-row-status.is-running { color: #60a5fa; }
+.frx-row-status.is-blocked { color: #fbbf24; }
+.frx-row-status.is-done { color: #4ade80; }
 .frx-row-status.is-suspended { color: #fbbf24; }
 .frx-row-status.is-idle { color: #9ca3af; }
 .frx-row-btn {

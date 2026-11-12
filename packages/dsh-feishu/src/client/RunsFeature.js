@@ -130,12 +130,26 @@ export function createRunsFeature(deps) {
     }, o.label || '')
   }
 
+  /** 状态色口径的单一出处：class 后缀（样式表里给颜色） */
+  const stateClass = (state) => (state === 'running' ? 'running'
+    : (state === 'blocked' ? 'blocked'
+      : (state === 'done' ? 'done' : 'idle')))
+  /** 状态文案 */
+  const stateText = (state) => (state === 'running' ? '运行中'
+    : (state === 'blocked' ? '阻塞'
+      : (state === 'done' ? '已完成' : '等待中')))
+
   const orbSvg = (opts) => {
     const o = opts || {}
     const size = Math.max(24, Number(o.size) || 48)
     const pct = Math.max(0, Math.min(100, Number(o.percent) || 0))
     const running = o.running === true
     const suspended = o.suspended === true
+    /* 状态色（用户口径）：运行中=蓝、完成=绿、报错（阻塞）=黄；等待/未开工沿用绿。 */
+    const state = String(o.state || '')
+    const palette = state === 'running' ? [59, 130, 246]
+      : (state === 'blocked' ? [251, 191, 36]
+        : [34, 197, 94])
     const label = String(o.label || '')
     const uid = `o${String(o.id || 'x').replace(/[^a-zA-Z0-9]/g, '')}`
     const R = 46
@@ -150,18 +164,18 @@ export function createRunsFeature(deps) {
        （绿=可用，蓝=当前选中）；我们这页上的泡本来就都是「未完成/可用」，之前按 running/idle
        分成绿/灰，而真实数据里常年 0 条在跑 → 整片灰扑扑（用户：「和之前 adventure 还是不一样」）。
        运行中的绿更实一点，其余同色系。 */
-    const accent = [34, 197, 94]
+    const accent = palette
     const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`
-    const stroke = running ? 'rgba(34, 197, 94, 0.6)' : 'rgba(34, 197, 94, 0.4)'
+    const stroke = rgba(accent, running ? 0.65 : 0.45)
     /* 玻璃球体：参考项目 from-white/8 via-white/4 to-transparent + 绿色内发光 */
     const fill = 'rgba(255, 255, 255, 0.035)'
     /* 参考项目 ClaudeModelBubbles 的发光配方：两层外发光 + 一层内发光 + 顶部内高光 */
     const glowOuter = rgba(accent, running ? 0.55 : 0.5)
     const glowOuter2 = rgba(accent, running ? 0.28 : 0.25)
     const glowInner = rgba(accent, 0.15)
-    /* 水位：参考 WaterLevel.tsx 的填充 20% 绿 + 波浪线 60% 绿 */
-    const waterFill = 'rgba(34, 197, 94, 0.3)'
-    const waterStroke = 'rgba(34, 197, 94, 0.82)'
+    /* 水位跟着状态色走（参考 WaterLevel.tsx 是绿；这里为了让「蓝=跑 / 黄=阻塞」一眼可分） */
+    const waterFill = rgba(accent, 0.3)
+    const waterStroke = rgba(accent, 0.82)
     return h('svg', {
       key: 'orb',
       width: size, height: size, viewBox: '0 0 100 100',
@@ -430,6 +444,7 @@ export function createRunsFeature(deps) {
                     percent: pct,
                     running: isRunning,
                     suspended: isSuspended,
+                    state: row.state,
                     label: String(row.no || '').slice(-4) || String(row.id).slice(-3),
                     icon: (logoFor(row.workspaceKey, row.workspaceTitle) || {}).icon || '',
                     /* 用户口径：图标就用正常文字色，不要彩色的（彩图标太跳）。 */
@@ -557,14 +572,15 @@ export function createRunsFeature(deps) {
             h('span', { className: 'frx-row-left' },
               h('span', { className: 'frx-avatar' },
                 String(row.no || '').slice(-2) || '··',
-                h('span', { className: `frx-avatar-dot is-${row.state || 'idle'}`.replace('is-waiting', 'is-idle'), 'aria-hidden': 'true' })),
+                h('span', { className: `frx-avatar-dot is-${stateClass(row.state)}`, 'aria-hidden': 'true' })),
               h('span', { className: 'frx-row-main' },
                 h('span', { className: 'frx-row-title' }, row.title || ''),
                 h('span', { className: 'frx-row-meta' },
                   `${row.no ? `#${row.no}` : ''}${row.elapsedText && row.elapsedText !== '—' ? ` · ${row.elapsedText}` : ''}`))),
             h('span', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
-              h('span', { className: `frx-row-status is-${row.state === 'running' ? 'running' : (row.state === 'suspended' ? 'suspended' : 'idle')}` },
-                row.state === 'running' ? '运行中' : (row.state === 'suspended' ? '挂起' : '等待中')),
+              /* 状态色口径（用户）：运行中=蓝、完成=绿、报错（阻塞）=黄、等待=中性 */
+              h('span', { className: `frx-row-status is-${stateClass(row.state)}` },
+                stateText(row.state)),
               h('span', { className: 'frx-row-btn' }, '详情'))))),
       ],
     })
