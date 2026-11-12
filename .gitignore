@@ -82,3 +82,10 @@ dsh-taskboard/
 
 # 飞书文档导出的本地构建产物（图片等，不入库）
 build/
+
+# 本地可视化草稿（气泡对比 / 图标预览），不入库
+.adventure-bubbles.html
+.bubble-compare.html
+.iconpreview.html
+.iconpreview2.html
+runs-green*.jpg
