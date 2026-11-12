@@ -675,6 +675,23 @@
 - [x] 证据：runsOrbInvariants 20 → **22**、overviewPanel 227、runsView 37、npm test 0、offline 86 JS + 7 Python。
 - [ ] 剩下：关系侧边栏导航的继续打磨（并行批次已做了一版分组成块）。
 
+**第 56 轮（05:30，截图复核抓到真 bug；离线预览补齐关系页）**
+
+- [x] **「计时覆盖」卡渲染出 `undefined 条` / `NaN%`**（`b123f8e`）：截图复核抓到。
+      根因：`runsView` 导出的 `longestUntimed` 是**数字**，卡片却按数组取 `.length`。
+      同源问题：「跑得最久」卡副标题用了不存在的 `row.timed`，永远显示「都还没有开始计时」。
+      修法：口径收敛到纯函数 —— `runsView` 新增 `timedCount` / `untimedCount`
+      （`startFrom > 0` 才算有开始时间，两者相加 == 未完成数），卡片只消费数字并兜底。
+      新增红线：禁止再引用 `longestUntimed`、口径必须在 runsView（runsOrbInvariants 20 → **23**）。
+- [x] **离线预览补齐关系页**：之前预览只渲染 `Component`，而侧栏树是面板渲染的 `SubNav`
+      → 关系页永远只有半截。现在两者一起渲染，树走**真模型** `model.buildTree(...)`
+      （手写嵌套样例必漂移：入参其实是扁平 rows + byKey + lanes），节点标题字段对齐 `TaskNodeCard`。
+      预览现在三页齐全：运行（9 卡）/ 洞察 / 关系（侧栏树 + 画布 3 节点）。
+- [x] **顺手验了容器查询**（真 Chromium 量）：容器 1153px → 4 列；700px → 2 列；600px → **1 列**；
+      宽面板下每行卡片等高（第 1 行 329 / 第 2 行 349 / 第 3 行 334）。
+- [x] 证据：runsView 37 → **39**、runsOrbInvariants **23**、overviewPanel 227、npm test 0、
+      offline 86 JS + 7 Python；产物里 `undefined` / `NaN` 出现次数 = 0。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
          是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
