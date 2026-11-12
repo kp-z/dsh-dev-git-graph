@@ -692,7 +692,30 @@
 - [x] 证据：runsView 37 → **39**、runsOrbInvariants **23**、overviewPanel 227、npm test 0、
       offline 86 JS + 7 Python；产物里 `undefined` / `NaN` 出现次数 = 0。
 
+**第 57 轮（06:30，侧栏导航审计 + 设计稿；按「先设计再实施」不动代码）**
+
+用户口径是「关系相关的功能和 UI 要先设计计划再实施」，本轮只做审计与方案，不改代码。
+
+**审计（按 styles.js 的真实尺寸量）**：`.fo-subnav .fo-row` 行高 28–30px、圆角 8、字号 12；
+缩进 = `12 + depth * 8`（compact）→ 三层只有 **12 / 20 / 28px**；
+`⋯` 菜单 20×20 hover 才出现；`.fo-row-count` hover 时淡出。
+
+| # | 问题 | 证据 |
+| --- | --- | --- |
+| 1 | **层级差只有 8px**：三层缩进（12/20/28）比一个项目图标（14px）还窄，目录与项目看着「几乎对齐」 | `indent = (depth) => 12 + depth * (compact ? 8 : 14)` |
+| 2 | **hover 时 label 宽度跳变**：计数淡出但**仍占位** → 名字突然变宽、整行文字抖动 | `.fo-row:hover .fo-row-count { opacity: 0 }` |
+| 3 | **「未分组」与真目录同权重**：同样的分组底块 + 同样的 caret/图标，容易被当成用户建的目录 | `.fo-subnav .fo-row[data-kind="group"]` 统一底色 |
+| 4 | **命中区域偏小**：行高 28–30px、菜单 20×20 | 同上 |
+| 5 | **缺 ARIA tree 惯例键**：只有上下/左右，没有 Home / End | `keydown` 分支只处理 Arrow* |
+
+**三套方案**（已渲染设计稿 `sidebar-design-options.html`，A 现状 / B 最小改 / C 完整改）：
+- **B（推荐先做）**：① 每层 1px **缩进导轨**；② 计数**定宽 44px**（hover 只淡出、不改布局）；
+  ③ 「未分组」换成虚线桶图标 + 降透明度。**纯 CSS + 属性，不动交互与数据**。
+- **C（B 之上）**：行高 30 → 32px、缩进 8 → 10px、新增「全部展开 / 折叠」入口 + Home/End 键。
+
 - [ ] **下一轮入口（重要）**：
+      **等用户挑 B / C 后实施**（涉及 TreeNav.js + styles.js，属共享文件，需确认没有并行写者）；
+      其余待办不变：主按钮已修、水位/hover 已对齐、预览三页齐全。
       1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
          是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
          别动，等它落定后再验收；
