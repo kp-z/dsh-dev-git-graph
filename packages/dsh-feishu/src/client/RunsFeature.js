@@ -809,8 +809,10 @@ export function createRunsFeature(deps) {
     /* ---------- 补位卡：计时覆盖（有多少任务真的能算时长） ----------
        宿主只对「观察到在跑」的任务记时间，历史任务大多没有 startedAt —— 这直接影响
        「跑得最久」这类卡的可信度，所以单独把覆盖率摆出来（数据质量监控）。 */
-    const timedCount = (view.longest || []).filter((row) => row.timed).length
-    const untimedCount = (view.longestUntimed || []).length
+    /* 口径来自 runsView（纯函数、有单测）：**不是** longestUntimed —— 那是个数字，
+       之前按数组取 .length 得到 undefined，卡片上真的渲染出了「undefined 条 / NaN%」（截图复核抓到）。 */
+    const timedCount = Number(view.timedCount) || 0
+    const untimedCount = Number(view.untimedCount) || 0
     const timingCard = card('timing', {
       label: '计时覆盖',
       children: [
@@ -890,7 +892,7 @@ export function createRunsFeature(deps) {
             h('div', { key: 'tt' },
               h('h2', { className: 'frx-card-title' }, '跑得最久'),
               h('p', { className: 'frx-card-sub is-idle' },
-                (view.longest || []).some((row) => row.timed)
+                (view.longest || []).some((row) => Number(row.startFrom) > 0)
                   ? '按已跑时长排序（没记开始时间的排后面）'
                   : '都还没有开始计时')))),
         (view.longest || []).length

@@ -243,6 +243,12 @@ export function buildRuns(snapshot) {
     cur.merged = Math.max(cur.merged, project.merged)
     projectMap.set(project.key, cur)
   })
+  /* 计时覆盖（「计时覆盖」卡要用）：有没有开工时间的条数。
+     用户口径里的这张卡是**数据质量监控** —— 没记开始时间的任务，时长类指标对它们不成立。
+     口径与气泡行一致：startSource === 'none' 就是没记录。 */
+  const timedCount = bubbles.filter((bubble) => bubble.startFrom > 0).length
+  const untimedCount = bubbles.length - timedCount
+
   /** 旭日图的项目环：条数降序，最多的排在上面 */
   const projects = [...projectMap.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
 
@@ -360,6 +366,9 @@ export function buildRuns(snapshot) {
     justDone,
     /** 旭日图用：按自定义目录合并后的项目（含状态拆分） */
     projects,
+    /** 计时覆盖：有开始时间 / 未记录的条数（「计时覆盖」卡用） */
+    timedCount,
+    untimedCount,
     history,
     counts,
     boundSessions,

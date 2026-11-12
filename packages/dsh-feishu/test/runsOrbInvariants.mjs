@@ -161,6 +161,17 @@ check('状态徽标：旧的对话气泡形态已换掉，五态各有徽标', (
   }
 })
 
+check('不出现 undefined / NaN：卡片只消费 runsView 给出的数字', () => {
+  /* 注释里会解释「为什么不再用它」，所以先去注释再找引用 */
+  assert.equal(stripComments(src).includes('longestUntimed'), false,
+    'longestUntimed 是个数字，按数组取 .length 会渲染出「undefined 条」（截图复核抓到过）')
+  assert.ok(src.includes('Number(view.timedCount) || 0'), '计时覆盖要用 runsView 的口径并兜底')
+  assert.ok(src.includes('Number(view.untimedCount) || 0'))
+  const view = readFileSync(new URL('../src/client/runsView.js', import.meta.url), 'utf8')
+  assert.ok(view.includes('const timedCount = bubbles.filter'), '口径要在 runsView 里算（可单测）')
+  assert.ok(view.includes('const untimedCount = bubbles.length - timedCount'), '两者相加必须守恒')
+})
+
 check('气泡墙高度 104（用户口径：太高了）', () => {
   assert.ok(src.includes("height: '104px'"), '气泡墙应是 104px')
   assert.equal(src.includes("height: '132px'"), false, '旧的 132px 高度应已去掉')

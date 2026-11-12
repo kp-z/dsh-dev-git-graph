@@ -150,9 +150,47 @@ const { React, mount, act } = createMiniReact()
 globalThis.EventSource = undefined
 const h = React.createElement
 const features = createFeatures({ React, h })
+/* TreeNav 的入参是 ctx.treeProps（tree 为嵌套结构），不是顶层的 trees —— 之前挂错位置，
+   所以离线预览里关系页的侧栏一直是空的。 */
+import * as model from '../src/overview/model.js'
+
 const ctx = {
   snapshot,
-  trees: [], graphs: [], selectedId: '', focusedId: '', nodePos: {}, hostReady: false, hostReason: '',
+  /* 关系页要的是「范围树 + 已经摆好坐标的图」：给一份最小但真实的样例，
+     否则这一页只能看空态（之前 §5 里记的「预览数据缺口」）。 */
+  graphs: [{
+    key: 'all', label: '全部任务', projectKey: '', width: 900, height: 420,
+    nodes: [
+      /* 字段名对齐 TaskNodeCard：标题取 `fullTitle || label || id`，编号取 `no`。 */
+      { id: 't1', no: 516451, label: '飞书任务集开发', fullTitle: '飞书任务集开发', x: 20, y: 30, w: 264, h: 60, state: 'open', kind: 'task' },
+      { id: 't2', no: 516418, label: 'topic_timelines 接口', fullTitle: 'topic_timelines 接口', x: 340, y: 120, w: 264, h: 60, state: 'running', kind: 'task' },
+      { id: 't3', no: 516350, label: '总览页写回评论', fullTitle: '总览页写回评论', x: 660, y: 40, w: 264, h: 60, state: 'blocked', kind: 'task' },
+    ],
+    edges: [
+      { id: 'e1', from: 't1', to: 't2', kind: 'depends_on' },
+      { id: 'e2', from: 't2', to: 't3', kind: 'depends_on' },
+    ],
+  }],
+  selectedId: '', focusedId: '', nodePos: {}, hostReady: false, hostReason: '',
+  treeProps: {
+    /* 侧栏树的入参是 model.buildTree 的结果（扁平 rows + byKey + lanes），不是嵌套结构 ——
+       预览也走**真模型**，免得样例和产品实现漂移。 */
+    tree: model.buildTree(snapshot.groups || [], snapshot.tasks || [], {
+      selection: { kind: 'all', id: '' },
+      workspaces: snapshot.workspaces || [],
+      collapsed: {},
+    }),
+    hideDone: true,
+    renamingId: '',
+    creating: false,
+    creatingFor: '',
+    dragKey: '',
+    dropKey: '',
+    busy: false,
+    onSelect: () => {}, onToggle: () => {}, onMenu: () => {},
+    onDragKey: () => {}, onDropKey: () => {}, onDrop: () => {},
+    onCreateGroup: () => {}, onCreateProject: () => {}, onRename: () => {}, onRenameCancel: () => {},
+  },
   insightStats: null,
   onOpenSession: () => {}, onOpenTask: () => {}, onRefresh: () => {}, onFocusTask: () => {},
   onNodeMove: () => {}, onResetLayout: () => {}, onBlur: () => {},
@@ -162,7 +200,12 @@ const ctx = {
 /** 逐页渲染；某一页需要更多 ctx 时不要让整个预览挂掉，把它写进页面里 */
 const panels = features.map((feature) => {
   try {
-    const tree = mount(h(feature.Component, ctx))
+    /* 功能页的二级菜单（SubNav）由**面板**渲染，不是 Component 的一部分 ——
+       预览要一起渲染，否则侧栏树永远是空的（这也是之前关系页只剩空态的原因之一）。 */
+    const sub = typeof feature.SubNav === 'function' ? feature.SubNav(ctx) : null
+    const tree = mount(h('div', { className: 'frx-preview-page' },
+      sub ? h('div', { className: 'frx-preview-sub', style: { flex: '0 0 232px', minWidth: 0 } }, sub) : null,
+      h('div', { style: { flex: '1 1 auto', minWidth: 0, display: 'flex' } }, h(feature.Component, ctx))))
     void act()
     return { id: feature.id, label: feature.label, tree, error: '' }
   } catch (error) {
@@ -199,6 +242,8 @@ const hostTokens = `
   .err{margin:0;padding:12px;border-radius:10px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);font-size:12px}
   .viewport{width:1100px;height:620px;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base);border:1px solid var(--dsw-alias-border-l1);border-radius:12px;overflow:hidden}
   .viewport > *{flex:1 1 auto;min-height:0}
+  .frx-preview-page{display:flex;min-height:0;height:100%}
+  .frx-preview-sub{border-right:1px solid var(--dsw-alias-border-l1)}
 `
 
 const frames = panels.map((panel) => {

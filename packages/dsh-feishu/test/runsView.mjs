@@ -256,6 +256,28 @@ check('刚做完：没有 completedAt 的完成态不进墙（不猜完成时刻
   assert.deepEqual(view.justDone, [])
 })
 
+/* ---------------- 计时覆盖（数据质量卡的数据） ---------------- */
+
+check('计时覆盖：按 startSource 口径数「有开始时间 / 未记录」，两者相加 = 未完成数', () => {
+  const tasks = [
+    task('a', { running: true, started: true, startedAt: NOW - HOUR }),
+    task('b', { started: true, startedAt: NOW - 2 * HOUR }),
+    task('c', {}),
+    task('d', {}),
+  ]
+  const view = buildRuns({ tasks, now: NOW })
+  assert.equal(view.timedCount, 2, '观察到在跑 + 自带开工时间的算「有开始时间」')
+  assert.equal(view.untimedCount, 2, '两件没记录')
+  assert.equal(view.timedCount + view.untimedCount, view.bubbles.length, '两者必须守恒')
+})
+
+check('计时覆盖：没有未完成任务时是 0 / 0（卡片不会渲染出 undefined）', () => {
+  const view = buildRuns({ tasks: [task('x', { done: true })], now: NOW })
+  assert.equal(view.timedCount, 0)
+  assert.equal(view.untimedCount, 0)
+  assert.equal(Number.isFinite(view.timedCount), true)
+})
+
 /* ---------------- 项目合并（旭日图的数据） ---------------- */
 
 check('项目合并：自定义目录把多个 workspace 合成一个项目（与总览/关系同一套规则）', () => {
