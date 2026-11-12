@@ -15,7 +15,7 @@
 
 import { buildRuns } from './runsView.js'
 import { injectExactStyles } from './runsExactStyles.js'
-import { iconDrawNodes, normalizeIcon, colorHex, autoIconFor } from './projectIcons.js'
+import { iconDrawNodes, normalizeIcon, colorHex, autoIconFor, renderIcon } from './projectIcons.js'
 import { derivePulses, prunePulses, toneColor, subscribeActivity, PULSE_TTL } from './sessionPulse.js'
 
 let styleReady = false
@@ -146,6 +146,10 @@ export function createRunsFeature(deps) {
     'aria-label': label,
     title: label,
   }, h('i', { key: 'a', className: 'frx-dots-dot' }), h('i', { key: 'b', className: 'frx-dots-dot' }), h('i', { key: 'c', className: 'frx-dots-dot' }))
+
+  /** 状态徽标里的图标（复用内置的 Lucide 图标集，不另画） */
+  const BADGE_ICON = { check: 'lucide:check', alert: 'lucide:triangle-alert', pause: 'lucide:pause', clock: 'lucide:clock' }
+  const badgeIcon = (name, size) => (BADGE_ICON[name] ? renderIcon({ h }, BADGE_ICON[name], size || 11) : null)
 
   /** 状态色口径的单一出处：class 后缀（样式表里给颜色） */
   const stateClass = (state) => (state === 'running' ? 'running'
@@ -452,9 +456,21 @@ export function createRunsFeature(deps) {
               h('h2', { className: 'frx-card-title' }, '运行状态'),
               h('p', { className: `frx-card-sub ${runningList.length ? 'is-ok' : 'is-idle'}` },
                 runningList.length ? '会话正在跑 · 实时同步' : '空闲 · 等待任务开工')))),
-        /* 头部右侧**不再放任何计数**：用户口径「已绑定和右上信息是重复的」；
-           「未完成 N 条」同样与下方「未完成任务」卡重复 —— 每个数字只出现一次。
-           刷新入口在内容头部（OverviewPanel 的 data-action="refresh"）。 */
+        /* KPI 胶囊（用户 review 后实施）：四个数字带图标横排在标题下 —— 数字只在这出现一次，
+           原来那两张 KPI 卡随之删除。图标复用内置的 Lucide 图标集。 */
+        h('div', { key: 'kpis', className: 'frx-kpis' },
+          [['未完成', unfinished, 'lucide:chart-spline'],
+            ['在跑', runningList.length, 'lucide:play'],
+            ['会话', bindSessions, 'lucide:link'],
+            ['阻塞', blockedList.length, 'lucide:triangle-alert']]
+            .map(([label, value, iconId]) => h('span', {
+              key: label,
+              className: 'frx-kpi',
+              'data-tone': label === '阻塞' && value > 0 ? 'warn' : 'flat',
+            },
+              h('span', { className: 'frx-kpi-icon', 'aria-hidden': 'true' }, renderIcon({ h }, iconId, 13)),
+              h('b', null, String(value)),
+              h('span', { className: 'frx-kpi-label' }, label)))),
         /* AVAILABLE MODELS → 可用任务 */
         h('div', { key: 'bubbles' },
           h('p', { className: 'frx-bubbles-label', title: '水位 = 该项目已完成任务占比（越高越接近收尾）' }, '可用任务'),
@@ -464,7 +480,8 @@ export function createRunsFeature(deps) {
               role: 'list',
               'aria-label': '任务气泡墙',
               /* 与参考一致：固定高度的散点场；宽一点让 8 个泡摊开（不挤成一团） */
-              style: { position: 'relative', width: '100%', maxWidth: '560px', height: '132px', margin: '4px auto 0' },
+              /* 用户口径「气泡高度太高了」：132 → 104（散点位仍是参考项目原值，只压高度） */
+              style: { position: 'relative', width: '100%', maxWidth: '560px', height: '104px', margin: '4px auto 0' },
             },
               orbRows.map((row, index) => {
                 const pos = POSITIONS[index]
@@ -505,16 +522,19 @@ export function createRunsFeature(deps) {
                   (() => {
                     const pulse = pulseOf(row.id)
                     if (!pulse) return null
+                    /* 状态徽标（用户 review 后实施）：咬住泡的右下角，图标/三点表示状态；
+                       文字只在 aria-label / title 上，画面里没有「运行中***」这类字样。 */
+                    const body = pulse.dots ? dotsNode(pulse.text) : (badgeIcon(pulse.badge, 11) || h('i', { className: 'frx-badge-dot' }))
                     return h('span', {
                       key: 'pulse',
-                      className: 'frx-speech',
+                      className: 'frx-badge',
                       'data-tone': pulse.tone,
+                      'data-badge': pulse.badge || 'dot',
                       role: 'status',
-                      style: { '--frx-speech-c': toneColor(pulse.tone) },
-                    },
-                      h('i', { className: 'frx-speech-tail', 'aria-hidden': 'true' }),
-                      /* 运行中 = 三点动画；其余状态（已完成 / 被阻塞 / 已挂起）仍是文字 */
-                      pulse.dots ? dotsNode(pulse.text) : pulse.text)
+                      'aria-label': pulse.text,
+                      title: pulse.text,
+                      style: { '--frx-badge-c': toneColor(pulse.tone) },
+                    }, body)
                   })(),
                   /* 视觉：一层内联 SVG（正圆是几何，不是 CSS 圆角）；交互：覆在上面的透明 button。 */
                   orbSvg({
@@ -572,62 +592,30 @@ export function createRunsFeature(deps) {
                     : null)
               }))
             : h('p', { className: 'frx-subtitle' }, '没有未完成的任务')),
-        /* 这里原来还有两个盒子（运行中 / 已绑会话）——正是用户指出的重复：
-           「运行中」与下方「运行中」卡的大数字重复，「已绑会话」与它右上那行重复。
-           状态卡现在只负责「现在什么状态 + 气泡墙」。 */
-      ],
-    })
-
-    /* ---------- 卡片 2：未完成任务（参考项目的 Total Skills） ---------- */
-    const totalCard = card('total', {
-      label: '未完成任务',
-      children: [
-        h('div', { key: 'bigrow', className: 'frx-bigrow' },
-          h('div', { className: 'frx-chip is-blue' }, icon('cpu', 20)),
-          /* 右上不再写「N 在跑」（那是「运行中」卡的信息）：这里写这张卡自己的补充口径 —— 阻塞数 */
-          h('span', { className: `frx-delta ${blockedList.length ? 'is-warn' : 'is-flat'}` },
-            blockedList.length ? `${blockedList.length} 阻塞` : '没有阻塞')),
-        /* 不要再给 stat 挂 marginTop:auto —— 那样「未完成」卡里会出现两处自动分配的空隙
-           （stat 上方 75px、分布图上方 103px），而「运行中」卡里同样的空隙被压成 0（两块贴死）。
-           现在固定节奏：头 → 14px → 大数字 → 自动空隙 → 底部（分布图 / 药丸）。 */
-        h('div', { key: 'stat', className: 'frx-stat' },
-          h('p', { className: 'frx-stat-label' }, '未完成任务'),
-          h('p', { className: 'frx-stat-value' }, String(unfinished))),
-        /* 按项目分布：横向条 + 名称 + 条数。比「一排没有坐标的柱子」有信息量，
-           也把这张卡的下半部分填满（用户口径：一行里不要留大片空白）。 */
-        h('div', { key: 'chart', className: 'frx-bydist' },
+        /* 底部：图例（图标 + 颜色）+ 项目占比细条 —— 让状态卡「更完整」，不再头重脚轻。 */
+        h('div', { key: 'legend', className: 'frx-legend' },
+          [['运行中', '#3b82f6'], ['已完成', '#22c55e'], ['被阻塞', '#f59e0b'], ['未开始', '#64748b']]
+            .map(([label, color]) => h('span', { key: label, className: 'frx-legend-item', style: { '--frx-tone': color } },
+              h('i', { className: 'frx-legend-dot', 'aria-hidden': 'true' }), label)),
           (() => {
             const counts = new Map()
             view.bubbles.forEach((row) => {
               const key = row.workspaceTitle || '未归属项目'
               counts.set(key, (counts.get(key) || 0) + 1)
             })
-            const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
-            const max = Math.max(1, ...rows.map((entry) => entry[1]))
-            return rows.map(([label, count]) => h('div', { key: label, className: 'frx-bydist-row' },
-              h('span', { className: 'frx-bydist-label', title: label }, label),
-              h('span', { className: 'frx-bydist-track' },
-                h('i', { style: { width: `${Math.max(8, Math.round((count / max) * 100))}%` } })),
-              h('span', { className: 'frx-bydist-value' }, String(count))))
+            const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
+            if (!top) return null
+            const total = view.bubbles.length || 1
+            return h('span', { key: 'dist', className: 'frx-legend-dist', title: `${top[0]}：${top[1]} 条未完成` },
+              h('span', { className: 'frx-legend-dist-label' }, top[0]),
+              h('b', { className: 'frx-legend-track' }, h('i', { style: { width: `${Math.round((top[1] / total) * 100)}%` } })),
+              h('span', { className: 'frx-legend-dist-value' }, String(top[1])))
           })()),
       ],
     })
 
-    /* ---------- 卡片 3：运行中（参考项目的 Agents Running） ---------- */
-    const runningCard = card('running', {
-      label: '运行中',
-      children: [
-        h('div', { key: 'bigrow', className: 'frx-bigrow' },
-          h('div', { className: 'frx-chip is-purple' }, icon('terminal', 20)),
-          h('span', { className: 'frx-delta is-flat' }, `${bindSessions} 绑会话`)),
-        h('div', { key: 'stat', className: 'frx-stat' },
-          h('p', { className: 'frx-stat-label' }, '运行中'),
-          h('p', { className: 'frx-stat-value' }, String(runningList.length))),
-        h('div', { key: 'pills', className: 'frx-pills' },
-          runningList.slice(0, 4).map((row) => h('span', { key: row.id, className: 'frx-pill' },
-            String(row.no || ''), ' ', h('em', null, row.elapsedText || '—')))),
-      ],
-    })
+    /* 卡片 2「未完成任务」与卡片 3「运行中」已删除：数字进状态卡的 KPI 胶囊，
+       在跑任务的明细在执行历史里（按最近活跃排序，在跑的排最前）。 */
 
     /* ---------- 卡片 4：执行历史（参考项目的 History，跨 2 列） ---------- */
     const historyCard = card('history', {
@@ -659,6 +647,7 @@ export function createRunsFeature(deps) {
               /* 状态色口径（用户）：运行中=蓝、完成=绿、报错（阻塞）=黄、等待=中性 */
               h('span', { className: `frx-row-status is-${stateClass(row.state)}` },
                 row.state === 'running' ? dotsNode(stateText(row.state)) : stateText(row.state)),
+              /* 行的最右侧仍是「详情」按钮；状态列保持文字，方便扫读 */
               h('span', { className: 'frx-row-btn' }, '详情'))))),
       ],
     })
@@ -723,7 +712,7 @@ export function createRunsFeature(deps) {
            「未完成任务」挤到第 3 列、「运行中」被挤到第二行 → 两张卡高度不一致、内间距也不一致。
            320px 的下限保证：宽面板=2 列（状态卡占满一行），窄面板自动落成 1 列。 */
         style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' },
-      }, statusCard, totalCard, runningCard),
+      }, statusCard),
       h('div', {
         key: 'row2',
         className: 'frx-grid is-tight',

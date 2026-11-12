@@ -30,23 +30,29 @@ function turnOf(value) {
  * @returns {{text:string, tone:string, sticky:boolean}|null} null = 不显示状态泡
  */
 export function pulseForTask(task, feed) {
-  const t = task && typeof task === 'object' ? task : {}
+  /* 没有任务就没有徽标（坏数据静默返回 null，不用空对象兜底 —— 否则会冒出「未开始」徽标） */
+  if (!task || typeof task !== 'object' || task.id === undefined || task.id === null || task.id === '') return null
+  const t = task
   const f = feed && typeof feed === 'object' ? feed : {}
   const phase = String(f.phase || '')
   const turn = turnOf(f.turn)
 
   /* 顺序即优先级：终态 > 要人看的 > 正在跑 > 等待 */
-  if (t.done === true) return { text: '已完成', tone: 'ok', sticky: false }
-  if (t.blocked === true) return { text: '被阻塞', tone: 'warn', sticky: true }
-  if (t.suspended === true) return { text: '已挂起', tone: 'warn', sticky: true }
+  /* 徽标口径（用户 review 后实施）：
+       运行中 = 三点动画（唯一会动）｜已完成 = ✓ ｜被阻塞 = ⚠ ｜已挂起 = ⏸ ｜未开始 / 等待 = 🕐
+     图标都在画面里（不写字），文字仍留在 text 里给 aria-label / title 用。 */
+  if (t.done === true) return { text: '已完成', tone: 'ok', sticky: false, badge: 'check' }
+  if (t.blocked === true) return { text: '被阻塞', tone: 'warn', sticky: true, badge: 'alert' }
+  if (t.suspended === true) return { text: '已挂起', tone: 'paused', sticky: true, badge: 'pause' }
   if (phase === 'running' || t.running === true) {
     /* 用户口径：「运行中的状态显示一个个… 的动画，不要用『运行中***』这样的文字」。
        text 只留给无障碍（aria-label / title）；画面上渲染的是三点动画（dots: true）。 */
-    return { text: turn > 0 ? `运行中 · 第 ${turn} 轮` : '刚开工', tone: 'brand', sticky: false, dots: true }
+    return { text: turn > 0 ? `运行中 · 第 ${turn} 轮` : '刚开工', tone: 'brand', sticky: false, dots: true, badge: 'dots' }
   }
-  /* 「等待输出」故意**不显示**：等待中的任务本来就会一直停在那个状态，
-     每个泡都挂一句会把气泡墙变成一句话列表（用户要的是状态提示，不是常驻标签）。 */
-  return null
+  /* 未开始 / 等待：给一个**静止的时钟徽标**（用户要求「其他状态也给我看下设计」→ 全套都显示）。
+     它们不呼吸、也不参与「没新消息就消失」，信息量最低但能让整面墙的状态一眼齐。
+     （不想要时钟徽标就把它改成 return null —— 其余状态不受影响。） */
+  return { text: '未开始', tone: 'idle', sticky: true, badge: 'clock' }
 }
 
 /**
@@ -103,7 +109,7 @@ export function prunePulses(map, now, ttl) {
 }
 
 /** 状态词 → 状态色（与气泡同一套：蓝=在跑、绿=完成、黄=阻塞） */
-export const TONE_COLOR = { brand: '#3b82f6', ok: '#22c55e', warn: '#f59e0b' }
+export const TONE_COLOR = { brand: '#3b82f6', ok: '#22c55e', warn: '#f59e0b', paused: '#a855f7', idle: '#64748b' }
 
 /** 气泡里的状态描边：状态泡用同色系，但比泡本身亮一点 */
 export function toneColor(tone) {

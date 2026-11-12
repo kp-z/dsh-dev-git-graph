@@ -110,6 +110,41 @@ export const CSS = `
 .frx-version-label { margin: 0; font-size: 12px; color: var(--frx-text-dim); }
 .frx-version-value { margin: 0; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--frx-text); }
 
+/* ---------- KPI 胶囊（状态卡头部） ---------- */
+.frx-kpis { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.frx-kpi {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 11px; border-radius: 999px;
+  background: color-mix(in oklab, var(--dsw-alias-bg-layer-2) 62%, transparent);
+  border: 1px solid var(--frx-border);
+}
+.frx-kpi[data-tone="warn"] { border-color: color-mix(in oklab, var(--dsw-alias-state-warn-primary) 45%, transparent); }
+.frx-kpi-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 7px;
+  color: var(--frx-text-dim);
+  background: color-mix(in oklab, var(--dsw-alias-label-primary) 8%, transparent);
+}
+.frx-kpi[data-tone="warn"] .frx-kpi-icon { color: var(--dsw-alias-state-warn-primary); }
+.frx-kpi b { font-size: 15px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
+.frx-kpi-label { font-size: 11px; color: var(--frx-text-dim); }
+
+/* ---------- 状态卡底部：图例 + 项目占比 ---------- */
+.frx-legend {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--frx-border);
+}
+.frx-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--frx-text-dim); }
+.frx-legend-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--frx-tone, #64748b); }
+.frx-legend-dist { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; min-width: 160px; max-width: 320px; }
+.frx-legend-dist-label { font-size: 11px; color: var(--frx-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.frx-legend-track {
+  flex: 1 1 auto; height: 6px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in oklab, var(--dsw-alias-label-primary) 10%, transparent);
+}
+.frx-legend-track > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(to right, rgba(96,165,250,.9), rgba(59,130,246,.35)); }
+.frx-legend-dist-value { font-size: 11px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
+
 /* ---------- 卡片底部两个小盒（Health Score / Status） ---------- */
 .frx-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: auto; }
 .frx-box { background: var(--frx-surface); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; }
@@ -203,43 +238,42 @@ export const CSS = `
   .frx-dots-dot { animation: none; opacity: .65; }
 }
 
-/* ---------- 状态对话气泡（贴在泡沿外右上的小对话泡） ----------
-   用户口径：只看状态、不显示计时、贴泡沿外、运行中与运行完都显示、**没有新消息自动消失**。
-   所以这里只有静态样式：出现/消失由 sessionPulse.js 的 prunePulses 决定（元素被移除，
-   不做 CSS 动画，避免「已经该消失却还在动」的错觉）。 */
-.frx-speech {
+/* ---------- 状态徽标（咬住泡的右下角） ----------
+   用户 review 后定的形态（P2）：小胶囊 + 图标/三点，位置固定在泡的右下角咬边，不会变成
+   「夹在两泡之间的黑横条」。颜色 = 状态色玻璃（底 22% 状态色 + 深底、描边 55% 状态色）。 */
+.frx-badge {
   position: absolute;
-  left: calc(100% + 6px);
-  bottom: calc(100% - 14px);
+  left: calc(100% - 22px);
+  bottom: calc(100% - 26px);
   z-index: 40;
-  display: inline-flex; align-items: center;
-  padding: 2px 8px;
-  border-radius: 10px;
-  border-bottom-left-radius: 3px;
-  white-space: nowrap;
-  font-size: 10px; line-height: 1.7; font-weight: 600;
-  color: var(--frx-text-strong);
-  background: rgba(6, 8, 12, 0.96);
-  border: 1px solid color-mix(in srgb, var(--frx-speech-c, #3b82f6) 45%, rgba(255, 255, 255, 0.14));
-  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.85), 0 0 0 1px color-mix(in srgb, var(--frx-speech-c, #3b82f6) 16%, transparent);
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--frx-badge-c, #3b82f6) 22%, rgba(10, 12, 16, 0.94));
+  border: 1px solid color-mix(in srgb, var(--frx-badge-c, #3b82f6) 55%, rgba(255, 255, 255, 0.12));
+  color: color-mix(in srgb, var(--frx-badge-c, #3b82f6) 78%, #ffffff);
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.85), 0 0 10px -2px color-mix(in srgb, var(--frx-badge-c, #3b82f6) 45%, transparent);
   pointer-events: none;
 }
-/* 尾巴：朝左下指着泡沿 */
-.frx-speech-tail {
-  position: absolute; left: -5px; bottom: 2px;
-  width: 0; height: 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-right: 5px solid rgba(6, 8, 12, 0.96);
+.frx-badge-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
+/* 徽标里的线性图标（Lucide 图标集，11px） */
+.frx-badge svg { display: block; }
+
+/* ---------- 「运行中」的三点动画 ---------- */
+.frx-dots { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
+.frx-dots-dot {
+  width: 4px; height: 4px; border-radius: 999px;
+  background: currentColor; opacity: .25;
+  animation: frx-dots 1.2s ease-in-out infinite;
 }
-/* 靠右边界时翻到泡的左上角，尾巴朝右下（避免被面板裁掉） */
-.frx-orb-slot[data-flip="1"] .frx-speech {
-  left: auto; right: calc(100% + 6px);
-  border-bottom-left-radius: 10px; border-bottom-right-radius: 3px;
+.frx-dots-dot:nth-child(2) { animation-delay: .18s; }
+.frx-dots-dot:nth-child(3) { animation-delay: .36s; }
+@keyframes frx-dots {
+  0%, 100% { opacity: .25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-1px); }
 }
-.frx-orb-slot[data-flip="1"] .frx-speech-tail {
-  left: auto; right: -5px; bottom: 2px;
-  border-right: 0; border-left: 5px solid rgba(6, 8, 12, 0.96);
+@media (prefers-reduced-motion: reduce) {
+  .frx-dots-dot { animation: none; opacity: .65; }
 }
 
 /* ---------- 气泡群（ClaudeModelBubbles dashboard-desktop） ---------- */

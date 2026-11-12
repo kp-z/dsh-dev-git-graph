@@ -130,6 +130,29 @@ check('运行页自己是滚动容器（宿主 .fo-feature-host 不滚，页面�
   assert.ok(block.includes('overscroll-behavior: contain'), '滚到底不要带着宿主页面一起滚')
 })
 
+check('状态徽标：旧的对话气泡形态已换掉，五态各有徽标', () => {
+  assert.equal(src.includes('frx-speech'), false, '旧的「对话气泡 + 尾巴」形态不该再出现')
+  assert.ok(src.includes('frx-badge'), '应渲染右下角咬边的状态徽标')
+  const pulse = readFileSync(new URL('../src/client/sessionPulse.js', import.meta.url), 'utf8')
+  for (const badge of ["badge: 'dots'", "badge: 'check'", "badge: 'alert'", "badge: 'pause'", "badge: 'clock'"]) {
+    assert.ok(pulse.includes(badge), `状态徽标缺 ${badge}`)
+  }
+})
+
+check('气泡墙高度 104（用户口径：太高了）', () => {
+  assert.ok(src.includes("height: '104px'"), '气泡墙应是 104px')
+  assert.equal(src.includes("height: '132px'"), false, '旧的 132px 高度应已去掉')
+})
+
+check('状态卡自带 KPI 胶囊 + 底部图例（数字只在这出现一次）', () => {
+  const card = stripComments(src.slice(src.indexOf("const statusCard = card('status'"), src.indexOf('/* 卡片 2')))
+  assert.ok(card.includes('frx-kpi'), '状态卡头部要有 KPI 胶囊')
+  assert.ok(card.includes('frx-legend'), '状态卡底部要有图例 + 项目占比')
+  assert.ok(card.includes("'lucide:"), 'KPI 图标要复用内置 Lucide 图标集')
+  assert.equal(src.includes("card('total'"), false, '「未完成任务」卡应已删除（数字进胶囊）')
+  assert.equal(src.includes("card('running'"), false, '「运行中」卡应已删除（数字进胶囊）')
+})
+
 check('信息不重复：状态卡里不再有「未完成 N 条」和两个 KPI 盒子', () => {
   const card = stripComments(src.slice(src.indexOf("const statusCard = card('status'"), src.indexOf("/* ---------- 卡片 2")))
   assert.equal(card.includes('frx-version'), false, '状态卡头部不该再放「未完成 N 条」（与下方卡片重复）')

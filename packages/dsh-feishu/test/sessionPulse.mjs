@@ -13,6 +13,7 @@ import {
   derivePulses,
   prunePulses,
   toneColor,
+  TONE_COLOR,
   subscribeActivity,
 } from '../src/client/sessionPulse.js'
 
@@ -36,14 +37,20 @@ const S = (id, extra) => Object.assign({ id, alive: true, phase: 'idle', turn: 0
 /* ---------------- 状态词 ---------------- */
 
 check('运行中：带轮次文案（只给无障碍用）+ dots 标记（画面渲染三点动画）', () => {
-  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running', turn: 12 })), { text: '运行中 · 第 12 轮', tone: 'brand', sticky: false, dots: true })
-  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running' })), { text: '刚开工', tone: 'brand', sticky: false, dots: true })
+  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running', turn: 12 })), { text: '运行中 · 第 12 轮', tone: 'brand', sticky: false, dots: true, badge: 'dots' })
+  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running' })), { text: '刚开工', tone: 'brand', sticky: false, dots: true, badge: 'dots' })
 })
 
-check('只有「运行中」用三点动画；终态/阻塞/挂起仍是文字', () => {
+check('只有「运行中」用三点动画；其余状态用各自的图标徽标', () => {
   assert.equal(pulseForTask(T('a', { done: true }), null).dots, undefined)
-  assert.equal(pulseForTask(T('a', { blocked: true }), null).dots, undefined)
-  assert.equal(pulseForTask(T('a', { suspended: true }), null).dots, undefined)
+  assert.equal(pulseForTask(T('a', { done: true }), null).badge, 'check')
+  assert.equal(pulseForTask(T('a', { blocked: true }), null).badge, 'alert')
+  assert.equal(pulseForTask(T('a', { suspended: true }), null).badge, 'pause')
+  assert.equal(pulseForTask(T('a'), null).badge, 'clock', '未开始 / 等待 = 时钟徽标')
+})
+
+check('状态色齐了：brand / ok / warn / paused / idle 各有一个出处', () => {
+  assert.deepEqual(TONE_COLOR, { brand: '#3b82f6', ok: '#22c55e', warn: '#f59e0b', paused: '#a855f7', idle: '#64748b' })
 })
 
 check('快照里的 running 也算在跑（活动流还没到）', () => {
@@ -55,17 +62,17 @@ check('快照里的 running 也算在跑（活动流还没到）', () => {
 
 check('已完成 = 绿、不粘（运行完也要显示，然后自动消失）', () => {
   const p = pulseForTask(T('a', { done: true }), S('s', { phase: 'running', turn: 3 }))
-  assert.deepEqual(p, { text: '已完成', tone: 'ok', sticky: false })
+  assert.deepEqual(p, { text: '已完成', tone: 'ok', sticky: false, badge: 'check' })
 })
 
 check('被阻塞 = 黄且 sticky（要人看，不自动消失）', () => {
   const p = pulseForTask(T('a', { blocked: true }), null)
-  assert.deepEqual(p, { text: '被阻塞', tone: 'warn', sticky: true })
+  assert.deepEqual(p, { text: '被阻塞', tone: 'warn', sticky: true, badge: 'alert' })
 })
 
 check('已挂起 = 黄且 sticky', () => {
   const p = pulseForTask(T('a', { suspended: true }), null)
-  assert.deepEqual(p, { text: '已挂起', tone: 'warn', sticky: true })
+  assert.deepEqual(p, { text: '已挂起', tone: 'paused', sticky: true, badge: 'pause' })
 })
 
 check('优先级：终态 > 阻塞 > 运行中', () => {
@@ -73,14 +80,10 @@ check('优先级：终态 > 阻塞 > 运行中', () => {
   assert.equal(pulseForTask(T('a', { blocked: true, running: true }), S('s', { phase: 'running' })).text, '被阻塞')
 })
 
-check('既没在跑也没终态 → 不显示状态泡', () => {
-  assert.equal(pulseForTask(T('a'), null), null)
-  assert.equal(pulseForTask(T('a'), S('s', { phase: 'idle' })), null)
-})
-
-check('等待中的任务不显示状态泡（否则每个泡都挂一句，气泡墙变成列表）', () => {
-  assert.equal(pulseForTask(T('a', { started: true }), S('s', { phase: 'idle' })), null)
-  assert.equal(pulseForTask(T('a', { started: true }), null), null)
+check('未开始 / 等待 → 静止的时钟徽标（用户要求「其他状态也给设计」，全套都显示）', () => {
+  assert.deepEqual(pulseForTask(T('a'), null), { text: '未开始', tone: 'idle', sticky: true, badge: 'clock' })
+  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'idle' })), { text: '未开始', tone: 'idle', sticky: true, badge: 'clock' })
+  assert.deepEqual(pulseForTask(T('a', { started: true }), null), { text: '未开始', tone: 'idle', sticky: true, badge: 'clock' })
 })
 
 /* ---------------- 一轮结算 ---------------- */
