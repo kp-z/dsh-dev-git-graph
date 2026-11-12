@@ -606,6 +606,24 @@
       ② 洞察页要传 `insightStats` 才能看历史指标卡。
 - [x] 证据：npm test 0、overviewPanel 219。
 
+**第 43–45 轮（00:00–00:40，运行页 KPI 去重 + 关系页工具归位）**
+
+- [x] **运行页 KPI 层重新设计**（`36b9799`）：用户「运行卡片下方的已绑定和右上信息是重复的」——
+      查出来其实是**三处**重复：已绑会话（状态卡盒子 vs 运行中卡右上）、运行中（状态卡盒子 vs 运行中卡大数字）、
+      未完成（状态卡右上 vs 未完成任务卡大数字）。现在状态卡**只负责状态 + 气泡墙**；
+      「未完成任务」卡右上从「N 在跑」（跨卡重复）换成自己的口径「N 阻塞 / 没有阻塞」。
+      另补静态去重断言（runsOrbInvariants 12 条）。
+- [x] **关系页：已完成默认隐藏 + 工具进卡片头部**（`8a8f761`）：用户「默认隐藏已完成，右上的按钮
+      应该在卡片的header 里而不是悬浮」。并行工作流写完停手 25 分钟未提交，本轮验收后入库：
+      `hideDone` 默认 true（store 键 hideDone）、边两端都必须在画布上（否则留 ghost 线头）、
+      浮动 `.fo-canvas-card` 删除、工具挂到 `.fo-graph-head` 的 `.fo-graph-actions`（`position: static`）。
+      真 Chromium 验收：`.fo-canvas-card` 不存在；`.fo-graph-actions` 父节点是 `.fo-graph-head`；
+      开关「显示已完成 1」且该条确实不在画布上。
+- [x] **「运行状态」下方两张卡的 padding / 列数**（`a944058`）：两张卡内部节奏改成固定（头 →14px→ 大数字
+      → 唯一自动空隙 → 底部块），第一行网格 `minmax(240px)→(320px)` 保证宽面板 = 2 列（状态卡独占一行、
+      下面两张并排等高）。改后实测：列 459.5×2、两张卡 206/206 等高。
+- [x] 证据：overviewPanel 223、runsOrbInvariants 12、dashboardStyles 8、npm test 0、offline 84 JS + 7 Python。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
          是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
