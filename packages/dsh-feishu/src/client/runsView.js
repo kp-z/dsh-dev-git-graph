@@ -147,9 +147,17 @@ export function buildRuns(snapshot) {
       && nowMs - num(task.completedAt, 0) <= recentDoneMs)
     : []
 
-  /** 任务 → 气泡行（未完成任务与「刚做完」的任务共用同一套字段） */
-  const toBubble = (task) => {
-    const state = stateOfTask(task)
+  /**
+   * 任务 → 气泡行（未完成任务与「刚做完」的任务共用同一套字段）。
+   *
+   * `stateOverride` 是给「刚做完」用的：`stateOfTask` 的口径是
+   * suspended → blocked → running → started → done，也就是**运行中优先于已完成** ——
+   * 这在「完成的任务本来就不上页」时无所谓，但刚做完的任务常常还带着 running 标记
+   * （会话还没收到停止事件），于是会出现「蓝泡（运行中）+ 状态泡写『已完成』」的自相矛盾。
+   * 刚做完的行显式钉成 done。
+   */
+  const toBubble = (task, stateOverride) => {
+    const state = stateOverride || stateOfTask(task)
     const meta = STATE_META[state] || STATE_META.idle
     const sessionId = str(task.sessionId)
     const startedAt = num(task.startedAt, 0)
@@ -192,9 +200,12 @@ export function buildRuns(snapshot) {
       }),
     }
   }
-  const bubbles = tasks.map(toBubble)
+  /* 注意：必须包一层箭头函数 —— 直接把 toBubble 传给 map，**index 会被当成 stateOverride**
+     （map 的第二个参数是下标），于是除第一条外所有气泡的 state 都变成 1 → 退化成 idle。
+     这个坑当场被 runsView 的分组/KPI 断言抓住。 */
+  const bubbles = tasks.map((task) => toBubble(task))
   /* 只给气泡墙用：完成不久的绿泡（KPI/分组/历史/时长都用不到它们） */
-  const justDone = recentDone.map(toBubble)
+  const justDone = recentDone.map((task) => toBubble(task, 'done'))
 
   const counts = { running: 0, started: 0, blocked: 0, suspended: 0, idle: 0 }
   bubbles.forEach((bubble) => { counts[bubble.state] = (counts[bubble.state] || 0) + 1 })

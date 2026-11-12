@@ -134,9 +134,13 @@ const snapshot = {
     task('b1', 516451, 'DSH 插件开发', '飞书任务集开发', { running: true, started: true, startedAt: NOW - 8 * 60 * 1000, sessionTurn: 12 }),
     task('c1', 516350, 'DSH 插件开发', '总览页写回飞书评论', { blocked: true, ready: false, blockedBy: [{ id: 'zz', title: '早就删掉的任务', done: false }] }),
     task('d1', 516418, 'QVIZ 后端工作区', '拆分 tile 渲染管线', { started: true, startedAt: NOW - 3 * HOUR, sessionTurn: 4 }),
+    /* 刚做完（5 秒前）：应该以绿泡短暂留在墙上，并挂一句「已完成」状态泡 */
+    task('e1', 516500, 'DSH 插件开发', '刚跑完的一条任务', { done: true, completedAt: NOW - 5 * 1000, startedAt: NOW - 2 * HOUR, sessionTurn: 9 }),
   ],
   relations: [],
-  stats: { tasks: 4, groups: 1, dependencyEdges: 1, provenanceEdges: 0, temporalEdges: 0, blocked: 1, ready: 3 },
+  stats: { tasks: 5, groups: 1, dependencyEdges: 1, provenanceEdges: 0, temporalEdges: 0, blocked: 1, ready: 3 },
+  /* 与 RunsFeature 的 RECENT_DONE_MS 对齐：刚做完的绿泡上墙 */
+  recentDoneMs: 25 * 1000,
 }
 
 const { React, mount, act } = createMiniReact()

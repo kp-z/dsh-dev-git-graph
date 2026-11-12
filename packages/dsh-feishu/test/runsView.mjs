@@ -234,6 +234,15 @@ check('刚做完：窗口内进 justDone（气泡墙），但 KPI/分组/历史/
   assert.equal(view.longest.some((row) => row.id === 'd1'), false, '时长榜里不该出现')
 })
 
+check('刚做完：即便还带着 running 标记也显示成「已完成」（不许出现蓝泡+已完成的自相矛盾）', () => {
+  const tasks = [task('r9', { done: true, completedAt: NOW - 3000, running: true, started: true })]
+  const view = buildRuns({ tasks, now: NOW, recentDoneMs: 25 * 1000 })
+  assert.equal(view.justDone.length, 1)
+  assert.equal(view.justDone[0].state, 'done')
+  assert.equal(view.justDone[0].label, '已完成')
+  assert.equal(view.justDone[0].breathing, false)
+})
+
 check('刚做完：不给窗口（recentDoneMs=0）时行为与旧版一致（完全不上墙）', () => {
   const tasks = [task('d1', { done: true, completedAt: NOW - 1000 })]
   const view = buildRuns({ tasks, now: NOW })
