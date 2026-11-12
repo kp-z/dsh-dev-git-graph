@@ -485,6 +485,20 @@
 - [ ] 注意：本轮 `b0b2ba4` **尚未推到远端** —— `ghssh`（ssh.github.com:443）连接被对端关闭，
   重试 5 次都失败；本地提交已在，等网络恢复再推。
 
+**第 32 轮（13:30，提交准备 + 阻塞记录）**
+
+- [x] 复核工作区里那个 `awesome-dsh-plugin` 提交目录：本地已有分支 `add-kp-z-dsh-feishu` + 提交
+      `f95d79d`（README 单行新增，放在 Notifications & Integrations），符合上游「一行一条、
+      链接真实仓库」的 Contributing 规范。
+- [x] 写了一份**待提交材料**：`PR.md`（PR 标题/正文 + 现状表 + 阻塞说明）与 `submit.sh`
+      （一条命令：查网络 → 确认 gh 凭据 → 确保 fork → 推分支 → 开 PR；任一步失败即停）。
+      `bash -n` 通过；实跑在第 1 步正确拦下（网络不通）。
+- [x] **两个阻塞**（都不是代码问题）：① 网络 —— `ssh.github.com:443` 与 `https://github.com`
+      都不通（`Connection closed by 20.205.243.160` / `SSL_ERROR_SYSCALL`）；
+      ② 凭据 —— `gh auth status` 报 `The token in keyring is invalid`（账号 kp-z）。
+      恢复后 `cd .submission-awesome-dsh-feishu && ./submit.sh` 即可。
+- [ ] 另：提交 `b0b2ba4 / 4316a20 / 8953c95` 仍**未推到远端**（同一个网络问题）。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区还有 4 个文件是**别的会话/进程**在写（DetailPanel.js / styles.js / overview/model.js /
          test/organizeSuggestions.mjs，时间边 UI 与断言）——不要碰，等它写完或用户指派；
