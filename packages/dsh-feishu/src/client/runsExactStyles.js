@@ -24,6 +24,13 @@ export const CSS = `
   container-type: inline-size;
   container-name: frxpage;
   display: flex; flex-direction: column; gap: 24px;
+  /* 运行页比一屏高（气泡卡 + 三个统计卡 + 历史 + 动作卡），必须自己能滚：
+     宿主给功能页的容器是 .fo-feature-host（flex:1 + min-height:0，本身不滚），
+     所以滚动要落在这一层 —— 否则内容直接被裁掉，看起来就是「页面无法滚动」。 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   /* 侧边栏（rail）与卡片之间要留出呼吸位：左右各 20px + 上下 16/28px，
      否则卡片会贴着 rail 的边线，看起来像「挤在一起」。 */
   padding: 16px 20px 28px;
