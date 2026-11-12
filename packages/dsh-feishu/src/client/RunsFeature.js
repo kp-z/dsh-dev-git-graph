@@ -16,6 +16,7 @@
 import { buildRuns } from './runsView.js'
 import { injectExactStyles } from './runsExactStyles.js'
 import { iconDrawNodes, normalizeIcon, colorHex, autoIconFor } from './projectIcons.js'
+import { derivePulses, prunePulses, toneColor, subscribeActivity, PULSE_TTL } from './sessionPulse.js'
 
 let styleReady = false
 function ensureStyles() {
@@ -256,8 +257,38 @@ export function createRunsFeature(deps) {
           if (typeof document !== 'undefined' && !document.getElementById('dsh-feishu-runs-exact-style')) injectExactStyles()
         } catch (error) { /* 忽略 */ }
       }, [])
+      /* 订阅活动流（宿主已有 SSE /api/sessions/activity，推 {alive, phase, turn}）。
+         没有 EventSource（老宿主/单测）时安静降级：只按快照口径显示状态。 */
+      useEffect(() => {
+        const off = subscribeActivity('/dsh-feishu/api/sessions/activity', {
+          onSessions: (rows) => {
+            sessionsRef.current = Array.isArray(rows) ? rows : []
+            setPulseVersion((n) => n + 1)
+          },
+        })
+        return () => { if (typeof off === 'function') off() }
+      }, [])
+      /* 每秒结算：静默太久的非 sticky 状态泡丢掉 —— 这就是「没有新消息自动消失」。 */
+      useEffect(() => {
+        const timer = setInterval(() => {
+          const before = pulseMapRef.current
+          const after = prunePulses(before, Date.now(), PULSE_TTL)
+          if (after.size !== before.size) {
+            pulseMapRef.current = after
+            setPulseVersion((n) => n + 1)
+          }
+        }, 1000)
+        return () => clearInterval(timer)
+      }, [])
     }
 
+    /* 状态对话气泡：Map(taskId → {text, tone, sticky, at}) + 版本号触起重渲染。
+       纯逻辑在 sessionPulse.js（可离线单测），这里只管订阅活动流与定时结算。 */
+    const pulseMapRef = useRef ? useRef(new Map()) : { current: new Map() }
+    const sessionsRef = useRef ? useRef([]) : { current: [] }
+    const [pulseTick, setPulseTick] = useState ? useState(0) : [0, () => {}]
+    const pulseVersion = Array.isArray(pulseTick) ? pulseTick[0] : pulseTick
+    const setPulseVersion = Array.isArray(pulseTick) ? pulseTick[1] : setPulseTick
     const hostRef = useRef ? useRef(null) : null
     const [colState, setColState] = useState ? useState(toNum(ctx.columns) || 0) : [toNum(ctx.columns) || 0, () => {}]
     const cols = Array.isArray(colState) ? colState[0] : colState
@@ -335,6 +366,15 @@ export function createRunsFeature(deps) {
     /* 气泡只放「活着且在跑/待跑」的：挂起 = 暂时不做，不占气泡墙（用户在运行页看到挂起的
        「车位」任务会以为是多出来的）。挂起仍会出现在 KPI 与「需要人看一眼」里。 */
     const wallRows = view.bubbles.filter((row) => row.state !== 'suspended')
+    /* 结算状态泡：快照（终态/阻塞/在跑）+ 活动流（phase/turn）→ 每个任务一句状态。
+       同一条状态不重置计时，所以「没有新消息」会自然到点消失（见 sessionPulse.js）。 */
+    /* 用**快照原始任务行**而不是 view.bubbles：气泡行只带 state，没有 running/started/blocked
+       这些原始标记，而状态词要靠它们判断（view.bubbles 只用于渲染与排序）。 */
+    const pulseTasks = Array.isArray((ctx.snapshot || ctx).tasks) ? (ctx.snapshot || ctx).tasks : []
+    const pulseResult = derivePulses(pulseTasks, sessionsRef.current, pulseMapRef.current, Date.now())
+    pulseMapRef.current = pulseResult.map
+    const pulseOf = (id) => pulseMapRef.current.get(String(id || '')) || null
+
     const orbRows = wallRows.slice().sort((a, b) => {
       const diff = rank(a) - rank(b)
       if (diff !== 0) return diff
@@ -428,6 +468,8 @@ export function createRunsFeature(deps) {
                   role: 'listitem',
                   'data-state': row.state,
                   'data-id': String(row.id),
+                  /* 靠右的泡把状态泡翻到左上角（尾巴方向也在 CSS 里跟着翻），避免贴边被裁 */
+                  'data-flip': Number.parseFloat(pos.left) >= 55 ? '1' : '0',
                   style: {
                     /* position 必须内联：这条规则只写在样式表里，样式表一旦没生效，
                        slot 就退回普通块级元素（宽度=整行、高度自动），
@@ -438,6 +480,21 @@ export function createRunsFeature(deps) {
                     animationDelay: `${(index * 0.3).toFixed(1)}s`,
                   },
                 },
+                  /* 状态对话气泡：贴在泡沿外右上角，尾巴朝左下指着泡。
+                     没有新消息时由 prunePulses 丢掉 → 什么都不渲染（泡回到干净状态）。 */
+                  (() => {
+                    const pulse = pulseOf(row.id)
+                    if (!pulse) return null
+                    return h('span', {
+                      key: 'pulse',
+                      className: 'frx-speech',
+                      'data-tone': pulse.tone,
+                      role: 'status',
+                      style: { '--frx-speech-c': toneColor(pulse.tone) },
+                    },
+                      h('i', { className: 'frx-speech-tail', 'aria-hidden': 'true' }),
+                      pulse.text)
+                  })(),
                   /* 视觉：一层内联 SVG（正圆是几何，不是 CSS 圆角）；交互：覆在上面的透明 button。 */
                   orbSvg({
                     size: pos.size,

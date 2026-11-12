@@ -1482,7 +1482,7 @@ const PANEL_CARD = layout.CARD
     const card = byClass(ft, 'fo-canvas-card')[0]
     assert.ok(card, '画布里有浮动卡片')
     assert.equal(card.props.role, 'toolbar')
-    assert.equal(findAll(card, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 1, '一键整理在卡片里')
+    assert.equal(findAll(card, (node) => node.kind === 'host' && node.props['data-action'] === 'organize').length, 1, '「建议」在卡片里')
     for (const action of ['zoom-out', 'zoom-in', 'fit', 'reset-layout']) {
       assert.equal(findAll(card, (node) => node.kind === 'host' && node.props['data-action'] === action).length, 1, `${action} 在卡片里`)
     }
@@ -1639,10 +1639,11 @@ const orgButton = (item, action) => findAll(item, (node) => node.kind === 'host'
   const fx = await mountPanel({ organizeApi: backend.api })
   let ft = fx.tree
 
-  check('工具条：有「一键整理」按钮（自绘 sparkle 图标 + title 说明），没有建议时不显示折叠开关', () => {
+  check('画布右上卡片：主按钮是「建议」（自绘 sparkle 图标 + title 说明），没有建议时不显示折叠开关', () => {
     const btn = ORGANIZE_TRIGGER(ft)
-    assert.ok(btn, '一键整理按钮在')
-    assert.ok(textOf(btn).includes('一键整理'))
+    assert.ok(btn, '建议按钮在')
+    assert.ok(textOf(btn).includes('建议'))
+    assert.equal(btn.props['data-action'], 'organize')
     assert.ok(String(btn.props.title).includes('先出建议再落库'))
     assert.equal(btn.props.disabled, false)
     const icon = findAll(btn, (node) => node.kind === 'host' && node.type === 'svg' && classNameOf(node).includes('fo-btn-icon'))[0]
@@ -1653,7 +1654,7 @@ const orgButton = (item, action) => findAll(item, (node) => node.kind === 'host'
 
   ORGANIZE_TRIGGER(ft).props.onClick()
   ft = await fx.mini.act()
-  check('点一键整理 → api.organize 收到的是**当前 scope**（全部任务）', () => {
+  check('点「建议」→ api.organize 收到的是**当前 scope**（全部任务）', () => {
     assert.equal(backend.log.organize.length, 1)
     assert.equal(backend.log.organize[0].kind, 'all')
     assert.equal(backend.log.organize[0].id, '')
@@ -1827,14 +1828,14 @@ const orgButton = (item, action) => findAll(item, (node) => node.kind === 'host'
   check('loading 态：按钮 disabled + 「整理中…」', () => {
     const btn = ORGANIZE_TRIGGER(ft)
     assert.equal(btn.props.disabled, true)
-    assert.ok(textOf(btn).includes('整理中…'))
+    assert.ok(textOf(btn).includes('分析中…'))
   })
   defer.forEach((resolve) => resolve())
   ft = await fx.mini.act()
   check('跑完回到可点状态，抽屉有内容', () => {
     const btn = ORGANIZE_TRIGGER(ft)
     assert.equal(btn.props.disabled, false)
-    assert.ok(textOf(btn).includes('一键整理'))
+    assert.ok(textOf(btn).includes('建议'))
     assert.equal(organizeDrawers(ft).length, 1)
   })
 }
@@ -2288,6 +2289,28 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
   const bubbles = () => byClass(rtree, 'frx-orb-hit')
   check('运行页：一个任务一个气泡（2 条任务 = 2 个气泡）', () => {
     assert.equal(bubbles().length, 2)
+  })
+
+  /* ---- 状态对话气泡（用户口径：只看状态、贴泡沿外、无新消息自动消失） ---- */
+  check('运行中的泡挂一句状态对话泡：运行中/刚开工', () => {
+    const speech = byClass(rtree, 'frx-speech')
+    assert.equal(speech.length, 1, `只有运行中的泡该有状态泡，实际 ${speech.length}`)
+    const text = textOf(speech[0]).trim()
+    assert.ok(text === '刚开工' || text.startsWith('运行中'), `状态文案不对：${text}`)
+    assert.equal(speech[0].props['data-tone'], 'brand', '运行中的状态泡应是品牌色（蓝）')
+    assert.equal(speech[0].props.role, 'status')
+  })
+
+  check('状态泡带尾巴，且位置靠右的泡会翻转（避免贴边被裁）', () => {
+    const speech = byClass(rtree, 'frx-speech')[0]
+    assert.equal(byClass(speech, 'frx-speech-tail').length, 1, '要有指向泡沿的尾巴')
+    const slots = byClass(rtree, 'frx-orb-slot')
+    assert.ok(slots.some((slot) => slot.props['data-flip'] === '0' || slot.props['data-flip'] === '1'), 'slot 要带 data-flip')
+  })
+
+  check('状态泡不显示计时（口径：只看状态）', () => {
+    const text = textOf(byClass(rtree, 'frx-speech')[0]).trim()
+    assert.equal(/\d{1,2}:\d{2}/.test(text), false, `不该出现计时：${text}`)
   })
 
   /* 用户口径：单击有会话的泡直接跳会话；没会话的泡才退化成「选中看详情」。

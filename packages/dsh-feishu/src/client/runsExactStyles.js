@@ -180,6 +180,45 @@ export const CSS = `
 }
 .frx-row-btn:hover { background: var(--frx-surface-hover); }
 
+/* ---------- 状态对话气泡（贴在泡沿外右上的小对话泡） ----------
+   用户口径：只看状态、不显示计时、贴泡沿外、运行中与运行完都显示、**没有新消息自动消失**。
+   所以这里只有静态样式：出现/消失由 sessionPulse.js 的 prunePulses 决定（元素被移除，
+   不做 CSS 动画，避免「已经该消失却还在动」的错觉）。 */
+.frx-speech {
+  position: absolute;
+  left: calc(100% + 6px);
+  bottom: calc(100% - 14px);
+  z-index: 40;
+  display: inline-flex; align-items: center;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border-bottom-left-radius: 3px;
+  white-space: nowrap;
+  font-size: 10px; line-height: 1.7; font-weight: 600;
+  color: var(--frx-text-strong);
+  background: rgba(6, 8, 12, 0.96);
+  border: 1px solid color-mix(in srgb, var(--frx-speech-c, #3b82f6) 45%, rgba(255, 255, 255, 0.14));
+  box-shadow: 0 6px 16px -6px rgba(0, 0, 0, 0.85), 0 0 0 1px color-mix(in srgb, var(--frx-speech-c, #3b82f6) 16%, transparent);
+  pointer-events: none;
+}
+/* 尾巴：朝左下指着泡沿 */
+.frx-speech-tail {
+  position: absolute; left: -5px; bottom: 2px;
+  width: 0; height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-right: 5px solid rgba(6, 8, 12, 0.96);
+}
+/* 靠右边界时翻到泡的左上角，尾巴朝右下（避免被面板裁掉） */
+.frx-orb-slot[data-flip="1"] .frx-speech {
+  left: auto; right: calc(100% + 6px);
+  border-bottom-left-radius: 10px; border-bottom-right-radius: 3px;
+}
+.frx-orb-slot[data-flip="1"] .frx-speech-tail {
+  left: auto; right: -5px; bottom: 2px;
+  border-right: 0; border-left: 5px solid rgba(6, 8, 12, 0.96);
+}
+
 /* ---------- 气泡群（ClaudeModelBubbles dashboard-desktop） ---------- */
 .frx-bubbles-label {
   margin: 0 0 12px; font-size: 10px; font-weight: 700; letter-spacing: .12em;
