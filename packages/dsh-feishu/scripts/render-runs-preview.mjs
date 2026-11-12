@@ -178,13 +178,13 @@ const hostTokens = `
   .preview-frame > *{flex:1 1 auto;min-height:0}
 `
 
-writeFileSync(new URL('../../.runs-preview.html', import.meta.url), `<!doctype html><html lang="zh"><head><meta charset="utf-8">
+writeFileSync(new URL('../.runs-preview.html', import.meta.url), `<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <title>运行页离线预览</title>
 <style>${hostTokens}</style>
 <style>${PANEL_CSS}</style>
 <style>${RUNS_CSS}</style>
 </head><body><div class="preview-frame">${toHtml(tree)}</div></body></html>`)
-console.log('written .runs-preview.html（离线渲染，不依赖网络）')
+console.log('written packages/dsh-feishu/.runs-preview.html（离线渲染，不依赖网络）')
 /* RunsFeature 里有一个 1 秒的结算定时器（prunePulses），它会吊住 Node；
    这是开发期的一次性渲染脚本，写完就退出。 */
 process.exit(0)

@@ -89,3 +89,6 @@ build/
 .iconpreview.html
 .iconpreview2.html
 runs-green*.jpg
+
+# 离线渲染产物（scripts/render-runs-preview.mjs 生成）
+.runs-preview.html
