@@ -581,6 +581,20 @@
         想彻底不显示把它改成 0 即可（有断言保证 0 时行为与旧版一致）。
 - [x] 证据：runsView 30 → 33、overviewPanel 219、npm test 0、offline 84 JS + 7 Python。
 
+**第 41 轮（22:30，给「刚做完」做视觉复核，抓到两个真 bug）**
+
+- [x] **离线预览里加一条「5 秒前刚做完」的任务**，肉眼复核第 40 轮那条路径 —— 当场抓到两个问题
+      （`3f3614c`）：
+      1. **自相矛盾的颜色**：`stateOfTask` 是 running 优先于 done（因为完成的任务本来不上页），
+         而刚做完的任务常常还带 running 标记 → 出现「蓝泡（运行中）」+ 状态泡写「已完成」。
+         现在刚做完的行显式钉成 done：绿泡 + 「已完成」。
+      2. **`map(toBubble)` 把下标当成参数**：`toBubble(task, stateOverride)` 直接传给 `Array.map`
+         时第二个参数是下标 → 除第一条外所有气泡 state 变成 1 → 全部退化成 idle。
+         这条被 runsView 的分组/KPI 断言当场抓住（断言的价值体现）。
+- [x] 验收：离线渲染 DOM 里 slots = running(b1) / started(d1) / blocked(c1) / **done(a1)** / **done(e1)**，
+      状态泡 = 刚开工(brand) / 被阻塞(warn) / 已完成(ok) ×2，颜色与文案一致。
+- [x] 证据：runsView 34、overviewPanel 219、npm test 0、offline 84 JS + 7 Python。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
          是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
