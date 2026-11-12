@@ -65,14 +65,12 @@ export const CSS = `
 .frx-subtitle { margin: 0; font-size: 12px; line-height: 1.5; color: var(--frx-text-dim); }
 
 /* ---------- 卡片（GlassCard：bg-white/5 + backdrop-blur-md + border-white/10 + rounded-2xl + p-6 + shadow-xl） ---------- */
-/* 第一行（用户口径）：运行状态在左、**右侧两张统计卡**竖排。
-   宽面板 = 左 2fr / 右 1fr；窄面板（容器查询）自动落成单列。 */
-.frx-grid.is-main { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
-.frx-grid.is-main > .frx-card:first-child { grid-row: span 2; }
+/* 整页 4 列网格（用户口径：最起码 2×4）。固定列数，不用 auto-fit —— 否则面板一宽就排成
+   N 列、跨列卡被挤到下一行。各卡片用 .is-spanN 决定占几列。 */
 .frx-grid {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 24px; align-items: stretch;
-  height: var(--frx-row-h);
+  gap: 16px; align-items: stretch;
+  height: auto;
 }
 .frx-grid.is-tight { height: auto; }
 .frx-card {
@@ -86,6 +84,7 @@ export const CSS = `
 }
 .frx-card:hover { border-color: var(--frx-border-hover); }
 .frx-card.is-span2 { grid-column: span 2; }
+.frx-card.is-span4 { grid-column: span 4; }
 .frx-card.is-half-row { height: calc((var(--frx-row-h) - 24px) / 2); }
 /* 参考项目卡片内那层 hover 才出现的蓝紫渐变 */
 .frx-card-glow {
@@ -436,16 +435,17 @@ export const CSS = `
 
 /* ---------- 窄屏：参考项目的 md/lg 断点 ---------- */
 @container frxpage (max-width: 1100px) {
-  .frx-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); height: auto; }
-  .frx-card.is-span2 { grid-column: span 2; }
+  .frx-grid { height: auto; }
 }
-@container frxpage (max-width: 760px) {
-  .frx-grid.is-main { grid-template-columns: minmax(0, 1fr); }
-  .frx-grid.is-main > .frx-card:first-child { grid-row: auto; }
+/* 窄面板降成 2 列（跨列卡最多占满一行） */
+@container frxpage (max-width: 980px) {
+  .frx-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .frx-card.is-span4 { grid-column: span 2; }
 }
+/* 更窄：单列 */
 @container frxpage (max-width: 640px) {
   .frx-grid { grid-template-columns: minmax(0, 1fr); }
-  .frx-card.is-span2 { grid-column: span 1; }
+  .frx-card.is-span2, .frx-card.is-span4 { grid-column: span 1; }
 }
 
 /* ---------- 减少动效 ---------- */

@@ -409,13 +409,12 @@ export function createRunsFeature(deps) {
 
     const card = (key, opts) => {
       const o = opts || {}
+      /* 跨度用 class 而不是内联样式：容器查询（窄面板降列）要能覆盖它。 */
+      const span = o.span || (o.span2 ? 2 : 0)
       return h('section', {
         key,
-        className: `frx-card${o.span2 ? ' is-span2' : ''}`,
+        className: `frx-card${span ? ` is-span${span}` : ''}`,
         'aria-label': o.label || '',
-        /* 关键几何写进内联样式：插件样式表在宿主里万一没注入（或被宿主 button/card 规则压掉），
-           页面也不会塌成「一堆白方块」。外链样式只负责细节。 */
-        style: { gridColumn: o.span2 ? 'span 2' : 'auto' },
       },
         h('div', { className: 'frx-card-glow', 'aria-hidden': 'true' }),
         h('div', { className: 'frx-card-inner' }, o.children))
@@ -424,7 +423,7 @@ export function createRunsFeature(deps) {
     /* 空态：与参考项目一致的卡片壳子，不画图 */
     const emptyCard = h('div', { className: 'frx-page', 'data-empty': '1' },
       h('div', { className: 'frx-grid', style: { height: 'auto' } },
-        card('empty', { span2: true, label: '运行状态', children: [
+        card('empty', { span: 2, label: '运行状态', children: [
           h('div', { key: 'head', className: 'frx-card-head' },
             h('div', { className: 'frx-card-head-left' },
               h('div', { className: 'frx-icon is-idle' }, icon('activity', 24)),
@@ -446,7 +445,7 @@ export function createRunsFeature(deps) {
 
     /* ---------- 卡片 1：运行状态（参考项目的 Claude CLI Status，跨 2 列） ---------- */
     const statusCard = card('status', {
-      span2: true,
+      span: 2,
       label: '运行状态',
       children: [
         h('div', { key: 'head', className: 'frx-card-head' },
@@ -752,7 +751,7 @@ export function createRunsFeature(deps) {
 
     /* ---------- 卡片 4：执行历史（参考项目的 History，跨 2 列） ---------- */
     const historyCard = card('history', {
-      span2: true,
+      span: 2,
       label: '执行历史',
       children: [
         h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '12px' } },
@@ -787,7 +786,7 @@ export function createRunsFeature(deps) {
 
     /* ---------- 卡片 5：快捷操作（参考项目的 Quick Actions） ---------- */
     const actionCard = card('actions', {
-      span2: true,
+      span: 4,
       label: '快捷操作',
       children: [
         h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '12px' } },
@@ -837,23 +836,13 @@ export function createRunsFeature(deps) {
       /* 这里**不放页头**：用户口径「『运行 / N 条未完成任务…』这一行都不需要显示」。
          页面名已经在左侧导航与内容头部有，本页直接进卡片。
          被过滤掉的已完成/挂起数量仍挂在根节点的 data-skipped-* 上（自证用，不占版面）。 */
-      h('div', {
-        key: 'row1',
-        /* 第一行（用户口径）：**运行状态在左，右侧两张统计卡竖排** ——
-           左 2fr / 右 1fr，状态卡跨两行；窄面板由容器查询落成单列。 */
-        className: 'frx-grid is-main',
-        style: { display: 'grid', gap: '16px' },
-      }, statusCard, projectCard, blockerCard),
-      h('div', {
-        key: 'row15',
-        className: 'frx-grid',
-        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '16px' },
-      }, todoCard, longestCard),
-      h('div', {
-        key: 'row2',
-        className: 'frx-grid is-tight',
-        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '16px' },
-      }, historyCard, actionCard),
+      /* 整页一个 **4 列网格**（用户口径：最起码 2×4），卡片自带跨度决定占几列：
+           第 1 行 = 运行状态(2) + 按项目分布(1) + 阻塞排行(1)
+           第 2 行 = 待处理(1) + 跑得最久(1) + 执行历史(2)
+           第 3 行 = 快捷操作(4)
+         固定列数（不用 auto-fit）才能保证每行都是 4 列；窄面板由容器查询降列。 */
+      h('div', { key: 'grid', className: 'frx-grid' },
+        statusCard, projectCard, blockerCard, todoCard, longestCard, historyCard, actionCard),
     )
   }
 }
