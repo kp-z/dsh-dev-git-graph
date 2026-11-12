@@ -161,6 +161,18 @@ check('状态卡：KPI 胶囊在**右上**、底部不再有项目名列表', ()
   assert.ok(head.indexOf('frx-kpis') < head.indexOf('frx-bubbles'), 'KPI 胶囊要在卡片头部（右上）')
 })
 
+check('项目卡是旭日图，并且按自定义目录合并项目', () => {
+  assert.ok(src.includes("card('projects'"), '缺项目卡')
+  assert.ok(src.includes('frx-sun'), '项目卡要用旭日图（frx-sun）')
+  assert.ok(src.includes('arcPath(cx, cy, r0, r1'), '要有内圈（项目）')
+  assert.ok(/arcPath\(cx, cy, r1 \+ \d+, r2/.test(src), '要有外圈（状态拆分）')
+  assert.equal(src.includes("className: 'frx-bars'"), true, '阻塞排行仍然是横条')
+  assert.equal(src.includes('byProject'), false, '旧的项目横条聚合应已删除')
+  const view = readFileSync(new URL('../src/client/runsView.js', import.meta.url), 'utf8')
+  assert.ok(view.includes('snap.groups') && view.includes('group.members'), '合并规则要读自定义目录的成员')
+  assert.ok(view.includes("key: `group:${group.id}`"), '合并后的项目 key 用目录 id')
+})
+
 check('运行状态右侧恢复两张「图统计」卡，且数字不与胶囊重复', () => {
   assert.ok(src.includes("card('projects'"), '缺「按项目分布」卡')
   assert.ok(src.includes("card('blockers'"), '缺「阻塞排行」卡')

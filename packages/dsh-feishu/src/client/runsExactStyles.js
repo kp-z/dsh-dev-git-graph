@@ -132,6 +132,21 @@ export const CSS = `
 .frx-kpi b { font-size: 15px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
 .frx-kpi-label { font-size: 11px; color: var(--frx-text-dim); }
 
+/* ---------- 旭日图（项目分布卡） ---------- */
+.frx-sun-wrap { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.frx-sun { flex: 0 0 auto; display: block; }
+.frx-sun-total { fill: #f9fafb; font-size: 22px; font-weight: 700; }
+.frx-sun-unit { fill: #9ca3af; font-size: 9px; }
+.frx-sun-legend { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1 1 auto; }
+.frx-sun-legend-row { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--frx-text-dim); min-width: 0; }
+.frx-sun-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 999px; }
+.frx-sun-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frx-sun-merged {
+  flex: 0 0 auto; font-size: 9px; padding: 0 5px; border-radius: 999px;
+  color: #c7d2fe; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(99, 102, 241, 0.35);
+}
+.frx-sun-count { margin-left: auto; flex: 0 0 auto; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
+
 /* ---------- 横向柱：按项目分布 / 阻塞排行（右侧两张统计卡） ---------- */
 .frx-bars { display: flex; flex-direction: column; gap: 9px; }
 .frx-bar-row {

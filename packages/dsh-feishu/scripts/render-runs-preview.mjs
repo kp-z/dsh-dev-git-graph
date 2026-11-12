@@ -81,7 +81,10 @@ function createMiniReact() {
 }
 
 /* ---------------- 树 → HTML ---------------- */
-const VOID = new Set(['br', 'hr', 'img', 'input', 'path', 'circle', 'rect', 'line', 'polyline', 'polygon', 'stop', 'animate', 'feGaussianBlur'])
+/* 真正的 HTML void 元素，以及**允许自闭合的 SVG 形状**。
+   ⚠️ 只有真的自闭合（写成 `<path/>`）才安全；写成 `<path>` 会让后面所有兄弟元素变成它的子节点
+   —— 旭日图的第一版就是这么被「吃掉」的（圆环整片不显示）。所以 SVG 形状改走闭合标签分支。 */
+const VOID = new Set(['br', 'hr', 'img', 'input', 'meta', 'link', 'source', 'track', 'wbr'])
 const escapeHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 function styleOf(obj) {
   if (!obj || typeof obj !== 'object') return ''

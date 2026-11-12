@@ -256,6 +256,42 @@ check('刚做完：没有 completedAt 的完成态不进墙（不猜完成时刻
   assert.deepEqual(view.justDone, [])
 })
 
+/* ---------------- 项目合并（旭日图的数据） ---------------- */
+
+check('项目合并：自定义目录把多个 workspace 合成一个项目（与总览/关系同一套规则）', () => {
+  const tasks = [
+    task('p1', { workspaceKey: 'wk-a', workspaceTitle: 'A', running: true }),
+    task('p2', { workspaceKey: 'wk-b', workspaceTitle: 'B', blocked: true }),
+    task('p3', { workspaceKey: 'wk-c', workspaceTitle: 'C' }),
+    task('p4', { workspaceKey: '', workspaceTitle: '' }),
+  ]
+  const view = buildRuns({
+    tasks, now: NOW,
+    groups: [{ id: 'g1', name: 'QV', members: ['wk-a', 'wk-b'] }],
+    workspaces: [{ key: 'wk-a', label: 'A' }, { key: 'wk-b', label: 'B' }, { key: 'wk-c', label: 'C' }],
+  })
+  assert.deepEqual(view.projects.map((p) => [p.label, p.count, p.merged]), [['QV', 2, 2], ['C', 1, 1], ['未归属项目', 1, 1]])
+  const qv = view.projects[0]
+  assert.deepEqual(qv.states, { running: 1, started: 0, blocked: 1, suspended: 0, idle: 0 }, '外圈的状态拆分')
+  assert.equal(qv.key, 'group:g1', '合并后的 key 用目录 id')
+})
+
+check('项目合并：一个 workspace 只属于一个目录（先到先得），没进目录的落未分组', () => {
+  const tasks = [task('x', { workspaceKey: 'wk-a', workspaceTitle: 'A' })]
+  const view = buildRuns({
+    tasks, now: NOW,
+    groups: [{ id: 'g1', name: '第一', members: ['wk-a'] }, { id: 'g2', name: '第二', members: ['wk-a'] }],
+    workspaces: [{ key: 'wk-a', label: 'A' }],
+  })
+  assert.deepEqual(view.projects.map((p) => p.label), ['第一'])
+})
+
+check('项目合并：没有自定义目录时按 workspace 各自算', () => {
+  const tasks = [task('x', { workspaceKey: 'wk-a', workspaceTitle: 'A' }), task('y', { workspaceKey: 'wk-b', workspaceTitle: 'B' })]
+  const view = buildRuns({ tasks, now: NOW, workspaces: [{ key: 'wk-a', label: 'A' }, { key: 'wk-b', label: 'B' }] })
+  assert.deepEqual(view.projects.map((p) => p.label), ['A', 'B'])
+})
+
 /* ---------------- 概览 / 活跃度 ---------------- */
 
 check('KPI 四卡：运行中 / 等待中 / 阻塞 / 已绑会话，分母是未完成任务数', () => {

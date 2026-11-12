@@ -151,6 +151,77 @@ export function createRunsFeature(deps) {
   const BADGE_ICON = { check: 'lucide:check', alert: 'lucide:triangle-alert', pause: 'lucide:pause', clock: 'lucide:clock' }
   const badgeIcon = (name, size) => (BADGE_ICON[name] ? renderIcon({ h }, BADGE_ICON[name], size || 11) : null)
 
+  /* ---------- 旭日图（项目卡片） ----------
+     径向两层：内圈 = 合并后的项目（角度 ∝ 未完成条数），外圈 = 该项目里的状态拆分。
+     SVG 的 fill 属性不支持 color-mix，所以这里用字面色（这一页本来就走非令牌的 frx 样式）。 */
+  const PROJECT_COLORS = ['#60a5fa', '#a78bfa', '#34d399', '#fbbf24', '#f472b6', '#22d3ee']
+  const ARC_STATE_COLORS = { running: '#3b82f6', blocked: '#f59e0b', suspended: '#a855f7', started: '#64748b', idle: '#475569' }
+  const polar = (cx, cy, r, angle) => [cx + r * Math.cos(angle), cy + r * Math.sin(angle)]
+  const arcPath = (cx, cy, r0, r1, a0, a1) => {
+    const [x0, y0] = polar(cx, cy, r1, a0)
+    const [x1, y1] = polar(cx, cy, r1, a1)
+    const [x2, y2] = polar(cx, cy, r0, a1)
+    const [x3, y3] = polar(cx, cy, r0, a0)
+    const large = a1 - a0 > Math.PI ? 1 : 0
+    return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r1} ${r1} 0 ${large} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}L${x2.toFixed(2)} ${y2.toFixed(2)}A${r0} ${r0} 0 ${large} 0 ${x3.toFixed(2)} ${y3.toFixed(2)}Z`
+  }
+
+  const sunburst = (projects, total, size) => {
+    const cx = size / 2
+    const cy = size / 2
+    const r0 = size * 0.16
+    const r1 = size * 0.30
+    const r2 = size * 0.44
+    const sum = Math.max(1, total)
+    let angle = -Math.PI / 2
+    const paths = []
+    projects.forEach((project, index) => {
+      const color = PROJECT_COLORS[index % PROJECT_COLORS.length]
+      const sweep = (project.count / sum) * Math.PI * 2
+      const a0 = angle
+      const a1 = angle + sweep
+      paths.push(h('path', {
+        key: `ring-${project.key}`,
+        d: arcPath(cx, cy, r0, r1, a0 + 0.014, a1 - 0.014),
+        fill: color,
+        'fill-opacity': '0.92',
+        /* 每段描一圈背景色：环段之间才有干净的分隔（否则相邻同色系会糊成一片） */
+        stroke: '#0f1115',
+        'stroke-width': '2',
+      }, h('title', null, `${project.label} · ${project.count} 条${project.merged > 1 ? ` · 合并 ${project.merged} 个工作区` : ''}`)))
+      /* 外圈：该项目的状态拆分 */
+      let inner = a0
+      Object.keys(project.states).forEach((state) => {
+        const count = project.states[state] || 0
+        if (!count) return
+        const span = (count / project.count) * sweep
+        paths.push(h('path', {
+          key: `sub-${project.key}-${state}`,
+          d: arcPath(cx, cy, r1 + 3, r2, inner + 0.01, inner + span - 0.01),
+          fill: ARC_STATE_COLORS[state] || ARC_STATE_COLORS.idle,
+          /* 外圈比内圈淡一档 + 背景色描边：一眼能分出「项目 / 状态」两层 */
+          'fill-opacity': '0.58',
+          stroke: '#0f1115',
+          'stroke-width': '2',
+        }, h('title', null, `${project.label} · ${stateText(state)} ${count} 条`)))
+        inner += span
+      })
+      angle = a1
+    })
+    return h('svg', {
+      className: 'frx-sun',
+      width: size, height: size, viewBox: `0 0 ${size} ${size}`,
+      role: 'img',
+      'aria-label': `项目旭日图：${projects.map((project) => `${project.label} ${project.count} 条`).join('，')}`,
+    },
+      h('circle', { cx, cy, r: r2 + 1, fill: 'rgba(255,255,255,.02)' }),
+      /* 内外圈之间留一道背景色细环，明确「内=项目，外=状态」 */
+      h('circle', { cx, cy, r: (r1 + r1 + 3) / 2, fill: 'none', stroke: '#0f1115', 'stroke-width': '3' }),
+      paths,
+      h('text', { x: cx, y: cy + 2, className: 'frx-sun-total', textAnchor: 'middle' }, String(total)),
+      h('text', { x: cx, y: cy + 15, className: 'frx-sun-unit', textAnchor: 'middle' }, '条'))
+  }
+
   /** 相对时间（只用于「挂起于 …」这类说明文字，避免再引一个依赖） */
   const sinceText = (from) => {
     const ms = Math.max(0, Date.now() - Number(from || 0))
@@ -618,31 +689,41 @@ export function createRunsFeature(deps) {
     /* ---------- 右侧卡 A：按项目分布（横向柱） ----------
        用户口径：「运行状态右侧需要恢复之前的两个卡片，但里面的内容可以用图统计其他重要信息」。
        这张卡用**图表**回答「活压在哪个项目上」——这个数字不在 KPI 胶囊里，不重复。 */
-    const byProject = (() => {
-      const counts = new Map()
-      view.bubbles.forEach((row) => {
-        const key = row.workspaceTitle || '未归属项目'
-        counts.set(key, (counts.get(key) || 0) + 1)
-      })
-      return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
-    })()
     const projectCard = card('projects', {
-      label: '按项目分布',
+      /* 用户口径：项目卡片用**旭日图**展示，并且**合并项目** ——
+         合并规则直接复用总览页/关系图那套「自定义目录」：一个目录 = 一个项目（多个 workspace 合一）。 */
+      label: '项目分布（旭日图）',
       children: [
-        h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '10px' } },
+        h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '8px' } },
           h('div', { className: 'frx-card-head-left' },
             h('div', { className: 'frx-icon is-brand' }, icon('cpu', 20)),
             h('div', { key: 'tt' },
-              h('h2', { className: 'frx-card-title' }, '按项目分布'),
-              h('p', { className: 'frx-card-sub is-idle' }, '活压在哪个项目上')))),
-        h('div', { key: 'bars', className: 'frx-bars' },
-          byProject.map(([label, count], index) => h('div', {
-            key: label, className: 'frx-bar-row', title: `${label}：${count} 条未完成`,
-          },
-            h('span', { className: 'frx-bar-label' }, label),
-            h('span', { className: 'frx-bar-track' },
-              h('i', { style: { width: `${Math.max(10, Math.round((count / Math.max(1, byProject[0][1])) * 100))}%` } })),
-            h('span', { className: 'frx-bar-value' }, `${count} 条`)))),
+              h('h2', { className: 'frx-card-title' }, '项目分布'),
+              h('p', { className: 'frx-card-sub is-idle' },
+                (view.projects || []).some((project) => project.merged > 1)
+                  ? '按自定义目录合并 · 外圈是状态'
+                  : '按项目 · 外圈是状态')))),
+        (view.projects || []).length
+          ? h('div', { key: 'sun', className: 'frx-sun-wrap' },
+            sunburst(view.projects, unfinished, 156),
+            h('div', { key: 'legend', className: 'frx-sun-legend' },
+              (view.projects || []).slice(0, 5).map((project, index) => h('div', {
+                key: project.key, className: 'frx-sun-legend-row', title: `${project.label}：${project.count} 条未完成`,
+              },
+                h('i', { className: 'frx-sun-dot', style: { background: PROJECT_COLORS[index % PROJECT_COLORS.length] }, 'aria-hidden': 'true' }),
+                h('span', { className: 'frx-sun-name' }, project.label),
+                project.merged > 1
+                  ? h('span', { className: 'frx-sun-merged' }, `合并 ${project.merged}`)
+                  : null,
+                h('span', { className: 'frx-sun-count' }, `${project.count} 条`))),
+              /* 外圈是状态：给一行小图例，否则没人知道外圈颜色代表什么 */
+              h('div', { key: 'states', className: 'frx-sun-states' },
+                Object.keys(ARC_STATE_COLORS)
+                  .filter((state) => (view.projects || []).some((project) => (project.states[state] || 0) > 0))
+                  .map((state) => h('span', { key: state, className: 'frx-sun-state' },
+                    h('i', { style: { background: ARC_STATE_COLORS[state] }, 'aria-hidden': 'true' }),
+                    stateText(state))))))
+          : h('p', { className: 'frx-subtitle' }, '没有未完成的任务'),
       ],
     })
 

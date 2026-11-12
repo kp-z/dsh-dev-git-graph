@@ -207,6 +207,45 @@ export function buildRuns(snapshot) {
   /* 只给气泡墙用：完成不久的绿泡（KPI/分组/历史/时长都用不到它们） */
   const justDone = recentDone.map((task) => toBubble(task, 'done'))
 
+  /**
+   * 项目维度（旭日图的数据）：**按自定义目录合并项目** —— 与总览页/关系图同一套规则
+   * （`overview/model.js` 的 `groupByCustom`）：用户拖出来的一个目录（比如「QV」）算**一个项目**，
+   * 它下面可以有多个 workspace；没进任何目录的各自按 workspace 算，并落在「未分组」桶里。
+   * 每个项目再按状态拆一层（在跑 / 等待 / 阻塞），供旭日图的外圈用。
+   */
+  const projectOf = (() => {
+    const custom = arr(snap.groups)
+      .filter((group) => isObj(group) && str(group.id) && str(group.name))
+      .map((group) => ({ id: str(group.id), name: str(group.name), members: arr(group.members).map((key) => str(key)) }))
+    const byMember = new Map()
+    custom.forEach((group) => group.members.forEach((key) => { if (key && !byMember.has(key)) byMember.set(key, group) }))
+    const titleByKey = new Map()
+    arr(snap.workspaces).forEach((ws) => {
+      if (!isObj(ws)) return
+      const key = str(ws.key)
+      if (key) titleByKey.set(key, str(ws.label) || str(ws.title) || key)
+    })
+    return (row) => {
+      const workspaceKey = str(row.workspaceKey)
+      const group = workspaceKey ? byMember.get(workspaceKey) : null
+      if (group) return { key: `group:${group.id}`, label: group.name, merged: group.members.length }
+      const label = str(row.workspaceTitle) || titleByKey.get(workspaceKey) || '未归属项目'
+      return { key: workspaceKey || `name:${label}`, label, merged: 1 }
+    }
+  })()
+
+  const projectMap = new Map()
+  bubbles.forEach((row) => {
+    const project = projectOf(row)
+    const cur = projectMap.get(project.key) || { key: project.key, label: project.label, merged: project.merged, count: 0, states: { running: 0, started: 0, blocked: 0, suspended: 0, idle: 0 } }
+    cur.count += 1
+    cur.states[row.state] = (cur.states[row.state] || 0) + 1
+    cur.merged = Math.max(cur.merged, project.merged)
+    projectMap.set(project.key, cur)
+  })
+  /** 旭日图的项目环：条数降序，最多的排在上面 */
+  const projects = [...projectMap.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+
   const counts = { running: 0, started: 0, blocked: 0, suspended: 0, idle: 0 }
   bubbles.forEach((bubble) => { counts[bubble.state] = (counts[bubble.state] || 0) + 1 })
   const boundSessions = bubbles.filter((bubble) => bubble.sessionId).length
@@ -319,6 +358,8 @@ export function buildRuns(snapshot) {
     skippedSuspended: allTasks.filter((task) => task.done !== true && task.suspended === true).length,
     /** 完成不久、仍留在气泡墙上的任务（只影响气泡墙；KPI/分组/历史/时长都不含它们） */
     justDone,
+    /** 旭日图用：按自定义目录合并后的项目（含状态拆分） */
+    projects,
     history,
     counts,
     boundSessions,
