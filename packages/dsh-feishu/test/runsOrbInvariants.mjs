@@ -130,6 +130,12 @@ check('运行页自己是滚动容器（宿主 .fo-feature-host 不滚，页面�
   assert.ok(block.includes('overscroll-behavior: contain'), '滚到底不要带着宿主页面一起滚')
 })
 
+check('已完成的气泡不挂徽标（用户口径：运行完成的气泡不用显示时间图标）', () => {
+  assert.ok(src.includes("if (row.state === 'done') return null"), 'done 的泡应直接不渲染徽标')
+  const tooltip = src.slice(src.indexOf("className: 'frx-orb-tip-meta'"), src.indexOf("className: 'frx-orb-tip-hint'"))
+  assert.ok(tooltip.includes('已完成'), '已完成气泡的 hover 浮层要写「已完成」，不能落成「未开始」')
+})
+
 check('状态徽标：旧的对话气泡形态已换掉，五态各有徽标', () => {
   assert.equal(src.includes('frx-speech'), false, '旧的「对话气泡 + 尾巴」形态不该再出现')
   assert.ok(src.includes('frx-badge'), '应渲染右下角咬边的状态徽标')

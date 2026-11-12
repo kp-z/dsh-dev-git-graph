@@ -487,6 +487,7 @@ export function createRunsFeature(deps) {
                 const pos = POSITIONS[index]
                 const isRunning = row.state === 'running'
                 const isSuspended = row.state === 'suspended'
+                const isDone = row.state === 'done'
                 const canOpen = Boolean(row.sessionId)
                 /* 只有一套颜色语义：绿=在跑、琥珀边=挂起、灰=未开始。
                    参考项目里「蓝=当前模型」是模型的「选中」概念，任务里没有对应物，
@@ -520,6 +521,10 @@ export function createRunsFeature(deps) {
                   /* 状态对话气泡：贴在泡沿外右上角，尾巴朝左下指着泡。
                      没有新消息时由 prunePulses 丢掉 → 什么都不渲染（泡回到干净状态）。 */
                   (() => {
+                    /* 用户口径：「运行完成的气泡不用显示时间图标」——
+                       已完成（绿泡）本身就说明结果了，而且它只停留 25 秒就该消失，
+                       不再挂任何图标（既不是时钟也不是勾）。 */
+                    if (row.state === 'done') return null
                     const pulse = pulseOf(row.id)
                     if (!pulse) return null
                     /* 状态徽标（用户 review 后实施）：咬住泡的右下角，图标/三点表示状态；
@@ -587,7 +592,9 @@ export function createRunsFeature(deps) {
                       h('span', { className: 'frx-orb-tip-meta' },
                         isRunning
                           ? h('span', null, dotsNode('运行中'), ` · 水位 ${pct}%`)
-                          : `${isSuspended ? '挂起' : '未开始'}${pct > 0 ? ` · 水位 ${pct}%` : ''}`),
+                          : (isDone
+                            ? '已完成'
+                            : `${isSuspended ? '挂起' : '未开始'}${pct > 0 ? ` · 水位 ${pct}%` : ''}`)),
                       h('span', { className: 'frx-orb-tip-hint' }, canOpen ? '单击打开会话' : '没有绑定会话 · 单击看详情'))
                     : null)
               }))
