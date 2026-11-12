@@ -1,9 +1,14 @@
 MIT License
 
-Copyright (c) 2026 aaron1.zhang
+Copyright (c) 2026 kp-z
 
-Portions of this software are derived from vscode-git-graph
-Copyright (c) 2019-present, mhutchie (see vendor/git-graph/LICENSE)
+This is the license for the workspace as a whole. Each plugin package ships its
+own LICENSE alongside its code, and that package-level license governs that
+package — including third-party attribution, which stays with the package that
+actually contains the derived code (for example, `dsh-dev-git-graph` derives
+portions from vscode-git-graph, and the notice lives in
+`packages/dsh-dev-git-graph/LICENSE` with the upstream text at
+`packages/dsh-dev-git-graph/vendor/git-graph/LICENSE`).
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
