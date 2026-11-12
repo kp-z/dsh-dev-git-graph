@@ -275,9 +275,13 @@ export function createRunsFeature(deps) {
     const glowOuter = rgba(accent, running ? 0.55 : 0.5)
     const glowOuter2 = rgba(accent, running ? 0.28 : 0.25)
     const glowInner = rgba(accent, 0.15)
-    /* 水位跟着状态色走（参考 WaterLevel.tsx 是绿；这里为了让「蓝=跑 / 黄=阻塞」一眼可分） */
-    const waterFill = rgba(accent, 0.3)
-    const waterStroke = rgba(accent, 0.82)
+    /* 水位颜色跟着**剩余量**走（对齐参考项目 WaterLevel.tsx 的绿→黄→红）：
+       水位 = 这个项目已完成任务占比，水位越低 = 还有越多活没干 → 水色越暖。
+       ⚠️ 只改**水**，气泡的描边/发光仍然是状态色（蓝=跑 / 黄=阻塞 / 绿=其余）——
+       用户点名过的状态色口径不能被水位配色冲掉。 */
+    const waterLevel = pct >= 66 ? [34, 197, 94] : (pct >= 33 ? [245, 158, 11] : [239, 68, 68])
+    const waterFill = rgba(waterLevel, 0.3)
+    const waterStroke = rgba(waterLevel, 0.82)
     return h('svg', {
       key: 'orb',
       width: size, height: size, viewBox: '0 0 100 100',
@@ -643,6 +647,8 @@ export function createRunsFeature(deps) {
                       borderRadius: '50%', padding: 0, margin: 0, border: 'none',
                       background: 'transparent', color: 'transparent', cursor: 'pointer',
                     },
+                    /* hover 放大（对齐参考项目 ClaudeModelBubbles 的 hover:scale-110）：
+                       作用在气泡插槽上，用 CSS 过渡，reduced-motion 下由样式表关掉。 */
                     onMouseEnter: () => { if (typeof setHoveredId === 'function') setHoveredId(row.id) },
                     onMouseLeave: () => { if (typeof setHoveredId === 'function') setHoveredId(null) },
                     /* 单击就跳会话（用户口径）：有绑定会话的泡点一下直接切过去；

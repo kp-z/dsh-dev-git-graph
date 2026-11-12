@@ -136,6 +136,22 @@ check('已完成的气泡不挂徽标（用户口径：运行完成的气泡不�
   assert.ok(tooltip.includes('已完成'), '已完成气泡的 hover 浮层要写「已完成」，不能落成「未开始」')
 })
 
+check('水位颜色跟着剩余量（绿→黄→红），且不动状态色', () => {
+  assert.ok(src.includes('const waterLevel = pct >= 66 ? [34, 197, 94]'), '水位要达到 2/3 才是绿')
+  assert.ok(src.includes('pct >= 33 ? [245, 158, 11] : [239, 68, 68]'), '中间黄、过低红')
+  assert.ok(src.includes('rgba(waterLevel, 0.3)') && src.includes('rgba(waterLevel, 0.82)'), '水与波浪线都用水位色')
+  /* 描边/发光仍然是状态色：search 一下 accent 有没有被 waterLevel 顶掉 */
+  assert.ok(src.includes('const stroke = rgba(accent,'), '描边还得是状态色')
+  assert.ok(src.includes('const glowOuter = rgba(accent,'), '外发光还得是状态色')
+})
+
+check('气泡 hover 放大 1.1（对齐参考项目），reduced-motion 下关掉', () => {
+  const styles = readFileSync(new URL('../src/client/runsExactStyles.js', import.meta.url), 'utf8')
+  assert.ok(/\.frx-orb-slot:hover\s*\{[^}]*transform:\s*scale\(1\.1\)/.test(styles), 'hover 要放大 1.1')
+  assert.ok(/prefers-reduced-motion[\s\S]{0,220}\.frx-orb-slot:hover\s*\{[^}]*transform:\s*none/.test(styles),
+    'reduced-motion 下不许动')
+})
+
 check('状态徽标：旧的对话气泡形态已换掉，五态各有徽标', () => {
   assert.equal(src.includes('frx-speech'), false, '旧的「对话气泡 + 尾巴」形态不该再出现')
   assert.ok(src.includes('frx-badge'), '应渲染右下角咬边的状态徽标')

@@ -258,6 +258,15 @@ export const CSS = `
   .frx-dots-dot { animation: none; opacity: .65; }
 }
 
+/* ---------- 气泡 hover：放大 1.1（对齐参考项目的 hover:scale-110） ----------
+   作用在插槽上而不是 SVG 上：插槽是定位锚点，缩放后徽标也跟着走、不会脱开。
+   用 transform 而不是改 width/height，避免每帧触发布局。 */
+.frx-orb-slot { transition: transform 180ms cubic-bezier(.22, .61, .36, 1); transform-origin: 50% 50%; }
+.frx-orb-slot:hover { transform: scale(1.1); z-index: 30; }
+@media (prefers-reduced-motion: reduce) {
+  .frx-orb-slot, .frx-orb-slot:hover { transition: none; transform: none; }
+}
+
 /* ---------- 状态徽标（咬住泡的右下角） ----------
    用户 review 后定的形态（P2）：小胶囊 + 图标/三点，位置固定在泡的右下角咬边，不会变成
    「夹在两泡之间的黑横条」。颜色 = 状态色玻璃（底 22% 状态色 + 深底、描边 55% 状态色）。 */
