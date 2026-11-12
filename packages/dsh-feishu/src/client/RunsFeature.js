@@ -422,6 +422,8 @@ export function createRunsFeature(deps) {
     if (view.empty) return h('div', { ref: hostRef }, emptyCard)
 
     const runningList = view.bubbles.filter((row) => row.state === 'running')
+    /* 「阻塞」= 未完成里被前置卡住的那批（与「运行中」无关，属于这张卡自己的补充口径） */
+    const blockedList = view.bubbles.filter((row) => row.state === 'blocked')
     const unfinished = view.bubbles.length
     const suspendedCount = view.bubbles.filter((row) => row.state === 'suspended').length
     const bindSessions = view.boundSessions || 0
@@ -437,13 +439,10 @@ export function createRunsFeature(deps) {
             h('div', { key: 'tt' },
               h('h2', { className: 'frx-card-title' }, '运行状态'),
               h('p', { className: `frx-card-sub ${runningList.length ? 'is-ok' : 'is-idle'}` },
-                runningList.length ? '会话正在跑 · 实时同步' : '空闲 · 等待任务开工'))),
-          h('div', { key: 'right', style: { display: 'flex', alignItems: 'center', gap: '8px', flex: '0 0 auto' } },
-            /* 用户口径：「运行状态卡片右上的刷新按钮去掉」——只留「未完成 N 条」。
-               刷新入口仍有：内容头部的刷新图标按钮（OverviewPanel 的 data-action="refresh"）。 */
-            h('div', { className: 'frx-version' },
-              h('p', { className: 'frx-version-label' }, '未完成'),
-              h('p', { className: 'frx-version-value' }, `${unfinished} 条`)))),
+                runningList.length ? '会话正在跑 · 实时同步' : '空闲 · 等待任务开工')))),
+        /* 头部右侧**不再放任何计数**：用户口径「已绑定和右上信息是重复的」；
+           「未完成 N 条」同样与下方「未完成任务」卡重复 —— 每个数字只出现一次。
+           刷新入口在内容头部（OverviewPanel 的 data-action="refresh"）。 */
         /* AVAILABLE MODELS → 可用任务 */
         h('div', { key: 'bubbles' },
           h('p', { className: 'frx-bubbles-label', title: '水位 = 该项目已完成任务占比（越高越接近收尾）' }, '可用任务'),
@@ -558,16 +557,9 @@ export function createRunsFeature(deps) {
                     : null)
               }))
             : h('p', { className: 'frx-subtitle' }, '没有未完成的任务')),
-        /* Health Score / Status → 运行中 / 阻塞 */
-        h('div', { key: 'boxes', className: 'frx-boxes' },
-          h('div', { className: 'frx-box' },
-            h('p', { className: 'frx-box-label' }, '运行中'),
-            h('p', { className: 'frx-box-value is-green' }, String(runningList.length),
-              h('span', { className: 'frx-box-unit' }, '条'))),
-          h('div', { className: 'frx-box' },
-            h('p', { className: 'frx-box-label' }, '已绑会话'),
-            h('p', { className: 'frx-box-value is-purple' }, String(bindSessions),
-              h('span', { className: 'frx-box-unit' }, '条')))),
+        /* 这里原来还有两个盒子（运行中 / 已绑会话）——正是用户指出的重复：
+           「运行中」与下方「运行中」卡的大数字重复，「已绑会话」与它右上那行重复。
+           状态卡现在只负责「现在什么状态 + 气泡墙」。 */
       ],
     })
 
@@ -577,7 +569,9 @@ export function createRunsFeature(deps) {
       children: [
         h('div', { key: 'bigrow', className: 'frx-bigrow' },
           h('div', { className: 'frx-chip is-blue' }, icon('cpu', 20)),
-          h('span', { className: 'frx-delta is-up' }, `${runningList.length} 在跑`)),
+          /* 右上不再写「N 在跑」（那是「运行中」卡的信息）：这里写这张卡自己的补充口径 —— 阻塞数 */
+          h('span', { className: `frx-delta ${blockedList.length ? 'is-warn' : 'is-flat'}` },
+            blockedList.length ? `${blockedList.length} 阻塞` : '没有阻塞')),
         /* 不要再给 stat 挂 marginTop:auto —— 那样「未完成」卡里会出现两处自动分配的空隙
            （stat 上方 75px、分布图上方 103px），而「运行中」卡里同样的空隙被压成 0（两块贴死）。
            现在固定节奏：头 → 14px → 大数字 → 自动空隙 → 底部（分布图 / 药丸）。 */

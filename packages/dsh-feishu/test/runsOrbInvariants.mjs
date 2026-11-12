@@ -130,5 +130,15 @@ check('运行页自己是滚动容器（宿主 .fo-feature-host 不滚，页面�
   assert.ok(block.includes('overscroll-behavior: contain'), '滚到底不要带着宿主页面一起滚')
 })
 
+check('信息不重复：状态卡里不再有「未完成 N 条」和两个 KPI 盒子', () => {
+  const card = stripComments(src.slice(src.indexOf("const statusCard = card('status'"), src.indexOf("/* ---------- 卡片 2")))
+  assert.equal(card.includes('frx-version'), false, '状态卡头部不该再放「未完成 N 条」（与下方卡片重复）')
+  assert.equal(card.includes('frx-boxes'), false, '状态卡底部不该再放「运行中 / 已绑会话」两个盒子（与下方卡片重复）')
+  /* 每个数字只出现一次：绑会话只能出现在「运行中」卡里 */
+  const total = stripComments(src.slice(src.indexOf("const totalCard = card('total'"), src.indexOf("/* ---------- 卡片 3")))
+  assert.equal(total.includes('绑会话'), false, '「未完成任务」卡不该重复会话绑定数')
+  assert.equal(total.includes('在跑'), false, '「未完成任务」卡不该重复在跑数（那是「运行中」卡的口径）')
+})
+
 console.log(`\nrunsOrbInvariants.mjs: ${passed} passed, ${failed.length} failed`)
 if (failed.length) process.exitCode = 1

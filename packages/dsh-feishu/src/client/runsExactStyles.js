@@ -130,6 +130,7 @@ export const CSS = `
 .frx-delta { font-size: 12px; font-weight: 700; }
 .frx-delta.is-up { color: #22c55e; }
 .frx-delta.is-flat { color: #9ca3af; }
+.frx-delta.is-warn { color: #fbbf24; }
 .frx-stat-label { margin: 0; font-size: 14px; color: var(--frx-text-dim); }
 .frx-stat-value { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 700; color: var(--frx-text-strong); }
 .frx-stat { margin-top: 14px; }
