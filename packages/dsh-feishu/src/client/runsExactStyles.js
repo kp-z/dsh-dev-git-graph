@@ -129,21 +129,17 @@ export const CSS = `
 .frx-kpi b { font-size: 15px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
 .frx-kpi-label { font-size: 11px; color: var(--frx-text-dim); }
 
-/* ---------- 状态卡底部：图例 + 项目占比 ---------- */
-.frx-legend {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--frx-border);
-}
-.frx-legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--frx-text-dim); }
-.frx-legend-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--frx-tone, #64748b); }
-.frx-legend-dist { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; min-width: 160px; max-width: 320px; }
-.frx-legend-dist-label { font-size: 11px; color: var(--frx-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
-.frx-legend-track {
-  flex: 1 1 auto; height: 6px; border-radius: 999px; overflow: hidden;
+/* ---------- 状态卡底部：未完成的项目占比 ----------
+   用户口径：原来那行四色图例与 KPI 胶囊语义重复，删掉；只留占比条，并与气泡墙同宽居中。 */
+.frx-dist { display: flex; flex-direction: column; gap: 6px; }
+.frx-dist-row { display: grid; grid-template-columns: minmax(0, 120px) 1fr auto; align-items: center; gap: 10px; }
+.frx-dist-label { font-size: 11px; color: var(--frx-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.frx-dist-track {
+  height: 6px; border-radius: 999px; overflow: hidden;
   background: color-mix(in oklab, var(--dsw-alias-label-primary) 10%, transparent);
 }
-.frx-legend-track > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(to right, rgba(96,165,250,.9), rgba(59,130,246,.35)); }
-.frx-legend-dist-value { font-size: 11px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
+.frx-dist-track > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(to right, rgba(96, 165, 250, 0.9), rgba(59, 130, 246, 0.35)); }
+.frx-dist-value { font-size: 11px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
 
 /* ---------- 卡片底部两个小盒（Health Score / Status） ---------- */
 .frx-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: auto; }
@@ -243,8 +239,10 @@ export const CSS = `
    「夹在两泡之间的黑横条」。颜色 = 状态色玻璃（底 22% 状态色 + 深底、描边 55% 状态色）。 */
 .frx-badge {
   position: absolute;
-  left: calc(100% - 22px);
-  bottom: calc(100% - 26px);
+  /* 用户口径「和气泡的相对位置太低了，高一点」：改成锚定**右上角**（原来 bottom 锚定会随
+     气泡槽高度浮动、看起来吊在泡的右下角）。 */
+  left: calc(100% - 20px);
+  top: -6px;
   z-index: 40;
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 18px; height: 18px; padding: 0 7px;

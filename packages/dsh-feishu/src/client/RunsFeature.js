@@ -592,30 +592,101 @@ export function createRunsFeature(deps) {
                     : null)
               }))
             : h('p', { className: 'frx-subtitle' }, '没有未完成的任务')),
-        /* 底部：图例（图标 + 颜色）+ 项目占比细条 —— 让状态卡「更完整」，不再头重脚轻。 */
-        h('div', { key: 'legend', className: 'frx-legend' },
-          [['运行中', '#3b82f6'], ['已完成', '#22c55e'], ['被阻塞', '#f59e0b'], ['未开始', '#64748b']]
-            .map(([label, color]) => h('span', { key: label, className: 'frx-legend-item', style: { '--frx-tone': color } },
-              h('i', { className: 'frx-legend-dot', 'aria-hidden': 'true' }), label)),
-          (() => {
-            const counts = new Map()
-            view.bubbles.forEach((row) => {
-              const key = row.workspaceTitle || '未归属项目'
-              counts.set(key, (counts.get(key) || 0) + 1)
-            })
-            const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
-            if (!top) return null
-            const total = view.bubbles.length || 1
-            return h('span', { key: 'dist', className: 'frx-legend-dist', title: `${top[0]}：${top[1]} 条未完成` },
-              h('span', { className: 'frx-legend-dist-label' }, top[0]),
-              h('b', { className: 'frx-legend-track' }, h('i', { style: { width: `${Math.round((top[1] / total) * 100)}%` } })),
-              h('span', { className: 'frx-legend-dist-value' }, String(top[1])))
-          })()),
+        /* 底部只留「未完成的项目占比」（用户口径：卡片有重复信息标签、位置也不对）——
+           原来的四色图例与上面的 KPI 胶囊（未完成 / 在跑 / 会话 / 阻塞）语义重复，删掉；
+           占比条与气泡墙同一列宽、居中，视觉上归属这张卡。 */
+        (() => {
+          const counts = new Map()
+          view.bubbles.forEach((row) => {
+            const key = row.workspaceTitle || '未归属项目'
+            counts.set(key, (counts.get(key) || 0) + 1)
+          })
+          const rows = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3)
+          if (!rows.length) return null
+          const total = view.bubbles.length || 1
+          const max = Math.max(1, ...rows.map((entry) => entry[1]))
+          return h('div', { key: 'dist', className: 'frx-dist', style: { maxWidth: '560px', margin: '10px auto 0' } },
+            rows.map(([label, count]) => h('div', { key: label, className: 'frx-dist-row' },
+              h('span', { className: 'frx-dist-label', title: label }, label),
+              h('span', { className: 'frx-dist-track' }, h('i', { style: { width: `${Math.max(8, Math.round((count / max) * 100))}%` } })),
+              h('span', { className: 'frx-dist-value' }, String(count)))))
+        })(),
       ],
     })
 
     /* 卡片 2「未完成任务」与卡片 3「运行中」已删除：数字进状态卡的 KPI 胶囊，
        在跑任务的明细在执行历史里（按最近活跃排序，在跑的排最前）。 */
+
+    /* ---------- 卡片 2：待处理（阻塞 / 要人看一眼） ----------
+       用户口径「运行页面卡片太少了，之前的两个没了，需要把必要的监控都加上」。
+       这张卡只放**需要人动手**的东西，且每行给原因，与 KPI 胶囊里的计数不重复。 */
+    const todoCard = card('todo', {
+      label: '待处理',
+      children: [
+        h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '12px' } },
+          h('div', { className: 'frx-card-head-left' },
+            h('div', { className: 'frx-icon is-warn' }, icon('activity', 22)),
+            h('div', { key: 'tt' },
+              h('h2', { className: 'frx-card-title' }, '待处理'),
+              h('p', { className: 'frx-card-sub is-idle' }, '被前置卡住 / 需要人看一眼')))),
+        (blockedList.length || (view.alerts || []).length)
+          ? h('div', { key: 'rows', className: 'frx-rows' }, [
+            ...blockedList.slice(0, 6).map((row) => h('button', {
+              key: `b-${row.id}`, type: 'button', className: 'frx-row is-warn', onClick: () => select(row.id),
+            },
+              h('span', { className: 'frx-row-left' },
+                h('span', { className: 'frx-avatar' }, String(row.no || '').slice(-2) || '··',
+                  h('span', { className: 'frx-avatar-dot is-warn', 'aria-hidden': 'true' })),
+                h('span', { className: 'frx-row-main' },
+                  h('span', { className: 'frx-row-title' }, row.title || ''),
+                  h('span', { className: 'frx-row-meta' },
+                    row.blockedBy.length
+                      ? `前置未完成 ${row.blockedBy.filter((item) => !item.done).length} / ${row.blockedBy.length}`
+                      : '标记为阻塞'))),
+              h('span', { className: 'frx-row-status is-warn' }, '阻塞'))),
+            ...(view.alerts || []).slice(0, 3).map((row) => h('button', {
+              key: `a-${row.id}`, type: 'button', className: 'frx-row', onClick: () => select(row.id),
+            },
+              h('span', { className: 'frx-row-left' },
+                h('span', { className: 'frx-avatar' }, String(row.no || '').slice(-2) || '··',
+                  h('span', { className: 'frx-avatar-dot is-idle', 'aria-hidden': 'true' })),
+                h('span', { className: 'frx-row-main' },
+                  h('span', { className: 'frx-row-title' }, row.title || ''),
+                  h('span', { className: 'frx-row-meta' }, `停留 ${row.elapsedText || '—'}`))),
+              h('span', { className: 'frx-row-status is-idle' }, '盯一下'))),
+          ])
+          : h('p', { className: 'frx-subtitle' }, '没有卡住的任务'),
+      ],
+    })
+
+    /* ---------- 卡片 3：跑得最久（时长 Top，含没记开始时间的） ---------- */
+    const longestCard = card('longest', {
+      label: '跑得最久',
+      children: [
+        h('div', { key: 'head', className: 'frx-card-head', style: { marginBottom: '12px' } },
+          h('div', { className: 'frx-card-head-left' },
+            h('div', { className: 'frx-icon is-brand' }, icon('refresh', 22)),
+            h('div', { key: 'tt' },
+              h('h2', { className: 'frx-card-title' }, '跑得最久'),
+              h('p', { className: 'frx-card-sub is-idle' },
+                (view.longest || []).some((row) => row.timed)
+                  ? '按已跑时长排序（没记开始时间的排后面）'
+                  : '都还没有开始计时')))),
+        (view.longest || []).length
+          ? h('div', { key: 'rows', className: 'frx-rows' },
+            (view.longest || []).slice(0, 5).map((row) => h('button', {
+              key: row.id, type: 'button', className: 'frx-row', onClick: () => select(row.id),
+            },
+              h('span', { className: 'frx-row-left' },
+                h('span', { className: 'frx-avatar' }, String(row.no || '').slice(-2) || '··',
+                  h('span', { className: `frx-avatar-dot is-${stateClass(row.state)}`, 'aria-hidden': 'true' })),
+                h('span', { className: 'frx-row-main' },
+                  h('span', { className: 'frx-row-title' }, row.title || ''),
+                  h('span', { className: 'frx-row-meta' }, row.startedText || '未记录开始时间'))),
+              h('span', { className: 'frx-row-status is-idle' }, row.elapsedText || '—'))))
+          : h('p', { className: 'frx-subtitle' }, '还没有任务在跑'),
+      ],
+    })
 
     /* ---------- 卡片 4：执行历史（参考项目的 History，跨 2 列） ---------- */
     const historyCard = card('history', {
@@ -713,6 +784,11 @@ export function createRunsFeature(deps) {
            320px 的下限保证：宽面板=2 列（状态卡占满一行），窄面板自动落成 1 列。 */
         style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' },
       }, statusCard),
+      h('div', {
+        key: 'row15',
+        className: 'frx-grid',
+        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '16px' },
+      }, todoCard, longestCard),
       h('div', {
         key: 'row2',
         className: 'frx-grid is-tight',

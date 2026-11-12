@@ -144,13 +144,29 @@ check('气泡墙高度 104（用户口径：太高了）', () => {
   assert.equal(src.includes("height: '132px'"), false, '旧的 132px 高度应已去掉')
 })
 
-check('状态卡自带 KPI 胶囊 + 底部图例（数字只在这出现一次）', () => {
+check('状态卡自带 KPI 胶囊 + 底部占比（数字只在这出现一次）', () => {
   const card = stripComments(src.slice(src.indexOf("const statusCard = card('status'"), src.indexOf('/* 卡片 2')))
   assert.ok(card.includes('frx-kpi'), '状态卡头部要有 KPI 胶囊')
-  assert.ok(card.includes('frx-legend'), '状态卡底部要有图例 + 项目占比')
+  assert.ok(card.includes('frx-dist'), '状态卡底部要有未完成的项目占比')
+  assert.equal(card.includes('frx-legend'), false, '四色图例与 KPI 胶囊语义重复，应已删除')
   assert.ok(card.includes("'lucide:"), 'KPI 图标要复用内置 Lucide 图标集')
   assert.equal(src.includes("card('total'"), false, '「未完成任务」卡应已删除（数字进胶囊）')
   assert.equal(src.includes("card('running'"), false, '「运行中」卡应已删除（数字进胶囊）')
+})
+
+check('监控卡回来了（用户口径：卡片太少，必要的监控都要有）', () => {
+  for (const key of ["card('todo'", "card('longest'", "card('history'", "card('actions'"]) {
+    assert.ok(src.includes(key), `缺监控卡 ${key}`)
+  }
+  assert.ok(src.includes("'待处理'") && src.includes("'跑得最久'"), '两张新卡要有标题')
+})
+
+check('只有「正在运行」常驻；其余状态到点自动消失（并留墓碑不会闪回）', () => {
+  const pulse = readFileSync(new URL('../src/client/sessionPulse.js', import.meta.url), 'utf8')
+  assert.ok(/pulse:brand[^\n]*sticky: true|sticky: true, dots: true/.test(pulse) || pulse.includes('sticky: true, dots: true'),
+    '运行中要常驻（sticky: true）')
+  assert.equal((pulse.match(/sticky: false/g) || []).length >= 4, true, '其余状态都应是 sticky: false')
+  assert.ok(pulse.includes('hidden: true'), '过期要留墓碑，否则每 8 秒闪一次')
 })
 
 check('信息不重复：状态卡里不再有「未完成 N 条」和两个 KPI 盒子', () => {

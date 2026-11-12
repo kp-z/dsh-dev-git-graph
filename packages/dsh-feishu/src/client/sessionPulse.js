@@ -42,17 +42,19 @@ export function pulseForTask(task, feed) {
        运行中 = 三点动画（唯一会动）｜已完成 = ✓ ｜被阻塞 = ⚠ ｜已挂起 = ⏸ ｜未开始 / 等待 = 🕐
      图标都在画面里（不写字），文字仍留在 text 里给 aria-label / title 用。 */
   if (t.done === true) return { text: '已完成', tone: 'ok', sticky: false, badge: 'check' }
-  if (t.blocked === true) return { text: '被阻塞', tone: 'warn', sticky: true, badge: 'alert' }
-  if (t.suspended === true) return { text: '已挂起', tone: 'paused', sticky: true, badge: 'pause' }
+  if (t.blocked === true) return { text: '被阻塞', tone: 'warn', sticky: false, badge: 'alert' }
+  if (t.suspended === true) return { text: '已挂起', tone: 'paused', sticky: false, badge: 'pause' }
   if (phase === 'running' || t.running === true) {
     /* 用户口径：「运行中的状态显示一个个… 的动画，不要用『运行中***』这样的文字」。
        text 只留给无障碍（aria-label / title）；画面上渲染的是三点动画（dots: true）。 */
-    return { text: turn > 0 ? `运行中 · 第 ${turn} 轮` : '刚开工', tone: 'brand', sticky: false, dots: true, badge: 'dots' }
+    /* 用户口径：「这个状态除了正在运行都是可以自动消失的」→ 只有运行中常驻（sticky），
+       其余状态显示一次、静默一段时间后自己消失（并且不再反复回来，见 prunePulses 的墓碑）。 */
+    return { text: turn > 0 ? `运行中 · 第 ${turn} 轮` : '刚开工', tone: 'brand', sticky: true, dots: true, badge: 'dots' }
   }
   /* 未开始 / 等待：给一个**静止的时钟徽标**（用户要求「其他状态也给我看下设计」→ 全套都显示）。
      它们不呼吸、也不参与「没新消息就消失」，信息量最低但能让整面墙的状态一眼齐。
      （不想要时钟徽标就把它改成 return null —— 其余状态不受影响。） */
-  return { text: '未开始', tone: 'idle', sticky: true, badge: 'clock' }
+  return { text: '未开始', tone: 'idle', sticky: false, badge: 'clock' }
 }
 
 /**
@@ -86,13 +88,16 @@ export function derivePulses(tasks, sessions, prev, now) {
        文案变了 = 新消息 → 重置计时。 */
     const same = old && old.text === next.text && old.tone === next.tone
     if (same) echoed += 1
-    map.set(id, { ...next, at: same ? old.at : at })
+    /* 已经消失过的状态（墓碑）在文案没变前继续压着，不要重新点亮 → 不会每 8 秒闪一次。 */
+    const hidden = same && old.hidden === true
+    map.set(id, hidden ? { ...next, at: old.at, hidden: true } : { ...next, at: same ? old.at : at })
   }
   return { map, echoed }
 }
 
 /**
- * 丢掉已经静默太久的非 sticky 状态泡。sticky（阻塞/挂起）永远留存。
+ * 丢掉已经静默太久的非常驻状态泡：过期后留**墓碑**（hidden: true），
+ * 直到这条任务的状态文案变化才重新出现。只有「运行中」是常驻（sticky）。
  * @returns {Map} 过滤后的新 Map（不改入参）
  */
 export function prunePulses(map, now, ttl) {
@@ -102,8 +107,14 @@ export function prunePulses(map, now, ttl) {
   if (!(map instanceof Map)) return out
   for (const [id, entry] of map) {
     if (!entry) continue
+    /* 常驻（运行中）：一直在 */
     if (entry.sticky === true) { out.set(id, entry); continue }
-    if (at - Number(entry.at || 0) < life) out.set(id, entry)
+    /* 没到寿命：继续显示 */
+    if (at - Number(entry.at || 0) < life) { out.set(id, entry); continue }
+    /* 到寿命了：不能直接删 —— 下一轮 derivePulses 会当成「新状态」重新点亮，
+       于是每 8 秒闪一次。这里留一个**墓碑**（hidden），状态文案不变就一直压着；
+       等状态真的变了（text 不同）才会重新出现。 */
+    out.set(id, { ...entry, hidden: true })
   }
   return out
 }

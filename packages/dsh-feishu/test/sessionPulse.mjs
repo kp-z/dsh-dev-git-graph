@@ -37,8 +37,9 @@ const S = (id, extra) => Object.assign({ id, alive: true, phase: 'idle', turn: 0
 /* ---------------- 状态词 ---------------- */
 
 check('运行中：带轮次文案（只给无障碍用）+ dots 标记（画面渲染三点动画）', () => {
-  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running', turn: 12 })), { text: '运行中 · 第 12 轮', tone: 'brand', sticky: false, dots: true, badge: 'dots' })
-  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running' })), { text: '刚开工', tone: 'brand', sticky: false, dots: true, badge: 'dots' })
+  /* 用户口径：「这个状态除了正在运行都是可以自动消失的」→ 运行中常驻（sticky: true） */
+  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running', turn: 12 })), { text: '运行中 · 第 12 轮', tone: 'brand', sticky: true, dots: true, badge: 'dots' })
+  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running' })), { text: '刚开工', tone: 'brand', sticky: true, dots: true, badge: 'dots' })
 })
 
 check('只有「运行中」用三点动画；其余状态用各自的图标徽标', () => {
@@ -65,14 +66,14 @@ check('已完成 = 绿、不粘（运行完也要显示，然后自动消失）'
   assert.deepEqual(p, { text: '已完成', tone: 'ok', sticky: false, badge: 'check' })
 })
 
-check('被阻塞 = 黄且 sticky（要人看，不自动消失）', () => {
+check('被阻塞 = 黄（会显示一次，然后自动消失）', () => {
   const p = pulseForTask(T('a', { blocked: true }), null)
-  assert.deepEqual(p, { text: '被阻塞', tone: 'warn', sticky: true, badge: 'alert' })
+  assert.deepEqual(p, { text: '被阻塞', tone: 'warn', sticky: false, badge: 'alert' })
 })
 
-check('已挂起 = 黄且 sticky', () => {
+check('已挂起 = 紫（会显示一次，然后自动消失）', () => {
   const p = pulseForTask(T('a', { suspended: true }), null)
-  assert.deepEqual(p, { text: '已挂起', tone: 'paused', sticky: true, badge: 'pause' })
+  assert.deepEqual(p, { text: '已挂起', tone: 'paused', sticky: false, badge: 'pause' })
 })
 
 check('优先级：终态 > 阻塞 > 运行中', () => {
@@ -81,9 +82,9 @@ check('优先级：终态 > 阻塞 > 运行中', () => {
 })
 
 check('未开始 / 等待 → 静止的时钟徽标（用户要求「其他状态也给设计」，全套都显示）', () => {
-  assert.deepEqual(pulseForTask(T('a'), null), { text: '未开始', tone: 'idle', sticky: true, badge: 'clock' })
-  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'idle' })), { text: '未开始', tone: 'idle', sticky: true, badge: 'clock' })
-  assert.deepEqual(pulseForTask(T('a', { started: true }), null), { text: '未开始', tone: 'idle', sticky: true, badge: 'clock' })
+  assert.deepEqual(pulseForTask(T('a'), null), { text: '未开始', tone: 'idle', sticky: false, badge: 'clock' })
+  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'idle' })), { text: '未开始', tone: 'idle', sticky: false, badge: 'clock' })
+  assert.deepEqual(pulseForTask(T('a', { started: true }), null), { text: '未开始', tone: 'idle', sticky: false, badge: 'clock' })
 })
 
 /* ---------------- 一轮结算 ---------------- */
@@ -115,24 +116,33 @@ check('文案变了 = 新消息 → 重置计时', () => {
 
 /* ---------------- 自动消失 ---------------- */
 
-check('无新消息 → 到点消失（默认 8 秒）', () => {
+check('正在运行常驻：到点也不消失（用户口径：除了正在运行，其它都可以自动消失）', () => {
   const tasks = [T('t1', { sessionId: 's1', running: true })]
   const { map } = derivePulses(tasks, [S('s1', { phase: 'running', turn: 1 })], new Map(), 0)
-  assert.equal(prunePulses(map, PULSE_TTL - 1).size, 1, '还没到点要留着')
-  assert.equal(prunePulses(map, PULSE_TTL).size, 0, '到点消失')
+  assert.equal(prunePulses(map, PULSE_TTL).size, 1, '运行中要一直在')
+  assert.equal(prunePulses(map, PULSE_TTL * 100).size, 1, '再久也在')
 })
 
-check('有待确认的姿态（阻塞/挂起）不消失', () => {
+check('阻塞/挂起：显示一次后到点消失（并留墓碑，不再反复冒出来）', () => {
   const tasks = [T('t1', { blocked: true }), T('t2', { suspended: true })]
   const { map } = derivePulses(tasks, [], new Map(), 0)
   const later = prunePulses(map, 24 * 3600 * 1000)
   assert.equal(later.size, 2, 'sticky 必须留存')
 })
 
-check('已完成到点也会消失（运行完也要显示，但不需要一直占位）', () => {
+check('已完成：显示一次后到点消失，而且不会每 8 秒又冒出来（墓碑）', () => {
   const tasks = [T('t1', { done: true })]
   const { map } = derivePulses(tasks, [], new Map(), 0)
-  assert.equal(prunePulses(map, PULSE_TTL).size, 0)
+  const pruned = prunePulses(map, PULSE_TTL)
+  assert.equal(pruned.get('t1').hidden, true, '过期后留墓碑')
+  /* 下一轮结算：文案没变 → 还是墓碑（不重新点亮） */
+  const again = derivePulses(tasks, [], pruned, PULSE_TTL + 1000)
+  assert.equal(again.map.get('t1').hidden, true, '不该重新出现')
+  assert.equal(prunePulses(again.map, PULSE_TTL + 1000).get('t1').hidden, true, '继续压着')
+  /* 状态真的变了 → 重新出现 */
+  const changed = derivePulses([T('t1', { running: true })], [], again.map, PULSE_TTL + 2000)
+  assert.equal(changed.map.get('t1').hidden, undefined, '状态变了要重新显示')
+  assert.equal(changed.map.get('t1').badge, 'dots')
 })
 
 check('任务从列表里消失时，状态泡跟着消失', () => {
