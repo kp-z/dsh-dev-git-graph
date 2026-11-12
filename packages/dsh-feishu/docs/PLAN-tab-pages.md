@@ -595,6 +595,17 @@
       状态泡 = 刚开工(brand) / 被阻塞(warn) / 已完成(ok) ×2，颜色与文案一致。
 - [x] 证据：runsView 34、overviewPanel 219、npm test 0、offline 84 JS + 7 Python。
 
+**第 42 轮（23:30，把离线预览扩到三页）**
+
+- [x] **离线预览从「只有运行页」扩到三页**（`92f73cb`）：用 `features.js` 的真实注册表拿三个
+      Component 逐页渲染；ctx 给最小可用集，**某一页缺 ctx 只影响那一页**（错误写进产物的红框里，
+      不让整个预览挂掉）。产物里三段各一个 1100×620 视口。
+- [x] 本机结果：三段都渲染、无红框；运行页完整；洞察页出 KPI/分布卡（donut 固定 132×132）；
+      关系页走空态 —— 因为预览没传 `graphs`，属**预览数据缺口**，非产品问题。
+- [ ] 已知预览缺口（下次补）：① 关系页要传 `graphs` / `treeProps` 才有画布；
+      ② 洞察页要传 `insightStats` 才能看历史指标卡。
+- [x] 证据：npm test 0、overviewPanel 219。
+
 - [ ] **下一轮入口（重要）**：
       1) 工作区仍有并发写入（`GraphView.js` / `GraphFeature.js` / `styles.js`，14:13 起）——
          是「一键整理 → 右上『建议』按钮 + 画板卡片对齐 adventure workflow」那条需求，
