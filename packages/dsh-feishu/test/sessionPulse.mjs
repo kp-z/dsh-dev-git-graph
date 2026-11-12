@@ -6,6 +6,7 @@
  */
 
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import {
   PULSE_TTL,
   pulseForTask,
@@ -176,6 +177,31 @@ check('订阅：收到 activity 事件就回调 sessions，退订会 close', () 
     if (origin === undefined) delete globalThis.EventSource
     else globalThis.EventSource = origin
   }
+})
+
+/* ---------------- 客户端↔宿主的接线契约 ---------------- */
+
+check('客户端订阅的就是宿主注册的那条 SSE 路由（改名/改路径必须两边一起改）', () => {
+  const client = readFileSync(new URL('../src/client/RunsFeature.js', import.meta.url), 'utf8')
+  const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8')
+  const used = client.match(/subscribeActivity\('([^']+)'/)
+  assert.ok(used, '客户端应该显式写出订阅地址')
+  const path = used[1]
+  /* 客户端写的是对外路径（/dsh-feishu/...），宿主内部注册的是去掉插件前缀的那一段
+     （前缀由宿主的插件路由层负责），所以比对时要把 /dsh-feishu 去掉。 */
+  const hostPath = path.replace(/^\/dsh-feishu/, '')
+  assert.ok(host.includes(`route === '${hostPath}'`), `宿主没有注册 ${hostPath}（对外 ${path}）：气泡的状态会永远不更新`)
+  assert.ok(host.includes('activityFeed.open'), '这条路由必须交给 activityFeed 处理')
+})
+
+check('客户端读的就是宿主推的字段（phase / turn）', () => {
+  const pulse = readFileSync(new URL('../src/client/sessionPulse.js', import.meta.url), 'utf8')
+  const feed = readFileSync(new URL('../activity.js', import.meta.url), 'utf8')
+  /* 宿主 activity.js 的 packet 是 { generation, revision, sessions }，每项 { id, alive, phase, turn, unread } */
+  assert.ok(feed.includes('revison') === false && feed.includes('revision'), '宿主帧里应有 revision')
+  assert.ok(pulse.includes("f.phase") && pulse.includes('f.turn'), '客户端要读 phase 与 turn')
+  const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8')
+  assert.ok(host.includes("return { id, alive: true, phase: item.kind, turn: item.turn"), '宿主的 sessions 项形状变了')
 })
 
 console.log(`\nsessionPulse.mjs: ${passed} passed, ${failed.length} failed`)
