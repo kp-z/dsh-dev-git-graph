@@ -578,7 +578,10 @@ export function createRunsFeature(deps) {
         h('div', { key: 'bigrow', className: 'frx-bigrow' },
           h('div', { className: 'frx-chip is-blue' }, icon('cpu', 20)),
           h('span', { className: 'frx-delta is-up' }, `${runningList.length} 在跑`)),
-        h('div', { key: 'stat', style: { marginTop: 'auto' } },
+        /* 不要再给 stat 挂 marginTop:auto —— 那样「未完成」卡里会出现两处自动分配的空隙
+           （stat 上方 75px、分布图上方 103px），而「运行中」卡里同样的空隙被压成 0（两块贴死）。
+           现在固定节奏：头 → 14px → 大数字 → 自动空隙 → 底部（分布图 / 药丸）。 */
+        h('div', { key: 'stat', className: 'frx-stat' },
           h('p', { className: 'frx-stat-label' }, '未完成任务'),
           h('p', { className: 'frx-stat-value' }, String(unfinished))),
         /* 按项目分布：横向条 + 名称 + 条数。比「一排没有坐标的柱子」有信息量，
@@ -608,7 +611,7 @@ export function createRunsFeature(deps) {
         h('div', { key: 'bigrow', className: 'frx-bigrow' },
           h('div', { className: 'frx-chip is-purple' }, icon('terminal', 20)),
           h('span', { className: 'frx-delta is-flat' }, `${bindSessions} 绑会话`)),
-        h('div', { key: 'stat', style: { marginTop: 'auto' } },
+        h('div', { key: 'stat', className: 'frx-stat' },
           h('p', { className: 'frx-stat-label' }, '运行中'),
           h('p', { className: 'frx-stat-value' }, String(runningList.length))),
         h('div', { key: 'pills', className: 'frx-pills' },
@@ -706,12 +709,16 @@ export function createRunsFeature(deps) {
       h('div', {
         key: 'row1',
         className: 'frx-grid',
-        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' },
+        /* 第一行：**运行状态卡独占一整行**，下面两张卡并排。
+           原来用 minmax(240px)，面板宽时 auto-fit 会排出 3 列，于是 span2 的状态卡把
+           「未完成任务」挤到第 3 列、「运行中」被挤到第二行 → 两张卡高度不一致、内间距也不一致。
+           320px 的下限保证：宽面板=2 列（状态卡占满一行），窄面板自动落成 1 列。 */
+        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' },
       }, statusCard, totalCard, runningCard),
       h('div', {
         key: 'row2',
         className: 'frx-grid is-tight',
-        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' },
+        style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '16px' },
       }, historyCard, actionCard),
     )
   }

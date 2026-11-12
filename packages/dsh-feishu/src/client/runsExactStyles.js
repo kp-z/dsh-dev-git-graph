@@ -132,7 +132,10 @@ export const CSS = `
 .frx-delta.is-flat { color: #9ca3af; }
 .frx-stat-label { margin: 0; font-size: 14px; color: var(--frx-text-dim); }
 .frx-stat-value { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 700; color: var(--frx-text-strong); }
-.frx-pills { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }
+.frx-stat { margin-top: 14px; }
+/* 底部块（按项目分布 / 运行中药丸）：用**唯一一处**自动空隙顶到底部，
+   同时给一个最小上间距（卡片矮的时候不会和上面的数字贴死）。 */
+.frx-pills { display: flex; flex-wrap: wrap; gap: 14px; margin-top: auto; padding-top: 14px; }
 .frx-pill {
   display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%;
   padding: 0; border-radius: 0; font-size: 11px;
@@ -323,7 +326,7 @@ export const CSS = `
 }
 
 /* 按项目分布（Total Skills 卡下半部分）：标签 + 轨道 + 数值 */
-.frx-bydist { display: flex; flex-direction: column; gap: 10px; margin-top: auto; padding-top: 16px; }
+.frx-bydist { display: flex; flex-direction: column; gap: 10px; margin-top: auto; padding-top: 14px; }
 .frx-bydist-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px auto; align-items: center; gap: 10px; }
 .frx-bydist-label {
   font-size: 11px; color: var(--frx-text-dim);
