@@ -389,7 +389,7 @@ export function createGraphView(deps) {
     }
 
     /* ---------------- 浮动工具卡片 ----------------
-       位置固定在画布左下角：不占版面（不再单起一行），但随时可达。 */
+       位置固定在画布右上角（用户口径：按钮都放右上卡片里）：不占版面（不再单起一行），但随时可达。 */
     const org = organize && typeof organize === 'object' ? organize : null
     const orgAvailable = !!(org && org.available)
     const orgRunning = !!(org && org.running)
@@ -426,32 +426,7 @@ export function createGraphView(deps) {
       onPointerDown: (event) => { if (typeof event.stopPropagation === 'function') event.stopPropagation() },
       onClick: (event) => { if (typeof event.stopPropagation === 'function') event.stopPropagation() },
     },
-      orgAvailable
-        ? h('div', { className: 'fo-canvas-card-group' },
-          h('button', {
-            type: 'button',
-            className: 'fo-btn',
-            'data-size': 'sm',
-            'data-action': 'organize',
-            disabled: orgRunning,
-            title: '让 AI 找前置/后置/来源关系，并按完成时间补一条时间先后；先出建议再落库',
-            onClick: () => { if (!orgRunning && typeof org.onRun === 'function') org.onRun() },
-          }, orgRunning ? '整理中…' : '一键整理', orgRunning ? null : sparkleIcon(h)),
-          orgPending > 0
-            ? h('button', {
-              type: 'button',
-              className: 'fo-btn',
-              'data-size': 'sm',
-              'data-variant': 'ghost',
-              'data-action': 'organize-toggle',
-              'aria-expanded': orgOpen ? 'true' : 'false',
-              'aria-controls': 'fo-organize-column',
-              onClick: () => { if (typeof org.onToggle === 'function') org.onToggle() },
-            }, orgOpen ? '收起建议' : `建议 ${orgPending}`)
-            : null,
-        )
-        : null,
-      orgAvailable ? h('span', { className: 'fo-canvas-card-sep', 'aria-hidden': 'true' }) : null,
+      /* 与参考站（adventure WorkflowEditor）一致的顺序：左边分段控件，右边主按钮。 */
       h('div', { className: 'fo-canvas-card-group' },
         h('button', {
           type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
@@ -478,7 +453,6 @@ export function createGraphView(deps) {
           onClick: fitAll,
         }, '适应'),
       ),
-      h('span', { className: 'fo-canvas-card-sep', 'aria-hidden': 'true' }),
       h('div', { className: 'fo-canvas-card-group' },
         h('button', {
           type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
@@ -494,6 +468,30 @@ export function createGraphView(deps) {
           }, '取消聚焦')
           : null,
       ),
+      orgAvailable
+        ? h('div', { className: 'fo-canvas-card-group', 'data-plain': '1' },
+          orgPending > 0
+            ? h('button', {
+              type: 'button',
+              className: 'fo-btn',
+              'data-size': 'sm',
+              'data-action': 'organize-toggle',
+              'aria-expanded': orgOpen ? 'true' : 'false',
+              'aria-controls': 'fo-organize-column',
+              onClick: () => { if (typeof org.onToggle === 'function') org.onToggle() },
+            }, orgOpen ? '收起建议' : `建议 ${orgPending}`)
+            : null,
+          h('button', {
+            type: 'button',
+            className: 'fo-btn',
+            'data-size': 'sm',
+            'data-action': 'organize',
+            disabled: orgRunning,
+            title: '让 AI 找前置/后置/来源关系，并按完成时间补一条时间先后；先出建议再落库',
+            onClick: () => { if (!orgRunning && typeof org.onRun === 'function') org.onRun() },
+          }, orgRunning ? '分析中…' : '建议', orgRunning ? null : sparkleIcon(h)),
+        )
+        : null,
     )
 
     return h('div', { className: 'fo-canvas-stage' },
