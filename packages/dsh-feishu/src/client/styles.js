@@ -620,6 +620,20 @@ export const CSS = `
   transition: border-color var(--fo-dur) var(--fo-ease);
 }
 .fo-graph:hover { border-color: var(--fo-glass-line-hover); }
+/* 多图折叠：收起时只留一行 header（不占画布高度），展开时和原来一样 */
+.fo-graph.is-collapsed { flex: 0 0 auto; min-height: 0; }
+.fo-graph.is-collapsed .fo-graph-head { border-bottom: 0; padding: 8px 12px; }
+.fo-graph-toggle {
+  display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto;
+  padding: 0; border: 0; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.fo-graph-caret { flex: 0 0 auto; font-size: 10px; color: ${T.label2}; transition: transform .12s var(--fo-ease); }
+.fo-graph-caret[data-collapsed="1"] { transform: rotate(-90deg); }
+.fo-graph-summary {
+  margin-left: auto; flex: 0 0 auto;
+  font-size: 11px; color: ${T.label2}; font-variant-numeric: tabular-nums;
+}
 .fo-graph-head {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 12px 16px; border-bottom: 1px solid var(--fo-glass-line);

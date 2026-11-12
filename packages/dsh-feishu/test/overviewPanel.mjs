@@ -2669,6 +2669,60 @@ check('layout.js：只 import 同目录的 model.js，不碰 document/window/fet
   })
 }
 
+/* ---- 多图折叠：>2 张图时默认只展开第一张 ---- */
+{
+  const snap = {
+    ...SNAPSHOT,
+    groups: [
+      { id: 'g1', name: 'QVIZ', members: ['wA', 'wB'], labels: {} },
+      { id: 'g2', name: 'DSH', members: ['wC'], labels: {} },
+      { id: 'g3', name: 'OTHER', members: ['wD'], labels: {} },
+    ],
+  }
+  const fx = await mountPanel({ snapshot: snap, startFeature: 'graph' })
+  let gt = fx.tree
+  const heads = () => findAll(gt, (node) => node.kind === 'host' && classNameOf(node).split(/\s+/).includes('fo-graph-head'))
+  const svgs = () => byClass(gt, 'fo-svg')
+  check('多张图：默认只展开第一张，其余收成一行（画布数 1）', () => {
+    const rows = heads().length
+    assert.ok(rows >= 3, `至少三行 header，实际 ${rows}`)
+    assert.equal(svgs().length, 1, '只渲染一张画布')
+    const toggles = findAll(gt, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-graph')
+    assert.equal(toggles.length, rows, '每行都有折叠开关')
+    assert.deepEqual(toggles.map((node) => node.props['data-collapsed']), ['0', ...Array(rows - 1).fill('1')])
+    assert.equal(toggles[1].props['aria-expanded'], 'false')
+  })
+  check('折叠行显示摘要「N 个项目 · N 个任务」', () => {
+    const text = textOf(heads()[1])
+    assert.ok(/\d+ 个项目 · \d+ 个任务/.test(text), text)
+  })
+  const toggles = findAll(gt, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-graph')
+  toggles[1].props.onClick()
+  gt = await fx.mini.act()
+  check('点第二行：展开成两张画布，第一张保持不变', () => {
+    const rows = heads().length
+    assert.equal(svgs().length, 2)
+    const next = findAll(gt, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-graph')
+    assert.deepEqual(next.map((node) => node.props['data-collapsed']), ['0', '0', ...Array(rows - 2).fill('1')])
+  })
+  findAll(gt, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-graph')[0].props.onClick()
+  gt = await fx.mini.act()
+  check('点第一行：收起，展开状态是逐图记住的', () => {
+    const rows = heads().length
+    const next = findAll(gt, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-graph')
+    assert.deepEqual(next.map((node) => node.props['data-collapsed']), ['1', '0', ...Array(rows - 2).fill('1')])
+    assert.equal(svgs().length, 1, '只剩第二张还开着')
+  })
+}
+
+{/* 两张图不折叠：默认全部展开（避免少量图时多一次点击） */
+  const fx2 = await mountPanel({ startFeature: 'graph' })
+  check('只有 2 张图时不折叠：两张画布都渲染，也没有折叠按钮', () => {
+    assert.equal(byClass(fx2.tree, 'fo-svg').length, 2)
+    assert.equal(findAll(fx2.tree, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-graph').length, 0)
+  })
+}
+
 /* ---- 时间先后（temporal）进画布：独立 mount，避免污染主 fixture 的计数断言 ---- */
 {
   const snap = {

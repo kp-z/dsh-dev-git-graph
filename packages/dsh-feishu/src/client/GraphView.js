@@ -183,6 +183,23 @@ export function createGraphView(deps) {
     const [views, setViews] = useState({})
     const list = Array.isArray(graphs) ? graphs : []
     const [drag, setDrag] = useState(null)
+    /* 多图折叠：>2 张图时默认只展开第一张，其余收成一行摘要（否则 5 个目录要滚很久）。
+       用户手点过的展开/收起记在 collapsed 里，优先级高于默认值。 */
+    const [collapsed, setCollapsed] = useState({})
+    const autoCollapse = list.length > 2
+    const isCollapsed = (graph, index) => {
+      const explicit = collapsed[graph.key]
+      if (explicit === true || explicit === false) return explicit
+      return autoCollapse && index > 0
+    }
+    const toggleCollapse = (graph) => {
+      const index = list.findIndex((item) => item.key === graph.key)
+      setCollapsed((prev) => {
+        const bag = prev && typeof prev === 'object' ? prev : {}
+        const current = bag[graph.key] === undefined ? (autoCollapse && index > 0) : bag[graph.key] === true
+        return { ...bag, [graph.key]: !current }
+      })
+    }
     /* 拖动过就不算点击：pointerup 之后浏览器还会补一个 click，用它把选中/详情挡掉。 */
     const dragMoved = useRef(false)
     const svgRefs = useRef({})
@@ -564,17 +581,32 @@ export function createGraphView(deps) {
         }, children)
       }))
 
+      const folded = isCollapsed(graph, index)
+      /* 折叠时这行摘要就是这张图的全部可见信息：项目数 + 任务数（与图例同源）。 */
+      const summary = `${(graph.projects || []).length} 个项目 · ${taskCount} 个任务`
       return h('section', {
         key: graph.key || index,
-        className: 'fo-graph',
+        className: `fo-graph${folded ? ' is-collapsed' : ''}`,
         'aria-label': label,
         style: { '--fo-i': Math.min(index, 7) },
       },
         h('div', { className: 'fo-graph-head' },
-          h('span', { className: 'fo-graph-name' }, graph.kind === 'ungrouped' ? '未分组' : graph.label),
+          /* 折叠开关就是图名本身：>2 张图时它变成一行摘要（名字 + 项目/任务数），点一下展开。 */
+          autoCollapse
+            ? h('button', {
+              type: 'button', className: 'fo-graph-toggle',
+              'data-action': 'toggle-graph', 'data-collapsed': folded ? '1' : '0',
+              'aria-expanded': folded ? 'false' : 'true',
+              title: folded ? '展开这张图' : '收起这张图',
+              onClick: () => toggleCollapse(graph),
+            },
+              h('span', { className: 'fo-graph-caret', 'data-collapsed': folded ? '1' : '0', 'aria-hidden': 'true' }, '▾'),
+              h('span', { className: 'fo-graph-name' }, graph.kind === 'ungrouped' ? '未分组' : graph.label),
+              h('span', { className: 'fo-graph-summary' }, summary))
+            : h('span', { className: 'fo-graph-name' }, graph.kind === 'ungrouped' ? '未分组' : graph.label),
           /* 边的图例：接受建议后画布变了，这里要能立刻看出「多了几条什么线」
-             （时间先后是点线、颜色更淡，只靠眼睛扫画布很容易以为没变化）。 */
-          h('div', { className: 'fo-edge-legend', 'aria-label': '关系图例' },
+             （时间先后是点线、颜色更淡，只靠眼睛扫画布很容易以为没变化）。折叠时不占位。 */
+          folded ? null : h('div', { className: 'fo-edge-legend', 'aria-label': '关系图例' },
             [['depends_on', '前置'], ['derived_from', '来源'], ['temporal', '时间']].map(([kind, label]) => {
               const total = edges.filter((edge) => edge.kind === kind).length
               if (!total) return null
@@ -584,15 +616,15 @@ export function createGraphView(deps) {
                 h('span', { className: 'fo-edge-count' }, String(total)))
             }),
           ),
-          h('div', { className: 'fo-graph-legend', 'aria-label': '项目图例' },
+          folded ? null : h('div', { className: 'fo-graph-legend', 'aria-label': '项目图例' },
             legend.map((item) => h('span', { key: item.key, className: 'fo-legend-item', title: item.label },
               h('i', { className: 'fo-legend-dot', style: { '--fo-c': decoVar(item.colorRef) }, 'aria-hidden': 'true' }),
               h('span', { className: 'fo-legend-label' }, item.label),
               h('span', { className: 'fo-legend-count' }, String(item.count)),
             )),
           ),
-          /* 动作就在卡片自己的 header 右侧：不悬浮、不占额外一行。 */
-          h('div', { className: 'fo-graph-actions', role: 'toolbar', 'aria-label': '画布工具' },
+          /* 动作就在卡片自己的 header 右侧：不悬浮、不占额外一行。折叠时整组隐藏。 */
+          folded ? null : h('div', { className: 'fo-graph-actions', role: 'toolbar', 'aria-label': '画布工具' },
             h('button', {
               type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',
               'data-action': 'toggle-done',
@@ -644,8 +676,8 @@ export function createGraphView(deps) {
         ),
         /* 画布：网格层在最底、不拦点击；SVG 在上层。空图也显示网格（参考站画布一直在）。
            点空白（画布底/网格/SVG 空白处，不在任何节点里）= 取消聚焦；
-           拖动空白 = 平移；滚轮 = 以光标为锚点缩放（见上面 useEffect）。 */
-        h('div', {
+           拖动空白 = 平移；滚轮 = 以光标为锚点缩放（见上面 useEffect）。折叠时整块不渲染。 */
+        folded ? null : h('div', {
           ref: (el) => { canvasRefs.current[graph.key] = el },
           className: `fo-canvas${pan && pan.graphKey === graph.key ? ' is-panning' : ''}`,
           'data-zoom': String(round(view.k, 3)),
