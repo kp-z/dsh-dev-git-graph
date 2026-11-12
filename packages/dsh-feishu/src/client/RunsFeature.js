@@ -142,24 +142,19 @@ export function createRunsFeature(deps) {
     const lineY = 100 - (pct / 100) * (R * 2)   // viewBox 100 单位下的水位线
     const wave1 = `M0,${lineY} Q25,${lineY - 2} 50,${lineY} T100,${lineY}`
     const wave2 = `M0,${lineY} Q25,${lineY + 2} 50,${lineY} T100,${lineY}`
-    /* 颜色：运行=绿、挂起=琥珀、未开始=中性灰。用 CSS 变量 + 兜底值，亮暗都能看。 */
-    const stroke = running
-      ? 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 55%, transparent)'
-      : (suspended ? 'color-mix(in oklab, var(--dsw-alias-state-warn-primary) 52%, transparent)' : 'color-mix(in oklab, var(--dsw-alias-label-secondary) 78%, transparent)')
-    const fill = running
-      ? 'color-mix(in oklab, var(--dsw-alias-bg-layer-2) 96%, transparent)'
-      : 'color-mix(in oklab, var(--dsw-alias-bg-layer-1) 92%, transparent)'
-    /* 状态色（发光的颜色来源）：运行=绿、挂起=琥珀、其余=中性 */
-    const accent = running
-      ? 'var(--dsw-alias-state-success-primary)'
-      : (suspended ? 'var(--dsw-alias-state-warn-primary)' : 'var(--dsw-alias-label-secondary)')
-    /* 参考项目 ClaudeModelBubbles 的发光配方（box-shadow 两层外发光 + 一层内发光 + 顶部内高光），
-       这里用 SVG 还原：两层半透明粗描边当外发光、radialGradient 当内发光、顶部弧线当内高光。 */
-    const glowOuter = `color-mix(in oklab, ${accent} 40%, transparent)`
-    const glowOuter2 = `color-mix(in oklab, ${accent} 20%, transparent)`
-    const glowInner = `color-mix(in oklab, ${accent} 15%, transparent)`
-    const waterFill = 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 46%, transparent)'
-    const waterStroke = 'color-mix(in oklab, var(--dsw-alias-state-success-primary) 96%, transparent)'
+    /* 颜色一律用**参考项目的原值 rgba**，不用 color-mix()：
+       color-mix() 在 SVG 的 fill/stroke 表现属性里不生效（水与发光会整块不可见 —— 这正是
+       「气泡里的水面动画和效果都失效了」的根因）。运行=绿、挂起=琥珀、未开始=中性灰。 */
+    const accent = running ? [34, 197, 94] : (suspended ? [251, 191, 36] : [156, 163, 175])
+    const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`
+    const stroke = rgba(accent, running ? 0.4 : (suspended ? 0.5 : 0.35))
+    const fill = running ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.04)'
+    /* 参考项目 ClaudeModelBubbles 的发光配方：两层外发光 + 一层内发光 + 顶部内高光 */
+    const glowOuter = rgba(accent, 0.4)
+    const glowOuter2 = rgba(accent, 0.2)
+    const glowInner = rgba(accent, 0.15)
+    const waterFill = rgba(accent, running ? 0.2 : 0.16)
+    const waterStroke = rgba(accent, 0.6)
     return h('svg', {
       key: 'orb',
       width: size, height: size, viewBox: '0 0 100 100',
@@ -167,10 +162,11 @@ export function createRunsFeature(deps) {
       style: { display: 'block', overflow: 'visible' },
     },
       h('defs', null,
-        h('radialGradient', { id: `${uid}-shine`, cx: '32%', cy: '26%', r: '42%' },
-          h('stop', { offset: '0%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0.5 }),
-          h('stop', { offset: '60%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0.08 }),
-          h('stop', { offset: '100%', stopColor: 'var(--dsw-alias-label-primary)', stopOpacity: 0 })),
+        /* 球面高光：参考项目是 white/50 → white/20 → transparent 的模糊球 */
+        h('radialGradient', { id: `${uid}-shine`, cx: '32%', cy: '26%', r: '46%' },
+          h('stop', { offset: '0%', stopColor: '#ffffff', stopOpacity: 0.5 }),
+          h('stop', { offset: '55%', stopColor: '#ffffff', stopOpacity: 0.18 }),
+          h('stop', { offset: '100%', stopColor: '#ffffff', stopOpacity: 0 })),
         /* 内发光：中心向外 15% 状态色（对应 box-shadow 的 inset 0 0 30px） */
         h('radialGradient', { id: `${uid}-innerglow`, cx: '50%', cy: '50%', r: '50%' },
           h('stop', { offset: '55%', stopColor: accent, stopOpacity: 0.16 }),
@@ -187,14 +183,14 @@ export function createRunsFeature(deps) {
       h('g', { clipPath: `url(#${uid}-clip)` },
         h('circle', { cx: 50, cy: 50, r: R, fill: `url(#${uid}-innerglow)` }),
         h('path', { d: `M${50 - R * 0.78},${50 - R * 0.5} Q50,${50 - R * 0.98} ${50 + R * 0.78},${50 - R * 0.5}`,
-          fill: 'none', stroke: 'var(--dsw-alias-label-primary)', strokeWidth: 1.6, opacity: 0.35 })),
-      /* 水位（裁剪在圆内） */
-      running
-        ? h('g', { clipPath: `url(#${uid}-clip)` },
-          h('rect', { x: 0, y: lineY, width: 100, height: Math.max(0, 100 - lineY), fill: waterFill }),
-          h('path', { d: wave1, fill: 'none', stroke: waterStroke, strokeWidth: 2.5 },
-            h('animate', { attributeName: 'd', dur: '3s', repeatCount: 'indefinite', values: `${wave1};${wave2};${wave1}` })))
-        : null,
+          fill: 'none', stroke: '#ffffff', strokeWidth: 1.8, opacity: 0.45 })),
+      /* 水位（裁剪在圆内）：**每个泡都画** —— 参考项目里所有可用泡都有水位，
+         之前只在「运行中」才画，真实数据里 0 条在跑 → 整片气泡都没有水面（用户：「水面动画和效果都失效了」）。
+         波浪线用 SMIL 动画，3s 循环（与参考的 WaterLevel.tsx 同节奏）。 */
+      h('g', { clipPath: `url(#${uid}-clip)` },
+        h('rect', { x: 0, y: lineY, width: 100, height: Math.max(0, 100 - lineY), fill: waterFill }),
+        h('path', { d: wave1, fill: 'none', stroke: waterStroke, strokeWidth: 2.5 },
+          h('animate', { attributeName: 'd', dur: '3s', repeatCount: 'indefinite', values: `${wave1};${wave2};${wave1}` }))),
       /* 数字：SVG 文本，text-anchor + dominant-baseline 严格居中 */
       /* 圆内内容：项目图标 / emoji / 任务编号 */
       orbInner({ icon: o.icon || '', tint: o.tint || '', label }),
@@ -369,7 +365,11 @@ export function createRunsFeature(deps) {
                    参考项目里「蓝=当前模型」是模型的「选中」概念，任务里没有对应物，
                    硬套会让「绿光气泡」和上方 KPI 的绿色对不上（用户实测指出的问题）。 */
                 const tone = isRunning ? 'is-ok' : (isSuspended ? 'is-suspended' : 'is-dim')
-                const pct = maxElapsed > 0 && isRunning ? Math.round(((Number(row.elapsed) || 0) / maxElapsed) * 100) : 0
+                /* 水位 = 这条已跑时长 ÷ 未完成里最长的那个（相对量）。
+                   给 10% 下限只是让波浪线可见（0 时水面贴在圆底、裁剪后看不出来）；
+                   水位高 ≠ 好/坏，只表达「谁跑得久」。 */
+                const share = maxElapsed > 0 ? ((Number(row.elapsed) || 0) / maxElapsed) * 100 : 0
+                const pct = Math.max(10, Math.min(100, Math.round(share)))
                 const meta = [row.title || '', isRunning ? '运行中' : (isSuspended ? '挂起' : '未开始'),
                   row.elapsedText && row.elapsedText !== '—' ? row.elapsedText : ''].filter(Boolean).join(' · ')
                 return h('div', {

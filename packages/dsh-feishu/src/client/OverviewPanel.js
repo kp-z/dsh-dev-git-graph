@@ -850,10 +850,9 @@ export function createOverviewPanel(deps) {
        - 副标题不再重复范围名；只留这份视图独有的上下文（revision / 快照时钟）。 */
     const scopeName = model.scopeLabel(scope, groups)
 
+    /* 用户口径：「QVIZ / revision 6d8e44d9 · 09:28:57」这个信息好像也不需要。
+       revision 是不透明指纹、时钟是快照时刻 —— 都是排错信息，不该占用户版面（要看可以看 DevTools）。 */
     const subtitle = []
-    if (revision.current != null) subtitle.push(`revision ${model.str(revision.current).slice(0, 8)}`)
-    const clock = clockOf(data && data.now)
-    if (clock) subtitle.push(clock)
 
     /* 骨架只负责「数据层面还没法渲染功能页」的几种状态；有数据时正文交给功能注册表。 */
     let shellNode = null

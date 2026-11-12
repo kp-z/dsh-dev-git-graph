@@ -2084,8 +2084,12 @@ const postWrite = queued[1]
 const preWrite = queued[0]
 postWrite.resolve(postWrite.readState()) // 写后的权威快照（新 revision）
 raceTree = await race.mini.act()
-check('写后回包落地：副标题里的 revision 更新成写后的值', () => {
-  assert.ok(textOf(raceTree).includes('rev-writ'), textOf(raceTree).slice(0, 120))
+check('写后回包落地：内部 revision 继续前进，但界面不再显示它', () => {
+  /* 用户口径：「QVIZ / revision 6d8e44d9 · 09:28:57」这个信息好像也不需要 →
+     头部副标题整条删掉。这里钉住「界面文本不含 revision / 不含时钟」。 */
+  const head = textOf(raceTree)
+  assert.equal(/revision\s/i.test(head), false, `头部不该再出现 revision：${head.slice(0, 120)}`)
+  assert.equal(/snapshot|快照时钟/.test(head), false)
 })
 preWrite.resolve({ ...SNAPSHOT, revision: 'rev-fixed-1' }) // 写之前发出的旧回包
 raceTree = await race.mini.act()
