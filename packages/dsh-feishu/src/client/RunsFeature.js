@@ -192,11 +192,12 @@ export function createRunsFeature(deps) {
       h('circle', { cx: 50, cy: 50, r: R, fill, stroke, strokeWidth: 2 }),
       /* 球面高光（在水位之前画：水位是主体信息，不能被高光糊掉） */
       h('circle', { cx: 50, cy: 50, r: R, fill: `url(#${uid}-shine)`, opacity: 0.5 }),
-      /* 内发光 + 顶部内高光（inset 0 1px 0 white/40）：一起裁剪在圆内 */
+      /* 内发光（inset 0 0 30px）。
+         注意：**不要**再画「顶部内高光弧线」—— 参考项目那条是 CSS 的 `inset 0 1px 0 white/40`，
+         只有 1px、贴着圆顶，几乎看不见；之前我用一条 1.8 单位宽的弧去模仿，放大到 SVG 尺度后
+         变成气泡顶上一条明显的灰线（用户：「气泡上面多了一个奇怪的灰色线」）。 */
       h('g', { clipPath: `url(#${uid}-clip)` },
-        h('circle', { cx: 50, cy: 50, r: R, fill: `url(#${uid}-innerglow)` }),
-        h('path', { d: `M${50 - R * 0.78},${50 - R * 0.5} Q50,${50 - R * 0.98} ${50 + R * 0.78},${50 - R * 0.5}`,
-          fill: 'none', stroke: '#ffffff', strokeWidth: 1.8, opacity: 0.45 })),
+        h('circle', { cx: 50, cy: 50, r: R, fill: `url(#${uid}-innerglow)` })),
       /* 水位（裁剪在圆内）：**每个泡都画** —— 参考项目里所有可用泡都有水位，
          之前只在「运行中」才画，真实数据里 0 条在跑 → 整片气泡都没有水面（用户：「水面动画和效果都失效了」）。
          波浪线用 SMIL 动画，3s 循环（与参考的 WaterLevel.tsx 同节奏）。 */

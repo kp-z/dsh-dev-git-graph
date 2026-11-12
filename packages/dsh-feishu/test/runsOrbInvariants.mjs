@@ -63,16 +63,22 @@ check('水面画在每个泡上（不是只在运行中才画）', () => {
   assert.ok(tail.includes('animate'), '波浪线必须带 SMIL 动画')
 })
 
-check('发光是两层外圈 + 一层内发光 + 顶部内高光（对齐参考项目的 box-shadow 配方）', () => {
+check('发光是两层外圈 + 一层内发光，并且不再画「顶部高光弧」', () => {
   assert.ok(orbBody.includes('glowOuter'), '缺第一层外发光')
   assert.ok(orbBody.includes('glowOuter2'), '缺第二层外发光')
   assert.ok(orbBody.includes('-innerglow'), '缺内发光渐变')
-  assert.ok(orbBody.includes('50 - R * 0.5'), '缺顶部内高光弧线')
+  /* 参考项目那条 `inset 0 1px 0 white/40` 只有 1px、几乎看不见；
+     用 1.8 单位宽的 SVG 弧去模仿，会变成气泡顶上一条明显的灰线（用户点名过）。 */
+  assert.equal(orbBody.includes('50 - R * 0.98'), false, '不要顶部高光弧线')
+  assert.ok(orbBody.includes('blur1') && orbBody.includes('blur2'), '两层外发光都要带高斯模糊（柔光）')
 })
 
 check('发光/水面颜色用 rgba 原值（与参考项目一致），不依赖令牌表达式', () => {
   assert.ok(/rgba\(\$\{c\[0\]\}/.test(orbBody) || orbBody.includes('const rgba = (c, a)'), '颜色应走 rgba 助手')
-  assert.ok(orbBody.includes('const accent = running ?'), '发光颜色应随状态走（运行/挂起/中性）')
+  /* 口径：对齐参考项目的「可用模型泡」——一律绿（运行中的绿更实）。
+     曾经按 running/idle 分绿/灰，真实数据常年 0 条在跑 → 整片灰扑扑，用户说「和 adventure 不一样」。 */
+  assert.ok(orbBody.includes('const accent = [34, 197, 94]'), '气泡应统一用参考项目的绿色（可用态）')
+  assert.equal(orbBody.includes('156, 163, 175'), false, '不该再按「未开始=灰」分色')
 })
 
 check('圆内图标占约 1/3（32/100），不是曾经的 54/100', () => {
