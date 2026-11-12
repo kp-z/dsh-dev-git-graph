@@ -1,118 +1,111 @@
-# DSH 插件开发工作区
+# DSH Plugins
 
-DeepSeek Harness（dsh）插件开发的标准工作区模板。包含目录规范、开发规范、构建/安装脚本，
-以及插件示例与完整插件（`defineTool` 注册模型可见工具）。
+Plugins for **DeepSeek Harness** (`dsh`) — one package per plugin, in a pnpm monorepo.
+Every package installs into a dsh profile on its own; this workspace exists so several plugins
+can be developed, built and dogfooded side by side.
 
-目标 profile：**web**（`$DSH_HOME/profiles/web`）。
+- Repository: <https://github.com/kp-z/dsh-plugins>
+- 中文文档: [README.zh.md](README.zh.md)
 
-## 目录结构
+## Plugins
 
-```
-dsh-plugins/
-├── package.json            # workspace 根（脚本聚合：build/typecheck/install）
-├── pnpm-workspace.yaml     # pnpm workspace 配置（packages/*）
-├── tsconfig.base.json      # 各包共享的 TS 编译基线
-├── .gitignore
-├── docs/
-│   ├── DIRECTORY.md        # 目录规范
-│   ├── DEVELOPMENT.md      # 开发规范
-│   ├── REFERENCE.md        # dsh 插件 API 参考速查
-│   └── DESIGN-mermaid-comm.md  # dsh-mermaid-comm 设计文档（含存储/持久化）
-├── scripts/
-│   ├── install-to-profile.sh   # 构建 + 安装到指定 profile
-│   ├── remove-from-profile.sh  # 从 profile 卸载
-│   ├── reinstall-in-profile.sh # 重装（开发联调用）
-│   ├── sync-profile-links.mjs  # 把构建产物补进 profile（补齐硬链接副本缺失的新文件）
-│   └── new-plugin.sh           # 脚手架：从 templates/ 生成新插件包
-├── templates/
-│   └── tool-plugin/        # 工具类插件模板（new-plugin.sh 使用）
-├── apps/
-│   └── spellbook/          # 咒语书 · 前端效果库（独立站点，非 workspace 成员）
-└── packages/
-    ├── example-tool/       # 最小工具插件示例
-    ├── dsh-feishu/         # 飞书同步：任务/文档定时同步 + 一键开工（右侧栏面板）
-    ├── dsh-mermaid-comm/   # 让 AI 优先用 Mermaid 图交流的插件（MVP：prompt 引导 + 校验工具）
-    └── dsh-dev-git-graph/      # 会话 Git Graph 面板（移植 vscode-git-graph，自动绑定会话工作区）
-```
+`Add` is the argument to `dsh plugin --profile web add …` — see [Install](#install).
 
-## 快速开始
+| Package | What it does | Add | npm | Docs |
+| --- | --- | --- | --- | --- |
+| `dsh-agent-world`<br>`0.1.0` | Multi-agent collaboration in a visual **3D town**: every real subagent is a walking character, every task a pickable work order, every dispatch a move through space. Content libraries, a module protocol and the simulation core are in place; what ships today is a 2D top-down debug view — the 3D scene is not wired up yet. | `file:packages/dsh-agent-world` | not published (`private`) | [README](packages/dsh-agent-world/README.md) |
+| `dsh-contract-butler`<br>`0.1.0` | A contract keeper: extracts boundary contracts (the shape of inputs and outputs) back out of the code, watches them evolve across versions, and checks declared shapes against real runtime payloads — so "AI writes the implementation, humans own the agreement" has one reviewable source of truth. | `file:packages/dsh-contract-butler` | not published | [README](packages/dsh-contract-butler/README.md) |
+| `@kpeace/dsh-daily`<br>`0.10.4` | A **daily news digest** that recommends proactively, is tunable in natural language, indexes both articles and videos (YouTube / Bilibili), and lives in the right sidebar as a real web page — click an item and you are there. | `@kpeace/dsh-daily` | 0.10.4 | [README](packages/dsh-daily/README.md) |
+| `dsh-dev-git-graph`<br>`0.1.4` | A **Git Graph panel** in every conversation tab — a faithful port of [mhutchie/vscode-git-graph](https://github.com/mhutchie/vscode-git-graph) 1.30.0, auto-bound to the current session's workspace, with the commit graph (branch lanes, messages, dates, authors, refs) and the extension's full set of git operations on right-click. | `dsh-dev-git-graph` | 0.1.3 (this repo is at 0.1.4, unpublished) | [README](packages/dsh-dev-git-graph/README.md) |
+| `dsh-feishu`<br>`0.20.1` | Feishu (Lark) sync: configure your own authorization, and tasks and documents are synced locally on a schedule; a synced task can be opened directly as a DSH session, and progress, expectations and collaboration results are written back to Feishu. | `file:packages/dsh-feishu` | not published (`private`; the `dsh-feishu` name on npm belongs to an unrelated package) | [README](packages/dsh-feishu/README.md) |
+| `dsh-ios-skin`<br>`0.3.0` | An **iOS 26 Liquid Glass** theme for the DSH Web GUI — the official design tokens retuned plus a real frosted-material layer, with light/dark, reduced-transparency and high-contrast support. The current release is "Deep Fusion". | `dsh-ios-skin` | 0.1.0 (this repo is at 0.3.0, unpublished) | [README](packages/dsh-ios-skin/README.md) |
+| `dsh-mermaid-comm`<br>`0.3.1` | Makes the AI **default to Mermaid diagrams** in development conversations: a checkbox in the chat input controls prompt guidance, `mermaid_validate` checks syntax, an output gate repairs or removes broken diagrams, and a Mermaid vault versions them in the workspace. Rendering is handled by [`dsh-mermaid`](https://github.com/MrmoLabs/dsh-mermaid). | `dsh-mermaid-comm` (+ `dsh-mermaid`) | 0.3.1 | [README](packages/dsh-mermaid-comm/README.md) |
+| `dsh-spellbook`<br>`0.2.5` | The **spellbook**: a front-end effects library as a "Spellbook" right-sidebar tab. Each spell is a description of a mechanism plus code that really runs (the previews are live code, not recordings); one click sends a spell into the chat input, and the model can look one up with `spellbook_lookup`. | `dsh-spellbook` | 0.2.5 | [README](packages/dsh-spellbook/README.md) |
+| `dsh-tab-split`<br>`0.1.0` | **Conversation view split**: adds a "split" view tab that arranges resident views (chat / Git graph / …) into side-by-side panes. The official single view stays the default — nothing changes until you press the split button. | `file:packages/dsh-tab-split` | not published | [README](packages/dsh-tab-split/README.md) |
+| `dsh-example-tool`<br>`0.1.0` | The **minimal tool-plugin example**: registers `example_git_status` and `example_echo` with `defineTool`, and demonstrates the plugin module contract, config schema, and `output` / `render` declarations. Start here when writing a new plugin. | `file:packages/example-tool` | not published | [README](packages/example-tool/README.md) |
+
+## Install
 
 ```bash
-# 1. 安装 workspace 依赖（首次）
-pnpm install
+# install one plugin into a profile (web in the examples)
+dsh plugin --profile web add <Add value from the table>
 
-# 2. 构建所有插件
-pnpm build
+# remove it
+dsh plugin --profile web remove <package name>
 
-# 3. 安装到 web profile（构建产物会被拷贝到 $DSH_HOME/profiles/web）
-pnpm install:web
-
-# 4. 验证：重启 dsh web，在会话里调用示例工具
+# restart dsh (or reload the plugin) so the new entry is picked up
 ```
 
-## 常用命令
+- **From npm**: pass the npm name (`dsh plugin --profile web add @kpeace/dsh-daily`).
+- **From a clone**: pass a path, e.g. `dsh plugin --profile web add file:packages/dsh-contract-butler`
+  when run from the repository root (an absolute `file:/…` path works too).
+- **Whole workspace at once**: `pnpm build && pnpm install:web` builds every package and installs
+  all of them into the `web` profile; `pnpm remove:web` takes them back out.
+- **Try things out in a throwaway profile** instead of your real one:
+  `dsh plugin --profile devtest add <pkg>`, then `dsh --profile devtest`.
+- A few packages document their own install path because they need something extra — check the
+  package README before installing: `dsh-daily` (must be installed as a real directory, not a
+  symlink), `dsh-feishu` (enable its bundle and authenticate the Feishu CLI), `dsh-dev-git-graph`
+  (depends on `dsh-better-sidebar`), `dsh-mermaid-comm` (pairs with `dsh-mermaid`).
 
-| 命令 | 说明 |
-|---|---|
-| `pnpm build` | 构建所有插件包 |
-| `pnpm typecheck` | 类型检查所有插件包 |
-| `pnpm install:web` | 构建并安装全部插件到 web profile |
-| `pnpm sync:web` | 把构建产物补进 web profile（补齐硬链接副本缺失的新文件） |
-| `pnpm sync:web:check` | 只检查副本与源码是否一致；有差异退出码 1 |
-| `pnpm remove:web` | 从 web profile 卸载全部插件 |
-| `pnpm reinstall:web` | 重装（开发联调） |
-| `bash scripts/new-plugin.sh my-plugin` | 从模板生成新插件包 |
-| `pnpm --filter <pkg> run dev` | 单个插件的 watch 构建 |
-| `pnpm dev:site` | 启动咒语书本地预览（默认 `127.0.0.1:5180`，改内容自动重建） |
-| `pnpm build:site` | 构建咒语书 → `packages/dsh-spellbook/dist/` |
-| `pnpm test:site` | 咒语书的解析与校验测试 |
+## Repository layout
 
-## DSH Desktop profile 插件体检
+| Path | What it is |
+| --- | --- |
+| `packages/<name>/` | One directory per plugin — this is the layout and it is stable. Each package owns its `package.json`, `src/`, build output (`lib/`), assets and `README.md`. |
+| `package.json` | Workspace root: aggregated scripts (`build` / `typecheck` / `install:web` / …). |
+| `pnpm-workspace.yaml` | The pnpm workspace, `packages/*`. |
+| `tsconfig.base.json` | Shared TypeScript baseline for the packages. |
+| `docs/` | Directory and development conventions, the dsh plugin API reference, per-plugin design notes. |
+| `scripts/` | Install / remove / sync / scaffold helpers, plus the Desktop compatibility check. |
+| `templates/` | The `tool-plugin` template used by `scripts/new-plugin.sh`. |
 
-DSH Desktop（Electron 版）启动 profile 前会跑一道**兼容性闸门**：逐行读取插件的
-`peerDependencies`，凡是以 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 开头、且版本范围不接纳当前
-runtime 版本的插件，会被 `prepareProfileEntries()` 直接 `disabled`，**静默不加载**（不是报错崩溃，
-所以现象只是「插件消失了」）。当前 App 内置 runtime 为 `0.2.0-rc.2`。
+A package only ever lives at `packages/<name>`, and its `package.json` name is what the profile
+resolves — helper output (`pnpm build` → `lib/`) never moves the source.
+
+## Development
+
+The workspace is an **independent pnpm workspace**, not the dsh profile's own
+`pnpm-workspace.yaml`. Packages resolve dependencies and joint-debug here during development;
+release and installation go through `dsh plugin --profile <profile> add <pkg>` into
+`$DSH_HOME/profiles/<profile>`. If a package must be referenced by dsh as a `file:` dependency you
+could merge the profile directory in, but that drags the whole web app's dependency graph along —
+keep it separate.
+
+Node.js >= 22.
 
 ```bash
-# 体检 ~/.dsh/profiles/desktop（默认路径）
-node scripts/verify-desktop-plugin-gate.mjs
-# 体检指定 profile / 输出 JSON
-node scripts/verify-desktop-plugin-gate.mjs ~/.dsh/profiles/other
-node scripts/verify-desktop-plugin-gate.mjs --json
+pnpm install        # resolve workspace dependencies
+pnpm build          # build every package (pnpm -r run build)
+pnpm typecheck      # type-check every package
+pnpm install:web    # build and install all packages into the web profile
 ```
 
-脚本直接 import 已安装 App 里的 `@deepseek-ai/dsh-app-boot`，调用**生产同款**
-`evaluatePluginCompatibility()`，因此不会与 App 行为漂移；全部通过时退出码 0。
+| Command | What it does |
+| --- | --- |
+| `pnpm build` | Build all plugin packages (each package emits `lib/` via `tsc` and copies its assets). |
+| `pnpm typecheck` | Type-check all plugin packages. |
+| `pnpm install:web` | Build and install all plugins into the `web` profile. |
+| `pnpm sync:web` | Copy build output into the `web` profile, including new files the hard-linked copies do not have. |
+| `pnpm sync:web:check` | Check only: exits 1 when a copy differs from source. |
+| `pnpm remove:web` | Remove all plugins from the `web` profile. |
+| `pnpm reinstall:web` | Reinstall (for iterative joint debugging). |
+| `pnpm --filter <pkg> run dev` | Watch build for a single plugin. |
+| `bash scripts/new-plugin.sh my-plugin` | Scaffold a new plugin package from `templates/`. |
+| `pnpm dev:site` / `build:site` / `test:site` | Preview / build / test the spellbook site. |
 
-修复方式有两条：装一个 `peerDependencies` 已覆盖当前 runtime 的新版本（首选），
-或为确无兼容版本、但愿意承担风险的插件写 `~/.dsh/profiles/desktop/compatibility.json`
-（`{"<pkg>@<ver>": ["<runtime>"]}`，等价于 `dsh plugin allow-version`）。
+Two conventions worth knowing before you edit anything:
 
-## 咒语书 · 前端效果库
+- **New files need `pnpm sync:web`.** The profile holds hard-linked copies, so a file you add after
+  the last sync does not appear there until you sync again.
+- **`peerDependencies` are the compatibility gate.** On DSH Desktop (Electron), plugins that declare
+  a `@deepseek-ai/dsh*` range rejecting the current runtime are silently `disabled` before the
+  profile starts — the symptom is "my plugin disappeared", not an error. Check a profile with
+  `node scripts/verify-desktop-plugin-gate.mjs`; it calls the App's production
+  `evaluatePluginCompatibility()`, so it does not drift from real behaviour.
 
-`packages/dsh-spellbook/` 是一个独立站点（**不是** workspace 成员，不参与 `pnpm -r run build`）：
-把「一句话能带来什么前端效果」沉淀成可检索的库。一条咒语 = 一段描述 + 一段示例代码，
-描述负责说清机制，代码负责证明它跑得起来，图版里跑的是真实代码。
+## Conventions and references
 
-零运行时依赖、零 CDN、字体自托管。内容即唯一真相，`shared/` 里的解析与校验不依赖 DOM，
-将来会被 DSH 插件直接复用（插件的目标是自动匹配咒语并在沙盒里预览）。
-
-详见 [packages/dsh-spellbook/README.md](packages/dsh-spellbook/README.md)。
-
-## 目标 profile 选择
-
-默认面向 `web`。开发/联调时建议用一个独立 profile（如 `devtest`）隔离，避免污染真实 web profile：
-
-```bash
-dsh plugin --profile devtest add <pkg>   # 创建独立 profile 并安装
-dsh --profile devtest                    # 启动该 profile
-```
-
-见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 的「profile 策略」章节。
-
-## 规范文档
-
-- [目录规范](docs/DIRECTORY.md)
-- [开发规范](docs/DEVELOPMENT.md)
-- [API 参考速查](docs/REFERENCE.md)
+- [Directory conventions](docs/DIRECTORY.md)
+- [Development conventions](docs/DEVELOPMENT.md) — plugin lifecycle, module contract, profile strategy, quality red lines
+- [dsh plugin API reference](docs/REFERENCE.md)
