@@ -35,15 +35,22 @@ const S = (id, extra) => Object.assign({ id, alive: true, phase: 'idle', turn: 0
 
 /* ---------------- 状态词 ---------------- */
 
-check('运行中：有轮次就写轮次，没轮次写「刚开工」', () => {
-  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running', turn: 12 })), { text: '运行中 · 第 12 轮', tone: 'brand', sticky: false })
-  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running' })), { text: '刚开工', tone: 'brand', sticky: false })
+check('运行中：带轮次文案（只给无障碍用）+ dots 标记（画面渲染三点动画）', () => {
+  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running', turn: 12 })), { text: '运行中 · 第 12 轮', tone: 'brand', sticky: false, dots: true })
+  assert.deepEqual(pulseForTask(T('a'), S('s', { phase: 'running' })), { text: '刚开工', tone: 'brand', sticky: false, dots: true })
+})
+
+check('只有「运行中」用三点动画；终态/阻塞/挂起仍是文字', () => {
+  assert.equal(pulseForTask(T('a', { done: true }), null).dots, undefined)
+  assert.equal(pulseForTask(T('a', { blocked: true }), null).dots, undefined)
+  assert.equal(pulseForTask(T('a', { suspended: true }), null).dots, undefined)
 })
 
 check('快照里的 running 也算在跑（活动流还没到）', () => {
   const p = pulseForTask(T('a', { running: true }), null)
   assert.equal(p.text, '刚开工')
   assert.equal(p.tone, 'brand')
+  assert.equal(p.dots, true)
 })
 
 check('已完成 = 绿、不粘（运行完也要显示，然后自动消失）', () => {

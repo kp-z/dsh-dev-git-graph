@@ -135,6 +135,18 @@ export function createRunsFeature(deps) {
     }, o.label || '')
   }
 
+  /**
+   * 三点动画（「运行中」的视觉表达）。
+   * 用户口径：「运行中的状态显示一个个… 的动画，不要用『运行中***』这样的文字」。
+   * 文字只留在 aria-label / title 上（无障碍与 hover 提示），画面只有三个跳动的点。
+   */
+  const dotsNode = (label) => h('span', {
+    className: 'frx-dots',
+    role: 'status',
+    'aria-label': label,
+    title: label,
+  }, h('i', { key: 'a', className: 'frx-dots-dot' }), h('i', { key: 'b', className: 'frx-dots-dot' }), h('i', { key: 'c', className: 'frx-dots-dot' }))
+
   /** 状态色口径的单一出处：class 后缀（样式表里给颜色） */
   const stateClass = (state) => (state === 'running' ? 'running'
     : (state === 'blocked' ? 'blocked'
@@ -501,7 +513,8 @@ export function createRunsFeature(deps) {
                       style: { '--frx-speech-c': toneColor(pulse.tone) },
                     },
                       h('i', { className: 'frx-speech-tail', 'aria-hidden': 'true' }),
-                      pulse.text)
+                      /* 运行中 = 三点动画；其余状态（已完成 / 被阻塞 / 已挂起）仍是文字 */
+                      pulse.dots ? dotsNode(pulse.text) : pulse.text)
                   })(),
                   /* 视觉：一层内联 SVG（正圆是几何，不是 CSS 圆角）；交互：覆在上面的透明 button。 */
                   orbSvg({
@@ -552,7 +565,9 @@ export function createRunsFeature(deps) {
                     },
                       h('span', { className: 'frx-orb-tip-name' }, row.title || ''),
                       h('span', { className: 'frx-orb-tip-meta' },
-                        `${isRunning ? '运行中' : (isSuspended ? '挂起' : '未开始')}${pct > 0 ? ` · 水位 ${pct}%` : ''}`),
+                        isRunning
+                          ? h('span', null, dotsNode('运行中'), ` · 水位 ${pct}%`)
+                          : `${isSuspended ? '挂起' : '未开始'}${pct > 0 ? ` · 水位 ${pct}%` : ''}`),
                       h('span', { className: 'frx-orb-tip-hint' }, canOpen ? '单击打开会话' : '没有绑定会话 · 单击看详情'))
                     : null)
               }))
@@ -643,7 +658,7 @@ export function createRunsFeature(deps) {
             h('span', { style: { display: 'flex', alignItems: 'center', gap: '12px' } },
               /* 状态色口径（用户）：运行中=蓝、完成=绿、报错（阻塞）=黄、等待=中性 */
               h('span', { className: `frx-row-status is-${stateClass(row.state)}` },
-                stateText(row.state)),
+                row.state === 'running' ? dotsNode(stateText(row.state)) : stateText(row.state)),
               h('span', { className: 'frx-row-btn' }, '详情'))))),
       ],
     })

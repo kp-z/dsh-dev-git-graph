@@ -184,6 +184,25 @@ export const CSS = `
 }
 .frx-row-btn:hover { background: var(--frx-surface-hover); }
 
+/* ---------- 「运行中」的三点动画 ----------
+   用户口径：运行中的状态不要写字（「运行中***」），改成一个个… 的动画。
+   三个点按 0 / .18s / .36s 依次亮起，1.2s 循环；文字只在 aria-label / title 上。 */
+.frx-dots { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
+.frx-dots-dot {
+  width: 4px; height: 4px; border-radius: 999px;
+  background: currentColor; opacity: .25;
+  animation: frx-dots 1.2s ease-in-out infinite;
+}
+.frx-dots-dot:nth-child(2) { animation-delay: .18s; }
+.frx-dots-dot:nth-child(3) { animation-delay: .36s; }
+@keyframes frx-dots {
+  0%, 100% { opacity: .25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .frx-dots-dot { animation: none; opacity: .65; }
+}
+
 /* ---------- 状态对话气泡（贴在泡沿外右上的小对话泡） ----------
    用户口径：只看状态、不显示计时、贴泡沿外、运行中与运行完都显示、**没有新消息自动消失**。
    所以这里只有静态样式：出现/消失由 sessionPulse.js 的 prunePulses 决定（元素被移除，

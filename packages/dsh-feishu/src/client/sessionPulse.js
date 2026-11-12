@@ -40,7 +40,9 @@ export function pulseForTask(task, feed) {
   if (t.blocked === true) return { text: '被阻塞', tone: 'warn', sticky: true }
   if (t.suspended === true) return { text: '已挂起', tone: 'warn', sticky: true }
   if (phase === 'running' || t.running === true) {
-    return { text: turn > 0 ? `运行中 · 第 ${turn} 轮` : '刚开工', tone: 'brand', sticky: false }
+    /* 用户口径：「运行中的状态显示一个个… 的动画，不要用『运行中***』这样的文字」。
+       text 只留给无障碍（aria-label / title）；画面上渲染的是三点动画（dots: true）。 */
+    return { text: turn > 0 ? `运行中 · 第 ${turn} 轮` : '刚开工', tone: 'brand', sticky: false, dots: true }
   }
   /* 「等待输出」故意**不显示**：等待中的任务本来就会一直停在那个状态，
      每个泡都挂一句会把气泡墙变成一句话列表（用户要的是状态提示，不是常驻标签）。 */

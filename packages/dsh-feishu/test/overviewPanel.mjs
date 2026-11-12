@@ -2320,16 +2320,35 @@ check('R2b：两次悬着的请求都已返回，没有再堆积', () => { asser
     const count = (needle) => text.split(needle).length - 1
     assert.equal(count('未完成'), 1, `「未完成」出现 ${count('未完成')} 次`)
     assert.equal(count('绑会话') + count('已绑会话'), 1, '会话绑定数只能出现在一处')
-    assert.equal(count('运行中'), 2, `「运行中」只该出现在「运行中」卡（标题+大数字）里，实际 ${count('运行中')} 次`)
+    /* 状态对话气泡里「运行中」已改成三点动画（文字只在 aria-label 上），所以正文里只剩
+       「运行中」卡自己的标题与状态词。 */
+    assert.ok(count('运行中') <= 2, `「运行中」最多出现在「运行中」卡（标题 + 状态词），实际 ${count('运行中')} 次`)
   })
 
-  check('运行中的泡挂一句状态对话泡：运行中/刚开工', () => {
+  check('运行中的泡挂一句状态对话泡：**三点动画**（不写字）', () => {
     const speech = byClass(rtree, 'frx-speech')
     assert.equal(speech.length, 1, `只有运行中的泡该有状态泡，实际 ${speech.length}`)
-    const text = textOf(speech[0]).trim()
-    assert.ok(text === '刚开工' || text.startsWith('运行中'), `状态文案不对：${text}`)
+    /* 用户口径：运行中不要「运行中***」这样的文字，改成一个个… 的动画 */
+    const dots = byClass(speech[0], 'frx-dots')
+    assert.equal(dots.length, 1, '运行中的状态泡里应该有三点动画')
+    assert.equal(byClass(dots[0], 'frx-dots-dot').length, 3, '三个点')
+    assert.ok(String(dots[0].props['aria-label'] || '').startsWith('运行中') || String(dots[0].props['aria-label']) === '刚开工',
+      `三点动画要带无障碍文字，实际 ${dots[0].props['aria-label']}`)
+    assert.equal(textOf(dots[0]).trim(), '', '画面上不该再出现文字')
     assert.equal(speech[0].props['data-tone'], 'brand', '运行中的状态泡应是品牌色（蓝）')
     assert.equal(speech[0].props.role, 'status')
+  })
+
+  check('执行历史里「运行中」那一行也是三点动画，其余状态仍是文字', () => {
+    const rows = byClass(rtree, 'frx-row-status')
+    assert.ok(rows.length >= 1)
+    const runningRow = rows.find((row) => classNameOf(row).includes('is-running'))
+    if (runningRow) {
+      assert.equal(byClass(runningRow, 'frx-dots').length, 1, '运行中那一行要有点动画')
+      assert.equal(textOf(runningRow).trim(), '', '运行中那一行不该有文字')
+    }
+    const other = rows.find((row) => !classNameOf(row).includes('is-running'))
+    if (other) assert.ok(textOf(other).trim().length > 0, '其它状态仍然是文字')
   })
 
   check('状态泡带尾巴，且位置靠右的泡会翻转（避免贴边被裁）', () => {
