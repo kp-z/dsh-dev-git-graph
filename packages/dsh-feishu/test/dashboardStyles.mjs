@@ -11,6 +11,7 @@
 import assert from 'node:assert/strict'
 
 import { CSS, STYLE_ID, injectStyles } from '../src/client/dashboardStyles.js'
+import { CSS as CSS_PANEL } from '../src/client/styles.js'
 
 let passed = 0
 const failures = []
@@ -134,4 +135,17 @@ check('填满：网格是 auto-fit + 1fr 行高（不是固定列数）', () => 
 
 console.log(`\ndashboardStyles.js: ${passed} passed, ${failures.length} failed`)
 if (failures.length) process.exit(1)
-console.log('DASHBOARD_STYLES_OK')
+/* ---------------- 面板主样式表：主按钮的可读性红线 ---------------- */
+
+check('主按钮的可读口径：不得再用「实心品牌底 + bgBase 文字」', () => {
+  const primary = CSS_PANEL.slice(CSS_PANEL.indexOf('.fo-btn[data-variant="primary"]'), CSS_PANEL.indexOf('.fo-btn[data-variant="ghost"]'))
+  assert.equal(/color:\s*var\(--dsw-alias-bg-base/.test(primary), false,
+    'bgBase 在浅色主题是近白、暗色主题是近黑，做「品牌底上的文字」必有一个主题糊掉（用户实测报过）')
+  assert.ok(/color:\s*var\(--dsw-alias-label-primary/.test(primary), '主按钮文字要用 label-primary')
+  /* T.bgBase 展开后带 fallback（`var(--dsw-alias-bg-base, var(--dsw-alias-bg-layer-1))`），所以只锁前缀与比例 */
+  assert.ok(/background:\s*color-mix\(in oklab, var\(--dsw-alias-brand-primary\) \d+%, var\(--dsw-alias-bg-base/.test(primary),
+    '主按钮底色要是「品牌色 + 底色」的混合（实测暗 6.85:1 / 浅 4.33:1）')
+})
+
+console.log(failures.length ? `\n${failures.length} 项失败` : '\nDASHBOARD_STYLES_OK')
+if (failures.length) process.exit(1)

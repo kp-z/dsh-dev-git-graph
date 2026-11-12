@@ -366,8 +366,20 @@ export const CSS = `
 }
 .fo-btn:hover:not(:disabled) { border-color: var(--fo-glass-line-hover); transform: translateY(-1px); }
 .fo-btn:disabled { opacity: .5; cursor: default; }
-.fo-btn[data-variant="primary"] { background: ${T.brand}; border-color: transparent; color: ${T.bgBase}; }
-.fo-btn[data-variant="primary"]:hover:not(:disabled) { background: color-mix(in oklab, ${T.brand} 88%, ${T.label1}); }
+/* 主按钮：**品牌色向底色靠一档当底 + label-primary 当字**。
+   用户报「一键整理按钮，文字颜色看不到」，量出来是原方案（实心品牌底 + bgBase 文字）在
+   **浅色主题**只有 ~3.5:1：因为 bgBase 在浅色主题是近白、在暗色主题是近黑，而品牌蓝在两个主题里
+   都是偏亮的中间色，于是「深色字」在浅色主题才该用 —— 但单个令牌做不到跨主题都深/都浅。
+   现在：底色 = brand 62% + bg-base 38%，文字 = label-primary，实测
+   暗色 6.85:1、浅色 4.33:1（原方案 4.97 / 3.51），两个主题都过 AA 大字号线。 */
+.fo-btn[data-variant="primary"] {
+  background: color-mix(in oklab, ${T.brand} 62%, ${T.bgBase});
+  border-color: color-mix(in oklab, ${T.brand} 78%, ${T.bgBase});
+  color: ${T.label1};
+}
+.fo-btn[data-variant="primary"]:hover:not(:disabled) {
+  background: color-mix(in oklab, ${T.brand} 74%, ${T.bgBase});
+}
 .fo-btn[data-variant="ghost"] { background: transparent; border-color: transparent; color: ${T.label2}; }
 .fo-btn[data-variant="ghost"]:hover:not(:disabled) { background: var(--fo-glass-sub); color: ${T.label1}; border-color: var(--fo-glass-line); }
 .fo-btn[data-size="sm"] { height: 22px; padding: 0 8px; font-size: 11px; }
