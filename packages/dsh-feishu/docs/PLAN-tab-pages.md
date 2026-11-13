@@ -726,6 +726,21 @@
   ⑤ 关系页侧栏有 `aria-level`（真模型 rows）+ 画布 ≥ 3 节点 + 节点标题用 label 而非 id。
 - [x] 证据：previewRender 6、npm test 0、offline 87 JS + 7 Python。
 
+**第 59 轮（08:30，运行页样式表大扫除 -89 行 + 无死规则红线）**
+
+用户口径「如无必要勿增实体」。运行页这一路重做（KPI 去重 → 3×4 网格 → 旭日图）之后，
+`runsExactStyles.js` 里留下 36 条**没有任何引用**的规则：被删掉的两张 KPI 卡
+（`.frx-boxes` / `.frx-stat` / `.frx-pills` / `.frx-chip` / `.frx-delta` / `.frx-bydist` …）、
+旧状态卡头部（`.frx-version`）、更早被替换的迷你图（`.frx-minichart` / `.frx-spark`）。
+
+- [x] 写了个最小 CSS 规则切分器（跟踪花括号深度、`@media` 整块保留），只删「选择器里出现死类」的
+      顶层规则 —— **不**做正则乱刀（第一版把模板串切坏了，已还原重来）。结果 **-89 行**，
+      剩余未被引用类名 = **0**。
+- [x] 新增红线「运行页样式表里没有没人引用的规则」（previewRender 6 → **7**）。
+- [x] 视觉复核（真渲染截图 + 视觉模型）：卡片背景/圆角/边框、KPI 胶囊、旭日图两层环、徽标、图例、
+      进度条、气泡都在，没有「样式丢了」的迹象。
+- [x] 证据：previewRender 7、dashboardStyles OK、overviewPanel 237、npm test 0、offline 87 JS + 7 Python。
+
 - [ ] **下一轮入口（重要）**：
       **等用户挑 B / C 后实施**（涉及 TreeNav.js + styles.js，属共享文件，需确认没有并行写者）；
       其余待办不变：主按钮已修、水位/hover 已对齐、预览三页齐全。
