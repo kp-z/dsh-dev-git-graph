@@ -109,9 +109,6 @@ export const CSS = `
 .frx-card-sub { margin: 0; font-size: 12px; font-weight: 500; }
 .frx-card-sub.is-ok { color: #22c55e; }
 .frx-card-sub.is-idle { color: var(--frx-text-dim); }
-.frx-version { text-align: right; }
-.frx-version-label { margin: 0; font-size: 12px; color: var(--frx-text-dim); }
-.frx-version-value { margin: 0; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--frx-text); }
 
 /* ---------- KPI 胶囊（状态卡头部） ---------- */
 .frx-kpis { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
@@ -164,42 +161,6 @@ export const CSS = `
 .frx-bar-track > i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(to right, rgba(96, 165, 250, 0.9), rgba(59, 130, 246, 0.35)); }
 .frx-bar-track.is-warn > i { background: linear-gradient(to right, rgba(251, 191, 36, 0.9), rgba(245, 158, 11, 0.35)); }
 .frx-bar-value { font-size: 11px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; white-space: nowrap; }
-
-/* ---------- 卡片底部两个小盒（Health Score / Status） ---------- */
-.frx-boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: auto; }
-.frx-box { background: var(--frx-surface); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; }
-.frx-box-label {
-  margin: 0 0 4px; font-size: 10px; font-weight: 700; letter-spacing: .12em;
-  text-transform: uppercase; color: var(--frx-text-dim);
-}
-.frx-box-value { margin: 0; margin-top: auto; font-size: 24px; line-height: 1.15; font-weight: 700; color: #60a5fa; }
-.frx-box-value.is-purple { color: color-mix(in oklab, var(--dsw-alias-brand-primary) 88%, transparent); }
-.frx-box-value.is-green { color: #4ade80; }
-.frx-box-unit { font-size: 12px; color: var(--frx-text-faint); margin-left: 4px; }
-
-/* ---------- 大数字卡（Total Skills / Agents Running） ---------- */
-.frx-bigrow { display: flex; align-items: flex-start; justify-content: space-between; }
-.frx-chip { padding: 8px; border-radius: 8px; display: inline-flex; }
-.frx-chip.is-blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-.frx-chip.is-purple { background: color-mix(in oklab, var(--dsw-alias-brand-primary) 18%, transparent); color: color-mix(in oklab, var(--dsw-alias-brand-primary) 90%, transparent); }
-.frx-delta { font-size: 12px; font-weight: 700; }
-.frx-delta.is-up { color: #22c55e; }
-.frx-delta.is-flat { color: #9ca3af; }
-.frx-delta.is-warn { color: #fbbf24; }
-.frx-stat-label { margin: 0; font-size: 14px; color: var(--frx-text-dim); }
-.frx-stat-value { margin: 0; font-size: 30px; line-height: 1.1; font-weight: 700; color: var(--frx-text-strong); }
-.frx-stat { margin-top: 14px; }
-/* 底部块（按项目分布 / 运行中药丸）：用**唯一一处**自动空隙顶到底部，
-   同时给一个最小上间距（卡片矮的时候不会和上面的数字贴死）。 */
-.frx-pills { display: flex; flex-wrap: wrap; gap: 14px; margin-top: auto; padding-top: 14px; }
-.frx-pill {
-  display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%;
-  padding: 0; border-radius: 0; font-size: 11px;
-  background: none; color: var(--frx-text-dim);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.frx-pill em { font-style: normal; color: #93c5fd; font-weight: 700; }
-.frx-spark { margin-top: auto; padding-top: 12px; }
 
 /* ---------- 历史列表（History 卡） ---------- */
 .frx-rows { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
@@ -351,28 +312,6 @@ export const CSS = `
 }
 /* 交互层（透明 button）：不画任何形状，只给焦点环，避免宿主 button 样式影响圆的形状 */
 .frx-orb-hit:focus-visible { outline: 2px solid color-mix(in oklab, var(--dsw-alias-brand-primary) 70%, transparent); outline-offset: 2px; }
-
-/* 球面高光：左上 30% 的模糊白光 + 右上一个 18% 小亮点 */
-.frx-orb-shine {
-  position: absolute; top: 18%; left: 28%; width: 30%; height: 30%; border-radius: 9999px;
-  background: linear-gradient(to bottom right, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0));
-  filter: blur(3px); pointer-events: none;
-}
-.frx-orb-spark {
-  position: absolute; top: 12%; right: 22%; width: 18%; height: 18%; border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.3); filter: blur(1px); pointer-events: none;
-}
-.frx-orb-label {
-  /* 必须在水位之上（水位是 20/21）：否则数字被液体盖住、视觉上就「不在圆心」 */
-  position: absolute; inset: 0; z-index: 22; display: grid; place-items: center;
-  padding: 0; font-size: 9px; font-weight: 700; line-height: 1; text-align: center;
-  /* 不再写死纯白：深色主题下用主文字色（近白），亮色主题下它自动变成深色，
-     压在水位上的可读性两边都成立。 */
-  color: var(--dsw-alias-label-primary);
-  font-variant-numeric: tabular-nums; letter-spacing: .02em;
-  text-shadow: 0 1px 2px color-mix(in oklab, var(--dsw-alias-bg-base) 65%, transparent);
-  pointer-events: none; word-break: break-word;
-}
 /* 水位（WaterLevel.tsx）：两层 SVG，填充 + 波浪线，都被圆形裁剪 */
 .frx-water { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .frx-water.is-fill { z-index: 20; }
@@ -402,32 +341,6 @@ export const CSS = `
   50% { transform: translateY(-4px) translateX(-3px); }
   75% { transform: translateY(-10px) translateX(2px); }
 }
-
-/* 迷你柱图（Total Skills 卡底部那张图的替身）：把卡片下半部分填满 */
-.frx-minichart { display: flex; align-items: flex-end; gap: 6px; height: 56px; margin-top: 12px; }
-.frx-minibar {
-  flex: 1 1 0; min-width: 0; border-radius: 4px 4px 2px 2px;
-  background: linear-gradient(to top, rgba(59, 130, 246, 0.35), rgba(59, 130, 246, 0.9));
-}
-
-/* 按项目分布（Total Skills 卡下半部分）：标签 + 轨道 + 数值 */
-.frx-bydist { display: flex; flex-direction: column; gap: 10px; margin-top: auto; padding-top: 14px; }
-.frx-bydist-row { display: grid; grid-template-columns: minmax(0, 1fr) 56px auto; align-items: center; gap: 10px; }
-.frx-bydist-label {
-  font-size: 11px; color: var(--frx-text-dim);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.frx-bydist-track {
-  height: 6px; border-radius: 999px; overflow: hidden;
-  background: color-mix(in oklab, var(--dsw-alias-label-primary) 10%, transparent);
-}
-.frx-bydist-track > i {
-  display: block; height: 100%; border-radius: 999px;
-  background: linear-gradient(to right,
-    color-mix(in oklab, var(--dsw-alias-brand-primary) 55%, transparent),
-    color-mix(in oklab, var(--dsw-alias-brand-primary) 95%, transparent));
-}
-.frx-bydist-value { font-size: 12px; font-weight: 700; color: var(--frx-text-strong); font-variant-numeric: tabular-nums; }
 
 /* ---------- 快捷操作（Quick Actions） ---------- */
 .frx-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: auto; flex: 1 1 auto; align-content: stretch; }
@@ -477,8 +390,7 @@ export const CSS = `
   .frx-orb-slot { animation: none !important; }
   .frx-orb { transition: none !important; }
   .frx-orb:hover { transform: none !important; }
-}
-`
+}`
 
 /** 注入这张表（幂等；卸载时由调用方按 STYLE_ID 移除）。 */
 export function injectExactStyles(doc) {

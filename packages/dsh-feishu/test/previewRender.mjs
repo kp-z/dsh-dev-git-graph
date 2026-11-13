@@ -81,5 +81,13 @@ check('关系页：侧栏树（真模型 rows）+ 画布节点都渲出来了', 
   assert.ok(graph.includes('飞书任务集开发'), '节点标题要用 label/fullTitle（不是 id）')
 })
 
+check('运行页样式表里没有「没人引用」的规则（如无必要勿增实体）', () => {
+  const css = readFileSync(new URL('../src/client/runsExactStyles.js', import.meta.url), 'utf8')
+  const source = readFileSync(new URL('../src/client/RunsFeature.js', import.meta.url), 'utf8')
+  const classes = new Set([...css.matchAll(/\.((?:frx|fr)-[a-z0-9-]+)/g)].map((m) => m[1]))
+  const orphans = [...classes].filter((name) => !source.includes(name))
+  assert.deepEqual(orphans, [], `样式表里有没人用的类：${orphans.join(', ')}（删掉，或补回引用）`)
+})
+
 console.log(`\npreviewRender.mjs: ${passed} passed, ${failures.length} failed`)
 if (failures.length) process.exit(1)
