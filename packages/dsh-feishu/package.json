@@ -36,6 +36,7 @@
     "larkTasklist.js",
     "backendScope.js",
     "creationLedger.js",
+    "src/overview/model.js",
     "panel.html",
     "cordis.patch.yml",
     "locale/*.json",
