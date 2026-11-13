@@ -59,8 +59,9 @@ export const CSS = `
   --frx-tip-meta: var(--dsw-alias-label-secondary);
   --frx-shadow: 0 1px 2px color-mix(in oklab, var(--dsw-alias-bg-base) 22%, transparent), 0 10px 22px -16px color-mix(in oklab, var(--dsw-alias-bg-base) 60%, transparent);
   --frx-scrollbar: color-mix(in oklab, var(--dsw-alias-label-secondary) 30%, transparent);
-  /* 参考项目：lg:[--dashboard-row-h:clamp(320px,calc((100vh-220px)/3),520px)] */
-  --frx-row-h: clamp(320px, calc((100vh - 220px) / 3), 520px);
+  /* 参考项目的行高是 clamp(...) 让行随视口长；但用户口径是「三行一样高」——
+     行高由内容决定时跨行永远不可能相等（实测 329 / 360 / 334），所以这里改成固定值。 */
+  --frx-row-h: 344px;
 }
 .frx-subtitle { margin: 0; font-size: 12px; line-height: 1.5; color: var(--frx-text-dim); }
 
@@ -71,6 +72,10 @@ export const CSS = `
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px; align-items: stretch;
   height: auto;
+  /* 三行**等高**（用户口径：第一/二/三行应该一样高）。用固定行高而不是 auto：
+     行高由内容决定时永远不可能跨行相等（329 / 360 / 334 就是这么来的）。
+     窄面板（≤980px，见下方容器查询）落回 auto —— 那时卡片会被重排成 5 行，固定高会裁内容。 */
+  grid-auto-rows: var(--frx-row-h);
 }
 .frx-grid.is-tight { height: auto; }
 .frx-card {
@@ -93,7 +98,7 @@ export const CSS = `
   transition: opacity .3s ease;
 }
 .frx-card:hover .frx-card-glow { opacity: 1; }
-.frx-card-inner { position: relative; z-index: 10; display: flex; flex-direction: column; height: 100%; }
+.frx-card-inner { position: relative; z-index: 10; display: flex; flex-direction: column; height: 100%; min-height: 0; }
 
 /* ---------- 卡片头（图标块 + 标题 + 版本 / 设置按钮） ---------- */
 .frx-card-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; gap: 12px; }
@@ -376,7 +381,7 @@ export const CSS = `
 }
 /* 窄面板降成 2 列（跨列卡最多占满一行） */
 @container frxpage (max-width: 980px) {
-  .frx-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .frx-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; }
   .frx-card.is-span4 { grid-column: span 2; }
 }
 /* 更窄：单列 */

@@ -172,6 +172,15 @@ check('不出现 undefined / NaN：卡片只消费 runsView 给出的数字', ()
   assert.ok(view.includes('const untimedCount = bubbles.length - timedCount'), '两者相加必须守恒')
 })
 
+check('三行等高：固定行高 + 窄面板回 auto（用户口径：第一/二/三行应该一样高）', () => {
+  const styles = readFileSync(new URL('../src/client/runsExactStyles.js', import.meta.url), 'utf8')
+  assert.ok(/--frx-row-h:\s*\d+px/.test(styles), '行高要固定成 px（内容决定行高时跨行不可能相等）')
+  assert.ok(/grid-auto-rows:\s*var\(--frx-row-h\)/.test(styles), '网格要按变量固定行高')
+  assert.equal(/--frx-row-h:\s*clamp\(/.test(styles), false, '不能再留 clamp：那会让行高随视口变')
+  assert.ok(/@container frxpage \(max-width: 980px\)[\s\S]{0,200}grid-auto-rows:\s*auto/.test(styles),
+    '窄面板要落回 auto，否则重排后的卡片会被裁')
+})
+
 check('气泡墙高度 104（用户口径：太高了）', () => {
   assert.ok(src.includes("height: '104px'"), '气泡墙应是 104px')
   assert.equal(src.includes("height: '132px'"), false, '旧的 132px 高度应已去掉')
