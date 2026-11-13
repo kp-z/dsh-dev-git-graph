@@ -63,7 +63,10 @@ export function createTreeNav(deps) {
     /* 二级菜单形态：行更紧凑、缩进从 24px 起（一级项 padding 是 12px），字号交给 CSS。 */
     /* 二级菜单挂在 rail 里只有 232px 宽：缩进必须省着给，项目行才放得下名字。
        compact=12px 起、每层 8px；非 compact（旧的两列布局）保留宽一点的手感。 */
-    const indent = (depth) => `${(compact ? 12 : 12) + (Number(depth) || 0) * (compact ? 8 : 14)}px`
+    const indentStep = compact ? 10 : 14
+    const indent = (depth) => `${12 + (Number(depth) || 0) * indentStep}px`
+    /* 导轨画在「父级图标中线」上：父级 padding + caret 半宽 */
+    const guideX = (level) => 12 + level * indentStep + 6
 
     const rows = tree && Array.isArray(tree.rows) ? tree.rows : []
     const [active, setActive] = useState(() => (tree && tree.selected ? tree.selected.key : 'all'))
@@ -90,6 +93,13 @@ export function createTreeNav(deps) {
       const isGroup = row.kind === 'group'
       const isProject = row.kind === 'project'
       const canDrop = row.kind === 'all' || isGroup
+      /* 缩进导轨：每层一条 1px 竖线（绝对定位，不占 flex 空间）—— 必须在 children 之前算，
+         否则 TDZ（`Cannot access 'guides' before initialization`）。
+         为什么要它：缩进只有 10px/层，比一个项目图标还窄，光靠 padding 看不出「谁属于谁」。 */
+      const guides = []
+      for (let level = 0; level < (Number(row.depth) || 0); level += 1) {
+        guides.push(h('span', { key: `guide-${level}`, className: 'fo-guide', 'aria-hidden': 'true', style: { left: `${guideX(level)}px` } }))
+      }
       /* 色点：项目行 = 该项目在目录里的分色槽；根行 = 品牌色；目录行 = 中性色。 */
       const color = isProject && Number.isFinite(row.colorIndex)
         ? { '--fo-c': decoVar(row.colorIndex) }
@@ -105,6 +115,8 @@ export function createTreeNav(deps) {
         : `${row.open} 条待办 · 共 ${row.count} 条${hideDone && row.done ? `（${row.done} 条已完成已隐藏）` : ''}`
 
       const children = []
+      /* 导轨放最前面（绝对定位，不占 flex 空间） */
+      guides.forEach((guide) => children.push(guide))
       if (!isProject) {
         children.push(h('span', {
           key: 'caret',
@@ -129,7 +141,12 @@ export function createTreeNav(deps) {
           'aria-hidden': 'true',
         }, renderIcon({ h }, logoIcon, 12)))
       } else {
-        children.push(h('span', { key: 'dot', className: 'fo-dot', style: color, 'aria-hidden': 'true' }))
+        children.push(h('span', {
+          key: 'dot',
+          className: `fo-dot${row.ungrouped === true ? ' is-bucket' : ''}`,
+          style: row.ungrouped === true ? undefined : color,
+          'aria-hidden': 'true',
+        }))
       }
       children.push(h('span', { key: 'label', className: 'fo-row-label', title: row.path || label }, label))
       if (row.blocked > 0) {
@@ -193,6 +210,9 @@ export function createTreeNav(deps) {
         'aria-selected': row.selected === true,
         'aria-expanded': (isGroup && !row.ungrouped) || row.kind === 'all' ? (row.collapsed !== true) : undefined,
         'data-kind': row.kind,
+        /* 「未分组」是系统桶，不是用户建的目录：单独标记，样式上降一档权重。 */
+        'data-bucket': row.ungrouped === true ? '1' : undefined,
+        'data-depth': row.depth,
         'data-key': row.key,
         'data-id': row.id,
         style: { paddingLeft: indent(row.depth), '--fo-i': stagger },

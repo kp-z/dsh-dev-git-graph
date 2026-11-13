@@ -197,7 +197,19 @@ export const CSS = `
 .fo-subnav .fo-scope-head { padding: 2px 10px 6px 24px; border-bottom: 0; }
 .fo-subnav .fo-scope-body { padding: 0 10px 4px 0; }
 .fo-subnav .fo-scope-list { gap: 2px; }
-.fo-subnav .fo-row { height: 30px; padding: 0 6px 0 8px; gap: 6px; border-radius: 8px; font-size: 12px; }
+/* 行高 30 → 32：命中区域更接近可用下限（触控板/触屏更稳），顺带给两层导轨留出高度 */
+.fo-subnav .fo-row { height: 32px; padding: 0 6px 0 8px; gap: 6px; border-radius: 8px; font-size: 12px; }
+/* 计数**定宽**：hover 时只淡出、不改布局 —— 否则名字会突然变宽，整行文字抖一下（用户能看见的那种抖） */
+.fo-subnav .fo-row-count { min-width: 44px; text-align: right; }
+/* 缩进导轨：每层一条 1px 竖线，位置由 TreeNav 按 indentStep 算好 */
+.fo-guide { position: absolute; top: 2px; bottom: 2px; width: 1px; background: ${g(T.label1, 8)}; pointer-events: none; }
+.fo-row:hover .fo-guide, .fo-row[aria-selected="true"] .fo-guide { background: ${g(T.label1, 14)}; }
+/* 「未分组」是系统桶而不是用户建的目录：虚线方点 + 整行降一档，避免被当成真目录 */
+.fo-dot.is-bucket {
+  width: 10px; height: 10px; border-radius: 3px; background: none;
+  border: 1px dashed ${g(T.label2, 55)}; box-shadow: none;
+}
+.fo-row[data-bucket="1"] .fo-row-label { font-weight: 400; color: ${T.label2}; }
 .fo-subnav .fo-row-menu { width: 20px; height: 20px; min-width: 20px; padding: 0; border-radius: 6px; font-size: 13px; line-height: 1; }
 .fo-subnav .fo-row-count { font-size: 11px; }
 .fo-subnav .fo-row-badge { font-size: 9px; }
@@ -451,7 +463,7 @@ export const CSS = `
 .fo-subnav .fo-row[data-kind="group"] {
   /* 目录行是分组骨架：给一层很浅的底块 + 上间距，让「几个项目属于它」一眼成块 */
   margin-top: 6px;
-  height: 28px;
+  height: 30px;
   background: ${g(T.label1, 5)};
   border-color: transparent;
 }
