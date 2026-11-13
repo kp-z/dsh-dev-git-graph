@@ -57,6 +57,12 @@
     "sync"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kp-z/dsh-plugins.git",
+    "directory": "packages/dsh-feishu"
+  },
+  "homepage": "https://github.com/kp-z/dsh-plugins/tree/main/packages/dsh-feishu#readme",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -69,6 +75,7 @@
     }
   },
   "scripts": {
+    "prepack": "pnpm run build:client",
     "build": "pnpm run build:client",
     "build:client": "node scripts/stamp-build.mjs && tsdown -c tsdown.config.mjs && node -e \"console.log('\\n⚠  客户端包已重建。宿主在插件 apply 时只读一次 —— 请重载插件（plugin_manager disable→enable）或重启 DSH，否则实机还在跑旧包。\\n')\"",
     "test:safety": "node test/safety.mjs",
