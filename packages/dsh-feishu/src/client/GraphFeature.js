@@ -32,6 +32,7 @@ export function createGraphFeature(deps) {
     const noteBar = note
       ? h('div', { className: 'fo-note-bar', role: 'status' },
         h('span', { className: 'fo-note-text' }, note),
+        /* 临时展开期间 hideDone 已经是 false，这个按钮自然不再出现。 */
         ctx.hideDone && typeof ctx.onShowDone === 'function'
           ? h('button', {
             type: 'button', className: 'fo-btn', 'data-size': 'sm', 'data-variant': 'ghost',

@@ -279,6 +279,8 @@ export function createOverviewPanel(deps) {
     : createFeatures({ React, h, model, layout, api, store })
 
   const { useCallback, useEffect, useMemo, useRef, useState } = React
+  /* 「接受建议后临时展开已完成」的时长；测试注入小值，线上 3 秒。 */
+  const REVEAL_MS = Number(deps && deps.revealMs) > 0 ? Number(deps.revealMs) : 3000
 
   return function OverviewPanel(props) {
     const options = props || {}
@@ -339,6 +341,19 @@ export function createOverviewPanel(deps) {
     /* 已完成默认不画（用户口径）：「全部任务」里已完成往往占绝大多数（实测 57 条里 49 条已完成），
        画布会被已完成的卡片淹掉，看不出还剩哪些活。开关在关系页卡片头部，选择记进 store。 */
     const [hideDone, setHideDone] = useState(() => readStore(store, 'hideDone') !== false)
+    /* 「临时看一眼已完成」：接受整理建议后，命中的关系可能全落在已完成任务上（默认不画）。
+       这时把已完成展开几秒让人确认关系真的写进去了，再自动收回——不改用户存下来的偏好，
+       也不算进 store（刷新后仍是隐藏）。 */
+    const [revealDone, setRevealDone] = useState(false)
+    const revealTimer = useRef(null)
+    const revealDoneTemporarily = useCallback((ms = 3000) => {
+      if (revealTimer.current) clearTimeout(revealTimer.current)
+      setRevealDone(true)
+      revealTimer.current = setTimeout(() => { revealTimer.current = null; setRevealDone(false) }, ms)
+    }, [])
+    useEffect(() => () => { if (revealTimer.current) clearTimeout(revealTimer.current) }, [])
+    /* 有效口径：用户偏好 + 临时展开。画布、计数、边裁剪全部只认这一个值。 */
+    const showDone = hideDone ? revealDone : true
     const [renamingId, setRenamingId] = useState('')
     const [creating, setCreating] = useState(false)
     const [creatingFor, setCreatingFor] = useState('')
@@ -458,17 +473,17 @@ export function createOverviewPanel(deps) {
 
     /* 画布上的任务集 = 可见任务 − （默认）已完成。
        树仍按全部可见任务统计：那里是「这个项目有多少活」的全局口径，画布才是「现在看什么」。 */
-    const hiddenDone = useMemo(() => (hideDone ? visibleTasks.filter((task) => task.done === true).length : 0), [visibleTasks, hideDone])
-    const graphTasks = useMemo(() => (hideDone ? visibleTasks.filter((task) => task.done !== true) : visibleTasks), [visibleTasks, hideDone])
+    const hiddenDone = useMemo(() => (showDone ? 0 : visibleTasks.filter((task) => task.done === true).length), [visibleTasks, showDone])
+    const graphTasks = useMemo(() => (showDone ? visibleTasks : visibleTasks.filter((task) => task.done !== true)), [visibleTasks, showDone])
     /* 边两端都必须在画布上：否则每条指向已完成任务的边都会长出一个 ghost 节点，
        等于「隐藏了卡片但把线头留在原地」，比不隐藏更乱。 */
     const graphRelations = useMemo(() => {
-      if (!hideDone) return relations
+      if (showDone) return relations
       /* 只砍「端点是被隐藏的已完成任务」的边。指向**根本不存在**的任务的边要留着：
          那是「依赖一个已经没了的任务」的真实缺口，藏起来反而丢信号（图上仍是缺失 ghost）。 */
       const hidden = new Set(visibleTasks.filter((task) => task.done === true).map((task) => model.str(task.id)))
       return relations.filter((edge) => edge && !hidden.has(model.str(edge.from)) && !hidden.has(model.str(edge.to)))
-    }, [relations, hideDone, visibleTasks])
+    }, [relations, showDone, visibleTasks])
     const drawing = useMemo(() => layout.layoutScope({ tasks: graphTasks, relations: graphRelations, groups, workspaces: scopeWorkspaces, scope }), [graphTasks, graphRelations, groups, scopeWorkspaces, scope])
     /* 搜索时只留有节点的图：空目录不必在筛选态下占一屏 */
     const graphs = useMemo(() => {
@@ -810,11 +825,21 @@ export function createOverviewPanel(deps) {
                否则用户会以为「接受了但没生效」。 */
             const accepted = asArray(res && res.results).filter((row) => row && row.ok === true)
             const doneIds = new Set(tasks.filter((task) => task.done === true).map((task) => model.str(task.id)))
-            const hiddenHits = accepted.filter((row) => doneIds.has(model.str(row.from)) || doneIds.has(model.str(row.to))).length
+            /* 判定用 batch 里的条目（带 from/to），results 只保证 ok/id —— 宿主两种都给了，
+               但 worker 只保证 batch，所以以 batch 为准，results 兜底。 */
+            const acceptedIds = new Set(accepted.map((row) => model.str(row.id)))
+            const acceptedItems = asArray(res && res.batch && res.batch.items)
+              .filter((item) => item && acceptedIds.has(model.str(item.id)))
+            const pairs = (acceptedItems.length ? acceptedItems : accepted)
+              .map((item) => [model.str(item.from), model.str(item.to)])
+            const hiddenHits = pairs.filter(([from, to]) => doneIds.has(from) || doneIds.has(to)).length
             const localOnly = accepted.filter((row) => model.str(row.warning)).length
             const bits = []
             if (accepted.length) bits.push(`已接受 ${accepted.length} 条关系，画布已更新`)
-            if (hiddenHits > 0) bits.push(`其中 ${hiddenHits} 条连的是已完成任务（默认不画，点「显示已完成」可见）`)
+            if (hiddenHits > 0) {
+              bits.push(`其中 ${hiddenHits} 条连的是已完成任务——已临时展开 ${Math.round(REVEAL_MS / 1000 * 10) / 10} 秒，之后自动收起`)
+              revealDoneTemporarily(REVEAL_MS)
+            }
             if (localOnly > 0) bits.push(`${localOnly} 条只写进了本机，飞书同步待完成`)
             setOrgNote(bits.length ? `${bits.join('；')}。` : '')
           }
@@ -825,7 +850,7 @@ export function createOverviewPanel(deps) {
           if (alive.current) setOrg((prev) => ({ ...prev, status: 'error', error: message }))
           return null
         })
-    }, [load, org.batchId, tasks])
+    }, [load, org.batchId, tasks, revealDoneTemporarily, REVEAL_MS])
 
     const rejectOrganize = useCallback((itemIds) => {
       const fn = apiRef.current.organizeReject
@@ -960,9 +985,17 @@ export function createOverviewPanel(deps) {
       onBlur: blurCanvas,
       onOpenSession: openSession,
       /* 已完成默认隐藏 + 卡片头部的开关（见 GraphView 的 .fo-graph-actions）。 */
-      hideDone,
+      /* 画布看到的是「有效口径」：临时展开期间它就是 false，按钮会显示「隐藏已完成」，
+         这时点一下 = 立刻收起（而不是先取消临时展开、再等一次才生效）。 */
+      hideDone: !showDone,
+      /* 只表示「因为你刚接受建议、我临时帮你展开了」，用于提示条文案；不是持久状态。 */
+      revealing: hideDone === true && revealDone === true,
       hiddenDone,
-      onToggleHideDone: () => setHideDone((prev) => prev !== true),
+      onToggleHideDone: () => {
+        if (revealTimer.current) { clearTimeout(revealTimer.current); revealTimer.current = null }
+        setRevealDone(false)
+        setHideDone((prev) => prev !== true)
+      },
       /* 接受建议后的一句话结论（含「有几条落在默认隐藏的已完成任务上」）。 */
       organizeNote: orgNote,
       onDismissOrganizeNote: () => setOrgNote(''),

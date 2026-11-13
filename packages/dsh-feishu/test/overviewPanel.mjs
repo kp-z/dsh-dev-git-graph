@@ -341,7 +341,7 @@ async function mountPanel(options) {
   if (opts.startFeature !== null && typeof store.set === 'function') store.set('feature', opts.startFeature || 'graph')
   const bag = { React: mini.React, h: mini.React.createElement, model, layout, api, store, host: opts.host }
   const features = typeof opts.features === 'function' ? opts.features(bag) : opts.features
-  const Panel = createOverviewPanel(Object.assign({}, bag, { features, pollMs: 60000 }))
+  const Panel = createOverviewPanel(Object.assign({}, bag, { features, pollMs: 60000, revealMs: opts.revealMs }))
   const loadingTree = mini.renderOnce(mini.React.createElement(Panel, {}))
   const tree = await mini.act()
   /* 把实际用的注册表回传：测试断言「一级项数量 = 注册表长度」时用它，避免写死数字。 */
@@ -2720,6 +2720,46 @@ check('layout.js：只 import 同目录的 model.js，不碰 document/window/fet
   check('只有 2 张图时不折叠：两张画布都渲染，也没有折叠按钮', () => {
     assert.equal(byClass(fx2.tree, 'fo-svg').length, 2)
     assert.equal(findAll(fx2.tree, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-graph').length, 0)
+  })
+}
+
+/* ---- P0-2：接受建议命中隐藏的已完成任务 → 临时展开，之后自动收起 ---- */
+{
+  const backend = makeOrganizeBackend()
+  const fx = await mountPanel({ organizeApi: backend.api, revealMs: 120 })
+  let rt = fx.tree
+  const doneOnCanvas = (tree) => findAll(tree, (node) => {
+    if (node.kind !== 'host') return false
+    const cls = classNameOf(node).split(/\s+/)
+    return cls.includes('fo-node') && node.props['data-state'] === 'done'
+  }).length
+  const toggleDone = (tree) => findAll(tree, (node) => node.kind === 'host' && node.props['data-action'] === 'toggle-done')[0]
+  check('起始：已完成默认不画（a2 不在画布上）', () => {
+    assert.equal(doneOnCanvas(rt), 0)
+    assert.ok(textOf(toggleDone(rt)).includes('已完成'), textOf(toggleDone(rt)))
+  })
+  ORGANIZE_TRIGGER(rt).props.onClick()
+  rt = await fx.mini.act()
+  orgButton(orgItems(rt, 'pending')[0], 'accept').props.onClick()
+  rt = await fx.mini.act()
+  check('接受命中已完成的那条 → 画布上临时出现已完成卡片', () => {
+    assert.equal(doneOnCanvas(rt), 1, 'a2 是已完成，临时展开后要能看见')
+    assert.equal(toggleDone(rt).props['aria-pressed'], 'false', '展开期间按钮表示「现在是显示的」')
+    assert.ok(textOf(toggleDone(rt)).includes('隐藏已完成'), textOf(toggleDone(rt)))
+  })
+  check('结论条说明「已临时展开 N 秒」', () => {
+    const bar = byClass(rt, 'fo-note-bar')[0]
+    assert.ok(bar, '要有结论条')
+    assert.ok(/临时展开/.test(textOf(bar)), textOf(bar))
+  })
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  rt = await fx.mini.act()
+  check('到时自动收起：已完成卡片消失，按钮回到「已完成 N」', () => {
+    assert.equal(doneOnCanvas(rt), 0, '临时展开必须自动收回')
+    assert.ok(textOf(toggleDone(rt)).includes('已完成'), textOf(toggleDone(rt)))
+  })
+  check('临时展开不写进 store（用户偏好仍是「隐藏」）', () => {
+    assert.equal(fx.store.get('hideDone'), true, '存的偏好没被临时展开污染')
   })
 }
 
